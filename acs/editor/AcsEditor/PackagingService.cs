@@ -59,7 +59,8 @@ public static class PackagingService
                 project,
                 log,
                 forceConfigure,
-                standalone: true);
+                standalone: true,
+                cancellationToken: cancellationToken);
             if (built == null)
                 throw new InvalidOperationException("Release build に失敗したためパッケージを中止しました。");
             executable = built;

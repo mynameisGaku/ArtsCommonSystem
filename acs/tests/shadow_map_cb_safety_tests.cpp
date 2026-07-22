@@ -6,7 +6,54 @@
 #include "render/IRhiDevice.h"
 #include "render/ShadowMap.h"
 
+#include <cmath>
+#include <limits>
+
 using namespace acs;
+
+namespace {
+
+bool MatrixIsFinite(const FMat4& matrix) noexcept
+{
+    for (u32 row = 0; row < 4; ++row) {
+        for (u32 column = 0; column < 4; ++column) {
+            if (!std::isfinite(matrix.m[row][column])) return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+ACS_TEST(ShadowMap, InvalidAuthoringInputsKeepFiniteProjection)
+{
+    FShadowMap shadow;
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    shadow.SetDirectionalLight(
+        FVec3{nan, infinity, 0.0f}, FVec3{nan, 0.0f, infinity}, nan);
+    EXPECT_TRUE(MatrixIsFinite(shadow.LightViewProjection()));
+
+    FMat4 invalid_view = FMat4::Identity();
+    invalid_view.m[2][1] = nan;
+    shadow.SetDirectionalLightCascades(
+        FVec3{nan, 0.0f, 0.0f}, invalid_view, FMat4::Identity(),
+        nan, infinity, nan);
+    EXPECT_TRUE(MatrixIsFinite(shadow.LightViewProjection()));
+
+    // This finite, invertible projective permutation maps the NDC near plane
+    // to homogeneous w=0. Element/inverse finiteness alone is insufficient.
+    const FMat4 zero_near_w{
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 0, 1,
+        0, 0, 1, 0};
+    shadow.SetDirectionalLightCascades(
+        FVec3{0.3f, 0.8f, -0.4f}, FMat4::Identity(), zero_near_w,
+        0.1f, 100.0f, 0.5f);
+    EXPECT_EQ(shadow.CascadeCount(), 1u);
+    EXPECT_TRUE(MatrixIsFinite(shadow.LightViewProjection()));
+}
 
 ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
 {
@@ -53,6 +100,70 @@ ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
     EXPECT_TRUE(shadow.CasterObjectCB() == caster0);
     EXPECT_EQ(shadow.CasterDrawCount(), 1u);
     EXPECT_FALSE(shadow.CasterOverflowed());
+
+    shadow.Shutdown();
+}
+
+ACS_TEST(ShadowMap, SingleProjectionFallbackMatchesActiveCascadeState)
+{
+    FDeviceConfig config{};
+    auto device_result = CreateRhiDevice(config);
+    if (device_result.IsErr()) return;
+
+    FShadowMap shadow;
+    EXPECT_TRUE(shadow.Init(*device_result.Value(), 64,
+                            FShadowMap::kMaxCascades).IsOk());
+    if (!shadow.DepthTexture()) return;
+
+    shadow.SetCurrentCascade(0);
+    IRhiBuffer* cascade0 = shadow.LightCB();
+    shadow.SetCurrentCascade(3);
+    IRhiBuffer* cascade3 = shadow.LightCB();
+    EXPECT_TRUE(cascade0 != nullptr);
+    EXPECT_TRUE(cascade3 != nullptr);
+    EXPECT_TRUE(cascade0 != cascade3);
+
+    shadow.SetDirectionalLight(
+        FVec3{0.3f, 0.8f, -0.4f}, FVec3{0, 0, 0}, 20.0f);
+    EXPECT_EQ(shadow.CascadeCount(), 1u);
+    shadow.SetCurrentCascade(3);
+    EXPECT_TRUE(shadow.LightCB() == cascade0);
+    EXPECT_NEAR(shadow.CascadeViewport(3).x, 0.0f, 1e-6f);
+    EXPECT_NEAR(
+        shadow.CascadeViewport(3).width,
+        64.0f * static_cast<f32>(FShadowMap::kMaxCascades),
+        1e-6f);
+    EXPECT_EQ(
+        shadow.CascadeScissor(3).right,
+        static_cast<i32>(64u * FShadowMap::kMaxCascades));
+
+    // A valid CSM update restores the capacity reserved by Init without
+    // requiring a destructive renderer reinitialization.
+    shadow.SetDirectionalLightCascades(
+        FVec3{0.3f, 0.8f, -0.4f},
+        FMat4::LookAtLH(FVec3{0.0f, 2.0f, -8.0f},
+                        FVec3{0.0f, 1.0f, 0.0f},
+                        FVec3{0.0f, 1.0f, 0.0f}),
+        FMat4::PerspectiveFovLH(kPi / 3.0f, 1.0f, 0.1f, 50.0f),
+        0.1f, 40.0f);
+    EXPECT_EQ(shadow.CascadeCount(), FShadowMap::kMaxCascades);
+    shadow.SetCurrentCascade(3);
+    EXPECT_TRUE(shadow.LightCB() == cascade3);
+    EXPECT_NEAR(shadow.CascadeViewport(3).x, 192.0f, 1e-6f);
+    EXPECT_NEAR(shadow.CascadeViewport(3).width, 64.0f, 1e-6f);
+
+    // Invalid camera transforms use the same explicit single-volume state.
+    FMat4 singular{
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0};
+    shadow.SetDirectionalLightCascades(
+        FVec3{0.3f, 0.8f, -0.4f}, singular, singular,
+        0.1f, 40.0f);
+    EXPECT_EQ(shadow.CascadeCount(), 1u);
+    shadow.SetCurrentCascade(3);
+    EXPECT_TRUE(shadow.LightCB() == cascade0);
 
     shadow.Shutdown();
 }

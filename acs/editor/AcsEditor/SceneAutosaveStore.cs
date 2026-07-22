@@ -45,6 +45,8 @@ internal sealed record SceneRecoveryCandidate(
 /// </summary>
 internal sealed class SceneAutosaveStore
 {
+    internal const string RootEnvironmentVariable =
+        "ACS_EDITOR_RECOVERY_ROOT";
     private const int FormatVersion = 1;
     private const long MaxSnapshotBytes = 128L * 1024 * 1024;
     private static readonly UTF8Encoding Utf8NoBom = new(false);
@@ -77,7 +79,14 @@ internal sealed class SceneAutosaveStore
         string defaultRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ACS", "Editor", "Recovery", "v1");
-        _root = Path.GetFullPath(string.IsNullOrWhiteSpace(root) ? defaultRoot : root);
+        string? environmentRoot = Environment.GetEnvironmentVariable(
+            RootEnvironmentVariable);
+        string effectiveRoot = !string.IsNullOrWhiteSpace(root)
+            ? root
+            : !string.IsNullOrWhiteSpace(environmentRoot)
+                ? environmentRoot
+                : defaultRoot;
+        _root = Path.GetFullPath(effectiveRoot);
         _rootPrefix = _root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                     + Path.DirectorySeparatorChar;
         _retention = Math.Clamp(retention, 1, 20);

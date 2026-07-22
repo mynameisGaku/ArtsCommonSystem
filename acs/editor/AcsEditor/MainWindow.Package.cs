@@ -31,8 +31,8 @@ public partial class MainWindow
             // build exclusion window so repeated shortcuts/clicks cannot start a second package.
             if (!await SaveSceneForBuildAsync())
                 return;
-            var dialog = new PackageProjectDialog(_project, BuildLog) { Owner = this };
-            dialog.ShowDialog();
+            var dialog = new PackageProjectDialog(_project, BuildLog);
+            await dialog.ShowModelessAsync(this);
         }
         finally
         {

@@ -40,6 +40,12 @@ struct FWaterSurface3DParams {
     /** Beer-Lambert absorption coefficient in inverse world units. */
     FVec3 absorption{0.34f, 0.13f, 0.040f};
 
+    /** Homogeneous single-scattering coefficient in inverse world units. */
+    FVec3 scattering{0.018f, 0.050f, 0.085f};
+
+    /** Henyey-Greenstein phase anisotropy (-0.95..0.95). */
+    f32 phase_anisotropy = 0.62f;
+
     /** Whitewater/contact-foam color. */
     FVec3 foam_color{0.88f, 0.96f, 1.0f};
 
@@ -159,10 +165,14 @@ public:
     /** Number of active persistent disturbance slots. */
     u32 ActiveRippleCount() const noexcept;
 
-    /** Replaces all authoring parameters used from the next draw onward. */
-    void SetParams(const FWaterSurface3DParams& params) noexcept {
-        m_Params = params;
-    }
+    /**
+     * Replaces all authoring parameters used from the next draw onward.
+     *
+     * @details Non-finite values fall back to the corresponding default and
+     * physically bounded quantities are clamped. A malformed inspector value
+     * therefore cannot inject NaNs into every displaced vertex.
+     */
+    void SetParams(const FWaterSurface3DParams& params) noexcept;
 
     /** Returns the current authoring parameters. */
     const FWaterSurface3DParams& Params() const noexcept { return m_Params; }

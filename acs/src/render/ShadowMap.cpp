@@ -6,6 +6,8 @@
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
+#include <cmath>
+
 namespace acs {
 
 namespace {
@@ -46,9 +48,24 @@ VSOut VSMain(VSIn v) {
  */
 ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
     const f32 len2 = v.x*v.x + v.y*v.y + v.z*v.z;
-    if (len2 < 1e-12f) return FVec3{0, 1, 0};
+    if (!std::isfinite(len2) || len2 < 1e-12f)
+        return FVec3{0, 1, 0};
     const f32 inv = 1.0f / Sqrt(len2);
     return { v.x * inv, v.y * inv, v.z * inv };
+}
+
+ACS_FORCEINLINE bool IsFinite(FVec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y)
+        && std::isfinite(value.z);
+}
+
+bool IsFinite(const FMat4& value) noexcept {
+    for (u32 row = 0; row < 4; ++row) {
+        for (u32 column = 0; column < 4; ++column) {
+            if (!std::isfinite(value.m[row][column])) return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -88,23 +105,25 @@ ACS_FORCEINLINE FVec4 MulRowVec4(const FVec4& v, const FMat4& m) noexcept {
  * カメラや cascade 中心が texel 未満だけ動いたとき light VP が連続的に揺れると、
  * 固定したワールド面上でも影の境界がちらつく。world 原点の light clip 座標を
  * 最寄り texel に丸め、その差だけ投影の平行移動成分を補正することで、投影を
- * 1 texel 単位で安定させる。atlas でも cascade viewport の一辺は map_size なので
- * cascade ごとに同じ計算を使える。
+ * 1 texel 単位で安定させる。CSM は正方形の cascade viewport、single fallback
+ * は確保済み atlas 全幅を使うため、実際の viewport 幅と高さを別々に渡す。
  */
 ACS_FORCEINLINE void StabilizeOrthoProjection(const FMat4& light_view,
                                               FMat4& light_proj,
-                                              u32 map_size) noexcept {
-    if (map_size == 0) return;
+                                              u32 map_width,
+                                              u32 map_height) noexcept {
+    if (map_width == 0 || map_height == 0) return;
 
     const FMat4 light_vp = light_view * light_proj;
     const FVec4 origin   = MulRowVec4(FVec4{0, 0, 0, 1}, light_vp);
-    const f32 half_size  = static_cast<f32>(map_size) * 0.5f;
-    const f32 texel_x    = origin.x * half_size;
-    const f32 texel_y    = origin.y * half_size;
+    const f32 half_width = static_cast<f32>(map_width) * 0.5f;
+    const f32 half_height = static_cast<f32>(map_height) * 0.5f;
+    const f32 texel_x    = origin.x * half_width;
+    const f32 texel_y    = origin.y * half_height;
 
     // row-vector 規約では clip-space translation は projection の第 4 行。
-    light_proj.m[3][0] += (Round(texel_x) - texel_x) / half_size;
-    light_proj.m[3][1] += (Round(texel_y) - texel_y) / half_size;
+    light_proj.m[3][0] += (Round(texel_x) - texel_x) / half_width;
+    light_proj.m[3][1] += (Round(texel_y) - texel_y) / half_height;
 }
 
 } // namespace
@@ -116,6 +135,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
     m_Size          = size;
     m_CascadeCount = cascade_count;
+    m_CascadeCapacity = cascade_count;
     m_Device        = &device;
     m_CurrentCascade = 0;
     BeginFrame();
@@ -203,6 +223,7 @@ void FShadowMap::Shutdown() noexcept {
     m_Device        = nullptr;
     m_Size          = 0;
     m_CascadeCount = 1;
+    m_CascadeCapacity = 1;
     m_CurrentCascade = 0;
     m_TotalCasterDrawCount = 0;
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
@@ -242,6 +263,12 @@ bool FShadowMap::EnsureCasterBuffer(u32 cascade, u32 slot) noexcept {
 
 /** single cascade 用に光源の LookAt + ortho を組み、cascade 0 の light VP を更新する。 */
 void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
+    // This API publishes a single shadow volume even when Init reserved a CSM
+    // atlas. Keep the active API state aligned with the only CB updated below;
+    // SetDirectionalLightCascades can restore the reserved capacity later.
+    m_CascadeCount = 1;
+    if (!IsFinite(center)) center = FVec3{0, 0, 0};
+    if (!std::isfinite(radius) || radius < 1e-3f) radius = 1.0f;
     const FVec3 dir = NormalizeSafe(light_dir);
     const FVec3 light_pos = FVec3{
         center.x + dir.x * radius * 2.5f,
@@ -253,7 +280,11 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
 
     const FMat4 view = FMat4::LookAtLH(light_pos, center, up);
     FMat4 proj = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
-    StabilizeOrthoProjection(view, proj, m_Size);
+    // A CSM atlas remains physically wide after switching to one active
+    // projection. Cover the complete SRV so receivers using cascade_count=1
+    // and UV scale=1 do not sample three quarters of unwritten depth.
+    StabilizeOrthoProjection(
+        view, proj, m_Size * m_CascadeCapacity, m_Size);
     m_LightVp[0] = view * proj;
     // 残りの cascade は同じ VP を入れて split を inf に (常に cascade 0 が当たる)
     for (u32 c = 1; c < kMaxCascades; ++c) {
@@ -271,8 +302,23 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
                                              const FMat4& view, const FMat4& proj,
                                              f32 near_z, f32 far_z,
                                              f32 lambda) noexcept {
+    // A preceding single-volume fallback must not permanently discard the CSM
+    // resources allocated by Init. Re-enable the full reserved set before
+    // computing splits; another invalid input below safely returns to one.
+    m_CascadeCount = m_CascadeCapacity;
+    if (!std::isfinite(lambda)) lambda = 0.5f;
     if (lambda < 0.0f) lambda = 0.0f;
     if (lambda > 1.0f) lambda = 1.0f;
+    if (!std::isfinite(near_z) || near_z < 1e-3f) near_z = 0.1f;
+    if (!std::isfinite(far_z) || far_z <= near_z) far_z = near_z + 100.0f;
+
+    // A singular/non-finite camera transform cannot define a frustum. Keep a
+    // finite single-volume fallback instead of publishing NaN cascade matrices
+    // that would make every receiver fail its shadow projection.
+    if (!IsFinite(view) || !IsFinite(proj)) {
+        SetDirectionalLight(light_dir, FVec3{0, 0, 0}, far_z);
+        return;
+    }
 
     // 呼び出し側が渡した near/far は「CSM を割り当てたい範囲」であり、projection が
     // 実際に持つ clip range と一致するとは限らない。NDC z=0/1 を view space へ逆投影して
@@ -280,6 +326,10 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     // これにより、例えば projection=0.05..500 / requested=0.5..300 でも far=300 が
     // frustum の 60% 地点へ正しく写り、500 までの巨大な範囲を誤って各 cascade に含めない。
     const FMat4 inv_proj = Inverse(proj);
+    if (!IsFinite(inv_proj)) {
+        SetDirectionalLight(light_dir, FVec3{0, 0, 0}, far_z);
+        return;
+    }
     const FVec4 near_h   = MulRowVec4(FVec4{0, 0, 0, 1}, inv_proj);
     const FVec4 far_h    = MulRowVec4(FVec4{0, 0, 1, 1}, inv_proj);
     f32 actual_near = near_z;
@@ -318,6 +368,10 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     // ndc corner → view-projection 逆変換で world に戻す
     const FMat4 vp     = view * proj;
     const FMat4 inv_vp = Inverse(vp);
+    if (!IsFinite(inv_vp)) {
+        SetDirectionalLight(light_dir, FVec3{0, 0, 0}, far_z);
+        return;
+    }
     const FVec4 ndc[8] = {
         FVec4{-1, -1, 0, 1}, FVec4{ 1, -1, 0, 1}, FVec4{ 1,  1, 0, 1}, FVec4{-1,  1, 0, 1},  // near
         FVec4{-1, -1, 1, 1}, FVec4{ 1, -1, 1, 1}, FVec4{ 1,  1, 1, 1}, FVec4{-1,  1, 1, 1},  // far
@@ -325,8 +379,16 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
     FVec3 fcorners[8];
     for (u32 i = 0; i < 8; ++i) {
         const FVec4 w = MulRowVec4(ndc[i], inv_vp);  // row-major: ndc * inv_vp
+        if (!std::isfinite(w.w) || Abs(w.w) <= 1e-6f) {
+            SetDirectionalLight(light_dir, FVec3{0, 0, 0}, far_z);
+            return;
+        }
         const f32  iw = 1.0f / w.w;
         fcorners[i] = FVec3{ w.x * iw, w.y * iw, w.z * iw };
+        if (!IsFinite(fcorners[i])) {
+            SetDirectionalLight(light_dir, FVec3{0, 0, 0}, far_z);
+            return;
+        }
     }
 
     // 各 cascade の sub-frustum bounding sphere → light VP。
@@ -371,7 +433,7 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
         };
         const FMat4 view_l = FMat4::LookAtLH(light_pos, center, up);
         FMat4 proj_l = FMat4::OrthoLH(radius * 2.5f, radius * 2.5f, 0.0f, radius * 5.0f);
-        StabilizeOrthoProjection(view_l, proj_l, m_Size);
+        StabilizeOrthoProjection(view_l, proj_l, m_Size, m_Size);
         m_LightVp[c]       = view_l * proj_l;
         m_CascadeSplits[c] = z_f;            // view-space z far (cascade 選択の閾値)
     }
@@ -439,7 +501,8 @@ FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
     FViewport vp{};
     vp.x         = static_cast<f32>(cascade * m_Size);
     vp.y         = 0.0f;
-    vp.width     = static_cast<f32>(m_Size);
+    vp.width     = static_cast<f32>(
+        m_CascadeCount == 1 ? m_Size * m_CascadeCapacity : m_Size);
     vp.height    = static_cast<f32>(m_Size);
     vp.min_depth = 0.0f;
     vp.max_depth = 1.0f;
@@ -452,7 +515,10 @@ FScissorRect FShadowMap::CascadeScissor(u32 cascade) const noexcept {
     FScissorRect r{};
     r.left   = static_cast<i32>(cascade * m_Size);
     r.top    = 0;
-    r.right  = static_cast<i32>((cascade + 1) * m_Size);
+    r.right  = static_cast<i32>(
+        m_CascadeCount == 1
+            ? m_Size * m_CascadeCapacity
+            : (cascade + 1) * m_Size);
     r.bottom = static_cast<i32>(m_Size);
     return r;
 }

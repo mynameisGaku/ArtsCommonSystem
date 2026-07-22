@@ -92959,6 +92959,9 @@ struct FPostProcessParams {
     /** 前フレームの view_proj 行列 (Halton 適用前、TAA reprojection 用)。 */
     FMat4         taa_prev_view_proj_no_jitter{};
 
+    /** reactive cloud depth と scene depth の実距離比較に使う現在カメラ位置。 */
+    FVec3         taa_camera_position{};
+
     /**
      * 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
      *
@@ -92969,6 +92972,18 @@ struct FPostProcessParams {
      * 再利用して bind するため TAA resolve PSO の slot 数は不変。
      */
     IRhiTexture* taa_motion_texture = nullptr;
+
+    /**
+     * TAA history を現在フレームへ置換する reactive mask。
+     *
+     * @details RG の R 成分をカメラからの距離、G 成分を coverage として読む。
+     * taa_depth_texture と taa_camera_position で scene の実距離を復元し、scene より
+     * 手前に見えている coverage だけを reactive とする。ボリューメトリック雲のように
+     * 独自の temporal resolve を済ませた要素を渡すと、その画素と 1 px の境界帯では
+     * global TAA history を混ぜない。これによりジオメトリの TAA は維持しつつ、雲へ
+     * 二重に history を掛ける ghost/trail を防ぐ。null なら reactive mask は無効。
+     */
+    IRhiTexture* taa_reactive_texture = nullptr;
 
     /**
      * Auto-exposure を有効にするか。
@@ -92995,6 +93010,15 @@ struct FPostProcessParams {
 
     /** 露出順応の時間補間に使うフレーム時間。 */
     f32  delta_time            = 0.0166f;
+
+    /**
+     * Replaces non-finite values with defaults and clamps bounded controls to
+     * the ranges accepted by the post-process shaders.
+     *
+     * @details Render() sanitizes a local copy automatically. Editor/property
+     * systems may call this method to normalize values before displaying them.
+     */
+    void Sanitize() noexcept;
 };
 
 /**
@@ -93627,6 +93651,12 @@ struct FWaterSurface3DParams {
     /** Beer-Lambert absorption coefficient in inverse world units. */
     FVec3 absorption{0.34f, 0.13f, 0.040f};
 
+    /** Homogeneous single-scattering coefficient in inverse world units. */
+    FVec3 scattering{0.018f, 0.050f, 0.085f};
+
+    /** Henyey-Greenstein phase anisotropy (-0.95..0.95). */
+    f32 phase_anisotropy = 0.62f;
+
     /** Whitewater/contact-foam color. */
     FVec3 foam_color{0.88f, 0.96f, 1.0f};
 
@@ -93746,10 +93776,14 @@ public:
     /** Number of active persistent disturbance slots. */
     u32 ActiveRippleCount() const noexcept;
 
-    /** Replaces all authoring parameters used from the next draw onward. */
-    void SetParams(const FWaterSurface3DParams& params) noexcept {
-        m_Params = params;
-    }
+    /**
+     * Replaces all authoring parameters used from the next draw onward.
+     *
+     * @details Non-finite values fall back to the corresponding default and
+     * physically bounded quantities are clamped. A malformed inspector value
+     * therefore cannot inject NaNs into every displaced vertex.
+     */
+    void SetParams(const FWaterSurface3DParams& params) noexcept;
 
     /** Returns the current authoring parameters. */
     const FWaterSurface3DParams& Params() const noexcept { return m_Params; }
@@ -94173,6 +94207,9 @@ private:
 
     /** 確保済みの cascade 数。 */
     u32                     m_CascadeCount = 1;
+
+    /** Init 時に確保した atlas/CB の cascade 容量。single fallback 後の CSM 復帰に使う。 */
+    u32                     m_CascadeCapacity = 1;
 
     u32                     m_CurrentCascade = 0;
     u32                     m_CurrentCasters[kMaxCascades] = {};

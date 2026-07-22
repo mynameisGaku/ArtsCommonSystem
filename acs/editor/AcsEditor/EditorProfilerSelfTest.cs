@@ -132,8 +132,12 @@ internal static class EditorProfilerSelfTest
                   new[] { "--unattended", "--no-activate" }) &&
               MainWindow.ShouldDeferInitialRecoveryPrompt(true, false) &&
               !MainWindow.ShouldDeferInitialRecoveryPrompt(true, true) &&
-              !MainWindow.ShouldDeferInitialRecoveryPrompt(false, false),
-            "inactive interactive launches defer recovery prompts only until first activation");
+              !MainWindow.ShouldDeferInitialRecoveryPrompt(false, false) &&
+              !MainWindow.ShouldDeferInitialRecoveryPrompt(
+                  true,
+                  false,
+                  allowWhileInactive: true),
+            "inactive launches defer recovery until activation except for the non-activating reliability fixture");
         Check(!SceneRecoveryDialog.DisablesOwnerDuringPrompt &&
               SceneRecoveryDialog.CanPresentModelessPrompt(true, true, true) &&
               !SceneRecoveryDialog.CanPresentModelessPrompt(false, true, true) &&

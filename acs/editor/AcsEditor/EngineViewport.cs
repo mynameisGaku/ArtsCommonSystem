@@ -7,6 +7,12 @@ using System.Windows.Threading;
 
 namespace AcsEditor;
 
+internal readonly record struct ViewportPointerCaptureDiagnostic(
+    bool OwnsCapture,
+    int ActiveButtonMask,
+    int PhysicallyDownButtonMask,
+    double MismatchAgeMilliseconds);
+
 /// <summary>
 /// エンジンの DX12 描画をホストするネイティブ・ビューポート。
 /// 子 HWND を作り、acs_editor_abi にアタッチして、WPF の描画フレームごとに 1 フレーム描く。
@@ -660,6 +666,33 @@ public sealed class EngineViewport : HwndHost
             mask |= PointerButtonMiddleMask;
         }
         return mask;
+    }
+
+    internal ViewportPointerCaptureDiagnostic GetPointerCaptureDiagnostic()
+    {
+        Dispatcher.VerifyAccess();
+        int activeButtonMask = ActivePointerButtonMask(
+            _gizmoDragging,
+            _giz3dDragging,
+            _marqueeDragging,
+            _panning,
+            _panMode);
+        int physicallyDownButtonMask =
+            PhysicalPointerButtonMask(activeButtonMask);
+        double mismatchAgeMilliseconds = 0;
+        if (_pointerButtonMismatchStartedAtTimestamp > 0)
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            mismatchAgeMilliseconds = Math.Max(
+                0,
+                (now - _pointerButtonMismatchStartedAtTimestamp) * 1000.0 /
+                System.Diagnostics.Stopwatch.Frequency);
+        }
+        return new(
+            _hwnd != IntPtr.Zero && GetCapture() == _hwnd,
+            activeButtonMask,
+            physicallyDownButtonMask,
+            mismatchAgeMilliseconds);
     }
 
     private void RecoverStalePointerCaptureIfNeeded(int currentMessage)

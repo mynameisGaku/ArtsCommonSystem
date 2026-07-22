@@ -37,6 +37,7 @@ struct FWaterFrameCb {
     FVec4 shallow_roughness;
     FVec4 deep_normal;
     FVec4 absorption_refraction;
+    FVec4 scattering_phase;
     FVec4 foam_depth;
     FVec4 wave_params;
     FVec4 flow_params;
@@ -67,6 +68,7 @@ cbuffer WaterFrame : register(b0) {
     float4 shallow_roughness;    // rgb=shallow color, w=roughness
     float4 deep_normal;          // rgb=deep color, w=normal strength
     float4 absorption_refraction;// rgb=Beer-Lambert absorption, w=refraction strength
+    float4 scattering_phase;     // rgb=volume scattering, w=HG anisotropy
     float4 foam_depth;           // rgb=foam color, w=foam intensity
     float4 wave_params;          // x=amplitude, y=scale, z=speed, w=normal tiling
     float4 flow_params;          // xy=flow direction, z=ripple wavelength, w=ripple count
@@ -168,6 +170,11 @@ void EvaluateRipples(float2 p, out float height,
         float2 metric = float2(along / anisotropy, across);
         float distance_to_center = max(length(metric), 1e-4);
         float radial = distance_to_center - ripple_a[i].z;
+        // Outside 3.75 sigma the Gaussian packet is below 8e-7. Rejecting it
+        // before exp/sin/cos preserves the visible result while turning large
+        // mostly-unaffected meshes from 64 transcendental evaluations per
+        // vertex into cheap distance checks.
+        if (abs(radial) > sigma * 3.75) continue;
         float envelope = exp(-radial * radial * inv_sigma2);
 
         // Directional wake events are elongated and biased behind the contact.
@@ -400,10 +407,14 @@ float4 PSMain(VSOut input) : SV_TARGET {
                       micro_slope, normal_height);
 
     float normal_strength = max(deep_normal.w, 0.0);
+    // Combine macro and texture normals in slope space. Adding encoded normal
+    // components directly made micro-wave strength depend on the macro slope
+    // and flattened steep crests.
+    float macro_normal_y = max(abs(input.world_normal.y), 0.08);
+    float2 macro_slope = -input.world_normal.xz / macro_normal_y;
+    float2 combined_slope = macro_slope + micro_slope * normal_strength;
     float3 normal = normalize(float3(
-        input.world_normal.x - micro_slope.x * normal_strength,
-        input.world_normal.y,
-        input.world_normal.z - micro_slope.y * normal_strength));
+        -combined_slope.x, 1.0, -combined_slope.y));
     float3 view_direction = normalize(camera_time.xyz - input.world_position);
     if (dot(normal, view_direction) < 0.0) normal = -normal;
 
@@ -451,16 +462,34 @@ float4 PSMain(VSOut input) : SV_TARGET {
             }
         }
     }
-    float3 transmittance =
-        exp(-max(absorption_refraction.rgb, 0.0) * path_length);
+    float3 absorption = max(absorption_refraction.rgb, 0.0);
+    float3 scattering = max(scattering_phase.rgb, 0.0);
+    float3 extinction = absorption + scattering;
+    float3 transmittance = exp(-extinction * path_length);
     float transmission_luma =
         dot(transmittance, float3(0.2126, 0.7152, 0.0722));
     float3 volume_color = lerp(deep_normal.rgb, shallow_roughness.rgb,
                                saturate(transmission_luma * 0.82));
     float scene_weight = saturate(surface_misc.y) * refract_fade;
     float3 bottom = lerp(volume_color, captured_scene, scene_weight);
-    float3 refracted_color =
-        bottom * transmittance + volume_color * (1.0 - transmittance);
+    // Homogeneous single scattering. The HG phase term retains directional
+    // under-water sunlight without the view-independent glow produced by a
+    // plain color lerp. Its 1/(4*pi) normalization keeps energy finite.
+    float phase_g = clamp(scattering_phase.w, -0.95, 0.95);
+    float phase_cos = clamp(
+        dot(refracted_direction, light_direction), -1.0, 1.0);
+    float phase_denominator = max(
+        1.0 + phase_g * phase_g - 2.0 * phase_g * phase_cos,
+        1e-3);
+    float phase = (1.0 - phase_g * phase_g)
+        / (4.0 * kPi * pow(phase_denominator, 1.5));
+    float3 scattering_integral = scattering
+        * (1.0 - transmittance) / max(extinction, 1e-4);
+    float3 direct_inscatter = sun_color.rgb * sun_visibility
+        * phase * scattering_integral;
+    float3 refracted_color = bottom * transmittance
+        + volume_color * (1.0 - transmittance)
+        + direct_inscatter;
 
     // Procedural sky reflection remains valid when no reflection probe is bound.
     float3 reflected_direction = reflect(-view_direction, normal);
@@ -535,16 +564,101 @@ float4 PSMain(VSOut input) : SV_TARGET {
 )";
 
 FVec2 Normalize2(FVec2 value) noexcept {
-    const f32 length = std::sqrt(value.x * value.x + value.y * value.y);
-    if (length <= 1e-6f) return FVec2{1.0f, 0.0f};
-    return FVec2{value.x / length, value.y / length};
+    const f64 length = std::hypot(
+        static_cast<f64>(value.x), static_cast<f64>(value.y));
+    if (!std::isfinite(length) || length <= 1e-6)
+        return FVec2{1.0f, 0.0f};
+    return FVec2{
+        static_cast<f32>(static_cast<f64>(value.x) / length),
+        static_cast<f32>(static_cast<f64>(value.y) / length)};
 }
 
 FVec3 Normalize3(FVec3 value) noexcept {
-    const f32 length =
-        std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
-    if (length <= 1e-6f) return FVec3{0.0f, 1.0f, 0.0f};
-    return FVec3{value.x / length, value.y / length, value.z / length};
+    const f64 length = std::hypot(
+        static_cast<f64>(value.x),
+        static_cast<f64>(value.y),
+        static_cast<f64>(value.z));
+    if (!std::isfinite(length) || length <= 1e-6)
+        return FVec3{0.0f, 1.0f, 0.0f};
+    return FVec3{
+        static_cast<f32>(static_cast<f64>(value.x) / length),
+        static_cast<f32>(static_cast<f64>(value.y) / length),
+        static_cast<f32>(static_cast<f64>(value.z) / length)};
+}
+
+bool IsFinite(FVec2 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y);
+}
+
+bool IsFinite(FVec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y)
+        && std::isfinite(value.z);
+}
+
+f32 ClampFinite(f32 value, f32 fallback, f32 minimum,
+                f32 maximum) noexcept {
+    if (!std::isfinite(value)) value = fallback;
+    if (value < minimum) value = minimum;
+    if (value > maximum) value = maximum;
+    return value;
+}
+
+FVec3 ClampFinite(FVec3 value, FVec3 fallback, f32 minimum,
+                  f32 maximum) noexcept {
+    return FVec3{
+        ClampFinite(value.x, fallback.x, minimum, maximum),
+        ClampFinite(value.y, fallback.y, minimum, maximum),
+        ClampFinite(value.z, fallback.z, minimum, maximum),
+    };
+}
+
+FWaterSurface3DParams SanitizeParams(
+    const FWaterSurface3DParams& source) noexcept {
+    const FWaterSurface3DParams defaults{};
+    FWaterSurface3DParams result = source;
+    result.shallow_color = ClampFinite(
+        source.shallow_color, defaults.shallow_color, 0.0f, 64.0f);
+    result.deep_color = ClampFinite(
+        source.deep_color, defaults.deep_color, 0.0f, 64.0f);
+    result.absorption = ClampFinite(
+        source.absorption, defaults.absorption, 0.0f, 64.0f);
+    result.scattering = ClampFinite(
+        source.scattering, defaults.scattering, 0.0f, 64.0f);
+    result.phase_anisotropy = ClampFinite(
+        source.phase_anisotropy, defaults.phase_anisotropy, -0.95f, 0.95f);
+    result.foam_color = ClampFinite(
+        source.foam_color, defaults.foam_color, 0.0f, 64.0f);
+
+    result.flow_direction = IsFinite(source.flow_direction)
+        ? Normalize2(source.flow_direction)
+        : Normalize2(defaults.flow_direction);
+    result.roughness = ClampFinite(
+        source.roughness, defaults.roughness, 0.02f, 1.0f);
+    result.normal_strength = ClampFinite(
+        source.normal_strength, defaults.normal_strength, 0.0f, 4.0f);
+    result.normal_tiling = ClampFinite(
+        source.normal_tiling, defaults.normal_tiling, 0.0001f, 1024.0f);
+    result.refraction_strength = ClampFinite(
+        source.refraction_strength, defaults.refraction_strength, 0.0f, 16.0f);
+    result.optical_depth = ClampFinite(
+        source.optical_depth, defaults.optical_depth, 0.001f, 10000.0f);
+    result.wave_amplitude = ClampFinite(
+        source.wave_amplitude, defaults.wave_amplitude, 0.0f, 1000.0f);
+    result.wave_scale = ClampFinite(
+        source.wave_scale, defaults.wave_scale, 0.0001f, 1024.0f);
+    result.wave_speed = ClampFinite(
+        source.wave_speed, defaults.wave_speed, -256.0f, 256.0f);
+    result.ripple_speed = ClampFinite(
+        source.ripple_speed, defaults.ripple_speed, 0.0f, 256.0f);
+    result.ripple_wavelength = ClampFinite(
+        source.ripple_wavelength, defaults.ripple_wavelength, 0.025f, 1024.0f);
+    result.ripple_lifetime = ClampFinite(
+        source.ripple_lifetime, defaults.ripple_lifetime, 0.1f, 3600.0f);
+    result.ripple_damping = ClampFinite(
+        source.ripple_damping, defaults.ripple_damping, 0.0f, 64.0f);
+    result.foam_intensity = ClampFinite(
+        source.foam_intensity, defaults.foam_intensity, 0.0f, 8.0f);
+    return result;
 }
 
 TResult<TUniquePtr<IRhiTexture>> CreateWaterNormalMap(IRhiDevice& device) noexcept {
@@ -651,6 +765,11 @@ FWaterSurface3D::FWaterSurface3D() noexcept = default;
 
 FWaterSurface3D::~FWaterSurface3D() noexcept {
     Shutdown();
+}
+
+void FWaterSurface3D::SetParams(
+    const FWaterSurface3DParams& params) noexcept {
+    m_Params = SanitizeParams(params);
 }
 
 TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
@@ -835,6 +954,11 @@ bool FWaterSurface3D::AddEvent(FVec3 world_point, FVec2 direction,
                                f32 anisotropy, f32 radius,
                                f32 strength,
                                u32 first_slot, u32 slot_count) noexcept {
+    if (!IsFinite(world_point) || !IsFinite(direction)
+        || !std::isfinite(anisotropy) || !std::isfinite(radius)
+        || !std::isfinite(strength) || std::abs(strength) < 1e-6f) {
+        return false;
+    }
     if (radius < 0.0f) radius = 0.0f;
     if (anisotropy < 1.0f) anisotropy = 1.0f;
     if (anisotropy > 3.5f) anisotropy = 3.5f;
@@ -874,8 +998,8 @@ bool FWaterSurface3D::AddDisturbance(FVec3 world_point, f32 radius,
 
 bool FWaterSurface3D::AddWake(FVec3 world_point, FVec3 world_velocity,
                               f32 radius, f32 strength) noexcept {
-    const f32 speed = std::sqrt(world_velocity.x * world_velocity.x
-                                + world_velocity.z * world_velocity.z);
+    if (!IsFinite(world_velocity)) return false;
+    const f32 speed = std::hypot(world_velocity.x, world_velocity.z);
     const FVec2 direction = speed < 1e-4f
         ? FVec2{1.0f, 0.0f}
         : Normalize2(FVec2{world_velocity.x, world_velocity.z});
@@ -989,6 +1113,9 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
     frame.absorption_refraction =
         FVec4{m_Params.absorption.x, m_Params.absorption.y,
               m_Params.absorption.z, m_Params.refraction_strength};
+    frame.scattering_phase =
+        FVec4{m_Params.scattering.x, m_Params.scattering.y,
+              m_Params.scattering.z, m_Params.phase_anisotropy};
     frame.foam_depth =
         FVec4{m_Params.foam_color.x, m_Params.foam_color.y,
               m_Params.foam_color.z, m_Params.foam_intensity};

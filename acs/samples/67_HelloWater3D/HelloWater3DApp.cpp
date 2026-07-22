@@ -191,6 +191,8 @@ void FHelloWater3DApp::OnStart() noexcept {
     water_parameters.shallow_color = FVec3{0.045f, 0.38f, 0.50f};
     water_parameters.deep_color = FVec3{0.004f, 0.040f, 0.14f};
     water_parameters.absorption = FVec3{0.40f, 0.145f, 0.038f};
+    water_parameters.scattering = FVec3{0.016f, 0.052f, 0.090f};
+    water_parameters.phase_anisotropy = 0.64f;
     water_parameters.roughness = 0.085f;
     water_parameters.normal_strength = 0.86f;
     water_parameters.normal_tiling = 0.082f;

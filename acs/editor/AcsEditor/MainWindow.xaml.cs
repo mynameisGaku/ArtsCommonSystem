@@ -46,6 +46,7 @@ public partial class MainWindow : Window
     private bool    _hasClip3d;      // 3D クリップボードに内容があるか (Paste の CanExecute 用)
     private (float Yaw, float Pitch, float Distance,
              float TargetX, float TargetY, float TargetZ)? _startupCamera3D;
+    private bool? _startupGridVisible;
     private Point _dragStart;        // Hierarchy ドラッグ開始座標 (しきい値判定用)
     private int  _dragNodeId = -1;   // ドラッグ中のノード id (-1 = ドラッグなし)
 
@@ -61,6 +62,7 @@ public partial class MainWindow : Window
             if (_showProfilerAtStartup)
                 ShowBottomTab("profiler");
         };
+        InitializeInteractionHealthDiagnostics();
 
         // Inspector フィールドの編集 → エンジンへ反映 (Enter / フォーカス喪失で確定)。
         foreach (var tb in new[] { PosX, PosY, RotDeg, ScaleX, ScaleY })
@@ -154,6 +156,14 @@ public partial class MainWindow : Window
         _startupCamera3D =
             (yaw, pitch, distance, targetX, targetY, targetZ);
     }
+
+    /// <summary>
+    /// Configure grid visibility before the first rendered validation frame.
+    /// This avoids UI automation (and therefore foreground activation) in
+    /// unattended image-comparison runs.
+    /// </summary>
+    internal void SetStartupGridVisible(bool visible) =>
+        _startupGridVisible = visible;
 
     /// <summary>Open the docked profiler after persisted layout restoration.</summary>
     internal void ShowProfilerAtStartup() => _showProfilerAtStartup = true;
@@ -530,6 +540,7 @@ public partial class MainWindow : Window
                         break;
                     case 2:
                         ApplyStartupCamera();
+                        ApplyStartupGridVisibility();
                         break;
                     case 3:
                         UpdateGizmoToggles(
@@ -604,6 +615,16 @@ public partial class MainWindow : Window
                 Log("Startup --camera3d values were rejected.", "Camera", LogLevel.Warn);
             }
         }
+    }
+
+    private void ApplyStartupGridVisibility()
+    {
+        if (_startupGridVisible is not { } visible)
+            return;
+
+        _startupGridVisible = null;
+        ShowGridItem.IsChecked = visible;
+        EngineInterop.acs_editor_set_show_grid3d(Engine, visible ? 1 : 0);
     }
 
     private static string EngineStartupCompletionStageName(int stage) =>

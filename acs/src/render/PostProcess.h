@@ -161,6 +161,9 @@ struct FPostProcessParams {
     /** 前フレームの view_proj 行列 (Halton 適用前、TAA reprojection 用)。 */
     FMat4         taa_prev_view_proj_no_jitter{};
 
+    /** reactive cloud depth と scene depth の実距離比較に使う現在カメラ位置。 */
+    FVec3         taa_camera_position{};
+
     /**
      * 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
      *
@@ -171,6 +174,18 @@ struct FPostProcessParams {
      * 再利用して bind するため TAA resolve PSO の slot 数は不変。
      */
     IRhiTexture* taa_motion_texture = nullptr;
+
+    /**
+     * TAA history を現在フレームへ置換する reactive mask。
+     *
+     * @details RG の R 成分をカメラからの距離、G 成分を coverage として読む。
+     * taa_depth_texture と taa_camera_position で scene の実距離を復元し、scene より
+     * 手前に見えている coverage だけを reactive とする。ボリューメトリック雲のように
+     * 独自の temporal resolve を済ませた要素を渡すと、その画素と 1 px の境界帯では
+     * global TAA history を混ぜない。これによりジオメトリの TAA は維持しつつ、雲へ
+     * 二重に history を掛ける ghost/trail を防ぐ。null なら reactive mask は無効。
+     */
+    IRhiTexture* taa_reactive_texture = nullptr;
 
     /**
      * Auto-exposure を有効にするか。
@@ -197,6 +212,15 @@ struct FPostProcessParams {
 
     /** 露出順応の時間補間に使うフレーム時間。 */
     f32  delta_time            = 0.0166f;
+
+    /**
+     * Replaces non-finite values with defaults and clamps bounded controls to
+     * the ranges accepted by the post-process shaders.
+     *
+     * @details Render() sanitizes a local copy automatically. Editor/property
+     * systems may call this method to normalize values before displaying them.
+     */
+    void Sanitize() noexcept;
 };
 
 /**

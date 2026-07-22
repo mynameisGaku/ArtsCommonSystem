@@ -50,8 +50,9 @@ public partial class MainWindow
 
     internal static bool ShouldDeferInitialRecoveryPrompt(
         bool initialActivationSuppressed,
-        bool windowIsActive) =>
-        initialActivationSuppressed && !windowIsActive;
+        bool windowIsActive,
+        bool allowWhileInactive = false) =>
+        initialActivationSuppressed && !windowIsActive && !allowWhileInactive;
 
     /// <summary>
     /// Starts recovery discovery and autosave after the native scene baseline has been captured.
@@ -81,7 +82,8 @@ public partial class MainWindow
             {
                 if (ShouldDeferInitialRecoveryPrompt(
                         App.IsInitialActivationSuppressed,
-                        IsActive))
+                        IsActive,
+                        App.IsInactiveRecoveryPromptAllowed))
                     DeferInitialRecoveryCandidateUntilActivation(candidate);
                 else
                     await ResolveRecoveryCandidateAsync(candidate);

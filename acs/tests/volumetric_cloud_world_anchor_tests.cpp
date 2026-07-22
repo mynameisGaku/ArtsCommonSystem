@@ -140,7 +140,7 @@ f64 CloudJitter01ForTest(u32 pixelX, u32 pixelY) noexcept {
 
 f64 CloudJitterForTest(
     u32 pixelX, u32 pixelY, u32 frame, bool temporalSuperResolution) noexcept {
-    const u32 sequence = temporalSuperResolution ? 0u : frame;
+    const u32 sequence = temporalSuperResolution ? (frame >> 4u) : frame;
     const u32 jitterX = pixelX + (sequence * 47u) % 131u;
     const u32 jitterY = pixelY + (sequence * 17u) % 127u;
     const f64 unwrapped =
@@ -1071,7 +1071,10 @@ ACS_TEST(VolumetricClouds,
         "saturate(refC.a));"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "float2resolvedDepth=nativeMarch?nativeDepth:float2(curDepth,curA);"));
+        "float2resolvedDepth=float2(250001.0,0.0);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "resolvedDepth=nativeMarch?nativeDepth:float2(curDepth,curA);"));
     EXPECT_TRUE(Contains(
         resolveShader, "historyDepthOut[tid.xy]=resolvedDepth;"));
 }
@@ -1693,7 +1696,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(!shader.empty());
 
     const std::size_t profile =
-        shader.find("macro.profile=cloudProfile(");
+        shader.find("floatsampledProfile=cloudProfile(");
     const std::size_t threshold = shader.find(
         "floatheightThreshold=lerp(", profile);
     const std::size_t base = shader.find("floatbaseDensity=remapc(", threshold);
@@ -1758,7 +1761,7 @@ ACS_TEST(VolumetricClouds,
         "macro.weather=float4(0,0,0,0);",
         "macro.curl=float2(0,0);",
         "macro.baseNoise=0.0;",
-        "macro.profile=0.0;",
+        "macro.weatherMask=0.0;",
         "macro.profileWeight=0.0;",
         "macro.profileShape=0.0;",
         "macro.height=0.0;"};
@@ -1780,15 +1783,15 @@ ACS_TEST(VolumetricClouds,
         const std::size_t weather =
             function.find("macro.weather=cloudWeatherData(p);");
         const std::size_t mask =
-            function.find("floatweatherMask=cloudWeatherMask(");
+            function.find("macro.weatherMask=cloudWeatherMask(");
         const std::size_t maskBranch =
-            function.find("if(weatherMask>0.001){");
+            function.find("if(macro.weatherMask>0.001){");
         const std::size_t height =
             function.find("macro.height=heightFraction(p);");
         const std::size_t profile =
-            function.find("macro.profile=cloudProfile(");
+            function.find("floatsampledProfile=cloudProfile(");
         const std::size_t profileBranch =
-            function.find("if(macro.profile>0.001){");
+            function.find("if(macro.profileWeight>0.0){");
         const std::size_t profileWeight =
             function.find("macro.profileWeight=smoothstep(");
         const std::size_t profileShape =
@@ -1807,9 +1810,9 @@ ACS_TEST(VolumetricClouds,
         EXPECT_TRUE(mask < maskBranch);
         EXPECT_TRUE(maskBranch < height);
         EXPECT_TRUE(height < profile);
-        EXPECT_TRUE(profile < profileBranch);
-        EXPECT_TRUE(profileBranch < profileWeight);
-        EXPECT_TRUE(profileWeight < profileShape);
+        EXPECT_TRUE(profile < profileWeight);
+        EXPECT_TRUE(profileWeight < profileBranch);
+        EXPECT_TRUE(profileBranch < profileShape);
         EXPECT_TRUE(profileShape < curl);
         EXPECT_TRUE(curl < shape);
     }
@@ -1832,12 +1835,14 @@ ACS_TEST(VolumetricClouds,
         "p,occupancyCoverage,viewMacroUvw);"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatshape=cloudShapeFromMacro("
-        "macro,occupancyCoverage);"));
+        "floatshape=cloudShapeFromMacro(macro,occupancyCoverage);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatviewWeatherMask=cloudWeatherMask(macro.weather,coverage);"));
     EXPECT_TRUE(Contains(
         shader,
         "floatdens=cloudDensityFromMacro("
-        "p,macro,coverage,detailWeight)*density;"));
+        "p,macro,coverage,viewWeatherMask,detailWeight)*density;"));
     EXPECT_TRUE(Contains(
         shader, "macro.curl=cloudCurlOffset(p);"));
     EXPECT_TRUE(Contains(
@@ -1959,8 +1964,9 @@ ACS_TEST(VolumetricClouds,
     const std::size_t farLightLoop =
         shader.find("[loop]for(intl=3;l<8;l++)", cacheCompileOut);
     const std::size_t coneDirection = shader.find(
-        "sun+(coneCos*lightTangent+"
-        "coneSin*lightBitangent)*coneAngle);",
+        "float3coneDir=cloudConeDirection("
+        "sun,lightTangent,lightBitangent,"
+        "coneSin,coneCos,coneAngle);",
         nearLightLoop);
     const std::size_t lightAdvance =
         shader.find("lp+=coneDir*lightStep;", coneDirection);
@@ -1972,7 +1978,8 @@ ACS_TEST(VolumetricClouds,
         lightAdvance);
     const std::size_t nearDensity = shader.find(
         "floatlightDensity=cloudDensityFromMacro("
-        "lp,lightMacro,coverage,0.65);",
+        "lp,lightMacro,coverage,"
+        "lightMacro.weatherMask,0.65);",
         lightMacro);
     const std::size_t lightAccumulate = shader.find(
         "lightDepth+=lightDensity*lightStep*layer.w;",
@@ -2089,7 +2096,8 @@ ACS_TEST(VolumetricClouds,
         "abs(hist.a-seedDepth.y)<0.42;"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "resolved=lerp(histPacked,current,0.92);"));
+        "floatcurrentWeight=worldOrigin.w>0.5?0.125:0.70;"
+        "resolved=lerp(histPacked,current,currentWeight);"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "resolvedDepth=float2(curDepth,curA);"));
@@ -2103,7 +2111,33 @@ ACS_TEST(VolumetricClouds,
         "float2histD=historyDepth.Load(int3(historyPixel,0));"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "if(refEmpty!=tapEmpty)continue;"));
+        "if(refEmpty!=tapEmpty){"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "bilateral=exp(-max(refC.a,c.a)*5.0);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&"
+        "!scheduled&&worldOrigin.w>0.5;"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "if(currentDefinitelyEmpty&&sameScreenColor.a<=0.003)"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "historyColor.Load(int3(emptyPixel,0)).a"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "if(maximumHistoryAlpha<=0.003){"
+        "historyColorOut[tid.xy]=float4(0,0,0,0);"));
+    const std::size_t stableHistoryFirst = resolveShader.find(
+        "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&");
+    const std::size_t bilateralFallback = resolveShader.find(
+        "float3premulSum=0.0;");
+    EXPECT_TRUE(stableHistoryFirst != std::string::npos);
+    EXPECT_TRUE(bilateralFallback != std::string::npos);
+    EXPECT_TRUE(stableHistoryFirst < bilateralFallback);
+    EXPECT_TRUE(std::exp(-0.05f * 5.0f) > 0.75f);
+    EXPECT_TRUE(std::exp(-0.95f * 5.0f) < 0.01f);
 
     // The combined compute pass consumes the same previous full-resolution depth
     // history as color, so a rescued edge remains valid in the later
@@ -2171,21 +2205,21 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         UltraRayJitterIsPixelStableWhileNativeModesAvoidShortCycles) {
+         UltraRayJitterAdvancesOncePerCycleWhileNativeModesAvoidShortCycles) {
     const std::string source = ReadSkySource();
     const std::string shader =
         ExtractRawShader(source, "const char* kCloudCS");
     EXPECT_TRUE(!source.empty());
     EXPECT_TRUE(!shader.empty());
 
-    // Ultra refreshes one phase cohort per frame. Exact full-resolution pixels
-    // retain a stable pixel/cycle jitter; native/scaled modes still rotate
-    // through the same long coprime translation sequence because all pixels
-    // are current.
+    // Ultra refreshes an exact pixel once per complete phase cycle, so the
+    // low-discrepancy sample advances at that same cadence. Native/scaled modes
+    // still rotate every frame because all pixels are current.
     EXPECT_TRUE(Contains(shader, "uint jitterFrame=(uint)temporal.z;"));
     EXPECT_TRUE(Contains(
         shader,
-        "uint jitterSequence=temporal.w>3.5?0u:jitterFrame;"));
+        "uint jitterSequence=temporal.w>3.5?"
+        "(jitterFrame>>4u):jitterFrame;"));
     EXPECT_TRUE(Contains(shader, "uint2 jitterPixel=rayPixel+uint2("));
     EXPECT_TRUE(Contains(shader, "(jitterSequence*47u)%131u"));
     EXPECT_TRUE(Contains(shader, "(jitterSequence*17u)%127u"));
@@ -2207,11 +2241,20 @@ ACS_TEST(VolumetricClouds,
 
     constexpr u32 kPixelX = 173u;
     constexpr u32 kPixelY = 91u;
-    const f64 fixed = CloudJitterForTest(kPixelX, kPixelY, 0u, true);
-    for (u32 frame = 1u; frame < 256u; ++frame) {
-        EXPECT_NEAR(
-            CloudJitterForTest(kPixelX, kPixelY, frame, true),
-            fixed, 1e-12);
+    for (u32 cycle = 0u; cycle < 16u; ++cycle) {
+        const f64 cycleValue = CloudJitterForTest(
+            kPixelX, kPixelY, cycle * 16u, true);
+        for (u32 phase = 1u; phase < 16u; ++phase) {
+            EXPECT_NEAR(
+                CloudJitterForTest(
+                    kPixelX, kPixelY, cycle * 16u + phase, true),
+                cycleValue, 1e-12);
+        }
+        if (cycle > 0u) {
+            EXPECT_TRUE(std::fabs(
+                cycleValue - CloudJitterForTest(
+                    kPixelX, kPixelY, (cycle - 1u) * 16u, true)) > 1e-6);
+        }
     }
 
     f64 nativeJitter[256]{};
@@ -2316,6 +2359,169 @@ ACS_TEST(VolumetricClouds,
         shader, "col=lerp(skyCol.rgb,col,smoothstep("));
     EXPECT_TRUE(Contains(
         shader, "cloudOut[pixelQ]=float4(col,resolvedA);"));
+}
+
+ACS_TEST(VolumetricClouds,
+         GroundHorizonUsesProjectionAwareAnalyticPixelCoverage) {
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatgroundCutoff=-sqrt(saturate("
+        "1.0-groundRadiusRatio*groundRadiusRatio));"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatverticalOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatelevationFootprint=max("
+        "abs(adjacentElevation-signedElevation),1e-6);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatcoverageWidth=elevationFootprint*2.0;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "groundHorizonCoverage=smoothstep("
+        "groundCutoff,groundCutoff+coverageWidth,signedElevation);"));
+    EXPECT_TRUE(Contains(shader, "floathFade=rangeFade;"));
+    EXPECT_FALSE(Contains(
+        shader, "floathFade=rangeFade*groundHorizonCoverage;"));
+    EXPECT_FALSE(Contains(
+        shader,
+        "cameraAltitude<layer.x&&signedElevation<-0.002"));
+
+    const std::string resolveShader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudResolveCS"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "if(outputElevation<=outputGroundCutoff){"
+        "outputGroundCoverage=0.0;}"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "resolved.rgb*=outputGroundCoverage;"
+        "outA*=outputGroundCoverage;resolvedDepth.y=outA;"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "if(worldOrigin.w>0.5&&outputCoveragePixels<8.5){"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "float4edgeColor=historyColor.Load(int3(edgePixel,0));"
+        "float2edgeD=historyDepth.Load(int3(edgePixel,0));"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "booledgeValid=edgeColor.a>0.003&&"
+        "edgeD.y>0.003&&edgeD.x<=250000.0;"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatrelativeLumaDeficit=saturate("
+        "(reconstructedLuma-currentLuma)/"
+        "max(reconstructedLuma,0.05));"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatrelativeAlphaDeficit=saturate("
+        "(reconstructedAlpha-outA)/"
+        "max(reconstructedAlpha,0.05));"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatisolatedOutlier=smoothstep(0.22,0.48,max("
+        "relativeLumaDeficit,relativeAlphaDeficit));"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatextendedEdgeBand=1.0-smoothstep("
+        "2.5,8.5,outputCoveragePixels);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatedgeBlend=max(analyticEdgeBlend,"
+        "isolatedOutlier*extendedEdgeBand);"));
+
+    const f32 nominalDeficit = (0.80f - 0.72f) / 0.80f;
+    const f32 isolatedDeficit = (0.80f - 0.32f) / 0.80f;
+    EXPECT_NEAR(
+        SmoothStepForTest(0.22f, 0.48f, nominalDeficit),
+        0.0f, 1e-6f);
+    EXPECT_NEAR(
+        SmoothStepForTest(0.22f, 0.48f, isolatedDeficit),
+        1.0f, 1e-6f);
+    EXPECT_NEAR(
+        1.0f - SmoothStepForTest(2.5f, 8.5f, 5.5f),
+        0.5f, 1e-6f);
+    EXPECT_NEAR(
+        1.0f - SmoothStepForTest(2.5f, 8.5f, 8.5f),
+        0.0f, 1e-6f);
+
+    constexpr f32 cutoff = -0.002f;
+    constexpr f32 footprint = 0.0025f;
+    EXPECT_NEAR(
+        SmoothStepForTest(
+            cutoff - footprint, cutoff + footprint, cutoff),
+        0.5f, 1e-6f);
+    EXPECT_NEAR(
+        SmoothStepForTest(
+            cutoff - footprint, cutoff + footprint,
+            cutoff - footprint),
+        0.0f, 1e-6f);
+    EXPECT_NEAR(
+        SmoothStepForTest(
+            cutoff - footprint, cutoff + footprint,
+            cutoff + footprint),
+        1.0f, 1e-6f);
+}
+
+ACS_TEST(VolumetricClouds,
+         StableHistoryStillRunsExactGroundCutoffForSmallCameraMotion) {
+    const std::string source = ReadSkySource();
+    const std::string compactSource = CompactShader(source);
+    const std::string resolveShader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudResolveCS"));
+    EXPECT_TRUE(!resolveShader.empty());
+
+    // Small camera/matrix deltas deliberately retain history. Therefore the
+    // stable unscheduled shortcut cannot publish a reprojected pixel before the
+    // current frame's exact full-resolution planet/ground cutoff is evaluated.
+    EXPECT_TRUE(Contains(
+        compactSource,
+        "constbooltemporalHistoryStationary=historyValid&&"
+        "cameraDeltaSquared<=0.0025f&&matrixDelta<=0.002f;"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "boolstableUnscheduled=temporal.x>0.5&&temporalSuperRes&&"
+        "!scheduled&&worldOrigin.w>0.5;"));
+
+    const std::size_t stableAccept = resolveShader.find(
+        "if(stableDepthOk&&stableAlphaOk){");
+    const std::size_t fallbackGate = resolveShader.find(
+        "if(!stableHistoryResolved){", stableAccept);
+    const std::size_t exactGroundCutoff = resolveShader.find(
+        "if(possibleGroundEdge){", fallbackGate);
+    const std::size_t finalColorWrite = resolveShader.find(
+        "historyColorOut[tid.xy]=float4(", exactGroundCutoff);
+    EXPECT_TRUE(stableAccept != std::string::npos);
+    EXPECT_TRUE(fallbackGate != std::string::npos);
+    EXPECT_TRUE(exactGroundCutoff != std::string::npos);
+    EXPECT_TRUE(finalColorWrite != std::string::npos);
+    EXPECT_TRUE(stableAccept < fallbackGate);
+    EXPECT_TRUE(fallbackGate < exactGroundCutoff);
+    EXPECT_TRUE(exactGroundCutoff < finalColorWrite);
+
+    if (stableAccept != std::string::npos &&
+        fallbackGate != std::string::npos &&
+        stableAccept < fallbackGate) {
+        const std::string stableAcceptPath = resolveShader.substr(
+            stableAccept, fallbackGate - stableAccept);
+        EXPECT_TRUE(Contains(
+            stableAcceptPath,
+            "resolved=float4(stableHist.rgb*stableHist.a,stableHist.a);"));
+        EXPECT_TRUE(Contains(
+            stableAcceptPath,
+            "resolvedDepth=float2(sameScreenDepth.x,stableHist.a);"));
+        EXPECT_TRUE(Contains(
+            stableAcceptPath, "stableHistoryResolved=true;"));
+        EXPECT_FALSE(Contains(
+            stableAcceptPath, "historyColorOut[tid.xy]=stableHist;"));
+        EXPECT_FALSE(Contains(stableAcceptPath, "return;"));
+    }
 }
 
 ACS_TEST(VolumetricClouds,
@@ -2704,8 +2910,9 @@ ACS_TEST(VolumetricClouds,
     const std::size_t farLightLoop =
         shader.find("[loop]for(intl=3;l<8;l++)", cacheAttempt);
     const std::size_t coneDirection = shader.find(
-        "sun+(coneCos*lightTangent+"
-        "coneSin*lightBitangent)*coneAngle);",
+        "float3coneDir=cloudConeDirection("
+        "sun,lightTangent,lightBitangent,"
+        "coneSin,coneCos,coneAngle);",
         farLightLoop);
     EXPECT_TRUE(nearLightLoop != std::string::npos);
     EXPECT_TRUE(farLightLoop != std::string::npos);
@@ -2740,7 +2947,8 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "floatlightDensity=cloudDensityFromMacro("
-        "lp,lightMacro,coverage,0.65);"));
+        "lp,lightMacro,coverage,"
+        "lightMacro.weatherMask,0.65);"));
     // Weather/curl are slow fields. The view value must feed the light probes,
     // while macro shape remains exact at every probe through the helper.
     EXPECT_TRUE(Contains(

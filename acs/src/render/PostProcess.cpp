@@ -5,11 +5,42 @@
 #include "foundation/Log.h"
 #include "math/Vec.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace acs {
 
 namespace {
+
+f32 ClampFinite(f32 value, f32 fallback, f32 minimum,
+                f32 maximum) noexcept {
+    if (!std::isfinite(value)) value = fallback;
+    if (value < minimum) value = minimum;
+    if (value > maximum) value = maximum;
+    return value;
+}
+
+FVec3 ClampFinite(FVec3 value, FVec3 fallback, f32 minimum,
+                  f32 maximum) noexcept {
+    return FVec3{
+        ClampFinite(value.x, fallback.x, minimum, maximum),
+        ClampFinite(value.y, fallback.y, minimum, maximum),
+        ClampFinite(value.z, fallback.z, minimum, maximum),
+    };
+}
+
+bool MatrixIsFinite(const FMat4& value) noexcept {
+    for (u32 row = 0; row < 4; ++row) {
+        for (u32 column = 0; column < 4; ++column) {
+            if (!std::isfinite(value.m[row][column])) return false;
+        }
+    }
+    return true;
+}
+
+bool MatrixHasFiniteInverse(const FMat4& value) noexcept {
+    return MatrixIsFinite(value) && MatrixIsFinite(Inverse(value));
+}
 
 // 全画面 3 角形 (頂点バッファ無しで 3 頂点を SV_VertexID から作る)
 const char* kFullscreenVS = R"(
@@ -40,14 +71,27 @@ SamplerState src_sampler : register(s0);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
+float3 SafeHdr(float3 color) {
+    // Reject non-finite input locally instead of allowing one malformed
+    // emissive pixel to poison the entire bloom chain.  Do not use the FP16
+    // storage limit as a finiteness test: later FP32 exposure math may validly
+    // exceed 65504 before tone mapping.
+    // Use an ordered comparison instead of the HLSL finiteness intrinsic.  The raw DX12
+    // backend still compiles through FXC/SM5, where the intrinsic has produced
+    // an all-false vector in optimized pixel shaders on some drivers.  NaN and
+    // infinity both fail this comparison, while the range is far beyond any
+    // physically useful HDR radiance.
+    return all(abs(color) < 1.0e30) ? max(color, 0.0) : 0.0;
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
     // The destination is half resolution. Prefilter its corresponding 2x2
     // source footprint so sub-pixel highlights do not blink during camera motion.
     float2 texel = float2(params1.y, params1.z);
-    float3 c0 = min(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5, -0.5), 0).rgb, 10.0);
-    float3 c1 = min(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5, -0.5), 0).rgb, 10.0);
-    float3 c2 = min(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5,  0.5), 0).rgb, 10.0);
-    float3 c3 = min(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5,  0.5), 0).rgb, 10.0);
+    float3 c0 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5, -0.5), 0).rgb);
+    float3 c1 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5, -0.5), 0).rgb);
+    float3 c2 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5,  0.5), 0).rgb);
+    float3 c3 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5,  0.5), 0).rgb);
     // Karis weighting prevents an isolated firefly from dominating the footprint.
     float w0 = rcp(1.0 + max(c0.r, max(c0.g, c0.b)));
     float w1 = rcp(1.0 + max(c1.r, max(c1.g, c1.b)));
@@ -213,23 +257,31 @@ cbuffer Post : register(b0) {
     float4 cg_lift;
     float4 cg_gain;
     float4 cas_params;
-    float4 taa_params;    // x=blend_factor、y=reproject_enabled、z=motion_texture_mode
+    float4 taa_params;    // x=blend_factor、y=reproject_enabled、z=motion_texture_mode、w=reactive_mask
 };
 cbuffer TaaReproj : register(b1) {
     float4x4 taa_inv_view_proj;
     float4x4 taa_prev_view_proj;
+    float4 taa_camera_position;
 };
 Texture2D    current_hdr : register(t0);
 Texture2D    history_hdr : register(t1);
 Texture2D    scene_depth : register(t2);
+Texture2D    reactive_mask : register(t3);
+Texture2D    reactive_scene_depth : register(t4);
 SamplerState current_hdr_sampler : register(s0);
 SamplerState history_hdr_sampler : register(s1);
 SamplerState scene_depth_sampler : register(s2);
+SamplerState reactive_mask_sampler : register(s3);
+SamplerState reactive_scene_depth_sampler : register(s4);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 // YCoCg 変換 + AABB clip (Karis TAA 2014)。RGB の per-channel clamp はクロマゴーストを通すが、
 // 輝度/色差を分離した YCoCg で AABB の «中心へ向けて clip» すると色のにじみ尾を強く抑えられる。
+float3 SafeHdr(float3 color) {
+    return all(abs(color) < 1.0e30) ? max(color, 0.0) : 0.0;
+}
 float3 RGB2YCoCg(float3 c) {
     return float3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
                   0.5  * c.r            - 0.5  * c.b,
@@ -273,8 +325,25 @@ float2 ComputeMotionUv(float2 uv) {
     return reprojected_uv;
 }
 
+float SceneDistanceAt(float2 uv) {
+    float depth = reactive_scene_depth.SampleLevel(
+        reactive_scene_depth_sampler, uv, 0).r;
+    // FXC can flag a helper with an initialized early-exit path as X4000.
+    // Publish one explicitly initialized result through a single exit instead.
+    float sceneDistance = 1e30;
+    if (depth < 1.0) {
+        float4 clip = float4(
+            uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), depth, 1.0);
+        float4 world = mul(clip, taa_inv_view_proj);
+        world /= max(abs(world.w), 1e-6);
+        sceneDistance = length(world.xyz - taa_camera_position.xyz);
+    }
+    return sceneDistance;
+}
+
 float4 PSMain(VSOut v) : SV_TARGET {
-    float3 cur = current_hdr.SampleLevel(current_hdr_sampler, v.uv, 0).rgb;
+    float3 cur = SafeHdr(
+        current_hdr.SampleLevel(current_hdr_sampler, v.uv, 0).rgb);
 
     // History を sample する位置を決める:
     //   taa_params.z >= 0.5: motion texture モード。scene_depth slot を
@@ -293,7 +362,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // 混ぜて端でゴースト/スメアになる。Karis TAA に倣い off-screen は current 100% にする。
     bool offscreen = any(hist_uv < 0.0) || any(hist_uv > 1.0);
     if (offscreen) hist_uv = v.uv;
-    float3 hist_unclipped = history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb;
+    float3 hist_unclipped = SafeHdr(
+        history_hdr.SampleLevel(history_hdr_sampler, hist_uv, 0).rgb);
     float3 hist = hist_unclipped;
 
     // Variance clipping in YCoCg. A raw min/max box admits isolated outliers and
@@ -308,7 +378,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     for (int dy = -1; dy <= 1; ++dy) {
         [unroll]
         for (int dx = -1; dx <= 1; ++dx) {
-            float3 c = RGB2YCoCg(current_hdr.SampleLevel(current_hdr_sampler, v.uv + float2(dx, dy) * tx, 0).rgb);
+            float3 c = RGB2YCoCg(SafeHdr(current_hdr.SampleLevel(
+                current_hdr_sampler, v.uv + float2(dx, dy) * tx, 0).rgb));
             nmin = min(nmin, c);
             nmax = max(nmax, c);
             moment1 += c;
@@ -332,6 +403,43 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float motion_px = length((hist_uv - v.uv) / max(tx, float2(1e-6, 1e-6)));
     a = max(a, saturate(luma_delta * 1.5) * 0.85);
     a = max(a, saturate(motion_px / 24.0) * 0.35);
+    // Some effects (volumetric clouds in particular) already own a temporal
+    // reconstruction. A second global history produces trails and blurs their
+    // full-resolution edge reconstruction. The resolved cloud mask is generated
+    // before composition, so it still contains clouds hidden behind terrain.
+    // Reproduce the composite's ray-distance visibility test before making a
+    // pixel reactive; otherwise the entire foreground loses geometry TAA.
+    float reactive = 0.0;
+    if (taa_params.w >= 0.5) {
+        float sceneDistance = SceneDistanceAt(v.uv);
+        float2 reactiveHit = reactive_mask.SampleLevel(
+            reactive_mask_sampler, v.uv, 0).rg;
+        float tolerance = max(0.05, sceneDistance * 0.001);
+        bool cloudVisible = reactiveHit.y >= 0.001 &&
+                            reactiveHit.x <= 250000.0 &&
+                            reactiveHit.x < sceneDistance - tolerance;
+        reactive = cloudVisible ? reactiveHit.y : 0.0;
+
+        // A one-pixel dilation prevents trails at a moving cloud silhouette.
+        // Only clear-sky pixels use neighboring raw coverage: on geometry,
+        // every reactive decision remains the exact center ray-distance test.
+        if (sceneDistance > 250000.0) {
+            [unroll]
+            for (int ry = -1; ry <= 1; ++ry) {
+                [unroll]
+                for (int rx = -1; rx <= 1; ++rx) {
+                    if (rx == 0 && ry == 0)
+                        continue; // center is already in reactiveHit
+                    float2 hit = reactive_mask.SampleLevel(
+                        reactive_mask_sampler,
+                        v.uv + float2(rx, ry) * tx, 0).rg;
+                    if (hit.x <= 250000.0)
+                        reactive = max(reactive, hit.y);
+                }
+            }
+        }
+    }
+    a = max(a, smoothstep(0.001, 0.02, reactive));
     if (offscreen) a = 1.0;         // disocclusion: history 棄却 → current 100% (ゴースト防止)
     return float4(lerp(hist, cur, a), 1.0);
 }
@@ -358,6 +466,10 @@ SamplerState bloom_sampler : register(s1);
 SamplerState ssr_sampler   : register(s2);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+float3 SafeHdr(float3 color) {
+    return all(abs(color) < 1.0e30) ? max(color, 0.0) : 0.0;
+}
 
 float3 ACESFilm(float3 x) {
     // Stephen Hill (@self_shadow) ACES fit = WickedEngine の ACESFitted と同形。
@@ -486,13 +598,21 @@ float4 PSMain(VSOut v) : SV_TARGET {
         // 保ち、分離を周辺へ寄せる。
         float  shape = pow(saturate(dist_radial * 1.41421356), 1.5);   // 0(中心)→1(端)
         float2 ofs   = dir * ca * (1.0 + shape);
-        hdr_col.r = (hdr.Sample(hdr_sampler, v.uv + ofs).r +
-                     hdr.Sample(hdr_sampler, v.uv + ofs * 0.5).r) * 0.5;
-        hdr_col.g =  hdr.Sample(hdr_sampler, v.uv).g;
-        hdr_col.b = (hdr.Sample(hdr_sampler, v.uv - ofs).b +
-                     hdr.Sample(hdr_sampler, v.uv - ofs * 0.5).b) * 0.5;
+        float3 far_positive = SafeHdr(
+            hdr.Sample(hdr_sampler, v.uv + ofs).rgb);
+        float3 near_positive = SafeHdr(
+            hdr.Sample(hdr_sampler, v.uv + ofs * 0.5).rgb);
+        float3 center_sample = SafeHdr(
+            hdr.Sample(hdr_sampler, v.uv).rgb);
+        float3 near_negative = SafeHdr(
+            hdr.Sample(hdr_sampler, v.uv - ofs * 0.5).rgb);
+        float3 far_negative = SafeHdr(
+            hdr.Sample(hdr_sampler, v.uv - ofs).rgb);
+        hdr_col.r = (far_positive.r + near_positive.r) * 0.5;
+        hdr_col.g = center_sample.g;
+        hdr_col.b = (far_negative.b + near_negative.b) * 0.5;
     } else {
-        hdr_col = hdr.Sample(hdr_sampler, v.uv).rgb;
+        hdr_col = SafeHdr(hdr.Sample(hdr_sampler, v.uv).rgb);
     }
     hdr_col *= params0.w;       // exposure
 
@@ -507,10 +627,10 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (cas_params.x > 1e-4) {
         float2 px = float2(params1.y, params1.z);
         // neighbor は CA なしで raw HDR を read (CA は装飾、CAS は構造保持)
-        float3 nN = hdr.SampleLevel(hdr_sampler, v.uv + float2(0,    -px.y), 0).rgb * params0.w;
-        float3 nS = hdr.SampleLevel(hdr_sampler, v.uv + float2(0,     px.y), 0).rgb * params0.w;
-        float3 nE = hdr.SampleLevel(hdr_sampler, v.uv + float2( px.x, 0   ), 0).rgb * params0.w;
-        float3 nW = hdr.SampleLevel(hdr_sampler, v.uv + float2(-px.x, 0   ), 0).rgb * params0.w;
+        float3 nN = SafeHdr(hdr.SampleLevel(hdr_sampler, v.uv + float2(0,    -px.y), 0).rgb) * params0.w;
+        float3 nS = SafeHdr(hdr.SampleLevel(hdr_sampler, v.uv + float2(0,     px.y), 0).rgb) * params0.w;
+        float3 nE = SafeHdr(hdr.SampleLevel(hdr_sampler, v.uv + float2( px.x, 0   ), 0).rgb) * params0.w;
+        float3 nW = SafeHdr(hdr.SampleLevel(hdr_sampler, v.uv + float2(-px.x, 0   ), 0).rgb) * params0.w;
         // Reinhard 圧縮 (`x / (1+x)`) で 0..1 域に写す。amax < 1 が保証されるので
         // `1 - amax > 0` で AMD FSR の headroom 計算が破綻しない。
         float3 rC = hdr_col / (1.0 + hdr_col);
@@ -527,9 +647,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
         hdr_col = (hdr_col + (nN + nS + nE + nW) * w) / (1.0 + 4.0 * w);
     }
 
-    float3 bloom_col = bloom.Sample(bloom_sampler, v.uv).rgb * params0.y;
-    float3 ssr_col   = ssr.Sample(ssr_sampler, v.uv).rgb * params3.y;
-    float3 mixed = hdr_col + bloom_col + ssr_col;
+    hdr_col = SafeHdr(hdr_col);
+    float3 bloom_col = SafeHdr(
+        bloom.Sample(bloom_sampler, v.uv).rgb) * params0.y;
+    float3 ssr_col = SafeHdr(
+        ssr.Sample(ssr_sampler, v.uv).rgb) * params3.y;
+    // Tone-map arithmetic is FP32, so values above FP16's storage limit are
+    // valid here. Saturate only the final finite radiance entering the fit.
+    float3 mixed = min(SafeHdr(hdr_col + bloom_col + ssr_col), 65504.0);
 
     // 2) Tonemap
     int kind = (int)params1.w;
@@ -598,6 +723,7 @@ SamplerState src_sampler : register(s0);
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float LogLuma(float3 c) {
+    c = all(abs(c) <= 65504.0) ? max(c, 0.0) : 0.0;
     float l = dot(c, float3(0.2126, 0.7152, 0.0722));
     return log2(max(l, 1e-4));
 }
@@ -671,6 +797,8 @@ struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 float4 PSMain(VSOut v) : SV_TARGET {
     float  e = exposure.SampleLevel(exposure_sampler, float2(0.5, 0.5), 0).r;
     float3 c = hdr.SampleLevel(hdr_sampler, v.uv, 0).rgb;
+    e = abs(e) <= 65504.0 ? max(e, 0.0) : 1.0;
+    c = all(abs(c) <= 65504.0) ? max(c, 0.0) : 0.0;
     return float4(c * e, 1.0);
 }
 )";
@@ -692,6 +820,7 @@ struct FPostCbLayout {
 struct FTaaReprojCBLayout {
     FMat4 inv_view_proj;
     FMat4 prev_view_proj;
+    FVec4 camera_position;
 };
 
 // auto-exposure 用 CB (Exposure adapt パスで b0 に bind)。
@@ -720,6 +849,66 @@ void FillFullscreenLayout(FPipelineDesc& pd) noexcept {
 
 FPostProcess::~FPostProcess() noexcept {
     Shutdown();
+}
+
+void FPostProcessParams::Sanitize() noexcept {
+    const FPostProcessParams defaults{};
+    bloom_threshold = ClampFinite(
+        bloom_threshold, defaults.bloom_threshold, 0.0f, 65504.0f);
+    bloom_intensity = ClampFinite(
+        bloom_intensity, defaults.bloom_intensity, 0.0f, 16.0f);
+    bloom_radius = ClampFinite(
+        bloom_radius, defaults.bloom_radius, 0.0f, 16.0f);
+    bloom_scatter = ClampFinite(
+        bloom_scatter, defaults.bloom_scatter, 0.0f, 1.0f);
+    exposure = ClampFinite(exposure, defaults.exposure, 0.0f, 64.0f);
+    gamma = ClampFinite(gamma, defaults.gamma, 1.0f, 4.0f);
+    if (tonemap_kind < 0 || tonemap_kind > 2) {
+        tonemap_kind = defaults.tonemap_kind;
+    }
+    vignette_intensity = ClampFinite(
+        vignette_intensity, defaults.vignette_intensity, 0.0f, 1.0f);
+    vignette_radius = ClampFinite(
+        vignette_radius, defaults.vignette_radius, 0.0f, 1.0f);
+    chromatic_aberration = ClampFinite(
+        chromatic_aberration, defaults.chromatic_aberration, 0.0f, 0.05f);
+    grain_intensity = ClampFinite(
+        grain_intensity, defaults.grain_intensity, 0.0f, 0.25f);
+    if (!std::isfinite(grain_time)) grain_time = defaults.grain_time;
+    ssr_intensity = ClampFinite(
+        ssr_intensity, defaults.ssr_intensity, 0.0f, 8.0f);
+    cg_saturation = ClampFinite(
+        cg_saturation, defaults.cg_saturation, 0.0f, 4.0f);
+    cg_contrast = ClampFinite(
+        cg_contrast, defaults.cg_contrast, 0.0f, 4.0f);
+    cg_temperature = ClampFinite(
+        cg_temperature, defaults.cg_temperature, -1.0f, 1.0f);
+    cg_tint = ClampFinite(cg_tint, defaults.cg_tint, -1.0f, 1.0f);
+    cg_lift = ClampFinite(cg_lift, defaults.cg_lift, -2.0f, 2.0f);
+    cg_gain = ClampFinite(cg_gain, defaults.cg_gain, 0.0f, 8.0f);
+    cas_strength = ClampFinite(
+        cas_strength, defaults.cas_strength, 0.0f, 1.0f);
+    taa_blend_factor = ClampFinite(
+        taa_blend_factor, defaults.taa_blend_factor, 0.0f, 1.0f);
+    if (!MatrixHasFiniteInverse(taa_view_proj_no_jitter)) {
+        taa_view_proj_no_jitter = FMat4::Identity();
+    }
+    if (!MatrixHasFiniteInverse(taa_prev_view_proj_no_jitter)) {
+        taa_prev_view_proj_no_jitter = FMat4::Identity();
+    }
+    taa_camera_position = ClampFinite(
+        taa_camera_position, defaults.taa_camera_position, -1.0e9f, 1.0e9f);
+    auto_exposure_key = ClampFinite(
+        auto_exposure_key, defaults.auto_exposure_key, 0.0001f, 16.0f);
+    auto_exposure_min = ClampFinite(
+        auto_exposure_min, defaults.auto_exposure_min, 0.0001f, 64.0f);
+    auto_exposure_max = ClampFinite(
+        auto_exposure_max, defaults.auto_exposure_max,
+        auto_exposure_min, 64.0f);
+    auto_exposure_speed = ClampFinite(
+        auto_exposure_speed, defaults.auto_exposure_speed, 0.0f, 64.0f);
+    delta_time = ClampFinite(
+        delta_time, defaults.delta_time, 0.0f, 1.0f);
 }
 
 TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
@@ -1049,7 +1238,7 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         if (r.IsErr()) return Err<void>(r.Error());
         m_PipeGaussian = Move(r.Value());
     }
-    // TAA Resolve: current HDR + history HDR + scene_depth → resolved HDR (新 RT)、Opaque
+    // TAA Resolve: current HDR + history HDR + depth/motion + reactive mask → resolved HDR、Opaque
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
@@ -1057,13 +1246,15 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.ps = m_PsTaaResolve.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 2;       // b0=Post, b1=TaaReproj
-        pd.texture_slots = 3;
+        pd.texture_slots = 5;
         pd.cbuffer_names[0] = "Post";
         pd.cbuffer_names[1] = "TaaReproj";
         pd.texture_names[0] = "current_hdr";
         pd.texture_names[1] = "history_hdr";
         pd.texture_names[2] = "scene_depth";
-        pd.static_sampler_count = 3;
+        pd.texture_names[3] = "reactive_mask";
+        pd.texture_names[4] = "reactive_scene_depth";
+        pd.static_sampler_count = 5;
         for (u32 i = 0; i < 2; ++i) {
             pd.static_samplers[i].filter    = ESamplerFilter::Linear;
             pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
@@ -1072,6 +1263,12 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         pd.static_samplers[2].filter    = ESamplerFilter::Point;     // depth は離散値
         pd.static_samplers[2].address_u = ESamplerAddress::Clamp;
         pd.static_samplers[2].address_v = ESamplerAddress::Clamp;
+        pd.static_samplers[3].filter    = ESamplerFilter::Point;
+        pd.static_samplers[3].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[3].address_v = ESamplerAddress::Clamp;
+        pd.static_samplers[4].filter    = ESamplerFilter::Point;
+        pd.static_samplers[4].address_u = ESamplerAddress::Clamp;
+        pd.static_samplers[4].address_v = ESamplerAddress::Clamp;
         auto r = CreateRhiPipeline(device, pd);
         if (r.IsErr()) return Err<void>(r.Error());
         m_PipeTaaResolve = Move(r.Value());
@@ -1191,23 +1388,29 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
                           const FPostProcessParams& params) noexcept {
     if (!m_HdrRt || !m_PipeExtract) return;
     m_PostCbCursor = 0;
+    FPostProcessParams safe_params = params;
+    safe_params.Sanitize();
 
     // Auto-exposure: シーン輝度測定 → 露出順応 → 露出適用。
     // TAA / Bloom / Tonemap より前に実行し、下流パスは SceneInput() 経由で
     // 露出適用後の m_ExposedRt を読む。条件は有効フラグ + pipeline/RT の存在。
-    const bool auto_exp = params.auto_exposure_enabled
+    const bool auto_exp = safe_params.auto_exposure_enabled
                           && m_PipeLumaExtract && m_ExposedRt;
     if (auto_exp) {
         Pass_LumaReduce(cmd);
-        Pass_ExposureAdapt(cmd, params);
+        Pass_ExposureAdapt(cmd, safe_params);
         Pass_ExposureApply(cmd);
+    } else {
+        // Re-enabling after a long disabled interval must cold-start from the
+        // current luminance instead of adapting from a stale exposure texture.
+        m_AutoFrame = 0;
     }
 
     // TAA Resolve: current HDR + previous resolved (history) → new resolved。
     // 後段で Pass_Tonemap が resolved を読むよう振る舞う (Pass_Tonemap 側で taa_enabled
     // を見て参照を差し替える)。
-    if (params.taa_enabled) {
-        Pass_TaaResolve(cmd, params);
+    if (safe_params.taa_enabled) {
+        Pass_TaaResolve(cmd, safe_params);
     } else {
         // A disabled temporal pass invalidates its logical history.  Without
         // this reset, re-enabling TAA after an animated-cloud interval would
@@ -1216,9 +1419,9 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
         m_TaaFrame = 0;
     }
 
-    if (params.bloom_enabled) {
+    if (safe_params.bloom_enabled && safe_params.bloom_intensity > 0.0f) {
         // 1) Extract: HDR (もしくは TAA resolved) → mip[0]
-        Pass_Extract(cmd, params);
+        Pass_Extract(cmd, safe_params);
 
         // 2) Downsample: mip[i] → mip[i+1]。13-tap filter 自体が低域を滑らかにする。
         for (u32 i = 0; i + 1 < kBloomMips; ++i) {
@@ -1236,15 +1439,16 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
         // 3) Upsample: lower と current を scatter 付き正規化補間する。
         //    一定輝度の energy を mip 数で増幅せず、発光体の芯と広がりを両立する。
         for (u32 i = kBloomMips - 1; i > 0; --i) {
-            const f32 r = params.bloom_radius * (0.90f + static_cast<f32>(i - 1) * 0.08f);
-            Pass_Upsample(cmd, i - 1, r, params.bloom_scatter);
+            const f32 r = safe_params.bloom_radius
+                * (0.90f + static_cast<f32>(i - 1) * 0.08f);
+            Pass_Upsample(cmd, i - 1, r, safe_params.bloom_scatter);
         }
     }
 
     // 4) Tonemap: HDR (or TAA resolved) + mip[0] → backbuffer
-    Pass_Tonemap(cmd, swapchain, buffer_index, params);
+    Pass_Tonemap(cmd, swapchain, buffer_index, safe_params);
 
-    if (params.taa_enabled) {
+    if (safe_params.taa_enabled) {
         m_TaaFrame++;
     }
     if (auto_exp) {
@@ -1270,8 +1474,10 @@ void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
     const f32 reproject_enabled = (p.taa_enabled && p.taa_depth_texture) ? 1.0f : 0.0f;
     // motion texture があれば motion mode (depth reprojection より優先)。
     const f32 motion_mode = (p.taa_enabled && p.taa_motion_texture) ? 1.0f : 0.0f;
+    const f32 reactive_mode =
+        (p.taa_enabled && p.taa_reactive_texture) ? 1.0f : 0.0f;
     l.taa_params = FVec4{ p.taa_blend_factor < 0 ? 0.0f : p.taa_blend_factor,
-                         reproject_enabled, motion_mode, 0 };
+                         reproject_enabled, motion_mode, reactive_mode };
     cb->Update(&l, sizeof(l), 0);
 }
 } // namespace
@@ -1398,6 +1604,9 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     FTaaReprojCBLayout r{};
     r.inv_view_proj  = Inverse(p.taa_view_proj_no_jitter);
     r.prev_view_proj = p.taa_prev_view_proj_no_jitter;
+    r.camera_position = FVec4{
+        p.taa_camera_position.x, p.taa_camera_position.y,
+        p.taa_camera_position.z, 1.0f};
     if (m_CbTaaReproj) m_CbTaaReproj->Update(&r, sizeof(r));
 
     // t2 slot: motion texture が指定されていればそれを bind、
@@ -1407,6 +1616,12 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
                            ? p.taa_motion_texture
                            : (p.taa_depth_texture ? p.taa_depth_texture
                                                   : m_TaaDepthFb.Get());
+    IRhiTexture* reactive_tex = p.taa_reactive_texture
+                              ? p.taa_reactive_texture
+                              : m_TaaDepthFb.Get();
+    IRhiTexture* reactive_depth = p.taa_depth_texture
+                                ? p.taa_depth_texture
+                                : m_TaaDepthFb.Get();
 
     cmd.BeginRenderToTexture(*cur_rt, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeTaaResolve);
@@ -1415,6 +1630,8 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     cmd.SetTexture(0, *scene);                     // current HDR (露出適用後 or raw)
     cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
     if (slot2_tex) cmd.SetTexture(2, *slot2_tex);  // depth または motion vector
+    if (reactive_tex) cmd.SetTexture(3, *reactive_tex);
+    if (reactive_depth) cmd.SetTexture(4, *reactive_depth);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*cur_rt);
 }

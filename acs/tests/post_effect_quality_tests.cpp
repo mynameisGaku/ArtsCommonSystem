@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 
 using namespace acs;
@@ -143,6 +144,126 @@ ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
                 std::string::npos);
 }
 
+ACS_TEST(PostEffects, AuthoringParamsRejectNonFiniteAndInvalidRanges)
+{
+    FPostProcessParams params{};
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    params.bloom_threshold = nan;
+    params.bloom_intensity = -3.0f;
+    params.bloom_radius = infinity;
+    params.bloom_scatter = 4.0f;
+    params.exposure = infinity;
+    params.tonemap_kind = 99;
+    params.chromatic_aberration = -1.0f;
+    params.cg_lift = FVec3{nan, -5.0f, 5.0f};
+    params.cg_gain = FVec3{-1.0f, infinity, 20.0f};
+    params.taa_blend_factor = 3.0f;
+    params.auto_exposure_min = 10.0f;
+    params.auto_exposure_max = -2.0f;
+    params.delta_time = nan;
+    params.taa_view_proj_no_jitter.m[0][0] = nan;
+    params.taa_prev_view_proj_no_jitter = FMat4{
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0};
+    params.taa_camera_position = FVec3{nan, infinity, -infinity};
+    params.Sanitize();
+
+    EXPECT_NEAR(params.bloom_threshold, 1.0f, 1e-6f);
+    EXPECT_NEAR(params.bloom_intensity, 0.0f, 1e-6f);
+    EXPECT_NEAR(params.bloom_radius, 1.0f, 1e-6f);
+    EXPECT_NEAR(params.bloom_scatter, 1.0f, 1e-6f);
+    EXPECT_NEAR(params.exposure, 1.0f, 1e-6f);
+    EXPECT_EQ(params.tonemap_kind, 0);
+    EXPECT_NEAR(params.chromatic_aberration, 0.0f, 1e-6f);
+    EXPECT_TRUE(std::isfinite(params.cg_lift.x));
+    EXPECT_NEAR(params.cg_lift.y, -2.0f, 1e-6f);
+    EXPECT_NEAR(params.cg_lift.z, 2.0f, 1e-6f);
+    EXPECT_NEAR(params.cg_gain.x, 0.0f, 1e-6f);
+    EXPECT_TRUE(std::isfinite(params.cg_gain.y));
+    EXPECT_NEAR(params.cg_gain.z, 8.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_blend_factor, 1.0f, 1e-6f);
+    EXPECT_NEAR(params.auto_exposure_min, 10.0f, 1e-6f);
+    EXPECT_NEAR(params.auto_exposure_max, 10.0f, 1e-6f);
+    EXPECT_TRUE(std::isfinite(params.delta_time));
+    EXPECT_NEAR(params.taa_view_proj_no_jitter.m[0][0], 1.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_prev_view_proj_no_jitter.m[0][0], 1.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_prev_view_proj_no_jitter.m[1][1], 1.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_prev_view_proj_no_jitter.m[2][2], 1.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_prev_view_proj_no_jitter.m[3][3], 1.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_camera_position.x, 0.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_camera_position.y, 0.0f, 1e-6f);
+    EXPECT_NEAR(params.taa_camera_position.z, 0.0f, 1e-6f);
+}
+
+ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
+{
+    const std::string water_source =
+        ReadWorkspaceSource("src/render/WaterSurface3D.cpp");
+    const std::string post_source =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    const std::string water =
+        ExtractRawShader(water_source, "const char* kWaterSurface3DHlsl");
+    const std::string bloom =
+        ExtractRawShader(post_source, "const char* kExtractPS");
+    EXPECT_TRUE(!water.empty());
+    EXPECT_TRUE(!bloom.empty());
+    if (water.empty() || bloom.empty()) return;
+
+    EXPECT_TRUE(water.find("abs(radial) > sigma * 3.75") !=
+                std::string::npos);
+    EXPECT_TRUE(water.find("float2 combined_slope = macro_slope + micro_slope") !=
+                std::string::npos);
+    EXPECT_TRUE(water.find("float3 extinction = absorption + scattering;") !=
+                std::string::npos);
+    EXPECT_TRUE(water.find("float phase = (1.0 - phase_g * phase_g)") !=
+                std::string::npos);
+    EXPECT_TRUE(water.find("float3 direct_inscatter = sun_color.rgb") !=
+                std::string::npos);
+
+    EXPECT_TRUE(bloom.find("all(abs(color) < 1.0e30)") !=
+                std::string::npos);
+    EXPECT_TRUE(bloom.find("min(src.SampleLevel") == std::string::npos);
+    EXPECT_TRUE(bloom.find("Karis weighting") != std::string::npos);
+
+    const std::string tonemap =
+        ExtractRawShader(post_source, "const char* kTonemapPS");
+    EXPECT_TRUE(!tonemap.empty());
+    EXPECT_TRUE(tonemap.find(
+        "min(SafeHdr(hdr_col + bloom_col + ssr_col), 65504.0)") !=
+        std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "return all(abs(color) < 1.0e30) ? max(color, 0.0) : 0.0;") !=
+        std::string::npos);
+}
+
+ACS_TEST(PostEffects, RawDx12PostShadersAvoidFxcIsFiniteMiscompile)
+{
+    const std::string post_source =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    const std::string bloom =
+        ExtractRawShader(post_source, "const char* kExtractPS");
+    const std::string taa =
+        ExtractRawShader(post_source, "const char* kTaaResolvePS");
+    const std::string tonemap =
+        ExtractRawShader(post_source, "const char* kTonemapPS");
+    EXPECT_TRUE(!bloom.empty());
+    EXPECT_TRUE(!taa.empty());
+    EXPECT_TRUE(!tonemap.empty());
+    if (bloom.empty() || taa.empty() || tonemap.empty()) return;
+
+    // FXC/SM5 can optimize isfinite(float3) to an all-false predicate in a
+    // pixel shader on the raw DX12 path, blacking every otherwise valid HDR
+    // sample. Ordered comparisons reject NaN/Inf as well and compile reliably.
+    for (const std::string* shader : {&bloom, &taa, &tonemap}) {
+        EXPECT_TRUE(shader->find("isfinite(") == std::string::npos);
+        EXPECT_TRUE(shader->find("all(abs(color) < 1.0e30)") !=
+                    std::string::npos);
+    }
+}
+
 ACS_TEST(PostEffects, EditorCompositeOrderKeepsCloudsInRefractionBackground)
 {
     const std::string draw = ReadDrawScene3DSource();
@@ -242,38 +363,115 @@ ACS_TEST(PostEffects, EditorCompositeOrderKeepsCloudsInRefractionBackground)
         analytic_fog_fallback < analytic_fog_shared_decision);
 }
 
-ACS_TEST(PostEffects, AnimatedCloudsDoNotReceiveASecondGlobalTaaHistory)
+ACS_TEST(PostEffects, AnimatedCloudsUseReactiveMaskWhileGeometryKeepsGlobalTaa)
 {
     const std::string draw = ReadDrawScene3DSource();
     const std::string post =
         ReadWorkspaceSource("src/render/PostProcess.cpp");
+    const std::string cloud =
+        ReadWorkspaceSource("src/render/Sky.cpp");
+    const std::string cloud_header =
+        ReadWorkspaceSource("src/render/Sky.h");
     EXPECT_TRUE(!draw.empty());
     EXPECT_TRUE(!post.empty());
-    if (draw.empty() || post.empty()) return;
+    EXPECT_TRUE(!cloud.empty());
+    EXPECT_TRUE(!cloud_header.empty());
+    if (draw.empty() || post.empty() || cloud.empty() || cloud_header.empty())
+        return;
 
-    const std::size_t cloud_policy =
-        draw.find("const bool animatedCloudsRequested =");
-    const std::size_t taa_policy =
-        draw.find("!animatedCloudsRequested;", cloud_policy);
-    const std::size_t jitter =
-        draw.find("if (taaOn)", taa_policy);
-    EXPECT_TRUE(cloud_policy != std::string::npos);
-    EXPECT_TRUE(taa_policy != std::string::npos);
-    EXPECT_TRUE(jitter != std::string::npos);
-    EXPECT_TRUE(cloud_policy < taa_policy);
-    EXPECT_TRUE(taa_policy < jitter);
+    EXPECT_TRUE(draw.find("animatedCloudsRequested") == std::string::npos);
+    EXPECT_TRUE(draw.find("h.q_taa_on && !h.ortho3d") != std::string::npos);
+    EXPECT_TRUE(draw.find("Inverse(vp_nojit), eye") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth();") !=
+        std::string::npos);
+    EXPECT_TRUE(draw.find("pp.taa_camera_position          = eye;") !=
+                std::string::npos);
+
+    const std::string taa_shader =
+        ExtractRawShader(post, "const char* kTaaResolvePS");
+    EXPECT_TRUE(!taa_shader.empty());
+    EXPECT_TRUE(taa_shader.find("reactive_mask : register(t3)") !=
+                std::string::npos);
+    EXPECT_TRUE(taa_shader.find("reactive_scene_depth : register(t4)") !=
+                std::string::npos);
+    EXPECT_TRUE(taa_shader.find("if (taa_params.w >= 0.5)") !=
+                std::string::npos);
+    EXPECT_TRUE(taa_shader.find("float SceneDistanceAt(float2 uv)") !=
+                std::string::npos);
+    const std::string scene_distance =
+        ExtractFunction(taa_shader, "float SceneDistanceAt(float2 uv)");
+    EXPECT_TRUE(scene_distance.find("float sceneDistance = 1e30;") !=
+                std::string::npos);
+    EXPECT_TRUE(scene_distance.find("return sceneDistance;") !=
+                std::string::npos);
+    EXPECT_EQ(CountOccurrences(scene_distance, "return "), std::size_t{1});
+    EXPECT_TRUE(taa_shader.find(
+        "reactiveHit.x < sceneDistance - tolerance") != std::string::npos);
+    EXPECT_TRUE(taa_shader.find(
+        "if (sceneDistance > 250000.0)") != std::string::npos);
+    EXPECT_TRUE(taa_shader.find("for (int ry = -1; ry <= 1; ++ry)") !=
+                std::string::npos);
+    EXPECT_TRUE(taa_shader.find("if (rx == 0 && ry == 0)") !=
+                std::string::npos);
+    EXPECT_TRUE(taa_shader.find(
+        "smoothstep(0.001, 0.02, reactive)") != std::string::npos);
+    EXPECT_TRUE(post.find("pd.texture_slots = 5;") != std::string::npos);
+    EXPECT_TRUE(post.find("cmd.SetTexture(3, *reactive_tex);") !=
+                std::string::npos);
+    EXPECT_TRUE(post.find("cmd.SetTexture(4, *reactive_depth);") !=
+                std::string::npos);
+
+    // ResolvedDepth is a full-resolution, same-frame RG32F pair where
+    // R=ray distance and G=resolved alpha. Keep this producer contract tied to
+    // the TAA visibility gate so a format/lifetime change cannot silently turn
+    // foreground terrain current-only again.
+    EXPECT_TRUE(cloud.find(
+        "make_texture(fw, fh, EFormat::R32G32_Float, true, false, historyDepth[0])") !=
+        std::string::npos);
+    EXPECT_TRUE(cloud.find("resolvedDepth.y=outA;") != std::string::npos);
+    const std::size_t publish_index = cloud.find("m_ResolvedIndex = cur;");
+    const std::size_t publish_valid = cloud.find(
+        "m_HistoryValid = true;", publish_index);
+    EXPECT_TRUE(publish_index != std::string::npos);
+    EXPECT_TRUE(publish_valid != std::string::npos);
+    EXPECT_TRUE(publish_index < publish_valid);
+    EXPECT_TRUE(cloud_header.find(
+        "return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;") !=
+        std::string::npos);
 
     const std::size_t taa_gate =
-        post.find("if (params.taa_enabled) {");
+        post.find("if (safe_params.taa_enabled) {");
     const std::size_t disabled_history_reset =
         post.find("m_TaaFrame = 0;", taa_gate);
     const std::size_t bloom_stage =
-        post.find("if (params.bloom_enabled)", disabled_history_reset);
+        post.find("if (safe_params.bloom_enabled", disabled_history_reset);
     EXPECT_TRUE(taa_gate != std::string::npos);
     EXPECT_TRUE(disabled_history_reset != std::string::npos);
     EXPECT_TRUE(bloom_stage != std::string::npos);
     EXPECT_TRUE(taa_gate < disabled_history_reset);
     EXPECT_TRUE(disabled_history_reset < bloom_stage);
+}
+
+ACS_TEST(PostEffects, EditorGridFadesSubpixelFrequenciesWithoutHardHorizonCutoff)
+{
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    EXPECT_TRUE(!editor.empty());
+    if (editor.empty()) return;
+
+    const std::string grid =
+        ExtractRawShader(editor, "const char* kGrid3DHLSL");
+    EXPECT_TRUE(!grid.empty());
+    EXPECT_TRUE(grid.find(
+        "float2 frequencyFade = 1.0 - smoothstep(0.25, 0.50, footprint);") !=
+                std::string::npos);
+    EXPECT_TRUE(grid.find("lineCoverage.x * frequencyFade.x") !=
+                std::string::npos);
+    EXPECT_TRUE(grid.find("lineCoverage.y * frequencyFade.y") !=
+                std::string::npos);
+    EXPECT_TRUE(grid.find("saturate(a * fade)") != std::string::npos);
+    EXPECT_TRUE(grid.find("if (a < 0.004) discard;") == std::string::npos);
 }
 
 ACS_TEST(PostEffects, TemporalShaderBranchesPublishInitializedValues)

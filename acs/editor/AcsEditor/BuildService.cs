@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace AcsEditor;
@@ -15,15 +17,56 @@ public static class BuildService
     // 読むと UTF-8 バイトが cp932 として化けるので、明示的に UTF-8 でデコードする。
     private static readonly System.Text.Encoding OutEncoding =
         new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly TimeSpan ProcessTerminationGrace =
+        TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ProcessOutputDrainGrace =
+        TimeSpan.FromSeconds(3);
 
     /// <summary>editor 実行ファイルから上方向に engine/CMakeLists.txt を探してリポジトリルートを返す。</summary>
     public static string? FindEngineRoot()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
+        string? environmentRoot = Environment.GetEnvironmentVariable(
+            "ACS_ENGINE_ROOT");
+        string?[] starts =
+        [
+            environmentRoot,
+            AppContext.BaseDirectory,
+            Environment.CurrentDirectory,
+        ];
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string? start in starts)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "engine", "CMakeLists.txt"))) return dir.FullName;
-            dir = dir.Parent;
+            if (string.IsNullOrWhiteSpace(start)) continue;
+            DirectoryInfo? directory;
+            try { directory = new DirectoryInfo(Path.GetFullPath(start)); }
+            catch { continue; }
+
+            while (directory != null)
+            {
+                if (!visited.Add(directory.FullName))
+                {
+                    directory = directory.Parent;
+                    continue;
+                }
+                if (File.Exists(Path.Combine(
+                        directory.FullName,
+                        "engine",
+                        "CMakeLists.txt")))
+                {
+                    return directory.FullName;
+                }
+                if (string.Equals(
+                        directory.Name,
+                        "engine",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(Path.Combine(
+                        directory.FullName,
+                        "CMakeLists.txt")))
+                {
+                    return directory.Parent?.FullName;
+                }
+                directory = directory.Parent;
+            }
         }
         return null;
     }
@@ -38,8 +81,14 @@ public static class BuildService
 
     /// <summary>プロジェクトをビルドする。成功で exe パス、失敗で null。ログは log に流す。
     /// forceConfigure=true でソース追加/削除時に必ず再 configure する (glob 反映のため)。</summary>
-    public static async Task<string?> BuildAsync(Project project, Action<string> log, bool forceConfigure = false, bool standalone = false)
+    public static async Task<string?> BuildAsync(
+        Project project,
+        Action<string> log,
+        bool forceConfigure = false,
+        bool standalone = false,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string? engineRoot = FindEngineRoot();
         if (engineRoot == null) { log("エンジンルートが見つかりません (engine/CMakeLists.txt)。"); return null; }
 
@@ -56,13 +105,14 @@ public static class BuildService
         // 生成ファイルが新規ならソース集合が変わるので再 configure を強制する。
         try { if (ReflectionCodegen.Generate(project, log)) forceConfigure = true; }
         catch (Exception ex) { log("codegen 警告: " + ex.Message); }
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (forceConfigure || !Directory.Exists(buildDir) || !CacheHasExtDir(buildDir, srcDir))
         {
             log($"Configuring… (-DACS_EXTERNAL_PROJECT_DIR={srcDir})");
             int rc = await RunAsync("cmake",
                 $"-S \"{engineCMake}\" -B \"{buildDir}\" -DACS_EXTERNAL_PROJECT_DIR=\"{srcDir.Replace('\\', '/')}\"",
-                engineRoot, log);
+                engineRoot, log, cancellationToken);
             if (rc != 0) { log("Configure 失敗 (exit " + rc + ")。"); return null; }
         }
 
@@ -74,7 +124,7 @@ public static class BuildService
             log($"Building {ident}_reflect (差分)…");
             int rdll = await RunAsync("cmake",
                 $"--build \"{buildDir}\" --target {ident}_reflect --config Release -- /p:BuildProjectReferences=false",
-                engineRoot, log);
+                engineRoot, log, cancellationToken);
             if (rdll != 0) { log("Build 失敗 (exit " + rdll + ")。"); return null; }
             string dll = ReflectDllPath(project);
             if (File.Exists(dll)) { log($"Build 成功 → {dll}"); return dll; }
@@ -85,12 +135,16 @@ public static class BuildService
         // スタンドアロン (出荷用): exe + reflect を依存込みでフルビルドし、シーンを exe 隣へコピー。
         log($"Building standalone {ident} + {ident}_reflect (Release)…");
         int br = await RunAsync("cmake",
-            $"--build \"{buildDir}\" --target {ident} --target {ident}_reflect --config Release", engineRoot, log);
+            $"--build \"{buildDir}\" --target {ident} --target {ident}_reflect --config Release",
+            engineRoot,
+            log,
+            cancellationToken);
         if (br != 0) { log("Build 失敗 (exit " + br + ")。"); return null; }
 
         string exe = ExePath(project);
         if (File.Exists(exe))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // エディタで編集したシーンを exe の隣へコピー (スタンドアロンが起動時 main.acscene を読む)。
             try
             {
@@ -154,9 +208,13 @@ public static class BuildService
         return false;
     }
 
-    private static Task<int> RunAsync(string file, string args, string cwd, Action<string> log)
+    private static async Task<int> RunAsync(
+        string file,
+        string args,
+        string cwd,
+        Action<string> log,
+        CancellationToken cancellationToken)
     {
-        var tcs = new TaskCompletionSource<int>();
         try
         {
             var psi = new ProcessStartInfo
@@ -166,15 +224,129 @@ public static class BuildService
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = OutEncoding, StandardErrorEncoding = OutEncoding,
             };
-            var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            p.OutputDataReceived += (_, e) => { if (e.Data != null) log(e.Data); };
-            p.ErrorDataReceived  += (_, e) => { if (e.Data != null) log(e.Data); };
-            p.Exited += (_, _) => { int code = p.ExitCode; p.Dispose(); tcs.TrySetResult(code); };
-            p.Start();
-            p.BeginOutputReadLine();
-            p.BeginErrorReadLine();
+            using var process = new Process
+            {
+                StartInfo = psi,
+                EnableRaisingEvents = true,
+            };
+            var standardOutputClosed = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var standardErrorClosed = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data == null)
+                {
+                    standardOutputClosed.TrySetResult(true);
+                    return;
+                }
+                try { log(e.Data); }
+                catch { }
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data == null)
+                {
+                    standardErrorClosed.TrySetResult(true);
+                    return;
+                }
+                try { log(e.Data); }
+                catch { }
+            };
+            if (!process.Start())
+            {
+                log("プロセス起動失敗: process did not start");
+                return -1;
+            }
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                bool terminated = await TryTerminateWithinAsync(
+                    process,
+                    ProcessTerminationGrace);
+                if (!terminated)
+                {
+                    log(
+                        "Cancellation timed out while terminating the build " +
+                        "process tree; the editor will continue without " +
+                        "waiting indefinitely.");
+                }
+                throw;
+            }
+            try
+            {
+                await Task.WhenAll(
+                        standardOutputClosed.Task,
+                        standardErrorClosed.Task)
+                    .WaitAsync(ProcessOutputDrainGrace);
+            }
+            catch (TimeoutException)
+            {
+                try { process.CancelOutputRead(); }
+                catch { }
+                try { process.CancelErrorRead(); }
+                catch { }
+                log(
+                    "Build process exited, but redirected output did not " +
+                    "close within the bounded drain deadline.");
+                return -1;
+            }
+            return process.ExitCode;
         }
-        catch (Exception ex) { log("プロセス起動失敗: " + ex.Message); tcs.TrySetResult(-1); }
-        return tcs.Task;
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log("プロセス起動失敗: " + ex.Message);
+            return -1;
+        }
+    }
+
+    internal static Task<int> RunProcessForReliabilitySelfTestAsync(
+        string file,
+        string arguments,
+        CancellationToken cancellationToken) =>
+        RunAsync(
+            file,
+            arguments,
+            AppContext.BaseDirectory,
+            _ => { },
+            cancellationToken);
+
+    private static async Task<bool> TryTerminateWithinAsync(
+        Process process,
+        TimeSpan grace)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+        }
+
+        using var timeout = new CancellationTokenSource(grace);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch
+        {
+            try { return process.HasExited; }
+            catch { return false; }
+        }
     }
 }

@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -17,12 +18,16 @@ namespace AcsEditor;
 
 public partial class PackageProjectDialog : Window
 {
+    internal const bool DisablesOwnerDuringPrompt = false;
+
     private readonly Project _project;
     private readonly Action<string> _externalLog;
     private CancellationTokenSource? _cancellation;
     private bool _busy;
     private bool _allowClose;
     private string? _resultZip;
+    private TaskCompletionSource<bool>? _modelessCompletion;
+    private Window? _modelessOwner;
 
     public bool PackageSucceeded { get; private set; }
 
@@ -42,6 +47,56 @@ public partial class PackageProjectDialog : Window
         OutputBox.Text = Path.Combine(project.RootDir, "Build", "Packages");
         ProfileBox.SelectedIndex = (int)PackageProfile.Shipping;
         ValidateAndDisplay();
+    }
+
+    internal Task<bool> ShowModelessAsync(Window owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        owner.Dispatcher.VerifyAccess();
+        if (_modelessCompletion != null || IsVisible)
+            throw new InvalidOperationException(
+                "Package Project window is already being presented.");
+
+        _modelessCompletion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _modelessOwner = owner;
+        Owner = owner;
+        ShowActivated = owner.IsActive;
+        Closed += OnModelessClosed;
+        owner.Closed += OnModelessOwnerClosed;
+        try
+        {
+            Show();
+        }
+        catch
+        {
+            Closed -= OnModelessClosed;
+            owner.Closed -= OnModelessOwnerClosed;
+            _modelessOwner = null;
+            TaskCompletionSource<bool> completion = _modelessCompletion;
+            _modelessCompletion = null;
+            completion.TrySetCanceled();
+            throw;
+        }
+        return _modelessCompletion.Task;
+    }
+
+    private void OnModelessOwnerClosed(object? sender, EventArgs e)
+    {
+        _allowClose = true;
+        _cancellation?.Cancel();
+        if (IsVisible) Close();
+    }
+
+    private void OnModelessClosed(object? sender, EventArgs e)
+    {
+        Closed -= OnModelessClosed;
+        if (_modelessOwner != null)
+            _modelessOwner.Closed -= OnModelessOwnerClosed;
+        _modelessOwner = null;
+        TaskCompletionSource<bool>? completion = _modelessCompletion;
+        _modelessCompletion = null;
+        completion?.TrySetResult(PackageSucceeded);
     }
 
     private PackageOptions ReadOptions() => new(
@@ -73,9 +128,9 @@ public partial class PackageProjectDialog : Window
             if (!File.Exists(cmake))
             {
                 issues.Add(new(
-                    PackageIssueSeverity.Error,
-                    "BUILD_FILES_MISSING",
-                    "Source/CMakeLists.txt がありません。Editorでプロジェクトを作り直すかBuild定義を復元してください。",
+                    PackageIssueSeverity.Info,
+                    "BUILD_FILES_WILL_REPAIR",
+                    "Source/CMakeLists.txt はRelease build開始時に現在のテンプレートから再生成します。",
                     cmake));
             }
         }
@@ -328,7 +383,7 @@ public partial class PackageProjectDialog : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (_busy)
+        if (_busy && !_allowClose)
         {
             _cancellation?.Cancel();
             StatusText.Text = "Cancelling after the active build step…";

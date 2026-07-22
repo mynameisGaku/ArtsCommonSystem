@@ -44,6 +44,13 @@ public partial class App : Application
     /// </summary>
     public static bool IsInitialActivationSuppressed { get; private set; }
 
+    /// <summary>
+    /// Reliability-only escape hatch: the normal-start soak remains
+    /// non-activating, but may present its owned modeless recovery fixture so
+    /// that the original startup-freeze path is actually exercised.
+    /// </summary>
+    internal static bool IsInactiveRecoveryPromptAllowed { get; private set; }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern nint GetWindowLongPtr(nint window, int index);
 
@@ -189,6 +196,98 @@ public partial class App : Application
         {
             int failures = EditorProfilerSelfTest.Run(Console.Error);
             Shutdown(failures);
+            return;
+        }
+
+        // CLI: --editor-reliability-selftest -> pure interaction-health policy,
+        // real off-screen modeless windows, and build-cancellation integration.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--editor-reliability-selftest")
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.Loaded,
+                new Action(async () =>
+                {
+                    int failures;
+                    try
+                    {
+                        failures = await EditorReliabilitySelfTest.RunAsync(
+                            Console.Error);
+                    }
+                    catch (Exception error)
+                    {
+                        Console.Error.WriteLine(error);
+                        failures = 1;
+                    }
+                    Shutdown(failures);
+                }));
+            return;
+        }
+
+        // CLI: --interaction-soak-runner <project> [seconds] [report]
+        //      --interaction-soak-runner-normal <project> [seconds] [report]
+        // Spawns a real, non-activating editor child and enforces an external
+        // wall-clock deadline, so a blocked child Dispatcher cannot report a
+        // false pass merely because its own timer stopped.
+        bool interactionSoakRunner = e.Args.Length >= 2 &&
+            (e.Args[0] == "--interaction-soak-runner" ||
+             e.Args[0] == "--interaction-soak-runner-normal");
+        if (interactionSoakRunner)
+        {
+            bool unattendedRunner =
+                e.Args[0] == "--interaction-soak-runner";
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.Loaded,
+                new Action(async () =>
+                {
+                    double seconds = 10;
+                    if (e.Args.Length >= 3 &&
+                        (!double.TryParse(
+                            e.Args[2],
+                            NumberStyles.Float,
+                            CultureInfo.InvariantCulture,
+                            out seconds) ||
+                         !double.IsFinite(seconds)))
+                    {
+                        Console.Error.WriteLine(
+                            "interaction soak runner seconds are invalid.");
+                        Shutdown(2);
+                        return;
+                    }
+                    string report = e.Args.Length >= 4
+                        ? e.Args[3]
+                        : Path.Combine(
+                            Path.GetTempPath(),
+                            $"acs-editor-interaction-soak-runner-{Environment.ProcessId}.json");
+                    int exitCode;
+                    try
+                    {
+                        string? executable = Environment.ProcessPath;
+                        exitCode = executable == null
+                            ? 2
+                            : await EditorReliabilitySoakRunner.RunAsync(
+                                executable,
+                                e.Args[1],
+                                seconds,
+                                report,
+                                unattendedRunner,
+                                Console.Error);
+                        if (executable == null)
+                        {
+                            Console.Error.WriteLine(
+                                "Current editor executable path is unavailable.");
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        Console.Error.WriteLine(
+                            "Interaction soak runner failed: " + error);
+                        exitCode = 1;
+                    }
+                    Shutdown(exitCode);
+                }));
             return;
         }
 
@@ -572,6 +671,79 @@ public partial class App : Application
         bool avoidInitialActivation = ShouldAvoidInitialActivation(e.Args);
         bool showProfiler = e.Args.Contains(
             "--show-profiler", StringComparer.OrdinalIgnoreCase);
+        int interactionSoakArgument = Array.FindIndex(
+            e.Args,
+            argument => string.Equals(
+                argument,
+                "--interaction-soak",
+                StringComparison.OrdinalIgnoreCase));
+        TimeSpan? interactionSoakDuration = null;
+        string? interactionSoakReport = null;
+        bool interactionSoakRequiresRecovery = false;
+        if (interactionSoakArgument >= 0)
+        {
+            double seconds = 10;
+            if (interactionSoakArgument + 1 < e.Args.Length &&
+                !e.Args[interactionSoakArgument + 1].StartsWith(
+                    "--",
+                    StringComparison.Ordinal))
+            {
+                if (!double.TryParse(
+                        e.Args[interactionSoakArgument + 1],
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out seconds) ||
+                    !double.IsFinite(seconds) ||
+                    seconds < 2 ||
+                    seconds > 600)
+                {
+                    Console.Error.WriteLine(
+                        "--interaction-soak seconds must be between 2 and 600.");
+                    Shutdown(2);
+                    return;
+                }
+            }
+            interactionSoakDuration = TimeSpan.FromSeconds(seconds);
+            showProfiler = true;
+            IsInactiveRecoveryPromptAllowed =
+                !unattended && e.Args.Contains(
+                    "--interaction-soak-allow-recovery",
+                    StringComparer.OrdinalIgnoreCase);
+            interactionSoakRequiresRecovery =
+                !unattended && e.Args.Contains(
+                    "--interaction-soak-require-recovery",
+                    StringComparer.OrdinalIgnoreCase);
+            if (interactionSoakRequiresRecovery &&
+                !IsInactiveRecoveryPromptAllowed)
+            {
+                Console.Error.WriteLine(
+                    "--interaction-soak-require-recovery also requires " +
+                    "--interaction-soak-allow-recovery.");
+                Shutdown(2);
+                return;
+            }
+
+            int reportArgument = Array.FindIndex(
+                e.Args,
+                argument => string.Equals(
+                    argument,
+                    "--interaction-soak-report",
+                    StringComparison.OrdinalIgnoreCase));
+            if (reportArgument >= 0)
+            {
+                if (reportArgument + 1 >= e.Args.Length ||
+                    e.Args[reportArgument + 1].StartsWith(
+                        "--",
+                        StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine(
+                        "--interaction-soak-report requires an output path.");
+                    Shutdown(2);
+                    return;
+                }
+                interactionSoakReport = e.Args[reportArgument + 1];
+            }
+        }
         IsNonInteractiveLaunch = unattended;
         IsInitialActivationSuppressed =
             ShouldDeferInteractivePromptsUntilActivation(e.Args);
@@ -602,6 +774,16 @@ public partial class App : Application
             var win = new MainWindow(chosen);
             if (showProfiler)
                 win.ShowProfilerAtStartup();
+            if (e.Args.Contains("--hide-grid", StringComparer.OrdinalIgnoreCase))
+                win.SetStartupGridVisible(false);
+            if (interactionSoakDuration is { } soakDuration)
+            {
+                win.ConfigureInteractionSoak(
+                    soakDuration,
+                    interactionSoakReport,
+                    exitCode => Shutdown(exitCode),
+                    interactionSoakRequiresRecovery);
+            }
             // Visual validation and secondary-monitor launches may need the
             // editor to become visible without interrupting the foreground
             // application.  WPF's Show() otherwise overrides the process

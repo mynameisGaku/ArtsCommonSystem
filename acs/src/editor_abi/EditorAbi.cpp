@@ -2801,9 +2801,16 @@ struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; };
 VSOut VSMain(VSIn v) { VSOut o; o.pos = mul(float4(v.pos, 1.0), view_proj); o.wpos = v.pos; return o; }
 float GridAA(float2 c, float scale) {
     float2 cc = c / scale;
-    float2 d  = fwidth(cc);
-    float2 g  = abs(frac(cc - 0.5) - 0.5) / max(d, 1e-6);
-    return 1.0 - min(min(g.x, g.y), 1.0);
+    float2 footprint = max(fwidth(cc), 1e-6);
+    float2 distanceToLine = abs(frac(cc - 0.5) - 0.5);
+    float2 lineCoverage = 1.0 - saturate(distanceToLine / footprint);
+    // Once a cell projects below the Nyquist limit, keeping a one-pixel line
+    // turns every fragment into grid coverage and produces a dotted horizon.
+    // Fade each line family independently; the 10-unit major grid naturally
+    // remains visible ten times farther than the minor grid.
+    float2 frequencyFade = 1.0 - smoothstep(0.25, 0.50, footprint);
+    return max(lineCoverage.x * frequencyFade.x,
+               lineCoverage.y * frequencyFade.y);
 }
 float4 PSMain(VSOut v) : SV_TARGET {
     float2 coord = (gctr.w > 0.5) ? v.wpos.xy : v.wpos.xz;
@@ -2818,9 +2825,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (axisV > a) { a = axisV; col = (gctr.w > 0.5) ? float3(0.42,0.85,0.40) : float3(0.36,0.56,0.95); } // ortho:Y緑 / persp:Z青
     float dist = length(gctr.xy - coord);
     float fade = saturate(1.0 - dist / gctr.z); fade *= fade;
-    a *= fade;
-    if (a < 0.004) discard;
-    return float4(col, a);
+    // Alpha reaches zero continuously. A hard discard threshold converts the
+    // projected radial fade boundary into isolated on/off pixels at the horizon.
+    return float4(col, saturate(a * fade));
 }
 )";
 struct FGridCb { FMat4 view_proj; FVec4 gctr; };
@@ -5227,23 +5234,15 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射 (ortho3d)
     const FVec3 eye = Cam3DEye(h);
     const FMat4 vp_nojit = cam.ViewProjection();
-    // Volumetric clouds already own a world/wind-aware temporal reconstruction.
-    // The global TAA motion buffer only describes opaque meshes, so cloud pixels
-    // would otherwise be reprojected as zero-motion/far-depth background and
-    // accumulate a second, incorrect history.  Until the cloud resolve exports
-    // a composition mask + motion field, keep global TAA (including its Halton
-    // jitter) off whenever animated clouds are requested.  The normal High
-    // presets retain MSAA/CAS for geometry in this mode.
-    const bool animatedCloudsRequested =
-        h.q_cloud_coverage > 0.001f && !h.ortho3d;
-
     // TAA: 透視時のみ Halton サブピクセルジッタを毎フレーム与える (color+depth+normal+SS が同じ vp で整合)。
     // TAA history reproject だけは «jitter 無し» の vp/prev で行う (jitter が reproject を汚さないように)。
+    // 雲は no-jitter ray + 独自 TSR で resolve し、後段で ResolvedDepth の alpha を
+    // reactive mask として渡す。したがって global TAA はジオメトリへ常時使いつつ、
+    // 雲画素だけ current 100% にできる (二重 temporal history / ghost を回避)。
     FMat4 vp = vp_nojit;
     const bool taaOn =
         h.q_taa_on && !h.ortho3d &&
-        h.width > 0 && h.height > 0 &&
-        !animatedCloudsRequested;
+        h.width > 0 && h.height > 0;
     if (taaOn) {
         const u32 fi = (h.taa_frame % 16u) + 1u;         // Halton は i>=1
         const float jx = (HaltonSeq(fi, 2u) - 0.5f) * 2.0f / static_cast<float>(h.width);
@@ -6195,8 +6194,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             pp.taa_depth_texture = h.renderer.DepthBuffer();
             pp.taa_view_proj_no_jitter      = vp_nojit;
             pp.taa_prev_view_proj_no_jitter = h.prev_vp_nojit;
+            pp.taa_camera_position          = eye;
             // motion vector があれば depth reproject の代わりに使う (動く mesh も ghost せず追従)。
             if (h.mv_computed) pp.taa_motion_texture = h.mv3d.OutputTexture();
+            // 雲の RG32F resolved depth は G=coverage。雲自身の temporal resolve を
+            // global history へ再投入せず、周囲のジオメトリだけ TAA する。
+            if (cloudsActive) pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth();
         }
         {
             editor_profiler::FCpuScope postScope(

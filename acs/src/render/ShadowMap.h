@@ -318,6 +318,9 @@ private:
     /** 確保済みの cascade 数。 */
     u32                     m_CascadeCount = 1;
 
+    /** Init 時に確保した atlas/CB の cascade 容量。single fallback 後の CSM 復帰に使う。 */
+    u32                     m_CascadeCapacity = 1;
+
     u32                     m_CurrentCascade = 0;
     u32                     m_CurrentCasters[kMaxCascades] = {};
     u32                     m_CasterDrawCounts[kMaxCascades] = {};

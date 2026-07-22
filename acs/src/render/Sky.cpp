@@ -728,6 +728,16 @@ void cloudLightBasis(
         signY*b);
     lightBitangent=cross(sun,lightTangent);
 }
+// The Frisvad basis above is orthonormal, so |sun + tangentOffset*a| is
+// analytically sqrt(1+a*a). Avoiding a three-component dot in normalize()
+// preserves the exact cone sample direction with less work in every dense
+// light probe.
+float3 cloudConeDirection(
+    float3 sun,float3 lightTangent,float3 lightBitangent,
+    float coneSin,float coneCos,float coneAngle){
+    float3 lateral=coneCos*lightTangent+coneSin*lightBitangent;
+    return (sun+lateral*coneAngle)*rsqrt(1.0+coneAngle*coneAngle);
+}
 
 static const float CLOUD_PLANET_RADIUS=6360000.0;
 // The experimental far-tail cache is deliberately compiled out of the main
@@ -959,7 +969,7 @@ struct CloudMacroSample {
     float4 weather;
     float2 curl;
     float baseNoise;
-    float profile;
+    float weatherMask;
     float profileWeight;
     float profileShape;
     float height;
@@ -971,20 +981,20 @@ CloudMacroSample sampleCloudMacro(
     macro.weather=float4(0,0,0,0);
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
-    macro.profile=0.0;
+    macro.weatherMask=0.0;
     macro.profileWeight=0.0;
     macro.profileShape=0.0;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
-    float weatherMask=cloudWeatherMask(
+    macro.weatherMask=cloudWeatherMask(
         macro.weather,weatherCoverage);
-    if(weatherMask>0.001){
+    if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
-        macro.profile=cloudProfile(
+        float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
-        if(macro.profile>0.001){
-            macro.profileWeight=smoothstep(
-                0.02,0.32,macro.profile);
+        macro.profileWeight=smoothstep(
+            0.02,0.32,sampledProfile);
+        if(macro.profileWeight>0.0){
             macro.profileShape=pow(macro.profileWeight,0.65);
             macro.curl=cloudCurlOffset(p);
             sampleUvw=cloudUVW(
@@ -1000,20 +1010,20 @@ CloudMacroSample sampleCloudMacroLighting(
     macro.weather=float4(0,0,0,0);
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
-    macro.profile=0.0;
+    macro.weatherMask=0.0;
     macro.profileWeight=0.0;
     macro.profileShape=0.0;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
-    float weatherMask=cloudWeatherMask(
+    macro.weatherMask=cloudWeatherMask(
         macro.weather,weatherCoverage);
-    if(weatherMask>0.001){
+    if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
-        macro.profile=cloudProfile(
+        float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
-        if(macro.profile>0.001){
-            macro.profileWeight=smoothstep(
-                0.02,0.32,macro.profile);
+        macro.profileWeight=smoothstep(
+            0.02,0.32,sampledProfile);
+        if(macro.profileWeight>0.0){
             macro.profileShape=pow(macro.profileWeight,0.65);
             macro.curl=cloudCurlOffset(p);
             macro.baseNoise=cloudBaseShapeLighting(
@@ -1037,19 +1047,19 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(
     macro.weather=slowWeather;
     macro.curl=slowCurl;
     macro.baseNoise=0.0;
-    macro.profile=0.0;
+    macro.weatherMask=0.0;
     macro.profileWeight=0.0;
     macro.profileShape=0.0;
     macro.height=0.0;
-    float weatherMask=cloudWeatherMask(
+    macro.weatherMask=cloudWeatherMask(
         macro.weather,weatherCoverage);
-    if(weatherMask>0.001){
+    if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
-        macro.profile=cloudProfile(
+        float sampledProfile=cloudProfile(
             macro.height,macro.weather.g,macro.weather.b);
-        if(macro.profile>0.001){
-            macro.profileWeight=smoothstep(
-                0.02,0.32,macro.profile);
+        macro.profileWeight=smoothstep(
+            0.02,0.32,sampledProfile);
+        if(macro.profileWeight>0.0){
             macro.profileShape=pow(macro.profileWeight,0.65);
             // Weather and curl are shared with the view sample, so their UV
             // transform is affine across the short light cone.  Reconstruct
@@ -1066,9 +1076,8 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(
 }
 float cloudShapeFromMacro(CloudMacroSample macro,float coverage){
     float shapeResult=0.0;
-    float weatherMask=cloudWeatherMask(macro.weather,coverage);
-    if(weatherMask>0.001){
-        if(macro.profile>0.001){
+    if(macro.weatherMask>0.001){
+        if(macro.profileWeight>0.0){
             // Use the Nubis/Horizon-style height gradient primarily as a shape
             // threshold, then close only its extreme tail with profileWeight.
             // Applying the raw profile after thresholding creates horizontal
@@ -1079,7 +1088,7 @@ float cloudShapeFromMacro(CloudMacroSample macro,float coverage){
             shapeResult=remapc(
                 macro.baseNoise,heightThreshold,
                 min(heightThreshold+0.22,0.98),0.0,1.0)
-                       *weatherMask*macro.profileWeight;
+                       *macro.weatherMask*macro.profileWeight;
         }
     }
     return shapeResult;
@@ -1093,11 +1102,11 @@ float cloudShape(float3 p, float coverage){
 }
 // 詳細表示用 density: macro weather + 高さ依存の edge erosion。
 float cloudDensityFromMacro(
-    float3 p,CloudMacroSample macro,float coverage,float detailWeight){
+    float3 p,CloudMacroSample macro,float coverage,
+    float weatherMask,float detailWeight){
     float densityResult=0.0;
-    float weatherMask=cloudWeatherMask(macro.weather,coverage);
     if(weatherMask>0.001){
-        if(macro.profile>0.001){
+        if(macro.profileWeight>0.0){
             float heightThreshold=lerp(
                 0.78,cloudThr(min(coverage,0.72)),
                 macro.profileShape);
@@ -1147,7 +1156,7 @@ float cloudDensity(float3 p, float coverage, float detailWeight){
     float densityResult=0.0;
     CloudMacroSample macro=sampleCloudMacroLighting(p,coverage);
     densityResult=cloudDensityFromMacro(
-        p,macro,coverage,detailWeight);
+        p,macro,coverage,macro.weatherMask,detailWeight);
     return densityResult;
 }
 
@@ -1188,14 +1197,13 @@ float traceCloudShadowPattern(
             patternJitter+float(l)*0.61803398875);
         float coneSin,coneCos;
         sincos(conePhi,coneSin,coneCos);
-        float3 coneDir=normalize(
-            sun+(coneCos*lightTangent
-                +coneSin*lightBitangent)*coneAngle);
+        float3 coneDir=cloudConeDirection(
+            sun,lightTangent,lightBitangent,
+            coneSin,coneCos,coneAngle);
         lp+=coneDir*lightStep;
         CloudMacroSample lightMacro=
             sampleCloudMacroLighting(lp,coverage);
-        float lightDensity=cloudShapeFromMacro(
-            lightMacro,coverage);
+        float lightDensity=cloudShapeFromMacro(lightMacro,coverage);
         lightDepth+=lightDensity*lightStep*layer.w;
         lightStep*=1.65;
     }
@@ -1359,7 +1367,50 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float3 localUp=normalize(camPos.xyz-cloudPlanetCenter());
     float signedElevation=dot(dir,localUp);
     float cameraAltitude=cloudAltitude(camPos.xyz);
-    if(cameraAltitude<layer.x && signedElevation < -0.002){
+    // The planet/ground occlusion boundary has no rasterizer coverage because
+    // clouds are traced in compute. A hard angular compare therefore exposes
+    // one quarter-resolution occupancy decision as a white, stair-stepped row
+    // against the lower sky hemisphere. Integrate the projected full-resolution
+    // pixel footprint around the same physical cutoff; this is analytic edge
+    // coverage, not a post blur, and remains stable across TSR phases.
+    float groundHorizonCoverage=1.0;
+    if(cameraAltitude<layer.x) {
+        // Tangent elevation of the physical ground sphere as seen from the
+        // current observer. At editor ground level this is exactly zero and
+        // therefore agrees with the lower-sky hemisphere boundary; at flight
+        // altitude it correctly permits distant clouds below local horizontal.
+        float observerAltitude=max(cameraAltitude,0.0);
+        float groundRadiusRatio=CLOUD_PLANET_RADIUS/
+            (CLOUD_PLANET_RADIUS+observerAltitude);
+        float groundCutoff=-sqrt(saturate(
+            1.0-groundRadiusRatio*groundRadiusRatio));
+        if(signedElevation<groundCutoff-0.02) {
+            groundHorizonCoverage=0.0;
+        } else if(signedElevation<groundCutoff+0.02) {
+            // Measure the actual adjacent full-resolution ray instead of
+            // assuming a fixed FOV. Only the narrow horizon band pays this
+            // second matrix projection/normalization.
+            float verticalOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;
+            float2 adjacentUv=(float2(rayPixel)+
+                float2(0.5,0.5+verticalOffset))/rayDimensions;
+            float4 adjacentClip=float4(
+                adjacentUv.x*2-1,-(adjacentUv.y*2-1),1,1);
+            float4 adjacentWp=mul(adjacentClip,invViewProj);
+            adjacentWp/=adjacentWp.w;
+            float3 adjacentDir=normalize(adjacentWp.xyz-camPos.xyz);
+            float adjacentElevation=dot(adjacentDir,localUp);
+            float elevationFootprint=max(
+                abs(adjacentElevation-signedElevation),1e-6);
+            float coverageWidth=elevationFootprint*2.0;
+            // Conservative one-sided coverage prevents an occupied low-res tap
+            // from leaking white cloud radiance into the ground hemisphere.
+            groundHorizonCoverage=smoothstep(
+                groundCutoff,
+                groundCutoff+coverageWidth,
+                signedElevation);
+        }
+    }
+    if(groundHorizonCoverage<=0.001){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
@@ -1377,6 +1428,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // The curved shell has a finite, valid horizon interval.  Keep that far
     // layer visible and let atmospheric perspective soften it instead of
     // cutting away the lowest twelve degrees of the sky.
+    // Coverage is resolved once at the exact full-resolution output pixel.
+    // Applying it here as well squares the edge response whenever this traced
+    // phase is scheduled and turns a two-pixel analytic ramp into a hard,
+    // sparkling one-pixel line. The early reject above still prevents any
+    // work for rays that are physically below the ground tangent.
     float hFade=rangeFade;
     if(t1<=t0 || hFade<=0.001){
         cloudOut[pixelQ]=float4(0,0,0,0);
@@ -1401,7 +1457,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // The integer PCG hash also avoids IGN's diagonal screen-space correlation.
     // Non-TSR modes retain the same long translated/rotated time sequence.
     uint jitterFrame=(uint)temporal.z;
-    uint jitterSequence=temporal.w>3.5?0u:jitterFrame;
+    // A TSR pixel is refreshed only once per complete sixteen-phase cycle.
+    // Advance its low-discrepancy sample at that cadence, then accumulate the
+    // result in the resolve pass. Holding one random value forever leaves its
+    // Monte-Carlo error as static salt-and-pepper grain; advancing every frame
+    // instead changes one phase cohort at a time without allowing convergence.
+    uint jitterSequence=temporal.w>3.5?(jitterFrame>>4u):jitterFrame;
     uint2 jitterPixel=rayPixel+uint2(
         (jitterSequence*47u)%131u,
         (jitterSequence*17u)%127u);
@@ -1414,6 +1475,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float3 lightTangent,lightBitangent;
     cloudLightBasis(sun,lightTangent,lightBitangent);
     float baseLightStep=0.012/max(layer.w,1e-4);
+    float occupancyCoverage=saturate(coverage+0.08);
     float transmit=1.0; float3 scatter=float3(0,0,0);
     float depthMoment=0.0;
     float t=t0+jit*coarseStep;
@@ -1423,12 +1485,10 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         // The complete sample position stays in world space.  Subtracting
         // camPos.y here used to drag the cloud layer with editor camera pans.
         float3 p=camPos.xyz+dir*t;
-        float occupancyCoverage=saturate(coverage+0.08);
         float3 viewMacroUvw;
         CloudMacroSample macro=sampleCloudMacro(
             p,occupancyCoverage,viewMacroUvw);
-        float shape=cloudShapeFromMacro(
-            macro,occupancyCoverage);
+        float shape=cloudShapeFromMacro(macro,occupancyCoverage);
         if(shape<=0.006){
             if(nearDensity && t<refineUntil) {
                 t+=fineStep;
@@ -1457,8 +1517,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         float detailEnd=80000.0;
         float detailWeight=lerp(
             0.90,0.30,smoothstep(detailStart,detailEnd,t));
+        float viewWeatherMask=cloudWeatherMask(macro.weather,coverage);
         float dens=cloudDensityFromMacro(
-            p,macro,coverage,detailWeight)*density;
+            p,macro,coverage,viewWeatherMask,detailWeight)*density;
         if(dens>0.0015){
             // 指数的に間隔を広げる sample で layer 全体を覆い、2 番目の Beer term で
             // 高次 scattering を近似する。
@@ -1491,16 +1552,17 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // pressure and branch bookkeeping.
             [loop] for(int l=0;l<3;l++){
                 float coneAngle=0.010*float(l+1);
-                float3 coneDir=normalize(
-                    sun+(coneCos*lightTangent
-                        +coneSin*lightBitangent)*coneAngle);
+                float3 coneDir=cloudConeDirection(
+                    sun,lightTangent,lightBitangent,
+                    coneSin,coneCos,coneAngle);
                 lp+=coneDir*lightStep;
                 CloudMacroSample lightMacro=
                     sampleCloudMacroLightingFromSlowFields(
                         lp,coverage,sharedLightWeather,sharedLightCurl,
                         p,viewMacroUvw,macro.height,sharedShapeScale);
                 float lightDensity=cloudDensityFromMacro(
-                    lp,lightMacro,coverage,0.65);
+                    lp,lightMacro,coverage,
+                    lightMacro.weatherMask,0.65);
                 if(l==0) nearLightDensity=lightDensity;
                 lightDepth+=lightDensity*lightStep*layer.w;
                 // Once both the direct Beer term and the broad multiple-
@@ -1539,9 +1601,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             if(!lightTerminated && !cachedFarTail){
                 [loop] for(int l=3;l<8;l++){
                     float coneAngle=0.010*float(l+1);
-                    float3 coneDir=normalize(
-                        sun+(coneCos*lightTangent
-                            +coneSin*lightBitangent)*coneAngle);
+                    float3 coneDir=cloudConeDirection(
+                        sun,lightTangent,lightBitangent,
+                        coneSin,coneCos,coneAngle);
                     lp+=coneDir*lightStep;
                     CloudMacroSample lightMacro=
                         sampleCloudMacroLightingFromSlowFields(
@@ -1653,6 +1715,7 @@ SamplerState cloudLow_sampler     : register(s0);
 SamplerState cloudDepth_sampler   : register(s1);
 SamplerState historyColor_sampler : register(s2);
 SamplerState historyDepth_sampler : register(s3);
+static const float CLOUD_PLANET_RADIUS=6360000.0;
 float2 LowUv(int2 q) {
     q=clamp(q,int2(0,0),int2(dims.xy)-1);
     return (float2(q)+0.5)/dims.xy;
@@ -1721,7 +1784,109 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float2 nativeDepth=float2(
         (refC.a>0.003 && refD.x<=250000.0)?refD.x:250001.0,
         saturate(refC.a));
+    // The stable-history path may skip the expensive bilateral gather, but it
+    // must still flow through the exact full-resolution ground cutoff below.
+    // Keep the accepted history in the same premultiplied representation used
+    // by the ordinary resolve path instead of publishing it early.
+    bool stableHistoryResolved=false;
+    float4 resolved=float4(0,0,0,0);
+    float2 resolvedDepth=float2(250001.0,0.0);
 
+    // The steady-state TSR resolve does not need a nine-tap spatial fallback
+    // for the interior of a stable cloud. Reproject those pixels first, while
+    // retaining the complete bilateral path for empty sky, silhouettes,
+    // disocclusions, camera motion and uncertain coverage. In particular,
+    // empty pixels must reach the gather: one low texel represents a 4x4 phase
+    // block and cannot conservatively classify a horizon edge by itself.
+    bool stableUnscheduled=temporal.x>0.5 && temporalSuperRes &&
+        !scheduled && worldOrigin.w>0.5;
+    if(stableUnscheduled) {
+        float4 sameScreenColor=historyColor.Load(int3(tid.xy,0));
+        float2 sameScreenDepth=historyDepth.Load(int3(tid.xy,0));
+        bool currentDefinitelyEmpty=refC.a<=0.003 && refD.x>250000.0;
+        if(currentDefinitelyEmpty && sameScreenColor.a<=0.003) {
+            // A single low texel cannot classify a 4x4 TSR block. Confirm a
+            // full-resolution 5x5 cross/corner neighbourhood from accumulated
+            // history before taking the cheap empty-sky path. Horizon and
+            // natural cloud silhouettes therefore always reach the bilateral
+            // reconstruction below.
+            float maximumHistoryAlpha=0.0;
+            [unroll] for(int emptyY=-1;emptyY<=1;emptyY++) {
+                [unroll] for(int emptyX=-1;emptyX<=1;emptyX++) {
+                    int2 emptyPixel=clamp(
+                        int2(tid.xy)+int2(emptyX,emptyY)*2,
+                        int2(0,0),int2(dims.zw)-1);
+                    maximumHistoryAlpha=max(
+                        maximumHistoryAlpha,
+                        historyColor.Load(int3(emptyPixel,0)).a);
+                }
+            }
+            if(maximumHistoryAlpha<=0.003) {
+                historyColorOut[tid.xy]=float4(0,0,0,0);
+                historyDepthOut[tid.xy]=float2(250001.0,0.0);
+                return;
+            }
+        }
+
+        bool seedValid=sameScreenDepth.x<=250000.0 &&
+            sameScreenDepth.y>0.08 && sameScreenColor.a>0.08 &&
+            abs(sameScreenColor.a-sameScreenDepth.y)<0.08;
+        bool currentInterior=refC.a>0.12 && refD.x<=250000.0 &&
+            abs(refC.a-sameScreenColor.a)<0.42;
+        if(seedValid && currentInterior) {
+            float4 stableClip=float4(
+                uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
+            float4 stableFarP=mul(stableClip,invViewProj);
+            float stableInvW=abs(stableFarP.w)>1e-6
+                ?rcp(stableFarP.w):0.0;
+            float3 stableRay=normalize(
+                stableFarP.xyz*stableInvW-camPos.xyz);
+            float3 stableWorldP=
+                camPos.xyz+stableRay*sameScreenDepth.x;
+            float stableWindDelta=params.z-temporal.y;
+            float3 stablePrevWorldP=stableWorldP-float3(
+                stableWindDelta*0.9284767,0.0,
+                stableWindDelta*0.3713907);
+            float4 stablePrevClip=mul(
+                float4(stablePrevWorldP,1.0),prevViewProj);
+            if(stablePrevClip.w>1e-5) {
+                float2 stablePrevNdc=stablePrevClip.xy/stablePrevClip.w;
+                float2 stableHistoryUv=float2(
+                    stablePrevNdc.x*0.5+0.5,
+                    -stablePrevNdc.y*0.5+0.5);
+                bool stableOnScreen=all(stableHistoryUv>=0.001) &&
+                    all(stableHistoryUv<=0.999);
+                if(stableOnScreen) {
+                    int2 stableHistoryPixel=clamp(
+                        int2(stableHistoryUv*dims.zw),int2(0,0),
+                        int2(dims.zw)-1);
+                    float4 stableHist=historyColor.Load(
+                        int3(stableHistoryPixel,0));
+                    float2 stableHistD=historyDepth.Load(
+                        int3(stableHistoryPixel,0));
+                    float stableExpectedDepth=length(
+                        stablePrevWorldP-prevCamPos.xyz);
+                    float stableDepthTolerance=max(
+                        0.30,stableExpectedDepth*0.01);
+                    bool stableDepthOk=stableHistD.x<=250000.0 &&
+                        stableHistD.y>0.08 &&
+                        abs(stableHistD.x-stableExpectedDepth)<
+                            stableDepthTolerance;
+                    bool stableAlphaOk=stableHist.a>0.08 &&
+                        abs(stableHist.a-sameScreenDepth.y)<0.42;
+                    if(stableDepthOk && stableAlphaOk) {
+                        resolved=float4(
+                            stableHist.rgb*stableHist.a,stableHist.a);
+                        resolvedDepth=float2(
+                            sameScreenDepth.x,stableHist.a);
+                        stableHistoryResolved=true;
+                    }
+                }
+            }
+        }
+    }
+
+    if(!stableHistoryResolved) {
     float3 premulSum=0.0;
     float alphaSum=0.0, weightSum=0.0, depthSum=0.0, depthWeight=0.0;
     float4 neighborhoodMin=float4(1e6,1e6,1e6,1e6);
@@ -1746,8 +1911,16 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             bool tapEmpty=c.a<0.008 || d.x>250000.0;
             float bilateral;
             if(refEmpty || tapEmpty) {
-                if(refEmpty!=tapEmpty) continue;
-                bilateral=1.0;
+                if(refEmpty!=tapEmpty) {
+                    // Empty/occupied taps define a volumetric coverage edge,
+                    // not an unrelated surface. Keep strong cloud banks sharp,
+                    // while allowing low-alpha wisps and the analytic horizon
+                    // fade to reconstruct continuously instead of snapping to
+                    // the nearest quarter-resolution occupancy block.
+                    bilateral=exp(-max(refC.a,c.a)*5.0);
+                } else {
+                    bilateral=1.0;
+                }
             }
             else {
                 float depthScale=max(0.12,min(refD.x,d.x)*0.045);
@@ -1780,8 +1953,8 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
         ? ((refC.a>0.003 && refD.x<=250000.0)?refD.x:250001.0)
         : (depthWeight>1e-5 ? depthSum/depthWeight : 250001.0);
     float4 current=float4(curPremul,curA);
-    float4 resolved=current;
-    float2 resolvedDepth=nativeMarch
+    resolved=current;
+    resolvedDepth=nativeMarch
         ?nativeDepth:float2(curDepth,curA);
     float reprojectionDepth=curDepth;
     float2 seedDepth=float2(curDepth,curA);
@@ -1850,10 +2023,15 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                     float edgeConfidence=saturate(abs(refC.a-0.5)*2.0);
                     if(temporalSuperRes) {
                         if(scheduled) {
-                            // Refresh one exact subpixel with a dominant current
-                            // contribution; the small clamped history term only
-                            // stabilizes stochastic ray jitter.
-                            resolved=lerp(histPacked,current,0.92);
+                            // Each exact subpixel now advances a low-discrepancy
+                            // sample once per sixteen-phase cycle. Accumulate a
+                            // wider stationary window so stochastic lighting and
+                            // shell-edge errors converge instead of becoming
+                            // static stipple; keep motion responsive.
+                            float currentWeight=
+                                worldOrigin.w>0.5?0.125:0.70;
+                            resolved=lerp(
+                                histPacked,current,currentWeight);
                             resolvedDepth=float2(curDepth,curA);
                         } else {
                             // Preserve native detail accumulated by the other
@@ -1887,8 +2065,161 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             resolvedDepth=float2(250001.0,0.0);
         }
     }
+    }
 
     float outA=saturate(resolved.a);
+    bool possibleGroundEdge=outA>1e-5 ||
+        (refC.a>0.003 && refD.x<=250000.0);
+    if(possibleGroundEdge) {
+        // Enforce the analytic planet/ground horizon at the exact output pixel.
+        // Quarter-resolution current taps may straddle this boundary, so doing
+        // the final conservative coverage here prevents bilateral reconstruction
+        // from reintroducing a one-pixel white fringe into the ground hemisphere.
+        float3 cameraLocal=camPos.xyz-worldOrigin.xyz;
+        float cameraRadialY=max(
+            CLOUD_PLANET_RADIUS+cameraLocal.y,1.0);
+        float cameraQ=dot(cameraLocal.xz,cameraLocal.xz)/cameraRadialY;
+        float outputCameraAltitude=cameraLocal.y+
+            cameraQ*(0.5-cameraQ/(8.0*cameraRadialY));
+        if(outputCameraAltitude<layer.x) {
+            float3 outputUp=normalize(
+                camPos.xyz-(worldOrigin.xyz+
+                    float3(0.0,-CLOUD_PLANET_RADIUS,0.0)));
+            float4 outputClip=float4(
+                uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
+            float4 outputFarP=mul(outputClip,invViewProj);
+            outputFarP/=outputFarP.w;
+            float3 outputRay=normalize(outputFarP.xyz-camPos.xyz);
+            float outputElevation=dot(outputRay,outputUp);
+            float observerAltitude=max(outputCameraAltitude,0.0);
+            float radiusRatio=CLOUD_PLANET_RADIUS/
+                (CLOUD_PLANET_RADIUS+observerAltitude);
+            float outputGroundCutoff=-sqrt(saturate(
+                1.0-radiusRatio*radiusRatio));
+            float outputGroundCoverage=1.0;
+            float outputCoveragePixels=1000.0;
+            float outputCoverageWidth=1e-6;
+            if(outputElevation<=outputGroundCutoff) {
+                outputGroundCoverage=0.0;
+            } else if(outputElevation<outputGroundCutoff+0.02) {
+                float2 outputAdjacentUv=(float2(tid.xy)+
+                    float2(0.5,tid.y+1u<fullH?1.5:-0.5))/dims.zw;
+                float4 outputAdjacentClip=float4(
+                    outputAdjacentUv.x*2.0-1.0,
+                    -(outputAdjacentUv.y*2.0-1.0),1.0,1.0);
+                float4 outputAdjacentFarP=mul(
+                    outputAdjacentClip,invViewProj);
+                outputAdjacentFarP/=outputAdjacentFarP.w;
+                float adjacentOutputElevation=dot(
+                    normalize(outputAdjacentFarP.xyz-camPos.xyz),outputUp);
+                outputCoverageWidth=max(
+                    abs(adjacentOutputElevation-outputElevation)*2.0,1e-6);
+                outputCoveragePixels=(outputElevation-outputGroundCutoff)/
+                    max(outputCoverageWidth*0.5,1e-6);
+                outputGroundCoverage=smoothstep(
+                    outputGroundCutoff,
+                    outputGroundCutoff+outputCoverageWidth,
+                    outputElevation);
+
+                // At the planet tangent a projected cloud texel is much
+                // smaller than the 4x4 trace footprint. The 3x3 bilateral
+                // fallback can carry one such footprint across two low-res
+                // rows, so inspect the complete eight-pixel influence band
+                // using already accumulated exact full-res samples.
+                // samples on the skyward side. Depth validation rejects a
+                // different cloud layer. Normal pixels keep the narrow
+                // analytic blend, while isolated dark/empty phase samples may
+                // use the wider band; the rest of the silhouette is untouched.
+                if(worldOrigin.w>0.5 && outputCoveragePixels<8.5) {
+                    int skywardStep=adjacentOutputElevation<outputElevation
+                        ?-1:1;
+                    float3 edgePremul=0.0;
+                    float edgeAlpha=0.0;
+                    float edgeWeight=0.0;
+                    float edgeDepth=0.0;
+                    float edgeDepthWeight=0.0;
+                    float referenceDepth=resolvedDepth.x<=250000.0
+                        ?resolvedDepth.x:refD.x;
+                    [unroll] for(int edgeY=2;edgeY<=3;edgeY++) {
+                        [unroll] for(int edgeX=-1;edgeX<=1;edgeX++) {
+                            int2 edgePixel=clamp(
+                                int2(tid.xy)+int2(
+                                    edgeX,skywardStep*edgeY),
+                                int2(0,0),int2(dims.zw)-1);
+                            float4 edgeColor=historyColor.Load(
+                                int3(edgePixel,0));
+                            float2 edgeD=historyDepth.Load(
+                                int3(edgePixel,0));
+                            bool edgeValid=edgeColor.a>0.003 &&
+                                edgeD.y>0.003 && edgeD.x<=250000.0;
+                            if(edgeValid) {
+                                float depthTolerance=max(
+                                    100.0,min(referenceDepth,edgeD.x)*0.08);
+                                float depthBilateral=referenceDepth<=250000.0
+                                    ?exp(-abs(edgeD.x-referenceDepth)/
+                                        depthTolerance)
+                                    :1.0;
+                                float spatial=edgeX==0?1.0:0.75;
+                                float edgeW=spatial*depthBilateral;
+                                edgePremul+=edgeColor.rgb*edgeColor.a*edgeW;
+                                edgeAlpha+=edgeColor.a*edgeW;
+                                edgeWeight+=edgeW;
+                                edgeDepth+=edgeD.x*edgeColor.a*edgeW;
+                                edgeDepthWeight+=edgeColor.a*edgeW;
+                            }
+                        }
+                    }
+                    if(edgeWeight>1e-5) {
+                        float reconstructedAlpha=saturate(
+                            edgeAlpha/edgeWeight);
+                        float4 reconstructed=float4(
+                            edgePremul/edgeWeight,reconstructedAlpha);
+                        float analyticEdgeBlend=1.0-smoothstep(
+                            0.75,2.5,outputCoveragePixels);
+                        float3 lumaWeights=float3(
+                            0.2126,0.7152,0.0722);
+                        float reconstructedLuma=dot(
+                            edgePremul/max(edgeAlpha,1e-5),lumaWeights);
+                        float currentLuma=outA>1e-5
+                            ?dot(resolved.rgb/outA,lumaWeights):0.0;
+                        float relativeLumaDeficit=saturate(
+                            (reconstructedLuma-currentLuma)/
+                            max(reconstructedLuma,0.05));
+                        float relativeAlphaDeficit=saturate(
+                            (reconstructedAlpha-outA)/
+                            max(reconstructedAlpha,0.05));
+                        float isolatedOutlier=smoothstep(
+                            0.22,0.48,max(
+                                relativeLumaDeficit,
+                                relativeAlphaDeficit));
+                        float extendedEdgeBand=1.0-smoothstep(
+                            2.5,8.5,outputCoveragePixels);
+                        float edgeBlend=max(
+                            analyticEdgeBlend,
+                            isolatedOutlier*extendedEdgeBand);
+                        resolved=lerp(resolved,reconstructed,edgeBlend);
+                        outA=saturate(resolved.a);
+                        if(edgeDepthWeight>1e-5) {
+                            float reconstructedDepth=
+                                edgeDepth/edgeDepthWeight;
+                            resolvedDepth.x=resolvedDepth.x<=250000.0
+                                ?lerp(resolvedDepth.x,
+                                    reconstructedDepth,edgeBlend)
+                                :reconstructedDepth;
+                        }
+                    }
+                }
+            }
+            resolved.rgb*=outputGroundCoverage;
+            outA*=outputGroundCoverage;
+            resolvedDepth.y=outA;
+            if(outA<=0.001) {
+                resolved.rgb=0.0;
+                outA=0.0;
+                resolvedDepth=float2(250001.0,0.0);
+            }
+        }
+    }
     historyColorOut[tid.xy]=float4(
         outA>1e-5 ? resolved.rgb/outA : float3(0,0,0),outA);
     historyDepthOut[tid.xy]=resolvedDepth;
