@@ -17,7 +17,7 @@ namespace AcsEditor;
 public partial class MaterialEditorWindow : Window
 {
     private readonly Func<IntPtr> _engineProvider;
-    private readonly string _path;
+    private string _path;
     private bool _loading = true;  // XAML パース中 (非0 Minimum のスライダ強制で発火するハンドラ) を抑止
     private bool _syncing;     // スライダ ↔ テキストの相互更新ループ防止
     private int  _kind;        // 0 = Lit/PBR, 1 = Effect
@@ -29,6 +29,8 @@ public partial class MaterialEditorWindow : Window
     private bool _closeInProgress;
     private bool _lifetimeEnded;
     private bool _previewTimerSubscribed;
+    private bool _assetPathAvailable = true;
+    private bool _assetPathMutationSuspended;
 
     public MaterialEditorWindow(IntPtr engine, string acsmatPath)
         : this(() => engine, acsmatPath)
@@ -57,11 +59,68 @@ public partial class MaterialEditorWindow : Window
         InitializeGraphEditor();
     }
 
+    internal string? CurrentAssetPath => _assetPathAvailable ? _path : null;
+
+    private bool CanAccessAssetPath =>
+        _assetPathAvailable && !_assetPathMutationSuspended && !_lifetimeEnded;
+
+    internal bool SuspendForAssetPathMutation()
+    {
+        if (!CanAccessAssetPath || !IsEnabled) return false;
+        _assetPathMutationSuspended = true;
+        _previewTimer.Stop();
+        IsEnabled = false;
+        return true;
+    }
+
+    internal void ResumeAfterAssetPathMutation()
+    {
+        if (!_assetPathMutationSuspended) return;
+        _assetPathMutationSuspended = false;
+        if (!_assetPathAvailable || _lifetimeEnded) return;
+        IsEnabled = true;
+        RefreshPreview();
+    }
+
+    internal void DetachFromAssetPath(string status)
+    {
+        // Invalidate the path first. Even if a WPF lifetime callback fails below, every
+        // save/reload path remains gated and cannot recreate the old asset or sidecar.
+        _assetPathAvailable = false;
+        _assetPathMutationSuspended = false;
+        try { _previewTimer.Stop(); }
+        catch { }
+        try { IsEnabled = false; }
+        catch { }
+        try { StatusText.Text = status; }
+        catch { }
+        if (_lifetimeEnded) return;
+        try { Close(); }
+        catch { }
+    }
+
+    internal bool ApplyAssetPathsChanged(AssetPathsChangedEventArgs change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (!_assetPathAvailable || _lifetimeEnded) return false;
+        if (change.TryRemapPath(_path, out string remappedPath))
+        {
+            _path = remappedPath;
+            FileLabel.Text = Path.GetFileName(remappedPath);
+            Title = "ACS Material Editor - " + Path.GetFileName(remappedPath);
+            return true;
+        }
+        if (!change.IsDeletedPath(_path)) return false;
+
+        DetachFromAssetPath("Asset deleted - editor detached");
+        return true;
+    }
+
     private IntPtr LiveEngine
     {
         get
         {
-            if (_closeInProgress || _lifetimeEnded || !IsLoaded) return IntPtr.Zero;
+            if (_closeInProgress || !CanAccessAssetPath || !IsLoaded) return IntPtr.Zero;
             try { return _engineProvider(); }
             catch { return IntPtr.Zero; }
         }
@@ -69,6 +128,7 @@ public partial class MaterialEditorWindow : Window
 
     private void ReloadMaterialInViewport()
     {
+        if (!CanAccessAssetPath) return;
         IntPtr engine = LiveEngine;
         if (engine != IntPtr.Zero)
             EngineInterop.acs_editor_reload_material(engine, _path);
@@ -77,13 +137,13 @@ public partial class MaterialEditorWindow : Window
     private void OnPreviewTimerTick(object? sender, EventArgs e)
     {
         _previewTimer.Stop();
-        if (!_closeInProgress && !_lifetimeEnded && IsLoaded)
+        if (!_closeInProgress && CanAccessAssetPath && IsLoaded)
             RenderPreviewNow();
     }
 
     private void OnMaterialEditorLoaded(object sender, RoutedEventArgs e)
     {
-        if (_lifetimeEnded) return;
+        if (!CanAccessAssetPath) return;
         _closeInProgress = false;
         RefreshPreview();
     }
@@ -293,7 +353,7 @@ public partial class MaterialEditorWindow : Window
 
     private void SavePbrAndReload()
     {
-        if (_loading) return;
+        if (_loading || !CanAccessAssetPath) return;
         string name = (NameBox.Text ?? "").Trim();
         if (name.Length == 0) name = Path.GetFileNameWithoutExtension(_path);
         int ok = EngineInterop.acs_editor_material_save_pbr(_path, name,
@@ -373,7 +433,7 @@ public partial class MaterialEditorWindow : Window
 
     private void SaveToonAndReload()
     {
-        if (_loading) return;
+        if (_loading || !CanAccessAssetPath) return;
         int ok = EngineInterop.acs_editor_material_save_toon(_path, _shadingMode,
             P(S1R.Text), P(S1G.Text), P(S1B.Text), P(S1Thr.Text, 0.5f),
             P(S2R.Text), P(S2G.Text), P(S2B.Text), P(S2Thr.Text, 0.18f),
@@ -435,7 +495,7 @@ public partial class MaterialEditorWindow : Window
 
     private void SaveExtAndReload()
     {
-        if (_loading) return;
+        if (_loading || !CanAccessAssetPath) return;
         int ok = EngineInterop.acs_editor_material_save_pbr_ext(_path,
             P(ClrCoat.Text), P(CoatRough.Text, 0.1f), P(Aniso.Text),
             P(SpecLvl.Text, 0.5f), P(SpecTint.Text),
@@ -531,7 +591,7 @@ public partial class MaterialEditorWindow : Window
 
     private void RefreshPreview()
     {
-        if (_loading || _closeInProgress || _lifetimeEnded || !IsLoaded) return;
+        if (_loading || _closeInProgress || !CanAccessAssetPath || !IsLoaded) return;
         // Saving and graph edits can emit several events per keystroke.
         // Debounce the deterministic CPU preview until input has been idle briefly.
         _previewTimer.Stop();
@@ -545,13 +605,13 @@ public partial class MaterialEditorWindow : Window
     internal void RenderPreviewImmediatelyForTest()
     {
         _previewTimer.Stop();
-        if (!_closeInProgress && !_lifetimeEnded && IsLoaded)
+        if (!_closeInProgress && CanAccessAssetPath && IsLoaded)
             RenderPreviewNow();
     }
 
     private void RenderPreviewNow()
     {
-        if (_closeInProgress || _lifetimeEnded || !IsLoaded) return;
+        if (_closeInProgress || !CanAccessAssetPath || !IsLoaded) return;
         UpdatePreviewModeText();
         try
         {
@@ -636,7 +696,7 @@ public partial class MaterialEditorWindow : Window
 
     private void SaveAndReload()
     {
-        if (_loading) return;
+        if (_loading || !CanAccessAssetPath) return;
         int effect = EffectBox.SelectedIndex < 0 ? 0 : EffectBox.SelectedIndex;
         string name = (NameBox.Text ?? "").Trim();
         if (name.Length == 0) name = Path.GetFileNameWithoutExtension(_path);

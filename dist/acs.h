@@ -93777,6 +93777,19 @@ public:
     u32 ActiveRippleCount() const noexcept;
 
     /**
+     * Normalized amplitude applied to a disturbance at the supplied age.
+     *
+     * @details Exponential physical damping is combined with a C2-continuous
+     * lifetime tail. The tail occupies the final 35% of the lifetime and
+     * reaches exactly zero with zero first and second derivatives, preventing
+     * displacement, normals, and foam from popping when a slot is released.
+     * This public evaluator also lets editor tooling preview the exact runtime
+     * attenuation curve.
+     */
+    static f32 EvaluateRippleAmplitudeScale(
+        f32 age, f32 lifetime, f32 damping) noexcept;
+
+    /**
      * Replaces all authoring parameters used from the next draw onward.
      *
      * @details Non-finite values fall back to the corresponding default and

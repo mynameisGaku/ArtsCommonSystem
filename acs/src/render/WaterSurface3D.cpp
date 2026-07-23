@@ -958,18 +958,57 @@ void FWaterSurface3D::Update(f32 dt) noexcept {
         const f64 next_age =
             static_cast<f64>(ripple.age) + static_cast<f64>(dt);
         if (next_age >= static_cast<f64>(ripple.lifetime)) {
+            // EvaluateRippleAmplitudeScale reaches zero with zero slope and
+            // curvature at this boundary. The slot can therefore be released
+            // without removing a finite displacement/normal/foam contribution.
+            ripple.age = ripple.lifetime;
+            ripple.amplitude = 0.0f;
             ripple.active = false;
             continue;
         }
         ripple.age = static_cast<f32>(next_age);
-        ripple.amplitude =
-            ripple.initial_amplitude
-            * std::exp(-m_Params.ripple_damping * ripple.age);
-        if (ripple.age >= ripple.lifetime
-            || std::abs(ripple.amplitude) < 0.0015f) {
+        if (ripple.age >= ripple.lifetime) {
+            ripple.age = ripple.lifetime;
+            ripple.amplitude = 0.0f;
             ripple.active = false;
+            continue;
         }
+        const f32 amplitude_scale = EvaluateRippleAmplitudeScale(
+            ripple.age, ripple.lifetime, m_Params.ripple_damping);
+        ripple.amplitude = ripple.initial_amplitude * amplitude_scale;
+        if (amplitude_scale <= 0.0f) ripple.active = false;
     }
+}
+
+f32 FWaterSurface3D::EvaluateRippleAmplitudeScale(
+    f32 age, f32 lifetime, f32 damping) noexcept {
+    if (!std::isfinite(age) || !std::isfinite(lifetime)
+        || !std::isfinite(damping) || lifetime <= 0.0f) {
+        return 0.0f;
+    }
+
+    const f64 safe_age = age > 0.0f ? static_cast<f64>(age) : 0.0;
+    const f64 normalized_age = safe_age / static_cast<f64>(lifetime);
+    if (normalized_age >= 1.0) return 0.0f;
+
+    // Preserve the existing physical exponential response for the first 65%
+    // of the event. Over the final 35%, a quintic smootherstep fades to zero.
+    // Its first and second derivatives are zero at both joins, so height,
+    // analytic gradient (normal), and crest-energy (foam) remain coherent.
+    constexpr f64 kFadeStart = 0.65;
+    constexpr f64 kFadeDuration = 1.0 - kFadeStart;
+    f64 tail = (normalized_age - kFadeStart) / kFadeDuration;
+    if (tail < 0.0) tail = 0.0;
+    if (tail > 1.0) tail = 1.0;
+    const f64 smootherstep =
+        tail * tail * tail * (tail * (tail * 6.0 - 15.0) + 10.0);
+    const f64 lifetime_envelope = 1.0 - smootherstep;
+    const f64 safe_damping = damping > 0.0f
+        ? static_cast<f64>(damping) : 0.0;
+    const f64 physical_damping = std::exp(-safe_damping * safe_age);
+    const f64 scale = physical_damping * lifetime_envelope;
+    return std::isfinite(scale) && scale > 0.0
+        ? static_cast<f32>(scale) : 0.0f;
 }
 
 bool FWaterSurface3D::AddEvent(FVec3 world_point, FVec2 direction,

@@ -233,7 +233,10 @@ public partial class MainWindow
         {
             _closePreparationRunning = false;
             if (!shouldClose)
+            {
+                AssetBrowser.ResumeOperations();
                 SetClosePreparationInputBlocked(blocked: false);
+            }
         }
 
         if (!shouldClose) return;
@@ -243,6 +246,11 @@ public partial class MainWindow
 
     private async Task<bool> PrepareEditorCloseAsync()
     {
+        // Asset copy/move/delete jobs are transactional only while the process stays alive.
+        // Stop accepting new jobs and drain the current one before any close path can proceed.
+        SetClosePreparationInputBlocked(blocked: true);
+        await AssetBrowser.SuspendOperationsAndWaitAsync();
+
         if (_savedSceneSnapshot != null && Engine != IntPtr.Zero
             && EngineInterop.acs_editor_play_state(Engine) == 0 && PreviewBtn.IsChecked != true)
             RefreshDirtyStateFromNativeScene();

@@ -50,6 +50,18 @@ public partial class MainWindow : Window
     private bool? _startupGridVisible;
     private Point _dragStart;        // Hierarchy ドラッグ開始座標 (しきい値判定用)
     private int  _dragNodeId = -1;   // ドラッグ中のノード id (-1 = ドラッグなし)
+    private readonly List<MaterialEditorWindow> _materialEditorWindows = new();
+    private readonly Dictionary<Guid, AssetDocumentMutationState> _assetDocumentMutations = new();
+
+    private sealed class AssetDocumentMutationState
+    {
+        internal AssetDocumentMutationState(AssetPathMutationStartingEventArgs operation) =>
+            Operation = operation;
+
+        internal AssetPathMutationStartingEventArgs Operation { get; }
+        internal BlueprintWindow? SuspendedBlueprintWindow { get; set; }
+        internal List<MaterialEditorWindow> SuspendedMaterialWindows { get; } = new();
+    }
 
     public MainWindow()
     {
@@ -114,11 +126,14 @@ public partial class MainWindow : Window
         PreviewKeyDown += OnGlobalKeyDown;
         PreviewKeyUp   += OnGlobalKeyUp;
 
-        // アセットブラウザ: ダブルクリック/ドラッグでの割当とログを受ける。
+        // アセットブラウザ: ダブルクリックで編集し、ドラッグで明示的に割り当てる。
         AssetBrowser.AssetActivated += OnAssetActivated;
         AssetBrowser.AssetPlace += OnAssetPlace;   // 右クリック「シーンに配置」
         AssetBrowser.AssetConvert += OnAssetConvert;   // 右クリック「Blueprint に変換」
         AssetBrowser.Log += Log;
+        AssetBrowser.AssetPathMutationStarting += OnAssetPathMutationStarting;
+        AssetBrowser.AssetPathsChanged += OnAssetPathsChanged;
+        AssetBrowser.AssetPathMutationCompleted += OnAssetPathMutationCompleted;
 
         // 終了時: ソース監視を止め、起動中のゲームプロセスを終了させる。
         Closed += (_, _) =>
@@ -209,8 +224,145 @@ public partial class MainWindow : Window
     }
 
     // アセットがダブルクリック/ドラッグで起動された: 画像は選択ノードのスプライトに割り当てる。
+    private void OnAssetPathMutationStarting(
+        object? sender,
+        AssetPathMutationStartingEventArgs e)
+    {
+        BlueprintWindow? blueprintWindow = _bpWindow;
+        string? blueprintPath = blueprintWindow?.Editor.CurrentPath;
+        bool blueprintAffected = blueprintPath != null && e.AffectsPath(blueprintPath);
+        var affectedMaterials = new List<MaterialEditorWindow>();
+        foreach (MaterialEditorWindow materialWindow in _materialEditorWindows.ToArray())
+        {
+            string? materialPath = materialWindow.CurrentAssetPath;
+            if (materialPath != null && e.AffectsPath(materialPath))
+                affectedMaterials.Add(materialWindow);
+        }
+
+        if (e.Kind == AssetPathMutationKind.Delete &&
+            (blueprintAffected || affectedMaterials.Count != 0))
+        {
+            e.Cancel = true;
+            e.CancellationReason =
+                "削除対象が Blueprint または Material Editor で開かれています。" +
+                "変更を保存して対象エディタを閉じてから、削除を再実行してください。";
+            return;
+        }
+
+        var state = new AssetDocumentMutationState(e);
+        _assetDocumentMutations[e.OperationId] = state;
+        if (blueprintAffected && blueprintWindow != null && blueprintWindow.IsEnabled &&
+            blueprintWindow.Editor.SuspendForAssetPathMutation())
+        {
+            blueprintWindow.IsEnabled = false;
+            state.SuspendedBlueprintWindow = blueprintWindow;
+        }
+        foreach (MaterialEditorWindow materialWindow in affectedMaterials)
+        {
+            if (materialWindow.SuspendForAssetPathMutation())
+                state.SuspendedMaterialWindows.Add(materialWindow);
+        }
+    }
+
+    private void OnAssetPathsChanged(object? sender, AssetPathsChangedEventArgs e)
+    {
+        void LogDeliveryFailure(string message)
+        {
+            // Diagnostics must not prevent the remaining open documents from being
+            // rebound or detached after the filesystem mutation has committed.
+            try { Log(message, "Asset", LogLevel.Error); }
+            catch { }
+        }
+
+        int updatedEditors = 0;
+        BlueprintEditor? blueprintEditor = _bpWindow?.Editor;
+        string? blueprintPath = blueprintEditor?.CurrentPath;
+        if (blueprintEditor != null && blueprintPath != null)
+        {
+            try
+            {
+                if (e.AffectsPath(blueprintPath))
+                {
+                    if (!blueprintEditor.ApplyAssetPathsChanged(e))
+                        throw new InvalidOperationException(
+                            "The affected Blueprint did not accept its new asset path.");
+                    updatedEditors++;
+                }
+            }
+            catch (Exception error)
+            {
+                blueprintEditor.DetachFromAssetPath(
+                    "Blueprint path update failed; detached to require Save As.");
+                LogDeliveryFailure(
+                    "Blueprint path update failed; the editor was detached to prevent " +
+                    $"stale-path saves. {error.Message}");
+            }
+        }
+        foreach (MaterialEditorWindow materialWindow in _materialEditorWindows.ToArray())
+        {
+            string? materialPath = materialWindow.CurrentAssetPath;
+            if (materialPath == null) continue;
+            try
+            {
+                if (!e.AffectsPath(materialPath)) continue;
+                if (!materialWindow.ApplyAssetPathsChanged(e))
+                    throw new InvalidOperationException(
+                        "The affected Material did not accept its new asset path.");
+                updatedEditors++;
+            }
+            catch (Exception error)
+            {
+                materialWindow.DetachFromAssetPath(
+                    "Asset path update failed - editor detached");
+                LogDeliveryFailure(
+                    "Material path update failed; the editor was closed to prevent " +
+                    $"stale-path saves. {error.Message}");
+            }
+        }
+        if (updatedEditors != 0)
+            Log($"Updated {updatedEditors} open asset editor path(s).");
+    }
+
+    private void OnAssetPathMutationCompleted(
+        object? sender,
+        AssetPathMutationCompletedEventArgs e)
+    {
+        if (!_assetDocumentMutations.Remove(e.Operation.OperationId, out AssetDocumentMutationState? state))
+            return;
+        if (state.SuspendedBlueprintWindow != null)
+        {
+            BlueprintWindow window = state.SuspendedBlueprintWindow;
+            window.Editor.ResumeAfterAssetPathMutation();
+            if (window.IsLoaded)
+                window.IsEnabled = true;
+        }
+        foreach (MaterialEditorWindow materialWindow in state.SuspendedMaterialWindows)
+            materialWindow.ResumeAfterAssetPathMutation();
+    }
+
     private void OnAssetActivated(object? sender, AssetActivatedEventArgs e)
     {
+        // Blueprint and Material editors are managed document surfaces and remain available while
+        // the native scene engine is still starting. A new Content Browser asset must therefore
+        // never become temporarily unopenable just because the viewport has not attached yet.
+        if (e.Kind == "blueprint")
+        {
+            foreach (AssetDocumentMutationState mutation in _assetDocumentMutations.Values)
+            {
+                if (!mutation.Operation.AffectsPath(e.FullPath)) continue;
+                Log("Blueprint Editor cannot open this asset while its path is changing. Retry when the Asset View operation finishes.");
+                return;
+            }
+            OnBlueprintTab(this, new RoutedEventArgs());
+            BlueprintHost.LoadFromFile(e.FullPath);
+            Log($"Blueprint ← {System.IO.Path.GetFileName(e.FullPath)}");
+            return;
+        }
+        if (e.Kind == "material")
+        {
+            OpenMaterialEditor(e.FullPath);
+            return;
+        }
         if (Engine == IntPtr.Zero) return;
         switch (e.Kind)
         {
@@ -229,17 +381,6 @@ public partial class MainWindow : Window
                 break;
             case "prefab":
                 InstantiatePrefab(e.FullPath, _selectedId);   // 選択ノード配下へ (無ければ root)
-                break;
-            case "blueprint":
-                // .acsbp をダブルクリック → Blueprint タブへ切替えてグラフを読込。
-                OnBlueprintTab(this, new RoutedEventArgs());
-                BlueprintHost.LoadFromFile(e.FullPath);
-                Log($"Blueprint ← {System.IO.Path.GetFileName(e.FullPath)}");
-                break;
-            case "material":
-                // .acsmat をダブルクリック → 選択ノードへ割当 (3D/2D) + マテリアルエディタを開く。
-                AssignMaterialToSelection(e.FullPath);
-                OpenMaterialEditor(e.FullPath);
                 break;
             default:
                 Log($"{e.Kind}: {System.IO.Path.GetFileName(e.FullPath)}");
@@ -299,7 +440,7 @@ public partial class MainWindow : Window
     }
 
     // アセットがビューポートへドロップされた (アセットブラウザ or Explorer)。ドロップ点のノードを
-    // pick して選択し、種別ごとの既存ロジック (OnAssetActivated) へ委譲する:
+    // pick して選択し、マテリアル以外は種別ごとの既存ロジックへ委譲する:
     //   .acsmat → ドロップ先ノードへマテリアル割当 / 画像 → スプライト割当 / prefab・bp → 実体化。
     private void OnViewportAssetDropped(string path, int x, int y)
     {
@@ -2914,13 +3055,29 @@ public partial class MainWindow : Window
 
     private void OpenMaterialEditor(string acsmatPath)
     {
+        foreach (AssetDocumentMutationState mutation in _assetDocumentMutations.Values)
+        {
+            if (!mutation.Operation.AffectsPath(acsmatPath)) continue;
+            Log("Material Editor cannot open this asset while its path is changing. Retry when the Asset View operation finishes.");
+            return;
+        }
         // Resolve the engine through the viewport on every use. Holding the raw
         // pointer here would outlive the viewport during owner-window teardown.
         var win = _viewport != null
             ? new MaterialEditorWindow(_viewport, acsmatPath)
             : new MaterialEditorWindow(IntPtr.Zero, acsmatPath);
         win.Owner = this;
-        win.Show();   // 非モーダル: viewport を見ながら調整できる
+        win.Closed += (_, _) => _materialEditorWindows.Remove(win);
+        _materialEditorWindows.Add(win);
+        try
+        {
+            win.Show();   // 非モーダル: viewport を見ながら調整できる
+        }
+        catch
+        {
+            _materialEditorWindows.Remove(win);
+            throw;
+        }
     }
 
 

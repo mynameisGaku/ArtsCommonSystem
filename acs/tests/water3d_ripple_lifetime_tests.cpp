@@ -53,6 +53,128 @@ ACS_TEST(Water3DRippleLifetime, UpdateConsumesTheFullDeltaTime) {
     EXPECT_EQ(water.ActiveRippleCount(), 0u);
 }
 
+ACS_TEST(Water3DRippleLifetime, LifetimeTailIsContinuousAndMonotonic) {
+    constexpr f32 lifetime = 4.0f;
+    f32 previous = 1.0f;
+    for (u32 sample = 0; sample <= 400u; ++sample) {
+        const f32 age = lifetime * static_cast<f32>(sample) / 400.0f;
+        const f32 scale = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+            age, lifetime, 0.0f);
+        EXPECT_TRUE(std::isfinite(scale));
+        EXPECT_TRUE(scale >= 0.0f);
+        EXPECT_TRUE(scale <= previous + 1e-6f);
+        previous = scale;
+    }
+
+    // The physical response is unchanged until the final 35% of the lifetime.
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    lifetime * 0.65f, lifetime, 0.0f),
+                1.0f, 1e-6f);
+    EXPECT_TRUE(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    lifetime * 0.90f, lifetime, 0.0f) > 0.0f);
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    lifetime, lifetime, 0.0f),
+                0.0f, 1e-7f);
+
+    // Smootherstep has zero slope at release. A finite-difference sample near
+    // the endpoint must therefore already be visually negligible.
+    EXPECT_TRUE(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    lifetime * 0.999f, lifetime, 0.0f) < 1e-6f);
+
+    const f32 h = lifetime * 0.001f;
+    const f32 at_end = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+        lifetime, lifetime, 0.0f);
+    const f32 before_end = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+        lifetime - h, lifetime, 0.0f);
+    const f32 twice_before_end =
+        FWaterSurface3D::EvaluateRippleAmplitudeScale(
+            lifetime - 2.0f * h, lifetime, 0.0f);
+    const f32 endpoint_slope = (at_end - before_end) / h;
+    const f32 endpoint_curvature =
+        (at_end - 2.0f * before_end + twice_before_end) / (h * h);
+    EXPECT_TRUE(std::abs(endpoint_slope) < 1e-4f);
+    EXPECT_TRUE(std::abs(endpoint_curvature) < 0.12f);
+}
+
+ACS_TEST(Water3DRippleLifetime, SmallRippleFadesBeforeSlotIsReleased) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 1.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    // This strength used to trip the absolute 0.0015 cutoff on the first
+    // update and disappear even though essentially its whole lifetime remained.
+    EXPECT_TRUE(water.AddDisturbance(
+        FVec3{0.0f, 0.0f, 0.0f}, 0.15f, 0.001f));
+    water.Update(0.01f);
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+    water.Update(0.89f);
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+    water.Update(0.099f);
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+    // Cross the endpoint by a tiny epsilon; accumulated f32 frame deltas are
+    // not required to sum to an exactly representable 1.0.
+    water.Update(0.002f);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
+ACS_TEST(Water3DRippleLifetime, DampingAndLifetimeEnvelopeRemainFinite) {
+    const f32 scale = FWaterSurface3D::EvaluateRippleAmplitudeScale(
+        1.0f, 4.0f, 0.78f);
+    EXPECT_NEAR(scale, std::exp(-0.78f), 1e-6f);
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    1.0f, 0.0f, 0.78f),
+                0.0f, 1e-7f);
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    std::numeric_limits<f32>::max(), 3600.0f, 64.0f),
+                0.0f, 1e-7f);
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    nan, 4.0f, 0.78f),
+                0.0f, 1e-7f);
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    1.0f, infinity, 0.78f),
+                0.0f, 1e-7f);
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    1.0f, 4.0f, nan),
+                0.0f, 1e-7f);
+    EXPECT_NEAR(FWaterSurface3D::EvaluateRippleAmplitudeScale(
+                    -1.0f, 4.0f, -1.0f),
+                1.0f, 1e-7f);
+}
+
+ACS_TEST(Water3DRippleLifetime, ZeroContributionReleasesSlotWithoutCutoffPop) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 3600.0f;
+    params.ripple_damping = 64.0f;
+    water.SetParams(params);
+
+    EXPECT_TRUE(water.AddDisturbance(
+        FVec3{0.0f, 0.0f, 0.0f}, 0.15f, 1.0f));
+    water.Update(2.0f);
+    // exp(-128) is below float range, so the exact CB amplitude is zero and
+    // retaining the slot for another hour would only starve the event pool.
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
+ACS_TEST(Water3DRippleLifetime, NegativeAmplitudeUsesTheSameLifetimeTail) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 1.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    EXPECT_TRUE(water.AddDisturbance(
+        FVec3{0.0f, 0.0f, 0.0f}, 0.15f, -0.001f));
+    water.Update(0.99f);
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+    water.Update(0.02f);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
 ACS_TEST(Water3DRippleLifetime, MalformedEventsNeverPoisonPersistentPool) {
     FWaterSurface3D water;
     const f32 nan = std::numeric_limits<f32>::quiet_NaN();

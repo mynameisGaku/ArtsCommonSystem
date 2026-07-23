@@ -474,35 +474,75 @@ public sealed class AssetDatabase
             EnsureSafeOrdinaryFile(current.FullPath, allowMetadata: false);
             EnsureSafeOrdinaryFile(sourceMetadata, allowMetadata: true);
 
-            File.Move(current.FullPath, destination);
+            bool assetMoved = false;
+            bool metadataMoved = false;
             try
             {
+                File.Move(current.FullPath, destination);
+                assetMoved = true;
                 File.Move(sourceMetadata, destinationMetadata);
+                metadataMoved = true;
+
+                AssetDatabaseRefreshResult result = Refresh(verifyContent: false);
+                if (!_byId.TryGetValue(current.AssetId, out AssetRecord? moved))
+                {
+                    string detail = result.Warnings.Count == 0
+                        ? ""
+                        : " " + string.Join(" ", result.Warnings);
+                    throw new IOException("Moved asset could not be re-indexed." + detail);
+                }
+                return moved;
             }
-            catch
+            catch (Exception error)
             {
+                bool rollbackComplete = true;
                 try
                 {
-                    if (File.Exists(destination) && !File.Exists(current.FullPath))
-                        File.Move(destination, current.FullPath);
+                    if (metadataMoved &&
+                        File.Exists(destinationMetadata) &&
+                        !File.Exists(sourceMetadata))
+                    {
+                        File.Move(destinationMetadata, sourceMetadata);
+                    }
                 }
                 catch
                 {
-                    // Preserve the original failure. A subsequent Refresh can recover
-                    // the identity from the deterministic cache/content hash.
+                    rollbackComplete = false;
+                }
+                try
+                {
+                    if (assetMoved &&
+                        File.Exists(destination) &&
+                        !File.Exists(current.FullPath))
+                    {
+                        File.Move(destination, current.FullPath);
+                    }
+                }
+                catch
+                {
+                    rollbackComplete = false;
+                }
+                try
+                {
+                    Refresh(verifyContent: false);
+                }
+                catch
+                {
+                    rollbackComplete = false;
+                }
+                rollbackComplete &= File.Exists(current.FullPath) &&
+                                    File.Exists(sourceMetadata) &&
+                                    !File.Exists(destination) &&
+                                    !File.Exists(destinationMetadata);
+                if (!rollbackComplete)
+                {
+                    throw new IOException(
+                        "Asset move failed and automatic rollback was incomplete. " +
+                        $"Recoverable data may remain at '{destinationRelative}'.",
+                        error);
                 }
                 throw;
             }
-
-            AssetDatabaseRefreshResult result = Refresh(verifyContent: false);
-            if (!_byId.TryGetValue(current.AssetId, out AssetRecord? moved))
-            {
-                string detail = result.Warnings.Count == 0
-                    ? ""
-                    : " " + string.Join(" ", result.Warnings);
-                throw new IOException("Moved asset could not be re-indexed." + detail);
-            }
-            return moved;
         }
     }
 
@@ -808,6 +848,7 @@ public sealed class AssetDatabase
                 }
 
                 if (entry.Name.EndsWith(MetadataSuffix, StringComparison.OrdinalIgnoreCase) ||
+                    IsMaterialGraphCompanionName(entry.Name) ||
                     IsTemporaryMetadataName(entry.Name) ||
                     entry.Name.Contains(".tmp-", StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -873,6 +914,8 @@ public sealed class AssetDatabase
             {
                 RequireObject(element, "asset index entry");
                 string relative = NormalizeAssetRelativePath(ReadRequiredString(element, "path"));
+                if (IsMaterialGraphCompanionName(Path.GetFileName(relative)))
+                    continue;
                 var metadata = new AssetMetadata(
                     CurrentSchemaVersion,
                     ReadRequiredString(element, "id"),
@@ -1032,6 +1075,9 @@ public sealed class AssetDatabase
         {
             ".acscene" => ("legacy-acscene", 1),
             ".acs3d" => ("legacy-acs3d", 2),
+            ".acsmat" => ("material", 1),
+            ".acsbp" => ("blueprint", 1),
+            ".acsprefab" => ("prefab", 1),
             _ => ("passthrough", 1),
         };
         return new(
@@ -1301,6 +1347,9 @@ public sealed class AssetDatabase
     }
 
     private static string MetadataPath(string assetPath) => assetPath + MetadataSuffix;
+
+    private static bool IsMaterialGraphCompanionName(string name) =>
+        name.EndsWith(".acsmat.graph.json", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsTemporaryMetadataName(string name) =>
         name.Contains(MetadataSuffix + ".tmp-", StringComparison.OrdinalIgnoreCase) ||

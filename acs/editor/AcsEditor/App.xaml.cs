@@ -192,6 +192,26 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --asset-creation-selftest -> collision-safe/reparse-safe Content Browser New
+        // workflow, canonical template delegation, and immediate asset-index metadata.
+        if (e.Args.Length >= 1 && e.Args[0] == "--asset-creation-selftest")
+        {
+            int failures = AssetCreationSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --asset-browser-selftest -> UE-style query/history plus transactional
+        // rename, duplicate, and delete behavior for files and folders.
+        if (e.Args.Length >= 1 && e.Args[0] == "--asset-browser-selftest")
+        {
+            int failures = AssetBrowserViewStateSelfTest.Run(Console.Error);
+            failures += AssetManagementSelfTest.Run(Console.Error);
+            failures += AssetPathChangeSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --workspace-selftest -> named layout persistence / validation / atomicity.
         if (e.Args.Length >= 1 && e.Args[0] == "--workspace-selftest")
         {

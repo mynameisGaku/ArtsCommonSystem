@@ -3434,6 +3434,45 @@ public partial class BlueprintEditor : UserControl
     /// <summary>現在開いている .acsbp のパス (保存ダイアログを省いて上書き保存するため)。</summary>
     public string? CurrentPath { get; private set; }
     public Action? PathChanged;   // CurrentPath が変わった → ウィンドウタイトル更新用
+    private bool _assetPathMutationSuspended;
+
+    internal bool SuspendForAssetPathMutation()
+    {
+        if (_assetPathMutationSuspended) return false;
+        _assetPathMutationSuspended = true;
+        return true;
+    }
+
+    internal void ResumeAfterAssetPathMutation() =>
+        _assetPathMutationSuspended = false;
+
+    internal void DetachFromAssetPath(string diagnostic)
+    {
+        CurrentPath = null;
+        try { PathChanged?.Invoke(); }
+        catch { }
+        try { LogSink?.Invoke(diagnostic); }
+        catch { }
+    }
+
+    internal bool ApplyAssetPathsChanged(AssetPathsChangedEventArgs change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (string.IsNullOrWhiteSpace(CurrentPath)) return false;
+        if (change.TryRemapPath(CurrentPath, out string remappedPath))
+        {
+            CurrentPath = remappedPath;
+            PathChanged?.Invoke();
+            LogSink?.Invoke(
+                $"Blueprint path updated: {System.IO.Path.GetFileName(remappedPath)}");
+            return true;
+        }
+        if (!change.IsDeletedPath(CurrentPath)) return false;
+        string deletedName = System.IO.Path.GetFileName(CurrentPath);
+        DetachFromAssetPath(
+            $"Blueprint asset was deleted; detached from {deletedName} to prevent stale-path saves.");
+        return true;
+    }
 
     /// <summary>現在のグラフを .acsbp テキストへ直列化する (Event Graph + Function サブグラフ)。</summary>
     public string Serialize()
@@ -4631,6 +4670,7 @@ public partial class BlueprintEditor : UserControl
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
+        if (_assetPathMutationSuspended) return;
         if (SaveToCurrent()) return;   // 開いているファイルへ上書き
         var dlg = new Microsoft.Win32.SaveFileDialog {
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", FileName = "graph.acsbp" };
@@ -4655,6 +4695,7 @@ public partial class BlueprintEditor : UserControl
     /// <summary>.acsbp ファイルを読み込んでグラフを復元する (アセットブラウザのダブルクリック等から)。</summary>
     public void LoadFromFile(string path)
     {
+        if (_assetPathMutationSuspended) return;
         if (!System.IO.File.Exists(path)) return;
         Deserialize(System.IO.File.ReadAllText(path));
         _undo.Clear(); _redo.Clear();   // 新規ファイルの読込で履歴をリセット
@@ -4665,7 +4706,7 @@ public partial class BlueprintEditor : UserControl
     /// <summary>開いているファイルへ上書き保存する (CurrentPath が無ければ false)。</summary>
     public bool SaveToCurrent()
     {
-        if (string.IsNullOrEmpty(CurrentPath)) return false;
+        if (_assetPathMutationSuspended || string.IsNullOrEmpty(CurrentPath)) return false;
         try { AcsbpFormat.Write(CurrentPath, Serialize()); }
         catch { return false; }
         LogSink?.Invoke($"Blueprint を保存: {System.IO.Path.GetFileName(CurrentPath)}");

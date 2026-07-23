@@ -435,6 +435,7 @@ public partial class MaterialEditorWindow
 
     private void SaveGraphLayout()
     {
+        if (!CanAccessAssetPath) return;
         try
         {
             var layout = new GraphLayout
@@ -480,6 +481,12 @@ public partial class MaterialEditorWindow
 
     private bool SaveRuntimeGraph(bool showDiagnostics)
     {
+        if (!CanAccessAssetPath)
+        {
+            if (showDiagnostics)
+                SetDiagnostics(new[] { "ERROR  The material asset is unavailable while its path is changing." });
+            return false;
+        }
         List<string> local = ValidateGraph();
         if (local.Any(m => m.StartsWith("ERROR", StringComparison.Ordinal)))
         {
@@ -1923,6 +1930,9 @@ public partial class MaterialEditorWindow
     private void OnMaterialEditorClosing(object? sender, CancelEventArgs e)
     {
         BeginCloseAttempt();
+        // A deleted document must never recreate either the .acsmat file or its graph sidecar.
+        if (!_assetPathAvailable)
+            return;
         // Headless visual-regression runs must neither persist test mutations
         // nor block shutdown on an off-screen modal prompt.
         if (_suppressClosePromptForAutomation)

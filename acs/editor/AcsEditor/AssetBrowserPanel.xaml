@@ -6,41 +6,107 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ツールバー: 上へ / 現在パス / 検索 / 更新 / インポート -->
-        <DockPanel Grid.Row="0" Margin="6,5" LastChildFill="True">
-            <Button x:Name="UpBtn" DockPanel.Dock="Left" Content="↑" Width="30"
-                    ToolTip="親フォルダへ" Click="OnUp"/>
-            <Button DockPanel.Dock="Right" Content="インポート…" Margin="6,0,0,0" Click="OnImport"/>
-            <Button DockPanel.Dock="Right" Content="更新" Click="OnRefresh"/>
-            <TextBox x:Name="SearchBox" DockPanel.Dock="Right" Width="160" Margin="6,0,0,0"
-                     VerticalContentAlignment="Center" ToolTip="名前で検索" TextChanged="OnSearchChanged"/>
-            <TextBlock x:Name="PathText" VerticalAlignment="Center" Margin="10,0"
-                       Foreground="{DynamicResource TextDim}" TextTrimming="CharacterEllipsis"/>
-        </DockPanel>
+        <!-- UE型ナビゲーション: 履歴 / 上へ / 現在パス / 検索・型 / 新規 / 更新 / Import -->
+        <Grid Grid.Row="0" Margin="6,5">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <DockPanel Grid.Row="0" LastChildFill="True">
+                <Button x:Name="BackBtn" DockPanel.Dock="Left" Content="‹" Width="28" TabIndex="0"
+                        ToolTip="戻る" Click="OnBack" IsEnabled="False"/>
+                <Button x:Name="ForwardBtn" DockPanel.Dock="Left" Content="›" Width="28" TabIndex="1"
+                        ToolTip="進む" Click="OnForward" IsEnabled="False"/>
+                <Button x:Name="UpBtn" DockPanel.Dock="Left" Content="↑" Width="30" TabIndex="2"
+                        ToolTip="親フォルダへ" Click="OnUp"/>
+                <TextBlock x:Name="PathText" VerticalAlignment="Center" Margin="10,0"
+                           Foreground="{DynamicResource TextDim}" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+            <WrapPanel Grid.Row="1" Margin="0,4,0,0" Orientation="Horizontal">
+                <TextBox x:Name="SearchBox" Width="190" Margin="0,0,6,2"
+                         TabIndex="3" VerticalContentAlignment="Center"
+                         ToolTip="検索: bare / name: / path: / type: / id: / -除外"
+                         TextChanged="OnSearchChanged"/>
+                <ComboBox x:Name="KindFilterBox" Width="108" Margin="0,0,6,2" TabIndex="4"
+                          SelectedIndex="0" SelectionChanged="OnKindFilterChanged"
+                          ToolTip="アセット種別フィルター">
+                    <ComboBoxItem Content="すべて" Tag="all"/>
+                    <ComboBoxItem Content="フォルダー" Tag="folder"/>
+                    <ComboBoxItem Content="マテリアル" Tag="material"/>
+                    <ComboBoxItem Content="Blueprint" Tag="blueprint"/>
+                    <ComboBoxItem Content="シーン" Tag="scene"/>
+                    <ComboBoxItem Content="Prefab" Tag="prefab"/>
+                    <ComboBoxItem Content="メッシュ" Tag="mesh"/>
+                    <ComboBoxItem Content="画像" Tag="image"/>
+                    <ComboBoxItem Content="音声" Tag="audio"/>
+                    <ComboBoxItem Content="テキスト" Tag="text"/>
+                    <ComboBoxItem Content="その他" Tag="file"/>
+                </ComboBox>
+                <CheckBox x:Name="RecursiveToggle" Content="再帰" Margin="0,0,8,2"
+                          TabIndex="5" VerticalAlignment="Center" ToolTip="子フォルダー内も検索"
+                          Checked="OnRecursiveFilterChanged" Unchecked="OnRecursiveFilterChanged"/>
+                <Button x:Name="NewAssetButton" Content="＋ 新規" Margin="0,0,6,2"
+                        TabIndex="6" ToolTip="現在のフォルダーにACSアセットを作成"
+                        Click="OnOpenNewAssetMenu">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="フォルダー" Tag="Folder" Click="OnCreateAsset"/>
+                            <Separator/>
+                            <MenuItem Header="マテリアル (.acsmat)" Tag="Material" Click="OnCreateAsset"/>
+                            <MenuItem Header="Blueprint (.acsbp)" Tag="Blueprint" Click="OnCreateAsset"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button x:Name="RefreshButton" Content="更新" Margin="0,0,6,2" TabIndex="7" Click="OnRefresh"/>
+                <Button x:Name="ImportButton" Content="インポート…" Margin="0,0,0,2" TabIndex="8"
+                        Click="OnImport"/>
+            </WrapPanel>
+        </Grid>
 
         <!-- 左: タイル一覧 / 右: プレビュー + 情報 (参考エンジン風) -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="2*"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="296"/>
+                <ColumnDefinition Width="*" MinWidth="180" MaxWidth="296"/>
             </Grid.ColumnDefinitions>
 
         <ListBox x:Name="Tiles" Grid.Column="0" Background="{DynamicResource Panel2}" BorderThickness="0"
                  Margin="4,0,4,4" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 AllowDrop="True" DragOver="OnTileDragOver" DragLeave="OnTileDragLeave" Drop="OnTileDrop"
+                 SelectionMode="Extended"
                  MouseDoubleClick="OnTileDoubleClick" PreviewMouseMove="OnTilePreviewMouseMove"
                  SelectionChanged="OnTileSelected"
-                 PreviewMouseLeftButtonDown="OnTileMouseDown" PreviewMouseRightButtonDown="OnTileRightDown">
+                 PreviewMouseLeftButtonDown="OnTileMouseDown" PreviewMouseRightButtonDown="OnTileRightDown"
+                 KeyDown="OnTileKeyDown">
             <ListBox.ContextMenu>
-                <ContextMenu>
-                    <MenuItem Header="シーンに配置 (Place)" Click="OnCtxPlace"/>
-                    <MenuItem Header="開く (Open)" Click="OnCtxOpen"/>
-                    <MenuItem Header="Reference Viewer…" Click="OnCtxReferences"/>
+                <ContextMenu Opened="OnAssetContextOpened">
+                    <MenuItem x:Name="CtxNewAsset" Header="新規作成">
+                        <MenuItem Header="フォルダー" Tag="Folder" Click="OnCreateAsset"/>
+                        <Separator/>
+                        <MenuItem Header="マテリアル (.acsmat)" Tag="Material" Click="OnCreateAsset"/>
+                        <MenuItem Header="Blueprint (.acsbp)" Tag="Blueprint" Click="OnCreateAsset"/>
+                    </MenuItem>
                     <Separator/>
-                    <MenuItem Header="Blueprint に変換 (旧 Prefab→新)" Click="OnCtxConvert"/>
+                    <MenuItem x:Name="CtxOpen" Header="開く (Open)" InputGestureText="Enter" Click="OnCtxOpen"/>
+                    <MenuItem x:Name="CtxPlace" Header="シーンに配置 (Place)" Click="OnCtxPlace"/>
+                    <MenuItem x:Name="CtxReferences" Header="Reference Viewer…" Click="OnCtxReferences"/>
+                    <Separator/>
+                    <MenuItem x:Name="CtxRename" Header="名前を変更" InputGestureText="F2" Click="OnCtxRename"/>
+                    <MenuItem x:Name="CtxDuplicate" Header="複製" InputGestureText="Ctrl+D" Click="OnCtxDuplicate"/>
+                    <MenuItem x:Name="CtxCopyAsset" Header="コピー" InputGestureText="Ctrl+C" Click="OnCtxCopyAsset"/>
+                    <MenuItem x:Name="CtxCutAsset" Header="切り取り" InputGestureText="Ctrl+X" Click="OnCtxCutAsset"/>
+                    <MenuItem x:Name="CtxPasteAsset" Header="ここに貼り付け" InputGestureText="Ctrl+V" Click="OnCtxPasteAsset"/>
+                    <MenuItem x:Name="CtxDelete" Header="削除" InputGestureText="Delete" Click="OnCtxDelete"/>
+                    <Separator/>
+                    <MenuItem x:Name="CtxReveal" Header="エクスプローラーで表示" Click="OnCtxReveal"/>
+                    <MenuItem x:Name="CtxCopyPath" Header="パスをコピー" Click="OnCtxCopyPath"/>
+                    <Separator/>
+                    <MenuItem x:Name="CtxConvert" Header="Blueprint に変換 (旧 Prefab→新)" Click="OnCtxConvert"/>
                 </ContextMenu>
             </ListBox.ContextMenu>
             <ListBox.ItemsPanel>
@@ -55,7 +121,8 @@
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="Bd" Background="Transparent" CornerRadius="0" Padding="4">
+                                <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent"
+                                        BorderThickness="1" CornerRadius="0" Padding="3">
                                     <ContentPresenter/>
                                 </Border>
                                 <ControlTemplate.Triggers>
@@ -65,6 +132,10 @@
                                     <Trigger Property="IsSelected" Value="True">
                                         <Setter TargetName="Bd" Property="Background" Value="#883C9AE8"/>
                                     </Trigger>
+                                    <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentDim}"/>
+                                        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                    </DataTrigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
                         </Setter.Value>
@@ -82,10 +153,24 @@
                             </Border>
                             <Image Source="{Binding Thumb}" Stretch="Uniform" SnapsToDevicePixels="True"/>
                         </Grid>
-                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Text}" FontSize="11"
-                                   TextAlignment="Center" TextTrimming="CharacterEllipsis"
-                                   Margin="0,4,0,0" MaxWidth="74" ToolTip="{Binding Name}"/>
+                        <Grid Margin="0,4,0,0">
+                            <TextBlock x:Name="AssetNameLabel" Text="{Binding Name}"
+                                       Foreground="{DynamicResource Text}" FontSize="11"
+                                       TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       MaxWidth="74" ToolTip="{Binding Name}"/>
+                            <TextBox x:Name="AssetRenameEditor" Tag="AssetRenameEditor"
+                                     Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="11" MaxWidth="76" Visibility="Collapsed"
+                                     LostKeyboardFocus="OnRenameEditorLostFocus"
+                                     PreviewKeyDown="OnRenameEditorKeyDown"/>
+                        </Grid>
                     </StackPanel>
+                    <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsRenaming}" Value="True">
+                            <Setter TargetName="AssetNameLabel" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="AssetRenameEditor" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </DataTemplate.Triggers>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
@@ -116,6 +201,22 @@
                            TextWrapping="Wrap" Margin="0,4,0,0"/>
             </StackPanel>
         </Grid>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="8,2,8,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Enter: 開く   F2: 名前変更   Ctrl+D: 複製   Delete: 削除"
+                       Foreground="{DynamicResource TextDim}" FontSize="10.5"
+                       TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="BusyText" Grid.Column="1" Text="アセット処理中…"
+                       Margin="10,0,14,0" Foreground="#FF5FB3FF" FontSize="10.5"
+                       Visibility="Collapsed"/>
+            <TextBlock x:Name="AssetCountText" Grid.Column="2"
+                       Foreground="{DynamicResource TextDim}" FontSize="10.5"/>
         </Grid>
     </Grid>
 </UserControl>
