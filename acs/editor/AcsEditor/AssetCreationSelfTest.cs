@@ -90,6 +90,104 @@ internal static class AssetCreationSelfTest
             Check(File.ReadAllText(Path.Combine(materials, "Material.acsmat")) == "existing",
                 "Material creation never overwrites an existing asset");
 
+            string lockedMaterialPath = Path.Combine(
+                assets,
+                "LockedInspectorMaterial.acsmat");
+            int lockedWriterCalls = 0;
+            int lockedRefreshCalls = 0;
+            bool externalMaterialLockRejected = false;
+            using (AssetMutationLockProcessHolder held =
+                   AssetMutationLockProcessHolder.Start(assets))
+            {
+                try
+                {
+                    _ = MaterialAssetWorkflow.CreateProjectMaterial(
+                        assets,
+                        (path, name) =>
+                        {
+                            lockedWriterCalls++;
+                            return FakeCanonicalMaterialWriter(path, name);
+                        },
+                        _ => lockedRefreshCalls++,
+                        "LockedInspectorMaterial");
+                }
+                catch (IOException)
+                {
+                    externalMaterialLockRejected = true;
+                }
+            }
+            Check(
+                externalMaterialLockRejected &&
+                lockedWriterCalls == 0 &&
+                lockedRefreshCalls == 0 &&
+                !File.Exists(lockedMaterialPath) &&
+                !File.Exists(lockedMaterialPath + AssetDatabase.MetadataSuffix),
+                "external project lock rejects Inspector material creation before reservation");
+
+            int inspectorRefreshCalls = 0;
+            string inspectorMaterial = MaterialAssetWorkflow.CreateProjectMaterial(
+                assets,
+                FakeCanonicalMaterialWriter,
+                createdPath =>
+                {
+                    inspectorRefreshCalls++;
+                    var authoritative = new AssetDatabase(
+                        Path.Combine(root, "Project"),
+                        assets);
+                    _ = authoritative.Refresh(verifyContent: true);
+                    if (!authoritative.TryGetByPath(
+                            createdPath,
+                            out AssetRecord? indexed) ||
+                        indexed?.Kind != "material")
+                    {
+                        throw new IOException(
+                            "Inspector material was not indexed by the test database.");
+                    }
+                },
+                "InspectorMaterial");
+            Check(
+                inspectorRefreshCalls == 1 &&
+                File.Exists(inspectorMaterial) &&
+                File.Exists(inspectorMaterial + AssetDatabase.MetadataSuffix),
+                "Inspector material transaction serializes and indexes under one project lease");
+
+            string rollbackMaterialPath = Path.Combine(assets, "RollbackMaterial.acsmat");
+            bool rollbackMaterialRejected = false;
+            try
+            {
+                _ = MaterialAssetWorkflow.CreateProjectMaterial(
+                    assets,
+                    (path, _) =>
+                    {
+                        File.WriteAllText(path, "partial-material");
+                        File.WriteAllText(
+                            path + AssetDatabase.MetadataSuffix,
+                            "partial-material-meta");
+                        File.WriteAllText(path + ".graph.json", "partial-graph");
+                        File.WriteAllText(
+                            path + ".graph.json" + AssetDatabase.MetadataSuffix,
+                            "partial-graph-meta");
+                        return false;
+                    },
+                    _ => throw new InvalidOperationException(
+                        "Refresh must not run after serializer rejection."),
+                    "RollbackMaterial");
+            }
+            catch (InvalidDataException)
+            {
+                rollbackMaterialRejected = true;
+            }
+            Check(
+                rollbackMaterialRejected &&
+                !File.Exists(rollbackMaterialPath) &&
+                !File.Exists(rollbackMaterialPath + AssetDatabase.MetadataSuffix) &&
+                !File.Exists(rollbackMaterialPath + ".graph.json") &&
+                !File.Exists(
+                    rollbackMaterialPath +
+                    ".graph.json" +
+                    AssetDatabase.MetadataSuffix),
+                "Inspector material rollback removes source, graph, and both metadata sidecars");
+
             var database = new AssetDatabase(
                 Path.Combine(root, "Project"),
                 assets);

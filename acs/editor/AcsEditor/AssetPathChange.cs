@@ -13,6 +13,7 @@ internal enum AssetPathMutationKind
     Rename,
     Move,
     Delete,
+    ContentRewrite,
 }
 
 internal sealed record AssetPathMapping(string OriginalRoot, string DestinationRoot);

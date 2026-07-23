@@ -49,7 +49,7 @@ internal sealed class AssetOperationBlockedException : IOException
 /// receive new GUIDs, and deletes are first quarantined below .acsdb so partial operations can be
 /// rolled back. Reparse points and paths outside Assets are rejected before any mutation.
 /// </summary>
-internal sealed class AssetManagementWorkflow
+internal sealed partial class AssetManagementWorkflow
 {
     private const int MaxGeneratedSuffix = 9999;
     private const long MaxReferenceScanBytes = 8L * 1024L * 1024L;
@@ -89,6 +89,10 @@ internal sealed class AssetManagementWorkflow
         bool isDirectory,
         string newBaseName)
     {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Rename asset");
+        RefreshAuthoritativeState();
         PathTarget source = ValidateTarget(fullPath, requireTreeValidation: isDirectory);
         if (source.IsDirectory != isDirectory)
             throw new InvalidDataException("Asset type changed before rename.");
@@ -231,6 +235,10 @@ internal sealed class AssetManagementWorkflow
         IEnumerable<string> fullPaths,
         string? destinationDirectory = null)
     {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Duplicate assets");
+        RefreshAuthoritativeState();
         IReadOnlyList<PathTarget> sources = NormalizeTopLevelTargets(fullPaths);
         if (sources.Count == 0) return Array.Empty<string>();
         string destinationRoot = destinationDirectory == null
@@ -335,6 +343,10 @@ internal sealed class AssetManagementWorkflow
         IEnumerable<string> fullPaths,
         string destinationDirectory)
     {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Move assets");
+        RefreshAuthoritativeState();
         IReadOnlyList<PathTarget> sources = NormalizeTopLevelTargets(fullPaths);
         if (sources.Count == 0)
         {
@@ -507,6 +519,10 @@ internal sealed class AssetManagementWorkflow
 
     internal AssetDeleteResult Delete(IEnumerable<string> fullPaths)
     {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Delete assets");
+        RefreshAuthoritativeState();
         IReadOnlyList<PathTarget> targets = NormalizeTopLevelTargets(fullPaths);
         AssetDeleteInspection inspection = InspectDelete(
             targets.Select(static target => target.FullPath));
@@ -1897,6 +1913,15 @@ internal sealed class AssetManagementWorkflow
         try { _database.Refresh(); }
         catch { }
     }
+
+    /// <summary>
+    /// Reloads path identity, sidecars, and dependency metadata while the caller owns the
+    /// project mutation lease. A refresh performed before acquiring that lease leaves a gap in
+    /// which another editor can publish authoritative metadata that this workflow would otherwise
+    /// validate or copy from a stale in-memory snapshot.
+    /// </summary>
+    private void RefreshAuthoritativeState() =>
+        _database.Refresh(verifyContent: true);
 
     private string DisplayPath(string path) =>
         "Assets/" + Path.GetRelativePath(_assetsRoot, path).Replace('\\', '/');

@@ -490,6 +490,81 @@ internal static class AssetManagementSelfTest
                   File.Exists(protectedAsset),
                 "path-referenced assets are blocked before rename or delete mutation");
 
+            string crossEditorDelete = Path.Combine(
+                assets,
+                "CrossEditorDeleteProtected.acsmat");
+            string crossEditorRename = Path.Combine(
+                assets,
+                "CrossEditorRenameProtected.acsmat");
+            string crossEditorMove = Path.Combine(
+                assets,
+                "CrossEditorMoveProtected.acsmat");
+            string crossEditorOwner = Path.Combine(assets, "CrossEditorOwner.txt");
+            string crossEditorMoveDestination = Path.Combine(
+                assets,
+                "CrossEditorMoveDestination");
+            Write(crossEditorDelete, "ACSMAT 1\nname DeleteProtected\nkind pbr\n");
+            Write(crossEditorRename, "ACSMAT 1\nname RenameProtected\nkind pbr\n");
+            Write(crossEditorMove, "ACSMAT 1\nname MoveProtected\nkind pbr\n");
+            Write(crossEditorOwner, "metadata-only cross-editor references\n");
+            Directory.CreateDirectory(crossEditorMoveDestination);
+            database.Refresh(verifyContent: true);
+            database.TryGetByPath(crossEditorDelete, out AssetRecord? crossDeleteRecord);
+            database.TryGetByPath(crossEditorRename, out AssetRecord? crossRenameRecord);
+            database.TryGetByPath(crossEditorMove, out AssetRecord? crossMoveRecord);
+            database.TryGetByPath(crossEditorOwner, out AssetRecord? crossOwnerRecord);
+            var competingDatabase = new AssetDatabase(project, assets);
+            competingDatabase.Refresh(verifyContent: true);
+            competingDatabase.TryGetByPath(
+                crossEditorOwner,
+                out AssetRecord? competingOwnerRecord);
+
+            void PublishCompetingDependency(string dependency)
+            {
+                AssetRecord owner = competingOwnerRecord!;
+                competingOwnerRecord = competingDatabase.UpdateImportMetadata(
+                    owner.AssetId,
+                    owner.Metadata.Source,
+                    owner.Metadata.Importer,
+                    owner.Metadata.ImporterVersion,
+                    new[] { dependency },
+                    owner.Metadata.ImportSettings);
+            }
+
+            PublishCompetingDependency(crossDeleteRecord!.AssetId);
+            bool deleteBlocked = Throws<AssetOperationBlockedException>(() =>
+                workflow.Delete(new[] { crossEditorDelete }));
+            PublishCompetingDependency(crossRenameRecord!.AssetId);
+            bool renameBlocked = Throws<AssetOperationBlockedException>(() =>
+                workflow.Rename(
+                    crossEditorRename,
+                    crossRenameRecord.AssetId,
+                    isDirectory: false,
+                    "CrossEditorRenameMustNotCommit"));
+            PublishCompetingDependency(crossMoveRecord!.AssetId);
+            bool moveBlocked = Throws<AssetOperationBlockedException>(() =>
+                workflow.Move(
+                    new[] { crossEditorMove },
+                    crossEditorMoveDestination));
+            Check(deleteBlocked &&
+                  renameBlocked &&
+                  moveBlocked &&
+                  File.Exists(crossEditorDelete) &&
+                  File.Exists(crossEditorRename) &&
+                  File.Exists(crossEditorMove) &&
+                  !File.Exists(Path.Combine(
+                      assets,
+                      "CrossEditorRenameMustNotCommit.acsmat")) &&
+                  !File.Exists(Path.Combine(
+                      crossEditorMoveDestination,
+                      Path.GetFileName(crossEditorMove))) &&
+                  database.GetDirectReferencers(crossMoveRecord.AssetId).Any(
+                      referencer => string.Equals(
+                          referencer.AssetId,
+                          crossOwnerRecord!.AssetId,
+                          StringComparison.OrdinalIgnoreCase)),
+                "destructive workflows refresh under their lease and honor competing metadata references");
+
             string graphProtected = Path.Combine(assets, "GraphProtected.acsmat");
             string graphProtectedReference = Path.Combine(assets, "UsesGraphProtected.json");
             Write(graphProtected, "ACSMAT 1\nname GraphProtected\nkind pbr\n");
@@ -710,6 +785,6 @@ internal static class AssetManagementSelfTest
 
         output.WriteLine(
             $"Asset management self-test: {passed} PASS / {failed} failures");
-        return failed;
+        return failed + AssetAdvancedManagementSelfTest.Run(output);
     }
 }

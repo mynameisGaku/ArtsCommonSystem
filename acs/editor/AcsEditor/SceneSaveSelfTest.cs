@@ -4,7 +4,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading.Tasks;
 
 namespace AcsEditor;
 
@@ -112,6 +115,34 @@ internal static class SceneSaveSelfTest
             Check(!Directory.EnumerateFiles(assets, "*.tmp", SearchOption.TopDirectoryOnly).Any(),
                 "atomic source write leaves no temporary file");
 
+            string lockedScenePath = Path.Combine(assets, "locked.acscene");
+            bool externalSceneLockRejected = false;
+            using (AssetMutationLockProcessHolder held =
+                   AssetMutationLockProcessHolder.Start(assets))
+            {
+                try
+                {
+                    SceneSourceFile.WriteProjectSceneAtomicText(
+                        lockedScenePath,
+                        "must-not-write",
+                        projectRoot,
+                        assets,
+                        SceneDocumentMode.TwoD);
+                }
+                catch (IOException)
+                {
+                    externalSceneLockRejected = true;
+                }
+            }
+            Check(
+                externalSceneLockRejected &&
+                !File.Exists(lockedScenePath) &&
+                !Directory.EnumerateFiles(
+                    assets,
+                    "." + Path.GetFileName(lockedScenePath) + ".*.tmp",
+                    SearchOption.TopDirectoryOnly).Any(),
+                "external project lock rejects a scene save before source or temp creation");
+
             string outside = Path.Combine(root, "outside.acscene");
             bool traversalRefused = false;
             try
@@ -197,6 +228,8 @@ internal static class SceneSaveSelfTest
             Check(RejectsMode(scenePath, assets, SceneDocumentMode.ThreeD),
                 "3D project scene contract rejects .acscene");
 
+            CheckInitialSceneReferenceFollow(root, Check);
+            CheckProjectSettingsSerialization(root, Check);
             CheckReparseDefense(root, assets, Check, log);
         }
         catch (Exception ex)
@@ -241,6 +274,412 @@ internal static class SceneSaveSelfTest
         {
             return true;
         }
+    }
+
+    private static void CheckInitialSceneReferenceFollow(
+        string root,
+        Action<bool, string> check)
+    {
+        string projectRoot = Path.Combine(root, "ReferenceFollowProject");
+        string assets = Path.Combine(projectRoot, "Assets");
+        string scenes = Path.Combine(assets, "Scenes");
+        string config = Path.Combine(projectRoot, "Config");
+        Directory.CreateDirectory(scenes);
+        Directory.CreateDirectory(config);
+
+        string manifestPath = Path.Combine(projectRoot, "ReferenceFollow.acsproject");
+        File.WriteAllText(
+            manifestPath,
+            """
+            {
+              "version": 1,
+              "name": "ReferenceFollow",
+              "engineVersion": "self-test",
+              "template": "blank",
+              "initialScene": "Assets/main.acscene",
+              "canonicalSceneAssetId": "11111111111111111111111111111111",
+              "futureProperty": { "preserve": true }
+            }
+            """);
+        string settingsPath = Path.Combine(config, "ProjectSettings.ini");
+        File.WriteAllText(
+            settingsPath,
+            """
+            [Rendering]
+            Exposure=1.25
+
+            [Game]
+            DefaultScene=Assets/main.acscene
+            WindowWidth=1600
+            """);
+        string initial = Path.Combine(assets, "main.acscene");
+        File.WriteAllText(initial, "initial-scene");
+
+        Project project = ProjectManager.ReadManifest(manifestPath);
+        bool preflightAccepted = true;
+        try
+        {
+            ProjectManager.ValidateInitialSceneReferenceFollow(project);
+        }
+        catch
+        {
+            preflightAccepted = false;
+        }
+        check(preflightAccepted,
+            "initial-scene path follow preflight accepts coherent manifest and settings");
+
+        string firstDestination = Path.Combine(scenes, "Opening.acscene");
+        File.Move(initial, firstDestination);
+        byte[] manifestBeforeLockContention = File.ReadAllBytes(manifestPath);
+        byte[] settingsBeforeLockContention = File.ReadAllBytes(settingsPath);
+        bool lockContentionRejected = false;
+        using (AssetMutationLockProcessHolder held =
+               AssetMutationLockProcessHolder.Start(assets))
+        {
+            try
+            {
+                _ = ProjectManager.FollowInitialScenePath(project, firstDestination);
+            }
+            catch (IOException error)
+            {
+                lockContentionRejected =
+                    error.Message.Contains(
+                        "another editor",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    error.Message.Contains(
+                        "mutation lock",
+                        StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        check(
+            lockContentionRejected &&
+            File.ReadAllBytes(manifestPath).SequenceEqual(
+                manifestBeforeLockContention) &&
+            File.ReadAllBytes(settingsPath).SequenceEqual(
+                settingsBeforeLockContention) &&
+            project.InitialScene == "Assets/main.acscene",
+            "initial-scene follow rejects a competing editor lease before either file changes");
+
+        ProjectSceneReferenceUpdate first =
+            ProjectManager.FollowInitialScenePath(project, firstDestination);
+        Project persistedFirst = ProjectManager.ReadManifest(manifestPath);
+        JsonObject firstManifest = JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
+        check(
+            first.PreviousReference == "Assets/main.acscene" &&
+            first.CurrentReference == "Assets/Scenes/Opening.acscene" &&
+            project.InitialScene == first.CurrentReference &&
+            persistedFirst.InitialScene == first.CurrentReference &&
+            ReadIniValue(settingsPath, "Game", "DefaultScene") == first.CurrentReference,
+            "committed scene move updates manifest, Project state, and Game.DefaultScene together");
+        check(
+            firstManifest["futureProperty"]?["preserve"]?.GetValue<bool>() == true &&
+            ReadIniValue(settingsPath, "Rendering", "Exposure") == "1.25" &&
+            ReadIniValue(settingsPath, "Game", "WindowWidth") == "1600",
+            "scene reference update preserves future manifest data and unrelated settings");
+
+        // Model a second editor that remains open across the next initial-scene move.
+        Project staleSettingsWriter = ProjectManager.ReadManifest(manifestPath);
+        string secondDestination = Path.Combine(scenes, "OpeningRenamed.acscene");
+        File.Move(firstDestination, secondDestination);
+        bool injectedFailureObserved = false;
+        bool competingSettingsSaveRejected = false;
+        try
+        {
+            ProjectManager.FollowInitialScenePath(
+                project,
+                secondDestination,
+                point =>
+                {
+                    if (point == ProjectSceneReferenceCommitPoint.AfterSettingsPublish)
+                    {
+                        competingSettingsSaveRejected = Task.Run(() =>
+                        {
+                            try
+                            {
+                                ProjectManager.SaveProjectSettings(
+                                    staleSettingsWriter,
+                                    """
+                                    [Rendering]
+                                    Exposure=2.0
+
+                                    [Game]
+                                    DefaultScene=Assets/Scenes/Opening.acscene
+                                    """);
+                                return false;
+                            }
+                            catch (IOException error)
+                            {
+                                return error.Message.Contains(
+                                        "another editor",
+                                        StringComparison.OrdinalIgnoreCase) &&
+                                    error.Message.Contains(
+                                        "mutation lock",
+                                        StringComparison.OrdinalIgnoreCase);
+                            }
+                        }).GetAwaiter().GetResult();
+                        throw new IOException("injected manifest publication failure");
+                    }
+                });
+        }
+        catch (IOException)
+        {
+            injectedFailureObserved = true;
+        }
+        Project persistedAfterRollback = ProjectManager.ReadManifest(manifestPath);
+        check(
+            injectedFailureObserved &&
+            competingSettingsSaveRejected &&
+            project.InitialScene == first.CurrentReference &&
+            persistedAfterRollback.InitialScene == first.CurrentReference &&
+            ReadIniValue(settingsPath, "Game", "DefaultScene") == first.CurrentReference,
+            "startup-scene transaction rejects a competing settings writer and rolls back coherently");
+
+        ProjectSceneReferenceUpdate second =
+            ProjectManager.FollowInitialScenePath(project, secondDestination);
+        check(
+            second.CurrentReference == "Assets/Scenes/OpeningRenamed.acscene" &&
+            ProjectManager.ReadManifest(manifestPath).InitialScene == second.CurrentReference &&
+            ReadIniValue(settingsPath, "Game", "DefaultScene") == second.CurrentReference,
+            "retry after reference rollback commits the new scene path");
+
+        ProjectManager.SaveProjectSettings(
+            staleSettingsWriter,
+            """
+            [Rendering]
+            Exposure=2.5
+
+            [Game]
+            DefaultScene=Assets/Scenes/Opening.acscene
+            WindowWidth=1920
+            """);
+        check(
+            ReadIniValue(settingsPath, "Game", "DefaultScene") == second.CurrentReference &&
+            ReadIniValue(settingsPath, "Rendering", "Exposure") == "2.5" &&
+            ReadIniValue(settingsPath, "Game", "WindowWidth") == "1920",
+            "stale editor settings save preserves the latest manifest DefaultScene");
+
+        string coherentSettings = File.ReadAllText(settingsPath);
+        File.WriteAllText(
+            settingsPath,
+            coherentSettings.Replace(
+                second.CurrentReference,
+                "Assets/other.acscene",
+                StringComparison.Ordinal));
+        bool mismatchVetoed = false;
+        try
+        {
+            ProjectManager.ValidateInitialSceneReferenceFollow(project);
+        }
+        catch (InvalidDataException)
+        {
+            mismatchVetoed = true;
+        }
+        check(mismatchVetoed,
+            "preflight vetoes an existing manifest and Game.DefaultScene mismatch");
+        File.WriteAllText(settingsPath, coherentSettings);
+
+        File.Delete(settingsPath);
+        string thirdDestination = Path.Combine(scenes, "Startup.acscene");
+        File.Move(secondDestination, thirdDestination);
+        ProjectSceneReferenceUpdate third =
+            ProjectManager.FollowInitialScenePath(project, thirdDestination);
+        check(
+            third.SettingsFileCreated &&
+            ReadIniValue(settingsPath, "Game", "DefaultScene") == third.CurrentReference &&
+            ProjectManager.ReadManifest(manifestPath).InitialScene == third.CurrentReference,
+            "missing ProjectSettings.ini is created with a coherent Game.DefaultScene");
+        check(
+            !Directory.EnumerateFiles(
+                    projectRoot,
+                    "*.scene-ref-*.tmp",
+                    SearchOption.AllDirectories)
+                .Any(),
+            "scene reference transactions leave no staging files");
+    }
+
+    private static void CheckProjectSettingsSerialization(
+        string root,
+        Action<bool, string> check)
+    {
+        string projectRoot = Path.Combine(root, "SettingsSerializationProject");
+        string assets = Path.Combine(projectRoot, "Assets");
+        string config = Path.Combine(projectRoot, "Config");
+        Directory.CreateDirectory(assets);
+        Directory.CreateDirectory(config);
+
+        string scenePath = Path.Combine(assets, "main.acscene");
+        File.WriteAllText(scenePath, "serialization-scene");
+        string manifestPath = Path.Combine(
+            projectRoot,
+            "SettingsSerialization.acsproject");
+        File.WriteAllText(
+            manifestPath,
+            """
+            {
+              "version": 1,
+              "name": "SettingsSerialization",
+              "engineVersion": "self-test",
+              "template": "blank",
+              "initialScene": "Assets/main.acscene"
+            }
+            """);
+        string settingsPath = Path.Combine(config, "ProjectSettings.ini");
+        File.WriteAllText(
+            settingsPath,
+            """
+            [Game]
+            DefaultScene=Assets/main.acscene
+            """);
+        Project project = ProjectManager.ReadManifest(manifestPath);
+
+        var largeBuilder = new StringBuilder(96 * 1024);
+        largeBuilder.Append(
+            """
+            ; serializer regression payload
+            [Rendering]
+            Exposure=1.25
+
+            [Game]
+            DefaultScene=Assets/main.acscene
+
+            [Bulk]
+            """);
+        largeBuilder.Append('\n');
+        for (int index = 0; index < 450; index++)
+        {
+            largeBuilder.Append("Key")
+                .Append(index.ToString("D4"))
+                .Append('=')
+                .Append('x', 180)
+                .Append('\n');
+        }
+        largeBuilder.Append("Tail=preserved-over-64KiB-\u96f2\n");
+
+        string largeSettings = largeBuilder.ToString();
+        byte[] largeBytes = new UTF8Encoding(false, true).GetBytes(largeSettings);
+        string captured = ProjectSettingsSerialization.Capture(buffer =>
+        {
+            largeBytes.CopyTo(buffer, 0);
+            buffer[largeBytes.Length] = 0;
+            return largeBytes.Length;
+        });
+        ProjectManager.SaveProjectSettings(project, captured);
+        check(
+            largeBytes.Length > 64 * 1024 &&
+            captured == largeSettings &&
+            File.ReadAllBytes(settingsPath).SequenceEqual(largeBytes),
+            "project settings larger than 64 KiB are captured and published completely");
+
+        bool exactMaximumAccepted = false;
+        try
+        {
+            string maximum = ProjectSettingsSerialization.Capture(buffer =>
+            {
+                buffer.AsSpan(
+                    0,
+                    ProjectSettingsSerialization.MaximumUtf8Bytes).Fill((byte)'x');
+                buffer[ProjectSettingsSerialization.MaximumUtf8Bytes] = 0;
+                return ProjectSettingsSerialization.MaximumUtf8Bytes;
+            });
+            exactMaximumAccepted =
+                maximum.Length == ProjectSettingsSerialization.MaximumUtf8Bytes &&
+                maximum[0] == 'x' &&
+                maximum[^1] == 'x';
+        }
+        catch
+        {
+            exactMaximumAccepted = false;
+        }
+        check(
+            exactMaximumAccepted,
+            "serializer capture accepts an exactly 1 MiB terminated UTF-8 payload");
+
+        byte[] persisted = File.ReadAllBytes(settingsPath);
+        bool RejectedWithoutWrite(Func<byte[], int> serializer)
+        {
+            try
+            {
+                string text = ProjectSettingsSerialization.Capture(serializer);
+                ProjectManager.SaveProjectSettings(project, text);
+                return false;
+            }
+            catch (InvalidDataException)
+            {
+                return File.ReadAllBytes(settingsPath).SequenceEqual(persisted);
+            }
+        }
+
+        check(
+            RejectedWithoutWrite(buffer => buffer.Length),
+            "out-of-buffer serializer byte counts are rejected without publishing");
+        check(
+            RejectedWithoutWrite(buffer =>
+            {
+                // Native SerializeText returns cap - 1 after truncation. The probe byte
+                // makes that value one byte larger than the legal persistence payload.
+                buffer[^1] = 0;
+                return buffer.Length - 1;
+            }),
+            "truncated serializer output is rejected without publishing");
+        check(
+            RejectedWithoutWrite(buffer =>
+            {
+                byte[] payload = Encoding.UTF8.GetBytes(
+                    "[Game]\nDefaultScene=Assets/main.acscene\n");
+                payload.CopyTo(buffer, 0);
+                buffer[payload.Length] = (byte)'!';
+                return payload.Length;
+            }),
+            "unterminated serializer output is rejected without publishing");
+        check(
+            RejectedWithoutWrite(buffer =>
+            {
+                buffer[0] = 0xc3;
+                buffer[1] = 0;
+                return 1;
+            }),
+            "invalid UTF-8 serializer output is rejected without publishing");
+        check(
+            RejectedWithoutWrite(buffer =>
+            {
+                buffer[0] = (byte)'x';
+                buffer[1] = 0;
+                buffer[2] = 0;
+                return 2;
+            }),
+            "embedded-NUL serializer output is rejected without publishing");
+    }
+
+    private static string ReadIniValue(
+        string path,
+        string wantedSection,
+        string wantedKey)
+    {
+        string section = "";
+        foreach (string raw in File.ReadLines(path))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith(';') || line.StartsWith('#'))
+                continue;
+            if (line.StartsWith('[') && line.EndsWith(']'))
+            {
+                section = line[1..^1].Trim();
+                continue;
+            }
+            if (!string.Equals(section, wantedSection, StringComparison.OrdinalIgnoreCase))
+                continue;
+            int equals = line.IndexOf('=');
+            if (equals <= 0 ||
+                !string.Equals(
+                    line[..equals].Trim(),
+                    wantedKey,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            return line[(equals + 1)..].Trim();
+        }
+        return "";
     }
 
     private static void CheckReparseDefense(

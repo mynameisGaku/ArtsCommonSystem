@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 namespace AcsEditor;
 
 /// <summary>プロジェクトの新規作成・オープン・最近使った一覧。フォルダ生成とテンプレート展開を担う。</summary>
-public static class ProjectManager
+public static partial class ProjectManager
 {
     // マニフェスト JSON の (デ)シリアライズ用 DTO (Project の計算プロパティを書き出さないため分離)。
     private sealed class ManifestDto

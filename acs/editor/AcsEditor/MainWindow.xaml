@@ -58,14 +58,14 @@
         <!-- メニュー -->
         <Menu DockPanel.Dock="Top" Background="{StaticResource Panel}" Padding="4,2">
             <MenuItem Header="_File">
-                <MenuItem Header="New Scene" Click="OnNewScene" InputGestureText="Ctrl+N"/>
-                <MenuItem Header="Open Scene…" Click="OnOpenScene"/>
-                <MenuItem Header="Save Scene…" Click="OnSaveScene" InputGestureText="Ctrl+S"/>
-                <MenuItem Header="Save All" Click="OnSaveAllScenes" InputGestureText="Ctrl+Shift+S"/>
+                <MenuItem x:Name="FileNewSceneMenu" Header="New Scene" Click="OnNewScene" InputGestureText="Ctrl+N"/>
+                <MenuItem x:Name="FileOpenSceneMenu" Header="Open Scene…" Click="OnOpenScene"/>
+                <MenuItem x:Name="FileSaveSceneMenu" Header="Save Scene…" Click="OnSaveScene" InputGestureText="Ctrl+S"/>
+                <MenuItem x:Name="FileSaveAllScenesMenu" Header="Save All" Click="OnSaveAllScenes" InputGestureText="Ctrl+Shift+S"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="OnExit"/>
             </MenuItem>
-            <MenuItem Header="_Edit">
+            <MenuItem x:Name="SceneEditMenu" Header="_Edit">
                 <MenuItem Header="Undo" Command="ApplicationCommands.Undo" InputGestureText="Ctrl+Z"/>
                 <MenuItem Header="Redo" Command="ApplicationCommands.Redo" InputGestureText="Ctrl+Y"/>
                 <MenuItem Header="Command Palette…" Click="OnCommandPalette" InputGestureText="Ctrl+Shift+P"/>
@@ -80,7 +80,7 @@
                 <Separator/>
                 <MenuItem Header="Project Settings…" Click="OnProjectSettings"/>
             </MenuItem>
-            <MenuItem Header="_GameObject">
+            <MenuItem x:Name="GameObjectMenu" Header="_GameObject">
                 <MenuItem Header="Create Empty" Click="OnCreateEmpty"/>
                 <MenuItem Header="Create Child of Selection" Click="OnCreateChild"/>
                 <Separator/>
@@ -98,7 +98,7 @@
                 <MenuItem x:Name="MenuRun"       Header="Run"          Click="OnRunProject"    InputGestureText="Ctrl+F5"/>
                 <MenuItem x:Name="MenuBuildRun"  Header="Build &amp; Run" Click="OnBuildAndRun" InputGestureText="F5"/>
                 <Separator/>
-                <MenuItem Header="Package Project…" Click="OnPackageProject"/>
+                <MenuItem x:Name="MenuPackage" Header="Package Project…" Click="OnPackageProject"/>
             </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem Header="Anti-aliasing">
@@ -152,7 +152,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
+                <StackPanel x:Name="SceneDocumentActions" Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
                     <Button Content="New" Click="OnNewScene" Style="{StaticResource ToolbarButton}" ToolTip="New Scene (Ctrl+N)"/>
                     <Button Content="Open" Click="OnOpenScene" Style="{StaticResource ToolbarButton}" ToolTip="Open Scene"/>
                     <Button x:Name="SaveBtn" Content="Save" Click="OnSaveScene" Style="{StaticResource ToolbarButton}" ToolTip="Save Scene (Ctrl+S)"/>
@@ -161,7 +161,7 @@
                                MaxWidth="190" TextTrimming="CharacterEllipsis" Margin="3,0,7,0"/>
                     <TextBlock x:Name="SaveStateText" Text="SAVED" Style="{StaticResource StateLabel}"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                <StackPanel x:Name="ScenePlaybackActions" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
                     <Button x:Name="PlayBtn" Content="Play" Click="OnPlay" Style="{StaticResource PlayToolbarButton}"
                             ToolTip="Play / Stop"/>
                     <Button x:Name="PauseBtn" Content="Pause" Click="OnPause" Style="{StaticResource ToolbarButton}"
@@ -208,7 +208,7 @@
         </Border>
 
         <!-- 本体: Hierarchy | (Viewport / Console) | Inspector -->
-        <Grid Background="{StaticResource Edge}">
+        <Grid x:Name="SceneWorkspace" Background="{StaticResource Edge}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="HierarchyColumn" Width="260"/>
                 <ColumnDefinition Width="4"/>

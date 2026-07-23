@@ -227,6 +227,18 @@ public partial class MainWindow
 
     private async Task<bool> SaveHostedSceneDocumentAsync()
     {
+        if (!TryBeginSceneSourceSave(
+                out SceneSourceSaveScope? saveScope,
+                out string saveBlockedReason))
+        {
+            string blockedMessage =
+                "Scene save is unavailable: " + saveBlockedReason + ".";
+            StatusText.Text = blockedMessage;
+            Log(blockedMessage, "Scene", LogLevel.Warn);
+            return false;
+        }
+        using SceneSourceSaveScope saveLease = saveScope!;
+
         if (!_documentHostInitialized)
             return await SaveActiveSceneAsync();
 
@@ -444,6 +456,7 @@ public partial class MainWindow
     {
         if (!_documentHostInitialized ||
             Engine == IntPtr.Zero ||
+            IsSceneEditingBlocked ||
             _sceneHistorySimulationSuspended ||
             EngineInterop.acs_editor_play_state(Engine) != 0 ||
             PreviewBtn.IsChecked == true)

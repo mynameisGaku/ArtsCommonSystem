@@ -57,6 +57,7 @@ public sealed class AssetItem : INotifyPropertyChanged
             OnPropertyChanged();
         }
     }
+    public int ThumbnailGeneration { get; set; }
 
     public bool IsRenaming
     {
@@ -101,13 +102,18 @@ public sealed class AssetItem : INotifyPropertyChanged
 public partial class AssetBrowserPanel : UserControl
 {
     public ObservableCollection<AssetItem> Items { get; } = new();
+    private ObservableCollection<AssetBrowserSourceNode> SourceRoots { get; } = new();
+    private ObservableCollection<AssetBrowserFavoriteView> FavoriteItems { get; } = new();
+    private ObservableCollection<AssetBrowserCollectionView> CollectionItems { get; } = new();
 
     /// <summary>エンジンハンドル (.acsmat サムネイルを実シェーダ GPU プレビューで描く。0=CPU フォールバック)。</summary>
     public IntPtr Engine { get; set; } = IntPtr.Zero;
 
     private Project? _project;
     private AssetDatabase? _assetDatabase;
+    private AssetBrowserSourcesStore? _sourcesStore;
     private string _currentDir = "";
+    private string? _activeCollectionName;
     private string _filter = "";
     private string _kindFilter = "all";
     private bool _recursiveFilter;
@@ -116,21 +122,34 @@ public partial class AssetBrowserPanel : UserControl
     private readonly DispatcherTimer _debounce;
     private readonly DispatcherTimer _filterDebounce;
     private CancellationTokenSource? _projectRefreshCancellation;
+    private CancellationTokenSource? _viewRefreshCancellation;
     private CancellationTokenSource? _thumbnailLoadCancellation;
     private CancellationTokenSource? _previewLoadCancellation;
+    private CancellationTokenSource? _sourcesTreeCancellation;
+    private Task _sourcesTreeRefreshTask = Task.CompletedTask;
+    private Task _viewRefreshTask = Task.CompletedTask;
     private int _projectRefreshGeneration;
+    private int _viewRefreshGeneration;
     private Point _dragStart;
     private bool _maybeDrag;
     private bool _renameCommitInProgress;
     private bool _refreshPendingWhileRenaming;
     private bool _suppressViewFilterRefresh;
+    private bool _suppressSourceSelection;
+    private bool _suppressViewSelectionTracking;
+    private bool _preservePendingSelectionOnNextRefresh;
     private bool _assetOperationInProgress;
     private bool _assetOperationsSuspended;
     private bool _refreshPendingAfterOperation;
     private readonly SemaphoreSlim _assetOperationGate = new(1, 1);
+    private readonly AssetOperationLifecycleTracker _assetOperationLifecycles = new();
     private readonly SemaphoreSlim _imageLoadGate = new(2, 2);
     private IReadOnlyList<AssetRecord> _assetSnapshot = Array.Empty<AssetRecord>();
     private readonly List<string> _assetClipboardPaths = new();
+    private readonly List<string> _collectionCandidatePaths = new();
+    private readonly HashSet<string> _viewSelectionPaths =
+        new(StringComparer.OrdinalIgnoreCase);
+    private string? _pendingCreatedRenamePath;
     private bool _assetClipboardCut;
     private AssetItem? _dragItem;
     private AssetItem? _dropTargetItem;
@@ -163,6 +182,9 @@ public partial class AssetBrowserPanel : UserControl
     {
         InitializeComponent();
         Tiles.ItemsSource = Items;
+        SourcesTree.ItemsSource = SourceRoots;
+        FavoriteList.ItemsSource = FavoriteItems;
+        CollectionList.ItemsSource = CollectionItems;
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); Refresh(); };
         _filterDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
@@ -172,29 +194,45 @@ public partial class AssetBrowserPanel : UserControl
             RequestViewRefresh();
         };
         ClearPreview();
+        InitializeAssetViewPresentation();
     }
 
     /// <summary>表示対象のプロジェクトを設定し、Assets フォルダの監視と一覧表示を開始する。</summary>
     public void SetProject(Project? project)
     {
+        FlushAssetViewPresentation();
         int generation = ++_projectRefreshGeneration;
         ResetAssetDragState(closeActionMenu: true);
         _projectRefreshCancellation?.Cancel();
         _projectRefreshCancellation?.Dispose();
         _projectRefreshCancellation = null;
+        CancelViewMaterialization();
+        _sourcesTreeCancellation?.Cancel();
+        _sourcesTreeCancellation?.Dispose();
+        _sourcesTreeCancellation = null;
         CancelImageLoads();
         _project = project;
         _assetDatabase = null;
+        _sourcesStore = null;
+        _activeCollectionName = null;
         _assetSnapshot = Array.Empty<AssetRecord>();
         _refreshPendingWhileRenaming = false;
         _refreshPendingAfterOperation = false;
         _assetClipboardPaths.Clear();
+        _collectionCandidatePaths.Clear();
+        _viewSelectionPaths.Clear();
+        _pendingCreatedRenamePath = null;
+        _preservePendingSelectionOnNextRefresh = false;
         _assetClipboardCut = false;
         _history = new AssetBrowserHistory();
+        SourceRoots.Clear();
+        FavoriteItems.Clear();
+        CollectionItems.Clear();
         DisposeWatcher();
         UpdateAssetOperationUi();
         if (project == null)
         {
+            LoadAssetViewPresentation(null);
             _currentDir = "";
             Items.Clear();
             PathText.Text = "";
@@ -205,8 +243,24 @@ public partial class AssetBrowserPanel : UserControl
         }
 
         Directory.CreateDirectory(project.AssetsDir);   // 念のため
+        LoadAssetViewPresentation(project);
         _currentDir = project.AssetsDir;
         _history.Reset(_currentDir);
+        try
+        {
+            _sourcesStore = new AssetBrowserSourcesStore(
+                project.RootDir,
+                project.AssetsDir,
+                out string? loadWarning);
+            if (loadWarning != null) Log?.Invoke(loadWarning);
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Log?.Invoke("Asset View saved sources are unavailable: " + error.Message);
+        }
+        RebuildSourcesTree();
+        RefreshSavedSources();
         Items.Clear();
         PathText.Text = "Indexing assets...";
 
@@ -221,6 +275,7 @@ public partial class AssetBrowserPanel : UserControl
         int generation,
         CancellationToken cancellationToken)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         AssetDatabase database;
         AssetDatabaseRefreshResult result;
         try
@@ -261,25 +316,17 @@ public partial class AssetBrowserPanel : UserControl
         UpdateAssetOperationUi();
         ReportIndexResult(result);
 
-        try
-        {
-            _watcher = new FileSystemWatcher(project.AssetsDir)
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
-                EnableRaisingEvents = true,
-            };
-            _watcher.Created += OnFsEvent; _watcher.Deleted += OnFsEvent;
-            _watcher.Renamed += OnFsEvent; _watcher.Changed += OnFsEvent;
-            _watcher.Error += OnFsWatcherError;
-        }
-        catch { /* 監視できなくても手動更新で動く */ }
+        StartWatcher(project, generation);
 
+        RebuildSourcesTree();
+        RefreshSavedSources();
         RefreshView();
+        ScheduleTrashMaintenance(database, generation);
     }
 
     private void OnFsEvent(object sender, FileSystemEventArgs e)
     {
+        if (_assetOperationsSuspended) return;
         if (e.FullPath.EndsWith(AssetDatabase.MetadataSuffix, StringComparison.OrdinalIgnoreCase) ||
             AssetCreationWorkflow.IsTemporaryPath(e.FullPath) ||
             e.FullPath.Contains(
@@ -290,17 +337,79 @@ public partial class AssetBrowserPanel : UserControl
                 Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase))
             return;
-        Dispatcher.BeginInvoke(() => { _debounce.Stop(); _debounce.Start(); });
+        try
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (_assetOperationsSuspended) return;
+                _debounce.Stop();
+                _debounce.Start();
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher shutdown raced an already-delivered filesystem callback.
+        }
     }
 
     private void OnFsWatcherError(object sender, ErrorEventArgs e)
     {
-        Dispatcher.BeginInvoke(() =>
+        if (_assetOperationsSuspended) return;
+        try
         {
-            Log?.Invoke("Asset watcher overflowed; rebuilding the asset index.");
-            _debounce.Stop();
-            _debounce.Start();
-        });
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (_assetOperationsSuspended) return;
+                Log?.Invoke("Asset watcher overflowed; rebuilding the asset index.");
+                _debounce.Stop();
+                _debounce.Start();
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher shutdown raced an already-delivered watcher error.
+        }
+    }
+
+    private void StartWatcher(Project project, int generation)
+    {
+        if (_assetOperationsSuspended ||
+            generation != _projectRefreshGeneration ||
+            !ReferenceEquals(project, _project))
+        {
+            return;
+        }
+
+        DisposeWatcher();
+        try
+        {
+            var watcher = new FileSystemWatcher(project.AssetsDir)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName |
+                               NotifyFilters.DirectoryName |
+                               NotifyFilters.LastWrite,
+            };
+            watcher.Created += OnFsEvent;
+            watcher.Deleted += OnFsEvent;
+            watcher.Renamed += OnFsEvent;
+            watcher.Changed += OnFsEvent;
+            watcher.Error += OnFsWatcherError;
+            if (_assetOperationsSuspended ||
+                generation != _projectRefreshGeneration ||
+                !ReferenceEquals(project, _project))
+            {
+                watcher.Dispose();
+                return;
+            }
+            _watcher = watcher;
+            watcher.EnableRaisingEvents = true;
+        }
+        catch
+        {
+            // Manual refresh remains available when filesystem watching is unavailable.
+            DisposeWatcher();
+        }
     }
 
     private void DisposeWatcher()
@@ -312,6 +421,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private async Task RefreshAsync()
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         if (_assetOperationsSuspended)
         {
             _refreshPendingAfterOperation = true;
@@ -357,6 +467,8 @@ public partial class AssetBrowserPanel : UserControl
             if (!IsCurrentOperationContext(database, generation)) return;
             Log?.Invoke("Asset database refresh failed: " + ex.Message);
         }
+        RebuildSourcesTree();
+        RefreshSavedSources();
         RefreshView();
     }
 
@@ -469,6 +581,19 @@ public partial class AssetBrowserPanel : UserControl
 
     private void PublishAssetPathsChanged(AssetPathsChangedEventArgs change)
     {
+        if (_sourcesStore != null)
+        {
+            try
+            {
+                if (_sourcesStore.ApplyPathChanges(change))
+                    RefreshSavedSources();
+            }
+            catch (Exception error)
+            {
+                Log?.Invoke("Saved Favorites/Collections could not follow the asset path change: " +
+                            error.Message);
+            }
+        }
         if (AssetPathsChanged == null) return;
         foreach (EventHandler<AssetPathsChangedEventArgs> handler in
                  AssetPathsChanged.GetInvocationList())
@@ -488,14 +613,47 @@ public partial class AssetBrowserPanel : UserControl
 
     public async Task SuspendOperationsAndWaitAsync()
     {
+        FlushAssetViewPresentation();
         _assetOperationsSuspended = true;
+        _projectRefreshCancellation?.Cancel();
+        CancelViewMaterialization();
+        DisposeWatcher();
+        _trashMaintenanceGeneration = -1;
         _debounce.Stop();
         _filterDebounce.Stop();
+        _thumbnailViewportDebounce.Stop();
+        _sourcesTreeCancellation?.Cancel();
         CancelImageLoads();
         ResetAssetDragState(closeActionMenu: true);
         UpdateAssetOperationUi();
-        await _assetOperationGate.WaitAsync();
-        _assetOperationGate.Release();
+        try
+        {
+            await _sourcesTreeRefreshTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when close interrupts a background Sources enumeration.
+        }
+        try
+        {
+            await _viewRefreshTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when close interrupts Asset View candidate building/materialization.
+        }
+        while (true)
+        {
+            // First drain every worker turn. Its awaiting async-void/Task caller remains tracked
+            // until path publication, document rebind, snapshot refresh, and watcher setup have
+            // also completed.
+            await _assetOperationGate.WaitAsync();
+            _assetOperationGate.Release();
+            await _assetOperationLifecycles.WaitForDrainAsync();
+            if (_assetOperationLifecycles.InFlightCount == 0) break;
+        }
+        await _imageLoadGate.WaitAsync();
+        _imageLoadGate.Release();
     }
 
     public void ResumeOperations()
@@ -515,13 +673,22 @@ public partial class AssetBrowserPanel : UserControl
                 cancellation.Token);
             return;
         }
+        if (_project != null && _assetDatabase != null)
+        {
+            StartWatcher(_project, _projectRefreshGeneration);
+            ScheduleTrashMaintenance(_assetDatabase, _projectRefreshGeneration);
+        }
         if (_refreshPendingAfterOperation)
         {
             _refreshPendingAfterOperation = false;
             Refresh();
             return;
         }
-        if (_project != null) RefreshView();
+        if (_project != null)
+        {
+            RebuildSourcesTree();
+            RefreshView();
+        }
     }
 
     private void UpdateAssetOperationUi()
@@ -535,102 +702,663 @@ public partial class AssetBrowserPanel : UserControl
                                    _assetDatabase != null;
         ImportButton.IsEnabled = acceptsCommands && _project != null;
         RefreshButton.IsEnabled = acceptsCommands && _assetDatabase != null;
+        AssetActionsButton.IsEnabled = acceptsCommands &&
+                                       _project != null &&
+                                       _assetDatabase != null;
+    }
+
+    private void RebuildSourcesTree()
+    {
+        _sourcesTreeCancellation?.Cancel();
+        _sourcesTreeCancellation?.Dispose();
+        _sourcesTreeCancellation = null;
+        if (_project == null)
+        {
+            SourceRoots.Clear();
+            _sourcesTreeRefreshTask = Task.CompletedTask;
+            return;
+        }
+
+        string assetsRoot = _project.AssetsDir;
+        int generation = _projectRefreshGeneration;
+        var cancellation = new CancellationTokenSource();
+        _sourcesTreeCancellation = cancellation;
+        _sourcesTreeRefreshTask = RebuildSourcesTreeAsync(
+            assetsRoot,
+            generation,
+            cancellation.Token);
+    }
+
+    private async Task RebuildSourcesTreeAsync(
+        string assetsRoot,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        AssetBrowserSourceNode? root;
+        try
+        {
+            root = await Task.Run(
+                () => AssetBrowserSourceTreeBuilder.Build(
+                    assetsRoot,
+                    cancellationToken),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            if (generation == _projectRefreshGeneration)
+                Log?.Invoke("Sources tree could not be refreshed: " + error.Message);
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested ||
+            generation != _projectRefreshGeneration ||
+            _project == null ||
+            !PathEquals(_project.AssetsDir, assetsRoot))
+        {
+            return;
+        }
+        SourceRoots.Clear();
+        if (root != null) SourceRoots.Add(root);
+        MarkCurrentSourceNode();
+    }
+
+    private void RefreshSavedSources()
+    {
+        string? selectedFavorite =
+            (FavoriteList.SelectedItem as AssetBrowserFavoriteView)?.RelativePath;
+        string? selectedCollection =
+            (CollectionList.SelectedItem as AssetBrowserCollectionView)?.Name ??
+            _activeCollectionName;
+        _suppressSourceSelection = true;
+        try
+        {
+            FavoriteItems.Clear();
+            CollectionItems.Clear();
+            if (_sourcesStore != null)
+            {
+                foreach (AssetBrowserFavoriteView favorite in _sourcesStore.Favorites)
+                    FavoriteItems.Add(favorite);
+                foreach (AssetBrowserCollectionView collection in _sourcesStore.Collections)
+                    CollectionItems.Add(collection);
+            }
+
+            FavoriteList.SelectedItem = FavoriteItems.FirstOrDefault(favorite =>
+                favorite.RelativePath.Equals(
+                    selectedFavorite,
+                    StringComparison.OrdinalIgnoreCase));
+            CollectionList.SelectedItem = CollectionItems.FirstOrDefault(collection =>
+                collection.Name.Equals(
+                    selectedCollection,
+                    StringComparison.OrdinalIgnoreCase));
+            if (_activeCollectionName != null &&
+                CollectionList.SelectedItem == null)
+            {
+                _activeCollectionName = null;
+            }
+        }
+        finally
+        {
+            _suppressSourceSelection = false;
+        }
+        MarkCurrentSourceNode();
+    }
+
+    private void MarkCurrentSourceNode()
+    {
+        foreach (AssetBrowserSourceNode root in SourceRoots)
+            MarkCurrentSourceNode(root);
+    }
+
+    private void MarkCurrentSourceNode(AssetBrowserSourceNode node)
+    {
+        node.IsCurrent = _activeCollectionName == null &&
+                         !string.IsNullOrWhiteSpace(_currentDir) &&
+                         PathEquals(node.FullPath, _currentDir);
+        foreach (AssetBrowserSourceNode child in node.Children)
+            MarkCurrentSourceNode(child);
+    }
+
+    private void ClearCollectionSelection()
+    {
+        _activeCollectionName = null;
+        _suppressSourceSelection = true;
+        try
+        {
+            CollectionList.SelectedItem = null;
+        }
+        finally
+        {
+            _suppressSourceSelection = false;
+        }
     }
 
     private void RefreshView()
     {
+        if (_assetOperationsSuspended) return;
         ResetAssetDragState(closeActionMenu: true);
         string[] selectedPaths = Tiles.SelectedItems
             .Cast<AssetItem>()
             .Select(static item => item.FullPath)
             .ToArray();
-        _thumbnailLoadCancellation?.Cancel();
-        Items.Clear();
-        if (_project == null)
+        if (!_preservePendingSelectionOnNextRefresh &&
+            (selectedPaths.Length != 0 || _viewRefreshTask.IsCompleted))
         {
+            ReplacePendingViewSelection(selectedPaths);
+        }
+        _preservePendingSelectionOnNextRefresh = false;
+        CancelViewMaterialization();
+        _thumbnailLoadCancellation?.Cancel();
+        _suppressViewSelectionTracking = true;
+        try
+        {
+            Items.Clear();
+        }
+        finally
+        {
+            _suppressViewSelectionTracking = false;
+        }
+
+        Project? project = _project;
+        if (project == null)
+        {
+            _viewRefreshTask = Task.CompletedTask;
             AssetCountText.Text = "0 assets";
             UpdateNavigationControls();
             return;
         }
         if (string.IsNullOrEmpty(_currentDir) || !Directory.Exists(_currentDir))
         {
-            _currentDir = _project.AssetsDir;
+            _currentDir = project.AssetsDir;
             _history.Navigate(_currentDir);
         }
 
-        PathText.Text = RelDisplay(_currentDir);
+        bool collectionView =
+            _activeCollectionName != null && _sourcesStore != null;
+        PathText.Text = collectionView
+            ? "Collections / " + _activeCollectionName
+            : RelDisplay(_currentDir);
+        MarkCurrentSourceNode();
         UpdateNavigationControls();
+        AssetCountText.Text = collectionView
+            ? "Loading collection..."
+            : "Loading assets...";
 
+        var request = new AssetViewBuildRequest(
+            project.AssetsDir,
+            _currentDir,
+            _activeCollectionName,
+            _sourcesStore,
+            _assetSnapshot,
+            _filter,
+            _kindFilter,
+            _recursiveFilter,
+            _presentationState.ShowFolders,
+            _presentationState.ShowEmptyFolders);
+        int projectGeneration = _projectRefreshGeneration;
+        int viewGeneration = _viewRefreshGeneration;
+        var cancellation = new CancellationTokenSource();
+        _viewRefreshCancellation = cancellation;
+        _viewRefreshTask = MaterializeViewAsync(
+            request,
+            projectGeneration,
+            viewGeneration,
+            cancellation.Token);
+    }
+
+    private async Task MaterializeViewAsync(
+        AssetViewBuildRequest request,
+        int projectGeneration,
+        int viewGeneration,
+        CancellationToken cancellationToken)
+    {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
+        AssetViewBuildResult result;
         try
         {
-            foreach (string dir in Directory.GetDirectories(_currentDir)
-                         .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
+            result = await Task.Run(
+                () => BuildAssetView(request, cancellationToken),
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception error)
+        {
+            if (IsCurrentViewMaterialization(
+                    projectGeneration,
+                    viewGeneration,
+                    cancellationToken))
             {
-                var di = new DirectoryInfo(dir);
-                if (di.Name.Equals(AssetDatabase.InternalDirectoryName, StringComparison.OrdinalIgnoreCase) ||
-                    (di.Attributes & FileAttributes.ReparsePoint) != 0)
-                    continue;
-                string relative = Path.GetRelativePath(_project.AssetsDir, dir)
-                    .Replace('\\', '/');
-                // Type chips filter assets; folders stay navigable unless the query itself
-                // explicitly excludes them (for example type:material).
-                if (!AssetBrowserQuery.Matches(
-                        _filter, "all", di.Name, relative, "folder", "", true))
-                    continue;
-                Items.Add(new AssetItem
-                {
-                    FullPath = dir, Name = di.Name, Kind = "dir", IsDirectory = true,
-                    Glyph = "📁", GlyphBrush = MakeBrush(0xC9, 0xA2, 0x5A),
-                });
+                Log?.Invoke("Asset View candidate build failed: " + error.Message);
             }
-            var indexedFiles = _assetSnapshot
-                .Where(record => _recursiveFilter
-                    ? IsUnder(record.FullPath, _currentDir)
-                    : PathEquals(
-                        Path.GetDirectoryName(record.FullPath) ?? "",
-                        _currentDir))
-                .OrderBy(static record => record.RelativePath, StringComparer.OrdinalIgnoreCase);
-            foreach (AssetRecord record in indexedFiles)
+            return;
+        }
+        try
+        {
+            if (!IsCurrentViewMaterialization(
+                    projectGeneration,
+                    viewGeneration,
+                    cancellationToken))
             {
-                string file = record.FullPath;
-                if (!AssetBrowserQuery.Matches(
-                        _filter,
-                        _kindFilter,
-                        Path.GetFileName(file),
-                        record.RelativePath,
-                        record.Kind,
-                        record.AssetId,
-                        isDirectory: false))
-                    continue;
-                string kind = record.Kind;
-                Items.Add(new AssetItem
+                return;
+            }
+            if (result.Warning != null)
+                Log?.Invoke("Asset enumerate error: " + result.Warning);
+
+            int folderCount = 0;
+            int assetCount = 0;
+            bool queuedInitialThumbnails = false;
+            await AssetViewIncrementalMaterializer.AddAsync(
+                result.Items,
+                candidate =>
                 {
-                    AssetId = record.AssetId,
-                    FullPath = file, Name = Path.GetFileName(file), Kind = kind, IsDirectory = false,
-                    Glyph = GlyphFor(kind), GlyphBrush = BrushFor(kind),
+                    var item = new AssetItem
+                    {
+                        AssetId = candidate.AssetId,
+                        FullPath = candidate.FullPath,
+                        Name = candidate.Name,
+                        Kind = candidate.Kind,
+                        IsDirectory = candidate.IsDirectory,
+                        Glyph = candidate.IsDirectory
+                            ? "📁"
+                            : GlyphFor(candidate.Kind),
+                        GlyphBrush = candidate.IsDirectory
+                            ? MakeBrush(0xC9, 0xA2, 0x5A)
+                            : BrushFor(candidate.Kind),
+                    };
+                    Items.Add(item);
+                    if (candidate.IsDirectory) folderCount++;
+                    else assetCount++;
+                    ApplyPendingViewSelection(item);
+                },
+                () => IsCurrentViewMaterialization(
+                    projectGeneration,
+                    viewGeneration,
+                    cancellationToken),
+                Dispatcher,
+                cancellationToken,
+                _ =>
+                {
+                    AssetCountText.Text = FormatViewCount(
+                        assetCount,
+                        folderCount,
+                        result.IsCollection,
+                        loading: true);
+                    if (!queuedInitialThumbnails)
+                    {
+                        queuedInitialThumbnails = true;
+                        QueueThumbnailViewportRefresh();
+                    }
                 });
+
+            if (!IsCurrentViewMaterialization(
+                    projectGeneration,
+                    viewGeneration,
+                    cancellationToken))
+            {
+                return;
+            }
+            AssetCountText.Text = FormatViewCount(
+                assetCount,
+                folderCount,
+                result.IsCollection,
+                loading: false);
+            FinishPendingViewSelection(result.Items);
+            QueueThumbnailViewportRefresh();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception error)
+        {
+            if (IsCurrentViewMaterialization(
+                    projectGeneration,
+                    viewGeneration,
+                    cancellationToken))
+            {
+                Log?.Invoke("Asset View materialization failed: " + error.Message);
             }
         }
-        catch (Exception ex) { Log?.Invoke("Asset enumerate error: " + ex.Message); }
-        int folderCount = Items.Count(static item => item.IsDirectory);
-        int assetCount = Items.Count - folderCount;
-        AssetCountText.Text = $"{assetCount} assets  |  {folderCount} folders";
-        RestoreSelection(selectedPaths);
-        StartThumbnailLoading();
     }
 
-    private void RestoreSelection(IEnumerable<string> paths)
+    private bool IsCurrentViewMaterialization(
+        int projectGeneration,
+        int viewGeneration,
+        CancellationToken cancellationToken) =>
+        !cancellationToken.IsCancellationRequested &&
+        !_assetOperationsSuspended &&
+        projectGeneration == _projectRefreshGeneration &&
+        viewGeneration == _viewRefreshGeneration;
+
+    private static AssetViewBuildResult BuildAssetView(
+        AssetViewBuildRequest request,
+        CancellationToken cancellationToken)
     {
-        var selected = new HashSet<string>(
-            paths.Select(Path.GetFullPath),
-            StringComparer.OrdinalIgnoreCase);
-        if (selected.Count == 0) return;
-        foreach (AssetItem item in Items)
+        var items = new List<AssetViewCandidate>();
+        string? warning = null;
+        bool collectionView =
+            request.CollectionName != null && request.SourcesStore != null;
+        try
         {
-            if (selected.Contains(Path.GetFullPath(item.FullPath)))
-                Tiles.SelectedItems.Add(item);
+            HashSet<string>? nonEmptyFolders = null;
+            if (request.ShowFolders && !request.ShowEmptyFolders)
+            {
+                nonEmptyFolders = BuildNonEmptyFolderSet(
+                    request.AssetsRoot,
+                    request.Snapshot,
+                    cancellationToken);
+            }
+
+            if (collectionView)
+            {
+                BuildCollectionCandidates(
+                    request,
+                    nonEmptyFolders,
+                    items,
+                    cancellationToken);
+            }
+            else
+            {
+                BuildDirectoryCandidates(
+                    request,
+                    nonEmptyFolders,
+                    items,
+                    cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or KeyNotFoundException)
+        {
+            warning = error.Message;
+        }
+        return new AssetViewBuildResult(
+            items.AsReadOnly(),
+            collectionView,
+            warning);
+    }
+
+    private static void BuildDirectoryCandidates(
+        AssetViewBuildRequest request,
+        HashSet<string>? nonEmptyFolders,
+        ICollection<AssetViewCandidate> items,
+        CancellationToken cancellationToken)
+    {
+        if (request.ShowFolders)
+        {
+            foreach (string directory in Directory.GetDirectories(request.CurrentDirectory)
+                         .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var info = new DirectoryInfo(directory);
+                if (info.Name.Equals(
+                        AssetDatabase.InternalDirectoryName,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    (info.Attributes & FileAttributes.ReparsePoint) != 0 ||
+                    (!request.ShowEmptyFolders &&
+                     (nonEmptyFolders == null ||
+                      !nonEmptyFolders.Contains(NormalizeViewPath(directory)))))
+                {
+                    continue;
+                }
+                string relative = Path.GetRelativePath(
+                        request.AssetsRoot,
+                        directory)
+                    .Replace('\\', '/');
+                if (!AssetBrowserQuery.Matches(
+                        request.Filter,
+                        "all",
+                        info.Name,
+                        relative,
+                        "folder",
+                        "",
+                        isDirectory: true))
+                {
+                    continue;
+                }
+                items.Add(new AssetViewCandidate(
+                    "",
+                    directory,
+                    info.Name,
+                    "dir",
+                    IsDirectory: true));
+            }
+        }
+
+        foreach (AssetRecord record in request.Snapshot
+                     .Where(record => request.RecursiveFilter
+                         ? IsUnder(record.FullPath, request.CurrentDirectory)
+                         : PathEquals(
+                             Path.GetDirectoryName(record.FullPath) ?? "",
+                             request.CurrentDirectory))
+                     .OrderBy(static record =>
+                         record.RelativePath,
+                         StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!AssetBrowserQuery.Matches(
+                    request.Filter,
+                    request.KindFilter,
+                    Path.GetFileName(record.FullPath),
+                    record.RelativePath,
+                    record.Kind,
+                    record.AssetId,
+                    isDirectory: false))
+            {
+                continue;
+            }
+            items.Add(new AssetViewCandidate(
+                record.AssetId,
+                record.FullPath,
+                Path.GetFileName(record.FullPath),
+                record.Kind,
+                IsDirectory: false));
         }
     }
+
+    private static void BuildCollectionCandidates(
+        AssetViewBuildRequest request,
+        HashSet<string>? nonEmptyFolders,
+        ICollection<AssetViewCandidate> items,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<string, AssetRecord> indexedByPath = request.Snapshot
+            .GroupBy(
+                static record => Path.GetFullPath(record.FullPath),
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.First(),
+                StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<string> collectionPaths =
+            request.SourcesStore!.GetCollectionPaths(request.CollectionName!);
+        foreach (string fullPath in collectionPaths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Directory.Exists(fullPath))
+            {
+                if (!request.ShowFolders ||
+                    (!request.ShowEmptyFolders &&
+                     (nonEmptyFolders == null ||
+                      !nonEmptyFolders.Contains(NormalizeViewPath(fullPath)))))
+                {
+                    continue;
+                }
+                string name = Path.GetFileName(fullPath);
+                string relative = Path.GetRelativePath(
+                        request.AssetsRoot,
+                        fullPath)
+                    .Replace('\\', '/');
+                if (!AssetBrowserQuery.Matches(
+                        request.Filter,
+                        "all",
+                        name,
+                        relative,
+                        "folder",
+                        "",
+                        isDirectory: true))
+                {
+                    continue;
+                }
+                items.Add(new AssetViewCandidate(
+                    "",
+                    fullPath,
+                    name,
+                    "dir",
+                    IsDirectory: true));
+                continue;
+            }
+
+            if (!indexedByPath.TryGetValue(
+                    Path.GetFullPath(fullPath),
+                    out AssetRecord? record) ||
+                !AssetBrowserQuery.Matches(
+                    request.Filter,
+                    request.KindFilter,
+                    Path.GetFileName(fullPath),
+                    record.RelativePath,
+                    record.Kind,
+                    record.AssetId,
+                    isDirectory: false))
+            {
+                continue;
+            }
+            items.Add(new AssetViewCandidate(
+                record.AssetId,
+                fullPath,
+                Path.GetFileName(fullPath),
+                record.Kind,
+                IsDirectory: false));
+        }
+    }
+
+    private static HashSet<string> BuildNonEmptyFolderSet(
+        string assetsRoot,
+        IReadOnlyList<AssetRecord> snapshot,
+        CancellationToken cancellationToken)
+    {
+        string root = NormalizeViewPath(assetsRoot);
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (AssetRecord record in snapshot)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string? folder = Path.GetDirectoryName(record.FullPath);
+            while (!string.IsNullOrEmpty(folder) &&
+                   IsUnderOrEqual(folder, root) &&
+                   !PathEquals(folder, root))
+            {
+                string normalized = NormalizeViewPath(folder);
+                if (!folders.Add(normalized)) break;
+                folder = Path.GetDirectoryName(normalized);
+            }
+        }
+        return folders;
+    }
+
+    private static string NormalizeViewPath(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    private static string FormatViewCount(
+        int assetCount,
+        int folderCount,
+        bool collection,
+        bool loading) =>
+        $"{assetCount} assets  |  {folderCount} folders" +
+        (collection ? "  |  collection" : "") +
+        (loading ? "  |  loading..." : "");
+
+    private void ApplyPendingViewSelection(AssetItem item)
+    {
+        if (!_viewSelectionPaths.Contains(Path.GetFullPath(item.FullPath)))
+            return;
+        _suppressViewSelectionTracking = true;
+        try
+        {
+            if (!Tiles.SelectedItems.Contains(item))
+                Tiles.SelectedItems.Add(item);
+        }
+        finally
+        {
+            _suppressViewSelectionTracking = false;
+        }
+        if (_pendingCreatedRenamePath != null &&
+            PathEquals(_pendingCreatedRenamePath, item.FullPath))
+        {
+            _pendingCreatedRenamePath = null;
+            BeginRename(item);
+        }
+    }
+
+    private void FinishPendingViewSelection(
+        IReadOnlyList<AssetViewCandidate> candidates)
+    {
+        var available = candidates
+            .Select(static candidate => Path.GetFullPath(candidate.FullPath))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!_viewSelectionPaths.Overlaps(available))
+        {
+            _viewSelectionPaths.Clear();
+            _pendingCreatedRenamePath = null;
+            return;
+        }
+        if (Tiles.SelectedItems.Count == 0) return;
+        if (Tiles.SelectedItems[^1] is AssetItem last)
+            Tiles.ScrollIntoView(last);
+        Tiles.Focus();
+    }
+
+    private void ReplacePendingViewSelection(IEnumerable<string> paths)
+    {
+        _viewSelectionPaths.Clear();
+        foreach (string path in paths)
+        {
+            if (!string.IsNullOrWhiteSpace(path))
+                _viewSelectionPaths.Add(Path.GetFullPath(path));
+        }
+    }
+
+    private void CancelViewMaterialization()
+    {
+        _viewRefreshGeneration++;
+        CancellationTokenSource? cancellation = _viewRefreshCancellation;
+        _viewRefreshCancellation = null;
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+    }
+
+    private sealed record AssetViewBuildRequest(
+        string AssetsRoot,
+        string CurrentDirectory,
+        string? CollectionName,
+        AssetBrowserSourcesStore? SourcesStore,
+        IReadOnlyList<AssetRecord> Snapshot,
+        string Filter,
+        string KindFilter,
+        bool RecursiveFilter,
+        bool ShowFolders,
+        bool ShowEmptyFolders);
+
+    private sealed record AssetViewCandidate(
+        string AssetId,
+        string FullPath,
+        string Name,
+        string Kind,
+        bool IsDirectory);
+
+    private sealed record AssetViewBuildResult(
+        IReadOnlyList<AssetViewCandidate> Items,
+        bool IsCollection,
+        string? Warning);
 
     private void ReportIndexResult(AssetDatabaseRefreshResult result)
     {
@@ -646,14 +1374,36 @@ public partial class AssetBrowserPanel : UserControl
     }
 
     // ===== ナビゲーション =====
-    private void OnBack(object sender, RoutedEventArgs e) =>
+    private void OnBack(object sender, RoutedEventArgs e)
+    {
+        if (_activeCollectionName != null)
+        {
+            ClearCollectionSelection();
+            RefreshView();
+            return;
+        }
         NavigateHistory(backward: true);
+    }
 
-    private void OnForward(object sender, RoutedEventArgs e) =>
+    private void OnForward(object sender, RoutedEventArgs e)
+    {
+        if (_activeCollectionName != null)
+        {
+            ClearCollectionSelection();
+            RefreshView();
+            return;
+        }
         NavigateHistory(backward: false);
+    }
 
     private void OnUp(object sender, RoutedEventArgs e)
     {
+        if (_activeCollectionName != null)
+        {
+            ClearCollectionSelection();
+            RefreshView();
+            return;
+        }
         if (_project == null || PathEquals(_currentDir, _project.AssetsDir)) return;
         string? parent = Path.GetDirectoryName(_currentDir);
         if (parent != null) NavigateToDirectory(parent, addHistory: true);
@@ -675,13 +1425,14 @@ public partial class AssetBrowserPanel : UserControl
         string full;
         try
         {
-            full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-            if (!IsUnderOrEqual(full, _project.AssetsDir) || !Directory.Exists(full))
+            if (!AssetBrowserSourcePathPolicy.TryCanonicalizeExisting(
+                    _project.AssetsDir,
+                    path,
+                    requireDirectory: true,
+                    out full))
+            {
                 return false;
-            FileAttributes attributes = File.GetAttributes(full);
-            if ((attributes & FileAttributes.Directory) == 0 ||
-                (attributes & FileAttributes.ReparsePoint) != 0)
-                return false;
+            }
         }
         catch (Exception error) when (
             error is IOException or UnauthorizedAccessException or ArgumentException)
@@ -689,6 +1440,7 @@ public partial class AssetBrowserPanel : UserControl
             Log?.Invoke("Asset folder is no longer available: " + error.Message);
             return false;
         }
+        ClearCollectionSelection();
         _currentDir = full;
         if (addHistory) _history.Navigate(full);
         RefreshView();
@@ -697,11 +1449,261 @@ public partial class AssetBrowserPanel : UserControl
 
     private void UpdateNavigationControls()
     {
-        BackBtn.IsEnabled = _project != null && _history.CanGoBack;
+        BackBtn.IsEnabled = _project != null &&
+                            (_activeCollectionName != null || _history.CanGoBack);
         ForwardBtn.IsEnabled = _project != null && _history.CanGoForward;
         UpBtn.IsEnabled = _project != null &&
-                          !string.IsNullOrEmpty(_currentDir) &&
-                          !PathEquals(_currentDir, _project.AssetsDir);
+                          (_activeCollectionName != null ||
+                           (!string.IsNullOrEmpty(_currentDir) &&
+                            !PathEquals(_currentDir, _project.AssetsDir)));
+    }
+
+    private void OnSourceTreeSelected(
+        object sender,
+        RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (_suppressSourceSelection ||
+            e.NewValue is not AssetBrowserSourceNode node ||
+            !CanStartAssetOperation("Navigate Sources"))
+        {
+            return;
+        }
+        NavigateToDirectory(node.FullPath, addHistory: true);
+    }
+
+    private void OnFavoriteSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSourceSelection ||
+            FavoriteList.SelectedItem is not AssetBrowserFavoriteView favorite ||
+            !CanStartAssetOperation("Open favorite"))
+        {
+            return;
+        }
+        if (!favorite.IsAvailable || favorite.FullPath == null)
+        {
+            Log?.Invoke("Favorite folder is missing or no longer safe: " +
+                        favorite.RelativePath);
+            return;
+        }
+        NavigateToDirectory(favorite.FullPath, addHistory: true);
+    }
+
+    private void OnCollectionSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressSourceSelection ||
+            CollectionList.SelectedItem is not AssetBrowserCollectionView collection ||
+            !CanStartAssetOperation("Open collection"))
+        {
+            return;
+        }
+        _activeCollectionName = collection.Name;
+        _suppressSourceSelection = true;
+        try
+        {
+            FavoriteList.SelectedItem = null;
+        }
+        finally
+        {
+            _suppressSourceSelection = false;
+        }
+        RefreshView();
+    }
+
+    private void OnAddCurrentFavorite(object sender, RoutedEventArgs e)
+    {
+        if (_sourcesStore == null || string.IsNullOrWhiteSpace(_currentDir) ||
+            !CanStartAssetOperation("Add favorite"))
+        {
+            return;
+        }
+        try
+        {
+            bool changed = _sourcesStore.AddFavorite(_currentDir);
+            RefreshSavedSources();
+            Log?.Invoke(changed
+                ? "Favorite added: " + RelDisplay(_currentDir)
+                : "The current folder is already a favorite.");
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or InvalidOperationException)
+        {
+            ReportAssetOperationFailure("Favorite could not be added: " + error.Message);
+        }
+    }
+
+    private void OnRemoveFavorite(object sender, RoutedEventArgs e)
+    {
+        if (_sourcesStore == null ||
+            FavoriteList.SelectedItem is not AssetBrowserFavoriteView favorite ||
+            !CanStartAssetOperation("Remove favorite"))
+        {
+            return;
+        }
+        try
+        {
+            if (_sourcesStore.RemoveFavorite(favorite.RelativePath))
+            {
+                RefreshSavedSources();
+                Log?.Invoke("Favorite removed: " + favorite.RelativePath);
+            }
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or InvalidOperationException)
+        {
+            ReportAssetOperationFailure("Favorite could not be removed: " + error.Message);
+        }
+    }
+
+    private void OnCollectionNameKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None) return;
+        OnCreateCollection(sender, new RoutedEventArgs());
+        e.Handled = true;
+    }
+
+    private void OnCreateCollection(object sender, RoutedEventArgs e)
+    {
+        if (_sourcesStore == null ||
+            !CanStartAssetOperation("Create collection"))
+        {
+            return;
+        }
+        string name = CollectionNameBox.Text;
+        try
+        {
+            if (!_sourcesStore.CreateCollection(name))
+            {
+                Log?.Invoke("A collection with that name already exists.");
+                return;
+            }
+            CollectionNameBox.Clear();
+            RefreshSavedSources();
+            CollectionList.SelectedItem = CollectionItems.First(collection =>
+                collection.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase));
+            Log?.Invoke("Collection created: " + name.Trim());
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or InvalidOperationException)
+        {
+            ReportAssetOperationFailure("Collection could not be created: " + error.Message);
+        }
+    }
+
+    private void OnDeleteCollection(object sender, RoutedEventArgs e)
+    {
+        if (_sourcesStore == null ||
+            CollectionList.SelectedItem is not AssetBrowserCollectionView collection ||
+            !CanStartAssetOperation("Delete collection"))
+        {
+            return;
+        }
+        if (MessageBox.Show(
+                Window.GetWindow(this),
+                $"Collection「{collection.Name}」を削除しますか？\n" +
+                "アセット本体は削除されません。",
+                "Delete Collection",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        {
+            return;
+        }
+        try
+        {
+            if (!_sourcesStore.DeleteCollection(collection.Name)) return;
+            bool wasActive = string.Equals(
+                _activeCollectionName,
+                collection.Name,
+                StringComparison.OrdinalIgnoreCase);
+            if (wasActive) _activeCollectionName = null;
+            RefreshSavedSources();
+            if (wasActive) RefreshView();
+            Log?.Invoke("Collection deleted: " + collection.Name);
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or InvalidOperationException)
+        {
+            ReportAssetOperationFailure("Collection could not be deleted: " + error.Message);
+        }
+    }
+
+    private void OnAddSelectionToCollection(object sender, RoutedEventArgs e)
+    {
+        if (_sourcesStore == null ||
+            CollectionList.SelectedItem is not AssetBrowserCollectionView collection ||
+            !CanStartAssetOperation("Add collection items"))
+        {
+            return;
+        }
+        string[] selectedPaths = SelectedAssets()
+            .Select(static item => item.FullPath)
+            .ToArray();
+        if (selectedPaths.Length == 0)
+            selectedPaths = _collectionCandidatePaths.ToArray();
+        if (selectedPaths.Length == 0)
+        {
+            Log?.Invoke("Select one or more assets before adding them to a collection.");
+            return;
+        }
+        try
+        {
+            bool changed =
+                _sourcesStore.AddCollectionItems(collection.Name, selectedPaths);
+            if (changed)
+            {
+                _collectionCandidatePaths.Clear();
+                RefreshSavedSources();
+                RefreshView();
+                Log?.Invoke(
+                    $"{selectedPaths.Length} selected item(s) added to {collection.Name}.");
+            }
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or InvalidOperationException or KeyNotFoundException)
+        {
+            ReportAssetOperationFailure("Collection items could not be added: " + error.Message);
+        }
+    }
+
+    private void OnRemoveSelectionFromCollection(object sender, RoutedEventArgs e)
+    {
+        if (_sourcesStore == null || _activeCollectionName == null ||
+            !CanStartAssetOperation("Remove collection items"))
+        {
+            return;
+        }
+        string[] selectedPaths = SelectedAssets()
+            .Select(static item => item.FullPath)
+            .ToArray();
+        if (selectedPaths.Length == 0)
+        {
+            Log?.Invoke("Select one or more collection items to remove.");
+            return;
+        }
+        try
+        {
+            if (_sourcesStore.RemoveCollectionItems(
+                    _activeCollectionName,
+                    selectedPaths))
+            {
+                RefreshSavedSources();
+                RefreshView();
+                Log?.Invoke(
+                    $"{selectedPaths.Length} selected item(s) removed from the collection.");
+            }
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+            ArgumentException or InvalidOperationException or KeyNotFoundException)
+        {
+            ReportAssetOperationFailure("Collection items could not be removed: " +
+                                        error.Message);
+        }
     }
 
     private void OnRefresh(object sender, RoutedEventArgs e) => Refresh();
@@ -716,6 +1718,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private async void OnCreateAsset(object sender, RoutedEventArgs e)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         if (_project == null || string.IsNullOrWhiteSpace(_currentDir))
         {
             ReportCreationFailure("アセット作成には開いているプロジェクトが必要です。");
@@ -744,6 +1747,9 @@ public partial class AssetBrowserPanel : UserControl
         {
             (created, indexResult) = await RunAssetOperationAsync(() =>
             {
+                using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+                    database.AssetsRoot,
+                    "Create and index asset");
                 AcsAssetCreationResult result = AssetCreationWorkflow.Create(
                     project.AssetsDir,
                     currentDirectory,
@@ -797,21 +1803,37 @@ public partial class AssetBrowserPanel : UserControl
 
     private void SelectCreatedAsset(string path, bool beginRename = true)
     {
-        AssetItem? created = Items.FirstOrDefault(item => PathEquals(item.FullPath, path));
-        if (created == null &&
-            (_filter.Length != 0 ||
-             !_kindFilter.Equals("all", StringComparison.OrdinalIgnoreCase)))
+        ReplacePendingViewSelection(new[] { path });
+        _pendingCreatedRenamePath = beginRename
+            ? Path.GetFullPath(path)
+            : null;
+        if (_filter.Length != 0 ||
+            !_kindFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
         {
             ClearViewFilters();
+            _preservePendingSelectionOnNextRefresh = true;
             RefreshView();
-            created = Items.FirstOrDefault(item => PathEquals(item.FullPath, path));
+            return;
         }
+        AssetItem? created = Items.FirstOrDefault(item => PathEquals(item.FullPath, path));
         if (created == null) return;
-        Tiles.SelectedItem = created;
+        _suppressViewSelectionTracking = true;
+        try
+        {
+            Tiles.UnselectAll();
+            Tiles.SelectedItem = created;
+        }
+        finally
+        {
+            _suppressViewSelectionTracking = false;
+        }
         Tiles.ScrollIntoView(created);
         Tiles.Focus();
         if (beginRename)
+        {
+            _pendingCreatedRenamePath = null;
             BeginRename(created);
+        }
     }
 
     private void SelectAssets(IEnumerable<string> paths)
@@ -821,9 +1843,15 @@ public partial class AssetBrowserPanel : UserControl
             StringComparer.OrdinalIgnoreCase);
         if (requested.Count == 0)
         {
-            Tiles.UnselectAll();
+            ReplacePendingViewSelection(Array.Empty<string>());
+            _pendingCreatedRenamePath = null;
+            _suppressViewSelectionTracking = true;
+            try { Tiles.UnselectAll(); }
+            finally { _suppressViewSelectionTracking = false; }
             return;
         }
+        ReplacePendingViewSelection(requested);
+        _pendingCreatedRenamePath = null;
 
         List<AssetItem> matches = Items
             .Where(item => requested.Contains(Path.GetFullPath(item.FullPath)))
@@ -833,15 +1861,22 @@ public partial class AssetBrowserPanel : UserControl
              !_kindFilter.Equals("all", StringComparison.OrdinalIgnoreCase)))
         {
             ClearViewFilters();
+            _preservePendingSelectionOnNextRefresh = true;
             RefreshView();
-            matches = Items
-                .Where(item => requested.Contains(Path.GetFullPath(item.FullPath)))
-                .ToList();
+            return;
         }
 
-        Tiles.UnselectAll();
-        foreach (AssetItem item in matches)
-            Tiles.SelectedItems.Add(item);
+        _suppressViewSelectionTracking = true;
+        try
+        {
+            Tiles.UnselectAll();
+            foreach (AssetItem item in matches)
+                Tiles.SelectedItems.Add(item);
+        }
+        finally
+        {
+            _suppressViewSelectionTracking = false;
+        }
         if (matches.Count != 0)
         {
             Tiles.ScrollIntoView(matches[^1]);
@@ -869,6 +1904,7 @@ public partial class AssetBrowserPanel : UserControl
     {
         _filter = SearchBox.Text?.Trim() ?? "";
         if (_suppressViewFilterRefresh) return;
+        CancelViewMaterialization();
         _filterDebounce.Stop();
         _filterDebounce.Start();
     }
@@ -900,6 +1936,20 @@ public partial class AssetBrowserPanel : UserControl
     private void OnTileSelected(object sender, SelectionChangedEventArgs e)
     {
         _previewLoadCancellation?.Cancel();
+        if (!_suppressViewSelectionTracking)
+        {
+            ReplacePendingViewSelection(
+                Tiles.SelectedItems.Cast<AssetItem>()
+                    .Select(static item => item.FullPath));
+            _pendingCreatedRenamePath = null;
+        }
+        if (_activeCollectionName == null && Tiles.SelectedItems.Count != 0)
+        {
+            _collectionCandidatePaths.Clear();
+            _collectionCandidatePaths.AddRange(
+                Tiles.SelectedItems.Cast<AssetItem>()
+                    .Select(static item => item.FullPath));
+        }
         if (Tiles.SelectedItems.Count > 1)
         {
             PreviewNameText.Text = $"{Tiles.SelectedItems.Count} assets selected";
@@ -933,7 +1983,9 @@ public partial class AssetBrowserPanel : UserControl
         PreviewImage.Visibility = Visibility.Collapsed;
         PreviewGlyphBox.Visibility = Visibility.Visible;
         PreviewGlyph.Text = item.IsDirectory ? "📁" : item.Glyph;
-        if (!item.IsDirectory && item.Kind is "material" or "image")
+        if (_presentationState.ShowPreview &&
+            !item.IsDirectory &&
+            (item.Kind is "material" or "image"))
             StartPreviewLoading(item);
     }
 
@@ -1095,6 +2147,10 @@ public partial class AssetBrowserPanel : UserControl
         CtxReferences.IsEnabled = idle && indexed &&
                                   single is { IsDirectory: false } &&
                                   single.AssetId.Length != 0;
+        CtxReplaceReferences.IsEnabled = idle && indexed &&
+                                         CanReplaceReferences(selection);
+        CtxMigrate.IsEnabled = idle && indexed &&
+                               SelectedMigrationAssetIds().Count != 0;
         CtxRename.IsEnabled = idle && indexed && single != null;
         CtxDuplicate.IsEnabled = idle && indexed && selection.Count != 0;
         CtxCopyAsset.IsEnabled = idle && indexed && selection.Count != 0;
@@ -1196,6 +2252,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private async void CommitRename(AssetItem item)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         if (_renameCommitInProgress || !item.IsRenaming || _assetDatabase == null)
             return;
         if (!CanStartAssetOperation("Rename asset")) return;
@@ -1219,7 +2276,7 @@ public partial class AssetBrowserPanel : UserControl
             renamedPath = await RunAssetOperationAsync(() =>
             {
                 var workflow = new AssetManagementWorkflow(database);
-                return workflow.Rename(
+                return workflow.RenameWithRedirector(
                     item.FullPath,
                     item.AssetId,
                     item.IsDirectory,
@@ -1365,6 +2422,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private async void OnCtxDuplicate(object sender, RoutedEventArgs e)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         List<AssetItem> selection = SelectedAssets();
         if (selection.Count == 0 || _assetDatabase == null) return;
         if (!CanStartAssetOperation("Duplicate assets")) return;
@@ -1431,6 +2489,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private async void OnCtxPasteAsset(object sender, RoutedEventArgs e)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         if (_assetClipboardPaths.Count == 0 || _assetDatabase == null ||
             string.IsNullOrWhiteSpace(_currentDir))
             return;
@@ -1452,7 +2511,7 @@ public partial class AssetBrowserPanel : UserControl
             {
                 var workflow = new AssetManagementWorkflow(database);
                 if (!moving) return workflow.Duplicate(sourcePaths, destination);
-                moveResult = workflow.MoveWithMappings(sourcePaths, destination);
+                moveResult = workflow.MoveWithRedirectors(sourcePaths, destination);
                 return moveResult.PublishedPaths;
             });
             if (moving && moveResult != null)
@@ -1497,6 +2556,7 @@ public partial class AssetBrowserPanel : UserControl
 
     private async void OnCtxDelete(object sender, RoutedEventArgs e)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         List<AssetItem> selection = SelectedAssets();
         if (selection.Count == 0 || _assetDatabase == null) return;
         if (!CanStartAssetOperation("Inspect asset delete")) return;
@@ -1531,39 +2591,39 @@ public partial class AssetBrowserPanel : UserControl
             if (paths.Length > 8)
                 itemNames += $"\n• …ほか {paths.Length - 8} 件";
             string summary =
-                $"{paths.Length} 個の選択項目を削除しますか？\n\n" +
+                $"{paths.Length} 個の選択項目をTrashへ移動しますか？\n\n" +
                 itemNames + "\n\n" +
                 $"Assets: {inspection.AssetCount}\n" +
                 $"Folders: {inspection.FolderCount}\n" +
                 $"Size: {FormatSize(inspection.TotalBytes)}\n\n" +
-                "この操作は元に戻せません。";
+                "Asset Actions → Undo Last Delete から復元できます。";
             if (MessageBox.Show(
                     Window.GetWindow(this),
                     summary,
-                    "アセットを削除",
+                    "Trashへ移動",
                     MessageBoxButton.OKCancel,
-                    MessageBoxImage.Warning,
+                    MessageBoxImage.Question,
                     MessageBoxResult.Cancel) != MessageBoxResult.OK)
             {
                 return;
             }
 
-            if (!CanStartAssetOperation("Delete assets")) return;
+            if (!CanStartAssetOperation("Move assets to Trash")) return;
             AssetPathMutationStartingEventArgs? pathMutation = BeginAssetPathMutation(
                 AssetPathMutationKind.Delete,
                 paths);
             if (pathMutation == null) return;
             bool pathMutationSucceeded = false;
-            AssetDeleteResult deleted;
+            AssetTrashResult trashed;
             try
             {
-                deleted = await RunAssetOperationAsync(() =>
+                trashed = await RunAssetOperationAsync(() =>
                 {
-                    var workflow = new AssetManagementWorkflow(database);
-                    return workflow.Delete(paths);
+                    var workflow = new AssetTrashWorkflow(database);
+                    return workflow.Trash(paths);
                 });
-                PublishAssetPathsChanged(new AssetPathsChangedEventArgs(
-                    deletedRoots: paths));
+                // Trash is a reversible absence, not a permanent path deletion. Keep
+                // Favorites/Collections persisted so Undo can make them live again.
                 pathMutationSucceeded = true;
             }
             finally
@@ -1574,22 +2634,19 @@ public partial class AssetBrowserPanel : UserControl
                 !ReferenceEquals(database, _assetDatabase))
                 return;
             _assetSnapshot = database.Snapshot();
+            RebuildSourcesTree();
+            RefreshSavedSources();
             RefreshView();
-            if (deleted.DeferredCleanupPath != null)
-            {
-                Log?.Invoke(
-                    "Asset delete completed; quarantined data will be cleaned later: " +
-                    deleted.DeferredCleanupPath);
-            }
             Log?.Invoke(
-                $"Deleted {deleted.AssetCount} assets and {deleted.FolderCount} folders.");
+                $"Moved {trashed.AssetCount} assets and {trashed.FolderCount} folders " +
+                $"to Trash (entry {trashed.EntryId}).");
         }
         catch (Exception error)
         {
             if (!IsCurrentOperationContext(database, generation)) return;
             TryRefreshAfterOperationFailure();
             ReportAssetOperationFailure(FormatAssetOperationError(
-                "アセットを削除できませんでした", error));
+                "アセットをTrashへ移動できませんでした", error));
         }
     }
 
@@ -1669,6 +2726,7 @@ public partial class AssetBrowserPanel : UserControl
     // ===== インポート (Assets/現在フォルダへコピー) =====
     private async void OnImport(object sender, RoutedEventArgs e)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         if (_project == null) { Log?.Invoke("インポートにはプロジェクトが必要です。"); return; }
         if (_assetDatabase == null)
         {
@@ -1696,6 +2754,9 @@ public partial class AssetBrowserPanel : UserControl
         {
             ImportOperationResult operation = await RunAssetOperationAsync(() =>
             {
+                using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+                    database.AssetsRoot,
+                    "Import assets");
                 var imported = new List<(string Source, string Destination)>();
                 var failures = new List<string>();
                 foreach (string source in sources)
@@ -2037,6 +3098,7 @@ public partial class AssetBrowserPanel : UserControl
         AssetBrowserDropPlan expectedPlan,
         bool moveAssets)
     {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         if (!CanStartAssetOperation(moveAssets ? "Move assets" : "Copy assets") ||
             _project == null || _assetDatabase == null)
             return;
@@ -2069,7 +3131,7 @@ public partial class AssetBrowserPanel : UserControl
                 var workflow = new AssetManagementWorkflow(database);
                 if (!moveAssets)
                     return workflow.Duplicate(sourcePaths, plan.DestinationDirectory);
-                moveResult = workflow.MoveWithMappings(
+                moveResult = workflow.MoveWithRedirectors(
                     sourcePaths,
                     plan.DestinationDirectory);
                 return moveResult.PublishedPaths;
@@ -2122,19 +3184,26 @@ public partial class AssetBrowserPanel : UserControl
 
     private void StartThumbnailLoading()
     {
+        if (_assetOperationsSuspended || !IsLoaded) return;
         _thumbnailLoadCancellation?.Cancel();
         _thumbnailLoadCancellation?.Dispose();
         var cancellation = new CancellationTokenSource();
         _thumbnailLoadCancellation = cancellation;
-        AssetItem[] candidates = Items
-            .Where(static item => !item.IsDirectory && item.Kind is "image" or "material")
-            .ToArray();
+        AssetItem[] candidates = RealizedThumbnailCandidates().ToArray();
         if (candidates.Length == 0) return;
-        _ = LoadThumbnailsAsync(candidates, cancellation.Token);
+        int decodeWidth = PreferredThumbnailDecodeWidth();
+        int thumbnailGeneration = _thumbnailGeneration;
+        _ = LoadThumbnailsAsync(
+            candidates,
+            decodeWidth,
+            thumbnailGeneration,
+            cancellation.Token);
     }
 
     private async Task LoadThumbnailsAsync(
         IReadOnlyList<AssetItem> candidates,
+        int decodeWidth,
+        int thumbnailGeneration,
         CancellationToken cancellationToken)
     {
         List<(AssetItem Item, ImageSource? Image)> results;
@@ -2150,7 +3219,7 @@ public partial class AssetBrowserPanel : UserControl
                 foreach (AssetItem item in candidates)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    loaded.Add((item, LoadCachedImage(item.FullPath, item.Kind, 64)));
+                    loaded.Add((item, LoadCachedImage(item.FullPath, item.Kind, decodeWidth)));
                 }
                 return loaded;
             }, cancellationToken);
@@ -2164,9 +3233,16 @@ public partial class AssetBrowserPanel : UserControl
             if (enteredGate) _imageLoadGate.Release();
         }
 
-        if (cancellationToken.IsCancellationRequested) return;
+        if (cancellationToken.IsCancellationRequested ||
+            thumbnailGeneration != _thumbnailGeneration)
+        {
+            return;
+        }
         foreach ((AssetItem item, ImageSource? image) in results)
+        {
             item.Thumb = image;
+            item.ThumbnailGeneration = thumbnailGeneration;
+        }
     }
 
     private void StartPreviewLoading(AssetItem item)

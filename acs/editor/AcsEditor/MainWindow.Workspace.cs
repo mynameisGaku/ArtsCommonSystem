@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Threading.Tasks;
@@ -31,6 +32,7 @@ public partial class MainWindow
     private float _snapScale = 0.25f;
     private bool _closeApproved;
     private bool _closePreparationRunning;
+    private bool _closePreparationInputBlocked;
     private bool _replacementAutosaveSuppressed;
     private bool _replacementSuppressedMode3D;
 
@@ -250,6 +252,11 @@ public partial class MainWindow
         // Stop accepting new jobs and drain the current one before any close path can proceed.
         SetClosePreparationInputBlocked(blocked: true);
         await AssetBrowser.SuspendOperationsAndWaitAsync();
+        // Asset Browser's lifecycle ends after it publishes completion, while the completion
+        // handler may still be draining an old scene-autosave generation. Wait for that managed
+        // document reconciliation before dirty detection or Save All can observe a suspended
+        // scene document or an in-flight old path.
+        await WaitForAssetDocumentMutationsAsync();
 
         if (_savedSceneSnapshot != null && Engine != IntPtr.Zero
             && EngineInterop.acs_editor_play_state(Engine) == 0 && PreviewBtn.IsChecked != true)
@@ -292,10 +299,50 @@ public partial class MainWindow
 
     private void SetClosePreparationInputBlocked(bool blocked)
     {
-        // Keep the Window itself enabled so an owned SaveFileDialog remains valid. Disabling the
-        // content tree prevents edits during async worker-drain/discard windows.
+        _closePreparationInputBlocked = blocked;
+        UpdateEditorInputEnabled();
+    }
+
+    private bool IsSceneEditingBlocked => _sceneEditingBlock?.IsBlocked == true;
+
+    private void UpdateEditorInputEnabled()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(new Action(UpdateEditorInputEnabled));
+            return;
+        }
+
+        // Close preparation owns the whole content tree so owned Save dialogs remain usable while
+        // the editor itself is inert. Scene-path mutation uses a narrower block: the title bar and
+        // diagnostics stay responsive, but every scene editing surface and command menu is inert.
         if (Content is UIElement content)
-            content.IsEnabled = !blocked;
+            content.IsEnabled = !_closePreparationInputBlocked;
+        bool sceneInputEnabled =
+            !_closePreparationInputBlocked &&
+            !IsSceneEditingBlocked;
+        if (!sceneInputEnabled && IsSceneEditingBlocked)
+            _viewport?.CancelPointerInteraction();
+        SceneWorkspace.IsEnabled = sceneInputEnabled;
+        SceneDocumentActions.IsEnabled = sceneInputEnabled;
+        ScenePlaybackActions.IsEnabled = sceneInputEnabled;
+        PreviewBtn.IsEnabled = sceneInputEnabled;
+        FileNewSceneMenu.IsEnabled = sceneInputEnabled;
+        FileOpenSceneMenu.IsEnabled = sceneInputEnabled;
+        FileSaveSceneMenu.IsEnabled = sceneInputEnabled;
+        FileSaveAllScenesMenu.IsEnabled = sceneInputEnabled;
+        SceneEditMenu.IsEnabled = sceneInputEnabled;
+        GameObjectMenu.IsEnabled = sceneInputEnabled;
+        bool buildInputEnabled = sceneInputEnabled && !_building;
+        BuildBtn.IsEnabled = buildInputEnabled;
+        RunBtn.IsEnabled = buildInputEnabled;
+        MenuBuild.IsEnabled = buildInputEnabled;
+        MenuRun.IsEnabled = buildInputEnabled;
+        MenuBuildRun.IsEnabled = buildInputEnabled;
+        MenuPackage.IsEnabled = buildInputEnabled;
+        BpRunBtn.IsEnabled = sceneInputEnabled;
+        HotReloadBtn.IsEnabled = sceneInputEnabled;
+        CommandManager.InvalidateRequerySuggested();
     }
 
     /// <summary>Protects New/Open from silently discarding edits.</summary>

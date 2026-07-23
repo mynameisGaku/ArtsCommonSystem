@@ -71,6 +71,9 @@ internal static class AssetCreationWorkflow
         Func<string, string, bool>? canonicalMaterialWriter = null)
     {
         AcsAssetTemplateDefinition definition = FindDefinition(template);
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            assetsDirectory,
+            $"Create {definition.DisplayName} asset");
         string directory = ValidateTargetDirectory(assetsDirectory, currentDirectory);
 
         for (int suffix = 0; suffix <= MaxGeneratedSuffix; suffix++)

@@ -206,8 +206,12 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0] == "--asset-browser-selftest")
         {
             int failures = AssetBrowserViewStateSelfTest.Run(Console.Error);
+            failures += AssetBrowserSourcesSelfTest.Run(Console.Error);
             failures += AssetManagementSelfTest.Run(Console.Error);
+            failures += AssetTrashWorkflowSelfTest.Run(Console.Error);
             failures += AssetPathChangeSelfTest.Run(Console.Error);
+            failures += AssetViewPresentationSelfTest.Run(Console.Error);
+            failures += AssetBrowserUiSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }

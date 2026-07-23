@@ -8,6 +8,7 @@ public partial class MainWindow
 {
     private async void OnPackageProject(object sender, RoutedEventArgs e)
     {
+        if (IsSceneEditingBlocked) return;
         if (_project == null)
         {
             BuildLog("プロジェクトがありません。");

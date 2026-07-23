@@ -29,6 +29,14 @@ public partial class MainWindow
         {
             try
             {
+                if (!command.IsAvailable)
+                {
+                    Log(
+                        $"Command unavailable while scene input is blocked: {command.Label}",
+                        "Editor",
+                        LogLevel.Warn);
+                    return;
+                }
                 command.Execute();
                 Log($"Command: {command.Label}", "Editor", LogLevel.Info);
             }
@@ -57,19 +65,21 @@ public partial class MainWindow
 
         bool EngineReady() => Engine != IntPtr.Zero;
         bool HasProject() => EngineReady() && _project != null;
+        bool SceneReady() => EngineReady() && !IsSceneEditingBlocked;
+        bool SceneProjectReady() => SceneReady() && _project != null;
 
         Add("file.new-scene", "New Scene", "File",
             "Create an empty scene using the currently loaded source format.", "Ctrl+N",
-            () => OnNewScene(this, new RoutedEventArgs()), EngineReady, "level document");
+            () => OnNewScene(this, new RoutedEventArgs()), SceneReady, "level document");
         Add("file.open-scene", "Open Scene…", "File",
             "Open an .acscene or .acs3d source in the scene editor.", "",
-            () => OnOpenScene(this, new RoutedEventArgs()), EngineReady, "level load");
+            () => OnOpenScene(this, new RoutedEventArgs()), SceneReady, "level load");
         Add("file.save-scene", "Save Scene", "File",
             "Save the active scene document.", "Ctrl+S",
-            () => OnSaveScene(this, new RoutedEventArgs()), EngineReady, "level write");
+            () => OnSaveScene(this, new RoutedEventArgs()), SceneReady, "level write");
         Add("file.save-all-scenes", "Save All", "File",
             "Save every dirty compatibility source for the current scene.", "Ctrl+Shift+S",
-            () => OnSaveAllScenes(this, new RoutedEventArgs()), EngineReady,
+            () => OnSaveAllScenes(this, new RoutedEventArgs()), SceneReady,
             "level write documents all");
         Add("file.open-project-folder", "Open Project Folder", "File",
             "Reveal the current project root in Explorer.", "",
@@ -88,75 +98,76 @@ public partial class MainWindow
             () => ApplicationCommands.Redo.CanExecute(null, this), "history repeat");
         Add("edit.duplicate", "Duplicate Selection", "Edit",
             "Duplicate the selected scene object or subtree.", "Ctrl+D",
-            () => OnDuplicateNode(this, new RoutedEventArgs()), EngineReady, "clone object");
+            () => OnDuplicateNode(this, new RoutedEventArgs()), SceneReady, "clone object");
         Add("edit.delete", "Delete Selection", "Edit",
             "Delete the selected scene object.", "Delete",
             () => ApplicationCommands.Delete.Execute(null, this),
             () => ApplicationCommands.Delete.CanExecute(null, this), "remove object");
         Add("edit.focus-selection", "Focus Selection", "Viewport",
             "Frame the selected object in the scene viewport.", "F",
-            () => OnFocus(this, new RoutedEventArgs()), EngineReady, "frame camera");
+            () => OnFocus(this, new RoutedEventArgs()), SceneReady, "frame camera");
 
         Add("scene.view-perspective", "Scene View: Perspective", "Scene",
             "Use a perspective camera without changing scene content or history.", "",
             () => SwitchSceneViewMode(EditorSceneViewMode.Perspective),
-            () => EngineReady() &&
+            () => SceneReady() &&
                   EditorSceneViewModePolicy.IsSupportedByLegacySource(
                       EditorSceneViewMode.Perspective,
                       _legacySceneSourceMode),
             "viewport projection 3d");
         Add("scene.view-2d", "Scene View: 2D (Orthographic)", "Scene",
             "Use the XY-front orthographic pan-navigation preset on the current scene.", "",
-            () => SwitchSceneViewMode(EditorSceneViewMode.TwoD), EngineReady,
+            () => SwitchSceneViewMode(EditorSceneViewMode.TwoD), SceneReady,
             "viewport xy sprite");
         Add("scene.create-empty", "Create Empty Object", "Scene",
             "Create an empty transform at the scene root.", "",
-            () => OnCreateEmpty(this, new RoutedEventArgs()), EngineReady, "gameobject actor node");
+            () => OnCreateEmpty(this, new RoutedEventArgs()), SceneReady, "gameobject actor node");
         Add("scene.create-child", "Create Child of Selection", "Scene",
             "Create an empty transform beneath the selected object.", "",
-            () => OnCreateChild(this, new RoutedEventArgs()), EngineReady, "gameobject actor node");
+            () => OnCreateChild(this, new RoutedEventArgs()), SceneReady, "gameobject actor node");
         Add("scene.add-cube", "Add 3D Cube", "Scene",
             "Create a cube mesh in the current scene (requires an .acs3d source).", "",
-            () => OnAdd3DCube(this, new RoutedEventArgs()), EngineReady, "primitive mesh");
+            () => OnAdd3DCube(this, new RoutedEventArgs()), SceneReady, "primitive mesh");
         Add("scene.add-sphere", "Add 3D Sphere", "Scene",
             "Create a sphere mesh in the current scene (requires an .acs3d source).", "",
-            () => OnAdd3DSphere(this, new RoutedEventArgs()), EngineReady, "primitive mesh");
+            () => OnAdd3DSphere(this, new RoutedEventArgs()), SceneReady, "primitive mesh");
         Add("scene.add-plane", "Add 3D Plane", "Scene",
             "Create a plane mesh in the current scene (requires an .acs3d source).", "",
-            () => OnAdd3DPlane(this, new RoutedEventArgs()), EngineReady, "primitive mesh");
+            () => OnAdd3DPlane(this, new RoutedEventArgs()), SceneReady, "primitive mesh");
 
         Add("play.toggle", "Play / Stop", "Play",
             "Start or stop Play In Editor and restore edit state on stop.", "",
-            () => OnPlay(this, new RoutedEventArgs()), EngineReady, "pie simulate game");
+            () => OnPlay(this, new RoutedEventArgs()), SceneReady, "pie simulate game");
         Add("play.pause", "Pause / Resume", "Play",
             "Pause or resume the running editor simulation.", "",
             () => OnPause(this, new RoutedEventArgs()),
-            () => EngineReady() && EngineInterop.acs_editor_play_state(Engine) != 0,
+            () => SceneReady() && EngineInterop.acs_editor_play_state(Engine) != 0,
             "simulation");
         Add("play.step", "Step One Frame", "Play",
             "Advance a paused simulation by one frame.", "",
             () => OnStep(this, new RoutedEventArgs()),
-            () => EngineReady() && EngineInterop.acs_editor_play_state(Engine) == 2,
+            () => SceneReady() && EngineInterop.acs_editor_play_state(Engine) == 2,
             "simulation frame");
         Add("play.game-view", "Show Game View", "Play",
             "Switch the center viewport to the game output.", "",
-            () => SetGameView(true), EngineReady, "viewport runtime");
+            () => SetGameView(true), SceneReady, "viewport runtime");
         Add("play.scene-view", "Show Scene View", "Play",
             "Switch the center viewport back to editing.", "",
-            () => SetGameView(false), EngineReady, "viewport editor");
+            () => SetGameView(false), SceneReady, "viewport editor");
 
         Add("build.build", "Build Project", "Build",
             "Configure and compile the current project.", "F7",
-            () => OnBuildProject(this, new RoutedEventArgs()), HasProject, "compile cmake");
+            () => OnBuildProject(this, new RoutedEventArgs()), SceneProjectReady, "compile cmake");
         Add("build.run", "Run Standalone", "Build",
             "Launch the most recent standalone project build.", "Ctrl+F5",
-            () => OnRunProject(this, new RoutedEventArgs()), HasProject, "launch game");
+            () => OnRunProject(this, new RoutedEventArgs()), SceneProjectReady, "launch game");
         Add("build.build-run", "Build & Run", "Build",
             "Build the project and launch it when compilation succeeds.", "F5",
-            () => OnBuildAndRun(this, new RoutedEventArgs()), HasProject, "compile launch game");
+            () => OnBuildAndRun(this, new RoutedEventArgs()), SceneProjectReady, "compile launch game");
         Add("build.package", "Package Project…", "Build",
             "Cook, stage, verify and package the project for distribution.", "",
-            () => OnPackageProject(this, new RoutedEventArgs()), HasProject, "shipping zip distribute");
+            () => OnPackageProject(this, new RoutedEventArgs()), SceneProjectReady,
+            "shipping zip distribute");
         Add("build.results", "Show Build Results", "Build",
             "Open the bottom dock on the Build tab.", "",
             () => ShowBottomTab("build"), EngineReady, "errors diagnostics output");

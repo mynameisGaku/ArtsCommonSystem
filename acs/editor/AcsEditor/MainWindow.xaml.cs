@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -52,6 +53,9 @@ public partial class MainWindow : Window
     private int  _dragNodeId = -1;   // ドラッグ中のノード id (-1 = ドラッグなし)
     private readonly List<MaterialEditorWindow> _materialEditorWindows = new();
     private readonly Dictionary<Guid, AssetDocumentMutationState> _assetDocumentMutations = new();
+    private readonly AssetOperationLifecycleTracker _assetDocumentMutationLifecycles = new();
+    private SceneEditingBlockState _sceneEditingBlock = null!;
+    private int _sceneSourceSaveDepth;
 
     private sealed class AssetDocumentMutationState
     {
@@ -61,11 +65,112 @@ public partial class MainWindow : Window
         internal AssetPathMutationStartingEventArgs Operation { get; }
         internal BlueprintWindow? SuspendedBlueprintWindow { get; set; }
         internal List<MaterialEditorWindow> SuspendedMaterialWindows { get; } = new();
+        internal SceneAssetPathMutationGuard? SceneMutation { get; set; }
+        internal EditorDocument? SuspendedSceneDocument { get; set; }
+        internal Task SceneAutosaveDrainTask { get; set; } = Task.CompletedTask;
+        internal bool SceneAutosaveMaintenanceLockHeld { get; set; }
+        internal bool ResumeSceneAutosave2D { get; set; }
+        internal bool ResumeSceneAutosave3D { get; set; }
+        internal bool CompletionStarted { get; set; }
+        internal IDisposable? CompletionLifecycle { get; set; }
+        internal IDisposable? SceneEditingBlockLease { get; set; }
+    }
+
+    private sealed class SceneSourceSaveScope : IDisposable
+    {
+        private MainWindow? _owner;
+        private AssetMutationLock? _assetMutationLock;
+
+        internal SceneSourceSaveScope(MainWindow owner) => _owner = owner;
+
+        internal bool TryAcquireProjectAssetMutationLock(out string reason)
+        {
+            reason = "";
+            MainWindow owner = _owner ??
+                throw new ObjectDisposedException(nameof(SceneSourceSaveScope));
+            if (_assetMutationLock != null || owner._project == null)
+                return true;
+            if (!owner.Dispatcher.CheckAccess())
+            {
+                reason = "scene source mutation lock must be acquired on the editor dispatcher";
+                return false;
+            }
+
+            try
+            {
+                _assetMutationLock = AssetMutationLock.AcquireFailFast(
+                    owner._project.AssetsDir,
+                    "Save scene source");
+                return true;
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or
+                    ArgumentException or InvalidDataException)
+            {
+                reason = error.Message;
+                return false;
+            }
+        }
+
+        public void Dispose()
+        {
+            MainWindow? owner =
+                System.Threading.Interlocked.Exchange(ref _owner, null);
+            if (owner == null) return;
+
+            void ReleaseOnDispatcher()
+            {
+                try
+                {
+                    _assetMutationLock?.Dispose();
+                    _assetMutationLock = null;
+                }
+                finally
+                {
+                    if (owner._sceneSourceSaveDepth <= 0)
+                        throw new InvalidOperationException(
+                            "Scene source save scope depth became unbalanced.");
+                    owner._sceneSourceSaveDepth--;
+                }
+            }
+
+            // AssetMutationLock deliberately uses a thread-owned Monitor for safe nesting. WPF
+            // save awaits normally resume on this Dispatcher; this fallback also makes release
+            // correct if a future await stops capturing the synchronization context.
+            if (owner.Dispatcher.CheckAccess())
+                ReleaseOnDispatcher();
+            else
+                owner.Dispatcher.Invoke(ReleaseOnDispatcher);
+        }
+    }
+
+    private bool TryBeginSceneSourceSave(
+        out SceneSourceSaveScope? scope,
+        out string reason)
+    {
+        scope = null;
+        reason = "";
+        if (!Dispatcher.CheckAccess())
+        {
+            reason = "scene source saves must start on the editor dispatcher";
+            return false;
+        }
+        foreach (AssetDocumentMutationState mutation in _assetDocumentMutations.Values)
+        {
+            if (mutation.SceneMutation == null) continue;
+            reason = "the open scene source is being renamed or moved";
+            return false;
+        }
+
+        _sceneSourceSaveDepth++;
+        scope = new SceneSourceSaveScope(this);
+        return true;
     }
 
     public MainWindow()
     {
         InitializeComponent();
+        _sceneEditingBlock = new SceneEditingBlockState(_ => UpdateEditorInputEnabled());
         InitializeWindowInteraction();
         InitLog();              // ConsoleList をタグ付きログビューに束縛
         Loaded += OnLoaded;
@@ -228,6 +333,46 @@ public partial class MainWindow : Window
         object? sender,
         AssetPathMutationStartingEventArgs e)
     {
+        var scenePaths = new SceneAssetPathState(
+            _currentScenePath,
+            _scene2DPath,
+            _scene3DDocumentPath);
+        bool sceneAffected = scenePaths.IsAffectedBy(e);
+        if (scenePaths.ShouldVeto(e))
+        {
+            e.Cancel = true;
+            e.CancellationReason =
+                "The operation would delete or rewrite the open scene. " +
+                "Open a different scene before retrying.";
+            return;
+        }
+        if (_project != null && e.AffectsPath(_project.InitialScenePath))
+        {
+            if (e.Kind == AssetPathMutationKind.Delete)
+            {
+                e.Cancel = true;
+                e.CancellationReason =
+                    "The project's initial scene cannot be deleted. Assign another initial " +
+                    "scene before retrying.";
+                return;
+            }
+            if (e.Kind is AssetPathMutationKind.Rename or AssetPathMutationKind.Move)
+            {
+                try
+                {
+                    ProjectManager.ValidateInitialSceneReferenceFollow(_project);
+                }
+                catch (Exception error)
+                {
+                    e.Cancel = true;
+                    e.CancellationReason =
+                        "The initial-scene references cannot safely follow this path change: " +
+                        error.Message;
+                    return;
+                }
+            }
+        }
+
         BlueprintWindow? blueprintWindow = _bpWindow;
         string? blueprintPath = blueprintWindow?.Editor.CurrentPath;
         bool blueprintAffected = blueprintPath != null && e.AffectsPath(blueprintPath);
@@ -239,28 +384,132 @@ public partial class MainWindow : Window
                 affectedMaterials.Add(materialWindow);
         }
 
-        if (e.Kind == AssetPathMutationKind.Delete &&
+        if (e.Kind is AssetPathMutationKind.Delete or AssetPathMutationKind.ContentRewrite &&
             (blueprintAffected || affectedMaterials.Count != 0))
         {
             e.Cancel = true;
             e.CancellationReason =
-                "削除対象が Blueprint または Material Editor で開かれています。" +
-                "変更を保存して対象エディタを閉じてから、削除を再実行してください。";
+                "変更対象が Blueprint または Material Editor で開かれています。" +
+                "変更を保存して対象エディタを閉じてから、操作を再実行してください。";
             return;
         }
 
-        var state = new AssetDocumentMutationState(e);
-        _assetDocumentMutations[e.OperationId] = state;
-        if (blueprintAffected && blueprintWindow != null && blueprintWindow.IsEnabled &&
-            blueprintWindow.Editor.SuspendForAssetPathMutation())
+        bool suspendOpenScene =
+            sceneAffected &&
+            e.Kind is AssetPathMutationKind.Rename or AssetPathMutationKind.Move;
+        if (suspendOpenScene && _sceneSourceSaveDepth != 0)
         {
-            blueprintWindow.IsEnabled = false;
-            state.SuspendedBlueprintWindow = blueprintWindow;
+            e.Cancel = true;
+            e.CancellationReason =
+                "The open scene is still being saved. Wait for the save to finish before " +
+                "renaming or moving its source.";
+            return;
         }
-        foreach (MaterialEditorWindow materialWindow in affectedMaterials)
+        if (suspendOpenScene && _autosaveStopping)
         {
-            if (materialWindow.SuspendForAssetPathMutation())
-                state.SuspendedMaterialWindows.Add(materialWindow);
+            e.Cancel = true;
+            e.CancellationReason =
+                "The editor is stopping scene autosave. Retry the path change after the " +
+                "current editor operation finishes.";
+            return;
+        }
+
+        bool autosaveMaintenanceLockHeld = false;
+        if (suspendOpenScene)
+        {
+            // A save/recovery cleanup can also suppress and resume the generation gates. Holding
+            // its serialization lock for the whole asset mutation prevents another owner from
+            // resuming autosave while the old scene path is still in flight.
+            autosaveMaintenanceLockHeld = _autosaveMaintenanceLock.Wait(0);
+            if (!autosaveMaintenanceLockHeld)
+            {
+                e.Cancel = true;
+                e.CancellationReason =
+                    "Scene autosave maintenance is still running. Retry the path change when it " +
+                    "finishes.";
+                return;
+            }
+        }
+
+        var state = new AssetDocumentMutationState(e);
+        state.SceneAutosaveMaintenanceLockHeld = autosaveMaintenanceLockHeld;
+        if (suspendOpenScene)
+            state.SceneMutation = new SceneAssetPathMutationGuard(scenePaths, e);
+        try
+        {
+            state.CompletionLifecycle = _assetDocumentMutationLifecycles.Enter();
+            _assetDocumentMutations[e.OperationId] = state;
+            if (suspendOpenScene)
+            {
+                // Commit any already-focused Inspector edit before the document is suspended.
+                // The input block then prevents every later scene interaction until path and
+                // autosave reconciliation have both completed.
+                Keyboard.ClearFocus();
+                state.SceneEditingBlockLease = _sceneEditingBlock.Enter();
+                if (_documentHostInitialized &&
+                    _documentHost.TryGet(SceneDocumentId(), out EditorDocument sceneDocument))
+                {
+                    sceneDocument.Suspend(synchronize: true);
+                    state.SuspendedSceneDocument = sceneDocument;
+                }
+
+                // InvalidateAndWaitAsync marks each gate suppressed before returning its Task.
+                // The asset filesystem operation may therefore continue immediately, while its
+                // completion keeps the scene suspended until any old worker has drained.
+                state.ResumeSceneAutosave2D = !_autosave2D.Gate.IsSuppressed;
+                state.ResumeSceneAutosave3D = !_autosave3D.Gate.IsSuppressed;
+                state.SceneAutosaveDrainTask = Task.WhenAll(
+                    _autosave2D.Gate.InvalidateAndWaitAsync(),
+                    _autosave3D.Gate.InvalidateAndWaitAsync());
+            }
+            if (blueprintAffected && blueprintWindow != null && blueprintWindow.IsEnabled &&
+                blueprintWindow.Editor.SuspendForAssetPathMutation())
+            {
+                blueprintWindow.IsEnabled = false;
+                state.SuspendedBlueprintWindow = blueprintWindow;
+            }
+            foreach (MaterialEditorWindow materialWindow in affectedMaterials)
+            {
+                if (materialWindow.SuspendForAssetPathMutation())
+                    state.SuspendedMaterialWindows.Add(materialWindow);
+            }
+        }
+        catch (Exception error)
+        {
+            e.Cancel = true;
+            e.CancellationReason =
+                "The open document state could not be suspended safely: " + error.Message;
+            if (!_assetDocumentMutations.ContainsKey(e.OperationId) &&
+                autosaveMaintenanceLockHeld)
+            {
+                _autosaveMaintenanceLock.Release();
+                state.SceneAutosaveMaintenanceLockHeld = false;
+            }
+            if (!_assetDocumentMutations.ContainsKey(e.OperationId))
+            {
+                try
+                {
+                    try { state.SceneEditingBlockLease?.Dispose(); }
+                    catch (Exception resumeError)
+                    {
+                        try
+                        {
+                            Log(
+                                "Scene editing input could not be restored after mutation " +
+                                "preflight failed: " + resumeError.Message,
+                                "Asset",
+                                LogLevel.Error);
+                        }
+                        catch { }
+                    }
+                    state.SceneEditingBlockLease = null;
+                }
+                finally
+                {
+                    state.CompletionLifecycle?.Dispose();
+                    state.CompletionLifecycle = null;
+                }
+            }
         }
     }
 
@@ -275,6 +524,86 @@ public partial class MainWindow : Window
         }
 
         int updatedEditors = 0;
+        if (_project != null &&
+            e.TryRemapPath(_project.InitialScenePath, out string remappedInitialScene))
+        {
+            try
+            {
+                ProjectSceneReferenceUpdate update =
+                    ProjectManager.FollowInitialScenePath(
+                        _project,
+                        remappedInitialScene);
+                if (!string.Equals(
+                        update.PreviousReference,
+                        update.CurrentReference,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    // The durable manifest and INI transaction commits before the native
+                    // settings object is refreshed. A later Build/Run therefore cannot observe
+                    // mismatched persistent startup-scene references.
+                    if (Engine != IntPtr.Zero)
+                        LoadProjectSettings();
+                    Log(
+                        $"Initial scene references followed asset path: " +
+                        $"{update.PreviousReference} -> {update.CurrentReference}");
+                }
+            }
+            catch (Exception error)
+            {
+                // The asset move is already committed. ProjectManager leaves both persistent
+                // references at their old value (or reports incomplete rollback), while
+                // Build/Run's existing mismatch/missing-source gates remain fail-closed.
+                LogDeliveryFailure(
+                    "The asset path changed, but its startup-scene references could not be " +
+                    "updated safely. Build/Run is blocked until they are repaired. " +
+                    error.Message);
+            }
+        }
+        else if (_project != null && e.IsDeletedPath(_project.InitialScenePath))
+        {
+            LogDeliveryFailure(
+                "The configured initial scene was deleted without passing mutation preflight. " +
+                "Build/Run is blocked until another initial scene is assigned.");
+        }
+
+        var previousScenePaths = new SceneAssetPathState(
+            _currentScenePath,
+            _scene2DPath,
+            _scene3DDocumentPath);
+        SceneAssetPathMutationGuard? activeSceneMutation = null;
+        foreach (AssetDocumentMutationState mutation in _assetDocumentMutations.Values)
+        {
+            if (mutation.SceneMutation is not { IsActive: true } candidate)
+                continue;
+            activeSceneMutation = candidate;
+            break;
+        }
+        bool sceneRemapped;
+        bool sceneDetached;
+        SceneAssetPathState updatedScenePaths = activeSceneMutation != null
+            ? activeSceneMutation.Publish(
+                e,
+                out sceneRemapped,
+                out sceneDetached)
+            : previousScenePaths.Apply(
+                e,
+                out sceneRemapped,
+                out sceneDetached);
+        if (sceneRemapped || sceneDetached)
+        {
+            // Commit all compatibility aliases together. Save, autosave and the managed document
+            // host must never retain a mixture of the pre-move and post-move scene identities.
+            ApplySceneAssetPathState(updatedScenePaths);
+            if (sceneRemapped)
+                updatedEditors++;
+            if (sceneDetached)
+            {
+                LogDeliveryFailure(
+                    "An open scene source was deleted without passing mutation preflight. " +
+                    "Its save path was detached to prevent a stale-path save.");
+            }
+        }
+
         BlueprintEditor? blueprintEditor = _bpWindow?.Editor;
         string? blueprintPath = blueprintEditor?.CurrentPath;
         if (blueprintEditor != null && blueprintPath != null)
@@ -323,22 +652,205 @@ public partial class MainWindow : Window
             Log($"Updated {updatedEditors} open asset editor path(s).");
     }
 
-    private void OnAssetPathMutationCompleted(
+    private void ApplySceneAssetPathState(SceneAssetPathState state)
+    {
+        _currentScenePath = state.CurrentPath;
+        _scene2DPath = state.TwoDPath;
+        _scene3DDocumentPath = state.ThreeDPath;
+        UpdateSceneName();
+        if (_documentHostInitialized)
+            EnsureSceneDocumentRegistered(_view3d);
+    }
+
+    private async void OnAssetPathMutationCompleted(
         object? sender,
         AssetPathMutationCompletedEventArgs e)
     {
-        if (!_assetDocumentMutations.Remove(e.Operation.OperationId, out AssetDocumentMutationState? state))
-            return;
-        if (state.SuspendedBlueprintWindow != null)
+        if (!_assetDocumentMutations.TryGetValue(
+                e.Operation.OperationId,
+                out AssetDocumentMutationState? state) ||
+            state.CompletionStarted)
         {
-            BlueprintWindow window = state.SuspendedBlueprintWindow;
-            window.Editor.ResumeAfterAssetPathMutation();
-            if (window.IsLoaded)
-                window.IsEnabled = true;
+            return;
         }
-        foreach (MaterialEditorWindow materialWindow in state.SuspendedMaterialWindows)
-            materialWindow.ResumeAfterAssetPathMutation();
+        state.CompletionStarted = true;
+
+        try
+        {
+            if (state.SceneMutation != null)
+            {
+                try
+                {
+                    await state.SceneAutosaveDrainTask;
+                }
+                catch (Exception error)
+                {
+                    // The generation gates remain suppressed even when an old worker faults.
+                    // Resume in finally, but surface the failure because recovery durability for
+                    // that old generation could not be proven.
+                    Log(
+                        "Scene autosave drain failed during asset path mutation: " +
+                        error.Message,
+                        "Asset",
+                        LogLevel.Error);
+                }
+
+                SceneAssetPathState completedPaths = state.SceneMutation.Complete(
+                    e.Succeeded,
+                    out bool detachedForSafety);
+                var livePaths = new SceneAssetPathState(
+                    _currentScenePath,
+                    _scene2DPath,
+                    _scene3DDocumentPath);
+                if (livePaths != completedPaths)
+                    ApplySceneAssetPathState(completedPaths);
+                if (detachedForSafety)
+                {
+                    Log(
+                        "The scene asset operation reported success without publishing its " +
+                        "destination. The old save path was detached to prevent it from being " +
+                        "recreated; use Save As after verifying the asset.",
+                        "Asset",
+                        LogLevel.Error);
+                }
+            }
+        }
+        catch (Exception error)
+        {
+            Log(
+                "Open scene path mutation completion failed: " + error.Message,
+                "Asset",
+                LogLevel.Error);
+        }
+        finally
+        {
+            try
+            {
+                if (state.SuspendedSceneDocument != null)
+                {
+                    try
+                    {
+                        state.SuspendedSceneDocument.Resume(
+                            acceptCurrentWithoutTransaction: true);
+                    }
+                    catch (Exception error)
+                    {
+                        Log(
+                            "Open scene document resume failed: " + error.Message,
+                            "Asset",
+                            LogLevel.Error);
+                    }
+                }
+
+                if (state.SceneAutosaveMaintenanceLockHeld)
+                {
+                    // A new identity must not inherit the hash/debounce bookkeeping of the old path.
+                    _autosave2D.ResetState();
+                    _autosave3D.ResetState();
+                    if (!_autosaveStopping)
+                    {
+                        if (state.ResumeSceneAutosave2D)
+                        {
+                            try { _autosave2D.Gate.Resume(); }
+                            catch (Exception error)
+                            {
+                                Log(
+                                    "Scene autosave compatibility-channel resume failed " +
+                                    "(legacy orthographic serializer): " + error.Message,
+                                    "Asset",
+                                    LogLevel.Error);
+                            }
+                        }
+                        if (state.ResumeSceneAutosave3D)
+                        {
+                            try { _autosave3D.Gate.Resume(); }
+                            catch (Exception error)
+                            {
+                                Log(
+                                    "Scene autosave compatibility-channel resume failed " +
+                                    "(legacy spatial serializer): " + error.Message,
+                                    "Asset",
+                                    LogLevel.Error);
+                            }
+                        }
+                    }
+                    try { _autosaveMaintenanceLock.Release(); }
+                    catch (Exception error)
+                    {
+                        Log(
+                            "Scene autosave maintenance lock release failed: " + error.Message,
+                            "Asset",
+                            LogLevel.Error);
+                    }
+                    state.SceneAutosaveMaintenanceLockHeld = false;
+                }
+
+                if (state.SuspendedBlueprintWindow != null)
+                {
+                    try
+                    {
+                        BlueprintWindow window = state.SuspendedBlueprintWindow;
+                        window.Editor.ResumeAfterAssetPathMutation();
+                        if (window.IsLoaded)
+                            window.IsEnabled = true;
+                    }
+                    catch (Exception error)
+                    {
+                        Log(
+                            "Blueprint editor resume failed: " + error.Message,
+                            "Asset",
+                            LogLevel.Error);
+                    }
+                }
+                foreach (MaterialEditorWindow materialWindow in state.SuspendedMaterialWindows)
+                {
+                    try { materialWindow.ResumeAfterAssetPathMutation(); }
+                    catch (Exception error)
+                    {
+                        Log(
+                            "Material editor resume failed: " + error.Message,
+                            "Asset",
+                            LogLevel.Error);
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    _assetDocumentMutations.Remove(e.Operation.OperationId);
+                }
+                finally
+                {
+                    try
+                    {
+                        try { state.SceneEditingBlockLease?.Dispose(); }
+                        catch (Exception resumeError)
+                        {
+                            try
+                            {
+                                Log(
+                                    "Scene editing input could not be restored after the asset " +
+                                    "mutation: " + resumeError.Message,
+                                    "Asset",
+                                    LogLevel.Error);
+                            }
+                            catch { }
+                        }
+                        state.SceneEditingBlockLease = null;
+                    }
+                    finally
+                    {
+                        state.CompletionLifecycle?.Dispose();
+                        state.CompletionLifecycle = null;
+                    }
+                }
+            }
+        }
     }
+
+    private Task WaitForAssetDocumentMutationsAsync() =>
+        _assetDocumentMutationLifecycles.WaitForDrainAsync();
 
     private void OnAssetActivated(object? sender, AssetActivatedEventArgs e)
     {
@@ -363,7 +875,7 @@ public partial class MainWindow : Window
             OpenMaterialEditor(e.FullPath);
             return;
         }
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         switch (e.Kind)
         {
             case "image":
@@ -391,7 +903,7 @@ public partial class MainWindow : Window
     // 選択ノード (3D/2D) へ .acsmat を割り当てる (エディタは開かない)。ドロップ・ダブルクリック共用。
     private void AssignMaterialToSelection(string matPath)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (_view3d)
         {
             int s3 = EngineInterop.acs_editor_selected3d(Engine);
@@ -444,7 +956,12 @@ public partial class MainWindow : Window
     //   .acsmat → ドロップ先ノードへマテリアル割当 / 画像 → スプライト割当 / prefab・bp → 実体化。
     private void OnViewportAssetDropped(string path, int x, int y)
     {
-        if (Engine == IntPtr.Zero || string.IsNullOrEmpty(path)) return;
+        if (Engine == IntPtr.Zero ||
+            IsSceneEditingBlocked ||
+            string.IsNullOrEmpty(path))
+        {
+            return;
+        }
         try
         {
             int hit = _view3d ? EngineInterop.acs_editor_pick3d(Engine, x, y)
@@ -907,11 +1424,12 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _project == null) return;
         try
         {
-            var buf = new byte[64 * 1024];
-            EngineInterop.acs_editor_settings_serialize(Engine, buf, buf.Length);
-            string dir = System.IO.Path.GetDirectoryName(SettingsIniPath)!;
-            System.IO.Directory.CreateDirectory(dir);
-            System.IO.File.WriteAllText(SettingsIniPath, EngineInterop.Utf8Z(buf), System.Text.Encoding.UTF8);
+            string serializedSettings = ProjectSettingsSerialization.Capture(
+                buffer => EngineInterop.acs_editor_settings_serialize(
+                    Engine,
+                    buffer,
+                    buffer.Length));
+            ProjectManager.SaveProjectSettings(_project, serializedSettings);
             SyncAaCombo();
             SyncQualityMenu();
         }
@@ -1034,7 +1552,7 @@ public partial class MainWindow : Window
 
     private void CreateEmptyNode(int parentId)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (_view3d)   // .acs3d: 描画しない «空ノード» (グループ用トランスフォーム)
         {
             int id3 = EngineInterop.acs_editor_add_empty3d(Engine, "Empty");
@@ -1520,7 +2038,7 @@ public partial class MainWindow : Window
 
     private void OnSelectAll(object sender, ExecutedRoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         EngineInterop.acs_editor_select_all(Engine);
         SyncSelectionUi();
         Log("Selected all nodes.");
@@ -2003,7 +2521,7 @@ public partial class MainWindow : Window
     /// «自分自身を self» にして実行する (UE の BeginPlay 相当)。グラフを持たない BP は無視。</summary>
     private void RunPlacedBlueprints()
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         // インスタンスを先に集める (実行中に Spawn/Destroy で構造が変わっても走査を壊さない)。
         var insts = new System.Collections.Generic.List<(int id, string src)>();
         int cnt = EngineInterop.acs_editor_node_count(Engine);
@@ -2241,6 +2759,14 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        if (IsSceneEditingBlocked)
+        {
+            // The native child HWND and routed command bindings have independent input paths.
+            // Swallow the Window-level route as a second boundary while the scene workspace is
+            // disabled so no shortcut can mutate a suspended document.
+            e.Handled = true;
+            return;
+        }
         if (_viewport != null && _viewport.PolyMode && (e.Key == Key.Enter || e.Key == Key.Escape))
         {
             FinalizePoly();
@@ -2368,6 +2894,7 @@ public partial class MainWindow : Window
         if (EditorInputGate.ShouldSuppressShortcuts(
                 App.IsNonInteractiveLaunch, IsActive, IsKeyboardFocusWithin))
             return;
+        if (IsSceneEditingBlocked) return;
         FeedGameKey(e.Key, false);
     }
 
@@ -2446,6 +2973,7 @@ public partial class MainWindow : Window
     // (= 出荷ビルドの確認用)。通常のイテレーションは Build & Run (F5) → Game View タブを使う。
     private async void OnRunProject(object sender, RoutedEventArgs e)
     {
+        if (IsSceneEditingBlocked) return;
         if (_project == null) { Log("プロジェクトがありません。"); return; }
         if (_building) { BuildLog("ビルド実行中です。"); return; }
         if (!EnsureBuildSceneCompatibility("Standalone Run")) return;
@@ -2474,6 +3002,7 @@ public partial class MainWindow : Window
 
     private async System.Threading.Tasks.Task DoBuild(bool run)
     {
+        if (IsSceneEditingBlocked) return;
         if (_project == null) { BuildLog("プロジェクトがありません。"); return; }
         if (_building) { BuildLog("ビルド実行中です。"); return; }
         if (!EnsureBuildSceneCompatibility(run ? "Build & Run" : "Build")) return;
@@ -2511,6 +3040,17 @@ public partial class MainWindow : Window
             BuildLog("Scene save failed: the editor engine or project is unavailable. Build aborted.");
             return false;
         }
+        if (!TryBeginSceneSourceSave(
+                out SceneSourceSaveScope? saveScope,
+                out string saveBlockedReason))
+        {
+            BuildLog(
+                "Scene save failed: " + saveBlockedReason + ". " +
+                "Build/Run/Package was aborted.");
+            return false;
+        }
+        using SceneSourceSaveScope saveLease = saveScope!;
+
         // Keep this durability boundary fail-closed even if a future caller forgets the outer
         // compatibility guard. Runtime simulation data must never replace editable source either.
         if (_legacySceneSourceMode == SceneDocumentMode.ThreeD)
@@ -2588,6 +3128,14 @@ public partial class MainWindow : Window
                 return false;
             }
 
+            if (!saveLease.TryAcquireProjectAssetMutationLock(
+                    out string mutationBlockedReason))
+            {
+                BuildLog(
+                    "Scene save failed: " + mutationBlockedReason + ". " +
+                    "Build/Run/Package was aborted.");
+                return false;
+            }
             string? previousPath = _currentScenePath;
             string text = EngineInterop.SceneText(Engine);
             SceneSourceFile.WriteProjectSceneAtomicText(
@@ -2639,9 +3187,8 @@ public partial class MainWindow : Window
 
     private void SetBuildUiEnabled(bool enabled)
     {
-        BuildBtn.IsEnabled = enabled; RunBtn.IsEnabled = enabled;
-        MenuBuild.IsEnabled = enabled; MenuRun.IsEnabled = enabled; MenuBuildRun.IsEnabled = enabled;
         BuildBtn.Content = enabled ? "🔨 Build" : "⏳ Building…";
+        UpdateEditorInputEnabled();
     }
 
     // ビルド/実行の出力は専用の Build ログへ (エンジン/エディタの Console とは分離)。
@@ -2656,6 +3203,11 @@ public partial class MainWindow : Window
     // ===== ホットリロード: Source 保存を監視 → 自動再ビルド → ゲーム再起動 =====
     private void OnHotReloadToggle(object sender, RoutedEventArgs e)
     {
+        if (IsSceneEditingBlocked)
+        {
+            HotReloadBtn.IsChecked = _hotReload;
+            return;
+        }
         _hotReload = HotReloadBtn.IsChecked == true;
         if (_hotReload) StartSourceWatch(); else StopSourceWatch();
         Log(_hotReload
@@ -2775,7 +3327,13 @@ public partial class MainWindow : Window
     // 数値欄の確定: 値が実際に変わったプロパティだけ set する (冗長な undo を避ける)。
     private void ApplyDisplay()
     {
-        if (_populating || _selectedId < 0 || Engine == IntPtr.Zero) return;
+        if (_populating ||
+            IsSceneEditingBlocked ||
+            _selectedId < 0 ||
+            Engine == IntPtr.Zero)
+        {
+            return;
+        }
         int id = _selectedId;
 
         float curBase = EngineInterop.acs_editor_node_get_base(Engine, id);
@@ -2998,32 +3556,43 @@ public partial class MainWindow : Window
 
         try
         {
-            System.IO.Directory.CreateDirectory(_project.AssetsDir);
-            path = MaterialAssetWorkflow.ReserveNextAvailablePath(_project.AssetsDir);
+            void RefreshAuthoritativeDatabase(string materialPath)
+            {
+                var database = new AssetDatabase(
+                    _project.RootDir,
+                    _project.AssetsDir);
+                _ = database.Refresh(verifyContent: true);
+                bool exists = System.IO.File.Exists(materialPath);
+                bool indexed = database.TryGetByPath(
+                    materialPath,
+                    out AssetRecord? record);
+                bool coherent = exists
+                    ? indexed && record?.Kind == "material"
+                    : !indexed;
+                if (!coherent)
+                {
+                    throw new IOException(
+                        exists
+                            ? "The created material could not be indexed authoritatively."
+                            : "The failed material remained in the authoritative asset index.");
+                }
+            }
+
+            path = MaterialAssetWorkflow.CreateProjectMaterial(
+                _project.AssetsDir,
+                static (materialPath, materialName) =>
+                    EngineInterop.acs_editor_material_create(
+                        materialPath,
+                        materialName) != 0,
+                RefreshAuthoritativeDatabase);
+            // The authoritative refresh above is part of the mutation transaction. This second
+            // refresh only updates the already-hosted Asset View presentation asynchronously.
+            AssetBrowser.Refresh();
         }
         catch (Exception error) when (
             MaterialAssetWorkflow.IsRecoverableCreationFailure(error))
         {
             Log("マテリアルの保存先を作成できません: " + error.Message);
-            path = "";
-            return false;
-        }
-
-        if (EngineInterop.acs_editor_material_create(
-                path,
-                System.IO.Path.GetFileNameWithoutExtension(path)) == 0)
-        {
-            string failedPath = path;
-            try
-            {
-                System.IO.File.Delete(failedPath);
-            }
-            catch (Exception cleanupError) when (
-                cleanupError is IOException or UnauthorizedAccessException)
-            {
-                Log("不完全なマテリアル予約ファイルを削除できません: " + cleanupError.Message);
-            }
-            Log("マテリアル作成に失敗しました。");
             path = "";
             return false;
         }
@@ -3136,7 +3705,13 @@ public partial class MainWindow : Window
 
     private void ApplyInspector()
     {
-        if (_populating || _selectedId < 0 || Engine == IntPtr.Zero) return;
+        if (_populating ||
+            IsSceneEditingBlocked ||
+            _selectedId < 0 ||
+            Engine == IntPtr.Zero)
+        {
+            return;
+        }
         float x   = ParseF(PosX.Text);
         float y   = ParseF(PosY.Text);
         float deg = ParseF(RotDeg.Text);
@@ -3158,7 +3733,13 @@ public partial class MainWindow : Window
     // ===== ノード操作: リネーム / 削除 =====
     private void ApplyRename()
     {
-        if (_populating || _selectedId < 0 || Engine == IntPtr.Zero) return;
+        if (_populating ||
+            IsSceneEditingBlocked ||
+            _selectedId < 0 ||
+            Engine == IntPtr.Zero)
+        {
+            return;
+        }
         string nm = (NameBox.Text ?? "").Trim();
         if (nm.Length == 0) return;
         if (EngineInterop.acs_editor_node_rename(Engine, _selectedId, nm) != 0)
@@ -3175,7 +3756,7 @@ public partial class MainWindow : Window
     /// <summary>3D ノードをリネームする (3D インスペクタの Name 欄から)。</summary>
     private void Apply3DRename(int id, string? raw)
     {
-        if (_pop3d || Engine == IntPtr.Zero) return;
+        if (_pop3d || IsSceneEditingBlocked || Engine == IntPtr.Zero) return;
         string nm = (raw ?? "").Trim();
         if (nm.Length == 0) return;
         if (EngineInterop.acs_editor_node3d_set_name(Engine, id, nm) != 0)
@@ -3188,7 +3769,7 @@ public partial class MainWindow : Window
 
     private void OnDuplicateNode(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (_view3d)   // 3D モード: 選択 3D ノードを subtree 複製 (acs_editor_node3d_duplicate)
         {
             int sel = EngineInterop.acs_editor_selected3d(Engine);
@@ -3217,7 +3798,7 @@ public partial class MainWindow : Window
 
     private void DeleteSelected()
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (_view3d)   // 3D モード: selected3d を削除 (Del/コンテキストは従来 2D 専用で 3D 無反応だった)
         {
             int sel = EngineInterop.acs_editor_selected3d(Engine);
@@ -3246,7 +3827,7 @@ public partial class MainWindow : Window
     private void OnDeleteCmd(object sender, ExecutedRoutedEventArgs e) => DeleteSelected();
     private void OnCut(object sender, RoutedEventArgs e)   // Ctrl+X = コピーしてから削除 (OnCopy/DeleteSelected は 2D/3D 分岐済み)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         OnCopy(this, null!);
         DeleteSelected();
     }
@@ -3268,7 +3849,7 @@ public partial class MainWindow : Window
 
     private void OnPaste(object sender, ExecutedRoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (_view3d)   // 3D モード: クリップボードの 3D ノードを貼り付け (+X 小オフセット)
         {
             int nid = EngineInterop.acs_editor_node3d_paste(Engine);
@@ -3324,9 +3905,10 @@ public partial class MainWindow : Window
                        !document.HasPendingChanges;
     }
     private void OnCanCopyDelete(object sender, CanExecuteRoutedEventArgs e)
-        => e.CanExecute = CurSelCount() > 0;
+        => e.CanExecute = !IsSceneEditingBlocked && CurSelCount() > 0;
     private void OnCanPaste(object sender, CanExecuteRoutedEventArgs e)
-        => e.CanExecute = _view3d ? _hasClip3d : !string.IsNullOrEmpty(_clipboard);
+        => e.CanExecute = !IsSceneEditingBlocked &&
+            (_view3d ? _hasClip3d : !string.IsNullOrEmpty(_clipboard));
 
     // ===== プレハブ: ノードのサブツリーを .acsprefab として保存 / 再インスタンス化 =====
     //   プレハブ = サブツリーの直列化テキスト (ACSCENE 形式)。copy_subtree で保存し、
@@ -3395,6 +3977,7 @@ public partial class MainWindow : Window
     /// <summary>アセットの右クリック「シーンに配置」: Blueprint/Prefab をシーンへ実体化する。</summary>
     private void OnAssetPlace(object? sender, AssetActivatedEventArgs e)
     {
+        if (IsSceneEditingBlocked) return;
         switch (e.Kind)
         {
             case "blueprint": PlaceBlueprint(e.FullPath, _selectedId); break;
@@ -4119,6 +4702,18 @@ public partial class MainWindow : Window
     private async System.Threading.Tasks.Task<bool> SaveActiveSceneAsync()
     {
         if (Engine == IntPtr.Zero) return false;
+        if (!TryBeginSceneSourceSave(
+                out SceneSourceSaveScope? saveScope,
+                out string saveBlockedReason))
+        {
+            Log(
+                "Scene save is unavailable: " + saveBlockedReason + ".",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+        using SceneSourceSaveScope saveLease = saveScope!;
+
         if (_view3d)
             return await Save3DSceneAsync();   // Loaded .acs3d source adapter
         // プロジェクトの初期シーンを開いているなら、そこへ直接上書き保存 (ダイアログ無し)。
@@ -4136,6 +4731,15 @@ public partial class MainWindow : Window
             };
             if (dlg.ShowDialog(this) != true) return false;
             target = dlg.FileName;
+        }
+        if (!saveLease.TryAcquireProjectAssetMutationLock(
+                out string mutationBlockedReason))
+        {
+            Log(
+                "Scene save is unavailable: " + mutationBlockedReason,
+                "Scene",
+                LogLevel.Warn);
+            return false;
         }
         try
         {

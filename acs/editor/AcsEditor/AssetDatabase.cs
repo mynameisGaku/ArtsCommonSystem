@@ -254,16 +254,23 @@ public sealed class AssetDatabase
 
     /// <summary>
     /// Rebuilds the in-memory index. Unchanged assets reuse the cached hash unless
-    /// <paramref name="verifyContent"/> is true (cook/CI should request true).
+    /// <paramref name="verifyContent"/> is true (cook/CI should request true). A normal refresh
+    /// may synthesize missing metadata and always publishes the acceleration index, so it is an
+    /// asset mutation and holds the project lease for the complete scan/write transaction.
     /// </summary>
     public AssetDatabaseRefreshResult Refresh(
         bool verifyContent = false,
         CancellationToken cancellationToken = default)
-        => RefreshCore(
+    {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Refresh asset database");
+        return RefreshCore(
             verifyContent,
             createMissingMetadata: true,
             writeIndex: true,
             cancellationToken);
+    }
 
     /// <summary>
     /// Produces a content-verified read-only snapshot for Cook. Missing authoritative sidecars are
@@ -425,6 +432,9 @@ public sealed class AssetDatabase
         IEnumerable<string>? dependencies = null,
         IEnumerable<KeyValuePair<string, string>>? importSettings = null)
     {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Update asset import metadata");
         lock (_gate)
         {
             AssetRecord current = GetRequiredRecord(assetId);
@@ -457,6 +467,9 @@ public sealed class AssetDatabase
     /// </summary>
     public AssetRecord MoveAsset(string assetId, string destinationRelativePath)
     {
+        using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
+            _assetsRoot,
+            "Move asset");
         lock (_gate)
         {
             AssetRecord current = GetRequiredRecord(assetId);

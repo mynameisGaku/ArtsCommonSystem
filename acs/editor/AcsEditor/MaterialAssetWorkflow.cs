@@ -146,6 +146,57 @@ internal static class MaterialAssetWorkflow
         throw new IOException($"No free material name was found below {root}.");
     }
 
+    /// <summary>
+    /// Runs the legacy native material serializer and authoritative database refresh as one
+    /// project mutation. The final path is reserved only after the cross-process lease succeeds;
+    /// serializer or refresh failures remove the complete material family and reconcile the
+    /// database before the lease is released.
+    /// </summary>
+    internal static string CreateProjectMaterial(
+        string assetsDirectory,
+        Func<string, string, bool> canonicalWriter,
+        Action<string> refreshDatabase,
+        string baseName = "Material")
+    {
+        ArgumentNullException.ThrowIfNull(canonicalWriter);
+        ArgumentNullException.ThrowIfNull(refreshDatabase);
+
+        using AssetMutationLock mutationLock = AssetMutationLock.AcquireFailFast(
+            assetsDirectory,
+            "Create material asset");
+        string path = ReserveNextAvailablePath(assetsDirectory, baseName);
+        bool refreshAttempted = false;
+        try
+        {
+            string materialName = Path.GetFileNameWithoutExtension(path);
+            if (!canonicalWriter(path, materialName))
+            {
+                throw new InvalidDataException(
+                    "The native material serializer rejected the reserved asset.");
+            }
+
+            refreshAttempted = true;
+            refreshDatabase(path);
+            return path;
+        }
+        catch (Exception error)
+        {
+            bool rollbackComplete = DeleteMaterialFamily(path);
+            if (refreshAttempted)
+            {
+                try { refreshDatabase(path); }
+                catch { rollbackComplete = false; }
+            }
+            if (!rollbackComplete)
+            {
+                throw new IOException(
+                    "Material creation failed and its asset/database rollback was incomplete.",
+                    error);
+            }
+            throw;
+        }
+    }
+
     internal static bool SamePath(string? left, string? right)
     {
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
@@ -267,6 +318,28 @@ internal static class MaterialAssetWorkflow
     {
         string name = suffix == 0 ? baseName : baseName + suffix;
         return Path.Combine(root, name + ".acsmat");
+    }
+
+    private static bool DeleteMaterialFamily(string path)
+    {
+        bool complete = true;
+        foreach (string familyPath in new[]
+        {
+            path,
+            path + AssetDatabase.MetadataSuffix,
+            path + ".graph.json",
+            path + ".graph.json" + AssetDatabase.MetadataSuffix,
+        })
+        {
+            try { File.Delete(familyPath); }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException)
+            {
+                complete = false;
+            }
+            complete &= !File.Exists(familyPath) && !Directory.Exists(familyPath);
+        }
+        return complete;
     }
 
     private static readonly StringComparer PathComparer =

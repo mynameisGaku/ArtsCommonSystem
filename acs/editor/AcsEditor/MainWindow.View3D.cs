@@ -862,7 +862,7 @@ public partial class MainWindow
     /// «2D も内部的に 3D 空間にある» の体現 (Phase B)。既定は正五角形。</summary>
     private void OnAdd2DPolygon(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (!EnsureView3D()) return;
         const int sides = 5;                                   // 正五角形 (半径 1、XY 平面)
         var xy = new float[sides * 2];
@@ -884,7 +884,7 @@ public partial class MainWindow
     /// <summary>メッシュファイル (.gltf/.glb/.obj/.fbx) をダイアログで選び 3D ノードとして読み込む。</summary>
     private void OnImport3DMesh(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (!EnsureView3D()) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
@@ -906,7 +906,7 @@ public partial class MainWindow
     /// «2D も内部的に 3D 空間にある» の体現 (Phase B)。アスペクト比は画像から自動。</summary>
     private void OnAddSprite(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (!EnsureView3D()) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
@@ -928,7 +928,7 @@ public partial class MainWindow
 
     private void Add3DNode(int prim, string name)
     {
-        if (Engine == IntPtr.Zero) return;
+        if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
         if (!EnsureView3D()) return;
         int id = EngineInterop.acs_editor_add_node3d(Engine, prim, name);
         if (id < 0) return;
@@ -949,6 +949,18 @@ public partial class MainWindow
     private async System.Threading.Tasks.Task<bool> Save3DSceneAsync()
     {
         if (Engine == IntPtr.Zero) return false;
+        if (!TryBeginSceneSourceSave(
+                out SceneSourceSaveScope? saveScope,
+                out string saveBlockedReason))
+        {
+            Log(
+                "Scene save is unavailable: " + saveBlockedReason + ".",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+        using SceneSourceSaveScope saveLease = saveScope!;
+
         string? previousPath = _currentScenePath;
         string? target = !string.IsNullOrWhiteSpace(_currentScenePath)
                       && string.Equals(System.IO.Path.GetExtension(_currentScenePath), ".acs3d",
@@ -966,6 +978,15 @@ public partial class MainWindow
             };
             if (dialog.ShowDialog(this) != true) return false;
             target = dialog.FileName;
+        }
+        if (!saveLease.TryAcquireProjectAssetMutationLock(
+                out string mutationBlockedReason))
+        {
+            Log(
+                "Scene save is unavailable: " + mutationBlockedReason,
+                "Scene",
+                LogLevel.Warn);
+            return false;
         }
         try
         {

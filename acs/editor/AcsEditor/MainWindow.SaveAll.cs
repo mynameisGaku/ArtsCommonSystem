@@ -60,6 +60,19 @@ public partial class MainWindow
     /// </summary>
     private async Task<SaveAllResult> SaveAllInitializedSceneDocumentsAsync()
     {
+        if (!TryBeginSceneSourceSave(
+                out SceneSourceSaveScope? saveScope,
+                out string saveBlockedReason))
+        {
+            return new SaveAllResult(
+                SaveAllCompletion.Failed,
+                0,
+                0,
+                null,
+                saveBlockedReason);
+        }
+        using SceneSourceSaveScope saveLease = saveScope!;
+
         if (Engine == IntPtr.Zero)
             return new SaveAllResult(
                 SaveAllCompletion.Failed, 0, 0, null, "the editor engine is unavailable");
@@ -198,6 +211,23 @@ public partial class MainWindow
                 return new SceneDocumentWriteResult(
                     SceneDocumentWriteCompletion.Cancelled, "path selection was cancelled");
             target = dialog.FileName;
+        }
+
+        if (!TryBeginSceneSourceSave(
+                out SceneSourceSaveScope? mutationScope,
+                out string mutationBlockedReason))
+        {
+            return new SceneDocumentWriteResult(
+                SceneDocumentWriteCompletion.Failed,
+                mutationBlockedReason);
+        }
+        using SceneSourceSaveScope mutationLease = mutationScope!;
+        if (!mutationLease.TryAcquireProjectAssetMutationLock(
+                out mutationBlockedReason))
+        {
+            return new SceneDocumentWriteResult(
+                SceneDocumentWriteCompletion.Failed,
+                mutationBlockedReason);
         }
 
         try

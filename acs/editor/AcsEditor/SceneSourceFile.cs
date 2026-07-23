@@ -135,6 +135,9 @@ internal static class SceneSourceFile
             projectRoot,
             assetsRoot,
             expectedMode);
+        using AssetMutationLock mutationLock = AssetMutationLock.AcquireFailFast(
+            assetsRoot,
+            "Save scene source");
         WriteAtomicText(destination, content, assetsRoot, expectedMode);
     }
 
