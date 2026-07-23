@@ -65,10 +65,22 @@ internal static class AssetPathChangeSelfTest
         var starting = new AssetPathMutationStartingEventArgs(
             Guid.NewGuid(),
             AssetPathMutationKind.Move,
-            new[] { oldFolder });
+            new[] { oldFolder },
+            new[] { new AssetPathMapping(oldFolder, newFolder) });
         Check(starting.AffectsPath(oldAsset) &&
               !starting.AffectsPath(Path.Combine(root, "CloudBank", "Sky.acsmat")),
             "mutation preflight targets only the selected root subtree");
+        Check(starting.TryRemapPath(oldAsset, out string proposedAsset) &&
+              AssetPathBoundary.Equals(proposedAsset, expectedAsset),
+            "mutation preflight carries the durable proposed destination for descendants");
+
+        var destinationUnknown = new AssetPathMutationStartingEventArgs(
+            Guid.NewGuid(),
+            AssetPathMutationKind.Move,
+            new[] { oldFolder });
+        Check(!destinationUnknown.TryRemapPath(oldAsset, out string unchangedProposed) &&
+              AssetPathBoundary.Equals(unchangedProposed, oldAsset),
+            "mutation preflight refuses to invent a destination when none was proposed");
 
         var unchanged = new AssetPathsChangedEventArgs(mappings: new[]
         {

@@ -311,6 +311,28 @@ internal static class EditorDocumentHostSelfTest
             Check(!document.IsSuspended && !document.HasPendingChanges,
                 "simulation resume accepts restored runtime state without history");
 
+            string checkpointContent = content;
+            int checkpointUndoCount = document.UndoCount;
+            int checkpointRedoCount = document.RedoCount;
+            bool checkpointDirty = document.IsDirty;
+            string checkpointDisplayName = document.DisplayName;
+            string? checkpointSourcePath = document.SourcePath;
+            EditorDocument.Checkpoint checkpoint = document.CaptureCheckpoint();
+            document.UpdatePresentation("Replacement", "replacement.acscene");
+            content = "replacement";
+            document.ResetHistory(
+                markSaved: true,
+                currentState: EditorDocumentState.Text(content, Durable));
+            content = checkpointContent;
+            document.RestoreCheckpoint(checkpoint);
+            Check(
+                document.UndoCount == checkpointUndoCount &&
+                document.RedoCount == checkpointRedoCount &&
+                document.IsDirty == checkpointDirty &&
+                document.DisplayName == checkpointDisplayName &&
+                document.SourcePath == checkpointSourcePath,
+                "document checkpoint restores history, save point, and presentation metadata");
+
             content = "recovered";
             int capturesBeforeReset = captureCalls;
             document.ResetHistory(

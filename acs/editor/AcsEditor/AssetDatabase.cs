@@ -85,6 +85,8 @@ public sealed class AssetDatabase
     public const int CurrentSchemaVersion = 1;
     public const string MetadataSuffix = ".acsmeta";
     public const string InternalDirectoryName = ".acsdb";
+    internal const string ImportStagingDirectoryName = "import-staging";
+    internal const string ReimportStagingDirectoryName = "reimport-staging";
 
     private const int MaxMetadataBytes = 1024 * 1024;
     private static readonly UTF8Encoding Utf8NoBom = new(false, true);
@@ -273,6 +275,29 @@ public sealed class AssetDatabase
     }
 
     /// <summary>
+    /// インポート／再インポート実装が外側のプロジェクト変更リースを保持した状態で更新します。
+    /// 公開更新処理は復旧用ステージング項目が一つでもあれば安全側に停止します。一方、
+    /// トランザクションは新しいペアと高速化インデックスのコミットが完了するまで
+    /// ジャーナルを保持する必要があるため、代わりに用途を限定したこの経路を使用します。
+    /// </summary>
+    internal AssetDatabaseRefreshResult RefreshWithinAssetTransaction(
+        bool verifyContent = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!AssetMutationLock.IsRecoveryLeaseHeldByCurrentThread(_assetsRoot))
+        {
+            throw new InvalidOperationException(
+                "Transactional asset refresh requires the current thread to own the project " +
+                "mutation lease.");
+        }
+        return RefreshCore(
+            verifyContent,
+            createMissingMetadata: true,
+            writeIndex: true,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Produces a content-verified read-only snapshot for Cook. Missing authoritative sidecars are
     /// reported instead of being synthesized, and the persistent acceleration index is not
     /// rewritten during package validation.
@@ -420,6 +445,65 @@ public sealed class AssetDatabase
         }
     }
 
+    internal static void ThrowIfInterruptedPublicationRequiresRecovery(
+        string assetsRoot)
+    {
+        if (string.IsNullOrWhiteSpace(assetsRoot))
+            throw new ArgumentException("Assets root is required.", nameof(assetsRoot));
+        string databaseRoot = Path.Combine(
+            Path.GetFullPath(assetsRoot),
+            InternalDirectoryName);
+        foreach ((string directoryName, string operation) in new[]
+                 {
+                     (ImportStagingDirectoryName, "Import"),
+                     (ReimportStagingDirectoryName, "Reimport"),
+                 })
+        {
+            string stagingRoot = Path.Combine(databaseRoot, directoryName);
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(stagingRoot);
+            }
+            catch (FileNotFoundException)
+            {
+                continue;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                continue;
+            }
+
+            if ((attributes & FileAttributes.Directory) == 0 ||
+                (attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException(
+                    $"{operation} recovery staging is not an ordinary directory. Asset " +
+                    "mutation was stopped before any project file could be changed.");
+            }
+
+            if (Directory.EnumerateFileSystemEntries(
+                    stagingRoot,
+                    "*",
+                    SearchOption.TopDirectoryOnly).Any())
+            {
+                throw new IOException(
+                    $"{operation} recovery is required before any asset mutation can proceed. " +
+                    "Reopen the project to reconcile the pending transaction.");
+            }
+
+            // 協調動作するファイルシステムでの置換区間を限定します。ここでは
+            // ステージング項目の配下を列挙せず、プロジェクト変更リースで他のエディターを排他します。
+            attributes = File.GetAttributes(stagingRoot);
+            if ((attributes & FileAttributes.Directory) == 0 ||
+                (attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException(
+                    $"{operation} recovery staging changed during validation.");
+            }
+        }
+    }
+
     /// <summary>
     /// Atomically rewrites import/dependency metadata for an indexed asset.
     /// The source string is metadata only; indexing never follows it.
@@ -458,6 +542,78 @@ public sealed class AssetDatabase
             _byId[current.AssetId] = replacement;
             WriteIndex(_byPath.Values);
             return replacement;
+        }
+    }
+
+    /// <summary>
+    /// トランザクション型インポート向けの正規メタデータを構築しますが、公開はしません。
+    /// 呼び出し元は、アセットスキャナーからどちらかのファイルが見えるようになる前に、
+    /// ステージ済みペイロードの隣へ、この正確なバイト列を配置できます。
+    /// </summary>
+    internal (AssetMetadata Metadata, byte[] Bytes) CreateImportMetadataPayload(
+        string destinationPath,
+        string source,
+        string importer,
+        int importerVersion,
+        IEnumerable<KeyValuePair<string, string>>? importSettings = null)
+    {
+        lock (_gate)
+        {
+            string relative = NormalizeAssetRelativePath(destinationPath);
+            string assetId;
+            do
+            {
+                assetId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+            }
+            while (_byId.ContainsKey(assetId));
+
+            var metadata = new AssetMetadata(
+                CurrentSchemaVersion,
+                assetId,
+                ClassifyExtension(Path.GetExtension(relative)),
+                source,
+                importer,
+                importerVersion,
+                Array.Empty<string>(),
+                NormalizeImportSettings(importSettings));
+            metadata = ValidateAndNormalizeMetadata(metadata, relative);
+            return (metadata, SerializeMetadata(metadata, relative));
+        }
+    }
+
+    /// <summary>
+    /// アセットの安定した識別情報、依存関係グラフ、インポーター、および呼び出し元が
+    /// 指定した設定を保ったまま、再インポート用の置換メタデータを構築します。
+    /// </summary>
+    internal (AssetRecord Current, AssetMetadata Metadata, byte[] Bytes)
+        CreateReimportMetadataPayload(
+            string assetId,
+            string source,
+            IEnumerable<KeyValuePair<string, string>> sourceFingerprint)
+    {
+        lock (_gate)
+        {
+            AssetRecord current = GetRequiredRecord(assetId);
+            var settings = new SortedDictionary<string, string>(
+                StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> entry in
+                current.Metadata.ImportSettings)
+            {
+                settings.Add(entry.Key, entry.Value);
+            }
+            foreach (KeyValuePair<string, string> entry in sourceFingerprint)
+                settings[entry.Key] = entry.Value;
+
+            AssetMetadata metadata = current.Metadata with
+            {
+                Source = source,
+                ImportSettings = NormalizeImportSettings(settings),
+            };
+            metadata = ValidateAndNormalizeMetadata(metadata, current.RelativePath);
+            return (
+                current,
+                metadata,
+                SerializeMetadata(metadata, current.RelativePath));
         }
     }
 
@@ -1018,7 +1174,12 @@ public sealed class AssetDatabase
     {
         string assetPath = path[..^MetadataSuffix.Length];
         string relative = NormalizeAssetRelativePath(assetPath);
-        AssetMetadata normalized = ValidateAndNormalizeMetadata(metadata, relative);
+        AtomicWrite(path, SerializeMetadata(metadata, relative));
+    }
+
+    private byte[] SerializeMetadata(AssetMetadata metadata, string relativePath)
+    {
+        AssetMetadata normalized = ValidateAndNormalizeMetadata(metadata, relativePath);
         using var memory = new MemoryStream();
         using (var writer = new Utf8JsonWriter(memory, PrettyJsonOptions))
         {
@@ -1029,7 +1190,7 @@ public sealed class AssetDatabase
             WriteImportFields(writer, normalized);
             writer.WriteEndObject();
         }
-        AtomicWrite(path, AddFinalNewline(memory.ToArray()));
+        return AddFinalNewline(memory.ToArray());
     }
 
     private static void WriteImportFields(Utf8JsonWriter writer, AssetMetadata metadata)

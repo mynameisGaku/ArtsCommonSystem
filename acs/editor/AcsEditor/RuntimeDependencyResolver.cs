@@ -107,38 +107,10 @@ public static class RuntimeDependencyResolver
             start.ArgumentList.Add("-P");
             start.ArgumentList.Add(script);
 
-            using var process = new Process { StartInfo = start };
-            process.OutputDataReceived += (_, eventArgs) =>
-            {
-                if (!string.IsNullOrEmpty(eventArgs.Data))
-                    log?.Invoke(eventArgs.Data);
-            };
-            process.ErrorDataReceived += (_, eventArgs) =>
-            {
-                if (!string.IsNullOrEmpty(eventArgs.Data))
-                    log?.Invoke(eventArgs.Data);
-            };
-
-            if (!process.Start())
-                throw new InvalidOperationException("CMake dependency scanner を起動できませんでした。");
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            try
-            {
-                await process.WaitForExitAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                try
-                {
-                    if (!process.HasExited)
-                        process.Kill(entireProcessTree: true);
-                }
-                catch { }
-                throw;
-            }
-
+            PackageProcessResult process = await PackageProcessRunner.RunAsync(
+                start,
+                log,
+                cancellationToken);
             if (process.ExitCode != 0)
                 throw new InvalidOperationException($"CMake dependency scanner が失敗しました (exit {process.ExitCode})。");
 

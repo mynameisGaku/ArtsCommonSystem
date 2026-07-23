@@ -332,6 +332,27 @@
                     </Grid>
                     <Grid>
                         <Border x:Name="ViewportHost" Background="{StaticResource Edge}" Margin="0"/>
+                        <Border x:Name="ViewportLoadingOverlay"
+                                Panel.ZIndex="10"
+                                Background="#FF09111B"
+                                IsHitTestVisible="True">
+                            <StackPanel HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        MaxWidth="460">
+                                <TextBlock x:Name="ViewportLoadingTitle"
+                                           Text="Loading scene…"
+                                           Foreground="#FFF0F4F8"
+                                           FontSize="16"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="ViewportLoadingDetail"
+                                           Text="Preparing the renderer"
+                                           Foreground="#FF8FA6BB"
+                                           Margin="0,7,0,0"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </DockPanel>
 

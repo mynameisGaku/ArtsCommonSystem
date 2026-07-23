@@ -120,6 +120,9 @@ TResult<void> FDiligentShader::Init(FDiligentDevice& device, const FShaderDesc& 
     sci.HLSLVersion    = {5, 1};
     sci.Source         = desc.hlsl_source;
     sci.EntryPoint     = desc.entry_point ? desc.entry_point : "main";
+    if (desc.compile_async && device.SupportsAsyncShaderCompilation()) {
+        sci.CompileFlags |= Diligent::SHADER_COMPILE_FLAG_ASYNCHRONOUS;
+    }
 
     // Diligent 新版で UseCombinedTextureSamplers / CombinedSamplerSuffix は
     // ShaderCreateInfo から FShaderDesc に移動した。
@@ -160,6 +163,21 @@ TResult<void> FDiligentShader::Init(FDiligentDevice& device, const FShaderDesc& 
     ParseShaderBindings(desc.hlsl_source, "TextureCube",  't', m_TexNames, kMaxSlots);
 
     return Ok();
+}
+
+EShaderStatus FDiligentShader::Status() const noexcept
+{
+    if (m_Shader == nullptr) return EShaderStatus::Failed;
+    switch (m_Shader->GetStatus(false)) {
+        case Diligent::SHADER_STATUS_COMPILING:
+        case Diligent::SHADER_STATUS_UNINITIALIZED:
+            return EShaderStatus::Compiling;
+        case Diligent::SHADER_STATUS_READY:
+            return EShaderStatus::Ready;
+        case Diligent::SHADER_STATUS_FAILED:
+        default:
+            return EShaderStatus::Failed;
+    }
 }
 
 } // namespace acs

@@ -12,12 +12,6 @@ using System.Threading;
 
 namespace AcsEditor;
 
-internal enum SceneDocumentMode
-{
-    TwoD,
-    ThreeD,
-}
-
 internal sealed record SceneAutosaveIdentity(
     string ProjectId,
     string DocumentId,

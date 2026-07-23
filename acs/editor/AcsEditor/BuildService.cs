@@ -7,6 +7,12 @@ using System.Threading.Tasks;
 
 namespace AcsEditor;
 
+internal sealed record BuildInitialSceneSnapshot(
+    string ProjectFilePath,
+    string InitialScene,
+    string CanonicalSceneAssetId,
+    string AuthoritativeAssetId);
+
 /// <summary>
 /// プロジェクトの Source/ を ACS エンジンビルドに取り込んでスタンドアロンの .exe にビルドし、実行する。
 /// エンジン CMake の ACS_EXTERNAL_PROJECT_DIR フックを使い、既存の静的 lib を再利用してインクリメンタルに作る。
@@ -17,10 +23,6 @@ public static class BuildService
     // 読むと UTF-8 バイトが cp932 として化けるので、明示的に UTF-8 でデコードする。
     private static readonly System.Text.Encoding OutEncoding =
         new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-    private static readonly TimeSpan ProcessTerminationGrace =
-        TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan ProcessOutputDrainGrace =
-        TimeSpan.FromSeconds(3);
 
     /// <summary>editor 実行ファイルから上方向に engine/CMakeLists.txt を探してリポジトリルートを返す。</summary>
     public static string? FindEngineRoot()
@@ -81,14 +83,73 @@ public static class BuildService
 
     /// <summary>プロジェクトをビルドする。成功で exe パス、失敗で null。ログは log に流す。
     /// forceConfigure=true でソース追加/削除時に必ず再 configure する (glob 反映のため)。</summary>
-    public static async Task<string?> BuildAsync(
+    public static Task<string?> BuildAsync(
         Project project,
         Action<string> log,
         bool forceConfigure = false,
         bool standalone = false,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(log);
+
+        // ビルド準備では、最初にプロセスを await する前に、アセット ID の全件走査、
+        // リフレクション用ソースの解析、CMake キャッシュの I/O を行う。可変な UI モデルは
+        // O(1) でスナップショット化し、大規模プロジェクトでもディスパッチャーを止めないよう処理全体をワーカーへ移す。
+        var snapshot = new Project
+        {
+            Version = project.Version,
+            Name = project.Name,
+            EngineVersion = project.EngineVersion,
+            Template = project.Template,
+            InitialScene = project.InitialScene,
+            CanonicalSceneAssetId = project.CanonicalSceneAssetId,
+            ProjectFilePath = project.ProjectFilePath,
+        };
+        return Task.Run(
+            () => BuildCoreAsync(
+                snapshot,
+                log,
+                forceConfigure,
+                standalone,
+                cancellationToken),
+            cancellationToken);
+    }
+
+    private static async Task<string?> BuildCoreAsync(
+        Project project,
+        Action<string> log,
+        bool forceConfigure,
+        bool standalone,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
+        if (ProjectManager.HasPendingInitialScenePathFollow(project))
+        {
+            log(
+                "[INITIAL_SCENE_MOVE_PENDING] Build is blocked until the interrupted " +
+                "initial-scene move is reconciled.");
+            return null;
+        }
+        BuildInitialSceneSnapshot? initialSceneSnapshot = null;
+        if (standalone)
+        {
+            try
+            {
+                initialSceneSnapshot = CaptureInitialSceneSnapshot(project);
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or
+                    InvalidDataException or ArgumentException or
+                    System.Text.Json.JsonException or
+                    KeyNotFoundException or NotSupportedException)
+            {
+                log(
+                    "[INITIAL_SCENE_STATE_UNSTABLE] Build is blocked because the initial " +
+                    "scene snapshot could not be proven: " + error.Message);
+                return null;
+            }
+        }
         string? engineRoot = FindEngineRoot();
         if (engineRoot == null) { log("エンジンルートが見つかりません (engine/CMakeLists.txt)。"); return null; }
 
@@ -148,12 +209,13 @@ public static class BuildService
             // エディタで編集したシーンを exe の隣へコピー (スタンドアロンが起動時 main.acscene を読む)。
             try
             {
-                string sceneSrc = Path.Combine(project.RootDir, project.InitialScene);
                 string sceneDst = Path.Combine(Path.GetDirectoryName(exe)!, "main.acscene");
-                SceneSourceFile.CopyAtomic(
-                    sceneSrc,
-                    sceneDst,
-                    Path.GetDirectoryName(exe)!);
+                CopyInitialSceneForBuild(
+                    project,
+                    initialSceneSnapshot ??
+                        throw new InvalidOperationException(
+                            "The standalone build has no initial-scene snapshot."),
+                    sceneDst);
                 log("シーンを exe の隣へ配置しました。");
             }
             catch (Exception ex)
@@ -168,9 +230,102 @@ public static class BuildService
         return null;
     }
 
+    internal static BuildInitialSceneSnapshot CaptureInitialSceneSnapshot(Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        using AssetMutationLock mutationLock = AssetMutationLock.AcquireFailFast(
+            project.AssetsDir,
+            "Capture build initial scene");
+        if (ProjectManager.HasPendingInitialScenePathFollow(project))
+        {
+            throw new InvalidDataException(
+                "An interrupted initial-scene move still requires recovery.");
+        }
+
+        Project persisted = ProjectManager.ReadManifest(project.ProjectFilePath);
+        if (!string.Equals(
+                persisted.InitialScene,
+                project.InitialScene,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                persisted.CanonicalSceneAssetId,
+                project.CanonicalSceneAssetId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "The in-memory project no longer matches its manifest.");
+        }
+        string authoritativeAssetId =
+            ProjectManager.ValidateInitialSceneAssetIdentity(persisted);
+        return new BuildInitialSceneSnapshot(
+            persisted.ProjectFilePath,
+            persisted.InitialScene,
+            persisted.CanonicalSceneAssetId,
+            authoritativeAssetId);
+    }
+
+    internal static void CopyInitialSceneForBuild(
+        Project project,
+        BuildInitialSceneSnapshot snapshot,
+        string destination)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        using AssetMutationLock mutationLock = AssetMutationLock.AcquireFailFast(
+            project.AssetsDir,
+            "Publish build initial scene");
+        if (ProjectManager.HasPendingInitialScenePathFollow(project))
+        {
+            throw new InvalidDataException(
+                "An initial-scene move began while the standalone build was compiling.");
+        }
+
+        Project persisted = ProjectManager.ReadManifest(snapshot.ProjectFilePath);
+        if (!SceneSourceFile.PathsEqual(
+                persisted.ProjectFilePath,
+                snapshot.ProjectFilePath) ||
+            !string.Equals(
+                persisted.InitialScene,
+                snapshot.InitialScene,
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                persisted.CanonicalSceneAssetId,
+                snapshot.CanonicalSceneAssetId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "The project manifest changed while the standalone build was compiling.");
+        }
+        string authoritativeAssetId =
+            ProjectManager.ValidateInitialSceneAssetIdentity(persisted);
+        if (!string.Equals(
+                authoritativeAssetId,
+                snapshot.AuthoritativeAssetId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The initial scene identity changed while the standalone build was compiling.");
+        }
+
+        string destinationRoot = Path.GetDirectoryName(Path.GetFullPath(destination))
+            ?? throw new InvalidDataException(
+                "The standalone scene destination has no parent directory.");
+        SceneSourceFile.CopyAtomic(
+            persisted.InitialScenePath,
+            destination,
+            destinationRoot);
+    }
+
     /// <summary>ビルド済み exe を起動する (無ければ null)。</summary>
     public static Process? Run(Project project, Action<string> log)
     {
+        if (ProjectManager.HasPendingInitialScenePathFollow(project))
+        {
+            log(
+                "[INITIAL_SCENE_MOVE_PENDING] Run is blocked until the interrupted " +
+                "initial-scene move is reconciled.");
+            return null;
+        }
         string exe = ExePath(project);
         if (!File.Exists(exe)) { log("実行ファイルがありません。先に Build してください: " + exe); return null; }
         try
@@ -224,78 +379,10 @@ public static class BuildService
                 RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = OutEncoding, StandardErrorEncoding = OutEncoding,
             };
-            using var process = new Process
-            {
-                StartInfo = psi,
-                EnableRaisingEvents = true,
-            };
-            var standardOutputClosed = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            var standardErrorClosed = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (e.Data == null)
-                {
-                    standardOutputClosed.TrySetResult(true);
-                    return;
-                }
-                try { log(e.Data); }
-                catch { }
-            };
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (e.Data == null)
-                {
-                    standardErrorClosed.TrySetResult(true);
-                    return;
-                }
-                try { log(e.Data); }
-                catch { }
-            };
-            if (!process.Start())
-            {
-                log("プロセス起動失敗: process did not start");
-                return -1;
-            }
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-            try
-            {
-                await process.WaitForExitAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                bool terminated = await TryTerminateWithinAsync(
-                    process,
-                    ProcessTerminationGrace);
-                if (!terminated)
-                {
-                    log(
-                        "Cancellation timed out while terminating the build " +
-                        "process tree; the editor will continue without " +
-                        "waiting indefinitely.");
-                }
-                throw;
-            }
-            try
-            {
-                await Task.WhenAll(
-                        standardOutputClosed.Task,
-                        standardErrorClosed.Task)
-                    .WaitAsync(ProcessOutputDrainGrace);
-            }
-            catch (TimeoutException)
-            {
-                try { process.CancelOutputRead(); }
-                catch { }
-                try { process.CancelErrorRead(); }
-                catch { }
-                log(
-                    "Build process exited, but redirected output did not " +
-                    "close within the bounded drain deadline.");
-                return -1;
-            }
+            PackageProcessResult process = await PackageProcessRunner.RunAsync(
+                psi,
+                log,
+                cancellationToken);
             return process.ExitCode;
         }
         catch (OperationCanceledException)
@@ -320,33 +407,4 @@ public static class BuildService
             _ => { },
             cancellationToken);
 
-    private static async Task<bool> TryTerminateWithinAsync(
-        Process process,
-        TimeSpan grace)
-    {
-        try
-        {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-        }
-        catch
-        {
-        }
-
-        using var timeout = new CancellationTokenSource(grace);
-        try
-        {
-            await process.WaitForExitAsync(timeout.Token);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-        catch
-        {
-            try { return process.HasExited; }
-            catch { return false; }
-        }
-    }
 }

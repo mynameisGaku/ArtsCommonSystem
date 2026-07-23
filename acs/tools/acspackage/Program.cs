@@ -972,6 +972,18 @@ internal static class Program
                 settings,
                 "[Game]\nDefaultScene=Assets/scene3d.acs3d\n",
                 new UTF8Encoding(false));
+            File.WriteAllText(
+                projectFile,
+                $$"""
+                {
+                  "version": 1,
+                  "name": "Game",
+                  "engineVersion": "self-test",
+                  "initialScene": "Assets/scene3d.acs3d",
+                  "canonicalSceneAssetId": "{{scene3DAsset.AssetId}}"
+                }
+                """,
+                new UTF8Encoding(false));
             PackageResult package3D = await PackageCore.CreatePackageAsync(
                 project3D,
                 optionsA with
@@ -1027,6 +1039,18 @@ internal static class Program
             File.Delete(scene3d);
             File.Delete(scene3d + AssetDatabase.MetadataSuffix);
             assetDatabase.Refresh(verifyContent: true);
+            File.WriteAllText(
+                projectFile,
+                $$"""
+                {
+                  "version": 1,
+                  "name": "Game",
+                  "engineVersion": "self-test",
+                  "initialScene": "Assets/main.acscene",
+                  "canonicalSceneAssetId": "{{sceneAsset.AssetId}}"
+                }
+                """,
+                new UTF8Encoding(false));
 
             string unsupported = Path.Combine(assets, "payload.unsupported");
             File.WriteAllText(unsupported, "not cookable");

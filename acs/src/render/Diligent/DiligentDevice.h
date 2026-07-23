@@ -75,6 +75,9 @@ public:
         return m_AdapterName;
     }
 
+    /** Diligent owns a background shader compiler pool when advertised. */
+    bool SupportsAsyncShaderCompilation() const noexcept override;
+
     /** GPU の処理完了を待つ (フェンス Signal + WaitForIdle、Shutdown 前等に呼ぶ)。 */
     void WaitIdle() noexcept override;
 

@@ -439,6 +439,8 @@
                     <MenuItem x:Name="CtxOpen" Header="開く (Open)" InputGestureText="Enter" Click="OnCtxOpen"/>
                     <MenuItem x:Name="CtxPlace" Header="シーンに配置 (Place)" Click="OnCtxPlace"/>
                     <MenuItem x:Name="CtxReferences" Header="Reference Viewer…" Click="OnCtxReferences"/>
+                    <MenuItem x:Name="CtxReimport" Header="Reimport from Source"
+                              Click="OnCtxReimport"/>
                     <MenuItem x:Name="CtxReplaceReferences" Header="Replace References…"
                               Click="OnReplaceReferences"/>
                     <MenuItem x:Name="CtxMigrate" Header="Migrate…"

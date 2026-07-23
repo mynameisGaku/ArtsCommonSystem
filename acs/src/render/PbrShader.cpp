@@ -1870,6 +1870,21 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
+EShaderStatus FPbrShader::FCompiledShaders::Status() const noexcept {
+    if (!vertex || !pixel) return EShaderStatus::Failed;
+    const EShaderStatus vertex_status = vertex->Status();
+    const EShaderStatus pixel_status = pixel->Status();
+    if (vertex_status == EShaderStatus::Failed ||
+        pixel_status == EShaderStatus::Failed) {
+        return EShaderStatus::Failed;
+    }
+    if (vertex_status == EShaderStatus::Compiling ||
+        pixel_status == EShaderStatus::Compiling) {
+        return EShaderStatus::Compiling;
+    }
+    return EShaderStatus::Ready;
+}
+
 /** Compile raw-DX12 bytecode without accessing the render device. */
 TResult<FPbrShader::FCompiledShaders>
 FPbrShader::CompileShadersCpu() noexcept {
@@ -1917,6 +1932,39 @@ FPbrShader::CompileShadersCpu() noexcept {
         Render, 375,
         "PBR CPU compilation is available only on the raw DX12 backend");
 #endif
+}
+
+TResult<FPbrShader::FCompiledShaders>
+FPbrShader::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 377,
+            "PBR backend-managed asynchronous compilation is unsupported");
+    }
+
+    FShaderDesc vs_d{};
+    vs_d.stage = EShaderStage::Vertex;
+    vs_d.hlsl_source = kPbrHLSL;
+    vs_d.entry_point = "VSMain";
+    vs_d.debug_name = "Pbr.VS";
+    vs_d.compile_async = true;
+
+    FCompiledShaders compiled{};
+    auto vertex = CreateRhiShader(device, vs_d);
+    if (vertex.IsErr()) return Err<FCompiledShaders>(vertex.Error());
+    compiled.vertex = Move(vertex.Value());
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kPbrHLSL;
+    ps_d.entry_point = "PSMain";
+    ps_d.debug_name = "Pbr.PS";
+    ps_d.compile_async = true;
+    auto pixel = CreateRhiShader(device, ps_d);
+    if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
+    compiled.pixel = Move(pixel.Value());
+
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
 }
 
 /** シェーダ・PSO・CB・fallback テクスチャ群を生成する。 */

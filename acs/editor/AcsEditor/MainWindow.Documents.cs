@@ -19,6 +19,11 @@ internal sealed class SceneMutationRevisionGate
     private ulong _documentCaptured;
     private ulong _workspaceCaptured;
 
+    internal readonly record struct Checkpoint(
+        ulong Current,
+        ulong DocumentCaptured,
+        ulong WorkspaceCaptured);
+
     internal ulong Current => _current;
     internal bool DocumentCaptureRequired => _documentCaptured != _current;
     internal bool WorkspaceCaptureRequired => _workspaceCaptured != _current;
@@ -41,6 +46,16 @@ internal sealed class SceneMutationRevisionGate
 
     internal void AcknowledgeDocument() => _documentCaptured = _current;
     internal void AcknowledgeWorkspace() => _workspaceCaptured = _current;
+
+    internal Checkpoint CaptureCheckpoint() =>
+        new(_current, _documentCaptured, _workspaceCaptured);
+
+    internal void RestoreCheckpoint(Checkpoint checkpoint)
+    {
+        _current = checkpoint.Current;
+        _documentCaptured = checkpoint.DocumentCaptured;
+        _workspaceCaptured = checkpoint.WorkspaceCaptured;
+    }
 
     internal static bool ShouldAcknowledgeCompletedSave(
         ulong startingRevision,
@@ -77,6 +92,7 @@ public partial class MainWindow
     private int _sceneMergeSelectionNodeId = -1;
     private int _sceneMergeSelectionCount;
     private ulong _sceneMergeSelectionEpoch;
+    private bool _sceneOpenTransactionInProgress;
 
     private EditorDocumentId SceneDocumentId()
     {
@@ -292,6 +308,7 @@ public partial class MainWindow
     {
         if (!_documentHostInitialized ||
             _sceneHistorySimulationSuspended ||
+            _sceneOpenTransactionInProgress ||
             Engine == IntPtr.Zero ||
             EngineInterop.acs_editor_play_state(Engine) != 0 ||
             PreviewBtn.IsChecked == true)

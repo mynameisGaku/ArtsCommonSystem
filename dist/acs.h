@@ -8851,6 +8851,15 @@ public:
         (void)destination_size;
         return false;
     }
+
+    /**
+     * Return whether the backend can compile shaders asynchronously while the
+     * render-owner thread polls their status.
+     */
+    virtual bool SupportsAsyncShaderCompilation() const noexcept
+    {
+        return false;
+    }
 };
 
 /**
@@ -40084,6 +40093,13 @@ enum class EShaderStage : u8 {
     Compute,
 };
 
+/** Non-blocking shader compilation state exposed by supporting RHI backends. */
+enum class EShaderStatus : u8 {
+    Compiling,
+    Ready,
+    Failed,
+};
+
 /**
  * シェーダ生成パラメータ。
  *
@@ -40106,6 +40122,9 @@ struct FShaderDesc {
 
     /** デバッグ用の名前。 */
     const char* debug_name  = "shader";
+
+    /** Request backend-managed asynchronous compilation when supported. */
+    bool compile_async = false;
 };
 
 /**
@@ -40141,6 +40160,15 @@ public:
      * @return バイトコードのサイズ（バイト）。
      */
     virtual usize       BytecodeSize() const noexcept = 0;
+
+    /**
+     * Query compilation without waiting. Synchronous backends are ready when
+     * CreateRhiShader succeeds and use this default implementation.
+     */
+    virtual EShaderStatus Status() const noexcept
+    {
+        return EShaderStatus::Ready;
+    }
 };
 
 /**
@@ -46627,6 +46655,9 @@ public:
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> vertex;
         TUniquePtr<IRhiShader> pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
@@ -46660,6 +46691,13 @@ public:
      * unsupported error and retain the regular owner-thread Init path.
      */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Submit shader compilation to a supporting RHI backend. The returned
+     * shader handles are polled and committed on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
 
     /**
      * Install CPU-compiled shaders and create all RHI buffers, textures and
@@ -94510,6 +94548,9 @@ public:
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> vertex;
         TUniquePtr<IRhiShader> pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
@@ -94541,6 +94582,13 @@ public:
      * Other backends retain the regular owner-thread Init path.
      */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Submit shader compilation to a supporting RHI backend. Submission and
+     * later PSO/resource creation stay on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
 
     /**
      * Install CPU-compiled shaders and create the buffer and PSO.
@@ -94983,6 +95031,9 @@ public:
         TUniquePtr<IRhiShader> resolve;
         TUniquePtr<IRhiShader> shadow;
         TUniquePtr<IRhiShader> shadow_finalize;
+
+        /** Aggregate all submitted shader jobs without waiting. */
+        EShaderStatus Status() const noexcept;
     };
 
     /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
@@ -94990,6 +95041,10 @@ public:
 
     /** Compile raw-DX12 HLSL without touching an RHI device. */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit all cloud shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
 
     /**
      * Create owner-thread resources from CPU-compiled bytecode and publish the

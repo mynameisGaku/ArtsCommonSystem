@@ -29,8 +29,10 @@ public static class PackagingService
     public static IReadOnlyList<PackageIssue> Validate(
         Project project,
         PackageOptions options,
-        IReadOnlyList<string>? runtimeDependencies = null)
+        IReadOnlyList<string>? runtimeDependencies = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string? engineRoot = BuildService.FindEngineRoot();
         string? assetPackTool = engineRoot == null
             ? null
@@ -39,10 +41,11 @@ public static class PackagingService
             ProjectInfo(project),
             options with { AssetPackToolPath = assetPackTool },
             BuildService.ExePath(project),
-            runtimeDependencies);
+            runtimeDependencies,
+            cancellationToken);
     }
 
-    public static async Task<PackageResult> PackageAsync(
+    public static Task<PackageResult> PackageAsync(
         Project project,
         PackageOptions options,
         bool buildRelease,
@@ -50,6 +53,40 @@ public static class PackagingService
         Action<string> log,
         IProgress<PackageProgress>? progress = null,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(log);
+        var snapshot = new Project
+        {
+            Version = project.Version,
+            Name = project.Name,
+            EngineVersion = project.EngineVersion,
+            Template = project.Template,
+            InitialScene = project.InitialScene,
+            CanonicalSceneAssetId = project.CanonicalSceneAssetId,
+            ProjectFilePath = project.ProjectFilePath,
+        };
+        return Task.Run(
+            () => PackageCoreAsync(
+                snapshot,
+                options,
+                buildRelease,
+                forceConfigure,
+                log,
+                progress,
+                cancellationToken),
+            cancellationToken);
+    }
+
+    private static async Task<PackageResult> PackageCoreAsync(
+        Project project,
+        PackageOptions options,
+        bool buildRelease,
+        bool forceConfigure,
+        Action<string> log,
+        IProgress<PackageProgress>? progress,
+        CancellationToken cancellationToken)
     {
         string executable = BuildService.ExePath(project);
         if (buildRelease)
@@ -218,32 +255,10 @@ public static class PackagingService
         foreach (string argument in arguments)
             start.ArgumentList.Add(argument);
 
-        using var process = new Process { StartInfo = start };
-        process.OutputDataReceived += (_, eventArgs) =>
-        {
-            if (eventArgs.Data != null) log(eventArgs.Data);
-        };
-        process.ErrorDataReceived += (_, eventArgs) =>
-        {
-            if (eventArgs.Data != null) log(eventArgs.Data);
-        };
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            try
-            {
-                if (!process.HasExited)
-                    process.Kill(entireProcessTree: true);
-            }
-            catch { }
-            throw;
-        }
-        return process.ExitCode;
+        PackageProcessResult result = await PackageProcessRunner.RunAsync(
+            start,
+            log,
+            cancellationToken);
+        return result.ExitCode;
     }
 }

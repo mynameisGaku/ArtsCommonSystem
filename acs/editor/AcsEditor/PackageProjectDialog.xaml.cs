@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using AcsEditor.Packaging;
 using Microsoft.Win32;
 
@@ -19,17 +20,32 @@ namespace AcsEditor;
 public partial class PackageProjectDialog : Window
 {
     internal const bool DisablesOwnerDuringPrompt = false;
+    internal static readonly TimeSpan OwnerShutdownDrainTimeout =
+        TimeSpan.FromSeconds(15);
 
     private readonly Project _project;
     private readonly Action<string> _externalLog;
+    private readonly PackageShutdownCoordinator _shutdown = new();
     private CancellationTokenSource? _cancellation;
+    private TaskCompletionSource<bool>? _activePackageCompletion;
     private bool _busy;
     private bool _allowClose;
+    private bool _ownerShutdownRequested;
     private string? _resultZip;
     private TaskCompletionSource<bool>? _modelessCompletion;
     private Window? _modelessOwner;
+    private readonly DispatcherTimer _validationDebounce = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(180),
+    };
+    private readonly PackageValidationCoordinator _validation = new();
+    private readonly CancellationTokenSource _dialogLifetime = new();
+    private int _validationGeneration;
+    private bool _lifetimeEnded;
 
     public bool PackageSucceeded { get; private set; }
+    private bool IsCloseRequested =>
+        _allowClose || _ownerShutdownRequested;
 
     private sealed record IssueRow(
         string Label,
@@ -46,7 +62,10 @@ public partial class PackageProjectDialog : Window
         VersionBox.Text = "0.1.0";
         OutputBox.Text = Path.Combine(project.RootDir, "Build", "Packages");
         ProfileBox.SelectedIndex = (int)PackageProfile.Shipping;
-        ValidateAndDisplay();
+        _validationDebounce.Tick += OnValidationDebounceTick;
+        ValidationSummary.Text = "CHECKING...";
+        PackageButton.IsEnabled = false;
+        ScheduleValidation();
     }
 
     internal Task<bool> ShowModelessAsync(Window owner)
@@ -81,11 +100,44 @@ public partial class PackageProjectDialog : Window
         return _modelessCompletion.Task;
     }
 
-    private void OnModelessOwnerClosed(object? sender, EventArgs e)
+    private async void OnModelessOwnerClosed(object? sender, EventArgs e)
     {
-        _allowClose = true;
-        _cancellation?.Cancel();
-        if (IsVisible) Close();
+        // MainWindow normally drains this workflow from its cancellable Closing
+        // path, before WPF reaches Closed.  Keep this fallback safe for any
+        // future owner that does not implement that contract: never tear down
+        // the dialog while its package child/process-output drain is active.
+        bool drained;
+        try
+        {
+            drained = await RequestOwnerShutdownAsync(
+                OwnerShutdownDrainTimeout);
+        }
+        catch (Exception error)
+        {
+            drained = false;
+            try
+            {
+                _externalLog(
+                    "Package shutdown failed while its owner was closing: " +
+                    error.Message);
+            }
+            catch
+            {
+            }
+        }
+        if (!drained)
+        {
+            try
+            {
+                _externalLog(
+                    "Package cancellation did not drain within the shutdown " +
+                    "deadline; the package window remains alive to protect the " +
+                    "active child process.");
+            }
+            catch
+            {
+            }
+        }
     }
 
     private void OnModelessClosed(object? sender, EventArgs e)
@@ -99,6 +151,59 @@ public partial class PackageProjectDialog : Window
         completion?.TrySetResult(PackageSucceeded);
     }
 
+    internal Task<bool> RequestOwnerShutdownAsync(TimeSpan timeout)
+    {
+        Dispatcher.VerifyAccess();
+        return _shutdown.RunOnceAsync(
+            () => RequestOwnerShutdownCoreAsync(timeout));
+    }
+
+    private async Task<bool> RequestOwnerShutdownCoreAsync(TimeSpan timeout)
+    {
+        if (_allowClose || _lifetimeEnded)
+            return true;
+
+        _ownerShutdownRequested = true;
+        _validationDebounce.Stop();
+        _validation.CancelLatest();
+        checked { _validationGeneration++; }
+        if (_busy)
+            StatusText.Text = "Cancelling package before editor shutdown...";
+
+        Task? activeOperation = _activePackageCompletion?.Task;
+        bool drained = await PackageShutdownCoordinator.CancelAndDrainAsync(
+            activeOperation,
+            () => _cancellation?.Cancel(),
+            timeout);
+        if (!drained)
+        {
+            _ownerShutdownRequested = false;
+            if (!Dispatcher.HasShutdownStarted &&
+                !Dispatcher.HasShutdownFinished)
+            {
+                // The timeout and operation completion can become runnable on
+                // the dispatcher in either order.  If the operation already
+                // skipped its normal UI reset while shutdown was requested,
+                // restore the prompt now that editor close has been deferred.
+                if (_activePackageCompletion == null && _busy)
+                {
+                    SetBusy(false);
+                    ScheduleValidation(immediate: true);
+                }
+                StatusText.Text =
+                    "Package cancellation is still draining; editor close was deferred.";
+            }
+            return false;
+        }
+
+        _allowClose = true;
+        if (IsVisible)
+            Close();
+        else
+            EndDialogLifetime();
+        return true;
+    }
+
     private PackageOptions ReadOptions() => new(
         OutputDirectory: string.IsNullOrWhiteSpace(OutputBox.Text)
             ? Path.Combine(_project.RootDir, "Build", "Packages")
@@ -110,11 +215,21 @@ public partial class PackageProjectDialog : Window
             (int)PackageProfile.Development,
             (int)PackageProfile.Shipping));
 
-    private IReadOnlyList<PackageIssue> Preflight()
+    private static IReadOnlyList<PackageIssue> Preflight(
+        Project project,
+        PackageOptions options,
+        bool buildRelease,
+        CancellationToken cancellationToken)
     {
-        var issues = PackagingService.Validate(_project, ReadOptions()).ToList();
-        if (BuildReleaseCheck.IsChecked == true)
+        cancellationToken.ThrowIfCancellationRequested();
+        var issues = PackagingService.Validate(
+                project,
+                options,
+                cancellationToken: cancellationToken)
+            .ToList();
+        if (buildRelease)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int executableIndex = issues.FindIndex(issue => issue.Code == "EXECUTABLE_MISSING");
             if (executableIndex >= 0)
             {
@@ -124,7 +239,7 @@ public partial class PackageProjectDialog : Window
                     "Release実行ファイルはPackage開始時にビルドします。");
             }
 
-            string cmake = Path.Combine(_project.SourceDir, "CMakeLists.txt");
+            string cmake = Path.Combine(project.SourceDir, "CMakeLists.txt");
             if (!File.Exists(cmake))
             {
                 issues.Add(new(
@@ -137,18 +252,101 @@ public partial class PackageProjectDialog : Window
         return issues;
     }
 
-    private void ValidateAndDisplay()
+    private Project SnapshotProject() => new()
     {
-        IReadOnlyList<PackageIssue> issues;
-        try { issues = Preflight(); }
-        catch (Exception error)
-        {
-            issues = [new(
-                PackageIssueSeverity.Error,
-                "PREFLIGHT_FAILED",
-                error.Message)];
-        }
+        Version = _project.Version,
+        Name = _project.Name,
+        EngineVersion = _project.EngineVersion,
+        Template = _project.Template,
+        InitialScene = _project.InitialScene,
+        CanonicalSceneAssetId = _project.CanonicalSceneAssetId,
+        ProjectFilePath = _project.ProjectFilePath,
+    };
 
+    private void ScheduleValidation(bool immediate = false)
+    {
+        if (_busy || IsCloseRequested) return;
+        _validationDebounce.Stop();
+        _validation.CancelLatest();
+        checked { _validationGeneration++; }
+        ValidationSummary.Text = "CHECKING...";
+        PackageButton.IsEnabled = false;
+        if (immediate)
+            _ = ValidateAndDisplayAsync(_validationGeneration);
+        else
+            _validationDebounce.Start();
+    }
+
+    private void OnValidationDebounceTick(object? sender, EventArgs e)
+    {
+        _validationDebounce.Stop();
+        _ = ValidateAndDisplayAsync(_validationGeneration);
+    }
+
+    private async Task<IReadOnlyList<PackageIssue>> RunPreflightAsync(
+        Project project,
+        PackageOptions options,
+        bool buildRelease,
+        CancellationToken cancellationToken = default)
+    {
+        using PackageValidationOperation operation =
+            _validation.BeginLatest(cancellationToken);
+        return await _validation.RunAsync(
+            operation,
+            token =>
+            {
+                try
+                {
+                    return Preflight(project, options, buildRelease, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception error)
+                {
+                    return
+                    [
+                        new PackageIssue(
+                            PackageIssueSeverity.Error,
+                            "PREFLIGHT_FAILED",
+                            error.Message),
+                    ];
+                }
+            });
+    }
+
+    private async Task ValidateAndDisplayAsync(int generation)
+    {
+        Project project = SnapshotProject();
+        PackageOptions options = ReadOptions();
+        bool buildRelease = BuildReleaseCheck.IsChecked == true;
+        IReadOnlyList<PackageIssue> issues;
+        try
+        {
+            issues = await RunPreflightAsync(
+                project,
+                options,
+                buildRelease);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (generation != _validationGeneration ||
+            _busy ||
+            IsCloseRequested ||
+            _dialogLifetime.IsCancellationRequested ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        DisplayValidation(issues);
+    }
+
+    private void DisplayValidation(IReadOnlyList<PackageIssue> issues)
+    {
         ValidationList.ItemsSource = issues.Select(ToRow).ToArray();
         int errors = issues.Count(issue => issue.Severity == PackageIssueSeverity.Error);
         int warnings = issues.Count(issue => issue.Severity == PackageIssueSeverity.Warning);
@@ -174,7 +372,7 @@ public partial class PackageProjectDialog : Window
     {
         if (!IsInitialized)
             return;
-        ValidateAndDisplay();
+        ScheduleValidation();
     }
 
     private void OnProfileChanged(
@@ -188,13 +386,13 @@ public partial class PackageProjectDialog : Window
         if (shipping)
             IncludeSymbolsCheck.IsChecked = false;
         IncludeSymbolsCheck.IsEnabled = !_busy && !shipping;
-        ValidateAndDisplay();
+        ScheduleValidation();
     }
 
     private void OnValidate(object sender, RoutedEventArgs e)
     {
-        ValidateAndDisplay();
-        AppendLog("Preflight validation refreshed.");
+        ScheduleValidation(immediate: true);
+        AppendLog("Preflight validation started.");
     }
 
     private void OnBrowse(object sender, RoutedEventArgs e)
@@ -202,9 +400,10 @@ public partial class PackageProjectDialog : Window
         var dialog = new OpenFolderDialog
         {
             Title = "Select package output directory",
-            InitialDirectory = Directory.Exists(OutputBox.Text)
-                ? OutputBox.Text
-                : _project.RootDir,
+            // OutputBox can contain an offline UNC path. Probing it on the
+            // dispatcher can freeze the complete editor before the shell
+            // dialog even opens, so seed from the known-local project root.
+            InitialDirectory = _project.RootDir,
             Multiselect = false,
         };
         if (dialog.ShowDialog(this) == true)
@@ -213,20 +412,36 @@ public partial class PackageProjectDialog : Window
 
     private async void OnPackage(object sender, RoutedEventArgs e)
     {
-        ValidateAndDisplay();
-        if (Preflight().Any(issue => issue.Severity == PackageIssueSeverity.Error))
+        if (_busy || IsCloseRequested)
             return;
-
+        _validationDebounce.Stop();
+        _validation.CancelLatest();
+        checked { _validationGeneration++; }
+        Project project = SnapshotProject();
+        PackageOptions options = ReadOptions();
+        bool buildRelease = BuildReleaseCheck.IsChecked == true;
+        var operationCompletion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _activePackageCompletion = operationCompletion;
         SetBusy(true);
+        StatusText.Text = "Validating package inputs...";
         LogBox.Clear();
         _resultZip = null;
         PackageSucceeded = false;
         OpenResultButton.IsEnabled = false;
         ResultPathText.Text = "Packaging in progress…";
-        _cancellation = new CancellationTokenSource();
+        _cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _dialogLifetime.Token);
 
         var progress = new Progress<PackageProgress>(item =>
         {
+            if (IsCloseRequested ||
+                _dialogLifetime.IsCancellationRequested ||
+                Dispatcher.HasShutdownStarted ||
+                Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
             StatusText.Text = item.Message;
             if (item.Total > 0)
             {
@@ -242,15 +457,45 @@ public partial class PackageProjectDialog : Window
 
         try
         {
+            IReadOnlyList<PackageIssue> preflight =
+                await RunPreflightAsync(
+                    project,
+                    options,
+                    buildRelease,
+                    _cancellation.Token);
+            _cancellation.Token.ThrowIfCancellationRequested();
+            if (IsCloseRequested)
+                return;
+            DisplayValidation(preflight);
+            if (preflight.Any(
+                    issue => issue.Severity == PackageIssueSeverity.Error))
+            {
+                StatusText.Text = "Validation failed";
+                ResultPathText.Text = "Package was not generated.";
+                foreach (PackageIssue issue in preflight)
+                {
+                    AppendLog(
+                        $"{issue.Severity} [{issue.Code}] {issue.Message} {issue.Path}");
+                }
+                return;
+            }
+
             AppendLog("Package pipeline started.");
             PackageResult result = await PackagingService.PackageAsync(
-                _project,
-                ReadOptions(),
-                buildRelease: BuildReleaseCheck.IsChecked == true,
+                project,
+                options,
+                buildRelease,
                 forceConfigure: true,
                 Log,
                 progress,
                 _cancellation.Token);
+            _cancellation.Token.ThrowIfCancellationRequested();
+            if (IsCloseRequested ||
+                Dispatcher.HasShutdownStarted ||
+                Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
             _resultZip = result.ZipPath;
             PackageSucceeded = true;
             ResultPathText.Text = result.ZipPath;
@@ -264,12 +509,26 @@ public partial class PackageProjectDialog : Window
         }
         catch (OperationCanceledException)
         {
+            if (IsCloseRequested ||
+                _dialogLifetime.IsCancellationRequested ||
+                Dispatcher.HasShutdownStarted ||
+                Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
             StatusText.Text = "Cancelled";
             ResultPathText.Text = "Package cancelled. Existing package was not replaced.";
             AppendLog("Package cancelled.");
         }
         catch (PackageValidationException error)
         {
+            if (IsCloseRequested ||
+                _dialogLifetime.IsCancellationRequested ||
+                Dispatcher.HasShutdownStarted ||
+                Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
             ValidationList.ItemsSource = error.Issues.Select(ToRow).ToArray();
             StatusText.Text = "Validation failed";
             ResultPathText.Text = "Package was not generated.";
@@ -278,30 +537,74 @@ public partial class PackageProjectDialog : Window
         }
         catch (Exception error)
         {
+            if (IsCloseRequested ||
+                _dialogLifetime.IsCancellationRequested ||
+                Dispatcher.HasShutdownStarted ||
+                Dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
             StatusText.Text = "Package failed";
             ResultPathText.Text = "Package was not generated.";
             AppendLog("ERROR: " + error.Message);
         }
         finally
         {
-            _cancellation.Dispose();
+            _cancellation?.Dispose();
             _cancellation = null;
-            SetBusy(false);
-            ValidateAndDisplay();
+            if (!IsCloseRequested &&
+                !_dialogLifetime.IsCancellationRequested &&
+                !Dispatcher.HasShutdownStarted &&
+                !Dispatcher.HasShutdownFinished)
+            {
+                SetBusy(false);
+                ScheduleValidation(immediate: true);
+            }
+            if (ReferenceEquals(_activePackageCompletion, operationCompletion))
+                _activePackageCompletion = null;
+            operationCompletion.TrySetResult(true);
         }
     }
 
     private void Log(string message)
     {
+        if (IsCloseRequested ||
+            _dialogLifetime.IsCancellationRequested ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
         AppendLog(message);
-        _externalLog(message);
+        try
+        {
+            _externalLog(message);
+        }
+        catch
+        {
+        }
     }
 
     private void AppendLog(string message)
     {
+        if (IsCloseRequested ||
+            _dialogLifetime.IsCancellationRequested ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(() => AppendLog(message));
+            try
+            {
+                _ = Dispatcher.BeginInvoke(
+                    DispatcherPriority.Background,
+                    new Action(() => AppendLog(message)));
+            }
+            catch
+            {
+            }
             return;
         }
         LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
@@ -330,7 +633,10 @@ public partial class PackageProjectDialog : Window
 
     private void OnOpenResult(object sender, RoutedEventArgs e)
     {
-        if (_resultZip == null || !File.Exists(_resultZip))
+        // The successful PackageResult already proved publication. Avoid a
+        // dispatcher-thread File.Exists probe because output may be a slow or
+        // disconnected network location.
+        if (_resultZip == null)
             return;
         try
         {
@@ -390,8 +696,20 @@ public partial class PackageProjectDialog : Window
             e.Cancel = true;
             return;
         }
+        _validationDebounce.Stop();
+        checked { _validationGeneration++; }
         if (!_allowClose)
             _allowClose = true;
+        EndDialogLifetime();
+    }
+
+    private void EndDialogLifetime()
+    {
+        if (_lifetimeEnded)
+            return;
+        _lifetimeEnded = true;
+        _dialogLifetime.Cancel();
+        _validation.Dispose();
     }
 
     private static string FormatBytes(long bytes)

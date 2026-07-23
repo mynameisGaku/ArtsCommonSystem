@@ -9,7 +9,7 @@
         FontFamily="Segoe UI" FontSize="12"
         ResizeMode="CanResize"
         UseLayoutRounding="True">
-    <Grid>
+    <Grid x:Name="LauncherContent">
         <Grid.RowDefinitions>
             <RowDefinition Height="58"/>
             <RowDefinition Height="*"/>

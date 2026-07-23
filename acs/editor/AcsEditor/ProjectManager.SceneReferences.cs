@@ -405,12 +405,18 @@ public static partial class ProjectManager
     private static ReferenceFileSnapshot CaptureRequiredOrdinaryFile(
         string path,
         int maximumBytes,
-        string label)
+        string label,
+        bool requireWritable = true)
     {
         string full = Path.GetFullPath(path);
         if (!File.Exists(full))
             throw new FileNotFoundException($"{label} was not found.", full);
-        return CaptureOrdinaryFile(full, maximumBytes, label, existed: true);
+        return CaptureOrdinaryFile(
+            full,
+            maximumBytes,
+            label,
+            existed: true,
+            requireWritable);
     }
 
     private static ReferenceFileSnapshot CaptureOptionalOrdinaryFile(
@@ -430,30 +436,61 @@ public static partial class ProjectManager
                 default,
                 0);
         }
-        return CaptureOrdinaryFile(full, maximumBytes, label, existed: true);
+        return CaptureOrdinaryFile(
+            full,
+            maximumBytes,
+            label,
+            existed: true,
+            requireWritable: true);
     }
 
     private static ReferenceFileSnapshot CaptureOrdinaryFile(
         string full,
         int maximumBytes,
         string label,
-        bool existed)
+        bool existed,
+        bool requireWritable)
     {
-        var info = new FileInfo(full);
-        info.Refresh();
-        if ((info.Attributes &
+        FileAttributes attributes = File.GetAttributes(full);
+        if ((attributes &
              (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
         {
             throw new InvalidDataException($"{label} must be an ordinary file: {full}");
         }
-        if ((info.Attributes & FileAttributes.ReadOnly) != 0)
+        if (requireWritable && (attributes & FileAttributes.ReadOnly) != 0)
             throw new IOException($"{label} is read-only: {full}");
-        if (info.Length > maximumBytes)
+
+        // Hold the opened file against writers/replacement while capturing it. Length comes from
+        // the handle and the read loop is bounded, so a path swap/growth cannot turn a preflight
+        // stat into an unbounded allocation.
+        using var stream = new FileStream(
+            full,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            FileOptions.SequentialScan);
+        attributes = File.GetAttributes(full);
+        if ((attributes &
+             (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+        {
+            throw new InvalidDataException($"{label} must be an ordinary file: {full}");
+        }
+        if (requireWritable && (attributes & FileAttributes.ReadOnly) != 0)
+            throw new IOException($"{label} is read-only: {full}");
+        long length = stream.Length;
+        if (length < 0 || length > maximumBytes)
             throw new InvalidDataException($"{label} exceeds {maximumBytes} bytes.");
-        byte[] bytes = File.ReadAllBytes(full);
-        info.Refresh();
-        if (!info.Exists ||
-            info.Length != bytes.LongLength)
+        var bytes = new byte[(int)length];
+        int offset = 0;
+        while (offset < bytes.Length)
+        {
+            int read = stream.Read(bytes, offset, bytes.Length - offset);
+            if (read == 0)
+                throw new IOException($"{label} changed while it was being read.");
+            offset += read;
+        }
+        if (stream.ReadByte() != -1 || stream.Length != bytes.LongLength)
         {
             throw new IOException($"{label} changed while it was being read.");
         }
@@ -461,8 +498,8 @@ public static partial class ProjectManager
             full,
             existed,
             bytes,
-            info.Attributes,
-            info.LastWriteTimeUtc.Ticks);
+            attributes,
+            File.GetLastWriteTimeUtc(full).Ticks);
     }
 
     private static void ValidateSettingsStoragePath(

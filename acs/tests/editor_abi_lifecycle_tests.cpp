@@ -36,6 +36,8 @@ extern "C" __declspec(dllimport) void acs_editor_profiler_reset_peaks(
     void* handle);
 extern "C" __declspec(dllimport) int acs_editor_startup_status(
     void* handle, unsigned* completed, unsigned* total);
+extern "C" __declspec(dllimport) void acs_editor_set_scene_presentation_suppressed(
+    void* handle, int suppressed);
 extern "C" __declspec(dllimport) int acs_editor_attach(
     void* handle, void* hwnd, unsigned width, unsigned height);
 extern "C" __declspec(dllimport) void acs_editor_render(
@@ -50,12 +52,14 @@ DWORD ProcessHandleCount() noexcept
     return ::GetProcessHandleCount(::GetCurrentProcess(), &count) ? count : 0;
 }
 
-/** 1 ホストを生成し、デモシーンを確認して破棄する。 */
+/** A production host starts blank and can enter/leave the loading presentation gate. */
 bool RunOneLifecycle() noexcept
 {
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
-    const bool scene_ready = acs_editor_node_count(host) > 0;
+    const bool scene_ready = acs_editor_node_count(host) == 0;
+    acs_editor_set_scene_presentation_suppressed(host, 1);
+    acs_editor_set_scene_presentation_suppressed(host, 0);
     acs_editor_destroy(host);
     return scene_ready;
 }
@@ -82,7 +86,7 @@ bool RunStartupStatusContract() noexcept
     return waiting_for_attach && optional_outputs && rejects_null;
 }
 
-/** Destroying while the CPU shader worker is active must join before host teardown. */
+/** Destroying during shader warm-up must finish/release work before device teardown. */
 bool RunDestroyDuringAsyncWarmup() noexcept
 {
     HWND const window = ::CreateWindowExW(
@@ -109,6 +113,16 @@ bool RunDestroyDuringAsyncWarmup() noexcept
     unsigned total = 0u;
     int startup_state =
         acs_editor_startup_status(host, &completed, &total);
+
+#if !ACS_EDITOR_ABI_EXPECTS_ASYNC_WARMUP
+    // A backend without an asynchronous compiler still has an attached,
+    // incremental startup lifecycle to tear down.
+    const bool startup_pending =
+        startup_state == 0 && completed < total;
+    acs_editor_destroy(host);
+    ::DestroyWindow(window);
+    return startup_pending;
+#else
     bool observed_progress = false;
     bool observed_pending_worker = false;
     for (unsigned pump = 0u;
@@ -123,8 +137,8 @@ bool RunDestroyDuringAsyncWarmup() noexcept
         } else if (observed_progress && completed == previous_completed &&
                    completed < total) {
             // A startup call that returns without advancing the public progress
-            // boundary is the observable contract for an active CPU shader
-            // worker. This remains valid when async phases are added/reordered.
+            // boundary is the observable contract for either the raw-DX12
+            // worker or a backend-managed shader compiler.
             observed_pending_worker = true;
         }
     }
@@ -132,6 +146,7 @@ bool RunDestroyDuringAsyncWarmup() noexcept
     ::DestroyWindow(window);
     return startup_state == 0 && observed_progress &&
            observed_pending_worker && completed < total;
+#endif
 }
 
 /** Versioned profiler ABI rejects incompatible callers and preserves extension bytes. */
@@ -441,14 +456,14 @@ int main()
         acs_editor_destroy(second);
         return 4;
     }
-    if (acs_editor_node_count(first) <= 0 || acs_editor_node_count(second) <= 0) {
+    if (acs_editor_node_count(first) != 0 || acs_editor_node_count(second) != 0) {
         acs_editor_destroy(first);
         acs_editor_destroy(second);
         return 5;
     }
 
     acs_editor_destroy(first);
-    if (acs_editor_node_count(second) <= 0) {
+    if (acs_editor_node_count(second) != 0) {
         acs_editor_destroy(second);
         return 6;
     }

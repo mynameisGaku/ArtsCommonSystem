@@ -251,6 +251,11 @@ public partial class MainWindow
         // Asset copy/move/delete jobs are transactional only while the process stays alive.
         // Stop accepting new jobs and drain the current one before any close path can proceed.
         SetClosePreparationInputBlocked(blocked: true);
+        // Build/Run/Package own external compiler/cook processes; Package also owns a
+        // staging transaction. The editor and its modeless package window must not
+        // disappear until cancellation has killed/drained every child and continuation.
+        if (!await DrainActiveBuildForEditorCloseAsync())
+            return false;
         await AssetBrowser.SuspendOperationsAndWaitAsync();
         // Asset Browser's lifecycle ends after it publishes completion, while the completion
         // handler may still be draining an old scene-autosave generation. Wait for that managed
@@ -265,6 +270,8 @@ public partial class MainWindow
         if (!_scene2DDirty && !_scene3DDirty)
         {
             SetClosePreparationInputBlocked(blocked: true);
+            if (!await DrainStandaloneGameForEditorCloseAsync())
+                return false;
             await StopAndDiscardSessionRecoveriesAsync();
             return true;
         }
@@ -278,6 +285,8 @@ public partial class MainWindow
         if (result != MessageBoxResult.Yes)
         {
             SetClosePreparationInputBlocked(blocked: true);
+            if (!await DrainStandaloneGameForEditorCloseAsync())
+                return false;
             await StopAndDiscardSessionRecoveriesAsync();
             return true;
         }
@@ -293,6 +302,8 @@ public partial class MainWindow
             ReportSaveAllResult(saveResult);
             return false;
         }
+        if (!await DrainStandaloneGameForEditorCloseAsync())
+            return false;
         await StopAndDiscardSessionRecoveriesAsync();
         return true;
     }
@@ -320,7 +331,8 @@ public partial class MainWindow
             content.IsEnabled = !_closePreparationInputBlocked;
         bool sceneInputEnabled =
             !_closePreparationInputBlocked &&
-            !IsSceneEditingBlocked;
+            !IsSceneEditingBlocked &&
+            EngineCommandsReady;
         if (!sceneInputEnabled && IsSceneEditingBlocked)
             _viewport?.CancelPointerInteraction();
         SceneWorkspace.IsEnabled = sceneInputEnabled;

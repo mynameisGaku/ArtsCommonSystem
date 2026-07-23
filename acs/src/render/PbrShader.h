@@ -69,6 +69,9 @@ public:
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> vertex;
         TUniquePtr<IRhiShader> pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
@@ -102,6 +105,13 @@ public:
      * unsupported error and retain the regular owner-thread Init path.
      */
     static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Submit shader compilation to a supporting RHI backend. The returned
+     * shader handles are polled and committed on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
 
     /**
      * Install CPU-compiled shaders and create all RHI buffers, textures and

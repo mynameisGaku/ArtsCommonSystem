@@ -25,6 +25,13 @@ enum class EShaderStage : u8 {
     Compute,
 };
 
+/** Non-blocking shader compilation state exposed by supporting RHI backends. */
+enum class EShaderStatus : u8 {
+    Compiling,
+    Ready,
+    Failed,
+};
+
 /**
  * シェーダ生成パラメータ。
  *
@@ -47,6 +54,9 @@ struct FShaderDesc {
 
     /** デバッグ用の名前。 */
     const char* debug_name  = "shader";
+
+    /** Request backend-managed asynchronous compilation when supported. */
+    bool compile_async = false;
 };
 
 /**
@@ -82,6 +92,15 @@ public:
      * @return バイトコードのサイズ（バイト）。
      */
     virtual usize       BytecodeSize() const noexcept = 0;
+
+    /**
+     * Query compilation without waiting. Synchronous backends are ready when
+     * CreateRhiShader succeeds and use this default implementation.
+     */
+    virtual EShaderStatus Status() const noexcept
+    {
+        return EShaderStatus::Ready;
+    }
 };
 
 /**

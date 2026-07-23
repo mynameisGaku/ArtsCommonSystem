@@ -284,6 +284,12 @@ public sealed class EngineViewport : HwndHost
             0, 0, 1, 1, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
         _engine = EngineInterop.acs_editor_create();
+        if (_engine != IntPtr.Zero)
+        {
+            // Scene loading is a presentation transaction.  Suppress before the render pump
+            // can attach so the native child HWND never exposes its initial/previous payload.
+            EngineInterop.acs_editor_set_scene_presentation_suppressed(_engine, 1);
+        }
 
         // STATIC のウィンドウプロシージャを差し替えてマウス入力 (pick / pan / zoom) を拾う。
         _wndProc = ViewportWndProc;
@@ -308,6 +314,14 @@ public sealed class EngineViewport : HwndHost
                     QueueRenderPump();
             }));
         return new HandleRef(this, _hwnd);
+    }
+
+    internal void ResumeRenderingAfterSceneLoad()
+    {
+        Dispatcher.VerifyAccess();
+        if (_destroying || _engine == IntPtr.Zero) return;
+        _redrawPending = true;
+        QueueRenderPump();
     }
 
     protected override void DestroyWindowCore(HandleRef hwnd)

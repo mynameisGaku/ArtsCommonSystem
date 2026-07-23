@@ -22,6 +22,13 @@
 
 namespace acs {
 
+bool FDiligentDevice::SupportsAsyncShaderCompilation() const noexcept
+{
+    return m_Device != nullptr &&
+           m_Device->GetDeviceInfo().Features.AsyncShaderCompilation ==
+               Diligent::DEVICE_FEATURE_STATE_ENABLED;
+}
+
 namespace {
 
 /**
@@ -219,6 +226,8 @@ TResult<void> FDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noe
     eci.NumDeferredContexts = 0;
     eci.Features.TimestampQueries =
         Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
+    eci.Features.AsyncShaderCompilation =
+        Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
 
     // Diligent の全内部確保を Resource セグメントの mimalloc heap へ集約する。
     eci.pRawMemAllocator = diligent_memory_allocator;
@@ -298,6 +307,8 @@ TResult<void> FDiligentDevice::InitVulkan(const FDeviceConfig& configuration) no
     }
     eci.NumDeferredContexts = 0;
     eci.Features.TimestampQueries =
+        Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
+    eci.Features.AsyncShaderCompilation =
         Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
 
     eci.pRawMemAllocator = diligent_memory_allocator;

@@ -146,6 +146,15 @@ public static class PackageCore
         string AssetGraphHash,
         CanonicalSceneBootstrapEnvelope SceneBootstrap);
 
+    internal sealed record PackageInputFileSnapshot(
+        string RelativePath,
+        long Size,
+        string Sha256);
+
+    internal sealed record PackageDirectorySnapshot(
+        bool Existed,
+        IReadOnlyList<PackageInputFileSnapshot> Files);
+
     private sealed record PackageManifest(
         int schemaVersion,
         string productName,
@@ -188,8 +197,10 @@ public static class PackageCore
         PackageProjectInfo project,
         PackageOptions options,
         string executablePath,
-        IReadOnlyList<string>? runtimeDependencies = null)
+        IReadOnlyList<string>? runtimeDependencies = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var issues = new List<PackageIssue>();
         string root;
         string assets;
@@ -222,6 +233,16 @@ public static class PackageCore
                 $"パスを正規化できません: {error.Message}"));
             return issues;
         }
+
+        if (ProjectManager.HasPendingInitialScenePathFollow(assets))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "INITIAL_SCENE_MOVE_PENDING",
+                "An interrupted initial-scene move still requires recovery. Packaging remains " +
+                "fail-closed until the durable move intent is reconciled."));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
 
         try
         {
@@ -308,7 +329,8 @@ public static class PackageCore
                 assetFiles = EnumerateFilesSafe(
                     assets,
                     issues,
-                    excludeAssetMetadata: true).ToList();
+                    excludeAssetMetadata: true,
+                    cancellationToken: cancellationToken).ToList();
             }
             catch (Exception error)
             {
@@ -321,6 +343,7 @@ public static class PackageCore
 
             foreach (string asset in assetFiles)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 string extension = Path.GetExtension(asset);
                 if (string.IsNullOrEmpty(extension) ||
                     !CookableExtensions.Contains(extension))
@@ -336,7 +359,7 @@ public static class PackageCore
         }
 
         if (Directory.Exists(config))
-            ValidateTree(config, "Config", issues);
+            ValidateTree(config, "Config", issues, cancellationToken);
         else
             issues.Add(new(PackageIssueSeverity.Info, "CONFIG_EMPTY", "Config フォルダはありません。既定設定でパッケージします。"));
 
@@ -346,7 +369,8 @@ public static class PackageCore
                 settingsIni,
                 "Game",
                 "DefaultScene",
-                out string configuredScene) &&
+                out string configuredScene,
+                cancellationToken) &&
             !string.IsNullOrWhiteSpace(configuredScene))
         {
             try
@@ -429,6 +453,7 @@ public static class PackageCore
         {
             CanonicalSceneAdapterInspection sceneInspection =
                 CanonicalSceneAdapter.InspectFile(initialScene);
+            cancellationToken.ThrowIfCancellationRequested();
             issues.AddRange(
                 sceneInspection.Diagnostics.Select(MapSceneAdapterDiagnostic));
             try
@@ -437,7 +462,8 @@ public static class PackageCore
                     project,
                     root,
                     assets,
-                    initialScene);
+                    initialScene,
+                    cancellationToken);
                 issues.AddRange(cookPlan.Diagnostics.Select(MapCookDiagnostic));
                 if (cookPlan.Root != null &&
                     !string.Equals(
@@ -460,6 +486,7 @@ public static class PackageCore
                                      StringComparison.OrdinalIgnoreCase) &&
                                  HasSupportedSceneExtension(item.FullPath)))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         issues.AddRange(
                             CanonicalSceneAdapter.InspectFile(nestedScene.FullPath)
                                 .Diagnostics
@@ -471,6 +498,7 @@ public static class PackageCore
                                      ".gltf",
                                      StringComparison.OrdinalIgnoreCase)))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         issues.AddRange(
                             CanonicalSceneAdapter.ValidateStandaloneGltf(gltf.FullPath)
                                 .Select(MapSceneAdapterDiagnostic));
@@ -597,7 +625,13 @@ public static class PackageCore
         }
 
         if (File.Exists(initialScene) && !HasReparsePointBetween(root, initialScene))
-            ValidateReferenceFile(initialScene, assets, root, SceneReference, issues);
+            ValidateReferenceFile(
+                initialScene,
+                assets,
+                root,
+                SceneReference,
+                issues,
+                cancellationToken);
 
         if (Directory.Exists(assets))
         {
@@ -607,7 +641,14 @@ public static class PackageCore
                              ".acsmat",
                              StringComparison.OrdinalIgnoreCase)))
             {
-                ValidateReferenceFile(material, assets, root, MaterialReference, issues);
+                cancellationToken.ThrowIfCancellationRequested();
+                ValidateReferenceFile(
+                    material,
+                    assets,
+                    root,
+                    MaterialReference,
+                    issues,
+                    cancellationToken);
             }
 
             foreach (string gltf in assetFiles
@@ -616,13 +657,19 @@ public static class PackageCore
                              ".gltf",
                              StringComparison.OrdinalIgnoreCase)))
             {
-                ValidateGltfReferences(gltf, assets, issues);
+                cancellationToken.ThrowIfCancellationRequested();
+                ValidateGltfReferences(
+                    gltf,
+                    assets,
+                    issues,
+                    cancellationToken);
             }
         }
 
         var dependencyNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string dependency in runtimeDependencies ?? Array.Empty<string>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string full;
             try { full = Path.GetFullPath(dependency); }
             catch
@@ -681,6 +728,7 @@ public static class PackageCore
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return issues;
     }
 
@@ -738,7 +786,12 @@ public static class PackageCore
         CancellationToken cancellationToken = default)
     {
         var issues =
-            Validate(project, options, executablePath, runtimeDependencies)
+            Validate(
+                    project,
+                    options,
+                    executablePath,
+                    runtimeDependencies,
+                    cancellationToken)
                 .ToList();
         if (string.IsNullOrWhiteSpace(options.AssetPackToolPath))
         {
@@ -808,6 +861,21 @@ public static class PackageCore
                     CopyFile(pdb, Path.Combine(packageRoot, Path.GetFileName(pdb)));
             }
 
+            progress?.Report(new(
+                "Config",
+                "Snapshotting project configuration...",
+                0,
+                0));
+            PackageDirectorySnapshot configSnapshot =
+                await StageDirectorySnapshotAsync(
+                    project.ConfigDirectory,
+                    Path.Combine(packageRoot, "Config"),
+                    cancellationToken);
+            ValidateStagedConfiguration(
+                Path.Combine(packageRoot, "Config"),
+                project,
+                cancellationToken);
+
             CookResult cooked = await CookAssetPackAsync(
                 project,
                 options,
@@ -816,15 +884,6 @@ public static class PackageCore
                 packageRoot,
                 progress,
                 cancellationToken);
-
-            if (Directory.Exists(project.ConfigDirectory))
-            {
-                CopyDirectorySafe(
-                    project.ConfigDirectory,
-                    Path.Combine(packageRoot, "Config"),
-                    progress,
-                    cancellationToken);
-            }
 
             var files = new List<ManifestFile>();
             string manifestPath = Path.Combine(packageRoot, "package-manifest.json");
@@ -897,7 +956,39 @@ public static class PackageCore
                 progress,
                 cancellationToken);
 
-            File.Move(temporaryZip, finalZip, overwrite: true);
+            // 初回検証の後には、長時間の cook/archive が続く可能性がある。プロセス間の
+            // 変更リースを再取得して ZIP 公開まで保持し、この最終 journal/identity 検証後に
+            // Initial Scene の移動が開始されないようにする。
+            AssetMutationLock publishLease;
+            try
+            {
+                publishLease = AssetMutationLock.AcquireFailFast(
+                    project.AssetsDirectory,
+                    "Publish package");
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or
+                    InvalidDataException or ArgumentException)
+            {
+                throw ProjectChangedDuringPackage(
+                    "The asset mutation lease could not be acquired immediately before " +
+                    "publication: " + error.Message);
+            }
+            using (publishLease)
+            {
+                progress?.Report(new(
+                    "Publish",
+                    "Revalidating project and configuration snapshot...",
+                    0,
+                    1));
+                ValidateProjectSceneStateForPublish(
+                    project,
+                    cooked.CanonicalSceneAssetId,
+                    configSnapshot,
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(temporaryZip, finalZip, overwrite: true);
+            }
             long totalBytes = files.Sum(file => file.size);
             progress?.Report(new("Complete", $"パッケージを生成しました: {finalZip}", files.Count, files.Count));
             return new(
@@ -912,20 +1003,119 @@ public static class PackageCore
         }
         finally
         {
-            TryDeleteFile(temporaryZip);
-            TryDeleteDirectory(stagingRoot, stagingParent);
+            bool zipCleaned = await TryDeleteFileWithRetryAsync(temporaryZip);
+            bool stagingCleaned =
+                await TryDeleteDirectoryWithRetryAsync(stagingRoot, stagingParent);
+            if (!zipCleaned || !stagingCleaned)
+            {
+                progress?.Report(new(
+                    "Cleanup",
+                    "Package cleanup could not remove one or more private temporary " +
+                    "paths after bounded retries.",
+                    0,
+                    0));
+            }
         }
     }
+
+    /// <summary>
+    /// パッケージ公開直前の最終ゲート。呼び出し元は、後続する ZIP の原子的な置換が
+    /// 完了するまで、プロジェクトのアセット変更リースを保持する。
+    /// </summary>
+    internal static void ValidateProjectSceneStateForPublish(
+        PackageProjectInfo snapshot,
+        string cookedCanonicalSceneAssetId,
+        PackageDirectorySnapshot? configSnapshot = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ProjectManager.HasPendingInitialScenePathFollow(snapshot.AssetsDirectory))
+            {
+                throw new InvalidDataException(
+                    "An initial-scene move journal appeared while packaging.");
+            }
+
+            Project persisted = ProjectManager.ReadManifest(snapshot.ProjectFilePath);
+            if (!string.Equals(persisted.Name, snapshot.Name, StringComparison.Ordinal) ||
+                persisted.Version != snapshot.ProjectSchemaVersion ||
+                !string.Equals(
+                    persisted.EngineVersion,
+                    snapshot.EngineVersion,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    persisted.InitialScene,
+                    snapshot.InitialScene,
+                    StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(
+                    persisted.CanonicalSceneAssetId,
+                    snapshot.CanonicalSceneAssetId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The project manifest changed while packaging.");
+            }
+
+            string authoritativeAssetId =
+                ProjectManager.ValidateInitialSceneAssetIdentity(persisted);
+            if (!string.Equals(
+                    authoritativeAssetId,
+                    cookedCanonicalSceneAssetId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The initial scene identity no longer matches the cooked package.");
+            }
+            if (configSnapshot != null)
+            {
+                ValidateDirectorySnapshot(
+                    snapshot.ConfigDirectory,
+                    configSnapshot,
+                    cancellationToken);
+            }
+        }
+        catch (PackageValidationException)
+        {
+            throw;
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+                InvalidDataException or ArgumentException or JsonException or
+                KeyNotFoundException or NotSupportedException)
+        {
+            throw ProjectChangedDuringPackage(error.Message);
+        }
+    }
+
+    private static PackageValidationException ProjectChangedDuringPackage(string message) =>
+        new(
+        [
+            new PackageIssue(
+                PackageIssueSeverity.Error,
+                "PROJECT_CHANGED_DURING_PACKAGE",
+                "Package publication was refused because the startup-scene state could no " +
+                "longer be proven identical to the cooked input. " + message),
+        ]);
 
     private static void ValidateTree(
         string sourceRoot,
         string label,
-        List<PackageIssue> issues)
+        List<PackageIssue> issues,
+        CancellationToken cancellationToken)
     {
         try
         {
             RejectReparsePoint(sourceRoot, label);
-            _ = EnumerateFilesSafe(sourceRoot, issues).Count();
+            _ = EnumerateFilesSafe(
+                    sourceRoot,
+                    issues,
+                    cancellationToken: cancellationToken)
+                .Count();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception error)
         {
@@ -940,17 +1130,20 @@ public static class PackageCore
     private static IEnumerable<string> EnumerateFilesSafe(
         string sourceRoot,
         List<PackageIssue> issues,
-        bool excludeAssetMetadata = false)
+        bool excludeAssetMetadata = false,
+        CancellationToken cancellationToken = default)
     {
         var pending = new Stack<string>();
         pending.Push(Path.GetFullPath(sourceRoot));
         while (pending.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string directory = pending.Pop();
             RejectReparsePoint(directory, "Input directory");
             foreach (string entry in Directory.EnumerateFileSystemEntries(directory)
                          .OrderBy(path => path, StringComparer.Ordinal))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 FileAttributes attributes = File.GetAttributes(entry);
                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {
@@ -1000,12 +1193,14 @@ public static class PackageCore
         string assetsRoot,
         string projectRoot,
         Regex expression,
-        List<PackageIssue> issues)
+        List<PackageIssue> issues,
+        CancellationToken cancellationToken)
     {
         try
         {
             foreach (string line in File.ReadLines(file, Encoding.UTF8))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 Match match = expression.Match(line);
                 if (!match.Success)
                     continue;
@@ -1037,6 +1232,10 @@ public static class PackageCore
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception error)
         {
             issues.Add(new(
@@ -1050,14 +1249,21 @@ public static class PackageCore
     private static void ValidateGltfReferences(
         string file,
         string assetsRoot,
-        List<PackageIssue> issues)
+        List<PackageIssue> issues,
+        CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using JsonDocument document = JsonDocument.Parse(
                 File.ReadAllBytes(file));
+            cancellationToken.ThrowIfCancellationRequested();
             ValidateGltfUriArray(document.RootElement, "buffers");
             ValidateGltfUriArray(document.RootElement, "images");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (JsonException error)
         {
@@ -1086,6 +1292,7 @@ public static class PackageCore
 
             foreach (JsonElement value in values.EnumerateArray())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!value.TryGetProperty("uri", out JsonElement uriElement) ||
                     uriElement.ValueKind != JsonValueKind.String)
                 {
@@ -1242,7 +1449,10 @@ public static class PackageCore
             }
 
             var cookedIssues = new List<PackageIssue>();
-            string[] cookedFiles = EnumerateFilesSafe(cookRoot, cookedIssues)
+            string[] cookedFiles = EnumerateFilesSafe(
+                    cookRoot,
+                    cookedIssues,
+                    cancellationToken: cancellationToken)
                 .OrderBy(
                     path => Path.GetRelativePath(cookRoot, path),
                     StringComparer.Ordinal)
@@ -1317,7 +1527,7 @@ public static class PackageCore
         }
         finally
         {
-            TryDeleteDirectory(cookRoot, stagingRoot);
+            await TryDeleteDirectoryWithRetryAsync(cookRoot, stagingRoot);
         }
     }
 
@@ -1341,44 +1551,29 @@ public static class PackageCore
         foreach (string argument in arguments)
             start.ArgumentList.Add(argument);
 
-        using var process = new Process { StartInfo = start };
+        PackageProcessResult process;
         try
         {
-            process.Start();
+            process = await PackageProcessRunner.RunAsync(
+                start,
+                log: null,
+                cancellationToken);
         }
-        catch (Exception error)
+        catch (Exception error) when (error is not OperationCanceledException)
         {
             throw new InvalidOperationException(
                 $"acs_assetpackを起動できません: {error.Message}",
                 error);
         }
-
-        Task<string> stdout = process.StandardOutput.ReadToEndAsync(
-            cancellationToken);
-        Task<string> stderr = process.StandardError.ReadToEndAsync(
-            cancellationToken);
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            try
-            {
-                if (!process.HasExited)
-                    process.Kill(entireProcessTree: true);
-            }
-            catch { }
-            throw;
-        }
-
-        string output = await stdout;
-        string errorOutput = await stderr;
         if (process.ExitCode != 0)
         {
             string detail = string.Join(
                 Environment.NewLine,
-                new[] { output.Trim(), errorOutput.Trim() }
+                new[]
+                {
+                    process.StandardOutput.Trim(),
+                    process.StandardError.Trim(),
+                }
                     .Where(value => !string.IsNullOrWhiteSpace(value)));
             throw new InvalidDataException(
                 $"acs_assetpackが失敗しました (exit {process.ExitCode})." +
@@ -1395,7 +1590,10 @@ public static class PackageCore
         CancellationToken cancellationToken)
     {
         var issues = new List<PackageIssue>();
-        string[] files = EnumerateFilesSafe(sourceRoot, issues)
+        string[] files = EnumerateFilesSafe(
+                sourceRoot,
+                issues,
+                cancellationToken: cancellationToken)
             .OrderBy(path => Path.GetRelativePath(sourceRoot, path), StringComparer.Ordinal)
             .ToArray();
         if (issues.Any(issue => issue.Severity == PackageIssueSeverity.Error))
@@ -1416,6 +1614,249 @@ public static class PackageCore
                 files.Length));
             CopyFile(source, destination);
         }
+    }
+
+    internal static async Task<PackageDirectorySnapshot>
+        StageDirectorySnapshotAsync(
+            string sourceRoot,
+            string destinationRoot,
+            CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string source = Path.GetFullPath(sourceRoot);
+        string destination = Path.GetFullPath(destinationRoot);
+        if (!Directory.Exists(source))
+            return new(false, Array.Empty<PackageInputFileSnapshot>());
+
+        var issues = new List<PackageIssue>();
+        RejectExistingReparsePointsInPath(source, "Config");
+        string[] files = EnumerateFilesSafe(
+                source,
+                issues,
+                cancellationToken: cancellationToken)
+            .OrderBy(path => Path.GetRelativePath(source, path), StringComparer.Ordinal)
+            .ToArray();
+        if (issues.Any(issue => issue.Severity == PackageIssueSeverity.Error))
+            throw new PackageValidationException(issues);
+
+        RejectExistingReparsePointsInPath(destination, "Staged Config");
+        Directory.CreateDirectory(destination);
+        RejectExistingReparsePointsInPath(destination, "Staged Config");
+        var snapshots = new List<PackageInputFileSnapshot>(files.Length);
+        foreach (string file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string relative = Path.GetRelativePath(source, file);
+            string portable = relative.Replace('\\', '/');
+            string staged = Path.GetFullPath(Path.Combine(destination, relative));
+            if (!IsWithin(destination, staged))
+                throw new IOException(
+                    $"Config snapshot destination escapes staging: {portable}");
+
+            string parent = Path.GetDirectoryName(staged)
+                ?? throw new InvalidDataException(
+                    "Config snapshot destination has no parent directory.");
+            RejectExistingReparsePointsInPath(parent, "Staged Config");
+            Directory.CreateDirectory(parent);
+            RejectExistingReparsePointsInPath(staged, "Staged Config");
+
+            long size = 0;
+            using IncrementalHash hash = IncrementalHash.CreateHash(
+                HashAlgorithmName.SHA256);
+            await using (FileStream input = new(
+                             file,
+                             FileMode.Open,
+                             FileAccess.Read,
+                             FileShare.Read,
+                             bufferSize: 128 * 1024,
+                             FileOptions.Asynchronous |
+                             FileOptions.SequentialScan))
+            await using (FileStream output = new(
+                             staged,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             bufferSize: 128 * 1024,
+                             FileOptions.Asynchronous |
+                             FileOptions.SequentialScan))
+            {
+                byte[] buffer = new byte[128 * 1024];
+                while (true)
+                {
+                    int read = await input.ReadAsync(
+                        buffer.AsMemory(),
+                        cancellationToken);
+                    if (read == 0)
+                        break;
+                    hash.AppendData(buffer, 0, read);
+                    await output.WriteAsync(
+                        buffer.AsMemory(0, read),
+                        cancellationToken);
+                    size += read;
+                }
+                await output.FlushAsync(cancellationToken);
+            }
+            snapshots.Add(new(
+                portable,
+                size,
+                Convert.ToHexString(hash.GetHashAndReset())
+                    .ToLowerInvariant()));
+        }
+
+        var snapshot = new PackageDirectorySnapshot(
+            true,
+            snapshots.AsReadOnly());
+        // Detect additions, removals, or replacement that raced the staging
+        // pass itself. The same proof is repeated immediately before publish.
+        ValidateDirectorySnapshot(source, snapshot, cancellationToken);
+        return snapshot;
+    }
+
+    internal static void ValidateDirectorySnapshot(
+        string sourceRoot,
+        PackageDirectorySnapshot snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        cancellationToken.ThrowIfCancellationRequested();
+        string source = Path.GetFullPath(sourceRoot);
+        bool exists = Directory.Exists(source);
+        if (exists != snapshot.Existed)
+        {
+            throw new InvalidDataException(
+                "Config directory existence changed while packaging.");
+        }
+        if (!exists)
+            return;
+
+        var issues = new List<PackageIssue>();
+        string[] files = EnumerateFilesSafe(
+                source,
+                issues,
+                cancellationToken: cancellationToken)
+            .OrderBy(path => Path.GetRelativePath(source, path), StringComparer.Ordinal)
+            .ToArray();
+        if (issues.Any(issue => issue.Severity == PackageIssueSeverity.Error))
+            throw new PackageValidationException(issues);
+
+        string[] currentRelative = files
+            .Select(path => Path.GetRelativePath(source, path).Replace('\\', '/'))
+            .ToArray();
+        string[] expectedRelative = snapshot.Files
+            .Select(static item => item.RelativePath)
+            .ToArray();
+        if (!currentRelative.SequenceEqual(expectedRelative, StringComparer.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Config file set changed while packaging.");
+        }
+
+        for (int index = 0; index < files.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageInputFileSnapshot expected = snapshot.Files[index];
+            string file = files[index];
+            var info = new FileInfo(file);
+            if (info.Length != expected.Size)
+            {
+                throw new InvalidDataException(
+                    $"Config file changed while packaging: {expected.RelativePath}");
+            }
+
+            string hash = Sha256File(file, cancellationToken);
+            if (!string.Equals(
+                    hash,
+                    expected.Sha256,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Config file changed while packaging: {expected.RelativePath}");
+            }
+        }
+    }
+
+    internal static void ValidateStagedConfiguration(
+        string stagedConfigRoot,
+        PackageProjectInfo project,
+        CancellationToken cancellationToken = default)
+    {
+        string settings = Path.Combine(
+            Path.GetFullPath(stagedConfigRoot),
+            "ProjectSettings.ini");
+        if (!File.Exists(settings) ||
+            !TryReadIniValue(
+                settings,
+                "Game",
+                "DefaultScene",
+                out string configuredScene,
+                cancellationToken) ||
+            string.IsNullOrWhiteSpace(configuredScene))
+        {
+            return;
+        }
+
+        string configuredValue = configuredScene.Trim();
+        string normalized = configuredValue.Replace(
+            '/',
+            Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalized))
+            throw StagedConfigMismatch(
+                "DefaultScene became absolute while packaging.",
+                configuredScene);
+        string configuredPath = ResolveUnderRoot(
+            project.RootDirectory,
+            configuredValue);
+        string initialScene = ResolveUnderRoot(
+            project.RootDirectory,
+            project.InitialScene);
+        if (!IsWithin(project.AssetsDirectory, configuredPath) ||
+            !HasSupportedSceneExtension(configuredPath) ||
+            !string.Equals(
+                configuredPath,
+                initialScene,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw StagedConfigMismatch(
+                "Staged Config DefaultScene no longer matches the cooked initial scene.",
+                configuredScene);
+        }
+    }
+
+    private static PackageValidationException StagedConfigMismatch(
+        string message,
+        string path) =>
+        new(
+        [
+            new PackageIssue(
+                PackageIssueSeverity.Error,
+                "CONFIG_CHANGED_DURING_PACKAGE",
+                message,
+                path),
+        ]);
+
+    private static string Sha256File(
+        string file,
+        CancellationToken cancellationToken)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using FileStream stream = new(
+            file,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            128 * 1024,
+            FileOptions.SequentialScan);
+        byte[] buffer = new byte[128 * 1024];
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int read = stream.Read(buffer, 0, buffer.Length);
+            if (read == 0)
+                break;
+            hash.AppendData(buffer, 0, read);
+        }
+        return Convert.ToHexString(hash.GetHashAndReset())
+            .ToLowerInvariant();
     }
 
     private static byte[] ReadVerifiedAssetSnapshot(
@@ -1753,12 +2194,14 @@ public static class PackageCore
         string file,
         string wantedSection,
         string wantedKey,
-        out string value)
+        out string value,
+        CancellationToken cancellationToken = default)
     {
         value = "";
         string section = "";
         foreach (string rawLine in File.ReadLines(file, Encoding.UTF8))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string line = rawLine.Trim();
             if (line.Length == 0 ||
                 line.StartsWith(';') ||
@@ -1890,29 +2333,83 @@ public static class PackageCore
         return string.IsNullOrEmpty(sanitized) ? "Game" : sanitized;
     }
 
-    private static void TryDeleteFile(string file)
+    internal static async Task<bool> TryDeleteFileWithRetryAsync(string file)
     {
+        string full;
         try
         {
-            if (File.Exists(file) && !IsReparsePoint(file))
-                File.Delete(file);
+            full = Path.GetFullPath(file);
         }
-        catch { }
+        catch
+        {
+            return false;
+        }
+
+        int[] delays = [0, 40, 120, 300];
+        foreach (int delay in delays)
+        {
+            if (delay != 0)
+                await Task.Delay(delay).ConfigureAwait(false);
+            try
+            {
+                if (!File.Exists(full))
+                    return true;
+                if (IsReparsePoint(full))
+                    return false;
+                File.Delete(full);
+                if (!File.Exists(full))
+                    return true;
+            }
+            catch
+            {
+            }
+        }
+        return !File.Exists(full);
     }
 
-    private static void TryDeleteDirectory(string target, string allowedParent)
+    internal static async Task<bool> TryDeleteDirectoryWithRetryAsync(
+        string target,
+        string allowedParent)
     {
+        string fullTarget;
+        string fullParent;
         try
         {
-            string fullTarget = Path.GetFullPath(target);
-            string fullParent = Path.GetFullPath(allowedParent);
-            if (!IsWithin(fullParent, fullTarget) ||
-                string.Equals(fullTarget, fullParent, StringComparison.OrdinalIgnoreCase) ||
-                !Directory.Exists(fullTarget) ||
-                IsReparsePoint(fullTarget))
-                return;
-            Directory.Delete(fullTarget, recursive: true);
+            fullTarget = Path.GetFullPath(target);
+            fullParent = Path.GetFullPath(allowedParent);
         }
-        catch { }
+        catch
+        {
+            return false;
+        }
+        if (!IsWithin(fullParent, fullTarget) ||
+            string.Equals(
+                fullTarget,
+                fullParent,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        int[] delays = [0, 40, 120, 300];
+        foreach (int delay in delays)
+        {
+            if (delay != 0)
+                await Task.Delay(delay).ConfigureAwait(false);
+            try
+            {
+                if (!Directory.Exists(fullTarget))
+                    return true;
+                if (IsReparsePoint(fullTarget))
+                    return false;
+                Directory.Delete(fullTarget, recursive: true);
+                if (!Directory.Exists(fullTarget))
+                    return true;
+            }
+            catch
+            {
+            }
+        }
+        return !Directory.Exists(fullTarget);
     }
 }

@@ -4,6 +4,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -21,7 +23,8 @@ public partial class AssetBrowserPanel
             typeof(AssetBrowserPanel),
             new FrameworkPropertyMetadata(64d));
 
-    private readonly AssetViewPresentationStore _presentationStore = new();
+    private readonly AssetViewPresentationIoCoordinator _presentationIo =
+        new(new AssetViewPresentationStore());
     private readonly DispatcherTimer _presentationSaveDebounce = new()
     {
         Interval = TimeSpan.FromMilliseconds(250),
@@ -37,6 +40,9 @@ public partial class AssetBrowserPanel
         AssetViewPresentationState.Default;
     private bool _presentationControlsReady;
     private bool _applyingPresentation;
+    private Task _presentationLoadTask = Task.CompletedTask;
+    private bool _presentationLoadPendingForCurrentProject;
+    private bool _restartPresentationLoadAfterResume;
 
     public double ThumbnailSize
     {
@@ -49,7 +55,7 @@ public partial class AssetBrowserPanel
         _presentationSaveDebounce.Tick += (_, _) =>
         {
             _presentationSaveDebounce.Stop();
-            PersistAssetViewPresentation();
+            _ = PersistAssetViewPresentation();
             if (_thumbnailReloadPending)
             {
                 _thumbnailReloadPending = false;
@@ -74,58 +80,158 @@ public partial class AssetBrowserPanel
     private void LoadAssetViewPresentation(Project? project)
     {
         _presentationSaveDebounce.Stop();
-        AssetViewPresentationState state = AssetViewPresentationState.Default;
-        if (project != null)
+        if (project == null)
         {
-            try
-            {
-                state = _presentationStore.Load(project.AssetsDir);
-            }
-            catch (Exception error) when (
-                error is IOException or UnauthorizedAccessException or
-                ArgumentException or InvalidDataException)
-            {
-                Log?.Invoke(
-                    "Asset View preferences could not be loaded; defaults were used: " +
-                    error.Message);
-            }
+            _presentationIo.CancelLoad();
+            _presentationLoadTask = Task.CompletedTask;
+            _presentationLoadPendingForCurrentProject = false;
+            ApplyAssetViewPresentation(
+                AssetViewPresentationState.Default,
+                refreshFolders: false,
+                reloadThumbnails: false);
+            return;
         }
+
+        // 小さな表示設定文書をワーカーで読み込んでいる間も、前のプロジェクトの
+        // 表示設定を新しいプロジェクトへ引き継がない。
         ApplyAssetViewPresentation(
-            state,
+            AssetViewPresentationState.Default,
             refreshFolders: false,
             reloadThumbnails: false);
+        AssetViewPresentationLoadOperation operation =
+            _presentationIo.StartLoad(project.AssetsDir);
+        _presentationLoadPendingForCurrentProject = true;
+        _presentationLoadTask =
+            ObserveAssetViewPresentationLoadAsync(project, operation);
     }
 
     private void ScheduleAssetViewPresentationSave()
     {
         if (_applyingPresentation || _project == null) return;
+        // この編集より前に開始したディスク読み込みで、新しい UI 入力を上書きしない。
+        _presentationLoadPendingForCurrentProject = false;
+        _presentationIo.CancelLoad();
         _presentationSaveDebounce.Stop();
         _presentationSaveDebounce.Start();
     }
 
-    private void FlushAssetViewPresentation()
+    private Task FlushAssetViewPresentation()
     {
-        if (!_presentationControlsReady) return;
+        if (!_presentationControlsReady)
+            return _presentationIo.AllPendingSaves;
         bool pending = _presentationSaveDebounce.IsEnabled;
         _presentationSaveDebounce.Stop();
-        if (pending) PersistAssetViewPresentation();
+        if (pending)
+            _ = PersistAssetViewPresentation();
+        return _presentationIo.AllPendingSaves;
     }
 
-    private void PersistAssetViewPresentation()
+    private Task PersistAssetViewPresentation()
     {
         Project? project = _project;
-        if (project == null) return;
+        if (project == null) return Task.CompletedTask;
+        AssetViewPresentationSaveOperation operation =
+            _presentationIo.EnqueueSave(
+                project.AssetsDir,
+                _presentationState,
+                _presentationIo.Generation);
+        _ = ObserveAssetViewPresentationSaveAsync(operation);
+        return operation.Completion;
+    }
+
+    private async Task ObserveAssetViewPresentationLoadAsync(
+        Project project,
+        AssetViewPresentationLoadOperation operation)
+    {
+        AssetViewPresentationLoadResult result =
+            await operation.Completion.ConfigureAwait(false);
+        if (result.Canceled) return;
+
         try
         {
-            _presentationStore.Save(project.AssetsDir, _presentationState);
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                return;
+            await Dispatcher.InvokeAsync(
+                () =>
+                {
+                    if (!_presentationIo.IsCurrentLoad(
+                            operation.Generation,
+                            operation.AssetsRoot) ||
+                        _assetOperationsSuspended ||
+                        !ReferenceEquals(_project, project))
+                    {
+                        return;
+                    }
+                    if (result.Error != null)
+                    {
+                        _presentationLoadPendingForCurrentProject = false;
+                        Log?.Invoke(
+                            "Asset View preferences could not be loaded; defaults were used: " +
+                            result.Error.Message);
+                        return;
+                    }
+                    _presentationLoadPendingForCurrentProject = false;
+                    ApplyAssetViewPresentation(
+                        result.State ?? AssetViewPresentationState.Default,
+                        refreshFolders: false,
+                        reloadThumbnails: false);
+                },
+                DispatcherPriority.Background);
         }
         catch (Exception error) when (
-            error is IOException or UnauthorizedAccessException or
-            ArgumentException or InvalidDataException)
+            error is TaskCanceledException or InvalidOperationException)
         {
-            Log?.Invoke("Asset View preferences could not be saved: " + error.Message);
+            // ディスパッチャーは終了処理中。表示設定 I/O によってクローズ処理を待たせない。
         }
     }
+
+    private async Task ObserveAssetViewPresentationSaveAsync(
+        AssetViewPresentationSaveOperation operation)
+    {
+        AssetViewPresentationSaveResult result =
+            await operation.Completion.ConfigureAwait(false);
+        if (result.Error == null ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        try
+        {
+            await Dispatcher.InvokeAsync(
+                () => Log?.Invoke(
+                    "Asset View preferences could not be saved: " +
+                    result.Error.Message),
+                DispatcherPriority.Background);
+        }
+        catch (Exception error) when (
+            error is TaskCanceledException or InvalidOperationException)
+        {
+            // 所有元ディスパッチャーの終了開始後は、ログ記録を可能な範囲でのみ行う。
+        }
+    }
+
+    private void SuspendAssetViewPresentationIo()
+    {
+        _restartPresentationLoadAfterResume =
+            _presentationLoadPendingForCurrentProject &&
+            !_presentationLoadTask.IsCompleted;
+        _presentationLoadPendingForCurrentProject = false;
+        _presentationIo.CancelLoad();
+    }
+
+    private void ResumeAssetViewPresentationIo()
+    {
+        if (!_restartPresentationLoadAfterResume) return;
+        _restartPresentationLoadAfterResume = false;
+        if (_project != null)
+            LoadAssetViewPresentation(_project);
+    }
+
+    private static Task<bool> WaitForAssetViewPresentationSaveAsync(
+        Task save,
+        TimeSpan timeout) =>
+        AssetViewPresentationIoCoordinator.WaitForCompletionAsync(save, timeout);
 
     private void UpdateAssetViewPresentation(
         AssetViewPresentationState requested,
@@ -192,7 +298,11 @@ public partial class AssetBrowserPanel
                 ? new GridLength(1d, GridUnitType.Star)
                 : new GridLength(0d);
             if (!state.ShowPreview)
-                _previewLoadCancellation?.Cancel();
+            {
+                CancelImageLoad(ref _previewLoadCancellation);
+                _previewRefreshPendingAfterImageDrain = false;
+                PreviewImage.Source = null;
+            }
         }
         finally
         {
@@ -219,7 +329,7 @@ public partial class AssetBrowserPanel
 
     private void InvalidateThumbnailDecode()
     {
-        _thumbnailLoadCancellation?.Cancel();
+        CancelImageLoad(ref _thumbnailLoadCancellation);
         if (_thumbnailGeneration == int.MaxValue)
         {
             _thumbnailGeneration = 1;
@@ -246,11 +356,21 @@ public partial class AssetBrowserPanel
         if (_assetScrollViewer != null)
             _assetScrollViewer.ScrollChanged += OnAssetScrollChanged;
         QueueThumbnailViewportRefresh();
+        if (_presentationState.ShowPreview &&
+            Tiles.SelectedItem is AssetItem selectedItem &&
+            !selectedItem.IsDirectory &&
+            selectedItem.Kind is "material" or "image")
+        {
+            StartPreviewLoading(selectedItem);
+        }
     }
 
     private void OnAssetBrowserUnloaded(object sender, RoutedEventArgs e)
     {
         _thumbnailViewportDebounce.Stop();
+        CancelImageLoads();
+        ReleasePublishedThumbnails();
+        PreviewImage.Source = null;
         if (_assetScrollViewer != null)
             _assetScrollViewer.ScrollChanged -= OnAssetScrollChanged;
         _assetScrollViewer = null;
@@ -291,7 +411,6 @@ public partial class AssetBrowserPanel
             if (child is ListBoxItem container)
             {
                 if (container.DataContext is AssetItem item &&
-                    item.ThumbnailGeneration != _thumbnailGeneration &&
                     !item.IsDirectory &&
                     (item.Kind is "image" or "material") &&
                     IsVisualNearThumbnailViewport(container))
@@ -392,5 +511,356 @@ public partial class AssetBrowserPanel
             },
             refreshFolders: true,
             reloadThumbnails: false);
+    }
+}
+
+internal sealed record AssetViewPresentationLoadResult(
+    AssetViewPresentationState? State,
+    Exception? Error,
+    bool Canceled);
+
+internal sealed record AssetViewPresentationLoadOperation(
+    long Generation,
+    string AssetsRoot,
+    Task<AssetViewPresentationLoadResult> Completion);
+
+internal sealed record AssetViewPresentationSaveResult(
+    long Generation,
+    long Sequence,
+    string AssetsRoot,
+    Exception? Error);
+
+internal sealed record AssetViewPresentationSaveOperation(
+    long Generation,
+    long Sequence,
+    string AssetsRoot,
+    Task<AssetViewPresentationSaveResult> Completion);
+
+/// <summary>
+/// Asset View の表示設定文書に対する I/O をディスパッチャーから完全に分離する。
+/// 読み込みは世代で有効性を判定し、公開時にキャンセルできる。保存は直列化し、
+/// 古いスナップショットが新しいものより後に永続化されないようにする。
+/// </summary>
+internal sealed class AssetViewPresentationIoCoordinator
+{
+    private readonly Func<string, AssetViewPresentationState> _load;
+    private readonly Action<string, AssetViewPresentationState> _save;
+    private readonly object _gate = new();
+    private long _generation;
+    private long _saveSequence;
+    private string? _currentLoadRoot;
+    private CancellationTokenSource? _loadCancellation;
+    private readonly Dictionary<string, Task<AssetViewPresentationSaveResult>>
+        _saveTailsByRoot =
+        new(StringComparer.OrdinalIgnoreCase);
+    private Task _saveTail = Task.CompletedTask;
+
+    internal AssetViewPresentationIoCoordinator(AssetViewPresentationStore store)
+        : this(store.Load, store.Save)
+    {
+    }
+
+    internal AssetViewPresentationIoCoordinator(
+        Func<string, AssetViewPresentationState> load,
+        Action<string, AssetViewPresentationState> save)
+    {
+        ArgumentNullException.ThrowIfNull(load);
+        ArgumentNullException.ThrowIfNull(save);
+        _load = load;
+        _save = save;
+    }
+
+    internal long Generation
+    {
+        get
+        {
+            lock (_gate) return _generation;
+        }
+    }
+
+    internal Task LatestSave
+    {
+        get
+        {
+            lock (_gate) return _saveTail;
+        }
+    }
+
+    internal Task AllPendingSaves
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _saveTailsByRoot.Count == 0
+                    ? Task.CompletedTask
+                    : Task.WhenAll(_saveTailsByRoot.Values);
+            }
+        }
+    }
+
+    internal Task LatestSaveFor(string assetsRoot)
+    {
+        string root = NormalizeRoot(assetsRoot);
+        lock (_gate)
+        {
+            return _saveTailsByRoot.TryGetValue(
+                    root,
+                    out Task<AssetViewPresentationSaveResult>? pending)
+                ? pending
+                : Task.CompletedTask;
+        }
+    }
+
+    internal AssetViewPresentationLoadOperation StartLoad(string assetsRoot)
+    {
+        string root = NormalizeRoot(assetsRoot);
+        CancellationTokenSource? retired;
+        CancellationTokenSource cancellation = new();
+        Task<AssetViewPresentationSaveResult>? saveBarrier;
+        long generation;
+        lock (_gate)
+        {
+            retired = _loadCancellation;
+            _loadCancellation = cancellation;
+            _currentLoadRoot = root;
+            generation = ++_generation;
+            saveBarrier = _saveTailsByRoot.TryGetValue(
+                    root,
+                    out Task<AssetViewPresentationSaveResult>? pendingSave)
+                ? pendingSave
+                : null;
+        }
+        CancelAndDispose(retired);
+
+        CancellationToken token = cancellation.Token;
+        Task<AssetViewPresentationLoadResult> completion =
+            RunLoadAfterAsync(saveBarrier, root, token);
+        return new AssetViewPresentationLoadOperation(
+            generation,
+            root,
+            completion);
+    }
+
+    internal void CancelLoad()
+    {
+        CancellationTokenSource? retired;
+        lock (_gate)
+        {
+            retired = _loadCancellation;
+            _loadCancellation = null;
+            _currentLoadRoot = null;
+            _generation++;
+        }
+        CancelAndDispose(retired);
+    }
+
+    internal bool IsCurrentLoad(long generation, string assetsRoot)
+    {
+        string root;
+        try
+        {
+            root = NormalizeRoot(assetsRoot);
+        }
+        catch (Exception error) when (
+            error is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+        lock (_gate)
+        {
+            return generation == _generation &&
+                   string.Equals(
+                       root,
+                       _currentLoadRoot,
+                       StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    internal AssetViewPresentationSaveOperation EnqueueSave(
+        string assetsRoot,
+        AssetViewPresentationState state,
+        long generation)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        string root = NormalizeRoot(assetsRoot);
+        AssetViewPresentationState snapshot = state.Normalize();
+        long sequence;
+        Task<AssetViewPresentationSaveResult> completion;
+        lock (_gate)
+        {
+            sequence = ++_saveSequence;
+            Task predecessor =
+                _saveTailsByRoot.TryGetValue(
+                    root,
+                    out Task<AssetViewPresentationSaveResult>? rootTail)
+                    ? rootTail
+                    : Task.CompletedTask;
+            completion = RunSaveAfterAsync(
+                predecessor,
+                root,
+                snapshot,
+                generation,
+                sequence);
+            _saveTailsByRoot[root] = completion;
+            _saveTail = completion;
+        }
+        return new AssetViewPresentationSaveOperation(
+            generation,
+            sequence,
+            root,
+            completion);
+    }
+
+    internal static async Task<bool> WaitForCompletionAsync(
+        Task operation,
+        TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (operation.IsCompleted) return true;
+        if (timeout <= TimeSpan.Zero) return false;
+        Task winner = await Task.WhenAny(
+                operation,
+                Task.Delay(timeout))
+            .ConfigureAwait(false);
+        return ReferenceEquals(winner, operation);
+    }
+
+    private async Task<AssetViewPresentationLoadResult> RunLoadAfterAsync(
+        Task<AssetViewPresentationSaveResult>? saveBarrier,
+        string assetsRoot,
+        CancellationToken token)
+    {
+        if (saveBarrier != null)
+        {
+            try
+            {
+                AssetViewPresentationSaveResult saveResult =
+                    await saveBarrier.ConfigureAwait(false);
+                if (saveResult.Error != null)
+                {
+                    return new AssetViewPresentationLoadResult(
+                        null,
+                        new IOException(
+                            "The preceding Asset View preference save failed; " +
+                            "a stale preference document was not loaded.",
+                            saveResult.Error),
+                        Canceled: false);
+                }
+            }
+            catch (Exception error)
+            {
+                return new AssetViewPresentationLoadResult(
+                    null,
+                    new IOException(
+                        "The preceding Asset View preference save did not complete cleanly; " +
+                        "a stale preference document was not loaded.",
+                        error),
+                    Canceled: false);
+            }
+        }
+        if (token.IsCancellationRequested)
+            return new AssetViewPresentationLoadResult(null, null, Canceled: true);
+
+        return await Task.Run(
+                () =>
+                {
+                    if (token.IsCancellationRequested)
+                    {
+                        return new AssetViewPresentationLoadResult(
+                            null,
+                            null,
+                            Canceled: true);
+                    }
+                    try
+                    {
+                        AssetViewPresentationState state = _load(assetsRoot);
+                        return token.IsCancellationRequested
+                            ? new AssetViewPresentationLoadResult(
+                                null,
+                                null,
+                                Canceled: true)
+                            : new AssetViewPresentationLoadResult(
+                                state,
+                                null,
+                                Canceled: false);
+                    }
+                    catch (Exception error)
+                    {
+                        return token.IsCancellationRequested
+                            ? new AssetViewPresentationLoadResult(
+                                null,
+                                null,
+                                Canceled: true)
+                            : new AssetViewPresentationLoadResult(
+                                null,
+                                error,
+                                Canceled: false);
+                    }
+                })
+            .ConfigureAwait(false);
+    }
+
+    private async Task<AssetViewPresentationSaveResult> RunSaveAfterAsync(
+        Task predecessor,
+        string assetsRoot,
+        AssetViewPresentationState state,
+        long generation,
+        long sequence)
+    {
+        try
+        {
+            await predecessor.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // コーディネーターによる保存は必ずエラー結果を返す。この不変条件が崩れた場合も、
+            // 後続の保存を進行させるための防護とする。
+        }
+
+        return await Task.Run(
+                () =>
+                {
+                    try
+                    {
+                        _save(assetsRoot, state);
+                        return new AssetViewPresentationSaveResult(
+                            generation,
+                            sequence,
+                            assetsRoot,
+                            null);
+                    }
+                    catch (Exception error)
+                    {
+                        return new AssetViewPresentationSaveResult(
+                            generation,
+                            sequence,
+                            assetsRoot,
+                            error);
+                    }
+                })
+            .ConfigureAwait(false);
+    }
+
+    private static string NormalizeRoot(string assetsRoot)
+    {
+        if (string.IsNullOrWhiteSpace(assetsRoot))
+            throw new ArgumentException(
+                "Assets root cannot be empty.",
+                nameof(assetsRoot));
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(assetsRoot));
+    }
+
+    private static void CancelAndDispose(CancellationTokenSource? cancellation)
+    {
+        if (cancellation == null) return;
+        try
+        {
+            cancellation.Cancel();
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
     }
 }

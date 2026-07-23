@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using AcsEditor.Packaging;
 
 namespace AcsEditor;
 
@@ -64,6 +65,24 @@ internal static class SceneSaveSelfTest
             Check(initializedOnly.SequenceEqual(new[] { SceneDocumentMode.ThreeD }),
                 "uninitialized documents are never included");
 
+            var sceneLoads = new SceneLoadGenerationState();
+            SceneLoadTicket firstSceneLoad = sceneLoads.Begin();
+            SceneLoadTicket replacementSceneLoad = sceneLoads.Begin();
+            Check(
+                !sceneLoads.TryComplete(firstSceneLoad) &&
+                sceneLoads.IsCurrent(replacementSceneLoad),
+                "superseded scene load cannot publish or restore input");
+            Check(
+                sceneLoads.TryComplete(replacementSceneLoad) &&
+                !sceneLoads.IsLoading,
+                "current scene load completion closes the presentation gate");
+            SceneLoadTicket closingSceneLoad = sceneLoads.Begin();
+            sceneLoads.Invalidate();
+            Check(
+                !sceneLoads.IsCurrent(closingSceneLoad) &&
+                !sceneLoads.TryComplete(closingSceneLoad),
+                "editor close invalidates late scene load completion");
+
             Check(
                 EditorShortcutRouting.ResolveBuildShortcut(
                     System.Windows.Input.Key.F5,
@@ -114,6 +133,64 @@ internal static class SceneSaveSelfTest
                 "atomic source write creates and replaces scene content");
             Check(!Directory.EnumerateFiles(assets, "*.tmp", SearchOption.TopDirectoryOnly).Any(),
                 "atomic source write leaves no temporary file");
+
+            SceneSourceFile.ReadResult boundedRead =
+                SceneSourceFile.ReadBoundedTextAsync(scenePath)
+                    .GetAwaiter()
+                    .GetResult();
+            Check(
+                boundedRead.Exists && boundedRead.Text == "second",
+                "bounded scene read returns strict UTF-8 source content");
+
+            string invalidUtf8Path = Path.Combine(assets, "invalid-utf8.acscene");
+            File.WriteAllBytes(invalidUtf8Path, [0x41, 0xC3, 0x28]);
+            bool invalidUtf8Rejected = false;
+            try
+            {
+                _ = SceneSourceFile.ReadBoundedTextAsync(invalidUtf8Path)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (InvalidDataException)
+            {
+                invalidUtf8Rejected = true;
+            }
+            Check(
+                invalidUtf8Rejected,
+                "bounded scene read rejects malformed UTF-8");
+
+            string oversizedScenePath = Path.Combine(assets, "oversized.acscene");
+            using (var oversized = new FileStream(
+                       oversizedScenePath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None))
+            {
+                oversized.SetLength(SceneSourceFile.MaxSceneSourceBytes + 1L);
+            }
+            bool oversizedSceneRejected = false;
+            try
+            {
+                _ = SceneSourceFile.ReadBoundedTextAsync(oversizedScenePath)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (InvalidDataException)
+            {
+                oversizedSceneRejected = true;
+            }
+            Check(
+                oversizedSceneRejected,
+                "bounded scene read rejects oversized input before allocation");
+
+            SceneSourceFile.ReadResult missingRead =
+                SceneSourceFile.ReadBoundedTextAsync(
+                        Path.Combine(assets, "missing.acscene"))
+                    .GetAwaiter()
+                    .GetResult();
+            Check(
+                !missingRead.Exists && missingRead.Text == null,
+                "bounded scene read represents a missing initial source explicitly");
 
             string lockedScenePath = Path.Combine(assets, "locked.acscene");
             bool externalSceneLockRejected = false;
@@ -188,6 +265,34 @@ internal static class SceneSaveSelfTest
                     return true;
                 }
             }
+            bool ManifestBytesRejected(byte[] bytes)
+            {
+                File.WriteAllBytes(manifestPath, bytes);
+                try
+                {
+                    _ = ProjectManager.ReadManifest(manifestPath);
+                    return false;
+                }
+                catch (InvalidDataException)
+                {
+                    return true;
+                }
+                catch (JsonException)
+                {
+                    return true;
+                }
+            }
+
+            Check(
+                ManifestBytesRejected(new byte[(1024 * 1024) + 1]),
+                "project manifest read rejects payloads above the 1 MiB bound");
+            Check(
+                ManifestBytesRejected(new byte[] { 0x7B, 0x22, 0xC3, 0x28, 0x7D }),
+                "project manifest read rejects malformed UTF-8");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes("{\"version\":1,\0\"name\":\"bad\"}")),
+                "project manifest read rejects embedded NUL bytes");
 
             WriteManifest("Assets/Scenes/../main.acscene");
             Project normalizedProject = ProjectManager.ReadManifest(manifestPath);
@@ -229,6 +334,8 @@ internal static class SceneSaveSelfTest
                 "3D project scene contract rejects .acscene");
 
             CheckInitialSceneReferenceFollow(root, Check);
+            CheckInterruptedInitialSceneRecovery(root, Check);
+            CheckCombinedAssetAndSceneRecovery(root, Check);
             CheckProjectSettingsSerialization(root, Check);
             CheckReparseDefense(root, assets, Check, log);
         }
@@ -495,6 +602,451 @@ internal static class SceneSaveSelfTest
                     SearchOption.AllDirectories)
                 .Any(),
             "scene reference transactions leave no staging files");
+    }
+
+    private static void CheckInterruptedInitialSceneRecovery(
+        string root,
+        Action<bool, string> check)
+    {
+        string projectRoot = Path.Combine(root, "InterruptedReferenceFollowProject");
+        string assets = Path.Combine(projectRoot, "Assets");
+        string scenes = Path.Combine(assets, "Scenes");
+        string config = Path.Combine(projectRoot, "Config");
+        Directory.CreateDirectory(scenes);
+        Directory.CreateDirectory(config);
+
+        string manifestPath = Path.Combine(projectRoot, "Interrupted.acsproject");
+        File.WriteAllText(
+            manifestPath,
+            """
+            {
+              "version": 1,
+              "name": "Interrupted",
+              "engineVersion": "self-test",
+              "template": "blank",
+              "initialScene": "Assets/main.acscene",
+              "canonicalSceneAssetId": "22222222222222222222222222222222",
+              "futureProperty": { "preserve": "journal-recovery" }
+            }
+            """);
+        string settingsPath = Path.Combine(config, "ProjectSettings.ini");
+        File.WriteAllText(
+            settingsPath,
+            """
+            [Rendering]
+            Exposure=1.75
+
+            [Game]
+            DefaultScene=Assets/main.acscene
+            WindowWidth=1440
+            """);
+        string source = Path.Combine(assets, "main.acscene");
+        string sourceMetadata = source + AssetDatabase.MetadataSuffix;
+        File.WriteAllText(source, "journal-scene");
+        File.WriteAllText(
+            sourceMetadata,
+            """
+            {
+              "schemaVersion": 1,
+              "id": "22222222222222222222222222222222",
+              "kind": "scene",
+              "source": "Assets/main.acscene",
+              "importer": "legacy-acscene",
+              "importerVersion": 1,
+              "dependencies": [],
+              "importSettings": {}
+            }
+            """);
+
+        Project project = ProjectManager.ReadManifest(manifestPath);
+        string firstDestination = Path.Combine(scenes, "Recovered.acscene");
+        bool prepareContentionRejected = false;
+        using (AssetMutationLockProcessHolder held =
+               AssetMutationLockProcessHolder.Start(assets))
+        {
+            try
+            {
+                _ = ProjectManager.PrepareInitialScenePathFollow(
+                    project,
+                    Guid.NewGuid(),
+                    firstDestination);
+            }
+            catch (IOException)
+            {
+                prepareContentionRejected = true;
+            }
+        }
+        check(
+            prepareContentionRejected &&
+            !ProjectManager.HasPendingInitialScenePathFollow(project),
+            "scene move journal prepare fails before writing under cross-process contention");
+
+        ProjectSceneReferenceMoveIntent firstIntent =
+            ProjectManager.PrepareInitialScenePathFollow(
+                project,
+                Guid.NewGuid(),
+                firstDestination);
+        check(
+            ProjectManager.HasPendingInitialScenePathFollow(project),
+            "scene move preflight durably prepares a recovery journal before physical move");
+
+        ProjectSceneReferenceRecoveryResult liveRecovery =
+            ProjectManager.ReconcileInitialScenePathFollow(project);
+        check(
+            liveRecovery.Status == ProjectSceneReferenceRecoveryStatus.LiveOperation &&
+            project.InitialScene == "Assets/main.acscene",
+            "startup reconciliation never races a live scene move lease");
+
+        // 生存確認ハンドルだけを解放し、永続 prepare 後かつ物理移動前のプロセス終了を再現する。
+        // 移動元の identity が一致し、移動先が存在しないことを根拠として中止を確定できる。
+        firstIntent.Dispose();
+        ProjectSceneReferenceRecoveryResult aborted =
+            ProjectManager.ReconcileInitialScenePathFollow(project);
+        check(
+            aborted.Status == ProjectSceneReferenceRecoveryStatus.Aborted &&
+            !ProjectManager.HasPendingInitialScenePathFollow(project) &&
+            File.Exists(source) &&
+            File.Exists(sourceMetadata),
+            "crash before physical move aborts only after source identity is proven intact");
+
+        ProjectSceneReferenceMoveIntent secondIntent =
+            ProjectManager.PrepareInitialScenePathFollow(
+                project,
+                Guid.NewGuid(),
+                firstDestination);
+        secondIntent.Dispose();
+        File.Move(source, firstDestination);
+        File.Move(
+            sourceMetadata,
+            firstDestination + AssetDatabase.MetadataSuffix);
+
+        // 二つの参照公開の途中でプロセスが終了し、settings だけが新しく manifest は古い状態を再現する。
+        // 復旧では、journal に記録されたこの二つの値だけを受理しなければならない。
+        File.WriteAllText(
+            settingsPath,
+            File.ReadAllText(settingsPath).Replace(
+                "Assets/main.acscene",
+                "Assets/Scenes/Recovered.acscene",
+                StringComparison.Ordinal));
+        ProjectSceneReferenceRecoveryResult rolledForward =
+            ProjectManager.ReconcileInitialScenePathFollow(project);
+        Project recovered = ProjectManager.Open(manifestPath);
+        JsonObject recoveredManifest =
+            JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
+        check(
+            rolledForward.Status == ProjectSceneReferenceRecoveryStatus.RolledForward &&
+            recovered.InitialScene == "Assets/Scenes/Recovered.acscene" &&
+            ReadIniValue(settingsPath, "Game", "DefaultScene") ==
+                recovered.InitialScene &&
+            !ProjectManager.HasPendingInitialScenePathFollow(recovered),
+            "crash after physical move rolls manifest and settings forward to the pinned identity");
+        check(
+            recoveredManifest["futureProperty"]?["preserve"]?.GetValue<string>() ==
+                "journal-recovery" &&
+            ReadIniValue(settingsPath, "Rendering", "Exposure") == "1.75" &&
+            ReadIniValue(settingsPath, "Game", "WindowWidth") == "1440",
+            "journal recovery preserves unknown manifest and unrelated INI data");
+
+        string secondDestination = Path.Combine(scenes, "RecoveredAgain.acscene");
+        ProjectSceneReferenceMoveIntent ambiguousIntent =
+            ProjectManager.PrepareInitialScenePathFollow(
+                recovered,
+                Guid.NewGuid(),
+                secondDestination);
+        ambiguousIntent.Dispose();
+        File.Move(firstDestination, secondDestination);
+        File.Move(
+            firstDestination + AssetDatabase.MetadataSuffix,
+            secondDestination + AssetDatabase.MetadataSuffix);
+        string duplicate = Path.Combine(scenes, "Duplicate.acscene");
+        File.Copy(secondDestination, duplicate);
+        File.Copy(
+            secondDestination + AssetDatabase.MetadataSuffix,
+            duplicate + AssetDatabase.MetadataSuffix);
+
+        ProjectSceneReferenceRecoveryResult ambiguous =
+            ProjectManager.ReconcileInitialScenePathFollow(recovered);
+        bool openFailedClosed = false;
+        try
+        {
+            _ = ProjectManager.Open(manifestPath);
+        }
+        catch (InvalidDataException error)
+        {
+            openFailedClosed = error.Message.Contains(
+                "fail-closed",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        var blockedBuildLog = new List<string>();
+        string? blockedBuild = BuildService.BuildAsync(
+                recovered,
+                blockedBuildLog.Add)
+            .GetAwaiter()
+            .GetResult();
+        check(
+            ambiguous.Status == ProjectSceneReferenceRecoveryStatus.Deferred &&
+            ProjectManager.HasPendingInitialScenePathFollow(recovered) &&
+            openFailedClosed &&
+            blockedBuild == null &&
+            blockedBuildLog.Any(line => line.Contains(
+                "INITIAL_SCENE_MOVE_PENDING",
+                StringComparison.Ordinal)),
+            "duplicate identity is never guessed and keeps project open/build fail-closed");
+
+        File.Delete(duplicate);
+        File.Delete(duplicate + AssetDatabase.MetadataSuffix);
+        ProjectSceneReferenceRecoveryResult retry =
+            ProjectManager.ReconcileInitialScenePathFollow(recovered);
+        Project finalProject = ProjectManager.Open(manifestPath);
+        check(
+            retry.Status == ProjectSceneReferenceRecoveryStatus.RolledForward &&
+            finalProject.InitialScene == "Assets/Scenes/RecoveredAgain.acscene" &&
+            !ProjectManager.HasPendingInitialScenePathFollow(finalProject),
+            "deferred recovery remains retryable after identity ambiguity is removed");
+
+        BuildInitialSceneSnapshot buildSnapshot =
+            BuildService.CaptureInitialSceneSnapshot(finalProject);
+        PackageProjectInfo packageSnapshot = PackagingService.ProjectInfo(finalProject);
+        bool finalPublishStateAccepted = true;
+        try
+        {
+            using AssetMutationLock publishLease = AssetMutationLock.AcquireFailFast(
+                finalProject.AssetsDir,
+                "Scene save self-test package publish");
+            PackageCore.ValidateProjectSceneStateForPublish(
+                packageSnapshot,
+                finalProject.CanonicalSceneAssetId);
+        }
+        catch
+        {
+            finalPublishStateAccepted = false;
+        }
+
+        string publishRaceDestination =
+            Path.Combine(scenes, "PublishRace.acscene");
+        ProjectSceneReferenceMoveIntent publishRaceIntent =
+            ProjectManager.PrepareInitialScenePathFollow(
+                finalProject,
+                Guid.NewGuid(),
+                publishRaceDestination);
+        bool finalPublishBlocked = false;
+        try
+        {
+            PackageCore.ValidateProjectSceneStateForPublish(
+                packageSnapshot,
+                finalProject.CanonicalSceneAssetId);
+        }
+        catch (PackageValidationException error)
+        {
+            finalPublishBlocked = error.Issues.Any(issue =>
+                issue.Code == "PROJECT_CHANGED_DURING_PACKAGE");
+        }
+        ProjectSceneReferenceRecoveryResult publishRaceSettlement =
+            ProjectManager.SettleInitialScenePathFollow(
+                finalProject,
+                publishRaceIntent,
+                operationSucceeded: false,
+                referencesCommitted: false);
+        check(
+            finalPublishStateAccepted &&
+            finalPublishBlocked &&
+            publishRaceSettlement.Status ==
+                ProjectSceneReferenceRecoveryStatus.Aborted &&
+            !ProjectManager.HasPendingInitialScenePathFollow(finalProject),
+            "package final publish revalidates identity and refuses a newly prepared scene move");
+
+        string previousBuildScenePath = finalProject.InitialScenePath;
+        ProjectSceneReferenceMoveIntent committedRaceIntent =
+            ProjectManager.PrepareInitialScenePathFollow(
+                finalProject,
+                Guid.NewGuid(),
+                publishRaceDestination);
+        File.Move(previousBuildScenePath, publishRaceDestination);
+        File.Move(
+            previousBuildScenePath + AssetDatabase.MetadataSuffix,
+            publishRaceDestination + AssetDatabase.MetadataSuffix);
+        _ = ProjectManager.FollowInitialScenePath(
+            finalProject,
+            publishRaceDestination);
+        ProjectSceneReferenceRecoveryResult committedRaceSettlement =
+            ProjectManager.SettleInitialScenePathFollow(
+                finalProject,
+                committedRaceIntent,
+                operationSucceeded: true,
+                referencesCommitted: true);
+
+        File.WriteAllText(previousBuildScenePath, "replacement-at-stale-build-path");
+        JsonObject replacementMetadata =
+            JsonNode.Parse(File.ReadAllText(
+                publishRaceDestination + AssetDatabase.MetadataSuffix))!.AsObject();
+        replacementMetadata["id"] = Guid.NewGuid().ToString("N");
+        replacementMetadata["source"] = buildSnapshot.InitialScene;
+        File.WriteAllText(
+            previousBuildScenePath + AssetDatabase.MetadataSuffix,
+            replacementMetadata.ToJsonString());
+        string staleBuildCopy = Path.Combine(
+            projectRoot,
+            "BuildRaceOutput",
+            "main.acscene");
+        bool staleBuildCopyRejected = false;
+        try
+        {
+            BuildService.CopyInitialSceneForBuild(
+                finalProject,
+                buildSnapshot,
+                staleBuildCopy);
+        }
+        catch (InvalidDataException)
+        {
+            staleBuildCopyRejected = true;
+        }
+        check(
+            committedRaceSettlement.Status ==
+                ProjectSceneReferenceRecoveryStatus.AlreadyComplete &&
+            staleBuildCopyRejected &&
+            !File.Exists(staleBuildCopy),
+            "build final publish rejects a completed scene move even when the stale path is recreated");
+        File.Delete(previousBuildScenePath);
+        File.Delete(previousBuildScenePath + AssetDatabase.MetadataSuffix);
+
+        string malformedJournal = Path.Combine(
+            assets,
+            AssetDatabase.InternalDirectoryName,
+            "scene-reference-follow.v1.json");
+        File.WriteAllText(malformedJournal, "{}");
+        bool malformedFailedClosed = false;
+        try
+        {
+            _ = ProjectManager.Open(manifestPath);
+        }
+        catch (InvalidDataException)
+        {
+            malformedFailedClosed = true;
+        }
+        check(
+            malformedFailedClosed &&
+            ProjectManager.HasPendingInitialScenePathFollow(finalProject),
+            "malformed recovery journals are retained and keep project open fail-closed");
+        File.Delete(malformedJournal);
+    }
+
+    private static void CheckCombinedAssetAndSceneRecovery(
+        string root,
+        Action<bool, string> check)
+    {
+        string projectRoot = Path.Combine(root, "CombinedStartupRecoveryProject");
+        string assets = Path.Combine(projectRoot, "Assets");
+        string scenes = Path.Combine(assets, "Scenes");
+        string imported = Path.Combine(assets, "Imported");
+        string config = Path.Combine(projectRoot, "Config");
+        string sources = Path.Combine(projectRoot, "ExternalSources");
+        Directory.CreateDirectory(scenes);
+        Directory.CreateDirectory(imported);
+        Directory.CreateDirectory(config);
+        Directory.CreateDirectory(sources);
+
+        const string sceneId = "33333333333333333333333333333333";
+        string manifestPath = Path.Combine(projectRoot, "Combined.acsproject");
+        File.WriteAllText(
+            manifestPath,
+            $$"""
+            {
+              "version": 1,
+              "name": "Combined",
+              "engineVersion": "self-test",
+              "template": "blank",
+              "initialScene": "Assets/main.acscene",
+              "canonicalSceneAssetId": "{{sceneId}}"
+            }
+            """);
+        string settingsPath = Path.Combine(config, "ProjectSettings.ini");
+        File.WriteAllText(
+            settingsPath,
+            """
+            [Game]
+            DefaultScene=Assets/main.acscene
+            """);
+        string sourceScene = Path.Combine(assets, "main.acscene");
+        File.WriteAllText(sourceScene, "combined-recovery-scene");
+        File.WriteAllText(
+            sourceScene + AssetDatabase.MetadataSuffix,
+            $$"""
+            {
+              "schemaVersion": 1,
+              "id": "{{sceneId}}",
+              "kind": "scene",
+              "source": "Assets/main.acscene",
+              "importer": "legacy-acscene",
+              "importerVersion": 1,
+              "dependencies": [],
+              "importSettings": {}
+            }
+            """);
+
+        Project project = ProjectManager.ReadManifest(manifestPath);
+        var database = AssetDatabase.ForProject(project);
+        string external = Path.Combine(sources, "interrupted.bin");
+        File.WriteAllText(external, "interrupted-import");
+        bool importCrashed = false;
+        try
+        {
+            _ = AssetImportWorkflow.ImportFiles(
+                database,
+                imported,
+                new[] { external },
+                testHooks: new AssetImportTestHooks(
+                    SimulateCrashAfter: AssetImportCheckpoint.AssetPublished));
+        }
+        catch (AssetImportSimulatedCrashException)
+        {
+            importCrashed = true;
+        }
+
+        string importedAsset = Path.Combine(imported, "interrupted.bin");
+        string destinationScene = Path.Combine(scenes, "Recovered.acscene");
+        string journalPath = Path.Combine(
+            assets,
+            AssetDatabase.InternalDirectoryName,
+            "scene-reference-follow.v1.json");
+        File.WriteAllText(
+            journalPath,
+            JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                operationId = Guid.NewGuid().ToString("D"),
+                projectFileName = Path.GetFileName(manifestPath),
+                sourceReference = "Assets/main.acscene",
+                destinationReference = "Assets/Scenes/Recovered.acscene",
+                assetId = sceneId,
+                createdUtcTicks = DateTime.UtcNow.Ticks,
+            }));
+        File.Move(sourceScene, destinationScene);
+        File.Move(
+            sourceScene + AssetDatabase.MetadataSuffix,
+            destinationScene + AssetDatabase.MetadataSuffix);
+
+        Project recovered = ProjectManager.Open(manifestPath);
+        var recoveredDatabase = AssetDatabase.ForProject(recovered);
+        _ = recoveredDatabase.Refresh(verifyContent: true);
+        bool importRecovered =
+            recoveredDatabase.TryGetByPath(importedAsset, out AssetRecord? importedRecord) &&
+            importedRecord != null &&
+            File.Exists(importedAsset + AssetDatabase.MetadataSuffix);
+        bool stagingEmpty = !Directory.EnumerateFileSystemEntries(
+                Path.Combine(
+                    assets,
+                    AssetDatabase.InternalDirectoryName,
+                    AssetImportWorkflow.StagingDirectoryName))
+            .Any();
+        check(
+            importCrashed &&
+            importRecovered &&
+            stagingEmpty &&
+            recovered.InitialScene == "Assets/Scenes/Recovered.acscene" &&
+            ReadIniValue(settingsPath, "Game", "DefaultScene") ==
+                recovered.InitialScene &&
+            !ProjectManager.HasPendingInitialScenePathFollow(recovered),
+            "project open recovers Import before an overlapping initial-scene journal");
     }
 
     private static void CheckProjectSettingsSerialization(

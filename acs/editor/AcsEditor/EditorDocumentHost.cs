@@ -120,6 +120,69 @@ internal sealed class EditorDocument
     private bool _restoring;
     private bool _hasPendingChanges;
 
+    /// <summary>
+    /// In-memory rollback point for a larger document transaction such as File/Open. Native
+    /// payloads are owned by the caller; this checkpoint preserves history, save-point and
+    /// presentation metadata without invoking capture/restore delegates.
+    /// </summary>
+    internal sealed class Checkpoint
+    {
+        private readonly Transaction[] _history;
+        private readonly string _displayName;
+        private readonly string? _sourcePath;
+        private readonly EditorDocumentState _observed;
+        private readonly string? _savedFingerprint;
+        private readonly int _cursor;
+        private readonly int _suspendDepth;
+        private readonly int _transactionDepth;
+        private readonly EditorDocumentState? _transactionBefore;
+        private readonly string _transactionLabel;
+        private readonly string? _transactionMergeKey;
+        private readonly TimeSpan _transactionMergeWindow;
+        private readonly bool _restoring;
+        private readonly bool _hasPendingChanges;
+
+        private Checkpoint(EditorDocument document)
+        {
+            _history = document._history.ToArray();
+            _displayName = document.DisplayName;
+            _sourcePath = document.SourcePath;
+            _observed = document._observed;
+            _savedFingerprint = document._savedFingerprint;
+            _cursor = document._cursor;
+            _suspendDepth = document._suspendDepth;
+            _transactionDepth = document._transactionDepth;
+            _transactionBefore = document._transactionBefore;
+            _transactionLabel = document._transactionLabel;
+            _transactionMergeKey = document._transactionMergeKey;
+            _transactionMergeWindow = document._transactionMergeWindow;
+            _restoring = document._restoring;
+            _hasPendingChanges = document._hasPendingChanges;
+        }
+
+        internal static Checkpoint Capture(EditorDocument document) =>
+            new(document);
+
+        internal void Restore(EditorDocument document)
+        {
+            document._history.Clear();
+            document._history.AddRange(_history);
+            document.DisplayName = _displayName;
+            document.SourcePath = _sourcePath;
+            document._observed = _observed;
+            document._savedFingerprint = _savedFingerprint;
+            document._cursor = _cursor;
+            document._suspendDepth = _suspendDepth;
+            document._transactionDepth = _transactionDepth;
+            document._transactionBefore = _transactionBefore;
+            document._transactionLabel = _transactionLabel;
+            document._transactionMergeKey = _transactionMergeKey;
+            document._transactionMergeWindow = _transactionMergeWindow;
+            document._restoring = _restoring;
+            document._hasPendingChanges = _hasPendingChanges;
+        }
+    }
+
     internal EditorDocument(
         EditorDocumentId id,
         string displayName,
@@ -172,6 +235,15 @@ internal sealed class EditorDocument
         _cursor >= _history.Count ? null : Info(_history[_cursor]);
 
     internal event EventHandler? StateChanged;
+
+    internal Checkpoint CaptureCheckpoint() => Checkpoint.Capture(this);
+
+    internal void RestoreCheckpoint(Checkpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        checkpoint.Restore(this);
+        RaiseChanged();
+    }
 
     /// <summary>
     /// Cached notification state only. Querying command availability must never invoke the native

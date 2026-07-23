@@ -74,6 +74,8 @@ public partial class MainWindow : Window
         internal bool CompletionStarted { get; set; }
         internal IDisposable? CompletionLifecycle { get; set; }
         internal IDisposable? SceneEditingBlockLease { get; set; }
+        internal ProjectSceneReferenceMoveIntent? InitialSceneMoveIntent { get; set; }
+        internal bool InitialSceneReferencesCommitted { get; set; }
     }
 
     private sealed class SceneSourceSaveScope : IDisposable
@@ -247,6 +249,9 @@ public partial class MainWindow : Window
             _engineStartupTimer?.Stop();
             _engineStartupTimer = null;
             _engineStartupGeneration++;
+            _sceneLoadCancellation?.Cancel();
+            _sceneLoadCancellation = null;
+            _sceneLoadGeneration.Invalidate();
             _engineStartupInternalAccess = false;
             _engineStartupState = EditorEngineStartupState.Closed;
             SaveEditorLayout();
@@ -337,6 +342,7 @@ public partial class MainWindow : Window
             _currentScenePath,
             _scene2DPath,
             _scene3DDocumentPath);
+        string? initialSceneDestination = null;
         bool sceneAffected = scenePaths.IsAffectedBy(e);
         if (scenePaths.ShouldVeto(e))
         {
@@ -348,6 +354,14 @@ public partial class MainWindow : Window
         }
         if (_project != null && e.AffectsPath(_project.InitialScenePath))
         {
+            if (_building)
+            {
+                e.Cancel = true;
+                e.CancellationReason =
+                    "The project's initial scene cannot be changed while Build, Run, or " +
+                    "Package is in progress.";
+                return;
+            }
             if (e.Kind == AssetPathMutationKind.Delete)
             {
                 e.Cancel = true;
@@ -360,6 +374,16 @@ public partial class MainWindow : Window
             {
                 try
                 {
+                    if (!e.TryRemapPath(
+                            _project.InitialScenePath,
+                            out initialSceneDestination) ||
+                        SceneSourceFile.PathsEqual(
+                            _project.InitialScenePath,
+                            initialSceneDestination))
+                    {
+                        throw new InvalidDataException(
+                            "The asset command did not publish a distinct proposed destination.");
+                    }
                     ProjectManager.ValidateInitialSceneReferenceFollow(_project);
                 }
                 catch (Exception error)
@@ -439,6 +463,14 @@ public partial class MainWindow : Window
         {
             state.CompletionLifecycle = _assetDocumentMutationLifecycles.Enter();
             _assetDocumentMutations[e.OperationId] = state;
+            if (_project != null && initialSceneDestination != null)
+            {
+                state.InitialSceneMoveIntent =
+                    ProjectManager.PrepareInitialScenePathFollow(
+                        _project,
+                        e.OperationId,
+                        initialSceneDestination);
+            }
             if (suspendOpenScene)
             {
                 // Commit any already-focused Inspector edit before the document is suspended.
@@ -546,6 +578,22 @@ public partial class MainWindow : Window
                     Log(
                         $"Initial scene references followed asset path: " +
                         $"{update.PreviousReference} -> {update.CurrentReference}");
+                }
+                foreach (AssetDocumentMutationState mutation in
+                         _assetDocumentMutations.Values)
+                {
+                    ProjectSceneReferenceMoveIntent? intent =
+                        mutation.InitialSceneMoveIntent;
+                    if (intent == null) continue;
+                    string proposed = Path.Combine(
+                        _project.RootDir,
+                        intent.DestinationReference.Replace(
+                            '/',
+                            Path.DirectorySeparatorChar));
+                    if (!SceneSourceFile.PathsEqual(proposed, remappedInitialScene))
+                        continue;
+                    mutation.InitialSceneReferencesCommitted = true;
+                    break;
                 }
             }
             catch (Exception error)
@@ -726,6 +774,25 @@ public partial class MainWindow : Window
         {
             try
             {
+                if (state.InitialSceneMoveIntent != null && _project != null)
+                {
+                    ProjectSceneReferenceRecoveryResult settlement =
+                        ProjectManager.SettleInitialScenePathFollow(
+                            _project,
+                            state.InitialSceneMoveIntent,
+                            e.Succeeded,
+                            state.InitialSceneReferencesCommitted);
+                    state.InitialSceneMoveIntent = null;
+                    if (settlement.Status ==
+                        ProjectSceneReferenceRecoveryStatus.Deferred)
+                    {
+                        Log(
+                            "Initial-scene move recovery remains pending: " +
+                            settlement.Message,
+                            "Asset",
+                            LogLevel.Error);
+                    }
+                }
                 if (state.SuspendedSceneDocument != null)
                 {
                     try
@@ -1090,6 +1157,10 @@ public partial class MainWindow : Window
     {
         _engineStartupState = EditorEngineStartupState.WaitingForAttach;
         StatusText.Text = "Attaching renderer...";
+        ViewportLoadingTitle.Text = "Loading scene…";
+        ViewportLoadingDetail.Text = "Attaching the renderer";
+        ViewportLoadingOverlay.Visibility = Visibility.Visible;
+        UpdateEditorInputEnabled();
         Log("ACS Editor started.");
 
         _viewport = new EngineViewport();
@@ -1129,6 +1200,7 @@ public partial class MainWindow : Window
             RunWithStartupEngineAccess(LoadProjectSettings);
         ViewportHost.IsHitTestVisible = false;
         StatusText.Text = "Initializing renderer...";
+        ViewportLoadingDetail.Text = "Initializing renderer…";
 
         _engineStartupTimer?.Stop();
         _engineStartupTimer = new System.Windows.Threading.DispatcherTimer(
@@ -1155,6 +1227,8 @@ public partial class MainWindow : Window
             engine, out uint completed, out uint total);
         uint percent = total == 0 ? 0 : Math.Min(100u, completed * 100u / total);
         StatusText.Text = $"Initializing renderer... {percent}%  ({completed}/{total})";
+        ViewportLoadingDetail.Text =
+            $"Initializing renderer… {percent}%  ({completed}/{total})";
         if (state < 0)
         {
             FailEngineStartup("Renderer startup failed.");
@@ -1210,6 +1284,12 @@ public partial class MainWindow : Window
             $"Initializing editor... {stage + 1}/{EngineStartupCompletionStageCount}  " +
             EngineStartupCompletionStageName(stage);
 
+        if (stage == 1)
+        {
+            _ = ContinueEngineStartupAfterSceneLoadAsync(generation);
+            return;
+        }
+
         try
         {
             RunWithStartupEngineAccess(() =>
@@ -1220,9 +1300,6 @@ public partial class MainWindow : Window
                         // AssetBrowser.SetProject performs its index refresh asynchronously;
                         // do not synchronously rescan the project at GPU attach time.
                         if (_project != null) LoadUserTypes();
-                        break;
-                    case 1:
-                        if (_project != null) LoadProjectScene();
                         break;
                     case 2:
                         ApplyStartupCamera();
@@ -1275,11 +1352,49 @@ public partial class MainWindow : Window
 
         _engineStartupState = EditorEngineStartupState.Ready;
         StatusText.Text = "Ready";
+        UpdateEditorInputEnabled();
         // Input-free validation is enforced at both HWND message boundaries;
         // leave the HwndHost enabled for normal DXGI composition.
-        ViewportHost.IsHitTestVisible = true;
+        ViewportHost.IsHitTestVisible = !IsSceneEditingBlocked;
         CommandManager.InvalidateRequerySuggested();
         Log("Editor startup complete — viewport is ready.");
+    }
+
+    private async Task ContinueEngineStartupAfterSceneLoadAsync(int generation)
+    {
+        try
+        {
+            bool completed = await InitializeProjectSceneDocument(generation);
+            if (!completed)
+            {
+                if (generation == _engineStartupGeneration &&
+                    _engineStartupState == EditorEngineStartupState.FinalizingEditor)
+                {
+                    FailEngineStartup(
+                        "The initial scene load was cancelled before a scene could be published.");
+                }
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            if (generation == _engineStartupGeneration &&
+                _engineStartupState == EditorEngineStartupState.FinalizingEditor)
+            {
+                FailEngineStartup(
+                    "Editor initialization failed during 'project scene'.",
+                    ex);
+            }
+            return;
+        }
+
+        if (generation != _engineStartupGeneration ||
+            _engineStartupState != EditorEngineStartupState.FinalizingEditor)
+        {
+            return;
+        }
+        _engineStartupCompletionStage++;
+        QueueEngineStartupCompletionStage(generation);
     }
 
     private void ApplyStartupCamera()
@@ -1351,6 +1466,7 @@ public partial class MainWindow : Window
         _engineStartupInternalAccess = false;
         _engineStartupState = EditorEngineStartupState.Failed;
         AssetBrowser.Engine = IntPtr.Zero;
+        InvalidateSceneLoad(detail);
         ViewportHost.IsHitTestVisible = false;
         _viewport?.SuspendRenderPumpForStartupFailure();
         StatusText.Text = "Renderer initialization failed — see Console";
@@ -1537,12 +1653,6 @@ public partial class MainWindow : Window
             "Scene",
             LogLevel.Warn);
         return false;
-    }
-
-    // プロジェクトの初期シーンを拡張子に対応する document/parser でロードする。
-    private void LoadProjectScene()
-    {
-        InitializeProjectSceneDocument();
     }
 
     // GameObject メニュー: 空ノードを生成 (root 直下 / 選択ノードの子)。
@@ -2979,22 +3089,38 @@ public partial class MainWindow : Window
         if (!EnsureBuildSceneCompatibility("Standalone Run")) return;
         ShowBottomTab("build");
         BuildLog($"==== Build Standalone: {_project.Name} ====");
+        using BuildWorkflowLease workflow = BeginBuildWorkflow();
         _building = true;
         SetBuildUiEnabled(false);
         try
         {
             // Autosave cleanup is asynchronous; reserve the build slot before awaiting it.
             if (!await SaveSceneForBuildAsync()) return;
+            workflow.Token.ThrowIfCancellationRequested();
             bool force = _pendingReconfigure;
             _pendingReconfigure = false;
-            string? exe = await BuildService.BuildAsync(_project, BuildLog, force, standalone: true);
+            string? exe = await BuildService.BuildAsync(
+                _project,
+                BuildLog,
+                force,
+                standalone: true,
+                cancellationToken: workflow.Token);
+            workflow.Token.ThrowIfCancellationRequested();
             if (exe != null)
             {
                 LoadUserTypes();
-                if (_gameProcess != null && !_gameProcess.HasExited)
-                { try { _gameProcess.Kill(); _gameProcess.WaitForExit(2000); } catch { } }
+                workflow.Token.ThrowIfCancellationRequested();
+                await StopGameProcessForReplacementAsync(
+                    _gameProcess,
+                    workflow.Token);
+                workflow.Token.ThrowIfCancellationRequested();
                 _gameProcess = BuildService.Run(_project, BuildLog);
             }
+        }
+        catch (OperationCanceledException)
+            when (workflow.IsCancellationRequested)
+        {
+            BuildLog("Standalone Build/Run cancelled during editor shutdown.");
         }
         catch (Exception ex) { BuildLog("Build エラー: " + ex.Message); }
         finally { _building = false; SetBuildUiEnabled(true); }
@@ -3008,20 +3134,41 @@ public partial class MainWindow : Window
         if (!EnsureBuildSceneCompatibility(run ? "Build & Run" : "Build")) return;
         ShowBottomTab("build");
         BuildLog($"==== Build: {_project.Name} ====");
+        using BuildWorkflowLease workflow = BeginBuildWorkflow();
         _building = true;
         SetBuildUiEnabled(false);
         try
         {
             // Source save and recovery cleanup are part of the build transaction.
             if (!await SaveSceneForBuildAsync()) return;
+            workflow.Token.ThrowIfCancellationRequested();
             bool force = _pendingReconfigure;
             _pendingReconfigure = false;
-            string? exe = await BuildService.BuildAsync(_project, BuildLog, force);
+            string? exe = await BuildService.BuildAsync(
+                _project,
+                BuildLog,
+                force,
+                cancellationToken: workflow.Token);
+            workflow.Token.ThrowIfCancellationRequested();
             if (exe != null)
             {
                 LoadUserTypes();          // リフレクション DLL からユーザー定義型を取り込む
-                if (run) RunGame();
+                workflow.Token.ThrowIfCancellationRequested();
+                if (run)
+                {
+                    workflow.Token.ThrowIfCancellationRequested();
+                    await StopGameProcessForReplacementAsync(
+                        _gameProcess,
+                        workflow.Token);
+                    workflow.Token.ThrowIfCancellationRequested();
+                    RunGame();
+                }
             }
+        }
+        catch (OperationCanceledException)
+            when (workflow.IsCancellationRequested)
+        {
+            BuildLog("Build cancelled during editor shutdown.");
         }
         catch (Exception ex) { BuildLog("Build エラー: " + ex.Message); }
         finally
@@ -3038,6 +3185,13 @@ public partial class MainWindow : Window
         if (Engine == IntPtr.Zero || _project == null)
         {
             BuildLog("Scene save failed: the editor engine or project is unavailable. Build aborted.");
+            return false;
+        }
+        if (ProjectManager.HasPendingInitialScenePathFollow(_project))
+        {
+            BuildLog(
+                "Scene save failed: [INITIAL_SCENE_MOVE_PENDING] an interrupted initial-scene " +
+                "move still requires recovery. Build/Run/Package was aborted.");
             return false;
         }
         if (!TryBeginSceneSourceSave(
@@ -3176,10 +3330,6 @@ public partial class MainWindow : Window
     private void RunGame()
     {
         if (_project == null) return;
-        if (_gameProcess != null && !_gameProcess.HasExited)
-        {
-            try { _gameProcess.Kill(); _gameProcess.WaitForExit(2000); } catch { }
-        }
         // Play を作り直すため、既に Game View ならいったん Scene に戻してから入り直す。
         if (Engine != IntPtr.Zero && EngineInterop.acs_editor_is_game_view(Engine) != 0) SetGameView(false);
         SetGameView(true);
@@ -4619,6 +4769,12 @@ public partial class MainWindow : Window
             if (recoveryDecision == SceneRecoveryDecision.Cancel) return;
         }
         if (!await ConfirmSceneReplacementAsync()) return;
+        ActiveSceneLoad sceneLoad = BeginSceneLoad(
+            $"Reading {System.IO.Path.GetFileName(selectedPath)}");
+        bool publishScene = false;
+        SceneOpenRollbackSnapshot? rollback = null;
+        SceneRecoveryCandidate? recoveryToApply = null;
+        bool nativeLoadAttempted = false;
         try
         {
             if (recovery != null && recoveryDecision == SceneRecoveryDecision.Discard)
@@ -4626,19 +4782,29 @@ public partial class MainWindow : Window
                     recovery.Identity,
                     resumeAfter: !_replacementAutosaveSuppressed);
 
-            string text = System.IO.File.ReadAllText(
-                selectedPath,
-                System.Text.Encoding.UTF8);
-            string rollback = selectedUses3D
-                ? EngineInterop.Scene3DText(Engine)
-                : EngineInterop.SceneText(Engine);
+            SceneSourceFile.ReadResult source =
+                await SceneSourceFile.ReadBoundedTextAsync(
+                    selectedPath,
+                    sceneLoad.Cancellation.Token);
+            if (!source.Exists)
+                throw new FileNotFoundException(
+                    "The selected scene source no longer exists.",
+                    selectedPath);
+            string text = source.Text!;
+            if (!IsCurrentSceneLoad(sceneLoad))
+                return;
+
+            // Manual Open is non-destructive until parsing succeeds. The loading gate hides the
+            // current scene, but path/dirty/history and the inactive compatibility payload are
+            // committed only after the selected parser accepts the source.
+            rollback = CaptureSceneOpenRollbackSnapshot();
+            _sceneOpenTransactionInProgress = true;
+            nativeLoadAttempted = true;
             int ok = selectedUses3D
                 ? EngineInterop.acs_editor_scene3d_load_text(Engine, text)
                 : EngineInterop.acs_editor_scene_load_text(Engine, text);
             if (ok != 0)
             {
-                // Opening a legacy source is the explicit adapter boundary. The inactive payload is
-                // cleared rather than silently displayed when a viewport preset changes.
                 if (selectedUses3D)
                     EngineInterop.acs_editor_scene_new(Engine);
                 else
@@ -4653,13 +4819,9 @@ public partial class MainWindow : Window
                     EditorSceneViewModePolicy.InitialForLegacySource(selectedPath);
                 EditorSceneViewDescriptor openedView =
                     EditorSceneViewModePolicy.Describe(_sceneViewMode);
-                if (selectedUses3D)
-                {
-                    EngineInterop.acs_editor_set_ortho3d(
-                        Engine,
-                        openedView.IsOrthographic ? 1 : 0);
-                }
-
+                EngineInterop.acs_editor_set_ortho3d(
+                    Engine,
+                    selectedUses3D && openedView.IsOrthographic ? 1 : 0);
                 _scene2DPath = selectedUses3D ? null : selectedPath;
                 _scene3DDocumentPath = selectedUses3D ? selectedPath : null;
                 _scene2DInitialized = !selectedUses3D;
@@ -4670,30 +4832,105 @@ public partial class MainWindow : Window
                 ApplySceneViewModePresentation();
                 RefreshAfterSceneChange();
                 MarkSceneClean(); // compare against the native canonical form, not source whitespace/order
-                ResetSceneDocumentHistory(_view3d, markSaved: true);
                 Log(
                     $"Loaded scene source ({(selectedUses3D ? ".acs3d" : ".acscene")}) " +
                     $"← {selectedPath}");
                 if (recovery != null && recoveryDecision == SceneRecoveryDecision.Recover)
-                    await ApplyRecoveryCandidateAsync(recovery);
+                    recoveryToApply = recovery;
+                // This is the final fallible managed commit. If its change notification throws,
+                // the catch path restores the document checkpoint together with both native graphs.
+                ResetSceneDocumentHistory(_view3d, markSaved: true);
+                publishScene = true;
             }
             else
             {
-                if (selectedUses3D)
-                    EngineInterop.acs_editor_scene3d_load_text(Engine, rollback);
+                bool restored = rollback != null &&
+                    RestoreSceneOpenRollbackSnapshot(rollback);
+                if (restored)
+                {
+                    Log(
+                        "Scene load failed (unrecognized format). The current scene was restored unchanged.",
+                        "Scene",
+                        LogLevel.Error);
+                }
                 else
-                    EngineInterop.acs_editor_scene_load_text(Engine, rollback);
-                Log("Scene load failed (unrecognized format).");
+                {
+                    // A rejected parser is allowed to have partially mutated native state. If
+                    // canonical rollback itself is rejected, fail closed to an explicit blank.
+                    _legacySceneSourceMode = selectedSourceMode;
+                    _view3d = selectedUses3D;
+                    EstablishEmptySceneDocument(
+                        selectedUses3D,
+                        sourcePath: null,
+                        keepSourcePath: false);
+                    ApplySceneViewModePresentation();
+                    RefreshAfterSceneChange();
+                    MarkSceneDirty();
+                    ResetSceneDocumentHistory(_view3d, markSaved: false);
+                    Log(
+                        "Scene load and native rollback both failed. The viewport was reset " +
+                        "to a detached empty scene.",
+                        "Scene",
+                        LogLevel.Error);
+                }
+                publishScene = true;
             }
+        }
+        catch (OperationCanceledException)
+            when (!IsCurrentSceneLoad(sceneLoad) ||
+                  sceneLoad.Cancellation.IsCancellationRequested)
+        {
+            // A newer generation or editor shutdown owns presentation and input recovery.
         }
         catch (Exception ex)
         {
-            Log("Open failed: " + ex.Message);
+            if (IsCurrentSceneLoad(sceneLoad))
+            {
+                bool restored = !nativeLoadAttempted;
+                if (!restored && rollback != null)
+                {
+                    restored = RestoreSceneOpenRollbackSnapshot(rollback);
+                }
+                if (restored)
+                {
+                    Log(
+                        "Open failed; the current scene remains active: " + ex.Message,
+                        "Scene",
+                        LogLevel.Error);
+                }
+                else if (Engine != IntPtr.Zero)
+                {
+                    _legacySceneSourceMode = selectedSourceMode;
+                    _view3d = selectedUses3D;
+                    EstablishEmptySceneDocument(
+                        selectedUses3D,
+                        sourcePath: null,
+                        keepSourcePath: false);
+                    ApplySceneViewModePresentation();
+                    RefreshAfterSceneChange();
+                    MarkSceneDirty();
+                    ResetSceneDocumentHistory(_view3d, markSaved: false);
+                    Log(
+                        "Open failed and native rollback was unavailable. The viewport was " +
+                        "reset to a detached empty scene: " + ex.Message,
+                        "Scene",
+                        LogLevel.Error);
+                }
+                publishScene = true;
+            }
         }
         finally
         {
+            _sceneOpenTransactionInProgress = false;
+            CompleteSceneLoad(sceneLoad, publishScene);
             CompleteSceneReplacementAutosave();
         }
+
+        // Recovery is a separate verified transaction over the now-published source baseline.
+        // Keeping its worker waits outside File/Open prevents an await or autosave failure from
+        // rolling a successfully committed source into a mixed managed/native state.
+        if (publishScene && recoveryToApply != null)
+            await ApplyRecoveryCandidateAsync(recoveryToApply);
     }
 
     private async void OnSaveScene(object sender, RoutedEventArgs e) =>

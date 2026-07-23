@@ -45,6 +45,8 @@ public sealed class AssetItem : INotifyPropertyChanged
     public string Name { get; init; } = "";
     public string Kind { get; init; } = "file";
     public bool IsDirectory { get; init; }
+    public long SizeBytes { get; init; } = -1;
+    public long LastWriteUtcTicks { get; init; }
     public string Glyph { get; init; } = "";
     public Brush GlyphBrush { get; init; } = Brushes.Gray;
     public ImageSource? Thumb
@@ -101,6 +103,9 @@ public sealed class AssetItem : INotifyPropertyChanged
 /// <summary>プロジェクトの Assets フォルダを走査・分類して表示し、ノードへの割当 / インポートを行う。</summary>
 public partial class AssetBrowserPanel : UserControl
 {
+    private static readonly TimeSpan ImageRequestDrainGrace =
+        TimeSpan.FromMilliseconds(250);
+
     public ObservableCollection<AssetItem> Items { get; } = new();
     private ObservableCollection<AssetBrowserSourceNode> SourceRoots { get; } = new();
     private ObservableCollection<AssetBrowserFavoriteView> FavoriteItems { get; } = new();
@@ -143,20 +148,24 @@ public partial class AssetBrowserPanel : UserControl
     private bool _refreshPendingAfterOperation;
     private readonly SemaphoreSlim _assetOperationGate = new(1, 1);
     private readonly AssetOperationLifecycleTracker _assetOperationLifecycles = new();
-    private readonly SemaphoreSlim _imageLoadGate = new(2, 2);
+    private readonly AssetImageDecodeCoordinator _imageLoads = new(2);
+    private readonly AssetOperationLifecycleTracker _imageRequestLifecycles = new();
+    private readonly AssetOperationLifecycleTracker _imageDrainLifecycles = new();
+    private Task _imageLoadDrainTask = Task.CompletedTask;
+    private bool _thumbnailRefreshPendingAfterImageDrain;
+    private bool _previewRefreshPendingAfterImageDrain;
     private IReadOnlyList<AssetRecord> _assetSnapshot = Array.Empty<AssetRecord>();
     private readonly List<string> _assetClipboardPaths = new();
     private readonly List<string> _collectionCandidatePaths = new();
     private readonly HashSet<string> _viewSelectionPaths =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<AssetItem> _publishedThumbnailItems = new();
     private string? _pendingCreatedRenamePath;
     private bool _assetClipboardCut;
     private AssetItem? _dragItem;
     private AssetItem? _dropTargetItem;
     private ContextMenu? _dropActionMenu;
-    private readonly object _thumbnailCacheGate = new();
-    private readonly Dictionary<string, ThumbnailCacheEntry> _thumbnailCache =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly AssetImageCache _thumbnailCache = new();
 
     /// <summary>画像/音声などのアセットがアクティブ化されたとき (MainWindow が割当を担う)。</summary>
     public event EventHandler<AssetActivatedEventArgs>? AssetActivated;
@@ -200,7 +209,7 @@ public partial class AssetBrowserPanel : UserControl
     /// <summary>表示対象のプロジェクトを設定し、Assets フォルダの監視と一覧表示を開始する。</summary>
     public void SetProject(Project? project)
     {
-        FlushAssetViewPresentation();
+        _ = FlushAssetViewPresentation();
         int generation = ++_projectRefreshGeneration;
         ResetAssetDragState(closeActionMenu: true);
         _projectRefreshCancellation?.Cancel();
@@ -210,7 +219,7 @@ public partial class AssetBrowserPanel : UserControl
         _sourcesTreeCancellation?.Cancel();
         _sourcesTreeCancellation?.Dispose();
         _sourcesTreeCancellation = null;
-        CancelImageLoads();
+        _imageLoadDrainTask = BeginImageLoadDrain(suspend: false);
         _project = project;
         _assetDatabase = null;
         _sourcesStore = null;
@@ -278,16 +287,35 @@ public partial class AssetBrowserPanel : UserControl
         using IDisposable lifecycle = _assetOperationLifecycles.Enter();
         AssetDatabase database;
         AssetDatabaseRefreshResult result;
+        AssetImportReconciliationResult importRecovery;
+        AssetImportReconciliationResult reimportRecovery;
         try
         {
-            (database, result) = await RunAssetOperationAsync(
+            (database, result, importRecovery, reimportRecovery) =
+                await RunAssetOperationAsync(
                 () =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     AssetDatabase candidate = AssetDatabase.ForProject(project);
+                    AssetImportReconciliationResult recovery =
+                        AssetImportWorkflow.Reconcile(
+                            candidate,
+                            cancellationToken);
+                    ThrowIfImportRecoveryIsAmbiguous(recovery, "Import");
+                    AssetImportReconciliationResult replacementRecovery =
+                        AssetReimportWorkflow.Reconcile(
+                            candidate,
+                            cancellationToken);
+                    ThrowIfImportRecoveryIsAmbiguous(
+                        replacementRecovery,
+                        "Reimport");
                     AssetDatabaseRefreshResult refreshed = candidate.Refresh(
                         cancellationToken: cancellationToken);
-                    return (candidate, refreshed);
+                    return (
+                        candidate,
+                        refreshed,
+                        recovery,
+                        replacementRecovery);
                 },
                 waitForTurn: true,
                 cancellationToken);
@@ -315,6 +343,24 @@ public partial class AssetBrowserPanel : UserControl
         _assetSnapshot = database.Snapshot();
         UpdateAssetOperationUi();
         ReportIndexResult(result);
+        foreach (string warning in importRecovery.Warnings)
+            Log?.Invoke("Import recovery: " + warning);
+        if (importRecovery.CompletedTransactions != 0 ||
+            importRecovery.DiscardedTransactions != 0)
+        {
+            Log?.Invoke(
+                $"Import recovery completed {importRecovery.CompletedTransactions} " +
+                $"and discarded {importRecovery.DiscardedTransactions} interrupted transaction(s).");
+        }
+        foreach (string warning in reimportRecovery.Warnings)
+            Log?.Invoke("Reimport recovery: " + warning);
+        if (reimportRecovery.CompletedTransactions != 0 ||
+            reimportRecovery.DiscardedTransactions != 0)
+        {
+            Log?.Invoke(
+                $"Reimport recovery completed {reimportRecovery.CompletedTransactions} " +
+                $"and restored {reimportRecovery.DiscardedTransactions} interrupted transaction(s).");
+        }
 
         StartWatcher(project, generation);
 
@@ -322,6 +368,21 @@ public partial class AssetBrowserPanel : UserControl
         RefreshSavedSources();
         RefreshView();
         ScheduleTrashMaintenance(database, generation);
+    }
+
+    private static void ThrowIfImportRecoveryIsAmbiguous(
+        AssetImportReconciliationResult recovery,
+        string operation)
+    {
+        if (recovery.PreservedTransactions == 0)
+            return;
+        string details = recovery.Warnings.Count == 0
+            ? ""
+            : " " + string.Join(" ", recovery.Warnings);
+        throw new IOException(
+            $"{operation} recovery preserved {recovery.PreservedTransactions} ambiguous " +
+            "transaction(s); asset indexing was stopped to avoid synthesizing metadata for " +
+            "an incomplete publication." + details);
     }
 
     private void OnFsEvent(object sender, FileSystemEventArgs e)
@@ -528,12 +589,14 @@ public partial class AssetBrowserPanel : UserControl
 
     private AssetPathMutationStartingEventArgs? BeginAssetPathMutation(
         AssetPathMutationKind kind,
-        IEnumerable<string> affectedRoots)
+        IEnumerable<string> affectedRoots,
+        IEnumerable<AssetPathMapping>? proposedMappings = null)
     {
         var operation = new AssetPathMutationStartingEventArgs(
             Guid.NewGuid(),
             kind,
-            affectedRoots);
+            affectedRoots,
+            proposedMappings);
         if (AssetPathMutationStarting != null)
         {
             foreach (EventHandler<AssetPathMutationStartingEventArgs> handler in
@@ -561,6 +624,17 @@ public partial class AssetBrowserPanel : UserControl
         ReportAssetOperationFailure(reason);
         return null;
     }
+
+    private static AssetPathMapping[] ProposedMoveMappings(
+        IEnumerable<string> sourcePaths,
+        string destinationDirectory) =>
+        AssetPathBoundary.CollapseRoots(sourcePaths)
+            .Select(source => new AssetPathMapping(
+                source,
+                Path.Combine(
+                    destinationDirectory,
+                    Path.GetFileName(Path.TrimEndingDirectorySeparator(source)))))
+            .ToArray();
 
     private void CompleteAssetPathMutation(
         AssetPathMutationStartingEventArgs? operation,
@@ -613,7 +687,8 @@ public partial class AssetBrowserPanel : UserControl
 
     public async Task SuspendOperationsAndWaitAsync()
     {
-        FlushAssetViewPresentation();
+        Task presentationSave = FlushAssetViewPresentation();
+        SuspendAssetViewPresentationIo();
         _assetOperationsSuspended = true;
         _projectRefreshCancellation?.Cancel();
         CancelViewMaterialization();
@@ -623,7 +698,9 @@ public partial class AssetBrowserPanel : UserControl
         _filterDebounce.Stop();
         _thumbnailViewportDebounce.Stop();
         _sourcesTreeCancellation?.Cancel();
-        CancelImageLoads();
+        Task previousImageDrain = _imageLoadDrainTask;
+        Task imageDrain = BeginImageLoadDrain(suspend: true);
+        _imageLoadDrainTask = imageDrain;
         ResetAssetDragState(closeActionMenu: true);
         UpdateAssetOperationUi();
         try
@@ -652,14 +729,24 @@ public partial class AssetBrowserPanel : UserControl
             await _assetOperationLifecycles.WaitForDrainAsync();
             if (_assetOperationLifecycles.InFlightCount == 0) break;
         }
-        await _imageLoadGate.WaitAsync();
-        _imageLoadGate.Release();
+        // キュー中／実行中のすべてのデコードと、コーディネーターの後処理を待機する。
+        // 2 枠のセマフォから 1 枠を取得しただけでは、もう一方のデコーダーの終了を証明できない。
+        await Task.WhenAll(previousImageDrain, imageDrain);
+        await _imageDrainLifecycles.WaitForDrainAsync();
+        // 表示設定ストレージは低速または一時的に利用不能なボリューム上にある可能性がある。
+        // 実行中の原子的保存には短い非同期猶予を与えるが、エディターのクローズを
+        // 無制限の同期設定 I/O に依存させない。
+        _ = await WaitForAssetViewPresentationSaveAsync(
+            presentationSave,
+            TimeSpan.FromMilliseconds(75));
     }
 
     public void ResumeOperations()
     {
         if (!_assetOperationsSuspended) return;
         _assetOperationsSuspended = false;
+        _imageLoads.Resume();
+        ResumeAssetViewPresentationIo();
         UpdateAssetOperationUi();
         if (_project != null && _assetDatabase == null)
         {
@@ -852,10 +939,11 @@ public partial class AssetBrowserPanel : UserControl
         }
         _preservePendingSelectionOnNextRefresh = false;
         CancelViewMaterialization();
-        _thumbnailLoadCancellation?.Cancel();
+        CancelImageLoad(ref _thumbnailLoadCancellation);
         _suppressViewSelectionTracking = true;
         try
         {
+            ReleasePublishedThumbnails();
             Items.Clear();
         }
         finally
@@ -965,6 +1053,8 @@ public partial class AssetBrowserPanel : UserControl
                         Name = candidate.Name,
                         Kind = candidate.Kind,
                         IsDirectory = candidate.IsDirectory,
+                        SizeBytes = candidate.SizeBytes,
+                        LastWriteUtcTicks = candidate.LastWriteUtcTicks,
                         Glyph = candidate.IsDirectory
                             ? "📁"
                             : GlyphFor(candidate.Kind),
@@ -1131,7 +1221,9 @@ public partial class AssetBrowserPanel : UserControl
                     directory,
                     info.Name,
                     "dir",
-                    IsDirectory: true));
+                    IsDirectory: true,
+                    SizeBytes: 0,
+                    LastWriteUtcTicks: 0));
             }
         }
 
@@ -1162,7 +1254,9 @@ public partial class AssetBrowserPanel : UserControl
                 record.FullPath,
                 Path.GetFileName(record.FullPath),
                 record.Kind,
-                IsDirectory: false));
+                IsDirectory: false,
+                record.SizeBytes,
+                record.LastWriteUtcTicks));
         }
     }
 
@@ -1215,7 +1309,9 @@ public partial class AssetBrowserPanel : UserControl
                     fullPath,
                     name,
                     "dir",
-                    IsDirectory: true));
+                    IsDirectory: true,
+                    SizeBytes: 0,
+                    LastWriteUtcTicks: 0));
                 continue;
             }
 
@@ -1238,7 +1334,9 @@ public partial class AssetBrowserPanel : UserControl
                 fullPath,
                 Path.GetFileName(fullPath),
                 record.Kind,
-                IsDirectory: false));
+                IsDirectory: false,
+                record.SizeBytes,
+                record.LastWriteUtcTicks));
         }
     }
 
@@ -1353,7 +1451,9 @@ public partial class AssetBrowserPanel : UserControl
         string FullPath,
         string Name,
         string Kind,
-        bool IsDirectory);
+        bool IsDirectory,
+        long SizeBytes,
+        long LastWriteUtcTicks);
 
     private sealed record AssetViewBuildResult(
         IReadOnlyList<AssetViewCandidate> Items,
@@ -1935,7 +2035,7 @@ public partial class AssetBrowserPanel : UserControl
     // タイル選択でプレビュー + 情報を更新 (参考エンジン風)。
     private void OnTileSelected(object sender, SelectionChangedEventArgs e)
     {
-        _previewLoadCancellation?.Cancel();
+        CancelImageLoad(ref _previewLoadCancellation);
         if (!_suppressViewSelectionTracking)
         {
             ReplacePendingViewSelection(
@@ -1966,13 +2066,16 @@ public partial class AssetBrowserPanel : UserControl
         string meta = item.IsDirectory ? "フォルダ" : KindLabel(item.Kind);
         if (!item.IsDirectory)
         {
-            try
+            if (item.SizeBytes >= 0)
+                meta += "   " + FormatSize(item.SizeBytes);
+            if (item.LastWriteUtcTicks > DateTime.MinValue.Ticks &&
+                item.LastWriteUtcTicks <= DateTime.MaxValue.Ticks)
             {
-                var fi = new FileInfo(item.FullPath);
-                meta += "   " + FormatSize(fi.Length);
-                meta += "   " + fi.LastWriteTime.ToString("yyyy-MM-dd HH:mm");   // 更新日時
+                DateTime localWriteTime =
+                    new DateTime(item.LastWriteUtcTicks, DateTimeKind.Utc)
+                        .ToLocalTime();
+                meta += "   " + localWriteTime.ToString("yyyy-MM-dd HH:mm");
             }
-            catch { }
         }
         meta += "\n" + RelDisplay(item.FullPath);
         if (!item.IsDirectory && item.AssetId.Length != 0)
@@ -2147,6 +2250,12 @@ public partial class AssetBrowserPanel : UserControl
         CtxReferences.IsEnabled = idle && indexed &&
                                   single is { IsDirectory: false } &&
                                   single.AssetId.Length != 0;
+        CtxReimport.IsEnabled = idle && indexed &&
+                                single is { IsDirectory: false } &&
+                                single.AssetId.Length != 0 &&
+                                AssetReimportWorkflow.HasExternalSourceMetadata(
+                                    _assetDatabase!,
+                                    single.AssetId);
         CtxReplaceReferences.IsEnabled = idle && indexed &&
                                          CanReplaceReferences(selection);
         CtxMigrate.IsEnabled = idle && indexed &&
@@ -2260,9 +2369,41 @@ public partial class AssetBrowserPanel : UserControl
         AssetDatabase database = _assetDatabase;
         int generation = _projectRefreshGeneration;
         string originalPath = item.FullPath;
+        AssetPathMapping proposedRename;
+        try
+        {
+            string safeName = AssetManagementWorkflow.ValidateBaseName(item.EditName);
+            string extension = item.IsDirectory ? "" : Path.GetExtension(originalPath);
+            string parent = Path.GetDirectoryName(originalPath)
+                ?? throw new InvalidDataException("Asset has no parent directory.");
+            string originalBase = item.IsDirectory
+                ? Path.GetFileName(originalPath)
+                : Path.GetFileNameWithoutExtension(originalPath);
+            if (string.Equals(originalBase, safeName, StringComparison.Ordinal))
+            {
+                _renameCommitInProgress = false;
+                item.IsRenaming = false;
+                FlushDeferredRefresh();
+                return;
+            }
+            proposedRename = new AssetPathMapping(
+                originalPath,
+                Path.Combine(parent, safeName + extension));
+        }
+        catch (Exception error) when (
+            error is IOException or InvalidDataException or ArgumentException or
+            NotSupportedException)
+        {
+            _renameCommitInProgress = false;
+            ReportAssetOperationFailure(
+                "Asset rename could not start: " + error.Message);
+            QueueRenameFocus(item, selectAll: true);
+            return;
+        }
         AssetPathMutationStartingEventArgs? pathMutation = BeginAssetPathMutation(
             AssetPathMutationKind.Rename,
-            new[] { originalPath });
+            new[] { originalPath },
+            new[] { proposedRename });
         if (pathMutation == null)
         {
             _renameCommitInProgress = false;
@@ -2500,7 +2641,10 @@ public partial class AssetBrowserPanel : UserControl
         string destination = _currentDir;
         string[] sourcePaths = _assetClipboardPaths.ToArray();
         AssetPathMutationStartingEventArgs? pathMutation = moving
-            ? BeginAssetPathMutation(AssetPathMutationKind.Move, sourcePaths)
+            ? BeginAssetPathMutation(
+                AssetPathMutationKind.Move,
+                sourcePaths,
+                ProposedMoveMappings(sourcePaths, destination))
             : null;
         if (moving && pathMutation == null) return;
         bool pathMutationSucceeded = false;
@@ -2709,6 +2853,68 @@ public partial class AssetBrowserPanel : UserControl
         viewer.Show();
     }
 
+    private async void OnCtxReimport(object sender, RoutedEventArgs e)
+    {
+        using IDisposable lifecycle = _assetOperationLifecycles.Enter();
+        if (!CanStartAssetOperation("Reimport asset")) return;
+        if (_assetDatabase == null ||
+            Tiles.SelectedItem is not AssetItem
+            {
+                IsDirectory: false,
+                AssetId.Length: > 0,
+            } item)
+        {
+            return;
+        }
+
+        AssetDatabase database = _assetDatabase;
+        AssetPathMutationStartingEventArgs? pathMutation =
+            BeginAssetPathMutation(
+                AssetPathMutationKind.ContentRewrite,
+                new[] { item.FullPath });
+        if (pathMutation == null)
+            return;
+
+        int generation = _projectRefreshGeneration;
+        CancellationToken cancellationToken =
+            _projectRefreshCancellation?.Token ?? CancellationToken.None;
+        bool succeeded = false;
+        try
+        {
+            AssetReimportOperationResult operation =
+                await RunAssetOperationAsync(
+                    () => AssetReimportWorkflow.Reimport(
+                        database,
+                        item.AssetId,
+                        cancellationToken));
+            if (!IsCurrentOperationContext(database, generation))
+                return;
+
+            _assetSnapshot = database.Snapshot();
+            ReportIndexResult(operation.IndexResult);
+            foreach (string warning in operation.Warnings)
+                Log?.Invoke("Reimport warning: " + warning);
+            RefreshView();
+            SelectAssets(new[] { operation.Asset.FullPath });
+            Log?.Invoke(
+                $"Reimported {RelDisplay(operation.Asset.FullPath)} from " +
+                operation.SourcePath);
+            succeeded = true;
+        }
+        catch (Exception error)
+        {
+            if (!IsCurrentOperationContext(database, generation))
+                return;
+            TryRefreshAfterOperationFailure();
+            ReportAssetOperationFailure(
+                "Asset reimport failed: " + error.Message);
+        }
+        finally
+        {
+            CompleteAssetPathMutation(pathMutation, succeeded);
+        }
+    }
+
     private void OnCtxPlace(object sender, RoutedEventArgs e)
     {
         if (!CanStartAssetOperation("Place asset")) return;
@@ -2750,53 +2956,16 @@ public partial class AssetBrowserPanel : UserControl
         string destinationDirectory = _currentDir;
         string[] sources = dlg.FileNames.ToArray();
         int generation = _projectRefreshGeneration;
+        CancellationToken cancellationToken =
+            _projectRefreshCancellation?.Token ?? CancellationToken.None;
         try
         {
-            ImportOperationResult operation = await RunAssetOperationAsync(() =>
-            {
-                using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
-                    database.AssetsRoot,
-                    "Import assets");
-                var imported = new List<(string Source, string Destination)>();
-                var failures = new List<string>();
-                foreach (string source in sources)
-                {
-                    try
-                    {
-                        string destination = UniquePath(Path.Combine(
-                            destinationDirectory,
-                            Path.GetFileName(source)));
-                        File.Copy(source, destination);
-                        imported.Add((source, destination));
-                    }
-                    catch (Exception error)
-                    {
-                        failures.Add($"{Path.GetFileName(source)}: {error.Message}");
-                    }
-                }
-
-                AssetDatabaseRefreshResult index = database.Refresh();
-                foreach ((string source, string destination) in imported)
-                {
-                    if (!database.TryGetByPath(destination, out AssetRecord? record) ||
-                        record == null)
-                        continue;
-                    try
-                    {
-                        database.UpdateImportMetadata(
-                            record.AssetId,
-                            source,
-                            ImporterForKind(record.Kind),
-                            importerVersion: 1);
-                    }
-                    catch (Exception error)
-                    {
-                        failures.Add(
-                            $"{Path.GetFileName(destination)} metadata: {error.Message}");
-                    }
-                }
-                return new ImportOperationResult(imported, failures, index);
-            });
+            AssetImportOperationResult operation = await RunAssetOperationAsync(
+                () => AssetImportWorkflow.ImportFiles(
+                    database,
+                    destinationDirectory,
+                    sources,
+                    cancellationToken));
 
             if (generation != _projectRefreshGeneration ||
                 !ReferenceEquals(database, _assetDatabase))
@@ -2805,8 +2974,11 @@ public partial class AssetBrowserPanel : UserControl
             ReportIndexResult(operation.IndexResult);
             foreach (string failure in operation.Failures)
                 Log?.Invoke("Import failed: " + failure);
+            foreach (string warning in operation.Warnings)
+                Log?.Invoke("Import warning: " + warning);
             RefreshView();
-            SelectAssets(operation.Imported.Select(static item => item.Destination));
+            SelectAssets(operation.Imported.Select(
+                static item => item.DestinationPath));
             Log?.Invoke(
                 $"{operation.Imported.Count} 個のアセットをインポートしました → " +
                 RelDisplay(destinationDirectory));
@@ -2818,11 +2990,6 @@ public partial class AssetBrowserPanel : UserControl
             ReportAssetOperationFailure("アセットをインポートできませんでした: " + error.Message);
         }
     }
-
-    private sealed record ImportOperationResult(
-        IReadOnlyList<(string Source, string Destination)> Imported,
-        IReadOnlyList<string> Failures,
-        AssetDatabaseRefreshResult IndexResult);
 
     // ===== ドラッグ (Asset View 内の整理 / ノード・インスペクタへの配置) =====
     private void OnTileMouseDown(object sender, MouseButtonEventArgs e)
@@ -3119,7 +3286,10 @@ public partial class AssetBrowserPanel : UserControl
         int generation = _projectRefreshGeneration;
         string[] sourcePaths = plan.SourcePaths.ToArray();
         AssetPathMutationStartingEventArgs? pathMutation = moveAssets
-            ? BeginAssetPathMutation(AssetPathMutationKind.Move, sourcePaths)
+            ? BeginAssetPathMutation(
+                AssetPathMutationKind.Move,
+                sourcePaths,
+                ProposedMoveMappings(sourcePaths, plan.DestinationDirectory))
             : null;
         if (moveAssets && pathMutation == null) return;
         bool pathMutationSucceeded = false;
@@ -3174,153 +3344,463 @@ public partial class AssetBrowserPanel : UserControl
 
     private void CancelImageLoads()
     {
-        _thumbnailLoadCancellation?.Cancel();
-        _thumbnailLoadCancellation?.Dispose();
-        _thumbnailLoadCancellation = null;
-        _previewLoadCancellation?.Cancel();
-        _previewLoadCancellation?.Dispose();
-        _previewLoadCancellation = null;
+        CancelImageLoad(ref _thumbnailLoadCancellation);
+        CancelImageLoad(ref _previewLoadCancellation);
+    }
+
+    private static void CancelImageLoad(
+        ref CancellationTokenSource? cancellation)
+    {
+        CancellationTokenSource? retired = cancellation;
+        cancellation = null;
+        retired?.Cancel();
+        // 所有する非同期要求は、WIC／CPU デコードの終了後にのみソースを破棄する。
+        // ここで破棄すると SemaphoreSlim のキャンセル登録と競合する。
+    }
+
+    private Task BeginImageLoadDrain(bool suspend)
+    {
+        CancelImageLoads();
+        _thumbnailViewportDebounce.Stop();
+        AssetImageDecodeDrain drain = _imageLoads.BeginDrain(suspend);
+        return CompleteImageLoadDrainAsync(drain);
+    }
+
+    private async Task CompleteImageLoadDrainAsync(
+        AssetImageDecodeDrain drain)
+    {
+        using IDisposable lifecycle = _imageDrainLifecycles.Enter();
+        await drain.Completion;
+        bool requestsDrained = await AssetImageDrainDeadline.WaitAsync(
+            _imageRequestLifecycles.WaitForDrainAsync(),
+            ImageRequestDrainGrace);
+        bool decoderDrainCompleted =
+            drain.FullCompletion.IsCompletedSuccessfully;
+        if (!decoderDrainCompleted || !requestsDrained)
+        {
+            Log?.Invoke(
+                "Image preview shutdown exceeded its drain deadline; " +
+                "late results were detached and will be discarded.");
+        }
+        bool currentDrain = drain.Generation == _imageLoads.Generation;
+        bool reopened = false;
+        try
+        {
+            if (currentDrain)
+            {
+                // この時点以降、デコーダーはキャッシュを変更できない。この境界を越えてから
+                // デコード済みサーフェスを切り離し、プロジェクト切替／終了時にネイティブ WIC
+                // バッファーが解放されるようにする。
+                _thumbnailCache.Clear();
+                ReleasePublishedThumbnails();
+                foreach (AssetItem visibleItem in Items)
+                    visibleItem.ThumbnailGeneration = 0;
+                PreviewImage.Source = null;
+                PreviewImage.Visibility = Visibility.Collapsed;
+                PreviewGlyphBox.Visibility = Visibility.Visible;
+
+                // アイドル時の BeginDrain は同期的に完了し得る。パイプラインが要求受付を
+                // 再開する前に SetProject が新しい状態を設定できるよう、一度処理を譲る。
+                await Task.Yield();
+            }
+        }
+        finally
+        {
+            reopened = _imageLoads.CompleteDrain();
+        }
+        if (!reopened ||
+            _assetOperationsSuspended ||
+            !_imageLoads.IsAccepting)
+        {
+            return;
+        }
+
+        bool reloadThumbnails = _thumbnailRefreshPendingAfterImageDrain;
+        bool reloadPreview = _previewRefreshPendingAfterImageDrain;
+        _thumbnailRefreshPendingAfterImageDrain = false;
+        _previewRefreshPendingAfterImageDrain = false;
+        if (_project == null || !IsLoaded) return;
+
+        if (reloadThumbnails || Items.Count != 0)
+            QueueThumbnailViewportRefresh();
+        if ((reloadPreview || Tiles.SelectedItems.Count == 1) &&
+            _presentationState.ShowPreview &&
+            Tiles.SelectedItem is AssetItem selectedItem &&
+            !selectedItem.IsDirectory &&
+            selectedItem.Kind is "material" or "image")
+        {
+            StartPreviewLoading(selectedItem);
+        }
     }
 
     private void StartThumbnailLoading()
     {
         if (_assetOperationsSuspended || !IsLoaded) return;
-        _thumbnailLoadCancellation?.Cancel();
-        _thumbnailLoadCancellation?.Dispose();
+        if (!_imageLoads.IsAccepting)
+        {
+            _thumbnailRefreshPendingAfterImageDrain = true;
+            return;
+        }
+        CancelImageLoad(ref _thumbnailLoadCancellation);
+        AssetItem[] realized = RealizedThumbnailCandidates().ToArray();
+        RetainPublishedThumbnails(realized);
+        AssetItem[] candidates = realized
+            .Where(item =>
+                item.ThumbnailGeneration != _thumbnailGeneration)
+            .ToArray();
+        if (candidates.Length == 0) return;
         var cancellation = new CancellationTokenSource();
         _thumbnailLoadCancellation = cancellation;
-        AssetItem[] candidates = RealizedThumbnailCandidates().ToArray();
-        if (candidates.Length == 0) return;
         int decodeWidth = PreferredThumbnailDecodeWidth();
         int thumbnailGeneration = _thumbnailGeneration;
+        int imageGeneration = _imageLoads.Generation;
         _ = LoadThumbnailsAsync(
             candidates,
             decodeWidth,
             thumbnailGeneration,
-            cancellation.Token);
+            imageGeneration,
+            cancellation);
     }
 
     private async Task LoadThumbnailsAsync(
         IReadOnlyList<AssetItem> candidates,
         int decodeWidth,
         int thumbnailGeneration,
-        CancellationToken cancellationToken)
+        int imageGeneration,
+        CancellationTokenSource cancellation)
     {
-        List<(AssetItem Item, ImageSource? Image)> results;
-        bool enteredGate = false;
+        using IDisposable lifecycle = _imageRequestLifecycles.Enter();
+        CancellationToken cancellationToken = cancellation.Token;
         try
         {
-            await _imageLoadGate.WaitAsync(cancellationToken);
-            enteredGate = true;
-            cancellationToken.ThrowIfCancellationRequested();
-            results = await Task.Run(() =>
+            List<(AssetItem Item, ImageSource? Image)> results =
+                await _imageLoads.RunAsync(
+                    imageGeneration,
+                    cancellationToken,
+                    token =>
+                    {
+                        return LoadCachedThumbnailImages(
+                            candidates,
+                            decodeWidth,
+                            token,
+                            imageGeneration);
+                    });
+
+            if (cancellationToken.IsCancellationRequested ||
+                !_imageLoads.IsCurrent(imageGeneration) ||
+                thumbnailGeneration != _thumbnailGeneration)
             {
-                var loaded = new List<(AssetItem, ImageSource?)>(candidates.Count);
-                foreach (AssetItem item in candidates)
+                return;
+            }
+            foreach ((AssetItem item, ImageSource? image) in results)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_imageLoads.IsCurrent(imageGeneration) ||
+                    thumbnailGeneration != _thumbnailGeneration)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    loaded.Add((item, LoadCachedImage(item.FullPath, item.Kind, decodeWidth)));
+                    return;
                 }
-                return loaded;
-            }, cancellationToken);
+                item.Thumb = image;
+                item.ThumbnailGeneration = thumbnailGeneration;
+                if (image == null)
+                    _publishedThumbnailItems.Remove(item);
+                else
+                    _publishedThumbnailItems.Add(item);
+            }
         }
         catch (OperationCanceledException)
         {
-            return;
+        }
+        catch (Exception error)
+        {
+            if (_imageLoads.IsCurrent(imageGeneration))
+                Log?.Invoke("Asset thumbnail decode failed: " + error.Message);
         }
         finally
         {
-            if (enteredGate) _imageLoadGate.Release();
+            if (ReferenceEquals(_thumbnailLoadCancellation, cancellation))
+                _thumbnailLoadCancellation = null;
+            cancellation.Dispose();
         }
+    }
 
-        if (cancellationToken.IsCancellationRequested ||
-            thumbnailGeneration != _thumbnailGeneration)
+    private void RetainPublishedThumbnails(
+        IReadOnlyCollection<AssetItem> realizedItems)
+    {
+        if (_publishedThumbnailItems.Count == 0) return;
+        var retained = new HashSet<AssetItem>(realizedItems);
+        foreach (AssetItem item in _publishedThumbnailItems.ToArray())
         {
-            return;
+            if (retained.Contains(item)) continue;
+            item.Thumb = null;
+            item.ThumbnailGeneration = 0;
+            _publishedThumbnailItems.Remove(item);
         }
-        foreach ((AssetItem item, ImageSource? image) in results)
+    }
+
+    private void ReleasePublishedThumbnails()
+    {
+        foreach (AssetItem item in _publishedThumbnailItems)
         {
-            item.Thumb = image;
-            item.ThumbnailGeneration = thumbnailGeneration;
+            item.Thumb = null;
+            item.ThumbnailGeneration = 0;
         }
+        _publishedThumbnailItems.Clear();
     }
 
     private void StartPreviewLoading(AssetItem item)
     {
-        _previewLoadCancellation?.Cancel();
-        _previewLoadCancellation?.Dispose();
+        if (_assetOperationsSuspended) return;
+        if (!_imageLoads.IsAccepting)
+        {
+            _previewRefreshPendingAfterImageDrain = true;
+            return;
+        }
+        CancelImageLoad(ref _previewLoadCancellation);
         var cancellation = new CancellationTokenSource();
         _previewLoadCancellation = cancellation;
-        _ = LoadPreviewAsync(item, cancellation.Token);
+        _ = LoadPreviewAsync(
+            item,
+            _imageLoads.Generation,
+            cancellation);
     }
 
-    private async Task LoadPreviewAsync(AssetItem item, CancellationToken cancellationToken)
+    private async Task LoadPreviewAsync(
+        AssetItem item,
+        int imageGeneration,
+        CancellationTokenSource cancellation)
     {
-        ImageSource? image;
-        bool enteredGate = false;
+        using IDisposable lifecycle = _imageRequestLifecycles.Enter();
+        CancellationToken cancellationToken = cancellation.Token;
         try
         {
-            await _imageLoadGate.WaitAsync(cancellationToken);
-            enteredGate = true;
-            cancellationToken.ThrowIfCancellationRequested();
-            image = await Task.Run(
-                () => LoadCachedImage(
-                    item.FullPath,
-                    item.Kind,
-                    item.Kind == "image" ? 320 : 256),
-                cancellationToken);
+            ImageSource? image = await _imageLoads.RunAsync(
+                imageGeneration,
+                cancellationToken,
+                token =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return LoadCachedImage(
+                        item.FullPath,
+                        item.Kind,
+                        item.Kind == "image" ? 320 : 256,
+                        token,
+                        imageGeneration);
+                });
+            if (cancellationToken.IsCancellationRequested ||
+                !_imageLoads.IsCurrent(imageGeneration) ||
+                Tiles.SelectedItems.Count != 1 ||
+                !ReferenceEquals(Tiles.SelectedItem, item) ||
+                image == null)
+            {
+                return;
+            }
+
+            PreviewImage.Source = image;
+            PreviewImage.Visibility = Visibility.Visible;
+            PreviewGlyphBox.Visibility = Visibility.Collapsed;
         }
         catch (OperationCanceledException)
         {
-            return;
+        }
+        catch (Exception error)
+        {
+            if (_imageLoads.IsCurrent(imageGeneration))
+                Log?.Invoke("Asset preview decode failed: " + error.Message);
         }
         finally
         {
-            if (enteredGate) _imageLoadGate.Release();
+            if (ReferenceEquals(_previewLoadCancellation, cancellation))
+                _previewLoadCancellation = null;
+            cancellation.Dispose();
         }
-        if (cancellationToken.IsCancellationRequested ||
-            Tiles.SelectedItems.Count != 1 ||
-            !ReferenceEquals(Tiles.SelectedItem, item) ||
-            image == null)
-            return;
-
-        PreviewImage.Source = image;
-        PreviewImage.Visibility = Visibility.Visible;
-        PreviewGlyphBox.Visibility = Visibility.Collapsed;
     }
 
-    private ImageSource? LoadCachedImage(string path, string kind, int decodeWidth)
+    private List<(AssetItem Item, ImageSource? Image)>
+        LoadCachedThumbnailImages(
+            IReadOnlyList<AssetItem> candidates,
+            int decodeWidth,
+            CancellationToken cancellationToken,
+            int imageGeneration)
+    {
+        var loaded =
+            new (AssetItem Item, ImageSource? Image)[candidates.Count];
+        var misses = new List<ThumbnailDecodeMiss>();
+        for (int index = 0; index < candidates.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AssetItem item = candidates[index];
+            loaded[index] = (item, null);
+            if (!string.Equals(
+                    item.Kind,
+                    "image",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                loaded[index] = (
+                    item,
+                    LoadCachedImage(
+                        item.FullPath,
+                        item.Kind,
+                        decodeWidth,
+                        cancellationToken,
+                        imageGeneration));
+                continue;
+            }
+
+            try
+            {
+                string fullPath =
+                    Path.GetFullPath(item.FullPath);
+                var info = new FileInfo(fullPath);
+                info.Refresh();
+                if (!info.Exists) continue;
+                long sourceLength = info.Length;
+                long sourceWriteTicks =
+                    info.LastWriteTimeUtc.Ticks;
+                string key =
+                    $"{item.Kind}|{decodeWidth}|{fullPath}";
+                if (_thumbnailCache.TryGet(
+                        key,
+                        sourceLength,
+                        sourceWriteTicks,
+                        out ImageSource? cached))
+                {
+                    loaded[index] = (item, cached);
+                    continue;
+                }
+                misses.Add(
+                    new ThumbnailDecodeMiss(
+                        index,
+                        fullPath,
+                        key,
+                        sourceLength,
+                        sourceWriteTicks));
+            }
+            catch
+            {
+            }
+        }
+
+        if (misses.Count == 0)
+            return loaded.ToList();
+        IReadOnlyList<ImageSource?> decoded =
+            AssetImageWorkerClient.TryDecodeBatch(
+                misses.Select(static miss => miss.FullPath)
+                    .ToArray(),
+                decodeWidth,
+                cancellationToken);
+        for (int index = 0; index < misses.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_imageLoads.IsCurrent(imageGeneration))
+                break;
+            ThumbnailDecodeMiss miss = misses[index];
+            ImageSource? image = decoded[index];
+            if (image == null) continue;
+            try
+            {
+                var info = new FileInfo(miss.FullPath);
+                info.Refresh();
+                if (!info.Exists ||
+                    info.Length != miss.SourceLength ||
+                    info.LastWriteTimeUtc.Ticks !=
+                    miss.SourceWriteTicks)
+                {
+                    continue;
+                }
+                bool cached = _imageLoads.TryRunIfCurrent(
+                    imageGeneration,
+                    () => _thumbnailCache.Put(
+                        miss.CacheKey,
+                        miss.SourceLength,
+                        miss.SourceWriteTicks,
+                        image));
+                if (cached)
+                {
+                    loaded[miss.ResultIndex] = (
+                        candidates[miss.ResultIndex],
+                        image);
+                }
+            }
+            catch
+            {
+            }
+        }
+        return loaded.ToList();
+    }
+
+    private ImageSource? LoadCachedImage(
+        string path,
+        string kind,
+        int decodeWidth,
+        CancellationToken cancellationToken,
+        int imageGeneration)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.Equals(
+                    kind,
+                    "image",
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(
+                    kind,
+                    "material",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
             string fullPath = Path.GetFullPath(path);
             var info = new FileInfo(fullPath);
             info.Refresh();
             if (!info.Exists) return null;
+            long sourceLength = info.Length;
+            long sourceWriteTicks = info.LastWriteTimeUtc.Ticks;
             string key = $"{kind}|{decodeWidth}|{fullPath}";
-            lock (_thumbnailCacheGate)
+            if (_thumbnailCache.TryGet(
+                    key,
+                    sourceLength,
+                    sourceWriteTicks,
+                    out ImageSource? cached))
             {
-                if (_thumbnailCache.TryGetValue(key, out ThumbnailCacheEntry? cached) &&
-                    cached.Length == info.Length &&
-                    cached.LastWriteTicks == info.LastWriteTimeUtc.Ticks)
-                    return cached.Image;
+                return cached;
             }
 
             ImageSource? image = kind == "material"
                 ? TryMaterialPreview(fullPath, decodeWidth)
-                : TryThumb(fullPath, decodeWidth);
+                : AssetImageDecoder.TryDecode(
+                    fullPath,
+                    decodeWidth,
+                    cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_imageLoads.IsCurrent(imageGeneration))
+                return null;
+            info.Refresh();
+            if (!info.Exists ||
+                info.Length != sourceLength ||
+                info.LastWriteTimeUtc.Ticks != sourceWriteTicks)
+            {
+                return null;
+            }
             if (image != null)
             {
-                lock (_thumbnailCacheGate)
+                if (!_imageLoads.TryRunIfCurrent(
+                        imageGeneration,
+                        () => _thumbnailCache.Put(
+                            key,
+                            sourceLength,
+                            sourceWriteTicks,
+                            image)))
                 {
-                    if (_thumbnailCache.Count >= 768) _thumbnailCache.Clear();
-                    _thumbnailCache[key] = new ThumbnailCacheEntry(
-                        info.Length,
-                        info.LastWriteTimeUtc.Ticks,
-                        image);
+                    return null;
                 }
             }
             return image;
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -3328,10 +3808,12 @@ public partial class AssetBrowserPanel : UserControl
         }
     }
 
-    private sealed record ThumbnailCacheEntry(
-        long Length,
-        long LastWriteTicks,
-        ImageSource? Image);
+    private sealed record ThumbnailDecodeMiss(
+        int ResultIndex,
+        string FullPath,
+        string CacheKey,
+        long SourceLength,
+        long SourceWriteTicks);
 
     // ===== 分類・グリフ・サムネイル =====
     private static string ImporterForKind(string kind) => kind switch
@@ -3414,29 +3896,6 @@ public partial class AssetBrowserPanel : UserControl
         var b = BitmapSource.Create(n, n, 96, 96, PixelFormats.Bgra32, null, bgra, n * 4);
         b.Freeze();
         return b;
-    }
-
-    private static ImageSource? TryThumb(string path, int decodeW = 64)
-    {
-        try
-        {
-            using var stream = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete,
-                bufferSize: 64 * 1024,
-                FileOptions.SequentialScan);
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption = BitmapCacheOption.OnLoad;   // 即デコードしてストリーム依存を断つ
-            bmp.DecodePixelWidth = decodeW;               // サムネ=64 / プレビュー=大
-            bmp.StreamSource = stream;
-            bmp.EndInit();
-            bmp.Freeze();
-            return bmp;
-        }
-        catch { return null; }
     }
 
     // ===== パスユーティリティ =====

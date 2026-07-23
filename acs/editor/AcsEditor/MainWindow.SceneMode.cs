@@ -2,7 +2,10 @@
 
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace AcsEditor;
 
@@ -24,6 +27,191 @@ public partial class MainWindow
     private string? _scene3DSavedSnapshot;
     private bool _scene2DDirty;
     private bool _scene3DDirty;
+    private readonly SceneLoadGenerationState _sceneLoadGeneration = new();
+    private CancellationTokenSource? _sceneLoadCancellation;
+
+    private sealed class ActiveSceneLoad : IDisposable
+    {
+        private IDisposable? _inputLease;
+
+        internal ActiveSceneLoad(
+            SceneLoadTicket ticket,
+            CancellationTokenSource cancellation,
+            IDisposable inputLease)
+        {
+            Ticket = ticket;
+            Cancellation = cancellation;
+            _inputLease = inputLease;
+        }
+
+        internal SceneLoadTicket Ticket { get; }
+        internal CancellationTokenSource Cancellation { get; }
+
+        public void Dispose()
+        {
+            Cancellation.Dispose();
+            Interlocked.Exchange(ref _inputLease, null)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// File/Open spans a native parser plus managed document metadata. Preserve both compatibility
+    /// payloads and every managed durability/history alias so a post-parse exception cannot publish
+    /// a mixed old/new world.
+    /// </summary>
+    private sealed record SceneOpenRollbackSnapshot(
+        string Legacy2D,
+        string World3D,
+        SceneDocumentMode LegacySourceMode,
+        EditorSceneViewMode SceneViewMode,
+        bool View3D,
+        string? CurrentScenePath,
+        string? Scene2DPath,
+        string? Scene3DPath,
+        bool Scene2DInitialized,
+        bool Scene3DInitialized,
+        string? Scene2DSavedSnapshot,
+        string? Scene3DSavedSnapshot,
+        bool Scene2DDirty,
+        bool Scene3DDirty,
+        string? SavedSceneSnapshot,
+        bool SceneDirty,
+        bool SnapshotCaptureFailed,
+        string? HostSavedSubsystem2D,
+        string? HostSavedSubsystem3D,
+        bool HistorySimulationSuspended,
+        string PendingHistoryLabel,
+        string? PendingHistoryMergeKey,
+        bool MergeSelectionInitialized,
+        bool MergeSelection3D,
+        int MergeSelectionNodeId,
+        int MergeSelectionCount,
+        ulong MergeSelectionEpoch,
+        EditorDocument? Document,
+        EditorDocument.Checkpoint? DocumentCheckpoint,
+        SceneMutationRevisionGate.Checkpoint RevisionCheckpoint);
+
+    private SceneOpenRollbackSnapshot CaptureSceneOpenRollbackSnapshot()
+    {
+        if (Engine == IntPtr.Zero)
+            throw new InvalidOperationException("The editor engine is unavailable.");
+        EditorDocument? document = _documentHostInitialized
+            ? _documentHost.ActiveDocument
+            : null;
+        return new SceneOpenRollbackSnapshot(
+            EngineInterop.SceneText(Engine),
+            EngineInterop.Scene3DText(Engine),
+            _legacySceneSourceMode,
+            _sceneViewMode,
+            _view3d,
+            _currentScenePath,
+            _scene2DPath,
+            _scene3DDocumentPath,
+            _scene2DInitialized,
+            _scene3DInitialized,
+            _scene2DSavedSnapshot,
+            _scene3DSavedSnapshot,
+            _scene2DDirty,
+            _scene3DDirty,
+            _savedSceneSnapshot,
+            _sceneDirty,
+            _snapshotCaptureFailed,
+            _hostSavedSubsystem2D,
+            _hostSavedSubsystem3D,
+            _sceneHistorySimulationSuspended,
+            _pendingSceneHistoryLabel,
+            _pendingSceneHistoryMergeKey,
+            _sceneMergeSelectionInitialized,
+            _sceneMergeSelection3D,
+            _sceneMergeSelectionNodeId,
+            _sceneMergeSelectionCount,
+            _sceneMergeSelectionEpoch,
+            document,
+            document?.CaptureCheckpoint(),
+            _sceneMutationRevision.CaptureCheckpoint());
+    }
+
+    private bool RestoreSceneOpenRollbackSnapshot(
+        SceneOpenRollbackSnapshot snapshot)
+    {
+        if (Engine == IntPtr.Zero) return false;
+        int restored2D =
+            EngineInterop.acs_editor_scene_load_text(Engine, snapshot.Legacy2D);
+        int restored3D = restored2D != 0
+            ? EngineInterop.acs_editor_scene3d_load_text(Engine, snapshot.World3D)
+            : 0;
+        if (restored2D == 0 || restored3D == 0) return false;
+
+        _legacySceneSourceMode = snapshot.LegacySourceMode;
+        _sceneViewMode = snapshot.SceneViewMode;
+        _view3d = snapshot.View3D;
+        _currentScenePath = snapshot.CurrentScenePath;
+        _scene2DPath = snapshot.Scene2DPath;
+        _scene3DDocumentPath = snapshot.Scene3DPath;
+        _scene2DInitialized = snapshot.Scene2DInitialized;
+        _scene3DInitialized = snapshot.Scene3DInitialized;
+        _scene2DSavedSnapshot = snapshot.Scene2DSavedSnapshot;
+        _scene3DSavedSnapshot = snapshot.Scene3DSavedSnapshot;
+        _scene2DDirty = snapshot.Scene2DDirty;
+        _scene3DDirty = snapshot.Scene3DDirty;
+        _savedSceneSnapshot = snapshot.SavedSceneSnapshot;
+        _sceneDirty = snapshot.SceneDirty;
+        _snapshotCaptureFailed = snapshot.SnapshotCaptureFailed;
+        _hostSavedSubsystem2D = snapshot.HostSavedSubsystem2D;
+        _hostSavedSubsystem3D = snapshot.HostSavedSubsystem3D;
+        _pendingSceneHistoryLabel = snapshot.PendingHistoryLabel;
+        _pendingSceneHistoryMergeKey = snapshot.PendingHistoryMergeKey;
+        _sceneMergeSelectionInitialized = snapshot.MergeSelectionInitialized;
+        _sceneMergeSelection3D = snapshot.MergeSelection3D;
+        _sceneMergeSelectionNodeId = snapshot.MergeSelectionNodeId;
+        _sceneMergeSelectionCount = snapshot.MergeSelectionCount;
+        _sceneMergeSelectionEpoch = snapshot.MergeSelectionEpoch;
+        _sceneMutationRevision.RestoreCheckpoint(snapshot.RevisionCheckpoint);
+
+        // UI refresh must not generate a transaction while rebuilding the restored scene.
+        _sceneHistorySimulationSuspended = true;
+        try
+        {
+            EngineInterop.acs_editor_set_view3d(
+                Engine,
+                snapshot.View3D ? 1 : 0);
+            EditorSceneViewDescriptor restoredView =
+                EditorSceneViewModePolicy.Describe(snapshot.SceneViewMode);
+            EngineInterop.acs_editor_set_ortho3d(
+                Engine,
+                snapshot.View3D && restoredView.IsOrthographic ? 1 : 0);
+            ApplySceneViewModePresentation();
+            UpdateSceneName();
+            BuildHierarchy();
+            SyncSelectionUi();
+            SetSceneDirty(snapshot.SceneDirty);
+        }
+        catch
+        {
+            // The native world and managed durability aliases are already restored. Presentation
+            // will be rebuilt by the next ordinary editor refresh.
+        }
+        finally
+        {
+            if (snapshot.Document != null &&
+                snapshot.DocumentCheckpoint != null)
+            {
+                try
+                {
+                    snapshot.Document.RestoreCheckpoint(
+                        snapshot.DocumentCheckpoint);
+                }
+                catch
+                {
+                    // Checkpoint fields are installed before the notification callback runs.
+                }
+            }
+            _sceneMutationRevision.RestoreCheckpoint(snapshot.RevisionCheckpoint);
+            _sceneHistorySimulationSuspended =
+                snapshot.HistorySimulationSuspended;
+        }
+        return true;
+    }
 
     private static bool Is3DScenePath(string? path) =>
         string.Equals(Path.GetExtension(path), ".acs3d", StringComparison.OrdinalIgnoreCase);
@@ -163,83 +351,254 @@ public partial class MainWindow
         return scenePath;
     }
 
-    /// <summary>
-    /// Loads the configured initial document with the parser selected by its extension. Existing
-    /// Assets/scene3d.acs3d is deliberately not preferred over an explicit 2D initial scene.
-    /// </summary>
-    private void InitializeProjectSceneDocument()
+    private ActiveSceneLoad BeginSceneLoad(string detail)
     {
-        if (Engine == IntPtr.Zero || _project == null) return;
+        Dispatcher.VerifyAccess();
+        _sceneLoadCancellation?.Cancel();
 
-        string scenePath = ResolveConfiguredProjectScenePath();
-        _legacySceneSourceMode = Is3DScenePath(scenePath)
-            ? SceneDocumentMode.ThreeD
-            : SceneDocumentMode.TwoD;
-        _sceneViewMode = EditorSceneViewModePolicy.InitialForLegacySource(scenePath);
-        EditorSceneViewDescriptor initialView =
-            EditorSceneViewModePolicy.Describe(_sceneViewMode);
-        bool initialIs3D =
-            _legacySceneSourceMode == SceneDocumentMode.ThreeD;
-        string initialSourceFormat = initialIs3D ? ".acs3d" : ".acscene";
+        var cancellation = new CancellationTokenSource();
+        _sceneLoadCancellation = cancellation;
+        SceneLoadTicket ticket = _sceneLoadGeneration.Begin();
+        IDisposable inputLease = _sceneEditingBlock.Enter();
 
-        _view3d = initialIs3D;
-        EngineInterop.acs_editor_set_view3d(Engine, initialIs3D ? 1 : 0);
-        EngineInterop.acs_editor_set_ortho3d(
-            Engine,
-            initialView.IsOrthographic ? 1 : 0);
-        RestoreActiveSceneDocumentState();
+        IntPtr engine = RawEngine;
+        if (engine != IntPtr.Zero)
+            EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 1);
 
-        Log($"Project: {_project.Name}  ({_project.RootDir})");
-        try
+        ViewportLoadingTitle.Text = "Loading scene…";
+        ViewportLoadingDetail.Text = detail;
+        ViewportLoadingOverlay.Visibility = Visibility.Visible;
+        ViewportHost.IsHitTestVisible = false;
+        // Renderer warm-up is already complete whenever a scene load begins. Hiding the
+        // HwndHost makes the WPF loading surface visible without stalling warm-up.
+        ViewportHost.Visibility = Visibility.Hidden;
+        return new ActiveSceneLoad(ticket, cancellation, inputLease);
+    }
+
+    private bool IsCurrentSceneLoad(ActiveSceneLoad load) =>
+        _sceneLoadGeneration.IsCurrent(load.Ticket) &&
+        ReferenceEquals(_sceneLoadCancellation, load.Cancellation);
+
+    private void CompleteSceneLoad(ActiveSceneLoad load, bool publishScene)
+    {
+        Dispatcher.VerifyAccess();
+        bool current = _sceneLoadGeneration.TryComplete(load.Ticket) &&
+                       ReferenceEquals(_sceneLoadCancellation, load.Cancellation);
+        if (current)
         {
-            bool loaded = false;
-            if (File.Exists(scenePath))
+            _sceneLoadCancellation = null;
+            if (publishScene)
             {
-                string text = File.ReadAllText(scenePath, System.Text.Encoding.UTF8);
-                if (initialIs3D)
-                {
-                    loaded = EngineInterop.acs_editor_scene3d_load_text(Engine, text) != 0;
-                    _scene3DInitialized = true;
-                }
-                else
-                {
-                    EngineInterop.acs_editor_scene_new(Engine);
-                    loaded = EngineInterop.acs_editor_scene_load_text(Engine, text) != 0;
-                    _scene2DInitialized = true;
-                }
-
-                Log(loaded
-                    ? $"Loaded initial scene source ({initialSourceFormat}) ← {scenePath}"
-                    : $"Initial scene source ({initialSourceFormat}) load failed (format).");
+                IntPtr engine = RawEngine;
+                if (engine != IntPtr.Zero)
+                    EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 0);
+                ViewportHost.Visibility = Visibility.Visible;
+                ViewportLoadingOverlay.Visibility = Visibility.Collapsed;
+                ViewportHost.IsHitTestVisible =
+                    EngineCommandsReady && !IsSceneEditingBlocked;
+                _ = Dispatcher.BeginInvoke(
+                    DispatcherPriority.Loaded,
+                    new Action(() => _viewport?.ResumeRenderingAfterSceneLoad()));
             }
             else
             {
-                if (initialIs3D)
+                ViewportLoadingTitle.Text = "Scene loading stopped";
+                ViewportLoadingDetail.Text =
+                    "The viewport remains blank because this load did not publish a scene.";
+            }
+        }
+        load.Dispose();
+        UpdateEditorInputEnabled();
+    }
+
+    private void InvalidateSceneLoad(string detail)
+    {
+        Dispatcher.VerifyAccess();
+        _sceneLoadCancellation?.Cancel();
+        _sceneLoadCancellation = null;
+        _sceneLoadGeneration.Invalidate();
+        IntPtr engine = RawEngine;
+        if (engine != IntPtr.Zero)
+            EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 1);
+        ViewportLoadingOverlay.Visibility = Visibility.Visible;
+        ViewportLoadingTitle.Text = "Viewport unavailable";
+        ViewportLoadingDetail.Text = detail;
+        ViewportHost.IsHitTestVisible = false;
+        ViewportHost.Visibility = Visibility.Hidden;
+    }
+
+    private void EstablishEmptySceneDocument(
+        bool use3D,
+        string? sourcePath,
+        bool keepSourcePath)
+    {
+        IntPtr engine = Engine;
+        if (engine == IntPtr.Zero)
+            throw new InvalidOperationException(
+                "The editor engine was lost while establishing an empty scene.");
+
+        // Both compatibility payloads are cleared so neither the initial demo nor the
+        // previously active source can become a later fallback.
+        EngineInterop.acs_editor_scene_new(engine);
+        EngineInterop.acs_editor_scene3d_new(engine);
+        EngineInterop.acs_editor_set_view3d(engine, use3D ? 1 : 0);
+        _sceneViewMode = EditorSceneViewModePolicy.InitialForLegacySource(sourcePath);
+        EditorSceneViewDescriptor view =
+            EditorSceneViewModePolicy.Describe(_sceneViewMode);
+        EngineInterop.acs_editor_set_ortho3d(
+            engine,
+            use3D && view.IsOrthographic ? 1 : 0);
+
+        _scene2DPath = !use3D && keepSourcePath ? sourcePath : null;
+        _scene3DDocumentPath = use3D && keepSourcePath ? sourcePath : null;
+        _scene2DInitialized = !use3D;
+        _scene3DInitialized = use3D;
+        _scene2DDirty = false;
+        _scene3DDirty = false;
+        SetCurrentScenePath(keepSourcePath ? sourcePath : null);
+    }
+
+    /// <summary>
+    /// Loads the configured initial document asynchronously with a generation check. Existing
+    /// Assets/scene3d.acs3d is deliberately not preferred over an explicit 2D initial scene.
+    /// </summary>
+    private async Task<bool> InitializeProjectSceneDocument(int startupGeneration)
+    {
+        if (RawEngine == IntPtr.Zero) return false;
+
+        string? scenePath = null;
+        if (_project != null)
+        {
+            RunWithStartupEngineAccess(
+                () => scenePath = ResolveConfiguredProjectScenePath());
+        }
+
+        bool initialIs3D = scenePath != null && Is3DScenePath(scenePath);
+        string initialSourceFormat = initialIs3D ? ".acs3d" : ".acscene";
+        ActiveSceneLoad load = BeginSceneLoad(
+            scenePath == null
+                ? "Preparing an empty scene"
+                : $"Reading {Path.GetFileName(scenePath)}");
+        bool publishScene = false;
+        try
+        {
+            SceneSourceFile.ReadResult source =
+                scenePath == null
+                    ? new SceneSourceFile.ReadResult(false, null)
+                    : await SceneSourceFile.ReadBoundedTextAsync(
+                        scenePath,
+                        load.Cancellation.Token);
+            bool exists = source.Exists;
+            string? text = source.Text;
+
+            if (!IsCurrentSceneLoad(load) ||
+                startupGeneration != _engineStartupGeneration ||
+                _engineStartupState != EditorEngineStartupState.FinalizingEditor)
+            {
+                return false;
+            }
+
+            bool loaded = false;
+            RunWithStartupEngineAccess(() =>
+            {
+                _legacySceneSourceMode = initialIs3D
+                    ? SceneDocumentMode.ThreeD
+                    : SceneDocumentMode.TwoD;
+                _view3d = initialIs3D;
+                EstablishEmptySceneDocument(
+                    initialIs3D,
+                    scenePath,
+                    keepSourcePath: !exists);
+                if (exists)
                 {
-                    // set_view3d seeds a useful empty-project preview on first entry.
-                    _scene3DInitialized = true;
+                    loaded = initialIs3D
+                        ? EngineInterop.acs_editor_scene3d_load_text(Engine, text!) != 0
+                        : EngineInterop.acs_editor_scene_load_text(Engine, text!) != 0;
+                    if (!loaded)
+                    {
+                        // Native parsers can mutate before reporting failure. Re-clear both
+                        // graphs and detach the rejected source rather than rolling back.
+                        EstablishEmptySceneDocument(
+                            initialIs3D,
+                            sourcePath: null,
+                            keepSourcePath: false);
+                    }
+                    else
+                    {
+                        _scene2DPath = initialIs3D ? null : scenePath;
+                        _scene3DDocumentPath = initialIs3D ? scenePath : null;
+                        SetCurrentScenePath(scenePath);
+                    }
                 }
-                else
-                {
-                    EngineInterop.acs_editor_scene_new(Engine);
-                    _scene2DInitialized = true;
-                }
+                RestoreActiveSceneDocumentState();
+                EngineInterop.acs_editor_camera_frame_all(Engine);
+                ApplySceneViewModePresentation();
+            });
+
+            if (_project != null)
+                Log($"Project: {_project.Name}  ({_project.RootDir})");
+            if (scenePath == null)
+            {
+                Log("No project scene was configured — started with an empty scene.");
+            }
+            else if (!exists)
+            {
                 Log(
                     $"No initial scene source ({initialSourceFormat}) file — started empty.");
             }
+            else if (loaded)
+            {
+                Log(
+                    $"Loaded initial scene source ({initialSourceFormat}) ← {scenePath}");
+            }
+            else
+            {
+                Log(
+                    $"Initial scene source ({initialSourceFormat}) was rejected; " +
+                    "the startup viewport remains blank.",
+                    "Scene",
+                    LogLevel.Error);
+                return false;
+            }
 
-            SetCurrentScenePath(scenePath);
-            EngineInterop.acs_editor_camera_frame_all(Engine);
+            publishScene = true;
+            return true;
+        }
+        catch (OperationCanceledException)
+            when (!IsCurrentSceneLoad(load) ||
+                  load.Cancellation.IsCancellationRequested)
+        {
+            return false;
         }
         catch (Exception ex)
         {
-            Log($"Initial scene source ({initialSourceFormat}) load error: " + ex.Message);
-            if (initialIs3D) _scene3DInitialized = true;
-            else _scene2DInitialized = true;
-            SetCurrentScenePath(scenePath);
-        }
+            if (!IsCurrentSceneLoad(load))
+                return false;
 
-        ApplySceneViewModePresentation();
+            RunWithStartupEngineAccess(() =>
+            {
+                _legacySceneSourceMode = initialIs3D
+                    ? SceneDocumentMode.ThreeD
+                    : SceneDocumentMode.TwoD;
+                _view3d = initialIs3D;
+                EstablishEmptySceneDocument(
+                    initialIs3D,
+                    sourcePath: null,
+                    keepSourcePath: false);
+                RestoreActiveSceneDocumentState();
+                ApplySceneViewModePresentation();
+            });
+            Log(
+                $"Initial scene source ({initialSourceFormat}) load error; " +
+                $"the startup viewport remains blank: {ex.Message}",
+                "Scene",
+                LogLevel.Error);
+            return false;
+        }
+        finally
+        {
+            CompleteSceneLoad(load, publishScene);
+        }
     }
 
     private void SwitchSceneViewMode(

@@ -41,7 +41,11 @@ internal sealed class AssetMutationLock : IDisposable
     internal static AssetMutationLock Acquire(
         string assetsRoot,
         string operation) =>
-        AcquireCore(assetsRoot, operation, waitForInProcessOwner: true);
+        AcquireCore(
+            assetsRoot,
+            operation,
+            waitForInProcessOwner: true,
+            allowInterruptedPublicationRecovery: false);
 
     /// <summary>
     /// UI-thread entry points cannot wait on a worker which may itself be waiting for the
@@ -51,12 +55,51 @@ internal sealed class AssetMutationLock : IDisposable
     internal static AssetMutationLock AcquireFailFast(
         string assetsRoot,
         string operation) =>
-        AcquireCore(assetsRoot, operation, waitForInProcessOwner: false);
+        AcquireCore(
+            assetsRoot,
+            operation,
+            waitForInProcessOwner: false,
+            allowInterruptedPublicationRecovery: false);
+
+    /// <summary>
+    /// 同じ排他的なプロジェクトリースを取得しつつ、呼び出し元によるインポート／再インポート
+    /// ステージングの検査と整合を許可します。この経路は二つの復旧ワークフローだけに
+    /// 意図的に限定しています。通常のアセット変更入口はすべて、復旧の痕跡が存在する場合、
+    /// 最初の書き込み前に失敗します。
+    /// </summary>
+    internal static AssetMutationLock AcquireForRecovery(
+        string assetsRoot,
+        string operation) =>
+        AcquireCore(
+            assetsRoot,
+            operation,
+            waitForInProcessOwner: true,
+            allowInterruptedPublicationRecovery: true);
+
+    /// <summary>
+    /// 現在のスレッドが、このアセット格納ルートに対するプロセス間リースをすでに
+    /// 保持しているかを返します。トランザクション実装は、明示的にガードを外した
+    /// インデックス更新が別のエディターと同時実行されないことを確認するために使用します。
+    /// </summary>
+    internal static bool IsRecoveryLeaseHeldByCurrentThread(string assetsRoot)
+    {
+        if (string.IsNullOrWhiteSpace(assetsRoot))
+            return false;
+        string normalizedAssets = NormalizeDirectory(assetsRoot);
+        return _threadLeases != null &&
+               _threadLeases.TryGetValue(
+                   normalizedAssets,
+                   out HeldLease? lease) &&
+               lease.Depth > 0 &&
+               lease.AllowsInterruptedPublicationRecovery &&
+               lease.OwnerThreadId == Environment.CurrentManagedThreadId;
+    }
 
     private static AssetMutationLock AcquireCore(
         string assetsRoot,
         string operation,
-        bool waitForInProcessOwner)
+        bool waitForInProcessOwner,
+        bool allowInterruptedPublicationRecovery)
     {
         if (string.IsNullOrWhiteSpace(assetsRoot))
             throw new ArgumentException("Assets root is required.", nameof(assetsRoot));
@@ -92,6 +135,11 @@ internal sealed class AssetMutationLock : IDisposable
                     StringComparer.OrdinalIgnoreCase);
             if (leases.TryGetValue(normalizedAssets, out HeldLease? nested))
             {
+                if (!allowInterruptedPublicationRecovery)
+                {
+                    AssetDatabase.ThrowIfInterruptedPublicationRequiresRecovery(
+                        normalizedAssets);
+                }
                 nested.Depth++;
                 return new AssetMutationLock(normalizedAssets, nested);
             }
@@ -136,10 +184,16 @@ internal sealed class AssetMutationLock : IDisposable
                 EnsureOrdinaryDirectory(normalizedAssets, "Assets root");
                 EnsureOrdinaryDirectory(databaseRoot, "Asset database directory");
                 EnsureOrdinaryFile(lockPath, "Asset mutation lock");
+                if (!allowInterruptedPublicationRecovery)
+                {
+                    AssetDatabase.ThrowIfInterruptedPublicationRequiresRecovery(
+                        normalizedAssets);
+                }
                 var lease = new HeldLease(
                     stream,
                     processGate,
-                    Environment.CurrentManagedThreadId);
+                    Environment.CurrentManagedThreadId,
+                    allowInterruptedPublicationRecovery);
                 leases.Add(normalizedAssets, lease);
                 return new AssetMutationLock(normalizedAssets, lease);
             }
@@ -199,16 +253,20 @@ internal sealed class AssetMutationLock : IDisposable
         internal HeldLease(
             FileStream stream,
             object processGate,
-            int ownerThreadId)
+            int ownerThreadId,
+            bool allowsInterruptedPublicationRecovery)
         {
             Stream = stream;
             ProcessGate = processGate;
             OwnerThreadId = ownerThreadId;
+            AllowsInterruptedPublicationRecovery =
+                allowsInterruptedPublicationRecovery;
         }
 
         internal FileStream Stream { get; }
         internal object ProcessGate { get; }
         internal int OwnerThreadId { get; }
+        internal bool AllowsInterruptedPublicationRecovery { get; }
         internal int Depth { get; set; } = 1;
     }
 

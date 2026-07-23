@@ -65,6 +65,15 @@ public:
         (void)destination_size;
         return false;
     }
+
+    /**
+     * Return whether the backend can compile shaders asynchronously while the
+     * render-owner thread polls their status.
+     */
+    virtual bool SupportsAsyncShaderCompilation() const noexcept
+    {
+        return false;
+    }
 };
 
 /**

@@ -280,6 +280,16 @@ if(TARGET ACS::EditorAbi)
     add_executable(acs_editor_abi_lifecycle_tests editor_abi_lifecycle_tests.cpp)
     set_target_properties(acs_editor_abi_lifecycle_tests PROPERTIES FOLDER "Engine/Tests")
     acs_apply_compiler_options(acs_editor_abi_lifecycle_tests)
+    # Raw DX12 uses a CPU-only startup worker. Diligent submits shader jobs on
+    # the owner thread and polls its backend compiler pool. Both must expose a
+    # pending startup boundary and support destruction while compilation runs.
+    if(ACS_RENDER_DX12_RAW OR ACS_RENDER_DILIGENT)
+        set(ACS_EDITOR_ABI_EXPECTS_ASYNC_WARMUP 1)
+    else()
+        set(ACS_EDITOR_ABI_EXPECTS_ASYNC_WARMUP 0)
+    endif()
+    target_compile_definitions(acs_editor_abi_lifecycle_tests PRIVATE
+        ACS_EDITOR_ABI_EXPECTS_ASYNC_WARMUP=${ACS_EDITOR_ABI_EXPECTS_ASYNC_WARMUP})
     target_include_directories(acs_editor_abi_lifecycle_tests PRIVATE
         "${ACS_SOURCE_ROOT}")
     target_link_libraries(acs_editor_abi_lifecycle_tests PRIVATE ACS::EditorAbi)

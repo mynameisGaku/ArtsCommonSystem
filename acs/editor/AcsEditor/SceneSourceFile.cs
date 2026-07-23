@@ -4,12 +4,129 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AcsEditor;
 
 /// <summary>Atomic source-scene writes and project-path validation.</summary>
 internal static class SceneSourceFile
 {
+    internal const int MaxSceneSourceBytes = 4 * 1024 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    internal readonly record struct ReadResult(bool Exists, string? Text);
+
+    /// <summary>
+    /// Opens one stable ordinary-file handle, bounds allocation before reading, rejects reparse
+    /// points and invalid UTF-8, and verifies that the source did not change length mid-read.
+    /// Missing sources are represented explicitly because a project may intentionally start empty.
+    /// </summary>
+    internal static async Task<ReadResult> ReadBoundedTextAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        string source = Path.GetFullPath(path);
+        FileAttributes before;
+        try
+        {
+            before = File.GetAttributes(source);
+        }
+        catch (FileNotFoundException)
+        {
+            return new ReadResult(false, null);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new ReadResult(false, null);
+        }
+        if ((before & FileAttributes.Directory) != 0)
+            throw new InvalidDataException($"Scene source is a directory: {source}");
+        if ((before & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException($"Scene source is a reparse point: {source}");
+
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(
+                source,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.Read,
+                    BufferSize = 64 * 1024,
+                    Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+                });
+        }
+        catch (FileNotFoundException)
+        {
+            return new ReadResult(false, null);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new ReadResult(false, null);
+        }
+
+        await using (stream)
+        {
+            // Re-check through the now share-locked path. A replacement between the first
+            // attribute read and handle open is caught here; FileShare.Read prevents later
+            // writers/replacements from joining this read transaction.
+            FileAttributes opened = File.GetAttributes(source);
+            if ((opened & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+                throw new InvalidDataException(
+                    $"Scene source must be an ordinary non-reparse file: {source}");
+
+            long expectedLength = stream.Length;
+            if (expectedLength > MaxSceneSourceBytes)
+                throw new InvalidDataException(
+                    $"Scene source exceeds the {MaxSceneSourceBytes} byte limit: {source}");
+            if (expectedLength < 0 || expectedLength > int.MaxValue)
+                throw new InvalidDataException($"Scene source length is invalid: {source}");
+
+            var bytes = new byte[(int)expectedLength];
+            int offset = 0;
+            while (offset < bytes.Length)
+            {
+                int read = await stream.ReadAsync(
+                    bytes.AsMemory(offset),
+                    cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                    throw new EndOfStreamException(
+                        $"Scene source changed or ended during read: {source}");
+                offset += read;
+            }
+
+            var probe = new byte[1];
+            int extra = await stream.ReadAsync(
+                probe.AsMemory(),
+                cancellationToken).ConfigureAwait(false);
+            if (extra != 0 || stream.Length != expectedLength)
+                throw new IOException($"Scene source changed during read: {source}");
+
+            int start = bytes.Length >= 3 &&
+                        bytes[0] == 0xEF &&
+                        bytes[1] == 0xBB &&
+                        bytes[2] == 0xBF
+                ? 3
+                : 0;
+            try
+            {
+                return new ReadResult(
+                    true,
+                    StrictUtf8.GetString(bytes, start, bytes.Length - start));
+            }
+            catch (DecoderFallbackException ex)
+            {
+                throw new InvalidDataException(
+                    $"Scene source is not valid UTF-8: {source}",
+                    ex);
+            }
+        }
+    }
+
     internal static void ValidateProjectRootDirectory(string projectRoot)
     {
         string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot));

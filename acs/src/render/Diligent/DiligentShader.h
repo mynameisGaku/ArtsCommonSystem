@@ -75,6 +75,9 @@ public:
      */
     usize       BytecodeSize()  const noexcept override { return 0; }
 
+    /** Poll Diligent's background compiler without waiting. */
+    EShaderStatus Status() const noexcept override;
+
     /**
      * Diligent ネイティブのシェーダオブジェクトを返す (PSO 作成に直接使う)。
      *

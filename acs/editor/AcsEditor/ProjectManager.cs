@@ -102,8 +102,57 @@ public static partial class ProjectManager
     public static Project Open(string acsprojectPath)
     {
         Project project = ReadManifest(acsprojectPath);
+        // 復旧順序全体を一つのプロセス間リース内で固定する。Import/Reimport は
+        // ペイロードとサイドカーの組を不完全な状態で残すことがあるため、シーン復旧が
+        // 正式なサイドカーを走査する前に確定する。その後、シーン処理が起動参照を更新する。
+        using (AssetMutationLock recoveryLease =
+               AssetMutationLock.AcquireForRecovery(
+                   project.AssetsDir,
+                   "Recover project startup transactions"))
+        {
+            var assetDatabase = AssetDatabase.ForProject(project);
+            AssetImportReconciliationResult importRecovery =
+                AssetImportWorkflow.Reconcile(assetDatabase);
+            ThrowIfAssetPublicationRecoveryIsAmbiguous(
+                importRecovery,
+                "Import");
+            AssetImportReconciliationResult reimportRecovery =
+                AssetReimportWorkflow.Reconcile(assetDatabase);
+            ThrowIfAssetPublicationRecoveryIsAmbiguous(
+                reimportRecovery,
+                "Reimport");
+
+            // Content Browser の移動と二つの起動参照ファイルは、一つのファイルシステム
+            // トランザクションを共有できない。クラッシュ後に残った永続 intent を Project
+            // オブジェクトの公開前に解決し、呼び出し元が古い参照を保持しないよう manifest を再読込する。
+            ProjectSceneReferenceRecoveryResult sceneRecovery =
+                ReconcileInitialScenePathFollow(project);
+            if (sceneRecovery.Status is
+                ProjectSceneReferenceRecoveryStatus.Deferred or
+                ProjectSceneReferenceRecoveryStatus.LiveOperation)
+            {
+                throw new InvalidDataException(
+                    "The project has an unresolved initial-scene move and remains fail-closed: " +
+                    sceneRecovery.Message);
+            }
+        }
+        project = ReadManifest(acsprojectPath);
         AddRecent(project.ProjectFilePath);
         return project;
+    }
+
+    private static void ThrowIfAssetPublicationRecoveryIsAmbiguous(
+        AssetImportReconciliationResult recovery,
+        string operation)
+    {
+        if (recovery.PreservedTransactions == 0)
+            return;
+        string details = recovery.Warnings.Count == 0
+            ? ""
+            : " " + string.Join(" ", recovery.Warnings);
+        throw new InvalidDataException(
+            $"{operation} recovery preserved {recovery.PreservedTransactions} ambiguous " +
+            "transaction(s); project open remains fail-closed." + details);
     }
 
     /// <summary>
@@ -111,20 +160,33 @@ public static partial class ProjectManager
     /// </summary>
     internal static Project ReadManifest(string acsprojectPath)
     {
-        string projectFilePath = Path.GetFullPath(acsprojectPath);
-        if (!File.Exists(projectFilePath))
-            throw new FileNotFoundException($"プロジェクトファイルが見つかりません: {projectFilePath}");
-        FileAttributes projectFileAttributes = File.GetAttributes(projectFilePath);
-        if ((projectFileAttributes & FileAttributes.Directory) != 0)
-            throw new InvalidDataException(
-                $".acsproject path must be an ordinary file: {projectFilePath}");
-        if ((projectFileAttributes & FileAttributes.ReparsePoint) != 0)
-            throw new InvalidDataException(
-                $".acsproject file cannot be a reparse point: {projectFilePath}");
-        string projectRoot = Path.GetDirectoryName(projectFilePath)
+        string requestedPath = Path.GetFullPath(acsprojectPath);
+        string projectRoot = Path.GetDirectoryName(requestedPath)
             ?? throw new InvalidDataException(".acsproject path has no project directory.");
         SceneSourceFile.ValidateProjectRootDirectory(projectRoot);
-        string json = File.ReadAllText(projectFilePath, Encoding.UTF8);
+        ReferenceFileSnapshot manifest = CaptureRequiredOrdinaryFile(
+            requestedPath,
+            MaxProjectManifestBytes,
+            ".acsproject manifest",
+            requireWritable: false);
+        string projectFilePath = manifest.Path;
+        ReadOnlySpan<byte> manifestBytes = manifest.Bytes;
+        if (manifestBytes.StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }))
+            manifestBytes = manifestBytes[3..];
+        string json;
+        try
+        {
+            json = StrictUtf8NoBom.GetString(manifestBytes);
+        }
+        catch (DecoderFallbackException error)
+        {
+            throw new InvalidDataException(
+                "The .acsproject manifest is not valid UTF-8.",
+                error);
+        }
+        if (json.IndexOf('\0') >= 0)
+            throw new InvalidDataException(
+                "The .acsproject manifest contains an embedded NUL.");
         var dto = JsonSerializer.Deserialize<ManifestDto>(json)
                   ?? throw new InvalidDataException("マニフェストの解析に失敗しました。");
         var proj = new Project

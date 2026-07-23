@@ -277,6 +277,21 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 /** 太陽方向を正規化して保持する。 */
 void FSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
 
+EShaderStatus FSky::FCompiledShaders::Status() const noexcept {
+    if (!vertex || !pixel) return EShaderStatus::Failed;
+    const EShaderStatus vertex_status = vertex->Status();
+    const EShaderStatus pixel_status = pixel->Status();
+    if (vertex_status == EShaderStatus::Failed ||
+        pixel_status == EShaderStatus::Failed) {
+        return EShaderStatus::Failed;
+    }
+    if (vertex_status == EShaderStatus::Compiling ||
+        pixel_status == EShaderStatus::Compiling) {
+        return EShaderStatus::Compiling;
+    }
+    return EShaderStatus::Ready;
+}
+
 /** Compile raw-DX12 sky bytecode without accessing the render device. */
 TResult<FSky::FCompiledShaders> FSky::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
@@ -323,6 +338,39 @@ TResult<FSky::FCompiledShaders> FSky::CompileShadersCpu() noexcept {
         Render, 575,
         "FSky CPU compilation is available only on the raw DX12 backend");
 #endif
+}
+
+TResult<FSky::FCompiledShaders> FSky::BeginCompileShadersAsync(
+    IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 576,
+            "FSky backend-managed asynchronous compilation is unsupported");
+    }
+
+    FShaderDesc vs_d{};
+    vs_d.stage = EShaderStage::Vertex;
+    vs_d.hlsl_source = kSkyHLSL;
+    vs_d.entry_point = "VSMain";
+    vs_d.debug_name = "FSky.VS";
+    vs_d.compile_async = true;
+
+    FCompiledShaders compiled{};
+    auto vertex = CreateRhiShader(device, vs_d);
+    if (vertex.IsErr()) return Err<FCompiledShaders>(vertex.Error());
+    compiled.vertex = Move(vertex.Value());
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kSkyHLSL;
+    ps_d.entry_point = "PSMain";
+    ps_d.debug_name = "FSky.PS";
+    ps_d.compile_async = true;
+    auto pixel = CreateRhiShader(device, ps_d);
+    if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
+    compiled.pixel = Move(pixel.Value());
+
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
 }
 
 /** VS/PS/定数バッファ/パイプラインを生成する。 */
@@ -2868,6 +2916,117 @@ void FVolumetricClouds::SetLayer(const FVolumetricCloudLayer& requested) noexcep
     }
 }
 
+EShaderStatus FVolumetricClouds::FCompiledShaders::Status() const noexcept {
+    IRhiShader* const mandatory[] = {
+        cloud.Get(),
+        noise.Get(),
+        weather.Get(),
+        detail.Get(),
+        curl.Get(),
+        composite_vertex.Get(),
+        composite_pixel.Get(),
+        composite_atmosphere_pixel.Get(),
+        resolve.Get(),
+    };
+    bool compiling = false;
+    for (IRhiShader* shader : mandatory) {
+        if (shader == nullptr) return EShaderStatus::Failed;
+        const EShaderStatus status = shader->Status();
+        if (status == EShaderStatus::Failed) return EShaderStatus::Failed;
+        compiling = compiling || status == EShaderStatus::Compiling;
+    }
+
+    const bool has_shadow = shadow.Get() != nullptr ||
+                            shadow_finalize.Get() != nullptr;
+    if (has_shadow) {
+        if (!shadow || !shadow_finalize) return EShaderStatus::Failed;
+        const EShaderStatus shadow_status = shadow->Status();
+        const EShaderStatus finalize_status = shadow_finalize->Status();
+        if (shadow_status == EShaderStatus::Failed ||
+            finalize_status == EShaderStatus::Failed) {
+            return EShaderStatus::Failed;
+        }
+        compiling = compiling ||
+                    shadow_status == EShaderStatus::Compiling ||
+                    finalize_status == EShaderStatus::Compiling;
+    }
+    return compiling ? EShaderStatus::Compiling : EShaderStatus::Ready;
+}
+
+namespace {
+
+TResult<FVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
+    IRhiDevice& device, bool compile_async) noexcept {
+    if (compile_async && !device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 580,
+            "Volumetric-cloud backend-managed asynchronous compilation "
+            "is unsupported");
+    }
+
+    auto compile = [&device, compile_async](
+                       EShaderStage stage, const char* source,
+                       const char* entry, const char* name) noexcept {
+        FShaderDesc desc{};
+        desc.stage = stage;
+        desc.hlsl_source = source;
+        desc.entry_point = entry;
+        desc.debug_name = name;
+        desc.compile_async = compile_async;
+        return CreateRhiShader(device, desc);
+    };
+
+    FVolumetricClouds::FCompiledShaders shaders{};
+#define ACS_CREATE_CLOUD_SHADER(member, stage, source, entry, name)           \
+    do {                                                                      \
+        auto result = compile(stage, source, entry, name);                    \
+        if (result.IsErr()) {                                                 \
+            return Err<FVolumetricClouds::FCompiledShaders>(result.Error());  \
+        }                                                                     \
+        shaders.member = Move(result.Value());                                \
+    } while (false)
+    ACS_CREATE_CLOUD_SHADER(cloud, EShaderStage::Compute,
+                            kCloudCS, "CSCloud", "Clouds.CS");
+    ACS_CREATE_CLOUD_SHADER(noise, EShaderStage::Compute,
+                            kNoiseGenCS, "CSNoise", "Clouds.NoiseCS");
+    ACS_CREATE_CLOUD_SHADER(weather, EShaderStage::Compute,
+                            kWeatherGenCS, "CSWeather", "Clouds.WeatherCS");
+    ACS_CREATE_CLOUD_SHADER(detail, EShaderStage::Compute,
+                            kDetailGenCS, "CSDetail", "Clouds.DetailCS");
+    ACS_CREATE_CLOUD_SHADER(curl, EShaderStage::Compute,
+                            kCurlGenCS, "CSCurl", "Clouds.CurlCS");
+    ACS_CREATE_CLOUD_SHADER(composite_vertex, EShaderStage::Vertex,
+                            kCloudCompVS, "VSMain", "Clouds.CompVS");
+    ACS_CREATE_CLOUD_SHADER(composite_pixel, EShaderStage::Pixel,
+                            kCloudCompPS, "PSMain", "Clouds.CompPS");
+    ACS_CREATE_CLOUD_SHADER(
+        composite_atmosphere_pixel, EShaderStage::Pixel,
+        kCloudCompAtmosPS, "PSMainAtmos", "Clouds.CompAtmosPS");
+    ACS_CREATE_CLOUD_SHADER(resolve, EShaderStage::Compute,
+                            kCloudResolveCS, "CSResolve", "Clouds.ResolveCS");
+    if (kVolumetricCloudShadowCacheEnabled) {
+        auto shadow_result = compile(
+            EShaderStage::Compute, kCloudCS,
+            "CSCloudShadow", "Clouds.ShadowCacheCS");
+        if (shadow_result.IsOk()) {
+            shaders.shadow = Move(shadow_result.Value());
+            auto finalize_result = compile(
+                EShaderStage::Compute, kCloudCS,
+                "CSCloudShadowFinalize", "Clouds.ShadowCacheFinalizeCS");
+            if (finalize_result.IsOk()) {
+                shaders.shadow_finalize = Move(finalize_result.Value());
+            } else {
+                shaders.shadow.Reset();
+            }
+        }
+    }
+#undef ACS_CREATE_CLOUD_SHADER
+    return TResult<FVolumetricClouds::FCompiledShaders>(
+        OkInit, Move(shaders));
+}
+
+} // namespace
+
 TResult<FVolumetricClouds::FCompiledShaders>
 FVolumetricClouds::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
@@ -2952,61 +3111,15 @@ FVolumetricClouds::CompileShadersCpu() noexcept {
 
 TResult<void> FVolumetricClouds::Init(
     IRhiDevice& device, EFormat hdr_format) noexcept {
-    auto compile = [&device](EShaderStage stage, const char* source,
-                             const char* entry, const char* name) noexcept {
-        FShaderDesc desc{};
-        desc.stage = stage;
-        desc.hlsl_source = source;
-        desc.entry_point = entry;
-        desc.debug_name = name;
-        return CreateRhiShader(device, desc);
-    };
-
-    FCompiledShaders shaders{};
-#define ACS_CREATE_CLOUD_SHADER(member, stage, source, entry, name)           \
-    do {                                                                      \
-        auto result = compile(stage, source, entry, name);                    \
-        if (result.IsErr()) return Err<void>(result.Error());                 \
-        shaders.member = Move(result.Value());                               \
-    } while (false)
-    ACS_CREATE_CLOUD_SHADER(cloud, EShaderStage::Compute,
-                            kCloudCS, "CSCloud", "Clouds.CS");
-    ACS_CREATE_CLOUD_SHADER(noise, EShaderStage::Compute,
-                            kNoiseGenCS, "CSNoise", "Clouds.NoiseCS");
-    ACS_CREATE_CLOUD_SHADER(weather, EShaderStage::Compute,
-                            kWeatherGenCS, "CSWeather", "Clouds.WeatherCS");
-    ACS_CREATE_CLOUD_SHADER(detail, EShaderStage::Compute,
-                            kDetailGenCS, "CSDetail", "Clouds.DetailCS");
-    ACS_CREATE_CLOUD_SHADER(curl, EShaderStage::Compute,
-                            kCurlGenCS, "CSCurl", "Clouds.CurlCS");
-    ACS_CREATE_CLOUD_SHADER(composite_vertex, EShaderStage::Vertex,
-                            kCloudCompVS, "VSMain", "Clouds.CompVS");
-    ACS_CREATE_CLOUD_SHADER(composite_pixel, EShaderStage::Pixel,
-                            kCloudCompPS, "PSMain", "Clouds.CompPS");
-    ACS_CREATE_CLOUD_SHADER(
-        composite_atmosphere_pixel, EShaderStage::Pixel,
-        kCloudCompAtmosPS, "PSMainAtmos", "Clouds.CompAtmosPS");
-    ACS_CREATE_CLOUD_SHADER(resolve, EShaderStage::Compute,
-                            kCloudResolveCS, "CSResolve", "Clouds.ResolveCS");
-    if (kVolumetricCloudShadowCacheEnabled) {
-        auto shadow_result = compile(
-            EShaderStage::Compute, kCloudCS,
-            "CSCloudShadow", "Clouds.ShadowCacheCS");
-        if (shadow_result.IsOk()) {
-            shaders.shadow = Move(shadow_result.Value());
-            auto finalize_result = compile(
-                EShaderStage::Compute, kCloudCS,
-                "CSCloudShadowFinalize", "Clouds.ShadowCacheFinalizeCS");
-            if (finalize_result.IsOk()) {
-                shaders.shadow_finalize = Move(finalize_result.Value());
-            } else {
-                shaders.shadow.Reset();
-            }
-        }
-    }
-#undef ACS_CREATE_CLOUD_SHADER
+    auto shader_result = CreateCloudShaderSet(device, false);
+    if (shader_result.IsErr()) return Err<void>(shader_result.Error());
     return InitWithCompiledShaders(
-        device, Move(shaders), hdr_format);
+        device, Move(shader_result.Value()), hdr_format);
+}
+
+TResult<FVolumetricClouds::FCompiledShaders>
+FVolumetricClouds::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+    return CreateCloudShaderSet(device, true);
 }
 
 TResult<void> FVolumetricClouds::InitWithCompiledShaders(

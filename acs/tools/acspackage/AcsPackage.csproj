@@ -12,10 +12,21 @@
   <ItemGroup>
     <Compile Include="..\..\editor\AcsEditor\AssetDatabase.cs" Link="AssetDatabase.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetCookPlanner.cs" Link="AssetCookPlanner.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AssetCreationWorkflow.cs" Link="AssetCreationWorkflow.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AssetImportWorkflow.cs" Link="AssetImportWorkflow.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AssetMutationLock.cs" Link="AssetMutationLock.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AssetReimportWorkflow.cs" Link="AssetReimportWorkflow.cs"/>
     <Compile Include="..\..\editor\AcsEditor\CanonicalSceneAdapter.cs" Link="CanonicalSceneAdapter.cs"/>
     <Compile Include="..\..\editor\AcsEditor\DerivedDataCache.cs" Link="DerivedDataCache.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\EngineInterop.cs" Link="EngineInterop.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageCore.cs" Link="PackageCore.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\PackageProcessRunner.cs" Link="PackageProcessRunner.cs"/>
     <Compile Include="..\..\editor\AcsEditor\Project.cs" Link="Project.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\ProjectManager.cs" Link="ProjectManager.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\ProjectManager.SceneReferenceJournal.cs" Link="ProjectManager.SceneReferenceJournal.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\ProjectManager.SceneReferences.cs" Link="ProjectManager.SceneReferences.cs"/>
     <Compile Include="..\..\editor\AcsEditor\RuntimeDependencyResolver.cs" Link="RuntimeDependencyResolver.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\SceneDocumentMode.cs" Link="SceneDocumentMode.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\SceneSourceFile.cs" Link="SceneSourceFile.cs"/>
   </ItemGroup>
 </Project>

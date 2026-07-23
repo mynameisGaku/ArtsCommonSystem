@@ -92,16 +92,31 @@ internal sealed class AssetPathMutationStartingEventArgs : EventArgs
     internal AssetPathMutationStartingEventArgs(
         Guid operationId,
         AssetPathMutationKind kind,
-        IEnumerable<string> affectedRoots)
+        IEnumerable<string> affectedRoots,
+        IEnumerable<AssetPathMapping>? proposedMappings = null)
     {
         OperationId = operationId;
         Kind = kind;
         AffectedRoots = Array.AsReadOnly(AssetPathBoundary.CollapseRoots(affectedRoots));
+        ProposedMappings = Array.AsReadOnly((proposedMappings ??
+                Array.Empty<AssetPathMapping>())
+            .Select(static mapping => new AssetPathMapping(
+                AssetPathBoundary.Normalize(mapping.OriginalRoot),
+                AssetPathBoundary.Normalize(mapping.DestinationRoot)))
+            .Where(static mapping => !AssetPathBoundary.Equals(
+                mapping.OriginalRoot,
+                mapping.DestinationRoot))
+            .DistinctBy(
+                static mapping => mapping.OriginalRoot,
+                StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(static mapping => mapping.OriginalRoot.Length)
+            .ToArray());
     }
 
     internal Guid OperationId { get; }
     internal AssetPathMutationKind Kind { get; }
     internal ReadOnlyCollection<string> AffectedRoots { get; }
+    internal ReadOnlyCollection<AssetPathMapping> ProposedMappings { get; }
     internal bool Cancel { get; set; }
     internal string CancellationReason { get; set; } = "";
 
@@ -110,6 +125,25 @@ internal sealed class AssetPathMutationStartingEventArgs : EventArgs
         string candidate = AssetPathBoundary.Normalize(path);
         return AffectedRoots.Any(root =>
             AssetPathBoundary.TryGetSuffix(candidate, root, out _));
+    }
+
+    internal bool TryRemapPath(string path, out string remappedPath)
+    {
+        string candidate = AssetPathBoundary.Normalize(path);
+        foreach (AssetPathMapping mapping in ProposedMappings)
+        {
+            if (!AssetPathBoundary.TryGetSuffix(
+                    candidate,
+                    mapping.OriginalRoot,
+                    out string suffix))
+            {
+                continue;
+            }
+            remappedPath = mapping.DestinationRoot + suffix;
+            return true;
+        }
+        remappedPath = candidate;
+        return false;
     }
 }
 

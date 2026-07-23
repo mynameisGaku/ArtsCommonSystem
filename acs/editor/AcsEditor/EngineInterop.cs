@@ -102,6 +102,10 @@ internal static class EngineInterop
         IntPtr handle, out uint completed, out uint total);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_set_scene_presentation_suppressed(
+        IntPtr handle, int suppressed);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_render(IntPtr handle, float dt);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

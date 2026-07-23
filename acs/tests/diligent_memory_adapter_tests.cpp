@@ -93,6 +93,11 @@ ACS_TEST(FDiligentDevice, InitializedMemorySystemOwnsAndReleasesDiligentAllocati
                          static_cast<unsigned int>(subcode));
         } else {
             device_initialized = true;
+            // Diligent device features are opt-in.  The editor relies on this
+            // capability to keep shader warm-up off the HWND owner thread, so
+            // a successfully created production D3D12 device must advertise
+            // the feature that was requested in EngineD3D12CreateInfo.
+            EXPECT_TRUE(device.SupportsAsyncShaderCompilation());
         }
     }
 

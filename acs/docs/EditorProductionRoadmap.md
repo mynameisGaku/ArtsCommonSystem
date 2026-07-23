@@ -391,6 +391,10 @@ flowchart TD
 - Editor Play、Standalone、Package 共通 loader。
 - 3D project template。
 
+実装済み基盤:
+
+- Initial Scene の移動追従を永続 journal に記録し、Project Settings と manifest の片側だけが更新された状態を起動時に検証して復旧する。
+
 依存: なし。すべての最優先作業の起点。
 
 完了条件:
@@ -447,6 +451,11 @@ flowchart TD
 - atomic rename/move と redirect/migration。
 - thumbnail/derived data cache。
 
+実装済み基盤:
+
+- Import/Reimport の prepare/commit journal を Project 起動時に同一の変更リース内で復旧し、不完全なペイロードとサイドカーを Asset DB 走査前に確定する。
+- 画像 decode を UI モデルから独立したワーカーへ分離し、decode 済みの不変な結果だけをディスパッチャーへ戻す。
+
 依存: P0-A の Scene reference、P0-C の asset operation transaction と協調する。
 
 完了条件:
@@ -469,6 +478,7 @@ flowchart TD
 - pack SHA-256/format/compression/source countを含むmanifest。
 - Test/Shipping runtimeのpack直読とno-loose-fallback。
 - Editor と CI が共有する CLI/API。
+- Package の事前検証をデバウンス付きの非同期ワーカーで実行し、公開直前に変更リースを再取得して Initial Scene journal とアセット identity を再検証する。
 
 残り成果物:
 

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Threading.Tasks;
 
 namespace AcsEditor;
 
@@ -21,6 +22,7 @@ public partial class ProjectLauncher : Window
     public Project? SelectedProject { get; private set; }
 
     private string _template = "2d";
+    private bool _openInProgress;
 
     public ProjectLauncher()
     {
@@ -87,8 +89,9 @@ public partial class ProjectLauncher : Window
         }
     }
 
-    private void OnOpenExisting(object sender, RoutedEventArgs e)
+    private async void OnOpenExisting(object sender, RoutedEventArgs e)
     {
+        if (_openInProgress) return;
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "プロジェクトを開く",
@@ -96,48 +99,77 @@ public partial class ProjectLauncher : Window
             DefaultExt = ".acsproject",
         };
         if (dlg.ShowDialog(this) != true) return;
-        OpenPath(dlg.FileName);
+        await OpenPathAsync(dlg.FileName);
     }
 
-    private void OnRecentDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private async void OnRecentDoubleClick(
+        object sender,
+        System.Windows.Input.MouseButtonEventArgs e)
     {
-        OpenSelectedRecent();
+        await OpenSelectedRecentAsync();
     }
 
     private void OnRecentSelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        OpenRecentBtn.IsEnabled = RecentsList.SelectedItem is RecentProjectItem;
+        OpenRecentBtn.IsEnabled =
+            !_openInProgress &&
+            RecentsList.SelectedItem is RecentProjectItem;
 
-    private void OnOpenRecent(object sender, RoutedEventArgs e) => OpenSelectedRecent();
+    private async void OnOpenRecent(object sender, RoutedEventArgs e) =>
+        await OpenSelectedRecentAsync();
 
-    private void OnRecentKeyDown(object sender, KeyEventArgs e)
+    private async void OnRecentKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        OpenSelectedRecent();
         e.Handled = true;
+        await OpenSelectedRecentAsync();
     }
 
-    private void OpenSelectedRecent()
+    private Task OpenSelectedRecentAsync()
     {
-        if (RecentsList.SelectedItem is RecentProjectItem item) OpenPath(item.Path);
+        return RecentsList.SelectedItem is RecentProjectItem item
+            ? OpenPathAsync(item.Path)
+            : Task.CompletedTask;
     }
 
-    private void OpenPath(string acsprojectPath)
+    private async Task OpenPathAsync(string acsprojectPath)
     {
+        if (_openInProgress) return;
+        _openInProgress = true;
+        LauncherContent.IsEnabled = false;
+        Cursor = Cursors.Wait;
+        StatusText.Text = "Opening project and recovering interrupted asset operations...";
         try
         {
-            SelectedProject = ProjectManager.Open(acsprojectPath);
+            Project project = await Task.Run(() => ProjectManager.Open(acsprojectPath));
+            if (!IsLoaded) return;
+            SelectedProject = project;
             DialogResult = true;
             Close();
         }
         catch (Exception ex)
         {
+            if (!IsLoaded) return;
+            LauncherContent.IsEnabled = true;
+            Cursor = null;
             StatusText.Text = "オープン失敗: " + ex.Message;
             MessageBox.Show(this, ex.Message, "プロジェクトを開けませんでした", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _openInProgress = false;
+            if (IsLoaded)
+            {
+                LauncherContent.IsEnabled = true;
+                Cursor = null;
+                OpenRecentBtn.IsEnabled =
+                    RecentsList.SelectedItem is RecentProjectItem;
+            }
         }
     }
 
     private void OnCancel(object sender, RoutedEventArgs e)
     {
+        if (_openInProgress) return;
         SelectedProject = null;
         DialogResult = false;
         Close();

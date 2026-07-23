@@ -98,6 +98,10 @@ internal static class SceneEditorMigrationSelfTest
         string switchBody = ExtractMethodBody(sceneModeSource, "SwitchSceneViewMode(");
         string initializeBody =
             ExtractMethodBody(sceneModeSource, "InitializeProjectSceneDocument(");
+        string establishEmptyBody =
+            ExtractMethodBody(sceneModeSource, "EstablishEmptySceneDocument(");
+        string restoreOpenBody =
+            ExtractMethodBody(sceneModeSource, "RestoreSceneOpenRollbackSnapshot(");
         string openBody = ExtractMethodBody(shellSource, "OnOpenScene(");
 
         const string viewAssignment = @"_view3d\s*=(?!=)";
@@ -122,19 +126,145 @@ internal static class SceneEditorMigrationSelfTest
                         StringComparison.OrdinalIgnoreCase))
                 .Select(File.ReadAllText));
 
+        string allowedAdapterBodies =
+            initializeBody + "\n" + establishEmptyBody + "\n" +
+            restoreOpenBody + "\n" + openBody;
         bool adapterWritesAreConfined =
-            CountMatches(auditedManagedCs, viewAssignment) == 2 &&
-            CountMatches(initializeBody, viewAssignment) == 1 &&
-            CountMatches(openBody, viewAssignment) == 1 &&
-            CountMatches(auditedManagedCs, sourceAssignment) == 3 &&
-            CountMatches(initializeBody, sourceAssignment) == 1 &&
-            CountMatches(openBody, sourceAssignment) == 1 &&
-            CountMatches(auditedManagedCs, nativeAdapterSelection) == 2 &&
-            CountMatches(initializeBody, nativeAdapterSelection) == 1 &&
-            CountMatches(openBody, nativeAdapterSelection) == 1;
+            CountMatches(auditedManagedCs, viewAssignment) ==
+                CountMatches(allowedAdapterBodies, viewAssignment) &&
+            // The one additional source-mode assignment is its default field initializer.
+            CountMatches(auditedManagedCs, sourceAssignment) ==
+                CountMatches(allowedAdapterBodies, sourceAssignment) + 1 &&
+            CountMatches(auditedManagedCs, nativeAdapterSelection) ==
+                CountMatches(allowedAdapterBodies, nativeAdapterSelection) &&
+            CountMatches(initializeBody, viewAssignment) > 0 &&
+            CountMatches(openBody, viewAssignment) > 0 &&
+            CountMatches(establishEmptyBody, nativeAdapterSelection) == 1;
         Check(
             adapterWritesAreConfined,
             "source adapter selection is confined to project initialization and explicit Open");
+
+        int parseResult = openBody.IndexOf(
+            "if (ok != 0)",
+            StringComparison.Ordinal);
+        string beforeSuccessfulParse =
+            parseResult > 0 ? openBody[..parseResult] : openBody;
+        int completeLoad = openBody.IndexOf(
+            "CompleteSceneLoad(sceneLoad, publishScene)",
+            StringComparison.Ordinal);
+        int deferredRecovery = openBody.LastIndexOf(
+            "await ApplyRecoveryCandidateAsync(recoveryToApply)",
+            StringComparison.Ordinal);
+        bool manualOpenIsTransactional =
+            parseResult > 0 &&
+            openBody.Contains(
+                "SceneSourceFile.ReadBoundedTextAsync(",
+                StringComparison.Ordinal) &&
+            openBody.Contains(
+                "CaptureSceneOpenRollbackSnapshot()",
+                StringComparison.Ordinal) &&
+            openBody.Contains(
+                "RestoreSceneOpenRollbackSnapshot(rollback)",
+                StringComparison.Ordinal) &&
+            sceneModeSource.Contains(
+                "EngineInterop.SceneText(Engine)",
+                StringComparison.Ordinal) &&
+            sceneModeSource.Contains(
+                "EngineInterop.Scene3DText(Engine)",
+                StringComparison.Ordinal) &&
+            sceneModeSource.Contains(
+                "document?.CaptureCheckpoint()",
+                StringComparison.Ordinal) &&
+            openBody.Contains(
+                "EngineInterop.acs_editor_scene3d_load_text(",
+                StringComparison.Ordinal) &&
+            openBody.Contains(
+                "EngineInterop.acs_editor_scene_load_text(",
+                StringComparison.Ordinal) &&
+            CountMatches(beforeSuccessfulParse, viewAssignment) == 0 &&
+            CountMatches(beforeSuccessfulParse, sourceAssignment) == 0 &&
+            !beforeSuccessfulParse.Contains(
+                "SetCurrentScenePath(",
+                StringComparison.Ordinal) &&
+            CountMatches(openBody, @"SetCurrentScenePath\s*\(\s*selectedPath\s*\)") == 1 &&
+            CountMatches(openBody, @"MarkSceneClean\s*\(") == 1 &&
+            completeLoad > 0 &&
+            deferredRecovery > completeLoad &&
+            openBody.Contains(
+                "The current scene was restored unchanged.",
+                StringComparison.Ordinal);
+        Check(
+            manualOpenIsTransactional,
+            "manual Open rolls back both native graphs, managed metadata and history atomically");
+
+        bool startupLoadIsGated =
+            initializeBody.Contains("BeginSceneLoad(", StringComparison.Ordinal) &&
+            initializeBody.Contains(
+                "SceneSourceFile.ReadBoundedTextAsync(",
+                StringComparison.Ordinal) &&
+            initializeBody.Contains(
+                "EstablishEmptySceneDocument(",
+                StringComparison.Ordinal) &&
+            initializeBody.Contains(
+                "the startup viewport remains blank",
+                StringComparison.Ordinal);
+        Check(
+            startupLoadIsGated,
+            "startup scene load is bounded, generation-gated, and fails blank");
+
+        string appSource = File.ReadAllText(Path.Combine(sourceRoot, "App.xaml.cs"));
+        bool directProjectOpenIsAsync =
+            appSource.Contains(
+                "protected override async void OnStartup",
+                StringComparison.Ordinal) &&
+            Regex.IsMatch(
+                appSource,
+                @"Task\.Run\s*\(\s*\(\)\s*=>\s*ProjectManager\.Open\(cliProject\)\s*\)");
+        Check(
+            directProjectOpenIsAsync,
+            "direct .acsproject startup reconciles project I/O off the WPF dispatcher");
+
+        string viewportSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "EngineViewport.cs"));
+        int createCall = viewportSource.IndexOf(
+            "EngineInterop.acs_editor_create()",
+            StringComparison.Ordinal);
+        int suppressCall = viewportSource.IndexOf(
+            "acs_editor_set_scene_presentation_suppressed(_engine, 1)",
+            StringComparison.Ordinal);
+        Check(
+            createCall >= 0 && suppressCall > createCall,
+            "viewport suppresses native presentation before its render pump starts");
+
+        string nativeEditorPath = Path.GetFullPath(
+            Path.Combine(
+                sourceRoot,
+                "..",
+                "..",
+                "src",
+                "editor_abi",
+                "EditorAbi.cpp"));
+        string nativeEditorSource = File.ReadAllText(nativeEditorPath);
+        string nativeCreateBody =
+            ExtractMethodBody(
+                nativeEditorSource,
+                "ACS_EDITOR_API void* acs_editor_create(");
+        string nativeRenderBody =
+            ExtractMethodBody(
+                nativeEditorSource,
+                "ACS_EDITOR_API void acs_editor_render(");
+        Check(
+            nativeCreateBody.Contains("ClearScene(*host)", StringComparison.Ordinal) &&
+            !nativeCreateBody.Contains("InitDemoScene", StringComparison.Ordinal),
+            "production native editor hosts start with an explicit blank scene");
+        Check(
+            nativeRenderBody.Contains(
+                "scene_presentation_suppressed",
+                StringComparison.Ordinal) &&
+            nativeRenderBody.Contains(
+                "loadingClear",
+                StringComparison.Ordinal),
+            "native loading gate presents a neutral frame without drawing scene content");
 
         bool viewSwitchIsProjectionOnly =
             switchBody.Length > 0 &&

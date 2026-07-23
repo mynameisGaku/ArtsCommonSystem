@@ -258,6 +258,10 @@ struct FEditorHost {
     u32          startup_step   = 0;
     bool         startup_ready  = false;
     bool         startup_failed = false;
+    // The managed editor suppresses scene presentation while a scene document is being
+    // loaded.  Renderer warm-up and blank swapchain presentation continue, but no old
+    // scene, sky, cloud, gizmo, or simulation frame may leak through the loading boundary.
+    bool         scene_presentation_suppressed = false;
     editor_profiler::FTimePoint startup_begin{};
     // Slow raw-DX12 sky/PBR/SSGI/cloud optimization is staged here. The worker
     // compiles bytecode only; every RHI resource and PSO is still created by
@@ -266,6 +270,10 @@ struct FEditorHost {
     std::atomic<i32> startup_worker_state{0}; // 0=idle, 1=running, 2=ok, -1=failed
     u32           startup_worker_kind = 0u; // 0=none, 1=PBR, 2=SSGI, 3=FSky, 4=clouds
     f32           startup_worker_elapsed_ms = 0.0f;
+    // Diligent owns the compiler threads; submission, status polling and every
+    // PSO/resource operation remain on the HWND/render-owner thread.
+    u32           startup_async_shader_kind = 0u; // 0=none, 1=PBR, 3=FSky, 4=clouds
+    editor_profiler::FTimePoint startup_async_shader_begin{};
     FSky::FCompiledShaders startup_sky_shaders{};
     FPbrShader::FCompiledShaders startup_pbr_shaders{};
     FSsgi::FCompiledShaders startup_ssgi_shaders{};
@@ -1016,25 +1024,6 @@ void RebuildRegistry(FEditorHost& h) noexcept {
     if (h.root.Get() != nullptr) CollectNodes(h, h.root.Get());
     // 構造変更で消えた選択を集合から取り除き、primary を整える。
     SelPrune(h);
-}
-
-/** デモ用のエディタ・シーンを構築する (実 ANode の親子ツリー)。 */
-void InitDemoScene(FEditorHost& h) noexcept {
-    h.root    = NewObject<game::ANode>();   // 隠しルート (identity transform)
-    h.next_id = 1;
-    AEditorNode* player   = AddEditorNode(h, -1, "Player",   320.0f, 230.0f, 0.0f, 56.0f, FVec4{ 0.18f, 0.62f, 0.80f, 1.0f });
-    AEditorNode* sprite   = AddEditorNode(h,  1, "Sprite",    52.0f,   0.0f, 0.0f, 30.0f, FVec4{ 0.86f, 0.56f, 0.30f, 1.0f });
-    AEditorNode* collider = AddEditorNode(h,  1, "Collider", -38.0f,  24.0f, 0.0f, 26.0f, FVec4{ 0.45f, 0.80f, 0.45f, 1.0f });
-    AEditorNode* enemy    = AddEditorNode(h, -1, "Enemy",    520.0f, 150.0f, 0.5f, 48.0f, FVec4{ 0.86f, 0.36f, 0.42f, 1.0f });
-    AEditorNode* pickup   = AddEditorNode(h, -1, "Pickup",   180.0f, 330.0f, 0.0f, 24.0f, FVec4{ 0.82f, 0.76f, 0.32f, 1.0f });
-    // 描画はコンポーネント駆動。各ノードに APrimitiveRenderer2D を付ける (Pickup は円)。
-    AttachComponent(player,   "APrimitiveRenderer2D");
-    AttachComponent(sprite,   "APrimitiveRenderer2D");
-    AttachComponent(collider, "APrimitiveRenderer2D");
-    AttachComponent(enemy,    "APrimitiveRenderer2D");
-    AttachComponent(pickup,   "APrimitiveRenderer2D");
-    SetCompProp(pickup, 0, 0, 1.0f, 0.0f, 0.0f, 0.0f);   // Pickup の renderer.shape = 1 (Circle)
-    SelSet(h, 1);
 }
 
 /**
@@ -3398,7 +3387,59 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     const char* const backend_name = dev->BackendName();
     const bool raw_dx12 = backend_name != nullptr &&
                           std::strcmp(backend_name, "DX12") == 0;
-    if (raw_dx12) {
+    if (dev->SupportsAsyncShaderCompilation()) {
+        if (h.startup_async_shader_kind == 0u) {
+            const editor_profiler::FTimePoint submit_begin =
+                editor_profiler::FClock::now();
+            auto shader_result = FSky::BeginCompileShadersAsync(*dev);
+            if (shader_result.IsOk()) {
+                h.startup_sky_shaders = Move(shader_result.Value());
+                h.startup_async_shader_kind = 3u;
+                h.startup_async_shader_begin = submit_begin;
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.sky3d_ready = false;
+            ACS_LOG_WARN(
+                "[3D] FSky asynchronous shader submission failed: %s",
+                shader_result.Error().message);
+        } else {
+            const EShaderStatus shader_status =
+                h.startup_sky_shaders.Status();
+            if (shader_status == EShaderStatus::Compiling) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            const f32 compile_ms = editor_profiler::ElapsedMilliseconds(
+                h.startup_async_shader_begin);
+            h.startup_async_shader_kind = 0u;
+            h.startup_phase_elapsed_override_ms = compile_ms;
+            if (shader_status == EShaderStatus::Ready) {
+                const editor_profiler::FTimePoint commit_begin =
+                    editor_profiler::FClock::now();
+                const auto sky_result = h.sky3d.InitWithCompiledShaders(
+                    *dev, Move(h.startup_sky_shaders), hdrf, df);
+                const f32 commit_ms =
+                    editor_profiler::ElapsedMilliseconds(commit_begin);
+                h.startup_phase_elapsed_override_ms += commit_ms;
+                h.sky3d_ready = sky_result.IsOk();
+                if (h.sky3d_ready) {
+                    ACS_LOG_INFO(
+                        "[3D] FSky backend compile %.2f ms; "
+                        "owner RHI commit %.2f ms",
+                        compile_ms, commit_ms);
+                } else {
+                    ACS_LOG_WARN(
+                        "[3D] FSky owner-thread RHI commit failed: %s",
+                        sky_result.Error().message);
+                }
+            } else {
+                h.startup_sky_shaders = {};
+                h.sky3d_ready = false;
+                ACS_LOG_ERROR("[3D] FSky asynchronous shader compile failed");
+            }
+        }
+    } else if (raw_dx12) {
         if (h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
             !h.startup_worker.Joinable()) {
             if (BeginSkyCompileWorker(h)) {
@@ -3476,7 +3517,66 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     const bool raw_dx12 = backend_name != nullptr &&
                           std::strcmp(backend_name, "DX12") == 0;
     bool used_async_compile = false;
-    if (raw_dx12) {
+    if (dev->SupportsAsyncShaderCompilation()) {
+        used_async_compile = true;
+        if (h.startup_async_shader_kind == 0u) {
+            const editor_profiler::FTimePoint submit_begin =
+                editor_profiler::FClock::now();
+            auto shader_result =
+                FPbrShader::BeginCompileShadersAsync(*dev);
+            if (shader_result.IsOk()) {
+                h.startup_pbr_shaders = Move(shader_result.Value());
+                h.startup_async_shader_kind = 1u;
+                h.startup_async_shader_begin = submit_begin;
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.pbr3d_ready = false;
+            ACS_LOG_ERROR(
+                "[3D] FPbrShader asynchronous shader submission failed: %s",
+                shader_result.Error().message);
+        } else {
+            const EShaderStatus shader_status =
+                h.startup_pbr_shaders.Status();
+            if (shader_status == EShaderStatus::Compiling) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+            const f32 compile_ms = editor_profiler::ElapsedMilliseconds(
+                h.startup_async_shader_begin);
+            h.startup_async_shader_kind = 0u;
+            h.startup_phase_elapsed_override_ms = compile_ms;
+            if (shader_status == EShaderStatus::Ready) {
+                const editor_profiler::FTimePoint commit_begin =
+                    editor_profiler::FClock::now();
+                const auto pbr_result = h.pbr3d.InitWithCompiledShaders(
+                    *dev,
+                    Move(h.startup_pbr_shaders),
+                    hdrf,
+                    df,
+                    ECullMode::None);
+                const f32 commit_ms =
+                    editor_profiler::ElapsedMilliseconds(commit_begin);
+                h.startup_phase_elapsed_override_ms += commit_ms;
+                h.pbr3d_ready = pbr_result.IsOk();
+                if (h.pbr3d_ready) {
+                    ACS_LOG_INFO(
+                        "[3D] FPbrShader backend compile %.2f ms; "
+                        "owner RHI commit %.2f ms",
+                        compile_ms, commit_ms);
+                } else {
+                    ACS_LOG_ERROR(
+                        "[3D] FPbrShader owner-thread RHI commit failed: %s",
+                        pbr_result.Error().message);
+                }
+            } else {
+                h.startup_pbr_shaders = {};
+                h.pbr3d_ready = false;
+                ACS_LOG_ERROR(
+                    "[3D] FPbrShader asynchronous shader compile failed");
+            }
+        }
+    } else if (raw_dx12) {
         if (h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
             !h.startup_worker.Joinable()) {
             if (BeginPbrCompileWorker(h)) {
@@ -3533,8 +3633,8 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             }
         }
     } else {
-        // Diligent and future backends retain their established owner-thread
-        // creation path; no backend-specific object crosses threads.
+        // Backends without an asynchronous compiler retain their established
+        // owner-thread creation path.
         const auto pbr_result =
             h.pbr3d.Init(*dev, hdrf, df, ECullMode::None);
         h.pbr3d_ready = pbr_result.IsOk();
@@ -4015,6 +4115,76 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.vclouds_ready = false;
                 if (!wants_clouds) h.vclouds_tried = false;
             }
+        } else if (h.startup_async_shader_kind == 4u) {
+            if (!wants_clouds) {
+                // Diligent explicitly supports releasing shader objects while
+                // they compile. Do not hold an unwanted warm-up until finish.
+                h.startup_cloud_shaders = {};
+                h.startup_async_shader_kind = 0u;
+                h.vclouds_ready = false;
+                h.vclouds_tried = false;
+            } else {
+                const EShaderStatus shader_status =
+                    h.startup_cloud_shaders.Status();
+                if (shader_status == EShaderStatus::Compiling) {
+                    h.startup_phase_pending = true;
+                    return false;
+                }
+                const f32 compile_ms =
+                    editor_profiler::ElapsedMilliseconds(
+                        h.startup_async_shader_begin);
+                h.startup_async_shader_kind = 0u;
+                h.startup_phase_elapsed_override_ms = compile_ms;
+                if (shader_status == EShaderStatus::Ready) {
+                    h.vclouds_tried = true;
+                    const editor_profiler::FTimePoint commit_begin =
+                        editor_profiler::FClock::now();
+                    const auto result =
+                        h.vclouds3d.InitWithCompiledShaders(
+                            *dev, Move(h.startup_cloud_shaders),
+                            EFormat::R16G16B16A16_Float);
+                    const f32 commit_ms =
+                        editor_profiler::ElapsedMilliseconds(commit_begin);
+                    h.startup_phase_elapsed_override_ms += commit_ms;
+                    h.vclouds_ready = result.IsOk();
+                    if (h.vclouds_ready) {
+                        ACS_LOG_INFO(
+                            "[3D] FVolumetricClouds backend compile %.2f ms; "
+                            "owner RHI commit %.2f ms",
+                            compile_ms, commit_ms);
+                    } else {
+                        ACS_LOG_WARN(
+                            "[3D] volumetric-cloud owner-thread RHI commit "
+                            "failed: %s",
+                            result.Error().message);
+                    }
+                } else {
+                    h.startup_cloud_shaders = {};
+                    h.vclouds_ready = false;
+                    ACS_LOG_ERROR(
+                        "[3D] volumetric-cloud asynchronous shader "
+                        "compile failed");
+                }
+            }
+        } else if (wants_clouds &&
+                   dev->SupportsAsyncShaderCompilation()) {
+            h.vclouds_tried = true;
+            const editor_profiler::FTimePoint submit_begin =
+                editor_profiler::FClock::now();
+            auto shader_result =
+                FVolumetricClouds::BeginCompileShadersAsync(*dev);
+            if (shader_result.IsOk()) {
+                h.startup_cloud_shaders = Move(shader_result.Value());
+                h.startup_async_shader_kind = 4u;
+                h.startup_async_shader_begin = submit_begin;
+                h.startup_phase_pending = true;
+                return false;
+            }
+            h.vclouds_ready = false;
+            ACS_LOG_ERROR(
+                "[3D] volumetric-cloud asynchronous shader submission "
+                "failed: %s",
+                shader_result.Error().message);
         } else if (wants_clouds) {
             h.vclouds_tried = true;
             const char* const backend_name = dev->BackendName();
@@ -6228,7 +6398,10 @@ ACS_EDITOR_API void* acs_editor_create(void) {
     if (!EnsureSubsystems()) return nullptr;
     auto* host = new (std::nothrow) FEditorHost();
     if (host != nullptr) {
-        InitDemoScene(*host);
+        // Production editor hosts start with an explicit empty document.  A demo scene here
+        // used to be visible for several frames before the managed initial-scene load and
+        // also became the accidental fallback after a failed load.
+        ClearScene(*host);
     } else {
         ReleaseSubsystems();
     }
@@ -6290,6 +6463,19 @@ ACS_EDITOR_API int acs_editor_startup_status(
     if (total != nullptr) *total = kEditorStartupStepCount;
     if (host == nullptr || host->startup_failed) return -1;
     return host->startup_ready ? 1 : 0;
+}
+
+/** Suppress scene presentation without stopping renderer warm-up or swapchain progress. */
+ACS_EDITOR_API void acs_editor_set_scene_presentation_suppressed(
+    void* handle, int suppressed) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return;
+    const bool next = suppressed != 0;
+    if (host->scene_presentation_suppressed == next) return;
+    host->scene_presentation_suppressed = next;
+    // Loading time must not pollute the first visible profiler interval.
+    host->profiler_has_previous_frame = false;
+    host->profiler_smoothed_fps = 0.0f;
 }
 
 static void EditorStepPlay(FEditorHost& h, f32 dt) noexcept;   // 前方宣言 (定義は Play モード節)
@@ -6517,6 +6703,26 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
     const editor_profiler::FTimePoint profilerFrameBegin =
         editor_profiler::FClock::now();
     BeginProfilerFrame(*host, profilerFrameBegin);
+    if (host->scene_presentation_suppressed) {
+        // Keep presenting a deterministic neutral frame so WPF's HwndHost airspace cannot
+        // expose the previous/default scene while managed file I/O is in flight.
+        constexpr FClearColor loadingClear{0.035f, 0.043f, 0.055f, 1.0f};
+        IRhiCommandList* commandList = host->renderer.CommandList();
+        if (commandList != nullptr) commandList->ResetStatistics();
+        host->renderer.BeginFrame(loadingClear);
+        if (commandList != nullptr) {
+            commandList->BeginGpuTimingFrame(
+                host->profiler_snapshot.frame_index + 1u);
+            commandList->EndGpuTimingFrame();
+        }
+        const editor_profiler::FTimePoint submitBegin =
+            editor_profiler::FClock::now();
+        host->renderer.EndFrame();
+        PublishProfilerFrame(
+            *host, profilerFrameBegin,
+            editor_profiler::ElapsedMilliseconds(submitBegin));
+        return;
+    }
     const f32 safe_dt = std::isfinite(dt) && dt > 0.0f
         ? std::clamp(dt, 0.0f, 0.10f)
         : 0.0f;
@@ -7089,6 +7295,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     // The worker owns no RHI resources, but it writes its compiled bytecode
     // result into the host.  Join before any host, renderer, or DLL teardown.
     JoinStartupWorker(*host);
+    host->startup_async_shader_kind = 0u;
     host->startup_sky_shaders = {};
     host->startup_pbr_shaders = {};
     host->startup_ssgi_shaders = {};

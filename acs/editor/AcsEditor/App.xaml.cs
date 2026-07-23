@@ -131,7 +131,7 @@ public partial class App : Application
             (nint)updated);
     }
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         // SoftwareOnly makes the entire editor UI more expensive. Keep the
         // compatibility fallback for remote sessions (and the explicit
@@ -148,6 +148,39 @@ public partial class App : Application
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         }
         base.OnStartup(e);
+
+        // 内部用のウィンドウを持たない WIC 分離プロセス。デコーダー子プロセスが
+        // エディターウィンドウを作成したり通常のプロジェクト起動へ入ったりしないよう、
+        // すべてのエディター／自己テスト分岐より先に処理する。
+        if (AssetImageDecodeWorker.TryRun(
+                e.Args,
+                out int imageWorkerExitCode))
+        {
+            Shutdown(imageWorkerExitCode);
+            return;
+        }
+
+        // Headless package worker modes are used by the responsiveness harness
+        // to exercise bounded output capture and process-tree cancellation.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--package-process-output-worker")
+        {
+            Shutdown(PackageResponsivenessSelfTest.RunOutputWorker());
+            return;
+        }
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--package-process-wait-worker")
+        {
+            Shutdown(PackageResponsivenessSelfTest.RunWaitWorker());
+            return;
+        }
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--package-responsiveness-selftest")
+        {
+            int failures = PackageResponsivenessSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
 
         // CLI: --autosave-selftest  → atomic recovery store / checksum / retention / safety harness.
         // This path creates no WPF window and is safe in build/CI environments.
@@ -201,6 +234,15 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --asset-import-selftest -> クラッシュから復旧可能な Import/Reimport
+        // ジャーナル、プロセス間ロック、キャンセル時ロールバック、パス安全性の契約を検証する。
+        if (e.Args.Length >= 1 && e.Args[0] == "--asset-import-selftest")
+        {
+            int failures = AssetImportWorkflowSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --asset-browser-selftest -> UE-style query/history plus transactional
         // rename, duplicate, and delete behavior for files and folders.
         if (e.Args.Length >= 1 && e.Args[0] == "--asset-browser-selftest")
@@ -208,9 +250,11 @@ public partial class App : Application
             int failures = AssetBrowserViewStateSelfTest.Run(Console.Error);
             failures += AssetBrowserSourcesSelfTest.Run(Console.Error);
             failures += AssetManagementSelfTest.Run(Console.Error);
+            failures += AssetImportWorkflowSelfTest.Run(Console.Error);
             failures += AssetTrashWorkflowSelfTest.Run(Console.Error);
             failures += AssetPathChangeSelfTest.Run(Console.Error);
             failures += AssetViewPresentationSelfTest.Run(Console.Error);
+            failures += AssetImageWorkerSelfTest.Run(Console.Error);
             failures += AssetBrowserUiSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
@@ -349,7 +393,7 @@ public partial class App : Application
                 Top = -4000,
             };
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 int exitCode = 0;
                 try
@@ -412,7 +456,7 @@ public partial class App : Application
                 Left = -4000, Top = -4000,
             };
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 int exitCode = 0;
                 try
@@ -459,7 +503,7 @@ public partial class App : Application
             if (e.Args.Length >= 4 && int.TryParse(e.Args[3], out int hOverride)) win.Height = hOverride;
             win.Show();
             // レイアウト確定後 (Loaded) に VisualTree をビットマップへ。
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 try
                 {
@@ -510,7 +554,7 @@ public partial class App : Application
                 Left = -4000, Top = -4000,
             };
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 try
                 {
@@ -543,7 +587,7 @@ public partial class App : Application
                 Left = -4000, Top = -4000, Width = 1280, Height = 760,
             };
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 try
                 {
@@ -599,7 +643,7 @@ public partial class App : Application
             string path = e.Args[1];
             var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.CenterScreen, Width = 1280, Height = 760 };
             MainWindow = win; win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 try { win.Editor.LoadFromFile(path); } catch { }
                 win.Editor.OpenCurveForTest();
@@ -617,7 +661,7 @@ public partial class App : Application
             };
             MainWindow = win;
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 Color C(byte r, byte g, byte b) => Color.FromRgb(r, g, b);
                 BlueprintEditor.BpPinSpec Ex(string n) => new(n, true);
@@ -646,7 +690,7 @@ public partial class App : Application
             string acsbp = e.Args[1], srcdir = e.Args[2];
             var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 try
                 {
@@ -668,7 +712,7 @@ public partial class App : Application
             string? outPath = e.Args.Length >= 2 ? e.Args[1] : null;
             var win = new BlueprintWindow { WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
             win.Show();
-            win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            _ = win.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 int fail = 1;
                 try
@@ -783,10 +827,17 @@ public partial class App : Application
 
         // CLI / ファイル関連付けで .acsproject を渡されたらランチャーを飛ばして直接開く。
         string? cliProject = e.Args.FirstOrDefault(
-            a => a.EndsWith(".acsproject", StringComparison.OrdinalIgnoreCase) && File.Exists(a));
+            a => a.EndsWith(".acsproject", StringComparison.OrdinalIgnoreCase));
         if (cliProject != null)
         {
-            try { chosen = ProjectManager.Open(cliProject); }
+            // Project.Open performs transaction reconciliation and asset-database I/O. Yield the
+            // startup dispatcher before that work so Windows can continue pumping activation and
+            // paint messages instead of reporting a hung editor.
+            try
+            {
+                chosen = await System.Threading.Tasks.Task.Run(
+                    () => ProjectManager.Open(cliProject));
+            }
             catch (Exception ex) { Console.Error.WriteLine(ex.Message); }
         }
 
