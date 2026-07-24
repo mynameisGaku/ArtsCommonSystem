@@ -325,29 +325,158 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
+EShaderStatus FSsao::FCompiledShaders::Status() const noexcept {
+    if (!vertex || !pixel || !blur_pixel) return EShaderStatus::Failed;
+
+    const EShaderStatus vertex_status = vertex->Status();
+    const EShaderStatus pixel_status = pixel->Status();
+    const EShaderStatus blur_status = blur_pixel->Status();
+    if (vertex_status == EShaderStatus::Failed ||
+        pixel_status == EShaderStatus::Failed ||
+        blur_status == EShaderStatus::Failed) {
+        return EShaderStatus::Failed;
+    }
+    if (vertex_status == EShaderStatus::Compiling ||
+        pixel_status == EShaderStatus::Compiling ||
+        blur_status == EShaderStatus::Compiling) {
+        return EShaderStatus::Compiling;
+    }
+    return EShaderStatus::Ready;
+}
+
 /** 出力 RT・パイプライン・定数バッファを生成する。 */
 TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
-    m_Device = &device;
-    m_Width = width;
-    m_Height = height;
+    FCompiledShaders compiled{};
 
-    if (auto r = CreateOutputRT(device, width, height); r.IsErr()) return r;
-    if (auto r = CreatePipeline(device); r.IsErr()) return r;
+    FShaderDesc vs_d{};
+    vs_d.stage = EShaderStage::Vertex;
+    vs_d.hlsl_source = kSsaoHLSL;
+    vs_d.entry_point = "VSMain";
+    vs_d.debug_name = "FSsao.VS";
+    if (auto r = CreateRhiShader(device, vs_d); r.IsErr())
+        return Err<void>(r.Error());
+    else
+        compiled.vertex = Move(r.Value());
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kSsaoHLSL;
+    ps_d.entry_point = "PSMain";
+    ps_d.debug_name = "FSsao.PS";
+    if (auto r = CreateRhiShader(device, ps_d); r.IsErr())
+        return Err<void>(r.Error());
+    else
+        compiled.pixel = Move(r.Value());
+
+    FShaderDesc blur_d{};
+    blur_d.stage = EShaderStage::Pixel;
+    blur_d.hlsl_source = kSsaoBlurHLSL;
+    blur_d.entry_point = "PSMain";
+    blur_d.debug_name = "SsaoBlur.PS";
+    if (auto r = CreateRhiShader(device, blur_d); r.IsErr())
+        return Err<void>(r.Error());
+    else
+        compiled.blur_pixel = Move(r.Value());
+
+    return InitWithCompiledShaders(
+        device, Move(compiled), width, height);
+}
+
+TResult<FSsao::FCompiledShaders>
+FSsao::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 331,
+            "SSAO backend-managed asynchronous compilation is unsupported");
+    }
+
+    FCompiledShaders compiled{};
+
+    FShaderDesc vs_d{};
+    vs_d.stage = EShaderStage::Vertex;
+    vs_d.hlsl_source = kSsaoHLSL;
+    vs_d.entry_point = "VSMain";
+    vs_d.debug_name = "FSsao.VS";
+    vs_d.compile_async = true;
+    auto vertex = CreateRhiShader(device, vs_d);
+    if (vertex.IsErr()) return Err<FCompiledShaders>(vertex.Error());
+    compiled.vertex = Move(vertex.Value());
+
+    FShaderDesc ps_d{};
+    ps_d.stage = EShaderStage::Pixel;
+    ps_d.hlsl_source = kSsaoHLSL;
+    ps_d.entry_point = "PSMain";
+    ps_d.debug_name = "FSsao.PS";
+    ps_d.compile_async = true;
+    auto pixel = CreateRhiShader(device, ps_d);
+    if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
+    compiled.pixel = Move(pixel.Value());
+
+    FShaderDesc blur_d{};
+    blur_d.stage = EShaderStage::Pixel;
+    blur_d.hlsl_source = kSsaoBlurHLSL;
+    blur_d.entry_point = "PSMain";
+    blur_d.debug_name = "SsaoBlur.PS";
+    blur_d.compile_async = true;
+    auto blur = CreateRhiShader(device, blur_d);
+    if (blur.IsErr()) return Err<FCompiledShaders>(blur.Error());
+    compiled.blur_pixel = Move(blur.Value());
+
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
+}
+
+TResult<void> FSsao::InitWithCompiledShaders(
+    IRhiDevice& device,
+    FCompiledShaders&& shaders,
+    u32 width,
+    u32 height) noexcept {
+    if (shaders.Status() != EShaderStatus::Ready) {
+        return ACS_ERR(Render, 332, "SSAO compiled shader set is not ready");
+    }
+
+    // Construct a complete replacement away from the published renderer.
+    // Startup can retry transient allocation/PSO failures, and an ordinary
+    // re-init must not destroy a still-valid SSAO stack before its replacement
+    // is known-good.
+    FSsao candidate;
+    candidate.m_Device = &device;
+    if (auto r = candidate.CreateOutputRT(device, width, height); r.IsErr())
+        return r;
+    candidate.m_Width = width;
+    candidate.m_Height = height;
 
     FBufferDesc cbd{};
     cbd.size = CBSize<FSsaoCbLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
-    if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
-    else m_Cb = Move(r.Value());
+    if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) {
+        return Err<void>(r.Error());
+    } else {
+        candidate.m_Cb = Move(r.Value());
+    }
+    // CreatePipeline keeps `shaders` untouched until both PSOs exist, so every
+    // failure above and inside PSO creation leaves the compiled set reusable.
+    if (auto r = candidate.CreatePipeline(device, shaders); r.IsErr())
+        return r;
+
+    Shutdown();
+    m_Device = candidate.m_Device;
+    m_Width = candidate.m_Width;
+    m_Height = candidate.m_Height;
+    m_Output = Move(candidate.m_Output);
+    m_BlurOutput = Move(candidate.m_BlurOutput);
+    m_Vs = Move(candidate.m_Vs);
+    m_Ps = Move(candidate.m_Ps);
+    m_BlurPs = Move(candidate.m_BlurPs);
+    m_Pipeline = Move(candidate.m_Pipeline);
+    m_BlurPipeline = Move(candidate.m_BlurPipeline);
+    m_Cb = Move(candidate.m_Cb);
 
     return Ok();
 }
 
 /** SSAO raw と blur 後の出力 RT を生成する。 */
 TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
-    m_Output.Reset();
-    m_BlurOutput.Reset();
     FTextureDesc td{};
     td.width  = width;
     td.height = height;
@@ -356,36 +485,27 @@ TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     td.is_render_target = true;
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
-    m_Output = Move(r.Value());
+    TUniquePtr<IRhiTexture> output = Move(r.Value());
 
     // blur 後の RT (同フォーマット / 同サイズ)
     auto br = CreateRhiTexture(device, td);
     if (br.IsErr()) return Err<void>(br.Error());
-    m_BlurOutput = Move(br.Value());
+    TUniquePtr<IRhiTexture> blur_output = Move(br.Value());
+
+    // Publish only a complete matching pair. Resize failure therefore keeps
+    // both previous targets and their dimensions usable.
+    m_Output = Move(output);
+    m_BlurOutput = Move(blur_output);
     return Ok();
 }
 
-/** SSAO 本体と blur のシェーダ・パイプラインを生成する。 */
-TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
-    FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::Vertex;
-    vs_d.hlsl_source = kSsaoHLSL;
-    vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSsao.VS";
-    if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
-    else m_Vs = Move(r.Value());
-
-    FShaderDesc ps_d{};
-    ps_d.stage = EShaderStage::Pixel;
-    ps_d.hlsl_source = kSsaoHLSL;
-    ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSsao.PS";
-    if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
-    else m_Ps = Move(r.Value());
-
+/** Ready SSAO shadersから本体とblurのパイプラインを生成する。 */
+TResult<void> FSsao::CreatePipeline(
+    IRhiDevice& device,
+    FCompiledShaders& shaders) noexcept {
     FPipelineDesc pd{};
-    pd.vs            = m_Vs.Get();
-    pd.ps            = m_Ps.Get();
+    pd.vs            = shaders.vertex.Get();
+    pd.ps            = shaders.pixel.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = EFormat::R8G8B8A8_UNorm;
     pd.depth_format  = EFormat::Unknown;
@@ -407,23 +527,18 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     pd.static_samplers[1].address_v = ESamplerAddress::Clamp;
     pd.vertex_stride = 0;
     pd.layout_count  = 0;
-    if (auto r = CreateRhiPipeline(device, pd); r.IsErr()) return Err<void>(r.Error());
-    else m_Pipeline = Move(r.Value());
+    auto pipeline_result = CreateRhiPipeline(device, pd);
+    if (pipeline_result.IsErr())
+        return Err<void>(pipeline_result.Error());
+    TUniquePtr<IRhiPipeline> pipeline =
+        Move(pipeline_result.Value());
 
     // blur pipeline (ssao_raw + scene_depth → blurred)。
     // VS は SSAO 本体と同じ fullscreen-triangle なので m_Vs を再利用する
     // (kSsaoHLSL と kSsaoBlurHLSL の VSMain は同一構造)。
-    FShaderDesc bps_d{};
-    bps_d.stage = EShaderStage::Pixel;
-    bps_d.hlsl_source = kSsaoBlurHLSL;
-    bps_d.entry_point = "PSMain";
-    bps_d.debug_name  = "SsaoBlur.PS";
-    if (auto r = CreateRhiShader(device, bps_d); r.IsErr()) return Err<void>(r.Error());
-    else m_BlurPs = Move(r.Value());
-
     FPipelineDesc bpd{};
-    bpd.vs            = m_Vs.Get();
-    bpd.ps            = m_BlurPs.Get();
+    bpd.vs            = shaders.vertex.Get();
+    bpd.ps            = shaders.blur_pixel.Get();
     bpd.topology      = EPrimitiveTopology::TriangleList;
     bpd.rt_format     = EFormat::R8G8B8A8_UNorm;
     bpd.depth_format  = EFormat::Unknown;
@@ -449,8 +564,18 @@ TResult<void> FSsao::CreatePipeline(IRhiDevice& device) noexcept {
     bpd.static_samplers[2].address_v = ESamplerAddress::Clamp;
     bpd.vertex_stride = 0;
     bpd.layout_count  = 0;
-    if (auto r = CreateRhiPipeline(device, bpd); r.IsErr()) return Err<void>(r.Error());
-    else m_BlurPipeline = Move(r.Value());
+    auto blur_pipeline_result = CreateRhiPipeline(device, bpd);
+    if (blur_pipeline_result.IsErr())
+        return Err<void>(blur_pipeline_result.Error());
+    TUniquePtr<IRhiPipeline> blur_pipeline =
+        Move(blur_pipeline_result.Value());
+
+    // Non-failing commit after both PSOs have captured the ready shader set.
+    m_Vs = Move(shaders.vertex);
+    m_Ps = Move(shaders.pixel);
+    m_BlurPs = Move(shaders.blur_pixel);
+    m_Pipeline = Move(pipeline);
+    m_BlurPipeline = Move(blur_pipeline);
     return Ok();
 }
 
@@ -465,15 +590,19 @@ void FSsao::Shutdown() noexcept {
     m_BlurOutput.Reset();
     m_Output.Reset();
     m_Device = nullptr;
+    m_Width = 0u;
+    m_Height = 0u;
 }
 
 /** 解像度変更時に内部 RT を作り直す。 */
 TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
     if (!m_Device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
     if (width == m_Width && height == m_Height) return Ok();
+    auto result = CreateOutputRT(*m_Device, width, height);
+    if (result.IsErr()) return result;
     m_Width = width;
     m_Height = height;
-    return CreateOutputRT(*m_Device, width, height);
+    return Ok();
 }
 
 /** SSAO (GTAO) と contact shadow を 2 pass で計算し内部 RT に書く。 */

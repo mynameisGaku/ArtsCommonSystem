@@ -26,6 +26,7 @@ enum ESnapshotFlags : u32 {
     Fog = 1u << 2,
     AerialPerspective = 1u << 3,
     GpuTimingsValid = 1u << 4,
+    SceneMeshCacheRebuilt = 1u << 5,
 };
 
 #pragma pack(push, 4)
@@ -101,6 +102,7 @@ struct FAccumulator {
     f32 fog_cpu_ms = 0.0f;
     f32 post_cpu_ms = 0.0f;
     bool clouds_active = false;
+    bool scene_mesh_cache_rebuilt = false;
 };
 
 /** Small allocation-free rolling maximum used to preserve sub-sample spikes. */

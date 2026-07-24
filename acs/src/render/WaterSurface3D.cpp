@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "render/WaterSurface3D.h"
 
+#if !WITH_RENDER_DILIGENT
+#include "render/Dx12/Dx12Shader.h"
+#endif
 #include "asset/MeshAsset.h"
 #include "foundation/Log.h"
 #include "foundation/Move.h"
@@ -12,7 +15,9 @@
 #include "render/IRhiPipeline.h"
 #include "render/IRhiShader.h"
 #include "render/IRhiTexture.h"
+#include "render/NormalMatrix.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -44,12 +49,21 @@ struct FWaterFrameCb {
     FVec4 flow_params;
     FVec4 surface_misc;
     FVec4 shadow_params;
+    FVec4 environment_zenith;
+    FVec4 environment_horizon;
+    FVec4 environment_ground;
     FVec4 ripple_a[FWaterSurface3D::kMaxRipples];
     FVec4 ripple_b[FWaterSurface3D::kMaxRipples];
 };
 
 struct FWaterObjectCb {
     FMat4 model;
+    FVec4 normal_row0;
+    FVec4 normal_row1;
+    FVec4 normal_row2;
+    FVec4 surface_origin;
+    FVec4 surface_tangent;
+    FVec4 surface_bitangent;
 };
 
 const char* kWaterSurface3DHlsl = R"(
@@ -75,12 +89,21 @@ cbuffer WaterFrame : register(b0) {
     float4 flow_params;          // xy=flow direction, z=ripple wavelength, w=ripple count
     float4 surface_misc;         // x=optical depth, y=scene color, z=depth, w=reflection
     float4 shadow_params;        // x=enabled, y=bias, z=texel size, w=PCF radius
+    float4 environment_zenith;   // rgb=actual sky radiance toward world +Y
+    float4 environment_horizon;  // rgb=actual sky radiance at the horizon
+    float4 environment_ground;   // rgb=actual environment radiance toward world -Y
     float4 ripple_a[kMaxRipples];// xy=center XZ, z=current radius, w=current amplitude
     float4 ripple_b[kMaxRipples];// xy=direction XZ, z=anisotropy, w=remaining life
 };
 
 cbuffer WaterObject : register(b1) {
     float4x4 model;
+    float4 normal_row0;
+    float4 normal_row1;
+    float4 normal_row2;
+    float4 surface_origin;
+    float4 surface_tangent;
+    float4 surface_bitangent;
 };
 
 Texture2D water_normal : register(t0);
@@ -107,6 +130,9 @@ struct VSOut {
     float2 uv : TEXCOORD0;
     float ripple_energy : TEXCOORD1;
     float wave_height : TEXCOORD2;
+    float2 surface_position : TEXCOORD3;
+    float3 surface_tangent : TEXCOORD4;
+    float3 surface_bitangent : TEXCOORD5;
 };
 
 float2 Rotate2(float2 p, float angle) {
@@ -208,26 +234,64 @@ void EvaluateRipples(float2 p, out float height,
 VSOut VSMain(VSIn input) {
     VSOut output;
     float4 world = mul(float4(input.position, 1.0), model);
+    float3 base_normal = float3(
+        input.normal.x * normal_row0.x
+            + input.normal.y * normal_row1.x
+            + input.normal.z * normal_row2.x,
+        input.normal.x * normal_row0.y
+            + input.normal.y * normal_row1.y
+            + input.normal.z * normal_row2.y,
+        input.normal.x * normal_row0.z
+            + input.normal.y * normal_row1.z
+            + input.normal.z * normal_row2.z);
+    float base_normal_length = length(base_normal);
+    base_normal = base_normal_length > 1e-5
+        ? base_normal / base_normal_length
+        : normalize(cross(surface_bitangent.xyz,
+                          surface_tangent.xyz));
+    float3 frame_tangent = normalize(surface_tangent.xyz);
+    float3 frame_bitangent = normalize(surface_bitangent.xyz);
+    float3 tangent_candidate =
+        frame_tangent - base_normal * dot(frame_tangent, base_normal);
+    float tangent_length = length(tangent_candidate);
+    float3 tangent = tangent_length > 1e-5
+        ? tangent_candidate / tangent_length
+        : normalize(cross(base_normal, frame_bitangent));
+    float3 bitangent = normalize(cross(tangent, base_normal));
+    if (dot(bitangent, frame_bitangent) < 0.0) bitangent = -bitangent;
+    float3 from_origin = world.xyz - surface_origin.xyz;
+    float2 surface_position = float2(
+        dot(from_origin, frame_tangent),
+        dot(from_origin, frame_bitangent));
 
     float ambient_height;
     float2 ambient_gradient;
-    EvaluateAmbientWaves(world.xz, camera_time.w,
+    EvaluateAmbientWaves(surface_position, camera_time.w,
                          ambient_height, ambient_gradient);
 
     float ripple_height;
     float2 ripple_gradient;
     float ripple_energy;
-    EvaluateRipples(world.xz, ripple_height, ripple_gradient, ripple_energy);
+    EvaluateRipples(surface_position, ripple_height,
+                    ripple_gradient, ripple_energy);
 
     float2 total_gradient = ambient_gradient + ripple_gradient;
-    world.y += ambient_height + ripple_height;
+    world.xyz += base_normal * (ambient_height + ripple_height);
     output.world_position = world.xyz;
-    output.world_normal = normalize(float3(-total_gradient.x, 1.0,
-                                            -total_gradient.y));
+    // Keep this vector unnormalized through interpolation. The pixel shader
+    // adds texture-slope detail in the same tangent frame, then performs the
+    // only normalization so mesh, analytic, and normal-map normals stay
+    // coherent under rotated/non-uniformly-scaled models.
+    output.world_normal = base_normal
+                        - tangent * total_gradient.x
+                        - bitangent * total_gradient.y;
     output.position = mul(world, view_projection);
     output.uv = input.uv;
     output.ripple_energy = ripple_energy;
     output.wave_height = ambient_height + ripple_height;
+    output.surface_position = surface_position;
+    output.surface_tangent = tangent;
+    output.surface_bitangent = bitangent;
     return output;
 }
 
@@ -334,6 +398,30 @@ float3 ReconstructWorldPosition(float2 uv, float depth) {
     return world.xyz / safe_w;
 }
 
+float2 ProjectWorldDirectionToScreenPixels(float3 world_position,
+                                           float3 world_direction) {
+    float direction_length = length(world_direction);
+    if (direction_length <= 1e-5) return 0.0;
+
+    float3 direction = world_direction / direction_length;
+    float4 origin_clip =
+        mul(float4(world_position, 1.0), view_projection);
+    float4 tip_clip =
+        mul(float4(world_position + direction, 1.0), view_projection);
+    if (abs(origin_clip.w) <= 1e-5 || abs(tip_clip.w) <= 1e-5)
+        return 0.0;
+
+    float2 origin_ndc = origin_clip.xy / origin_clip.w;
+    float2 tip_ndc = tip_clip.xy / tip_clip.w;
+    float2 screen_delta =
+        (tip_ndc - origin_ndc) * float2(0.5, -0.5);
+    float2 pixel_delta = screen_delta * screen_params.zw;
+    float pixel_length = length(pixel_delta);
+    return pixel_length > 1e-4
+        ? pixel_delta / pixel_length
+        : float2(0.0, 0.0);
+}
+
 float ComputeSunShadow(float3 world_position, float no_l) {
     float shadow_result = 1.0;
     if (shadow_params.x >= 0.5) {
@@ -406,19 +494,24 @@ float4 PSMain(VSOut input) : SV_TARGET {
 
     float2 micro_slope;
     float normal_height;
-    EvaluateNormalMap(input.world_position.xz, camera_time.w,
+    EvaluateNormalMap(input.surface_position, camera_time.w,
                       micro_slope, normal_height);
 
     float normal_strength = max(deep_normal.w, 0.0);
-    // Combine macro and texture normals in slope space. Adding encoded normal
-    // components directly made micro-wave strength depend on the macro slope
-    // and flattened steep crests.
-    float macro_normal_y = max(abs(input.world_normal.y), 0.08);
-    float2 macro_slope = -input.world_normal.xz / macro_normal_y;
-    float2 combined_slope = macro_slope + micro_slope * normal_strength;
-    float3 normal = normalize(float3(
-        -combined_slope.x, 1.0, -combined_slope.y));
-    float3 view_direction = normalize(camera_time.xyz - input.world_position);
+    // The VS carries the mesh normal plus analytic macro slopes. Add decoded
+    // texture slopes in the same transformed surface frame. This uses the
+    // authored vertex normals instead of replacing every mesh normal with +Y.
+    float3 tangent = normalize(input.surface_tangent);
+    float3 bitangent = normalize(input.surface_bitangent);
+    float3 view_direction =
+        normalize(camera_time.xyz - input.world_position);
+    float3 geometric_surface_normal = normalize(input.world_normal);
+    if (dot(geometric_surface_normal, view_direction) < 0.0)
+        geometric_surface_normal = -geometric_surface_normal;
+    float3 normal = normalize(
+        geometric_surface_normal
+        - tangent * (micro_slope.x * normal_strength)
+        - bitangent * (micro_slope.y * normal_strength));
     if (dot(normal, view_direction) < 0.0) normal = -normal;
 
     float3 light_direction = normalize(sun_direction.xyz);
@@ -433,10 +526,14 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float3 refracted_direction = refract(-view_direction, normal, 1.0 / 1.333);
     if (dot(refracted_direction, refracted_direction) < 1e-4)
         refracted_direction = -view_direction;
-    float2 distortion = normal.xz / max(abs(normal.y), 0.24);
+    float2 projected_normal =
+        ProjectWorldDirectionToScreenPixels(input.world_position, normal);
+    float2 projected_refracted_ray =
+        ProjectWorldDirectionToScreenPixels(
+            input.world_position, refracted_direction);
     float refraction_strength = max(absorption_refraction.w, 0.0);
     float2 refract_uv_raw = screen_uv
-        + (distortion * 8.0 + refracted_direction.xz * 5.0)
+        + (projected_normal * 8.0 + projected_refracted_ray * 5.0)
         * screen_params.xy * refraction_strength;
     float refract_fade = SceneUvFade(refract_uv_raw);
     float2 refract_uv = clamp(refract_uv_raw,
@@ -447,7 +544,8 @@ float4 PSMain(VSOut input) : SV_TARGET {
 
     float optical_depth = max(surface_misc.x, 0.01);
     float path_length = optical_depth
-                      / max(abs(refracted_direction.y), 0.20);
+                      / max(abs(dot(refracted_direction,
+                                    geometric_surface_normal)), 0.05);
     float contact_foam = 0.0;
     if (surface_misc.z >= 0.5) {
         float bottom_depth =
@@ -494,20 +592,20 @@ float4 PSMain(VSOut input) : SV_TARGET {
         + volume_color * (1.0 - transmittance)
         + direct_inscatter;
 
-    // Procedural sky reflection remains valid when no reflection probe is bound.
+    // The caller supplies the same environment colors used by the visible sky.
+    // This keeps the no-probe fallback coherent across day/night presets.
     float3 reflected_direction = reflect(-view_direction, normal);
-    float sky_height = saturate(reflected_direction.y * 0.5 + 0.5);
-    float horizon_base =
-        abs(saturate(1.0 - abs(reflected_direction.y)));
-    float horizon = pow(abs(horizon_base), 0.68);
-    float3 sky_zenith = float3(0.10, 0.30, 0.68) * 1.45;
-    float3 sky_horizon = float3(0.58, 0.72, 0.88) * 1.18;
-    float3 reflected_sky = lerp(
-        sky_horizon, sky_zenith, pow(abs(sky_height), 0.72));
-    reflected_sky += sky_horizon * horizon * 0.16;
+    float environment_height = reflected_direction.y;
+    float environment_weight = pow(
+        saturate(abs(environment_height)), 0.72);
+    float3 reflected_sky = environment_height >= 0.0
+        ? lerp(environment_horizon.rgb,
+               environment_zenith.rgb, environment_weight)
+        : lerp(environment_horizon.rgb,
+               environment_ground.rgb, environment_weight);
 
     float2 reflection_uv_raw = screen_uv
-        - distortion * screen_params.xy * 5.0;
+        - projected_normal * screen_params.xy * 5.0;
     float reflection_edge = SceneUvFade(reflection_uv_raw);
     float2 reflection_uv = clamp(
         reflection_uv_raw, screen_params.xy * 0.5,
@@ -622,6 +720,71 @@ FVec3 ClampFinite(FVec3 value, FVec3 fallback, f32 minimum,
         ClampFinite(value.y, fallback.y, minimum, maximum),
         ClampFinite(value.z, fallback.z, minimum, maximum),
     };
+}
+
+struct FWaterSurfaceFrame {
+    FVec3 origin{0.0f, 0.0f, 0.0f};
+    FVec3 tangent{1.0f, 0.0f, 0.0f};
+    FVec3 bitangent{0.0f, 0.0f, 1.0f};
+    FVec3 normal{0.0f, 1.0f, 0.0f};
+    FMat4 normal_matrix = FMat4::Identity();
+};
+
+FVec3 Normalize3Or(FVec3 value, FVec3 fallback) noexcept {
+    if (!IsFinite(value)) return fallback;
+    const f64 length = std::hypot(
+        static_cast<f64>(value.x),
+        static_cast<f64>(value.y),
+        static_cast<f64>(value.z));
+    if (!std::isfinite(length) || length <= 1e-8) return fallback;
+    return FVec3{
+        static_cast<f32>(static_cast<f64>(value.x) / length),
+        static_cast<f32>(static_cast<f64>(value.y) / length),
+        static_cast<f32>(static_cast<f64>(value.z) / length),
+    };
+}
+
+FWaterSurfaceFrame BuildWaterSurfaceFrame(const FMat4& model) noexcept {
+    FWaterSurfaceFrame result{};
+    result.normal_matrix = MakeSafeNormalMatrix(model);
+
+    const FVec3 transformed_origin =
+        TransformPoint(FVec3::Zero(), model);
+    if (IsFinite(transformed_origin)) result.origin = transformed_origin;
+
+    result.normal = Normalize3Or(
+        TransformVector(FVec3::UnitY(), result.normal_matrix),
+        FVec3::UnitY());
+
+    FVec3 transformed_tangent =
+        TransformVector(FVec3::UnitX(), model);
+    transformed_tangent =
+        transformed_tangent
+        - result.normal * Dot(transformed_tangent, result.normal);
+    if (!IsFinite(transformed_tangent)
+        || std::hypot(
+               static_cast<f64>(transformed_tangent.x),
+               static_cast<f64>(transformed_tangent.y),
+               static_cast<f64>(transformed_tangent.z)) <= 1e-8) {
+        // Choose the world axis least likely to be parallel to the normal.
+        const FVec3 reference = std::abs(result.normal.z) < 0.9f
+            ? FVec3::UnitZ() : FVec3::UnitX();
+        transformed_tangent = Cross(result.normal, reference);
+    }
+    result.tangent =
+        Normalize3Or(transformed_tangent, FVec3::UnitX());
+    result.bitangent = Normalize3Or(
+        Cross(result.tangent, result.normal), FVec3::UnitZ());
+
+    // Preserve the model's local +Z orientation when possible. This keeps
+    // authored flow/ripple direction stable under reflected transforms.
+    const FVec3 transformed_bitangent =
+        TransformVector(FVec3::UnitZ(), model);
+    if (IsFinite(transformed_bitangent)
+        && Dot(result.bitangent, transformed_bitangent) < 0.0f) {
+        result.bitangent = -result.bitangent;
+    }
+    return result;
 }
 
 FWaterSurface3DParams SanitizeParams(
@@ -779,16 +942,102 @@ FWaterSurface3D::~FWaterSurface3D() noexcept {
     Shutdown();
 }
 
+EShaderStatus FWaterSurface3D::FCompiledShaders::Status() const noexcept {
+    if (!vertex || !pixel) return EShaderStatus::Failed;
+    const EShaderStatus vertex_status = vertex->Status();
+    const EShaderStatus pixel_status = pixel->Status();
+    if (vertex_status == EShaderStatus::Failed ||
+        pixel_status == EShaderStatus::Failed) {
+        return EShaderStatus::Failed;
+    }
+    if (vertex_status == EShaderStatus::Compiling ||
+        pixel_status == EShaderStatus::Compiling) {
+        return EShaderStatus::Compiling;
+    }
+    return EShaderStatus::Ready;
+}
+
 void FWaterSurface3D::SetParams(
     const FWaterSurface3DParams& params) noexcept {
     m_Params = SanitizeParams(params);
 }
 
+bool FWaterSurface3D::IsLocalXzSurfaceMesh(
+    const FMeshAsset& mesh) noexcept {
+    const TArray<FMeshVertex>& vertices = mesh.Vertices();
+    const TArray<u32>& indices = mesh.Indices();
+    if (vertices.Size() < 3u || indices.Size() < 3u ||
+        indices.Size() % 3u != 0u) {
+        return false;
+    }
+
+    f64 min_x = std::numeric_limits<f64>::max();
+    f64 min_y = std::numeric_limits<f64>::max();
+    f64 min_z = std::numeric_limits<f64>::max();
+    f64 max_x = -std::numeric_limits<f64>::max();
+    f64 max_y = -std::numeric_limits<f64>::max();
+    f64 max_z = -std::numeric_limits<f64>::max();
+    for (usize i = 0u; i < vertices.Size(); ++i) {
+        const FMeshVertex& vertex = vertices[i];
+        if (!IsFinite(vertex.position) || !IsFinite(vertex.normal)) {
+            return false;
+        }
+        const f64 normal_length = std::hypot(
+            static_cast<f64>(vertex.normal.x),
+            static_cast<f64>(vertex.normal.y),
+            static_cast<f64>(vertex.normal.z));
+        if (!std::isfinite(normal_length) || normal_length <= 1e-6 ||
+            std::abs(static_cast<f64>(vertex.normal.y)) /
+                    normal_length < 0.5) {
+            return false;
+        }
+        min_x = std::min(min_x, static_cast<f64>(vertex.position.x));
+        min_y = std::min(min_y, static_cast<f64>(vertex.position.y));
+        min_z = std::min(min_z, static_cast<f64>(vertex.position.z));
+        max_x = std::max(max_x, static_cast<f64>(vertex.position.x));
+        max_y = std::max(max_y, static_cast<f64>(vertex.position.y));
+        max_z = std::max(max_z, static_cast<f64>(vertex.position.z));
+    }
+
+    const f64 horizontal_span =
+        std::hypot(max_x - min_x, max_z - min_z);
+    if (!std::isfinite(horizontal_span) || horizontal_span <= 1e-6) {
+        return false;
+    }
+    const f64 local_plane_tolerance =
+        std::max(1e-4, horizontal_span * 0.02);
+    if (max_y - min_y > local_plane_tolerance) return false;
+
+    f64 projected_twice_area = 0.0;
+    for (usize i = 0u; i < indices.Size(); i += 3u) {
+        const u32 ia = indices[i];
+        const u32 ib = indices[i + 1u];
+        const u32 ic = indices[i + 2u];
+        if (ia >= vertices.Size() ||
+            ib >= vertices.Size() ||
+            ic >= vertices.Size()) {
+            return false;
+        }
+        const FVec3& a = vertices[ia].position;
+        const FVec3& b = vertices[ib].position;
+        const FVec3& c = vertices[ic].position;
+        const f64 ab_x = static_cast<f64>(b.x) - a.x;
+        const f64 ab_z = static_cast<f64>(b.z) - a.z;
+        const f64 ac_x = static_cast<f64>(c.x) - a.x;
+        const f64 ac_z = static_cast<f64>(c.z) - a.z;
+        projected_twice_area += std::abs(
+            ab_x * ac_z - ab_z * ac_x);
+    }
+    const f64 minimum_area =
+        std::max(1e-12, horizontal_span * horizontal_span * 1e-8);
+    return std::isfinite(projected_twice_area) &&
+           projected_twice_area > minimum_area;
+}
+
 TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
                                     EFormat depth_format,
                                     u32 msaa_samples) noexcept {
-    Shutdown();
-    m_Device = &device;
+    FCompiledShaders compiled{};
 
     FShaderDesc vertex_description{};
     vertex_description.stage = EShaderStage::Vertex;
@@ -797,10 +1046,9 @@ TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
     vertex_description.debug_name = "WaterSurface3D.VS";
     auto vertex_result = CreateRhiShader(device, vertex_description);
     if (vertex_result.IsErr()) {
-        Shutdown();
         return Err<void>(vertex_result.Error());
     }
-    m_Vs = Move(vertex_result.Value());
+    compiled.vertex = Move(vertex_result.Value());
 
     FShaderDesc pixel_description{};
     pixel_description.stage = EShaderStage::Pixel;
@@ -809,34 +1057,165 @@ TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
     pixel_description.debug_name = "WaterSurface3D.PS";
     auto pixel_result = CreateRhiShader(device, pixel_description);
     if (pixel_result.IsErr()) {
-        Shutdown();
         return Err<void>(pixel_result.Error());
     }
-    m_Ps = Move(pixel_result.Value());
+    compiled.pixel = Move(pixel_result.Value());
 
-    for (u32 i = 0; i < kConstantBufferRing; ++i) {
-        FBufferDesc frame_description{};
-        frame_description.size = ConstantBufferSize<FWaterFrameCb>();
-        frame_description.usage = EBufferUsage::Uniform;
-        frame_description.cpu_writable = true;
-        auto frame_result = CreateRhiBuffer(device, frame_description);
-        if (frame_result.IsErr()) {
-            Shutdown();
-            return Err<void>(frame_result.Error());
-        }
-        m_FrameCb[i] = Move(frame_result.Value());
+    return InitWithCompiledShaders(
+        device, Move(compiled),
+        rt_format, depth_format, msaa_samples);
+}
 
-        FBufferDesc object_description{};
-        object_description.size = ConstantBufferSize<FWaterObjectCb>();
-        object_description.usage = EBufferUsage::Uniform;
-        object_description.cpu_writable = true;
-        auto object_result = CreateRhiBuffer(device, object_description);
-        if (object_result.IsErr()) {
-            Shutdown();
-            return Err<void>(object_result.Error());
-        }
-        m_ObjectCb[i] = Move(object_result.Value());
+TResult<FWaterSurface3D::FCompiledShaders>
+FWaterSurface3D::CompileShadersCpu() noexcept {
+#if !WITH_RENDER_DILIGENT
+    FShaderDesc vertex_description{};
+    vertex_description.stage = EShaderStage::Vertex;
+    vertex_description.hlsl_source = kWaterSurface3DHlsl;
+    vertex_description.entry_point = "VSMain";
+    vertex_description.debug_name = "WaterSurface3D.VS";
+
+    auto vertex = MakeUnique<FDx12Shader>();
+    if (!vertex) {
+        return ACS_ERR(
+            Memory, 711,
+            "interactive-water vertex shader allocation failed");
     }
+    const FHrResult vertex_result = vertex->Init(vertex_description);
+    if (vertex_result.IsErr()) {
+        return ACS_ERR_OS(
+            Render, 712,
+            "interactive-water vertex shader CPU compile failed",
+            static_cast<u32>(vertex_result.hr));
+    }
+
+    FShaderDesc pixel_description{};
+    pixel_description.stage = EShaderStage::Pixel;
+    pixel_description.hlsl_source = kWaterSurface3DHlsl;
+    pixel_description.entry_point = "PSMain";
+    pixel_description.debug_name = "WaterSurface3D.PS";
+
+    auto pixel = MakeUnique<FDx12Shader>();
+    if (!pixel) {
+        return ACS_ERR(
+            Memory, 713,
+            "interactive-water pixel shader allocation failed");
+    }
+    const FHrResult pixel_result = pixel->Init(pixel_description);
+    if (pixel_result.IsErr()) {
+        return ACS_ERR_OS(
+            Render, 714,
+            "interactive-water pixel shader CPU compile failed",
+            static_cast<u32>(pixel_result.hr));
+    }
+
+    FCompiledShaders compiled{};
+    compiled.vertex = TUniquePtr<IRhiShader>(
+        vertex.Release(), vertex.GetAllocator());
+    compiled.pixel = TUniquePtr<IRhiShader>(
+        pixel.Release(), pixel.GetAllocator());
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
+#else
+    return ACS_ERR(
+        Render, 715,
+        "interactive-water CPU compilation is available only on the raw "
+        "DX12 backend");
+#endif
+}
+
+TResult<FWaterSurface3D::FCompiledShaders>
+FWaterSurface3D::BeginCompileShadersAsync(
+    IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 362,
+            "interactive-water backend-managed asynchronous "
+            "compilation is unsupported");
+    }
+    FCompiledShaders compiled{};
+    FShaderDesc vertex_description{};
+    vertex_description.stage = EShaderStage::Vertex;
+    vertex_description.hlsl_source = kWaterSurface3DHlsl;
+    vertex_description.entry_point = "VSMain";
+    vertex_description.debug_name = "WaterSurface3D.VS";
+    vertex_description.compile_async = true;
+    auto vertex_result =
+        CreateRhiShader(device, vertex_description);
+    if (vertex_result.IsErr()) {
+        return Err<FCompiledShaders>(vertex_result.Error());
+    }
+    compiled.vertex = Move(vertex_result.Value());
+
+    FShaderDesc pixel_description{};
+    pixel_description.stage = EShaderStage::Pixel;
+    pixel_description.hlsl_source = kWaterSurface3DHlsl;
+    pixel_description.entry_point = "PSMain";
+    pixel_description.debug_name = "WaterSurface3D.PS";
+    pixel_description.compile_async = true;
+    auto pixel_result =
+        CreateRhiShader(device, pixel_description);
+    if (pixel_result.IsErr()) {
+        return Err<FCompiledShaders>(pixel_result.Error());
+    }
+    compiled.pixel = Move(pixel_result.Value());
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
+}
+
+TResult<void> FWaterSurface3D::BeginInitWithCompiledShaders(
+    IRhiDevice& device, FCompiledShaders&& shaders,
+    EFormat rt_format, EFormat depth_format,
+    u32 msaa_samples) noexcept {
+    if (shaders.Status() != EShaderStatus::Ready) {
+        return ACS_ERR(
+            Render, 363,
+            "interactive-water compiled shader set is not ready");
+    }
+    if (m_Pipeline || m_ManualDepthPipeline) {
+        // Reinitialization is transactional: construct a complete replacement
+        // away from the published renderer, then replace only after every PSO,
+        // texture and constant buffer is known-good.
+        FWaterSurface3D candidate;
+        candidate.m_Params = m_Params;
+        auto begin = candidate.BeginInitWithCompiledShaders(
+            device, Move(shaders),
+            rt_format, depth_format, msaa_samples);
+        if (begin.IsErr()) return begin;
+        auto complete =
+            candidate.AdvanceInitialization(kConstantBufferRing);
+        if (complete.IsErr()) {
+            return Err<void>(complete.Error());
+        }
+        if (!complete.Value()) {
+            return ACS_ERR(
+                Render, 366,
+                "interactive-water transactional replacement incomplete");
+        }
+
+        Shutdown();
+        m_Device = candidate.m_Device;
+        candidate.m_Device = nullptr;
+        m_Vs = Move(candidate.m_Vs);
+        m_Ps = Move(candidate.m_Ps);
+        m_Pipeline = Move(candidate.m_Pipeline);
+        m_ManualDepthPipeline =
+            Move(candidate.m_ManualDepthPipeline);
+        for (u32 i = 0u; i < kConstantBufferRing; ++i) {
+            m_FrameCb[i] = Move(candidate.m_FrameCb[i]);
+            m_ObjectCb[i] = Move(candidate.m_ObjectCb[i]);
+        }
+        m_NormalMap = Move(candidate.m_NormalMap);
+        m_SceneFallback = Move(candidate.m_SceneFallback);
+        m_FrameSlot = 0u;
+        m_DrawCursor = 0u;
+        m_DrawOverflowLogged = false;
+        m_InitBufferCursor = kConstantBufferRing;
+        m_InitializationPending = false;
+        return Ok();
+    }
+    Shutdown();
+    m_Device = &device;
+    m_Vs = Move(shaders.vertex);
+    m_Ps = Move(shaders.pixel);
 
     auto normal_result = CreateWaterNormalMap(device);
     if (normal_result.IsErr()) {
@@ -920,9 +1299,81 @@ TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
     m_FrameSlot = 0;
     m_DrawCursor = 0;
     m_DrawOverflowLogged = false;
+    m_InitBufferCursor = 0u;
+    m_InitializationPending = true;
     m_Time = 0.0f;
     ClearDisturbances();
     return Ok();
+}
+
+TResult<bool> FWaterSurface3D::AdvanceInitialization(
+    u32 buffer_pairs) noexcept {
+    if (!m_InitializationPending) {
+        return TResult<bool>(OkInit, m_Pipeline.Get() != nullptr);
+    }
+    if (m_Device == nullptr || buffer_pairs == 0u) {
+        return ACS_ERR(
+            Render, 364,
+            "interactive-water bounded initialization has no device/work");
+    }
+    const u32 remaining =
+        kConstantBufferRing - m_InitBufferCursor;
+    const u32 count =
+        buffer_pairs < remaining ? buffer_pairs : remaining;
+    for (u32 offset = 0u; offset < count; ++offset) {
+        const u32 index = m_InitBufferCursor + offset;
+        FBufferDesc frame_description{};
+        frame_description.size =
+            ConstantBufferSize<FWaterFrameCb>();
+        frame_description.usage = EBufferUsage::Uniform;
+        frame_description.cpu_writable = true;
+        auto frame_result =
+            CreateRhiBuffer(*m_Device, frame_description);
+        if (frame_result.IsErr()) {
+            const auto error = frame_result.Error();
+            Shutdown();
+            return Err<bool>(error);
+        }
+        m_FrameCb[index] = Move(frame_result.Value());
+
+        FBufferDesc object_description{};
+        object_description.size =
+            ConstantBufferSize<FWaterObjectCb>();
+        object_description.usage = EBufferUsage::Uniform;
+        object_description.cpu_writable = true;
+        auto object_result =
+            CreateRhiBuffer(*m_Device, object_description);
+        if (object_result.IsErr()) {
+            const auto error = object_result.Error();
+            Shutdown();
+            return Err<bool>(error);
+        }
+        m_ObjectCb[index] = Move(object_result.Value());
+    }
+    m_InitBufferCursor += count;
+    if (m_InitBufferCursor >= kConstantBufferRing) {
+        m_InitializationPending = false;
+    }
+    return TResult<bool>(
+        OkInit, !m_InitializationPending);
+}
+
+TResult<void> FWaterSurface3D::InitWithCompiledShaders(
+    IRhiDevice& device, FCompiledShaders&& shaders,
+    EFormat rt_format, EFormat depth_format,
+    u32 msaa_samples) noexcept {
+    auto begin = BeginInitWithCompiledShaders(
+        device, Move(shaders),
+        rt_format, depth_format, msaa_samples);
+    if (begin.IsErr()) return begin;
+    auto advance =
+        AdvanceInitialization(kConstantBufferRing);
+    if (advance.IsErr()) return Err<void>(advance.Error());
+    return advance.Value()
+        ? Ok()
+        : ACS_ERR(
+            Render, 365,
+            "interactive-water synchronous initialization incomplete");
 }
 
 void FWaterSurface3D::Shutdown() noexcept {
@@ -941,6 +1392,8 @@ void FWaterSurface3D::Shutdown() noexcept {
     m_FrameSlot = 0;
     m_DrawCursor = 0;
     m_DrawOverflowLogged = false;
+    m_InitBufferCursor = 0u;
+    m_InitializationPending = false;
 }
 
 void FWaterSurface3D::Update(f32 dt) noexcept {
@@ -952,7 +1405,7 @@ void FWaterSurface3D::Update(f32 dt) noexcept {
     // finite hitch delta; never expose FLT_MAX to sin/cos for even one frame.
     m_Time = static_cast<f32>(std::fmod(next_time, 65536.0));
 
-    for (u32 i = 0; i < kMaxRipples; ++i) {
+    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
         FRipple& ripple = m_Ripples[i];
         if (!ripple.active) continue;
         const f64 next_age =
@@ -974,7 +1427,7 @@ void FWaterSurface3D::Update(f32 dt) noexcept {
             continue;
         }
         const f32 amplitude_scale = EvaluateRippleAmplitudeScale(
-            ripple.age, ripple.lifetime, m_Params.ripple_damping);
+            ripple.age, ripple.lifetime, ripple.damping);
         ripple.amplitude = ripple.initial_amplitude * amplitude_scale;
         if (amplitude_scale <= 0.0f) ripple.active = false;
     }
@@ -1011,10 +1464,10 @@ f32 FWaterSurface3D::EvaluateRippleAmplitudeScale(
         ? static_cast<f32>(scale) : 0.0f;
 }
 
-bool FWaterSurface3D::AddEvent(FVec3 world_point, FVec2 direction,
+bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
+                               FVec3 world_point, FVec3 direction,
                                f32 anisotropy, f32 radius,
-                               f32 strength,
-                               u32 first_slot, u32 slot_count) noexcept {
+                               f32 strength) noexcept {
     if (!IsFinite(world_point) || !IsFinite(direction)
         || !std::isfinite(anisotropy) || !std::isfinite(radius)
         || !std::isfinite(strength) || std::abs(strength) < 1e-6f) {
@@ -1028,70 +1481,141 @@ bool FWaterSurface3D::AddEvent(FVec3 world_point, FVec2 direction,
         world_point, FVec3{0.0f, 0.0f, 0.0f}, -1.0e15f, 1.0e15f);
     if (anisotropy < 1.0f) anisotropy = 1.0f;
     if (anisotropy > 3.5f) anisotropy = 3.5f;
-    if (first_slot >= kMaxRipples || slot_count == 0) return false;
-    u32 end_slot = first_slot + slot_count;
-    if (end_slot < first_slot || end_slot > kMaxRipples) {
-        end_slot = kMaxRipples;
+
+    const u32 per_surface_limit =
+        wake ? kWakeRippleSlots : kImpactRippleSlots;
+    u32 matching_kind_count = 0u;
+    u32 free_slot = kMaxStoredRipples;
+    bool surface_is_active = false;
+    u64 active_surfaces[kMaxTrackedSurfaces]{};
+    u32 active_surface_count = 0u;
+    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
+        const FRipple& ripple = m_Ripples[i];
+        if (!ripple.active) {
+            if (free_slot == kMaxStoredRipples) free_slot = i;
+            continue;
+        }
+        if (ripple.surface_id == surface_id) {
+            surface_is_active = true;
+            if (ripple.wake == wake) ++matching_kind_count;
+        }
+        bool known_surface = false;
+        for (u32 s = 0u; s < active_surface_count; ++s) {
+            if (active_surfaces[s] == ripple.surface_id) {
+                known_surface = true;
+                break;
+            }
+        }
+        if (!known_surface && active_surface_count < kMaxTrackedSurfaces) {
+            active_surfaces[active_surface_count++] = ripple.surface_id;
+        }
+    }
+    if (matching_kind_count >= per_surface_limit ||
+        free_slot == kMaxStoredRipples ||
+        (!surface_is_active &&
+         active_surface_count >= kMaxTrackedSurfaces)) {
+        // Persistence is deliberate: never replace an active visible event.
+        return false;
     }
 
-    for (u32 i = first_slot; i < end_slot; ++i) {
-        FRipple& ripple = m_Ripples[i];
-        if (ripple.active) continue;
-        ripple.center = FVec2{world_point.x, world_point.z};
-        ripple.direction = Normalize2(direction);
-        ripple.initial_radius = radius;
-        ripple.initial_amplitude = strength;
-        ripple.amplitude = strength;
-        ripple.age = 0.0f;
-        ripple.speed =
-            m_Params.ripple_speed > 0.0f ? m_Params.ripple_speed : 0.0f;
-        ripple.lifetime =
-            m_Params.ripple_lifetime > 0.1f ? m_Params.ripple_lifetime : 0.1f;
-        ripple.anisotropy = anisotropy;
-        ripple.active = true;
-        return true;
-    }
-
-    // Persistence is deliberate: never replace an active visible event.
-    return false;
+    FRipple& ripple = m_Ripples[free_slot];
+    ripple.center = world_point;
+    ripple.direction = Normalize3(direction);
+    ripple.initial_radius = radius;
+    ripple.initial_amplitude = strength;
+    ripple.amplitude = strength;
+    ripple.age = 0.0f;
+    ripple.speed =
+        m_Params.ripple_speed > 0.0f ? m_Params.ripple_speed : 0.0f;
+    ripple.lifetime =
+        m_Params.ripple_lifetime > 0.1f ? m_Params.ripple_lifetime : 0.1f;
+    ripple.damping =
+        m_Params.ripple_damping > 0.0f ? m_Params.ripple_damping : 0.0f;
+    ripple.anisotropy = anisotropy;
+    ripple.surface_id = surface_id;
+    ripple.wake = wake;
+    ripple.active = true;
+    return true;
 }
 
 bool FWaterSurface3D::AddDisturbance(FVec3 world_point, f32 radius,
                                      f32 strength) noexcept {
-    return AddEvent(world_point, FVec2{1.0f, 0.0f}, 1.0f,
-                    radius, strength, 0, kImpactRippleSlots);
+    return AddDisturbanceForSurface(
+        0u, world_point, radius, strength);
+}
+
+bool FWaterSurface3D::AddDisturbanceForSurface(
+    u64 surface_id, FVec3 world_point,
+    f32 radius, f32 strength) noexcept {
+    return AddEvent(surface_id, false, world_point,
+                    FVec3{1.0f, 0.0f, 0.0f}, 1.0f,
+                    radius, strength);
 }
 
 bool FWaterSurface3D::AddWake(FVec3 world_point, FVec3 world_velocity,
                               f32 radius, f32 strength) noexcept {
+    return AddWakeForSurface(
+        0u, world_point, world_velocity, radius, strength);
+}
+
+bool FWaterSurface3D::AddWakeForSurface(
+    u64 surface_id, FVec3 world_point, FVec3 world_velocity,
+    f32 radius, f32 strength) noexcept {
     if (!IsFinite(world_velocity)) return false;
-    const f32 speed = std::hypot(world_velocity.x, world_velocity.z);
-    const FVec2 direction = speed < 1e-4f
-        ? FVec2{1.0f, 0.0f}
-        : Normalize2(FVec2{world_velocity.x, world_velocity.z});
+    const f64 speed64 = std::hypot(
+        static_cast<f64>(world_velocity.x),
+        static_cast<f64>(world_velocity.y),
+        static_cast<f64>(world_velocity.z));
+    if (!std::isfinite(speed64)) return false;
+    const f32 speed = speed64 > 65504.0
+        ? 65504.0f : static_cast<f32>(speed64);
+    const FVec3 direction = speed < 1e-4f
+        ? FVec3{1.0f, 0.0f, 0.0f}
+        : Normalize3(world_velocity);
     const f32 anisotropy =
         1.35f + (speed < 8.0f ? speed * 0.16f : 1.28f);
     const FVec3 trailing_point{
         world_point.x - direction.x * radius * 0.38f,
-        world_point.y,
-        world_point.z - direction.y * radius * 0.38f,
+        world_point.y - direction.y * radius * 0.38f,
+        world_point.z - direction.z * radius * 0.38f,
     };
     if (!IsFinite(trailing_point)) return false;
-    return AddEvent(trailing_point, direction, anisotropy,
-                    radius, strength,
-                    kImpactRippleSlots, kWakeRippleSlots);
+    return AddEvent(surface_id, true, trailing_point, direction,
+                    anisotropy, radius, strength);
 }
 
 void FWaterSurface3D::ClearDisturbances() noexcept {
-    for (u32 i = 0; i < kMaxRipples; ++i) {
+    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
         m_Ripples[i] = FRipple{};
+    }
+}
+
+void FWaterSurface3D::ClearDisturbancesForSurface(
+    u64 surface_id) noexcept {
+    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
+        if (m_Ripples[i].active &&
+            m_Ripples[i].surface_id == surface_id) {
+            m_Ripples[i] = FRipple{};
+        }
     }
 }
 
 u32 FWaterSurface3D::ActiveRippleCount() const noexcept {
     u32 count = 0;
-    for (u32 i = 0; i < kMaxRipples; ++i) {
+    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
         if (m_Ripples[i].active) ++count;
+    }
+    return count;
+}
+
+u32 FWaterSurface3D::ActiveRippleCountForSurface(
+    u64 surface_id) const noexcept {
+    u32 count = 0u;
+    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
+        if (m_Ripples[i].active &&
+            m_Ripples[i].surface_id == surface_id) {
+            ++count;
+        }
     }
     return count;
 }
@@ -1119,6 +1643,16 @@ void FWaterSurface3D::SetFrame(const FMat4& view_projection,
     m_DrawOverflowLogged = false;
 }
 
+void FWaterSurface3D::SetEnvironment(
+    FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
+    m_EnvironmentZenith = ClampFinite(
+        zenith, m_EnvironmentZenith, 0.0f, 65504.0f);
+    m_EnvironmentHorizon = ClampFinite(
+        horizon, m_EnvironmentHorizon, 0.0f, 65504.0f);
+    m_EnvironmentGround = ClampFinite(
+        ground, m_EnvironmentGround, 0.0f, 65504.0f);
+}
+
 void FWaterSurface3D::SetShadowMap(
     IRhiTexture* shadow_map,
     const FMat4& light_view_projection,
@@ -1138,8 +1672,11 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                const FMat4& model,
                                IRhiTexture* scene_color,
                                IRhiTexture* scene_depth,
-                               IRhiTexture* screen_reflection) noexcept {
-    if (!m_Pipeline || !m_ManualDepthPipeline || !IsFinite(model)
+                               IRhiTexture* screen_reflection,
+                               u64 surface_id,
+                               bool hardware_depth_bound) noexcept {
+    if (m_InitializationPending ||
+        !m_Pipeline || !m_ManualDepthPipeline || !IsFinite(model)
         || !mesh.vertex_buffer || !mesh.index_buffer
         || !m_NormalMap || !m_SceneFallback) {
         return;
@@ -1198,20 +1735,39 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
               m_Params.wave_speed, m_Params.normal_tiling};
     const FVec2 normalized_flow = Normalize2(m_Params.flow_direction);
 
+    const FWaterSurfaceFrame surface =
+        BuildWaterSurfaceFrame(model);
     u32 ripple_count = 0;
-    for (u32 i = 0; i < kMaxRipples; ++i) {
+    for (u32 i = 0; i < kMaxStoredRipples &&
+                    ripple_count < kMaxRipples; ++i) {
         const FRipple& ripple = m_Ripples[i];
-        if (!ripple.active) continue;
+        if (!ripple.active || ripple.surface_id != surface_id) continue;
         const f32 remaining =
             1.0f - ripple.age / (ripple.lifetime > 0.0f
                                     ? ripple.lifetime : 1.0f);
+        const FVec3 relative_center = ripple.center - surface.origin;
+        const FVec2 surface_center{
+            Dot(relative_center, surface.tangent),
+            Dot(relative_center, surface.bitangent),
+        };
+        FVec2 surface_direction{
+            Dot(ripple.direction, surface.tangent),
+            Dot(ripple.direction, surface.bitangent),
+        };
+        const f32 projected_direction_length =
+            std::hypot(surface_direction.x, surface_direction.y);
+        const bool has_surface_direction =
+            std::isfinite(projected_direction_length)
+            && projected_direction_length > 1e-5f;
+        surface_direction = has_surface_direction
+            ? Normalize2(surface_direction) : FVec2{1.0f, 0.0f};
         frame.ripple_a[ripple_count] =
-            FVec4{ripple.center.x, ripple.center.y,
+            FVec4{surface_center.x, surface_center.y,
                   ripple.initial_radius + ripple.speed * ripple.age,
                   ripple.amplitude};
         frame.ripple_b[ripple_count] =
-            FVec4{ripple.direction.x, ripple.direction.y,
-                  ripple.anisotropy,
+            FVec4{surface_direction.x, surface_direction.y,
+                  has_surface_direction ? ripple.anisotropy : 1.0f,
                   remaining > 0.0f ? remaining : 0.0f};
         ++ripple_count;
     }
@@ -1231,15 +1787,35 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
     frame.shadow_params =
         FVec4{m_ShadowMap ? 1.0f : 0.0f,
               m_ShadowBias, shadow_texel_size, m_ShadowPcfRadius};
+    frame.environment_zenith =
+        FVec4{m_EnvironmentZenith, 1.0f};
+    frame.environment_horizon =
+        FVec4{m_EnvironmentHorizon, 1.0f};
+    frame.environment_ground =
+        FVec4{m_EnvironmentGround, 1.0f};
     frame_buffer->Update(&frame, sizeof(frame));
 
     FWaterObjectCb object{};
     object.model = model;
+    const FMat4& normal_matrix = surface.normal_matrix;
+    object.normal_row0 =
+        FVec4{normal_matrix.m[0][0], normal_matrix.m[0][1],
+              normal_matrix.m[0][2], 0.0f};
+    object.normal_row1 =
+        FVec4{normal_matrix.m[1][0], normal_matrix.m[1][1],
+              normal_matrix.m[1][2], 0.0f};
+    object.normal_row2 =
+        FVec4{normal_matrix.m[2][0], normal_matrix.m[2][1],
+              normal_matrix.m[2][2], 0.0f};
+    object.surface_origin = FVec4{surface.origin, 1.0f};
+    object.surface_tangent = FVec4{surface.tangent, 0.0f};
+    object.surface_bitangent = FVec4{surface.bitangent, 0.0f};
     object_buffer->Update(&object, sizeof(object));
 
-    IRhiPipeline* pipeline = scene_depth
-        ? m_ManualDepthPipeline.Get()
-        : m_Pipeline.Get();
+    IRhiPipeline* pipeline =
+        scene_depth && !hardware_depth_bound
+            ? m_ManualDepthPipeline.Get()
+            : m_Pipeline.Get();
     command_list.SetPipeline(*pipeline);
     command_list.SetConstantBuffer(0, *frame_buffer);
     command_list.SetConstantBuffer(1, *object_buffer);

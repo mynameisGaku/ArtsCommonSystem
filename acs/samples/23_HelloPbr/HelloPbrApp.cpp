@@ -67,6 +67,14 @@ void FHelloPbrApp::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     if (!cl) return;
 
+    const u64 required_object_draws =
+        1u + static_cast<u64>(kGridSize) * static_cast<u64>(kGridSize);
+    const u32 object_draw_hint =
+        required_object_draws > static_cast<u64>(~u32{0})
+            ? ~u32{0}
+            : static_cast<u32>(required_object_draws);
+    if (!m_Shader.BeginFrame(object_draw_hint)) return;
+
     FDirLight lights[1];
     // direction = surface から light source へ向くベクトル (y+ = 上空の太陽)。
     // HelloLights / HelloRaycast3D の慣習に合わせて y を正にする。

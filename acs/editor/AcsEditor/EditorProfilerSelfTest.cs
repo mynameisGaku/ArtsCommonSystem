@@ -227,6 +227,90 @@ internal static class EditorProfilerSelfTest
               rightPanMask == EngineViewport.PointerButtonRightMask &&
               middlePanMask == EngineViewport.PointerButtonMiddleMask,
             "viewport capture retains the physical button that initiated each gesture");
+
+        var waterReady = new WaterPointerRoutingState(
+            EngineReady: true,
+            View3D: true,
+            PolygonMode: false,
+            GizmoDragging: false,
+            Gizmo3DDragging: false,
+            Panning: false,
+            MarqueeDragging: false);
+        WaterPointerRoutingDecision waterPress =
+            WaterPointerRoutingPolicy.ForPress(
+                waterReady,
+                gizmoAccepted: false);
+        WaterPointerRoutingDecision waterDrag =
+            WaterPointerRoutingPolicy.ForMove(
+                waterReady,
+                leftButtonDown: true);
+        WaterPointerRoutingDecision waterHover =
+            WaterPointerRoutingPolicy.ForMove(
+                waterReady,
+                leftButtonDown: false);
+        WaterPointerRoutingDecision waterEnd =
+            WaterPointerRoutingPolicy.ForEnd(engineReady: true);
+        Check(waterPress.Action == WaterPointerAction.Press &&
+              waterDrag.Action == WaterPointerAction.Drag &&
+              waterHover.Action == WaterPointerAction.Hover &&
+              waterEnd.Action == WaterPointerAction.End,
+            "interactive water routes press, left-drag, hover, and end to the native ABI kinds");
+        Check(!waterPress.CapturePointer &&
+              !waterDrag.CapturePointer &&
+              !waterHover.CapturePointer &&
+              !waterEnd.CapturePointer,
+            "interactive water observes viewport gestures without ever requesting mouse capture");
+
+        WaterPointerRoutingState[] waterBlockedStates =
+        {
+            waterReady with { EngineReady = false },
+            waterReady with { View3D = false },
+            waterReady with { PolygonMode = true },
+            waterReady with { GizmoDragging = true },
+            waterReady with { Gizmo3DDragging = true },
+            waterReady with { Panning = true },
+            waterReady with { MarqueeDragging = true },
+        };
+        Check(Array.TrueForAll(
+                  waterBlockedStates,
+                  state =>
+                      !WaterPointerRoutingPolicy.ForPress(
+                          state,
+                          gizmoAccepted: false).ShouldRoute &&
+                      !WaterPointerRoutingPolicy.ForMove(
+                          state,
+                          leftButtonDown: false).ShouldRoute &&
+                      !WaterPointerRoutingPolicy.ForMove(
+                          state,
+                          leftButtonDown: true).ShouldRoute) &&
+              !WaterPointerRoutingPolicy.ForPress(
+                  waterReady,
+                  gizmoAccepted: true).ShouldRoute,
+            "interactive water is gated by 3D mode, polygon tools, both gizmos, pan, marquee, and gizmo hit acceptance");
+        Check(!WaterPointerRoutingPolicy.ForEnd(
+                  engineReady: false).ShouldRoute &&
+              WaterPointerRoutingPolicy.ForEnd(
+                  engineReady: true).Action == WaterPointerAction.End,
+            "interactive water end/reset is emitted whenever a live native engine exists");
+        Check(WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  WaterPointerRoutingPolicy.WmCancelMode) &&
+              WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  WaterPointerRoutingPolicy.WmLeftButtonUp) &&
+              WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  WaterPointerRoutingPolicy.WmMouseWheel) &&
+              WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  WaterPointerRoutingPolicy.WmMouseHWheel) &&
+              WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  WaterPointerRoutingPolicy.WmCaptureChanged) &&
+              WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  WaterPointerRoutingPolicy.WmMouseLeave) &&
+              !WaterPointerRoutingPolicy.EndsTrackingForWindowMessage(
+                  0x0200) &&
+              WaterPointerRoutingPolicy.ForWindowMessage(
+                  WaterPointerRoutingPolicy.WmMouseLeave,
+                  engineReady: true).Action == WaterPointerAction.End,
+            "cancel, button-up, capture loss, wheel, and mouse leave terminate water pointer tracking");
+
         Check(EngineViewport.PointerCaptureRecoveryGraceMilliseconds == 100.0 &&
               EngineViewport.ShouldRecoverStalePointerCapture(
                   viewportOwnsCapture: true,

@@ -200,15 +200,13 @@ public partial class MainWindow
             out string world3D);
         string rollback2D = EngineInterop.SceneText(Engine);
         string rollback3D = EngineInterop.Scene3DText(Engine);
-        int loaded2D = EngineInterop.acs_editor_scene_load_text(Engine, legacy2D);
-        int loaded3D = loaded2D != 0
-            ? EngineInterop.acs_editor_scene3d_load_text(Engine, world3D)
-            : 0;
-        if (loaded2D == 0 || loaded3D == 0)
+        int loaded = EngineInterop.acs_editor_scene_document_load_text(
+            Engine, legacy2D, world3D);
+        if (loaded == 0)
         {
             // Best-effort rollback keeps a failed managed transaction from leaving half a world.
-            EngineInterop.acs_editor_scene_load_text(Engine, rollback2D);
-            EngineInterop.acs_editor_scene3d_load_text(Engine, rollback3D);
+            EngineInterop.acs_editor_scene_document_load_text(
+                Engine, rollback2D, rollback3D);
             throw new InvalidDataException(
                 "The canonical scene transaction snapshot was rejected.");
         }

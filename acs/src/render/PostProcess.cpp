@@ -5,6 +5,10 @@
 #include "foundation/Log.h"
 #include "math/Vec.h"
 
+#if !WITH_RENDER_DILIGENT
+#include "render/Dx12/Dx12Shader.h"
+#endif
+
 #include <cmath>
 #include <cstring>
 
@@ -851,10 +855,92 @@ void FillFullscreenLayout(FPipelineDesc& pd) noexcept {
     pd.depth_format  = EFormat::Unknown;
 }
 
+TResult<FPostProcess::FCompiledShaders> CompilePostShadersWithDevice(
+    IRhiDevice& device, bool compile_async) noexcept {
+    FPostProcess::FCompiledShaders compiled{};
+    auto compile = [&](EShaderStage stage, const char* source,
+                       const char* entry_point, const char* debug_name,
+                       TUniquePtr<IRhiShader>& output) noexcept
+        -> TResult<void> {
+        FShaderDesc description{};
+        description.stage = stage;
+        description.hlsl_source = source;
+        description.entry_point = entry_point;
+        description.debug_name = debug_name;
+        description.compile_async = compile_async;
+        auto result = CreateRhiShader(device, description);
+        if (result.IsErr()) return Err<void>(result.Error());
+        output = Move(result.Value());
+        return Ok();
+    };
+
+    if (auto r = compile(EShaderStage::Vertex, kFullscreenVS, "VSMain",
+                         "Fullscreen.VS", compiled.fullscreen_vertex);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kExtractPS, "PSMain",
+                         "Bloom.Extract", compiled.extract_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kDownsamplePS, "PSMain",
+                         "Bloom.Downsample", compiled.downsample_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kUpsamplePS, "PSMain",
+                         "Bloom.Upsample", compiled.upsample_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kGaussianBlurPS, "PSMain",
+                         "Bloom.Gaussian", compiled.gaussian_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kTaaResolvePS, "PSMain",
+                         "Taa.Resolve", compiled.taa_resolve_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kTonemapPS, "PSMain",
+                         "Tonemap", compiled.tonemap_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kLumaExtractPS, "PSMain",
+                         "Luma.Extract", compiled.luma_extract_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kLumaDownsamplePS, "PSMain",
+                         "Luma.Downsample", compiled.luma_downsample_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kExposurePS, "PSMain",
+                         "Exposure.Adapt", compiled.exposure_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kExposeApplyPS, "PSMain",
+                         "Exposure.Apply", compiled.exposure_apply_pixel);
+        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+
+    return TResult<FPostProcess::FCompiledShaders>(
+        OkInit, Move(compiled));
+}
+
 } // namespace
 
 FPostProcess::~FPostProcess() noexcept {
     Shutdown();
+}
+
+EShaderStatus FPostProcess::FCompiledShaders::Status() const noexcept {
+    IRhiShader* const shaders[] = {
+        fullscreen_vertex.Get(),
+        extract_pixel.Get(),
+        downsample_pixel.Get(),
+        upsample_pixel.Get(),
+        gaussian_pixel.Get(),
+        taa_resolve_pixel.Get(),
+        tonemap_pixel.Get(),
+        luma_extract_pixel.Get(),
+        luma_downsample_pixel.Get(),
+        exposure_pixel.Get(),
+        exposure_apply_pixel.Get(),
+    };
+
+    bool compiling = false;
+    for (IRhiShader* shader : shaders) {
+        if (!shader) return EShaderStatus::Failed;
+        const EShaderStatus status = shader->Status();
+        if (status == EShaderStatus::Failed) return EShaderStatus::Failed;
+        if (status == EShaderStatus::Compiling) compiling = true;
+    }
+    return compiling ? EShaderStatus::Compiling : EShaderStatus::Ready;
 }
 
 void FPostProcessParams::Sanitize() noexcept {
@@ -917,24 +1003,118 @@ void FPostProcessParams::Sanitize() noexcept {
         delta_time, defaults.delta_time, 0.0f, 1.0f);
 }
 
+TResult<FPostProcess::FCompiledShaders>
+FPostProcess::CompileShadersCpu() noexcept {
+#if !WITH_RENDER_DILIGENT
+    FCompiledShaders compiled{};
+    auto compile = [](EShaderStage stage, const char* source,
+                      const char* entry_point, const char* debug_name,
+                      TUniquePtr<IRhiShader>& output) noexcept
+        -> TResult<void> {
+        FShaderDesc description{};
+        description.stage = stage;
+        description.hlsl_source = source;
+        description.entry_point = entry_point;
+        description.debug_name = debug_name;
+
+        auto shader = MakeUnique<FDx12Shader>();
+        if (!shader) {
+            return ACS_ERR(
+                Memory, 720, "Post-process shader allocation failed");
+        }
+        const FHrResult result = shader->Init(description);
+        if (result.IsErr()) {
+            return ACS_ERR_OS(
+                Render, 721, "Post-process shader CPU compile failed",
+                static_cast<u32>(result.hr));
+        }
+        auto* allocator = shader.GetAllocator();
+        output = TUniquePtr<IRhiShader>(shader.Release(), allocator);
+        return Ok();
+    };
+
+    if (auto r = compile(EShaderStage::Vertex, kFullscreenVS, "VSMain",
+                         "Fullscreen.VS", compiled.fullscreen_vertex);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kExtractPS, "PSMain",
+                         "Bloom.Extract", compiled.extract_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kDownsamplePS, "PSMain",
+                         "Bloom.Downsample", compiled.downsample_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kUpsamplePS, "PSMain",
+                         "Bloom.Upsample", compiled.upsample_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kGaussianBlurPS, "PSMain",
+                         "Bloom.Gaussian", compiled.gaussian_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kTaaResolvePS, "PSMain",
+                         "Taa.Resolve", compiled.taa_resolve_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kTonemapPS, "PSMain",
+                         "Tonemap", compiled.tonemap_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kLumaExtractPS, "PSMain",
+                         "Luma.Extract", compiled.luma_extract_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kLumaDownsamplePS, "PSMain",
+                         "Luma.Downsample", compiled.luma_downsample_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kExposurePS, "PSMain",
+                         "Exposure.Adapt", compiled.exposure_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+    if (auto r = compile(EShaderStage::Pixel, kExposeApplyPS, "PSMain",
+                         "Exposure.Apply", compiled.exposure_apply_pixel);
+        r.IsErr()) return Err<FCompiledShaders>(r.Error());
+
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
+#else
+    return ACS_ERR(
+        Render, 722,
+        "Post-process CPU compilation is available only on raw DX12");
+#endif
+}
+
+TResult<FPostProcess::FCompiledShaders>
+FPostProcess::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 723,
+            "Post-process backend-managed asynchronous compilation is "
+            "unsupported");
+    }
+    return CompilePostShadersWithDevice(device, true);
+}
+
 TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
                                 EFormat color_format) noexcept {
-    Shutdown();
+    auto compiled = CompilePostShadersWithDevice(device, false);
+    if (compiled.IsErr()) return Err<void>(compiled.Error());
+    return InitWithCompiledShaders(
+        device, Move(compiled.Value()), width, height, color_format);
+}
+
+TResult<void> FPostProcess::InitWithCompiledShaders(
+    IRhiDevice& device, FCompiledShaders&& shaders,
+    u32 width, u32 height, EFormat color_format) noexcept {
+    if (shaders.Status() != EShaderStatus::Ready) {
+        return ACS_ERR(
+            Render, 724, "Post-process compiled shader set is not ready");
+    }
     if (width == 0) width = 1;
     if (height == 0) height = 1;
-    m_Device = &device;
-    m_ColorFormat = color_format;
-    m_Width = width;
-    m_Height = height;
 
-    auto fail_init = [this](FErrorCode error) noexcept -> TResult<void> {
-        Shutdown();
-        return Err<void>(error);
-    };
-    if (auto r = CreateRenderTargets(device, width, height); r.IsErr())
-        return fail_init(r.Error());
-    if (auto r = CreatePipelines(device); r.IsErr())
-        return fail_init(r.Error());
+    // Construct a complete replacement away from the published renderer.
+    // No externally visible state changes until every allocation and PSO has
+    // succeeded, so startup may retry without destroying a valid stack.
+    FPostProcess candidate;
+    candidate.m_Device = &device;
+    candidate.m_ColorFormat = color_format;
+    candidate.m_Width = width;
+    candidate.m_Height = height;
+
+    if (auto r = candidate.CreateRenderTargets(device, width, height);
+        r.IsErr()) return Err<void>(r.Error());
 
     FBufferDesc cbd{};
     cbd.size         = CBSize<FPostCbLayout>();
@@ -942,10 +1122,10 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     cbd.cpu_writable = true;
     for (u32 i = 0; i < kPostCbRing; ++i) {
         auto cbr = CreateRhiBuffer(device, cbd);
-        if (cbr.IsErr()) return fail_init(cbr.Error());
-        m_CbPost[i] = Move(cbr.Value());
+        if (cbr.IsErr()) return Err<void>(cbr.Error());
+        candidate.m_CbPost[i] = Move(cbr.Value());
     }
-    m_PostCbCursor = 0;
+    candidate.m_PostCbCursor = 0;
 
     // TaaReproj CB (b1)
     FBufferDesc rcbd{};
@@ -953,8 +1133,8 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     rcbd.usage = EBufferUsage::Uniform;
     rcbd.cpu_writable = true;
     auto rcbr = CreateRhiBuffer(device, rcbd);
-    if (rcbr.IsErr()) return fail_init(rcbr.Error());
-    m_CbTaaReproj = Move(rcbr.Value());
+    if (rcbr.IsErr()) return Err<void>(rcbr.Error());
+    candidate.m_CbTaaReproj = Move(rcbr.Value());
 
     // auto-exposure 用 CB
     FBufferDesc acbd{};
@@ -962,8 +1142,8 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     acbd.usage = EBufferUsage::Uniform;
     acbd.cpu_writable = true;
     auto acbr = CreateRhiBuffer(device, acbd);
-    if (acbr.IsErr()) return fail_init(acbr.Error());
-    m_CbAuto = Move(acbr.Value());
+    if (acbr.IsErr()) return Err<void>(acbr.Error());
+    candidate.m_CbAuto = Move(acbr.Value());
 
     // depth が未指定だった時のための 1x1 fallback (depth>=0.9999 になるよう 255 で fill)
     const u8 far_depth[4] = { 255, 255, 255, 255 };
@@ -972,8 +1152,8 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     td.format = EFormat::R8G8B8A8_UNorm;
     td.initial_data = far_depth; td.initial_data_size = 4;
     auto dfb = CreateRhiTexture(device, td);
-    if (dfb.IsErr()) return fail_init(dfb.Error());
-    m_TaaDepthFb = Move(dfb.Value());
+    if (dfb.IsErr()) return Err<void>(dfb.Error());
+    candidate.m_TaaDepthFb = Move(dfb.Value());
 
     // 未使用の bloom / SSR slot に stale texture を残さないための黒 fallback。
     const u8 black_rgba[4] = { 0, 0, 0, 255 };
@@ -983,9 +1163,14 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
     black_desc.initial_data = black_rgba;
     black_desc.initial_data_size = 4;
     auto black = CreateRhiTexture(device, black_desc);
-    if (black.IsErr()) return fail_init(black.Error());
-    m_BlackFb = Move(black.Value());
+    if (black.IsErr()) return Err<void>(black.Error());
+    candidate.m_BlackFb = Move(black.Value());
 
+    if (auto r = candidate.CreatePipelines(device, Move(shaders));
+        r.IsErr()) return Err<void>(r.Error());
+
+    Shutdown();
+    *this = Move(candidate);
     return Ok();
 }
 
@@ -1035,19 +1220,38 @@ TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
     if (width == 0) width = 1;
     if (height == 0) height = 1;
     if (width == m_Width && height == m_Height) return Ok();
-    m_HdrRt.Reset();
-    for (auto& m : m_BloomMips) m.Reset();
-    for (auto& m : m_BloomTmp)  m.Reset();
-    for (auto& t : m_Taa) t.Reset();
-    for (auto& m : m_LumaMips) m.Reset();
-    for (auto& e : m_Exposure)  e.Reset();
-    m_ExposedRt.Reset();
-    m_LumaMipCount = 0;
+
+    // Build the complete replacement away from the published frame graph.
+    // A failed allocation must not invalidate the old-size HDR target, TAA
+    // history, exposure history, or their frame indices: the caller can keep
+    // presenting a stable clear and retry this or a later size next frame.
+    FPostProcess candidate;
+    candidate.m_HdrFormat = m_HdrFormat;
+    candidate.m_LumaFormat = m_LumaFormat;
+    if (auto created =
+            candidate.CreateRenderTargets(*m_Device, width, height);
+        created.IsErr()) {
+        return Err<void>(created.Error());
+    }
+
+    m_HdrRt = Move(candidate.m_HdrRt);
+    for (u32 i = 0; i < kBloomMips; ++i) {
+        m_BloomMips[i] = Move(candidate.m_BloomMips[i]);
+        m_BloomTmp[i] = Move(candidate.m_BloomTmp[i]);
+    }
+    for (u32 i = 0; i < 2u; ++i) {
+        m_Taa[i] = Move(candidate.m_Taa[i]);
+        m_Exposure[i] = Move(candidate.m_Exposure[i]);
+    }
+    for (u32 i = 0; i < kMaxLumaMips; ++i)
+        m_LumaMips[i] = Move(candidate.m_LumaMips[i]);
+    m_LumaMipCount = candidate.m_LumaMipCount;
+    m_ExposedRt = Move(candidate.m_ExposedRt);
     m_Width  = width;
     m_Height = height;
     m_TaaFrame  = 0;     // reset TAA state on resize (history は size 違いで使えない)
     m_AutoFrame = 0;     // reset auto-exposure state on resize
-    return CreateRenderTargets(*m_Device, width, height);
+    return Ok();
 }
 
 TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
@@ -1138,50 +1342,20 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
     return Ok();
 }
 
-TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
-    // ---- 共通 VS ----
-    {
-        FShaderDesc sd{};
-        sd.stage = EShaderStage::Vertex;
-        sd.hlsl_source = kFullscreenVS;
-        sd.entry_point = "VSMain";
-        sd.debug_name  = "Fullscreen.VS";
-        auto r = CreateRhiShader(device, sd);
-        if (r.IsErr()) return Err<void>(r.Error());
-        m_VsFullscreen = Move(r.Value());
+TResult<void> FPostProcess::CreatePipelines(
+    IRhiDevice& device, FCompiledShaders&& shaders) noexcept {
+    if (shaders.Status() != EShaderStatus::Ready) {
+        return ACS_ERR(
+            Render, 724, "Post-process compiled shader set is not ready");
     }
-
-    // ---- 各 PS ----
-    auto compile_ps = [&](const char* src, const char* name,
-                          TUniquePtr<IRhiShader>& out) -> TResult<void> {
-        FShaderDesc sd{};
-        sd.stage = EShaderStage::Pixel;
-        sd.hlsl_source = src;
-        sd.entry_point = "PSMain";
-        sd.debug_name  = name;
-        auto r = CreateRhiShader(device, sd);
-        if (r.IsErr()) return Err<void>(r.Error());
-        out = Move(r.Value());
-        return Ok();
-    };
-    if (auto r = compile_ps(kExtractPS,     "Bloom.Extract",    m_PsExtract);     r.IsErr()) return r;
-    if (auto r = compile_ps(kDownsamplePS,  "Bloom.Downsample", m_PsDownsample);  r.IsErr()) return r;
-    if (auto r = compile_ps(kUpsamplePS,    "Bloom.Upsample",   m_PsUpsample);    r.IsErr()) return r;
-    if (auto r = compile_ps(kGaussianBlurPS,"Bloom.Gaussian",   m_PsGaussian);    r.IsErr()) return r;
-    if (auto r = compile_ps(kTaaResolvePS,  "Taa.Resolve",      m_PsTaaResolve); r.IsErr()) return r;
-    if (auto r = compile_ps(kTonemapPS,     "Tonemap",          m_PsTonemap);     r.IsErr()) return r;
-    if (auto r = compile_ps(kLumaExtractPS,    "Luma.Extract",   m_PsLumaExtract); r.IsErr()) return r;
-    if (auto r = compile_ps(kLumaDownsamplePS, "Luma.Downsample",m_PsLumaDown);    r.IsErr()) return r;
-    if (auto r = compile_ps(kExposurePS,       "Exposure.Adapt", m_PsExposure);     r.IsErr()) return r;
-    if (auto r = compile_ps(kExposeApplyPS,    "Exposure.Apply", m_PsExposeApply); r.IsErr()) return r;
 
     // ---- Pipelines ----
     // Extract: HDR → bloom_mips[0]、Opaque blend
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsExtract.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.extract_pixel.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
@@ -1199,8 +1373,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsDownsample.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.downsample_pixel.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
@@ -1218,8 +1392,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsUpsample.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.upsample_pixel.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 2;
@@ -1240,8 +1414,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsGaussian.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.gaussian_pixel.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
@@ -1259,8 +1433,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsTaaResolve.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.taa_resolve_pixel.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 2;       // b0=Post, b1=TaaReproj
         pd.texture_slots = 5;
@@ -1295,8 +1469,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsTonemap.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.tonemap_pixel.Get();
         pd.rt_format = m_ColorFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 3;       // t0=hdr, t1=bloom, t2=ssr
@@ -1320,8 +1494,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsLumaExtract.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.luma_extract_pixel.Get();
         pd.rt_format = m_LumaFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
@@ -1339,8 +1513,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsLumaDown.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.luma_downsample_pixel.Get();
         pd.rt_format = m_LumaFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 1;
@@ -1358,8 +1532,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsExposure.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.exposure_pixel.Get();
         pd.rt_format = m_LumaFormat;
         pd.cbuffer_slots = 1;
         pd.texture_slots = 2;
@@ -1380,8 +1554,8 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
     {
         FPipelineDesc pd{};
         FillFullscreenLayout(pd);
-        pd.vs = m_VsFullscreen.Get();
-        pd.ps = m_PsExposeApply.Get();
+        pd.vs = shaders.fullscreen_vertex.Get();
+        pd.ps = shaders.exposure_apply_pixel.Get();
         pd.rt_format = m_HdrFormat;
         pd.cbuffer_slots = 0;
         pd.texture_slots = 2;
@@ -1398,6 +1572,19 @@ TResult<void> FPostProcess::CreatePipelines(IRhiDevice& device) noexcept {
         m_PipeExposeApply = Move(r.Value());
     }
 
+    // Shader ownership is transferred only after every PSO is known-good.
+    // A failed owner-thread commit therefore leaves the compiled set reusable.
+    m_VsFullscreen = Move(shaders.fullscreen_vertex);
+    m_PsExtract = Move(shaders.extract_pixel);
+    m_PsDownsample = Move(shaders.downsample_pixel);
+    m_PsUpsample = Move(shaders.upsample_pixel);
+    m_PsGaussian = Move(shaders.gaussian_pixel);
+    m_PsTaaResolve = Move(shaders.taa_resolve_pixel);
+    m_PsTonemap = Move(shaders.tonemap_pixel);
+    m_PsLumaExtract = Move(shaders.luma_extract_pixel);
+    m_PsLumaDown = Move(shaders.luma_downsample_pixel);
+    m_PsExposure = Move(shaders.exposure_pixel);
+    m_PsExposeApply = Move(shaders.exposure_apply_pixel);
     return Ok();
 }
 
@@ -1408,24 +1595,23 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
     FPostProcessParams safe_params = params;
     safe_params.Sanitize();
 
-    // Auto-exposure: シーン輝度測定 → 露出順応 → 露出適用。
-    // TAA / Bloom / Tonemap より前に実行し、下流パスは SceneInput() 経由で
-    // 露出適用後の m_ExposedRt を読む。条件は有効フラグ + pipeline/RT の存在。
+    // Metering and adaptation inspect raw scene-linear HDR. Exposure is
+    // deliberately applied only after TAA below: accumulating
+    // exposure-scaled history makes every eye-adaptation change look like
+    // scene motion and creates long brightness trails.
     const bool auto_exp = safe_params.auto_exposure_enabled
                           && m_PipeLumaExtract && m_ExposedRt;
     if (auto_exp) {
         Pass_LumaReduce(cmd);
         Pass_ExposureAdapt(cmd, safe_params);
-        Pass_ExposureApply(cmd);
     } else {
         // Re-enabling after a long disabled interval must cold-start from the
         // current luminance instead of adapting from a stale exposure texture.
         m_AutoFrame = 0;
     }
 
-    // TAA Resolve: current HDR + previous resolved (history) → new resolved。
-    // 後段で Pass_Tonemap が resolved を読むよう振る舞う (Pass_Tonemap 側で taa_enabled
-    // を見て参照を差し替える)。
+    // Resolve raw scene-linear HDR against scene-linear history. Downstream
+    // selection is centralized in SceneInput(), after optional exposure.
     if (safe_params.taa_enabled) {
         Pass_TaaResolve(cmd, safe_params);
     } else {
@@ -1434,6 +1620,16 @@ void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 bu
         // blend against the last pre-cloud frame, producing a long stale-image
         // flash.  Frame zero already uses current HDR as the history input.
         m_TaaFrame = 0;
+    }
+
+    if (auto_exp) {
+        IRhiTexture* exposure_source = m_HdrRt.Get();
+        if (safe_params.taa_enabled && m_Taa[m_TaaFrame % 2]) {
+            exposure_source = m_Taa[m_TaaFrame % 2].Get();
+        }
+        if (exposure_source) {
+            Pass_ExposureApply(cmd, *exposure_source);
+        }
     }
 
     if (safe_params.bloom_enabled && safe_params.bloom_intensity > 0.0f) {
@@ -1515,13 +1711,10 @@ void FPostProcess::Pass_Extract(IRhiCommandList& cmd, const FPostProcessParams& 
     auto* dst = m_BloomMips[0].Get();
     if (!dst || !m_HdrRt) return;
 
-    // TAA 有効時は resolved (m_Taa[cur]) を読む。そうでなければ SceneInput
-    // (auto-exposure 適用後の m_ExposedRt、または raw m_HdrRt)。
-    // resolved を読むことで bloom の firefly が temporal stable になり、明滅が消える。
+    // SceneInput selects the fully resolved/exposed HDR image. Bloom therefore
+    // sees temporally stable highlights without bypassing auto exposure.
     IRhiTexture* src = SceneInput(p);
-    if (p.taa_enabled && m_Taa[m_TaaFrame % 2]) {
-        src = m_Taa[m_TaaFrame % 2].Get();
-    }
+    if (!src) return;
     IRhiBuffer* post_cb = AcquirePostCb();
     if (!post_cb) return;
     UpdatePostCB(post_cb, p, 1.0f / src->Width(), 1.0f / src->Height());
@@ -1607,8 +1800,11 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     // 読む可能性がある。current_hdr を history slot にも bind することで
     // output = lerp(current, current, a) = current となり、garbage を完全排除。
     // 翌フレームからは history RT に実 resolved が入っているので通常 path。
-    // current は SceneInput (auto-exposure 後の m_ExposedRt、または raw m_HdrRt)。
-    IRhiTexture* scene = SceneInput(p);
+    // Temporal history is scene-linear and exposure-independent. Applying eye
+    // adaptation before this pass makes old and current samples use different
+    // exposure scales and produces brightness ghosting.
+    IRhiTexture* scene = m_HdrRt.Get();
+    if (!scene) return;
     const bool first_frame = (m_TaaFrame == 0);
     IRhiTexture* hist_input = first_frame ? scene : hist_rt;
 
@@ -1644,7 +1840,7 @@ void FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     cmd.SetPipeline(*m_PipeTaaResolve);
     cmd.SetConstantBuffer(0, *post_cb);
     if (m_CbTaaReproj) cmd.SetConstantBuffer(1, *m_CbTaaReproj);
-    cmd.SetTexture(0, *scene);                     // current HDR (露出適用後 or raw)
+    cmd.SetTexture(0, *scene);                     // current scene-linear HDR
     cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
     if (slot2_tex) cmd.SetTexture(2, *slot2_tex);  // depth または motion vector
     if (reactive_tex) cmd.SetTexture(3, *reactive_tex);
@@ -1659,12 +1855,7 @@ void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
     if (!post_cb) return;
     UpdatePostCB(post_cb, p, 1.0f / sc.Width(), 1.0f / sc.Height());
 
-    // TAA 有効時は m_Taa[現フレーム index]、そうでなければ SceneInput
-    // (auto-exposure 後の m_ExposedRt、または raw m_HdrRt) を tonemap input にする。
     IRhiTexture* tonemap_src = SceneInput(p);
-    if (p.taa_enabled && m_Taa[m_TaaFrame % 2]) {
-        tonemap_src = m_Taa[m_TaaFrame % 2].Get();
-    }
 
     cmd.BeginRenderToSwapchain(sc, buf_idx, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeTonemap);
@@ -1690,6 +1881,9 @@ void FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
 
 IRhiTexture* FPostProcess::SceneInput(const FPostProcessParams& p) const noexcept {
     if (p.auto_exposure_enabled && m_ExposedRt) return m_ExposedRt.Get();
+    if (p.taa_enabled && m_Taa[m_TaaFrame % 2]) {
+        return m_Taa[m_TaaFrame % 2].Get();
+    }
     return m_HdrRt.Get();
 }
 
@@ -1754,13 +1948,14 @@ void FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessPa
     cmd.EndRenderToTexture(*cur);
 }
 
-void FPostProcess::Pass_ExposureApply(IRhiCommandList& cmd) noexcept {
-    if (!m_HdrRt || !m_ExposedRt || !m_PipeExposeApply) return;
+void FPostProcess::Pass_ExposureApply(IRhiCommandList& cmd,
+                                      IRhiTexture& source) noexcept {
+    if (!m_ExposedRt || !m_PipeExposeApply) return;
     auto* exp_tex = m_Exposure[m_AutoFrame % 2].Get();     // Pass_ExposureAdapt が書いた露出
     if (!exp_tex) return;
     cmd.BeginRenderToTexture(*m_ExposedRt, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeExposeApply);
-    cmd.SetTexture(0, *m_HdrRt);
+    cmd.SetTexture(0, source);
     cmd.SetTexture(1, *exp_tex);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*m_ExposedRt);

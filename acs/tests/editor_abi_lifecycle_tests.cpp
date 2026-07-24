@@ -7,12 +7,15 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <string>
 
 extern "C" __declspec(dllimport) void* acs_editor_create(void);
 extern "C" __declspec(dllimport) void acs_editor_destroy(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node_count(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_add_node3d(
     void* handle, int primitive, const char* name);
+extern "C" __declspec(dllimport) int acs_editor_add_empty3d(
+    void* handle, const char* name);
 extern "C" __declspec(dllimport) int acs_editor_node3d_set_transform(
     void* handle, int id, float px, float py, float pz, float rx, float ry, float rz,
     float sx, float sy, float sz);
@@ -20,6 +23,41 @@ extern "C" __declspec(dllimport) int acs_editor_node3d_get_transform(
     void* handle, int id, float* out9);
 extern "C" __declspec(dllimport) int acs_editor_scene3d_serialize(
     void* handle, char* out, int capacity);
+extern "C" __declspec(dllimport) int acs_editor_scene3d_load_text(
+    void* handle, const char* text);
+extern "C" __declspec(dllimport) const char* acs_editor_scene_serialize(
+    void* handle);
+extern "C" __declspec(dllimport) int acs_editor_scene_load_text(
+    void* handle, const char* text);
+extern "C" __declspec(dllimport) int acs_editor_scene_document_load_text(
+    void* handle, const char* scene2d_text, const char* scene3d_text);
+extern "C" __declspec(dllimport) int acs_editor_node3d_duplicate(
+    void* handle, int id);
+extern "C" __declspec(dllimport) int acs_editor_reparent3d(
+    void* handle, int child_id, int parent_id);
+extern "C" __declspec(dllimport) void acs_editor_node3d_set_visible(
+    void* handle, int id, int visible);
+extern "C" __declspec(dllimport) void acs_editor_node3d_set_enabled(
+    void* handle, int id, int enabled);
+extern "C" __declspec(dllimport) int acs_editor_node3d_add_component(
+    void* handle, int id, const char* type_name);
+extern "C" __declspec(dllimport) int acs_editor_node3d_component_prop_get(
+    void* handle, int id, int slot, int prop,
+    float* x, float* y, float* z, float* w);
+extern "C" __declspec(dllimport) int acs_editor_node3d_component_prop_set(
+    void* handle, int id, int slot, int prop,
+    float x, float y, float z, float w);
+extern "C" __declspec(dllimport) int acs_editor_component_prop_count(
+    const char* type_name);
+extern "C" __declspec(dllimport) int acs_editor_component_prop_flags_at(
+    const char* type_name, int index);
+extern "C" __declspec(dllimport) const char*
+acs_editor_component_prop_name_at(const char* type_name, int index);
+extern "C" __declspec(dllimport) int acs_editor_water3d_hit_test(
+    void* handle, float sx, float sy,
+    float viewport_width, float viewport_height,
+    int* node_id, float* world_x,
+    float* world_y, float* world_z);
 extern "C" __declspec(dllimport) void acs_editor_set_view3d(void* handle, int on);
 extern "C" __declspec(dllimport) void acs_editor_scene3d_new(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_camera3d_set(
@@ -156,6 +194,9 @@ bool RunProfilerSnapshotContract() noexcept
     static_assert(sizeof(FSnapshot) == kSnapshotSize);
     static_assert(kSnapshotVersion == 3u);
     static_assert(kSnapshotSize == 208u);
+    static_assert(
+        SceneMeshCacheRebuilt == (1u << 5u),
+        "mesh-cache rebuild profiling must not change the snapshot ABI");
 
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
@@ -193,7 +234,8 @@ bool RunProfilerSnapshotContract() noexcept
         snapshot.cloud_gpu_window_peak_ms < 0.0f &&
         snapshot.fog_gpu_window_peak_ms < 0.0f &&
         snapshot.post_gpu_window_peak_ms < 0.0f &&
-        (snapshot.flags & GpuTimingsValid) == 0u;
+        (snapshot.flags &
+         (GpuTimingsValid | SceneMeshCacheRebuilt)) == 0u;
 
     snapshot.version = kSnapshotVersion + 1u;
     const bool rejects_version =
@@ -347,6 +389,319 @@ bool RunScene3DSerializationGrowth() noexcept
     return ok;
 }
 
+bool SnapshotSceneDocument(
+    void* host, std::string& scene2d, std::string& scene3d) noexcept
+{
+    const char* const text2d = acs_editor_scene_serialize(host);
+    if (text2d == nullptr) return false;
+    scene2d = text2d;
+    char text3d[32768]{};
+    const int written = acs_editor_scene3d_serialize(
+        host, text3d, static_cast<int>(sizeof(text3d)));
+    if (written <= 0 || written >= static_cast<int>(sizeof(text3d)) ||
+        static_cast<size_t>(written) != std::strlen(text3d)) {
+        return false;
+    }
+    scene3d = text3d;
+    return true;
+}
+
+bool SceneDocumentEquals(
+    void* host, const std::string& expected2d,
+    const std::string& expected3d) noexcept
+{
+    std::string current2d;
+    std::string current3d;
+    return SnapshotSceneDocument(host, current2d, current3d) &&
+           current2d == expected2d && current3d == expected3d;
+}
+
+/**
+ * A rejected compatibility payload never retires either half of the singular
+ * editor scene document. Parent, auxiliary, and component declaration order
+ * is intentionally independent for a valid ACS3D document.
+ */
+bool RunSceneDocumentStrictPreflight() noexcept
+{
+    constexpr const char* kValid2D =
+        "ACSCENE v1\n"
+        "1\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 Stable2D\n"
+        "SEL 7 1 7\n";
+    constexpr const char* kValid3D =
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n"
+        "SEL3D 41\n";
+    constexpr const char* kNode2D =
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 Stable2D\n";
+    constexpr const char* kNode3D =
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n";
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    bool ok =
+        acs_editor_scene_document_load_text(host, kValid2D, kValid3D) != 0;
+    std::string expected2d;
+    std::string expected3d;
+    ok = ok && SnapshotSceneDocument(host, expected2d, expected3d);
+
+    const char* const invalid2d[] = {
+        "ACSCENE v1\nnot-a-count\n",
+        "ACSCENE v1\n2\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 OnlyOne\n",
+        "ACSCENE v1\n1\n7 -1 0\n",
+        "ACSCENE v1\n1\n"
+        "7 -1 nan 34 0 1 1 48 0.5 0.6 0.7 1 NonFinite\n",
+        "ACSCENE v1\n1\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 Stable2D\n"
+        "COMP 999 AWaterSurface3DComponent\n",
+        "ACSCENE v1\n1\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 Stable2D\n"
+        "NFLG 7 1 nope\n",
+        "ACSCENE v1\n2\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 DuplicateA\n"
+        "7 -1 56 78 0 1 1 48 0.5 0.6 0.7 1 DuplicateB\n",
+        "ACSCENE v1\n1\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 Stable2D\n"
+        "COMP\t7 AWaterSurface3DComponent\n",
+        "ACSCENE v1\n1\n"
+        "7 -1 12 34 0 1 1 48 0.5 0.6 0.7 1 Stable2D\n"
+        "COMP 7 AWaterSurface3DComponent\n"
+        "CPROP 7 0 20 1 2 3 4\n",
+    };
+    for (const char* invalid : invalid2d) {
+        ok = ok && acs_editor_scene_load_text(host, invalid) == 0 &&
+             SceneDocumentEquals(host, expected2d, expected3d);
+        ok = ok &&
+             acs_editor_scene_document_load_text(host, invalid, kValid3D) == 0 &&
+             SceneDocumentEquals(host, expected2d, expected3d);
+    }
+
+    const std::string valid2d = std::string("ACSCENE v1\n1\n") + kNode2D;
+    const std::string valid3d = std::string("ACS3D v2\n") + kNode3D;
+    const char* const invalid3d[] = {
+        "ACS3D v2\nN3D 41 -1 0 1 2\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 A\n"
+        "N3D 41 -1 0 4 5 6 0 0 0 1 1 1 0.2 0.3 0.4 1 B\n",
+        "ACS3D v2\n"
+        "N3D 41 999 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 MissingParent\n",
+        "ACS3D v2\n"
+        "N3D 41 42 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 CycleA\n"
+        "N3D 42 41 0 4 5 6 0 0 0 1 1 1 0.2 0.3 0.4 1 CycleB\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 nan 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 NonFinite\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n"
+        "CMP3D 999 AWaterSurface3DComponent\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n"
+        "FLG3D 41 1 nope\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n"
+        "SEL3D 999\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n"
+        "SEL3D -1\n",
+        "ACS3D v2\n"
+        "N3D 41 -1 0 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 Stable3D\n"
+        "CMP3D\t41 AWaterSurface3DComponent\n",
+    };
+    for (const char* invalid : invalid3d) {
+        ok = ok && acs_editor_scene3d_load_text(host, invalid) == 0 &&
+             SceneDocumentEquals(host, expected2d, expected3d);
+        ok = ok &&
+             acs_editor_scene_document_load_text(
+                 host, valid2d.c_str(), invalid) == 0 &&
+             SceneDocumentEquals(host, expected2d, expected3d);
+    }
+
+    constexpr const char* kOrderIndependent3D =
+        "ACS3D v2\r\n"
+        "CPROP3D 77 0 0 3.25 4.5 5.75 7\r\n"
+        "CMP3D 77 AWaterSurface3DComponent\r\n"
+        "SEL3D 77\r\n"
+        "FLG3D 77 0 1\r\n"
+        "N3D 78 77 0 4 5 6 0 0 0 1 1 1 0.3 0.4 0.5 1 ChildFirst\r\n"
+        "N3D 77 -1 2 1 2 3 0 0 0 1 1 1 0.2 0.3 0.4 1 ParentLast\r\n";
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float w = 0.0f;
+    ok = ok &&
+         acs_editor_scene3d_load_text(host, kOrderIndependent3D) != 0 &&
+         acs_editor_node3d_component_prop_get(
+             host, 77, 0, 0, &x, &y, &z, &w) != 0 &&
+         std::abs(x - 3.25f) < 1.0e-6f &&
+         std::abs(y - 4.5f) < 1.0e-6f &&
+         std::abs(z - 5.75f) < 1.0e-6f &&
+         std::abs(w - 7.0f) < 1.0e-6f;
+
+    // Zero is the only explicit no-selection sentinel accepted by ACS3D.
+    ok = ok &&
+         acs_editor_scene3d_load_text(
+             host, "ACS3D v2\r\nSEL3D 0\r\n") != 0;
+    acs_editor_destroy(host);
+    return ok;
+}
+
+/** Interactive-water's complete reflected contract survives duplicate/save/load. */
+bool RunWater3DComponentRoundTrip() noexcept
+{
+    constexpr const char* kType = "AWaterSurface3DComponent";
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    const int id = acs_editor_add_node3d(host, 2, "WaterRoundTrip");
+    bool ok =
+        id >= 0 &&
+        acs_editor_component_prop_count(kType) == 20 &&
+        std::strcmp(
+            acs_editor_component_prop_name_at(kType, 4),
+            "roughness") == 0 &&
+        std::strcmp(
+            acs_editor_component_prop_name_at(kType, 18),
+            "phaseAnisotropy") == 0 &&
+        std::strcmp(
+            acs_editor_component_prop_name_at(kType, 19),
+            "foamColor") == 0 &&
+        (acs_editor_component_prop_flags_at(kType, 0) & (1u << 3u)) != 0 &&
+        (acs_editor_component_prop_flags_at(kType, 1) & (1u << 3u)) != 0 &&
+        (acs_editor_component_prop_flags_at(kType, 2) & (1u << 3u)) == 0 &&
+        (acs_editor_component_prop_flags_at(kType, 19) & (1u << 3u)) != 0 &&
+        acs_editor_node3d_add_component(host, id, kType) != 0;
+    for (int property = 0; property < 20 && ok; ++property) {
+        const float base = static_cast<float>(property + 1);
+        ok = acs_editor_node3d_component_prop_set(
+                 host, id, 0, property,
+                 base, base + 0.125f, base + 0.25f, base + 0.5f) != 0;
+    }
+
+    const int duplicate = ok
+        ? acs_editor_node3d_duplicate(host, id)
+        : -1;
+    for (int property = 0; property < 20 && ok; ++property) {
+        float x = 0, y = 0, z = 0, w = 0;
+        const float base = static_cast<float>(property + 1);
+        ok = duplicate >= 0 &&
+             acs_editor_node3d_component_prop_get(
+                 host, duplicate, 0, property, &x, &y, &z, &w) != 0 &&
+             std::abs(x - base) < 1.0e-6f &&
+             std::abs(y - (base + 0.125f)) < 1.0e-6f &&
+             std::abs(z - (base + 0.25f)) < 1.0e-6f &&
+             std::abs(w - (base + 0.5f)) < 1.0e-6f;
+    }
+
+    char scene[32768]{};
+    const int written = ok
+        ? acs_editor_scene3d_serialize(
+              host, scene, static_cast<int>(sizeof(scene)))
+        : 0;
+    ok = ok && written > 0 &&
+         written < static_cast<int>(sizeof(scene)) &&
+         std::strstr(scene, "CPROP3D ") != nullptr &&
+         acs_editor_scene3d_load_text(host, scene) != 0;
+    for (int property = 0; property < 20 && ok; ++property) {
+        float x = 0, y = 0, z = 0, w = 0;
+        const float base = static_cast<float>(property + 1);
+        ok = acs_editor_node3d_component_prop_get(
+                 host, id, 0, property, &x, &y, &z, &w) != 0 &&
+             std::abs(x - base) < 1.0e-4f &&
+             std::abs(y - (base + 0.125f)) < 1.0e-4f &&
+             std::abs(z - (base + 0.25f)) < 1.0e-4f &&
+             std::abs(w - (base + 0.5f)) < 1.0e-4f;
+    }
+    acs_editor_destroy(host);
+    return ok;
+}
+
+/** Opaque foreground geometry consumes a pointer before water behind it. */
+bool RunWater3DPointerOcclusion() noexcept
+{
+    constexpr const char* kType = "AWaterSurface3DComponent";
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    acs_editor_scene3d_new(host);
+    const bool camera_ready =
+        acs_editor_camera3d_set(
+            host, 0.0f, 0.55f, 10.0f,
+            0.0f, 0.0f, 0.0f) != 0;
+    const int water =
+        acs_editor_add_node3d(host, 2, "OccludedWater");
+    bool ok =
+        camera_ready && water >= 0 &&
+        acs_editor_node3d_set_transform(
+            host, water,
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f,
+            10.0f, 1.0f, 10.0f) != 0 &&
+        acs_editor_node3d_add_component(
+            host, water, kType) != 0;
+
+    int hit_node = -1;
+    float hit_x = 0.0f, hit_y = 0.0f, hit_z = 0.0f;
+    ok = ok &&
+         acs_editor_water3d_hit_test(
+             host, 320.0f, 240.0f, 640.0f, 480.0f,
+             &hit_node, &hit_x, &hit_y, &hit_z) != 0 &&
+         hit_node == water &&
+         std::abs(hit_x) < 1.0e-3f &&
+         std::abs(hit_y) < 1.0e-3f &&
+         std::abs(hit_z) < 1.0e-3f;
+
+    // A local-visible water component is still inactive when any ancestor is
+    // hidden or disabled. Re-enabling the parent must restore the exact hit
+    // without mutating the child's authored flags.
+    const int parent =
+        acs_editor_add_empty3d(host, "WaterGroup");
+    ok = ok && parent >= 0 &&
+         acs_editor_reparent3d(host, water, parent) != 0;
+    acs_editor_node3d_set_visible(host, parent, 0);
+    hit_node = -1;
+    ok = ok &&
+         acs_editor_water3d_hit_test(
+             host, 320.0f, 240.0f, 640.0f, 480.0f,
+             &hit_node, nullptr, nullptr, nullptr) == 0 &&
+         hit_node == -1;
+    acs_editor_node3d_set_visible(host, parent, 1);
+    hit_node = -1;
+    ok = ok &&
+         acs_editor_water3d_hit_test(
+             host, 320.0f, 240.0f, 640.0f, 480.0f,
+             &hit_node, nullptr, nullptr, nullptr) != 0 &&
+         hit_node == water;
+    acs_editor_node3d_set_enabled(host, parent, 0);
+    hit_node = -1;
+    ok = ok &&
+         acs_editor_water3d_hit_test(
+             host, 320.0f, 240.0f, 640.0f, 480.0f,
+             &hit_node, nullptr, nullptr, nullptr) == 0 &&
+         hit_node == -1;
+    acs_editor_node3d_set_enabled(host, parent, 1);
+    hit_node = -1;
+    ok = ok &&
+         acs_editor_water3d_hit_test(
+             host, 320.0f, 240.0f, 640.0f, 480.0f,
+             &hit_node, nullptr, nullptr, nullptr) != 0 &&
+         hit_node == water;
+
+    const int foreground =
+        acs_editor_add_node3d(host, 0, "OpaqueForeground");
+    ok = ok && foreground >= 0 &&
+         acs_editor_node3d_set_transform(
+             host, foreground,
+             0.0f, 2.61f, 4.26f,
+             0.0f, 0.0f, 0.0f,
+             1.0f, 1.0f, 1.0f) != 0;
+    hit_node = -1;
+    ok = ok &&
+         acs_editor_water3d_hit_test(
+             host, 320.0f, 240.0f, 640.0f, 480.0f,
+             &hit_node, nullptr, nullptr, nullptr) == 0 &&
+         hit_node == -1;
+    acs_editor_destroy(host);
+    return ok;
+}
+
 /** Direct 3D camera control is finite, clamped, atomic, and available without a GPU attachment. */
 bool RunCamera3DStateSafety() noexcept
 {
@@ -439,6 +794,9 @@ int main()
     if (!RunProfilerSnapshotContract()) return 12;
     if (!RunZeroScaleSafety()) return 8;
     if (!RunScene3DSerializationGrowth()) return 9;
+    if (!RunSceneDocumentStrictPreflight()) return 17;
+    if (!RunWater3DComponentRoundTrip()) return 15;
+    if (!RunWater3DPointerOcclusion()) return 16;
     if (!RunCamera3DStateSafety()) return 10;
     if (!RunCamera3DFrameAll()) return 11;
     const DWORD baseline_handles = ProcessHandleCount();

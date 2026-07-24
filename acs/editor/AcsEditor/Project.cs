@@ -14,7 +14,7 @@ public sealed class Project
     public int    Version        { get; set; } = 1;
     public string Name           { get; set; } = "";
     public string EngineVersion  { get; set; } = "";
-    public string Template       { get; set; } = "blank";          // "blank" | "2d"
+    public string Template       { get; set; } = "3d"; // new: "3d" | "2d"; legacy manifests may retain "blank"
     public string InitialScene   { get; set; } = "Assets/main.acscene";   // RootDir 相対
     public string CanonicalSceneAssetId { get; set; } = ""; // Persistent Asset DB identity; path is legacy adapter.
 

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using AcsEditor.Packaging;
 
 namespace AcsEditor;
 
@@ -53,9 +54,29 @@ internal static class AssetCreationSelfTest
                     {
                         AcsAssetTemplate.Folder,
                         AcsAssetTemplate.Material,
+                        AcsAssetTemplate.Scene,
                         AcsAssetTemplate.Blueprint,
+                        AcsAssetTemplate.Prefab,
                     }),
-                "New menu exposes only Folder and the two usable ACS asset formats");
+                "New menu exposes only currently usable Folder, Material, Scene, Blueprint and Prefab formats");
+
+            AcsAssetCreationResult scene = AssetCreationWorkflow.Create(
+                assets,
+                materials,
+                AcsAssetTemplate.Scene);
+            byte[] sceneBytes = File.ReadAllBytes(scene.FullPath);
+            const string canonicalScene = "ACS3D v2\n";
+            Check(
+                scene.FullPath == Path.Combine(materials, "Scene.acs3d") &&
+                Encoding.UTF8.GetString(sceneBytes) == canonicalScene &&
+                !CanonicalSceneAdapter
+                    .InspectText(canonicalScene, ".acs3d")
+                    .HasErrors &&
+                (sceneBytes.Length < 3 ||
+                 !(sceneBytes[0] == 0xEF &&
+                   sceneBytes[1] == 0xBB &&
+                   sceneBytes[2] == 0xBF)),
+                "Scene creation writes a valid empty BOM-free unified ACS3D document");
 
             AcsAssetCreationResult blueprint = AssetCreationWorkflow.Create(
                 assets,
@@ -68,6 +89,67 @@ internal static class AssetCreationSelfTest
             Check(blueprintBytes.Length < 3 ||
                   !(blueprintBytes[0] == 0xEF && blueprintBytes[1] == 0xBB && blueprintBytes[2] == 0xBF),
                 "Blueprint creation uses UTF-8 without a BOM");
+
+            AcsAssetCreationResult prefab = AssetCreationWorkflow.Create(
+                assets,
+                materials,
+                AcsAssetTemplate.Prefab);
+            byte[] prefabBytes = File.ReadAllBytes(prefab.FullPath);
+            const string canonicalPrefab =
+                "ACS3D v2\n" +
+                "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 PrefabRoot\n" +
+                "EMPTY3D 1\n";
+            Check(
+                prefab.FullPath == Path.Combine(materials, "Prefab.acsprefab") &&
+                Encoding.UTF8.GetString(prefabBytes) == canonicalPrefab &&
+                !CanonicalSceneAdapter
+                    .InspectText(canonicalPrefab, ".acs3d")
+                    .HasErrors &&
+                (prefabBytes.Length < 3 ||
+                 !(prefabBytes[0] == 0xEF &&
+                   prefabBytes[1] == 0xBB &&
+                   prefabBytes[2] == 0xBF)),
+                "Prefab creation writes the exact BOM-free ACS3D subtree used by the unified scene model");
+
+            AssetScenePlacementDecision matching3D =
+                AssetScenePlacementPolicy.Evaluate(
+                    activeSourceUses3D: true,
+                    payloadUses3D: true);
+            AssetScenePlacementDecision matchingLegacy2D =
+                AssetScenePlacementPolicy.Evaluate(
+                    activeSourceUses3D: false,
+                    payloadUses3D: false);
+            AssetScenePlacementDecision hidden3DMutation =
+                AssetScenePlacementPolicy.Evaluate(
+                    activeSourceUses3D: false,
+                    payloadUses3D: true);
+            AssetScenePlacementDecision hidden2DMutation =
+                AssetScenePlacementPolicy.Evaluate(
+                    activeSourceUses3D: true,
+                    payloadUses3D: false);
+            int mutationCalls = 0;
+            if (hidden3DMutation == AssetScenePlacementDecision.Allow)
+                mutationCalls++;
+            if (hidden2DMutation == AssetScenePlacementDecision.Allow)
+                mutationCalls++;
+            string rejectionGuidance =
+                AssetScenePlacementPolicy.RejectionMessage(
+                    hidden3DMutation,
+                    "Prefab",
+                    "Water.acsprefab");
+            Check(
+                matching3D == AssetScenePlacementDecision.Allow &&
+                matchingLegacy2D == AssetScenePlacementDecision.Allow &&
+                hidden3DMutation ==
+                    AssetScenePlacementDecision.RejectUnified3DIntoLegacy2D &&
+                hidden2DMutation ==
+                    AssetScenePlacementDecision.RejectLegacy2DIntoUnified3D &&
+                mutationCalls == 0 &&
+                rejectionGuidance.Contains(".acs3d", StringComparison.Ordinal) &&
+                rejectionGuidance.Contains(
+                    "シーングラフは変更されていません。",
+                    StringComparison.Ordinal),
+                "asset placement rejects dimension-mismatched payloads before any hidden graph mutation");
 
             File.WriteAllText(Path.Combine(materials, "Material.acsmat"), "existing");
             Directory.CreateDirectory(Path.Combine(materials, "Material1.acsmat"));
@@ -198,11 +280,21 @@ internal static class AssetCreationSelfTest
             bool indexedMaterial = database.TryGetByPath(
                 material.FullPath,
                 out AssetRecord? materialRecord);
+            bool indexedScene = database.TryGetByPath(
+                scene.FullPath,
+                out AssetRecord? sceneRecord);
+            bool indexedPrefab = database.TryGetByPath(
+                prefab.FullPath,
+                out AssetRecord? prefabRecord);
             Check(indexResult.Warnings.Count == 0 &&
+                  indexedScene && sceneRecord?.Kind == "scene" &&
+                  sceneRecord.Metadata.Importer == "legacy-acs3d" &&
                   indexedBlueprint && blueprintRecord?.Kind == "blueprint" &&
                   blueprintRecord.Metadata.Importer == "blueprint" &&
                   indexedMaterial && materialRecord?.Kind == "material" &&
-                  materialRecord.Metadata.Importer == "material",
+                  materialRecord.Metadata.Importer == "material" &&
+                  indexedPrefab && prefabRecord?.Kind == "prefab" &&
+                  prefabRecord.Metadata.Importer == "prefab",
                 "created ACS assets receive authoritative kind-specific metadata immediately");
             Check(database.Snapshot().All(record =>
                     !AssetCreationWorkflow.IsTemporaryPath(record.FullPath)),

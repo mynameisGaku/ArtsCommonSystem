@@ -9,13 +9,20 @@
 #include "gameframework/Game.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/RenderContext.h"
+#include "gameframework/WaterSurface3DComponent.h"
 #include "math/Mat.h"
 #include "math/Math.h"
 #include "platform/Input.h"
 #include "platform/InputCodes.h"
+#include "render/IRhiCommandList.h"
+#include "render/IRhiDevice.h"
+#include "render/IRhiSwapchain.h"
+#include "render/IRhiTexture.h"
 #include "render/Renderer.h"
 
 #include <cfloat>
+#include <cmath>
+#include <cstring>
 
 namespace acs::game {
 
@@ -37,6 +44,26 @@ const AMeshComponent3D* FindMesh(const ANode& node) noexcept {
         const AComponent* component = node.ComponentAt(index);
         if (component != nullptr && component->Kind() == kind)
             return static_cast<const AMeshComponent3D*>(component);
+    }
+    return nullptr;
+}
+
+const AWaterSurface3DComponent* FindWater(const ANode& node) noexcept {
+    const void* kind = ComponentKindOf<AWaterSurface3DComponent>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind)
+            return static_cast<const AWaterSurface3DComponent*>(component);
+    }
+    return nullptr;
+}
+
+AWaterSurface3DComponent* FindWater(ANode& node) noexcept {
+    const void* kind = ComponentKindOf<AWaterSurface3DComponent>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind)
+            return static_cast<AWaterSurface3DComponent*>(component);
     }
     return nullptr;
 }
@@ -82,10 +109,216 @@ void ExpandBounds(
     if (value.z > maximum.z) maximum.z = value.z;
 }
 
+bool Finite(FVec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y)
+        && std::isfinite(value.z);
+}
+
+bool IsEffectivelyActive(const ANode& node) noexcept {
+    const ANode* current = &node;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (current->IsPendingDestroy()
+            || !current->IsEnabled() || !current->IsVisible()) {
+            return false;
+        }
+        current = current->Parent();
+        if (++depth > kNodeMaxTreeDepth) return false;
+    }
+    return true;
+}
+
+bool IsPlanarWaterMesh(const AMeshComponent3D& component) noexcept {
+    if (component.Primitive() == EMeshPrimitive3D::Plane) return true;
+    if (component.Primitive() != EMeshPrimitive3D::Mesh) return false;
+    const FMeshAsset* mesh = component.Mesh();
+    return mesh != nullptr
+        && FWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
+}
+
+FRayHit3 RaycastMeshLocal(
+    const AMeshComponent3D& component,
+    const FRay3& ray,
+    f32 max_distance) noexcept {
+    switch (component.Primitive()) {
+    case EMeshPrimitive3D::Plane: {
+        FRayHit3 hit = RaycastPlane(
+            ray, FPlane::FromPointNormal(
+                FVec3{0.0f, 0.0f, 0.0f}, FVec3{0.0f, 1.0f, 0.0f}),
+            max_distance);
+        if (hit.hit
+            && (Abs(hit.point.x) > 0.5f || Abs(hit.point.z) > 0.5f)) {
+            return FRayHit3{};
+        }
+        return hit;
+    }
+    case EMeshPrimitive3D::Cube:
+        return RaycastAabb(
+            ray,
+            FAabb3::FromCenterExtents(
+                FVec3{0.0f, 0.0f, 0.0f},
+                FVec3{0.5f, 0.5f, 0.5f}),
+            max_distance);
+    case EMeshPrimitive3D::Sphere:
+        return RaycastSphere(
+            ray, FSphere{FVec3{0.0f, 0.0f, 0.0f}, 0.5f},
+            max_distance);
+    case EMeshPrimitive3D::Mesh:
+        break;
+    }
+
+    const FMeshAsset* mesh = component.Mesh();
+    if (mesh == nullptr || mesh->Vertices().Size() < 3u)
+        return FRayHit3{};
+    const auto& vertices = mesh->Vertices();
+    const auto& indices = mesh->Indices();
+    FRayHit3 best{};
+    f32 best_distance = max_distance;
+    if (indices.Size() >= 3u) {
+        for (u32 index = 0u; index + 2u < indices.Size(); index += 3u) {
+            const u32 i0 = indices[index + 0u];
+            const u32 i1 = indices[index + 1u];
+            const u32 i2 = indices[index + 2u];
+            if (i0 >= vertices.Size() || i1 >= vertices.Size()
+                || i2 >= vertices.Size()) {
+                continue;
+            }
+            const FRayHit3 hit = RaycastTriangle(
+                ray, vertices[i0].position, vertices[i1].position,
+                vertices[i2].position, best_distance);
+            if (hit.hit) {
+                best = hit;
+                best_distance = hit.t;
+            }
+        }
+    } else {
+        for (u32 index = 0u; index + 2u < vertices.Size(); index += 3u) {
+            const FRayHit3 hit = RaycastTriangle(
+                ray, vertices[index + 0u].position,
+                vertices[index + 1u].position,
+                vertices[index + 2u].position, best_distance);
+            if (hit.hit) {
+                best = hit;
+                best_distance = hit.t;
+            }
+        }
+    }
+    return best;
+}
+
+FRayHit3 RaycastMeshWorld(
+    const ANode& node,
+    const AMeshComponent3D& component,
+    const FRay3& ray,
+    f32 max_distance) noexcept {
+    const FMat4 model = node.World().ToMat4();
+    const FMat4 inverse_model = Inverse(model);
+    const FRay3 local_ray{
+        TransformPoint(ray.origin, inverse_model),
+        TransformVector(ray.direction, inverse_model),
+    };
+    if (!Finite(local_ray.origin) || !Finite(local_ray.direction)
+        || LengthSq(local_ray.direction) < 1.0e-12f) {
+        return FRayHit3{};
+    }
+    FRayHit3 hit = RaycastMeshLocal(
+        component, local_ray, max_distance);
+    if (!hit.hit) return hit;
+    hit.point = ray.origin + ray.direction * hit.t;
+    hit.normal = Normalize(TransformVector(
+        hit.normal, Transpose(inverse_model)));
+    if (!Finite(hit.normal) || LengthSq(hit.normal) < 1.0e-10f)
+        hit.normal = FVec3{0.0f, 1.0f, 0.0f};
+    if (Dot(hit.normal, ray.direction) > 0.0f)
+        hit.normal = -hit.normal;
+    return hit;
+}
+
+constexpr f32 kSsssEpsilon = 1.0e-4f;
+
+bool SubstrateNeedsSubsurfaceMrt(
+    const FMaterial2D& material) noexcept {
+    if (!material.substrate.enabled) return false;
+
+    FSubstrateResolvedSurface surface{};
+    if (!ResolveMaterialSubstrate(material, surface)) return false;
+    bool has_mfp =
+        surface.mean_free_path_cm.x > kSsssEpsilon
+        || surface.mean_free_path_cm.y > kSsssEpsilon
+        || surface.mean_free_path_cm.z > kSsssEpsilon;
+    bool has_thickness = surface.thickness_cm > kSsssEpsilon;
+
+    // A literal may be zero while a per-pixel expression supplies the
+    // physical profile. Compile only the lightweight link metadata here; GPU
+    // shader/resource work remains demand-driven and asynchronous.
+    const FSubstrateExpressionLinkResult links =
+        CompileSubstrateExpressionLinks(material.substrate);
+    if (links.Succeeded()) {
+        for (u32 index = 0u; index < links.binding_count; ++index) {
+            const u32 target =
+                SubstrateExpressionBindingTarget(links.bindings[index]);
+            if (target >= 16u && target <= 18u) has_mfp = true;
+            if (target == 26u) has_thickness = true;
+        }
+    }
+    return has_mfp && has_thickness;
+}
+
+struct FSceneRenderFeatures {
+    bool has_water = false;
+    bool needs_subsurface_mrt = false;
+};
+
+FSceneRenderFeatures ScanSceneRenderFeatures(
+    const ANode& root) noexcept {
+    FSceneRenderFeatures features{};
+    TArray<const ANode*> stack;
+    if (!stack.TryPushBack(&root)) return features;
+    while (!stack.IsEmpty()) {
+        const ANode* node = stack.Back();
+        stack.PopBack();
+        if (node == nullptr || node->IsPendingDestroy()) continue;
+        // Visibility/enabled state is inherited, so an inactive node lets the
+        // complete subtree be rejected before any child or material work.
+        if (!IsEffectivelyActive(*node)) continue;
+        for (u32 index = 0u; index < node->ChildCount(); ++index) {
+            if (!stack.TryPushBack(node->Child(index))) return features;
+        }
+        const AMeshComponent3D* mesh = FindMesh(*node);
+        if (mesh == nullptr) continue;
+        if (FindWater(*node) != nullptr
+            && IsPlanarWaterMesh(*mesh)) {
+            features.has_water = true;
+        }
+        if (!mesh->MaterialLoaded()) {
+            if (features.has_water
+                && features.needs_subsurface_mrt) {
+                break;
+            }
+            continue;
+        }
+        const FMaterial2D& material = mesh->Material();
+        if (material.kind != EMaterialKind::Lit
+            || material.pbr.transmission > kSsssEpsilon) {
+            continue;
+        }
+        if (material.pbr.subsurface > kSsssEpsilon
+            || SubstrateNeedsSubsurfaceMrt(material)) {
+            features.needs_subsurface_mrt = true;
+        }
+        if (features.has_water && features.needs_subsurface_mrt) break;
+    }
+    return features;
+}
+
 } // namespace
 
+FLegacyScene3DAdapter::~FLegacyScene3DAdapter() noexcept {
+    JoinCpuCompileWorkers();
+}
+
 FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(const char* path) noexcept {
-    if (m_GpuReady || m_GpuAttempted) ReleaseGpu();
+    if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DFile(m_Graph, path);
     if (m_LoadResult.Succeeded()) FrameScene();
     return m_LoadResult;
@@ -94,7 +327,7 @@ FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(const char* path) noexcept {
 FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(
     IAssetPackReader& pack,
     const char* virtual_path) noexcept {
-    if (m_GpuReady || m_GpuAttempted) ReleaseGpu();
+    if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DAssetPack(m_Graph, pack, virtual_path);
     if (m_LoadResult.Succeeded()) FrameScene();
     return m_LoadResult;
@@ -141,19 +374,156 @@ void FLegacyScene3DAdapter::FrameScene() noexcept {
     UpdateCameraView();
 }
 
+bool FLegacyScene3DAdapter::RaycastWater(
+    const FRay3& ray,
+    FWaterRaycastHit& out_hit,
+    f32 max_distance) const noexcept {
+    out_hit = FWaterRaycastHit{};
+    if (!Finite(ray.origin) || !Finite(ray.direction)
+        || LengthSq(ray.direction) < 1.0e-12f
+        || !std::isfinite(max_distance) || max_distance <= 0.0f) {
+        return false;
+    }
+
+    struct FEntry {
+        const ANode* Node = nullptr;
+        bool ParentVisible = true;
+        bool ParentEnabled = true;
+    };
+    TArray<FEntry> stack;
+    if (!stack.TryPushBack(FEntry{&m_Graph.Root(), true, true}))
+        return false;
+
+    f32 best_distance = max_distance;
+    FNodeId best_node{};
+    FVec3 best_point{};
+    FVec3 best_normal{0.0f, 1.0f, 0.0f};
+    bool best_is_water = false;
+    bool have_hit = false;
+
+    while (!stack.IsEmpty()) {
+        const FEntry entry = stack.Back();
+        stack.PopBack();
+        const ANode* node = entry.Node;
+        if (node == nullptr || node->IsPendingDestroy()) continue;
+        const bool enabled = entry.ParentEnabled && node->IsEnabled();
+        const bool visible = entry.ParentVisible && node->IsVisible();
+        for (u32 index = node->ChildCount(); index > 0u; --index) {
+            if (!stack.TryPushBack(FEntry{
+                    node->Child(index - 1u), visible, enabled})) {
+                return false;
+            }
+        }
+        if (!enabled || !visible) continue;
+
+        const AMeshComponent3D* mesh = FindMesh(*node);
+        if (mesh == nullptr) continue;
+        const FRayHit3 hit =
+            RaycastMeshWorld(*node, *mesh, ray, best_distance);
+        if (!hit.hit || hit.t < 0.0f) continue;
+        const bool water =
+            FindWater(*node) != nullptr && IsPlanarWaterMesh(*mesh);
+        constexpr f32 kTieEpsilon = 1.0e-5f;
+        const bool closer =
+            !have_hit || hit.t < best_distance - kTieEpsilon;
+        const bool opaque_wins_tie =
+            have_hit && !water && best_is_water
+            && Abs(hit.t - best_distance) <= kTieEpsilon;
+        if (!closer && !opaque_wins_tie) continue;
+        have_hit = true;
+        best_distance = hit.t;
+        best_node = node->Id();
+        best_point = hit.point;
+        best_normal = hit.normal;
+        best_is_water = water;
+    }
+
+    if (!have_hit || !best_is_water || !best_node.IsValid()) return false;
+    out_hit.Node = best_node;
+    out_hit.Point = best_point;
+    out_hit.Normal = best_normal;
+    out_hit.Distance = best_distance;
+    return true;
+}
+
+bool FLegacyScene3DAdapter::AddWaterDisturbance(
+    FNodeId surface,
+    FVec3 world_point,
+    f32 radius,
+    f32 strength) noexcept {
+    ANode* node = m_Graph.Get(surface);
+    if (node == nullptr || !IsEffectivelyActive(*node)) {
+        return false;
+    }
+    AMeshComponent3D* mesh = FindMesh(*node);
+    AWaterSurface3DComponent* water = FindWater(*node);
+    if (mesh == nullptr || water == nullptr || !IsPlanarWaterMesh(*mesh))
+        return false;
+    m_Water.SetParams(water->ToRenderParams());
+    return m_Water.AddDisturbanceForSurface(
+        static_cast<u64>(surface.m_Packed),
+        world_point, radius, strength);
+}
+
+bool FLegacyScene3DAdapter::AddWaterWake(
+    FNodeId surface,
+    FVec3 world_point,
+    FVec3 world_velocity,
+    f32 radius,
+    f32 strength) noexcept {
+    ANode* node = m_Graph.Get(surface);
+    if (node == nullptr || !IsEffectivelyActive(*node)) {
+        return false;
+    }
+    AMeshComponent3D* mesh = FindMesh(*node);
+    AWaterSurface3DComponent* water = FindWater(*node);
+    if (mesh == nullptr || water == nullptr || !IsPlanarWaterMesh(*mesh))
+        return false;
+    m_Water.SetParams(water->ToRenderParams());
+    return m_Water.AddWakeForSurface(
+        static_cast<u64>(surface.m_Packed),
+        world_point, world_velocity, radius, strength);
+}
+
 void FLegacyScene3DAdapter::OnEnter() noexcept {
     GetGame().SetClearColor(0.025f, 0.035f, 0.055f, 1.0f);
+    // Keep lighting, visible sky, fog and water reflection on one authored
+    // environment. The simple FSky cloud layer stays disabled here: the
+    // production volumetric-cloud system is a separate scene feature.
+    m_Sky.PresetDay();
+    m_Sky.SetSunDirection(Normalize(FVec3{0.45f, 0.82f, -0.38f}));
+    m_Sky.SetSunColor(FVec3{1.0f, 0.95f, 0.85f});
+    m_Sky.SetZenithColor(FVec3{0.16f, 0.33f, 0.62f});
+    m_Sky.SetHorizonColor(FVec3{0.62f, 0.70f, 0.80f});
+    m_Sky.SetGroundColor(FVec3{0.20f, 0.19f, 0.21f});
+    m_Sky.SetCloudsEnabled(false);
+    m_PostParams.bloom_threshold = 1.1f;
+    m_PostParams.bloom_intensity = 0.32f;
+    m_PostParams.bloom_radius = 0.82f;
+    m_PostParams.bloom_scatter = 0.64f;
+    m_PostParams.exposure = 0.92f;
+    m_PostParams.tonemap_kind = 0;
+    m_PostParams.vignette_intensity = 0.075f;
+    m_PostParams.vignette_radius = 0.84f;
+    m_PostParams.chromatic_aberration = 0.0f;
+    m_PostParams.grain_intensity = 0.002f;
+    m_PostParams.cas_strength = 0.16f;
+    m_PostParams.taa_enabled = false;
     FrameScene();
 }
 
 void FLegacyScene3DAdapter::OnExit() noexcept {
-    if (IRhiDevice* device = GetGame().GetRenderer().Device())
-        device->WaitIdle();
-    ReleaseGpu();
+    DrainAndReleaseGpu();
 }
 
 void FLegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_Time += dt;
+    // Interaction lifetime is simulation state. It advances even while the
+    // renderer is hidden, still compiling, resized, or using opaque fallback.
+    m_Water.Update(dt);
+    m_PostParams.delta_time =
+        std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
+    m_PostParams.grain_time += m_PostParams.delta_time;
     m_Graph.Update(dt);
     if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
@@ -190,16 +560,195 @@ void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     UpdateCameraProjection(context.Width(), context.Height());
     UpdateCameraView();
 
+    FRenderer& renderer = context.GetRenderer();
+    IRhiDevice* device = renderer.Device();
+    IRhiSwapchain* swapchain = renderer.Swapchain();
+    IRhiTexture* depth = renderer.DepthBuffer();
+    if (device == nullptr || swapchain == nullptr) return;
+
+    EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;
+    const bool hdr_ready = EnsureHdrFrameResources(
+        *device, context.Width(), context.Height(),
+        renderer.ColorFormat(), renderer.DepthFormat(),
+        frame_commit);
+    IRhiTexture* hdr = m_Post.HdrRenderTarget();
+    if (!hdr_ready || hdr == nullptr
+        || hdr->Width() != context.Width()
+        || hdr->Height() != context.Height()) {
+        return;
+    }
+
+    FWaterDraw water_draws[FWaterSurface3D::kMaxTrackedSurfaces]{};
+    u32 water_count = CollectWaterDraws(
+        water_draws, depth, context.Width(), context.Height());
+
+    IRhiCommandList& command_list = context.Cmd();
+    const bool ssss_resources_ready =
+        m_SsssRequested
+        && m_HdrSsssGpuState == EShaderGpuState::Ready
+        && m_SsssGpuState == EShaderGpuState::Ready
+        && m_BlitGpuState == EShaderGpuState::Ready
+        && ActiveHdrShader().HasSubsurfaceMrtPipeline()
+        && depth != nullptr
+        && m_SsssDiffuse && m_SsssMaterial && m_SsssNormal
+        && m_Ssss.Width() == context.Width()
+        && m_Ssss.Height() == context.Height()
+        && m_SsssDiffuse->Width() == context.Width()
+        && m_SsssDiffuse->Height() == context.Height()
+        && m_SsssMaterial->Width() == context.Width()
+        && m_SsssMaterial->Height() == context.Height()
+        && m_SsssNormal->Width() == context.Width()
+        && m_SsssNormal->Height() == context.Height();
+    const u64 pbr_scene_upper =
+        static_cast<u64>(m_Graph.NodeCount());
+    const u64 pbr_base_required_wide =
+        pbr_scene_upper + static_cast<u64>(water_count);
+    const u64 pbr_full_required_wide =
+        pbr_scene_upper * (ssss_resources_ready ? 2u : 1u) +
+        static_cast<u64>(water_count);
+    const u32 pbr_base_required =
+        pbr_base_required_wide > static_cast<u64>(~u32{0})
+            ? ~u32{0} : static_cast<u32>(pbr_base_required_wide);
+    const u32 pbr_full_required =
+        pbr_full_required_wide > static_cast<u64>(~u32{0})
+            ? ~u32{0} : static_cast<u32>(pbr_full_required_wide);
+    // Reset exactly once for the complete command-list frame. A successful
+    // SSSS MRT can be followed by a full single-target rebuild, and water can
+    // still consume the same pool during its depth-copy fail-open pass.
+    const bool pbr_full_pool_ready =
+        ActiveHdrShader().BeginFrame(pbr_full_required);
+    // Growth is incremental. If the two-pass SSSS reserve stops after enough
+    // buffers for the complete base frame, disable SSSS but keep rendering.
+    // Below the base bound, fail before opening RT0 rather than publishing a
+    // scene with an arbitrary mesh suffix missing.
+    const bool pbr_base_pool_ready =
+        pbr_full_pool_ready ||
+        ActiveHdrShader().ObjectBufferCapacity() >= pbr_base_required;
+    if (!pbr_base_pool_ready) return;
+    const bool ssss_frame_ready =
+        ssss_resources_ready && pbr_full_pool_ready;
+
+    command_list.BeginRenderToTexture(
+        *hdr, FClearColor{0.025f, 0.035f, 0.055f, 1.0f},
+        depth, 1.0f);
+    if (m_SkyGpuState == ESkyGpuState::Ready) {
+        m_Sky.SetTime(m_Time);
+        m_Sky.Render(command_list, m_Camera);
+    }
+    if (!ssss_frame_ready) {
+        (void)DrawPbrScene(
+            context, ActiveHdrShader(),
+            water_count > 0u ? water_draws : nullptr,
+            water_count);
+        command_list.EndRenderToTexture(*hdr);
+    } else {
+        command_list.EndRenderToTexture(*hdr);
+        IRhiTexture* ssss_targets[4] = {
+            hdr, m_SsssDiffuse.Get(), m_SsssMaterial.Get(),
+            m_SsssNormal.Get(),
+        };
+        const bool mrt_bound =
+            command_list.BeginRenderToTextureMrtLoad(
+            ssss_targets, 4u, FClearColor{0, 0, 0, 0},
+            (1u << 1u) | (1u << 2u) | (1u << 3u),
+            depth, false, 1.0f);
+        bool mrt_draws_valid = false;
+        if (mrt_bound) {
+            FViewport viewport{};
+            viewport.width = static_cast<f32>(context.Width());
+            viewport.height = static_cast<f32>(context.Height());
+            command_list.SetViewport(viewport);
+            FScissorRect scissor{};
+            scissor.right = static_cast<i32>(context.Width());
+            scissor.bottom = static_cast<i32>(context.Height());
+            command_list.SetScissor(scissor);
+            mrt_draws_valid = DrawPbrScene(
+                context, ActiveHdrShader(),
+                water_count > 0u ? water_draws : nullptr,
+                water_count, true);
+            command_list.EndRenderToTextureMrt(ssss_targets, 4u);
+        }
+
+        FSubsurfaceScatteringParams ssss_params{};
+        ssss_params.radius_world = 0.012f;
+        ssss_params.channel_radius = FVec3{1.0f, 0.55f, 0.25f};
+        ssss_params.strength = 1.0f;
+        ssss_params.depth_sigma = 0.001f;
+        ssss_params.normal_power = 24.0f;
+        ssss_params.max_radius_pixels = 64.0f;
+        const bool ssss_rendered =
+            mrt_bound && mrt_draws_valid
+            && m_Ssss.Render(
+                command_list, *hdr, *m_SsssDiffuse, *depth,
+                *m_SsssNormal, *m_SsssMaterial,
+                Inverse(m_Camera.ViewProjection()), ssss_params);
+        if (ssss_rendered && m_Ssss.OutputTexture() != nullptr) {
+            m_Blit.Copy(
+                command_list, *m_Ssss.OutputTexture(), *hdr);
+        } else {
+            // The MRT PS deliberately disables analytic SSS. Rebuild the
+            // complete frame through the established one-target shader when
+            // any bounded draw or composite cannot be issued; never publish a
+            // partially populated HDR scene.
+            command_list.BeginRenderToTexture(
+                *hdr, FClearColor{0.025f, 0.035f, 0.055f, 1.0f},
+                depth, 1.0f);
+            if (m_SkyGpuState == ESkyGpuState::Ready)
+                m_Sky.Render(command_list, m_Camera);
+            (void)DrawPbrScene(
+                context, ActiveHdrShader(),
+                water_count > 0u ? water_draws : nullptr,
+                water_count);
+            command_list.EndRenderToTexture(*hdr);
+        }
+    }
+
+    if (water_count > 0u && m_WaterBackground.Get() != nullptr
+        && m_WaterDepthSnapshot.Get() != nullptr && depth != nullptr) {
+        m_Blit.Copy(command_list, *hdr, *m_WaterBackground);
+        const bool copied_depth = command_list.CopyDepthTexture(
+            *depth, *m_WaterDepthSnapshot);
+        command_list.BeginRenderToTextureLoad(*hdr, depth);
+        if (copied_depth) {
+            DrawWaterScene(
+                context, water_draws, water_count,
+                *m_WaterBackground, *m_WaterDepthSnapshot);
+        } else {
+            // These nodes were intentionally omitted from the opaque pass.
+            // A backend copy failure must never make authored water disappear.
+            DrawWaterFallback(context, water_draws, water_count);
+        }
+        command_list.EndRenderToTexture(*hdr);
+        if (!copied_depth) {
+            m_DepthSnapshotFailed = true;
+            m_WaterDepthSnapshot.Reset();
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: interactive-water depth copy failed; "
+                "opaque PBR fallback remains active");
+        }
+    }
+
+    m_PostParams.taa_depth_texture = nullptr;
+    m_Post.Render(
+        command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
+}
+
+bool FLegacyScene3DAdapter::DrawPbrScene(
+    FRenderContext& context,
+    FPbrShader& shader,
+    const FWaterDraw* excluded_water,
+    u32 excluded_count,
+    bool subsurface_mrt) noexcept {
     FDirLight lights[1];
     lights[0].direction = Normalize(FVec3{0.45f, 0.82f, -0.38f});
     lights[0].color = FVec3{1.55f, 1.48f, 1.36f};
-    m_Shader.SetLights(
+    shader.SetLights(
         m_Camera.ViewProjection(),
         m_Camera.Eye(),
         lights,
         1u,
         FVec3{0.055f, 0.075f, 0.11f});
-    m_Shader.SetFog(
+    shader.SetFog(
         FVec3{0.08f, 0.11f, 0.16f},
         0.0035f,
         0.12f,
@@ -212,9 +761,9 @@ void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     };
     TArray<FRenderEntry> stack;
     if (!stack.TryPushBack(FRenderEntry{&m_Graph.Root(), true, true}))
-        return;
+        return false;
 
-    u32 draw_count = 0u;
+    bool draws_valid = true;
     while (!stack.IsEmpty()) {
         const FRenderEntry entry = stack.Back();
         stack.PopBack();
@@ -225,12 +774,20 @@ void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         for (u32 index = node->ChildCount(); index > 0u; --index) {
             if (!stack.TryPushBack(
                     FRenderEntry{node->Child(index - 1u), visible, enabled})) {
-                return;
+                return false;
             }
         }
-        if (!enabled || !visible || draw_count >= 256u) continue;
+        if (!enabled || !visible) continue;
         const AMeshComponent3D* component = FindMesh(*node);
         if (component == nullptr) continue;
+        bool excluded = false;
+        for (u32 index = 0u; index < excluded_count; ++index) {
+            if (excluded_water[index].Node == node) {
+                excluded = true;
+                break;
+            }
+        }
+        if (excluded) continue;
         const FGpuMesh* gpu = GpuMeshFor(*component);
         if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer)
             continue;
@@ -240,12 +797,12 @@ void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         f32 metallic = 0.0f;
         f32 roughness = 0.5f;
         f32 ao = 1.0f;
-        m_Shader.ClearSubstrateSurface();
-        m_Shader.SetExtParams(0.0f, 0.1f, 0.0f);
-        m_Shader.SetEmissive(FVec3{0.0f, 0.0f, 0.0f}, 0.0f);
-        m_Shader.SetSheen(FVec3{1.0f, 1.0f, 1.0f}, 0.0f);
-        m_Shader.SetSubsurface(FVec3{1.0f, 0.3f, 0.2f}, 0.0f);
-        m_Shader.SetNormalMap(nullptr, 0.0f);
+        shader.ClearSubstrateSurface();
+        shader.SetExtParams(0.0f, 0.1f, 0.0f);
+        shader.SetEmissive(FVec3{0.0f, 0.0f, 0.0f}, 0.0f);
+        shader.SetSheen(FVec3{1.0f, 1.0f, 1.0f}, 0.0f);
+        shader.SetSubsurface(FVec3{1.0f, 0.3f, 0.2f}, 0.0f);
+        shader.SetNormalMap(nullptr, 0.0f);
 
         if (component->MaterialLoaded()) {
             const FMaterial2D& material = component->Material();
@@ -258,44 +815,44 @@ void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
             metallic = pbr.metallic;
             roughness = pbr.roughness;
             ao = pbr.ao;
-            m_Shader.SetExtParams(
+            shader.SetExtParams(
                 pbr.clearcoat, pbr.clearcoatRoughness, pbr.anisotropy);
-            m_Shader.SetEmissive(pbr.emissive, pbr.emissiveStrength);
-            m_Shader.SetSheen(
+            shader.SetEmissive(pbr.emissive, pbr.emissiveStrength);
+            shader.SetSheen(
                 pbr.sheenColor, pbr.sheen, pbr.sheenRoughness);
-            m_Shader.SetSubsurface(
+            shader.SetSubsurface(
                 pbr.subsurfaceColor, pbr.subsurface);
             if (material.substrate.enabled)
-                (void)m_Shader.SetSubstrateMaterial(material.substrate, m_Time);
+                (void)shader.SetSubstrateMaterial(material.substrate, m_Time);
+        } else if (const AWaterSurface3DComponent* water = FindWater(*node)) {
+            const FWaterSurface3DParams parameters = water->ToRenderParams();
+            base = parameters.shallow_color * 0.72f
+                + parameters.deep_color * 0.28f;
+            roughness = parameters.roughness;
         }
-        m_Shader.DrawMesh(
-            context.Cmd(),
-            *gpu,
-            node->World().ToMat4(),
-            base,
-            metallic,
-            roughness,
-            ao);
-        ++draw_count;
+        if (subsurface_mrt) {
+            if (!shader.DrawMeshSubsurfaceMrt(
+                    context.Cmd(), *gpu, node->World().ToMat4(),
+                    base, metallic, roughness, ao)) {
+                draws_valid = false;
+            }
+        } else {
+            draws_valid =
+                shader.DrawMesh(
+                    context.Cmd(), *gpu, node->World().ToMat4(),
+                    base, metallic, roughness, ao) &&
+                draws_valid;
+        }
     }
+    return draws_valid;
 }
 
 bool FLegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     if (m_GpuReady) return true;
     if (m_GpuAttempted) return false;
-    m_GpuAttempted = true;
     IRhiDevice* device = context.GetRenderer().Device();
     if (device == nullptr) return false;
-    const auto shader = m_Shader.Init(
-        *device,
-        context.GetRenderer().ColorFormat(),
-        context.GetRenderer().DepthFormat());
-    if (shader.IsErr()) {
-        ACS_LOG_ERROR(
-            "LegacyScene3DAdapter: PBR initialization failed: %s",
-            shader.Error().message);
-        return false;
-    }
+    m_GpuAttempted = true;
 
     const TSharedPtr<FMeshAsset> cube = Primitive::MakeCube();
     const TSharedPtr<FMeshAsset> sphere =
@@ -308,12 +865,1563 @@ bool FLegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
         || !UploadGraphMeshes(*device)) {
         ACS_LOG_ERROR(
             "LegacyScene3DAdapter: GPU mesh initialization failed");
-        ReleaseGpu();
+        DrainAndReleaseGpu();
         m_GpuAttempted = true;
         return false;
     }
     m_GpuReady = true;
     return true;
+}
+
+bool FLegacyScene3DAdapter::EnsureHdrFrameResources(
+    IRhiDevice& device,
+    u32 width,
+    u32 height,
+    EFormat swapchain_format,
+    EFormat depth_format,
+    EGpuCommitSubsystem& frame_commit) noexcept {
+    if (width == 0u || height == 0u) return false;
+    m_FrameDepthFormat = depth_format;
+    if (m_DepthAttemptWidth != 0u
+        && (m_DepthAttemptWidth != width
+            || m_DepthAttemptHeight != height)) {
+        m_DepthSnapshotFailed = false;
+    }
+    const FSceneRenderFeatures scene_features =
+        ScanSceneRenderFeatures(m_Graph.Root());
+    const bool scene_has_water = scene_features.has_water;
+    // FScene3D has no mutation revision yet. Scan alongside the existing
+    // water feature query so retained Graph references, visibility changes
+    // and runtime material edits take effect on the very next frame.
+    m_SsssRequested = scene_features.needs_subsurface_mrt;
+    const bool scene_needs_subsurface = m_SsssRequested;
+
+    const char* const backend_name = device.BackendName();
+    const bool raw_dx12 = backend_name != nullptr
+        && std::strcmp(backend_name, "DX12") == 0;
+
+    if (m_PostGpuState == EShaderGpuState::Unavailable) {
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result = FPostProcess::BeginCompileShadersAsync(device);
+            if (result.IsErr()) {
+                m_PostGpuState = EShaderGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: asynchronous post shader "
+                    "submission failed; stable clear remains active: %s",
+                    result.Error().message);
+            } else {
+                m_PostPendingShaders = Move(result.Value());
+                m_PostGpuState = EShaderGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginPostCpuCompilation())
+                m_PostGpuState = EShaderGpuState::Failed;
+        } else {
+            m_PostGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: post shader compilation is "
+                "unsupported by backend %s; stable clear remains active",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+
+    if (m_HdrShaderGpuState == EShaderGpuState::Unavailable) {
+        m_HdrPendingSlot = static_cast<u8>(m_HdrActiveSlot ^ 1u);
+        m_HdrShaders[m_HdrPendingSlot].Shutdown();
+        m_HdrPendingIsInitialized = false;
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result = FPbrShader::BeginCompileShadersAsync(
+                device, false);
+            if (result.IsErr()) {
+                m_HdrShaderGpuState = EShaderGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: asynchronous HDR PBR shader "
+                    "submission failed; stable clear remains active: %s",
+                    result.Error().message);
+            } else {
+                m_HdrPendingShaders = Move(result.Value());
+                m_HdrShaderGpuState = EShaderGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginHdrPbrCpuCompilation(
+                    device, m_Post.HdrFormat(), depth_format))
+                m_HdrShaderGpuState = EShaderGpuState::Failed;
+        } else {
+            m_HdrShaderGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: HDR PBR shader compilation is "
+                "unsupported by backend %s; stable clear remains active",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+
+    AdvancePostInitialization(
+        device, width, height, swapchain_format, frame_commit);
+    AdvanceHdrPbrInitialization(device, frame_commit);
+    AdvanceHdrSsssInitialization(
+        device, frame_commit, scene_needs_subsurface);
+    AdvanceSubsurfaceInitialization(
+        device, width, height, frame_commit,
+        scene_needs_subsurface);
+    if (m_SkyGpuState == ESkyGpuState::Unavailable) {
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result = FSky::BeginCompileShadersAsync(device);
+            if (result.IsErr()) {
+                m_SkyGpuState = ESkyGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: asynchronous sky compilation "
+                    "submission failed; the stable HDR clear remains active: "
+                    "%s",
+                    result.Error().message);
+            } else {
+                m_SkyPendingShaders = Move(result.Value());
+                m_SkyGpuState = ESkyGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginSkyCpuCompilation()) {
+                m_SkyGpuState = ESkyGpuState::Failed;
+            }
+        } else {
+            m_SkyGpuState = ESkyGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: sky compilation is unsupported by "
+                "backend %s; the stable HDR clear remains active",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+    AdvanceSkyInitialization(device, frame_commit);
+
+    const bool scene_needs_blit =
+        scene_has_water
+        || (scene_needs_subsurface
+            && m_SsssGpuState == EShaderGpuState::Ready);
+    if (scene_needs_blit
+        && m_BlitGpuState == EShaderGpuState::Unavailable) {
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result = FBlit::BeginCompileShadersAsync(device);
+            if (result.IsErr()) {
+                m_BlitGpuState = EShaderGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: asynchronous blit shader "
+                    "submission failed; dependent effects stay on their "
+                    "analytic fallback: %s",
+                    result.Error().message);
+            } else {
+                m_BlitPendingShaders = Move(result.Value());
+                m_BlitGpuState = EShaderGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginBlitCpuCompilation())
+                m_BlitGpuState = EShaderGpuState::Failed;
+        } else {
+            m_BlitGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: blit shader compilation is "
+                "unsupported by backend %s; dependent effects stay on "
+                "their analytic fallback",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+    AdvanceBlitInitialization(
+        device, frame_commit, scene_needs_blit);
+    EnsureSubsurfaceAuxTargets(
+        device, width, height, frame_commit,
+        scene_needs_subsurface);
+
+    if (scene_has_water
+        && m_BlitGpuState == EShaderGpuState::Ready
+        && (m_WaterBackground.Get() == nullptr
+            || m_WaterBackground->Width() != width
+            || m_WaterBackground->Height() != height)
+        && (m_BackgroundAttemptWidth != width
+            || m_BackgroundAttemptHeight != height)
+        && TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Water)) {
+        m_BackgroundAttemptWidth = width;
+        m_BackgroundAttemptHeight = height;
+        FTextureDesc description{};
+        description.width = width;
+        description.height = height;
+        description.format = m_Post.HdrFormat();
+        description.is_render_target = true;
+        auto texture = CreateRhiTexture(device, description);
+        if (texture.IsErr()) {
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: water background allocation failed; "
+                "water remains on opaque PBR fallback: %s",
+                texture.Error().message);
+        } else {
+            m_WaterBackground = Move(texture.Value());
+        }
+    }
+
+    // A depth snapshot is needed even when the renderer's live depth exposes
+    // an SRV: water samples the immutable opaque copy while the original stays
+    // bound as a writable DSV for water-to-water and opaque occlusion.
+    // The caller validates the live allocation before collecting any water.
+    if (scene_has_water && depth_format == EFormat::D32_Float
+        && !m_DepthSnapshotFailed
+        && (m_WaterDepthSnapshot.Get() == nullptr
+            || m_WaterDepthSnapshot->Width() != width
+            || m_WaterDepthSnapshot->Height() != height)
+        && (m_DepthAttemptWidth != width
+            || m_DepthAttemptHeight != height)
+        && TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Water)) {
+        m_DepthAttemptWidth = width;
+        m_DepthAttemptHeight = height;
+        FTextureDesc description{};
+        description.width = width;
+        description.height = height;
+        description.format = depth_format;
+        description.is_depth_target = true;
+        description.shader_visible_depth = true;
+        description.sample_count = 1u;
+        auto texture = CreateRhiTexture(device, description);
+        if (texture.IsErr()) {
+            m_DepthSnapshotFailed = true;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: water depth snapshot allocation "
+                "failed; opaque PBR fallback remains active: %s",
+                texture.Error().message);
+        } else {
+            m_WaterDepthSnapshot = Move(texture.Value());
+        }
+    }
+
+    if (m_WaterGpuState == EWaterGpuState::Unavailable
+        && scene_has_water) {
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result =
+                FWaterSurface3D::BeginCompileShadersAsync(device);
+            if (result.IsErr()) {
+                m_WaterGpuState = EWaterGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: interactive-water shader "
+                    "submission failed; opaque PBR fallback remains active: "
+                    "%s",
+                    result.Error().message);
+            } else {
+                m_WaterPendingShaders = Move(result.Value());
+                m_WaterGpuState = EWaterGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginWaterCpuCompilation()) {
+                m_WaterGpuState = EWaterGpuState::Failed;
+            }
+        } else {
+            m_WaterGpuState = EWaterGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: interactive-water compilation is "
+                "unsupported by backend %s; opaque PBR fallback remains "
+                "active",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+    AdvanceWaterInitialization(device, frame_commit, scene_has_water);
+    return m_PostGpuState == EShaderGpuState::Ready
+        && m_HdrShaderGpuState == EShaderGpuState::Ready;
+}
+
+void FLegacyScene3DAdapter::SkyCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    auto result = FSky::CompileShadersCpu();
+    const bool succeeded = result.IsOk();
+    if (succeeded) {
+        runtime.m_SkyPendingShaders = Move(result.Value());
+    } else {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: sky CPU shader compilation failed; "
+            "the stable HDR clear remains active: %s",
+            result.Error().message);
+    }
+    runtime.m_SkyCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+void FLegacyScene3DAdapter::WaterCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    auto result = FWaterSurface3D::CompileShadersCpu();
+    const bool succeeded = result.IsOk();
+    if (succeeded) {
+        runtime.m_WaterPendingShaders = Move(result.Value());
+    } else {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: interactive-water CPU shader compilation "
+            "failed; opaque PBR fallback remains active: %s",
+            result.Error().message);
+    }
+    runtime.m_WaterCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+void FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    bool succeeded = false;
+    auto shaders = FPbrShader::CompileShadersCpu(false);
+    if (shaders.IsErr()) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: HDR PBR CPU shader compilation failed; "
+            "stable clear remains active: %s",
+            shaders.Error().message);
+    } else if (runtime.m_HdrCompileDevice == nullptr) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: HDR PBR background candidate lost its "
+            "raw-DX12 device; stable clear remains active");
+    } else {
+        auto initialized =
+            runtime.m_HdrShaders[runtime.m_HdrPendingSlot]
+                .BuildInitializedCandidateForRawDx12(
+                    *runtime.m_HdrCompileDevice,
+                    Move(shaders.Value()),
+                    runtime.m_HdrCompileRtFormat,
+                    runtime.m_HdrCompileDepthFormat);
+        succeeded = initialized.IsOk();
+        if (!succeeded) {
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: HDR PBR background candidate "
+                "creation failed; stable clear remains active: %s",
+                initialized.Error().message);
+        }
+    }
+    runtime.m_HdrPendingIsInitialized = succeeded;
+    runtime.m_HdrCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+void FLegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    bool succeeded = false;
+    auto shaders = FPbrShader::CompileShadersCpu(true);
+    if (shaders.IsErr()) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS PBR CPU shader compilation "
+            "failed; analytic SSS remains active: %s",
+            shaders.Error().message);
+    } else if (runtime.m_HdrSsssCompileDevice == nullptr) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS PBR background candidate lost "
+            "its raw-DX12 device; analytic SSS remains active");
+    } else {
+        auto initialized =
+            runtime.m_HdrShaders[runtime.m_HdrSsssPendingSlot]
+                .BuildInitializedCandidateForRawDx12(
+                    *runtime.m_HdrSsssCompileDevice,
+                    Move(shaders.Value()),
+                    runtime.m_HdrSsssCompileRtFormat,
+                    runtime.m_HdrSsssCompileDepthFormat);
+        succeeded = initialized.IsOk()
+            && runtime.m_HdrShaders[runtime.m_HdrSsssPendingSlot]
+                   .HasSubsurfaceMrtPipeline();
+        if (!succeeded) {
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: SSSS PBR background candidate "
+                "creation failed; analytic SSS remains active%s%s",
+                initialized.IsErr() ? ": " : "",
+                initialized.IsErr() ? initialized.Error().message : "");
+        }
+    }
+    runtime.m_HdrSsssPendingIsInitialized = succeeded;
+    runtime.m_HdrSsssCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+void FLegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    auto shaders = FSubsurfaceScattering::CompileShadersCpu();
+    bool succeeded = false;
+    if (shaders.IsErr()) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS CPU shader compilation failed; "
+            "analytic SSS remains active: %s",
+            shaders.Error().message);
+    } else if (runtime.m_SsssCompileDevice == nullptr) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS background candidate has no "
+            "raw-DX12 device; analytic SSS remains active");
+    } else {
+        auto initialized =
+            runtime.m_Ssss.BuildPipelineCandidateForRawDx12(
+                *runtime.m_SsssCompileDevice,
+                Move(shaders.Value()));
+        succeeded = initialized.IsOk()
+            && runtime.m_Ssss.HasPipelineResources();
+        if (!succeeded) {
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: SSSS background pipeline "
+                "candidate creation failed; analytic SSS remains "
+                "active%s%s",
+                initialized.IsErr() ? ": " : "",
+                initialized.IsErr()
+                    ? initialized.Error().message : "");
+        }
+    }
+    runtime.m_SsssPendingIsInitialized = succeeded;
+    runtime.m_SsssCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+void FLegacyScene3DAdapter::PostCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    auto result = FPostProcess::CompileShadersCpu();
+    const bool succeeded = result.IsOk();
+    if (succeeded) {
+        runtime.m_PostPendingShaders = Move(result.Value());
+    } else {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: post CPU shader compilation failed; "
+            "stable clear remains active: %s",
+            result.Error().message);
+    }
+    runtime.m_PostCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+void FLegacyScene3DAdapter::BlitCpuCompileWorkerEntry(
+    void* user) noexcept {
+    auto& runtime =
+        *static_cast<FLegacyScene3DAdapter*>(user);
+    auto result = FBlit::CompileShadersCpu();
+    const bool succeeded = result.IsOk();
+    if (succeeded) {
+        runtime.m_BlitPendingShaders = Move(result.Value());
+    } else {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: blit CPU shader compilation failed; "
+            "dependent effects stay on their analytic fallback: %s",
+            result.Error().message);
+    }
+    runtime.m_BlitCompileWorkerState.store(
+        succeeded ? 2 : -1, std::memory_order_release);
+}
+
+bool FLegacyScene3DAdapter::BeginSkyCpuCompilation() noexcept {
+    if (m_SkyCompileWorker.Joinable()
+        || m_SkyCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: sky CPU compile worker is already active; "
+            "the stable HDR clear remains active");
+        return false;
+    }
+
+    m_SkyCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime sky compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::SkyCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_SkyCompileWorkerState.store(0, std::memory_order_release);
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create sky CPU compile worker; "
+            "the stable HDR clear remains active: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_SkyCompileWorker = Move(worker.Value());
+    m_SkyGpuState = ESkyGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: raw-DX12 sky shader compilation dispatched "
+        "to a CPU worker");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::BeginWaterCpuCompilation() noexcept {
+    if (m_WaterCompileWorker.Joinable()
+        || m_WaterCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: interactive-water CPU compile worker is "
+            "already active; opaque PBR fallback remains active");
+        return false;
+    }
+
+    m_WaterCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime water compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::WaterCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_WaterCompileWorkerState.store(0, std::memory_order_release);
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create interactive-water CPU "
+            "compile worker; opaque PBR fallback remains active: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_WaterCompileWorker = Move(worker.Value());
+    m_WaterGpuState = EWaterGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: raw-DX12 interactive-water shader compilation "
+        "dispatched to a CPU worker");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::BeginHdrPbrCpuCompilation(
+    IRhiDevice& device,
+    EFormat rt_format,
+    EFormat depth_format) noexcept {
+    if (m_HdrCompileWorker.Joinable()
+        || m_HdrCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        return false;
+    }
+    m_HdrCompileDevice = &device;
+    m_HdrCompileRtFormat = rt_format;
+    m_HdrCompileDepthFormat = depth_format;
+    m_HdrPendingIsInitialized = false;
+    m_HdrCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime HDR PBR compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_HdrCompileWorkerState.store(0, std::memory_order_release);
+        m_HdrCompileDevice = nullptr;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create HDR PBR CPU compile "
+            "worker; stable clear remains active: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_HdrCompileWorker = Move(worker.Value());
+    m_HdrShaderGpuState = EShaderGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: raw-DX12 base-only HDR PBR shader and "
+        "complete RHI candidate dispatched to a worker");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::BeginHdrSsssCpuCompilation(
+    IRhiDevice& device,
+    EFormat rt_format,
+    EFormat depth_format) noexcept {
+    if (m_HdrSsssCompileWorker.Joinable()
+        || m_HdrSsssCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        return false;
+    }
+    m_HdrSsssCompileDevice = &device;
+    m_HdrSsssCompileRtFormat = rt_format;
+    m_HdrSsssCompileDepthFormat = depth_format;
+    m_HdrSsssPendingIsInitialized = false;
+    m_HdrSsssCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime SSSS PBR compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_HdrSsssCompileWorkerState.store(
+            0, std::memory_order_release);
+        m_HdrSsssCompileDevice = nullptr;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create SSSS PBR CPU "
+            "compile worker; analytic SSS remains active: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_HdrSsssCompileWorker = Move(worker.Value());
+    m_HdrSsssGpuState = EShaderGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: optional four-target SSSS PBR candidate "
+        "dispatched after the base renderer became ready");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::BeginSubsurfaceCpuCompilation(
+    IRhiDevice& device) noexcept {
+    if (m_SsssCompileWorker.Joinable()
+        || m_SsssCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        return false;
+    }
+    m_SsssCompileDevice = &device;
+    m_SsssPendingIsInitialized = false;
+    m_SsssCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime SSSS compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_SsssCompileWorkerState.store(0, std::memory_order_release);
+        m_SsssCompileDevice = nullptr;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create SSSS CPU compile "
+            "worker; analytic SSS remains active: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_SsssCompileWorker = Move(worker.Value());
+    m_SsssGpuState = EShaderGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: SSSS compositor shaders dispatched to a "
+        "CPU worker");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::BeginPostCpuCompilation() noexcept {
+    if (m_PostCompileWorker.Joinable()
+        || m_PostCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        return false;
+    }
+    m_PostCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime post compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::PostCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_PostCompileWorkerState.store(0, std::memory_order_release);
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create post CPU compile worker; "
+            "stable clear remains active: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_PostCompileWorker = Move(worker.Value());
+    m_PostGpuState = EShaderGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: raw-DX12 post shader compilation dispatched "
+        "to a CPU worker");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::BeginBlitCpuCompilation() noexcept {
+    if (m_BlitCompileWorker.Joinable()
+        || m_BlitCompileWorkerState.load(
+               std::memory_order_acquire) != 0) {
+        return false;
+    }
+    m_BlitCompileWorkerState.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS runtime blit compile";
+    auto worker = FThread::Spawn(
+        &FLegacyScene3DAdapter::BlitCpuCompileWorkerEntry,
+        this, config);
+    if (worker.IsErr()) {
+        m_BlitCompileWorkerState.store(0, std::memory_order_release);
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: failed to create blit CPU compile worker; "
+            "dependent effects stay on their analytic fallback: %s",
+            worker.Error().message);
+        return false;
+    }
+    m_BlitCompileWorker = Move(worker.Value());
+    m_BlitGpuState = EShaderGpuState::CpuCompiling;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: raw-DX12 blit shader compilation dispatched "
+        "to a CPU worker");
+    return true;
+}
+
+bool FLegacyScene3DAdapter::TryClaimGpuCommit(
+    EGpuCommitSubsystem& frame_commit,
+    EGpuCommitSubsystem subsystem) noexcept {
+    if (frame_commit != EGpuCommitSubsystem::None) return false;
+    frame_commit = subsystem;
+    return true;
+}
+
+void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(
+    IRhiDevice& device,
+    EGpuCommitSubsystem& frame_commit) noexcept {
+    if (m_HdrShaderGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_HdrCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_HdrCompileWorker.Join();
+        m_HdrCompileDevice = nullptr;
+        m_HdrCompileWorkerState.store(0, std::memory_order_release);
+        if (worker_state != 2 || !m_HdrPendingIsInitialized) {
+            m_HdrPendingShaders = {};
+            m_HdrPendingIsInitialized = false;
+            m_HdrShaderGpuState = EShaderGpuState::Failed;
+            return;
+        }
+        m_HdrShaderGpuState = EShaderGpuState::PendingCommit;
+    } else if (m_HdrShaderGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_HdrPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_HdrPendingShaders = {};
+            m_HdrPendingIsInitialized = false;
+            m_HdrShaderGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: asynchronous HDR PBR compilation "
+                "failed; stable clear remains active");
+            return;
+        }
+        m_HdrShaderGpuState = EShaderGpuState::PendingCommit;
+    }
+    if (m_HdrShaderGpuState != EShaderGpuState::PendingCommit) {
+        return;
+    }
+    if (!TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::HdrPbr)) {
+        return;
+    }
+
+    if (m_HdrPendingIsInitialized) {
+        m_HdrActiveSlot = m_HdrPendingSlot;
+        m_HdrPendingIsInitialized = false;
+        m_HdrShaderGpuState = EShaderGpuState::Ready;
+        ACS_LOG_INFO(
+            "LegacyScene3DAdapter: background-built base-only HDR PBR "
+            "candidate published without owner-thread RHI creation");
+        return;
+    }
+
+    FPbrShader& candidate = m_HdrShaders[m_HdrPendingSlot];
+    const auto result = candidate.InitWithCompiledShaders(
+        device, Move(m_HdrPendingShaders),
+        m_Post.HdrFormat(), m_FrameDepthFormat);
+    if (result.IsErr()) {
+        m_HdrPendingShaders = {};
+        m_HdrShaderGpuState = EShaderGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: HDR PBR RHI commit failed; "
+            "stable clear remains active: %s",
+            result.Error().message);
+        return;
+    }
+    m_HdrActiveSlot = m_HdrPendingSlot;
+    m_HdrShaderGpuState = EShaderGpuState::Ready;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: HDR PBR renderer is ready");
+}
+
+void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(
+    IRhiDevice& device,
+    EGpuCommitSubsystem& frame_commit,
+    bool scene_needs_subsurface) noexcept {
+    // Retire completed optional work before the live feature gate. Materials
+    // may be removed while compilation is in flight; an unpublished worker
+    // candidate must not remain joinable or retain resources indefinitely.
+    if (m_HdrSsssGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_HdrSsssCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state != 1) {
+            m_HdrSsssCompileWorker.Join();
+            m_HdrSsssCompileDevice = nullptr;
+            m_HdrSsssCompileWorkerState.store(
+                0, std::memory_order_release);
+            if (worker_state == 2
+                && m_HdrSsssPendingIsInitialized) {
+                m_HdrSsssGpuState = EShaderGpuState::PendingCommit;
+            } else {
+                m_HdrShaders[m_HdrSsssPendingSlot].Shutdown();
+                m_HdrSsssPendingShaders = {};
+                m_HdrSsssPendingIsInitialized = false;
+                m_HdrSsssGpuState = EShaderGpuState::Failed;
+            }
+        }
+    } else if (m_HdrSsssGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_HdrSsssPendingShaders.Status();
+        if (status == EShaderStatus::Ready) {
+            m_HdrSsssGpuState = EShaderGpuState::PendingCommit;
+        } else if (status == EShaderStatus::Failed) {
+            m_HdrSsssPendingShaders = {};
+            m_HdrSsssGpuState = EShaderGpuState::Failed;
+        }
+    }
+
+    if (!scene_needs_subsurface) {
+        if (m_HdrSsssGpuState == EShaderGpuState::PendingCommit
+            || m_HdrSsssGpuState == EShaderGpuState::Failed) {
+            m_HdrSsssPendingShaders = {};
+            m_HdrSsssPendingIsInitialized = false;
+            if (m_HdrSsssPendingSlot != m_HdrActiveSlot)
+                m_HdrShaders[m_HdrSsssPendingSlot].Shutdown();
+            m_HdrSsssGpuState = EShaderGpuState::Unavailable;
+        }
+        return;
+    }
+    if (m_HdrShaderGpuState != EShaderGpuState::Ready) {
+        return;
+    }
+
+    if (m_HdrSsssGpuState == EShaderGpuState::Unavailable) {
+        m_HdrSsssPendingSlot =
+            static_cast<u8>(m_HdrActiveSlot ^ 1u);
+        m_HdrShaders[m_HdrSsssPendingSlot].Shutdown();
+        m_HdrSsssPendingIsInitialized = false;
+        const char* const backend_name = device.BackendName();
+        const bool raw_dx12 = backend_name != nullptr
+            && std::strcmp(backend_name, "DX12") == 0;
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result =
+                FPbrShader::BeginCompileShadersAsync(device, true);
+            if (result.IsErr()) {
+                m_HdrSsssGpuState = EShaderGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: asynchronous SSSS PBR "
+                    "submission failed; analytic SSS remains active: %s",
+                    result.Error().message);
+            } else {
+                m_HdrSsssPendingShaders = Move(result.Value());
+                m_HdrSsssGpuState = EShaderGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginHdrSsssCpuCompilation(
+                    device, m_Post.HdrFormat(), m_FrameDepthFormat)) {
+                m_HdrSsssGpuState = EShaderGpuState::Failed;
+            }
+        } else {
+            m_HdrSsssGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: SSSS PBR compilation is "
+                "unsupported by backend %s; analytic SSS remains active",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+
+    if (m_HdrSsssGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_HdrSsssCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_HdrSsssCompileWorker.Join();
+        m_HdrSsssCompileDevice = nullptr;
+        m_HdrSsssCompileWorkerState.store(
+            0, std::memory_order_release);
+        if (worker_state != 2 || !m_HdrSsssPendingIsInitialized) {
+            m_HdrShaders[m_HdrSsssPendingSlot].Shutdown();
+            m_HdrSsssPendingShaders = {};
+            m_HdrSsssPendingIsInitialized = false;
+            m_HdrSsssGpuState = EShaderGpuState::Failed;
+            return;
+        }
+        m_HdrSsssGpuState = EShaderGpuState::PendingCommit;
+    } else if (m_HdrSsssGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_HdrSsssPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_HdrSsssPendingShaders = {};
+            m_HdrSsssGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: asynchronous SSSS PBR "
+                "compilation failed; analytic SSS remains active");
+            return;
+        }
+        m_HdrSsssGpuState = EShaderGpuState::PendingCommit;
+    }
+    if (m_HdrSsssGpuState != EShaderGpuState::PendingCommit
+        || !TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::HdrSsss)) {
+        return;
+    }
+
+    if (m_HdrSsssPendingIsInitialized) {
+        m_HdrActiveSlot = m_HdrSsssPendingSlot;
+        m_HdrSsssPendingIsInitialized = false;
+        m_HdrSsssGpuState = EShaderGpuState::Ready;
+        ACS_LOG_INFO(
+            "LegacyScene3DAdapter: background-built four-target SSSS PBR "
+            "candidate published without owner-thread RHI creation");
+        return;
+    }
+
+    FPbrShader& candidate = m_HdrShaders[m_HdrSsssPendingSlot];
+    const auto result = candidate.InitWithCompiledShaders(
+        device, Move(m_HdrSsssPendingShaders),
+        m_Post.HdrFormat(), m_FrameDepthFormat);
+    if (result.IsErr() || !candidate.HasSubsurfaceMrtPipeline()) {
+        candidate.Shutdown();
+        m_HdrSsssPendingShaders = {};
+        m_HdrSsssGpuState = EShaderGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS PBR RHI commit failed; "
+            "the base renderer and analytic SSS remain active%s%s",
+            result.IsErr() ? ": " : "",
+            result.IsErr() ? result.Error().message : "");
+        return;
+    }
+    m_HdrActiveSlot = m_HdrSsssPendingSlot;
+    m_HdrSsssGpuState = EShaderGpuState::Ready;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: optional four-target SSSS PBR renderer "
+        "is ready");
+}
+
+void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(
+    IRhiDevice& device,
+    u32 width,
+    u32 height,
+    EGpuCommitSubsystem& frame_commit,
+    bool scene_needs_subsurface) noexcept {
+    // Drain completed optional work even when a hot material edit removes the
+    // final SSS dependency during compilation.
+    if (m_SsssGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_SsssCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state != 1) {
+            m_SsssCompileWorker.Join();
+            m_SsssCompileDevice = nullptr;
+            m_SsssCompileWorkerState.store(
+                0, std::memory_order_release);
+            if (worker_state == 2
+                && m_SsssPendingIsInitialized
+                && m_Ssss.HasPipelineResources()) {
+                m_SsssGpuState = EShaderGpuState::PendingCommit;
+            } else {
+                m_Ssss.Shutdown();
+                m_SsssPendingShaders = {};
+                m_SsssPendingIsInitialized = false;
+                m_SsssGpuState = EShaderGpuState::Failed;
+            }
+        }
+    } else if (m_SsssGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_SsssPendingShaders.Status();
+        if (status == EShaderStatus::Ready) {
+            m_SsssGpuState = EShaderGpuState::PendingCommit;
+        } else if (status == EShaderStatus::Failed) {
+            m_SsssPendingShaders = {};
+            m_SsssGpuState = EShaderGpuState::Failed;
+        }
+    }
+
+    if (!scene_needs_subsurface) {
+        if (m_SsssGpuState == EShaderGpuState::PendingCommit
+            || m_SsssGpuState == EShaderGpuState::Failed) {
+            m_SsssPendingShaders = {};
+            m_SsssPendingIsInitialized = false;
+            m_Ssss.Shutdown();
+            m_SsssGpuState = EShaderGpuState::Unavailable;
+        }
+        return;
+    }
+    if (m_HdrSsssGpuState != EShaderGpuState::Ready
+        || width == 0u || height == 0u) {
+        return;
+    }
+
+    if (m_SsssGpuState == EShaderGpuState::Unavailable) {
+        const char* const backend_name = device.BackendName();
+        const bool raw_dx12 = backend_name != nullptr
+            && std::strcmp(backend_name, "DX12") == 0;
+        if (device.SupportsAsyncShaderCompilation()) {
+            auto result =
+                FSubsurfaceScattering::BeginCompileShadersAsync(device);
+            if (result.IsErr()) {
+                m_SsssGpuState = EShaderGpuState::Failed;
+                ACS_LOG_WARN(
+                    "LegacyScene3DAdapter: asynchronous SSSS submission "
+                    "failed; analytic SSS remains active: %s",
+                    result.Error().message);
+            } else {
+                m_SsssPendingShaders = Move(result.Value());
+                m_SsssGpuState = EShaderGpuState::Compiling;
+            }
+        } else if (raw_dx12) {
+            if (!BeginSubsurfaceCpuCompilation(device))
+                m_SsssGpuState = EShaderGpuState::Failed;
+        } else {
+            m_SsssGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: SSSS compilation is unsupported "
+                "by backend %s; analytic SSS remains active",
+                backend_name ? backend_name : "(unknown)");
+        }
+    }
+
+    if (m_SsssGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_SsssCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_SsssCompileWorker.Join();
+        m_SsssCompileDevice = nullptr;
+        m_SsssCompileWorkerState.store(0, std::memory_order_release);
+        if (worker_state != 2) {
+            m_Ssss.Shutdown();
+            m_SsssPendingShaders = {};
+            m_SsssGpuState = EShaderGpuState::Failed;
+            return;
+        }
+        m_SsssGpuState = EShaderGpuState::PendingCommit;
+    } else if (m_SsssGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_SsssPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_SsssPendingShaders = {};
+            m_SsssGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: asynchronous SSSS compilation "
+                "failed; analytic SSS remains active");
+            return;
+        }
+        m_SsssGpuState = EShaderGpuState::PendingCommit;
+    }
+    if (m_SsssGpuState != EShaderGpuState::PendingCommit
+        || !TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Subsurface)) {
+        return;
+    }
+
+    if (m_SsssPendingIsInitialized) {
+        m_SsssPendingIsInitialized = false;
+        m_SsssGpuState = EShaderGpuState::Ready;
+        m_SsssResizeAttemptWidth = 0u;
+        m_SsssResizeAttemptHeight = 0u;
+        ACS_LOG_INFO(
+            "LegacyScene3DAdapter: background-built SSSS pipeline "
+            "candidate published without owner-thread RHI creation");
+        return;
+    }
+
+    const auto result =
+        m_Ssss.InitPipelineResourcesWithCompiledShaders(
+            device, Move(m_SsssPendingShaders));
+    if (result.IsErr()) {
+        m_SsssPendingShaders = {};
+        m_SsssGpuState = EShaderGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS RHI commit failed; "
+            "analytic SSS remains active: %s",
+            result.Error().message);
+        return;
+    }
+    m_SsssGpuState = EShaderGpuState::Ready;
+    m_SsssResizeAttemptWidth = 0u;
+    m_SsssResizeAttemptHeight = 0u;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: diffuse-only bilateral SSSS pipelines "
+        "are ready; full-resolution targets remain staged");
+}
+
+void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(
+    IRhiDevice& device,
+    u32 width,
+    u32 height,
+    EGpuCommitSubsystem& frame_commit,
+    bool scene_needs_subsurface) noexcept {
+    if (!scene_needs_subsurface
+        || m_HdrSsssGpuState != EShaderGpuState::Ready
+        || m_SsssGpuState != EShaderGpuState::Ready
+        || m_BlitGpuState != EShaderGpuState::Ready
+        || width == 0u || height == 0u) {
+        return;
+    }
+    const bool active_matches =
+        m_Ssss.Width() == width && m_Ssss.Height() == height
+        && m_SsssDiffuse && m_SsssMaterial && m_SsssNormal
+        && m_SsssDiffuse->Width() == width
+        && m_SsssDiffuse->Height() == height
+        && m_SsssMaterial->Width() == width
+        && m_SsssMaterial->Height() == height
+        && m_SsssNormal->Width() == width
+        && m_SsssNormal->Height() == height;
+    if (active_matches) return;
+
+    // Pipeline publication, the compositor's internal pair and the external
+    // MRT bundle are deliberately three different frame commits. Raw DX12
+    // builds the first stage entirely on its worker.
+    if (!m_Ssss.OutputTexture()
+        || !m_Ssss.HorizontalTexture()
+        || m_Ssss.Width() == 0u || m_Ssss.Height() == 0u) {
+        if ((m_SsssResizeAttemptWidth == width
+             && m_SsssResizeAttemptHeight == height)
+            || !TryClaimGpuCommit(
+                frame_commit, EGpuCommitSubsystem::Subsurface)) {
+            return;
+        }
+        m_SsssResizeAttemptWidth = width;
+        m_SsssResizeAttemptHeight = height;
+        const auto initial_targets = m_Ssss.Resize(width, height);
+        if (initial_targets.IsErr()) {
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: initial SSSS internal target "
+                "allocation failed at %ux%u; analytic SSS remains "
+                "active: %s",
+                width, height, initial_targets.Error().message);
+        }
+        return;
+    }
+
+    const bool pending_matches =
+        m_SsssPendingDiffuse && m_SsssPendingMaterial
+        && m_SsssPendingNormal
+        && m_SsssPendingAuxWidth == width
+        && m_SsssPendingAuxHeight == height;
+    if (!pending_matches) {
+        if ((m_SsssAuxAttemptWidth == width
+             && m_SsssAuxAttemptHeight == height)
+            || !TryClaimGpuCommit(
+                frame_commit, EGpuCommitSubsystem::Subsurface)) {
+            return;
+        }
+        m_SsssAuxAttemptWidth = width;
+        m_SsssAuxAttemptHeight = height;
+        m_SsssPendingDiffuse.Reset();
+        m_SsssPendingMaterial.Reset();
+        m_SsssPendingNormal.Reset();
+        m_SsssPendingAuxWidth = 0u;
+        m_SsssPendingAuxHeight = 0u;
+
+        FTextureDesc description{};
+        description.width = width;
+        description.height = height;
+        description.format = EFormat::R16G16B16A16_Float;
+        description.is_render_target = true;
+        auto diffuse = CreateRhiTexture(device, description);
+        auto material = CreateRhiTexture(device, description);
+        auto normal = CreateRhiTexture(device, description);
+        if (diffuse.IsErr() || material.IsErr() || normal.IsErr()) {
+            const char* message = diffuse.IsErr()
+                ? diffuse.Error().message
+                : (material.IsErr()
+                    ? material.Error().message : normal.Error().message);
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: SSSS MRT bundle allocation "
+                "failed at %ux%u; analytic SSS remains active: %s",
+                width, height, message);
+            return;
+        }
+        m_SsssPendingDiffuse = Move(diffuse.Value());
+        m_SsssPendingMaterial = Move(material.Value());
+        m_SsssPendingNormal = Move(normal.Value());
+        m_SsssPendingAuxWidth = width;
+        m_SsssPendingAuxHeight = height;
+        m_SsssResizeAttemptWidth = 0u;
+        m_SsssResizeAttemptHeight = 0u;
+
+        // Initial compositor creation already matches the viewport, so this
+        // commit can publish the complete external bundle immediately.
+        if (m_Ssss.Width() == width && m_Ssss.Height() == height) {
+            m_SsssDiffuse = Move(m_SsssPendingDiffuse);
+            m_SsssMaterial = Move(m_SsssPendingMaterial);
+            m_SsssNormal = Move(m_SsssPendingNormal);
+            m_SsssPendingAuxWidth = 0u;
+            m_SsssPendingAuxHeight = 0u;
+        }
+        return;
+    }
+
+    // Resize has a strong guarantee across all five full-resolution targets:
+    // build the three external candidates in an earlier bounded commit, then
+    // resize the compositor's internal pair and publish the candidates only
+    // when that second operation succeeds.
+    if (m_SsssResizeAttemptWidth == width
+        && m_SsssResizeAttemptHeight == height) {
+        return;
+    }
+    if (!TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Subsurface)) {
+        return;
+    }
+    m_SsssResizeAttemptWidth = width;
+    m_SsssResizeAttemptHeight = height;
+    const auto resize = m_Ssss.Resize(width, height);
+    if (resize.IsErr()) {
+        m_SsssPendingDiffuse.Reset();
+        m_SsssPendingMaterial.Reset();
+        m_SsssPendingNormal.Reset();
+        m_SsssPendingAuxWidth = 0u;
+        m_SsssPendingAuxHeight = 0u;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: SSSS resize failed at %ux%u; "
+            "the previous complete stack remains valid and analytic SSS "
+            "is used for this viewport: %s",
+            width, height, resize.Error().message);
+        return;
+    }
+    m_SsssDiffuse = Move(m_SsssPendingDiffuse);
+    m_SsssMaterial = Move(m_SsssPendingMaterial);
+    m_SsssNormal = Move(m_SsssPendingNormal);
+    m_SsssPendingAuxWidth = 0u;
+    m_SsssPendingAuxHeight = 0u;
+}
+
+void FLegacyScene3DAdapter::AdvancePostInitialization(
+    IRhiDevice& device, u32 width, u32 height,
+    EFormat swapchain_format,
+    EGpuCommitSubsystem& frame_commit) noexcept {
+    if (m_PostGpuState == EShaderGpuState::Ready) {
+        if (m_FrameWidth == width && m_FrameHeight == height) return;
+        if (!TryClaimGpuCommit(
+                frame_commit, EGpuCommitSubsystem::Post)) {
+            return;
+        }
+        const auto resize = m_Post.Resize(width, height);
+        if (resize.IsErr()) {
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: HDR resize failed at %ux%u; "
+                "the previous targets remain valid and the stable clear "
+                "remains active until a retry succeeds: %s",
+                width, height, resize.Error().message);
+            return;
+        }
+        m_FrameWidth = width;
+        m_FrameHeight = height;
+        return;
+    }
+
+    if (m_PostGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_PostCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_PostCompileWorker.Join();
+        m_PostCompileWorkerState.store(0, std::memory_order_release);
+        if (worker_state != 2) {
+            m_PostPendingShaders = {};
+            m_PostGpuState = EShaderGpuState::Failed;
+            return;
+        }
+        m_PostGpuState = EShaderGpuState::PendingCommit;
+    } else if (m_PostGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_PostPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_PostPendingShaders = {};
+            m_PostGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: asynchronous post compilation failed; "
+                "stable clear remains active");
+            return;
+        }
+        m_PostGpuState = EShaderGpuState::PendingCommit;
+    }
+    if (m_PostGpuState != EShaderGpuState::PendingCommit) {
+        return;
+    }
+    if (!TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Post)) {
+        return;
+    }
+
+    const auto result = m_Post.InitWithCompiledShaders(
+        device, Move(m_PostPendingShaders),
+        width, height, swapchain_format);
+    if (result.IsErr()) {
+        m_PostPendingShaders = {};
+        m_PostGpuState = EShaderGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: post RHI commit failed; "
+            "stable clear remains active: %s",
+            result.Error().message);
+        return;
+    }
+    m_PostGpuState = EShaderGpuState::Ready;
+    m_FrameWidth = width;
+    m_FrameHeight = height;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: HDR post renderer is ready");
+}
+
+void FLegacyScene3DAdapter::AdvanceBlitInitialization(
+    IRhiDevice& device,
+    EGpuCommitSubsystem& frame_commit,
+    bool requested) noexcept {
+    if (m_BlitGpuState == EShaderGpuState::CpuCompiling) {
+        const i32 worker_state = m_BlitCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_BlitCompileWorker.Join();
+        m_BlitCompileWorkerState.store(0, std::memory_order_release);
+        if (worker_state != 2) {
+            m_BlitPendingShaders = {};
+            m_BlitGpuState = EShaderGpuState::Failed;
+            return;
+        }
+        m_BlitGpuState = EShaderGpuState::PendingCommit;
+    } else if (m_BlitGpuState == EShaderGpuState::Compiling) {
+        const EShaderStatus status = m_BlitPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_BlitPendingShaders = {};
+            m_BlitGpuState = EShaderGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: asynchronous blit compilation failed; "
+                "dependent effects stay on their analytic fallback");
+            return;
+        }
+        m_BlitGpuState = EShaderGpuState::PendingCommit;
+    }
+    if (m_BlitGpuState != EShaderGpuState::PendingCommit) {
+        return;
+    }
+    if (!requested
+        || !TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Blit)) {
+        return;
+    }
+
+    const auto result = m_Blit.InitWithCompiledShaders(
+        device, Move(m_BlitPendingShaders), m_Post.HdrFormat());
+    if (result.IsErr()) {
+        m_BlitPendingShaders = {};
+        m_BlitGpuState = EShaderGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: blit RHI commit failed; "
+            "dependent effects stay on their analytic fallback: %s",
+            result.Error().message);
+        return;
+    }
+    m_BlitGpuState = EShaderGpuState::Ready;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: HDR blit renderer is ready");
+}
+
+void FLegacyScene3DAdapter::AdvanceSkyInitialization(
+    IRhiDevice& device,
+    EGpuCommitSubsystem& frame_commit) noexcept {
+    if (m_SkyGpuState == ESkyGpuState::CpuCompiling) {
+        const i32 worker_state = m_SkyCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_SkyCompileWorker.Join();
+        m_SkyCompileWorkerState.store(0, std::memory_order_release);
+        if (worker_state != 2) {
+            m_SkyPendingShaders = {};
+            m_SkyGpuState = ESkyGpuState::Failed;
+            return;
+        }
+        m_SkyGpuState = ESkyGpuState::PendingCommit;
+    } else if (m_SkyGpuState == ESkyGpuState::Compiling) {
+        const EShaderStatus status = m_SkyPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_SkyPendingShaders = {};
+            m_SkyGpuState = ESkyGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: asynchronous sky compilation failed; "
+                "the stable HDR clear remains active");
+            return;
+        }
+        m_SkyGpuState = ESkyGpuState::PendingCommit;
+    }
+    if (m_SkyGpuState != ESkyGpuState::PendingCommit) {
+        return;
+    }
+    if (!TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Sky)) {
+        return;
+    }
+
+    const auto result = m_Sky.InitWithCompiledShaders(
+        device, Move(m_SkyPendingShaders),
+        m_Post.HdrFormat(), m_FrameDepthFormat);
+    if (result.IsErr()) {
+        m_SkyGpuState = ESkyGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: sky RHI commit failed; "
+            "the stable HDR clear remains active: %s",
+            result.Error().message);
+        return;
+    }
+    m_SkyGpuState = ESkyGpuState::Ready;
+    ACS_LOG_INFO(
+        "LegacyScene3DAdapter: HDR sky renderer is ready");
+}
+
+void FLegacyScene3DAdapter::AdvanceWaterInitialization(
+    IRhiDevice& device,
+    EGpuCommitSubsystem& frame_commit,
+    bool scene_has_water) noexcept {
+    if (m_WaterGpuState == EWaterGpuState::CpuCompiling) {
+        const i32 worker_state = m_WaterCompileWorkerState.load(
+            std::memory_order_acquire);
+        if (worker_state == 1) return;
+        m_WaterCompileWorker.Join();
+        m_WaterCompileWorkerState.store(
+            0, std::memory_order_release);
+        if (worker_state != 2) {
+            m_WaterPendingShaders = {};
+            m_WaterGpuState = EWaterGpuState::Failed;
+            return;
+        }
+        m_WaterGpuState = EWaterGpuState::PendingCommit;
+    } else if (m_WaterGpuState == EWaterGpuState::Compiling) {
+        const EShaderStatus status = m_WaterPendingShaders.Status();
+        if (status == EShaderStatus::Compiling) return;
+        if (status != EShaderStatus::Ready) {
+            m_WaterPendingShaders = {};
+            m_WaterGpuState = EWaterGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: interactive-water shader compilation "
+                "failed; opaque PBR fallback remains active");
+            return;
+        }
+        m_WaterGpuState = EWaterGpuState::PendingCommit;
+    }
+
+    if (m_WaterGpuState == EWaterGpuState::PendingCommit) {
+        if (!scene_has_water
+            || !TryClaimGpuCommit(
+                frame_commit, EGpuCommitSubsystem::Water)) {
+            return;
+        }
+        const auto result = m_Water.BeginInitWithCompiledShaders(
+            device, Move(m_WaterPendingShaders),
+            m_Post.HdrFormat(), m_FrameDepthFormat, 1u);
+        if (result.IsErr()) {
+            m_WaterGpuState = EWaterGpuState::Failed;
+            ACS_LOG_WARN(
+                "LegacyScene3DAdapter: interactive-water RHI commit failed; "
+                "opaque PBR fallback remains active: %s",
+                result.Error().message);
+            return;
+        }
+        m_WaterGpuState = EWaterGpuState::Buffering;
+        return;
+    }
+
+    if (m_WaterGpuState != EWaterGpuState::Buffering
+        || !scene_has_water
+        || !TryClaimGpuCommit(
+            frame_commit, EGpuCommitSubsystem::Water)) {
+        return;
+    }
+    const auto result = m_Water.AdvanceInitialization(16u);
+    if (result.IsErr()) {
+        m_WaterGpuState = EWaterGpuState::Failed;
+        ACS_LOG_WARN(
+            "LegacyScene3DAdapter: interactive-water bounded initialization "
+            "failed; opaque PBR fallback remains active: %s",
+            result.Error().message);
+    } else if (result.Value()) {
+        m_WaterGpuState = EWaterGpuState::Ready;
+        ACS_LOG_INFO(
+            "LegacyScene3DAdapter: interactive-water renderer is ready");
+    }
+}
+
+u32 FLegacyScene3DAdapter::CollectWaterDraws(
+    FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
+    IRhiTexture* depth,
+    u32 width,
+    u32 height) const noexcept {
+    if (m_WaterGpuState != EWaterGpuState::Ready
+        || m_BlitGpuState != EShaderGpuState::Ready
+        || m_DepthSnapshotFailed
+        || m_WaterBackground.Get() == nullptr
+        || m_WaterBackground->Width() != width
+        || m_WaterBackground->Height() != height
+        || m_WaterDepthSnapshot.Get() == nullptr
+        || depth == nullptr || depth->Width() != width
+        || depth->Height() != height
+        || !IsDepthTextureCopyCompatible(
+            *depth, *m_WaterDepthSnapshot)) {
+        return 0u;
+    }
+
+    struct FEntry {
+        const ANode* Node = nullptr;
+        bool ParentVisible = true;
+        bool ParentEnabled = true;
+    };
+    TArray<FEntry> stack;
+    if (!stack.TryPushBack(FEntry{&m_Graph.Root(), true, true}))
+        return 0u;
+
+    u32 count = 0u;
+    while (!stack.IsEmpty()) {
+        const FEntry entry = stack.Back();
+        stack.PopBack();
+        const ANode* node = entry.Node;
+        if (node == nullptr || node->IsPendingDestroy()) continue;
+        const bool enabled = entry.ParentEnabled && node->IsEnabled();
+        const bool visible = entry.ParentVisible && node->IsVisible();
+        for (u32 index = node->ChildCount(); index > 0u; --index) {
+            if (!stack.TryPushBack(FEntry{
+                    node->Child(index - 1u), visible, enabled})) {
+                // Never leave a partially excluded scene: draw every water
+                // node through opaque PBR when collection cannot complete.
+                return 0u;
+            }
+        }
+        if (!enabled || !visible
+            || count >= FWaterSurface3D::kMaxTrackedSurfaces) {
+            continue;
+        }
+        const AMeshComponent3D* mesh = FindMesh(*node);
+        const AWaterSurface3DComponent* water = FindWater(*node);
+        if (mesh == nullptr || water == nullptr
+            || !IsPlanarWaterMesh(*mesh)) {
+            continue;
+        }
+        const FGpuMesh* gpu = GpuMeshFor(*mesh);
+        if (gpu == nullptr || !gpu->vertex_buffer || !gpu->index_buffer)
+            continue;
+        draws[count++] = FWaterDraw{node, mesh, water, gpu};
+    }
+    return count;
+}
+
+void FLegacyScene3DAdapter::DrawWaterScene(
+    FRenderContext& context,
+    const FWaterDraw* water_draws,
+    u32 water_count,
+    IRhiTexture& background,
+    IRhiTexture& opaque_depth_snapshot) noexcept {
+    if (water_draws == nullptr || water_count == 0u) return;
+    const FVec3 sun_direction =
+        Normalize(FVec3{0.45f, 0.82f, -0.38f});
+    m_Water.SetFrame(
+        m_Camera.ViewProjection(), m_Camera.Eye(),
+        context.Width(), context.Height(),
+        sun_direction, FVec3{4.8f, 4.35f, 3.9f});
+    m_Water.SetEnvironment(
+        m_Sky.ZenithColor(),
+        m_Sky.HorizonColor(),
+        m_Sky.GroundColor());
+    for (u32 index = 0u; index < water_count; ++index) {
+        const FWaterDraw& draw = water_draws[index];
+        if (draw.Node == nullptr || draw.Water == nullptr
+            || draw.Gpu == nullptr) {
+            continue;
+        }
+        m_Water.SetParams(draw.Water->ToRenderParams());
+        m_Water.DrawMesh(
+            context.Cmd(), *draw.Gpu, draw.Node->World().ToMat4(),
+            &background, &opaque_depth_snapshot, nullptr,
+            static_cast<u64>(draw.Node->Id().m_Packed), true);
+    }
+}
+
+void FLegacyScene3DAdapter::DrawWaterFallback(
+    FRenderContext& context,
+    const FWaterDraw* water_draws,
+    u32 water_count) noexcept {
+    if (water_draws == nullptr || water_count == 0u) return;
+    FPbrShader& shader = ActiveHdrShader();
+    for (u32 index = 0u; index < water_count; ++index) {
+        const FWaterDraw& draw = water_draws[index];
+        if (draw.Node == nullptr || draw.Water == nullptr
+            || draw.Gpu == nullptr) {
+            continue;
+        }
+        const FWaterSurface3DParams parameters =
+            draw.Water->ToRenderParams();
+        const FVec3 fallback_color =
+            parameters.shallow_color * 0.72f
+            + parameters.deep_color * 0.28f;
+        shader.ClearSubstrateSurface();
+        shader.SetExtParams(0.0f, 0.1f, 0.0f);
+        shader.SetEmissive(FVec3::Zero(), 0.0f);
+        shader.SetSheen(FVec3::One(), 0.0f);
+        shader.SetSubsurface(FVec3::Zero(), 0.0f);
+        shader.SetNormalMap(nullptr, 0.0f);
+        shader.DrawMesh(
+            context.Cmd(), *draw.Gpu, draw.Node->World().ToMat4(),
+            fallback_color, 0.0f, parameters.roughness, 1.0f);
+    }
 }
 
 bool FLegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
@@ -344,14 +2452,98 @@ bool FLegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     return true;
 }
 
+void FLegacyScene3DAdapter::DrainAndReleaseGpu() noexcept {
+    // A raw-DX12 startup worker may own in-flight resource/PSO creation.
+    // Join before the owner-thread queue drain, then release every resource.
+    // This same barrier is required by public live reload: command lists from
+    // the previous graph may still reference the active/inactive PBR slots.
+    JoinCpuCompileWorkers();
+    if (IRhiDevice* device = GetGame().GetRenderer().Device())
+        device->WaitIdle();
+    ReleaseGpu();
+}
+
 void FLegacyScene3DAdapter::ReleaseGpu() noexcept {
+    JoinCpuCompileWorkers();
+    m_HdrPendingShaders = {};
+    m_HdrSsssPendingShaders = {};
+    m_SsssPendingShaders = {};
+    m_PostPendingShaders = {};
+    m_BlitPendingShaders = {};
+    m_SkyPendingShaders = {};
+    m_Sky.Shutdown();
+    m_WaterPendingShaders = {};
+    m_Water.Shutdown();
+    m_WaterBackground.Reset();
+    m_WaterDepthSnapshot.Reset();
+    m_SsssPendingDiffuse.Reset();
+    m_SsssPendingMaterial.Reset();
+    m_SsssPendingNormal.Reset();
+    m_SsssDiffuse.Reset();
+    m_SsssMaterial.Reset();
+    m_SsssNormal.Reset();
+    m_Ssss.Shutdown();
+    m_Blit.Shutdown();
+    m_Post.Shutdown();
+    m_HdrShaders[0].Shutdown();
+    m_HdrShaders[1].Shutdown();
     m_CustomMeshes.Clear();
     m_Cube = FGpuMesh{};
     m_Sphere = FGpuMesh{};
     m_Plane = FGpuMesh{};
-    m_Shader.Shutdown();
+    m_HdrShaderGpuState = EShaderGpuState::Unavailable;
+    m_HdrSsssGpuState = EShaderGpuState::Unavailable;
+    m_SsssGpuState = EShaderGpuState::Unavailable;
+    m_HdrCompileDevice = nullptr;
+    m_HdrSsssCompileDevice = nullptr;
+    m_SsssCompileDevice = nullptr;
+    m_HdrActiveSlot = 0u;
+    m_HdrPendingSlot = 1u;
+    m_HdrPendingIsInitialized = false;
+    m_HdrSsssPendingSlot = 0u;
+    m_HdrSsssPendingIsInitialized = false;
+    m_SsssPendingIsInitialized = false;
+    m_PostGpuState = EShaderGpuState::Unavailable;
+    m_BlitGpuState = EShaderGpuState::Unavailable;
+    m_WaterGpuState = EWaterGpuState::Unavailable;
+    m_FrameWidth = 0u;
+    m_FrameHeight = 0u;
+    m_BackgroundAttemptWidth = 0u;
+    m_BackgroundAttemptHeight = 0u;
+    m_DepthAttemptWidth = 0u;
+    m_DepthAttemptHeight = 0u;
+    m_SsssResizeAttemptWidth = 0u;
+    m_SsssResizeAttemptHeight = 0u;
+    m_SsssAuxAttemptWidth = 0u;
+    m_SsssAuxAttemptHeight = 0u;
+    m_SsssPendingAuxWidth = 0u;
+    m_SsssPendingAuxHeight = 0u;
+    m_DepthSnapshotFailed = false;
+    m_SsssRequested = false;
+    m_SkyGpuState = ESkyGpuState::Unavailable;
     m_GpuReady = false;
     m_GpuAttempted = false;
+}
+
+void FLegacyScene3DAdapter::JoinCpuCompileWorkers() noexcept {
+    m_HdrCompileWorker.Join();
+    m_HdrCompileDevice = nullptr;
+    m_HdrCompileWorkerState.store(0, std::memory_order_release);
+    m_HdrSsssCompileWorker.Join();
+    m_HdrSsssCompileDevice = nullptr;
+    m_HdrSsssCompileWorkerState.store(
+        0, std::memory_order_release);
+    m_SsssCompileWorker.Join();
+    m_SsssCompileDevice = nullptr;
+    m_SsssCompileWorkerState.store(0, std::memory_order_release);
+    m_PostCompileWorker.Join();
+    m_PostCompileWorkerState.store(0, std::memory_order_release);
+    m_BlitCompileWorker.Join();
+    m_BlitCompileWorkerState.store(0, std::memory_order_release);
+    m_SkyCompileWorker.Join();
+    m_SkyCompileWorkerState.store(0, std::memory_order_release);
+    m_WaterCompileWorker.Join();
+    m_WaterCompileWorkerState.store(0, std::memory_order_release);
 }
 
 void FLegacyScene3DAdapter::UpdateCameraProjection(

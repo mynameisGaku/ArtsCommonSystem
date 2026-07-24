@@ -234,6 +234,24 @@ struct FPostProcessParams {
  */
 class FPostProcess {
 public:
+    /** Compiled shader handles awaiting owner-thread resource creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> fullscreen_vertex;
+        TUniquePtr<IRhiShader> extract_pixel;
+        TUniquePtr<IRhiShader> downsample_pixel;
+        TUniquePtr<IRhiShader> upsample_pixel;
+        TUniquePtr<IRhiShader> gaussian_pixel;
+        TUniquePtr<IRhiShader> taa_resolve_pixel;
+        TUniquePtr<IRhiShader> tonemap_pixel;
+        TUniquePtr<IRhiShader> luma_extract_pixel;
+        TUniquePtr<IRhiShader> luma_downsample_pixel;
+        TUniquePtr<IRhiShader> exposure_pixel;
+        TUniquePtr<IRhiShader> exposure_apply_pixel;
+
+        /** Aggregate all eleven submitted shader jobs without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FPostProcess() noexcept = default;
 
@@ -258,6 +276,32 @@ public:
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height,
                        EFormat color_format) noexcept;
 
+    /**
+     * Compile all raw-DX12 post-process shaders without touching a device.
+     *
+     * @details Safe to execute on a background worker. GPU resources and PSOs
+     * must still be created through InitWithCompiledShaders on the render
+     * owner thread.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit all eleven shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create resources and PSOs from ready shaders on the render owner thread.
+     *
+     * @details Reinitialization is transactional: a failure leaves an already
+     * initialized post-process stack unchanged.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height,
+        EFormat color_format) noexcept;
+
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
 
@@ -267,6 +311,10 @@ public:
      * @param width 新しい出力幅。
      * @param height 新しい出力高さ。
      * @return 成功なら空の TResult、再確保失敗ならエラー。
+     *
+     * @details All replacement render targets are created transactionally.
+     * On failure the previous dimensions, targets, and temporal/exposure
+     * history remain published and a later frame may retry.
      */
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
@@ -296,6 +344,8 @@ public:
                 const FPostProcessParams& params) noexcept;
 
 private:
+    FPostProcess& operator=(FPostProcess&&) noexcept = default;
+
     /**
      * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
      *
@@ -321,7 +371,9 @@ private:
      * @param device パイプライン生成に使う RHI デバイス。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> CreatePipelines(IRhiDevice& device) noexcept;
+    TResult<void> CreatePipelines(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders) noexcept;
 
     /**
      * Bloom 抽出パス: シーン入力から閾値超えの輝度を bloom_mips[0] へ書く。
@@ -395,17 +447,21 @@ private:
     void Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
-     * Auto-exposure: 順応済み露出を HDR に掛けて m_ExposedRt へ書く。
+     * Apply the adapted exposure after the scene-linear temporal resolve.
      *
-     * @param cmd コマンドを積むコマンドリスト。
+     * @param cmd Recording command list.
+     * @param source Scene-linear HDR. This is the current TAA resolve when
+     * TAA is enabled, otherwise the raw scene target.
      */
-    void Pass_ExposureApply(IRhiCommandList& cmd) noexcept;
+    void Pass_ExposureApply(IRhiCommandList& cmd,
+                            IRhiTexture& source) noexcept;
 
     /**
      * 下流パス (TAA / Bloom / Tonemap) が読むシーン texture を返す。
      *
      * @param p 適用する効果のパラメータ。
-     * @return auto-exposure 有効なら露出適用後の m_ExposedRt、そうでなければ raw m_HdrRt。
+     * @return The exposure-applied image when auto exposure is enabled, the
+     * scene-linear TAA resolve when TAA is enabled, or the raw HDR scene.
      */
     IRhiTexture* SceneInput(const FPostProcessParams& p) const noexcept;
 

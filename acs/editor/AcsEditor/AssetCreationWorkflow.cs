@@ -10,8 +10,10 @@ namespace AcsEditor;
 internal enum AcsAssetTemplate
 {
     Folder,
+    Scene,
     Material,
     Blueprint,
+    Prefab,
 }
 
 internal sealed record AcsAssetTemplateDefinition(
@@ -24,6 +26,52 @@ internal sealed record AcsAssetTemplateDefinition(
 internal sealed record AcsAssetCreationResult(
     string FullPath,
     AcsAssetTemplateDefinition Definition);
+
+internal enum AssetScenePlacementDecision
+{
+    Allow,
+    RejectUnified3DIntoLegacy2D,
+    RejectLegacy2DIntoUnified3D,
+}
+
+/// <summary>
+/// Keeps legacy 2D and unified 3D asset payloads on the source graph that will
+/// actually be serialized. A mismatched placement must be rejected before any
+/// native paste call; otherwise it mutates the hidden compatibility graph and
+/// the instance disappears on the next save/reopen.
+/// </summary>
+internal static class AssetScenePlacementPolicy
+{
+    internal static AssetScenePlacementDecision Evaluate(
+        bool activeSourceUses3D,
+        bool payloadUses3D) =>
+        (activeSourceUses3D, payloadUses3D) switch
+        {
+            (true, false) =>
+                AssetScenePlacementDecision.RejectLegacy2DIntoUnified3D,
+            (false, true) =>
+                AssetScenePlacementDecision.RejectUnified3DIntoLegacy2D,
+            _ => AssetScenePlacementDecision.Allow,
+        };
+
+    internal static string RejectionMessage(
+        AssetScenePlacementDecision decision,
+        string assetLabel,
+        string fileName) =>
+        decision switch
+        {
+            AssetScenePlacementDecision.RejectUnified3DIntoLegacy2D =>
+                $"{assetLabel}「{fileName}」は3Dアセットのため、現在のレガシー " +
+                ".acscene には配置できません。.acs3d ドキュメントを開くか、現在の" +
+                "ワールドを .acs3d へ移行してから再試行してください。" +
+                "シーングラフは変更されていません。",
+            AssetScenePlacementDecision.RejectLegacy2DIntoUnified3D =>
+                $"{assetLabel}「{fileName}」はレガシー2Dアセットのため、現在の " +
+                ".acs3d ドキュメントには配置できません。3D版へ変換するか、対応する " +
+                ".acscene を開いてください。シーングラフは変更されていません。",
+            _ => string.Empty,
+        };
+}
 
 /// <summary>
 /// Pure filesystem workflow used by the Content Browser's New menu. New ACS files are written
@@ -53,10 +101,22 @@ internal static class AssetCreationWorkflow
                 ".acsmat",
                 IsDirectory: false),
             new AcsAssetTemplateDefinition(
+                AcsAssetTemplate.Scene,
+                "Scene",
+                "Scene",
+                ".acs3d",
+                IsDirectory: false),
+            new AcsAssetTemplateDefinition(
                 AcsAssetTemplate.Blueprint,
                 "Blueprint",
                 "Blueprint",
                 ".acsbp",
+                IsDirectory: false),
+            new AcsAssetTemplateDefinition(
+                AcsAssetTemplate.Prefab,
+                "Prefab",
+                "Prefab",
+                ".acsprefab",
                 IsDirectory: false),
         };
 
@@ -150,7 +210,15 @@ internal static class AssetCreationWorkflow
     private static string BuildTemplate(AcsAssetTemplate template) =>
         template switch
         {
+            AcsAssetTemplate.Scene => "ACS3D v2\n",
             AcsAssetTemplate.Blueprint => "ACSBP 1\n",
+            AcsAssetTemplate.Prefab =>
+                // New projects use one canonical world graph; the editor's 2D
+                // preset is an orthographic view of that graph. Keep loading
+                // legacy ACSCENE prefabs, but never create another 2D-only asset.
+                "ACS3D v2\n" +
+                "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 PrefabRoot\n" +
+                "EMPTY3D 1\n",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(template), template, "Unknown ACS asset template."),
         };

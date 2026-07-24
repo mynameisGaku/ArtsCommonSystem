@@ -45,19 +45,29 @@ FDx12Texture::~FDx12Texture() noexcept {
 
 void FDx12Texture::Reset() noexcept
 {
-    if (m_Device) {
-        if (m_SrvSlot >= 0) m_Device->FreeSrvSlot(m_SrvSlot);
-        if (m_UavSlot >= 0) m_Device->FreeSrvSlot(m_UavSlot);
-        if (m_DsvSlot >= 0) m_Device->FreeDsvSlot(m_DsvSlot);
-        for (usize i = 0; i < m_RtvSlots.Size(); ++i)
-            if (m_RtvSlots[i] >= 0) m_Device->FreeRtvSlot(m_RtvSlots[i]);
-    }
+    FDx12Device* device = m_Device;
+    ID3D12Resource* resource = m_Resource;
+    const i32 srv_slot = m_SrvSlot;
+    const i32 uav_slot = m_UavSlot;
+    const i32 dsv_slot = m_DsvSlot;
+    TArray<i32> rtv_slots = Move(m_RtvSlots);
+
+    // Transfer ownership before clearing public state. Descriptors must travel
+    // with the resource: recycling a slot while an old command list is still
+    // in flight can make that list observe a replacement view.
+    m_Device = nullptr;
+    m_Resource = nullptr;
     m_SrvSlot = -1;
     m_UavSlot = -1;
     m_DsvSlot = -1;
-    m_RtvSlots.ReleaseStorage();
-    ACS_SAFE_RELEASE(m_Resource);
-    m_Device = nullptr;
+    if (device != nullptr) {
+        device->RetireTextureResource(
+            resource, srv_slot, uav_slot, dsv_slot, Move(rtv_slots));
+    } else {
+        // A resource cannot be GPU-visible without its owning device. This is
+        // only the empty/partial-construction fallback.
+        ACS_SAFE_RELEASE(resource);
+    }
     m_Width = 0;
     m_Height = 0;
     m_Depth = 1;
@@ -402,13 +412,20 @@ FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noex
 
         r.hr = cl->Close();
         if (r.IsOk()) {
-            ID3D12CommandList* lists[] = {cl};
-            device.GraphicsQueue()->ExecuteCommandLists(1, lists);
-            const u64 fence_value = device.SignalGraphicsQueue();
-            if (fence_value == 0)
+            const u64 fence_value =
+                device.ExecuteOneOffGraphicsCommandList(cl);
+            if (fence_value == 0) {
                 r.hr = E_FAIL;
-            else
+                // Execute may have reached the queue even when Signal failed.
+                // No fence means there is no safe point at which to release
+                // the allocator/list/upload resource, so fail closed by
+                // intentionally abandoning their COM ownership.
+                cl = nullptr;
+                alloc = nullptr;
+                upload = nullptr;
+            } else {
                 device.WaitForFenceValue(fence_value);
+            }
         }
 
         ACS_SAFE_RELEASE(cl);

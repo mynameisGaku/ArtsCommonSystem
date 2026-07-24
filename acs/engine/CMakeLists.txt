@@ -158,7 +158,9 @@ if(ACS_RENDER_DX12_RAW AND EXISTS "${ACS_SOURCE_ROOT}/editor_abi/EditorAbi.cpp")
     acs_apply_compiler_options(acs_editor_abi)   # /utf-8 + C++ 標準 + 警告レベル (engine と同条件)
     # ACS::Game (集約) に加え GameFramework をリンク: リフレクションレジストリ
     # (FTypeRegistry) と ReflectCatalog をエディタ ABI から使えるようにする。
-    target_link_libraries(acs_editor_abi PRIVATE ACS::Game ACS::GameFramework)
+    target_link_libraries(
+        acs_editor_abi PRIVATE
+        ACS::Game ACS::GameFramework ACS::Collision)
     target_include_directories(acs_editor_abi PRIVATE "${ACS_SOURCE_ROOT}")
     set_target_properties(acs_editor_abi PROPERTIES FOLDER "Game")
 endif()

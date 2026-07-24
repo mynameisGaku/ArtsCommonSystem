@@ -24,10 +24,11 @@
 //   FMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
-//   mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter);
-//   for (each mesh) mv.DrawMesh(*cl, gm, curr_model, prev_model);
-//   mv.End(*cl);
-//   post_params.taa_motion_texture = mv.OutputTexture();
+//   if (mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
+//       for (each mesh) mv.DrawMesh(*cl, gm, curr_model, prev_model);
+//       mv.End(*cl);
+//       post_params.taa_motion_texture = mv.OutputTexture();
+//   }
 #pragma once
 
 #include "foundation/Result.h"
@@ -96,8 +97,11 @@ public:
      * @param cl コマンドを積むコマンドリスト。
      * @param view_proj 現フレームの jitter なし VP。
      * @param prev_view_proj 前フレームの jitter なし VP。
+     * @return true only when both MRT attachments and depth were bound. A
+     *         false result leaves the pass inactive; DrawMesh() and End()
+     *         become no-ops until a later successful Begin().
      */
-    void Begin(IRhiCommandList& cl,
+    bool Begin(IRhiCommandList& cl,
                const FMat4& view_proj, const FMat4& prev_view_proj) noexcept;
 
     /**
@@ -195,6 +199,15 @@ private:
     static constexpr u32     kObjectCbRing = 256;
     TUniquePtr<IRhiBuffer>   m_Cbs[kObjectCbRing];
     u32                      m_DrawCursor = 0;
+
+    /**
+     * True only between a successful MRT Begin and its matching End.
+     *
+     * The RHI can reject an attachment set without changing backend state.
+     * Keeping that result here prevents stale-target draws and prevents End
+     * from unbinding or transitioning resources that were never bound.
+     */
+    bool                     m_PassActive = false;
 };
 
 } // namespace acs

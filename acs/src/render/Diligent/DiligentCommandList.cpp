@@ -446,45 +446,76 @@ void FDiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
     SetScissor(sr);
 }
 
-void FDiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                                   const FClearColor& clear,
-                                                   IRhiTexture* depth,
-                                                   f32 depth_clear) noexcept {
-    if (!m_Device || rt_count == 0 || rt_count > 8 || !rts) return;
+bool FDiligentCommandList::BeginRenderToTextureMrt(
+    IRhiTexture* const* rts, u32 rt_count,
+    const FClearColor& clear,
+    IRhiTexture* depth,
+    f32 depth_clear) noexcept {
+    const u32 clear_mask =
+        rt_count >= 32u ? 0xffffffffu : ((1u << rt_count) - 1u);
+    return BeginRenderToTextureMrtLoad(
+        rts, rt_count, clear, clear_mask, depth, true, depth_clear);
+}
+
+bool FDiligentCommandList::BeginRenderToTextureMrtLoad(
+    IRhiTexture* const* rts, u32 rt_count,
+    const FClearColor& clear, u32 clear_mask,
+    IRhiTexture* depth, bool clear_depth,
+    f32 depth_clear) noexcept {
+    if (!m_Device || rt_count == 0 || rt_count > 8 || !rts)
+        return false;
     auto* ctx = m_Device->Context();
-    if (!ctx) return;
+    if (!ctx) return false;
 
     Diligent::ITextureView* rtvs[8] = {};
-    u32 valid_count = 0;
     u32 ref_w = 0, ref_h = 0;
+    u32 ref_samples = 0;
     for (u32 i = 0; i < rt_count; ++i) {
-        if (!rts[i]) continue;
+        if (!rts[i]) return false;
         auto* tex = static_cast<FDiligentTexture*>(rts[i]);
         auto* rtv = tex->RtvView();
-        if (!rtv) continue;
+        if (!rtv) return false;
         // 全 RT が同サイズ前提 (Diligent / D3D12 では viewport が 1 つしか付かない、
         // ピクセル単位 raster 範囲は最小 RT のサイズで clip される)。debug build で
         // 検出して strict 違反を early-fail する。
-        if (valid_count == 0) {
+        if (i == 0u) {
             ref_w = tex->Width();
             ref_h = tex->Height();
+            ref_samples = tex->SampleCount();
         } else if (tex->Width() != ref_w || tex->Height() != ref_h) {
             ACS_LOG_WARN("BeginRenderToTextureMrt: RT %u size %ux%u != ref %ux%u",
                          i, tex->Width(), tex->Height(), ref_w, ref_h);
+            return false;
+        } else if (tex->SampleCount() != ref_samples) {
+            ACS_LOG_WARN(
+                "BeginRenderToTextureMrt: RT %u sample count %u != ref %u",
+                i, tex->SampleCount(), ref_samples);
+            return false;
         }
-        rtvs[valid_count++] = rtv;
+        rtvs[i] = rtv;
     }
-    if (valid_count == 0) return;
 
-    auto* dsv = depth ? static_cast<FDiligentTexture*>(depth)->DsvView() : nullptr;
-    ctx->SetRenderTargets(valid_count, rtvs, dsv,
+    auto* depth_texture =
+        depth ? static_cast<FDiligentTexture*>(depth) : nullptr;
+    auto* dsv = depth_texture ? depth_texture->DsvView() : nullptr;
+    if (depth_texture != nullptr
+        && (dsv == nullptr
+            || depth_texture->Width() != ref_w
+            || depth_texture->Height() != ref_h
+            || depth_texture->SampleCount() != ref_samples)) {
+        return false;
+    }
+    ctx->SetRenderTargets(rt_count, rtvs, dsv,
                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     const float clr[4] = { clear.r, clear.g, clear.b, clear.a };
-    for (u32 i = 0; i < valid_count; ++i) {
-        ctx->ClearRenderTarget(rtvs[i], clr,
-                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    for (u32 i = 0; i < rt_count; ++i) {
+        if ((clear_mask & (1u << i)) != 0u) {
+            ctx->ClearRenderTarget(
+                rtvs[i], clr,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        }
     }
-    if (dsv) {
+    if (dsv && clear_depth) {
         ctx->ClearDepthStencil(dsv, Diligent::CLEAR_DEPTH_FLAG, depth_clear, 0,
                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
@@ -501,6 +532,20 @@ void FDiligentCommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 
     sr.right  = static_cast<i32>(ref_w);
     sr.bottom = static_cast<i32>(ref_h);
     SetScissor(sr);
+    return true;
+}
+
+void FDiligentCommandList::EndRenderToTextureMrt(
+    IRhiTexture* const* /*rts*/, u32 /*rt_count*/) noexcept {
+    if (!m_Device) return;
+    auto* ctx = m_Device->Context();
+    if (!ctx) return;
+    // Remove every color/depth output in one call. Diligent transitions each
+    // texture to SRV on the next SetTexture with TRANSITION mode.
+    ctx->SetRenderTargets(
+        0u, nullptr, nullptr,
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    m_Pipeline = nullptr;
 }
 
 void FDiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
@@ -658,6 +703,61 @@ void FDiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
                                                : Diligent::SHADER_TYPE_PIXEL;
     auto* var = srb->GetVariableByName(stage, name);
     if (var) var->Set(t.SrvView());
+}
+
+bool FDiligentCommandList::CopyDepthTexture(
+    IRhiTexture& source,
+    IRhiTexture& destination) noexcept {
+    if (!m_Device ||
+        !IsDepthTextureCopyCompatible(source, destination)) {
+        return false;
+    }
+    auto* context = m_Device->Context();
+    if (!context) return false;
+
+    auto& diligent_source =
+        static_cast<FDiligentTexture&>(source);
+    auto& diligent_destination =
+        static_cast<FDiligentTexture&>(destination);
+    if (!diligent_source.Native() ||
+        !diligent_destination.Native() ||
+        diligent_source.Native() == diligent_destination.Native() ||
+        !diligent_source.DsvView() ||
+        !diligent_destination.DsvView() ||
+        !diligent_destination.SrvView()) {
+        return false;
+    }
+
+    // EndRenderToTexture may restore the main scene DSV. Release all output
+    // bindings before asking Diligent to transition it to COPY_SOURCE.
+    context->SetRenderTargets(
+        0u, nullptr, nullptr,
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    m_Pipeline = nullptr;
+
+    Diligent::CopyTextureAttribs copy{};
+    copy.pSrcTexture = diligent_source.Native();
+    copy.SrcTextureTransitionMode =
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    copy.pDstTexture = diligent_destination.Native();
+    copy.DstTextureTransitionMode =
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    context->CopyTexture(copy);
+
+    Diligent::StateTransitionDesc after[2] = {
+        Diligent::StateTransitionDesc{
+            diligent_source.Native(),
+            Diligent::RESOURCE_STATE_COPY_SOURCE,
+            Diligent::RESOURCE_STATE_DEPTH_WRITE,
+            Diligent::STATE_TRANSITION_FLAG_UPDATE_STATE},
+        Diligent::StateTransitionDesc{
+            diligent_destination.Native(),
+            Diligent::RESOURCE_STATE_COPY_DEST,
+            Diligent::RESOURCE_STATE_SHADER_RESOURCE,
+            Diligent::STATE_TRANSITION_FLAG_UPDATE_STATE},
+    };
+    context->TransitionResourceStates(2u, after);
+    return true;
 }
 
 void FDiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {

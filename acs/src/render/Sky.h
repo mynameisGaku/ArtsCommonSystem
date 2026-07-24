@@ -389,7 +389,19 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
 
 /**
- * Experimental shallow sun optical-depth cache.
+ * Resolve centered analytic coverage for the planet/cloud horizon.
+ *
+ * elevation_delta_x/y are the signed elevation differences to exact adjacent
+ * screen-space rays.  The footprint is centered on the physical tangent so a
+ * sloped horizon crosses pixels continuously instead of snapping to a
+ * one-sided row.  Non-finite inputs fail closed to zero coverage.
+ */
+f32 ResolveVolumetricCloudHorizonCoverage(
+    f32 signed_elevation, f32 cutoff,
+    f32 elevation_delta_x, f32 elevation_delta_y) noexcept;
+
+/**
+ * Experimental hybrid shallow sun optical-depth cache.
  *
  * The current two-volume implementation costs more GPU time than the exact
  * far-light tail on the measured desktop path, so keep it compiled for

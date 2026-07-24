@@ -41,6 +41,16 @@ namespace acs {
  */
 class FSsao {
 public:
+    /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+        TUniquePtr<IRhiShader> blur_pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSsao() noexcept = default;
 
@@ -62,6 +72,29 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Submit all SSAO shader stages to a supporting asynchronous backend.
+     *
+     * @details The returned handles must be polled with FCompiledShaders::Status
+     * and committed with InitWithCompiledShaders on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create render targets, PSOs and the constant buffer from ready shaders.
+     *
+     * @param device Render-owner RHI device.
+     * @param shaders Ready vertex, GTAO pixel and blur pixel shaders.
+     * @param width Output width.
+     * @param height Output height.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
@@ -132,7 +165,9 @@ private:
      * @param device パイプライン生成に使う RHI デバイス。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreatePipeline(
+        IRhiDevice& device,
+        FCompiledShaders& shaders) noexcept;
 
     /** Init で受け取った device (Resize で再利用)。 */
     IRhiDevice*             m_Device = nullptr;

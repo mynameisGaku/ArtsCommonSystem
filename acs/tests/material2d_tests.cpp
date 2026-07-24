@@ -405,6 +405,34 @@ ACS_TEST(ProjectSettingsSafety, VolumetricCloudLayerSettingsAreBuiltinAndLoadabl
 }
 
 // --- ANode のマテリアル状態 ------------------------------------------------
+ACS_TEST(ProjectSettingsSafety, AerialPerspectiveIsBuiltinAndSettable) {
+    FProjectSettings settings;
+    settings.ResetToDefaults();
+
+    const FSettingEntry* aerial =
+        settings.Find("Rendering", "AerialPerspective");
+    EXPECT_TRUE(aerial != nullptr);
+    EXPECT_TRUE(aerial != nullptr && aerial->builtin);
+    EXPECT_TRUE(aerial != nullptr &&
+                aerial->type == ESettingType::Int);
+    EXPECT_EQ(
+        settings.GetInt("Rendering", "AerialPerspective", -1), 0);
+
+    EXPECT_TRUE(
+        settings.Set("Rendering", "AerialPerspective", "1"));
+    EXPECT_EQ(
+        settings.GetInt("Rendering", "AerialPerspective", -1), 1);
+
+    constexpr char enabled[] =
+        "[Rendering]\n"
+        "AerialPerspective=1\n";
+    const FProjectSettingsLoadResult loaded =
+        settings.TryLoadText(enabled, sizeof(enabled) - 1u);
+    EXPECT_TRUE(loaded.Succeeded());
+    EXPECT_EQ(
+        settings.GetInt("Rendering", "AerialPerspective", -1), 1);
+}
+
 ACS_TEST(Material2D, NodeSetClearMaterial) {
     ANode node;
     EXPECT_FALSE(node.HasMaterial());

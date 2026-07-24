@@ -82,6 +82,25 @@ internal static class EditorSceneViewModePolicy
             ? EditorSceneViewMode.Perspective
             : EditorSceneViewMode.TwoD;
 
+    /// <summary>
+    /// New 2D projects still author an ACS3D world. Their template selects only the initial
+    /// editor camera preset; it never changes the source adapter or serialized payload.
+    /// Existing .acscene projects retain their legacy 2D-only behavior.
+    /// </summary>
+    internal static EditorSceneViewMode InitialForProject(
+        string? path,
+        string? projectTemplate) =>
+        string.Equals(
+            Path.GetExtension(path),
+            ".acs3d",
+            StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(
+            projectTemplate,
+            "2d",
+            StringComparison.OrdinalIgnoreCase)
+            ? EditorSceneViewMode.TwoD
+            : InitialForLegacySource(path);
+
     internal static bool IsSupportedByLegacySource(
         EditorSceneViewMode mode,
         SceneDocumentMode sourceMode) =>

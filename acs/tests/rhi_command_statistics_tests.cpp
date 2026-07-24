@@ -2,7 +2,10 @@
 
 #include "test/Test.h"
 #include "test/Expect.h"
+#include "asset/MeshAsset.h"
 #include "render/IRhiCommandList.h"
+#include "render/IRhiDevice.h"
+#include "render/MotionVector.h"
 
 using namespace acs;
 
@@ -21,20 +24,51 @@ public:
     void EndShadowPass(IRhiTexture&) noexcept override {}
     void BeginRenderToTexture(
         IRhiTexture&, const FClearColor&, IRhiTexture*, f32) noexcept override {}
-    void EndRenderToTexture(IRhiTexture&) noexcept override {}
+    void EndRenderToTexture(IRhiTexture&) noexcept override {
+        ++single_rt_end_count;
+    }
     void BeginRenderToTextureLoad(IRhiTexture&, IRhiTexture*) noexcept override {}
     void BeginRenderToTextureSlice(
         IRhiTexture&, u32, u32, const FClearColor&) noexcept override {}
-    void BeginRenderToTextureMrt(
-        IRhiTexture* const*, u32, const FClearColor&, IRhiTexture*, f32) noexcept override {}
+    bool BeginRenderToTextureMrt(
+        IRhiTexture* const* rts, u32 rt_count, const FClearColor&, IRhiTexture*,
+        f32) noexcept override {
+        ++mrt_begin_count;
+        mrt_begin_target_count = rt_count;
+        for (u32 i = 0; i < rt_count && i < 8u; ++i) {
+            mrt_begin_targets[i] = rts ? rts[i] : nullptr;
+        }
+        return mrt_begin_result;
+    }
+    bool BeginRenderToTextureMrtLoad(
+        IRhiTexture* const*, u32, const FClearColor&, u32,
+        IRhiTexture*, bool, f32) noexcept override {
+        return true;
+    }
+    void EndRenderToTextureMrt(
+        IRhiTexture* const* rts, u32 rt_count) noexcept override {
+        ++mrt_end_count;
+        mrt_end_target_count = rt_count;
+        for (u32 i = 0; i < rt_count && i < 8u; ++i) {
+            mrt_end_targets[i] = rts ? rts[i] : nullptr;
+        }
+    }
 
     void SetViewport(const FViewport&) noexcept override {}
     void SetScissor(const FScissorRect&) noexcept override {}
     void SetStencilRef(u32) noexcept override {}
-    void SetPipeline(IRhiPipeline&) noexcept override {}
-    void SetVertexBuffer(IRhiBuffer&, u32) noexcept override {}
-    void SetIndexBuffer(IRhiBuffer&) noexcept override {}
-    void SetConstantBuffer(u32, IRhiBuffer&) noexcept override {}
+    void SetPipeline(IRhiPipeline&) noexcept override {
+        ++set_pipeline_count;
+    }
+    void SetVertexBuffer(IRhiBuffer&, u32) noexcept override {
+        ++set_vertex_buffer_count;
+    }
+    void SetIndexBuffer(IRhiBuffer&) noexcept override {
+        ++set_index_buffer_count;
+    }
+    void SetConstantBuffer(u32, IRhiBuffer&) noexcept override {
+        ++set_constant_buffer_count;
+    }
     void SetTexture(u32, IRhiTexture&) noexcept override {}
 
     void Draw(u32 vertex_count, u32 = 0u) noexcept override {
@@ -52,6 +86,19 @@ public:
     }
 
     void* NativeHandle() noexcept override { return nullptr; }
+
+    bool mrt_begin_result = true;
+    u32 mrt_begin_count = 0u;
+    u32 mrt_begin_target_count = 0u;
+    IRhiTexture* mrt_begin_targets[8]{};
+    u32 mrt_end_count = 0u;
+    u32 mrt_end_target_count = 0u;
+    IRhiTexture* mrt_end_targets[8]{};
+    u32 single_rt_end_count = 0u;
+    u32 set_pipeline_count = 0u;
+    u32 set_vertex_buffer_count = 0u;
+    u32 set_index_buffer_count = 0u;
+    u32 set_constant_buffer_count = 0u;
 };
 
 class FTimingCommandList final : public FStatisticsCommandList {
@@ -73,6 +120,31 @@ public:
     u32 begin_count = 0;
     u32 end_count = 0;
     ERhiGpuTimingPass last_pass = ERhiGpuTimingPass::Count;
+};
+
+class FDepthCopyTexture final : public IRhiTexture {
+public:
+    u32 Width() const noexcept override { return width; }
+    u32 Height() const noexcept override { return height; }
+    EFormat PixelFormat() const noexcept override { return format; }
+    u32 MipLevels() const noexcept override { return mip_levels; }
+    u32 ArraySize() const noexcept override { return array_size; }
+    bool IsCubemap() const noexcept override { return cubemap; }
+    bool IsDepthTarget() const noexcept override { return depth; }
+    bool IsShaderVisibleDepth() const noexcept override {
+        return shader_visible;
+    }
+    u32 SampleCount() const noexcept override { return samples; }
+
+    u32 width = 1280u;
+    u32 height = 720u;
+    EFormat format = EFormat::D32_Float;
+    u32 mip_levels = 1u;
+    u32 array_size = 1u;
+    u32 samples = 1u;
+    bool cubemap = false;
+    bool depth = true;
+    bool shader_visible = false;
 };
 
 } // namespace
@@ -132,4 +204,122 @@ ACS_TEST(Render, RhiGpuTimingDefaultsAndScopeBalance)
         static_cast<u32>(ERhiGpuTimingPass::Atmosphere));
     EXPECT_EQ(supported.begin_count, 1u);
     EXPECT_EQ(supported.end_count, 1u);
+}
+
+ACS_TEST(Render, RhiMrtBeginResultIsObservableToCallers)
+{
+    FStatisticsCommandList command_list;
+    FDepthCopyTexture attachment;
+    IRhiTexture* targets[1] = {&attachment};
+
+    EXPECT_TRUE(command_list.BeginRenderToTextureMrt(
+        targets, 1u, FClearColor{}, nullptr, 1.0f));
+    EXPECT_TRUE(command_list.BeginRenderToTextureMrtLoad(
+        targets, 1u, FClearColor{}, 0u, nullptr, false, 1.0f));
+}
+
+ACS_TEST(Render, MotionVectorMrtFailureSkipsPipelineDrawAndEnd)
+{
+    FDeviceConfig config{};
+    auto device_result = CreateRhiDevice(config);
+    if (device_result.IsErr()) return;
+
+    FMotionVector motion;
+    const auto init_result = motion.Init(*device_result.Value(), 16u, 16u);
+    EXPECT_TRUE(init_result.IsOk());
+    if (init_result.IsErr()) return;
+
+    FStatisticsCommandList rejected;
+    rejected.mrt_begin_result = false;
+    EXPECT_FALSE(motion.Begin(
+        rejected, FMat4::Identity(), FMat4::Identity()));
+    EXPECT_EQ(rejected.mrt_begin_count, 1u);
+    EXPECT_EQ(rejected.mrt_begin_target_count, 2u);
+    EXPECT_TRUE(rejected.mrt_begin_targets[0] == motion.OutputTexture());
+    EXPECT_TRUE(
+        rejected.mrt_begin_targets[1] == motion.OutputNormalTexture());
+    EXPECT_EQ(rejected.set_pipeline_count, 0u);
+
+    // A rejected Begin must gate every draw command even when the mesh itself
+    // is otherwise valid. The buffers only need to satisfy the public
+    // FGpuMesh ownership contract because the inactive pass returns first.
+    FBufferDesc vertex_desc{};
+    vertex_desc.size = sizeof(FMeshVertex) * 3u;
+    vertex_desc.usage = EBufferUsage::Vertex;
+    auto vertex_result =
+        CreateRhiBuffer(*device_result.Value(), vertex_desc);
+    FBufferDesc index_desc{};
+    index_desc.size = sizeof(u16) * 3u;
+    index_desc.usage = EBufferUsage::Index16;
+    auto index_result =
+        CreateRhiBuffer(*device_result.Value(), index_desc);
+    EXPECT_TRUE(vertex_result.IsOk());
+    EXPECT_TRUE(index_result.IsOk());
+    if (vertex_result.IsOk() && index_result.IsOk()) {
+        FGpuMesh mesh{};
+        mesh.vertex_buffer = Move(vertex_result.Value());
+        mesh.index_buffer = Move(index_result.Value());
+        mesh.vertex_stride = sizeof(FMeshVertex);
+        mesh.index_count = 3u;
+        motion.DrawMesh(
+            rejected, mesh, FMat4::Identity(), FMat4::Identity());
+    }
+    EXPECT_EQ(rejected.set_constant_buffer_count, 0u);
+    EXPECT_EQ(rejected.set_vertex_buffer_count, 0u);
+    EXPECT_EQ(rejected.set_index_buffer_count, 0u);
+    EXPECT_EQ(rejected.Statistics().draw_calls, 0u);
+
+    motion.End(rejected);
+    EXPECT_EQ(rejected.mrt_end_count, 0u);
+    EXPECT_EQ(rejected.single_rt_end_count, 0u);
+
+    // The next valid pass must recover normally and end the same complete
+    // two-attachment set, including the world-normal target.
+    FStatisticsCommandList accepted;
+    EXPECT_TRUE(motion.Begin(
+        accepted, FMat4::Identity(), FMat4::Identity()));
+    EXPECT_EQ(accepted.set_pipeline_count, 1u);
+    motion.End(accepted);
+    EXPECT_EQ(accepted.mrt_end_count, 1u);
+    EXPECT_EQ(accepted.mrt_end_target_count, 2u);
+    EXPECT_TRUE(accepted.mrt_end_targets[0] == motion.OutputTexture());
+    EXPECT_TRUE(
+        accepted.mrt_end_targets[1] == motion.OutputNormalTexture());
+    EXPECT_EQ(accepted.single_rt_end_count, 0u);
+    motion.End(accepted);
+    EXPECT_EQ(accepted.mrt_end_count, 1u);
+}
+
+ACS_TEST(Render, DepthTextureCopyContractRejectsUnsafeResources)
+{
+    FDepthCopyTexture source;
+    FDepthCopyTexture destination;
+    destination.shader_visible = true;
+
+    EXPECT_TRUE(IsDepthTextureCopyCompatible(source, destination));
+    EXPECT_FALSE(IsDepthTextureCopyCompatible(source, source));
+
+    destination.shader_visible = false;
+    EXPECT_FALSE(IsDepthTextureCopyCompatible(source, destination));
+    destination.shader_visible = true;
+
+    destination.width = source.width + 1u;
+    EXPECT_FALSE(IsDepthTextureCopyCompatible(source, destination));
+    destination.width = source.width;
+
+    destination.format = EFormat::D24_UNorm_S8_UInt;
+    EXPECT_FALSE(IsDepthTextureCopyCompatible(source, destination));
+    destination.format = EFormat::D32_Float;
+
+    source.samples = 4u;
+    destination.samples = 4u;
+    EXPECT_FALSE(IsDepthTextureCopyCompatible(source, destination));
+    source.samples = destination.samples = 1u;
+
+    destination.array_size = 2u;
+    EXPECT_FALSE(IsDepthTextureCopyCompatible(source, destination));
+    destination.array_size = 1u;
+
+    FStatisticsCommandList unsupported;
+    EXPECT_FALSE(unsupported.CopyDepthTexture(source, destination));
 }

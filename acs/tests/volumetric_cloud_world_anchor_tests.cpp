@@ -222,6 +222,18 @@ ACS_TEST(EditorStartup, FallbackSkyCompileIsBoundedAndOffOwnerThread) {
         shader, "[unroll]for(inti=0;i<5;++i)"));
     EXPECT_FALSE(Contains(
         shader, "[unroll]for(intl=1;l<=3;++l)"));
+    // FXC previously warned that the inlined CloudDensity3 result could be
+    // uninitialized. On the fallback path that manifested as isolated dark or
+    // bright speckles while the volumetric candidate was still compiling.
+    EXPECT_TRUE(Contains(
+        shader,
+        "floatCloudDensity3(float3p,floatcoverage,floatwindOff){"));
+    EXPECT_TRUE(Contains(shader, "floatresult=0.0;"));
+    EXPECT_TRUE(Contains(shader, "returnresult;"));
+    EXPECT_FALSE(Contains(
+        shader, "if(profile<=0.001)return0.0;"));
+    EXPECT_FALSE(Contains(
+        shader, "if(shape<=0.0)return0.0;"));
 
     const std::string editorSource = ReadEditorAbiSource();
     const std::size_t workerBegin = editorSource.find(
@@ -1974,7 +1986,7 @@ ACS_TEST(VolumetricClouds,
     const std::size_t lightMacro = shader.find(
         "CloudMacroSamplelightMacro="
         "sampleCloudMacroLightingFromSlowFields("
-        "lp,coverage,sharedLightWeather,sharedLightCurl,"
+        "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);",
         lightAdvance);
     const std::size_t nearDensity = shader.find(
@@ -2021,7 +2033,7 @@ ACS_TEST(VolumetricClouds,
             CountOccurrences(
                 lightBody,
                 "sampleCloudMacroLightingFromSlowFields("
-                "lp,coverage,sharedLightWeather,sharedLightCurl,"
+                "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
                 "p,viewMacroUvw,macro.height,sharedShapeScale)"),
             static_cast<std::size_t>(1));
         EXPECT_FALSE(Contains(
@@ -2045,7 +2057,7 @@ ACS_TEST(VolumetricClouds,
         EXPECT_EQ(CountOccurrences(
                       completeLightSection,
                       "sampleCloudMacroLightingFromSlowFields("
-                      "lp,coverage,sharedLightWeather,sharedLightCurl,"
+                      "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
                       "p,viewMacroUvw,macro.height,sharedShapeScale)"),
                   static_cast<std::size_t>(2));
         EXPECT_EQ(CountOccurrences(
@@ -2374,18 +2386,23 @@ ACS_TEST(VolumetricClouds,
         "1.0-groundRadiusRatio*groundRadiusRatio));"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatverticalOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;"));
+        "float2pixelCenter=float2(rayPixel)+0.5;"
+        "floatxOffset=rayPixel.x+1u<(uint)rayDimensions.x?1.0:-1.0;"
+        "floatyOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;"));
     EXPECT_TRUE(Contains(
         shader,
-        "floatelevationFootprint=max("
-        "abs(adjacentElevation-signedElevation),1e-6);"));
-    EXPECT_TRUE(Contains(
-        shader,
-        "floatcoverageWidth=elevationFootprint*2.0;"));
+        "floatcoverageHalfWidth=max("
+        "0.5*(abs(xElevation-signedElevation)+"
+        "abs(yElevation-signedElevation)),1e-6);"));
+    EXPECT_TRUE(Contains(shader, "xWp/=xWp.w;yWp/=yWp.w;"));
+    EXPECT_FALSE(Contains(shader, "xWp/=max(abs(xWp.w),1e-6);"));
     EXPECT_TRUE(Contains(
         shader,
         "groundHorizonCoverage=smoothstep("
-        "groundCutoff,groundCutoff+coverageWidth,signedElevation);"));
+        "groundCutoff-coverageHalfWidth,"
+        "groundCutoff+coverageHalfWidth,signedElevation);"));
+    EXPECT_FALSE(Contains(shader, "floatverticalOffset="));
+    EXPECT_FALSE(Contains(shader, "groundCutoff+coverageWidth"));
     EXPECT_TRUE(Contains(shader, "floathFade=rangeFade;"));
     EXPECT_FALSE(Contains(
         shader, "floathFade=rangeFade*groundHorizonCoverage;"));
@@ -2397,77 +2414,91 @@ ACS_TEST(VolumetricClouds,
         ExtractRawShader(source, "const char* kCloudResolveCS"));
     EXPECT_TRUE(Contains(
         resolveShader,
-        "if(outputElevation<=outputGroundCutoff){"
+        "if(outputElevation<outputGroundCutoff-0.02){"
         "outputGroundCoverage=0.0;}"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "float2outputCenter=float2(tid.xy)+0.5;"
+        "floatoutputXOffset=tid.x+1u<fullW?1.0:-1.0;"
+        "floatoutputYOffset=tid.y+1u<fullH?1.0:-1.0;"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "floatoutputCoverageHalfWidth=max("
+        "0.5*(abs(outputXElevation-outputElevation)+"
+        "abs(outputYElevation-outputElevation)),1e-6);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "outputXFarP/=outputXFarP.w;"
+        "outputYFarP/=outputYFarP.w;"));
+    EXPECT_FALSE(Contains(
+        resolveShader,
+        "outputXFarP/=max(abs(outputXFarP.w),1e-6);"));
+    EXPECT_TRUE(Contains(
+        resolveShader,
+        "outputGroundCoverage=smoothstep("
+        "outputGroundCutoff-outputCoverageHalfWidth,"
+        "outputGroundCutoff+outputCoverageHalfWidth,"
+        "outputElevation);"));
     EXPECT_TRUE(Contains(
         resolveShader,
         "resolved.rgb*=outputGroundCoverage;"
         "outA*=outputGroundCoverage;resolvedDepth.y=outA;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "if(worldOrigin.w>0.5&&outputCoveragePixels<8.5){"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "float4edgeColor=historyColor.Load(int3(edgePixel,0));"
-        "float2edgeD=historyDepth.Load(int3(edgePixel,0));"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "booledgeValid=edgeColor.a>0.003&&"
-        "edgeD.y>0.003&&edgeD.x<=250000.0;"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatrelativeLumaDeficit=saturate("
-        "(reconstructedLuma-currentLuma)/"
-        "max(reconstructedLuma,0.05));"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatrelativeAlphaDeficit=saturate("
-        "(reconstructedAlpha-outA)/"
-        "max(reconstructedAlpha,0.05));"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatisolatedOutlier=smoothstep(0.22,0.48,max("
-        "relativeLumaDeficit,relativeAlphaDeficit));"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatextendedEdgeBand=1.0-smoothstep("
-        "2.5,8.5,outputCoveragePixels);"));
-    EXPECT_TRUE(Contains(
-        resolveShader,
-        "floatedgeBlend=max(analyticEdgeBlend,"
-        "isolatedOutlier*extendedEdgeBand);"));
-
-    const f32 nominalDeficit = (0.80f - 0.72f) / 0.80f;
-    const f32 isolatedDeficit = (0.80f - 0.32f) / 0.80f;
-    EXPECT_NEAR(
-        SmoothStepForTest(0.22f, 0.48f, nominalDeficit),
-        0.0f, 1e-6f);
-    EXPECT_NEAR(
-        SmoothStepForTest(0.22f, 0.48f, isolatedDeficit),
-        1.0f, 1e-6f);
-    EXPECT_NEAR(
-        1.0f - SmoothStepForTest(2.5f, 8.5f, 5.5f),
-        0.5f, 1e-6f);
-    EXPECT_NEAR(
-        1.0f - SmoothStepForTest(2.5f, 8.5f, 8.5f),
-        0.0f, 1e-6f);
+    // The former edge repair borrowed six history pixels with unrelated
+    // radiance/depth. It could hide a staircase in one frame but introduced
+    // dots and partial-history contamination on the next.
+    EXPECT_FALSE(Contains(resolveShader, "outputCoveragePixels"));
+    EXPECT_FALSE(Contains(resolveShader, "edgePremul"));
+    EXPECT_FALSE(Contains(resolveShader, "edgeColor=historyColor.Load"));
 
     constexpr f32 cutoff = -0.002f;
+    constexpr f32 deltaX = 0.003f;
+    constexpr f32 deltaY = -0.002f;
     constexpr f32 footprint = 0.0025f;
     EXPECT_NEAR(
-        SmoothStepForTest(
-            cutoff - footprint, cutoff + footprint, cutoff),
+        ResolveVolumetricCloudHorizonCoverage(
+            cutoff, cutoff, deltaX, deltaY),
         0.5f, 1e-6f);
     EXPECT_NEAR(
-        SmoothStepForTest(
-            cutoff - footprint, cutoff + footprint,
-            cutoff - footprint),
+        ResolveVolumetricCloudHorizonCoverage(
+            cutoff - footprint, cutoff, deltaX, deltaY),
         0.0f, 1e-6f);
     EXPECT_NEAR(
-        SmoothStepForTest(
-            cutoff - footprint, cutoff + footprint,
-            cutoff + footprint),
+        ResolveVolumetricCloudHorizonCoverage(
+            cutoff + footprint, cutoff, deltaX, deltaY),
         1.0f, 1e-6f);
+
+    f32 previousCoverage = -1.0f;
+    for (i32 i = -200; i <= 200; ++i) {
+        const f32 elevation = cutoff + static_cast<f32>(i) * 0.000025f;
+        const f32 coverage = ResolveVolumetricCloudHorizonCoverage(
+            elevation, cutoff, deltaX, deltaY);
+        EXPECT_TRUE(std::isfinite(coverage));
+        EXPECT_TRUE(coverage >= previousCoverage);
+        EXPECT_TRUE(coverage >= 0.0f);
+        EXPECT_TRUE(coverage <= 1.0f);
+        previousCoverage = coverage;
+    }
+    constexpr f32 symmetricOffset = 0.0007f;
+    const f32 below = ResolveVolumetricCloudHorizonCoverage(
+        cutoff - symmetricOffset, cutoff, deltaX, deltaY);
+    const f32 above = ResolveVolumetricCloudHorizonCoverage(
+        cutoff + symmetricOffset, cutoff, deltaX, deltaY);
+    EXPECT_NEAR(below + above, 1.0f, 1e-5f);
+    const f32 before = ResolveVolumetricCloudHorizonCoverage(
+        cutoff - 1.0e-7f, cutoff, deltaX, deltaY);
+    const f32 after = ResolveVolumetricCloudHorizonCoverage(
+        cutoff + 1.0e-7f, cutoff, deltaX, deltaY);
+    EXPECT_TRUE(std::fabs(after - before) < 0.001f);
+    EXPECT_NEAR(
+        ResolveVolumetricCloudHorizonCoverage(
+            std::numeric_limits<f32>::infinity(),
+            cutoff, deltaX, deltaY),
+        0.0f, 0.0f);
+    EXPECT_NEAR(
+        ResolveVolumetricCloudHorizonCoverage(
+            cutoff, cutoff,
+            std::numeric_limits<f32>::quiet_NaN(), deltaY),
+        0.0f, 0.0f);
 }
 
 ACS_TEST(VolumetricClouds,
@@ -2860,8 +2891,7 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floatminimumEdgeCells=min("
         "min(edgeCells.x,edgeCells.y),edgeCells.z);"
-        "if(minimumEdgeCells<=1.5)"
-        "returnfloat3(0.0,0.0,0.0);"));
+        "if(minimumEdgeCells>1.5){"));
     EXPECT_TRUE(Contains(
         shader,
         "floatborderWeight=smoothstep(1.5,2.5,minimumEdgeCells);"));
@@ -2872,6 +2902,9 @@ ACS_TEST(VolumetricClouds,
         shader,
         "floattauDisagreement=cached.y*density*4.2;"));
     EXPECT_TRUE(Contains(
+        shader,
+        "if(tauDisagreement<=shadowState.y){"));
+    EXPECT_FALSE(Contains(
         shader,
         "if(tauDisagreement>shadowState.y)"
         "returnfloat3(0.0,0.0,0.0);"));
@@ -2893,7 +2926,11 @@ ACS_TEST(VolumetricClouds,
         "rawCenter.x,max(rawCenter.y,spatialDisagreement));"));
     EXPECT_TRUE(Contains(
         shader,
-        "returnfloat3(1.0,cached.x,cacheWeight);"));
+        "float3result=float3(0.0,0.0,0.0);"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "result=float3(1.0,cached.x,cacheWeight);"));
+    EXPECT_TRUE(Contains(shader, "returnresult;"));
     EXPECT_FALSE(Contains(shader, "}while(false);returnresult;"));
 
     const std::size_t viewLoop =
@@ -2961,7 +2998,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "sampleCloudMacroLightingFromSlowFields("
-        "lp,coverage,sharedLightWeather,sharedLightCurl,"
+        "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
 }
 

@@ -94,6 +94,17 @@ internal static class EditorDocumentHostSelfTest
                 EditorSceneViewModePolicy.Describe(
                     EditorSceneViewMode.TwoD).IsOrthographic,
                 "2D preset is the honest XY Orthographic projection supported by native editor");
+            Check(
+                EditorSceneViewModePolicy.InitialForProject(
+                    "Assets/main.acs3d",
+                    "3d") == EditorSceneViewMode.Perspective &&
+                EditorSceneViewModePolicy.InitialForProject(
+                    "Assets/main.acs3d",
+                    "2d") == EditorSceneViewMode.TwoD &&
+                EditorSceneViewModePolicy.InitialForProject(
+                    "Assets/main.acscene",
+                    "blank") == EditorSceneViewMode.TwoD,
+                "project template selects only the initial ACS3D camera preset while legacy .acscene stays 2D");
 
             bool malformedWorldRejected = false;
             try

@@ -591,6 +591,97 @@ internal static class Program
             "legacy ACS3D importer extracts mesh/material dependencies without projection coupling");
         passed++;
 
+        string prefabScenePath = Path.Combine(
+            assets,
+            "Scenes",
+            "prefab-world.acs3d");
+        string prefabDirectory = Path.Combine(assets, "Prefabs");
+        string prefabPath = Path.Combine(prefabDirectory, "aircraft.acsprefab");
+        string nestedPrefabPath = Path.Combine(
+            prefabDirectory,
+            "engine.acsprefab");
+        string legacyPrefabPath = Path.Combine(
+            prefabDirectory,
+            "legacy-hud.acsprefab");
+        Directory.CreateDirectory(prefabDirectory);
+        File.WriteAllText(
+            prefabScenePath,
+            "ACS3D v2\n" +
+            "PFAB3D 1 Assets/Prefabs/aircraft.acsprefab\n",
+            Encoding.UTF8);
+        File.WriteAllText(
+            prefabPath,
+            "ACS3D v2\n" +
+            "MSH3D 1 Assets/Models/cube.glb\n" +
+            "SPR3D 2 Assets/Textures/albedo.png\n" +
+            "MAT3D 1 Assets/Materials/water.acsmat\n" +
+            "PFAB3D 3 Assets/Prefabs/engine.acsprefab\n" +
+            "PFAB3D 4 Assets/Prefabs/legacy-hud.acsprefab\n" +
+            "MAT3D 5 0.250 0.750\n",
+            Encoding.UTF8);
+        File.WriteAllText(
+            nestedPrefabPath,
+            "ACS3D v2\n",
+            Encoding.UTF8);
+        File.WriteAllText(
+            legacyPrefabPath,
+            "ACSCENE v1\n" +
+            "SPRT 1 Assets/Textures/albedo.png\n" +
+            "MAT 1 Assets/Materials/water.acsmat\n",
+            Encoding.UTF8);
+        database.Refresh(verifyContent: true);
+        AssetRecord prefabScene = ByPath(
+            database,
+            "Scenes/prefab-world.acs3d");
+        AssetRecord prefab = ByPath(
+            database,
+            "Prefabs/aircraft.acsprefab");
+        AssetRecord nestedPrefab = ByPath(
+            database,
+            "Prefabs/engine.acsprefab");
+        AssetRecord legacyPrefab = ByPath(
+            database,
+            "Prefabs/legacy-hud.acsprefab");
+        UpdateDependencies(
+            database,
+            prefabScene,
+            [prefab.AssetId],
+            importer: "legacy-acs3d",
+            importerVersion: 2);
+        UpdateDependencies(
+            database,
+            prefab,
+            [
+                mesh.AssetId,
+                albedo.AssetId,
+                material.AssetId,
+                nestedPrefab.AssetId,
+                legacyPrefab.AssetId,
+            ]);
+        UpdateDependencies(
+            database,
+            legacyPrefab,
+            [albedo.AssetId, material.AssetId]);
+        AssetCookPlan prefabPlan = new AssetCookPlanner(root, assets)
+            .BuildByAssetId(prefabScene.AssetId);
+        Require(
+            !prefabPlan.HasErrors &&
+            prefabPlan.Assets.Select(static item => item.AssetId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                .SetEquals(
+                [
+                    prefabScene.AssetId,
+                    prefab.AssetId,
+                    nestedPrefab.AssetId,
+                    legacyPrefab.AssetId,
+                    mesh.AssetId,
+                    material.AssetId,
+                    albedo.AssetId,
+                    normal.AssetId,
+                ]),
+            "prefab headers select ACS3D or legacy ACSCENE dependency closure without treating numeric MAT3D as a path");
+        passed++;
+
         string strictRoot = Path.Combine(parentRoot, "StrictReadOnlyProject");
         string strictAssets = Path.Combine(strictRoot, "Assets");
         Directory.CreateDirectory(strictAssets);

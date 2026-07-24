@@ -85,6 +85,13 @@ bool FHelloLightmapApp::OnCustomFrame() noexcept {
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
     if (!dev || !cl || !sc || !hdr) return false;
 
+    const u64 required_object_draws = static_cast<u64>(kQuadCount);
+    const u32 object_draw_hint =
+        required_object_draws > static_cast<u64>(~u32{0})
+            ? ~u32{0}
+            : static_cast<u32>(required_object_draws);
+    if (!m_Pbr.BeginFrame(object_draw_hint)) return false;
+
     const u32 buf_idx = sc->AcquireNextImage();
     cl->Begin();
 
@@ -117,6 +124,7 @@ bool FHelloLightmapApp::OnCustomFrame() noexcept {
         }
         m_Pbr.SetObject(q.model, q.albedo, /*metallic=*/0.0f,
                        /*roughness=*/0.9f, /*ao=*/1.0f);
+        cl->SetConstantBuffer(1, *m_Pbr.PerObjectCB());
         m_Pbr.BindIblTextures(*cl);
         cl->SetVertexBuffer(*q.mesh.vertex_buffer, q.mesh.vertex_stride);
         cl->SetIndexBuffer(*q.mesh.index_buffer);

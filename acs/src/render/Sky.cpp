@@ -105,19 +105,29 @@ float Fbm3(float3 p) {
 // 雲スラブ内の点 p の密度 (0..1)。高周波 base + 高度プロファイル + 多段 detail 侵食で «くっきりした»
 // 立体雲に (低周波の大きい塊だとボケて低解像度に見えるため、周波数とコントラストを上げる)。
 float CloudDensity3(float3 p, float coverage, float windOff) {
+    // Keep one fully initialized return value.  Some FXC/DXC backend versions
+    // failed to prove the former early-return form initialized the inlined
+    // call result and emitted real undefined-density speckles on the fallback
+    // sky path while volumetric pipelines were warming up.
+    float result = 0.0;
     // 高度プロファイル: スラブ中央で濃く上下で薄い → 丸みのある雲塊 (cumulus)。p.y はスラブ高度。
     float hf = saturate((p.y - 1.0) / 1.6);
     float profile = smoothstep(0.0, 0.22, hf) * smoothstep(1.0, 0.5, hf);
-    if (profile <= 0.001) return 0.0;
-    float3 q = p * 2.4 + float3(windOff, windOff * 0.2, windOff * 0.6);   // 高周波化 → 雲の数とディテール増
-    float base  = Fbm3(q);
-    float shape = saturate((base - (1.0 - coverage)) / max(coverage, 0.001)) * profile;
-    if (shape <= 0.0) return 0.0;
-    // 2 段の高周波 detail で縁を侵食 → もこもこ + wispy なディテール
-    float d1 = Fbm3(q * 3.0 + 11.3);
-    float d2 = Fbm3(q * 8.0 + 27.1);
-    float d  = saturate(shape - (1.0 - shape) * (d1 * 0.45 + d2 * 0.25));
-    return d * d * (3.0 - 2.0 * d);                       // smoothstep でコントラスト強調 (くっきり)
+    if (profile > 0.001) {
+        float3 q = p * 2.4 + float3(windOff, windOff * 0.2, windOff * 0.6);   // 高周波化 → 雲の数とディテール増
+        float base  = Fbm3(q);
+        float shape = saturate((base - (1.0 - coverage)) /
+                               max(coverage, 0.001)) * profile;
+        if (shape > 0.0) {
+            // 2 段の高周波 detail で縁を侵食 → もこもこ + wispy なディテール
+            float d1 = Fbm3(q * 3.0 + 11.3);
+            float d2 = Fbm3(q * 8.0 + 27.1);
+            float d  = saturate(
+                shape - (1.0 - shape) * (d1 * 0.45 + d2 * 0.25));
+            result = d * d * (3.0 - 2.0 * d);
+        }
+    }
+    return result;                                         // smoothstep でコントラスト強調 (くっきり)
 }
 
 // IGN ベースの dither (8-bit 量子化前にバンディングを消す)。
@@ -1090,7 +1100,7 @@ CloudMacroSample sampleCloudMacroLighting(
 // while this helper preserves the exact height profile and three-lobe shape
 // lookup at every probe.
 CloudMacroSample sampleCloudMacroLightingFromSlowFields(
-    float3 p,float weatherCoverage,float4 slowWeather,float2 slowCurl,
+    float3 p,float slowWeatherMask,float4 slowWeather,float2 slowCurl,
     float3 referenceP,float3 referenceUvw,float referenceHeight,
     float shapeScale){
     CloudMacroSample macro;
@@ -1101,8 +1111,11 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(
     macro.profileWeight=0.0;
     macro.profileShape=0.0;
     macro.height=0.0;
-    macro.weatherMask=cloudWeatherMask(
-        macro.weather,weatherCoverage);
+    // The weather field and authored coverage are identical for every probe
+    // in this short cone. Reuse the already evaluated conservative mask
+    // exactly; recomputing its smoothstep eight times only extends register
+    // lifetime and ALU cost in the densest upward views.
+    macro.weatherMask=slowWeatherMask;
     if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
         float sampledProfile=cloudProfile(
@@ -1264,40 +1277,49 @@ float traceCloudShadowPattern(
 // FXC can otherwise report an out-parameter as potentially uninitialized
 // across the conservative early-reject paths, even when every path assigns it.
 float3 sampleCloudShadowTail(float3 lp,float density){
-    // Every path returns a complete value. This preserves early rejection of
-    // all texture work without the one-shot loop warning emitted by FXC.
-    if(shadowState.x<=0.5) return float3(0.0,0.0,0.0);
-    float2 q=lp.xz-cloudWindWorld();
-    float altitude=cloudAltitude(lp);
-    float h=(altitude-layer.x)/max(layer.y-layer.x,1e-4);
-    float3 uvw=float3(
-        (q.x-shadowGrid.x)*shadowGrid.z,
-        h,
-        (q.y-shadowGrid.y)*shadowGrid.w);
-    // Do not clamp an out-of-footprint query onto an unrelated border texel.
-    // The finalized confidence was built from a complete +/-XYZ neighbourhood,
-    // so retain the 1.5-texel guard even though this path now performs one tap.
-    float3 texel=float3(shadowState.z,shadowState.w,shadowState.z);
-    float3 edgeCells=min(uvw,1.0-uvw)/texel;
-    float minimumEdgeCells=min(
-        min(edgeCells.x,edgeCells.y),edgeCells.z);
-    if(minimumEdgeCells<=1.5) return float3(0.0,0.0,0.0);
-    float borderWeight=smoothstep(1.5,2.5,minimumEdgeCells);
-    float2 cached=cloudShadowCache.SampleLevel(
-        cloudShadowCache_sampler,uvw,0);
-    bool finiteValue=all(cached==cached)
-                  && all(cached>=0.0)
-                  && all(cached<65504.0);
-    if(!finiteValue) return float3(0.0,0.0,0.0);
-    // y already conservatively combines the two trace-pattern disagreement
-    // with the +/-XYZ mean-tau gradient in the cache-finalize pass.
-    float tauDisagreement=cached.y*density*4.2;
-    if(tauDisagreement>shadowState.y) return float3(0.0,0.0,0.0);
-    float confidenceWeight=1.0-smoothstep(
-        shadowState.y*0.60,shadowState.y,tauDisagreement);
-    float cacheWeight=borderWeight*confidenceWeight;
-    if(cacheWeight<=0.0) return float3(0.0,0.0,0.0);
-    return float3(1.0,cached.x,cacheWeight);
+    // Keep one initialized value across every rejection path. FXC otherwise
+    // reports the inlined helper as potentially uninitialized, which can turn
+    // a rejected lookup into isolated dark/bright cloud pixels on D3D12.
+    float3 result=float3(0.0,0.0,0.0);
+    if(shadowState.x>0.5){
+        float2 q=lp.xz-cloudWindWorld();
+        float altitude=cloudAltitude(lp);
+        float h=(altitude-layer.x)/max(layer.y-layer.x,1e-4);
+        float3 uvw=float3(
+            (q.x-shadowGrid.x)*shadowGrid.z,
+            h,
+            (q.y-shadowGrid.y)*shadowGrid.w);
+        // Do not clamp an out-of-footprint query onto an unrelated border
+        // texel. The finalized confidence was built from a complete +/-XYZ
+        // neighbourhood, so retain the 1.5-texel guard for the one-tap path.
+        float3 texel=float3(shadowState.z,shadowState.w,shadowState.z);
+        float3 edgeCells=min(uvw,1.0-uvw)/texel;
+        float minimumEdgeCells=min(
+            min(edgeCells.x,edgeCells.y),edgeCells.z);
+        if(minimumEdgeCells>1.5){
+            float borderWeight=smoothstep(1.5,2.5,minimumEdgeCells);
+            float2 cached=cloudShadowCache.SampleLevel(
+                cloudShadowCache_sampler,uvw,0);
+            bool finiteValue=all(cached==cached)
+                          && all(cached>=0.0)
+                          && all(cached<65504.0);
+            if(finiteValue){
+                // y conservatively combines trace-pattern disagreement with
+                // the +/-XYZ mean-tau gradient in the finalize pass.
+                float tauDisagreement=cached.y*density*4.2;
+                if(tauDisagreement<=shadowState.y){
+                    float confidenceWeight=1.0-smoothstep(
+                        shadowState.y*0.60,
+                        shadowState.y,tauDisagreement);
+                    float cacheWeight=borderWeight*confidenceWeight;
+                    if(cacheWeight>0.0){
+                        result=float3(1.0,cached.x,cacheWeight);
+                    }
+                }
+            }
+        }
+    }
+    return result;
 }
 
 [numthreads(4,4,4)]
@@ -1437,26 +1459,35 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         if(signedElevation<groundCutoff-0.02) {
             groundHorizonCoverage=0.0;
         } else if(signedElevation<groundCutoff+0.02) {
-            // Measure the actual adjacent full-resolution ray instead of
-            // assuming a fixed FOV. Only the narrow horizon band pays this
-            // second matrix projection/normalization.
-            float verticalOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;
-            float2 adjacentUv=(float2(rayPixel)+
-                float2(0.5,0.5+verticalOffset))/rayDimensions;
-            float4 adjacentClip=float4(
-                adjacentUv.x*2-1,-(adjacentUv.y*2-1),1,1);
-            float4 adjacentWp=mul(adjacentClip,invViewProj);
-            adjacentWp/=adjacentWp.w;
-            float3 adjacentDir=normalize(adjacentWp.xyz-camPos.xyz);
-            float adjacentElevation=dot(adjacentDir,localUp);
-            float elevationFootprint=max(
-                abs(adjacentElevation-signedElevation),1e-6);
-            float coverageWidth=elevationFootprint*2.0;
-            // Conservative one-sided coverage prevents an occupied low-res tap
-            // from leaking white cloud radiance into the ground hemisphere.
+            // Reconstruct both screen derivatives from exact neighbouring
+            // full-resolution rays.  A centered box footprint gives partial
+            // coverage on both sides of the implicit planet tangent; the old
+            // one-sided ramp quantized every sloped horizon crossing to the
+            // first skyward pixel and exposed a staircase.
+            float2 pixelCenter=float2(rayPixel)+0.5;
+            float xOffset=rayPixel.x+1u<(uint)rayDimensions.x?1.0:-1.0;
+            float yOffset=rayPixel.y+1u<(uint)rayDimensions.y?1.0:-1.0;
+            float2 xUv=(pixelCenter+float2(xOffset,0.0))/rayDimensions;
+            float2 yUv=(pixelCenter+float2(0.0,yOffset))/rayDimensions;
+            float4 xClip=float4(xUv.x*2-1,-(xUv.y*2-1),1,1);
+            float4 yClip=float4(yUv.x*2-1,-(yUv.y*2-1),1,1);
+            float4 xWp=mul(xClip,invViewProj);
+            float4 yWp=mul(yClip,invViewProj);
+            // Preserve the homogeneous sign exactly as the center ray does.
+            // abs(w) can flip adjacent rays for projection conventions whose
+            // far-plane inverse projection produces a negative w.
+            xWp/=xWp.w;
+            yWp/=yWp.w;
+            float xElevation=dot(
+                normalize(xWp.xyz-camPos.xyz),localUp);
+            float yElevation=dot(
+                normalize(yWp.xyz-camPos.xyz),localUp);
+            float coverageHalfWidth=max(
+                0.5*(abs(xElevation-signedElevation)+
+                     abs(yElevation-signedElevation)),1e-6);
             groundHorizonCoverage=smoothstep(
-                groundCutoff,
-                groundCutoff+coverageWidth,
+                groundCutoff-coverageHalfWidth,
+                groundCutoff+coverageHalfWidth,
                 signedElevation);
         }
     }
@@ -1608,7 +1639,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 lp+=coneDir*lightStep;
                 CloudMacroSample lightMacro=
                     sampleCloudMacroLightingFromSlowFields(
-                        lp,coverage,sharedLightWeather,sharedLightCurl,
+                        lp,viewWeatherMask,
+                        sharedLightWeather,sharedLightCurl,
                         p,viewMacroUvw,macro.height,sharedShapeScale);
                 float lightDensity=cloudDensityFromMacro(
                     lp,lightMacro,coverage,
@@ -1657,7 +1689,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     lp+=coneDir*lightStep;
                     CloudMacroSample lightMacro=
                         sampleCloudMacroLightingFromSlowFields(
-                            lp,coverage,sharedLightWeather,sharedLightCurl,
+                            lp,viewWeatherMask,
+                            sharedLightWeather,sharedLightCurl,
                             p,viewMacroUvw,macro.height,sharedShapeScale);
                     float lightDensity=cloudShapeFromMacro(
                         lightMacro,coverage);
@@ -2147,118 +2180,41 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
             float outputGroundCutoff=-sqrt(saturate(
                 1.0-radiusRatio*radiusRatio));
             float outputGroundCoverage=1.0;
-            float outputCoveragePixels=1000.0;
-            float outputCoverageWidth=1e-6;
-            if(outputElevation<=outputGroundCutoff) {
+            if(outputElevation<outputGroundCutoff-0.02) {
                 outputGroundCoverage=0.0;
             } else if(outputElevation<outputGroundCutoff+0.02) {
-                float2 outputAdjacentUv=(float2(tid.xy)+
-                    float2(0.5,tid.y+1u<fullH?1.5:-0.5))/dims.zw;
-                float4 outputAdjacentClip=float4(
-                    outputAdjacentUv.x*2.0-1.0,
-                    -(outputAdjacentUv.y*2.0-1.0),1.0,1.0);
-                float4 outputAdjacentFarP=mul(
-                    outputAdjacentClip,invViewProj);
-                outputAdjacentFarP/=outputAdjacentFarP.w;
-                float adjacentOutputElevation=dot(
-                    normalize(outputAdjacentFarP.xyz-camPos.xyz),outputUp);
-                outputCoverageWidth=max(
-                    abs(adjacentOutputElevation-outputElevation)*2.0,1e-6);
-                outputCoveragePixels=(outputElevation-outputGroundCutoff)/
-                    max(outputCoverageWidth*0.5,1e-6);
+                // Use the exact two-axis output-pixel footprint. Centering the
+                // implicit-edge filter around the physical tangent removes the
+                // old one-sided staircase without borrowing radiance from a
+                // different history/depth sample.
+                float2 outputCenter=float2(tid.xy)+0.5;
+                float outputXOffset=tid.x+1u<fullW?1.0:-1.0;
+                float outputYOffset=tid.y+1u<fullH?1.0:-1.0;
+                float2 outputXUv=(
+                    outputCenter+float2(outputXOffset,0.0))/dims.zw;
+                float2 outputYUv=(
+                    outputCenter+float2(0.0,outputYOffset))/dims.zw;
+                float4 outputXClip=float4(
+                    outputXUv.x*2.0-1.0,
+                    -(outputXUv.y*2.0-1.0),1.0,1.0);
+                float4 outputYClip=float4(
+                    outputYUv.x*2.0-1.0,
+                    -(outputYUv.y*2.0-1.0),1.0,1.0);
+                float4 outputXFarP=mul(outputXClip,invViewProj);
+                float4 outputYFarP=mul(outputYClip,invViewProj);
+                outputXFarP/=outputXFarP.w;
+                outputYFarP/=outputYFarP.w;
+                float outputXElevation=dot(
+                    normalize(outputXFarP.xyz-camPos.xyz),outputUp);
+                float outputYElevation=dot(
+                    normalize(outputYFarP.xyz-camPos.xyz),outputUp);
+                float outputCoverageHalfWidth=max(
+                    0.5*(abs(outputXElevation-outputElevation)+
+                         abs(outputYElevation-outputElevation)),1e-6);
                 outputGroundCoverage=smoothstep(
-                    outputGroundCutoff,
-                    outputGroundCutoff+outputCoverageWidth,
+                    outputGroundCutoff-outputCoverageHalfWidth,
+                    outputGroundCutoff+outputCoverageHalfWidth,
                     outputElevation);
-
-                // At the planet tangent a projected cloud texel is much
-                // smaller than the 4x4 trace footprint. The 3x3 bilateral
-                // fallback can carry one such footprint across two low-res
-                // rows, so inspect the complete eight-pixel influence band
-                // using already accumulated exact full-res samples.
-                // samples on the skyward side. Depth validation rejects a
-                // different cloud layer. Normal pixels keep the narrow
-                // analytic blend, while isolated dark/empty phase samples may
-                // use the wider band; the rest of the silhouette is untouched.
-                if(worldOrigin.w>0.5 && outputCoveragePixels<8.5) {
-                    int skywardStep=adjacentOutputElevation<outputElevation
-                        ?-1:1;
-                    float3 edgePremul=0.0;
-                    float edgeAlpha=0.0;
-                    float edgeWeight=0.0;
-                    float edgeDepth=0.0;
-                    float edgeDepthWeight=0.0;
-                    float referenceDepth=resolvedDepth.x<=250000.0
-                        ?resolvedDepth.x:refD.x;
-                    [unroll] for(int edgeY=2;edgeY<=3;edgeY++) {
-                        [unroll] for(int edgeX=-1;edgeX<=1;edgeX++) {
-                            int2 edgePixel=clamp(
-                                int2(tid.xy)+int2(
-                                    edgeX,skywardStep*edgeY),
-                                int2(0,0),int2(dims.zw)-1);
-                            float4 edgeColor=historyColor.Load(
-                                int3(edgePixel,0));
-                            float2 edgeD=historyDepth.Load(
-                                int3(edgePixel,0));
-                            bool edgeValid=edgeColor.a>0.003 &&
-                                edgeD.y>0.003 && edgeD.x<=250000.0;
-                            if(edgeValid) {
-                                float depthTolerance=max(
-                                    100.0,min(referenceDepth,edgeD.x)*0.08);
-                                float depthBilateral=referenceDepth<=250000.0
-                                    ?exp(-abs(edgeD.x-referenceDepth)/
-                                        depthTolerance)
-                                    :1.0;
-                                float spatial=edgeX==0?1.0:0.75;
-                                float edgeW=spatial*depthBilateral;
-                                edgePremul+=edgeColor.rgb*edgeColor.a*edgeW;
-                                edgeAlpha+=edgeColor.a*edgeW;
-                                edgeWeight+=edgeW;
-                                edgeDepth+=edgeD.x*edgeColor.a*edgeW;
-                                edgeDepthWeight+=edgeColor.a*edgeW;
-                            }
-                        }
-                    }
-                    if(edgeWeight>1e-5) {
-                        float reconstructedAlpha=saturate(
-                            edgeAlpha/edgeWeight);
-                        float4 reconstructed=float4(
-                            edgePremul/edgeWeight,reconstructedAlpha);
-                        float analyticEdgeBlend=1.0-smoothstep(
-                            0.75,2.5,outputCoveragePixels);
-                        float3 lumaWeights=float3(
-                            0.2126,0.7152,0.0722);
-                        float reconstructedLuma=dot(
-                            edgePremul/max(edgeAlpha,1e-5),lumaWeights);
-                        float currentLuma=outA>1e-5
-                            ?dot(resolved.rgb/outA,lumaWeights):0.0;
-                        float relativeLumaDeficit=saturate(
-                            (reconstructedLuma-currentLuma)/
-                            max(reconstructedLuma,0.05));
-                        float relativeAlphaDeficit=saturate(
-                            (reconstructedAlpha-outA)/
-                            max(reconstructedAlpha,0.05));
-                        float isolatedOutlier=smoothstep(
-                            0.22,0.48,max(
-                                relativeLumaDeficit,
-                                relativeAlphaDeficit));
-                        float extendedEdgeBand=1.0-smoothstep(
-                            2.5,8.5,outputCoveragePixels);
-                        float edgeBlend=max(
-                            analyticEdgeBlend,
-                            isolatedOutlier*extendedEdgeBand);
-                        resolved=lerp(resolved,reconstructed,edgeBlend);
-                        outA=saturate(resolved.a);
-                        if(edgeDepthWeight>1e-5) {
-                            float reconstructedDepth=
-                                edgeDepth/edgeDepthWeight;
-                            resolvedDepth.x=resolvedDepth.x<=250000.0
-                                ?lerp(resolvedDepth.x,
-                                    reconstructedDepth,edgeBlend)
-                                :reconstructedDepth;
-                        }
-                    }
-                }
             }
             resolved.rgb*=outputGroundCoverage;
             outA*=outputGroundCoverage;
@@ -2531,6 +2487,25 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     if (resolution.width == 0u) resolution.width = 1u;
     if (resolution.height == 0u) resolution.height = 1u;
     return resolution;
+}
+
+f32 ResolveVolumetricCloudHorizonCoverage(
+    f32 signed_elevation, f32 cutoff,
+    f32 elevation_delta_x, f32 elevation_delta_y) noexcept {
+    if (!std::isfinite(signed_elevation) || !std::isfinite(cutoff) ||
+        !std::isfinite(elevation_delta_x) ||
+        !std::isfinite(elevation_delta_y)) {
+        return 0.0f;
+    }
+    f32 halfWidth =
+        0.5f * (std::fabs(elevation_delta_x) +
+                std::fabs(elevation_delta_y));
+    if (halfWidth < 1.0e-6f) halfWidth = 1.0e-6f;
+    f32 t = (signed_elevation - (cutoff - halfWidth)) /
+            (2.0f * halfWidth);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return t * t * (3.0f - 2.0f * t);
 }
 
 FVec2 VolumetricCloudWindOffsetXZ(f32 wind_offset) noexcept {

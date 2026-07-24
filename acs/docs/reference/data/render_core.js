@@ -124,7 +124,7 @@ ACS_REF.modules.push({
         { sig: "void EndRenderToTexture(IRhiTexture& rt)", desc: "RT 描画を終え、次パスで <t>SRV</t> としてサンプル可能な状態へ遷移する。" },
         { sig: "void BeginRenderToTextureLoad(IRhiTexture& rt, IRhiTexture* depth = nullptr)", desc: "クリアせずに RT を再 bind(opaque pass の上にさらに描く)。" },
         { sig: "void BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip, const FClearColor& clear)", desc: "<t>キューブマップ</t>1 面 / 配列 1 スライス / 1 ミップに描く(per_slice_rtv 必須)。" },
-        { sig: "void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "最大 8 枚の RT を同時バインドする <t>MRT</t> 描画。Diligent 実装、Dx12 raw は no-op。" },
+        { sig: "bool BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "最大 8 枚の RT を同時バインドする <t>MRT</t> 描画。Raw DX12 / Diligent の双方で、全 color RT と任意 depth の view・寸法・sample count を bind 前に検証し、成功時だけ <code>true</code> を返す。<code>false</code> では backend state は不変で、呼び出し側は Draw と EndRenderToTextureMrt を実行してはならない。" },
         { sig: "void BeginShadowPass(IRhiTexture& depth, f32 depth_clear = 1.0f) / EndShadowPass(IRhiTexture& depth)", desc: "depth-only の<t>シャドウパス</t>開始/終了。終了時に深度を SRV 状態へ遷移し主パスでサンプル可能に。" },
         { sig: "void SetViewport(const FViewport&) / SetScissor(const FScissorRect&)", desc: "<t>ビューポート</t> / <t>シザー</t>を設定。" },
         { sig: "void SetStencilRef(u32 ref)", desc: "<t>ステンシル</t>参照値を設定(同じ PSO で ref だけ切替できる)。" },

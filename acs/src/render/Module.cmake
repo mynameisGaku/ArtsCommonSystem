@@ -37,6 +37,7 @@ set(_acsgen_render_sources
     Ssgi.cpp
     Ssr.cpp
     StandardShader.cpp
+    SubsurfaceScattering.cpp
     SubstrateExpression.cpp
     SubstrateMaterial.cpp
     VertexScatter.cpp
@@ -79,6 +80,7 @@ set(_acsgen_render_headers
     Ssgi.h
     Ssr.h
     StandardShader.h
+    SubsurfaceScattering.h
     SubstrateExpression.h
     SubstrateMaterial.h
     VertexScatter.h

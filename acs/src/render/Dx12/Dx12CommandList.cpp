@@ -400,18 +400,22 @@ void FDx12CommandList::Submit() noexcept {
     if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return;
     if (_open) End();
     ID3D12CommandList* lists[] = { m_CmdList };
-    m_Device->GraphicsQueue()->ExecuteCommandLists(1, lists);
 
     const u32 cur_slot  = m_Device->CurrentFrameSlot();
     const u32 next_slot = (cur_slot + 1) % FDx12Device::kFramesInFlight;
 
     // 1) このフレームの GPU 完了を fence に Signal
-    m_FrameFences[cur_slot] = m_Device->SignalGraphicsQueue();
+    // Execute + Signal + retirement sealing are one queue-order transaction.
+    // A one-off upload submitted while this list was open cannot claim these
+    // retirements; only this main fence covers its recorded references.
+    m_FrameFences[cur_slot] =
+        m_Device->SubmitGraphicsCommandLists(lists, 1u);
 
     // 2) 次に使うスロットが GPU で完了するまで待つ。Submit が戻った時点で
     //    「次フレームの OnUpdate で書き込む UPLOAD ヒープスロット」は
     //    GPU から見て開放済み = 競合しない。
     m_Device->WaitForFenceValue(m_FrameFences[next_slot]);
+    m_Device->CollectRetiredResources();
 
     // 3) Device 側のスロットを切替（リングバッファ化された CB が次スロットを返すように）
     m_Device->AdvanceFrameSlot();
@@ -715,10 +719,23 @@ void FDx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32
 }
 
 // 複数 RT を同時に bind する。各 RT は同一寸法で、有効な RTV を持つことが必須。
-void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                               const FClearColor& clear,
-                                               IRhiTexture* depth, f32 depth_clear) noexcept {
-    if (!m_CmdList || !rts || rt_count == 0u || rt_count > 8u) return;
+bool FDx12CommandList::BeginRenderToTextureMrt(
+    IRhiTexture* const* rts, u32 rt_count,
+    const FClearColor& clear,
+    IRhiTexture* depth, f32 depth_clear) noexcept {
+    const u32 clear_mask =
+        rt_count >= 32u ? 0xffffffffu : ((1u << rt_count) - 1u);
+    return BeginRenderToTextureMrtLoad(
+        rts, rt_count, clear, clear_mask, depth, true, depth_clear);
+}
+
+bool FDx12CommandList::BeginRenderToTextureMrtLoad(
+    IRhiTexture* const* rts, u32 rt_count,
+    const FClearColor& clear, u32 clear_mask,
+    IRhiTexture* depth, bool clear_depth,
+    f32 depth_clear) noexcept {
+    if (!m_CmdList || !_open || !rts || rt_count == 0u || rt_count > 8u)
+        return false;
 
     FDx12Texture* textures[8]{};
     D3D12_CPU_DESCRIPTOR_HANDLE rtvs[8]{};
@@ -726,22 +743,53 @@ void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_c
     u32 barrier_count = 0u;
     u32 width = 0u;
     u32 height = 0u;
+    u32 sample_count = 0u;
 
+    // Validate the complete output set before recording any barriers or
+    // changing backend state. A false result is therefore safe for callers
+    // that immediately select a fallback pass.
     for (u32 i = 0; i < rt_count; ++i) {
-        if (!rts[i]) return;
+        if (!rts[i]) return false;
         auto& rt = static_cast<FDx12Texture&>(*rts[i]);
-        if (!rt.HasRtv() || !rt.Resource()) return;
+        if (!rt.HasRtv() || !rt.Resource()) return false;
+        const D3D12_CPU_DESCRIPTOR_HANDLE rtv = rt.RtvCpuHandle();
+        if (rtv.ptr == 0u) return false;
         if (i == 0u) {
             width = rt.Width();
             height = rt.Height();
+            sample_count = rt.SampleCount();
         } else if (rt.Width() != width || rt.Height() != height) {
             ACS_LOG_WARN("Dx12CommandList::BeginRenderToTextureMrt: RT %u size "
                          "%ux%u != RT0 %ux%u",
                          i, rt.Width(), rt.Height(), width, height);
-            return;
+            return false;
+        } else if (rt.SampleCount() != sample_count) {
+            ACS_LOG_WARN(
+                "Dx12CommandList::BeginRenderToTextureMrt: RT %u sample "
+                "count %u != RT0 sample count %u",
+                i, rt.SampleCount(), sample_count);
+            return false;
         }
         textures[i] = &rt;
-        rtvs[i] = rt.RtvCpuHandle();
+        rtvs[i] = rtv;
+    }
+
+    FDx12Texture* dx_depth = nullptr;
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
+    if (depth != nullptr) {
+        dx_depth = static_cast<FDx12Texture*>(depth);
+        if (!dx_depth->IsDepth() || !dx_depth->Resource()) return false;
+        dsv = dx_depth->DsvCpuHandle();
+        if (dsv.ptr == 0u) return false;
+        if (dx_depth->Width() != width || dx_depth->Height() != height
+            || dx_depth->SampleCount() != sample_count) {
+            ACS_LOG_WARN(
+                "Dx12CommandList::BeginRenderToTextureMrt: depth "
+                "%ux%u samples=%u != RT0 %ux%u samples=%u",
+                dx_depth->Width(), dx_depth->Height(),
+                dx_depth->SampleCount(), width, height, sample_count);
+            return false;
+        }
     }
 
     for (u32 i = 0; i < rt_count; ++i) {
@@ -757,10 +805,7 @@ void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_c
         }
     }
 
-    FDx12Texture* dx_depth =
-        depth ? static_cast<FDx12Texture*>(depth) : nullptr;
-    D3D12_CPU_DESCRIPTOR_HANDLE dsv{};
-    if (dx_depth && dx_depth->IsDepth()) {
+    if (dx_depth) {
         if (dx_depth->CurrentState() != D3D12_RESOURCE_STATE_DEPTH_WRITE) {
             auto& barrier = barriers[barrier_count++];
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -770,9 +815,6 @@ void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_c
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             dx_depth->SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
         }
-        dsv = dx_depth->DsvCpuHandle();
-    } else {
-        dx_depth = nullptr;
     }
 
     if (barrier_count > 0u) {
@@ -783,9 +825,11 @@ void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_c
 
     const FLOAT color[4] = {clear.r, clear.g, clear.b, clear.a};
     for (u32 i = 0; i < rt_count; ++i) {
-        m_CmdList->ClearRenderTargetView(rtvs[i], color, 0, nullptr);
+        if ((clear_mask & (1u << i)) != 0u) {
+            m_CmdList->ClearRenderTargetView(rtvs[i], color, 0, nullptr);
+        }
     }
-    if (dx_depth) {
+    if (dx_depth && clear_depth) {
         UINT clear_flags = D3D12_CLEAR_FLAG_DEPTH;
         if (dx_depth->HasStencil()) clear_flags |= D3D12_CLEAR_FLAG_STENCIL;
         m_CmdList->ClearDepthStencilView(
@@ -803,6 +847,44 @@ void FDx12CommandList::BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_c
     scissor.right = static_cast<i32>(width);
     scissor.bottom = static_cast<i32>(height);
     m_CmdList->RSSetScissorRects(1, &scissor);
+    m_BoundPipe = nullptr;
+    return true;
+}
+
+void FDx12CommandList::EndRenderToTextureMrt(
+    IRhiTexture* const* rts, u32 rt_count) noexcept {
+    if (!m_CmdList || !rts || rt_count == 0u || rt_count > 8u) return;
+
+    // Drop the complete OM binding before transitioning any member of it.
+    // Sequential EndRenderToTexture calls leave the other descriptors bound
+    // while RT0 has already become an SRV, which is invalid under the D3D12
+    // output-merger state contract.
+    m_CmdList->OMSetRenderTargets(0u, nullptr, FALSE, nullptr);
+
+    D3D12_RESOURCE_BARRIER barriers[8]{};
+    u32 barrier_count = 0u;
+    for (u32 i = 0u; i < rt_count; ++i) {
+        if (!rts[i]) continue;
+        auto& rt = static_cast<FDx12Texture&>(*rts[i]);
+        if (!rt.HasRtv() || !rt.Resource() ||
+            rt.CurrentState() ==
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
+            continue;
+        }
+        auto& barrier = barriers[barrier_count++];
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = rt.Resource();
+        barrier.Transition.StateBefore = rt.CurrentState();
+        barrier.Transition.StateAfter =
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barrier.Transition.Subresource =
+            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        rt.SetCurrentState(
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    }
+    if (barrier_count > 0u) {
+        m_CmdList->ResourceBarrier(barrier_count, barriers);
+    }
     m_BoundPipe = nullptr;
 }
 
@@ -928,6 +1010,76 @@ void FDx12CommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     barrier.UAV.pResource = nullptr;
     m_CmdList->ResourceBarrier(1, &barrier);
+}
+
+bool FDx12CommandList::CopyDepthTexture(
+    IRhiTexture& source,
+    IRhiTexture& destination) noexcept {
+    if (!m_CmdList || !_open ||
+        !IsDepthTextureCopyCompatible(source, destination)) {
+        return false;
+    }
+
+    auto& dx_source = static_cast<FDx12Texture&>(source);
+    auto& dx_destination = static_cast<FDx12Texture&>(destination);
+    if (!dx_source.Resource() || !dx_destination.Resource() ||
+        dx_source.Resource() == dx_destination.Resource() ||
+        !dx_source.IsDepth() || !dx_destination.IsDepth() ||
+        !dx_destination.HasSrv()) {
+        return false;
+    }
+
+    // Closing an offscreen pass may rebind the main DSV. Drop output-merger
+    // bindings before transitioning that allocation to COPY_SOURCE.
+    m_CmdList->OMSetRenderTargets(0u, nullptr, FALSE, nullptr);
+    m_BoundPipe = nullptr;
+
+    D3D12_RESOURCE_BARRIER before[2]{};
+    u32 before_count = 0u;
+    if (dx_source.CurrentState() != D3D12_RESOURCE_STATE_COPY_SOURCE) {
+        auto& barrier = before[before_count++];
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = dx_source.Resource();
+        barrier.Transition.StateBefore = dx_source.CurrentState();
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        barrier.Transition.Subresource =
+            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    }
+    if (dx_destination.CurrentState() != D3D12_RESOURCE_STATE_COPY_DEST) {
+        auto& barrier = before[before_count++];
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = dx_destination.Resource();
+        barrier.Transition.StateBefore = dx_destination.CurrentState();
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+        barrier.Transition.Subresource =
+            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    }
+    if (before_count > 0u) {
+        m_CmdList->ResourceBarrier(before_count, before);
+    }
+
+    m_CmdList->CopyResource(
+        dx_destination.Resource(), dx_source.Resource());
+
+    D3D12_RESOURCE_BARRIER after[2]{};
+    after[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    after[0].Transition.pResource = dx_source.Resource();
+    after[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    after[0].Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    after[0].Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    after[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    after[1].Transition.pResource = dx_destination.Resource();
+    after[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    after[1].Transition.StateAfter =
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    after[1].Transition.Subresource =
+        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    m_CmdList->ResourceBarrier(2u, after);
+    dx_source.SetCurrentState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    dx_destination.SetCurrentState(
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    return true;
 }
 
 void FDx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {

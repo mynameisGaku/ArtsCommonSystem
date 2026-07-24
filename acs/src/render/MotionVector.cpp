@@ -87,6 +87,7 @@ struct FMotionCb {
 } // namespace
 
 TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+    m_PassActive = false;
     m_Device = &device;
     m_Width  = width  > 0 ? width  : 1;
     m_Height = height > 0 ? height : 1;
@@ -111,6 +112,7 @@ TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
 }
 
 void FMotionVector::Shutdown() noexcept {
+    m_PassActive = false;
     for (auto& cb : m_Cbs) cb.Reset();
     m_Pipeline.Reset();
     m_Ps.Reset();
@@ -128,6 +130,7 @@ TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
     if (!m_Device) return ACS_ERR(Render, 360, "FMotionVector::Resize before Init");
     if (width == 0 || height == 0) return Ok();
     if (width == m_Width && height == m_Height) return Ok();
+    m_PassActive = false;
     m_Motion.Reset();
     m_Normal.Reset();
     m_Depth.Reset();
@@ -218,9 +221,10 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FMotionVector::Begin(IRhiCommandList& cl,
+bool FMotionVector::Begin(IRhiCommandList& cl,
                          const FMat4& view_proj, const FMat4& prev_view_proj) noexcept {
-    if (!m_Motion || !m_Normal || !m_Depth || !m_Pipeline) return;
+    m_PassActive = false;
+    if (!m_Motion || !m_Normal || !m_Depth || !m_Pipeline) return false;
     m_Vp      = view_proj;
     m_PrevVp = prev_view_proj;
     m_DrawCursor = 0;
@@ -228,12 +232,18 @@ void FMotionVector::Begin(IRhiCommandList& cl,
     // motion 0 (TAA は hist_uv = uv で reproject 無し)、normal 0 (SSR/SSGI/SSAO は
     // sky を depth で先に弾くので未使用)。
     IRhiTexture* rts[2] = { m_Motion.Get(), m_Normal.Get() };
-    cl.BeginRenderToTextureMrt(rts, 2, FClearColor{0, 0, 0, 0}, m_Depth.Get(), 1.0f);
+    if (!cl.BeginRenderToTextureMrt(
+            rts, 2, FClearColor{0, 0, 0, 0}, m_Depth.Get(), 1.0f)) {
+        return false;
+    }
+    m_PassActive = true;
     cl.SetPipeline(*m_Pipeline);
+    return true;
 }
 
 void FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                             const FMat4& model, const FMat4& prev_model) noexcept {
+    if (!m_PassActive) return;
     if (!mesh.vertex_buffer || !mesh.index_buffer) return;
     if (m_DrawCursor >= kObjectCbRing) {
         if (m_DrawCursor == kObjectCbRing) {
@@ -264,8 +274,10 @@ void FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
 }
 
 void FMotionVector::End(IRhiCommandList& cl) noexcept {
-    if (!m_Motion) return;
-    cl.EndRenderToTexture(*m_Motion);
+    if (!m_PassActive || !m_Motion || !m_Normal) return;
+    IRhiTexture* rts[2] = {m_Motion.Get(), m_Normal.Get()};
+    cl.EndRenderToTextureMrt(rts, 2u);
+    m_PassActive = false;
 }
 
 } // namespace acs

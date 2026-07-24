@@ -5,6 +5,7 @@
 #include "foundation/Types.h"
 #include "foundation/Result.h"
 #include "memory/UniquePtr.h"
+#include "render/IRhiTexture.h"
 #include "render/RhiTypes.h"
 
 namespace acs {
@@ -52,6 +53,37 @@ struct FRhiGpuTimingSnapshot {
     f32 fog_ms = -1.0f;
     f32 post_ms = -1.0f;
 };
+
+/**
+ * Validate the backend-independent contract for a live D32 depth snapshot.
+ *
+ * The destination is both a depth allocation and a shader resource so it can
+ * be sampled while the original source is rebound for hardware depth
+ * testing/writes. Copying aliases, MSAA resources, arrays, or mismatched
+ * allocations is rejected before any backend command is recorded.
+ */
+inline bool IsDepthTextureCopyCompatible(
+    const IRhiTexture& source,
+    const IRhiTexture& destination) noexcept {
+    return &source != &destination &&
+           source.IsDepthTarget() &&
+           destination.IsDepthTarget() &&
+           destination.IsShaderVisibleDepth() &&
+           source.PixelFormat() == EFormat::D32_Float &&
+           destination.PixelFormat() == source.PixelFormat() &&
+           source.Width() > 0u &&
+           source.Height() > 0u &&
+           destination.Width() == source.Width() &&
+           destination.Height() == source.Height() &&
+           source.MipLevels() == 1u &&
+           destination.MipLevels() == 1u &&
+           source.ArraySize() == 1u &&
+           destination.ArraySize() == 1u &&
+           !source.IsCubemap() &&
+           !destination.IsCubemap() &&
+           source.SampleCount() == 1u &&
+           destination.SampleCount() == 1u;
+}
 
 /**
  * GPU に送る命令を記録するコマンドリストの抽象インターフェイス。
@@ -149,6 +181,23 @@ public:
                                     u32 /*buffer_index*/) noexcept {}
 
     /**
+     * Record a full-resolution D32 depth snapshot entirely on the GPU.
+     *
+     * Implementations must reject incompatible resources using
+     * IsDepthTextureCopyCompatible(), transition the source/destination
+     * safely, and leave the source ready to be rebound as a writable DSV and
+     * the destination ready for pixel-shader sampling. The caller must begin
+     * or rebind its render pass after this call.
+     *
+     * @return true only when a copy command was successfully recorded.
+     */
+    virtual bool CopyDepthTexture(
+        class IRhiTexture& /*source*/,
+        class IRhiTexture& /*destination*/) noexcept {
+        return false;
+    }
+
+    /**
      * シャドウパスを開始する (depth-only RT を bind + clear)。
      *
      * @details ビューポートも depth のサイズに合わせて自動設定する。
@@ -225,17 +274,53 @@ public:
      * 最大 8 個の color RT を同時 bind し、depth は optional。クリア色は単一値で全 RT に
      * 適用する (個別クリアが必要なら別 API か手動で SetTexture 前 clear)。
      * Diligent / raw DX12 の両 backend で実装する。後続 pass でサンプルする各 RT は、
-     * 描画後に EndRenderToTexture を呼んで shader-resource state へ遷移させる。
+     * 描画後に EndRenderToTextureMrt で一括して unbind / shader-resource state へ
+     * 遷移させる。
      * @param rts color レンダーターゲットの配列。
      * @param rt_count rts の要素数 (最大 8)。
      * @param clear 全 RT に適用するクリア色。
      * @param depth 深度バッファ (省略可、既定 nullptr)。
      * @param depth_clear depth を渡したときのクリア値 (既定 1.0f)。
+     * @return 全 attachment の検証と backend bind が完了したとき true。
+     *         false の場合は draw を発行せず fallback path を使用すること。
      */
-    virtual void BeginRenderToTextureMrt(class IRhiTexture* const* rts, u32 rt_count,
-                                          const FClearColor& clear,
-                                          class IRhiTexture* depth = nullptr,
-                                          f32 depth_clear = 1.0f) noexcept = 0;
+    virtual bool BeginRenderToTextureMrt(
+        class IRhiTexture* const* rts,
+        u32 rt_count,
+        const FClearColor& clear,
+        class IRhiTexture* depth = nullptr,
+        f32 depth_clear = 1.0f) noexcept = 0;
+
+    /**
+     * Bind MRTs while preserving selected existing attachments.
+     *
+     * Bit i in clear_mask clears color target i; unset bits use load
+     * semantics. Depth is only cleared when clear_depth is true. This is used
+     * when extending an already-rendered HDR scene with auxiliary G-buffer
+     * targets without erasing sky color or opaque depth.
+     *
+     * @return 全 attachment の検証と backend bind が完了したとき true。
+     *         false の場合、caller は MRT draw と対応する End を発行しないこと。
+     */
+    virtual bool BeginRenderToTextureMrtLoad(
+        class IRhiTexture* const* rts,
+        u32 rt_count,
+        const FClearColor& clear,
+        u32 clear_mask,
+        class IRhiTexture* depth = nullptr,
+        bool clear_depth = false,
+        f32 depth_clear = 1.0f) noexcept = 0;
+
+    /**
+     * End one MRT pass as a unit.
+     *
+     * The backend first unbinds the complete output set, then makes every
+     * supplied color target sampleable. This avoids transitioning one target
+     * while the same MRT binding still references it.
+     */
+    virtual void EndRenderToTextureMrt(
+        class IRhiTexture* const* rts,
+        u32 rt_count) noexcept = 0;
 
     /**
      * ビューポートを設定する。

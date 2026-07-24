@@ -16,9 +16,19 @@ FDx12Buffer::~FDx12Buffer() noexcept {
 void FDx12Buffer::Reset() noexcept
 {
     if (m_Mapped && m_Resource) m_Resource->Unmap(0, nullptr);
+    FDx12Device* device = m_Device;
+    ID3D12Resource* resource = m_Resource;
     m_Mapped = nullptr;
-    ACS_SAFE_RELEASE(m_Resource);
     m_Device = nullptr;
+    m_Resource = nullptr;
+    if (device != nullptr) {
+        // The resource may already be encoded in the currently open command
+        // list. Device retirement keeps it alive through the submission fence
+        // without blocking ordinary editor mutation.
+        device->RetireResource(resource);
+    } else {
+        ACS_SAFE_RELEASE(resource);
+    }
     m_Size = 0;
     m_SlotStride = 0;
     m_Usage = EBufferUsage::Vertex;
@@ -181,13 +191,21 @@ FHrResult FDx12Buffer::Init(FDx12Device& device, const FBufferDesc& desc) noexce
         command_list->CopyBufferRegion(m_Resource, 0, staging, 0, desc.size);
         r.hr = command_list->Close();
         if (r.IsOk()) {
-            ID3D12CommandList* lists[] = {command_list};
-            device.GraphicsQueue()->ExecuteCommandLists(1, lists);
-            const u64 fence_value = device.SignalGraphicsQueue();
-            if (fence_value == 0)
+            const u64 fence_value =
+                device.ExecuteOneOffGraphicsCommandList(command_list);
+            if (fence_value == 0) {
                 r.hr = E_FAIL;
-            else
+                // Execute may already have succeeded even though Signal did
+                // not. Without a completion fence, releasing these transient
+                // objects could invalidate in-flight copy commands. Transfer
+                // them to the device-loss leak-safe path by dropping only our
+                // CPU bookkeeping references.
+                command_list = nullptr;
+                allocator = nullptr;
+                staging = nullptr;
+            } else {
                 device.WaitForFenceValue(fence_value);
+            }
         }
 
         ACS_SAFE_RELEASE(command_list);

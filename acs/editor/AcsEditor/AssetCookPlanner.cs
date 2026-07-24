@@ -276,9 +276,11 @@ public sealed class AssetCookPlanner
             return Array.AsReadOnly(ids.ToArray());
         }
 
+        EnsureScannableTextFile(asset.FullPath);
         Regex expression = extension.ToLowerInvariant() switch
         {
-            ".acscene" or ".acsprefab" => SceneReference,
+            ".acscene" => SceneReference,
+            ".acsprefab" => SelectPrefabReferenceExpression(asset.FullPath),
             ".acs3d" => Scene3DReference,
             ".acsmat" => MaterialReference,
             ".obj" => ObjReference,
@@ -286,7 +288,6 @@ public sealed class AssetCookPlanner
             _ => throw new InvalidDataException(
                 $"No deterministic dependency scanner is registered for '{extension}'."),
         };
-        EnsureScannableTextFile(asset.FullPath);
         foreach (string line in File.ReadLines(asset.FullPath, StrictUtf8))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -310,6 +311,21 @@ public sealed class AssetCookPlanner
                 relativeToAssetDirectory: extension is ".obj" or ".mtl");
         }
         return Array.AsReadOnly(ids.ToArray());
+    }
+
+    private static Regex SelectPrefabReferenceExpression(string path)
+    {
+        using var reader = new StreamReader(
+            path,
+            StrictUtf8,
+            detectEncodingFromByteOrderMarks: true);
+        return reader.ReadLine() switch
+        {
+            "ACS3D v2" => Scene3DReference,
+            "ACSCENE v1" => SceneReference,
+            _ => throw new InvalidDataException(
+                "Prefab payload must begin with exactly 'ACS3D v2' or 'ACSCENE v1'."),
+        };
     }
 
     private void ScanGltf(

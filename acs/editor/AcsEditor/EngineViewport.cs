@@ -43,6 +43,9 @@ public sealed class EngineViewport : HwndHost
     [DllImport("user32.dll")] private static extern uint GetDoubleClickTime();
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT eventTrack);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PostMessageW(
         IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     // アセット/ファイルのドロップ受付 (CF_HDROP → WM_DROPFILES)。アセットブラウザのドラッグも
@@ -59,19 +62,33 @@ public sealed class EngineViewport : HwndHost
     private static bool CtrlDown => (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
     [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TRACKMOUSEEVENT
+    {
+        public uint cbSize;
+        public uint dwFlags;
+        public IntPtr hwndTrack;
+        public uint dwHoverTime;
+    }
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     private const int GWLP_WNDPROC  = -4;
-    private const int WM_CANCELMODE = 0x001F;
+    private const int WM_CANCELMODE = WaterPointerRoutingPolicy.WmCancelMode;
     private const int WM_KEYDOWN    = 0x0100;
-    private const int WM_MOUSEMOVE  = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202,
+    private const int WM_MOUSEMOVE  = 0x0200, WM_LBUTTONDOWN = 0x0201,
+                      WM_LBUTTONUP = WaterPointerRoutingPolicy.WmLeftButtonUp,
                       WM_RBUTTONDOWN = 0x0204, WM_RBUTTONUP = 0x0205,
                       WM_MBUTTONDOWN = 0x0207, WM_MBUTTONUP = 0x0208,
-                      WM_MOUSEWHEEL = 0x020A, WM_MOUSEHWHEEL = 0x020E,
+                      WM_MOUSEWHEEL = WaterPointerRoutingPolicy.WmMouseWheel,
+                      WM_MOUSEHWHEEL = WaterPointerRoutingPolicy.WmMouseHWheel,
                       WM_NCHITTEST = 0x0084,
-                      WM_CAPTURECHANGED = 0x0215, WM_DROPFILES = 0x0233;
+                      WM_CAPTURECHANGED = WaterPointerRoutingPolicy.WmCaptureChanged,
+                      WM_DROPFILES = 0x0233,
+                      WM_MOUSELEAVE = WaterPointerRoutingPolicy.WmMouseLeave;
     private const int WM_RENDER_PUMP = 0x8000 + 0x5A1; // private WM_APP message
     private const int HTCLIENT = 1;
+    private const long MK_LBUTTON = 0x0001;
+    private const uint TME_LEAVE = 0x00000002;
 
     private const int WS_CHILD = 0x40000000;
     private const int WS_VISIBLE = 0x10000000;
@@ -227,6 +244,8 @@ public sealed class EngineViewport : HwndHost
     private int _marqStartX, _marqStartY, _marqLastX, _marqLastY;
     private bool _marqAdditive;          // gesture 開始時に latch した Ctrl (additive) 状態
     private bool _finalizing;            // 自前の ReleaseCapture か (capture 奪取と区別)
+    private bool _trackingMouseLeave;
+    private bool _polyMode;
     private long _pointerButtonMismatchStartedAtTimestamp;
     private const int MarqueeThreshold = 3;   // これ未満の移動は drag でなく click 扱い
     private int _lastClickTick, _lastClickX, _lastClickY;   // ダブルクリック検出 (STATIC は WM_*DBLCLK を送らない)
@@ -241,7 +260,16 @@ public sealed class EngineViewport : HwndHost
     public IntPtr Engine => _destroying ? IntPtr.Zero : _engine;
 
     /// <summary>ポリゴン描画モード中か (左クリックで点を置く)。MainWindow が制御。</summary>
-    public bool PolyMode { get; set; }
+    public bool PolyMode
+    {
+        get => _polyMode;
+        set
+        {
+            if (_polyMode == value) return;
+            _polyMode = value;
+            if (value) EndWaterPointer();
+        }
+    }
 
     /// <summary>描画モード中に Enter/Esc が押されたとき (ポリゴン確定)。MainWindow が購読。</summary>
     public event Action? PolyKeyFinalize;
@@ -273,6 +301,7 @@ public sealed class EngineViewport : HwndHost
         _renderPumpSuspended = false;
         _windowInteractionPaused = false;
         _renderFairnessYieldQueued = false;
+        _trackingMouseLeave = false;
         _pointerButtonMismatchStartedAtTimestamp = 0;
         ResetRenderBurst();
         AttachFailed = false;
@@ -378,6 +407,7 @@ public sealed class EngineViewport : HwndHost
         _giz3dDragging = false;
         _marqueeDragging = false;
         _finalizing = false;
+        _trackingMouseLeave = false;
         _pointerButtonMismatchStartedAtTimestamp = 0;
 
         if (engine != IntPtr.Zero) EngineInterop.acs_editor_destroy(engine);
@@ -639,9 +669,55 @@ public sealed class EngineViewport : HwndHost
     internal void CancelPointerInteraction()
     {
         Dispatcher.VerifyAccess();
+        EndWaterPointer();
         _pointerButtonMismatchStartedAtTimestamp = 0;
         if (_hwnd != IntPtr.Zero && GetCapture() == _hwnd)
             ReleaseCapture();
+    }
+
+    private WaterPointerRoutingState WaterPointerState(bool view3d) =>
+        new(
+            EngineReady: _engine != IntPtr.Zero && !_destroying,
+            View3D: view3d,
+            PolygonMode: PolyMode,
+            GizmoDragging: _gizmoDragging,
+            Gizmo3DDragging: _giz3dDragging,
+            Panning: _panning,
+            MarqueeDragging: _marqueeDragging);
+
+    private void RouteWaterPointer(
+        WaterPointerRoutingDecision decision,
+        int x = 0,
+        int y = 0)
+    {
+        System.Diagnostics.Debug.Assert(
+            !decision.CapturePointer,
+            "Interactive water must never own mouse capture.");
+        if (!decision.ShouldRoute || _engine == IntPtr.Zero || _destroying)
+            return;
+        EngineInterop.acs_editor_water3d_pointer_event(
+            _engine,
+            x,
+            y,
+            (int)decision.Action);
+    }
+
+    private void EndWaterPointer() =>
+        RouteWaterPointer(
+            WaterPointerRoutingPolicy.ForEnd(
+                _engine != IntPtr.Zero && !_destroying));
+
+    private void EnsureMouseLeaveTracking(IntPtr hwnd)
+    {
+        if (_trackingMouseLeave || hwnd == IntPtr.Zero) return;
+        var tracking = new TRACKMOUSEEVENT
+        {
+            cbSize = (uint)Marshal.SizeOf<TRACKMOUSEEVENT>(),
+            dwFlags = TME_LEAVE,
+            hwndTrack = hwnd,
+            dwHoverTime = 0,
+        };
+        _trackingMouseLeave = TrackMouseEvent(ref tracking);
     }
 
     private void BeginPointerCapture(IntPtr hwnd)
@@ -814,6 +890,10 @@ public sealed class EngineViewport : HwndHost
               return IntPtr.Zero;
           }
 
+          RouteWaterPointer(
+              WaterPointerRoutingPolicy.ForWindowMessage(
+                  msg,
+                  _engine != IntPtr.Zero && !_destroying));
           RecoverStalePointerCaptureIfNeeded(msg);
 
           switch (msg)
@@ -886,12 +966,23 @@ public sealed class EngineViewport : HwndHost
                         EngineInterop.acs_editor_poly3d_add_point(_engine, gx, gy);
                         break;
                     }
-                    if (EngineInterop.acs_editor_gizmo3d_begin(_engine, gx, gy) != 0)
+                    bool gizmoAccepted =
+                        EngineInterop.acs_editor_gizmo3d_begin(
+                            _engine, gx, gy) != 0;
+                    WaterPointerRoutingDecision waterPress =
+                        WaterPointerRoutingPolicy.ForPress(
+                            WaterPointerState(view3d: true),
+                            gizmoAccepted);
+                    if (gizmoAccepted)
                     {
+                        EndWaterPointer();
                         _giz3dDragging = true; BeginPointerCapture(hWnd);
                     }
                     else
                     {
+                        // Observe the existing selection gesture without
+                        // taking capture or replacing the normal pick.
+                        RouteWaterPointer(waterPress, gx, gy);
                         int p3 = EngineInterop.acs_editor_pick3d(_engine, gx, gy);
                         Picked?.Invoke(p3);
                     }
@@ -926,6 +1017,7 @@ public sealed class EngineViewport : HwndHost
                     // まず選択ノードのギズモハンドルを掴めるか試す。掴めなければピック。
                     if (EngineInterop.acs_editor_gizmo_begin(_engine, x, y) != 0)
                     {
+                        EndWaterPointer();
                         _gizmoDragging = true; BeginPointerCapture(hWnd);
                     }
                     else
@@ -949,6 +1041,7 @@ public sealed class EngineViewport : HwndHost
                             _marqueeDragging = true;
                             _marqStartX = x; _marqStartY = y; _marqLastX = x; _marqLastY = y;
                             _marqAdditive = ctrl;
+                            EndWaterPointer();
                             BeginPointerCapture(hWnd);
                         }
                     }
@@ -971,6 +1064,7 @@ public sealed class EngineViewport : HwndHost
                 // ギズモ/マーキー ドラッグ中はパンを始めない (gizmo/marquee/pan を相互排他に)。
                 if (!_gizmoDragging && !_marqueeDragging)
                 {
+                    EndWaterPointer();
                     _panning = true;
                     _panMode = (msg == WM_MBUTTONDOWN) ? 1 : 0;   // 中ボタン=パン(平行移動) / 右ボタン=軌道(回転)
                     _lastX = LoWord(lParam); _lastY = HiWord(lParam); BeginPointerCapture(hWnd);
@@ -1033,6 +1127,7 @@ public sealed class EngineViewport : HwndHost
                 break;
 
             case WM_MOUSEMOVE:
+                EnsureMouseLeaveTracking(hWnd);
                 if (_engine != IntPtr.Zero)
                 {
                     int x = LoWord(lParam), y = HiWord(lParam);
@@ -1059,6 +1154,20 @@ public sealed class EngineViewport : HwndHost
                         _marqLastX = x; _marqLastY = y;
                         EngineInterop.acs_editor_set_marquee(_engine, 1, _marqStartX, _marqStartY, x, y);
                     }
+                    else
+                    {
+                        bool view3d =
+                            EngineInterop.acs_editor_get_view3d(_engine) != 0;
+                        WaterPointerRoutingDecision waterMove =
+                            WaterPointerRoutingPolicy.ForMove(
+                                WaterPointerState(view3d),
+                                (wParam.ToInt64() & MK_LBUTTON) != 0);
+                        if (waterMove.ShouldRoute)
+                        {
+                            RouteWaterPointer(waterMove, x, y);
+                            RequestRedraw();
+                        }
+                    }
                 }
                 break;
 
@@ -1072,6 +1181,13 @@ public sealed class EngineViewport : HwndHost
                     EngineInterop.acs_editor_camera_zoom(_engine, factor, pt.X, pt.Y);
                     RequestRedraw();
                 }
+                break;
+
+            case WM_MOUSEHWHEEL:
+                break;
+
+            case WM_MOUSELEAVE:
+                _trackingMouseLeave = false;
                 break;
           }
           return CallOriginalWindowProc(hWnd, msg, wParam, lParam);

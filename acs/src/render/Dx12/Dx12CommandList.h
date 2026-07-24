@@ -121,6 +121,10 @@ public:
      */
     void ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept override;
 
+    bool CopyDepthTexture(
+        IRhiTexture& source,
+        IRhiTexture& destination) noexcept override;
+
     /**
      * クリアせずにオフスクリーン RT を再 bind してパスを開始する (load 版)。
      *
@@ -148,17 +152,26 @@ public:
     /**
      * 複数レンダーターゲット (MRT) を bind してパスを開始する。
      *
-     * @details raw DX12 バックエンドでは未実装で、初回のみ警告ログを出す (Diligent 専用)。
+     * @details 全 attachment を先に検証し、bind を完了した場合だけ true を返す。
      * @param rts レンダーターゲットの配列。
      * @param rt_count レンダーターゲットの数。
      * @param clear カラーバッファのクリア色。
      * @param depth 併用する深度バッファ (不要なら nullptr)。
      * @param depth_clear 深度クリア値 (既定 1.0)。
      */
-    void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                  const FClearColor& clear,
-                                  IRhiTexture* depth = nullptr,
-                                  f32 depth_clear = 1.0f) noexcept override;
+    bool BeginRenderToTextureMrt(
+        IRhiTexture* const* rts, u32 rt_count,
+        const FClearColor& clear,
+        IRhiTexture* depth = nullptr,
+        f32 depth_clear = 1.0f) noexcept override;
+    bool BeginRenderToTextureMrtLoad(
+        IRhiTexture* const* rts, u32 rt_count,
+        const FClearColor& clear, u32 clear_mask,
+        IRhiTexture* depth = nullptr, bool clear_depth = false,
+        f32 depth_clear = 1.0f) noexcept override;
+    void EndRenderToTextureMrt(
+        IRhiTexture* const* rts,
+        u32 rt_count) noexcept override;
 
     /**
      * ビューポートを設定する。

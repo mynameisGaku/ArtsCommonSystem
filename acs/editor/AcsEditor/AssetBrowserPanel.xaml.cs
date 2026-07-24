@@ -106,6 +106,17 @@ public partial class AssetBrowserPanel : UserControl
     private static readonly TimeSpan ImageRequestDrainGrace =
         TimeSpan.FromMilliseconds(250);
 
+    private sealed record ProjectInitializationResult(
+        AssetDatabase Database,
+        AssetDatabaseRefreshResult IndexResult,
+        IReadOnlyList<AssetRecord> Snapshot,
+        AssetImportReconciliationResult ImportRecovery,
+        AssetImportReconciliationResult ReimportRecovery,
+        AssetBrowserSourcesStore? SourcesStore,
+        IReadOnlyList<AssetBrowserFavoriteView> Favorites,
+        IReadOnlyList<AssetBrowserCollectionView> Collections,
+        string? SourcesWarning);
+
     public ObservableCollection<AssetItem> Items { get; } = new();
     private ObservableCollection<AssetBrowserSourceNode> SourceRoots { get; } = new();
     private ObservableCollection<AssetBrowserFavoriteView> FavoriteItems { get; } = new();
@@ -251,25 +262,15 @@ public partial class AssetBrowserPanel : UserControl
             return;
         }
 
-        Directory.CreateDirectory(project.AssetsDir);   // 念のため
         LoadAssetViewPresentation(project);
         _currentDir = project.AssetsDir;
         _history.Reset(_currentDir);
-        try
-        {
-            _sourcesStore = new AssetBrowserSourcesStore(
-                project.RootDir,
-                project.AssetsDir,
-                out string? loadWarning);
-            if (loadWarning != null) Log?.Invoke(loadWarning);
-        }
-        catch (Exception error) when (
-            error is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            Log?.Invoke("Asset View saved sources are unavailable: " + error.Message);
-        }
-        RebuildSourcesTree();
-        RefreshSavedSources();
+        // Directory creation, reparse validation and saved Sources/Favorites loading all touch
+        // the filesystem. SetProject is called while MainWindow is being constructed, so keep it
+        // presentation-only and let InitializeProjectAsync perform that work off the dispatcher.
+        RefreshSavedSources(
+            Array.Empty<AssetBrowserFavoriteView>(),
+            Array.Empty<AssetBrowserCollectionView>());
         Items.Clear();
         PathText.Text = "Indexing assets...";
 
@@ -285,17 +286,42 @@ public partial class AssetBrowserPanel : UserControl
         CancellationToken cancellationToken)
     {
         using IDisposable lifecycle = _assetOperationLifecycles.Enter();
-        AssetDatabase database;
-        AssetDatabaseRefreshResult result;
-        AssetImportReconciliationResult importRecovery;
-        AssetImportReconciliationResult reimportRecovery;
+        ProjectInitializationResult initialization;
         try
         {
-            (database, result, importRecovery, reimportRecovery) =
-                await RunAssetOperationAsync(
+            initialization = await RunAssetOperationAsync(
                 () =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    Directory.CreateDirectory(project.AssetsDir);
+
+                    AssetBrowserSourcesStore? sourcesStore = null;
+                    IReadOnlyList<AssetBrowserFavoriteView> favorites =
+                        Array.Empty<AssetBrowserFavoriteView>();
+                    IReadOnlyList<AssetBrowserCollectionView> collections =
+                        Array.Empty<AssetBrowserCollectionView>();
+                    string? sourcesWarning = null;
+                    try
+                    {
+                        sourcesStore = new AssetBrowserSourcesStore(
+                            project.RootDir,
+                            project.AssetsDir,
+                            out sourcesWarning);
+                        // Favorites resolves path availability. Snapshot it on this worker too;
+                        // up to 256 Directory.Exists calls must not run during first paint.
+                        favorites = sourcesStore.Favorites;
+                        collections = sourcesStore.Collections;
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    catch (Exception error) when (
+                        error is IOException or UnauthorizedAccessException or
+                            ArgumentException)
+                    {
+                        sourcesWarning =
+                            "Asset View saved sources are unavailable: " + error.Message;
+                        sourcesStore = null;
+                    }
+
                     AssetDatabase candidate = AssetDatabase.ForProject(project);
                     AssetImportReconciliationResult recovery =
                         AssetImportWorkflow.Reconcile(
@@ -311,11 +337,16 @@ public partial class AssetBrowserPanel : UserControl
                         "Reimport");
                     AssetDatabaseRefreshResult refreshed = candidate.Refresh(
                         cancellationToken: cancellationToken);
-                    return (
+                    return new ProjectInitializationResult(
                         candidate,
                         refreshed,
+                        candidate.Snapshot(),
                         recovery,
-                        replacementRecovery);
+                        replacementRecovery,
+                        sourcesStore,
+                        favorites,
+                        collections,
+                        sourcesWarning);
                 },
                 waitForTurn: true,
                 cancellationToken);
@@ -334,15 +365,24 @@ public partial class AssetBrowserPanel : UserControl
             return;
         }
 
+        AssetDatabase database = initialization.Database;
+        AssetDatabaseRefreshResult result = initialization.IndexResult;
+        AssetImportReconciliationResult importRecovery =
+            initialization.ImportRecovery;
+        AssetImportReconciliationResult reimportRecovery =
+            initialization.ReimportRecovery;
         if (generation != _projectRefreshGeneration ||
             cancellationToken.IsCancellationRequested)
         {
             return;
         }
         _assetDatabase = database;
-        _assetSnapshot = database.Snapshot();
+        _sourcesStore = initialization.SourcesStore;
+        _assetSnapshot = initialization.Snapshot;
         UpdateAssetOperationUi();
         ReportIndexResult(result);
+        if (initialization.SourcesWarning != null)
+            Log?.Invoke(initialization.SourcesWarning);
         foreach (string warning in importRecovery.Warnings)
             Log?.Invoke("Import recovery: " + warning);
         if (importRecovery.CompletedTransactions != 0 ||
@@ -365,7 +405,9 @@ public partial class AssetBrowserPanel : UserControl
         StartWatcher(project, generation);
 
         RebuildSourcesTree();
-        RefreshSavedSources();
+        RefreshSavedSources(
+            initialization.Favorites,
+            initialization.Collections);
         RefreshView();
         ScheduleTrashMaintenance(database, generation);
     }
@@ -854,7 +896,14 @@ public partial class AssetBrowserPanel : UserControl
         MarkCurrentSourceNode();
     }
 
-    private void RefreshSavedSources()
+    private void RefreshSavedSources() =>
+        RefreshSavedSources(
+            _sourcesStore?.Favorites ?? Array.Empty<AssetBrowserFavoriteView>(),
+            _sourcesStore?.Collections ?? Array.Empty<AssetBrowserCollectionView>());
+
+    private void RefreshSavedSources(
+        IReadOnlyList<AssetBrowserFavoriteView> favorites,
+        IReadOnlyList<AssetBrowserCollectionView> collections)
     {
         string? selectedFavorite =
             (FavoriteList.SelectedItem as AssetBrowserFavoriteView)?.RelativePath;
@@ -866,13 +915,10 @@ public partial class AssetBrowserPanel : UserControl
         {
             FavoriteItems.Clear();
             CollectionItems.Clear();
-            if (_sourcesStore != null)
-            {
-                foreach (AssetBrowserFavoriteView favorite in _sourcesStore.Favorites)
-                    FavoriteItems.Add(favorite);
-                foreach (AssetBrowserCollectionView collection in _sourcesStore.Collections)
-                    CollectionItems.Add(collection);
-            }
+            foreach (AssetBrowserFavoriteView favorite in favorites)
+                FavoriteItems.Add(favorite);
+            foreach (AssetBrowserCollectionView collection in collections)
+                CollectionItems.Add(collection);
 
             FavoriteList.SelectedItem = FavoriteItems.FirstOrDefault(favorite =>
                 favorite.RelativePath.Equals(
@@ -3182,8 +3228,7 @@ public partial class AssetBrowserPanel : UserControl
                 _project.AssetsDir,
                 target?.FullPath ?? "",
                 target is { IsDirectory: true } &&
-                Items.Contains(target) &&
-                Directory.Exists(target.FullPath));
+                Items.Contains(target));
             return plan.IsValid;
         }
         catch

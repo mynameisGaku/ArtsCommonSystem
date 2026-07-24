@@ -441,6 +441,28 @@ internal static class AssetBrowserUiSelfTest
             Check(panel.AssetActionsButton.ContextMenu != null &&
                   panel.ViewOptionsButton.ContextMenu != null,
                 "Asset Actions and View Options menus are available from the toolbar");
+            string[] newAssetTemplates = panel.NewAssetButton.ContextMenu?.Items
+                .OfType<MenuItem>()
+                .Select(static item => item.Tag as string)
+                .Where(static tag => tag != null)
+                .Cast<string>()
+                .ToArray() ?? Array.Empty<string>();
+            string[] contextNewAssetTemplates = panel.CtxNewAsset.Items
+                .OfType<MenuItem>()
+                .Select(static item => item.Tag as string)
+                .Where(static tag => tag != null)
+                .Cast<string>()
+                .ToArray();
+            string[] expectedNewAssetTemplates =
+                { "Folder", "Material", "Scene", "Blueprint", "Prefab" };
+            Check(
+                newAssetTemplates.SequenceEqual(
+                    expectedNewAssetTemplates,
+                    StringComparer.OrdinalIgnoreCase) &&
+                contextNewAssetTemplates.SequenceEqual(
+                    expectedNewAssetTemplates,
+                    StringComparer.OrdinalIgnoreCase),
+                "toolbar and background New Asset menus expose the same usable templates in canonical order");
 
             var tilePanelTemplate =
                 (ItemsPanelTemplate)panel.FindResource("AssetTilesPanel");

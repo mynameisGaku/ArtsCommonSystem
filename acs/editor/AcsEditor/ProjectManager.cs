@@ -11,6 +11,13 @@ namespace AcsEditor;
 /// <summary>プロジェクトの新規作成・オープン・最近使った一覧。フォルダ生成とテンプレート展開を担う。</summary>
 public static partial class ProjectManager
 {
+    internal readonly record struct NewProjectScenePlan(
+        string Template,
+        string InitialScene,
+        string SceneText,
+        SceneDocumentMode SourceMode,
+        bool StartsOrthographic);
+
     // マニフェスト JSON の (デ)シリアライズ用 DTO (Project の計算プロパティを書き出さないため分離)。
     private sealed class ManifestDto
     {
@@ -25,7 +32,10 @@ public static partial class ProjectManager
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
-    /// <summary>新規プロジェクトを &lt;parentDir&gt;/&lt;name&gt;/ に生成する。template は "blank" | "2d"。</summary>
+    /// <summary>
+    /// 新規プロジェクトを &lt;parentDir&gt;/&lt;name&gt;/ に生成する。
+    /// template は "3d" | "2d"。"blank" は旧ランチャー向けの 3D alias としてのみ受理する。
+    /// </summary>
     public static Project CreateNew(string name, string parentDir, string template)
     {
         if (string.IsNullOrWhiteSpace(name))      throw new ArgumentException("プロジェクト名が空です。");
@@ -42,23 +52,24 @@ public static partial class ProjectManager
         SceneSourceFile.ValidateProjectRootDirectory(rootDir);
         Directory.CreateDirectory(Path.Combine(rootDir, "Assets"));
 
-        bool is2d = string.Equals(template, "2d", StringComparison.OrdinalIgnoreCase);
+        NewProjectScenePlan scenePlan = PlanNewProjectScene(template);
 
-        // 初期シーン (エディタ表示用 ACSCENE)。
+        // New projects always author one ACS3D world. "2d" is only an initial
+        // XY-Orthographic viewport preset; it is never a second payload format.
         string assetsDir = Path.Combine(rootDir, "Assets");
         string initialScenePath = SceneSourceFile.ResolveProjectSceneReference(
             rootDir,
             assetsDir,
-            "Assets/main.acscene",
-            SceneDocumentMode.TwoD);
+            scenePlan.InitialScene,
+            scenePlan.SourceMode);
         Directory.CreateDirectory(Path.Combine(rootDir, "Source"));
         Directory.CreateDirectory(Path.Combine(rootDir, "Temp"));
         SceneSourceFile.WriteProjectSceneAtomicText(
             initialScenePath,
-            is2d ? Template2DScene : BlankScene,
+            scenePlan.SceneText,
             rootDir,
             assetsDir,
-            SceneDocumentMode.TwoD);
+            scenePlan.SourceMode);
 
         // ゲームソース (スタンドアロン実行 = ACS_GAME_MAIN)。blank/2d とも «エディタで編集した
         // main.acscene を読み込む» 共通ソースを置く (Build & Run = 編集中シーンが立ち上がる)。
@@ -76,12 +87,12 @@ public static partial class ProjectManager
             Version = 1,
             Name = name,
             EngineVersion = EngineInterop.Version(),
-            Template = is2d ? "2d" : "blank",
+            Template = scenePlan.Template,
             InitialScene = SceneSourceFile.NormalizeProjectSceneReference(
                 rootDir,
                 assetsDir,
-                "Assets/main.acscene",
-                SceneDocumentMode.TwoD),
+                scenePlan.InitialScene,
+                scenePlan.SourceMode),
             ProjectFilePath = Path.Combine(rootDir, name + ".acsproject"),
         };
         var assetDatabase = AssetDatabase.ForProject(proj);
@@ -94,8 +105,35 @@ public static partial class ProjectManager
         }
         proj.CanonicalSceneAssetId = canonicalScene.AssetId;
         WriteManifest(proj);
+        // Native ProjectSettings keeps a legacy .acscene default for old
+        // manifests. New projects persist an explicit coherent override.
+        SaveProjectSettings(
+            proj,
+            "[Game]\nDefaultScene=Assets/main.acs3d\n");
         AddRecent(proj.ProjectFilePath);
         return proj;
+    }
+
+    /// <summary>
+    /// Produces the source contract for a new project without touching disk. "2d" selects an
+    /// editor camera preset only; both templates author the same ACS3D document format.
+    /// </summary>
+    internal static NewProjectScenePlan PlanNewProjectScene(string? template)
+    {
+        string normalized = (template ?? "").Trim().ToLowerInvariant();
+        if (normalized == "blank")
+            normalized = "3d";
+        if (normalized is not ("3d" or "2d"))
+            throw new ArgumentException(
+                "Project template must be '3d' or '2d'.",
+                nameof(template));
+        bool is2D = normalized == "2d";
+        return new NewProjectScenePlan(
+            normalized,
+            "Assets/main.acs3d",
+            is2D ? Template2DScene3D : BlankScene3D,
+            SceneDocumentMode.ThreeD,
+            StartsOrthographic: is2D);
     }
 
     /// <summary>.acsproject マニフェストを開いて Project を返す。</summary>
@@ -467,30 +505,22 @@ public static partial class ProjectManager
         return made;
     }
 
-    private const string BlankScene = "ACSCENE v1\n0\n";
+    private const string BlankScene3D = "ACS3D v2\n";
 
-    // 床 (Static) + プレイヤー (Dynamic) + 左壁 (Static)。エディタで Play すると落下・衝突する。
-    private const string Template2DScene =
-        "ACSCENE v1\n" +
-        "3\n" +
-        "1 -1 0.0000 220.0000 0.0000 7.0000 0.4000 48.00 0.250 0.280 0.340 1.000 Ground\n" +
-        "2 -1 0.0000 -160.0000 0.0000 1.0000 1.0000 48.00 0.150 0.850 1.000 1.000 Player\n" +
-        "3 -1 -260.0000 40.0000 0.0000 1.2000 3.0000 48.00 0.220 0.240 0.300 1.000 WallLeft\n" +
-        "COMP 1 APrimitiveRenderer2D\n" +
-        "COMP 1 ARigidBody2D\n" +
-        "COMP 2 APrimitiveRenderer2D\n" +
-        "COMP 2 ARigidBody2D\n" +
-        "COMP 3 APrimitiveRenderer2D\n" +
-        "COMP 3 ARigidBody2D\n" +
-        "CPROP 1 1 0 0.000 0.000 0.000 0.000\n" +     // Ground bodyType = Static
-        "CPROP 2 1 0 1.000 0.000 0.000 0.000\n" +     // Player bodyType = Dynamic
-        "CPROP 3 1 0 0.000 0.000 0.000 0.000\n" +     // WallLeft bodyType = Static
-        "SEL -1 0\n";
+    // The 2D starter is ordinary 3D geometry viewed through the XY-front
+    // Orthographic preset. It can be rotated back into Perspective at any time.
+    private const string Template2DScene3D =
+        "ACS3D v2\n" +
+        "N3D 1 -1 0 0.0000 220.0000 0.0000 0.0000 0.0000 0.0000 520.0000 14.0000 40.0000 0.2500 0.2800 0.3400 1.0000 Ground\n" +
+        "N3D 2 -1 0 0.0000 -160.0000 0.0000 0.0000 0.0000 0.0000 48.0000 48.0000 48.0000 0.1500 0.8500 1.0000 1.0000 Player\n" +
+        "N3D 3 -1 0 -260.0000 40.0000 0.0000 0.0000 0.0000 0.0000 20.0000 240.0000 40.0000 0.2200 0.2400 0.3000 1.0000 WallLeft\n" +
+        "SEL3D -1\n";
 
     // blank / 2d 共通: エディタで保存した main.acscene を読み込んで表示するスタンドアロン。
     // editor は world=pixel で扱うので PixelsPerUnit=1、読み込んだ境界にカメラを合わせる。
     private const string SceneLoaderSource =
         "// SPDX-License-Identifier: Apache-2.0\n" +
+        "// ACS_RUNTIME_CAPABILITY: LEGACY_SCENE3D=1\n" +
         "// ACS Editor で作成した main.acscene を読み、Build & Run に編集結果を反映する。\n" +
         "// ゲームロジックは OnTick に追加する。\n" +
         "#include \"gameframework/GameFramework.h\"\n" +

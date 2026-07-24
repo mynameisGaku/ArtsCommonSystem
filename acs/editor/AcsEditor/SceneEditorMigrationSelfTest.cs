@@ -95,14 +95,49 @@ internal static class SceneEditorMigrationSelfTest
         string shellPath = Path.Combine(sourceRoot, "MainWindow.xaml.cs");
         string sceneModeSource = File.ReadAllText(sceneModePath);
         string shellSource = File.ReadAllText(shellPath);
+        string documentsSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "MainWindow.Documents.cs"));
+        string autosaveSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "MainWindow.Autosave.cs"));
         string switchBody = ExtractMethodBody(sceneModeSource, "SwitchSceneViewMode(");
         string initializeBody =
             ExtractMethodBody(sceneModeSource, "InitializeProjectSceneDocument(");
         string establishEmptyBody =
             ExtractMethodBody(sceneModeSource, "EstablishEmptySceneDocument(");
+        string configureAdapterBody =
+            ExtractMethodBody(sceneModeSource, "ConfigureSceneDocumentAdapter(");
+        string legacySourceLoadBody =
+            ExtractMethodBody(sceneModeSource, "LoadLegacySceneSourceAsDocument(");
         string restoreOpenBody =
             ExtractMethodBody(sceneModeSource, "RestoreSceneOpenRollbackSnapshot(");
-        string openBody = ExtractMethodBody(shellSource, "OnOpenScene(");
+        string completeLoadBody =
+            ExtractMethodBody(sceneModeSource, "private void CompleteSceneLoad(");
+        string openCommandBody =
+            ExtractMethodBody(
+                shellSource,
+                "private async void OnOpenScene(");
+        string openBody =
+            ExtractMethodBody(
+                shellSource,
+                "private async System.Threading.Tasks.Task OpenScenePathAsync(");
+        string assetActivatedBody =
+            ExtractMethodBody(
+                shellSource,
+                "private async void OnAssetActivated(");
+        string onLoadedBody =
+            ExtractMethodBody(shellSource, "private void OnLoaded(");
+        string setGameViewBody =
+            ExtractMethodBody(shellSource, "private void SetGameView(");
+        string newSceneBody =
+            ExtractMethodBody(shellSource, "private async void OnNewScene(");
+        string restoreDocumentBody =
+            ExtractMethodBody(
+                documentsSource,
+                "RestoreCanonicalSceneDocumentState(");
+        string applyRecoveryBody =
+            ExtractMethodBody(
+                autosaveSource,
+                "ApplyRecoveryCandidateAsync(");
 
         const string viewAssignment = @"_view3d\s*=(?!=)";
         const string sourceAssignment =
@@ -128,7 +163,7 @@ internal static class SceneEditorMigrationSelfTest
 
         string allowedAdapterBodies =
             initializeBody + "\n" + establishEmptyBody + "\n" +
-            restoreOpenBody + "\n" + openBody;
+            configureAdapterBody + "\n" + restoreOpenBody + "\n" + openBody;
         bool adapterWritesAreConfined =
             CountMatches(auditedManagedCs, viewAssignment) ==
                 CountMatches(allowedAdapterBodies, viewAssignment) &&
@@ -139,7 +174,7 @@ internal static class SceneEditorMigrationSelfTest
                 CountMatches(allowedAdapterBodies, nativeAdapterSelection) &&
             CountMatches(initializeBody, viewAssignment) > 0 &&
             CountMatches(openBody, viewAssignment) > 0 &&
-            CountMatches(establishEmptyBody, nativeAdapterSelection) == 1;
+            CountMatches(configureAdapterBody, nativeAdapterSelection) == 1;
         Check(
             adapterWritesAreConfined,
             "source adapter selection is confined to project initialization and explicit Open");
@@ -176,10 +211,16 @@ internal static class SceneEditorMigrationSelfTest
                 "document?.CaptureCheckpoint()",
                 StringComparison.Ordinal) &&
             openBody.Contains(
-                "EngineInterop.acs_editor_scene3d_load_text(",
+                "LoadLegacySceneSourceAsDocument(",
                 StringComparison.Ordinal) &&
-            openBody.Contains(
-                "EngineInterop.acs_editor_scene_load_text(",
+            legacySourceLoadBody.Contains(
+                "EngineInterop.acs_editor_scene_document_load_text(",
+                StringComparison.Ordinal) &&
+            restoreOpenBody.Contains(
+                "EngineInterop.acs_editor_scene_document_load_text(",
+                StringComparison.Ordinal) &&
+            establishEmptyBody.Contains(
+                "EngineInterop.acs_editor_scene_document_new(",
                 StringComparison.Ordinal) &&
             CountMatches(beforeSuccessfulParse, viewAssignment) == 0 &&
             CountMatches(beforeSuccessfulParse, sourceAssignment) == 0 &&
@@ -196,6 +237,45 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             manualOpenIsTransactional,
             "manual Open rolls back both native graphs, managed metadata and history atomically");
+        bool fullDocumentRetirementIsCombined =
+            CountMatches(
+                auditedManagedCs,
+                @"EngineInterop\.acs_editor_scene(?:3d)?_(?:new|load_text)\s*\(") == 0 &&
+            newSceneBody.Contains(
+                "EngineInterop.acs_editor_scene_document_new(",
+                StringComparison.Ordinal) &&
+            establishEmptyBody.Contains(
+                "EngineInterop.acs_editor_scene_document_new(",
+                StringComparison.Ordinal) &&
+            restoreDocumentBody.Contains(
+                "EngineInterop.acs_editor_scene_document_load_text(",
+                StringComparison.Ordinal) &&
+            restoreOpenBody.Contains(
+                "EngineInterop.acs_editor_scene_document_load_text(",
+                StringComparison.Ordinal) &&
+            legacySourceLoadBody.Contains(
+                "EngineInterop.acs_editor_scene_document_load_text(",
+                StringComparison.Ordinal) &&
+            applyRecoveryBody.Contains(
+                "LoadLegacySceneSourceAsDocument(",
+                StringComparison.Ordinal);
+        Check(
+            fullDocumentRetirementIsCombined,
+            "new, open, rollback, recovery and document history use one native retirement transaction");
+        Check(
+            openCommandBody.Contains(
+                "await OpenScenePathAsync(dlg.FileName)",
+                StringComparison.Ordinal) &&
+            assetActivatedBody.Contains(
+                "await OpenScenePathAsync(e.FullPath)",
+                StringComparison.Ordinal) &&
+            openCommandBody.Contains(
+                "catch (Exception error)",
+                StringComparison.Ordinal) &&
+            assetActivatedBody.Contains(
+                "catch (Exception error)",
+                StringComparison.Ordinal),
+            "File/Open and Asset View scene activation share one transactional loader and contain async-void faults");
 
         bool startupLoadIsGated =
             initializeBody.Contains("BeginSceneLoad(", StringComparison.Ordinal) &&
@@ -211,6 +291,22 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             startupLoadIsGated,
             "startup scene load is bounded, generation-gated, and fails blank");
+        bool existingStartupSourceUsesOneRetirement =
+            Regex.IsMatch(
+                initializeBody,
+                @"if\s*\(exists\)\s*\{(?:(?!EstablishEmptySceneDocument).)*" +
+                @"ConfigureSceneDocumentAdapter\s*\(",
+                RegexOptions.Singleline | RegexOptions.CultureInvariant) &&
+            initializeBody.Contains(
+                "loaded = LoadLegacySceneSourceAsDocument(",
+                StringComparison.Ordinal) &&
+            Regex.IsMatch(
+                initializeBody,
+                @"else\s*\{\s*EstablishEmptySceneDocument\s*\(",
+                RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        Check(
+            existingStartupSourceUsesOneRetirement,
+            "existing startup source loads directly once; only missing or rejected sources create a blank transaction");
 
         string appSource = File.ReadAllText(Path.Combine(sourceRoot, "App.xaml.cs"));
         bool directProjectOpenIsAsync =
@@ -224,17 +320,90 @@ internal static class SceneEditorMigrationSelfTest
             directProjectOpenIsAsync,
             "direct .acsproject startup reconciles project I/O off the WPF dispatcher");
 
+        string assetBrowserSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "AssetBrowserPanel.xaml.cs"));
+        string setProjectBody =
+            ExtractMethodBody(assetBrowserSource, "public void SetProject(");
+        string initializeAssetsBody =
+            ExtractMethodBody(
+                assetBrowserSource,
+                "private async Task InitializeProjectAsync(");
+        string assetDropBody =
+            ExtractMethodBody(
+                assetBrowserSource,
+                "private bool TryGetAssetBrowserDrop(");
+        Check(
+            !setProjectBody.Contains(
+                "Directory.CreateDirectory(",
+                StringComparison.Ordinal) &&
+            !setProjectBody.Contains(
+                "new AssetBrowserSourcesStore(",
+                StringComparison.Ordinal) &&
+            initializeAssetsBody.Contains(
+                "await RunAssetOperationAsync(",
+                StringComparison.Ordinal) &&
+            initializeAssetsBody.Contains(
+                "Directory.CreateDirectory(project.AssetsDir)",
+                StringComparison.Ordinal) &&
+            initializeAssetsBody.Contains(
+                "new AssetBrowserSourcesStore(",
+                StringComparison.Ordinal) &&
+            !assetDropBody.Contains(
+                "Directory.Exists(",
+                StringComparison.Ordinal),
+            "Asset View startup and drag-over keep filesystem probes off the WPF dispatcher");
+
         string viewportSource = File.ReadAllText(
             Path.Combine(sourceRoot, "EngineViewport.cs"));
+        string mainWindowXaml = File.ReadAllText(
+            Path.Combine(sourceRoot, "MainWindow.xaml"));
         int createCall = viewportSource.IndexOf(
             "EngineInterop.acs_editor_create()",
             StringComparison.Ordinal);
         int suppressCall = viewportSource.IndexOf(
             "acs_editor_set_scene_presentation_suppressed(_engine, 1)",
             StringComparison.Ordinal);
+        int attachCall = viewportSource.IndexOf(
+            "EngineInterop.acs_editor_attach(",
+            StringComparison.Ordinal);
+        int renderCall = viewportSource.IndexOf(
+            "EngineInterop.acs_editor_render(",
+            StringComparison.Ordinal);
         Check(
-            createCall >= 0 && suppressCall > createCall,
+            createCall >= 0 &&
+            suppressCall > createCall &&
+            attachCall > suppressCall &&
+            renderCall > suppressCall,
             "viewport suppresses native presentation before its render pump starts");
+        int initialHide = onLoadedBody.IndexOf(
+            "ViewportHost.Visibility = Visibility.Hidden",
+            StringComparison.Ordinal);
+        int childPublish = onLoadedBody.IndexOf(
+            "ViewportHost.Child = _viewport",
+            StringComparison.Ordinal);
+        int nativePublish = completeLoadBody.IndexOf(
+            "acs_editor_set_scene_presentation_suppressed(engine, 0)",
+            StringComparison.Ordinal);
+        int hwndPublish = completeLoadBody.IndexOf(
+            "ViewportHost.Visibility = Visibility.Visible",
+            StringComparison.Ordinal);
+        Check(
+            Regex.IsMatch(
+                mainWindowXaml,
+                @"x:Name=""ViewportHost""[^>]*Visibility=""Hidden""",
+                RegexOptions.CultureInvariant |
+                RegexOptions.Singleline) &&
+            initialHide >= 0 &&
+            childPublish > initialHide &&
+            nativePublish >= 0 &&
+            hwndPublish > nativePublish &&
+            !setGameViewBody.Contains(
+                "ViewportHost.Visibility",
+                StringComparison.Ordinal) &&
+            CountMatches(
+                auditedManagedCs,
+                @"ViewportHost\.Visibility\s*=\s*Visibility\.Visible") == 1,
+            "HwndHost stays hidden across attach and warm-up until a scene transaction publishes");
 
         string nativeEditorPath = Path.GetFullPath(
             Path.Combine(
@@ -262,7 +431,10 @@ internal static class SceneEditorMigrationSelfTest
                 "scene_presentation_suppressed",
                 StringComparison.Ordinal) &&
             nativeRenderBody.Contains(
-                "loadingClear",
+                "PresentNeutralEditorFrame(*host, true)",
+                StringComparison.Ordinal) &&
+            nativeRenderBody.Contains(
+                "return;",
                 StringComparison.Ordinal),
             "native loading gate presents a neutral frame without drawing scene content");
 

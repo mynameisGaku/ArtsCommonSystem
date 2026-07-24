@@ -131,12 +131,12 @@
                         <ColumnDefinition Width="5"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <ToggleButton x:Name="TplBlank" Grid.Column="0" Content="Blank"
-                                  Height="32" Click="OnPickTemplate" Tag="blank"
-                                  ToolTip="Create an empty scene"/>
-                    <ToggleButton x:Name="Tpl2D" Grid.Column="2" Content="2D Starter" IsChecked="True"
+                    <ToggleButton x:Name="Tpl3D" Grid.Column="0" Content="3D" IsChecked="True"
+                                  Height="32" Click="OnPickTemplate" Tag="3d"
+                                  ToolTip="Create an empty 3D world"/>
+                    <ToggleButton x:Name="Tpl2D" Grid.Column="2" Content="2D (Orthographic)"
                                   Height="32" Click="OnPickTemplate" Tag="2d"
-                                  ToolTip="Player, terrain, and physics starter content"/>
+                                  ToolTip="Create a 3D world with the XY Orthographic editing preset"/>
                 </Grid>
 
                 <Button x:Name="CreateBtn" Grid.Row="6" Content="Create Project" Height="34"

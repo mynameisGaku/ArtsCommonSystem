@@ -1105,6 +1105,40 @@ ACS_TEST(Scene3DSerialize, RejectsUnsupportedEditorDirectiveTransactionally) {
     EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
 }
 
+ACS_TEST(Scene3DSerialize, RejectsInvalidEditorSelectionTransactionally) {
+    constexpr char kMissingSelection[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "SEL3D 999\n";
+    constexpr char kNegativeSelection[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "SEL3D -1\n";
+    constexpr char kNoSelection[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Root\n"
+        "SEL3D 0\n";
+
+    FScene3D scene;
+    scene.Spawn(FStringView("Keep"));
+
+    const FScene3DLoadResult missing = TryLoadScene3DText(
+        scene, kMissingSelection, sizeof(kMissingSelection) - 1u);
+    EXPECT_EQ(missing.Error, EScene3DSerializeError::InvalidNodeId);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+
+    const FScene3DLoadResult negative = TryLoadScene3DText(
+        scene, kNegativeSelection, sizeof(kNegativeSelection) - 1u);
+    EXPECT_EQ(negative.Error, EScene3DSerializeError::InvalidNodeId);
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) != nullptr);
+
+    const FScene3DLoadResult none = TryLoadScene3DText(
+        scene, kNoSelection, sizeof(kNoSelection) - 1u);
+    EXPECT_TRUE(none.Succeeded());
+    EXPECT_TRUE(scene.FindByName(FStringView("Keep")) == nullptr);
+    EXPECT_TRUE(scene.Root().FindBySerialId(1) != nullptr);
+}
+
 // --- メッシュアセットを所有し、外部参照を捨てても生存する -------------------
 ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
     ANode node(FStringView("Mesh"));
@@ -1134,4 +1168,30 @@ ACS_TEST(MeshComponent3D, OwnsMeshAsset) {
     m.SetMeshAsset(TSharedPtr<FAsset>{});
     EXPECT_TRUE(!m.HasMeshAsset());
     EXPECT_TRUE(m.Mesh() == nullptr);
+}
+
+ACS_TEST(MeshAsset, MutableAccessAdvancesGeometryRevision) {
+    FMeshAsset mesh;
+    const FMeshAsset& read_only = mesh;
+
+    const u64 initial = mesh.GeometryRevision();
+    (void)read_only.Vertices();
+    (void)read_only.Indices();
+    (void)read_only.SubMeshes();
+    EXPECT_EQ(mesh.GeometryRevision(), initial);
+
+    (void)mesh.Vertices();
+    const u64 after_vertices = mesh.GeometryRevision();
+    EXPECT_TRUE(after_vertices > initial);
+
+    (void)mesh.Indices();
+    const u64 after_indices = mesh.GeometryRevision();
+    EXPECT_TRUE(after_indices > after_vertices);
+
+    (void)mesh.SubMeshes();
+    const u64 after_submeshes = mesh.GeometryRevision();
+    EXPECT_TRUE(after_submeshes > after_indices);
+
+    mesh.MarkGeometryDirty();
+    EXPECT_TRUE(mesh.GeometryRevision() > after_submeshes);
 }

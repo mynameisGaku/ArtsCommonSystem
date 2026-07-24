@@ -295,6 +295,7 @@ set(_acsgen_gameframework_headers
     TypeInfo.h
     UiLayer.h
     VoiceChat.h
+    WaterSurface3DComponent.h
     WaterVolume.h
     WaveSpawner.h
     WeaponSystem.h

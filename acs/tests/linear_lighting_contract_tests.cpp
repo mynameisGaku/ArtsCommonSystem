@@ -301,14 +301,34 @@ ACS_TEST(LinearLightingContract,
 
     EXPECT_TRUE(Contains(
         water,
-        "abs(saturate(1.0 - abs(reflected_direction.y)))"));
-    EXPECT_TRUE(Contains(water, "pow(abs(sky_height), 0.72)"));
+        "ProjectWorldDirectionToScreenPixels(input.world_position, normal)"));
+    EXPECT_TRUE(Contains(
+        water,
+        "ProjectWorldDirectionToScreenPixels(\n"
+        "            input.world_position, refracted_direction)"));
+    EXPECT_TRUE(Contains(
+        water,
+        "abs(dot(refracted_direction,\n"
+        "                                    geometric_surface_normal))"));
+    EXPECT_TRUE(Contains(
+        water,
+        "saturate(abs(environment_height)), 0.72"));
+    EXPECT_TRUE(Contains(
+        water,
+        "lerp(environment_horizon.rgb,\n"
+        "               environment_ground.rgb, environment_weight)"));
     EXPECT_TRUE(Contains(
         water,
         "pow(abs(sun_alignment), sun_disk_power)"));
     EXPECT_TRUE(!Contains(
         water,
-        "pow(1.0 - abs(reflected_direction.y), 0.68)"));
+        "float3 sky_zenith = float3("));
+    EXPECT_TRUE(!Contains(
+        water,
+        "normal.xz / max(abs(normal.y)"));
+    EXPECT_TRUE(!Contains(
+        water,
+        "abs(refracted_direction.y)"));
 }
 
 ACS_TEST(LinearLightingContract,

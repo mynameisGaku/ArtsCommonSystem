@@ -103,6 +103,11 @@ public partial class ProfilerPanel : UserControl
         CloudCpuValue.Text = EditorProfilerFormatting.Milliseconds(snapshot.CloudCpuMs);
         FogCpuValue.Text = EditorProfilerFormatting.Milliseconds(snapshot.FogCpuMs);
         PostCpuValue.Text = EditorProfilerFormatting.Milliseconds(snapshot.PostCpuMs);
+        MeshCacheStateValue.Text =
+            (snapshot.Flags &
+             EditorProfilerContract.FlagSceneMeshCacheRebuilt) != 0
+                ? "REBUILT"
+                : "HIT";
 
         uint queryCount = snapshot.GpuQueryWindowCount;
         OpaqueGpuValue.Text = EditorProfilerFormatting.GpuAveragePeak(

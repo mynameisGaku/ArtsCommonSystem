@@ -203,7 +203,8 @@ public static class ReflectionCodegen
     }
 
     // ACS_PROPERTY の指定子文字列 → EFieldFlags 式。VisibleAnywhere/ReadOnly=READONLY、
-    // Hidden=HIDDEN、Transient=TRANSIENT。EditAnywhere や指定なしは編集可 (FIELD_NONE)。
+    // Hidden=HIDDEN、Transient=TRANSIENT、Color/ColorPicker=COLOR。
+    // EditAnywhere や指定なしは編集可 (FIELD_NONE)。
     // BlueprintReadWrite/ReadOnly/Callable・Category=... は受理して «今は» エディタフラグに影響させない
     // (将来の Blueprint/スクリプト層が使う)。
     private static string FlagsFor(string specifiers)
@@ -214,6 +215,8 @@ public static class ReflectionCodegen
             parts.Add("::acs::game::FIELD_READONLY");
         if (Regex.IsMatch(s, @"\bHidden\b"))    parts.Add("::acs::game::FIELD_HIDDEN");
         if (Regex.IsMatch(s, @"\bTransient\b")) parts.Add("::acs::game::FIELD_TRANSIENT");
+        if (Regex.IsMatch(s, @"\b(Color|ColorPicker)\b"))
+            parts.Add("::acs::game::FIELD_COLOR");
         return parts.Count == 0 ? "::acs::game::FIELD_NONE" : string.Join(" | ", parts);
     }
 

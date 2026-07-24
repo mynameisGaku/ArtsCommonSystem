@@ -1,12 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test/Test.h"
 #include "test/Expect.h"
+#include "asset/MeshAsset.h"
 #include "render/WaterSurface3D.h"
 
 #include <cmath>
 #include <limits>
 
 using namespace acs;
+
+namespace {
+
+void AddWaterMeshVertex(
+    FMeshAsset& mesh, FVec3 position,
+    FVec3 normal = FVec3{0.0f, 1.0f, 0.0f}) {
+    mesh.Vertices().PushBack(
+        FMeshVertex{position, normal, 0.0f, 0.0f});
+}
+
+void AddWaterMeshQuadIndices(FMeshAsset& mesh) {
+    mesh.Indices().PushBack(0u);
+    mesh.Indices().PushBack(1u);
+    mesh.Indices().PushBack(2u);
+    mesh.Indices().PushBack(0u);
+    mesh.Indices().PushBack(2u);
+    mesh.Indices().PushBack(3u);
+}
+
+} // namespace
 
 ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
     FWaterSurface3D water;
@@ -33,6 +54,29 @@ ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
         FVec3{200.0f, 0.0f, 0.0f},
         FVec3{4.0f, 0.0f, 1.0f}, 0.20f, 0.18f));
     EXPECT_EQ(water.ActiveRippleCount(), FWaterSurface3D::kMaxRipples);
+}
+
+ACS_TEST(Water3DRippleLifetime, FullImpactPoolDropsNewEventWithoutRefreshingOldOne) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 1.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    for (u32 i = 0; i < FWaterSurface3D::kImpactRippleSlots; ++i) {
+        EXPECT_TRUE(water.AddDisturbance(
+            FVec3{static_cast<f32>(i), 0.0f, 0.0f},
+            0.15f, 0.20f));
+    }
+    water.Update(0.40f);
+    EXPECT_FALSE(water.AddDisturbance(
+        FVec3{100.0f, 0.0f, 0.0f}, 0.15f, 0.20f));
+    water.Update(0.61f);
+
+    // An overwrite/refresh implementation would leave the last inserted
+    // event alive for another 0.39 seconds. Persistence requires all original
+    // events to reach their own continuous endpoint instead.
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
 }
 
 ACS_TEST(Water3DRippleLifetime, UpdateConsumesTheFullDeltaTime) {
@@ -285,4 +329,108 @@ ACS_TEST(Water3DRippleLifetime, HugeFiniteEventCoordinatesStayBounded) {
         FVec3{-maximum, 0.0f, -maximum},
         FVec3{maximum, 0.0f, maximum}, maximum, 1.0f));
     EXPECT_EQ(water.ActiveRippleCount(), 1u);
+}
+
+ACS_TEST(Water3DRippleLifetime, WakeAcceptsFullThreeDimensionalVelocity) {
+    FWaterSurface3D water;
+    EXPECT_TRUE(water.AddWake(
+        FVec3{2.0f, 3.0f, 4.0f},
+        FVec3{0.0f, 6.0f, 0.0f}, 0.2f, 0.3f));
+    EXPECT_EQ(water.ActiveRippleCount(), 1u);
+}
+
+ACS_TEST(Water3DRippleLifetime, SixtyFourSurfacesOwnIndependentEventPools) {
+    FWaterSurface3D water;
+    for (u64 surface = 1u;
+         surface <= FWaterSurface3D::kMaxTrackedSurfaces;
+         ++surface) {
+        for (u32 impact = 0u;
+             impact < FWaterSurface3D::kImpactRippleSlots;
+             ++impact) {
+            EXPECT_TRUE(water.AddDisturbanceForSurface(
+                surface,
+                FVec3{static_cast<f32>(surface), 0.0f,
+                      static_cast<f32>(impact)},
+                0.2f, 0.3f));
+        }
+        for (u32 wake = 0u;
+             wake < FWaterSurface3D::kWakeRippleSlots;
+             ++wake) {
+            EXPECT_TRUE(water.AddWakeForSurface(
+                surface,
+                FVec3{static_cast<f32>(surface), 0.0f,
+                      static_cast<f32>(wake)},
+                FVec3{1.0f, 0.0f, 0.25f},
+                0.2f, 0.2f));
+        }
+        EXPECT_EQ(
+            water.ActiveRippleCountForSurface(surface),
+            FWaterSurface3D::kMaxRipples);
+    }
+    EXPECT_EQ(
+        water.ActiveRippleCount(),
+        FWaterSurface3D::kMaxStoredRipples);
+    EXPECT_FALSE(water.AddDisturbanceForSurface(
+        65u, FVec3{65.0f, 0.0f, 0.0f}, 0.2f, 0.3f));
+
+    water.ClearDisturbancesForSurface(17u);
+    EXPECT_EQ(water.ActiveRippleCountForSurface(17u), 0u);
+    EXPECT_EQ(
+        water.ActiveRippleCount(),
+        FWaterSurface3D::kMaxStoredRipples -
+            FWaterSurface3D::kMaxRipples);
+    EXPECT_TRUE(water.AddDisturbanceForSurface(
+        65u, FVec3{65.0f, 0.0f, 0.0f}, 0.2f, 0.3f));
+    EXPECT_EQ(water.ActiveRippleCountForSurface(65u), 1u);
+    EXPECT_EQ(
+        water.ActiveRippleCountForSurface(1u),
+        FWaterSurface3D::kMaxRipples);
+}
+
+ACS_TEST(Water3DMeshContract, AcceptsFiniteLocalXzSurface) {
+    FMeshAsset mesh;
+    AddWaterMeshVertex(mesh, FVec3{-1.0f, 2.0f, -1.0f});
+    AddWaterMeshVertex(mesh, FVec3{ 1.0f, 2.0f, -1.0f});
+    AddWaterMeshVertex(mesh, FVec3{ 1.0f, 2.0f,  1.0f});
+    AddWaterMeshVertex(mesh, FVec3{-1.0f, 2.0f,  1.0f});
+    AddWaterMeshQuadIndices(mesh);
+
+    EXPECT_TRUE(FWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
+}
+
+ACS_TEST(Water3DMeshContract, RejectsWarpedOrVerticalCustomSurface) {
+    FMeshAsset warped;
+    AddWaterMeshVertex(warped, FVec3{-1.0f, 0.0f, -1.0f});
+    AddWaterMeshVertex(warped, FVec3{ 1.0f, 0.0f, -1.0f});
+    AddWaterMeshVertex(warped, FVec3{ 1.0f, 0.4f,  1.0f});
+    AddWaterMeshVertex(warped, FVec3{-1.0f, 0.0f,  1.0f});
+    AddWaterMeshQuadIndices(warped);
+    EXPECT_FALSE(FWaterSurface3D::IsLocalXzSurfaceMesh(warped));
+
+    FMeshAsset vertical;
+    AddWaterMeshVertex(
+        vertical, FVec3{-1.0f, -1.0f, 0.0f},
+        FVec3{0.0f, 0.0f, 1.0f});
+    AddWaterMeshVertex(
+        vertical, FVec3{ 1.0f, -1.0f, 0.0f},
+        FVec3{0.0f, 0.0f, 1.0f});
+    AddWaterMeshVertex(
+        vertical, FVec3{ 1.0f,  1.0f, 0.0f},
+        FVec3{0.0f, 0.0f, 1.0f});
+    vertical.Indices().PushBack(0u);
+    vertical.Indices().PushBack(1u);
+    vertical.Indices().PushBack(2u);
+    EXPECT_FALSE(FWaterSurface3D::IsLocalXzSurfaceMesh(vertical));
+}
+
+ACS_TEST(Water3DMeshContract, RejectsMalformedCustomSurfaceIndices) {
+    FMeshAsset mesh;
+    AddWaterMeshVertex(mesh, FVec3{-1.0f, 0.0f, -1.0f});
+    AddWaterMeshVertex(mesh, FVec3{ 1.0f, 0.0f, -1.0f});
+    AddWaterMeshVertex(mesh, FVec3{ 0.0f, 0.0f,  1.0f});
+    mesh.Indices().PushBack(0u);
+    mesh.Indices().PushBack(1u);
+    mesh.Indices().PushBack(9u);
+
+    EXPECT_FALSE(FWaterSurface3D::IsLocalXzSurfaceMesh(mesh));
 }

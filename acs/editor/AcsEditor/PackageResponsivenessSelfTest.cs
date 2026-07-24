@@ -60,12 +60,89 @@ internal static class PackageResponsivenessSelfTest
     {
         await VerifyLatestOnlyValidationAsync();
         await VerifyConfigSnapshotAsync();
+        VerifyPrefabCookRewrite();
         await VerifyProcessOutputBoundAsync();
         await VerifyProcessCancellationAsync();
         await VerifyPriorGameProcessDrainAsync();
         await VerifyOwnerCloseDrainAsync();
         await VerifyCleanupRetryAsync();
         VerifyValidateCancellation();
+    }
+
+    private static void VerifyPrefabCookRewrite()
+    {
+        string root = FixtureRoot("prefab-cook");
+        string assets = Path.Combine(root, "Assets");
+        string mesh = Path.Combine(assets, "Models", "aircraft.glb");
+        string sprite = Path.Combine(assets, "Textures", "cloud.png");
+        string material = Path.Combine(assets, "Materials", "cloud.acsmat");
+        string child = Path.Combine(assets, "Prefabs", "engine.acsprefab");
+        Directory.CreateDirectory(Path.GetDirectoryName(mesh)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sprite)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(material)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(child)!);
+        File.WriteAllBytes(mesh, [0x67, 0x6c, 0x54, 0x46]);
+        File.WriteAllBytes(sprite, [1, 2, 3, 4]);
+        File.WriteAllText(material, "ACSMAT 1\n", new UTF8Encoding(false));
+        File.WriteAllText(child, "ACS3D v2\n", new UTF8Encoding(false));
+
+        try
+        {
+            string source3D =
+                "ACS3D v2\n" +
+                $"MSH3D 1 {mesh}\n" +
+                $"SPR3D 2 {sprite}\n" +
+                $"MAT3D 3 {material}\n" +
+                $"PFAB3D 4 {child}\n" +
+                "MAT3D 5 0.250 0.750\n";
+            byte[] cooked3D = PackageCore.RewritePrefabPayloadForSelfTest(
+                new UTF8Encoding(false).GetBytes(source3D),
+                assets,
+                root);
+            string rewritten3D = Encoding.UTF8.GetString(cooked3D);
+            string portableRoot = root.Replace('\\', '/');
+            Check(
+                rewritten3D ==
+                    "ACS3D v2\n" +
+                    "MSH3D 1 Assets/Models/aircraft.glb\n" +
+                    "SPR3D 2 Assets/Textures/cloud.png\n" +
+                    "MAT3D 3 Assets/Materials/cloud.acsmat\n" +
+                    "PFAB3D 4 Assets/Prefabs/engine.acsprefab\n" +
+                    "MAT3D 5 0.250 0.750\n" &&
+                !rewritten3D.Contains(root, StringComparison.OrdinalIgnoreCase) &&
+                !rewritten3D.Contains(
+                    portableRoot,
+                    StringComparison.OrdinalIgnoreCase),
+                "ACS3D prefab Cook rewrites every 3D asset directive and leaks no local absolute path");
+
+            string source2D =
+                "ACSCENE v1\n" +
+                $"SPRT 1 {sprite}\n" +
+                $"MAT 1 {material}\n";
+            string rewritten2D = Encoding.UTF8.GetString(
+                PackageCore.RewritePrefabPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(source2D),
+                    assets,
+                    root));
+            Check(
+                rewritten2D ==
+                    "ACSCENE v1\n" +
+                    "SPRT 1 Assets/Textures/cloud.png\n" +
+                    "MAT 1 Assets/Materials/cloud.acsmat\n",
+                "legacy ACSCENE prefab Cook keeps the 2D reference grammar");
+
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewritePrefabPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSPREFAB 1\nMSH3D 1 " + mesh + "\n"),
+                    assets,
+                    root),
+                "unknown prefab payload headers fail closed");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
     }
 
     private static async Task VerifyLatestOnlyValidationAsync()

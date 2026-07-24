@@ -867,10 +867,20 @@ FScene3DLoadResult ParseScene3DDocument(
             const char* selection = line + 6u;
             const char* end = line + line_size;
             i32 selected_id = -1;
-            error = ParseI32(selection, end, selected_id)
-                        && IsOnlyWhitespace(selection, end)
-                    ? EScene3DSerializeError::None
-                    : EScene3DSerializeError::InvalidLine;
+            if (!ParseI32(selection, end, selected_id)
+                || !IsOnlyWhitespace(selection, end)) {
+                error = EScene3DSerializeError::InvalidLine;
+            } else if (selected_id < 0
+                       || (selected_id > 0
+                           && id_to_index.Find(selected_id) == nullptr)) {
+                // Editor documents use zero as the explicit "no selection"
+                // sentinel.  A positive selection must name a node already
+                // present in the validated document; otherwise accepting the
+                // file would leave editor state referring to no scene object.
+                error = EScene3DSerializeError::InvalidNodeId;
+            } else {
+                error = EScene3DSerializeError::None;
+            }
         } else if (document.EditorDocument
                    && (StartsWith(line, line_size, "SPR3D ", 6u)
                        || StartsWith(line, line_size, "PLY3D ", 6u)

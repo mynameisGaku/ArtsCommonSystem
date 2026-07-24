@@ -113,16 +113,88 @@ internal static class SceneSaveSelfTest
                 Enum.GetValues<EditorSceneViewMode>().All(_ =>
                     BuildSceneCompatibility.Evaluate(
                         runtimeSourceIs3D: false,
-                        "Assets/main.acscene").IsSupported),
+                        "Assets/main.acscene",
+                        new RuntimeBuildCapabilities(
+                            SupportsLegacyScene3D: false,
+                            Evidence: "not required for 2D")).IsSupported),
                 ".acscene build compatibility is independent from editor view preset");
             BuildSceneCompatibility.Result legacy3DBuild =
                 BuildSceneCompatibility.Evaluate(
                     runtimeSourceIs3D: true,
-                    "Assets/world.acs3d");
+                    "Assets/world.acs3d",
+                    new RuntimeBuildCapabilities(
+                        SupportsLegacyScene3D: false,
+                        Evidence: "test runtime has no 3D route"));
             Check(
                 !legacy3DBuild.IsSupported &&
                 legacy3DBuild.Code == BuildSceneCompatibility.Unsupported3DCode,
-                ".acs3d build limitation follows source format rather than editor view");
+                ".acs3d build remains fail-closed without a verified runtime route");
+            Check(
+                BuildSceneCompatibility.Evaluate(
+                    runtimeSourceIs3D: true,
+                    "Assets/world.acs3d",
+                    new RuntimeBuildCapabilities(
+                        SupportsLegacyScene3D: true,
+                        Evidence: "verified test runtime")).IsSupported,
+                ".acs3d build is enabled by verified project runtime capability");
+            ProjectManager.NewProjectScenePlan new3DProject =
+                ProjectManager.PlanNewProjectScene("3d");
+            ProjectManager.NewProjectScenePlan new2DProject =
+                ProjectManager.PlanNewProjectScene("2d");
+            ProjectManager.NewProjectScenePlan legacyBlankAlias =
+                ProjectManager.PlanNewProjectScene("blank");
+            Check(
+                new3DProject.InitialScene == "Assets/main.acs3d" &&
+                new2DProject.InitialScene == "Assets/main.acs3d" &&
+                new3DProject.SourceMode == SceneDocumentMode.ThreeD &&
+                new2DProject.SourceMode == SceneDocumentMode.ThreeD &&
+                new3DProject.SceneText.StartsWith(
+                    "ACS3D v2\n",
+                    StringComparison.Ordinal) &&
+                new2DProject.SceneText.StartsWith(
+                    "ACS3D v2\n",
+                    StringComparison.Ordinal) &&
+                !CanonicalSceneAdapter.InspectText(
+                    new3DProject.SceneText,
+                    ".acs3d").HasErrors &&
+                !CanonicalSceneAdapter.InspectText(
+                    new2DProject.SceneText,
+                    ".acs3d").HasErrors &&
+                !new3DProject.StartsOrthographic &&
+                new2DProject.StartsOrthographic &&
+                legacyBlankAlias.Template == "3d",
+                "new 3D and 2D templates share main.acs3d while 2D is only an Orthographic preset");
+
+            string runtimeRoot = Path.Combine(root, "RuntimeCapabilityProject");
+            string runtimeSourceDir = Path.Combine(runtimeRoot, "Source");
+            Directory.CreateDirectory(runtimeSourceDir);
+            var runtimeProject = new Project
+            {
+                Name = "RuntimeCapabilityProject",
+                ProjectFilePath = Path.Combine(
+                    runtimeRoot,
+                    "RuntimeCapabilityProject.acsproject"),
+            };
+            string gameSourcePath = Path.Combine(runtimeSourceDir, "Game.cpp");
+            const string capableRuntime =
+                "class FMainScene3D final : public FLegacyScene3DAdapter {};\n" +
+                "auto Probe(){ return EBootstrapSceneKind::Legacy3D; }\n" +
+                "auto Route(){ return FMainScene3D{}; }\n" +
+                "void Load(){ LoadFile(\"main.acscene\"); }\n";
+            File.WriteAllText(gameSourcePath, capableRuntime);
+            Check(
+                ProjectManager.DetectRuntimeBuildCapabilities(runtimeProject)
+                    .SupportsLegacyScene3D,
+                "runtime capability scan recognizes the concrete legacy-3D bootstrap");
+            const string oldRuntimeSentinel =
+                "// customized legacy runtime: preserve exactly\n" +
+                "void Boot2DOnly() {}\n";
+            File.WriteAllText(gameSourcePath, oldRuntimeSentinel);
+            Check(
+                !ProjectManager.DetectRuntimeBuildCapabilities(runtimeProject)
+                    .SupportsLegacyScene3D &&
+                File.ReadAllText(gameSourcePath) == oldRuntimeSentinel,
+                "capability scan rejects and preserves an old customized Game.cpp");
 
             string scenePath = Path.Combine(assets, "main.acscene");
             SceneSourceFile.WriteProjectSceneAtomicText(

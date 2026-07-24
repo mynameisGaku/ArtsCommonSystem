@@ -89,6 +89,10 @@ public:
      */
     void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept override;
 
+    bool CopyDepthTexture(
+        IRhiTexture& source,
+        IRhiTexture& destination) noexcept override;
+
     /**
      * シャドウパスを開始する (depth-only RT として bind + clear、viewport/scissor も自動設定)。
      *
@@ -154,18 +158,28 @@ public:
     /**
      * 複数 RT を同時 bind する MRT 描画を開始する (最大 8 個、depth は optional)。
      *
-     * @details null や RTV 無しの RT は読み飛ばす。全 RT 同サイズ前提で、viewport は
-     * 最初の有効 RT のサイズに合わせる。クリア色は単一値で全 RT に適用する。
+     * @details null、RTV 無し、attachment 間の寸法・sample count 不一致は
+     * false で拒否する。成功時の viewport は RT0 のサイズに合わせる。
+     * クリア色は単一値で全 RT に適用する。
      * @param rts color RT のポインタ配列。
      * @param rt_count rts の要素数 (1..8)。
      * @param clear 全 RT に適用するカラークリア値。
      * @param depth bind + clear する深度テクスチャ (省略時 nullptr)。
      * @param depth_clear 深度のクリア値 (既定 1.0)。
      */
-    void BeginRenderToTextureMrt(IRhiTexture* const* rts, u32 rt_count,
-                                 const FClearColor& clear,
-                                 IRhiTexture* depth = nullptr,
-                                 f32 depth_clear = 1.0f) noexcept override;
+    bool BeginRenderToTextureMrt(
+        IRhiTexture* const* rts, u32 rt_count,
+        const FClearColor& clear,
+        IRhiTexture* depth = nullptr,
+        f32 depth_clear = 1.0f) noexcept override;
+    bool BeginRenderToTextureMrtLoad(
+        IRhiTexture* const* rts, u32 rt_count,
+        const FClearColor& clear, u32 clear_mask,
+        IRhiTexture* depth = nullptr, bool clear_depth = false,
+        f32 depth_clear = 1.0f) noexcept override;
+    void EndRenderToTextureMrt(
+        IRhiTexture* const* rts,
+        u32 rt_count) noexcept override;
 
     /**
      * ビューポートを設定する。

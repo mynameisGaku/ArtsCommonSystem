@@ -331,7 +331,10 @@
                         </StackPanel>
                     </Grid>
                     <Grid>
-                        <Border x:Name="ViewportHost" Background="{StaticResource Edge}" Margin="0"/>
+                        <Border x:Name="ViewportHost"
+                                Background="{StaticResource Edge}"
+                                Margin="0"
+                                Visibility="Hidden"/>
                         <Border x:Name="ViewportLoadingOverlay"
                                 Panel.ZIndex="10"
                                 Background="#FF09111B"

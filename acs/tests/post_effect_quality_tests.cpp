@@ -2,9 +2,12 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 
+#include "asset/MeshAsset.h"
+#include "foundation/Move.h"
 #include "math/Mat.h"
 #include "math/Vec.h"
 #include "memory/MemorySystem.h"
+#include "render/Blit.h"
 #include "render/IRhiDevice.h"
 #include "render/IRhiTexture.h"
 #include "render/HiZ.h"
@@ -13,20 +16,25 @@
 #include "render/PbrShader.h"
 #include "render/PostProcess.h"
 #include "render/RefractionShader.h"
+#include "render/RenderAssets.h"
 #include "render/Ssao.h"
 #include "render/Ssgi.h"
 #include "render/Ssr.h"
 #include "render/Sky.h"
 #include "render/SkinnedShader.h"
 #include "render/StandardShader.h"
+#include "render/SubsurfaceScattering.h"
 #include "render/WaterSurface3D.h"
 
+#include <atomic>
 #include <cmath>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <string>
+#include <thread>
 
 using namespace acs;
 
@@ -112,6 +120,69 @@ std::string ReadDrawScene3DSource()
 }
 
 } // namespace
+
+ACS_TEST(PostEffects,
+         EditorMotionVectorsRunWithoutNormalGbufferAndResetDiscontinuities)
+{
+    const std::string draw = ReadDrawScene3DSource();
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    EXPECT_TRUE(!draw.empty());
+    EXPECT_TRUE(!editor.empty());
+    if (draw.empty() || editor.empty()) return;
+
+    // TAA-only and motion-blur-only configurations do not request the normal
+    // G-buffer. Motion still has its own MRT/depth pass and must run whenever
+    // there is an actual consumer and drawable geometry.
+    EXPECT_TRUE(draw.find(
+        "const bool wantsMotion = taaOn || h.q_ssr_on ||") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "wantsMotion && dvCount > 0u && h.mv_ready && h.pbr3d_ready") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find("gbufReady && h.mv_ready") ==
+                std::string::npos);
+
+    // Any disabled, resized, failed-Begin, or skipped-node discontinuity
+    // invalidates history. The first successful frame then uses current VP
+    // and world transforms as previous values, producing zero motion.
+    EXPECT_TRUE(draw.find(
+        "const bool motionHistoryReady = h.mv_computed;") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "motionHistoryReady ? h.prev_vp_nojit : vp_nojit") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "motionHistoryReady && er != nullptr &&") !=
+                std::string::npos);
+    EXPECT_TRUE(CountOccurrences(
+        draw, "invalidateMotionHistory();") >= 3u);
+    EXPECT_TRUE(CountOccurrences(
+        draw, "prev_world_valid = false;") >= 2u);
+    EXPECT_TRUE(draw.find(
+        "h.mv3d.Begin(*cl, vp_nojit, previousVp)") !=
+                std::string::npos);
+
+    const std::string clear_scene = ExtractFunction(
+        editor,
+        "void ClearScene3DResourcesRetired(FEditorHost& h) noexcept");
+    const std::string set_view = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on)");
+    const std::string set_projection = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on)");
+    EXPECT_TRUE(clear_scene.find("h.mv_computed = false;") !=
+                std::string::npos);
+    EXPECT_TRUE(set_view.find(
+        "host->view3d != view3d") != std::string::npos);
+    EXPECT_TRUE(set_view.find(
+        "host->mv_computed = false;") != std::string::npos);
+    EXPECT_TRUE(set_projection.find(
+        "host->ortho3d != ortho3d") != std::string::npos);
+    EXPECT_TRUE(set_projection.find(
+        "host->mv_computed = false;") != std::string::npos);
+}
 
 ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
 {
@@ -217,8 +288,22 @@ ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
 
     EXPECT_TRUE(water.find("abs(radial) > sigma * 3.75") !=
                 std::string::npos);
-    EXPECT_TRUE(water.find("float2 combined_slope = macro_slope + micro_slope") !=
+    EXPECT_TRUE(water.find(
+        "input.normal.x * normal_row0.x") != std::string::npos);
+    EXPECT_TRUE(water.find(
+        "world.xyz += base_normal * (ambient_height + ripple_height);") !=
                 std::string::npos);
+    EXPECT_TRUE(water.find(
+        "EvaluateNormalMap(input.surface_position") != std::string::npos);
+    EXPECT_TRUE(water.find(
+        "input.world_normal") != std::string::npos);
+    EXPECT_TRUE(water.find(
+        "tangent * (micro_slope.x * normal_strength)") !=
+                std::string::npos);
+    EXPECT_TRUE(water_source.find(
+        "BuildWaterSurfaceFrame(model)") != std::string::npos);
+    EXPECT_TRUE(water_source.find(
+        "MakeSafeNormalMatrix(model)") != std::string::npos);
     EXPECT_TRUE(water.find("float3 extinction = absorption + scattering;") !=
                 std::string::npos);
     EXPECT_TRUE(water.find("float phase = (1.0 - phase_g * phase_g)") !=
@@ -654,6 +739,463 @@ ACS_TEST(PostEffects, HizSkipStopsBeforeTheNextBlockBoundary)
     EXPECT_EQ(max_skip(FVec2{100.0f, 127.5f}, FVec2{0.25f, 1.0f}, 128.0f), 0u);
 }
 
+ACS_TEST(PostEffects, RuntimeStartupPacesGpuCommitsAndResizeKeepsStrongGuarantee)
+{
+    const std::string legacy =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string legacy_header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string post =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_TRUE(!legacy.empty());
+    EXPECT_TRUE(!legacy_header.empty());
+    EXPECT_TRUE(!post.empty());
+    if (legacy.empty() || legacy_header.empty() || post.empty()) return;
+
+    EXPECT_TRUE(legacy_header.find("PendingCommit") != std::string::npos);
+    EXPECT_TRUE(legacy_header.find("enum class EGpuCommitSubsystem") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "EGpuCommitSubsystem frame_commit = EGpuCommitSubsystem::None;") !=
+        std::string::npos);
+
+    const std::size_t claim_begin =
+        legacy.find("bool FLegacyScene3DAdapter::TryClaimGpuCommit(");
+    const std::size_t claim_end =
+        legacy.find("void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(",
+                    claim_begin);
+    EXPECT_TRUE(claim_begin != std::string::npos);
+    EXPECT_TRUE(claim_end != std::string::npos);
+    if (claim_begin != std::string::npos &&
+        claim_end != std::string::npos) {
+        const std::string claim =
+            legacy.substr(claim_begin, claim_end - claim_begin);
+        EXPECT_TRUE(claim.find(
+            "if (frame_commit != EGpuCommitSubsystem::None) return false;") !=
+            std::string::npos);
+    }
+
+    const auto commit_is_claimed = [&legacy](
+        const char* function_name,
+        const char* next_function_name,
+        const char* commit_call) {
+        const std::size_t begin = legacy.find(function_name);
+        const std::size_t end = legacy.find(next_function_name, begin);
+        if (begin == std::string::npos || end == std::string::npos)
+            return false;
+        const std::string function = legacy.substr(begin, end - begin);
+        const std::size_t claim = function.find("TryClaimGpuCommit(");
+        const std::size_t commit = function.find(commit_call);
+        return claim != std::string::npos &&
+               commit != std::string::npos &&
+               claim < commit;
+    };
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(",
+        "void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(",
+        "candidate.InitWithCompiledShaders("));
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(",
+        "void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(",
+        "candidate.InitWithCompiledShaders("));
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(",
+        "void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(",
+        "m_Ssss.InitPipelineResourcesWithCompiledShaders("));
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvancePostInitialization(",
+        "void FLegacyScene3DAdapter::AdvanceBlitInitialization(",
+        "m_Post.InitWithCompiledShaders("));
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvanceBlitInitialization(",
+        "void FLegacyScene3DAdapter::AdvanceSkyInitialization(",
+        "m_Blit.InitWithCompiledShaders("));
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvanceSkyInitialization(",
+        "void FLegacyScene3DAdapter::AdvanceWaterInitialization(",
+        "m_Sky.InitWithCompiledShaders("));
+    EXPECT_TRUE(commit_is_claimed(
+        "void FLegacyScene3DAdapter::AdvanceWaterInitialization(",
+        "u32 FLegacyScene3DAdapter::CollectWaterDraws(",
+        "m_Water.BeginInitWithCompiledShaders("));
+
+    const std::size_t ssss_targets_begin = legacy.find(
+        "void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(");
+    const std::size_t ssss_targets_end = legacy.find(
+        "void FLegacyScene3DAdapter::AdvancePostInitialization(",
+        ssss_targets_begin);
+    EXPECT_TRUE(ssss_targets_begin != std::string::npos);
+    EXPECT_TRUE(ssss_targets_end != std::string::npos);
+    if (ssss_targets_begin != std::string::npos &&
+        ssss_targets_end != std::string::npos) {
+        const std::string staged = legacy.substr(
+            ssss_targets_begin, ssss_targets_end - ssss_targets_begin);
+        const std::size_t initial_claim =
+            staged.find("TryClaimGpuCommit(");
+        const std::size_t internal_pair =
+            staged.find("m_Ssss.Resize(width, height)", initial_claim);
+        const std::size_t return_after_pair =
+            staged.find("return;", internal_pair);
+        const std::size_t aux_claim =
+            staged.find("TryClaimGpuCommit(", return_after_pair);
+        const std::size_t diffuse =
+            staged.find("auto diffuse = CreateRhiTexture", aux_claim);
+        const std::size_t material =
+            staged.find("auto material = CreateRhiTexture", diffuse);
+        const std::size_t normal =
+            staged.find("auto normal = CreateRhiTexture", material);
+        EXPECT_TRUE(initial_claim != std::string::npos);
+        EXPECT_TRUE(internal_pair != std::string::npos);
+        EXPECT_TRUE(return_after_pair != std::string::npos);
+        EXPECT_TRUE(aux_claim != std::string::npos);
+        EXPECT_TRUE(diffuse != std::string::npos);
+        EXPECT_TRUE(material != std::string::npos);
+        EXPECT_TRUE(normal != std::string::npos);
+        EXPECT_TRUE(initial_claim < internal_pair);
+        EXPECT_TRUE(internal_pair < return_after_pair);
+        EXPECT_TRUE(return_after_pair < aux_claim);
+        EXPECT_TRUE(aux_claim < diffuse);
+        EXPECT_TRUE(diffuse < material);
+        EXPECT_TRUE(material < normal);
+    }
+    const std::size_t water_begin = legacy.find(
+        "void FLegacyScene3DAdapter::AdvanceWaterInitialization(");
+    const std::size_t water_end = legacy.find(
+        "u32 FLegacyScene3DAdapter::CollectWaterDraws(", water_begin);
+    if (water_begin != std::string::npos &&
+        water_end != std::string::npos) {
+        const std::string water =
+            legacy.substr(water_begin, water_end - water_begin);
+        const std::size_t begin_init =
+            water.find("m_Water.BeginInitWithCompiledShaders(");
+        const std::size_t buffering =
+            water.find("m_WaterGpuState = EWaterGpuState::Buffering;",
+                       begin_init);
+        const std::size_t return_after_begin =
+            water.find("return;", buffering);
+        const std::size_t buffered_claim =
+            water.find("TryClaimGpuCommit(", return_after_begin);
+        const std::size_t advance_buffers =
+            water.find("m_Water.AdvanceInitialization(", buffered_claim);
+        EXPECT_TRUE(begin_init != std::string::npos);
+        EXPECT_TRUE(buffering != std::string::npos);
+        EXPECT_TRUE(return_after_begin != std::string::npos);
+        EXPECT_TRUE(buffered_claim != std::string::npos);
+        EXPECT_TRUE(advance_buffers != std::string::npos);
+        EXPECT_TRUE(begin_init < buffering);
+        EXPECT_TRUE(buffering < return_after_begin);
+        EXPECT_TRUE(return_after_begin < buffered_claim);
+        EXPECT_TRUE(buffered_claim < advance_buffers);
+    }
+
+    const std::size_t resize_begin =
+        post.find("TResult<void> FPostProcess::Resize(");
+    const std::size_t resize_end =
+        post.find("TResult<void> FPostProcess::CreateRenderTargets(",
+                  resize_begin);
+    EXPECT_TRUE(resize_begin != std::string::npos);
+    EXPECT_TRUE(resize_end != std::string::npos);
+    if (resize_begin != std::string::npos &&
+        resize_end != std::string::npos) {
+        const std::string resize =
+            post.substr(resize_begin, resize_end - resize_begin);
+        const std::size_t candidate =
+            resize.find("FPostProcess candidate;");
+        const std::size_t create =
+            resize.find("candidate.CreateRenderTargets(");
+        const std::size_t publish =
+            resize.find("m_HdrRt = Move(candidate.m_HdrRt);");
+        const std::size_t reset_taa =
+            resize.find("m_TaaFrame  = 0");
+        const std::size_t reset_exposure =
+            resize.find("m_AutoFrame = 0");
+        EXPECT_TRUE(candidate != std::string::npos);
+        EXPECT_TRUE(create != std::string::npos);
+        EXPECT_TRUE(publish != std::string::npos);
+        EXPECT_TRUE(reset_taa != std::string::npos);
+        EXPECT_TRUE(reset_exposure != std::string::npos);
+        EXPECT_TRUE(candidate < create);
+        EXPECT_TRUE(create < publish);
+        EXPECT_TRUE(resize.find("m_HdrRt.Reset()") == std::string::npos);
+        EXPECT_TRUE(reset_taa > publish);
+        EXPECT_TRUE(reset_exposure > publish);
+    }
+
+    const std::size_t retry_begin =
+        legacy.find("const auto resize = m_Post.Resize(width, height);");
+    const std::size_t retry_end =
+        legacy.find("m_FrameWidth = width;", retry_begin);
+    EXPECT_TRUE(retry_begin != std::string::npos);
+    EXPECT_TRUE(retry_end != std::string::npos);
+    if (retry_begin != std::string::npos &&
+        retry_end != std::string::npos) {
+        const std::string failure_path =
+            legacy.substr(retry_begin, retry_end - retry_begin);
+        EXPECT_TRUE(failure_path.find("m_Post.Shutdown()") ==
+                    std::string::npos);
+        EXPECT_TRUE(failure_path.find(
+            "m_PostGpuState = EShaderGpuState::Failed") ==
+            std::string::npos);
+    }
+}
+
+ACS_TEST(PostEffects, PbrBaseStartupCandidateIsThreadedAndInstrumented)
+{
+    const std::string pbr_header =
+        ReadWorkspaceSource("src/render/PbrShader.h");
+    const std::string pbr =
+        ReadWorkspaceSource("src/render/PbrShader.cpp");
+    const std::string legacy =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string legacy_header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string dx12 =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Device.cpp");
+
+    EXPECT_TRUE(pbr_header.find(
+        "bool include_subsurface_mrt = true") != std::string::npos);
+    EXPECT_TRUE(pbr_header.find(
+        "BuildInitializedCandidateForRawDx12(") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "FPbrShader::CompileShadersCpu(bool include_subsurface_mrt)") !=
+        std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "if (include_subsurface_mrt)") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "constant_buffers=%.3f ms") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "fallback_textures=%.3f ms") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "fallback_resources=%.3f ms") != std::string::npos);
+    EXPECT_TRUE(pbr.find("base_pso=%.3f ms") != std::string::npos);
+    EXPECT_TRUE(pbr.find("mrt_pso=%.3f ms") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "FPbrShader::BuildInitializedCandidateForRawDx12(") !=
+        std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "return InitWithCompiledShadersInternal(") != std::string::npos);
+
+    // Legacy always publishes the base renderer first. SSS material scenes
+    // are detected by the unified per-frame feature scan and then upgrade the
+    // inactive PBR slot without making the base renderer non-ready.
+    EXPECT_TRUE(legacy.find(
+        "FPbrShader::CompileShadersCpu(false)") != std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "device, false);") != std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "ScanSceneRenderFeatures(") != std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "scene_features.needs_subsurface_mrt") != std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "FPbrShader::CompileShadersCpu(true)") != std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "m_HdrSsssGpuState") != std::string::npos);
+    EXPECT_TRUE(legacy_header.find(
+        "FPbrShader m_HdrShaders[2]") != std::string::npos);
+
+    const std::size_t worker_begin = legacy.find(
+        "void FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(");
+    const std::size_t worker_end = legacy.find(
+        "void FLegacyScene3DAdapter::PostCpuCompileWorkerEntry(",
+        worker_begin);
+    EXPECT_TRUE(worker_begin != std::string::npos);
+    EXPECT_TRUE(worker_end != std::string::npos);
+    if (worker_begin != std::string::npos &&
+        worker_end != std::string::npos) {
+        const std::string worker =
+            legacy.substr(worker_begin, worker_end - worker_begin);
+        const std::size_t compile =
+            worker.find("FPbrShader::CompileShadersCpu(false)");
+        const std::size_t build =
+            worker.find(".BuildInitializedCandidateForRawDx12(");
+        const std::size_t payload_publish =
+            worker.find("m_HdrPendingIsInitialized = succeeded;");
+        const std::size_t release_publish =
+            worker.find("m_HdrCompileWorkerState.store(");
+        EXPECT_TRUE(compile != std::string::npos);
+        EXPECT_TRUE(build != std::string::npos);
+        EXPECT_TRUE(payload_publish != std::string::npos);
+        EXPECT_TRUE(release_publish != std::string::npos);
+        EXPECT_TRUE(compile < build);
+        EXPECT_TRUE(build < payload_publish);
+        EXPECT_TRUE(payload_publish < release_publish);
+    }
+
+    const std::size_t advance_begin = legacy.find(
+        "void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(");
+    const std::size_t advance_end = legacy.find(
+        "void FLegacyScene3DAdapter::AdvancePostInitialization(",
+        advance_begin);
+    EXPECT_TRUE(advance_begin != std::string::npos);
+    EXPECT_TRUE(advance_end != std::string::npos);
+    if (advance_begin != std::string::npos &&
+        advance_end != std::string::npos) {
+        const std::string advance =
+            legacy.substr(advance_begin, advance_end - advance_begin);
+        const std::size_t acquire =
+            advance.find("std::memory_order_acquire");
+        const std::size_t join =
+            advance.find("m_HdrCompileWorker.Join();", acquire);
+        const std::size_t claim =
+            advance.find("TryClaimGpuCommit(", join);
+        const std::size_t raw_flip =
+            advance.find("m_HdrActiveSlot = m_HdrPendingSlot;", claim);
+        const std::size_t diligent_candidate =
+            advance.find("FPbrShader& candidate", raw_flip);
+        const std::size_t diligent_init =
+            advance.find("candidate.InitWithCompiledShaders(",
+                         diligent_candidate);
+        const std::size_t diligent_flip =
+            advance.find("m_HdrActiveSlot = m_HdrPendingSlot;",
+                         diligent_init);
+        EXPECT_TRUE(acquire != std::string::npos);
+        EXPECT_TRUE(join != std::string::npos);
+        EXPECT_TRUE(claim != std::string::npos);
+        EXPECT_TRUE(raw_flip != std::string::npos);
+        EXPECT_TRUE(diligent_candidate != std::string::npos);
+        EXPECT_TRUE(diligent_init != std::string::npos);
+        EXPECT_TRUE(diligent_flip != std::string::npos);
+        EXPECT_TRUE(acquire < join);
+        EXPECT_TRUE(join < claim);
+        EXPECT_TRUE(claim < raw_flip);
+        EXPECT_TRUE(raw_flip < diligent_candidate);
+        EXPECT_TRUE(diligent_candidate < diligent_init);
+        EXPECT_TRUE(diligent_init < diligent_flip);
+    }
+
+    const std::size_t release_begin = legacy.find(
+        "void FLegacyScene3DAdapter::ReleaseGpu()");
+    const std::size_t release_end = legacy.find(
+        "void FLegacyScene3DAdapter::JoinCpuCompileWorkers()",
+        release_begin);
+    EXPECT_TRUE(release_begin != std::string::npos);
+    EXPECT_TRUE(release_end != std::string::npos);
+    if (release_begin != std::string::npos &&
+        release_end != std::string::npos) {
+        const std::string release =
+            legacy.substr(release_begin, release_end - release_begin);
+        EXPECT_TRUE(release.find("m_HdrShaders[0].Shutdown();") !=
+                    std::string::npos);
+        EXPECT_TRUE(release.find("m_HdrShaders[1].Shutdown();") !=
+                    std::string::npos);
+    }
+
+    const std::size_t exit_begin = legacy.find(
+        "void FLegacyScene3DAdapter::OnExit()");
+    const std::size_t exit_end = legacy.find(
+        "void FLegacyScene3DAdapter::OnUpdate(", exit_begin);
+    EXPECT_TRUE(exit_begin != std::string::npos);
+    EXPECT_TRUE(exit_end != std::string::npos);
+    if (exit_begin != std::string::npos &&
+        exit_end != std::string::npos) {
+        const std::string exit =
+            legacy.substr(exit_begin, exit_end - exit_begin);
+        EXPECT_TRUE(exit.find("DrainAndReleaseGpu();") !=
+                    std::string::npos);
+    }
+
+    const std::size_t drain_begin = legacy.find(
+        "void FLegacyScene3DAdapter::DrainAndReleaseGpu()");
+    const std::size_t drain_end = legacy.find(
+        "void FLegacyScene3DAdapter::ReleaseGpu()", drain_begin);
+    EXPECT_TRUE(drain_begin != std::string::npos);
+    EXPECT_TRUE(drain_end != std::string::npos);
+    if (drain_begin != std::string::npos &&
+        drain_end != std::string::npos) {
+        const std::string drain =
+            legacy.substr(drain_begin, drain_end - drain_begin);
+        const std::size_t join =
+            drain.find("JoinCpuCompileWorkers();");
+        const std::size_t wait = drain.find("device->WaitIdle();", join);
+        const std::size_t release = drain.find("ReleaseGpu();", wait);
+        EXPECT_TRUE(join != std::string::npos);
+        EXPECT_TRUE(wait != std::string::npos);
+        EXPECT_TRUE(release != std::string::npos);
+        EXPECT_TRUE(join < wait);
+        EXPECT_TRUE(wait < release);
+    }
+
+    const auto reload_drains_before_parse = [&legacy](
+        const char* begin_name,
+        const char* end_name,
+        const char* parse_call) {
+        const std::size_t begin = legacy.find(begin_name);
+        const std::size_t end = legacy.find(end_name, begin);
+        if (begin == std::string::npos || end == std::string::npos)
+            return false;
+        const std::string reload = legacy.substr(begin, end - begin);
+        const std::size_t drain =
+            reload.find("DrainAndReleaseGpu();");
+        const std::size_t parse = reload.find(parse_call, drain);
+        return drain != std::string::npos &&
+               parse != std::string::npos &&
+               drain < parse;
+    };
+    EXPECT_TRUE(reload_drains_before_parse(
+        "FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(",
+        "FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(",
+        "TryLoadScene3DFile("));
+    EXPECT_TRUE(reload_drains_before_parse(
+        "FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(",
+        "void FLegacyScene3DAdapter::FrameScene(",
+        "TryLoadScene3DAssetPack("));
+
+    const std::size_t feature_scan_begin =
+        legacy.find("FSceneRenderFeatures ScanSceneRenderFeatures(");
+    const std::size_t feature_scan_end =
+        legacy.find("} // namespace", feature_scan_begin);
+    EXPECT_TRUE(feature_scan_begin != std::string::npos);
+    EXPECT_TRUE(feature_scan_end != std::string::npos);
+    if (feature_scan_begin != std::string::npos &&
+        feature_scan_end != std::string::npos) {
+        const std::string feature_scan =
+            legacy.substr(feature_scan_begin,
+                          feature_scan_end - feature_scan_begin);
+        const std::size_t active =
+            feature_scan.find("if (!IsEffectivelyActive(*node)) continue;");
+        const std::size_t children =
+            feature_scan.find("node->ChildCount()");
+        EXPECT_TRUE(active != std::string::npos);
+        EXPECT_TRUE(children != std::string::npos);
+        EXPECT_TRUE(active < children);
+        EXPECT_TRUE(feature_scan.find("FindWater(*node)") !=
+                    std::string::npos);
+        EXPECT_TRUE(feature_scan.find(
+            "SubstrateNeedsSubsurfaceMrt(material)") !=
+                    std::string::npos);
+    }
+
+    // Raw-DX12 descriptor handle math may execute concurrently with slot
+    // allocation. It must validate against immutable heap capacity, never an
+    // unlocked mutable high-water counter.
+    const auto handle_uses_capacity = [&dx12](
+        const char* begin_name,
+        const char* end_name,
+        const char* capacity_name) {
+        const std::size_t begin = dx12.find(begin_name);
+        const std::size_t end = dx12.find(end_name, begin);
+        if (begin == std::string::npos || end == std::string::npos)
+            return false;
+        const std::string accessor = dx12.substr(begin, end - begin);
+        return accessor.find(capacity_name) != std::string::npos &&
+               accessor.find("HighWater") == std::string::npos;
+    };
+    EXPECT_TRUE(legacy.find(
+        ".BuildInitializedCandidateForRawDx12(") != std::string::npos);
+    EXPECT_TRUE(handle_uses_capacity(
+        "FDx12Device::SrvCpuHandle(",
+        "FDx12Device::SrvGpuHandle(", "kSrvCapacity"));
+    EXPECT_TRUE(handle_uses_capacity(
+        "FDx12Device::SrvGpuHandle(",
+        "FDx12Device::AllocateDsvSlot(", "kSrvCapacity"));
+    EXPECT_TRUE(handle_uses_capacity(
+        "FDx12Device::DsvCpuHandle(",
+        "FDx12Device::AllocateRtvSlot(", "kDsvCapacity"));
+    EXPECT_TRUE(handle_uses_capacity(
+        "FDx12Device::RtvCpuHandle(",
+        "FDx12Device::Init(", "kRtvCapacity"));
+}
+
 ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 {
     // The Diligent allocator adapter intentionally refuses to create a device
@@ -679,7 +1221,59 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     IRhiDevice& device = *device_result.Value();
 
     FPostProcess post;
-    EXPECT_TRUE(post.Init(device, 64, 64, EFormat::B8G8R8A8_UNorm).IsOk());
+    if (device.SupportsAsyncShaderCompilation()) {
+        auto compiled =
+            FPostProcess::BeginCompileShadersAsync(device);
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::seconds(30);
+            EShaderStatus status = compiled.Value().Status();
+            while (status == EShaderStatus::Compiling &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(1));
+                status = compiled.Value().Status();
+            }
+            EXPECT_EQ(status, EShaderStatus::Ready);
+            if (status == EShaderStatus::Ready) {
+                EXPECT_TRUE(
+                    post.InitWithCompiledShaders(
+                            device, Move(compiled.Value()), 64, 64,
+                            EFormat::B8G8R8A8_UNorm)
+                        .IsOk());
+            }
+        }
+    } else {
+#if !WITH_RENDER_DILIGENT
+        auto compiled = FPostProcess::CompileShadersCpu();
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            EXPECT_EQ(compiled.Value().Status(), EShaderStatus::Ready);
+            EXPECT_TRUE(
+                post.InitWithCompiledShaders(
+                        device, Move(compiled.Value()), 64, 64,
+                        EFormat::B8G8R8A8_UNorm)
+                    .IsOk());
+        }
+#else
+        EXPECT_TRUE(
+            post.Init(device, 64, 64, EFormat::B8G8R8A8_UNorm).IsOk());
+#endif
+    }
+    EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
+    IRhiTexture* const first_hdr = post.HdrRenderTarget();
+    FPostProcess::FCompiledShaders incomplete_post{};
+    EXPECT_EQ(incomplete_post.Status(), EShaderStatus::Failed);
+    EXPECT_TRUE(
+        post.InitWithCompiledShaders(
+                device, Move(incomplete_post), 32, 32,
+                EFormat::B8G8R8A8_UNorm)
+            .IsErr());
+    EXPECT_TRUE(post.HdrRenderTarget() == first_hdr);
+
+    // The original synchronous API shares the same owner-thread commit route.
     EXPECT_TRUE(post.Init(device, 0, 0, EFormat::B8G8R8A8_UNorm).IsOk());
     EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
     if (post.HdrRenderTarget()) {
@@ -692,8 +1286,127 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_EQ(post.HdrRenderTarget()->Width(), 1u);
         EXPECT_EQ(post.HdrRenderTarget()->Height(), 1u);
     }
+    IRhiTexture* const stable_hdr = post.HdrRenderTarget();
+    const auto rejected_resize = post.Resize(65535u, 65535u);
+    EXPECT_TRUE(rejected_resize.IsErr());
+    EXPECT_TRUE(post.HdrRenderTarget() == stable_hdr);
+    if (post.HdrRenderTarget()) {
+        EXPECT_EQ(post.HdrRenderTarget()->Width(), 1u);
+        EXPECT_EQ(post.HdrRenderTarget()->Height(), 1u);
+    }
+    // A failed candidate allocation leaves the live stack retryable.
+    EXPECT_TRUE(post.Resize(96u, 48u).IsOk());
+    EXPECT_TRUE(post.HdrRenderTarget() != nullptr);
+    if (post.HdrRenderTarget()) {
+        EXPECT_EQ(post.HdrRenderTarget()->Width(), 96u);
+        EXPECT_EQ(post.HdrRenderTarget()->Height(), 48u);
+    }
+
+    FBlit blit;
+    if (device.SupportsAsyncShaderCompilation()) {
+        auto compiled = FBlit::BeginCompileShadersAsync(device);
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::seconds(15);
+            EShaderStatus status = compiled.Value().Status();
+            while (status == EShaderStatus::Compiling &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(1));
+                status = compiled.Value().Status();
+            }
+            EXPECT_EQ(status, EShaderStatus::Ready);
+            if (status == EShaderStatus::Ready) {
+                EXPECT_TRUE(
+                    blit.InitWithCompiledShaders(
+                            device, Move(compiled.Value()),
+                            EFormat::R16G16B16A16_Float)
+                        .IsOk());
+            }
+        }
+    } else {
+#if !WITH_RENDER_DILIGENT
+        auto compiled = FBlit::CompileShadersCpu();
+        EXPECT_TRUE(compiled.IsOk());
+        if (compiled.IsOk()) {
+            EXPECT_EQ(compiled.Value().Status(), EShaderStatus::Ready);
+            EXPECT_TRUE(
+                blit.InitWithCompiledShaders(
+                        device, Move(compiled.Value()),
+                        EFormat::R16G16B16A16_Float)
+                    .IsOk());
+        }
+#else
+        EXPECT_TRUE(
+            blit.Init(device, EFormat::R16G16B16A16_Float).IsOk());
+#endif
+    }
+    EXPECT_TRUE(blit.Pipeline() != nullptr);
+    IRhiPipeline* const valid_blit = blit.Pipeline();
+    FBlit::FCompiledShaders incomplete_blit{};
+    EXPECT_EQ(incomplete_blit.Status(), EShaderStatus::Failed);
+    EXPECT_TRUE(
+        blit.InitWithCompiledShaders(
+                device, Move(incomplete_blit),
+                EFormat::R16G16B16A16_Float)
+            .IsErr());
+    EXPECT_TRUE(blit.Pipeline() == valid_blit);
 
     FSsao ssao;
+    if (device.SupportsAsyncShaderCompilation()) {
+        auto compiled_result =
+            FSsao::BeginCompileShadersAsync(device);
+        EXPECT_TRUE(compiled_result.IsOk());
+        if (compiled_result.IsOk()) {
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::seconds(15);
+            EShaderStatus status =
+                compiled_result.Value().Status();
+            while (status == EShaderStatus::Compiling &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(1));
+                status = compiled_result.Value().Status();
+            }
+            EXPECT_EQ(status, EShaderStatus::Ready);
+            if (status == EShaderStatus::Ready) {
+                EXPECT_TRUE(
+                    ssao.InitWithCompiledShaders(
+                        device,
+                        Move(compiled_result.Value()),
+                        64,
+                        64)
+                        .IsOk());
+            }
+        }
+    } else {
+        EXPECT_TRUE(ssao.Init(device, 64, 64).IsOk());
+    }
+    EXPECT_TRUE(ssao.OutputTexture() != nullptr);
+    if (ssao.OutputTexture() != nullptr) {
+        EXPECT_EQ(ssao.OutputTexture()->Width(), 64u);
+        EXPECT_EQ(ssao.OutputTexture()->Height(), 64u);
+        EXPECT_TRUE(ssao.Resize(96, 48).IsOk());
+        EXPECT_EQ(ssao.OutputTexture()->Width(), 96u);
+        EXPECT_EQ(ssao.OutputTexture()->Height(), 48u);
+
+        IRhiTexture* const valid_output = ssao.OutputTexture();
+        FSsao::FCompiledShaders incomplete{};
+        EXPECT_EQ(incomplete.Status(), EShaderStatus::Failed);
+        EXPECT_TRUE(
+            ssao.InitWithCompiledShaders(
+                    device, Move(incomplete), 32, 32)
+                .IsErr());
+        EXPECT_TRUE(ssao.OutputTexture() == valid_output);
+    }
+    ssao.Shutdown();
+    EXPECT_TRUE(ssao.OutputTexture() == nullptr);
+    EXPECT_TRUE(ssao.Resize(64, 64).IsErr());
+    // Non-async and unsupported backends retain the original synchronous path;
+    // exercise it even when this device also supported the startup fast path.
     EXPECT_TRUE(ssao.Init(device, 64, 64).IsOk());
 
     FSsgi ssgi;
@@ -746,6 +1459,101 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     EXPECT_TRUE(water.Init(device, EFormat::R16G16B16A16_Float,
                            EFormat::D32_Float).IsOk());
 
+    // Compile and execute the real two-pass SSSS path on the active backend.
+    // This prevents the module from degrading into an unreferenced API whose
+    // embedded HLSL is never validated.
+    FSubsurfaceScattering subsurface;
+    const auto subsurface_result = subsurface.Init(device, 64, 64);
+    EXPECT_TRUE(subsurface_result.IsOk());
+    if (subsurface_result.IsOk()) {
+        EXPECT_TRUE(subsurface.IsReady());
+        EXPECT_TRUE(subsurface.OutputTexture() != nullptr);
+        EXPECT_TRUE(subsurface.HorizontalTexture() != nullptr);
+        EXPECT_TRUE(subsurface.Resize(96, 48).IsOk());
+        EXPECT_EQ(subsurface.Width(), 96u);
+        EXPECT_EQ(subsurface.Height(), 48u);
+        EXPECT_TRUE(subsurface.Resize(64, 64).IsOk());
+
+        FTextureDesc hdr_desc{};
+        hdr_desc.width = 64;
+        hdr_desc.height = 64;
+        hdr_desc.format = EFormat::R16G16B16A16_Float;
+        hdr_desc.is_render_target = true;
+        auto scene_result = CreateRhiTexture(device, hdr_desc);
+        auto diffuse_result = CreateRhiTexture(device, hdr_desc);
+        auto normal_result = CreateRhiTexture(device, hdr_desc);
+
+        FTextureDesc material_desc = hdr_desc;
+        material_desc.format = EFormat::R16G16B16A16_Float;
+        auto material_result = CreateRhiTexture(device, material_desc);
+
+        FTextureDesc depth_desc{};
+        depth_desc.width = 64;
+        depth_desc.height = 64;
+        depth_desc.format = EFormat::D32_Float;
+        depth_desc.is_depth_target = true;
+        depth_desc.shader_visible_depth = true;
+        auto depth_result = CreateRhiTexture(device, depth_desc);
+        auto command_result = CreateRhiCommandList(device);
+
+        EXPECT_TRUE(scene_result.IsOk());
+        EXPECT_TRUE(diffuse_result.IsOk());
+        EXPECT_TRUE(normal_result.IsOk());
+        EXPECT_TRUE(material_result.IsOk());
+        EXPECT_TRUE(depth_result.IsOk());
+        EXPECT_TRUE(command_result.IsOk());
+        if (scene_result.IsOk() && diffuse_result.IsOk() &&
+            normal_result.IsOk() && material_result.IsOk() &&
+            depth_result.IsOk() && command_result.IsOk()) {
+            auto scene = Move(scene_result.Value());
+            auto diffuse = Move(diffuse_result.Value());
+            auto normal = Move(normal_result.Value());
+            auto material = Move(material_result.Value());
+            auto depth = Move(depth_result.Value());
+            auto command = Move(command_result.Value());
+
+            command->Begin();
+            command->BeginRenderToTexture(
+                *scene, FClearColor{0.35f, 0.20f, 0.12f, 1.0f});
+            command->EndRenderToTexture(*scene);
+            command->BeginRenderToTexture(
+                *diffuse, FClearColor{0.25f, 0.12f, 0.07f, 1.0f});
+            command->EndRenderToTexture(*diffuse);
+            command->BeginRenderToTexture(
+                *normal, FClearColor{0.0f, 0.0f, 1.0f, 1.0f});
+            command->EndRenderToTexture(*normal);
+            command->BeginRenderToTexture(
+                *material, FClearColor{0.02f, 0.01f, 0.005f, 1.0f});
+            command->EndRenderToTexture(*material);
+            command->BeginShadowPass(*depth, 0.5f);
+            command->EndShadowPass(*depth);
+
+            FSubsurfaceScatteringParams subsurface_params{};
+            subsurface_params.radius_world = 0.02f;
+            EXPECT_TRUE(subsurface.Render(
+                *command, *scene, *diffuse, *depth, *normal, *material,
+                FMat4::Identity(), subsurface_params));
+            command->End();
+            command->Submit();
+            device.WaitIdle();
+
+            u16 output_pixels[64 * 64 * 4]{};
+            const bool output_read = device.ReadTexture(
+                *subsurface.OutputTexture(), output_pixels,
+                static_cast<u32>(sizeof(output_pixels)));
+            EXPECT_TRUE(output_read);
+            if (output_read) {
+                constexpr usize center =
+                    (32u * 64u + 32u) * 4u;
+                EXPECT_TRUE(output_pixels[center + 0u] != 0u);
+                EXPECT_TRUE(output_pixels[center + 1u] != 0u);
+                EXPECT_TRUE(output_pixels[center + 2u] != 0u);
+                EXPECT_EQ(output_pixels[center + 3u],
+                          static_cast<u16>(0x3C00u));
+            }
+        }
+    }
+
     FStandardShader standard;
     const auto standard_result =
         standard.Init(device, EFormat::R16G16B16A16_Float, EFormat::D32_Float);
@@ -796,29 +1604,1222 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_TRUE(skinned.SetBonePalette(nullptr, 0));
     }
 
+    // Runtime startup remains base-only even though Legacy can now lazily
+    // upgrade an SSS material scene. Raw DX12 constructs the complete
+    // unpublished base candidate on a worker; joining before inspection
+    // mirrors the runtime publication edge without opening a window.
+    FPbrShader base_only_pbr;
+    bool base_only_ready = false;
+#if !WITH_RENDER_DILIGENT
+    std::atomic<bool> background_ready{false};
+    std::thread pbr_candidate_worker([&]() noexcept {
+        auto shaders = FPbrShader::CompileShadersCpu(false);
+        if (shaders.IsErr()) return;
+        const auto initialized =
+            base_only_pbr.BuildInitializedCandidateForRawDx12(
+                device, Move(shaders.Value()),
+                EFormat::R16G16B16A16_Float,
+                EFormat::D32_Float, ECullMode::None);
+        background_ready.store(
+            initialized.IsOk(), std::memory_order_release);
+    });
+    pbr_candidate_worker.join();
+    base_only_ready =
+        background_ready.load(std::memory_order_acquire);
+#else
+    base_only_ready = base_only_pbr.Init(
+        device, EFormat::R16G16B16A16_Float,
+        EFormat::D32_Float, ECullMode::None, false).IsOk();
+#endif
+    EXPECT_TRUE(base_only_ready);
+    if (base_only_ready)
+        EXPECT_TRUE(!base_only_pbr.HasSubsurfaceMrtPipeline());
+    base_only_pbr.Shutdown();
+
     FPbrShader pbr;
     const auto pbr_result = pbr.Init(device, EFormat::R16G16B16A16_Float,
-                                     EFormat::D32_Float);
+                                     EFormat::D32_Float,
+                                     ECullMode::None);
     EXPECT_TRUE(pbr_result.IsOk());
     if (pbr_result.IsOk()) {
-        pbr.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
-                      nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
-        // Manual render paths bind slot 0 before the first SetObject, so reset
-        // keeps a valid compatibility pointer without consuming that slot.
-        EXPECT_TRUE(pbr.PerObjectCB() != nullptr);
-        for (u32 i = 0; i < 256; ++i) {
-            pbr.SetObject(FMat4::Identity());
-            EXPECT_TRUE(pbr.PerObjectCB() != nullptr);
+        // Compile, bind and execute the optional four-target shader/PSO, not
+        // merely its single-target sibling. RT2 proves the material profile;
+        // RT3 proves the final normal after PBR normal mapping is exported.
+        EXPECT_TRUE(pbr.HasSubsurfaceMrtPipeline());
+        FMeshAsset triangle;
+        triangle.Vertices().PushBack(FMeshVertex{
+            FVec3{-0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 0, 1});
+        triangle.Vertices().PushBack(FMeshVertex{
+            FVec3{0.0f, 0.8f, 0.5f}, FVec3{0, 0, 1}, 0.5f, 0});
+        triangle.Vertices().PushBack(FMeshVertex{
+            FVec3{0.8f, -0.8f, 0.5f}, FVec3{0, 0, 1}, 1, 1});
+        triangle.Indices().PushBack(0);
+        triangle.Indices().PushBack(1);
+        triangle.Indices().PushBack(2);
+        FGpuMesh gpu_triangle{};
+        const auto mesh_result =
+            UploadMesh(device, triangle, gpu_triangle);
+        EXPECT_TRUE(mesh_result.IsOk());
+
+        FTextureDesc hdr_description{};
+        hdr_description.width = 64;
+        hdr_description.height = 64;
+        hdr_description.format = EFormat::R16G16B16A16_Float;
+        hdr_description.is_render_target = true;
+        auto mrt_scene = CreateRhiTexture(device, hdr_description);
+        auto mrt_diffuse = CreateRhiTexture(device, hdr_description);
+        FTextureDesc mask_description = hdr_description;
+        mask_description.format = EFormat::R16G16B16A16_Float;
+        auto mrt_mask = CreateRhiTexture(device, mask_description);
+        auto mrt_normal = CreateRhiTexture(device, hdr_description);
+        FTextureDesc mrt_depth_description{};
+        mrt_depth_description.width = 64;
+        mrt_depth_description.height = 64;
+        mrt_depth_description.format = EFormat::D32_Float;
+        mrt_depth_description.is_depth_target = true;
+        auto mrt_depth =
+            CreateRhiTexture(device, mrt_depth_description);
+        auto mrt_command = CreateRhiCommandList(device);
+        EXPECT_TRUE(mrt_scene.IsOk());
+        EXPECT_TRUE(mrt_diffuse.IsOk());
+        EXPECT_TRUE(mrt_mask.IsOk());
+        EXPECT_TRUE(mrt_normal.IsOk());
+        EXPECT_TRUE(mrt_depth.IsOk());
+        EXPECT_TRUE(mrt_command.IsOk());
+        if (pbr.HasSubsurfaceMrtPipeline() &&
+            mesh_result.IsOk() && mrt_scene.IsOk() &&
+            mrt_diffuse.IsOk() && mrt_mask.IsOk() &&
+            mrt_normal.IsOk() &&
+            mrt_depth.IsOk() && mrt_command.IsOk()) {
+            FDirLight light{};
+            light.direction = FVec3{0, 0, 1};
+            light.color = FVec3{1.5f, 1.5f, 1.5f};
+            pbr.SetIbl(nullptr, nullptr, nullptr, 0);
+            pbr.SetShadowMap(nullptr, FMat4::Identity());
+            pbr.SetSsao(nullptr, 0.0f, 64, 64);
+
+            auto command = Move(mrt_command.Value());
+            IRhiTexture* targets[4] = {
+                mrt_scene.Value().Get(),
+                mrt_diffuse.Value().Get(),
+                mrt_mask.Value().Get(),
+                mrt_normal.Value().Get()
+            };
+            auto render_material_profile =
+                [&](u16 (&center_profile)[4]) noexcept {
+                    if (!pbr.BeginFrame(1u)) return false;
+                    pbr.SetLights(
+                        FMat4::Identity(), FVec3{0, 0, 2},
+                        &light, 1, FVec3{0.2f, 0.2f, 0.2f});
+                    command->Begin();
+                    const bool mrt_bound =
+                        command->BeginRenderToTextureMrt(
+                            targets, 4u, FClearColor{0, 0, 0, 0},
+                            mrt_depth.Value().Get(), 1.0f);
+                    EXPECT_TRUE(mrt_bound);
+                    if (!mrt_bound) {
+                        command->End();
+                        return false;
+                    }
+                    const bool drew = pbr.DrawMeshSubsurfaceMrt(
+                        *command, gpu_triangle, FMat4::Identity(),
+                        FVec3{0.85f, 0.20f, 0.10f},
+                        0.0f, 0.5f, 1.0f);
+                    command->EndRenderToTextureMrt(targets, 4u);
+                    command->End();
+                    command->Submit();
+                    device.WaitIdle();
+
+                    u16 material_pixels[64 * 64 * 4]{};
+                    const bool read = device.ReadTexture(
+                        *mrt_mask.Value(), material_pixels,
+                        static_cast<u32>(sizeof(material_pixels)));
+                    u16 normal_pixels[64 * 64 * 4]{};
+                    const bool normal_read = device.ReadTexture(
+                        *mrt_normal.Value(), normal_pixels,
+                        static_cast<u32>(sizeof(normal_pixels)));
+                    if (read) {
+                        constexpr usize center =
+                            (32u * 64u + 32u) * 4u;
+                        for (u32 channel = 0u; channel < 4u; ++channel) {
+                            center_profile[channel] =
+                                material_pixels[center + channel];
+                        }
+                    }
+                    if (normal_read) {
+                        constexpr usize center =
+                            (32u * 64u + 32u) * 4u;
+                        EXPECT_EQ(normal_pixels[center + 0u],
+                                  static_cast<u16>(0u));
+                        EXPECT_EQ(normal_pixels[center + 1u],
+                                  static_cast<u16>(0u));
+                        EXPECT_EQ(normal_pixels[center + 2u],
+                                  static_cast<u16>(0x3C00u));
+                        EXPECT_EQ(normal_pixels[center + 3u],
+                                  static_cast<u16>(0x3C00u));
+                    }
+                    EXPECT_TRUE(drew);
+                    EXPECT_TRUE(read);
+                    EXPECT_TRUE(normal_read);
+                    return drew && read && normal_read;
+                };
+
+            // Legacy authoring: RGB radii are color * scalar centimetres
+            // converted to scene metres; A is the independent coverage.
+            u16 legacy_profile_a[4]{};
+            pbr.ClearSubstrateSurface();
+            pbr.SetSubsurface(
+                FVec3{1.0f, 0.45f, 0.20f}, 1.0f);
+            const bool legacy_a_ok =
+                render_material_profile(legacy_profile_a);
+            if (legacy_a_ok) {
+                EXPECT_TRUE(legacy_profile_a[0] >
+                            legacy_profile_a[1]);
+                EXPECT_TRUE(legacy_profile_a[1] >
+                            legacy_profile_a[2]);
+                EXPECT_EQ(legacy_profile_a[3],
+                          static_cast<u16>(0x3C00u));
+            }
+
+            u16 legacy_profile_b[4]{};
+            pbr.ClearSubstrateSurface();
+            pbr.SetSubsurface(
+                FVec3{0.10f, 1.0f, 0.80f}, 0.60f);
+            const bool legacy_b_ok =
+                render_material_profile(legacy_profile_b);
+            if (legacy_a_ok && legacy_b_ok) {
+                EXPECT_TRUE(legacy_profile_b[0] <
+                            legacy_profile_a[0]);
+                EXPECT_TRUE(legacy_profile_b[1] >
+                            legacy_profile_a[1]);
+                EXPECT_TRUE(legacy_profile_b[2] >
+                            legacy_profile_a[2]);
+                EXPECT_TRUE(legacy_profile_b[3] <
+                            legacy_profile_a[3]);
+            }
+
+            // Substrate authoring preserves each MFP channel and thickness
+            // response rather than collapsing RGB to max(MFP).
+            FSubstrateResolvedSurface substrate_a{};
+            substrate_a.diffuse_albedo =
+                FVec3{0.75f, 0.30f, 0.18f};
+            substrate_a.mean_free_path_cm =
+                FVec3{2.0f, 0.60f, 0.15f};
+            substrate_a.thickness_cm = 0.03f;
+            pbr.SetSubstrateSurface(substrate_a);
+            u16 substrate_profile_a[4]{};
+            const bool substrate_a_ok =
+                render_material_profile(substrate_profile_a);
+            if (substrate_a_ok) {
+                EXPECT_TRUE(substrate_profile_a[0] >
+                            substrate_profile_a[1]);
+                EXPECT_TRUE(substrate_profile_a[1] >
+                            substrate_profile_a[2]);
+                EXPECT_EQ(substrate_profile_a[3],
+                          static_cast<u16>(0x3A00u));
+            }
+
+            FSubstrateResolvedSurface substrate_b = substrate_a;
+            substrate_b.mean_free_path_cm =
+                FVec3{0.25f, 1.40f, 0.05f};
+            substrate_b.thickness_cm = 0.005f;
+            pbr.SetSubstrateSurface(substrate_b);
+            u16 substrate_profile_b[4]{};
+            const bool substrate_b_ok =
+                render_material_profile(substrate_profile_b);
+            if (substrate_a_ok && substrate_b_ok) {
+                EXPECT_TRUE(substrate_profile_b[0] <
+                            substrate_profile_a[0]);
+                EXPECT_TRUE(substrate_profile_b[1] >
+                            substrate_profile_a[1]);
+                EXPECT_TRUE(substrate_profile_b[2] <
+                            substrate_profile_a[2]);
+                EXPECT_TRUE(substrate_profile_b[3] <
+                            substrate_profile_a[3]);
+            }
         }
 
-        // Never wrap to slot zero: that would overwrite a recorded Raw DX12 draw.
-        pbr.SetObject(FMat4::Identity());
-        EXPECT_TRUE(pbr.PerObjectCB() == nullptr);
+        // Regression: the former fixed 256-entry ring made every visible PBR
+        // object after #256 disappear. Exercise 512 ordinary draws and 300 MRT
+        // draws through real command lists on both Raw DX12 and Diligent.
+        auto large_draw_command_result = CreateRhiCommandList(device);
+        EXPECT_TRUE(large_draw_command_result.IsOk());
+        if (mesh_result.IsOk() && mrt_scene.IsOk() &&
+            mrt_diffuse.IsOk() && mrt_mask.IsOk() &&
+            mrt_normal.IsOk() && mrt_depth.IsOk() &&
+            large_draw_command_result.IsOk()) {
+            auto large_draw_command =
+                Move(large_draw_command_result.Value());
+            EXPECT_TRUE(pbr.BeginFrame(512u));
+            EXPECT_TRUE(pbr.ObjectBufferCapacity() >= 512u);
+            pbr.SetLights(
+                FMat4::Identity(), FVec3{0.0f, 0.0f, 2.0f},
+                nullptr, 0u, FVec3{0.1f, 0.1f, 0.1f});
+            large_draw_command->Begin();
+            large_draw_command->BeginRenderToTexture(
+                *mrt_scene.Value(), FClearColor{0, 0, 0, 0},
+                mrt_depth.Value().Get(), 1.0f);
+            bool normal_draws_valid = true;
+            for (u32 draw = 0u; draw < 512u; ++draw) {
+                normal_draws_valid =
+                    pbr.DrawMesh(
+                        *large_draw_command, gpu_triangle,
+                        FMat4::Identity(),
+                        FVec3{0.4f, 0.5f, 0.6f},
+                        0.0f, 0.5f, 1.0f) &&
+                    normal_draws_valid;
+            }
+            large_draw_command->EndRenderToTexture(
+                *mrt_scene.Value());
+            large_draw_command->End();
+            large_draw_command->Submit();
+            device.WaitIdle();
+            EXPECT_TRUE(normal_draws_valid);
+            EXPECT_EQ(pbr.ObjectDrawCount(), static_cast<u32>(512u));
 
-        // SetLights is the documented frame boundary and restores the capacity.
-        pbr.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
-                      nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
-        pbr.SetObject(FMat4::Identity());
-        EXPECT_TRUE(pbr.PerObjectCB() != nullptr);
+            const u32 retained_capacity =
+                pbr.ObjectBufferCapacity();
+            EXPECT_TRUE(pbr.BeginFrame(300u));
+            EXPECT_EQ(
+                pbr.ObjectBufferCapacity(), retained_capacity);
+            EXPECT_EQ(pbr.ObjectDrawCount(), static_cast<u32>(0u));
+            pbr.SetLights(
+                FMat4::Identity(), FVec3{0.0f, 0.0f, 2.0f},
+                nullptr, 0u, FVec3{0.1f, 0.1f, 0.1f});
+            IRhiTexture* large_mrt_targets[4] = {
+                mrt_scene.Value().Get(),
+                mrt_diffuse.Value().Get(),
+                mrt_mask.Value().Get(),
+                mrt_normal.Value().Get(),
+            };
+            large_draw_command->Begin();
+            const bool large_mrt_bound =
+                large_draw_command->BeginRenderToTextureMrt(
+                    large_mrt_targets, 4u,
+                    FClearColor{0, 0, 0, 0},
+                    mrt_depth.Value().Get(), 1.0f);
+            EXPECT_TRUE(large_mrt_bound);
+            bool mrt_draws_valid = large_mrt_bound;
+            if (large_mrt_bound) {
+                for (u32 draw = 0u; draw < 300u; ++draw) {
+                    mrt_draws_valid =
+                        pbr.DrawMeshSubsurfaceMrt(
+                            *large_draw_command, gpu_triangle,
+                            FMat4::Identity(),
+                            FVec3{0.4f, 0.5f, 0.6f},
+                            0.0f, 0.5f, 1.0f) &&
+                        mrt_draws_valid;
+                }
+                large_draw_command->EndRenderToTextureMrt(
+                    large_mrt_targets, 4u);
+            }
+            large_draw_command->End();
+            large_draw_command->Submit();
+            device.WaitIdle();
+            EXPECT_TRUE(mrt_draws_valid);
+            EXPECT_EQ(
+                pbr.ObjectDrawCount(), static_cast<u32>(300u));
+            // Lighting changes inside one command-list frame must not rewind
+            // object storage referenced by the first pass.
+            pbr.SetLights(
+                FMat4::Identity(), FVec3{0.0f, 0.0f, 2.0f},
+                nullptr, 0u, FVec3{0.2f, 0.2f, 0.2f});
+            EXPECT_EQ(
+                pbr.ObjectDrawCount(), static_cast<u32>(300u));
+        }
     }
+}
+
+ACS_TEST(PostEffects,
+         PbrObjectBufferFrameBoundariesCoverProductionCallsites)
+{
+    const std::string pbr =
+        ReadWorkspaceSource("src/render/PbrShader.cpp");
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    const std::string legacy =
+        ReadWorkspaceSource(
+            "src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string hello_pbr =
+        ReadWorkspaceSource(
+            "samples/23_HelloPbr/HelloPbrApp.cpp");
+    const std::string hello_ibl =
+        ReadWorkspaceSource(
+            "samples/25_HelloIbl/HelloIblApp.cpp");
+    const std::string hello_lightmap =
+        ReadWorkspaceSource(
+            "samples/26_HelloLightmap/HelloLightmapApp.cpp");
+    const std::string hello_showcase =
+        ReadWorkspaceSource(
+            "samples/27_HelloShowcase/ShowcaseApp.cpp");
+
+    EXPECT_TRUE(!pbr.empty());
+    EXPECT_TRUE(!editor.empty());
+    EXPECT_TRUE(!legacy.empty());
+    EXPECT_TRUE(!hello_pbr.empty());
+    EXPECT_TRUE(!hello_ibl.empty());
+    EXPECT_TRUE(!hello_lightmap.empty());
+    EXPECT_TRUE(!hello_showcase.empty());
+    if (pbr.empty() || editor.empty() || legacy.empty() ||
+        hello_pbr.empty() || hello_ibl.empty() ||
+        hello_lightmap.empty() || hello_showcase.empty()) {
+        return;
+    }
+
+    const std::string set_lights =
+        ExtractFunction(pbr, "void FPbrShader::SetLights(");
+    EXPECT_TRUE(set_lights.find("m_ObjectCbCursor") ==
+                std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "bool FPbrShader::BeginFrame(u32 required_object_draws)") !=
+        std::string::npos);
+    EXPECT_TRUE(editor.find("h.pbr3d.BeginFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find("shader.BeginFrame(1u)") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find("CountPbrFrameDraws(") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "ActiveHdrShader().BeginFrame(pbr_full_required)") !=
+        std::string::npos);
+    EXPECT_TRUE(legacy.find("draw_count >= 256u") ==
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "draws_valid =\n                shader.DrawMesh(") !=
+        std::string::npos);
+
+    EXPECT_TRUE(hello_pbr.find("m_Shader.BeginFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(hello_ibl.find("m_Pbr.BeginFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(hello_lightmap.find("m_Pbr.BeginFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(hello_showcase.find("m_Assets.pbr.BeginFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(hello_lightmap.find(
+        "m_Pbr.PerObjectCB()") != std::string::npos);
+}
+
+ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
+{
+    const std::string post =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_TRUE(!post.empty());
+    if (post.empty()) return;
+
+    const std::string render =
+        ExtractFunction(post, "void FPostProcess::Render");
+    const std::string taa =
+        ExtractFunction(post, "void FPostProcess::Pass_TaaResolve");
+    const std::string exposure =
+        ExtractFunction(post, "void FPostProcess::Pass_ExposureApply");
+    const std::string luma =
+        ExtractFunction(post, "void FPostProcess::Pass_LumaReduce");
+    EXPECT_TRUE(!render.empty());
+    EXPECT_TRUE(!taa.empty());
+    EXPECT_TRUE(!exposure.empty());
+    EXPECT_TRUE(!luma.empty());
+    if (render.empty() || taa.empty() || exposure.empty() || luma.empty())
+        return;
+
+    const std::size_t meter = render.find("Pass_LumaReduce(cmd);");
+    const std::size_t adapt =
+        render.find("Pass_ExposureAdapt(cmd, safe_params);");
+    const std::size_t resolve =
+        render.find("Pass_TaaResolve(cmd, safe_params);");
+    const std::size_t expose =
+        render.find("Pass_ExposureApply(cmd, *exposure_source);");
+    const std::size_t bloom =
+        render.find("if (safe_params.bloom_enabled");
+    EXPECT_TRUE(meter != std::string::npos);
+    EXPECT_TRUE(adapt != std::string::npos);
+    EXPECT_TRUE(resolve != std::string::npos);
+    EXPECT_TRUE(expose != std::string::npos);
+    EXPECT_TRUE(bloom != std::string::npos);
+    EXPECT_TRUE(meter < adapt);
+    EXPECT_TRUE(adapt < resolve);
+    EXPECT_TRUE(resolve < expose);
+    EXPECT_TRUE(expose < bloom);
+
+    // Metering remains based on unexposed scene radiance.
+    EXPECT_TRUE(luma.find("cmd.SetTexture(0, *m_HdrRt);") !=
+                std::string::npos);
+    // Current and history samples share one scene-linear exposure domain.
+    EXPECT_TRUE(taa.find("IRhiTexture* scene = m_HdrRt.Get();") !=
+                std::string::npos);
+    EXPECT_TRUE(taa.find("SceneInput(p)") == std::string::npos);
+    // Eye adaptation is applied to the resolved image, never baked into
+    // history.
+    EXPECT_TRUE(exposure.find("cmd.SetTexture(0, source);") !=
+                std::string::npos);
+
+    const std::string scene_input =
+        ExtractFunction(
+            post,
+            "IRhiTexture* FPostProcess::SceneInput");
+    EXPECT_TRUE(!scene_input.empty());
+    EXPECT_TRUE(scene_input.find(
+        "if (p.auto_exposure_enabled && m_ExposedRt)") !=
+        std::string::npos);
+    EXPECT_TRUE(scene_input.find(
+        "if (p.taa_enabled && m_Taa[m_TaaFrame % 2])") !=
+        std::string::npos);
+}
+
+ACS_TEST(PostEffects, FxaaUsesBoundedLongEdgeSearchAndSubpixelCoverage)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/render/Fxaa.cpp");
+    const std::string shader =
+        ExtractRawShader(source, "const char* kFxaaHLSL");
+    EXPECT_TRUE(!shader.empty());
+    if (shader.empty()) return;
+
+    EXPECT_TRUE(shader.find("float edgeHorizontal") != std::string::npos);
+    EXPECT_TRUE(shader.find("float edgeVertical") != std::string::npos);
+    EXPECT_TRUE(shader.find("lN  = SampleLuma") != std::string::npos);
+    EXPECT_TRUE(shader.find("lS  = SampleLuma") != std::string::npos);
+    EXPECT_TRUE(shader.find("lW  = SampleLuma") != std::string::npos);
+    EXPECT_TRUE(shader.find("lE  = SampleLuma") != std::string::npos);
+
+    EXPECT_TRUE(shader.find("kSearchStep[12]") != std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "for (int i = 0; i < 12; ++i)") != std::string::npos);
+    EXPECT_EQ(
+        CountOccurrences(shader, "for (int i = 0; i < 12; ++i)"),
+        std::size_t{1});
+    EXPECT_TRUE(shader.find("reachedNegative && reachedPositive") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find("uvNegative -= edgeStep") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find("uvPositive += edgeStep") !=
+                std::string::npos);
+
+    EXPECT_TRUE(shader.find(
+        "return clamp(uv, px * 0.5, 1.0 - px * 0.5);") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find("max(w, 1u)") != std::string::npos);
+    EXPECT_TRUE(shader.find("max(h, 1u)") != std::string::npos);
+    EXPECT_TRUE(shader.find("subpixel * subpixel * 0.75") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "min(max(edgeOffset, subpixel), 0.5)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "return SampleColor(uv + normalStep * finalOffset, px);") !=
+        std::string::npos);
+
+    EXPECT_TRUE(shader.find("float rcpDirMin") == std::string::npos);
+    EXPECT_TRUE(shader.find("float3 rgbA") == std::string::npos);
+}
+
+ACS_TEST(PostEffects, SubsurfaceAuthoringParamsRejectUnsafeValues)
+{
+    FSubsurfaceScatteringParams params{};
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    params.radius_world = nan;
+    params.channel_radius = FVec3{-2.0f, infinity, nan};
+    params.strength = 4.0f;
+    params.depth_sigma = -10.0f;
+    params.normal_power = infinity;
+    params.max_radius_pixels = 10000.0f;
+    params.Sanitize();
+
+    EXPECT_NEAR(params.radius_world, 0.012f, 1e-6f);
+    EXPECT_NEAR(params.channel_radius.x, 0.05f, 1e-6f);
+    EXPECT_NEAR(params.channel_radius.y, 0.55f, 1e-6f);
+    EXPECT_NEAR(params.channel_radius.z, 0.25f, 1e-6f);
+    EXPECT_NEAR(params.strength, 1.0f, 1e-6f);
+    EXPECT_NEAR(params.depth_sigma, 1e-6f, 1e-9f);
+    EXPECT_NEAR(params.normal_power, 24.0f, 1e-6f);
+    EXPECT_NEAR(params.max_radius_pixels, 128.0f, 1e-6f);
+}
+
+ACS_TEST(PostEffects, SubsurfaceDiffusionIsBilateralEnergyStableAndDiffuseOnly)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/render/SubsurfaceScattering.cpp");
+    const std::string header =
+        ReadWorkspaceSource("src/render/SubsurfaceScattering.h");
+    const std::string module =
+        ReadWorkspaceSource("src/render/Module.cmake");
+    const std::string shader =
+        ExtractRawShader(
+            source, "const char* kSubsurfaceScatteringHlsl");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(!module.empty());
+    EXPECT_TRUE(!shader.empty());
+    if (source.empty() || header.empty() || module.empty() ||
+        shader.empty()) {
+        return;
+    }
+
+    EXPECT_TRUE(shader.find(
+        "Texture2D scene_depth     : register(t1)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "Texture2D normal_gbuffer  : register(t2)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "Texture2D material_data   : register(t3)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "Texture2D original_diffuse : register(t4)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "Texture2D scene_color      : register(t5)") !=
+        std::string::npos);
+
+    EXPECT_TRUE(shader.find("kOffsets[6]") != std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "for (int tap = 0; tap < 6; ++tap)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "for (int side = 0; side < 2; ++side)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find("float pixel_radius = clamp(") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find("max(profile.w, 1.0)") !=
+                std::string::npos);
+
+    EXPECT_TRUE(shader.find("float normal_weight = pow(") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find("float plane_delta = max(") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find("float depth_weight = exp2(") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "float3 center_radii = ResolveProfileRadii") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "float3 sample_radii =") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "float ProfileSimilarity(") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "float3 radial_weight =") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "sample_world_offset, pair_radii") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "saturate(center_material.a)") !=
+                std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "saturate(sample_material.a)") !=
+                std::string::npos);
+
+    EXPECT_TRUE(shader.find(
+        "accumulated / max(normalization, 1e-5)") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find(
+        "scene.rgb + (blurred - original) * mix_strength") !=
+        std::string::npos);
+    EXPECT_TRUE(shader.find("float4 PSBlur") != std::string::npos);
+    EXPECT_TRUE(shader.find("float4 PSComposite") !=
+                std::string::npos);
+
+    EXPECT_TRUE(source.find(
+        "m_HorizontalCb->Update(&horizontal") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_VerticalCb->Update(&vertical") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "command_list.SetConstantBuffer(0, *m_HorizontalCb)") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "command_list.SetConstantBuffer(0, *m_VerticalCb)") !=
+        std::string::npos);
+
+    EXPECT_TRUE(header.find(
+        "opaque lighting + SSS buffers -> FSubsurfaceScattering") !=
+        std::string::npos);
+    EXPECT_TRUE(header.find(
+        "scene-linear TAA -> exposure -> bloom -> tone map") !=
+        std::string::npos);
+    EXPECT_TRUE(module.find("SubsurfaceScattering.cpp") !=
+                std::string::npos);
+    EXPECT_TRUE(module.find("SubsurfaceScattering.h") !=
+                std::string::npos);
+}
+
+ACS_TEST(PostEffects, PbrSubsurfaceMrtIsOptionalAsyncAndOrderedBeforeAtmosphere)
+{
+    const std::string pbr =
+        ReadWorkspaceSource("src/render/PbrShader.cpp");
+    const std::string ssss =
+        ReadWorkspaceSource("src/render/SubsurfaceScattering.cpp");
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    const std::string legacy =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.cpp");
+    const std::string legacy_header =
+        ReadWorkspaceSource("src/gameframework/LegacyScene3DAdapter.h");
+    const std::string rhi =
+        ReadWorkspaceSource("src/render/IRhiCommandList.h");
+    EXPECT_TRUE(!pbr.empty());
+    EXPECT_TRUE(!ssss.empty());
+    EXPECT_TRUE(!editor.empty());
+    EXPECT_TRUE(!legacy.empty());
+    EXPECT_TRUE(!legacy_header.empty());
+    EXPECT_TRUE(!rhi.empty());
+    if (pbr.empty() || ssss.empty() || editor.empty() ||
+        legacy.empty() || legacy_header.empty() || rhi.empty()) {
+        return;
+    }
+
+    EXPECT_TRUE(pbr.find("PbrSsssMrtOutput PSMainSsss") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find("float4 scene_color : SV_TARGET0") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find("float4 diffuse_lighting : SV_TARGET1") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find("float4 ssss_material : SV_TARGET2") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find("float4 world_normal : SV_TARGET3") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "outputs.world_normal = float4(normalize(N), 1.0)") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find("EvaluatePbr(v, true).scene_color") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find("EvaluatePbr(v, false)") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "coverage > 1e-4") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        ": float4(0, 0, 0, 0)") != std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "float3 scatter_radius_world = min(") !=
+        std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "? float4(scatter_radius_world, coverage)") !=
+        std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "ssss_pd.rt_formats[2] = EFormat::R16G16B16A16_Float") !=
+        std::string::npos);
+    EXPECT_TRUE(pbr.find("ssss_pd.rt_count = 4u") !=
+                std::string::npos);
+    EXPECT_TRUE(pbr.find(
+        "ssss_pd.rt_formats[3] = EFormat::R16G16B16A16_Float") !=
+        std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "material_desc.format = EFormat::R16G16B16A16_Float") !=
+        std::string::npos);
+
+    EXPECT_TRUE(ssss.find(
+        "FSubsurfaceScattering::CompileShadersCpu") !=
+        std::string::npos);
+    EXPECT_TRUE(ssss.find(
+        "FSubsurfaceScattering::BeginCompileShadersAsync") !=
+        std::string::npos);
+    EXPECT_TRUE(ssss.find(
+        "FSubsurfaceScattering::InitWithCompiledShaders") !=
+        std::string::npos);
+    EXPECT_TRUE(editor.find("AdvanceRuntimeSsss(") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "host.ssss3d.Init(*device") == std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "scene_has_ssss && dvCount > 0u") !=
+        std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "h.pbr3d.HasSubsurfaceMrtPipeline()") !=
+        std::string::npos);
+    EXPECT_TRUE(editor.find("IRhiTexture* ssss_targets[4]") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find("h.normal_rt.Get()") !=
+                std::string::npos);
+
+    const std::size_t draw_scene = editor.find("void DrawScene3D");
+    EXPECT_TRUE(draw_scene != std::string::npos);
+    if (draw_scene != std::string::npos) {
+        const std::string frame = editor.substr(draw_scene);
+        const std::size_t mrt_draw =
+            frame.find("DrawEditorPbrNode(");
+        const std::size_t ssss_render =
+            frame.find("h.ssss3d.Render(");
+        const std::size_t water =
+            frame.find("DrawInteractiveWater3DPass(");
+        const std::size_t atmosphere =
+            frame.find("CompositeAerialPerspective(");
+        EXPECT_TRUE(mrt_draw != std::string::npos);
+        EXPECT_TRUE(editor.find("DrawMeshSubsurfaceMrt(") !=
+                    std::string::npos);
+        EXPECT_TRUE(ssss_render != std::string::npos);
+        EXPECT_TRUE(water != std::string::npos);
+        EXPECT_TRUE(atmosphere != std::string::npos);
+        EXPECT_TRUE(mrt_draw < ssss_render);
+        EXPECT_TRUE(ssss_render < water);
+        EXPECT_TRUE(ssss_render < atmosphere);
+        EXPECT_TRUE(frame.find(
+            "EndRenderToTextureMrt(ssss_targets, 4u)") !=
+            std::string::npos);
+        EXPECT_TRUE(frame.find(
+            "ssss_mrt_draws_valid &&") !=
+            std::string::npos);
+    }
+
+    EXPECT_TRUE(legacy.find("ScanSceneRenderFeatures(") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "FPbrShader::CompileShadersCpu(false)") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "FPbrShader::CompileShadersCpu(true)") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "BuildPipelineCandidateForRawDx12(") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "InitPipelineResourcesWithCompiledShaders(") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find("IRhiTexture* ssss_targets[4]") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "BeginRenderToTextureMrtLoad(") != std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "EndRenderToTextureMrt(ssss_targets, 4u)") !=
+                std::string::npos);
+    EXPECT_TRUE(legacy.find(
+        "scene_has_water\n        || (scene_needs_subsurface") !=
+                std::string::npos);
+    const std::size_t legacy_render = legacy.find(
+        "void FLegacyScene3DAdapter::OnRender(");
+    const std::size_t legacy_ensure = legacy.find(
+        "bool FLegacyScene3DAdapter::EnsureGpu(", legacy_render);
+    EXPECT_TRUE(legacy_render != std::string::npos);
+    EXPECT_TRUE(legacy_ensure != std::string::npos);
+    if (legacy_render != std::string::npos &&
+        legacy_ensure != std::string::npos) {
+        const std::string frame =
+            legacy.substr(legacy_render, legacy_ensure - legacy_render);
+        const std::size_t sky = frame.find("m_Sky.Render(");
+        const std::size_t sky_end =
+            frame.find("EndRenderToTexture(*hdr)", sky);
+        const std::size_t mrt =
+            frame.find("BeginRenderToTextureMrtLoad(", sky_end);
+        const std::size_t ssss_render =
+            frame.find("m_Ssss.Render(", mrt);
+        const std::size_t blit =
+            frame.find("m_Blit.Copy(", ssss_render);
+        const std::size_t water =
+            frame.find("DrawWaterScene(", blit);
+        const std::size_t post =
+            frame.find("m_Post.Render(", water);
+        EXPECT_TRUE(sky != std::string::npos);
+        EXPECT_TRUE(sky_end != std::string::npos);
+        EXPECT_TRUE(mrt != std::string::npos);
+        EXPECT_TRUE(ssss_render != std::string::npos);
+        EXPECT_TRUE(blit != std::string::npos);
+        EXPECT_TRUE(water != std::string::npos);
+        EXPECT_TRUE(post != std::string::npos);
+        EXPECT_TRUE(sky < sky_end);
+        EXPECT_TRUE(sky_end < mrt);
+        EXPECT_TRUE(mrt < ssss_render);
+        EXPECT_TRUE(ssss_render < blit);
+        EXPECT_TRUE(blit < water);
+        EXPECT_TRUE(water < post);
+    }
+
+    EXPECT_TRUE(rhi.find("EndRenderToTextureMrt(") !=
+                std::string::npos);
+}
+
+ACS_TEST(PostEffects, EditorSsssHotRemoveDrainsCompletedWorkWithoutBlocking)
+{
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    EXPECT_TRUE(!editor.empty());
+    if (editor.empty()) return;
+
+    const std::size_t function_begin =
+        editor.find("bool AdvanceRuntimeSsss(");
+    const std::size_t function_end =
+        editor.find("bool EnsureSsssFrameResources(", function_begin);
+    EXPECT_TRUE(function_begin != std::string::npos);
+    EXPECT_TRUE(function_end != std::string::npos);
+    if (function_begin == std::string::npos ||
+        function_end == std::string::npos) {
+        return;
+    }
+
+    const std::string function =
+        editor.substr(function_begin, function_end - function_begin);
+    const std::size_t hot_remove = function.find(
+        "if (!requested && host.ssss3d_init_state == 1u)");
+    const std::size_t request_gate = function.find(
+        "if (!requested) {", hot_remove);
+    EXPECT_TRUE(hot_remove != std::string::npos);
+    EXPECT_TRUE(request_gate != std::string::npos);
+    EXPECT_TRUE(hot_remove < request_gate);
+    if (hot_remove == std::string::npos ||
+        request_gate == std::string::npos) {
+        return;
+    }
+
+    const std::string drain =
+        function.substr(hot_remove, request_gate - hot_remove);
+    const std::size_t raw_owner =
+        drain.find("host.startup_worker_kind != 6u");
+    const std::size_t poll =
+        drain.find("PollStartupWorker(host)");
+    const std::size_t running =
+        drain.find("if (worker_result == 0) return false", poll);
+    const std::size_t clear_kind =
+        drain.find("host.startup_worker_kind = 0u", running);
+    const std::size_t clear_device =
+        drain.find("host.startup_ssss_candidate_device = nullptr",
+                   clear_kind);
+    const std::size_t shutdown =
+        drain.find("host.ssss3d.Shutdown()", clear_device);
+    const std::size_t diligent_status =
+        drain.find("host.ssss3d_pending_shaders.Status()");
+    const std::size_t diligent_running =
+        drain.find(
+            "shader_status == EShaderStatus::Compiling",
+            diligent_status);
+    const std::size_t discard =
+        drain.find("host.ssss3d_pending_shaders = {}");
+    const std::size_t reset =
+        drain.find("host.ssss3d_init_state = 0u", discard);
+    const std::size_t retry =
+        drain.find("host.ssss3d_init_failed = false", reset);
+    EXPECT_TRUE(raw_owner != std::string::npos);
+    EXPECT_TRUE(poll != std::string::npos);
+    EXPECT_TRUE(running != std::string::npos);
+    EXPECT_TRUE(clear_kind != std::string::npos);
+    EXPECT_TRUE(clear_device != std::string::npos);
+    EXPECT_TRUE(shutdown != std::string::npos);
+    EXPECT_TRUE(diligent_status != std::string::npos);
+    EXPECT_TRUE(diligent_running != std::string::npos);
+    EXPECT_TRUE(discard != std::string::npos);
+    EXPECT_TRUE(reset != std::string::npos);
+    EXPECT_TRUE(retry != std::string::npos);
+    EXPECT_TRUE(raw_owner < poll);
+    EXPECT_TRUE(poll < running);
+    EXPECT_TRUE(running < clear_kind);
+    EXPECT_TRUE(clear_kind < clear_device);
+    EXPECT_TRUE(clear_device < shutdown);
+    EXPECT_TRUE(discard < reset);
+    EXPECT_TRUE(reset < retry);
+    EXPECT_TRUE(drain.find("InitPipelineResourcesWithCompiledShaders(") ==
+                std::string::npos);
+    EXPECT_TRUE(drain.find("Resize(") == std::string::npos);
+
+    const std::size_t poll_begin =
+        editor.find("i32 PollStartupWorker(");
+    const std::size_t poll_end =
+        editor.find("void JoinStartupWorker(", poll_begin);
+    EXPECT_TRUE(poll_begin != std::string::npos);
+    EXPECT_TRUE(poll_end != std::string::npos);
+    if (poll_begin != std::string::npos &&
+        poll_end != std::string::npos) {
+        const std::string poll_function =
+            editor.substr(poll_begin, poll_end - poll_begin);
+        const std::size_t acquire =
+            poll_function.find("std::memory_order_acquire");
+        const std::size_t nonblocking =
+            poll_function.find("if (state == 1) return 0", acquire);
+        const std::size_t join =
+            poll_function.find("h.startup_worker.Join()", nonblocking);
+        EXPECT_TRUE(acquire != std::string::npos);
+        EXPECT_TRUE(nonblocking != std::string::npos);
+        EXPECT_TRUE(join != std::string::npos);
+        EXPECT_TRUE(acquire < nonblocking);
+        EXPECT_TRUE(nonblocking < join);
+    }
+}
+
+ACS_TEST(PostEffects, EditorPostStartupCompilesOffOwnerThreadAndFailsOpen)
+{
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    EXPECT_TRUE(!editor.empty());
+    if (editor.empty()) return;
+
+    EXPECT_TRUE(editor.find(
+        "FPostProcess::CompileShadersCpu()") != std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "FPostProcess::BeginCompileShadersAsync(*dev)") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "h.startup_worker_kind = 7u;") != std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "h.startup_async_shader_kind = 7u;") != std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "host->startup_post_shaders = {};") != std::string::npos);
+
+    const std::size_t phase_begin =
+        editor.find("if (h.r3d_init_phase == 15u)");
+    const std::size_t phase_end =
+        editor.find("if (h.r3d_init_phase == 16u)", phase_begin);
+    EXPECT_TRUE(phase_begin != std::string::npos);
+    EXPECT_TRUE(phase_end != std::string::npos);
+    if (phase_begin == std::string::npos ||
+        phase_end == std::string::npos) {
+        return;
+    }
+
+    const std::string phase =
+        editor.substr(phase_begin, phase_end - phase_begin);
+    const std::size_t async_submit =
+        phase.find("FPostProcess::BeginCompileShadersAsync(*dev)");
+    const std::size_t async_pending =
+        phase.find("shader_status == EShaderStatus::Compiling");
+    const std::size_t owner_commit =
+        phase.find("h.post3d.InitWithCompiledShaders(");
+    const std::size_t neutral_failure =
+        phase.find("continuing without the post stack");
+    EXPECT_TRUE(async_submit != std::string::npos);
+    EXPECT_TRUE(async_pending != std::string::npos);
+    EXPECT_TRUE(owner_commit != std::string::npos);
+    EXPECT_TRUE(neutral_failure != std::string::npos);
+    EXPECT_TRUE(async_pending < owner_commit);
+    EXPECT_TRUE(phase.find(
+        "h.startup_phase_pending = true;") != std::string::npos);
+    EXPECT_TRUE(phase.find(
+        "BeginPostCompileWorker(h)") != std::string::npos);
+    EXPECT_TRUE(phase.find(
+        "if (use_sync_fallback)") != std::string::npos);
+
+    // Normal rendering may resize an initialized post stack, but it must not
+    // restart eleven synchronous shader compilations after startup failed or
+    // while a backend-managed compiler is still pending.
+    EXPECT_TRUE(editor.find("h.post3d.Init(*pdev") ==
+                std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "if (pdev != nullptr && h.post3d_ready") !=
+                std::string::npos);
+}
+
+ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
+{
+    const std::string device_header =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Device.h");
+    const std::string device =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Device.cpp");
+    const std::string texture =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Texture.cpp");
+    const std::string buffer =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Buffer.cpp");
+    const std::string command =
+        ReadWorkspaceSource("src/render/Dx12/Dx12CommandList.cpp");
+    EXPECT_TRUE(!device_header.empty());
+    EXPECT_TRUE(!device.empty());
+    EXPECT_TRUE(!texture.empty());
+    EXPECT_TRUE(!buffer.empty());
+    EXPECT_TRUE(!command.empty());
+    if (device_header.empty() || device.empty() || texture.empty() ||
+        buffer.empty() || command.empty()) {
+        return;
+    }
+
+    auto section = [](const std::string& source,
+                      const char* begin_token,
+                      const char* end_token) {
+        const std::size_t begin = source.find(begin_token);
+        const std::size_t end =
+            begin == std::string::npos
+                ? std::string::npos
+                : source.find(end_token, begin);
+        if (begin == std::string::npos || end == std::string::npos ||
+            end <= begin) {
+            return std::string{};
+        }
+        return source.substr(begin, end - begin);
+    };
+
+    const std::string queue = section(
+        device,
+        "void FDx12Device::QueueRetiredResource(",
+        "void FDx12Device::RetireResource(");
+    EXPECT_TRUE(!queue.empty());
+    EXPECT_TRUE(queue.find("m_RetiredResources.TryPushBack") !=
+                std::string::npos);
+    EXPECT_TRUE(queue.find("m_EmergencyRetiredResources[") !=
+                std::string::npos);
+    EXPECT_TRUE(queue.find("kEmergencyRetirementCapacity") !=
+                std::string::npos);
+    EXPECT_TRUE(queue.find("WaitIdle();") == std::string::npos);
+    EXPECT_TRUE(queue.find("ReleaseRetiredResource(retired)") ==
+                std::string::npos);
+    EXPECT_TRUE(queue.find("currently open/recorded command list") !=
+                std::string::npos);
+    EXPECT_TRUE(queue.find("retired.resource = nullptr") !=
+                std::string::npos);
+
+    const std::string submission = section(
+        device,
+        "u64 FDx12Device::ExecuteGraphicsCommandListsAndSignal(",
+        "u64 FDx12Device::SubmitGraphicsCommandLists(");
+    EXPECT_TRUE(!submission.empty());
+    const std::size_t retirement_lock =
+        submission.find("retirement_guard(m_RetirementLock)");
+    const std::size_t submission_lock =
+        submission.find("submission_guard(m_QueueSubmissionLock)");
+    const std::size_t queue_execute =
+        submission.find("m_GfxQueue->ExecuteCommandLists(");
+    const std::size_t queue_signal =
+        submission.find("SignalGraphicsQueueLocked()");
+    const std::size_t submission_signal_success =
+        submission.find("if (fence_value != 0u)", queue_signal);
+    const std::size_t seal =
+        submission.find(
+            "SealPendingRetirements(fence_value)",
+            submission_signal_success);
+    EXPECT_TRUE(retirement_lock != std::string::npos);
+    EXPECT_TRUE(submission_lock != std::string::npos);
+    EXPECT_TRUE(queue_execute != std::string::npos);
+    EXPECT_TRUE(queue_signal != std::string::npos);
+    EXPECT_TRUE(submission_signal_success != std::string::npos);
+    EXPECT_TRUE(seal != std::string::npos);
+    EXPECT_TRUE(retirement_lock < submission_lock);
+    EXPECT_TRUE(submission_lock < queue_execute);
+    EXPECT_TRUE(queue_execute < queue_signal);
+    EXPECT_TRUE(queue_signal < submission_signal_success);
+    EXPECT_TRUE(submission_signal_success < seal);
+    EXPECT_TRUE(submission.find(
+        "On Signal failure the executed work has no completion proof") !=
+                std::string::npos);
+
+    const std::string main_submit = section(
+        device,
+        "u64 FDx12Device::SubmitGraphicsCommandLists(",
+        "u64 FDx12Device::ExecuteOneOffGraphicsCommandList(");
+    const std::string one_off_submit = section(
+        device,
+        "u64 FDx12Device::ExecuteOneOffGraphicsCommandList(",
+        "// Generic queue waits never seal retirement records.");
+    EXPECT_TRUE(main_submit.find(
+        "command_lists, command_list_count, true") != std::string::npos);
+    EXPECT_TRUE(one_off_submit.find(
+        "lists, 1u, false") != std::string::npos);
+
+    const std::string generic_signal = section(
+        device,
+        "u64 FDx12Device::SignalGraphicsQueue()",
+        "void FDx12Device::WaitForFenceValue(");
+    EXPECT_TRUE(!generic_signal.empty());
+    EXPECT_TRUE(generic_signal.find(
+        "submission_guard(m_QueueSubmissionLock)") != std::string::npos);
+    EXPECT_TRUE(generic_signal.find("SealPendingRetirements(") ==
+                std::string::npos);
+
+    const std::string reset = section(
+        device,
+        "void FDx12Device::Reset()",
+        "FHrResult FDx12Device::InitDescriptorHeaps()");
+    EXPECT_TRUE(!reset.empty());
+    const std::size_t final_signal =
+        reset.find("const u64 final_fence = SignalGraphicsQueue()");
+    const std::size_t signal_success =
+        reset.find("if (final_fence != 0u)", final_signal);
+    const std::size_t final_wait =
+        reset.find("WaitForFenceValue(final_fence)", signal_success);
+    const std::size_t completion_check =
+        reset.find("completed >= final_fence", final_wait);
+    const std::size_t final_release =
+        reset.find("ReleaseAllRetiredResources()", completion_check);
+    const std::size_t abandon_on_failure =
+        reset.find(
+            "if (!final_signal_completed && m_GfxQueue != nullptr)");
+    const std::size_t abandon =
+        reset.find("AbandonAllRetiredResources()", abandon_on_failure);
+    EXPECT_TRUE(final_signal != std::string::npos);
+    EXPECT_TRUE(signal_success != std::string::npos);
+    EXPECT_TRUE(final_wait != std::string::npos);
+    EXPECT_TRUE(completion_check != std::string::npos);
+    EXPECT_TRUE(final_release != std::string::npos);
+    EXPECT_TRUE(abandon_on_failure != std::string::npos);
+    EXPECT_TRUE(abandon != std::string::npos);
+    EXPECT_TRUE(final_signal < signal_success);
+    EXPECT_TRUE(signal_success < final_wait);
+    EXPECT_TRUE(final_wait < completion_check);
+    EXPECT_TRUE(completion_check < final_release);
+    EXPECT_TRUE(final_release < abandon_on_failure);
+
+    EXPECT_TRUE(device_header.find(
+        "Lock order is Retirement -> QueueSubmission and Retirement -> Descriptor") !=
+                std::string::npos);
+    EXPECT_TRUE(device_header.find(
+        "kEmergencyRetirementCapacity = 256u") !=
+                std::string::npos);
+    EXPECT_TRUE(device.find(
+        "m_EmergencyRetiredResourceCount") != std::string::npos);
+
+    const std::string texture_reset = section(
+        texture,
+        "void FDx12Texture::Reset()",
+        "FHrResult FDx12Texture::Init(");
+    EXPECT_TRUE(texture_reset.find(
+        "TArray<i32> rtv_slots = Move(m_RtvSlots)") !=
+                std::string::npos);
+    EXPECT_TRUE(texture_reset.find(
+        "device->RetireTextureResource(") != std::string::npos);
+    EXPECT_TRUE(texture_reset.find("m_Device->FreeSrvSlot") ==
+                std::string::npos);
+    EXPECT_TRUE(texture_reset.find("ACS_SAFE_RELEASE(m_Resource)") ==
+                std::string::npos);
+
+    const std::string buffer_reset = section(
+        buffer,
+        "void FDx12Buffer::Reset()",
+        "FHrResult FDx12Buffer::Init(");
+    EXPECT_TRUE(buffer_reset.find("device->RetireResource(resource)") !=
+                std::string::npos);
+    EXPECT_TRUE(buffer_reset.find("ACS_SAFE_RELEASE(m_Resource)") ==
+                std::string::npos);
+
+    // One-off uploads/readback are queue ordered but never seal pending main
+    // retirements. If their Signal fails after Execute, transient COM objects
+    // are intentionally abandoned instead of released under in-flight work.
+    EXPECT_TRUE(buffer.find(
+        "device.ExecuteOneOffGraphicsCommandList(command_list)") !=
+                std::string::npos);
+    EXPECT_TRUE(buffer.find("command_list = nullptr;") !=
+                std::string::npos);
+    EXPECT_TRUE(buffer.find("allocator = nullptr;") !=
+                std::string::npos);
+    EXPECT_TRUE(buffer.find("staging = nullptr;") !=
+                std::string::npos);
+    EXPECT_TRUE(texture.find(
+        "device.ExecuteOneOffGraphicsCommandList(cl)") !=
+                std::string::npos);
+    EXPECT_TRUE(texture.find("cl = nullptr;") != std::string::npos);
+    EXPECT_TRUE(texture.find("alloc = nullptr;") != std::string::npos);
+    EXPECT_TRUE(texture.find("upload = nullptr;") != std::string::npos);
+    const std::string readback = section(
+        device,
+        "bool FDx12Device::ReadTexture(",
+        "// ファクトリ関数:");
+    EXPECT_TRUE(readback.find(
+        "ExecuteOneOffGraphicsCommandList(cl)") != std::string::npos);
+    EXPECT_TRUE(readback.find("cl = nullptr;") != std::string::npos);
+    EXPECT_TRUE(readback.find("alloc = nullptr;") != std::string::npos);
+    EXPECT_TRUE(readback.find("rb = nullptr;") != std::string::npos);
+
+    const std::string submit = section(
+        command,
+        "void FDx12CommandList::Submit()",
+        "void FDx12CommandList::BeginRenderToSwapchain(");
+    const std::size_t main_submit_call =
+        submit.find("SubmitGraphicsCommandLists(lists, 1u)");
+    const std::size_t next_slot_wait =
+        submit.find("WaitForFenceValue(m_FrameFences[next_slot])");
+    const std::size_t retirement_collect =
+        submit.find("CollectRetiredResources()", next_slot_wait);
+    EXPECT_TRUE(main_submit_call != std::string::npos);
+    EXPECT_TRUE(next_slot_wait != std::string::npos);
+    EXPECT_TRUE(retirement_collect != std::string::npos);
+    EXPECT_TRUE(main_submit_call < next_slot_wait);
+    EXPECT_TRUE(next_slot_wait < retirement_collect);
+    EXPECT_TRUE(submit.find("GraphicsQueue()->ExecuteCommandLists") ==
+                std::string::npos);
+    EXPECT_TRUE(submit.find("SignalGraphicsQueue()") ==
+                std::string::npos);
 }

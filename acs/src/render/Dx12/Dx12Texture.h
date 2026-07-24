@@ -127,6 +127,10 @@ public:
      * @return 深度ターゲットなら true。
      */
     bool                        IsDepth()       const noexcept { return m_IsDepth; }
+    bool IsDepthTarget() const noexcept override { return m_IsDepth; }
+    bool IsShaderVisibleDepth() const noexcept override {
+        return m_IsDepth && HasSrv();
+    }
 
     /**
      * 深度バッファが stencil 成分を持つかを返す (D24_UNorm_S8_UInt)。
@@ -160,7 +164,7 @@ public:
      *
      * @return 作成時の sample_count (RT 以外は常に 1)。
      */
-    u32                         SampleCount()   const noexcept { return m_SampleCount; }
+    u32 SampleCount() const noexcept override { return m_SampleCount; }
 
     /**
      * 基となる D3D12 リソースを返す。

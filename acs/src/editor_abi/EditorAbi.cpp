@@ -38,23 +38,28 @@
 #include "gameframework/Scene3D.h"          // FScene3D (3D シーングラフ = 3D ノードの実コンテナ)
 #include "gameframework/ANode.h"           // ANode / AComponent
 #include "gameframework/MeshComponent3D.h"  // AMeshComponent3D (prim/color/mesh の native 保持)
+#include "gameframework/WaterSurface3DComponent.h"
 #include "gameframework/Scene3DSerialize.h" // (将来) シリアライザ委譲用
+#include "gameframework/SceneTextLoader.h" // strict ACSCENE document preflight
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
 #include "memory/SharedPtr.h"               // TSharedPtr / MakeShared (フラットポリゴンメッシュ生成)
 #include "container/Array.h"                // TArray
 #include "render/IRhiTexture.h"             // IRhiTexture (スプライト)
+#include "render/IRhiCommandList.h"
 #include "render/RenderAssets.h"            // UploadTexture / UploadMesh / FGpuMesh
 #include "render/DebugDraw.h"               // FDebugDraw3D (グリッド/ギズモ/選択 AABB の線)
 #include "render/Sky.h"                     // FSky (エンジン標準の手続きスカイ。Phase2: kSky3DHLSL を置換)
 #include "render/PbrShader.h"               // FPbrShader (エンジン標準 PBR。Phase2: メッシュ移行先)
 #include "render/StandardShader.h"          // FDirLight (有向光源)
 #include "render/PostProcess.h"             // FPostProcess (HDR→ACES トーンマップ)
+#include "render/SubsurfaceScattering.h"    // diffuse-only bilateral SSSS
 #include "render/Ssao.h"                    // FSsao (GTAO + contact shadow。q_ssao_* を配線)
 #include "render/Ssr.h"                     // FSsr (画面空間反射。q_ssr_* を配線)
 #include "render/HiZ.h"                     // FHiZ (SSR の full min-depth pyramid)
 #include "render/Ssgi.h"                    // FSsgi (画面空間 1 バウンス GI。q_ssgi_* を配線)
 #include "render/MotionVector.h"            // FMotionVector (motion+normal G-buffer。TAA/SSR/SSGI の reproject 用)
 #include "render/RefractionShader.h"        // FRefractionShader (ガラス/水の屈折。opaque シーンを IOR で曲げて sample)
+#include "render/WaterSurface3D.h"
 #include "render/Ibl.h"                     // FImageBasedLighting (FSky から env→irradiance/prefilter→SetIbl)
 #include "render/Atmosphere.h"              // FAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
@@ -64,6 +69,7 @@
 #include "math/Mat.h"                       // FMat4 (model 行列の合成)
 #include "math/Math.h"                      // kDeg2Rad
 #include "math/Collision3D.h"               // Aabb3 (選択ハイライト)
+#include "collision/MeshCollider.h"         // exact cached BVH hit testing for custom water
 #include "asset/ImageAsset.h"               // FImageAsset / ImageAssetLoader (stb_image)
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
@@ -78,6 +84,10 @@
 #include <new>      // std::nothrow
 #include <atomic>   // std::atomic (エンジンログ取り込み用 SPSC リング)
 #include <limits>
+#include <cerrno>
+#include <cctype>
+#include <climits>
+#include <cstdlib>
 
 #define ACS_EDITOR_API extern "C" __declspec(dllexport)
 
@@ -107,7 +117,7 @@ constexpr f32 kCamera3DFramePitch = 0.55f;    // Stable downward framing view.
  */
 struct AEditorNode : public game::ANode {
     static constexpr u32 kMaxComponents = 8;
-    static constexpr u32 kMaxProps      = 8;   // 1 コンポーネントあたりの編集プロパティ上限
+    static constexpr u32 kMaxProps      = 24;  // reflection/editor shared authored-field capacity
 
     int   editor_id = 0;                                   // エディタが振る安定 int id
     char  name[64]  = {};                                  // 表示名 (UTF-8)
@@ -222,7 +232,7 @@ struct FGameShim {
 struct AEditor3DRecordComponent : public acs::game::AComponent {
     ACS_GAME_COMPONENT_KIND(AEditor3DRecordComponent)
     static constexpr u32 kMaxComponents = 8;
-    static constexpr u32 kMaxProps      = 8;
+    static constexpr u32 kMaxProps      = 24;
     int   id    = 0;                          ///< editor 整数 id (ABI/C# 境界・シリアライズ用)。
     FVec3 euler = FVec3{ 0, 0, 0 };           ///< authored オイラー角 (度、XYZ。Local().rotation の編集元)。
     // マテリアルは AMeshComponent3D が material_path + FMaterial2D で持つ (.acsmat 参照、2D 鏡映)。
@@ -231,6 +241,11 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     FGpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
+    FMeshCollider  water_hit_collider;          ///< CPU BVH, built lazily for exact water pointer hits.
+    const void*    water_hit_collider_src = nullptr;
+    const void*    water_surface_validation_src = nullptr;
+    bool           water_surface_local_xz = false;
+    bool           water_surface_fallback_logged = false;
     const void*   gm_cache_src = nullptr;      ///< gm_cache の元 FMeshAsset ポインタ (変化時に再アップロード)。
     bool          material_textures_loaded = false;
     TUniquePtr<IRhiTexture> material_albedo_tex;
@@ -243,6 +258,65 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     game::FTypeId components[kMaxComponents] = {};
     u32           component_count            = 0;
     f32           comp_props[kMaxComponents][kMaxProps][4] = {};
+};
+
+struct FM3DVtx {
+    f32 px, py, pz, nx, ny, nz, r, g, b, mt, rg;
+};
+
+struct FSprVtx {
+    f32 px, py, pz, u, v;
+};
+
+/**
+ * Exact dependency record for the world-space scene-mesh flattening cache.
+ * Array order is DFS order, so hierarchy reordering and the bounded vertex
+ * truncation policy are represented without relying on a collision-prone hash.
+ */
+struct FSceneMeshCacheKey {
+    const game::ANode* node = nullptr;
+    const game::ANode* parent = nullptr;
+    const game::AMeshComponent3D* component = nullptr;
+    const void* render_handle = nullptr;
+    const FMeshAsset* mesh = nullptr;
+    u64 mesh_revision = 0u;
+    i32 editor_id = 0;
+    i32 primitive = 0;
+    i32 water_slot = 0;
+    u32 state = 0u;
+    u32 material_kind = 0u;
+    FMat4 world = FMat4::Identity();
+    FVec4 node_color{0, 0, 0, 0};
+    FVec4 material_base_color{0, 0, 0, 0};
+    f32 metallic = 0.0f;
+    f32 roughness = 0.0f;
+
+    bool SameAs(const FSceneMeshCacheKey& other) const noexcept {
+        return node == other.node &&
+               parent == other.parent &&
+               component == other.component &&
+               render_handle == other.render_handle &&
+               mesh == other.mesh &&
+               mesh_revision == other.mesh_revision &&
+               editor_id == other.editor_id &&
+               primitive == other.primitive &&
+               water_slot == other.water_slot &&
+               state == other.state &&
+               material_kind == other.material_kind &&
+               std::memcmp(&world, &other.world, sizeof(world)) == 0 &&
+               std::memcmp(
+                   &node_color, &other.node_color,
+                   sizeof(node_color)) == 0 &&
+               std::memcmp(
+                   &material_base_color, &other.material_base_color,
+                   sizeof(material_base_color)) == 0 &&
+               std::memcmp(
+                   &metallic, &other.metallic,
+                   sizeof(metallic)) == 0 &&
+               std::memcmp(
+                   &roughness, &other.roughness,
+                   sizeof(roughness)) == 0;
+    }
 };
 
 /** 1 つのビューポート + エディタ・シーン (実 ANode ツリー) を保持する描画ホスト。 */
@@ -262,22 +336,35 @@ struct FEditorHost {
     // loaded.  Renderer warm-up and blank swapchain presentation continue, but no old
     // scene, sky, cloud, gizmo, or simulation frame may leak through the loading boundary.
     bool         scene_presentation_suppressed = false;
+    // Full-document replacement can nest through compatibility 2D/3D loaders.
+    // Only the outer scope joins scene-dependent startup work and waits for the
+    // GPU before either graph releases node-owned resources.
+    u32          scene_resource_retirement_depth = 0u;
     editor_profiler::FTimePoint startup_begin{};
-    // Slow raw-DX12 sky/PBR/SSGI/cloud optimization is staged here. The worker
-    // compiles bytecode only; every RHI resource and PSO is still created by
-    // the HWND/render owner thread after an acquire + join.
+    // Slow raw-DX12 startup work is staged here. PBR is the exception to the
+    // compile-only workers below: it builds the complete unpublished shader
+    // candidate (buffers, fallback textures and PSOs included) before the
+    // owner thread joins and publishes pbr3d_ready.
     FThread       startup_worker;
     std::atomic<i32> startup_worker_state{0}; // 0=idle, 1=running, 2=ok, -1=failed
-    u32           startup_worker_kind = 0u; // 0=none, 1=PBR, 2=SSGI, 3=FSky, 4=clouds
+    u32           startup_worker_kind = 0u; // 0=none, 1=PBR, 2=SSGI, 3=FSky, 4=clouds, 6=SSSS, 7=post
     f32           startup_worker_elapsed_ms = 0.0f;
     // Diligent owns the compiler threads; submission, status polling and every
     // PSO/resource operation remain on the HWND/render-owner thread.
-    u32           startup_async_shader_kind = 0u; // 0=none, 1=PBR, 3=FSky, 4=clouds
+    u32           startup_async_shader_kind = 0u; // 0=none, 1=PBR, 3=FSky, 4=clouds, 5=SSAO, 7=post
     editor_profiler::FTimePoint startup_async_shader_begin{};
     FSky::FCompiledShaders startup_sky_shaders{};
     FPbrShader::FCompiledShaders startup_pbr_shaders{};
+    IRhiDevice* startup_pbr_candidate_device = nullptr;
+    EFormat startup_pbr_candidate_rt_format =
+        EFormat::B8G8R8A8_UNorm;
+    EFormat startup_pbr_candidate_depth_format =
+        EFormat::D32_Float;
+    IRhiDevice* startup_ssss_candidate_device = nullptr;
     FSsgi::FCompiledShaders startup_ssgi_shaders{};
     FVolumetricClouds::FCompiledShaders startup_cloud_shaders{};
+    FSsao::FCompiledShaders startup_ssao_shaders{};
+    FPostProcess::FCompiledShaders startup_post_shaders{};
     bool          startup_phase_pending = false;
     f32           startup_phase_elapsed_override_ms = -1.0f;
     u32          width         = 0;
@@ -427,6 +514,24 @@ struct FEditorHost {
     acs::FPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
     bool                     post3d_ready = false;
     u32                      post3d_w = 0, post3d_h = 0;
+    acs::FSubsurfaceScattering ssss3d;
+    bool                     ssss3d_ready = false;
+    bool                     ssss3d_init_failed = false;
+    // Pipeline creation and the full-resolution target pair are separate
+    // render-pump commits. Raw DX12 builds the unpublished pipeline candidate
+    // on startup_worker; state 2 allocates only the internal target pair.
+    u32                      ssss3d_init_state = 0u; // 0=idle, 1=compiling, 2=pipeline ready, 3=failed
+    acs::FSubsurfaceScattering::FCompiledShaders
+                             ssss3d_pending_shaders{};
+    TUniquePtr<IRhiTexture>  ssss_diffuse_rt;
+    TUniquePtr<IRhiTexture>  ssss_material_rt;
+    u32                      ssss_w = 0, ssss_h = 0;
+    // The external MRT pair is built one allocation per render-pump call and
+    // published only when both candidates match the current viewport.
+    TUniquePtr<IRhiTexture>  ssss_pending_diffuse_rt;
+    u32                      ssss_pending_w = 0, ssss_pending_h = 0;
+    u32                      ssss_frame_resource_state = 0u; // 0=idle, 1=diffuse ready, 2=failed
+    u32                      ssss_frame_failed_w = 0, ssss_frame_failed_h = 0;
     // SSAO (GTAO + contact shadow)。法線 G-buffer プリパス → FSsao → FPbrShader.SetSsao で ambient に乗算。
     acs::FSsao               ssao3d;                   // エンジン GTAO。法線 gbuffer + depth を要求
     bool                     ssao_ready = false;       // FSsao Init 成否
@@ -468,8 +573,19 @@ struct FEditorHost {
     // 屈折 (ガラス/水): opaque シーンを複製 (blit) → FRefractionShader が IOR で曲げて sample。要 env cubemap (Diligent)。
     acs::FRefractionShader   refr3d;
     bool                     refr_ready = false;
+    acs::FWaterSurface3D     water3d;
+    bool                     water3d_ready = false;
+    acs::FWaterSurface3D::FCompiledShaders water3d_pending_shaders{};
+    u32                      water3d_init_state = 0u; // 0=idle,1=compile,2=ready,3=failed,4=bounded commit
+    int                      water3d_draw_ids[FWaterSurface3D::kMaxTrackedSurfaces] = {};
+    u32                      water3d_draw_count = 0u;
     TUniquePtr<IRhiTexture>  refr_bg;                  // opaque HDR シーンの複製 (同一 RT read+write 不可のため)
     u32                      refr_bg_w = 0, refr_bg_h = 0;
+    bool                     water3d_background_failed = false;
+    TUniquePtr<IRhiTexture>  water3d_depth_copy;       // pre-water D32 snapshot sampled while live depth stays bound as DSV
+    u32                      water3d_depth_copy_w = 0;
+    u32                      water3d_depth_copy_h = 0;
+    bool                     water3d_depth_copy_failed = false;
     TUniquePtr<IRhiPipeline> blit_pipe;                // hdrRt → refr_bg のフルスクリーン複製 (屈折/DoF 共用)
     TUniquePtr<IRhiShader>   blit_vs, blit_ps;
     bool                     blit_ready = false;
@@ -521,8 +637,26 @@ struct FEditorHost {
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     u32          r3d_init_phase = 0;      // incremental startup phase
     bool         r3d_init_failed = false;
-    FGpuMesh      gm_cube, gm_sphere, gm_plane;   // プリミティブ GPU メッシュ (将来 DrawIndexed 用)
-    TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;   // 動的 VB 展開元の CPU メッシュ
+    FGpuMesh      gm_cube, gm_sphere, gm_plane;
+    FGpuMesh      gm_water_plane;                 // 64x64-cell displacement grid
+    TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;
+    TSharedPtr<FMeshAsset> cpu_water_plane;
+    TArray<game::ANode*> scene_mesh_nodes;
+    TArray<FM3DVtx> scene_mesh_vertices;
+    TArray<FSceneMeshCacheKey> scene_mesh_key;
+    TArray<FSceneMeshCacheKey> scene_mesh_key_scratch;
+    // Hot render-path scratch. Capacity is retained by the host so selecting
+    // an object or drawing sprites never allocates after the first warm frame.
+    TArray<FM3DVtx> gizmo_vertices;
+    TArray<FSprVtx> sprite_vertices;
+    TArray<IRhiTexture*> sprite_draw_textures;
+    FVec3 scene_mesh_bb_min{1e30f, 1e30f, 1e30f};
+    FVec3 scene_mesh_bb_max{-1e30f, -1e30f, -1e30f};
+    IRhiBuffer* scene_mesh_uploaded_vb = nullptr;
+    u32 scene_mesh_cached_cap = 0u;
+    u64 scene_mesh_revision = 0u;
+    u64 vxgi_tri_uploaded_revision = 0u;
+    bool scene_mesh_cache_valid = false;
     int          sel3d         = -1;      // primary (active) 3D ノード id。常に sel3d_multi の一員、空なら -1。
     TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
     int          next_id3d     = 1;
@@ -543,6 +677,10 @@ struct FEditorHost {
     FVec3        giz3d_start_pos{ 0, 0, 0 };
     FVec3        giz3d_start_scale{ 1, 1, 1 };
     FVec3        giz3d_start_rot{ 0, 0, 0 };
+    int          water_pointer_node = -1;
+    FVec3        water_pointer_world{0, 0, 0};
+    bool         water_pointer_valid = false;
+    f32          water_pointer_emit_time = -1.0f;
 
     // Undo/Redo: シーンのシリアライズ文字列スナップショットを積む (所有 raw char*)。
     TArray<char*> undo;
@@ -886,10 +1024,20 @@ void SetCompProp(AEditorNode* n, u32 slot, u32 prop, f32 x, f32 y, f32 z, f32 w)
     n->comp_props[slot][prop][2] = z; n->comp_props[slot][prop][3] = w;
 }
 
-/** 型のスキーマで有効なプロパティ数 (= field_count を kMaxProps で頭打ち、未登録は 0)。 */
+/** 型スキーマの公開プロパティ数。3D レコードの容量まで公開する。 */
 u32 CompPropCount(const game::FTypeDesc* d) noexcept {
     if (d == nullptr) return 0u;
-    return d->field_count < AEditorNode::kMaxProps ? d->field_count : AEditorNode::kMaxProps;
+    return d->field_count < AEditor3DRecordComponent::kMaxProps
+        ? d->field_count
+        : AEditor3DRecordComponent::kMaxProps;
+}
+
+/** 2D レコードへ実際に格納できるプロパティ数。 */
+u32 CompPropCount2D(const game::FTypeDesc* d) noexcept {
+    const u32 count = CompPropCount(d);
+    return count < AEditorNode::kMaxProps
+        ? count
+        : AEditorNode::kMaxProps;
 }
 
 /** ノードの全コンポーネントの編集プロパティを CPROP 行として buf へ書き出す。新しい cur を返す。 */
@@ -924,7 +1072,7 @@ int EmitNodePoly(char* buf, int cur, int cap, const AEditorNode* n) noexcept {
 int EmitCompProps(char* buf, int cur, int cap, const AEditorNode* n) noexcept {
     for (u32 c = 0; c < n->component_count && cur < cap; ++c) {
         const game::FTypeDesc* d = game::FTypeRegistry::Get().FindById(n->components[c]);
-        const u32 nf = CompPropCount(d);
+        const u32 nf = CompPropCount2D(d);
         for (u32 p = 0; p < nf && cur < cap; ++p) {
             const f32* v = n->comp_props[c][p];
             // snprintf は「書き込まれたはず」の長さを返すため、そのまま加算すると切り詰め時に
@@ -1001,12 +1149,76 @@ void RemapClonedObjectRefs(FEditorHost& h, const TArray<int>& oldIds, const TArr
     }
 }
 
-/** シーンを空に戻す (隠しルートだけの状態)。 */
-void ClearScene(FEditorHost& h) noexcept {
+// Defined beside the startup-worker state machine. Nested document loaders use
+// the same owner-thread retirement transaction, so only the outermost scope
+// joins scene-dependent work and waits for submitted GPU references.
+void BeginSceneResourceRetirement(FEditorHost& h) noexcept;
+
+class FSceneResourceRetirementScope final {
+public:
+    explicit FSceneResourceRetirementScope(FEditorHost& host) noexcept
+        : m_Host(host) {
+        BeginSceneResourceRetirement(m_Host);
+    }
+
+    ~FSceneResourceRetirementScope() noexcept {
+        ACS_ASSERT(m_Host.scene_resource_retirement_depth > 0u);
+        --m_Host.scene_resource_retirement_depth;
+    }
+
+    FSceneResourceRetirementScope(
+        const FSceneResourceRetirementScope&) = delete;
+    FSceneResourceRetirementScope& operator=(
+        const FSceneResourceRetirementScope&) = delete;
+
+private:
+    FEditorHost& m_Host;
+};
+
+/** Release only the 2D graph. The caller must own a retirement scope. */
+void ClearScene2DResourcesRetired(FEditorHost& h) noexcept {
     h.nodes.Clear();                           // 先にレジストリを空に (dangling 回避)
     h.root     = NewObject<game::ANode>();  // 旧ツリーは再代入で解放
     h.next_id  = 1;
     SelClear(h);
+}
+
+/** シーンを空に戻す (隠しルートだけの状態)。 */
+void ClearScene(FEditorHost& h) noexcept {
+    FSceneResourceRetirementScope retirement(h);
+    ClearScene2DResourcesRetired(h);
+}
+
+/** Release only the 3D graph and node-owned GPU resources under retirement. */
+void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
+    h.water3d.ClearDisturbances();
+    h.water_pointer_valid = false;
+    h.water_pointer_node = -1;
+    h.water_pointer_emit_time = -1.0f;
+    h.mv_computed = false;
+    h.scene3d.Clear();
+    // RenderHandle pointers inside the retired nodes point into this array.
+    // Both must be destroyed only after the outer owner-thread WaitIdle.
+    h.sprite_textures.Clear();
+    h.scene3d.Update(0.0f);
+    h.sel3d = -1;
+    h.sel3d_multi.Clear();
+    h.clip3d = -1;
+    h.next_id3d = 1;
+    h.scene3d_seeded = true;
+    h.poly3d_pts.Clear();
+    h.giz3d_handle = 0;
+    h.water3d_draw_count = 0u;
+    h.scene_mesh_nodes.Clear();
+    h.scene_mesh_vertices.Clear();
+    h.scene_mesh_key.Clear();
+    h.scene_mesh_key_scratch.Clear();
+    h.scene_mesh_cache_valid = false;
+}
+
+void ClearScene3D(FEditorHost& h) noexcept {
+    FSceneResourceRetirementScope retirement(h);
+    ClearScene3DResourcesRetired(h);
 }
 
 /** node 配下を DFS で平坦レジストリへ積む (親が子より先 = save 順を保つ)。 */
@@ -1142,8 +1354,374 @@ const char* SerializeScene(FEditorHost& h) noexcept {
     return buf;
 }
 
+enum class EEditorTextLineResult : u8 {
+    End,
+    Line,
+    TooLong,
+};
+
+EEditorTextLineResult ReadEditorTextLine(
+    const char*& cursor, char* out, u32 capacity) noexcept {
+    if (cursor == nullptr || *cursor == '\0') return EEditorTextLineResult::End;
+    u32 length = 0u;
+    const char* scan = cursor;
+    while (*scan != '\0' && *scan != '\n') {
+        if (length + 1u >= capacity) return EEditorTextLineResult::TooLong;
+        out[length++] = *scan++;
+    }
+    if (length > 0u && out[length - 1u] == '\r') --length;
+    out[length] = '\0';
+    cursor = (*scan == '\n') ? scan + 1 : scan;
+    return EEditorTextLineResult::Line;
+}
+
+void SkipEditorTextWhitespace(const char*& text) noexcept {
+    while (*text != '\0' &&
+           std::isspace(static_cast<unsigned char>(*text)) != 0) {
+        ++text;
+    }
+}
+
+bool EditorTextOnlyWhitespace(const char* text) noexcept {
+    if (text == nullptr) return false;
+    SkipEditorTextWhitespace(text);
+    return *text == '\0';
+}
+
+bool EditorTextTokenBoundary(char value) noexcept {
+    return value == '\0' ||
+           std::isspace(static_cast<unsigned char>(value)) != 0;
+}
+
+bool ParseEditorTextInt(const char*& text, int& value) noexcept {
+    SkipEditorTextWhitespace(text);
+    if (*text == '\0') return false;
+    errno = 0;
+    char* end = nullptr;
+    const long long parsed = std::strtoll(text, &end, 10);
+    if (end == text || errno == ERANGE || !EditorTextTokenBoundary(*end) ||
+        parsed < static_cast<long long>(INT_MIN) ||
+        parsed > static_cast<long long>(INT_MAX)) {
+        return false;
+    }
+    value = static_cast<int>(parsed);
+    text = end;
+    return true;
+}
+
+bool ParseEditorTextU32(const char*& text, u32& value) noexcept {
+    SkipEditorTextWhitespace(text);
+    if (*text == '\0' || *text == '-') return false;
+    errno = 0;
+    char* end = nullptr;
+    const unsigned long long parsed = std::strtoull(text, &end, 10);
+    if (end == text || errno == ERANGE || !EditorTextTokenBoundary(*end) ||
+        parsed > static_cast<unsigned long long>(~u32{0})) {
+        return false;
+    }
+    value = static_cast<u32>(parsed);
+    text = end;
+    return true;
+}
+
+bool ParseEditorTextFloat(const char*& text, f32& value) noexcept {
+    SkipEditorTextWhitespace(text);
+    if (*text == '\0') return false;
+    errno = 0;
+    char* end = nullptr;
+    const f32 parsed = std::strtof(text, &end);
+    if (end == text || errno == ERANGE || !EditorTextTokenBoundary(*end) ||
+        !std::isfinite(static_cast<double>(parsed))) {
+        return false;
+    }
+    value = parsed;
+    text = end;
+    return true;
+}
+
+bool ParseEditorTextWord(
+    const char*& text, char* output, usize capacity) noexcept {
+    SkipEditorTextWhitespace(text);
+    const char* begin = text;
+    while (*text != '\0' &&
+           std::isspace(static_cast<unsigned char>(*text)) == 0) {
+        ++text;
+    }
+    const usize length = static_cast<usize>(text - begin);
+    if (length == 0u || length >= capacity) return false;
+    std::memcpy(output, begin, length);
+    output[length] = '\0';
+    return true;
+}
+
+bool IsEditorTextDirective(const char* line, const char* name) noexcept {
+    const usize length = std::strlen(name);
+    return std::strncmp(line, name, length) == 0 &&
+           EditorTextTokenBoundary(line[length]);
+}
+
+bool ParseEditorTextRemainder(
+    const char*& text, usize maximum_length) noexcept {
+    SkipEditorTextWhitespace(text);
+    const usize length = std::strlen(text);
+    return length > 0u && length <= maximum_length;
+}
+
+struct FValidatedEditorComponent {
+    int node_id = -1;
+    game::FTypeId type_id = 0;
+};
+
+struct FValidatedEditorProperty {
+    int node_id = -1;
+    u32 slot = 0u;
+    u32 property = 0u;
+};
+
+struct FValidatedEditor3DNode {
+    int id = -1;
+    int parent = -1;
+    int parent_index = -1;
+    u32 text_offset = 0u;
+    u32 text_length = 0u;
+    u32 depth = 0u;
+    u8 state = 0u;
+};
+
+int FindValidatedEditor3DNode(
+    const TArray<FValidatedEditor3DNode>& nodes, int id) noexcept {
+    u32 first = 0u;
+    u32 count = nodes.Size();
+    while (count > 0u) {
+        const u32 step = count / 2u;
+        const u32 index = first + step;
+        if (nodes[index].id < id) {
+            first = index + 1u;
+            count -= step + 1u;
+        } else {
+            count = step;
+        }
+    }
+    return first < nodes.Size() && nodes[first].id == id
+        ? static_cast<int>(first)
+        : -1;
+}
+
+bool ValidateEditorScene2DText(const char* text) noexcept {
+    if (text == nullptr) return false;
+
+    // Reuse the runtime parser as the authoritative structural and known
+    // directive preflight. It builds only into this isolated graph.
+    game::ANode staging;
+    const game::FSceneTextLoadResult parsed =
+        game::TryLoadAcsceneText(text, staging);
+    if (!parsed.Succeeded()) return false;
+
+    const char* cursor = text;
+    char line[game::kSceneTextMaxLineBytes + 1u]{};
+    if (ReadEditorTextLine(cursor, line, static_cast<u32>(sizeof(line))) !=
+            EEditorTextLineResult::Line ||
+        std::strcmp(line, "ACSCENE v1") != 0) {
+        return false;
+    }
+    if (ReadEditorTextLine(cursor, line, static_cast<u32>(sizeof(line))) !=
+        EEditorTextLineResult::Line) {
+        return false;
+    }
+    int node_count = 0;
+    const char* values = line;
+    if (!ParseEditorTextInt(values, node_count) || node_count < 0 ||
+        !EditorTextOnlyWhitespace(values)) {
+        return false;
+    }
+    for (int index = 0; index < node_count; ++index) {
+        if (ReadEditorTextLine(
+                cursor, line, static_cast<u32>(sizeof(line))) !=
+            EEditorTextLineResult::Line) {
+            return false;
+        }
+        const char* node_values = line;
+        int id = -1;
+        int parent = -1;
+        f32 numeric[10]{};
+        if (!ParseEditorTextInt(node_values, id) ||
+            !ParseEditorTextInt(node_values, parent)) {
+            return false;
+        }
+        for (f32& value : numeric) {
+            if (!ParseEditorTextFloat(node_values, value)) return false;
+        }
+        SkipEditorTextWhitespace(node_values);
+        if (std::strlen(node_values) >= sizeof(AEditorNode::name)) return false;
+    }
+
+    game::AcsRegisterEngineTypes();
+    TArray<FValidatedEditorComponent> components;
+    while (true) {
+        const EEditorTextLineResult read = ReadEditorTextLine(
+            cursor, line, static_cast<u32>(sizeof(line)));
+        if (read == EEditorTextLineResult::End) break;
+        if (read != EEditorTextLineResult::Line) return false;
+        if (line[0] == '\0') continue;
+
+        const char* known_directives[] = {
+            "COMP", "CPROP", "SEL", "NFLG", "SPRT",
+            "PFAB", "MAT", "POLY", "RPLY"
+        };
+        for (const char* directive : known_directives) {
+            if (IsEditorTextDirective(line, directive) &&
+                line[std::strlen(directive)] != ' ') {
+                return false;
+            }
+        }
+
+        if (IsEditorTextDirective(line, "COMP")) {
+            int id = -1;
+            char type_name[128]{};
+            values = line + 4;
+            if (!ParseEditorTextInt(values, id) ||
+                !ParseEditorTextWord(
+                    values, type_name, static_cast<usize>(sizeof(type_name))) ||
+                !EditorTextOnlyWhitespace(values) ||
+                staging.FindBySerialId(id) == nullptr) {
+                return false;
+            }
+            const game::FTypeDesc* descriptor =
+                game::FTypeRegistry::Get().FindByName(type_name);
+            if (descriptor == nullptr ||
+                descriptor->category != game::ETypeCategory::Component) {
+                return false;
+            }
+            u32 count = 0u;
+            for (u32 index = 0u; index < components.Size(); ++index) {
+                if (components[index].node_id != id) continue;
+                if (components[index].type_id == descriptor->id) return false;
+                ++count;
+            }
+            if (count >= AEditorNode::kMaxComponents) return false;
+            components.PushBack(FValidatedEditorComponent{id, descriptor->id});
+            continue;
+        }
+        if (IsEditorTextDirective(line, "CPROP")) {
+            int id = -1;
+            u32 slot = 0u;
+            u32 property = 0u;
+            values = line + 5;
+            if (!ParseEditorTextInt(values, id) ||
+                !ParseEditorTextU32(values, slot) ||
+                !ParseEditorTextU32(values, property) ||
+                slot >= AEditorNode::kMaxComponents ||
+                property >= AEditorNode::kMaxProps) {
+                return false;
+            }
+            u32 component_slot = 0u;
+            const FValidatedEditorComponent* target_component = nullptr;
+            for (u32 index = 0u; index < components.Size(); ++index) {
+                if (components[index].node_id != id) continue;
+                if (component_slot == slot) {
+                    target_component = &components[index];
+                    break;
+                }
+                ++component_slot;
+            }
+            if (target_component == nullptr) return false;
+            const game::FTypeDesc* descriptor =
+                game::FTypeRegistry::Get().FindById(
+                    target_component->type_id);
+            if (descriptor == nullptr ||
+                property >= descriptor->field_count) {
+                return false;
+            }
+            continue; // canonical preflight validates the finite field values
+        }
+
+        if (IsEditorTextDirective(line, "SPRT") ||
+            IsEditorTextDirective(line, "MAT")) {
+            const bool sprite = IsEditorTextDirective(line, "SPRT");
+            int id = -1;
+            values = line + (sprite ? 4u : 3u);
+            if (!ParseEditorTextInt(values, id) ||
+                staging.FindBySerialId(id) == nullptr ||
+                !ParseEditorTextRemainder(values, 255u)) {
+                return false;
+            }
+            continue;
+        }
+        if (IsEditorTextDirective(line, "POLY")) {
+            int id = -1;
+            int count = 0;
+            values = line + 4u;
+            if (!ParseEditorTextInt(values, id) ||
+                !ParseEditorTextInt(values, count) ||
+                count < 3 ||
+                count > static_cast<int>(game::kMaxPolyVerts)) {
+                return false;
+            }
+            continue; // canonical preflight validates target and vertices
+        }
+
+        // SEL and PFAB are editor-only records. The canonical loader keeps
+        // unknown records forward-compatible, so validate these known records
+        // here rather than letting malformed variants silently degrade.
+        if (IsEditorTextDirective(line, "SEL")) {
+            int primary = -1;
+            int count = 0;
+            values = line + 3;
+            if (!ParseEditorTextInt(values, primary) ||
+                !ParseEditorTextInt(values, count) || count < 0 ||
+                count > node_count) {
+                return false;
+            }
+            TArray<int> selected_ids;
+            for (int index = 0; index < count; ++index) {
+                int selected = -1;
+                if (!ParseEditorTextInt(values, selected) ||
+                    staging.FindBySerialId(selected) == nullptr) {
+                    return false;
+                }
+                for (u32 prior = 0; prior < selected_ids.Size(); ++prior) {
+                    if (selected_ids[prior] == selected) return false;
+                }
+                selected_ids.PushBack(selected);
+            }
+            if (!EditorTextOnlyWhitespace(values)) return false;
+            if (primary >= 0) {
+                if (staging.FindBySerialId(primary) == nullptr) return false;
+                bool primary_selected = false;
+                for (u32 index = 0; index < selected_ids.Size(); ++index) {
+                    if (selected_ids[index] == primary) {
+                        primary_selected = true;
+                        break;
+                    }
+                }
+                if (!primary_selected) return false;
+            } else if (count != 0) {
+                return false;
+            }
+            continue;
+        }
+        if (IsEditorTextDirective(line, "PFAB")) {
+            int id = -1;
+            values = line + 4;
+            if (!ParseEditorTextInt(values, id) ||
+                staging.FindBySerialId(id) == nullptr ||
+                !ParseEditorTextRemainder(
+                    values, 255u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool ValidateEditorScene3DText(const char* text) noexcept;
+static int LoadScene3DTextImpl(
+    FEditorHost* host, const char* text, bool clear,
+    int idOffset, int reparentRootTo, int* out_root,
+    bool prevalidated = false) noexcept;
+
 /** SerializeScene のテキストからシーンを復元する (成功 1 / 失敗 0)。 */
-int LoadSceneText(FEditorHost& h, const char* text) noexcept {
+int LoadSceneTextValidated(FEditorHost& h, const char* text) noexcept {
     if (text == nullptr) return 0;
 
     const char* p = text;
@@ -1153,6 +1731,7 @@ int LoadSceneText(FEditorHost& h, const char* text) noexcept {
         if (*p == '\0') return false;
         int k = 0;
         while (*p != '\0' && *p != '\n') { if (k < outsz - 1) out[k++] = *p; ++p; }
+        if (k > 0 && out[k - 1] == '\r') --k;
         out[k] = '\0';
         if (*p == '\n') ++p;
         return true;
@@ -1318,6 +1897,12 @@ int LoadSceneText(FEditorHost& h, const char* text) noexcept {
         SelSet(h, h.nodes[0]->editor_id);
     }
     return 1;
+}
+
+int LoadSceneText(FEditorHost& h, const char* text) noexcept {
+    return ValidateEditorScene2DText(text)
+        ? LoadSceneTextValidated(h, text)
+        : 0;
 }
 
 // ----- Copy / Paste (サブツリーのシリアライズ + id 再マップ) -----
@@ -1617,21 +2202,27 @@ char* DupSnapshot(FEditorHost& h) noexcept {
 void RestoreSnapshot(FEditorHost& h, char* text) noexcept {
     if (text == nullptr) return;
     int l2d = 0, consumed = 0;
-    if (std::strncmp(text, "ACSSNAP3D ", 10) != 0 ||
-        std::sscanf(text, "ACSSNAP3D %d%n", &l2d, &consumed) < 1) {
+    if (std::strncmp(text, "ACSSNAP3D ", 10) != 0) {
         LoadSceneText(h, text); return;                              // 後方互換: 2D のみの旧スナップ
     }
+    if (std::sscanf(text, "ACSSNAP3D %d%n", &l2d, &consumed) < 1)
+        return;                                                       // 壊れた新形式を legacy と誤認しない
     char* body = text + consumed;
     while (*body == '\n' || *body == '\r') ++body;                   // ヘッダ行の改行をスキップ → 2D 本文の先頭
     const size_t bodyLen = std::strlen(body);
-    if (l2d <= 0 || static_cast<size_t>(l2d) > bodyLen) {            // 異常な 2D 長 → 全体を 2D として読む (OOB 回避)
-        LoadSceneText(h, body); return;
-    }
+    if (l2d <= 0 || static_cast<size_t>(l2d) > bodyLen) return;
     char* s3d = body + l2d;                                          // 2D は body から l2d バイト、その後が 3D
     const char saved = *s3d; *s3d = '\0';                            // 2D 部を一時終端
-    LoadSceneText(h, body);                                          // 2D 復元
+    const bool valid2d = ValidateEditorScene2DText(body);
     *s3d = saved;
-    acs_editor_scene3d_load_text(&h, s3d);                          // 3D 復元
+    if (!valid2d || !ValidateEditorScene3DText(s3d)) return;
+    *s3d = '\0';
+    FSceneResourceRetirementScope retirement(h);
+    LoadSceneTextValidated(h, body);                                 // 2D 復元
+    *s3d = saved;
+    LoadScene3DTextImpl(
+        &h, s3d, /*clear=*/true, /*idOffset=*/0,
+        /*reparentRootTo=*/-1, nullptr, /*prevalidated=*/true);
 }
 
 /** スナップショットスタックを空にして各 heap バッファを解放する。 */
@@ -2464,7 +3055,6 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 struct FM3DFrame { FMat4 view_proj; FVec4 light_dir; FVec4 light_col; FVec4 cam_pos; FVec4 sky_zenith, sky_horizon, sky_ground; FMat4 light_vp; };
-struct FM3DVtx   { f32 px, py, pz, nx, ny, nz, r, g, b, mt, rg; };   // 座標+法線+色 + metallic/roughness (44 bytes)
 
 // 法線 G-buffer プリパス: M3DVtx (既に world 座標+法線) を world normal として RGBA16F に出す。
 // FSsao が GTAO の slice 計算に world normal を要求する (depth 微分法線はブロック状になるため)。
@@ -2499,8 +3089,6 @@ float4 PSMain(VSOut v) : SV_TARGET {
     return c;                                // テクスチャは sRGB 値そのまま (UNORM RT へ)
 }
 )";
-struct FSprVtx { f32 px, py, pz, u, v; };    // ワールド座標 + UV (20 bytes)
-
 // フルスクリーン複製: opaque HDR シーンを refr_bg へコピー (屈折オブジェクトが背景として sample)。
 // 頂点バッファ不要 (SV_VertexID の大三角形)、深度オフ。
 const char* kBlit3DHLSL = R"(
@@ -2942,21 +3530,38 @@ bool BeginSkyCompileWorker(FEditorHost& h) noexcept {
 }
 
 /**
- * Compile only raw-DX12 PBR bytecode away from the window owner thread.
- * No RHI device, buffer, texture, or PSO is touched by this worker.
+ * Build the complete unpublished raw-DX12 PBR candidate away from the window
+ * owner thread. The candidate is never read until PollStartupWorker performs
+ * an acquire and joins this thread.
  */
 void PbrCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
         editor_profiler::FClock::now();
-    auto result = FPbrShader::CompileShadersCpu();
-    const bool ok = result.IsOk();
+    auto shaders = FPbrShader::CompileShadersCpu(true);
+    bool ok = shaders.IsOk() &&
+              h.startup_pbr_candidate_device != nullptr;
     if (ok) {
-        h.startup_pbr_shaders = Move(result.Value());
-    } else {
+        auto result =
+            h.pbr3d.BuildInitializedCandidateForRawDx12(
+                *h.startup_pbr_candidate_device,
+                Move(shaders.Value()),
+                h.startup_pbr_candidate_rt_format,
+                h.startup_pbr_candidate_depth_format,
+                ECullMode::None);
+        ok = result.IsOk();
+        if (!ok) {
+            ACS_LOG_ERROR(
+                "[3D] FPbrShader background candidate creation failed: %s",
+                result.Error().message);
+        }
+    } else if (shaders.IsErr()) {
         ACS_LOG_ERROR(
             "[3D] FPbrShader async CPU compile failed: %s",
-            result.Error().message);
+            shaders.Error().message);
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] FPbrShader background candidate has no device");
     }
     h.startup_worker_elapsed_ms =
         editor_profiler::ElapsedMilliseconds(begin);
@@ -2964,7 +3569,9 @@ void PbrCompileWorkerEntry(void* user) noexcept {
                                  std::memory_order_release);
 }
 
-bool BeginPbrCompileWorker(FEditorHost& h) noexcept {
+bool BeginPbrCompileWorker(
+    FEditorHost& h, IRhiDevice& device,
+    EFormat rt_format, EFormat depth_format) noexcept {
     if (h.startup_worker.Joinable() ||
         h.startup_worker_state.load(std::memory_order_acquire) != 0) {
         return false;
@@ -2972,12 +3579,16 @@ bool BeginPbrCompileWorker(FEditorHost& h) noexcept {
 
     h.startup_worker_kind = 1u;
     h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_pbr_candidate_device = &device;
+    h.startup_pbr_candidate_rt_format = rt_format;
+    h.startup_pbr_candidate_depth_format = depth_format;
     h.startup_worker_state.store(1, std::memory_order_release);
     FThreadConfig config{};
     config.name = L"ACS PBR shader compile";
     auto worker_result =
         FThread::Spawn(&PbrCompileWorkerEntry, &h, config);
     if (worker_result.IsErr()) {
+        h.startup_pbr_candidate_device = nullptr;
         h.startup_worker_kind = 0u;
         h.startup_worker_state.store(0, std::memory_order_release);
         ACS_LOG_ERROR(
@@ -3027,6 +3638,117 @@ bool BeginSsgiCompileWorker(FEditorHost& h) noexcept {
         h.startup_worker_state.store(0, std::memory_order_release);
         ACS_LOG_ERROR(
             "[acs_editor_abi] failed to create SSGI CPU compile worker: %s",
+            worker_result.Error().message);
+        return false;
+    }
+    h.startup_worker = Move(worker_result.Value());
+    return true;
+}
+
+/**
+ * Build the complete unpublished raw-DX12 SSSS pipeline candidate away from
+ * the window owner thread. Full-resolution targets stay deferred because they
+ * depend on the current viewport and are staged by the render pump.
+ */
+void SsssCompileWorkerEntry(void* user) noexcept {
+    auto& h = *static_cast<FEditorHost*>(user);
+    const editor_profiler::FTimePoint begin =
+        editor_profiler::FClock::now();
+    auto shaders = FSubsurfaceScattering::CompileShadersCpu();
+    bool ok = shaders.IsOk() &&
+              h.startup_ssss_candidate_device != nullptr;
+    if (ok) {
+        auto result =
+            h.ssss3d.BuildPipelineCandidateForRawDx12(
+                *h.startup_ssss_candidate_device,
+                Move(shaders.Value()));
+        ok = result.IsOk() && h.ssss3d.HasPipelineResources();
+        if (!ok) {
+            ACS_LOG_ERROR(
+                "[3D] SSSS background pipeline candidate creation failed: %s",
+                result.IsErr() ? result.Error().message :
+                                 "incomplete pipeline resources");
+        }
+    } else if (shaders.IsErr()) {
+        ACS_LOG_ERROR(
+            "[3D] SSSS async CPU compile failed: %s",
+            shaders.Error().message);
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] SSSS background pipeline candidate has no device");
+    }
+    h.startup_worker_elapsed_ms =
+        editor_profiler::ElapsedMilliseconds(begin);
+    h.startup_worker_state.store(
+        ok ? 2 : -1, std::memory_order_release);
+}
+
+bool BeginSsssCompileWorker(
+    FEditorHost& h, IRhiDevice& device) noexcept {
+    if (h.startup_worker.Joinable() ||
+        h.startup_worker_state.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+
+    h.startup_worker_kind = 6u;
+    h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_ssss_candidate_device = &device;
+    h.startup_worker_state.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS SSSS shader compile";
+    auto worker_result =
+        FThread::Spawn(&SsssCompileWorkerEntry, &h, config);
+    if (worker_result.IsErr()) {
+        h.startup_ssss_candidate_device = nullptr;
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] failed to create SSSS CPU compile worker: %s",
+            worker_result.Error().message);
+        return false;
+    }
+    h.startup_worker = Move(worker_result.Value());
+    return true;
+}
+
+/** Compile raw-DX12 post-process bytecode off the window owner thread. */
+void PostCompileWorkerEntry(void* user) noexcept {
+    auto& h = *static_cast<FEditorHost*>(user);
+    const editor_profiler::FTimePoint begin =
+        editor_profiler::FClock::now();
+    auto result = FPostProcess::CompileShadersCpu();
+    const bool ok = result.IsOk();
+    if (ok) {
+        h.startup_post_shaders = Move(result.Value());
+    } else {
+        ACS_LOG_ERROR(
+            "[3D] FPostProcess async CPU compile failed: %s",
+            result.Error().message);
+    }
+    h.startup_worker_elapsed_ms =
+        editor_profiler::ElapsedMilliseconds(begin);
+    h.startup_worker_state.store(
+        ok ? 2 : -1, std::memory_order_release);
+}
+
+bool BeginPostCompileWorker(FEditorHost& h) noexcept {
+    if (h.startup_worker.Joinable() ||
+        h.startup_worker_state.load(std::memory_order_acquire) != 0) {
+        return false;
+    }
+
+    h.startup_worker_kind = 7u;
+    h.startup_worker_elapsed_ms = 0.0f;
+    h.startup_worker_state.store(1, std::memory_order_release);
+    FThreadConfig config{};
+    config.name = L"ACS post shader compile";
+    auto worker_result =
+        FThread::Spawn(&PostCompileWorkerEntry, &h, config);
+    if (worker_result.IsErr()) {
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] failed to create post CPU compile worker: %s",
             worker_result.Error().message);
         return false;
     }
@@ -3092,11 +3814,102 @@ i32 PollStartupWorker(FEditorHost& h) noexcept {
 
 void JoinStartupWorker(FEditorHost& h) noexcept {
     h.startup_worker.Join();
+    h.startup_pbr_candidate_device = nullptr;
+    h.startup_ssss_candidate_device = nullptr;
     h.startup_worker_kind = 0u;
     h.startup_worker_state.store(0, std::memory_order_release);
 }
 
+/**
+ * Quiesce raw startup work before scene-owned resources are retired.
+ *
+ * Core startup products (PBR/sky/cloud/post) are renderer-global, so a worker
+ * that completed while joined remains in its terminal state for the normal
+ * startup state machine to publish. Runtime SSGI/SSSS jobs are scene-demand
+ * dependent and are discarded so the replacement scene can request them
+ * afresh without retaining an unpublished candidate.
+ */
+void JoinSceneReplacementStartupWorker(FEditorHost& h) noexcept {
+    const u32 worker_kind = h.startup_worker_kind;
+    if (worker_kind == 0u && !h.startup_worker.Joinable()) return;
+
+    h.startup_worker.Join();
+    (void)h.startup_worker_state.load(std::memory_order_acquire);
+    h.startup_pbr_candidate_device = nullptr;
+    h.startup_ssss_candidate_device = nullptr;
+
+    if (worker_kind == 2u) {
+        h.startup_ssgi_shaders = {};
+        h.ssgi_init_tried = false;
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+    } else if (worker_kind == 6u) {
+        h.ssss3d.Shutdown();
+        h.ssss3d_pending_shaders = {};
+        h.ssss3d_ready = false;
+        h.ssss3d_init_failed = false;
+        h.ssss3d_init_state = 0u;
+        h.ssss_pending_diffuse_rt.Reset();
+        h.ssss_pending_w = 0u;
+        h.ssss_pending_h = 0u;
+        h.ssss_frame_resource_state = 0u;
+        h.ssss_frame_failed_w = 0u;
+        h.ssss_frame_failed_h = 0u;
+        h.startup_worker_kind = 0u;
+        h.startup_worker_state.store(0, std::memory_order_release);
+    } else if (worker_kind == 0u) {
+        // Defensive recovery for a joinable handle without a registered owner.
+        h.startup_worker_state.store(0, std::memory_order_release);
+    }
+}
+
+void BeginSceneResourceRetirement(FEditorHost& h) noexcept {
+    ++h.scene_resource_retirement_depth;
+    if (h.scene_resource_retirement_depth != 1u) return;
+
+    // Required lifetime order: no candidate may still be touching the device
+    // when WaitIdle establishes the retirement fence, and no scene graph or
+    // sprite/material resource is destroyed until after that fence.
+    JoinSceneReplacementStartupWorker(h);
+    if (IRhiDevice* device = h.renderer.Device(); device != nullptr) {
+        device->WaitIdle();
+    }
+}
+
 void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
+
+TSharedPtr<FMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
+    if (cells < 2u) cells = 2u;
+    if (cells > 256u) cells = 256u;
+    auto mesh = MakeShared<FMeshAsset>();
+    if (!mesh) return nullptr;
+    auto& vertices = mesh->Vertices();
+    auto& indices = mesh->Indices();
+    const u32 row = cells + 1u;
+    for (u32 z = 0u; z <= cells; ++z) {
+        const f32 v = static_cast<f32>(z) / static_cast<f32>(cells);
+        for (u32 x = 0u; x <= cells; ++x) {
+            const f32 u = static_cast<f32>(x) / static_cast<f32>(cells);
+            vertices.PushBack(FMeshVertex{
+                FVec3{u - 0.5f, 0.0f, v - 0.5f},
+                FVec3::UnitY(), u, v});
+        }
+    }
+    for (u32 z = 0u; z < cells; ++z) {
+        for (u32 x = 0u; x < cells; ++x) {
+            const u32 a = z * row + x;
+            const u32 b = a + 1u;
+            const u32 c = a + row;
+            const u32 d = c + 1u;
+            // +Y authored normal with the engine's local XZ plane convention.
+            indices.PushBack(a); indices.PushBack(c); indices.PushBack(b);
+            indices.PushBack(b); indices.PushBack(c); indices.PushBack(d);
+        }
+    }
+    mesh->SubMeshes().PushBack(
+        FSubMesh{0u, static_cast<u32>(indices.Size())});
+    return mesh;
+}
 
 /** Advance exactly one 3D resource-initialization phase.
  *
@@ -3579,7 +4392,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     } else if (raw_dx12) {
         if (h.startup_worker_state.load(std::memory_order_acquire) == 0 &&
             !h.startup_worker.Joinable()) {
-            if (BeginPbrCompileWorker(h)) {
+            if (BeginPbrCompileWorker(h, *dev, hdrf, df)) {
                 h.startup_phase_pending = true;
                 return false;
             }
@@ -3606,29 +4419,22 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             h.startup_phase_elapsed_override_ms =
                 h.startup_worker_elapsed_ms;
             if (worker_result > 0) {
-                const editor_profiler::FTimePoint commit_begin =
+                const editor_profiler::FTimePoint publish_begin =
                     editor_profiler::FClock::now();
-                const auto pbr_result = h.pbr3d.InitWithCompiledShaders(
-                    *dev,
-                    Move(h.startup_pbr_shaders),
-                    hdrf,
-                    df,
-                    ECullMode::None);
-                const f32 commit_ms =
-                    editor_profiler::ElapsedMilliseconds(commit_begin);
-                h.startup_phase_elapsed_override_ms += commit_ms;
-                h.pbr3d_ready = pbr_result.IsOk();
-                if (!h.pbr3d_ready) {
-                    ACS_LOG_ERROR(
-                        "[3D] FPbrShader owner-thread RHI commit failed: %s",
-                        pbr_result.Error().message);
-                } else {
-                    ACS_LOG_INFO(
-                        "[3D] FPbrShader CPU compile %.2f ms; owner RHI commit %.2f ms",
-                        h.startup_worker_elapsed_ms,
-                        commit_ms);
-                }
+                // The acquire + join in PollStartupWorker is the publication
+                // boundary for the fully initialized, previously unpublished
+                // pbr3d object. No driver work remains on the UI thread.
+                h.pbr3d_ready = true;
+                h.startup_pbr_candidate_device = nullptr;
+                const f32 publish_ms =
+                    editor_profiler::ElapsedMilliseconds(publish_begin);
+                h.startup_phase_elapsed_override_ms += publish_ms;
+                ACS_LOG_INFO(
+                    "[3D] FPbrShader background full init %.2f ms; "
+                    "owner publication %.3f ms",
+                    h.startup_worker_elapsed_ms, publish_ms);
             } else {
+                h.startup_pbr_candidate_device = nullptr;
                 h.pbr3d_ready = false;
             }
         }
@@ -3802,11 +4608,22 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     auto cube = Primitive::MakeCube(1.0f);
     auto sph  = Primitive::MakeSphere(0.5f, 32, 16);
     auto pl   = Primitive::MakePlane(1.0f, 1.0f);
+    auto water_pl = MakeEditorWaterGrid();
     if (!cube || !sph || !pl) { ACS_LOG_ERROR("[3D] プリミティブ生成失敗"); return false; }
     if (UploadMesh(*dev, *cube, h.gm_cube).IsErr() ||
         UploadMesh(*dev, *sph,  h.gm_sphere).IsErr() ||
         UploadMesh(*dev, *pl,   h.gm_plane).IsErr()) { ACS_LOG_ERROR("[3D] メッシュアップロード失敗"); return false; }
     h.cpu_cube = cube; h.cpu_sphere = sph; h.cpu_plane = pl;
+    if (water_pl &&
+        UploadMesh(*dev, *water_pl, h.gm_water_plane).IsOk()) {
+        h.cpu_water_plane = water_pl;
+    } else {
+        h.gm_water_plane = FGpuMesh{};
+        h.cpu_water_plane.Reset();
+        ACS_LOG_WARN(
+            "[3D] tessellated water grid unavailable; water nodes "
+            "will use the opaque PBR fallback");
+    }
     h.r3d_init_phase = 15u;
     return false;
     }
@@ -3817,21 +4634,219 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     const u32 startup_w = h.width > 0u ? h.width : 1u;
     const u32 startup_h = h.height > 0u ? h.height : 1u;
     if (h.r3d_init_phase == 15u) {
-        const auto result = h.post3d.Init(
-            *dev, startup_w, startup_h, h.renderer.ColorFormat());
-        h.post3d_ready = result.IsOk();
-        if (h.post3d_ready) {
-            h.post3d_w = startup_w;
-            h.post3d_h = startup_h;
+        const char* const backend_name = dev->BackendName();
+        const bool raw_dx12 = backend_name != nullptr &&
+                              std::strcmp(backend_name, "DX12") == 0;
+        bool use_sync_fallback = false;
+
+        if (dev->SupportsAsyncShaderCompilation()) {
+            if (h.startup_async_shader_kind == 7u) {
+                const EShaderStatus shader_status =
+                    h.startup_post_shaders.Status();
+                if (shader_status == EShaderStatus::Compiling) {
+                    h.startup_phase_pending = true;
+                    return false;
+                }
+
+                const f32 compile_ms =
+                    editor_profiler::ElapsedMilliseconds(
+                        h.startup_async_shader_begin);
+                h.startup_async_shader_kind = 0u;
+                h.startup_phase_elapsed_override_ms = compile_ms;
+                if (shader_status == EShaderStatus::Ready) {
+                    const editor_profiler::FTimePoint commit_begin =
+                        editor_profiler::FClock::now();
+                    const auto result =
+                        h.post3d.InitWithCompiledShaders(
+                            *dev,
+                            Move(h.startup_post_shaders),
+                            startup_w,
+                            startup_h,
+                            h.renderer.ColorFormat());
+                    const f32 commit_ms =
+                        editor_profiler::ElapsedMilliseconds(commit_begin);
+                    h.startup_phase_elapsed_override_ms += commit_ms;
+                    h.post3d_ready = result.IsOk();
+                    if (h.post3d_ready) {
+                        h.post3d_w = startup_w;
+                        h.post3d_h = startup_h;
+                        ACS_LOG_INFO(
+                            "[3D] FPostProcess backend compile %.2f ms; "
+                            "owner RHI commit %.2f ms",
+                            compile_ms, commit_ms);
+                    } else {
+                        h.startup_post_shaders = {};
+                        ACS_LOG_WARN(
+                            "[3D] FPostProcess owner-thread RHI commit "
+                            "failed: %s",
+                            result.Error().message);
+                    }
+                } else {
+                    h.startup_post_shaders = {};
+                    h.post3d_ready = false;
+                    ACS_LOG_ERROR(
+                        "[3D] FPostProcess asynchronous shader compile "
+                        "failed; continuing without the post stack");
+                }
+            } else if (h.startup_async_shader_kind != 0u) {
+                h.startup_phase_pending = true;
+                return false;
+            } else {
+                const editor_profiler::FTimePoint submit_begin =
+                    editor_profiler::FClock::now();
+                auto shader_result =
+                    FPostProcess::BeginCompileShadersAsync(*dev);
+                if (shader_result.IsOk()) {
+                    h.startup_post_shaders =
+                        Move(shader_result.Value());
+                    h.startup_async_shader_kind = 7u;
+                    h.startup_async_shader_begin = submit_begin;
+                    h.startup_phase_pending = true;
+                    return false;
+                }
+                use_sync_fallback = true;
+                ACS_LOG_WARN(
+                    "[3D] FPostProcess asynchronous shader submission "
+                    "failed; using synchronous fallback: %s",
+                    shader_result.Error().message);
+            }
+        } else if (raw_dx12) {
+            if (h.startup_worker_kind == 7u) {
+                const i32 worker_result = PollStartupWorker(h);
+                if (worker_result == 0) {
+                    h.startup_phase_pending = true;
+                    return false;
+                }
+                h.startup_worker_kind = 0u;
+                h.startup_phase_elapsed_override_ms =
+                    h.startup_worker_elapsed_ms;
+                if (worker_result > 0 &&
+                    h.startup_post_shaders.Status() ==
+                        EShaderStatus::Ready) {
+                    const editor_profiler::FTimePoint commit_begin =
+                        editor_profiler::FClock::now();
+                    const auto result =
+                        h.post3d.InitWithCompiledShaders(
+                            *dev,
+                            Move(h.startup_post_shaders),
+                            startup_w,
+                            startup_h,
+                            h.renderer.ColorFormat());
+                    const f32 commit_ms =
+                        editor_profiler::ElapsedMilliseconds(commit_begin);
+                    h.startup_phase_elapsed_override_ms += commit_ms;
+                    h.post3d_ready = result.IsOk();
+                    if (h.post3d_ready) {
+                        h.post3d_w = startup_w;
+                        h.post3d_h = startup_h;
+                        ACS_LOG_INFO(
+                            "[3D] FPostProcess CPU compile %.2f ms; "
+                            "owner RHI commit %.2f ms",
+                            h.startup_worker_elapsed_ms, commit_ms);
+                    } else {
+                        h.startup_post_shaders = {};
+                        ACS_LOG_WARN(
+                            "[3D] FPostProcess owner-thread RHI commit "
+                            "failed: %s",
+                            result.Error().message);
+                    }
+                } else {
+                    h.startup_post_shaders = {};
+                    h.post3d_ready = false;
+                    ACS_LOG_ERROR(
+                        "[3D] FPostProcess CPU shader compile failed; "
+                        "continuing without the post stack");
+                }
+            } else if (h.startup_worker_kind != 0u ||
+                       h.startup_worker.Joinable() ||
+                       h.startup_worker_state.load(
+                           std::memory_order_acquire) != 0) {
+                h.startup_phase_pending = true;
+                return false;
+            } else if (BeginPostCompileWorker(h)) {
+                h.startup_phase_pending = true;
+                return false;
+            } else {
+                use_sync_fallback = true;
+                ACS_LOG_WARN(
+                    "[3D] FPostProcess CPU compile worker unavailable; "
+                    "using synchronous fallback");
+            }
         } else {
-            ACS_LOG_WARN("[3D] FPostProcess startup init failed: %s",
-                         result.Error().message);
+            // Retain compatibility for a backend without either compilation
+            // facility. Production Diligent and raw DX12 never take this path.
+            use_sync_fallback = true;
+        }
+
+        if (use_sync_fallback) {
+            const auto result = h.post3d.Init(
+                *dev, startup_w, startup_h,
+                h.renderer.ColorFormat());
+            h.post3d_ready = result.IsOk();
+            if (h.post3d_ready) {
+                h.post3d_w = startup_w;
+                h.post3d_h = startup_h;
+            } else {
+                ACS_LOG_WARN(
+                    "[3D] FPostProcess synchronous fallback failed: %s",
+                    result.Error().message);
+            }
         }
         h.r3d_init_phase = 16u;
         return false;
     }
 
     if (h.r3d_init_phase == 16u) {
+        bool compiled_ssao_ready = false;
+        if (h.startup_async_shader_kind == 5u) {
+            const EShaderStatus shader_status =
+                h.startup_ssao_shaders.Status();
+            if (shader_status == EShaderStatus::Compiling) {
+                h.startup_phase_pending = true;
+                return false;
+            }
+
+            const f32 compile_ms = editor_profiler::ElapsedMilliseconds(
+                h.startup_async_shader_begin);
+            h.startup_async_shader_kind = 0u;
+            h.startup_phase_elapsed_override_ms = compile_ms;
+            compiled_ssao_ready =
+                shader_status == EShaderStatus::Ready && h.q_ssao_on;
+            if (!compiled_ssao_ready) {
+                h.startup_ssao_shaders = {};
+                if (shader_status == EShaderStatus::Failed) {
+                    ACS_LOG_WARN(
+                        "[3D] FSsao asynchronous shader compile failed; "
+                        "retrying synchronously");
+                }
+            }
+        } else if (h.q_ssao_on &&
+                   dev->SupportsAsyncShaderCompilation()) {
+            if (h.startup_async_shader_kind != 0u) {
+                // Startup is deliberately serialized, but retain a
+                // non-blocking guard if another future phase overlaps.
+                h.startup_phase_pending = true;
+                return false;
+            }
+            const editor_profiler::FTimePoint submit_begin =
+                editor_profiler::FClock::now();
+            auto shader_result =
+                FSsao::BeginCompileShadersAsync(*dev);
+            if (shader_result.IsOk()) {
+                h.startup_ssao_shaders = Move(shader_result.Value());
+                h.startup_async_shader_kind = 5u;
+                h.startup_async_shader_begin = submit_begin;
+                h.startup_phase_pending = true;
+                return false;
+            }
+            ACS_LOG_WARN(
+                "[3D] FSsao asynchronous shader submission failed; "
+                "retrying synchronously: %s",
+                shader_result.Error().message);
+        }
+
+        const editor_profiler::FTimePoint owner_commit_begin =
+            editor_profiler::FClock::now();
         const bool wants_normal_buffer =
             h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on;
         if (wants_normal_buffer) {
@@ -3853,17 +4868,35 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             }
         }
         if (h.q_ssao_on) {
-            const auto result = h.ssao3d.Init(*dev, startup_w, startup_h);
+            const auto result = compiled_ssao_ready
+                ? h.ssao3d.InitWithCompiledShaders(
+                      *dev,
+                      Move(h.startup_ssao_shaders),
+                      startup_w,
+                      startup_h)
+                : h.ssao3d.Init(*dev, startup_w, startup_h);
             h.ssao_ready = result.IsOk();
             if (h.ssao_ready) {
                 h.ssao_w = startup_w;
                 h.ssao_h = startup_h;
+                if (compiled_ssao_ready) {
+                    ACS_LOG_INFO(
+                        "[3D] FSsao backend compile completed; "
+                        "owner RHI commit %.2f ms",
+                        editor_profiler::ElapsedMilliseconds(
+                            owner_commit_begin));
+                }
             } else {
+                h.startup_ssao_shaders = {};
                 h.ssao_w = 0u;
                 h.ssao_h = 0u;
                 ACS_LOG_WARN("[3D] FSsao startup init failed: %s",
                              result.Error().message);
             }
+        }
+        if (h.startup_phase_elapsed_override_ms >= 0.0f) {
+            h.startup_phase_elapsed_override_ms +=
+                editor_profiler::ElapsedMilliseconds(owner_commit_begin);
         }
         h.r3d_init_phase = 17u;
         return false;
@@ -4225,6 +5258,16 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     }
 
     if (h.r3d_init_phase == 24u) {
+        // Water is opt-in. Its shaders and sizeable per-draw constant-buffer
+        // ring are initialized lazily only after a scene actually contains a
+        // water component. This preserves bounded startup for ordinary scenes.
+        h.water3d_ready = false;
+        h.water3d_init_state = 0u;
+        h.r3d_init_phase = 25u;
+        return false;
+    }
+
+    if (h.r3d_init_phase == 25u) {
         // IBL construction records GPU work and therefore gets a dedicated
         // startup frame instead of running inside the first authored scene.
         h.renderer.BeginFrame(h.clear_color);
@@ -4237,7 +5280,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             ACS_LOG_WARN("[3D] startup IBL skipped: command list unavailable");
         }
         h.renderer.EndFrame();
-        h.r3d_init_phase = 25u;
+        h.r3d_init_phase = 26u;
         h.r3d_ready = true;
         return true;
     }
@@ -4250,7 +5293,7 @@ bool Ensure3D(FEditorHost& h) noexcept {
     return h.r3d_ready;
 }
 
-constexpr u32 kEditorStartupStepCount = 27u;
+constexpr u32 kEditorStartupStepCount = 28u;
 
 const char* EditorStartupStepName(u32 step) noexcept {
     static constexpr const char* kNames[kEditorStartupStepCount] = {
@@ -4262,7 +5305,7 @@ const char* EditorStartupStepName(u32 step) noexcept {
         "HDR post process", "SSAO", "screen-space reflections", "Hi-Z",
         "screen-space GI", "motion vectors", "atmosphere",
         "volumetric-cloud pipelines", "volumetric-cloud render targets",
-        "initial image-based lighting"
+        "interactive water", "initial image-based lighting"
     };
     return step < kEditorStartupStepCount ? kNames[step] : "complete";
 }
@@ -4592,14 +5635,25 @@ void LoadNode3DMaterialTextures(
 /** root 配下を DFS pre-order で集める (root 自身は除く)。前方宣言 (FindNode3DNode が使う)。 */
 void Dfs3DCollect(game::ANode* n, TArray<game::ANode*>& out) noexcept;
 
-/** editor 整数 id で ANode を «木全体» から線形探索する (階層対応、無ければ null)。 */
-game::ANode* FindNode3DNode(FEditorHost& h, int id) noexcept {
-    TArray<game::ANode*> all; Dfs3DCollect(&h.scene3d.Root(), all);
-    for (u32 i = 0; i < all.Size(); ++i) {
-        AEditor3DRecordComponent* r = Rec3D(all[i]);
-        if (r != nullptr && r->id == id) return all[i];
+game::ANode* FindNode3DNodeRecursive(
+    game::ANode* parent, int id) noexcept {
+    if (parent == nullptr) return nullptr;
+    for (u32 i = 0; i < parent->ChildCount(); ++i) {
+        game::ANode* child = parent->Child(i);
+        if (child == nullptr) continue;
+        AEditor3DRecordComponent* record = Rec3D(child);
+        if (record != nullptr && record->id == id) return child;
+        if (game::ANode* nested =
+                FindNode3DNodeRecursive(child, id)) {
+            return nested;
+        }
     }
     return nullptr;
+}
+
+/** editor 整数 id で ANode を «木全体» から探索する (階層対応、無ければ null)。 */
+game::ANode* FindNode3DNode(FEditorHost& h, int id) noexcept {
+    return FindNode3DNodeRecursive(&h.scene3d.Root(), id);
 }
 
 // ----- 3D 選択集合の操作 (single/multi。primary = sel3d。2D の Sel* と対称) -----
@@ -4675,6 +5729,182 @@ FGpuMesh* GpuMeshForNode3D(FEditorHost& h, game::ANode* nn) noexcept {
     return &rec->gm_cache;
 }
 
+constexpr game::FTypeId kWaterSurface3DTypeId =
+    game::AcsTypeHash("AWaterSurface3DComponent");
+
+/**
+ * Return whether a node is active in the editor scene hierarchy.
+ *
+ * Visibility/enabled are inherited contracts: a hidden or disabled group must
+ * suppress every descendant from rendering, picking and interaction even when
+ * the descendant's local flags remain true.
+ */
+bool IsEffectivelyVisibleAndEnabled(
+    const game::ANode* node) noexcept {
+    const game::ANode* current = node;
+    while (current != nullptr) {
+        if (!current->IsVisible() || !current->IsEnabled() ||
+            current->IsPendingDestroy()) {
+            return false;
+        }
+        current = current->Parent();
+    }
+    return node != nullptr;
+}
+
+int WaterSurface3DSlot(
+    const AEditor3DRecordComponent* record) noexcept {
+    if (record == nullptr) return -1;
+    for (u32 slot = 0u; slot < record->component_count; ++slot) {
+        if (record->components[slot] == kWaterSurface3DTypeId) {
+            return static_cast<int>(slot);
+        }
+    }
+    return -1;
+}
+
+bool IsAuthoredWaterSurface(game::ANode* node) noexcept {
+    if (!IsEffectivelyVisibleAndEnabled(node) ||
+        WaterSurface3DSlot(Rec3D(node)) < 0) {
+        return false;
+    }
+    const int primitive = NPrim(node);
+    return primitive == 2 ||
+           (primitive == 3 && NMesh(node) != nullptr);
+}
+
+FWaterSurface3DParams WaterSurface3DParamsFor(
+    const AEditor3DRecordComponent* record) noexcept {
+    FWaterSurface3DParams params{};
+    const int slot = WaterSurface3DSlot(record);
+    if (slot < 0) return params;
+    const f32 (*values)[4] =
+        record->comp_props[static_cast<u32>(slot)];
+    params.shallow_color =
+        FVec3{values[0][0], values[0][1], values[0][2]};
+    params.deep_color =
+        FVec3{values[1][0], values[1][1], values[1][2]};
+    params.absorption =
+        FVec3{values[2][0], values[2][1], values[2][2]};
+    params.scattering =
+        FVec3{values[3][0], values[3][1], values[3][2]};
+    params.roughness = values[4][0];
+    params.normal_strength = values[5][0];
+    params.normal_tiling = values[6][0];
+    params.flow_direction =
+        FVec2{values[7][0], values[7][1]};
+    params.wave_amplitude = values[8][0];
+    params.wave_scale = values[9][0];
+    params.wave_speed = values[10][0];
+    params.ripple_speed = values[11][0];
+    params.ripple_wavelength = values[12][0];
+    params.ripple_lifetime = values[13][0];
+    params.ripple_damping = values[14][0];
+    params.refraction_strength = values[15][0];
+    params.optical_depth = values[16][0];
+    params.foam_intensity = values[17][0];
+    params.phase_anisotropy = values[18][0];
+    params.foam_color =
+        FVec3{values[19][0], values[19][1], values[19][2]};
+    return params;
+}
+
+bool IsValidCustomWaterSurfaceMesh(
+    AEditor3DRecordComponent& record,
+    const FMeshAsset* mesh) noexcept {
+    if (record.water_surface_validation_src != mesh) {
+        record.water_surface_validation_src = mesh;
+        record.water_surface_local_xz =
+            mesh != nullptr &&
+            FWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
+        record.water_surface_fallback_logged = false;
+    }
+    if (!record.water_surface_local_xz &&
+        !record.water_surface_fallback_logged) {
+        ACS_LOG_WARN(
+            "[3D] water node %d custom mesh is not a valid local-XZ "
+            "surface; using the tessellated grid fallback",
+            record.id);
+        record.water_surface_fallback_logged = true;
+    }
+    return record.water_surface_local_xz;
+}
+
+FGpuMesh* WaterGridFallback(FEditorHost& host) noexcept {
+    return host.gm_water_plane.vertex_buffer &&
+           host.gm_water_plane.index_buffer
+        ? &host.gm_water_plane : nullptr;
+}
+
+FGpuMesh* WaterGpuMeshForNode3D(
+    FEditorHost& host, game::ANode* node) noexcept {
+    if (!IsAuthoredWaterSurface(node)) return nullptr;
+    if (NPrim(node) == 2) {
+        return WaterGridFallback(host);
+    }
+    if (NPrim(node) == 3) {
+        AEditor3DRecordComponent* record = Rec3D(node);
+        const FMeshAsset* source = NMesh(node);
+        if (record == nullptr ||
+            !IsValidCustomWaterSurfaceMesh(*record, source)) {
+            return WaterGridFallback(host);
+        }
+        FGpuMesh* custom = GpuMeshForNode3D(host, node);
+        return custom != nullptr
+            ? custom : WaterGridFallback(host);
+    }
+    return nullptr;
+}
+
+bool Water3DPassAvailable(const FEditorHost& host) noexcept {
+    IRhiTexture* scene_depth = host.renderer.DepthBuffer();
+    IRhiTexture* depth_copy = host.water3d_depth_copy.Get();
+    return host.water3d_ready && host.pbr3d_ready &&
+           host.post3d_ready &&
+           host.blit_ready &&
+           !host.water3d_depth_copy_failed &&
+           scene_depth != nullptr &&
+           depth_copy != nullptr &&
+           IsDepthTextureCopyCompatible(*scene_depth, *depth_copy) &&
+           host.water3d_depth_copy_w == host.width &&
+           host.water3d_depth_copy_h == host.height &&
+           host.refr_bg.Get() != nullptr &&
+           host.refr_bg_w == host.width &&
+           host.refr_bg_h == host.height;
+}
+
+void PrepareWater3DDrawEligibility(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes) noexcept {
+    host.water3d_draw_count = 0u;
+    if (!Water3DPassAvailable(host)) return;
+
+    for (u32 i = 0u;
+         i < nodes.Size() &&
+         host.water3d_draw_count < FWaterSurface3D::kMaxTrackedSurfaces;
+         ++i) {
+        game::ANode* node = nodes[i];
+        if (WaterGpuMeshForNode3D(host, node) == nullptr) continue;
+        const AEditor3DRecordComponent* record = Rec3D(node);
+        if (record == nullptr) continue;
+        host.water3d_draw_ids[host.water3d_draw_count++] = record->id;
+    }
+}
+
+bool IsRenderedByWater3D(
+    FEditorHost& host, game::ANode* node) noexcept {
+    if (!Water3DPassAvailable(host) ||
+        WaterGpuMeshForNode3D(host, node) == nullptr) {
+        return false;
+    }
+    const AEditor3DRecordComponent* record = Rec3D(node);
+    if (record == nullptr) return false;
+    for (u32 i = 0u; i < host.water3d_draw_count; ++i) {
+        if (host.water3d_draw_ids[i] == record->id) return true;
+    }
+    return false;
+}
+
 /** 新規 3D ノードを生成して ANode への参照を返す (ANode + AEditor3DRecordComponent + AMeshComponent3D)。 */
 game::ANode& AddNode3D(FEditorHost& h, const char* name) noexcept {
     game::ANode& n = h.scene3d.Spawn(FStringView((name != nullptr && name[0] != '\0') ? name : "Node"));
@@ -4691,6 +5921,584 @@ void Dfs3DCollect(game::ANode* n, TArray<game::ANode*>& out) noexcept {
         game::ANode* c = n->Child(i);
         if (c != nullptr) { out.PushBack(c); Dfs3DCollect(c, out); }
     }
+}
+
+struct FEditorWaterHit {
+    int node_id = -1;
+    FVec3 world_point{0, 0, 0};
+    f32 ray_distance = std::numeric_limits<f32>::max();
+};
+
+bool IsFiniteWaterHitValue(FVec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+           std::isfinite(value.z);
+}
+
+bool IsFiniteWaterHitValue(const FMat4& value) noexcept {
+    for (u32 row = 0u; row < 4u; ++row) {
+        for (u32 column = 0u; column < 4u; ++column) {
+            if (!std::isfinite(value.m[row][column])) return false;
+        }
+    }
+    return true;
+}
+
+bool IntersectWaterTriangle(
+    FVec3 origin, FVec3 direction,
+    FVec3 a, FVec3 b, FVec3 c,
+    f32& out_t) noexcept {
+    const FVec3 edge1 = b - a;
+    const FVec3 edge2 = c - a;
+    const FVec3 p = Cross(direction, edge2);
+    const f32 determinant = Dot(edge1, p);
+    if (!std::isfinite(determinant) ||
+        std::abs(determinant) <= 1e-8f) {
+        return false;
+    }
+    const f32 inverse = 1.0f / determinant;
+    const FVec3 offset = origin - a;
+    const f32 u = Dot(offset, p) * inverse;
+    if (u < 0.0f || u > 1.0f) return false;
+    const FVec3 q = Cross(offset, edge1);
+    const f32 v = Dot(direction, q) * inverse;
+    if (v < 0.0f || u + v > 1.0f) return false;
+    const f32 t = Dot(edge2, q) * inverse;
+    if (!std::isfinite(t) || t < 0.0f) return false;
+    out_t = t;
+    return true;
+}
+
+bool EditorOpaqueRayDistance(
+    game::ANode* node, const FRay3& ray,
+    f32& out_distance) noexcept {
+    if (!IsEffectivelyVisibleAndEnabled(node)) {
+        return false;
+    }
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (record == nullptr || record->is_empty ||
+        Mesh3D(node) == nullptr) {
+        return false;
+    }
+
+    const FMat4 model = node->World().ToMat4();
+    const FMat4 inverse_model = Inverse(model);
+    if (!IsFiniteWaterHitValue(inverse_model)) return false;
+    const FRay3 local_ray{
+        TransformPoint(ray.origin, inverse_model),
+        TransformVector(ray.direction, inverse_model)
+    };
+    if (!IsFiniteWaterHitValue(local_ray.origin) ||
+        !IsFiniteWaterHitValue(local_ray.direction)) {
+        return false;
+    }
+
+    FRayHit3 hit{};
+    switch (NPrim(node)) {
+    case 0:
+        hit = RaycastAabb(
+            local_ray,
+            FAabb3{FVec3{0, 0, 0}, FVec3{0.5f, 0.5f, 0.5f}});
+        break;
+    case 1:
+        hit = RaycastSphere(
+            local_ray, FSphere{FVec3{0, 0, 0}, 0.5f});
+        break;
+    case 2:
+        hit = RaycastAabb(
+            local_ray,
+            FAabb3{FVec3{0, 0, 0}, FVec3{0.5f, 0.02f, 0.5f}});
+        break;
+    case 3: {
+        const FMeshAsset* mesh = NMesh(node);
+        if (mesh == nullptr || mesh->Vertices().Size() == 0u ||
+            mesh->Indices().Size() < 3u) {
+            return false;
+        }
+        if (record->water_hit_collider_src != mesh) {
+            record->water_hit_collider.Clear();
+            const auto build =
+                record->water_hit_collider.BuildFromMesh(*mesh);
+            record->water_hit_collider_src =
+                build.IsOk() ? mesh : nullptr;
+        }
+        if (record->water_hit_collider_src != mesh) return false;
+        hit = record->water_hit_collider.Raycast(local_ray);
+        break;
+    }
+    default:
+        return false;
+    }
+    if (!hit.hit) return false;
+
+    const FVec3 world_point = TransformPoint(hit.point, model);
+    if (!IsFiniteWaterHitValue(world_point)) return false;
+    out_distance = Dot(world_point - ray.origin, ray.direction);
+    return std::isfinite(out_distance) && out_distance >= 0.0f;
+}
+
+bool HitTestEditorWaterSurface(
+    FEditorHost& host, f32 screen_x, f32 screen_y,
+    f32 viewport_width, f32 viewport_height,
+    FEditorWaterHit& out_hit) noexcept {
+    if (!std::isfinite(screen_x) || !std::isfinite(screen_y) ||
+        !std::isfinite(viewport_width) || !std::isfinite(viewport_height) ||
+        viewport_width <= 0.0f || viewport_height <= 0.0f) {
+        return false;
+    }
+    const f32 aspect = viewport_width / viewport_height;
+    const FRay3 ray = ScreenPointToRay(
+        EditorCam3D(host, aspect).ViewProjection(),
+        screen_x, screen_y, viewport_width, viewport_height);
+    TArray<game::ANode*> nodes;
+    Dfs3DCollect(&host.scene3d.Root(), nodes);
+    bool found = false;
+    for (u32 i = 0u; i < nodes.Size(); ++i) {
+        game::ANode* node = nodes[i];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        if (!IsAuthoredWaterSurface(node) || record == nullptr) continue;
+        const FMat4 model = node->World().ToMat4();
+        const FMat4 inverse_model = Inverse(model);
+        if (!IsFiniteWaterHitValue(inverse_model)) continue;
+        const FVec3 local_origin =
+            TransformPoint(ray.origin, inverse_model);
+        const FVec3 local_direction =
+            TransformVector(ray.direction, inverse_model);
+        if (!IsFiniteWaterHitValue(local_origin) ||
+            !IsFiniteWaterHitValue(local_direction)) {
+            continue;
+        }
+        FVec3 local_point{};
+        const FMeshAsset* mesh =
+            NPrim(node) == 3 ? NMesh(node) : nullptr;
+        const bool use_custom_mesh =
+            NPrim(node) == 3 &&
+            IsValidCustomWaterSurfaceMesh(*record, mesh);
+        if (use_custom_mesh) {
+            if (record->water_hit_collider_src != mesh) {
+                record->water_hit_collider.Clear();
+                const auto build =
+                    record->water_hit_collider.BuildFromMesh(*mesh);
+                record->water_hit_collider_src =
+                    build.IsOk() ? mesh : nullptr;
+            }
+            if (record->water_hit_collider_src != mesh) continue;
+            const FRayHit3 mesh_hit =
+                record->water_hit_collider.Raycast(
+                    FRay3{local_origin, local_direction});
+            if (!mesh_hit.hit) continue;
+            local_point = mesh_hit.point;
+        } else {
+            if (std::abs(local_direction.y) <= 1e-7f) continue;
+            const f32 local_t =
+                -local_origin.y / local_direction.y;
+            if (!std::isfinite(local_t) || local_t < 0.0f) continue;
+            local_point =
+                local_origin + local_direction * local_t;
+            constexpr f32 kBoundsEpsilon = 1e-4f;
+            if (local_point.x < -0.5f - kBoundsEpsilon ||
+                local_point.x > 0.5f + kBoundsEpsilon ||
+                local_point.z < -0.5f - kBoundsEpsilon ||
+                local_point.z > 0.5f + kBoundsEpsilon) {
+                continue;
+            }
+        }
+        const FVec3 world_point = TransformPoint(local_point, model);
+        if (!IsFiniteWaterHitValue(world_point)) continue;
+        const FVec3 offset = world_point - ray.origin;
+        const f32 distance = Dot(offset, ray.direction);
+        if (!std::isfinite(distance) || distance < 0.0f ||
+            distance >= out_hit.ray_distance) {
+            continue;
+        }
+        out_hit.node_id = record->id;
+        out_hit.world_point = world_point;
+        out_hit.ray_distance = distance;
+        found = true;
+    }
+    if (found) {
+        // Pointer interaction follows what the user can actually see. A mesh
+        // in front of the selected water hit must consume the pointer rather
+        // than allowing a wake to appear through opaque geometry.
+        constexpr f32 kOcclusionEpsilon = 1e-4f;
+        for (u32 i = 0u; i < nodes.Size(); ++i) {
+            game::ANode* node = nodes[i];
+            if (IsAuthoredWaterSurface(node)) continue;
+            f32 opaque_distance = 0.0f;
+            if (EditorOpaqueRayDistance(
+                    node, ray, opaque_distance) &&
+                opaque_distance + kOcclusionEpsilon <
+                    out_hit.ray_distance) {
+                return false;
+            }
+        }
+    }
+    return found;
+}
+
+bool SceneHasAuthoredWater(
+    const TArray<game::ANode*>& nodes) noexcept {
+    for (u32 i = 0u; i < nodes.Size(); ++i) {
+        if (IsAuthoredWaterSurface(nodes[i])) return true;
+    }
+    return false;
+}
+
+bool AdvanceWater3DInitialization(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes) noexcept {
+    const bool requested = SceneHasAuthoredWater(nodes);
+
+    // Drain optional work before the feature gate. A hot material/component
+    // edit can remove the final water surface while backend shader compilation
+    // or the bounded pipeline candidate is still in flight.
+    if (!requested) {
+        if (host.water3d_init_state == 1u) {
+            const EShaderStatus status =
+                host.water3d_pending_shaders.Status();
+            if (status == EShaderStatus::Compiling) return false;
+            host.water3d_pending_shaders = {};
+            host.water3d.Shutdown();
+            host.water3d_ready = false;
+            host.water3d_init_state = 0u;
+        } else if (host.water3d_init_state == 4u) {
+            // State 4 is unpublished and has never been recorded for drawing;
+            // discard its partial constant-buffer ring without advancing it.
+            host.water3d_pending_shaders = {};
+            host.water3d.Shutdown();
+            host.water3d_ready = false;
+            host.water3d_init_state = 0u;
+        }
+        return false;
+    }
+
+    if (host.water3d_ready || host.water3d_init_state == 3u) {
+        return false;
+    }
+    IRhiDevice* device = host.renderer.Device();
+    if (device == nullptr) return false;
+    if (host.water3d_init_state == 0u) {
+        if (device->SupportsAsyncShaderCompilation()) {
+            auto result =
+                FWaterSurface3D::BeginCompileShadersAsync(*device);
+            if (result.IsOk()) {
+                host.water3d_pending_shaders = Move(result.Value());
+                host.water3d_init_state = 1u;
+                return false;
+            }
+            ACS_LOG_WARN(
+                "[3D] interactive-water asynchronous submission failed; "
+                "using owner-thread fallback: %s",
+                result.Error().message);
+        }
+        const editor_profiler::FTimePoint begin =
+            editor_profiler::FClock::now();
+        const auto result = host.water3d.Init(
+            *device, EFormat::R16G16B16A16_Float,
+            host.renderer.DepthFormat(), 1u);
+        const f32 elapsed =
+            editor_profiler::ElapsedMilliseconds(begin);
+        host.water3d_ready = result.IsOk();
+        host.water3d_init_state =
+            host.water3d_ready ? 2u : 3u;
+        if (host.water3d_ready) {
+            ACS_LOG_INFO(
+                "[3D] interactive-water owner initialization %.2f ms",
+                elapsed);
+        } else {
+            ACS_LOG_WARN(
+                "[3D] interactive-water initialization failed; "
+                "opaque PBR fallback remains active: %s",
+                result.Error().message);
+        }
+        return true;
+    }
+    if (host.water3d_init_state == 4u) {
+        const editor_profiler::FTimePoint begin =
+            editor_profiler::FClock::now();
+        auto advance =
+            host.water3d.AdvanceInitialization(16u);
+        const f32 elapsed =
+            editor_profiler::ElapsedMilliseconds(begin);
+        if (advance.IsErr()) {
+            host.water3d_init_state = 3u;
+            host.water3d_ready = false;
+            ACS_LOG_WARN(
+                "[3D] interactive-water bounded RHI commit failed; "
+                "opaque PBR fallback remains active: %s",
+                advance.Error().message);
+        } else if (advance.Value()) {
+            host.water3d_init_state = 2u;
+            host.water3d_ready = true;
+            ACS_LOG_INFO(
+                "[3D] interactive-water bounded RHI commit complete "
+                "(last slice %.2f ms)",
+                elapsed);
+        }
+        return true;
+    }
+    if (host.water3d_init_state != 1u) return false;
+    const EShaderStatus status =
+        host.water3d_pending_shaders.Status();
+    if (status == EShaderStatus::Compiling) return false;
+    if (status != EShaderStatus::Ready) {
+        host.water3d_pending_shaders = {};
+        host.water3d_init_state = 3u;
+        ACS_LOG_WARN(
+            "[3D] interactive-water asynchronous compile failed; "
+            "opaque PBR fallback remains active");
+        return false;
+    }
+    const editor_profiler::FTimePoint commit_begin =
+        editor_profiler::FClock::now();
+    const auto result = host.water3d.BeginInitWithCompiledShaders(
+        *device, Move(host.water3d_pending_shaders),
+        EFormat::R16G16B16A16_Float,
+        host.renderer.DepthFormat(), 1u);
+    const f32 commit_ms =
+        editor_profiler::ElapsedMilliseconds(commit_begin);
+    host.water3d_ready = false;
+    host.water3d_init_state =
+        result.IsOk() ? 4u : 3u;
+    if (result.IsOk()) {
+        ACS_LOG_INFO(
+            "[3D] interactive-water shader/PSO owner commit %.2f ms; "
+            "constant buffers continue in bounded slices",
+            commit_ms);
+    } else {
+        ACS_LOG_WARN(
+            "[3D] interactive-water owner RHI commit failed; "
+            "opaque PBR fallback remains active: %s",
+            result.Error().message);
+    }
+    return true;
+}
+
+bool EnsureWater3DBackgroundBeforeFrame(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes) noexcept {
+    if (!host.water3d_ready || !host.post3d_ready ||
+        !host.blit_ready || !SceneHasAuthoredWater(nodes) ||
+        host.width == 0u || host.height == 0u ||
+        host.renderer.DepthBuffer() == nullptr) {
+        return false;
+    }
+    IRhiTexture* scene_depth = host.renderer.DepthBuffer();
+    if (scene_depth->Width() != host.width ||
+        scene_depth->Height() != host.height ||
+        scene_depth->PixelFormat() != EFormat::D32_Float) {
+        return false;
+    }
+    const bool background_ready =
+        host.refr_bg &&
+        host.refr_bg_w == host.width &&
+        host.refr_bg_h == host.height;
+    const bool depth_copy_ready =
+        host.water3d_depth_copy &&
+        host.water3d_depth_copy_w == host.width &&
+        host.water3d_depth_copy_h == host.height &&
+        IsDepthTextureCopyCompatible(
+            *scene_depth, *host.water3d_depth_copy);
+    if (background_ready && depth_copy_ready) return false;
+    if (host.water3d_background_failed ||
+        host.water3d_depth_copy_failed) {
+        return false;
+    }
+
+    IRhiDevice* device = host.renderer.Device();
+    if (device == nullptr) return false;
+
+    TUniquePtr<IRhiTexture> background_candidate;
+    if (!background_ready) {
+        FTextureDesc description{};
+        description.width = host.width;
+        description.height = host.height;
+        description.format = EFormat::R16G16B16A16_Float;
+        description.is_render_target = true;
+        auto texture = CreateRhiTexture(*device, description);
+        if (texture.IsErr()) {
+            host.water3d_background_failed = true;
+            ACS_LOG_WARN(
+                "[3D] interactive-water scene background unavailable; "
+                "opaque PBR fallback remains active: %s",
+                texture.Error().message);
+            return true;
+        }
+        background_candidate = Move(texture.Value());
+    }
+
+    TUniquePtr<IRhiTexture> depth_candidate;
+    if (!depth_copy_ready) {
+        FTextureDesc description{};
+        description.width = host.width;
+        description.height = host.height;
+        description.format = scene_depth->PixelFormat();
+        description.is_depth_target = true;
+        description.shader_visible_depth = true;
+        description.sample_count = 1u;
+        auto texture = CreateRhiTexture(*device, description);
+        if (texture.IsErr() ||
+            !IsDepthTextureCopyCompatible(
+                *scene_depth, *texture.Value())) {
+            host.water3d_depth_copy_failed = true;
+            ACS_LOG_WARN(
+                "[3D] interactive-water depth snapshot unavailable; "
+                "opaque PBR fallback remains active%s%s",
+                texture.IsErr() ? ": " : "",
+                texture.IsErr() ? texture.Error().message :
+                                  " (incompatible depth allocation)");
+            return true;
+        }
+        depth_candidate = Move(texture.Value());
+    }
+
+    if (background_candidate) {
+        host.refr_bg = Move(background_candidate);
+        host.refr_bg_w = host.width;
+        host.refr_bg_h = host.height;
+    }
+    if (depth_candidate) {
+        host.water3d_depth_copy = Move(depth_candidate);
+        host.water3d_depth_copy_w = host.width;
+        host.water3d_depth_copy_h = host.height;
+    }
+    host.water3d_background_failed = false;
+    host.water3d_depth_copy_failed = false;
+    return true;
+}
+
+/**
+ * Draw specialized water before all scene-space atmosphere composites.
+ *
+ * The color background and opaque D32 depth are immutable snapshots. The live
+ * scene depth is rebound as a writable DSV, so displaced water participates in
+ * opaque/water occlusion and becomes visible to later AP/cloud/fog/DoF/TAA.
+ */
+void DrawInteractiveWater3DPass(
+    FEditorHost& host,
+    IRhiCommandList& command_list,
+    IRhiTexture& hdr_target,
+    const TArray<game::ANode*>& nodes,
+    const FMat4& view_projection,
+    FVec3 camera_position,
+    FVec3 sun_color,
+    bool shadow_enabled,
+    IRhiTexture* shadow_map,
+    const FMat4& light_view_projection,
+    f32 shadow_bias,
+    f32 shadow_filter,
+    u32 width,
+    u32 height) noexcept {
+    bool any_water = false;
+    for (u32 i = 0u; i < nodes.Size(); ++i) {
+        if (IsRenderedByWater3D(host, nodes[i])) {
+            any_water = true;
+            break;
+        }
+    }
+    if (!any_water || !host.refr_bg ||
+        !host.water3d_depth_copy ||
+        !host.blit_pipe) {
+        return;
+    }
+
+    IRhiTexture* scene_depth = host.renderer.DepthBuffer();
+    if (!scene_depth ||
+        !IsDepthTextureCopyCompatible(
+            *scene_depth, *host.water3d_depth_copy)) {
+        return;
+    }
+
+    constexpr FClearColor copy_clear{
+        0.0f, 0.0f, 0.0f, 1.0f};
+    command_list.BeginRenderToTexture(
+        *host.refr_bg, copy_clear, nullptr, 1.0f);
+    FViewport viewport{};
+    viewport.width = static_cast<f32>(width);
+    viewport.height = static_cast<f32>(height);
+    command_list.SetViewport(viewport);
+    FScissorRect scissor{};
+    scissor.right = static_cast<i32>(width);
+    scissor.bottom = static_cast<i32>(height);
+    command_list.SetScissor(scissor);
+    command_list.SetPipeline(*host.blit_pipe);
+    command_list.SetTexture(0u, hdr_target);
+    command_list.Draw(3u, 0u);
+    command_list.EndRenderToTexture(*host.refr_bg);
+
+    const bool copied_depth = command_list.CopyDepthTexture(
+        *scene_depth, *host.water3d_depth_copy);
+    command_list.BeginRenderToTextureLoad(
+        hdr_target, scene_depth);
+    command_list.SetViewport(viewport);
+    command_list.SetScissor(scissor);
+
+    if (!copied_depth) {
+        // The specialized nodes were intentionally omitted from the earlier
+        // opaque loop. Draw a conservative PBR surface now so a backend copy
+        // failure can never make authored water disappear for one frame.
+        host.pbr3d.SetNormalMap(nullptr, 1.0f);
+        host.pbr3d.ClearSubstrateSurface();
+        host.pbr3d.SetExtParams(0.0f, 0.0f, 0.0f);
+        host.pbr3d.SetSheen(FVec3::Zero(), 0.0f, 0.3f);
+        host.pbr3d.SetSubsurface(FVec3::Zero(), 0.0f);
+        host.pbr3d.SetEmissive(FVec3::Zero(), 0.0f);
+        for (u32 i = 0u; i < nodes.Size(); ++i) {
+            game::ANode* node = nodes[i];
+            if (!IsRenderedByWater3D(host, node)) continue;
+            AEditor3DRecordComponent* record = Rec3D(node);
+            FGpuMesh* mesh = WaterGpuMeshForNode3D(host, node);
+            if (!record || !mesh) continue;
+            const FWaterSurface3DParams params =
+                WaterSurface3DParamsFor(record);
+            const FVec3 fallback_color{
+                params.shallow_color.x * 0.72f +
+                    params.deep_color.x * 0.28f,
+                params.shallow_color.y * 0.72f +
+                    params.deep_color.y * 0.28f,
+                params.shallow_color.z * 0.72f +
+                    params.deep_color.z * 0.28f,
+            };
+            host.pbr3d.DrawMesh(
+                command_list, *mesh, node->World().ToMat4(),
+                fallback_color, 0.0f, params.roughness, 1.0f,
+                nullptr);
+        }
+        command_list.EndRenderToTexture(hdr_target);
+        host.water3d_depth_copy_failed = true;
+        ACS_LOG_WARN(
+            "[3D] interactive-water depth copy failed; "
+            "opaque PBR fallback remains active");
+        return;
+    }
+
+    host.water3d.SetEnvironment(
+        host.sky_zenith, host.sky_horizon, host.sky_ground);
+    host.water3d.SetFrame(
+        view_projection, camera_position,
+        width, height, host.sun_dir, sun_color);
+    host.water3d.SetShadowMap(
+        shadow_enabled ? shadow_map : nullptr,
+        light_view_projection, shadow_bias, shadow_filter);
+    IRhiTexture* reflection =
+        host.ssr_computed
+            ? host.ssr3d.OutputTexture() : nullptr;
+    for (u32 i = 0u; i < nodes.Size(); ++i) {
+        game::ANode* node = nodes[i];
+        if (!IsRenderedByWater3D(host, node)) continue;
+        AEditor3DRecordComponent* record = Rec3D(node);
+        FGpuMesh* mesh = WaterGpuMeshForNode3D(host, node);
+        if (!record || !mesh) continue;
+        host.water3d.SetParams(
+            WaterSurface3DParamsFor(record));
+        host.water3d.DrawMesh(
+            command_list, *mesh, node->World().ToMat4(),
+            host.refr_bg.Get(), host.water3d_depth_copy.Get(),
+            reflection,
+            static_cast<u64>(
+                static_cast<u32>(record->id)),
+            true);
+    }
+    command_list.EndRenderToTexture(hdr_target);
 }
 
 /** ノードの «親の editor 整数 id» を返す (親が root or 無しは -1)。 */
@@ -4869,8 +6677,9 @@ void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
         FVec3{ 0.30f, 0.55f, 0.96f }
     };
     const FVec3 hot{ 1.0f, 0.86f, 0.22f };
-    TArray<FM3DVtx> gv;
-    gv.Reserve(4096);
+    TArray<FM3DVtx>& gv = h.gizmo_vertices;
+    gv.Clear();
+    if (gv.Capacity() < 4096u) gv.Reserve(4096u);
 
     for (int a = 1; a <= 3; ++a) {
         const FVec3 d = AxisDir(a);
@@ -5042,8 +6851,11 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
 )";
 
 // 三角形を SB へ詰めて clear→voxelize。volume を返す (PBR の SetVxgi へ)。失敗時 nullptr。
-IRhiTexture* VxgiVoxelize(FEditorHost& h, IRhiCommandList* cl, const TArray<FM3DVtx>& dv,
-                          FVec3 bbMin, FVec3 bbMax) noexcept {
+IRhiTexture* VxgiVoxelize(
+    FEditorHost& h, IRhiCommandList* cl,
+    const TArray<FM3DVtx>& dv,
+    u64 geometry_revision,
+    FVec3 bbMin, FVec3 bbMax) noexcept {
     IRhiDevice* dev = h.renderer.Device();
     if (dev == nullptr || cl == nullptr || dv.Size() < 3) return nullptr;
     // raw DX12 compute は texture SRV/UAV workload（clouds/AP）には対応するが、
@@ -5082,13 +6894,20 @@ IRhiTexture* VxgiVoxelize(FEditorHost& h, IRhiCommandList* cl, const TArray<FM3D
     if (!h.vxgi_ready) return nullptr;
     // 三角形 SB を (再)確保 + upload
     const u32 vcount = dv.Size();
-    if (h.vxgi_tri_cap < vcount) {
+    if (!h.vxgi_tri || h.vxgi_tri_cap < vcount) {
         FBufferDesc bd{}; bd.size=sizeof(FM3DVtx)*vcount; bd.usage=EBufferUsage::Storage;
         bd.cpu_writable=true; bd.struct_stride=sizeof(FM3DVtx);
-        if (auto r=CreateRhiBuffer(*dev, bd); r.IsOk()) { h.vxgi_tri=Move(r.Value()); h.vxgi_tri_cap=vcount; }
+        if (auto r=CreateRhiBuffer(*dev, bd); r.IsOk()) {
+            h.vxgi_tri=Move(r.Value());
+            h.vxgi_tri_cap=vcount;
+            h.vxgi_tri_uploaded_revision = 0u;
+        }
         else return nullptr;
     }
-    h.vxgi_tri->Update(dv.Data(), sizeof(FM3DVtx)*vcount);
+    if (h.vxgi_tri_uploaded_revision != geometry_revision) {
+        h.vxgi_tri->Update(dv.Data(), sizeof(FM3DVtx)*vcount);
+        h.vxgi_tri_uploaded_revision = geometry_revision;
+    }
     // CB
     const FVec3 ext{ bbMax.x-bbMin.x+0.01f, bbMax.y-bbMin.y+0.01f, bbMax.z-bbMin.z+0.01f };
     struct FVoxCb { FVec4 gmin, gext, sdir, scol; } cb{};
@@ -5154,13 +6973,103 @@ IRhiTexture* VxgiResolve(FEditorHost& h, IRhiCommandList* cl, IRhiTexture* vol,
 /** 3D シーンを描画する (スカイ + ライト付きメッシュ + 選択ハイライト/太いギズモ)。 */
 // ===== DrawScene3D の pass 関数群 (WickedEngine 風 named pass。挙動はインライン時と完全一致) =====
 
+int SceneMeshWaterSlot(
+    const FEditorHost& h,
+    const AEditor3DRecordComponent* record) noexcept {
+    if (record == nullptr) return 0;
+    for (u32 index = 0u; index < h.water3d_draw_count; ++index) {
+        if (h.water3d_draw_ids[index] == record->id) {
+            return static_cast<int>(index + 1u);
+        }
+    }
+    return 0;
+}
+
+FSceneMeshCacheKey BuildSceneMeshCacheKey(
+    FEditorHost& h, game::ANode* node) noexcept {
+    FSceneMeshCacheKey key{};
+    key.node = node;
+    if (node == nullptr) return key;
+
+    key.parent = node->Parent();
+    AEditor3DRecordComponent* record = Rec3D(node);
+    game::AMeshComponent3D* component = Mesh3D(node);
+    key.component = component;
+    key.editor_id = record != nullptr ? record->id : 0;
+    key.primitive = NPrim(node);
+    key.water_slot = SceneMeshWaterSlot(h, record);
+    key.world = node->World().ToMat4();
+    key.node_color = NColor(node);
+
+    constexpr u32 kEffectivelyActive = 1u << 0u;
+    constexpr u32 kEmptyRecord = 1u << 1u;
+    constexpr u32 kHasMeshComponent = 1u << 2u;
+    constexpr u32 kHasRenderHandle = 1u << 3u;
+    constexpr u32 kRenderedByWater = 1u << 4u;
+    constexpr u32 kHasMaterial = 1u << 5u;
+    constexpr u32 kMaterialLoaded = 1u << 6u;
+
+    const bool active = IsEffectivelyVisibleAndEnabled(node);
+    const bool empty = record != nullptr && record->is_empty;
+    const bool rendered_by_water = IsRenderedByWater3D(h, node);
+    if (active) key.state |= kEffectivelyActive;
+    if (empty) key.state |= kEmptyRecord;
+    if (component != nullptr) key.state |= kHasMeshComponent;
+    if (rendered_by_water) key.state |= kRenderedByWater;
+
+    if (component != nullptr) {
+        key.render_handle = component->RenderHandle();
+        if (key.render_handle != nullptr) key.state |= kHasRenderHandle;
+
+        // Resolve lazy material state before capturing the exact fields used
+        // by BuildSceneMeshVerts. This prevents a guaranteed second rebuild on
+        // the frame after first material use.
+        const bool contributes =
+            active && !empty && key.render_handle == nullptr &&
+            !rendered_by_water;
+        if (contributes && component->HasMaterial() &&
+            !component->MaterialLoaded()) {
+            LoadNode3DMaterial(node);
+        }
+        if (component->HasMaterial()) key.state |= kHasMaterial;
+        if (component->MaterialLoaded()) key.state |= kMaterialLoaded;
+        const game::FMaterial2D& material = component->Material();
+        key.material_kind = static_cast<u32>(material.kind);
+        key.material_base_color = material.pbr.baseColor;
+        key.metallic = material.pbr.metallic;
+        key.roughness = material.pbr.roughness;
+    }
+
+    key.mesh =
+        key.primitive == 3 ? NMesh(node)
+      : key.primitive == 1 ? h.cpu_sphere.Get()
+      : key.primitive == 2 ? h.cpu_plane.Get()
+                           : h.cpu_cube.Get();
+    if (key.mesh != nullptr) {
+        key.mesh_revision = key.mesh->GeometryRevision();
+    }
+    return key;
+}
+
+bool SceneMeshCacheKeysMatch(
+    const TArray<FSceneMeshCacheKey>& lhs,
+    const TArray<FSceneMeshCacheKey>& rhs) noexcept {
+    if (lhs.Size() != rhs.Size()) return false;
+    for (u32 index = 0u; index < lhs.Size(); ++index) {
+        if (!lhs[index].SameAs(rhs[index])) return false;
+    }
+    return true;
+}
+
 // シーンのメッシュ頂点を M3DVtx へ展開 + AABB を求める (シャドウ/本体/VXGI が共有)。
 void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
                          TArray<FM3DVtx>& dv, FVec3& bbMin, FVec3& bbMax) noexcept {
     for (u32 i = 0; i < all3d.Size(); ++i) {
         game::ANode* nn = all3d[i];
+        if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
         { AEditor3DRecordComponent* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
         if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
+        if (IsRenderedByWater3D(h, nn)) continue;
         const int prim = NPrim(nn);
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
                              : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
@@ -5182,6 +7091,56 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
         if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
     }
+}
+
+bool RefreshSceneMeshCache(
+    FEditorHost& h,
+    const TArray<game::ANode*>& all3d) noexcept {
+    h.scene_mesh_key_scratch.Clear();
+    h.scene_mesh_key_scratch.Reserve(all3d.Size());
+    for (u32 index = 0u; index < all3d.Size(); ++index) {
+        h.scene_mesh_key_scratch.PushBack(
+            BuildSceneMeshCacheKey(h, all3d[index]));
+    }
+
+    const bool cache_matches =
+        h.scene_mesh_cache_valid &&
+        h.scene_mesh_uploaded_vb == h.m3d_dyn_vb.Get() &&
+        h.scene_mesh_cached_cap == h.m3d_dyn_cap &&
+        SceneMeshCacheKeysMatch(
+            h.scene_mesh_key, h.scene_mesh_key_scratch);
+    if (cache_matches) return false;
+
+    h.scene_mesh_vertices.Clear();
+    if (h.scene_mesh_vertices.Capacity() == 0u) {
+        h.scene_mesh_vertices.Reserve(8192u);
+    }
+    h.scene_mesh_bb_min = FVec3{1e30f, 1e30f, 1e30f};
+    h.scene_mesh_bb_max = FVec3{-1e30f, -1e30f, -1e30f};
+    BuildSceneMeshVerts(
+        h, all3d, h.scene_mesh_vertices,
+        h.scene_mesh_bb_min, h.scene_mesh_bb_max);
+    if (!h.scene_mesh_vertices.IsEmpty() && h.m3d_dyn_vb) {
+        h.m3d_dyn_vb->Update(
+            h.scene_mesh_vertices.Data(),
+            sizeof(FM3DVtx) * h.scene_mesh_vertices.Size());
+    }
+
+    // Rotate the two key arrays so both retain their allocations. The next
+    // frame clears only the old cache, avoiding allocator traffic after warmup.
+    TArray<FSceneMeshCacheKey> old_key =
+        Move(h.scene_mesh_key);
+    h.scene_mesh_key = Move(h.scene_mesh_key_scratch);
+    h.scene_mesh_key_scratch = Move(old_key);
+    h.scene_mesh_key_scratch.Clear();
+
+    h.scene_mesh_uploaded_vb = h.m3d_dyn_vb.Get();
+    h.scene_mesh_cached_cap = h.m3d_dyn_cap;
+    ++h.scene_mesh_revision;
+    if (h.scene_mesh_revision == 0u) h.scene_mesh_revision = 1u;
+    h.scene_mesh_cache_valid = h.m3d_dyn_vb.Get() != nullptr;
+    h.profiler_work.scene_mesh_cache_rebuilt = true;
+    return true;
 }
 
 // SH9 環境光を現在の空に追従して再計算 (拡散 ambient + 鏡面 fallback の元データ)。sh9_dirty 時のみ。
@@ -5363,20 +7322,34 @@ void AdvanceRuntimeSsgi(FEditorHost& h, u32 width, u32 height) noexcept {
     }
 
     if (!h.q_ssgi_on || h.ssgi_ready || h.ssgi_init_tried) return;
-    h.ssgi_init_tried = true;
 
     const char* const backend_name = device->BackendName();
     const bool raw_dx12 = backend_name != nullptr &&
                           std::strcmp(backend_name, "DX12") == 0;
     if (raw_dx12) {
+        // SSGI and lazy SSSS share the single raw-DX12 CPU worker. A busy
+        // worker is transient: leave init_tried clear so the next render pump
+        // retries after the current owner releases the slot.
+        if (h.startup_worker_kind != 0u ||
+            h.startup_worker.Joinable() ||
+            h.startup_worker_state.load(
+                std::memory_order_acquire) != 0) {
+            return;
+        }
         if (!BeginSsgiCompileWorker(h)) {
+            // The slot was proven idle above, so failure here is a terminal
+            // thread-spawn error rather than shared-worker contention.
+            h.ssgi_init_tried = true;
             ACS_LOG_WARN(
                 "[3D] hot-enabled SSGI worker unavailable; effect remains disabled");
+        } else {
+            h.ssgi_init_tried = true;
         }
         return;
     }
 
     // Other backends preserve their established compiler/resource path.
+    h.ssgi_init_tried = true;
     const auto result = h.ssgi3d.Init(
         *device,
         width > 0u ? width : 1u,
@@ -5393,10 +7366,518 @@ void AdvanceRuntimeSsgi(FEditorHost& h, u32 width, u32 height) noexcept {
     }
 }
 
+bool SceneHasOpaqueSsssMaterial(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes) noexcept {
+    constexpr f32 kSsssEpsilon = 1.0e-4f;
+    for (u32 node_index = 0u; node_index < nodes.Size(); ++node_index) {
+        game::ANode* node = nodes[node_index];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        game::AMeshComponent3D* mesh = Mesh3D(node);
+        if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
+            (record != nullptr && record->is_empty) ||
+            mesh->RenderHandle() != nullptr ||
+            IsRenderedByWater3D(host, node)) {
+            continue;
+        }
+        if (!mesh->MaterialLoaded() && mesh->HasMaterial()) {
+            LoadNode3DMaterial(node);
+        }
+        const game::FMaterial2D& material = mesh->Material();
+        if (!mesh->HasMaterial() ||
+            material.kind != game::EMaterialKind::Lit ||
+            material.pbr.transmission > kSsssEpsilon) {
+            continue;
+        }
+        if (material.pbr.subsurface > kSsssEpsilon) return true;
+
+        const FSubstrateMaterial& substrate = material.substrate;
+        if (!substrate.enabled) continue;
+        const u32 node_count =
+            substrate.node_count < kSubstrateMaxNodes
+                ? substrate.node_count : kSubstrateMaxNodes;
+        for (u32 slab_index = 0u;
+             slab_index < node_count; ++slab_index) {
+            const FSubstrateNode& substrate_node =
+                substrate.nodes[slab_index];
+            if (substrate_node.type != ESubstrateNodeType::Slab) continue;
+            const FSubstrateSlab& slab = substrate_node.slab;
+            const f32 max_mfp =
+                std::max(slab.mean_free_path_cm.x,
+                    std::max(slab.mean_free_path_cm.y,
+                             slab.mean_free_path_cm.z));
+            // Stable slab scalar targets: 16..18=MFP RGB, 26=thickness.
+            const bool dynamic_mfp =
+                substrate_node.expressions.roots[16] >= 0 ||
+                substrate_node.expressions.roots[17] >= 0 ||
+                substrate_node.expressions.roots[18] >= 0;
+            const bool dynamic_thickness =
+                substrate_node.expressions.roots[26] >= 0;
+            if ((max_mfp > kSsssEpsilon || dynamic_mfp) &&
+                (slab.thickness_cm > kSsssEpsilon ||
+                 dynamic_thickness)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+struct FPbrFrameDrawCounts {
+    u32 opaque = 0u;
+    u32 water_fallback = 0u;
+
+    u32 RequiredObjectBuffers() const noexcept {
+        const u64 required =
+            static_cast<u64>(opaque) +
+            static_cast<u64>(water_fallback);
+        return required > static_cast<u64>(~u32{0})
+            ? ~u32{0} : static_cast<u32>(required);
+    }
+};
+
+FPbrFrameDrawCounts CountPbrFrameDraws(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes) noexcept {
+    FPbrFrameDrawCounts counts{};
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        game::ANode* node = nodes[index];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        game::AMeshComponent3D* mesh = Mesh3D(node);
+        if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
+            (record != nullptr && record->is_empty) ||
+            mesh->RenderHandle() != nullptr) {
+            continue;
+        }
+        if (IsRenderedByWater3D(host, node)) {
+            if (WaterGpuMeshForNode3D(host, node) != nullptr &&
+                counts.water_fallback != ~u32{0}) {
+                ++counts.water_fallback;
+            }
+            continue;
+        }
+        FGpuMesh* gpu_mesh = GpuMeshForNode3D(host, node);
+        if (gpu_mesh == nullptr || !gpu_mesh->vertex_buffer ||
+            !gpu_mesh->index_buffer) {
+            continue;
+        }
+        if (!mesh->MaterialLoaded() && mesh->HasMaterial())
+            LoadNode3DMaterial(node);
+        if (mesh->Material().pbr.transmission > 0.0f) continue;
+        if (counts.opaque != ~u32{0}) ++counts.opaque;
+    }
+    return counts;
+}
+
+bool DrawEditorPbrNode(
+    FEditorHost& host, IRhiCommandList& command_list,
+    game::ANode* node, bool subsurface_mrt) noexcept {
+    if (!IsEffectivelyVisibleAndEnabled(node)) return true;
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (record != nullptr && record->is_empty) return true;
+    game::AMeshComponent3D* mesh = Mesh3D(node);
+    if (mesh == nullptr || mesh->RenderHandle() != nullptr ||
+        IsRenderedByWater3D(host, node)) {
+        return true;
+    }
+    FGpuMesh* gpu_mesh = GpuMeshForNode3D(host, node);
+    if (gpu_mesh == nullptr || !gpu_mesh->vertex_buffer ||
+        !gpu_mesh->index_buffer) {
+        return true;
+    }
+    if (!mesh->MaterialLoaded() && mesh->HasMaterial())
+        LoadNode3DMaterial(node);
+    const FVec4 node_color = NColor(node);
+    const game::FPbrParams2D& pbr = mesh->Material().pbr;
+    // Transmission is rendered once after the opaque scene has been captured.
+    if (pbr.transmission > 0.0f) return true;
+    const bool lit =
+        mesh->HasMaterial() &&
+        mesh->Material().kind == game::EMaterialKind::Lit;
+    const FVec3 albedo =
+        lit ? FVec3{
+                  pbr.baseColor.x, pbr.baseColor.y, pbr.baseColor.z}
+            : FVec3{
+                  node_color.x, node_color.y, node_color.z};
+    if (lit) LoadNode3DMaterialTextures(host, node);
+    host.pbr3d.SetNormalMap(
+        lit && record != nullptr
+            ? record->material_normal_tex.Get() : nullptr,
+        lit ? pbr.normalStrength : 1.0f);
+
+    const bool substrate_active =
+        lit && mesh->Material().substrate.enabled &&
+        host.pbr3d.SetSubstrateMaterial(
+            mesh->Material().substrate, host.time);
+    if (substrate_active && record != nullptr) {
+        for (u32 slot = 0u;
+             slot < kShaderExpressionMaxTextureSlots;
+             ++slot) {
+            host.pbr3d.SetSubstrateExpressionTexture(
+                slot, record->material_expression_tex[slot].Get());
+        }
+    } else {
+        host.pbr3d.ClearSubstrateSurface();
+        host.pbr3d.SetExtParams(
+            pbr.clearcoat, pbr.clearcoatRoughness, pbr.anisotropy);
+        host.pbr3d.SetSheen(
+            pbr.sheenColor, pbr.sheen, pbr.sheenRoughness);
+        host.pbr3d.SetSubsurface(
+            pbr.subsurfaceColor, pbr.subsurface);
+        host.pbr3d.SetEmissive(
+            pbr.emissive, pbr.emissiveStrength);
+    }
+    if (subsurface_mrt) {
+        return host.pbr3d.DrawMeshSubsurfaceMrt(
+            command_list, *gpu_mesh, node->World().ToMat4(), albedo,
+            lit ? pbr.metallic : 0.0f,
+            lit ? pbr.roughness : 0.5f, pbr.ao,
+            lit && record != nullptr
+                ? record->material_albedo_tex.Get() : nullptr);
+    }
+    return host.pbr3d.DrawMesh(
+        command_list, *gpu_mesh, node->World().ToMat4(), albedo,
+        lit ? pbr.metallic : 0.0f,
+        lit ? pbr.roughness : 0.5f, pbr.ao,
+        lit && record != nullptr
+            ? record->material_albedo_tex.Get() : nullptr);
+}
+
+/**
+ * Non-blocking lazy SSSS initialization.
+ *
+ * Raw DX12 builds the complete pipeline-side candidate on the existing startup
+ * worker; Diligent submits to its backend compiler and is polled once per
+ * frame. Full-resolution targets are separate later-frame commits. Until the
+ * complete target stack is ready the analytic, single-RT PBR path remains live.
+ */
+bool AdvanceRuntimeSsss(
+    FEditorHost& host, u32 width, u32 height,
+    bool requested) noexcept {
+    IRhiDevice* const device = host.renderer.Device();
+    if (device == nullptr) return false;
+
+    const char* const backend_name = device->BackendName();
+    const bool raw_dx12 =
+        backend_name != nullptr &&
+        std::strcmp(backend_name, "DX12") == 0;
+
+    // A material hot edit may remove the final SSS dependency while shader
+    // work is still running. Poll and drain that work before the request gate:
+    // neither a joinable raw worker nor backend shader handles may be orphaned,
+    // and removing SSS must never publish pipelines or allocate targets.
+    if (!requested && host.ssss3d_init_state == 1u) {
+        if (raw_dx12) {
+            if (host.startup_worker_kind != 6u) {
+                // kind==0 means there is no SSSS worker that this state owns;
+                // another kind belongs to a different startup phase. Never
+                // join either one from the hot-remove path.
+                return false;
+            }
+            const i32 worker_result = PollStartupWorker(host);
+            if (worker_result == 0) return false;
+            host.startup_worker_kind = 0u;
+            host.startup_ssss_candidate_device = nullptr;
+            // A successful raw worker wrote an unpublished pipeline candidate
+            // directly into ssss3d. Discard it on the owner after the acquire
+            // poll + join; a failed worker is shut down defensively as well.
+            host.ssss3d.Shutdown();
+        } else {
+            const EShaderStatus shader_status =
+                host.ssss3d_pending_shaders.Status();
+            if (shader_status == EShaderStatus::Compiling) return false;
+        }
+        host.ssss3d_pending_shaders = {};
+        host.ssss3d_ready = false;
+        host.ssss3d_init_state = 0u;
+        host.ssss3d_init_failed = false;
+        return false;
+    }
+
+    if (!requested) {
+        // Never retain a half-built external MRT bundle after the last
+        // dependent material disappears. Published resources remain cached
+        // for a future material edit, matching the other optional effects.
+        host.ssss_pending_diffuse_rt.Reset();
+        host.ssss_pending_w = 0u;
+        host.ssss_pending_h = 0u;
+        host.ssss_frame_resource_state = 0u;
+        host.ssss_frame_failed_w = 0u;
+        host.ssss_frame_failed_h = 0u;
+        return false;
+    }
+    if (width == 0u || height == 0u ||
+        host.ssss3d_init_failed) {
+        return false;
+    }
+
+    if (host.ssss3d_ready) {
+        if (host.ssss3d.Width() == width &&
+            host.ssss3d.Height() == height) {
+            return true;
+        }
+        const editor_profiler::FTimePoint resize_begin =
+            editor_profiler::FClock::now();
+        const auto resize_result =
+            host.ssss3d.Resize(width, height);
+        if (resize_result.IsOk()) {
+            ACS_LOG_INFO(
+                "[3D] SSSS internal target resize %ux%u: %.3f ms",
+                width, height,
+                editor_profiler::ElapsedMilliseconds(resize_begin));
+            // External MRT candidates begin on the next render-pump call.
+            return false;
+        }
+        ACS_LOG_WARN(
+            "[3D] SSSS resize failed; keeping single-RT PBR: %s",
+            resize_result.Error().message);
+        return false;
+    }
+
+    if (host.ssss3d_init_state == 1u) {
+        if (raw_dx12) {
+            if (host.startup_worker_kind != 6u) return false;
+            const i32 worker_result = PollStartupWorker(host);
+            if (worker_result == 0) return false;
+            host.startup_worker_kind = 0u;
+            host.startup_ssss_candidate_device = nullptr;
+            if (worker_result > 0 &&
+                host.ssss3d.HasPipelineResources()) {
+                host.ssss3d_init_state = 2u;
+                ACS_LOG_INFO(
+                    "[3D] SSSS raw pipeline candidate published "
+                    "without owner-thread RHI creation "
+                    "(worker %.3f ms)",
+                    host.startup_worker_elapsed_ms);
+                // The internal target pair is a later render-pump commit.
+                return false;
+            }
+            host.ssss3d.Shutdown();
+            host.ssss3d_init_state = 3u;
+            host.ssss3d_init_failed = true;
+            ACS_LOG_WARN(
+                "[3D] SSSS background pipeline candidate failed; "
+                "single-RT analytic SSS remains active");
+            return false;
+        }
+
+        const EShaderStatus shader_status =
+            host.ssss3d_pending_shaders.Status();
+        if (shader_status == EShaderStatus::Compiling) return false;
+        if (shader_status != EShaderStatus::Ready) {
+            host.ssss3d_pending_shaders = {};
+            host.ssss3d_init_state = 3u;
+            host.ssss3d_init_failed = true;
+            ACS_LOG_WARN(
+                "[3D] SSSS asynchronous compile failed; "
+                "single-RT analytic SSS remains active");
+            return false;
+        }
+
+        const editor_profiler::FTimePoint commit_begin =
+            editor_profiler::FClock::now();
+        const auto commit_result =
+            host.ssss3d.InitPipelineResourcesWithCompiledShaders(
+                *device, Move(host.ssss3d_pending_shaders));
+        if (commit_result.IsErr()) {
+            host.ssss3d_init_state = 3u;
+            host.ssss3d_init_failed = true;
+            ACS_LOG_WARN(
+                "[3D] SSSS owner-thread RHI commit failed; "
+                "keeping single-RT PBR: %s",
+                commit_result.Error().message);
+            return false;
+        }
+        host.ssss3d_init_state = 2u;
+        ACS_LOG_INFO(
+            "[3D] SSSS asynchronous pipeline commit complete: %.3f ms; "
+            "full-resolution targets remain staged",
+            editor_profiler::ElapsedMilliseconds(commit_begin));
+        // Keep target allocation out of the pipeline publication frame.
+        return false;
+    }
+
+    if (host.ssss3d_init_state == 2u) {
+        const editor_profiler::FTimePoint targets_begin =
+            editor_profiler::FClock::now();
+        const auto targets_result = host.ssss3d.Resize(width, height);
+        if (targets_result.IsErr()) {
+            host.ssss3d_init_state = 3u;
+            host.ssss3d_init_failed = true;
+            ACS_LOG_WARN(
+                "[3D] SSSS internal target allocation failed at %ux%u; "
+                "single-RT analytic SSS remains active: %s",
+                width, height, targets_result.Error().message);
+            host.ssss3d.Shutdown();
+            return false;
+        }
+        host.ssss3d_ready = true;
+        ACS_LOG_INFO(
+            "[3D] SSSS internal target pair ready at %ux%u: %.3f ms",
+            width, height,
+            editor_profiler::ElapsedMilliseconds(targets_begin));
+        // External MRT candidates begin on the next render-pump call.
+        return false;
+    }
+
+    if (host.ssss3d_init_state != 0u) return false;
+    if (raw_dx12) {
+        // Another CPU shader job owns the single startup worker. Retry next
+        // frame rather than synchronously compiling or permanently disabling.
+        if (host.startup_worker_kind != 0u ||
+            !BeginSsssCompileWorker(host, *device)) {
+            return false;
+        }
+        host.ssss3d_init_state = 1u;
+        return false;
+    }
+
+    if (!device->SupportsAsyncShaderCompilation()) {
+        host.ssss3d_init_state = 3u;
+        host.ssss3d_init_failed = true;
+        ACS_LOG_WARN(
+            "[3D] SSSS backend has no non-blocking shader compiler; "
+            "single-RT analytic SSS remains active");
+        return false;
+    }
+    auto shader_result =
+        FSubsurfaceScattering::BeginCompileShadersAsync(*device);
+    if (shader_result.IsErr()) {
+        host.ssss3d_init_state = 3u;
+        host.ssss3d_init_failed = true;
+        ACS_LOG_WARN(
+            "[3D] SSSS asynchronous submission failed; "
+            "single-RT analytic SSS remains active: %s",
+            shader_result.Error().message);
+        return false;
+    }
+    host.ssss3d_pending_shaders =
+        Move(shader_result.Value());
+    host.ssss3d_init_state = 1u;
+    return false;
+}
+
+bool EnsureSsssFrameResources(
+    FEditorHost& host, u32 width, u32 height) noexcept {
+    if (!host.ssss3d_ready || width == 0u || height == 0u) {
+        return false;
+    }
+    IRhiDevice* device = host.renderer.Device();
+    if (device == nullptr) return false;
+
+    if (host.ssss_diffuse_rt && host.ssss_material_rt &&
+        host.ssss_w == width && host.ssss_h == height &&
+        host.ssss_diffuse_rt->Width() == width &&
+        host.ssss_diffuse_rt->Height() == height &&
+        host.ssss_material_rt->Width() == width &&
+        host.ssss_material_rt->Height() == height) {
+        return true;
+    }
+
+    if (host.ssss_frame_resource_state == 2u &&
+        host.ssss_frame_failed_w == width &&
+        host.ssss_frame_failed_h == height) {
+        return false;
+    }
+
+    // A viewport change invalidates only the unpublished candidate. Preserve
+    // the last complete active pair until a new complete pair can be swapped.
+    if (host.ssss_pending_diffuse_rt &&
+        (host.ssss_pending_w != width ||
+         host.ssss_pending_h != height)) {
+        host.ssss_pending_diffuse_rt.Reset();
+        host.ssss_pending_w = 0u;
+        host.ssss_pending_h = 0u;
+        host.ssss_frame_resource_state = 0u;
+    }
+    if (host.ssss_frame_resource_state == 2u) {
+        host.ssss_frame_resource_state = 0u;
+        host.ssss_frame_failed_w = 0u;
+        host.ssss_frame_failed_h = 0u;
+    }
+
+    FTextureDesc diffuse_desc{};
+    diffuse_desc.width = width;
+    diffuse_desc.height = height;
+    diffuse_desc.format = EFormat::R16G16B16A16_Float;
+    diffuse_desc.is_render_target = true;
+
+    if (!host.ssss_pending_diffuse_rt) {
+        const editor_profiler::FTimePoint diffuse_begin =
+            editor_profiler::FClock::now();
+        auto diffuse_result = CreateRhiTexture(*device, diffuse_desc);
+        if (diffuse_result.IsErr()) {
+            host.ssss_frame_resource_state = 2u;
+            host.ssss_frame_failed_w = width;
+            host.ssss_frame_failed_h = height;
+            ACS_LOG_WARN(
+                "[3D] SSSS diffuse RT unavailable at %ux%u; "
+                "keeping single-RT PBR: %s",
+                width, height, diffuse_result.Error().message);
+            return false;
+        }
+        host.ssss_pending_diffuse_rt = Move(diffuse_result.Value());
+        host.ssss_pending_w = width;
+        host.ssss_pending_h = height;
+        host.ssss_frame_resource_state = 1u;
+        ACS_LOG_INFO(
+            "[3D] SSSS diffuse MRT candidate ready at %ux%u: %.3f ms",
+            width, height,
+            editor_profiler::ElapsedMilliseconds(diffuse_begin));
+        // Material data is deliberately allocated on the next render pump.
+        return false;
+    }
+
+    FTextureDesc material_desc = diffuse_desc;
+    // RGB stores authored world-space diffusion radii and A stores coverage.
+    // Half precision preserves Substrate mean-free-path differences that were
+    // previously collapsed into an 8-bit scalar/hash mask.
+    material_desc.format = EFormat::R16G16B16A16_Float;
+    const editor_profiler::FTimePoint material_begin =
+        editor_profiler::FClock::now();
+    auto material_result = CreateRhiTexture(*device, material_desc);
+    if (material_result.IsErr()) {
+        host.ssss_pending_diffuse_rt.Reset();
+        host.ssss_pending_w = 0u;
+        host.ssss_pending_h = 0u;
+        host.ssss_frame_resource_state = 2u;
+        host.ssss_frame_failed_w = width;
+        host.ssss_frame_failed_h = height;
+        ACS_LOG_WARN(
+            "[3D] SSSS material RT unavailable at %ux%u; "
+            "keeping single-RT PBR: %s",
+            width, height, material_result.Error().message);
+        return false;
+    }
+
+    // Publish only a complete, size-matched pair.
+    host.ssss_diffuse_rt = Move(host.ssss_pending_diffuse_rt);
+    host.ssss_material_rt = Move(material_result.Value());
+    host.ssss_w = width;
+    host.ssss_h = height;
+    host.ssss_pending_w = 0u;
+    host.ssss_pending_h = 0u;
+    host.ssss_frame_resource_state = 0u;
+    host.ssss_frame_failed_w = 0u;
+    host.ssss_frame_failed_h = 0u;
+    ACS_LOG_INFO(
+        "[3D] SSSS complete external MRT pair published at %ux%u "
+        "(material allocation %.3f ms)",
+        width, height,
+        editor_profiler::ElapsedMilliseconds(material_begin));
+    return true;
+}
+
 void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
-    if (!Ensure3D(h)) return;
+    if (!Ensure3D(h)) {
+        h.mv_computed = false;
+        return;
+    }
     IRhiCommandList* cl = h.renderer.CommandList();
-    if (cl == nullptr) return;
+    if (cl == nullptr) {
+        h.mv_computed = false;
+        return;
+    }
 
     AdvanceRuntimeSsgi(h, scW, scH);
 
@@ -5420,13 +7901,60 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         vp = ApplyTaaJitter(vp_nojit, jx, jy);
     }
 
-    // --- (0) メッシュ頂点を展開 (シャドウパスと本体で共有) + バウンディング ---
-    TArray<FM3DVtx>& dv = *(new TArray<FM3DVtx>()); dv.Reserve(8192);
-    FVec3 bbMin{ 1e30f, 1e30f, 1e30f }, bbMax{ -1e30f, -1e30f, -1e30f };
-    TArray<game::ANode*> all3d; Dfs3DCollect(&h.scene3d.Root(), all3d);   // 階層を平坦化 (sprite パス 2.5 でも使う)
-    BuildSceneMeshVerts(h, all3d, dv, bbMin, bbMax);
-    const u32 dvCount = static_cast<u32>(dv.Size());
-    if (dvCount > 0 && h.m3d_dyn_vb) h.m3d_dyn_vb->Update(dv.Data(), sizeof(FM3DVtx) * dvCount);
+    // --- (0) Shared scene-mesh prepass. DFS/key storage, world-space vertices,
+    // AABB and the dynamic VB are persistent. Transform/material/geometry/
+    // visibility/water-ownership changes rebuild them; camera-only editor
+    // movement now updates constant buffers without retranscoding every mesh.
+    TArray<game::ANode*>& all3d = h.scene_mesh_nodes;
+    TArray<FM3DVtx>& dv = h.scene_mesh_vertices;
+    {
+        editor_profiler::FCpuScope meshPrepassScope(
+            h.profiler_work.opaque_cpu_ms);
+        all3d.Clear();
+        Dfs3DCollect(&h.scene3d.Root(), all3d);
+        // The specialized water renderer owns a bounded constant-buffer ring.
+        // Select that same bounded set before keying the opaque fallback so
+        // surfaces beyond the per-frame budget remain visible.
+        PrepareWater3DDrawEligibility(h, all3d);
+        (void)RefreshSceneMeshCache(h, all3d);
+    }
+    const FVec3& bbMin = h.scene_mesh_bb_min;
+    const FVec3& bbMax = h.scene_mesh_bb_max;
+    u32 dvCount = static_cast<u32>(dv.Size());
+    const bool scene_has_ssss =
+        SceneHasOpaqueSsssMaterial(h, all3d);
+    const bool ssss_runtime_ready = AdvanceRuntimeSsss(
+        h, scW, scH,
+        scene_has_ssss && dvCount > 0u &&
+        h.pbr3d_ready &&
+        h.pbr3d.HasSubsurfaceMrtPipeline());
+    const bool ssss_frame_resources =
+        ssss_runtime_ready &&
+        h.post3d_ready && h.blit_ready &&
+        h.ssao_pipe_ready &&
+        EnsureSsssFrameResources(h, scW, scH);
+    const FPbrFrameDrawCounts pbr_draw_counts =
+        CountPbrFrameDraws(h, all3d);
+    // One reset for the complete command-list frame. The reserve includes the
+    // opaque pass and the later interactive-water fallback; neither pass may
+    // rewind CBs already referenced by recorded draws. A reserve below the
+    // complete-frame bound fails before scene RT0 recording begins.
+    const bool pbr_pool_reserve_completed =
+        !h.pbr3d_ready ||
+        h.pbr3d.BeginFrame(
+            pbr_draw_counts.RequiredObjectBuffers());
+    const bool pbr_object_pool_ready =
+        pbr_pool_reserve_completed ||
+        (h.pbr3d_ready &&
+         h.pbr3d.ObjectBufferCapacity() >=
+             pbr_draw_counts.RequiredObjectBuffers());
+    if (h.pbr3d_ready && !pbr_object_pool_ready) {
+        // The aggregate editor VB is intentionally bounded and is not a
+        // completeness fallback for arbitrarily large scenes. Fail before
+        // recording scene RT0 rather than publishing an arbitrary mesh suffix.
+        h.mv_computed = false;
+        return;
+    }
 
     // --- Phase 5 VXGI: 三角形を radiance volume へ voxelize (色のにじみ。Diligent compute、Ultra=q_ssgi_on)。
     //     Raw DX12 は StructuredBuffer SRV 未対応のため VxgiVoxelize 冒頭で明示的に graceful skip。
@@ -5437,7 +7965,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     IRhiTexture* apTransVol = nullptr;       // wavelength-dependent transmittance
     IRhiTexture* localFogVol = nullptr;      // this frame's perspective local-fog producer result only
     if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on && h.q_vxgi_on) {
-        vxgiVol = VxgiVoxelize(h, cl, dv, bbMin, bbMax);   // 既定OFF: VXGI(64³)は blocky。OFF時は vxgiVol=null → SetSsgi が滑らかな screen-space SSGI を使う
+        vxgiVol = VxgiVoxelize(
+            h, cl, dv, h.scene_mesh_revision,
+            bbMin, bbMax);   // 既定OFF: VXGI(64³)は blocky。OFF時は vxgiVol=null → SetSsgi が滑らかな screen-space SSGI を使う
     }
 
     // --- SH9 環境光を «現在の空» に追従させて再計算 (時間帯プリセット切替・空色変更に反応) ---
@@ -5461,8 +7991,11 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     //     SSAO はここで消費、SSR / SSGI は本パス後 (scene color が要るため) に消費する。
     h.ssao_computed = false;
     bool gbufReady = false;
-    const bool wantGbuf = (h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on) && h.ssao_pipe_ready && dvCount > 0;
-    const bool wantsMotion = h.q_taa_on || h.q_ssr_on ||
+    const bool wantGbuf =
+        (h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on ||
+         ssss_frame_resources) &&
+        h.ssao_pipe_ready && dvCount > 0;
+    const bool wantsMotion = taaOn || h.q_ssr_on ||
                              h.q_ssgi_on || h.q_motionblur_on;
     if (wantGbuf || wantsMotion) {
         IRhiDevice* sdev = h.renderer.Device();
@@ -5728,35 +8261,82 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // --- FMotionVector: motion G-buffer を per-node (主パスと同型) で焼き TAA/SSR/SSGI の reproject に供給 ---
     //     no-jitter の vp/prev で «真の幾何モーション» (カメラ + オブジェクト両方) を出す。静止物は motion≈カメラ分、
     //     動く物 (play/ドラッグ) はその差分も入り ghost が消える。TAA/SSR/SSGI が ON のときだけ焼く。
+    const bool motionHistoryReady = h.mv_computed;
     h.mv_computed = false;
-    if (gbufReady && h.mv_ready && h.pbr3d_ready && (h.q_taa_on || h.q_ssr_on || h.q_ssgi_on || h.q_motionblur_on)) {
-        h.mv3d.Begin(*cl, vp_nojit, h.prev_vp_nojit);
+    auto invalidateMotionHistory = [&]() noexcept {
+        for (u32 i = 0; i < all3d.Size(); ++i) {
+            if (AEditor3DRecordComponent* record = Rec3D(all3d[i])) {
+                record->prev_world_valid = false;
+            }
+        }
+    };
+    const bool motionDrawRequested =
+        wantsMotion && dvCount > 0u && h.mv_ready && h.pbr3d_ready;
+    if (motionDrawRequested) {
+        if (!motionHistoryReady) invalidateMotionHistory();
+        const FMat4& previousVp =
+            motionHistoryReady ? h.prev_vp_nojit : vp_nojit;
+        if (h.mv3d.Begin(*cl, vp_nojit, previousVp)) {
         for (u32 i = 0; i < all3d.Size(); ++i) {
             game::ANode* nn = all3d[i];
             AEditor3DRecordComponent* er = Rec3D(nn);
-            if (er != nullptr && er->is_empty) continue;
+            if (!IsEffectivelyVisibleAndEnabled(nn) ||
+                (er != nullptr && er->is_empty)) {
+                if (er != nullptr) er->prev_world_valid = false;
+                continue;
+            }
             game::AMeshComponent3D* mc = Mesh3D(nn);
-            if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
+            if (mc == nullptr || mc->RenderHandle() != nullptr ||
+                IsRenderedByWater3D(h, nn)) {
+                if (er != nullptr) er->prev_world_valid = false;
+                continue;
+            }
             FGpuMesh* gm = GpuMeshForNode3D(h, nn);
-            if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
+            if (gm == nullptr || gm->vertex_buffer.Get() == nullptr ||
+                gm->index_buffer.Get() == nullptr) {
+                if (er != nullptr) er->prev_world_valid = false;
+                continue;
+            }
             const FMat4 world = nn->World().ToMat4();
-            const FMat4 prevW = (er != nullptr && er->prev_world_valid) ? er->prev_world : world;
+            const FMat4 prevW =
+                (motionHistoryReady && er != nullptr &&
+                 er->prev_world_valid)
+                    ? er->prev_world
+                    : world;
             h.mv3d.DrawMesh(*cl, *gm, world, prevW);
-            if (er != nullptr) { er->prev_world = world; er->prev_world_valid = true; }
+            if (er != nullptr) {
+                er->prev_world = world;
+                er->prev_world_valid = true;
+            }
         }
         h.mv3d.End(*cl);
         h.mv_computed = true;
+        } else {
+            // A rejected MRT bind must never leave object transforms looking
+            // like contiguous history. The next successful frame is a
+            // zero-motion cold start for both camera and objects.
+            invalidateMotionHistory();
+        }
+    } else if (motionHistoryReady) {
+        // Motion was produced last frame but has no consumer/drawable input
+        // now. Invalidate once on that transition; remaining disabled frames
+        // keep the global h.mv_computed=false gate without an O(N) walk.
+        invalidateMotionHistory();
     }
 
     // Phase2: 3D シーンを «線形 HDR RT» へ描く → 末尾で FPostProcess(ACES) が一度だけ tonemap。post3d 遅延初期化。
     IRhiDevice* pdev = h.renderer.Device();
-    if (pdev != nullptr && (h.post3d_w != scW || h.post3d_h != scH)) {
-        if (!h.post3d_ready) { auto pr = h.post3d.Init(*pdev, scW, scH, h.renderer.ColorFormat()); h.post3d_ready = pr.IsOk();
-                               if (!h.post3d_ready) ACS_LOG_ERROR("[3D] FPostProcess Init 失敗: %s", pr.Error().message);
+    if (pdev != nullptr && h.post3d_ready &&
+        (h.post3d_w != scW || h.post3d_h != scH)) {
+        const auto resize_result = h.post3d.Resize(scW, scH);
+        if (resize_result.IsOk()) {
+            h.post3d_w = scW;
+            h.post3d_h = scH;
         } else {
-            (void)h.post3d.Resize(scW, scH);
+            ACS_LOG_ERROR(
+                "[3D] FPostProcess resize failed: %s",
+                resize_result.Error().message);
         }
-        if (h.post3d_ready) { h.post3d_w = scW; h.post3d_h = scH; }
     }
     IRhiTexture*   hdrRt  = h.post3d_ready ? h.post3d.HdrRenderTarget() : nullptr;
     IRhiSwapchain* scSwap = h.renderer.Swapchain();
@@ -5887,15 +8467,64 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     fcb.light_vp    = sh.lightVp;                           // シャドウマップ空間
     if (h.m3d_frame_cb) h.m3d_frame_cb->Update(&fcb, sizeof(fcb));
 
+    // Preserve the already-rendered sky in RT0 and opaque depth, while
+    // clearing only the two dedicated SSSS targets. RT3 loads the geometric
+    // normal prepass and replaces covered PBR pixels with the final
+    // normal-map/Substrate world normal. Non-SSS frames never bind MRTs and
+    // retain the exact established command/resource cost.
+    const bool ssss_mrt_active =
+        ssss_frame_resources && gbufReady && hdrRt != nullptr &&
+        h.ssss_diffuse_rt && h.ssss_material_rt &&
+        h.ssss3d_ready && pbr_object_pool_ready;
+    IRhiTexture* ssss_targets[4] = {
+        hdrRt, h.ssss_diffuse_rt.Get(), h.ssss_material_rt.Get(),
+        h.normal_rt.Get()
+    };
+    bool ssss_mrt_bound = false;
+    bool ssss_mrt_draws_valid = true;
+    if (ssss_mrt_active) {
+        cl->EndRenderToTexture(*hdrRt);
+        ssss_mrt_bound = cl->BeginRenderToTextureMrtLoad(
+            ssss_targets, 4u, FClearColor{0, 0, 0, 0},
+            (1u << 1u) | (1u << 2u),
+            h.renderer.DepthBuffer(), false, 1.0f);
+        if (!ssss_mrt_bound) {
+            // Resume the established single-target PBR path. No MRT draw or
+            // EndMrt is legal after a rejected bind.
+            cl->BeginRenderToTextureLoad(
+                *hdrRt, h.renderer.DepthBuffer());
+        }
+        FViewport ssss_viewport{};
+        ssss_viewport.width = static_cast<f32>(scW);
+        ssss_viewport.height = static_cast<f32>(scH);
+        cl->SetViewport(ssss_viewport);
+        FScissorRect ssss_scissor{};
+        ssss_scissor.right = static_cast<i32>(scW);
+        ssss_scissor.bottom = static_cast<i32>(scH);
+        cl->SetScissor(ssss_scissor);
+    }
+
     // --- (2) ノードのメッシュ本体: エンジン標準 FPbrShader (HDR 線形出力)。per-node DrawMesh で
     //     model + 材質(metallic/roughness/baseColor + Substrate ロブ + emissive)+ キャスト影。
     //     DrawMesh が «object CB リングの現在バッファ» を毎draw bind するので per-object が正しく出る。
+    auto draw_aggregate_mesh_fallback = [&]() noexcept {
+        if (dvCount == 0u || !h.m3d_dyn_vb || !h.m3d_pipe ||
+            !h.m3d_frame_cb) {
+            return;
+        }
+        cl->SetPipeline(*h.m3d_pipe);
+        cl->SetConstantBuffer(0, *h.m3d_frame_cb);
+        if (h.shadow.DepthTexture() != nullptr)
+            cl->SetTexture(0, *h.shadow.DepthTexture());
+        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
+        cl->Draw(dvCount, 0);
+    };
     {
     editor_profiler::FCpuScope opaqueScope(
         h.profiler_work.opaque_cpu_ms);
     FScopedRhiGpuTiming opaqueGpuScope(
         cl, ERhiGpuTimingPass::Opaque);
-    if (h.pbr3d_ready) {
+    if (h.pbr3d_ready && pbr_object_pool_ready) {
         // 3点ライティング: 主光(暖・強)+ 補助光(寒・弱、影側を持ち上げ立体感)+ リム(背面・輪郭)。
         // 1灯+SH9 だと陰が埋まりのっぺりするため、補助/リムで «面の向き» が読めるようにする。
         FDirLight dl[3];
@@ -5950,65 +8579,92 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // compute 不可時の解析 fog だけは上の SetFog で PBR surface に残す。
         h.pbr3d.SetAerialPerspective(nullptr, kFogVolumeMaxDist);
         for (u32 i = 0; i < all3d.Size(); ++i) {
-            game::ANode* nn = all3d[i];
-            AEditor3DRecordComponent* er = Rec3D(nn);
-            if (er != nullptr && er->is_empty) continue;   // 空ノードは描画しない
-            game::AMeshComponent3D* mc = Mesh3D(nn);
-            if (mc == nullptr || mc->RenderHandle() != nullptr) continue;    // スプライトは別パス
-            FGpuMesh* gm = GpuMeshForNode3D(h, nn);
-            if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
-            if (!mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);
-            const FVec4 col = NColor(nn);
-            const game::FPbrParams2D& p = mc->Material().pbr;
-            // Transmission is rendered once, after the opaque scene has been copied to
-            // refr_bg. Drawing it here too writes its own silhouette into that source and
-            // produces a dark double-shaded shell in the later refraction pass.
-            if (p.transmission > 0.0f) continue;
-            const bool lit = mc->HasMaterial() && mc->Material().kind == game::EMaterialKind::Lit;
-            const FVec3 albedo = lit ? FVec3{ p.baseColor.x, p.baseColor.y, p.baseColor.z } : FVec3{ col.x, col.y, col.z };
-            if (lit) LoadNode3DMaterialTextures(h, nn);
-            h.pbr3d.SetNormalMap(
-                lit && er != nullptr
-                    ? er->material_normal_tex.Get() : nullptr,
-                lit ? p.normalStrength : 1.0f);
-
-            // The exact same compiled closure + per-pixel expression program is
-            // used by the editor viewport and the standalone material preview.
-            const bool substrate_active =
-                lit && mc->Material().substrate.enabled &&
-                h.pbr3d.SetSubstrateMaterial(
-                    mc->Material().substrate, h.time);
-            if (substrate_active && er != nullptr) {
-                for (u32 slot = 0u;
-                     slot < kShaderExpressionMaxTextureSlots;
-                     ++slot) {
-                    h.pbr3d.SetSubstrateExpressionTexture(
-                        slot,
-                        er->material_expression_tex[slot].Get());
-                }
-            } else {
-                h.pbr3d.ClearSubstrateSurface();
-                h.pbr3d.SetExtParams(p.clearcoat, p.clearcoatRoughness, p.anisotropy);
-                h.pbr3d.SetSheen(p.sheenColor, p.sheen, p.sheenRoughness);
-                h.pbr3d.SetSubsurface(p.subsurfaceColor, p.subsurface);
-                h.pbr3d.SetEmissive(p.emissive, p.emissiveStrength);
-            }
-            h.pbr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), albedo,
-                             lit ? p.metallic : 0.0f,
-                             lit ? p.roughness : 0.5f, p.ao,
-                             lit && er != nullptr
-                                 ? er->material_albedo_tex.Get() : nullptr);
+            ssss_mrt_draws_valid =
+                DrawEditorPbrNode(
+                    h, *cl, all3d[i], ssss_mrt_bound) &&
+                ssss_mrt_draws_valid;
         }
-    } else if (dvCount > 0 && h.m3d_dyn_vb) {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
-        cl->SetPipeline(*h.m3d_pipe);
-        cl->SetConstantBuffer(0, *h.m3d_frame_cb);
-        if (h.shadow.DepthTexture() != nullptr) cl->SetTexture(0, *h.shadow.DepthTexture());
-        cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
-        cl->Draw(dvCount, 0);
+    } else {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
+        draw_aggregate_mesh_fallback();
     }
     }
-    delete &dv;
+    if (!ssss_mrt_bound && !ssss_mrt_draws_valid) {
+        // A late base-PBR validation failure must not punch holes into RT0.
+        // The aggregate path shares the same depth and fills the complete
+        // authored opaque set without consuming additional object CBs.
+        draw_aggregate_mesh_fallback();
+    }
 
+    // Resolve diffuse-only SSSS immediately after opaque lighting. The
+    // resulting complete HDR scene is copied back before grid, sprites,
+    // water, transmission, clouds and atmosphere, so those layers stay sharp.
+    if (ssss_mrt_bound) {
+        cl->EndRenderToTextureMrt(ssss_targets, 4u);
+        if (!ssss_mrt_draws_valid) {
+            // MRT auxiliary data is unusable, and the failed object may not
+            // have written RT0/depth. Recover the complete scene through the
+            // independent aggregate pipeline while preserving sky/background.
+            cl->BeginRenderToTextureLoad(
+                *hdrRt, h.renderer.DepthBuffer());
+            FViewport fallback_viewport{};
+            fallback_viewport.width = static_cast<f32>(scW);
+            fallback_viewport.height = static_cast<f32>(scH);
+            cl->SetViewport(fallback_viewport);
+            FScissorRect fallback_scissor{};
+            fallback_scissor.right = static_cast<i32>(scW);
+            fallback_scissor.bottom = static_cast<i32>(scH);
+            cl->SetScissor(fallback_scissor);
+            draw_aggregate_mesh_fallback();
+            cl->EndRenderToTexture(*hdrRt);
+        }
+
+        FSubsurfaceScatteringParams ssss_params{};
+        // These values are compatibility fallbacks only. PSMainSsss writes
+        // per-material RGB world radii into the RGBA16F material target.
+        ssss_params.radius_world = 0.012f;
+        ssss_params.channel_radius = FVec3{1.0f, 0.55f, 0.25f};
+        ssss_params.strength = 1.0f;
+        ssss_params.depth_sigma = 0.001f;
+        ssss_params.normal_power = 24.0f;
+        ssss_params.max_radius_pixels = 64.0f;
+        // Do not consume partially populated auxiliary buffers. The aggregate
+        // recovery above has already restored a complete RT0 when needed.
+        const bool ssss_rendered =
+            ssss_mrt_draws_valid &&
+            h.ssss3d.Render(
+                *cl, *hdrRt, *h.ssss_diffuse_rt,
+                *h.renderer.DepthBuffer(), *h.normal_rt,
+                *h.ssss_material_rt, Inverse(vp), ssss_params);
+        if (ssss_rendered && h.ssss3d.OutputTexture() != nullptr) {
+            cl->BeginRenderToTexture(
+                *hdrRt, FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+            FViewport copy_viewport{};
+            copy_viewport.width = static_cast<f32>(scW);
+            copy_viewport.height = static_cast<f32>(scH);
+            cl->SetViewport(copy_viewport);
+            FScissorRect copy_scissor{};
+            copy_scissor.right = static_cast<i32>(scW);
+            copy_scissor.bottom = static_cast<i32>(scH);
+            cl->SetScissor(copy_scissor);
+            cl->SetPipeline(*h.blit_pipe);
+            cl->SetTexture(0, *h.ssss3d.OutputTexture());
+            cl->Draw(3, 0);
+            cl->EndRenderToTexture(*hdrRt);
+        }
+
+        // Even a runtime pass failure leaves RT0 as valid unblurred full-lit
+        // HDR, so reopening it is the complete graceful fallback.
+        cl->BeginRenderToTextureLoad(
+            *hdrRt, h.renderer.DepthBuffer());
+        FViewport resume_viewport{};
+        resume_viewport.width = static_cast<f32>(scW);
+        resume_viewport.height = static_cast<f32>(scH);
+        cl->SetViewport(resume_viewport);
+        FScissorRect resume_scissor{};
+        resume_scissor.right = static_cast<i32>(scW);
+        resume_scissor.bottom = static_cast<i32>(scH);
+        cl->SetScissor(resume_scissor);
+    }
     // --- (2b) 無限グリッド: 視点中心の大クアッド (y=0 / ortho は z=0) を半透明描画。距離フェードで無限に見せる。
     if (h.show_grid3d && h.grid_pipe && h.grid_vb && h.grid_cb) {
         const f32 S = 800.0f;                    // クアッド半径 (フェード距離より十分大きく)
@@ -6036,16 +8692,23 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // --- (2.5) スプライト (テクスチャ付きクアッド): RenderHandle にテクスチャを持つノードを別パスで。
     //          ローカル XY 単位クアッド (z=0) を World 行列で変換。テクスチャ毎に SetTexture → Draw(6)。
     if (h.spr_pipe && h.spr_vb && h.m3d_frame_cb) {
-        TArray<FSprVtx> sv; sv.Reserve(256);
-        TArray<IRhiTexture*> stex; stex.Reserve(64);
+        TArray<FSprVtx>& sv = h.sprite_vertices;
+        TArray<IRhiTexture*>& stex = h.sprite_draw_textures;
+        sv.Clear();
+        stex.Clear();
+        constexpr u32 kMaxSpr = 1024u;
+        constexpr u32 kVerticesPerSprite = 6u;
+        if (sv.Capacity() < kMaxSpr * kVerticesPerSprite)
+            sv.Reserve(kMaxSpr * kVerticesPerSprite);
+        if (stex.Capacity() < kMaxSpr) stex.Reserve(kMaxSpr);
         // ローカルクアッドの 4 隅 (中心原点・1x1)。Ortho 2D ビュー (カメラ +Z→原点) では
         // world +X が «画面左» に写る (ギズモ赤 X 軸で実測)。画像が元の見た目どおり (左右非反転・
         // 上下正立) になるよう、画像左端 U=0 を world +X 側、V=0 を world +Y 側に割り当てる。
         const FVec3 lTL{ -0.5f,  0.5f, 0 }, lTR{ 0.5f,  0.5f, 0 };
         const FVec3 lBL{ -0.5f, -0.5f, 0 }, lBR{ 0.5f, -0.5f, 0 };
         const FVec2 uTL{ 1, 0 }, uTR{ 0, 0 }, uBL{ 1, 1 }, uBR{ 0, 1 };
-        const u32 kMaxSpr = 1024;
         for (u32 i = 0; i < all3d.Size() && stex.Size() < kMaxSpr; ++i) {
+            if (!IsEffectivelyVisibleAndEnabled(all3d[i])) continue;
             game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
             if (mc == nullptr || mc->RenderHandle() == nullptr) continue;
             const FMat4 m = all3d[i]->World().ToMat4();
@@ -6146,9 +8809,17 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             }
         }
 
+        // Water writes the live depth before any atmosphere composite. AP,
+        // volumetric clouds, and local fog then terminate against the displaced
+        // surface, while later DoF/TAA consume the same updated depth.
+        DrawInteractiveWater3DPass(
+            h, *cl, *hdrRt, all3d, vp, eye, sunCol,
+            sh.shadowOn, h.shadow.DepthTexture(), sh.lightVp,
+            h.q_shadow_bias, h.q_shadow_filter, scW, scH);
+
         // --- 空気遠近法 + ボリューメトリックフォグ ---
-        // Opaque/sky の完成 depth で camera-volume を終端し、屈折背景を capture
-        // する前に一度だけ合成する。depth は SRV で読むため DSV には同時 bind しない。
+        // Opaque + water の完成 depth で camera-volume を終端し、一度だけ
+        // 合成する。depth は SRV で読むため DSV には同時 bind しない。
         if (apVol != nullptr && apTransVol != nullptr &&
             h.renderer.DepthBuffer() != nullptr) {
             editor_profiler::FCpuScope atmosphereScope(
@@ -6201,8 +8872,14 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         if (h.refr_ready && h.blit_ready && h.ibl_ready && h.ibl3d.EnvCubemap() != nullptr) {
             bool anyRefr = false;
             for (u32 i = 0; i < all3d.Size(); ++i) {
+                if (!IsEffectivelyVisibleAndEnabled(all3d[i])) continue;
                 game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
-                if (mc != nullptr && mc->MaterialLoaded() && mc->Material().pbr.transmission > 0.0f) { anyRefr = true; break; }
+                if (!IsRenderedByWater3D(h, all3d[i]) &&
+                    mc != nullptr && mc->MaterialLoaded() &&
+                    mc->Material().pbr.transmission > 0.0f) {
+                    anyRefr = true;
+                    break;
+                }
             }
             IRhiDevice* rdev = h.renderer.Device();
             if (anyRefr && rdev != nullptr) {
@@ -6225,8 +8902,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     h.refr3d.SetFrame(vp, eye, scW, scH); // opaque と同じ vp/viewport で整合
                     for (u32 i = 0; i < all3d.Size(); ++i) {
                         game::ANode* nn = all3d[i];
+                        if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
                         game::AMeshComponent3D* mc = Mesh3D(nn);
                         if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
+                        if (IsRenderedByWater3D(h, nn)) continue;
                         if (!mc->MaterialLoaded() || mc->Material().pbr.transmission <= 0.0f) continue;
                         FGpuMesh* gm = GpuMeshForNode3D(h, nn);
                         if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
@@ -6408,6 +9087,34 @@ ACS_EDITOR_API void* acs_editor_create(void) {
     return host;
 }
 
+constexpr FClearColor kEditorNeutralClear{
+    0.035f, 0.043f, 0.055f, 1.0f};
+
+/**
+ * Present a deterministic editor-owned frame without entering scene rendering.
+ *
+ * Every incremental startup phase completes any frame it opens before
+ * returning, so this is safe immediately after AdvanceEditorStartup. Startup
+ * callers disable GPU timing to keep warm-up and first-frame profiling clean.
+ */
+bool PresentNeutralEditorFrame(
+    FEditorHost& host, bool record_gpu_timing) noexcept {
+    if (!host.attached || host.renderer.Device() == nullptr ||
+        host.renderer.Swapchain() == nullptr) {
+        return false;
+    }
+    IRhiCommandList* command_list = host.renderer.CommandList();
+    if (command_list != nullptr) command_list->ResetStatistics();
+    host.renderer.BeginFrame(kEditorNeutralClear);
+    if (record_gpu_timing && command_list != nullptr) {
+        command_list->BeginGpuTimingFrame(
+            host.profiler_snapshot.frame_index + 1u);
+        command_list->EndGpuTimingFrame();
+    }
+    host.renderer.EndFrame();
+    return true;
+}
+
 ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, uint32_t height) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || hwnd == nullptr || width == 0u || height == 0u) return 0;
@@ -6431,6 +9138,11 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->profiler_last_gpu_peak_frame = 0u;
     host->profiler_snapshot.viewport_width = width;
     host->profiler_snapshot.viewport_height = height;
+    host->water3d_background_failed = false;
+    host->water3d_depth_copy_failed = false;
+    host->ssss3d_init_failed = false;
+    host->ssss3d_init_state = 0u;
+    host->ssss3d_pending_shaders = {};
     host->profiler_smoothed_fps = 0.0f;
     host->profiler_has_previous_frame = false;
 
@@ -6446,6 +9158,10 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->startup_ready = false;
     host->startup_failed = false;
     host->startup_begin = editor_profiler::FClock::now();
+
+    // Own the child HWND's pixels before returning to WPF. Otherwise HwndHost
+    // airspace can expose uninitialized/old swapchain contents during warm-up.
+    (void)PresentNeutralEditorFrame(*host, false);
 
     ACS_LOG_INFO("[acs_editor_abi] attached to HWND %p (%ux%u)", hwnd, width, height);
     return 1;
@@ -6541,6 +9257,10 @@ static void PublishProfilerFrame(
     }
     if (host.profiler_work.clouds_active) {
         snapshot.flags |= editor_profiler::ESnapshotFlags::Clouds;
+    }
+    if (host.profiler_work.scene_mesh_cache_rebuilt) {
+        snapshot.flags |=
+            editor_profiler::ESnapshotFlags::SceneMeshCacheRebuilt;
     }
     if (host.view3d && !host.ortho3d && host.q_fog_on) {
         snapshot.flags |= editor_profiler::ESnapshotFlags::Fog;
@@ -6693,12 +9413,42 @@ static void PublishProfilerFrame(
 ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->attached) return;
+    const f32 safe_dt = std::isfinite(dt) && dt > 0.0f
+        ? std::clamp(dt, 0.0f, 0.10f)
+        : 0.0f;
+    host->frame_dt = safe_dt > 1e-4f
+        ? std::clamp(safe_dt, 1.0f / 240.0f, 0.10f)
+        : (1.0f / 60.0f);
+    if (host->water3d_ready) {
+        // Advance once per editor render pump, independently of scene
+        // presentation, 2D/3D view selection, or refraction availability.
+        host->water3d.Update(safe_dt);
+    }
     // Do not enter BeginFrame until all startup upload phases are complete.
     // Each call performs one bounded phase and then returns to the Win32/WPF
     // message pump, keeping the editor responsive throughout shader warm-up.
     if (!host->startup_ready) {
         (void)AdvanceEditorStartup(*host);
+        // A phase may be pending, may have failed non-fatally, or may just have
+        // resized the swapchain. Presenting here keeps the child HWND at a
+        // deterministic color until the complete scene stack is publishable.
+        (void)PresentNeutralEditorFrame(*host, false);
         return;
+    }
+    {
+        // Reuse the host-owned DFS scratch retained by DrawScene3D. Clearing a
+        // TArray preserves capacity, eliminating the per-frame heap churn that
+        // the former local water_nodes array caused in both 2D and 3D views.
+        TArray<game::ANode*>& water_nodes = host->scene_mesh_nodes;
+        water_nodes.Clear();
+        Dfs3DCollect(&host->scene3d.Root(), water_nodes);
+        // Resource commits happen before BeginFrame, but the authored scene
+        // remains visible through every slice via the opaque PBR fallback.
+        // Once the final slice/background succeeds, the same frame may switch
+        // to specialized water without an intervening neutral flash.
+        (void)AdvanceWater3DInitialization(*host, water_nodes);
+        (void)EnsureWater3DBackgroundBeforeFrame(
+            *host, water_nodes);
     }
     const editor_profiler::FTimePoint profilerFrameBegin =
         editor_profiler::FClock::now();
@@ -6706,29 +9456,14 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
     if (host->scene_presentation_suppressed) {
         // Keep presenting a deterministic neutral frame so WPF's HwndHost airspace cannot
         // expose the previous/default scene while managed file I/O is in flight.
-        constexpr FClearColor loadingClear{0.035f, 0.043f, 0.055f, 1.0f};
-        IRhiCommandList* commandList = host->renderer.CommandList();
-        if (commandList != nullptr) commandList->ResetStatistics();
-        host->renderer.BeginFrame(loadingClear);
-        if (commandList != nullptr) {
-            commandList->BeginGpuTimingFrame(
-                host->profiler_snapshot.frame_index + 1u);
-            commandList->EndGpuTimingFrame();
-        }
         const editor_profiler::FTimePoint submitBegin =
             editor_profiler::FClock::now();
-        host->renderer.EndFrame();
+        (void)PresentNeutralEditorFrame(*host, true);
         PublishProfilerFrame(
             *host, profilerFrameBegin,
             editor_profiler::ElapsedMilliseconds(submitBegin));
         return;
     }
-    const f32 safe_dt = std::isfinite(dt) && dt > 0.0f
-        ? std::clamp(dt, 0.0f, 0.10f)
-        : 0.0f;
-    host->frame_dt = safe_dt > 1e-4f
-        ? std::clamp(safe_dt, 1.0f / 240.0f, 0.10f)
-        : (1.0f / 60.0f);
     host->time += safe_dt;
 
     if (host->play_state == 1) EditorStepPlay(*host, safe_dt);   // 再生中は物理を進める
@@ -6899,6 +9634,12 @@ ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t hei
     host->height = height;
     host->profiler_snapshot.viewport_width = width;
     host->profiler_snapshot.viewport_height = height;
+    host->water3d_background_failed = false;
+    host->water3d_depth_copy_failed = false;
+    if (!host->startup_ready ||
+        host->scene_presentation_suppressed) {
+        (void)PresentNeutralEditorFrame(*host, false);
+    }
 }
 
 // =============================================================================
@@ -7300,6 +10041,9 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->startup_pbr_shaders = {};
     host->startup_ssgi_shaders = {};
     host->startup_cloud_shaders = {};
+    host->startup_ssao_shaders = {};
+    host->startup_post_shaders = {};
+    host->ssss3d_pending_shaders = {};
     // ユーザー DLL と実コンポーネントは GPU/基盤より先に破棄する。再生中の直接 destroy でも
     // DLL ハンドル、物理ワールド、開始時スナップショットを残さない。
     acs_editor_logic_play_stop(handle);
@@ -7328,8 +10072,15 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->ssgi3d.Shutdown(); host->ssgi_ready = false; host->ssgi_w = 0; host->ssgi_h = 0;
     host->mv3d.Shutdown(); host->mv_ready = false; host->mv_w = 0; host->mv_h = 0;
     host->refr3d.Shutdown(); host->refr_ready = false;
+    host->water3d.Shutdown();
+    host->water3d_ready = false;
+    host->water3d_pending_shaders = {};
+    host->water3d_init_state = 0u;
     host->blit_pipe.Reset(); host->blit_vs.Reset(); host->blit_ps.Reset(); host->blit_ready = false;
     host->refr_bg.Reset(); host->refr_bg_w = 0; host->refr_bg_h = 0;
+    host->water3d_depth_copy.Reset();
+    host->water3d_depth_copy_w = host->water3d_depth_copy_h = 0u;
+    host->water3d_depth_copy_failed = false;
     host->dof_pipe.Reset(); host->dof_vs.Reset(); host->dof_ps.Reset(); host->dof_cb.Reset(); host->dof_ready = false;
     host->gray_pipe.Reset(); host->gray_vs.Reset(); host->gray_ps.Reset(); host->gray_cb.Reset(); host->gray_ready = false;
     host->mblur_pipe.Reset(); host->mblur_vs.Reset(); host->mblur_ps.Reset(); host->mblur_cb.Reset(); host->mblur_ready = false;
@@ -7363,12 +10114,26 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     }
     host->m3d_frame_cb.Reset(); host->m3d_giz_cb.Reset(); host->m3d_dyn_vb.Reset(); host->m3d_giz_vb.Reset();
     host->gm_cube = FGpuMesh{}; host->gm_sphere = FGpuMesh{}; host->gm_plane = FGpuMesh{};
+    host->gm_water_plane = FGpuMesh{};
+    host->cpu_water_plane.Reset();
     // Phase2 で追加した GPU サブシステム/RT は «device 破棄より前» に明示解放する。これを怠ると
     // delete host のデストラクタが renderer.Shutdown() (device 破棄) の «後» に走り、解放済み device
     // 上で GPU リソースを Release して «終了時に間欠 access violation (acs_editor_destroy)» を起こす。
     host->pbr3d.Shutdown();
     host->preview_pbr3d.Shutdown();
     host->preview_pbr3d_ready = false;
+    host->ssss3d.Shutdown();
+    host->ssss3d_ready = false;
+    host->ssss3d_init_failed = false;
+    host->ssss3d_init_state = 0u;
+    host->ssss3d_pending_shaders = {};
+    host->ssss_diffuse_rt.Reset();
+    host->ssss_material_rt.Reset();
+    host->ssss_pending_diffuse_rt.Reset();
+    host->ssss_w = host->ssss_h = 0u;
+    host->ssss_pending_w = host->ssss_pending_h = 0u;
+    host->ssss_frame_resource_state = 0u;
+    host->ssss_frame_failed_w = host->ssss_frame_failed_h = 0u;
     host->post3d.Shutdown();
     host->sky3d.Shutdown();
     host->scene_rt.Reset();
@@ -9101,6 +11866,7 @@ static int RenderPbrMaterialPreview(
     lights[0].color = FVec3{1.70f, 1.56f, 1.40f};
 
     FPbrShader& shader = h.preview_pbr3d;
+    if (!shader.BeginFrame(1u)) return 0;
     shader.SetLights(
         camera.ViewProjection(), eye, lights, 1u,
         FVec3{0.018f, 0.021f, 0.028f});
@@ -10182,9 +12948,11 @@ ACS_EDITOR_API const char* acs_editor_scene_serialize(void* handle) {
 /** シリアライズ済みテキストからシーンを復元する (成功 1 / 失敗 0)。 */
 ACS_EDITOR_API int acs_editor_scene_load_text(void* handle, const char* text) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr) return 0;
+    if (host == nullptr || !ValidateEditorScene2DText(text)) {
+        return 0;
+    }
     PushUndo(*host);
-    return LoadSceneText(*host, text);
+    return LoadSceneTextValidated(*host, text);
 }
 
 /** シーンを空 (隠しルートのみ) に戻す (New Scene)。 */
@@ -10200,9 +12968,21 @@ ACS_EDITOR_API void acs_editor_scene3d_new(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     PushUndo(*host);
-    host->scene3d.Clear();
-    host->scene3d.Update(0.0f);
-    host->sel3d = -1; host->sel3d_multi.Clear(); host->clip3d = -1;
+    ClearScene3D(*host);
+}
+
+/**
+ * Replace the singular editor document with an empty 2D/3D compatibility
+ * envelope. The nested clear helpers share one Join -> WaitIdle boundary and
+ * the operation contributes exactly one native undo snapshot.
+ */
+ACS_EDITOR_API void acs_editor_scene_document_new(void* handle) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return;
+    PushUndo(*host);
+    FSceneResourceRetirementScope retirement(*host);
+    ClearScene(*host);
+    ClearScene3D(*host);
 }
 
 // =============================================================================
@@ -10458,7 +13238,9 @@ ACS_EDITOR_API int acs_editor_camera3d_get(
 ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
-    host->view3d = (on != 0);
+    const bool view3d = on != 0;
+    if (host->view3d != view3d) host->mv_computed = false;
+    host->view3d = view3d;
     if (host->view3d) Seed3DScene(*host);
 }
 
@@ -10472,7 +13254,9 @@ ACS_EDITOR_API int acs_editor_get_view3d(void* handle) {
 ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
-    host->ortho3d = (on != 0);
+    const bool ortho3d = on != 0;
+    if (host->ortho3d != ortho3d) host->mv_computed = false;
+    host->ortho3d = ortho3d;
     if (host->ortho3d) {                                 // 正射 = 2D 前面ビュー: XY 平面を正面から直視
         host->cam3d_yaw = 0.0f; host->cam3d_pitch = 0.0f;
         host->cam3d_target = FVec3{ 0, 0, 0 };
@@ -10524,8 +13308,8 @@ ACS_EDITOR_API int acs_editor_add_empty3d(void* handle, const char* name) {
     return id;
 }
 
-/** 3D ノードの subtree を parent の下にクローンする。transform/euler/prim/color/material/子 を複製。
- *  注: スプライト/手続きポリゴンの «ジオメトリ再生成» は未対応 (prim mesh として複製される)。返り値=トップ複製の id。 */
+/** 3D ノードの subtree を parent の下にクローンする。
+ * transform/flags/components/custom mesh/sprite/procedural polygon/material/children を複製する。 */
 static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* parent) noexcept {
     char nm[64];
     const FStringView sn = src->Name();
@@ -10538,14 +13322,47 @@ static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* par
     AEditor3DRecordComponent* cr = Rec3D(&clone);
     if (cr != nullptr) {
         cr->id = newId;
-        if (sr != nullptr) { cr->euler = sr->euler; std::memcpy(cr->prefab_src, sr->prefab_src, sizeof(cr->prefab_src)); cr->is_empty = sr->is_empty; }   // インスタンスリンク/空フラグも複製
+        if (sr != nullptr) {
+            cr->euler = sr->euler;
+            std::memcpy(
+                cr->prefab_src, sr->prefab_src,
+                sizeof(cr->prefab_src));
+            std::memcpy(
+                cr->sprite_path, sr->sprite_path,
+                sizeof(cr->sprite_path));
+            cr->is_empty = sr->is_empty;
+            cr->poly_pts = sr->poly_pts.Clone();
+            cr->component_count = sr->component_count;
+            for (u32 slot = 0u;
+                 slot < sr->component_count; ++slot) {
+                cr->components[slot] = sr->components[slot];
+                for (u32 prop = 0u;
+                     prop < AEditor3DRecordComponent::kMaxProps;
+                     ++prop) {
+                    for (u32 lane = 0u; lane < 4u; ++lane) {
+                        cr->comp_props[slot][prop][lane] =
+                            sr->comp_props[slot][prop][lane];
+                    }
+                }
+            }
+        }
     }
     clone.Local() = src->Local();                    // transform をそのまま複製
+    clone.SetVisible(src->IsVisible());
+    clone.SetEnabled(src->IsEnabled());
+    clone.SetDrawLayer(src->DrawLayer());
     game::AMeshComponent3D* sm = Mesh3D(src);
     game::AMeshComponent3D* cm = Mesh3D(&clone);
     if (sm != nullptr && cm != nullptr) {
         cm->SetPrimitive(sm->Primitive());
         cm->SetColor(sm->Color());
+        cm->SetCastsShadow(sm->CastsShadow());
+        if (sm->HasMeshAsset()) {
+            cm->SetMeshAsset(sm->MeshAsset());
+        }
+        if (sm->MeshPath().Size() > 0u) {
+            cm->SetMeshPath(sm->MeshPath());
+        }
         if (sm->HasMaterial()) { cm->SetMaterialPath(sm->MaterialPath()); LoadNode3DMaterial(&clone); }
     }
     if (parent != nullptr && parent != &h.scene3d.Root()) clone.Reparent(*parent);   // 元と同じ親へ
@@ -10730,6 +13547,22 @@ ACS_EDITOR_API int acs_editor_delete_node3d(void* handle, int id) {
     if (host == nullptr) return 0;
     game::ANode* nn = FindNode3DNode(*host, id);
     if (nn == nullptr) return 0;
+    TArray<game::ANode*> removed;
+    removed.PushBack(nn);
+    Dfs3DCollect(nn, removed);
+    for (u32 i = 0u; i < removed.Size(); ++i) {
+        AEditor3DRecordComponent* record = Rec3D(removed[i]);
+        if (record != nullptr) {
+            host->water3d.ClearDisturbancesForSurface(
+                static_cast<u64>(
+                    static_cast<u32>(record->id)));
+            if (host->water_pointer_node == record->id) {
+                host->water_pointer_valid = false;
+                host->water_pointer_node = -1;
+                host->water_pointer_emit_time = -1.0f;
+            }
+        }
+    }
     nn->Destroy();
     host->scene3d.Update(0.0f);          // 破棄予定を purge + 即 reap (構造変更を確定)
     PruneSel3D(*host);                    // 削除されたノードを選択集合から除き primary を整える
@@ -11245,26 +14078,447 @@ ACS_EDITOR_API const char* acs_editor_copy_subtree3d(void* handle, int id) {
     return buf;
 }
 
+namespace {
+
+bool AppendEditorTextLine(TArray<char>& output, const char* line) noexcept {
+    const usize length = std::strlen(line);
+    if (length > static_cast<usize>(~u32{0}) - output.Size() - 1u ||
+        !output.TryReserve(output.Size() + static_cast<u32>(length) + 1u)) {
+        return false;
+    }
+    for (usize index = 0u; index < length; ++index) {
+        if (!output.TryPushBack(line[index])) return false;
+    }
+    return output.TryPushBack('\n');
+}
+
+bool ValidateEditorScene3DText(const char* text) noexcept {
+    if (text == nullptr) return false;
+    u32 text_size = 0u;
+    while (text_size <= game::kScene3DSerializeMaxInputBytes &&
+           text[text_size] != '\0') {
+        ++text_size;
+    }
+    if (text_size > game::kScene3DSerializeMaxInputBytes) return false;
+
+    const char* cursor = text;
+    char line[game::kScene3DSerializeMaxLineBytes + 1u]{};
+    if (ReadEditorTextLine(cursor, line, static_cast<u32>(sizeof(line))) !=
+            EEditorTextLineResult::Line ||
+        std::strcmp(line, "ACS3D v2") != 0) {
+        return false;
+    }
+
+    TArray<char> structural;
+    TArray<char> auxiliary;
+    TArray<char> node_lines;
+    TArray<FValidatedEditor3DNode> nodes;
+    TArray<int> editor_only_targets;
+    TArray<FValidatedEditorComponent> components;
+    TArray<FValidatedEditorProperty> properties;
+    if (!AppendEditorTextLine(structural, "ACS3D v2")) return false;
+    game::AcsRegisterEngineTypes();
+
+    while (true) {
+        const EEditorTextLineResult read = ReadEditorTextLine(
+            cursor, line, static_cast<u32>(sizeof(line)));
+        if (read == EEditorTextLineResult::End) break;
+        if (read != EEditorTextLineResult::Line) return false;
+        if (line[0] == '\0') continue;
+
+        if (IsEditorTextDirective(line, "N3D")) {
+            if (line[3] != ' ') return false;
+            const char* values = line + 4u;
+            int id = -1;
+            int parent = -1;
+            int primitive = 0;
+            f32 ignored_float = 0.0f;
+            if (!ParseEditorTextInt(values, id) ||
+                !ParseEditorTextInt(values, parent) ||
+                !ParseEditorTextInt(values, primitive) ||
+                id < 0 || parent < -1 ||
+                primitive < -1 || primitive > 3) {
+                return false;
+            }
+            for (u32 index = 0u; index < 13u; ++index) {
+                if (!ParseEditorTextFloat(values, ignored_float)) return false;
+            }
+            SkipEditorTextWhitespace(values);
+            if (std::strlen(values) > 63u) return false;
+            if (nodes.Size() >= game::kScene3DSerializeMaxNodeCount) return false;
+            const u32 offset = node_lines.Size();
+            if (!AppendEditorTextLine(node_lines, line)) return false;
+            nodes.PushBack(FValidatedEditor3DNode{
+                id, parent, -1, offset,
+                static_cast<u32>(node_lines.Size() - offset), 0u, 0u});
+            continue;
+        }
+
+        const bool mesh = IsEditorTextDirective(line, "MSH3D");
+        const bool material = IsEditorTextDirective(line, "MAT3D");
+        const bool component = IsEditorTextDirective(line, "CMP3D");
+        const bool property = IsEditorTextDirective(line, "CPROP3D");
+        const bool canonical_auxiliary =
+            mesh || material ||
+            IsEditorTextDirective(line, "FLG3D") ||
+            IsEditorTextDirective(line, "EMPTY3D") ||
+            IsEditorTextDirective(line, "SEL3D");
+        if (component || property) {
+            if (line[component ? 5u : 7u] != ' ') return false;
+            const char* values = line + (component ? 5u : 7u);
+            int id = -1;
+            if (!ParseEditorTextInt(values, id)) return false;
+            if (component) {
+                char type_name[256]{};
+                if (!ParseEditorTextWord(
+                        values, type_name,
+                        static_cast<usize>(sizeof(type_name))) ||
+                    !EditorTextOnlyWhitespace(values)) {
+                    return false;
+                }
+                const game::FTypeDesc* descriptor =
+                    game::FTypeRegistry::Get().FindByName(type_name);
+                if (descriptor == nullptr ||
+                    descriptor->category != game::ETypeCategory::Component) {
+                    return false;
+                }
+                u32 count = 0u;
+                for (u32 index = 0u; index < components.Size(); ++index) {
+                    if (components[index].node_id != id) continue;
+                    if (components[index].type_id == descriptor->id) return false;
+                    ++count;
+                }
+                if (count >= AEditor3DRecordComponent::kMaxComponents) {
+                    return false;
+                }
+                components.PushBack(
+                    FValidatedEditorComponent{id, descriptor->id});
+            } else {
+                u32 slot = 0u;
+                u32 property_index = 0u;
+                if (!ParseEditorTextU32(values, slot) ||
+                    !ParseEditorTextU32(values, property_index) ||
+                    slot >= AEditor3DRecordComponent::kMaxComponents ||
+                    property_index >= AEditor3DRecordComponent::kMaxProps) {
+                    return false;
+                }
+                for (u32 index = 0u; index < 4u; ++index) {
+                    f32 value = 0.0f;
+                    if (!ParseEditorTextFloat(values, value)) return false;
+                }
+                if (!EditorTextOnlyWhitespace(values)) return false;
+                properties.PushBack(
+                    FValidatedEditorProperty{id, slot, property_index});
+            }
+            editor_only_targets.PushBack(id);
+            continue;
+        }
+        if (canonical_auxiliary) {
+            // Keep editor storage limits in lock-step with the commit parser;
+            // the canonical parser supplies the rest of the grammar checks.
+            if (mesh || material || component) {
+                const char* values =
+                    line + (mesh ? 5u : (material ? 5u : 5u));
+                int id = -1;
+                const usize maximum =
+                    mesh ? 259u : (material ? 255u : 255u);
+                if (!ParseEditorTextInt(values, id) ||
+                    !ParseEditorTextRemainder(values, maximum)) {
+                    return false;
+                }
+                if (material) {
+                    const char* numeric = values;
+                    f32 metallic = 0.0f;
+                    f32 roughness = 0.0f;
+                    // The canonical grammar accepts either exactly two
+                    // finite legacy PBR values or a non-empty safe material
+                    // asset path. The canonical staging parse below performs
+                    // the path-byte validation.
+                    (void)(ParseEditorTextFloat(numeric, metallic) &&
+                           ParseEditorTextFloat(numeric, roughness) &&
+                           EditorTextOnlyWhitespace(numeric));
+                }
+            }
+            if (IsEditorTextDirective(line, "SEL3D")) {
+                const char* values = line + 5u;
+                int selected = -1;
+                if (!ParseEditorTextInt(values, selected) ||
+                    !EditorTextOnlyWhitespace(values) ||
+                    selected < 0) {
+                    return false;
+                }
+                // ACS3D reserves zero for «no selection». Every positive
+                // selection is a real scene reference and is resolved after
+                // the order-independent node preflight below.
+                if (selected > 0) editor_only_targets.PushBack(selected);
+            }
+            if (!AppendEditorTextLine(auxiliary, line)) return false;
+            continue;
+        }
+
+        if (IsEditorTextDirective(line, "SPR3D") ||
+            IsEditorTextDirective(line, "PFAB3D")) {
+            const bool sprite = IsEditorTextDirective(line, "SPR3D");
+            if (line[sprite ? 5u : 6u] != ' ') return false;
+            const char* values = line + (sprite ? 5u : 6u);
+            int id = -1;
+            if (!ParseEditorTextInt(values, id) ||
+                !ParseEditorTextRemainder(values, 255u)) {
+                return false;
+            }
+            editor_only_targets.PushBack(id);
+            continue;
+        }
+        if (IsEditorTextDirective(line, "PLY3D")) {
+            if (line[5] != ' ') return false;
+            const char* values = line + 5u;
+            int id = -1;
+            u32 count = 0u;
+            if (!ParseEditorTextInt(values, id) ||
+                !ParseEditorTextU32(values, count) ||
+                count < 3u || count > 4096u) {
+                return false;
+            }
+            for (u32 index = 0u; index < count; ++index) {
+                f32 x = 0.0f;
+                f32 y = 0.0f;
+                if (!ParseEditorTextFloat(values, x) ||
+                    !ParseEditorTextFloat(values, y)) {
+                    return false;
+                }
+            }
+            if (!EditorTextOnlyWhitespace(values)) return false;
+            editor_only_targets.PushBack(id);
+            continue;
+        }
+
+        // Unknown directives are intentionally ignored for forward
+        // compatibility. A second ACS3D header is never an extension.
+        if (IsEditorTextDirective(line, "ACS3D")) return false;
+    }
+
+    if (nodes.Size() > 1u) {
+        std::sort(
+            nodes.Data(), nodes.Data() + nodes.Size(),
+            [](const FValidatedEditor3DNode& left,
+               const FValidatedEditor3DNode& right) noexcept {
+                return left.id < right.id;
+            });
+    }
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        if (index > 0u && nodes[index - 1u].id == nodes[index].id) {
+            return false;
+        }
+        if (nodes[index].parent < 0) continue;
+        const int parent_index =
+            FindValidatedEditor3DNode(nodes, nodes[index].parent);
+        if (parent_index < 0 || parent_index == static_cast<int>(index)) {
+            return false;
+        }
+        nodes[index].parent_index = parent_index;
+    }
+
+    TArray<u32> hierarchy_chain;
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        if (nodes[index].state == 2u) continue;
+        hierarchy_chain.Clear();
+        int current = static_cast<int>(index);
+        while (current >= 0 &&
+               nodes[static_cast<u32>(current)].state != 2u) {
+            FValidatedEditor3DNode& node =
+                nodes[static_cast<u32>(current)];
+            if (node.state == 1u) return false;
+            node.state = 1u;
+            hierarchy_chain.PushBack(static_cast<u32>(current));
+            current = node.parent_index;
+        }
+        u32 depth = current >= 0
+            ? nodes[static_cast<u32>(current)].depth + 1u
+            : 0u;
+        while (!hierarchy_chain.IsEmpty()) {
+            const u32 chain_index =
+                hierarchy_chain[hierarchy_chain.Size() - 1u];
+            hierarchy_chain.PopBack();
+            nodes[chain_index].depth = depth++;
+            nodes[chain_index].state = 2u;
+            if (nodes[chain_index].depth >
+                game::kScene3DSerializeMaxTreeDepth) {
+                return false;
+            }
+        }
+    }
+
+    TArray<u32> topological_order;
+    if (!topological_order.TryReserve(nodes.Size())) return false;
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        if (!topological_order.TryPushBack(index)) return false;
+    }
+    if (topological_order.Size() > 1u) {
+        std::sort(
+            topological_order.Data(),
+            topological_order.Data() + topological_order.Size(),
+            [&](u32 left, u32 right) noexcept {
+                if (nodes[left].depth != nodes[right].depth)
+                    return nodes[left].depth < nodes[right].depth;
+                return nodes[left].id < nodes[right].id;
+            });
+    }
+    for (u32 order_index = 0u;
+         order_index < topological_order.Size(); ++order_index) {
+        const FValidatedEditor3DNode& node =
+            nodes[topological_order[order_index]];
+        if (!structural.TryReserve(structural.Size() + node.text_length)) {
+            return false;
+        }
+        for (u32 byte_index = 0u;
+             byte_index < node.text_length; ++byte_index) {
+            if (!structural.TryPushBack(
+                    node_lines[node.text_offset + byte_index])) {
+                return false;
+            }
+        }
+    }
+
+    for (u32 index = 0u; index < properties.Size(); ++index) {
+        const FValidatedEditorProperty& property_record = properties[index];
+        u32 slot = 0u;
+        const FValidatedEditorComponent* component_record = nullptr;
+        for (u32 component_index = 0u;
+             component_index < components.Size(); ++component_index) {
+            if (components[component_index].node_id !=
+                property_record.node_id) {
+                continue;
+            }
+            if (slot == property_record.slot) {
+                component_record = &components[component_index];
+                break;
+            }
+            ++slot;
+        }
+        if (component_record == nullptr) return false;
+        const game::FTypeDesc* descriptor =
+            game::FTypeRegistry::Get().FindById(component_record->type_id);
+        if (descriptor == nullptr ||
+            property_record.property >= descriptor->field_count) {
+            return false;
+        }
+    }
+
+    if (!structural.TryReserve(structural.Size() + auxiliary.Size())) {
+        return false;
+    }
+    for (u32 index = 0u; index < auxiliary.Size(); ++index) {
+        if (!structural.TryPushBack(auxiliary[index])) return false;
+    }
+
+    game::FScene3D staging;
+    const game::FScene3DLoadResult parsed = game::TryLoadScene3DText(
+        staging, structural.Data(), structural.Size());
+    if (!parsed.Succeeded()) return false;
+
+    for (u32 index = 0u; index < editor_only_targets.Size(); ++index) {
+        if (staging.Root().FindBySerialId(editor_only_targets[index]) ==
+            nullptr) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** 3D シーンテキストの解析本体。clear=true で全置換 (load_text)、false で追記 (paste_subtree3d)。
  *  idOffset を読み取った全 id に加算 (paste の id 衝突回避)。reparentRootTo>=0 なら «親 -1 の root» を
  *  その id 配下へ繋ぐ (paste のドロップ先)。out_root に最初の root の新 id を返す。成功 1。 */
 static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
-                               int idOffset, int reparentRootTo, int* out_root) noexcept {
+                               int idOffset, int reparentRootTo, int* out_root,
+                               bool prevalidated) noexcept {
     if (host == nullptr || text == nullptr) return 0;
+    // Validate before the retirement boundary so a rejected source never
+    // destroys the currently published world.
+    if (!prevalidated && !ValidateEditorScene3DText(text)) return 0;
     if (clear) {
-        host->scene3d.Clear();
-        host->sprite_textures.Clear();               // 旧シーンのスプライトテクスチャを解放 (もう参照されない)
-        host->sel3d = -1; host->sel3d_multi.Clear();
+        ClearScene3D(*host);
     }
     host->scene3d_seeded = true;                     // 読み込んだら seed しない
     int maxId = 0;
     int restoredSel = -1;                            // SEL3D 行があれば選択を復元 (無ければ先頭)
     int firstRoot = -1;                              // paste: 最初に作った «親 -1» ノードの新 id (選択用)
-    const char* p = text;
     char line[4096];                          // ポリゴンの点列 (PLY3D) も収まる広さ
+
+    // Pass 1 creates every node before any relationship or auxiliary record is
+    // applied. Valid documents are therefore independent of declaration order.
+    TArray<int> loaded_ids;
+    TArray<int> loaded_parents;
+    const char* structural_cursor = text;
+    while (*structural_cursor != '\0') {
+        u32 length = 0u;
+        while (*structural_cursor != '\0' && *structural_cursor != '\n') {
+            if (length + 1u < sizeof(line)) line[length++] = *structural_cursor;
+            ++structural_cursor;
+        }
+        if (length > 0u && line[length - 1u] == '\r') --length;
+        line[length] = '\0';
+        if (*structural_cursor == '\n') ++structural_cursor;
+        if (std::strncmp(line, "N3D ", 4) != 0) continue;
+
+        int nid = 0;
+        int nparent = -1;
+        int nprim = 0;
+        char name[64] = {};
+        FVec3 position{ 0, 0, 0 };
+        FVec3 rotation{ 0, 0, 0 };
+        FVec3 scale{ 1, 1, 1 };
+        FVec4 color{ 0.8f, 0.8f, 0.85f, 1 };
+        const int got = std::sscanf(
+            line,
+            "N3D %d %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
+            &nid, &nparent, &nprim,
+            &position.x, &position.y, &position.z,
+            &rotation.x, &rotation.y, &rotation.z,
+            &scale.x, &scale.y, &scale.z,
+            &color.x, &color.y, &color.z, &color.w, name);
+        if (got < 16) return 0; // unreachable after strict preflight
+
+        const int new_id = nid + idOffset;
+        game::ANode& node = AddNode3D(*host, got >= 17 ? name : "Node");
+        node.Local().position = position;
+        node.Local().scale = scale;
+        node.Local().SetEulerDeg(rotation);
+        AEditor3DRecordComponent* record =
+            node.GetComponent<AEditor3DRecordComponent>();
+        if (record != nullptr) {
+            record->id = new_id;
+            record->euler = rotation;
+            record->is_empty = nprim < 0;
+        }
+        game::AMeshComponent3D* mesh = node.GetComponent<game::AMeshComponent3D>();
+        if (mesh != nullptr && nprim >= 0) {
+            mesh->SetPrimitive(static_cast<game::EMeshPrimitive3D>(nprim));
+            mesh->SetColor(color);
+        }
+
+        const int effective_parent =
+            nparent >= 0 ? nparent + idOffset : reparentRootTo;
+        loaded_ids.PushBack(new_id);
+        loaded_parents.PushBack(effective_parent);
+        if (nparent < 0 && firstRoot < 0) firstRoot = new_id;
+        if (new_id > maxId) maxId = new_id;
+    }
+    for (u32 index = 0u; index < loaded_ids.Size(); ++index) {
+        if (loaded_parents[index] < 0) continue;
+        game::ANode* node = FindNode3DNode(*host, loaded_ids[index]);
+        game::ANode* parent = FindNode3DNode(*host, loaded_parents[index]);
+        if (node != nullptr && parent != nullptr && node->Parent() != parent) {
+            node->Reparent(*parent);
+        }
+    }
+    host->scene3d.Update(0.0f);
+
+    // Pass 2 applies auxiliary records after all target nodes exist.
+    const char* p = text;
     while (*p != '\0') {
         u32 n = 0;
         while (*p != '\0' && *p != '\n') { if (n + 1 < sizeof(line)) line[n++] = *p; ++p; }
+        if (n > 0u && line[n - 1u] == '\r') --n;
         line[n] = '\0';
         if (*p == '\n') ++p;
         if (std::strncmp(line, "MSH3D ", 6) == 0) {                  // カスタムメッシュの再読込
@@ -11326,15 +14580,7 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
             continue;
         }
         if (std::strncmp(line, "CPROP3D ", 8) == 0) {                // コンポーネント編集プロパティ値の復元 (CMP3D の直後)
-            int cid = 0; unsigned cslot = 0, cprop = 0; float a = 0, b = 0, cc = 0, e = 0;
-            if (std::sscanf(line, "CPROP3D %d %u %u %f %f %f %f", &cid, &cslot, &cprop, &a, &b, &cc, &e) >= 3) {
-                AEditor3DRecordComponent* rr = Rec3D(FindNode3DNode(*host, cid + idOffset));
-                if (rr != nullptr && cslot < rr->component_count && cprop < AEditor3DRecordComponent::kMaxProps) {
-                    f32* v = rr->comp_props[cslot][cprop];
-                    v[0] = a; v[1] = b; v[2] = cc; v[3] = e;
-                }
-            }
-            continue;
+            continue; // pass 3, after every CMP3D has been attached
         }
         if (std::strncmp(line, "FLG3D ", 6) == 0) {                  // 可視/有効フラグの復元 (N3D の後)
             int fid = 0, vis = 1, ena = 1;
@@ -11349,16 +14595,19 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
                 game::ANode* mn = FindNode3DNode(*host, mid + idOffset);
                 game::AMeshComponent3D* mc = Mesh3D(mn);
                 if (mc != nullptr) {
-                    if (std::strstr(rest, ".acsmat") != nullptr) {       // 新形式: .acsmat アセットパス
+                    const char* numeric = rest;
+                    float mm = 0.0f, mr = 0.5f;
+                    const bool legacy_values =
+                        ParseEditorTextFloat(numeric, mm) &&
+                        ParseEditorTextFloat(numeric, mr) &&
+                        EditorTextOnlyWhitespace(numeric);
+                    if (legacy_values) {                                  // 旧形式 (後方互換): metallic roughness を pbr へ
+                        mc->MaterialMut().pbr.metallic = mm;
+                        mc->MaterialMut().pbr.roughness = mr;
+                        mc->SetMaterialLoaded(true);
+                    } else {                                               // 新形式: canonical material asset path
                         mc->SetMaterialPath(FStringView{ rest });
                         LoadNode3DMaterial(mn);
-                    } else {                                              // 旧形式 (後方互換): metallic roughness を pbr へ
-                        float mm = 0.0f, mr = 0.5f;
-                        if (std::sscanf(rest, "%f %f", &mm, &mr) >= 2) {
-                            mc->MaterialMut().pbr.metallic = mm;
-                            mc->MaterialMut().pbr.roughness = mr;
-                            mc->SetMaterialLoaded(true);
-                        }
                     }
                 }
             }
@@ -11381,30 +14630,47 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
             continue;
         }
         if (std::strncmp(line, "SEL3D ", 6) == 0) { std::sscanf(line, "SEL3D %d", &restoredSel); continue; }   // 選択 id (後で復元)
-        if (std::strncmp(line, "N3D ", 4) != 0) continue;
-        int nid = 0, nparent = -1, nprim = 0; char nm[64] = {};
-        FVec3 pos{ 0, 0, 0 }, rot{ 0, 0, 0 }, scl{ 1, 1, 1 }; FVec4 color{ 0.8f, 0.8f, 0.85f, 1 };
-        const int got = std::sscanf(line, "N3D %d %d %d %f %f %f %f %f %f %f %f %f %f %f %f %f %63[^\n]",
-            &nid, &nparent, &nprim, &pos.x, &pos.y, &pos.z, &rot.x, &rot.y, &rot.z,
-            &scl.x, &scl.y, &scl.z, &color.x, &color.y, &color.z, &color.w, nm);
-        if (got >= 16) {
-            const int newId = nid + idOffset;
-            game::ANode& nd = AddNode3D(*host, (got >= 17) ? nm : "Node");
-            nd.Local().position = pos; nd.Local().scale = scl; nd.Local().SetEulerDeg(rot);
-            AEditor3DRecordComponent* r = nd.GetComponent<AEditor3DRecordComponent>(); if (r != nullptr) { r->id = newId; r->euler = rot; }
-            game::AMeshComponent3D* m = nd.GetComponent<game::AMeshComponent3D>();
-            if (m != nullptr) {
-                m->SetPrimitive(static_cast<game::EMeshPrimitive3D>((nprim >= 0 && nprim <= 3) ? nprim : 0));
-                m->SetColor(color);
-            }
-            // 親: 内部親 (>=0) は idOffset 付きへ、«親 -1» の root は paste 時 reparentRootTo 配下へ。
-            const int effParent = (nparent >= 0) ? (nparent + idOffset) : reparentRootTo;
-            if (nparent < 0 && firstRoot < 0) firstRoot = newId;            // 最初の root を覚える (選択用)
-            if (effParent >= 0) {   // DFS 順なので親は既に存在 (root 下に居る pending も含め見つかる)
-                if (game::ANode* par = FindNode3DNode(*host, effParent)) nd.Reparent(*par);
-            }
-            if (newId > maxId) maxId = newId;
+        // N3D records were committed during pass 1.
+    }
+
+    // Pass 3 applies component values after every component declaration,
+    // including documents that place CPROP3D before the matching CMP3D.
+    p = text;
+    while (*p != '\0') {
+        u32 n = 0u;
+        while (*p != '\0' && *p != '\n') {
+            if (n + 1u < sizeof(line)) line[n++] = *p;
+            ++p;
         }
+        if (n > 0u && line[n - 1u] == '\r') --n;
+        line[n] = '\0';
+        if (*p == '\n') ++p;
+        if (std::strncmp(line, "CPROP3D ", 8) != 0) continue;
+
+        int component_id = 0;
+        unsigned slot = 0u;
+        unsigned property = 0u;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        float w = 0.0f;
+        if (std::sscanf(
+                line, "CPROP3D %d %u %u %f %f %f %f",
+                &component_id, &slot, &property,
+                &x, &y, &z, &w) < 7) {
+            continue; // unreachable after strict preflight
+        }
+        AEditor3DRecordComponent* record = Rec3D(
+            FindNode3DNode(*host, component_id + idOffset));
+        if (record == nullptr || slot >= record->component_count ||
+            property >= AEditor3DRecordComponent::kMaxProps) {
+            continue; // unreachable after strict preflight
+        }
+        f32* value = record->comp_props[slot][property];
+        value[0] = x;
+        value[1] = y;
+        value[2] = z;
+        value[3] = w;
     }
     host->scene3d.Update(0.0f);         // 保留中の reparent を一括解決 (階層を確定)
     if (maxId + 1 > host->next_id3d) host->next_id3d = maxId + 1;   // paste は既存 next_id3d を後退させない
@@ -11423,10 +14689,37 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
     return 1;
 }
 
+} // namespace
+
 /** 3D シーンをテキストから読み込む (既存ノードを置き換える)。成功 1。 */
 ACS_EDITOR_API int acs_editor_scene3d_load_text(void* handle, const char* text) {
     return LoadScene3DTextImpl(static_cast<FEditorHost*>(handle), text, /*clear=*/true,
                                /*idOffset=*/0, /*reparentRootTo=*/-1, nullptr);
+}
+
+/**
+ * Atomically replace both compatibility payloads of the singular scene
+ * document. Both formats are validated before the old world is retired.
+ */
+ACS_EDITOR_API int acs_editor_scene_document_load_text(
+    void* handle, const char* scene2d_text,
+    const char* scene3d_text) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || scene2d_text == nullptr ||
+        scene3d_text == nullptr ||
+        !ValidateEditorScene2DText(scene2d_text) ||
+        !ValidateEditorScene3DText(scene3d_text)) {
+        return 0;
+    }
+
+    PushUndo(*host);
+    FSceneResourceRetirementScope retirement(*host);
+    const int loaded2d = LoadSceneTextValidated(*host, scene2d_text);
+    if (loaded2d == 0) return 0;
+    return LoadScene3DTextImpl(
+        host, scene3d_text, /*clear=*/true,
+        /*idOffset=*/0, /*reparentRootTo=*/-1, nullptr,
+        /*prevalidated=*/true);
 }
 
 /** ACS3D subtree テキストを parent_id 配下へ貼り付ける (id を再採番・親 -1 の root を parent 配下へ。
@@ -11439,6 +14732,159 @@ ACS_EDITOR_API int acs_editor_paste_subtree3d(void* handle, const char* text, in
     const int ok = LoadScene3DTextImpl(host, text, /*clear=*/false, /*idOffset=*/host->next_id3d,
                                        /*reparentRootTo=*/parent_id, &root);
     return (ok != 0) ? root : -1;
+}
+
+ACS_EDITOR_API int acs_editor_water3d_hit_test(
+    void* handle, float sx, float sy,
+    float viewport_width, float viewport_height,
+    int* node_id, float* world_x,
+    float* world_y, float* world_z) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (node_id != nullptr) *node_id = -1;
+    if (host == nullptr) return 0;
+    FEditorWaterHit hit{};
+    if (!HitTestEditorWaterSurface(
+            *host, sx, sy, viewport_width,
+            viewport_height, hit)) {
+        return 0;
+    }
+    if (node_id != nullptr) *node_id = hit.node_id;
+    if (world_x != nullptr) *world_x = hit.world_point.x;
+    if (world_y != nullptr) *world_y = hit.world_point.y;
+    if (world_z != nullptr) *world_z = hit.world_point.z;
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_water3d_disturb_world(
+    void* handle, int node_id,
+    float x, float y, float z,
+    float radius, float strength) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || !host->water3d_ready) return 0;
+    game::ANode* node = FindNode3DNode(*host, node_id);
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (!IsAuthoredWaterSurface(node) || record == nullptr) return 0;
+    host->water3d.SetParams(WaterSurface3DParamsFor(record));
+    return host->water3d.AddDisturbanceForSurface(
+        static_cast<u64>(static_cast<u32>(node_id)),
+        FVec3{x, y, z}, radius, strength) ? 1 : 0;
+}
+
+ACS_EDITOR_API int acs_editor_water3d_wake_world(
+    void* handle, int node_id,
+    float x, float y, float z,
+    float vx, float vy, float vz,
+    float radius, float strength) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || !host->water3d_ready) return 0;
+    game::ANode* node = FindNode3DNode(*host, node_id);
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (!IsAuthoredWaterSurface(node) || record == nullptr) return 0;
+    host->water3d.SetParams(WaterSurface3DParamsFor(record));
+    return host->water3d.AddWakeForSurface(
+        static_cast<u64>(static_cast<u32>(node_id)),
+        FVec3{x, y, z}, FVec3{vx, vy, vz},
+        radius, strength) ? 1 : 0;
+}
+
+/**
+ * Route an existing viewport pointer gesture to world-space water.
+ *
+ * kind: 0=press/impact, 1=left-button drag/wake, 2=end, 3=hover wake. This
+ * function never captures input and never changes camera, selection, or gizmo
+ * state. Wake emission is spatially and temporally resampled so high-rate
+ * WM_MOUSEMOVE streams cannot exhaust the persistent wake pool.
+ */
+ACS_EDITOR_API int acs_editor_water3d_pointer_event(
+    void* handle, float sx, float sy, int kind) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return -1;
+    if (kind == 2) {
+        host->water_pointer_valid = false;
+        host->water_pointer_node = -1;
+        host->water_pointer_emit_time = -1.0f;
+        return -1;
+    }
+    if (kind != 0 && kind != 1 && kind != 3) return -1;
+    IRhiSwapchain* swapchain = host->renderer.Swapchain();
+    if (swapchain == nullptr) return -1;
+    FEditorWaterHit hit{};
+    if (!HitTestEditorWaterSurface(
+            *host, sx, sy,
+            static_cast<f32>(swapchain->Width()),
+            static_cast<f32>(swapchain->Height()),
+            hit)) {
+        host->water_pointer_valid = false;
+        host->water_pointer_node = -1;
+        host->water_pointer_emit_time = -1.0f;
+        return -1;
+    }
+    game::ANode* node =
+        FindNode3DNode(*host, hit.node_id);
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (node == nullptr || record == nullptr) return -1;
+    const FWaterSurface3DParams params =
+        WaterSurface3DParamsFor(record);
+    if (host->water3d_ready) {
+        host->water3d.SetParams(params);
+        const FWaterSurface3DParams& safe_params =
+            host->water3d.Params();
+        const FVec3 scale = node->World().scale;
+        const f32 horizontal_scale = std::max(
+            std::abs(scale.x), std::abs(scale.z));
+        const f32 radius = std::clamp(
+            horizontal_scale * 0.035f, 0.04f, 0.8f);
+        const f32 strength = std::clamp(
+            std::max(std::abs(safe_params.wave_amplitude) * 0.65f,
+                     0.025f),
+            0.01f, 0.5f);
+        const u64 surface_id =
+            static_cast<u64>(
+                static_cast<u32>(hit.node_id));
+        const bool new_track =
+            !host->water_pointer_valid ||
+            host->water_pointer_node != hit.node_id;
+        if (kind == 0 || (new_track && kind == 1)) {
+            (void)host->water3d.AddDisturbanceForSurface(
+                surface_id, hit.world_point,
+                radius, strength);
+            host->water_pointer_emit_time = host->time;
+        } else if (!new_track) {
+            const FVec3 displacement =
+                hit.world_point - host->water_pointer_world;
+            const f32 distance_squared =
+                Dot(displacement, displacement);
+            const f32 min_distance =
+                std::max(radius * 0.32f, 0.015f);
+            const f32 min_interval = std::max(
+                safe_params.ripple_lifetime /
+                    static_cast<f32>(
+                        FWaterSurface3D::kWakeRippleSlots - 2u),
+                0.035f);
+            const f32 since_emit =
+                host->water_pointer_emit_time < 0.0f
+                    ? min_interval
+                    : host->time - host->water_pointer_emit_time;
+            if (distance_squared < min_distance * min_distance ||
+                since_emit < min_interval) {
+                return hit.node_id;
+            }
+            const f32 dt =
+                std::max(since_emit, 1.0f / 1000.0f);
+            const FVec3 velocity =
+                displacement * (1.0f / dt);
+            const bool accepted =
+                host->water3d.AddWakeForSurface(
+                surface_id, hit.world_point, velocity,
+                radius, strength * 0.72f);
+            if (!accepted) return hit.node_id;
+            host->water_pointer_emit_time = host->time;
+        }
+    }
+    host->water_pointer_node = hit.node_id;
+    host->water_pointer_world = hit.world_point;
+    host->water_pointer_valid = true;
+    return hit.node_id;
 }
 
 /** スクリーン点から 3D ノードをレイピックする。最も手前の id を返す (外れは -1)。
@@ -12258,6 +15704,16 @@ ACS_EDITOR_API int acs_editor_node3d_remove_component_at(void* handle, int id, i
     AEditor3DRecordComponent* r = (host != nullptr) ? Rec3D(FindNode3DNode(*host, id)) : nullptr;
     if (r == nullptr || index < 0 || index >= static_cast<int>(r->component_count)) return 0;
     PushUndo(*host);
+    if (r->components[static_cast<u32>(index)] ==
+        kWaterSurface3DTypeId) {
+        host->water3d.ClearDisturbancesForSurface(
+            static_cast<u64>(static_cast<u32>(id)));
+        if (host->water_pointer_node == id) {
+            host->water_pointer_valid = false;
+            host->water_pointer_node = -1;
+            host->water_pointer_emit_time = -1.0f;
+        }
+    }
     for (u32 i = static_cast<u32>(index); i + 1 < r->component_count; ++i) {
         r->components[i] = r->components[i + 1];
         for (u32 p = 0; p < AEditor3DRecordComponent::kMaxProps; ++p)
@@ -12439,7 +15895,7 @@ ACS_EDITOR_API int acs_editor_node_invoke_method(void* handle, int id, int slot,
     void* obj = game::FTypeRegistry::Get().CreateById(tid);   // 一時実体化 (factory)
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);                             // C++ 既定値で初期化
-    const u32 nf = CompPropCount(d);                          // 編集値 (authored) を実体へ適用
+    const u32 nf = CompPropCount2D(d);                        // 編集値 (authored) を実体へ適用
     for (u32 p = 0; p < nf; ++p) {
         const f32* v = n->comp_props[static_cast<u32>(slot)][p];
         game::ApplyFieldValue(obj, d->fields[p], v);
@@ -12463,7 +15919,7 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_arg(void* handle, int id, int s
     void* obj = game::FTypeRegistry::Get().CreateById(tid);
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);
-    const u32 nf = CompPropCount(d);
+    const u32 nf = CompPropCount2D(d);
     for (u32 p = 0; p < nf; ++p) {
         const f32* v = n->comp_props[static_cast<u32>(slot)][p];
         game::ApplyFieldValue(obj, d->fields[p], v);
@@ -12489,7 +15945,7 @@ ACS_EDITOR_API int acs_editor_node_invoke_method_ret(void* handle, int id, int s
     void* obj = game::FTypeRegistry::Get().CreateById(tid);
     if (obj == nullptr) return 0;
     game::ApplyDefaults(obj, *d);
-    const u32 nf = CompPropCount(d);
+    const u32 nf = CompPropCount2D(d);
     for (u32 p = 0; p < nf; ++p) {
         const f32* v = n->comp_props[static_cast<u32>(slot)][p];
         game::ApplyFieldValue(obj, d->fields[p], v);

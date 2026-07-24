@@ -92,6 +92,20 @@ bool FShowcaseApp::OnCustomFrame() noexcept {
     IRhiTexture*     hdr   = m_Assets.post.HdrRenderTarget();
     if (!dev || !cl || !sc || !hdr || !depth) return false;
 
+    u64 required_object_draws =
+        1u + static_cast<u64>(kOrbCount); // floor + emissive orbs
+    for (u32 i = 0; i < kSphereCount; ++i) {
+        if (kSphereKind[i] != EMaterialKind::ClearGlass &&
+            kSphereKind[i] != EMaterialKind::FrostedGlass) {
+            ++required_object_draws;
+        }
+    }
+    const u32 object_draw_hint =
+        required_object_draws > static_cast<u64>(~u32{0})
+            ? ~u32{0}
+            : static_cast<u32>(required_object_draws);
+    if (!m_Assets.pbr.BeginFrame(object_draw_hint)) return false;
+
     cl->Begin();
 
     // ===== TAA jitter (Halton 2,3) =====

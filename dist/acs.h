@@ -9039,6 +9039,172 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
 // コマンドリスト抽象（GPU に送る命令を記録するバッファ）
 
 
+// ===================== render/IRhiTexture.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// 2D テクスチャ抽象（GPU 上の画像。シェーダから読める SRV を持つ）
+//
+// 使い方:
+//   FTextureDesc d{};
+//   d.width = 256; d.height = 256;
+//   d.format = EFormat::R8G8B8A8_UNorm;
+//   d.initial_data = pixels;          // RGBA 8bit、上から下、左から右の順
+//   d.initial_data_size = 256*256*4;
+//   auto tex = CreateRhiTexture(device, d).Value();
+//
+// 描画時:
+//   cmd.SetTexture(0, *tex);          // パイプラインで texture_slots>=1 が必要
+
+
+namespace acs {
+
+class IRhiDevice;
+
+/**
+ * テクスチャ生成パラメータ。
+ *
+ * @details
+ * サイズ・フォーマット・ミップ・配列段数のほか、RT / 深度ターゲット / cubemap などの
+ * 用途フラグと初期ピクセルデータを指定する。CreateRhiTexture に渡して生成する。
+ */
+struct FTextureDesc {
+    /** テクスチャの幅（ピクセル）。 */
+    u32         width            = 0;
+
+    /** テクスチャの高さ（ピクセル）。 */
+    u32         height           = 0;
+
+    /** ピクセルフォーマット。 */
+    EFormat      format           = EFormat::R8G8B8A8_UNorm;
+
+    /** ミップレベル数（1 = ベースのみ。>1 で生成する場合は per_slice_rtv を併用してミップ毎に描画する）。 */
+    u32         mip_levels       = 1;
+
+    /** 配列段数（1 = 単一、6 = cubemap、>1 = テクスチャ配列）。 */
+    u32         array_size       = 1;
+
+    /** cubemap として扱うか（true なら array_size==6 を要求。Diligent: RESOURCE_DIM_TEX_CUBE）。 */
+    bool        is_cubemap       = false;
+
+    /** レンダーターゲットとして使うか。 */
+    bool        is_render_target = false;
+
+    /** 深度バッファとして使うか。 */
+    bool        is_depth_target  = false;
+
+    /** is_depth_target=true のとき SRV も作るか（シャドウマップ用）。 */
+    bool        shader_visible_depth = false;
+
+    /** is_render_target=true のとき array_size*mip_levels 個の RTV を per-slice 作成するか（cubemap 面／ミップ別パスを書くのに必要）。 */
+    bool        per_slice_rtv    = false;
+
+    /** MSAA サンプル数 (1=非 MSAA)。>1 は is_render_target=true 専用で SRV は作られない
+     *  (MS テクスチャは通常 sample 不可)。描画後に IRhiCommandList::ResolveToSwapchain で解決する。 */
+    u32         sample_count     = 1;
+
+    /** 初期ピクセルデータ（RGBA 等、tightly-packed。cubemap/array 初期化は未サポート）。 */
+    const void* initial_data     = nullptr;
+
+    /** 初期ピクセルデータのバイト数。 */
+    usize       initial_data_size = 0;
+
+    /** UAV (RWTexture) として compute から書き込み可能にするか (Phase 0)。BIND_UNORDERED_ACCESS + UAV view。 */
+    bool        is_uav           = false;
+
+    /** 深度 (3D テクスチャ用。>1 で RESOURCE_DIM_TEX_3D。volumetric clouds の shape/detail noise 用)。 */
+    u32         depth            = 1;
+};
+
+/**
+ * GPU 上の 2D 画像を表すテクスチャ抽象（シェーダから読める SRV を持つ）。
+ *
+ * @details
+ * CreateRhiTexture で生成し、描画時に cmd.SetTexture でスロットへバインドして使う。
+ * RT / 深度ターゲット / cubemap など FTextureDesc の用途フラグに応じたリソースを表す。
+ */
+class IRhiTexture {
+public:
+    /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
+    virtual ~IRhiTexture() noexcept = default;
+
+    /**
+     * テクスチャの幅を返す。
+     *
+     * @return 幅（ピクセル）。
+     */
+    virtual u32    Width()      const noexcept = 0;
+
+    /**
+     * テクスチャの高さを返す。
+     *
+     * @return 高さ（ピクセル）。
+     */
+    virtual u32    Height()     const noexcept = 0;
+
+    /**
+     * テクスチャのピクセルフォーマットを返す。
+     *
+     * @return ピクセルフォーマット。
+     */
+    virtual EFormat PixelFormat() const noexcept = 0;
+
+    /**
+     * ミップレベル数を返す。
+     *
+     * @details 既存バックエンドは安全な既定値 1 を返してよい。
+     * @return ミップレベル数。
+     */
+    virtual u32    MipLevels()  const noexcept { return 1; }
+
+    /**
+     * 配列段数を返す。
+     *
+     * @details 既存バックエンドは安全な既定値 1 を返してよい。
+     * @return 配列段数。
+     */
+    virtual u32    ArraySize()  const noexcept { return 1; }
+
+    /**
+     * cubemap かどうかを返す。
+     *
+     * @details 既存バックエンドは安全な既定値 false を返してよい。
+     * @return cubemap なら true。
+     */
+    virtual bool   IsCubemap()  const noexcept { return false; }
+
+    /**
+     * Returns whether the texture owns a depth-stencil target view.
+     *
+     * The default is false so lightweight test/back-end textures remain
+     * source compatible. Production depth implementations override it.
+     */
+    virtual bool IsDepthTarget() const noexcept { return false; }
+
+    /**
+     * Returns whether a depth texture also owns a shader-resource view.
+     *
+     * A depth snapshot used while the live scene depth is bound as a DSV must
+     * return true here. This is deliberately separate from IsDepthTarget():
+     * shadow-only or transient depth resources do not necessarily expose an
+     * SRV.
+     */
+    virtual bool IsShaderVisibleDepth() const noexcept { return false; }
+
+    /** Number of samples stored per texel (one for non-MSAA textures). */
+    virtual u32 SampleCount() const noexcept { return 1; }
+};
+
+/**
+ * テクスチャを生成する（初期データがあれば同期アップロードして即使用可能）。
+ *
+ * @param device テクスチャ生成に使う RHI デバイス。
+ * @param desc テクスチャ生成パラメータ。
+ * @return 成功なら所有権付きの IRhiTexture、生成失敗ならエラー。
+ */
+TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
+                                                     const FTextureDesc& desc) noexcept;
+
+} // namespace acs
+
 namespace acs {
 
 class IRhiDevice;
@@ -9084,6 +9250,37 @@ struct FRhiGpuTimingSnapshot {
     f32 fog_ms = -1.0f;
     f32 post_ms = -1.0f;
 };
+
+/**
+ * Validate the backend-independent contract for a live D32 depth snapshot.
+ *
+ * The destination is both a depth allocation and a shader resource so it can
+ * be sampled while the original source is rebound for hardware depth
+ * testing/writes. Copying aliases, MSAA resources, arrays, or mismatched
+ * allocations is rejected before any backend command is recorded.
+ */
+inline bool IsDepthTextureCopyCompatible(
+    const IRhiTexture& source,
+    const IRhiTexture& destination) noexcept {
+    return &source != &destination &&
+           source.IsDepthTarget() &&
+           destination.IsDepthTarget() &&
+           destination.IsShaderVisibleDepth() &&
+           source.PixelFormat() == EFormat::D32_Float &&
+           destination.PixelFormat() == source.PixelFormat() &&
+           source.Width() > 0u &&
+           source.Height() > 0u &&
+           destination.Width() == source.Width() &&
+           destination.Height() == source.Height() &&
+           source.MipLevels() == 1u &&
+           destination.MipLevels() == 1u &&
+           source.ArraySize() == 1u &&
+           destination.ArraySize() == 1u &&
+           !source.IsCubemap() &&
+           !destination.IsCubemap() &&
+           source.SampleCount() == 1u &&
+           destination.SampleCount() == 1u;
+}
 
 /**
  * GPU に送る命令を記録するコマンドリストの抽象インターフェイス。
@@ -9181,6 +9378,23 @@ public:
                                     u32 /*buffer_index*/) noexcept {}
 
     /**
+     * Record a full-resolution D32 depth snapshot entirely on the GPU.
+     *
+     * Implementations must reject incompatible resources using
+     * IsDepthTextureCopyCompatible(), transition the source/destination
+     * safely, and leave the source ready to be rebound as a writable DSV and
+     * the destination ready for pixel-shader sampling. The caller must begin
+     * or rebind its render pass after this call.
+     *
+     * @return true only when a copy command was successfully recorded.
+     */
+    virtual bool CopyDepthTexture(
+        class IRhiTexture& /*source*/,
+        class IRhiTexture& /*destination*/) noexcept {
+        return false;
+    }
+
+    /**
      * シャドウパスを開始する (depth-only RT を bind + clear)。
      *
      * @details ビューポートも depth のサイズに合わせて自動設定する。
@@ -9257,17 +9471,53 @@ public:
      * 最大 8 個の color RT を同時 bind し、depth は optional。クリア色は単一値で全 RT に
      * 適用する (個別クリアが必要なら別 API か手動で SetTexture 前 clear)。
      * Diligent / raw DX12 の両 backend で実装する。後続 pass でサンプルする各 RT は、
-     * 描画後に EndRenderToTexture を呼んで shader-resource state へ遷移させる。
+     * 描画後に EndRenderToTextureMrt で一括して unbind / shader-resource state へ
+     * 遷移させる。
      * @param rts color レンダーターゲットの配列。
      * @param rt_count rts の要素数 (最大 8)。
      * @param clear 全 RT に適用するクリア色。
      * @param depth 深度バッファ (省略可、既定 nullptr)。
      * @param depth_clear depth を渡したときのクリア値 (既定 1.0f)。
+     * @return 全 attachment の検証と backend bind が完了したとき true。
+     *         false の場合は draw を発行せず fallback path を使用すること。
      */
-    virtual void BeginRenderToTextureMrt(class IRhiTexture* const* rts, u32 rt_count,
-                                          const FClearColor& clear,
-                                          class IRhiTexture* depth = nullptr,
-                                          f32 depth_clear = 1.0f) noexcept = 0;
+    virtual bool BeginRenderToTextureMrt(
+        class IRhiTexture* const* rts,
+        u32 rt_count,
+        const FClearColor& clear,
+        class IRhiTexture* depth = nullptr,
+        f32 depth_clear = 1.0f) noexcept = 0;
+
+    /**
+     * Bind MRTs while preserving selected existing attachments.
+     *
+     * Bit i in clear_mask clears color target i; unset bits use load
+     * semantics. Depth is only cleared when clear_depth is true. This is used
+     * when extending an already-rendered HDR scene with auxiliary G-buffer
+     * targets without erasing sky color or opaque depth.
+     *
+     * @return 全 attachment の検証と backend bind が完了したとき true。
+     *         false の場合、caller は MRT draw と対応する End を発行しないこと。
+     */
+    virtual bool BeginRenderToTextureMrtLoad(
+        class IRhiTexture* const* rts,
+        u32 rt_count,
+        const FClearColor& clear,
+        u32 clear_mask,
+        class IRhiTexture* depth = nullptr,
+        bool clear_depth = false,
+        f32 depth_clear = 1.0f) noexcept = 0;
+
+    /**
+     * End one MRT pass as a unit.
+     *
+     * The backend first unbinds the complete output set, then makes every
+     * supplied color target sampleable. This avoids transitioning one target
+     * while the same MRT binding still references it.
+     */
+    virtual void EndRenderToTextureMrt(
+        class IRhiTexture* const* rts,
+        u32 rt_count) noexcept = 0;
 
     /**
      * ビューポートを設定する。
@@ -9427,151 +9677,6 @@ private:
  * @return 成功なら所有権付きコマンドリスト、生成失敗ならエラー。
  */
 TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept;
-
-} // namespace acs
-
-// ===================== render/IRhiTexture.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// 2D テクスチャ抽象（GPU 上の画像。シェーダから読める SRV を持つ）
-//
-// 使い方:
-//   FTextureDesc d{};
-//   d.width = 256; d.height = 256;
-//   d.format = EFormat::R8G8B8A8_UNorm;
-//   d.initial_data = pixels;          // RGBA 8bit、上から下、左から右の順
-//   d.initial_data_size = 256*256*4;
-//   auto tex = CreateRhiTexture(device, d).Value();
-//
-// 描画時:
-//   cmd.SetTexture(0, *tex);          // パイプラインで texture_slots>=1 が必要
-
-
-namespace acs {
-
-class IRhiDevice;
-
-/**
- * テクスチャ生成パラメータ。
- *
- * @details
- * サイズ・フォーマット・ミップ・配列段数のほか、RT / 深度ターゲット / cubemap などの
- * 用途フラグと初期ピクセルデータを指定する。CreateRhiTexture に渡して生成する。
- */
-struct FTextureDesc {
-    /** テクスチャの幅（ピクセル）。 */
-    u32         width            = 0;
-
-    /** テクスチャの高さ（ピクセル）。 */
-    u32         height           = 0;
-
-    /** ピクセルフォーマット。 */
-    EFormat      format           = EFormat::R8G8B8A8_UNorm;
-
-    /** ミップレベル数（1 = ベースのみ。>1 で生成する場合は per_slice_rtv を併用してミップ毎に描画する）。 */
-    u32         mip_levels       = 1;
-
-    /** 配列段数（1 = 単一、6 = cubemap、>1 = テクスチャ配列）。 */
-    u32         array_size       = 1;
-
-    /** cubemap として扱うか（true なら array_size==6 を要求。Diligent: RESOURCE_DIM_TEX_CUBE）。 */
-    bool        is_cubemap       = false;
-
-    /** レンダーターゲットとして使うか。 */
-    bool        is_render_target = false;
-
-    /** 深度バッファとして使うか。 */
-    bool        is_depth_target  = false;
-
-    /** is_depth_target=true のとき SRV も作るか（シャドウマップ用）。 */
-    bool        shader_visible_depth = false;
-
-    /** is_render_target=true のとき array_size*mip_levels 個の RTV を per-slice 作成するか（cubemap 面／ミップ別パスを書くのに必要）。 */
-    bool        per_slice_rtv    = false;
-
-    /** MSAA サンプル数 (1=非 MSAA)。>1 は is_render_target=true 専用で SRV は作られない
-     *  (MS テクスチャは通常 sample 不可)。描画後に IRhiCommandList::ResolveToSwapchain で解決する。 */
-    u32         sample_count     = 1;
-
-    /** 初期ピクセルデータ（RGBA 等、tightly-packed。cubemap/array 初期化は未サポート）。 */
-    const void* initial_data     = nullptr;
-
-    /** 初期ピクセルデータのバイト数。 */
-    usize       initial_data_size = 0;
-
-    /** UAV (RWTexture) として compute から書き込み可能にするか (Phase 0)。BIND_UNORDERED_ACCESS + UAV view。 */
-    bool        is_uav           = false;
-
-    /** 深度 (3D テクスチャ用。>1 で RESOURCE_DIM_TEX_3D。volumetric clouds の shape/detail noise 用)。 */
-    u32         depth            = 1;
-};
-
-/**
- * GPU 上の 2D 画像を表すテクスチャ抽象（シェーダから読める SRV を持つ）。
- *
- * @details
- * CreateRhiTexture で生成し、描画時に cmd.SetTexture でスロットへバインドして使う。
- * RT / 深度ターゲット / cubemap など FTextureDesc の用途フラグに応じたリソースを表す。
- */
-class IRhiTexture {
-public:
-    /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
-    virtual ~IRhiTexture() noexcept = default;
-
-    /**
-     * テクスチャの幅を返す。
-     *
-     * @return 幅（ピクセル）。
-     */
-    virtual u32    Width()      const noexcept = 0;
-
-    /**
-     * テクスチャの高さを返す。
-     *
-     * @return 高さ（ピクセル）。
-     */
-    virtual u32    Height()     const noexcept = 0;
-
-    /**
-     * テクスチャのピクセルフォーマットを返す。
-     *
-     * @return ピクセルフォーマット。
-     */
-    virtual EFormat PixelFormat() const noexcept = 0;
-
-    /**
-     * ミップレベル数を返す。
-     *
-     * @details 既存バックエンドは安全な既定値 1 を返してよい。
-     * @return ミップレベル数。
-     */
-    virtual u32    MipLevels()  const noexcept { return 1; }
-
-    /**
-     * 配列段数を返す。
-     *
-     * @details 既存バックエンドは安全な既定値 1 を返してよい。
-     * @return 配列段数。
-     */
-    virtual u32    ArraySize()  const noexcept { return 1; }
-
-    /**
-     * cubemap かどうかを返す。
-     *
-     * @details 既存バックエンドは安全な既定値 false を返してよい。
-     * @return cubemap なら true。
-     */
-    virtual bool   IsCubemap()  const noexcept { return false; }
-};
-
-/**
- * テクスチャを生成する（初期データがあれば同期アップロードして即使用可能）。
- *
- * @param device テクスチャ生成に使う RHI デバイス。
- * @param desc テクスチャ生成パラメータ。
- * @return 成功なら所有権付きの IRhiTexture、生成失敗ならエラー。
- */
-TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
-                                                     const FTextureDesc& desc) noexcept;
 
 } // namespace acs
 
@@ -11518,7 +11623,10 @@ public:
      *
      * @return 頂点配列への可変参照。
      */
-    TArray<FMeshVertex>&       Vertices()        noexcept { return m_Vertices; }
+    TArray<FMeshVertex>&       Vertices()        noexcept {
+        MarkGeometryDirty();
+        return m_Vertices;
+    }
 
     /**
      * インデックス配列への const 参照を返す。
@@ -11532,7 +11640,10 @@ public:
      *
      * @return インデックス配列への可変参照。
      */
-    TArray<u32>&              Indices()         noexcept { return m_Indices; }
+    TArray<u32>&              Indices()         noexcept {
+        MarkGeometryDirty();
+        return m_Indices;
+    }
 
     /**
      * サブメッシュ配列への const 参照を返す。
@@ -11546,7 +11657,25 @@ public:
      *
      * @return サブメッシュ配列への可変参照。
      */
-    TArray<FSubMesh>&          SubMeshes()       noexcept { return m_Submeshes; }
+    TArray<FSubMesh>&          SubMeshes()       noexcept {
+        MarkGeometryDirty();
+        return m_Submeshes;
+    }
+
+    /**
+     * Monotonic content revision used by geometry-dependent render caches.
+     *
+     * Mutable array access conservatively advances this value. Code retaining
+     * a mutable reference across frames must call MarkGeometryDirty() after
+     * each later mutation.
+     */
+    u64 GeometryRevision() const noexcept { return m_GeometryRevision; }
+    void MarkGeometryDirty() noexcept {
+        ++m_GeometryRevision;
+        if (m_GeometryRevision == 0u) {
+            m_GeometryRevision = 1u;
+        }
+    }
 
 private:
     /** 頂点配列 (位置 + 法線 + UV)。 */
@@ -11557,6 +11686,9 @@ private:
 
     /** サブメッシュ範囲の配列。 */
     TArray<FSubMesh>    m_Submeshes;
+
+    /** Monotonic revision for geometry-dependent render caches. */
+    u64 m_GeometryRevision = 1u;
 };
 
 /**
@@ -21566,6 +21698,7 @@ enum ESnapshotFlags : u32 {
     Fog = 1u << 2,
     AerialPerspective = 1u << 3,
     GpuTimingsValid = 1u << 4,
+    SceneMeshCacheRebuilt = 1u << 5,
 };
 
 #pragma pack(push, 4)
@@ -21641,6 +21774,7 @@ struct FAccumulator {
     f32 fog_cpu_ms = 0.0f;
     f32 post_cpu_ms = 0.0f;
     bool clouds_active = false;
+    bool scene_mesh_cache_rebuilt = false;
 };
 
 /** Small allocation-free rolling maximum used to preserve sub-sample spikes. */
@@ -37715,13 +37849,32 @@ public:
     /**
      * リップルの伝播パラメータを設定する。
      *
-     * @details wavelength は下限 1e-3 を下回ると 1.0 にフォールバックする。
+     * @details 非有限値は既定値へ戻し、speed は 0..256、
+     * wavelength は 1e-3..1024 に clamp する。
      * @param speed 輪が広がる速さ。
      * @param wavelength リップルの波長。
      */
-    void SetRipplePropagation(f32 speed, f32 wavelength) noexcept {
-        m_RippleSpeed = speed; m_RippleWavelength = wavelength > 1e-3f ? wavelength : 1.0f;
-    }
+    void SetRipplePropagation(f32 speed, f32 wavelength) noexcept;
+
+    /**
+     * 波紋の寿命と物理減衰を設定する。
+     *
+     * @details 寿命末尾は C2 連続な envelope で厳密に 0 へ収束するため、
+     * slot 解放時に変位・法線・glow が突然消えない。設定変更は新規波紋から
+     * 適用され、既に進行中の波紋の位相と寿命は変えない。
+     *
+     * @param lifetime_sec 波紋を保持する秒数 (0.1..3600)。
+     * @param damping_sec 振幅へ適用する指数減衰係数 (0..64)。
+     */
+    void SetRippleDecay(f32 lifetime_sec, f32 damping_sec) noexcept;
+
+    /**
+     * runtime と同じ連続減衰 envelope を評価する。
+     *
+     * @return 初期振幅へ掛ける有限な倍率。寿命到達時は厳密に 0。
+     */
+    static f32 EvaluateRippleAmplitudeScale(
+        f32 age, f32 lifetime, f32 damping) noexcept;
 
     /**
      * 点が実際の水面三角形内にあるかを判定する。
@@ -37850,6 +38003,8 @@ private:
         f32 time = 0;
         f32 speed = 0;
         f32 initial_radius = 0;
+        f32 lifetime = 3.0f;
+        f32 damping = 2.0f;
         bool active = false;
     };
 
@@ -38049,6 +38204,12 @@ private:
 
     /** リップルの波長。 */
     f32   m_RippleWavelength = 0.9f;
+
+    /** 新規波紋の寿命。進行中の波紋は各 slot に取り込んだ値を保持する。 */
+    f32   m_RippleLifetime = 3.0f;
+
+    /** 新規波紋へ適用する指数減衰係数。 */
+    f32   m_RippleDamping = 2.0f;
 };
 
 /**
@@ -38947,6 +39108,7 @@ enum EFieldFlags : u32 {
     FIELD_READONLY  = 1u << 0,   /**< 編集不可 (表示のみ)。 */
     FIELD_HIDDEN    = 1u << 1,   /**< UI に出さない。 */
     FIELD_TRANSIENT = 1u << 2,   /**< シリアライズ対象外。 */
+    FIELD_COLOR     = 1u << 3,   /**< Vec3/Vec4 を色として編集する。 */
 };
 
 /** 反射された 1 フィールド (名前 + 種別 + オフセット + サイズ + フラグ + 既定値 + カテゴリ)。 */
@@ -45499,6 +45661,119 @@ private:
 
 } // namespace acs
 
+// ===================== render/Blit.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// フルスクリーン texture コピー (ブリット) ユーティリティ
+//
+// 用途: 1 つの Texture2D (通常は描画済みの RT) をもう 1 つの Texture2D
+//       (is_render_target=true で作成済) へ pixel-perfect にコピーする。
+//       直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ
+//       sample で代替する標準テクニック。
+//
+// 想定ユースケース: スクリーンスペース屈折のための background capture
+// (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
+//
+// 使い方:
+//   FBlit blit;
+//   blit.Init(*device, hdr_format);                    // 1 度だけ
+//   // フレーム中、コピーしたい時点で:
+//   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
+
+
+namespace acs {
+
+/**
+ * フルスクリーン三角形で 1 つのテクスチャを別のテクスチャへコピーするブリット。
+ *
+ * @details
+ * 直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ sample で
+ * pixel-perfect コピーを行う標準テクニック。出力 RT のフォーマットは Init 時に
+ * PSO へ焼き込むため、別フォーマットへコピーしたい場合は別インスタンスを使う。
+ */
+class FBlit {
+public:
+    /** Compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    FBlit() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~FBlit() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    FBlit(const FBlit&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FBlit& operator=(const FBlit&) = delete;
+
+    /**
+     * シェーダとパイプラインを生成して初期化する。
+     *
+     * @details
+     * rt_format は Copy の出力 RT のフォーマットで、PSO に焼き込まれる。出力 RT を
+     * 別フォーマットに切り替えたい場合は別の FBlit インスタンスを使うこと。
+     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
+     * @param rt_format 出力 RT のフォーマット (PSO に焼き込む)。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /** Compile raw-DX12 shader bytecode without touching an RHI device. */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit both shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** Create and atomically publish the PSO from ready shader handles. */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format) noexcept;
+
+    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
+    void Shutdown() noexcept;
+
+    /**
+     * src を dst へフルスクリーン pass でコピーする。
+     *
+     * @details
+     * dst は is_render_target=true で Init 時の rt_format と一致すること。内部で
+     * BeginRenderToTextureLoad(dst) → SetPipeline → SetTexture → Draw(3) →
+     * EndRenderToTexture(dst) を行う。全 pixel を上書きするので clear 不要、
+     * viewport は dst のサイズに自動設定される。
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param src コピー元テクスチャ。
+     * @param dst コピー先 RT (rt_format に一致すること)。
+     */
+    void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept;
+
+    /**
+     * 内部のブリット用パイプラインを返す。
+     *
+     * @return ブリット用パイプライン (未初期化なら nullptr)。
+     */
+    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
+
+private:
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** source texture を素 sample するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** ブリット描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+};
+
+} // namespace acs
+
 // ===================== render/PbrShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // PBR (Cook-Torrance BRDF) ライティングシェーダ — Metalness/Roughness workflow
@@ -45512,6 +45787,7 @@ private:
 // 使い方:
 //   FPbrShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
+//   shd.BeginFrame(/* expected object draws across every pass */ 1);
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, 1, ambient_color);
 //   shd.SetObject(model_mat, base_color, /*metallic=*/0.0f, /*roughness=*/0.5f,
@@ -46655,6 +46931,11 @@ public:
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> vertex;
         TUniquePtr<IRhiShader> pixel;
+        /**
+         * Optional three-target SSSS variant. Failure to compile this shader
+         * never invalidates the established single-target PBR path.
+         */
+        TUniquePtr<IRhiShader> pixel_subsurface_mrt;
 
         /** Aggregate a backend-managed asynchronous compile without waiting. */
         EShaderStatus Status() const noexcept;
@@ -46683,21 +46964,28 @@ public:
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float,
-                      ECullMode cull_mode  = ECullMode::Back) noexcept;
+                      ECullMode cull_mode  = ECullMode::Back,
+                      bool include_subsurface_mrt = true) noexcept;
 
     /**
      * Compile the DX12 HLSL bytecode without touching an RHI device.
      * This is safe to run on a startup worker. Other backends return an
      * unsupported error and retain the regular owner-thread Init path.
+     * Set include_subsurface_mrt=false when the scene has no opaque
+     * subsurface or Substrate MFP material; true preserves the public default.
      */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+    static TResult<FCompiledShaders> CompileShadersCpu(
+        bool include_subsurface_mrt = true) noexcept;
 
     /**
      * Submit shader compilation to a supporting RHI backend. The returned
      * shader handles are polled and committed on the render-owner thread.
+     * The optional MRT shader is not submitted when
+     * include_subsurface_mrt=false.
      */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
-        IRhiDevice& device) noexcept;
+        IRhiDevice& device,
+        bool include_subsurface_mrt = true) noexcept;
 
     /**
      * Install CPU-compiled shaders and create all RHI buffers, textures and
@@ -46710,8 +46998,46 @@ public:
         EFormat depth_format = EFormat::D32_Float,
         ECullMode cull_mode = ECullMode::Back) noexcept;
 
+    /**
+     * Fully initialize an unpublished candidate from a raw-DX12 worker.
+     *
+     * The target object must be inactive and must not be read until the worker
+     * is joined. Other backends fail without changing the object.
+     */
+    TResult<void> BuildInitializedCandidateForRawDx12(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::B8G8R8A8_UNorm,
+        EFormat depth_format = EFormat::D32_Float,
+        ECullMode cull_mode = ECullMode::Back) noexcept;
+
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
+
+    /**
+     * Start one command-list frame and reserve immutable per-draw object CBs.
+     *
+     * @details Call exactly once before recording any PBR draw for a frame.
+     * The cursor is deliberately not reset by SetLights: an MRT attempt and a
+     * later single-target fallback can therefore coexist in one command list
+     * without the fallback overwriting CB storage referenced by earlier draws.
+     * The pool persists across frames and grows geometrically when the hint (or
+     * a later SetObject) exceeds the current capacity.
+     *
+     * @param required_object_draws Upper bound for all PBR draws recorded in
+     * this frame, including fallback passes.
+     * @return true when the requested capacity is ready. Existing capacity
+     * remains usable if growth fails.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    /** Number of reusable per-object constant buffers currently retained. */
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_ObjectCbs.Size());
+    }
+
+    /** Number of per-object slots consumed since the last BeginFrame. */
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
 
     /**
      * 有向光源と camera・環境光を設定する (frame CB を更新)。
@@ -47022,13 +47348,13 @@ public:
      * Subsurface scattering (内部散乱) を member に格納する。
      *
      * @details
-     * 肌/ロウ/大理石のような質感を、wrapped diffuse (terminator の柔らかさ) + 裏面
-     * translucency (逆光の透け) の薄物向け解析近似で表現する。既存の Lambert diffuse を
-     * エネルギー正規化した散乱 lobe へ置換するため、weight に比例した単純加算ではない。
-     * これは画面空間 diffusion を行う SSSS pass ではなく、LUT・追加 pass を使わない近似。
+     * 通常の 1-RT 描画では、肌/ロウ/大理石のような質感を wrapped diffuse +
+     * 裏面 translucency の薄物向け解析近似で表現する。SSSS MRT 描画では
+     * sss_color * weight を RGB ごとの平均自由行程として RGBA16F に抽出し、
+     * FSubsurfaceScattering が物理距離に基づいて diffuse 成分だけを拡散する。
      * member に格納され次の SetObject / DrawMesh が反映する (既定 weight=0 で無効)。
-     * @param sss_color 内部散乱の色 (肌なら赤み)。
-     * @param weight SSS 強度 (0=OFF、1=フル)。
+     * @param sss_color RGB ごとの相対散乱距離 (肌なら赤が長い)。
+     * @param weight SSS coverage と legacy 最大散乱距離 (0=OFF、1=1cm)。
      */
     void SetSubsurface(FVec3 sss_color, f32 weight) noexcept;
 
@@ -47083,6 +47409,16 @@ public:
      */
     IRhiPipeline* Pipeline()    const noexcept { return m_Pipeline.Get(); }
 
+    /** True only when the optional diffuse/material MRT variant is usable. */
+    bool HasSubsurfaceMrtPipeline() const noexcept {
+        return m_SubsurfaceMrtPipeline.Get() != nullptr;
+    }
+
+    /** Optional SSSS MRT pipeline, primarily for diagnostics/tests. */
+    IRhiPipeline* SubsurfaceMrtPipeline() const noexcept {
+        return m_SubsurfaceMrtPipeline.Get();
+    }
+
     /**
      * per-frame 定数バッファを返す。
      *
@@ -47096,7 +47432,8 @@ public:
      * @return object CB (b1、model・material 設定)。
      */
     IRhiBuffer*   PerObjectCB() const noexcept {
-        return m_CurrentObjCb < kObjRing ? m_ObjectCbs[m_CurrentObjCb].Get() : nullptr;
+        return m_CurrentObjectCb < m_ObjectCbs.Size()
+            ? m_ObjectCbs[m_CurrentObjectCb].Get() : nullptr;
     }
 
     /**
@@ -47118,7 +47455,7 @@ public:
      * @param ao ambient occlusion [0,1]。
      * @param albedo albedo テクスチャ (null なら既定の白)。
      */
-    void DrawMesh(IRhiCommandList& cmd,
+    bool DrawMesh(IRhiCommandList& cmd,
                   const FGpuMesh& mesh,
                   const FMat4& model,
                   FVec3 base_color = FVec3{1, 1, 1},
@@ -47127,9 +47464,33 @@ public:
                   f32  ao         = 1.0f,
                   IRhiTexture* albedo = nullptr) noexcept;
 
+    /**
+     * Draw the same material into scene-color, diffuse-only and SSS material
+     * targets. Returns false without issuing work when the optional PSO is
+     * unavailable, allowing the caller to use DrawMesh unchanged.
+     */
+    bool DrawMeshSubsurfaceMrt(IRhiCommandList& cmd,
+                               const FGpuMesh& mesh,
+                               const FMat4& model,
+                               FVec3 base_color = FVec3{1, 1, 1},
+                               f32 metallic = 0.0f,
+                               f32 roughness = 0.5f,
+                               f32 ao = 1.0f,
+                               IRhiTexture* albedo = nullptr) noexcept;
+
 private:
+    TResult<void> InitWithCompiledShadersInternal(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format,
+        EFormat depth_format,
+        ECullMode cull_mode) noexcept;
+
     /** 現在の member 値から frame CB レイアウトを構築して GPU に書き込む。 */
     void FlushFrameCB() noexcept;
+
+    /** Grow the persistent object-CB pool without invalidating existing slots. */
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
 
     /** Device that owns the currently committed RHI resources (non-owning). */
     IRhiDevice* m_ResourceDevice = nullptr;
@@ -47140,21 +47501,34 @@ private:
     /** Cook-Torrance BRDF を評価するピクセルシェーダ。 */
     TUniquePtr<IRhiShader>   m_Ps;
 
+    /** Optional MRT pixel shader for diffusion-safe SSSS extraction. */
+    TUniquePtr<IRhiShader>   m_SubsurfaceMrtPs;
+
     /** PBR 描画のパイプライン。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** Optional 3-RT PBR pipeline; never required for base shader validity. */
+    TUniquePtr<IRhiPipeline> m_SubsurfaceMrtPipeline;
 
     /** per-frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** per-object 定数バッファ (b1) のリング。
-     *  単一の frame-cycled CB だと «フレーム内の複数 SetObject» が同一スロットを上書きし、
-     *  実行時に全 DrawIndexed が «最後の値» を読む (= 全メッシュが最後のノードの model/material に
-     *  なる)。SetLights で cursor をリセットし、SetObject ごとに未使用バッファを消費する。
-     *  上限到達時は wrap せず current を無効化し、記録済み draw の上書きを防ぐ。 */
-    static constexpr u32     kObjRing = 256;
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kObjRing];
-    u32                      m_ObjRingCursor = 0;
-    u32                      m_CurrentObjCb = 0;
+    /**
+     * Persistent, growable per-object constant-buffer pool.
+     *
+     * A single frame-cycled CB cannot represent multiple recorded draws:
+     * later CPU updates would make every DrawIndexed observe the final object.
+     * Each draw therefore consumes a distinct buffer until the next BeginFrame.
+     * Pool storage survives frame resets and grows geometrically, removing
+     * the former 256-object visibility cliff without per-frame allocation
+     * churn.
+     */
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_ObjectCapacityFailureLogged = false;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;
@@ -47366,10 +47740,2149 @@ private:
 
 } // namespace acs
 
+// ===================== render/PostProcess.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// HDR ポストプロセス (Bloom + Tonemap) パイプライン
+//
+// 想定ワークフロー:
+//   1) FRenderer.BeginFrame() の直前で FPostProcess.BeginScenePass()
+//      → HDR R16G16B16A16_Float RT に切替
+//   2) シーン (FSky, FStandardShader, FParticleSystem 等) を HDR で描画
+//   3) FPostProcess.Render(cmd, swapchain_buffer)
+//      → Bloom (extract → downsample → upsample) → Tonemap → Backbuffer
+//   4) FRenderer.EndFrame() で Present
+//
+// 設計上の選択:
+//   - Bloom は 5 段の mip chain (1/2, 1/4, ... 1/32) で downsample → upsample
+//   - Tonemap は ACES Filmic (Narkowicz 2016 近似) → 最後に sRGB ガンマ
+//   - パイプラインは Diligent backend を前提（Dx12 raw は未対応）
+
+
+namespace acs {
+
+class IRhiTexture;
+
+/**
+ * ポストプロセス効果のパラメータ一式。
+ *
+ * @details
+ * Bloom / Tonemap / Cinematic FX / Color grading / CAS / TAA / Auto-exposure の
+ * 全パラメータを保持し、FPostProcess::Render に 1 つ渡す。各メンバは既定値で
+ * 「無効 or 中性」になるよう設計してある。
+ */
+struct FPostProcessParams {
+    /** Bloom を有効にするか。 */
+    bool  bloom_enabled    = true;
+
+    /** この輝度を超えるピクセルを Bloom 元として抽出する閾値 (HDR scale)。 */
+    f32   bloom_threshold  = 1.0f;
+
+    /** Bloom を加算する強度 (0..2)。 */
+    f32   bloom_intensity  = 0.6f;
+
+    /** upsample 時の半径スケール。 */
+    f32   bloom_radius     = 1.0f;
+
+    /**
+     * 隣接 mip 間の散乱率 (0=局所的、1=最広域)。
+     *
+     * @details 各段を等重みで加算せず、正規化した補間で合成する。0.65 前後で
+     * 発光体の芯を残しつつ、白い霧のようなエネルギー増幅を防ぐ。
+     */
+    f32   bloom_scatter    = 0.65f;
+
+    /** 露出 (1.0 = 中性)。 */
+    f32   exposure         = 1.0f;
+
+    /** 出力ガンマ。 */
+    f32   gamma            = 2.2f;
+
+    /**
+     * Tonemap カーブの種類。
+     *
+     * @details
+     * 0=ACES Filmic (Narkowicz)、1=AgX (Sobotka)、2=Reinhard 拡張。AgX は彩度を
+     * 控えめにする tonemap (UE5 デフォルトに近い neutral look)。既存サンプル互換の
+     * ため初期値は ACES。
+     */
+    i32   tonemap_kind     = 0;
+
+    /** ビネット (端の暗化) 強度 0..1。 */
+    f32   vignette_intensity = 0.2f;
+
+    /** ビネットが始まる半径 (0=中心、1=端)。 */
+    f32   vignette_radius    = 0.5f;
+
+    /** 色収差: RGB の半径方向 offset。0 で無効。 */
+    f32   chromatic_aberration = 0.002f;
+
+    /** フィルムグレイン強度 0..0.1。 */
+    f32   grain_intensity    = 0.015f;
+
+    /** procedural noise のシード (FApplication から dt 累積)。 */
+    f32   grain_time         = 0.0f;
+
+    /**
+     * tonemap 直前に additive 合成する SSR 出力テクスチャ (FSsr::OutputTexture())。
+     *
+     * @details null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で
+     * 適用済みのため二重適用はされない。
+     */
+    IRhiTexture* ssr_texture = nullptr;
+
+    /** tonemap 側での SSR の最終 mix 強度 (既定 1.0)。 */
+    f32          ssr_intensity = 1.0f;
+
+    /** カラーグレーディング (ASC-CDL 風) の彩度: 0=モノクロ、1=neutral、>1=ブースト。 */
+    f32  cg_saturation   = 1.0f;
+
+    /** カラーグレーディングのコントラスト: 0..2、中心 0.5 を pivot とした curve。 */
+    f32  cg_contrast     = 1.0f;
+
+    /** 色温度: -1=cool/blue、0=neutral、+1=warm/orange。 */
+    f32  cg_temperature  = 0.0f;
+
+    /** 色合い (tint): -1=green、0=neutral、+1=magenta。 */
+    f32  cg_tint         = 0.0f;
+
+    /** shadow 域の色 offset (足し算)。 */
+    FVec3 cg_lift         = FVec3{0, 0, 0};
+
+    /** highlight 域の色 multiplier。 */
+    FVec3 cg_gain         = FVec3{1, 1, 1};
+
+    /**
+     * CAS シャープニング (AMD FSR 簡略版) の強度。
+     *
+     * @details カラーグレーディング後 / gamma 前に適用。0=無効、0.3=subtle、0.6=neutral、
+     * 1.0=strong。負値は不可。既定で subtle に効かせ、見かけの解像感を上げる
+     * (HDR-aware なので白飛び域でも破綻しない)。0 にすれば従来どおり無効。
+     */
+    f32  cas_strength    = 0.3f;
+
+    /**
+     * TAA (Temporal Anti-Aliasing) を有効にするか。
+     *
+     * @details
+     * Halton jitter を FCamera で適用した上で、history と neighborhood-clamp blend して
+     * resolve する。false なら tonemap は直接 HDR RT を読み、true なら Pass_TaaResolve を
+     * 実行して tonemap は resolved RT を読む。
+     */
+    bool taa_enabled = false;
+
+    /**
+     * history 重み (現フレームを何割取り込むか)。
+     *
+     * @details 0.1 = 10% current + 90% history が標準。値が小さいほどスムージングが強い
+     * (motion ghost も増える)。
+     */
+    f32  taa_blend_factor = 0.1f;
+
+    /**
+     * TAA reprojection 用の depth テクスチャ。
+     *
+     * @details null なら motion=0 (静的 reprojection 無し、カメラを動かすと ghost する)。
+     * set すると camera motion 由来の motion vector で history を offset sample する。
+     */
+    IRhiTexture* taa_depth_texture = nullptr;
+
+    /** Halton 適用前の view_proj 行列 (TAA reprojection 用)。 */
+    FMat4         taa_view_proj_no_jitter{};
+
+    /** 前フレームの view_proj 行列 (Halton 適用前、TAA reprojection 用)。 */
+    FMat4         taa_prev_view_proj_no_jitter{};
+
+    /** reactive cloud depth と scene depth の実距離比較に使う現在カメラ位置。 */
+    FVec3         taa_camera_position{};
+
+    /**
+     * 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
+     *
+     * @details
+     * 非 null なら TAA は depth reprojection の代わりにこのテクスチャで history を引く。
+     * motion vector は camera 動き + object 動きの両方を含むため、動く mesh の ghost/trail が
+     * 消える。null なら従来の depth reprojection にフォールバックする。depth slot (t2) を
+     * 再利用して bind するため TAA resolve PSO の slot 数は不変。
+     */
+    IRhiTexture* taa_motion_texture = nullptr;
+
+    /**
+     * TAA history を現在フレームへ置換する reactive mask。
+     *
+     * @details RG の R 成分をカメラからの距離、G 成分を coverage として読む。
+     * taa_depth_texture と taa_camera_position で scene の実距離を復元し、scene より
+     * 手前に見えている coverage だけを reactive とする。ボリューメトリック雲のように
+     * 独自の temporal resolve を済ませた要素を渡すと、その画素と 1 px の境界帯では
+     * global TAA history を混ぜない。これによりジオメトリの TAA は維持しつつ、雲へ
+     * 二重に history を掛ける ghost/trail を防ぐ。null なら reactive mask は無効。
+     */
+    IRhiTexture* taa_reactive_texture = nullptr;
+
+    /**
+     * Auto-exposure を有効にするか。
+     *
+     * @details
+     * false なら exposure をそのまま使う (既存サンプル互換)。true なら luma reduction →
+     * 露出順応 → ExposureApply の 3 pass を内部で実行し、露出はシーン輝度から自動算出される。
+     * このとき exposure は「自動露出にさらに掛ける手動補正 (EV compensation)」として働く
+     * (中性 = 1.0)。
+     */
+    bool auto_exposure_enabled = false;
+
+    /** 露出後の目標平均輝度。大きいほど明るく写る。 */
+    f32  auto_exposure_key     = 0.5f;
+
+    /** 自動露出の下限 (明所での白飛びを防ぐ)。 */
+    f32  auto_exposure_min     = 0.05f;
+
+    /** 自動露出の上限 (暗所での黒つぶれを防ぐ)。 */
+    f32  auto_exposure_max     = 12.0f;
+
+    /** eye adaptation 速度 (/秒、大きいほど速く順応)。 */
+    f32  auto_exposure_speed   = 1.8f;
+
+    /** 露出順応の時間補間に使うフレーム時間。 */
+    f32  delta_time            = 0.0166f;
+
+    /**
+     * Replaces non-finite values with defaults and clamps bounded controls to
+     * the ranges accepted by the post-process shaders.
+     *
+     * @details Render() sanitizes a local copy automatically. Editor/property
+     * systems may call this method to normalize values before displaying them.
+     */
+    void Sanitize() noexcept;
+};
+
+/**
+ * HDR ポストプロセス (Bloom + Tonemap + 各種効果) パイプライン。
+ *
+ * @details
+ * シーンを HDR R16G16B16A16_Float RT に描画した後、Bloom (extract → downsample →
+ * upsample) → 任意の TAA resolve → Tonemap (ACES/AgX/Reinhard) → backbuffer の順に
+ * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。Diligent
+ * backend を前提とし、GPU リソースを単独所有する non-copy 型。
+ */
+class FPostProcess {
+public:
+    /** Compiled shader handles awaiting owner-thread resource creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> fullscreen_vertex;
+        TUniquePtr<IRhiShader> extract_pixel;
+        TUniquePtr<IRhiShader> downsample_pixel;
+        TUniquePtr<IRhiShader> upsample_pixel;
+        TUniquePtr<IRhiShader> gaussian_pixel;
+        TUniquePtr<IRhiShader> taa_resolve_pixel;
+        TUniquePtr<IRhiShader> tonemap_pixel;
+        TUniquePtr<IRhiShader> luma_extract_pixel;
+        TUniquePtr<IRhiShader> luma_downsample_pixel;
+        TUniquePtr<IRhiShader> exposure_pixel;
+        TUniquePtr<IRhiShader> exposure_apply_pixel;
+
+        /** Aggregate all eleven submitted shader jobs without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    FPostProcess() noexcept = default;
+
+    /** 破棄する (確保した GPU リソースを解放)。 */
+    ~FPostProcess() noexcept;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    FPostProcess(const FPostProcess&) = delete;
+
+    /** コピー代入も禁止。 */
+    FPostProcess& operator=(const FPostProcess&) = delete;
+
+    /**
+     * HDR RT + Bloom mip chain + Tonemap パイプラインを作成する。
+     *
+     * @param device リソース・パイプライン生成に使う RHI デバイス。
+     * @param width 出力解像度の幅 (通常はバックバッファサイズ)。
+     * @param height 出力解像度の高さ。
+     * @param color_format 最終出力 (バックバッファ) のフォーマット。
+     * @return 成功なら空の TResult、確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height,
+                       EFormat color_format) noexcept;
+
+    /**
+     * Compile all raw-DX12 post-process shaders without touching a device.
+     *
+     * @details Safe to execute on a background worker. GPU resources and PSOs
+     * must still be created through InitWithCompiledShaders on the render
+     * owner thread.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit all eleven shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create resources and PSOs from ready shaders on the render owner thread.
+     *
+     * @details Reinitialization is transactional: a failure leaves an already
+     * initialized post-process stack unchanged.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height,
+        EFormat color_format) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * ウィンドウサイズ変更時に HDR RT 等を再作成する。
+     *
+     * @param width 新しい出力幅。
+     * @param height 新しい出力高さ。
+     * @return 成功なら空の TResult、再確保失敗ならエラー。
+     *
+     * @details All replacement render targets are created transactionally.
+     * On failure the previous dimensions, targets, and temporal/exposure
+     * history remain published and a later frame may retry.
+     */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * シーンを描画する HDR RT を返す (FRenderer がここに描画する)。
+     *
+     * @return HDR R16G16B16A16_Float のレンダーターゲット。
+     */
+    IRhiTexture* HdrRenderTarget() const noexcept { return m_HdrRt.Get(); }
+
+    /**
+     * HDR RT のフォーマットを返す。
+     *
+     * @return HDR RT のフォーマット (既定 R16G16B16A16_Float)。
+     */
+    EFormat       HdrFormat()       const noexcept { return m_HdrFormat; }
+
+    /**
+     * Bloom + Tonemap (+ 任意の TAA / auto-exposure) を実行し swapchain buffer へ書き出す。
+     *
+     * @param cmd 既に Begin 済みのコマンドリスト。
+     * @param swapchain 出力先 (backbuffer をこのインスタンスから取り出す)。
+     * @param buffer_index AcquireNextImage の戻り値。
+     * @param params 適用する効果のパラメータ。
+     */
+    void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
+                const FPostProcessParams& params) noexcept;
+
+private:
+    FPostProcess& operator=(FPostProcess&&) noexcept = default;
+
+    /**
+     * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
+     *
+     * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
+     * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
+     * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
+     */
+    static constexpr u32 kBloomMips = 6;
+
+    /**
+     * HDR RT と Bloom mip chain を生成する。
+     *
+     * @param device RT 生成に使う RHI デバイス。
+     * @param w 出力幅。
+     * @param h 出力高さ。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
+
+    /**
+     * 全パスのシェーダとパイプラインを生成する。
+     *
+     * @param device パイプライン生成に使う RHI デバイス。
+     * @return 成功なら空の TResult、生成失敗ならエラー。
+     */
+    TResult<void> CreatePipelines(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders) noexcept;
+
+    /**
+     * Bloom 抽出パス: シーン入力から閾値超えの輝度を bloom_mips[0] へ書く。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param p 適用する効果のパラメータ。
+     */
+    void Pass_Extract  (IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
+
+    /**
+     * Bloom downsample パス: bloom_mips[from_mip] を次段へ 13-tap で縮約する。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param from_mip 入力元の mip 段。
+     */
+    void Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept;
+
+    /**
+     * Bloom upsample パス: 下段を 1 段上へ additive 合成する。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param to_mip 合成先の mip 段。
+     * @param radius upsample 時の半径スケール。
+     */
+    void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius, f32 scatter) noexcept;
+
+    /**
+     * Bloom separable Gaussian blur: 1 つの mip を H or V 方向に 1 次元ガウスぼかしする。
+     * H パス (mip→tmp) と V パス (tmp→mip) を続けて呼ぶと «円形» の 2D ガウスになる。
+     * box mip チェーンと違い点光源が四角くならない (DirectXTK 風)。
+     *
+     * @param cmd コマンドリスト。
+     * @param mip 対象 mip 段 (m_BloomMips[mip] ↔ m_BloomTmp[mip])。
+     * @param horizontal true=水平パス (mip→tmp)、false=垂直パス (tmp→mip)。
+     * @param amount ガウスの広がり (texel 単位の step スケール)。
+     */
+    void Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept;
+
+    /**
+     * TAA resolve パス: 現フレームと history を neighborhood-clamp blend する。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param p 適用する効果のパラメータ。
+     */
+    void Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
+
+    /**
+     * Tonemap パス: HDR + Bloom を合成し tonemap して backbuffer へ書く。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param sc 出力先スワップチェーン。
+     * @param buf_idx 書き出すバックバッファの index。
+     * @param p 適用する効果のパラメータ。
+     */
+    void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
+                        const FPostProcessParams& p) noexcept;
+
+    /**
+     * Auto-exposure: HDR を log2 輝度の mip chain に縮約する luma reduction パス。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     */
+    void Pass_LumaReduce  (IRhiCommandList& cmd) noexcept;
+
+    /**
+     * Auto-exposure: 測定した平均輝度から目標露出へ eye adaptation で順応させる。
+     *
+     * @param cmd コマンドを積むコマンドリスト。
+     * @param p 適用する効果のパラメータ。
+     */
+    void Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
+
+    /**
+     * Apply the adapted exposure after the scene-linear temporal resolve.
+     *
+     * @param cmd Recording command list.
+     * @param source Scene-linear HDR. This is the current TAA resolve when
+     * TAA is enabled, otherwise the raw scene target.
+     */
+    void Pass_ExposureApply(IRhiCommandList& cmd,
+                            IRhiTexture& source) noexcept;
+
+    /**
+     * 下流パス (TAA / Bloom / Tonemap) が読むシーン texture を返す。
+     *
+     * @param p 適用する効果のパラメータ。
+     * @return The exposure-applied image when auto exposure is enabled, the
+     * scene-linear TAA resolve when TAA is enabled, or the raw HDR scene.
+     */
+    IRhiTexture* SceneInput(const FPostProcessParams& p) const noexcept;
+
+    /**
+     * 同一フレーム内の各 fullscreen draw 専用 Post CB を取得する。
+     *
+     * @details Raw DX12 の cpu_writable buffer はフレーム間のみリング化されるため、同じ
+     * buffer を複数パスで Update すると、実行時に全 draw が最後の値を読む。各 draw に
+     * 別 resource を割り当てて GPU address を固定する。
+     * @return 次の CB。1 フレームの上限を超えた場合は null。
+     */
+    IRhiBuffer* AcquirePostCb() noexcept;
+
+    /** Init で受け取った device (Resize で再利用)。 */
+    IRhiDevice* m_Device = nullptr;
+
+    /** 出力解像度の幅。 */
+    u32         m_Width  = 0;
+
+    /** 出力解像度の高さ。 */
+    u32         m_Height = 0;
+
+    /** 最終出力 (バックバッファ) のフォーマット。 */
+    EFormat      m_ColorFormat = EFormat::B8G8R8A8_UNorm;
+
+    /** HDR RT のフォーマット。 */
+    EFormat      m_HdrFormat   = EFormat::R16G16B16A16_Float;
+
+    /** メイン HDR RT (シーン描画先)。 */
+    TUniquePtr<IRhiTexture> m_HdrRt;
+
+    /** Bloom mip chain (各段は HDR、解像度は半分ずつ)。 */
+    TUniquePtr<IRhiTexture> m_BloomMips[kBloomMips];
+
+    /** Bloom separable Gaussian の ping-pong 用テンポラリ (各 mip と同サイズ)。 */
+    TUniquePtr<IRhiTexture> m_BloomTmp[kBloomMips];
+
+    /** 共通の全画面三角形 VS。 */
+    TUniquePtr<IRhiShader>   m_VsFullscreen;
+
+    /** Bloom 抽出パスのピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsExtract;
+
+    /** Bloom downsample パスのピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsDownsample;
+
+    /** Bloom upsample パスのピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsUpsample;
+
+    /** Bloom separable Gaussian blur パスのピクセルシェーダ (DirectXTK 風、H/V 2 パスで円形)。 */
+    TUniquePtr<IRhiShader>   m_PsGaussian;
+
+    /** Tonemap パスのピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsTonemap;
+
+    /** Bloom 抽出パイプライン (HDR → bloom_mips[0])。 */
+    TUniquePtr<IRhiPipeline> m_PipeExtract;
+
+    /** Bloom downsample パイプライン (bloom_mips[i] → bloom_mips[i+1])。 */
+    TUniquePtr<IRhiPipeline> m_PipeDownsample;
+
+    /** Bloom upsample パイプライン (bloom_mips[i+1] + bloom_mips[i] → bloom_mips[i])。 */
+    TUniquePtr<IRhiPipeline> m_PipeUpsample;
+
+    /** Bloom Gaussian blur パイプライン (separable、Opaque)。 */
+    TUniquePtr<IRhiPipeline> m_PipeGaussian;
+
+    /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
+    TUniquePtr<IRhiPipeline> m_PipeTonemap;
+
+    /**
+     * 各 fullscreen draw のパラメータを固定する Post CB ring。
+     *
+     * @details 最大構成は luma 13 + TAA 1 + bloom 14 + tonemap 1 draw。将来の
+     * パス追加にも余裕を持たせて 64 本確保し、Render 冒頭で cursor を戻す。
+     */
+    static constexpr u32     kPostCbRing = 64;
+    TUniquePtr<IRhiBuffer>   m_CbPost[kPostCbRing];
+    u32                      m_PostCbCursor = 0;
+
+    /**
+     * TAA の ping-pong history RT。
+     *
+     * @details m_Taa[N%2] が current frame の resolved 出力、m_Taa[(N+1)%2] が previous frame の
+     * resolved 出力 (= history input)。frame index で role を swap する。
+     */
+    TUniquePtr<IRhiTexture>  m_Taa[2];
+
+    /** TAA resolve パスのピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsTaaResolve;
+
+    /** TAA resolve パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_PipeTaaResolve;
+
+    /** TAA の現フレーム index (history ping-pong 用)。 */
+    u32                     m_TaaFrame = 0;
+
+    /** TAA reprojection 用の行列 2 枚を渡す CB (separate b1)。 */
+    TUniquePtr<IRhiBuffer>   m_CbTaaReproj;
+
+    /** depth 未指定時の fallback depth テクスチャ (1x1)。 */
+    TUniquePtr<IRhiTexture>  m_TaaDepthFb;
+
+    /** Bloom / SSR が無い texture slot に必ず bind する 1x1 黒テクスチャ。 */
+    TUniquePtr<IRhiTexture>  m_BlackFb;
+
+    /**
+     * Auto-exposure の最大 luma mip 段数。
+     *
+     * @details 4K (3840) でも floor(log2)+1 に収まる値。
+     */
+    static constexpr u32 kMaxLumaMips = 13;
+
+    /**
+     * 平均輝度測定用の luma mip chain。
+     *
+     * @details m_HdrRt の 1/2 から 1x1 まで縮約する。最深段 (1x1) にシーン平均 log2 輝度が入る。
+     */
+    TUniquePtr<IRhiTexture>  m_LumaMips[kMaxLumaMips];
+
+    /** 実際に確保した luma mip の段数。 */
+    u32                     m_LumaMipCount = 0;
+
+    /**
+     * 順応済み露出を保持する 1x1 ping-pong テクスチャ。
+     *
+     * @details frame N が m_Exposure[N%2] に書き、m_Exposure[(N+1)%2] = 前フレーム値を読む。
+     */
+    TUniquePtr<IRhiTexture>  m_Exposure[2];
+
+    /** m_HdrRt に自動露出を掛けた結果 (下流パスはこれを読む)。 */
+    TUniquePtr<IRhiTexture>  m_ExposedRt;
+
+    /** HDR → log2 輝度の抽出 (downsample 兼) ピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsLumaExtract;
+
+    /** log2 輝度を box average で縮約するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsLumaDown;
+
+    /** 露出順応 (eye adaptation) のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsExposure;
+
+    /** m_HdrRt * 露出 → m_ExposedRt のピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_PsExposeApply;
+
+    /** luma 抽出パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_PipeLumaExtract;
+
+    /** luma downsample パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_PipeLumaDown;
+
+    /** 露出順応パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_PipeExposure;
+
+    /** 露出適用パイプライン。 */
+    TUniquePtr<IRhiPipeline> m_PipeExposeApply;
+
+    /** auto-exposure 用パラメータ CB。 */
+    TUniquePtr<IRhiBuffer>   m_CbAuto;
+
+    /** 露出 ping-pong / cold-start 判定に使うフレームカウンタ。 */
+    u32                     m_AutoFrame = 0;
+
+    /** luma mip / 露出テクスチャのフォーマット。 */
+    EFormat                  m_LumaFormat = EFormat::R16G16_Float;
+};
+
+} // namespace acs
+
+// ===================== render/Sky.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// 手続き生成スカイ（グラデーション + 太陽）
+//
+// 用途: 3D シーンの背景に「空」を描く。シーン描画より先に呼ぶ。
+//       テクスチャ（キューブマップ）不要、ピクセルシェーダで天頂・地平線・
+//       地面の色を補間して描画する。
+//
+// 使い方:
+//   FSky sky;
+//   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
+//   sky.PresetDay();
+//
+//   // 描画フレーム中、シーンの最初に
+//   sky.Render(*cl, camera);
+//   // ... FStandardShader でメッシュを描く ...
+
+
+namespace acs {
+
+class FCamera;
+
+/**
+ * 手続き生成スカイ (グラデーション + 太陽)。
+ *
+ * @details
+ * テクスチャ (キューブマップ) 不要で、ピクセルシェーダが視線方向から天頂・地平線・
+ * 地面の色を補間して背景を描く。シーン描画より先にフルスクリーン三角形で塗り、
+ * 深度の書き込み・テストは行わない (背景塗りなので既存深度を維持)。太陽は視線と太陽
+ * 方向の角度で半径・ハローを付ける。VS/PS/PSO/定数バッファを単独所有する。
+ */
+class FSky {
+public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** 空状態で構築する (GPU リソースは Init で確保)。 */
+    FSky() noexcept = default;
+
+    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
+    ~FSky() noexcept = default;
+
+    /** コピー禁止 (GPU リソースを単独所有するため)。 */
+    FSky(const FSky&)            = delete;
+
+    /** コピー代入も禁止。 */
+    FSky& operator=(const FSky&) = delete;
+
+    /**
+     * GPU リソース (VS/PS/PSO/定数バッファ) を確保する。
+     *
+     * @param device リソース生成に使う RHI デバイス。
+     * @param rt_format 描画先カラーターゲットのフォーマット。
+     * @param depth_format 深度ターゲットのフォーマット (パイプライン作成用)。
+     * @return 成功なら空の TResult、確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device,
+                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
+                      EFormat depth_format = EFormat::D32_Float) noexcept;
+
+    /**
+     * Compile the raw-DX12 HLSL bytecode without touching an RHI device.
+     * Other backends retain the regular owner-thread Init path.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /**
+     * Submit shader compilation to a supporting RHI backend. Submission and
+     * later PSO/resource creation stay on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Install CPU-compiled shaders and create the buffer and PSO.
+     * Must be called by the render-owner thread.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::B8G8R8A8_UNorm,
+        EFormat depth_format = EFormat::D32_Float) noexcept;
+
+    /** 確保した GPU リソースを解放する。 */
+    void Shutdown() noexcept;
+
+    /**
+     * 太陽方向を設定する (内部で正規化する)。
+     *
+     * @details カメラの右手/左手系の前提なし。シェーダ側でも normalize する。
+     * @param dir 原点から太陽へ向く方向ベクトル。
+     */
+    void SetSunDirection(FVec3 dir) noexcept;
+
+    /**
+     * 太陽の色を設定する。
+     *
+     * @param c 太陽の RGB 色。
+     */
+    void SetSunColor(FVec3 c)       noexcept { m_SunColor = c; }
+
+    /**
+     * 太陽の見かけ半径を設定する。
+     *
+     * @param angular 視線角の cos 値からの差 (0.001 = 鋭い、0.05 = 大きい)。
+     */
+    void SetSunRadius(f32 angular) noexcept { m_SunRadius  = angular; }
+
+    /**
+     * 太陽の周りのハロー (グロー) の広がりを設定する。
+     *
+     * @param angular ハローの角度的な広がり。
+     */
+    void SetSunGlow(f32 angular)   noexcept { m_SunGlow    = angular; }
+
+    /**
+     * 天頂の色を設定する。
+     *
+     * @param c 天頂 (真上) 方向の RGB 色。
+     */
+    void SetZenithColor(FVec3 c)    noexcept { m_Zenith  = c; }
+
+    /**
+     * 地平線の色を設定する。
+     *
+     * @param c 地平線 (dir.y=0) 方向の RGB 色。
+     */
+    void SetHorizonColor(FVec3 c)   noexcept { m_Horizon = c; }
+
+    /**
+     * 地面方向の色を設定する。
+     *
+     * @param c 地面 (真下) 方向の RGB 色。
+     */
+    void SetGroundColor(FVec3 c)    noexcept { m_Ground  = c; }
+
+    /**
+     * 手続き的な雲の量と濃さを設定する。
+     *
+     * @param coverage 雲量 (0=快晴、1=全天曇り)。
+     * @param density 雲の濃さ/輪郭の鋭さ (1=やわらか、2〜3=もくもく)。
+     */
+    void SetClouds(f32 coverage, f32 density = 1.6f) noexcept {
+        m_CloudCoverage = coverage < 0.0f ? 0.0f : (coverage > 1.0f ? 1.0f : coverage);
+        m_CloudDensity  = density  < 0.1f ? 0.1f : density;
+    }
+
+    /**
+     * 雲を描くかどうかを切り替える。
+     *
+     * @param on true で雲を描画 (既定 ON)。
+     */
+    void SetCloudsEnabled(bool on)  noexcept { m_bCloudsEnabled = on; }
+
+    /**
+     * 雲の基本色を設定する。
+     *
+     * @param c 雲の RGB 色 (太陽方向で明色に、濃い所は暗色に補間される)。
+     */
+    void SetCloudColor(FVec3 c)     noexcept { m_CloudColor = c; }
+
+    /**
+     * 雲が流れる速さを設定する。
+     *
+     * @param speed 風速 (0=静止、1=標準)。SetTime と併用してアニメする。
+     */
+    void SetCloudWind(f32 speed)    noexcept { m_CloudWind = speed; }
+
+    /**
+     * 雲アニメ用の時間を設定する (任意。決定論的に制御したいときだけ呼ぶ)。
+     *
+     * @details 呼ばなくても Render() が内部で時間を進めるので雲は流れる。毎フレーム
+     *          経過秒を渡すと、その値が当該フレームで優先される (リプレイ/スクショ向け)。
+     * @param seconds 起動からの経過秒など、単調増加する時間値。
+     */
+    void SetTime(f32 seconds)       noexcept { m_Time = seconds; }
+
+    /** 昼空プリセットを適用する (青空 + 白い太陽)。 */
+    void PresetDay()    noexcept;
+
+    /** 夕焼けプリセットを適用する (茜色 + 暖色太陽)。 */
+    void PresetSunset() noexcept;
+
+    /** 夜空プリセットを適用する (紺青 + 弱い月光)。 */
+    void PresetNight()  noexcept;
+
+    /**
+     * 現在の太陽方向を返す (FStandardShader / IBL と整合させたいときに)。
+     *
+     * @return 正規化済みの太陽方向ベクトル。
+     */
+    FVec3 SunDirection() const noexcept { return m_SunDir; }
+
+    /**
+     * 現在の太陽色を返す。
+     *
+     * @return 太陽の RGB 色。
+     */
+    FVec3 SunColor()     const noexcept { return m_SunColor; }
+
+    /**
+     * 現在の太陽半径を返す。
+     *
+     * @return 太陽の見かけ半径 (視線角 cos 値からの差)。
+     */
+    f32  SunRadius()    const noexcept { return m_SunRadius; }
+
+    /**
+     * 現在の太陽ハロー幅を返す。
+     *
+     * @return 太陽ハローの角度的な広がり。
+     */
+    f32  SunGlow()      const noexcept { return m_SunGlow; }
+
+    /**
+     * 現在の天頂色を返す。
+     *
+     * @return 天頂方向の RGB 色。
+     */
+    FVec3 ZenithColor()  const noexcept { return m_Zenith; }
+
+    /**
+     * 現在の地平線色を返す。
+     *
+     * @return 地平線方向の RGB 色。
+     */
+    FVec3 HorizonColor() const noexcept { return m_Horizon; }
+
+    /**
+     * 現在の地面色を返す。
+     *
+     * @return 地面方向の RGB 色。
+     */
+    FVec3 GroundColor()  const noexcept { return m_Ground; }
+
+    /**
+     * スカイを描画する (フレーム先頭で呼ぶ)。
+     *
+     * @details 深度バッファは「背景に塗る」想定で書き込み無し・テスト無し。
+     * @param cl 描画コマンドを積むコマンドリスト。
+     * @param camera 逆 view-projection と視点を取り出すカメラ。
+     */
+    void Render(IRhiCommandList& cl, const FCamera& camera) noexcept;
+
+private:
+    /** フルスクリーン三角形の頂点シェーダ。 */
+    TUniquePtr<IRhiShader>   m_Vs;
+
+    /** 空の色を計算するピクセルシェーダ。 */
+    TUniquePtr<IRhiShader>   m_Ps;
+
+    /** スカイ描画のパイプライン。 */
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** スカイパラメータを渡す定数バッファ。 */
+    TUniquePtr<IRhiBuffer>   m_Cb;
+
+    /** 太陽方向 (正規化済み)。 */
+    FVec3 m_SunDir    = FVec3{0.5f, 0.8f, 0.3f};
+
+    /** 太陽の RGB 色。 */
+    FVec3 m_SunColor  = FVec3{1.0f, 0.95f, 0.85f};
+
+    /** 太陽の見かけ半径 (視線角 cos 値からの差)。 */
+    f32  m_SunRadius = 0.0006f;
+
+    /** 太陽ハローの角度的な広がり。 */
+    f32  m_SunGlow   = 0.04f;
+
+    /** 天頂方向の RGB 色。 */
+    FVec3 m_Zenith     = FVec3{0.18f, 0.40f, 0.78f};
+
+    /** 地平線方向の RGB 色。 */
+    FVec3 m_Horizon    = FVec3{0.70f, 0.80f, 0.95f};
+
+    /** 地面方向の RGB 色。 */
+    FVec3 m_Ground     = FVec3{0.20f, 0.18f, 0.16f};
+
+    /** 雲を描画するか (既定 ON)。 */
+    bool m_bCloudsEnabled = true;
+
+    /** 雲量 (0=快晴、1=全天曇り)。 */
+    f32  m_CloudCoverage = 0.50f;
+
+    /** 雲の濃さ/輪郭の鋭さ。 */
+    f32  m_CloudDensity  = 1.6f;
+
+    /** 雲が流れる速さ。 */
+    f32  m_CloudWind     = 1.0f;
+
+    /** 雲アニメ用の時間 (SetTime で更新)。 */
+    f32  m_Time          = 0.0f;
+
+    /** 雲の基本 RGB 色。 */
+    FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
+};
+
+/**
+ * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
+ *
+ * @details
+ * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
+ * 密度を coverage/height-gradient で remap、太陽方向へ light-march して Beer 透過率を求め、
+ * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (straight 散乱色
+ * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
+ * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
+ * 復元する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
+ * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
+ * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
+ */
+/**
+ * World-space altitude band used by FVolumetricClouds.
+ *
+ * The cloud density field must never be translated with the camera.  Keeping
+ * these heights in world space makes translation, orbit and temporal
+ * reprojection observe the same density field.
+ */
+struct FVolumetricCloudLayer {
+    f32 base_height = 1500.0f;
+    f32 top_height = 4000.0f;
+    f32 horizontal_noise_scale = 0.035f;
+};
+
+/** Ray interval through a horizontal world-space cloud layer. */
+struct FVolumetricCloudRayInterval {
+    f32 enter = 0.0f;
+    f32 exit = 0.0f;
+    bool hit = false;
+};
+
+/** Local planet radius used by the curved world-space cloud shell. */
+inline constexpr f32 kVolumetricCloudPlanetRadius = 6360000.0f;
+
+/**
+ * World-origin grid used by the local curved-shell patch.
+ *
+ * The shell origin stays fixed through the centre of each cell and is eased
+ * across a transition band near cell boundaries. Density/weather coordinates
+ * remain absolute world coordinates; only the numerically local planet
+ * tangent patch is rebased.
+ */
+inline constexpr f32 kVolumetricCloudOriginRebaseGrid = 64.0f;
+inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
+
+/**
+ * Internal trace divisor used by the Ultra output-quality policy.
+ *
+ * Ultra still resolves and composites at the complete viewport resolution.
+ * Every reduced texel is freshly marched each frame, and a sixteen-phase 4x4
+ * subpixel schedule maps those rays onto exact full-resolution coordinates.
+ * World/depth reprojection retains the other fifteen phases, so the steady
+ * image recovers native detail without increasing the quarter-size workload.
+ */
+inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
+
+/** Sanitized current-trace dimensions selected for a full-resolution output. */
+struct FVolumetricCloudTraceResolution {
+    u32 width = 1u;
+    u32 height = 1u;
+    f32 quality_multiplier = 1.0f;
+    f32 effective_dimension_scale = 0.25f;
+};
+
+/**
+ * Resolve the authored CloudRenderScale and the internal Ultra trace policy.
+ *
+ * CloudRenderScale is a monotonic quality multiplier over the policy's base
+ * quarter-dimension trace: authored 1.0 uses quarter dimensions, 0.75 uses
+ * 0.1875 dimensions, and 0.5 or below uses the 0.125 lower bound. The resolved
+ * output and temporal history remain full resolution.
+ */
+FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
+    u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
+
+/**
+ * Resolve centered analytic coverage for the planet/cloud horizon.
+ *
+ * elevation_delta_x/y are the signed elevation differences to exact adjacent
+ * screen-space rays.  The footprint is centered on the physical tangent so a
+ * sloped horizon crosses pixels continuously instead of snapping to a
+ * one-sided row.  Non-finite inputs fail closed to zero coverage.
+ */
+f32 ResolveVolumetricCloudHorizonCoverage(
+    f32 signed_elevation, f32 cutoff,
+    f32 elevation_delta_x, f32 elevation_delta_y) noexcept;
+
+/**
+ * Experimental hybrid shallow sun optical-depth cache.
+ *
+ * The current two-volume implementation costs more GPU time than the exact
+ * far-light tail on the measured desktop path, so keep it compiled for
+ * further iteration but do not allocate or dispatch it by default.
+ */
+inline constexpr bool kVolumetricCloudShadowCacheEnabled = false;
+
+/** Quality-preserving shallow sun optical-depth cache dimensions. */
+inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
+inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
+inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
+inline constexpr f32 kVolumetricCloudShadowCacheExtent = 48000.0f;
+inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
+    kVolumetricCloudShadowCacheExtent /
+    static_cast<f32>(kVolumetricCloudShadowCacheWidth);
+inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
+
+/** Stable material-space footprint used by the cloud sun-depth cache. */
+struct FVolumetricCloudShadowCacheMapping {
+    FVec2 min_material_xz{};
+    FVec2 center_material_xz{};
+};
+
+/** Convert the scalar cloud advection distance to its shared XZ direction. */
+FVec2 VolumetricCloudWindOffsetXZ(f32 wind_offset) noexcept;
+
+/** Absolute world XZ with the shared cloud advection removed. */
+FVec2 VolumetricCloudMaterialXZ(FVec3 world_position,
+                                f32 wind_offset) noexcept;
+
+/** Snap a cache footprint to the material-space voxel lattice. */
+FVolumetricCloudShadowCacheMapping CenterVolumetricCloudShadowCache(
+    FVec2 material_position) noexcept;
+
+/**
+ * Compute the soft-snapped XZ world origin used by the curved cloud shell.
+ *
+ * The returned Y is zero so authored cloud heights retain their world-Y
+ * meaning. The cell centre is stationary during ordinary editor orbits, while
+ * a C1-continuous transition near cell boundaries avoids a full-cell shell
+ * jump. The density field itself is never translated with the camera.
+ */
+FVec3 RebaseVolumetricCloudWorldOrigin(
+    FVec3 camera_position,
+    f32 grid_size = kVolumetricCloudOriginRebaseGrid) noexcept;
+
+/**
+ * Stable world-distance march parameters for a cloud ray.
+ *
+ * Uniformly splitting the layer by height makes every pixel sample the same
+ * horizontal planes.  In perspective that correlation appears as rays
+ * converging on the view zenith.  A world-distance step keeps the sampling
+ * frequency independent of view angle; empty space may use coarse_step while
+ * occupied density uses fine_step.
+ */
+struct FVolumetricCloudMarchPlan {
+    f32 enter = 0.0f;
+    f32 exit = 0.0f;
+    f32 fine_step = 1.0f;
+    f32 coarse_step = 4.0f;
+    f32 visibility = 0.0f;
+    u32 max_samples = 192;
+    bool hit = false;
+};
+
+/**
+ * Intersect a world-space ray with a horizontal cloud altitude band.
+ * This CPU companion mirrors the shader interval calculation and is useful for
+ * camera/world-anchoring validation.
+ */
+FVolumetricCloudRayInterval IntersectVolumetricCloudLayer(
+    FVec3 ray_origin, FVec3 ray_direction,
+    const FVolumetricCloudLayer& layer) noexcept;
+
+/**
+ * Intersect the nearest continuous segment of a curved cloud shell.
+ *
+ * The planet centre is
+ * (world_origin.x, world_origin.y-planet_radius, world_origin.z).  A discrete
+ * rebased origin keeps the local tangent patch numerically stable during long
+ * XZ travel without making the density field camera-relative.
+ */
+FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
+    FVec3 ray_origin, FVec3 ray_direction,
+    const FVolumetricCloudLayer& layer,
+    f32 planet_radius = kVolumetricCloudPlanetRadius,
+    FVec3 world_origin = FVec3{}) noexcept;
+
+/**
+ * Build the bounded, angle-stable ray-march plan mirrored by the cloud shader.
+ */
+FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
+    FVec3 ray_origin, FVec3 ray_direction,
+    const FVolumetricCloudLayer& layer,
+    f32 max_distance = kVolumetricCloudMaxDistance,
+    FVec3 world_origin = FVec3{}) noexcept;
+
+/**
+ * Return true when lighting changes make accumulated cloud color stale.
+ *
+ * Direction is expected to be normalized, matching RenderCompute's stored
+ * frame signature.
+ */
+bool VolumetricCloudLightingChanged(
+    FVec3 previous_sun_direction, FVec3 previous_sun_color,
+    FVec3 previous_sky_color, FVec3 sun_direction,
+    FVec3 sun_color, FVec3 sky_color) noexcept;
+
+/**
+ * Detect a discontinuous camera cut without treating ordinary world-space
+ * translation as a cut.
+ *
+ * Comparing view-projection matrix elements directly also compares their
+ * translation terms. In a metre-scale editor that invalidates temporal cloud
+ * history during normal fly/pan motion and repeatedly exposes the cold 4x4
+ * reconstruction pattern. This comparison instead measures representative
+ * view-ray directions and reserves the distance test for a real teleport.
+ */
+bool VolumetricCloudViewCutDetected(
+    const FMat4& previous_inv_view_proj, FVec3 previous_camera_position,
+    const FMat4& current_inv_view_proj,
+    FVec3 current_camera_position) noexcept;
+
+class FVolumetricClouds {
+public:
+    /** CPU-compiled shader bytecode handed to the render-owner thread. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> cloud;
+        TUniquePtr<IRhiShader> noise;
+        TUniquePtr<IRhiShader> weather;
+        TUniquePtr<IRhiShader> detail;
+        TUniquePtr<IRhiShader> curl;
+        TUniquePtr<IRhiShader> composite_vertex;
+        TUniquePtr<IRhiShader> composite_pixel;
+        TUniquePtr<IRhiShader> composite_atmosphere_pixel;
+        TUniquePtr<IRhiShader> resolve;
+        TUniquePtr<IRhiShader> shadow;
+        TUniquePtr<IRhiShader> shadow_finalize;
+
+        /** Aggregate all submitted shader jobs without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
+    TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
+
+    /** Compile raw-DX12 HLSL without touching an RHI device. */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit all cloud shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create owner-thread resources from CPU-compiled bytecode and publish the
+     * complete mandatory cloud resource set atomically.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat hdr_format) noexcept;
+
+    /** 初期化済みか。 */
+    bool Ready() const noexcept { return m_Ready; }
+
+    /**
+     * Scaled ray-march output and full-resolution reconstruction historyを確保/再確保。
+     * render_scale は Ultra internal quarter-dimension trace に対する
+     * 0.5..1.0 の品質倍率として扱い、resolved output は常に full-resolution。
+     */
+    bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
+                    f32 render_scale = 0.5f) noexcept;
+
+    /** Set the fixed world-space cloud altitude band and invalidate history. */
+    void SetLayer(const FVolumetricCloudLayer& layer) noexcept;
+
+    /** Current sanitized world-space cloud altitude band. */
+    const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
+
+    /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
+    u64 ShadowCacheDispatchCount() const noexcept {
+        return m_ShadowCacheDispatchCount;
+    }
+
+    /** Whether the optional cache resources were created successfully. */
+    bool ShadowCacheAvailable() const noexcept {
+        return m_ShadowCacheAvailable;
+    }
+
+    /** Whether the current material-space cache key has valid GPU contents. */
+    bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
+
+    /** Full-resolution resolved cloud distance/confidence for later fog passes. */
+    IRhiTexture* ResolvedDepth() const noexcept {
+        return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;
+    }
+
+    /**
+     * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
+     * Ultra は毎 frame quarter-dimension の全 texel を更新し、それぞれを 4x4 block
+     * 内の exact full-resolution subpixel へ 16 phase で割り当てる。camera motion や
+     * 履歴無効化でも native/full seed に戻らず、未更新 subpixel は world/depth
+     * reprojection、初回/disocclusion は spatial fallback で解決する。
+     */
+    void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
+                       FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
+                       f32 coverage, f32 density, f32 wind, f32 time) noexcept;
+
+    /**
+     * 雲 (straight 散乱色+alpha) を現在の RT へ alpha blend する。
+     * 解決済み cloud ray distance と scene_depth から復元した scene ray distance を比較し、
+     * 手前にある方だけを表示する。カメラが雲層内/上空にいる場合も前景雲を失わない。
+     * atmosphere_volume と atmosphere_transmittance がある場合は、可視 cloud の
+     * 代表距離までの RGB transmittance と premultiplied atmospheric in-scatter を
+     * 適用してから背景へ alpha blend する。
+     * local fog は ResolvedDepth() を使う後段 pass で同じ cloud 距離へ終端する。
+     * depth は SRV として読むので、この render pass の DSV には同時 bind しないこと。
+     */
+    void Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
+                   u32 scW, u32 scH,
+                   IRhiTexture* atmosphere_volume = nullptr,
+                   IRhiTexture* atmosphere_transmittance = nullptr,
+                   f32 atmosphere_max_distance = 1.0f) noexcept;
+
+    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
+    void Shutdown() noexcept;
+
+private:
+    TResult<void> InitCandidateWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat hdr_format) noexcept;
+
+    bool                     m_Ready = false;
+    bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
+    EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
+    TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
+    TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
+    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F Perlin-Worley/low-frequency Worley
+    bool                     m_WeatherBaked = false;
+    TUniquePtr<IRhiShader>   m_WeatherCs;
+    TUniquePtr<IRhiPipeline> m_WeatherPipe;
+    TUniquePtr<IRhiTexture>  m_WeatherTex;               // 512^2 coverage/type/precipitation/warp
+    bool                     m_DetailBaked = false;
+    TUniquePtr<IRhiShader>   m_DetailCs;
+    TUniquePtr<IRhiPipeline> m_DetailPipe;
+    TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F independent Worley edge erosion
+    bool                     m_CurlBaked = false;
+    TUniquePtr<IRhiShader>   m_CurlCs;
+    TUniquePtr<IRhiPipeline> m_CurlPipe;
+    TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
+    TUniquePtr<IRhiShader>   m_CloudCs;
+    TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
+    TUniquePtr<IRhiShader>   m_ShadowCs;      // raw shallow sun optical depth
+    TUniquePtr<IRhiPipeline> m_ShadowPipe;
+    TUniquePtr<IRhiShader>   m_ShadowFinalizeCs; // bake spatial confidence
+    TUniquePtr<IRhiPipeline> m_ShadowFinalizePipe;
+    TUniquePtr<IRhiTexture>  m_ShadowRawTex;  // 96x32x96 mean/pattern error tau
+    TUniquePtr<IRhiTexture>  m_ShadowTex;     // 96x32x96 mean/max error tau
+    TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
+    TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
+    TUniquePtr<IRhiShader>   m_CompAtmosPs;
+    TUniquePtr<IRhiPipeline> m_CompAtmosPipe; // cloud-distance terminated physical AP (RGB L/T)
+    TUniquePtr<IRhiBuffer>   m_CompAtmosCb;
+    TUniquePtr<IRhiShader>   m_ResolveCs;      // 深度対応の color/depth 空間・時間再構成
+    TUniquePtr<IRhiPipeline> m_ResolvePipe;    // 全解像度 color/depth compute UAV 解決
+    TUniquePtr<IRhiBuffer>   m_Cb;
+    TUniquePtr<IRhiTexture>  m_CloudTex;       // scaled ray-march RGBA16F の非乗算カラー + アルファ
+    TUniquePtr<IRhiTexture>  m_CloudDepth;     // scaled ray-march RG32F (代表距離、信頼度)
+    TUniquePtr<IRhiTexture>  m_HistoryColor[2];// 全解像度 RGBA16F の時間履歴 ping-pong
+    TUniquePtr<IRhiTexture>  m_HistoryDepth[2];// 全解像度 RG32F の雲距離・信頼度 ping-pong
+    FMat4                    m_PrevViewProj = FMat4::Identity();
+    FMat4                    m_PrevInvViewProj = FMat4::Identity();
+    FVec3                    m_PrevCamPos{};
+    FVec3                    m_WorldOrigin{};
+    FVec3                    m_PrevSunDir{};
+    FVec3                    m_PrevSunColor{};
+    FVec3                    m_PrevSkyColor{};
+    f32                      m_PrevWindOffset = 0.0f;
+    f32                      m_PrevWindSpeed = 0.0f;
+    f32                      m_PrevCoverage = -1.0f;
+    f32                      m_PrevDensity = -1.0f;
+    f32                      m_PrevTime = -1.0f;
+    FVec2                    m_ShadowGridMinQ{};
+    FVec2                    m_ShadowGridCenterQ{};
+    FVec2                    m_ShadowCurvatureAnchor{};
+    FVec3                    m_ShadowSunDir{};
+    FVolumetricCloudLayer    m_ShadowLayer{};
+    f32                      m_ShadowCoverage = -1.0f;
+    u64                      m_ShadowCacheDispatchCount = 0;
+    bool                     m_ShadowGridInitialized = false;
+    bool                     m_ShadowCacheAvailable = false;
+    bool                     m_ShadowCacheValid = false;
+    FVolumetricCloudLayer    m_Layer{};
+    u32                      m_FrameIndex = 0;
+    u32                      m_TemporalPhase = 0;
+    u32                      m_ResolvedIndex = 0;
+    bool                     m_HistoryValid = false;
+    u32                      m_W = 0, m_H = 0;         // scaled ray-march の寸法
+    u32                      m_FullW = 0, m_FullH = 0; // 再構成先の寸法
+};
+
+} // namespace acs
+
+// ===================== render/SubsurfaceScattering.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// Screen-space subsurface diffusion for opaque HDR lighting.
+
+
+namespace acs {
+
+/**
+ * Authoring controls for separable screen-space subsurface diffusion.
+ */
+struct FSubsurfaceScatteringParams {
+    /** Master switch. Disabled renders leave OutputTexture untouched. */
+    bool enabled = true;
+
+    /**
+     * Fallback diffusion radius in scene world units.
+     *
+     * The PBR MRT writes authored per-channel world radii. This value is used
+     * only for legacy/custom material buffers whose RGB profile is empty.
+     */
+    f32 radius_world = 0.012f;
+
+    /**
+     * Fallback relative RGB diffusion radii for an empty material profile.
+     */
+    FVec3 channel_radius = FVec3{1.0f, 0.55f, 0.25f};
+
+    /** Blend between original and diffused diffuse lighting. */
+    f32 strength = 1.0f;
+
+    /** Minimum world-space plane-distance tolerance for the bilateral gate. */
+    f32 depth_sigma = 0.001f;
+
+    /** Cosine-lobe exponent for normal discontinuity rejection. */
+    f32 normal_power = 24.0f;
+
+    /** Hard screen-space radius bound for stable finite GPU cost. */
+    f32 max_radius_pixels = 64.0f;
+
+    /** Replace non-finite values and clamp shader-facing ranges. */
+    void Sanitize() noexcept;
+};
+
+/**
+ * HDR screen-space subsurface scattering using two separable bilateral passes.
+ *
+ * The input contract deliberately separates diffuse irradiance from complete
+ * scene color. The final pass adds only `(blurredDiffuse - originalDiffuse)`
+ * to scene color, so specular reflection, emissive lighting and clear-coat
+ * remain sharp. A constant diffuse field is reproduced exactly because every
+ * channel is independently normalized by its accumulated kernel weight.
+ *
+ * material_data is an RGBA16F physical profile:
+ *   RGB = authored per-channel diffusion radius in scene world units
+ *   A   = SSS coverage/strength [0,1]
+ *
+ * Substrate mean-free-path and thickness, or the legacy subsurface color and
+ * scalar, therefore survive the MRT at half-float precision. The blur compares
+ * center and neighbour RGB profiles to preserve material boundaries and uses
+ * the fallback parameters above only when a custom/legacy producer supplies an
+ * empty RGB profile.
+ *
+ * Integration order:
+ *   opaque lighting + SSS buffers -> FSubsurfaceScattering -> transparent /
+ *   atmosphere -> scene-linear TAA -> exposure -> bloom -> tone map.
+ */
+class FSubsurfaceScattering {
+public:
+    /** Shader handles compiled away from owner-thread PSO/resource creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> blur_pixel;
+        TUniquePtr<IRhiShader> composite_pixel;
+
+        /** Aggregate backend-managed asynchronous compilation without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
+    FSubsurfaceScattering() noexcept = default;
+    ~FSubsurfaceScattering() noexcept = default;
+
+    FSubsurfaceScattering(const FSubsurfaceScattering&) = delete;
+    FSubsurfaceScattering& operator=(const FSubsurfaceScattering&) = delete;
+
+    /** Create shaders, PSOs, constant buffers and full-resolution HDR targets. */
+    TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Compile raw-DX12 bytecode without touching the render device.
+     *
+     * This is safe to run on the editor's CPU-only shader worker.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit all shader stages to a supporting asynchronous backend. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create PSOs, constant buffers and targets from ready shader handles.
+     *
+     * This is the bounded render-owner-thread commit paired with either
+     * CompileShadersCpu or BeginCompileShadersAsync.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
+
+    /**
+     * Publish only shaders, PSOs and constant buffers.
+     *
+     * Full-resolution targets remain unallocated until Resize is called. This
+     * lets runtime startup stage pipeline creation and the two internal HDR
+     * allocations across separate bounded GPU commits.
+     */
+    TResult<void> InitPipelineResourcesWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders) noexcept;
+
+    /**
+     * Build an unpublished raw-DX12 pipeline candidate on a worker thread.
+     *
+     * The target pair is intentionally excluded and remains an owner-thread,
+     * later-frame Resize commit.
+     */
+    TResult<void> BuildPipelineCandidateForRawDx12(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders) noexcept;
+
+    /** Release all owned GPU resources. */
+    void Shutdown() noexcept;
+
+    /** Atomically recreate the two full-resolution HDR targets. */
+    TResult<void> Resize(u32 width, u32 height) noexcept;
+
+    /**
+     * Record horizontal diffusion and vertical diffusion/composition.
+     *
+     * @return true when both passes were recorded. False means callers must
+     * keep using scene_color rather than OutputTexture().
+     */
+    bool Render(IRhiCommandList& command_list,
+                IRhiTexture& scene_color,
+                IRhiTexture& diffuse_lighting,
+                IRhiTexture& scene_depth,
+                IRhiTexture& normal_gbuffer,
+                IRhiTexture& material_data,
+                const FMat4& inverse_view_projection,
+                const FSubsurfaceScatteringParams& params) noexcept;
+
+    /** Complete HDR scene color after diffusion/composition. */
+    IRhiTexture* OutputTexture() const noexcept { return m_Output.Get(); }
+
+    /** Intermediate horizontally diffused diffuse lighting, for diagnostics. */
+    IRhiTexture* HorizontalTexture() const noexcept {
+        return m_Horizontal.Get();
+    }
+
+    bool IsReady() const noexcept {
+        return HasPipelineResources() && m_Horizontal && m_Output;
+    }
+
+    bool HasPipelineResources() const noexcept {
+        return m_Device && m_BlurPipeline && m_CompositePipeline &&
+               m_HorizontalCb && m_VerticalCb;
+    }
+
+    u32 Width() const noexcept { return m_Width; }
+    u32 Height() const noexcept { return m_Height; }
+
+private:
+    TResult<void> CreateTargets(IRhiDevice& device,
+                                u32 width,
+                                u32 height) noexcept;
+    TResult<void> CreatePipelines(
+        IRhiDevice& device,
+        FCompiledShaders& shaders) noexcept;
+    TResult<void> CreateConstantBuffers(IRhiDevice& device) noexcept;
+
+    IRhiDevice* m_Device = nullptr;
+    u32 m_Width = 0;
+    u32 m_Height = 0;
+
+    TUniquePtr<IRhiTexture> m_Horizontal;
+    TUniquePtr<IRhiTexture> m_Output;
+
+    TUniquePtr<IRhiShader> m_VertexShader;
+    TUniquePtr<IRhiShader> m_BlurPixelShader;
+    TUniquePtr<IRhiShader> m_CompositePixelShader;
+    TUniquePtr<IRhiPipeline> m_BlurPipeline;
+    TUniquePtr<IRhiPipeline> m_CompositePipeline;
+
+    // A unique CB per draw is required by the raw DX12 upload contract: two
+    // Update calls to one resource in a command recording would alias.
+    TUniquePtr<IRhiBuffer> m_HorizontalCb;
+    TUniquePtr<IRhiBuffer> m_VerticalCb;
+};
+
+} // namespace acs
+
+// ===================== render/WaterSurface3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// 3D interactive water surface: layered normal map, analytic waves, refraction,
+// Fresnel reflection, GGX sun highlights, foam, and persistent disturbances.
+
+
+namespace acs {
+
+class IRhiBuffer;
+class IRhiCommandList;
+class IRhiDevice;
+class IRhiPipeline;
+class IRhiTexture;
+class FMeshAsset;
+
+/**
+ * Authoring parameters for FWaterSurface3D.
+ *
+ * @details
+ * The surface is physically based around water IOR 1.333. Colors and absorption
+ * describe the volume below the surface, while analytic waves and a generated
+ * tileable normal map provide independent macro/micro detail. The renderer is
+ * authored on the mesh-local XZ plane. DrawMesh derives an orthonormal
+ * world-space surface frame from the model matrix, transforms the mesh's actual
+ * vertex normals with an inverse-transpose matrix, and projects 3D disturbance
+ * points into that frame. Translation, rotation, and non-uniform scale therefore
+ * preserve displacement, normals, and ripple placement.
+ */
+struct FWaterSurface3DParams {
+    /** Shallow-water in-scattering color. */
+    FVec3 shallow_color{0.055f, 0.38f, 0.50f};
+
+    /** Deep-water in-scattering color. */
+    FVec3 deep_color{0.008f, 0.055f, 0.16f};
+
+    /** Beer-Lambert absorption coefficient in inverse world units. */
+    FVec3 absorption{0.34f, 0.13f, 0.040f};
+
+    /** Homogeneous single-scattering coefficient in inverse world units. */
+    FVec3 scattering{0.018f, 0.050f, 0.085f};
+
+    /** Henyey-Greenstein phase anisotropy (-0.95..0.95). */
+    f32 phase_anisotropy = 0.62f;
+
+    /** Whitewater/contact-foam color. */
+    FVec3 foam_color{0.88f, 0.96f, 1.0f};
+
+    /** Main flow direction in the surface-local tangent/bitangent plane. */
+    FVec2 flow_direction{0.92f, 0.38f};
+
+    /** Microfacet roughness used by the water GGX lobe. */
+    f32 roughness = 0.105f;
+
+    /** Strength of the sampled normal map. */
+    f32 normal_strength = 0.82f;
+
+    /** World-space tiling density of the generated normal map. */
+    f32 normal_tiling = 0.075f;
+
+    /** Screen-space refraction strength. */
+    f32 refraction_strength = 0.72f;
+
+    /** Approximate optical depth when no explicit scene-depth texture is supplied. */
+    f32 optical_depth = 1.35f;
+
+    /** Analytic macro-wave displacement amplitude. */
+    f32 wave_amplitude = 0.105f;
+
+    /** Analytic macro-wave spatial scale. */
+    f32 wave_scale = 0.78f;
+
+    /** Analytic wave/normal-map animation speed. */
+    f32 wave_speed = 0.72f;
+
+    /** Dynamic ripple propagation speed in world units per second. */
+    f32 ripple_speed = 2.65f;
+
+    /** Dynamic ripple wavelength in world units. */
+    f32 ripple_wavelength = 0.52f;
+
+    /** Dynamic ripple lifetime in seconds. */
+    f32 ripple_lifetime = 4.0f;
+
+    /** Dynamic ripple amplitude damping coefficient. */
+    f32 ripple_damping = 0.78f;
+
+    /** Contact/crest foam multiplier. */
+    f32 foam_intensity = 0.82f;
+};
+
+/**
+ * High-quality interactive 3D water renderer.
+ *
+ * @details
+ * FWaterSurface3D is renderer-facing and accepts any sufficiently tessellated
+ * mesh authored on its local XZ plane. The model may freely translate, rotate,
+ * or scale that surface in a 3D scene. Dynamic disturbances are stored as full
+ * world-space points and are never overwritten while active.
+ * Impact and wake reservations are separate, so a long cursor/body wake cannot
+ * erase impacts (and impacts cannot starve wakes).
+ *
+ * Typical frame order:
+ *  1. Draw opaque scene to a color target.
+ *  2. Copy that target to a sampleable background texture.
+ *  3. SetFrame(), then DrawMesh() with the copied background and, when
+ *     available, the shader-visible opaque depth and SSR/planar reflection.
+ *  4. Run bloom/tonemapping if using HDR.
+ */
+class FWaterSurface3D {
+public:
+    /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+
+        EShaderStatus Status() const noexcept;
+    };
+
+    /** Maximum simultaneously visible disturbances. */
+    static constexpr u32 kMaxRipples = 64;
+
+    /** Maximum independently interactive surfaces owned by one renderer. */
+    static constexpr u32 kMaxTrackedSurfaces = 64;
+
+    /**
+     * CPU-side event capacity. Each draw still uploads at most kMaxRipples,
+     * but independently targeted surfaces cannot starve one another.
+     */
+    static constexpr u32 kMaxStoredRipples =
+        kMaxRipples * kMaxTrackedSurfaces;
+
+    /** Slots reserved exclusively for circular impact disturbances. */
+    static constexpr u32 kImpactRippleSlots = 16;
+
+    /** Slots reserved exclusively for directional wake disturbances. */
+    static constexpr u32 kWakeRippleSlots = 48;
+
+    static_assert(kImpactRippleSlots + kWakeRippleSlots == kMaxRipples);
+
+    FWaterSurface3D() noexcept;
+    ~FWaterSurface3D() noexcept;
+
+    FWaterSurface3D(const FWaterSurface3D&) = delete;
+    FWaterSurface3D& operator=(const FWaterSurface3D&) = delete;
+
+    /**
+     * Creates shaders, pipeline, constant-buffer ring, and a generated normal map.
+     */
+    TResult<void> Init(IRhiDevice& device,
+                       EFormat rt_format = EFormat::R16G16B16A16_Float,
+                       EFormat depth_format = EFormat::D32_Float,
+                       u32 msaa_samples = 1) noexcept;
+
+    /**
+     * Compile raw-DX12 water HLSL without touching an RHI device.
+     *
+     * @details This is safe to call from a background worker. Resource and
+     * pipeline creation must still be committed on the render-owner thread
+     * through BeginInitWithCompiledShaders.
+     */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit both shader stages without blocking on supporting backends. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** Commit ready shader handles and all GPU resources on the render owner. */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::R16G16B16A16_Float,
+        EFormat depth_format = EFormat::D32_Float,
+        u32 msaa_samples = 1) noexcept;
+
+    /**
+     * Commit shaders, textures and PSOs without allocating the large
+     * per-draw constant-buffer ring.
+     */
+    TResult<void> BeginInitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::R16G16B16A16_Float,
+        EFormat depth_format = EFormat::D32_Float,
+        u32 msaa_samples = 1) noexcept;
+
+    /**
+     * Allocate a bounded number of constant-buffer pairs.
+     *
+     * @return true when the renderer is fully ready, false when more bounded
+     *         commit work remains.
+     */
+    TResult<bool> AdvanceInitialization(
+        u32 buffer_pairs = 16u) noexcept;
+
+    bool InitializationPending() const noexcept {
+        return m_InitializationPending;
+    }
+
+    /** Releases all GPU resources. Safe to call repeatedly. */
+    void Shutdown() noexcept;
+
+    /** Advances analytic animation and all active disturbances. */
+    void Update(f32 dt) noexcept;
+
+    /**
+     * Adds a circular impact at a world-space point.
+     *
+     * @return true when accepted. false means all impact-reserved slots are
+     *         active; existing waves are preserved and the new event is dropped.
+     */
+    bool AddDisturbance(FVec3 world_point, f32 radius, f32 strength) noexcept;
+
+    /**
+     * Adds a circular impact that is visible only on the identified surface.
+     *
+     * @details surface_id is an application-stable identity (for example an
+     * editor node id). Up to kMaxTrackedSurfaces can own active events at once.
+     */
+    bool AddDisturbanceForSurface(
+        u64 surface_id, FVec3 world_point,
+        f32 radius, f32 strength) noexcept;
+
+    /**
+     * Adds one directional, elongated wake event from a moving body.
+     *
+     * @return true when accepted; false when the wake-reserved pool is full.
+     */
+    bool AddWake(FVec3 world_point, FVec3 world_velocity,
+                 f32 radius, f32 strength) noexcept;
+
+    /** Adds a directional wake visible only on the identified surface. */
+    bool AddWakeForSurface(
+        u64 surface_id, FVec3 world_point, FVec3 world_velocity,
+        f32 radius, f32 strength) noexcept;
+
+    /** Immediately removes every active disturbance. */
+    void ClearDisturbances() noexcept;
+
+    /** Removes disturbances owned by one surface without affecting others. */
+    void ClearDisturbancesForSurface(u64 surface_id) noexcept;
+
+    /** Number of active persistent disturbance slots. */
+    u32 ActiveRippleCount() const noexcept;
+
+    /** Number of active disturbances owned by one surface. */
+    u32 ActiveRippleCountForSurface(u64 surface_id) const noexcept;
+
+    /**
+     * Normalized amplitude applied to a disturbance at the supplied age.
+     *
+     * @details Exponential physical damping is combined with a C2-continuous
+     * lifetime tail. The tail occupies the final 35% of the lifetime and
+     * reaches exactly zero with zero first and second derivatives, preventing
+     * displacement, normals, and foam from popping when a slot is released.
+     * This public evaluator also lets editor tooling preview the exact runtime
+     * attenuation curve.
+     */
+    static f32 EvaluateRippleAmplitudeScale(
+        f32 age, f32 lifetime, f32 damping) noexcept;
+
+    /**
+     * Replaces all authoring parameters used from the next draw onward.
+     *
+     * @details Non-finite values fall back to the corresponding default and
+     * physically bounded quantities are clamped. A malformed inspector value
+     * therefore cannot inject NaNs into every displaced vertex.
+     */
+    void SetParams(const FWaterSurface3DParams& params) noexcept;
+
+    /** Returns the current authoring parameters. */
+    const FWaterSurface3DParams& Params() const noexcept { return m_Params; }
+
+    /**
+     * Sets camera, viewport, and sun state for subsequent water draws.
+     *
+     * @details Starts a new buffered frame for this water renderer. Up to 64
+     * DrawMesh calls may follow before the next SetFrame call.
+     *
+     * @param sun_direction Direction from the surface toward the sun.
+     */
+    void SetFrame(const FMat4& view_projection, FVec3 camera_pos,
+                  u32 screen_width, u32 screen_height,
+                  FVec3 sun_direction = FVec3{-0.42f, 0.82f, -0.38f},
+                  FVec3 sun_color = FVec3{5.0f, 4.4f, 3.8f}) noexcept;
+
+    /**
+     * Sets the environment radiance used when no valid screen reflection exists.
+     *
+     * @details The three colors describe the actual world-space sky at +Y,
+     * the horizon, and -Y. Non-finite or negative inputs are sanitized, so
+     * editor/runtime callers can safely forward their current sky settings.
+     */
+    void SetEnvironment(FVec3 zenith, FVec3 horizon,
+                        FVec3 ground) noexcept;
+
+    /**
+     * Validates that a custom water mesh is a finite, indexed surface authored
+     * approximately on its local XZ plane.
+     *
+     * @details This CPU-side authoring check is intended to run before upload.
+     * It rejects malformed indices, degenerate XZ projection, non-finite
+     * vertices/normals, strongly non-planar geometry, and normals that do not
+     * face approximately along local Y. Callers should use a tessellated grid
+     * fallback when it returns false.
+     */
+    static bool IsLocalXzSurfaceMesh(
+        const FMeshAsset& mesh) noexcept;
+
+    /**
+     * Selects an optional directional-light shadow map.
+     *
+     * @details The map must be shader-visible depth and use the supplied light
+     * view-projection matrix. Passing nullptr disables shadow sampling and
+     * restores fully-lit direct sunlight. The pointer remains caller-owned.
+     *
+     * @param depth_bias Receiver depth bias in light clip-depth units.
+     * @param pcf_radius PCF kernel radius in shadow-map texels.
+     */
+    void SetShadowMap(IRhiTexture* shadow_map,
+                      const FMat4& light_view_projection,
+                      f32 depth_bias = 0.0012f,
+                      f32 pcf_radius = 1.5f) noexcept;
+
+    /**
+     * Draws a tessellated water mesh.
+     *
+     * @details The mesh must be authored on its local XZ surface plane. The
+     * model transform may place and orient it freely in world space.
+     * When scene_depth is supplied, the caller must never bind that same
+     * texture as a DSV for this pass. With hardware_depth_bound=true it must be
+     * a shader-visible snapshot of the opaque depth while the original depth
+     * resource is bound separately as a writable DSV. This enables opaque and
+     * water-to-water hardware occlusion while retaining reconstructed optical
+     * thickness from the pre-water snapshot.
+     *
+     * @param scene_color Copy of the opaque scene rendered before the water.
+     *        nullptr selects a safe generated fallback while keeping all other
+     *        reflection and lighting effects active.
+     * @param scene_depth Optional shader-visible opaque-scene depth. Enables
+     *        manual foreground occlusion, reconstructed optical thickness, and
+     *        contact foam.
+     * @param screen_reflection Optional SSR/planar reflection texture. RGB is
+     *        reflected radiance and alpha is the valid-hit mask.
+     * @param hardware_depth_bound Selects the depth-test/write PSO. The caller
+     *        is responsible for binding a DSV whose viewport and projection
+     *        match scene_depth.
+     */
+    void DrawMesh(IRhiCommandList& command_list, const FGpuMesh& mesh,
+                  const FMat4& model,
+                  IRhiTexture* scene_color = nullptr,
+                  IRhiTexture* scene_depth = nullptr,
+                  IRhiTexture* screen_reflection = nullptr,
+                  u64 surface_id = 0u,
+                  bool hardware_depth_bound = false) noexcept;
+
+    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
+    IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
+    f32 Time() const noexcept { return m_Time; }
+
+private:
+    struct FRipple {
+        FVec3 center{0, 0, 0};
+        FVec3 direction{1, 0, 0};
+        f32 initial_radius = 0.0f;
+        f32 initial_amplitude = 0.0f;
+        f32 amplitude = 0.0f;
+        f32 age = 0.0f;
+        f32 speed = 0.0f;
+        f32 lifetime = 0.0f;
+        f32 damping = 0.0f;
+        f32 anisotropy = 1.0f;
+        u64 surface_id = 0u;
+        bool wake = false;
+        bool active = false;
+    };
+
+    static constexpr u32 kBufferedFrames = 4;
+    static constexpr u32 kMaxDrawsPerFrame = 64;
+    static constexpr u32 kConstantBufferRing =
+        kBufferedFrames * kMaxDrawsPerFrame;
+
+    bool AddEvent(u64 surface_id, bool wake,
+                  FVec3 world_point, FVec3 direction, f32 anisotropy,
+                  f32 radius, f32 strength) noexcept;
+
+    IRhiDevice* m_Device = nullptr;
+    TUniquePtr<IRhiShader> m_Vs;
+    TUniquePtr<IRhiShader> m_Ps;
+    TUniquePtr<IRhiPipeline> m_Pipeline;
+    TUniquePtr<IRhiPipeline> m_ManualDepthPipeline;
+    TUniquePtr<IRhiBuffer> m_FrameCb[kConstantBufferRing];
+    TUniquePtr<IRhiBuffer> m_ObjectCb[kConstantBufferRing];
+    u32 m_FrameSlot = 0;
+    u32 m_DrawCursor = 0;
+    bool m_DrawOverflowLogged = false;
+    u32 m_InitBufferCursor = 0;
+    bool m_InitializationPending = false;
+    TUniquePtr<IRhiTexture> m_NormalMap;
+    TUniquePtr<IRhiTexture> m_SceneFallback;
+
+    FWaterSurface3DParams m_Params{};
+    FRipple m_Ripples[kMaxStoredRipples]{};
+
+    FMat4 m_ViewProjection{};
+    FMat4 m_InverseViewProjection{};
+    FVec3 m_CameraPos{0, 2, -5};
+    FVec3 m_SunDirection{-0.42f, 0.82f, -0.38f};
+    FVec3 m_SunColor{5.0f, 4.4f, 3.8f};
+    FVec3 m_EnvironmentZenith{0.12f, 0.14f, 0.16f};
+    FVec3 m_EnvironmentHorizon{0.18f, 0.19f, 0.20f};
+    FVec3 m_EnvironmentGround{0.025f, 0.028f, 0.032f};
+    IRhiTexture* m_ShadowMap = nullptr;
+    FMat4 m_LightViewProjection{};
+    f32 m_ShadowBias = 0.0012f;
+    f32 m_ShadowPcfRadius = 1.5f;
+    u32 m_ScreenWidth = 1;
+    u32 m_ScreenHeight = 1;
+    f32 m_Time = 0.0f;
+};
+
+} // namespace acs
+
+// ===================== threading/Thread.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// ACS Threading — スレッド生成・操作（std::thread 代替）
+//
+// CreateThread を直接ラップ。STL の std::thread と異なり例外を投げず、失敗は
+// TResult<FThread, FErrorCode> で返す。
+//
+// 主な機能:
+//   FThread::Spawn     — エントリ関数を別スレッドで起動
+//   FThread::Join      — スレッド終了を待機
+//   FThread::Detach    — スレッドハンドルを切り離す
+//   SleepMs / Yield   — 現在スレッドの停止・譲渡
+//   HardwareConcurrency — 論理 CPU 数（FThreadPool のデフォルト worker 数等で使用）
+
+
+// ===================== threading/ThreadId.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// ACS Threading — スレッド ID
+//
+// 軽量な型として FThreadId 構造体を提供。OS スレッド ID（DWORD）を u32 で保持。
+// std::thread::id 相当だが POD で扱いやすい。
+
+
+namespace acs {
+
+/**
+ * OS スレッド ID を保持する POD 型 (OS の DWORD と等価、比較可能)。
+ *
+ * @details std::thread::id 相当だが POD で扱いやすく、ハッシュキーにも使える。
+ */
+struct FThreadId {
+    /** OS スレッド ID の生の値 (Windows の DWORD)。 */
+    u32 raw = 0;
+
+    /**
+     * 2 つのスレッド ID が等しいかを返す。
+     *
+     * @param o 比較相手。
+     * @return 同じスレッド ID なら true。
+     */
+    constexpr bool operator==(FThreadId o) const noexcept { return raw == o.raw; }
+
+    /**
+     * 2 つのスレッド ID が異なるかを返す。
+     *
+     * @param o 比較相手。
+     * @return 異なるスレッド ID なら true。
+     */
+    constexpr bool operator!=(FThreadId o) const noexcept { return raw != o.raw; }
+};
+
+/**
+ * 現在のスレッドの ID を返す (GetCurrentThreadId のラッパ)。
+ *
+ * @return 呼び出しスレッドの FThreadId。
+ */
+FThreadId CurrentThreadId() noexcept;
+
+} // namespace acs
+
+namespace acs {
+
+/** スレッドのエントリポイント関数型。引数 user には Spawn 時の任意ポインタが渡る。 */
+using ThreadEntry = void (*)(void* user);
+
+/** スレッド生成オプション。 */
+struct FThreadConfig {
+    /** デバッガ表示用のスレッド名 (nullptr で無名、Spawn 時に最大 63 UTF-16 単位をコピー)。 */
+    const wchar_t* name        = nullptr;
+
+    /** スタックサイズ (バイト、0 = OS デフォルト)。 */
+    u32            stack_bytes = 0;
+
+    /** スレッド優先度 (-2..+2、THREAD_PRIORITY_* 相当、0 = 通常)。 */
+    i32            priority    = 0;
+
+    /** CPU アフィニティマスク (0 = ピン留めなし)。 */
+    u64            affinity    = 0;
+};
+
+/**
+ * RAII で OS スレッドハンドルを所有するスレッド型 (std::thread 代替)。
+ *
+ * @details
+ * CreateThread を直接ラップする。コピー不可・ムーブ可で、デストラクタはハンドルが
+ * 残っていれば CloseHandle する (Detach 相当で、スレッドの終了は待たない)。
+ */
+class FThread {
+public:
+    /** 空のハンドル (スレッドなし) を構築する。 */
+    FThread() noexcept = default;
+
+    /** ハンドルが残っていれば CloseHandle する (スレッド終了は待たない)。 */
+    ~FThread() noexcept;
+
+    /** コピー禁止 (OS ハンドルを単独所有するため)。 */
+    FThread(const FThread&) = delete;
+
+    /** コピー代入も禁止。 */
+    FThread& operator=(const FThread&) = delete;
+
+    /**
+     * ムーブ構築する。ハンドル所有権を奪い、相手を空にする。
+     *
+     * @param other ムーブ元 (実行後は空ハンドルになる)。
+     */
+    FThread(FThread&& other) noexcept;
+
+    /**
+     * ムーブ代入する。自身が持つハンドルを閉じてから所有権を奪う。
+     *
+     * @param other ムーブ元 (実行後は空ハンドルになる)。
+     * @return 自身への参照。
+     */
+    FThread& operator=(FThread&& other) noexcept;
+
+    /**
+     * 新しいスレッドを起動する。
+     *
+     * @details トランポリン経由で entry を呼ぶ。entry が null なら Threading エラー。
+     * @param entry スレッドで実行するエントリ関数。
+     * @param user entry に渡す任意ポインタ。
+     * @param cfg スレッド生成オプション (名前・スタック・優先度・アフィニティ)。
+     * @return 起動した FThread。失敗時は Memory / OS / Threading カテゴリのエラー。
+     */
+    static TResult<FThread> Spawn(ThreadEntry entry, void* user,
+                                const FThreadConfig& cfg = {}) noexcept;
+
+    /**
+     * Join 可能か (有効なハンドルを保持しているか) を返す。
+     *
+     * @return 有効なハンドルを持つなら true。
+     */
+    bool Joinable() const noexcept { return m_Handle != nullptr; }
+
+    /** スレッド終了までブロックして待機し、その後ハンドルを閉じる (空ハンドルなら何もしない)。 */
+    void Join() noexcept;
+
+    /** ハンドルだけ閉じてスレッドは独立して継続させる (終了は待たない)。 */
+    void Detach() noexcept;
+
+    /**
+     * このスレッドの ID を返す。
+     *
+     * @return スレッド ID (空ハンドルなら既定値)。
+     */
+    FThreadId Id() const noexcept { return m_Id; }
+
+private:
+    /** OS スレッドハンドル (CloseHandle 対象、null = スレッドなし)。 */
+    void*    m_Handle = nullptr;
+
+    /** 生成したスレッドの ID。 */
+    FThreadId m_Id     = {};
+};
+
+/**
+ * 現在のスレッドを指定ミリ秒スリープさせる。
+ *
+ * @param ms スリープするミリ秒数。
+ */
+void SleepMs(u32 ms) noexcept;
+
+/** 現在のスレッドが CPU を放棄し、同優先度の実行可能な他スレッドへ譲渡する。 */
+void Yield() noexcept;
+
+/**
+ * 論理 CPU 数を返す。
+ *
+ * @return 論理プロセッサ数 (取得できなければ 1)。
+ */
+u32  HardwareConcurrency() noexcept;
+
+} // namespace acs
+
+#include <atomic>
+
 namespace acs::game {
 
 class IAssetPackReader;
 class AMeshComponent3D;
+class AWaterSurface3DComponent;
+
+/**
+ * Exact gameplay hit returned by FLegacyScene3DAdapter::RaycastWater.
+ *
+ * @details Point and normal are expressed in world space. Distance is the
+ * parameter on the caller's ray (`origin + direction * distance`), so callers
+ * may use normalized or deliberately scaled directions without a hidden
+ * conversion.
+ */
+struct FWaterRaycastHit {
+    FNodeId Node{};
+    FVec3 Point{};
+    FVec3 Normal{0.0f, 1.0f, 0.0f};
+    f32 Distance = 0.0f;
+
+    bool IsValid() const noexcept { return Node.IsValid(); }
+};
 
 /**
  * Per-camera projection state for the canonical scene runtime.
@@ -47394,7 +49907,7 @@ enum class ESceneProjectionMode : u8 {
 class FLegacyScene3DAdapter : public FScene {
 public:
     FLegacyScene3DAdapter() noexcept = default;
-    ~FLegacyScene3DAdapter() noexcept override = default;
+    ~FLegacyScene3DAdapter() noexcept override;
 
     FLegacyScene3DAdapter(const FLegacyScene3DAdapter&) = delete;
     FLegacyScene3DAdapter& operator=(const FLegacyScene3DAdapter&) = delete;
@@ -47431,6 +49944,39 @@ public:
     /** Recompute a useful camera target/distance from all renderable nodes. */
     void FrameScene() noexcept;
 
+    /**
+     * Raycast authorable water without consuming or capturing platform input.
+     *
+     * @details Plane primitives use an exact bounded-plane test and custom
+     * meshes use their authored triangles. A nearer visible opaque mesh rejects
+     * a water hit, preventing interactions through foreground geometry.
+     */
+    bool RaycastWater(
+        const FRay3& ray,
+        FWaterRaycastHit& out_hit,
+        f32 max_distance = 3.4028235e38f) const noexcept;
+
+    /** Add an impact to one exact water surface. */
+    bool AddWaterDisturbance(
+        FNodeId surface,
+        FVec3 world_point,
+        f32 radius = 0.18f,
+        f32 strength = 0.22f) noexcept;
+
+    /** Add a directional wake to one exact water surface. */
+    bool AddWaterWake(
+        FNodeId surface,
+        FVec3 world_point,
+        FVec3 world_velocity,
+        f32 radius = 0.20f,
+        f32 strength = 0.14f) noexcept;
+
+    /** Number of currently active disturbances owned by one water surface. */
+    u32 ActiveWaterRippleCount(FNodeId surface) const noexcept {
+        return m_Water.ActiveRippleCountForSurface(
+            static_cast<u64>(surface.m_Packed));
+    }
+
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
@@ -47443,16 +49989,195 @@ private:
         FGpuMesh Mesh;
     };
 
+    enum class EWaterGpuState : u8 {
+        Unavailable = 0,
+        Compiling,
+        CpuCompiling,
+        PendingCommit,
+        Buffering,
+        Ready,
+        Failed,
+    };
+
+    enum class ESkyGpuState : u8 {
+        Unavailable = 0,
+        Compiling,
+        CpuCompiling,
+        PendingCommit,
+        Ready,
+        Failed,
+    };
+
+    enum class EShaderGpuState : u8 {
+        Unavailable = 0,
+        Compiling,
+        CpuCompiling,
+        PendingCommit,
+        Ready,
+        Failed,
+    };
+
+    /** The one renderer subsystem allowed to publish GPU state this frame. */
+    enum class EGpuCommitSubsystem : u8 {
+        None = 0,
+        Post,
+        HdrPbr,
+        HdrSsss,
+        Subsurface,
+        Sky,
+        Blit,
+        Water,
+    };
+
+    struct FWaterDraw {
+        const ANode* Node = nullptr;
+        const AMeshComponent3D* Mesh = nullptr;
+        const AWaterSurface3DComponent* Water = nullptr;
+        const FGpuMesh* Gpu = nullptr;
+    };
+
     bool EnsureGpu(FRenderContext& context) noexcept;
+    bool EnsureHdrFrameResources(
+        IRhiDevice& device, u32 width, u32 height,
+        EFormat swapchain_format, EFormat depth_format,
+        EGpuCommitSubsystem& frame_commit) noexcept;
+    bool BeginSkyCpuCompilation() noexcept;
+    bool BeginWaterCpuCompilation() noexcept;
+    bool BeginHdrPbrCpuCompilation(
+        IRhiDevice& device,
+        EFormat rt_format,
+        EFormat depth_format) noexcept;
+    bool BeginHdrSsssCpuCompilation(
+        IRhiDevice& device,
+        EFormat rt_format,
+        EFormat depth_format) noexcept;
+    bool BeginSubsurfaceCpuCompilation(
+        IRhiDevice& device) noexcept;
+    bool BeginPostCpuCompilation() noexcept;
+    bool BeginBlitCpuCompilation() noexcept;
+    static void SkyCpuCompileWorkerEntry(void* user) noexcept;
+    static void WaterCpuCompileWorkerEntry(void* user) noexcept;
+    static void HdrPbrCpuCompileWorkerEntry(void* user) noexcept;
+    static void HdrSsssCpuCompileWorkerEntry(void* user) noexcept;
+    static void SubsurfaceCpuCompileWorkerEntry(void* user) noexcept;
+    static void PostCpuCompileWorkerEntry(void* user) noexcept;
+    static void BlitCpuCompileWorkerEntry(void* user) noexcept;
+    void JoinCpuCompileWorkers() noexcept;
+    static bool TryClaimGpuCommit(
+        EGpuCommitSubsystem& frame_commit,
+        EGpuCommitSubsystem subsystem) noexcept;
+    void AdvanceSkyInitialization(
+        IRhiDevice& device,
+        EGpuCommitSubsystem& frame_commit) noexcept;
+    void AdvanceWaterInitialization(
+        IRhiDevice& device,
+        EGpuCommitSubsystem& frame_commit,
+        bool scene_has_water) noexcept;
+    void AdvanceHdrPbrInitialization(
+        IRhiDevice& device,
+        EGpuCommitSubsystem& frame_commit) noexcept;
+    void AdvanceHdrSsssInitialization(
+        IRhiDevice& device,
+        EGpuCommitSubsystem& frame_commit,
+        bool scene_needs_subsurface) noexcept;
+    void AdvanceSubsurfaceInitialization(
+        IRhiDevice& device, u32 width, u32 height,
+        EGpuCommitSubsystem& frame_commit,
+        bool scene_needs_subsurface) noexcept;
+    void EnsureSubsurfaceAuxTargets(
+        IRhiDevice& device, u32 width, u32 height,
+        EGpuCommitSubsystem& frame_commit,
+        bool scene_needs_subsurface) noexcept;
+    void AdvancePostInitialization(
+        IRhiDevice& device, u32 width, u32 height,
+        EFormat swapchain_format,
+        EGpuCommitSubsystem& frame_commit) noexcept;
+    void AdvanceBlitInitialization(
+        IRhiDevice& device,
+        EGpuCommitSubsystem& frame_commit,
+        bool requested) noexcept;
     bool UploadGraphMeshes(IRhiDevice& device) noexcept;
+    void DrainAndReleaseGpu() noexcept;
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
+    u32 CollectWaterDraws(
+        FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
+        IRhiTexture* depth, u32 width, u32 height) const noexcept;
+    bool DrawPbrScene(
+        FRenderContext& context,
+        FPbrShader& shader,
+        const FWaterDraw* excluded_water,
+        u32 excluded_count,
+        bool subsurface_mrt = false) noexcept;
+    void DrawWaterScene(
+        FRenderContext& context,
+        const FWaterDraw* water_draws,
+        u32 water_count,
+        IRhiTexture& background,
+        IRhiTexture& opaque_depth_snapshot) noexcept;
+    void DrawWaterFallback(
+        FRenderContext& context,
+        const FWaterDraw* water_draws,
+        u32 water_count) noexcept;
+    FPbrShader& ActiveHdrShader() noexcept {
+        return m_HdrShaders[m_HdrActiveSlot];
+    }
+    const FPbrShader& ActiveHdrShader() const noexcept {
+        return m_HdrShaders[m_HdrActiveSlot];
+    }
 
     FScene3D m_Graph;
     FScene3DLoadResult m_LoadResult{};
-    FPbrShader m_Shader;
+    FPbrShader m_HdrShaders[2];
+    FPbrShader::FCompiledShaders m_HdrPendingShaders{};
+    FThread m_HdrCompileWorker;
+    std::atomic<i32> m_HdrCompileWorkerState{0};
+    IRhiDevice* m_HdrCompileDevice = nullptr;
+    EFormat m_HdrCompileRtFormat = EFormat::R16G16B16A16_Float;
+    EFormat m_HdrCompileDepthFormat = EFormat::D32_Float;
+    u8 m_HdrActiveSlot = 0u;
+    u8 m_HdrPendingSlot = 1u;
+    bool m_HdrPendingIsInitialized = false;
+    FPbrShader::FCompiledShaders m_HdrSsssPendingShaders{};
+    FThread m_HdrSsssCompileWorker;
+    std::atomic<i32> m_HdrSsssCompileWorkerState{0};
+    IRhiDevice* m_HdrSsssCompileDevice = nullptr;
+    EFormat m_HdrSsssCompileRtFormat = EFormat::R16G16B16A16_Float;
+    EFormat m_HdrSsssCompileDepthFormat = EFormat::D32_Float;
+    u8 m_HdrSsssPendingSlot = 0u;
+    bool m_HdrSsssPendingIsInitialized = false;
+    FSubsurfaceScattering m_Ssss;
+    FSubsurfaceScattering::FCompiledShaders m_SsssPendingShaders{};
+    FThread m_SsssCompileWorker;
+    std::atomic<i32> m_SsssCompileWorkerState{0};
+    IRhiDevice* m_SsssCompileDevice = nullptr;
+    bool m_SsssPendingIsInitialized = false;
+    TUniquePtr<IRhiTexture> m_SsssDiffuse;
+    TUniquePtr<IRhiTexture> m_SsssMaterial;
+    TUniquePtr<IRhiTexture> m_SsssNormal;
+    TUniquePtr<IRhiTexture> m_SsssPendingDiffuse;
+    TUniquePtr<IRhiTexture> m_SsssPendingMaterial;
+    TUniquePtr<IRhiTexture> m_SsssPendingNormal;
+    FPostProcess m_Post;
+    FPostProcess::FCompiledShaders m_PostPendingShaders{};
+    FThread m_PostCompileWorker;
+    std::atomic<i32> m_PostCompileWorkerState{0};
+    FBlit m_Blit;
+    FBlit::FCompiledShaders m_BlitPendingShaders{};
+    FThread m_BlitCompileWorker;
+    std::atomic<i32> m_BlitCompileWorkerState{0};
+    FSky m_Sky;
+    FSky::FCompiledShaders m_SkyPendingShaders{};
+    FThread m_SkyCompileWorker;
+    std::atomic<i32> m_SkyCompileWorkerState{0};
+    FWaterSurface3D m_Water;
+    FWaterSurface3D::FCompiledShaders m_WaterPendingShaders{};
+    FThread m_WaterCompileWorker;
+    std::atomic<i32> m_WaterCompileWorkerState{0};
+    TUniquePtr<IRhiTexture> m_WaterBackground;
+    TUniquePtr<IRhiTexture> m_WaterDepthSnapshot;
     FGpuMesh m_Cube;
     FGpuMesh m_Sphere;
     FGpuMesh m_Plane;
@@ -47463,7 +50188,30 @@ private:
     f32 m_Yaw = 0.0f;
     f32 m_Pitch = 0.22f;
     f32 m_Time = 0.0f;
+    FPostProcessParams m_PostParams{};
     ESceneProjectionMode m_Projection = ESceneProjectionMode::Perspective;
+    EShaderGpuState m_HdrShaderGpuState = EShaderGpuState::Unavailable;
+    EShaderGpuState m_HdrSsssGpuState = EShaderGpuState::Unavailable;
+    EShaderGpuState m_SsssGpuState = EShaderGpuState::Unavailable;
+    EShaderGpuState m_PostGpuState = EShaderGpuState::Unavailable;
+    EShaderGpuState m_BlitGpuState = EShaderGpuState::Unavailable;
+    ESkyGpuState m_SkyGpuState = ESkyGpuState::Unavailable;
+    EWaterGpuState m_WaterGpuState = EWaterGpuState::Unavailable;
+    u32 m_FrameWidth = 0u;
+    u32 m_FrameHeight = 0u;
+    u32 m_BackgroundAttemptWidth = 0u;
+    u32 m_BackgroundAttemptHeight = 0u;
+    u32 m_DepthAttemptWidth = 0u;
+    u32 m_DepthAttemptHeight = 0u;
+    u32 m_SsssResizeAttemptWidth = 0u;
+    u32 m_SsssResizeAttemptHeight = 0u;
+    u32 m_SsssAuxAttemptWidth = 0u;
+    u32 m_SsssAuxAttemptHeight = 0u;
+    u32 m_SsssPendingAuxWidth = 0u;
+    u32 m_SsssPendingAuxHeight = 0u;
+    EFormat m_FrameDepthFormat = EFormat::D32_Float;
+    bool m_DepthSnapshotFailed = false;
+    bool m_SsssRequested = false;
     bool m_GpuReady = false;
     bool m_GpuAttempted = false;
 };
@@ -49172,6 +51920,98 @@ private:
 
     /** 全タイルへ乗算する tint カラー。 */
     FVec4        m_Tint{1.0f, 1.0f, 1.0f, 1.0f};
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/WaterSurface3DComponent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// Authorable 3D interactive-water component shared by editor and runtime.
+
+
+namespace acs::game {
+
+/**
+ * Marks a mesh node as an interactive 3D water surface.
+ *
+ * The compact public field set is deliberately identical to the editor
+ * reflection schema. Scene3D loading can therefore materialize the component
+ * and apply authored values directly, while the renderer receives the same
+ * sanitized FWaterSurface3DParams through ToRenderParams().
+ */
+class AWaterSurface3DComponent final : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(AWaterSurface3DComponent)
+
+    FVec3 shallowColor{0.055f, 0.38f, 0.50f};
+    FVec3 deepColor{0.008f, 0.055f, 0.16f};
+    FVec3 absorption{0.34f, 0.13f, 0.040f};
+    FVec3 scattering{0.018f, 0.050f, 0.085f};
+
+    /** Henyey-Greenstein phase anisotropy for subsurface scattering. */
+    f32 phaseAnisotropy = 0.62f;
+
+    /** Whitewater and contact-foam tint. */
+    FVec3 foamColor{0.88f, 0.96f, 1.0f};
+
+    f32 roughness = 0.105f;
+
+    /** Fine normal-map slope strength. */
+    f32 normalStrength = 0.82f;
+
+    /** Normal-map repetitions per world unit. */
+    f32 normalTiling = 0.075f;
+
+    FVec2 flowDirection{0.92f, 0.38f};
+
+    /** Analytic macro-wave displacement. */
+    f32 waveAmplitude = 0.105f;
+
+    /** Analytic macro-wave spatial scale. */
+    f32 waveScale = 0.78f;
+
+    /** Wave and normal animation speed. */
+    f32 waveSpeed = 0.72f;
+
+    f32 rippleSpeed = 2.65f;
+    f32 rippleWavelength = 0.52f;
+
+    /** Seconds before a disturbance reaches a C2-continuous zero. */
+    f32 rippleLifetime = 4.0f;
+
+    /** Exponential attenuation applied before the smooth lifetime tail. */
+    f32 rippleDamping = 0.78f;
+
+    /** Screen-space refraction displacement strength. */
+    f32 refractionStrength = 0.72f;
+
+    f32 opticalDepth = 1.35f;
+    f32 foamIntensity = 0.82f;
+
+    FWaterSurface3DParams ToRenderParams() const noexcept {
+        FWaterSurface3DParams params{};
+        params.shallow_color = shallowColor;
+        params.deep_color = deepColor;
+        params.absorption = absorption;
+        params.scattering = scattering;
+        params.phase_anisotropy = phaseAnisotropy;
+        params.foam_color = foamColor;
+        params.roughness = roughness;
+        params.normal_strength = normalStrength;
+        params.normal_tiling = normalTiling;
+        params.flow_direction = flowDirection;
+        params.wave_amplitude = waveAmplitude;
+        params.wave_scale = waveScale;
+        params.wave_speed = waveSpeed;
+        params.ripple_speed = rippleSpeed;
+        params.ripple_wavelength = rippleWavelength;
+        params.ripple_lifetime = rippleLifetime;
+        params.ripple_damping = rippleDamping;
+        params.refraction_strength = refractionStrength;
+        params.optical_depth = opticalDepth;
+        params.foam_intensity = foamIntensity;
+        return params;
+    }
 };
 
 } // namespace acs::game
@@ -86964,51 +89804,6 @@ void InstallOnnxAsDefault() noexcept;
 #if ACS_ASSERTS_ENABLED
 
 
-// ===================== threading/ThreadId.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// ACS Threading — スレッド ID
-//
-// 軽量な型として FThreadId 構造体を提供。OS スレッド ID（DWORD）を u32 で保持。
-// std::thread::id 相当だが POD で扱いやすい。
-
-
-namespace acs {
-
-/**
- * OS スレッド ID を保持する POD 型 (OS の DWORD と等価、比較可能)。
- *
- * @details std::thread::id 相当だが POD で扱いやすく、ハッシュキーにも使える。
- */
-struct FThreadId {
-    /** OS スレッド ID の生の値 (Windows の DWORD)。 */
-    u32 raw = 0;
-
-    /**
-     * 2 つのスレッド ID が等しいかを返す。
-     *
-     * @param o 比較相手。
-     * @return 同じスレッド ID なら true。
-     */
-    constexpr bool operator==(FThreadId o) const noexcept { return raw == o.raw; }
-
-    /**
-     * 2 つのスレッド ID が異なるかを返す。
-     *
-     * @param o 比較相手。
-     * @return 異なるスレッド ID なら true。
-     */
-    constexpr bool operator!=(FThreadId o) const noexcept { return raw != o.raw; }
-};
-
-/**
- * 現在のスレッドの ID を返す (GetCurrentThreadId のラッパ)。
- *
- * @return 呼び出しスレッドの FThreadId。
- */
-FThreadId CurrentThreadId() noexcept;
-
-} // namespace acs
-
 namespace acs::detail {
 
 /**
@@ -90934,98 +93729,6 @@ private:
 
 } // namespace acs
 
-// ===================== render/Blit.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// フルスクリーン texture コピー (ブリット) ユーティリティ
-//
-// 用途: 1 つの Texture2D (通常は描画済みの RT) をもう 1 つの Texture2D
-//       (is_render_target=true で作成済) へ pixel-perfect にコピーする。
-//       直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ
-//       sample で代替する標準テクニック。
-//
-// 想定ユースケース: スクリーンスペース屈折のための background capture
-// (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
-//
-// 使い方:
-//   FBlit blit;
-//   blit.Init(*device, hdr_format);                    // 1 度だけ
-//   // フレーム中、コピーしたい時点で:
-//   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
-
-
-namespace acs {
-
-/**
- * フルスクリーン三角形で 1 つのテクスチャを別のテクスチャへコピーするブリット。
- *
- * @details
- * 直接 GPU copy が RHI に無いため、フルスクリーン三角形 + テクスチャ sample で
- * pixel-perfect コピーを行う標準テクニック。出力 RT のフォーマットは Init 時に
- * PSO へ焼き込むため、別フォーマットへコピーしたい場合は別インスタンスを使う。
- */
-class FBlit {
-public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBlit() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBlit() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBlit(const FBlit&)            = delete;
-
-    /** コピー代入も禁止。 */
-    FBlit& operator=(const FBlit&) = delete;
-
-    /**
-     * シェーダとパイプラインを生成して初期化する。
-     *
-     * @details
-     * rt_format は Copy の出力 RT のフォーマットで、PSO に焼き込まれる。出力 RT を
-     * 別フォーマットに切り替えたい場合は別の FBlit インスタンスを使うこと。
-     * @param device シェーダ・パイプライン生成に使う RHI デバイス。
-     * @param rt_format 出力 RT のフォーマット (PSO に焼き込む)。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
-
-    /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
-    void Shutdown() noexcept;
-
-    /**
-     * src を dst へフルスクリーン pass でコピーする。
-     *
-     * @details
-     * dst は is_render_target=true で Init 時の rt_format と一致すること。内部で
-     * BeginRenderToTextureLoad(dst) → SetPipeline → SetTexture → Draw(3) →
-     * EndRenderToTexture(dst) を行う。全 pixel を上書きするので clear 不要、
-     * viewport は dst のサイズに自動設定される。
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param src コピー元テクスチャ。
-     * @param dst コピー先 RT (rt_format に一致すること)。
-     */
-    void Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept;
-
-    /**
-     * 内部のブリット用パイプラインを返す。
-     *
-     * @return ブリット用パイプライン (未初期化なら nullptr)。
-     */
-    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
-
-private:
-    /** フルスクリーン三角形の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** source texture を素 sample するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** ブリット描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-};
-
-} // namespace acs
-
 // ===================== render/BurnEffect.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // 紙が燃えて消える per-pixel ディゾルブ (2D オーバーレイ用シェーダ効果)
@@ -92325,10 +95028,11 @@ private:
 //   FMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
-//   mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter);
-//   for (each mesh) mv.DrawMesh(*cl, gm, curr_model, prev_model);
-//   mv.End(*cl);
-//   post_params.taa_motion_texture = mv.OutputTexture();
+//   if (mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
+//       for (each mesh) mv.DrawMesh(*cl, gm, curr_model, prev_model);
+//       mv.End(*cl);
+//       post_params.taa_motion_texture = mv.OutputTexture();
+//   }
 
 
 namespace acs {
@@ -92386,8 +95090,11 @@ public:
      * @param cl コマンドを積むコマンドリスト。
      * @param view_proj 現フレームの jitter なし VP。
      * @param prev_view_proj 前フレームの jitter なし VP。
+     * @return true only when both MRT attachments and depth were bound. A
+     *         false result leaves the pass inactive; DrawMesh() and End()
+     *         become no-ops until a later successful Begin().
      */
-    void Begin(IRhiCommandList& cl,
+    bool Begin(IRhiCommandList& cl,
                const FMat4& view_proj, const FMat4& prev_view_proj) noexcept;
 
     /**
@@ -92485,6 +95192,15 @@ private:
     static constexpr u32     kObjectCbRing = 256;
     TUniquePtr<IRhiBuffer>   m_Cbs[kObjectCbRing];
     u32                      m_DrawCursor = 0;
+
+    /**
+     * True only between a successful MRT Begin and its matching End.
+     *
+     * The RHI can reject an attachment set without changing backend state.
+     * Keeping that result here prevents stale-target draws and prevents End
+     * from unbinding or transitioning resources that were never bound.
+     */
+    bool                     m_PassActive = false;
 };
 
 } // namespace acs
@@ -92845,572 +95561,6 @@ private:
 
 } // namespace acs
 
-// ===================== render/PostProcess.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// HDR ポストプロセス (Bloom + Tonemap) パイプライン
-//
-// 想定ワークフロー:
-//   1) FRenderer.BeginFrame() の直前で FPostProcess.BeginScenePass()
-//      → HDR R16G16B16A16_Float RT に切替
-//   2) シーン (FSky, FStandardShader, FParticleSystem 等) を HDR で描画
-//   3) FPostProcess.Render(cmd, swapchain_buffer)
-//      → Bloom (extract → downsample → upsample) → Tonemap → Backbuffer
-//   4) FRenderer.EndFrame() で Present
-//
-// 設計上の選択:
-//   - Bloom は 5 段の mip chain (1/2, 1/4, ... 1/32) で downsample → upsample
-//   - Tonemap は ACES Filmic (Narkowicz 2016 近似) → 最後に sRGB ガンマ
-//   - パイプラインは Diligent backend を前提（Dx12 raw は未対応）
-
-
-namespace acs {
-
-class IRhiTexture;
-
-/**
- * ポストプロセス効果のパラメータ一式。
- *
- * @details
- * Bloom / Tonemap / Cinematic FX / Color grading / CAS / TAA / Auto-exposure の
- * 全パラメータを保持し、FPostProcess::Render に 1 つ渡す。各メンバは既定値で
- * 「無効 or 中性」になるよう設計してある。
- */
-struct FPostProcessParams {
-    /** Bloom を有効にするか。 */
-    bool  bloom_enabled    = true;
-
-    /** この輝度を超えるピクセルを Bloom 元として抽出する閾値 (HDR scale)。 */
-    f32   bloom_threshold  = 1.0f;
-
-    /** Bloom を加算する強度 (0..2)。 */
-    f32   bloom_intensity  = 0.6f;
-
-    /** upsample 時の半径スケール。 */
-    f32   bloom_radius     = 1.0f;
-
-    /**
-     * 隣接 mip 間の散乱率 (0=局所的、1=最広域)。
-     *
-     * @details 各段を等重みで加算せず、正規化した補間で合成する。0.65 前後で
-     * 発光体の芯を残しつつ、白い霧のようなエネルギー増幅を防ぐ。
-     */
-    f32   bloom_scatter    = 0.65f;
-
-    /** 露出 (1.0 = 中性)。 */
-    f32   exposure         = 1.0f;
-
-    /** 出力ガンマ。 */
-    f32   gamma            = 2.2f;
-
-    /**
-     * Tonemap カーブの種類。
-     *
-     * @details
-     * 0=ACES Filmic (Narkowicz)、1=AgX (Sobotka)、2=Reinhard 拡張。AgX は彩度を
-     * 控えめにする tonemap (UE5 デフォルトに近い neutral look)。既存サンプル互換の
-     * ため初期値は ACES。
-     */
-    i32   tonemap_kind     = 0;
-
-    /** ビネット (端の暗化) 強度 0..1。 */
-    f32   vignette_intensity = 0.2f;
-
-    /** ビネットが始まる半径 (0=中心、1=端)。 */
-    f32   vignette_radius    = 0.5f;
-
-    /** 色収差: RGB の半径方向 offset。0 で無効。 */
-    f32   chromatic_aberration = 0.002f;
-
-    /** フィルムグレイン強度 0..0.1。 */
-    f32   grain_intensity    = 0.015f;
-
-    /** procedural noise のシード (FApplication から dt 累積)。 */
-    f32   grain_time         = 0.0f;
-
-    /**
-     * tonemap 直前に additive 合成する SSR 出力テクスチャ (FSsr::OutputTexture())。
-     *
-     * @details null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で
-     * 適用済みのため二重適用はされない。
-     */
-    IRhiTexture* ssr_texture = nullptr;
-
-    /** tonemap 側での SSR の最終 mix 強度 (既定 1.0)。 */
-    f32          ssr_intensity = 1.0f;
-
-    /** カラーグレーディング (ASC-CDL 風) の彩度: 0=モノクロ、1=neutral、>1=ブースト。 */
-    f32  cg_saturation   = 1.0f;
-
-    /** カラーグレーディングのコントラスト: 0..2、中心 0.5 を pivot とした curve。 */
-    f32  cg_contrast     = 1.0f;
-
-    /** 色温度: -1=cool/blue、0=neutral、+1=warm/orange。 */
-    f32  cg_temperature  = 0.0f;
-
-    /** 色合い (tint): -1=green、0=neutral、+1=magenta。 */
-    f32  cg_tint         = 0.0f;
-
-    /** shadow 域の色 offset (足し算)。 */
-    FVec3 cg_lift         = FVec3{0, 0, 0};
-
-    /** highlight 域の色 multiplier。 */
-    FVec3 cg_gain         = FVec3{1, 1, 1};
-
-    /**
-     * CAS シャープニング (AMD FSR 簡略版) の強度。
-     *
-     * @details カラーグレーディング後 / gamma 前に適用。0=無効、0.3=subtle、0.6=neutral、
-     * 1.0=strong。負値は不可。既定で subtle に効かせ、見かけの解像感を上げる
-     * (HDR-aware なので白飛び域でも破綻しない)。0 にすれば従来どおり無効。
-     */
-    f32  cas_strength    = 0.3f;
-
-    /**
-     * TAA (Temporal Anti-Aliasing) を有効にするか。
-     *
-     * @details
-     * Halton jitter を FCamera で適用した上で、history と neighborhood-clamp blend して
-     * resolve する。false なら tonemap は直接 HDR RT を読み、true なら Pass_TaaResolve を
-     * 実行して tonemap は resolved RT を読む。
-     */
-    bool taa_enabled = false;
-
-    /**
-     * history 重み (現フレームを何割取り込むか)。
-     *
-     * @details 0.1 = 10% current + 90% history が標準。値が小さいほどスムージングが強い
-     * (motion ghost も増える)。
-     */
-    f32  taa_blend_factor = 0.1f;
-
-    /**
-     * TAA reprojection 用の depth テクスチャ。
-     *
-     * @details null なら motion=0 (静的 reprojection 無し、カメラを動かすと ghost する)。
-     * set すると camera motion 由来の motion vector で history を offset sample する。
-     */
-    IRhiTexture* taa_depth_texture = nullptr;
-
-    /** Halton 適用前の view_proj 行列 (TAA reprojection 用)。 */
-    FMat4         taa_view_proj_no_jitter{};
-
-    /** 前フレームの view_proj 行列 (Halton 適用前、TAA reprojection 用)。 */
-    FMat4         taa_prev_view_proj_no_jitter{};
-
-    /** reactive cloud depth と scene depth の実距離比較に使う現在カメラ位置。 */
-    FVec3         taa_camera_position{};
-
-    /**
-     * 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
-     *
-     * @details
-     * 非 null なら TAA は depth reprojection の代わりにこのテクスチャで history を引く。
-     * motion vector は camera 動き + object 動きの両方を含むため、動く mesh の ghost/trail が
-     * 消える。null なら従来の depth reprojection にフォールバックする。depth slot (t2) を
-     * 再利用して bind するため TAA resolve PSO の slot 数は不変。
-     */
-    IRhiTexture* taa_motion_texture = nullptr;
-
-    /**
-     * TAA history を現在フレームへ置換する reactive mask。
-     *
-     * @details RG の R 成分をカメラからの距離、G 成分を coverage として読む。
-     * taa_depth_texture と taa_camera_position で scene の実距離を復元し、scene より
-     * 手前に見えている coverage だけを reactive とする。ボリューメトリック雲のように
-     * 独自の temporal resolve を済ませた要素を渡すと、その画素と 1 px の境界帯では
-     * global TAA history を混ぜない。これによりジオメトリの TAA は維持しつつ、雲へ
-     * 二重に history を掛ける ghost/trail を防ぐ。null なら reactive mask は無効。
-     */
-    IRhiTexture* taa_reactive_texture = nullptr;
-
-    /**
-     * Auto-exposure を有効にするか。
-     *
-     * @details
-     * false なら exposure をそのまま使う (既存サンプル互換)。true なら luma reduction →
-     * 露出順応 → ExposureApply の 3 pass を内部で実行し、露出はシーン輝度から自動算出される。
-     * このとき exposure は「自動露出にさらに掛ける手動補正 (EV compensation)」として働く
-     * (中性 = 1.0)。
-     */
-    bool auto_exposure_enabled = false;
-
-    /** 露出後の目標平均輝度。大きいほど明るく写る。 */
-    f32  auto_exposure_key     = 0.5f;
-
-    /** 自動露出の下限 (明所での白飛びを防ぐ)。 */
-    f32  auto_exposure_min     = 0.05f;
-
-    /** 自動露出の上限 (暗所での黒つぶれを防ぐ)。 */
-    f32  auto_exposure_max     = 12.0f;
-
-    /** eye adaptation 速度 (/秒、大きいほど速く順応)。 */
-    f32  auto_exposure_speed   = 1.8f;
-
-    /** 露出順応の時間補間に使うフレーム時間。 */
-    f32  delta_time            = 0.0166f;
-
-    /**
-     * Replaces non-finite values with defaults and clamps bounded controls to
-     * the ranges accepted by the post-process shaders.
-     *
-     * @details Render() sanitizes a local copy automatically. Editor/property
-     * systems may call this method to normalize values before displaying them.
-     */
-    void Sanitize() noexcept;
-};
-
-/**
- * HDR ポストプロセス (Bloom + Tonemap + 各種効果) パイプライン。
- *
- * @details
- * シーンを HDR R16G16B16A16_Float RT に描画した後、Bloom (extract → downsample →
- * upsample) → 任意の TAA resolve → Tonemap (ACES/AgX/Reinhard) → backbuffer の順に
- * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。Diligent
- * backend を前提とし、GPU リソースを単独所有する non-copy 型。
- */
-class FPostProcess {
-public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FPostProcess() noexcept = default;
-
-    /** 破棄する (確保した GPU リソースを解放)。 */
-    ~FPostProcess() noexcept;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FPostProcess(const FPostProcess&) = delete;
-
-    /** コピー代入も禁止。 */
-    FPostProcess& operator=(const FPostProcess&) = delete;
-
-    /**
-     * HDR RT + Bloom mip chain + Tonemap パイプラインを作成する。
-     *
-     * @param device リソース・パイプライン生成に使う RHI デバイス。
-     * @param width 出力解像度の幅 (通常はバックバッファサイズ)。
-     * @param height 出力解像度の高さ。
-     * @param color_format 最終出力 (バックバッファ) のフォーマット。
-     * @return 成功なら空の TResult、確保失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device, u32 width, u32 height,
-                       EFormat color_format) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * ウィンドウサイズ変更時に HDR RT 等を再作成する。
-     *
-     * @param width 新しい出力幅。
-     * @param height 新しい出力高さ。
-     * @return 成功なら空の TResult、再確保失敗ならエラー。
-     */
-    TResult<void> Resize(u32 width, u32 height) noexcept;
-
-    /**
-     * シーンを描画する HDR RT を返す (FRenderer がここに描画する)。
-     *
-     * @return HDR R16G16B16A16_Float のレンダーターゲット。
-     */
-    IRhiTexture* HdrRenderTarget() const noexcept { return m_HdrRt.Get(); }
-
-    /**
-     * HDR RT のフォーマットを返す。
-     *
-     * @return HDR RT のフォーマット (既定 R16G16B16A16_Float)。
-     */
-    EFormat       HdrFormat()       const noexcept { return m_HdrFormat; }
-
-    /**
-     * Bloom + Tonemap (+ 任意の TAA / auto-exposure) を実行し swapchain buffer へ書き出す。
-     *
-     * @param cmd 既に Begin 済みのコマンドリスト。
-     * @param swapchain 出力先 (backbuffer をこのインスタンスから取り出す)。
-     * @param buffer_index AcquireNextImage の戻り値。
-     * @param params 適用する効果のパラメータ。
-     */
-    void Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
-                const FPostProcessParams& params) noexcept;
-
-private:
-    /**
-     * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
-     *
-     * @details Downsample は Jimenez 13-tap。段数を増やすと «より低周波 (広い)» の soft glow まで
-     * 届き、UE5 風の広く柔らかい bloom になる。段数増による強度 lift は progressive upsample radius
-     * (深い mip ほど tent を広げる) と bloom_intensity 側で吸収する。各 mip は 1px までクランプ確保。
-     */
-    static constexpr u32 kBloomMips = 6;
-
-    /**
-     * HDR RT と Bloom mip chain を生成する。
-     *
-     * @param device RT 生成に使う RHI デバイス。
-     * @param w 出力幅。
-     * @param h 出力高さ。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept;
-
-    /**
-     * 全パスのシェーダとパイプラインを生成する。
-     *
-     * @param device パイプライン生成に使う RHI デバイス。
-     * @return 成功なら空の TResult、生成失敗ならエラー。
-     */
-    TResult<void> CreatePipelines(IRhiDevice& device) noexcept;
-
-    /**
-     * Bloom 抽出パス: シーン入力から閾値超えの輝度を bloom_mips[0] へ書く。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param p 適用する効果のパラメータ。
-     */
-    void Pass_Extract  (IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
-
-    /**
-     * Bloom downsample パス: bloom_mips[from_mip] を次段へ 13-tap で縮約する。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param from_mip 入力元の mip 段。
-     */
-    void Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept;
-
-    /**
-     * Bloom upsample パス: 下段を 1 段上へ additive 合成する。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param to_mip 合成先の mip 段。
-     * @param radius upsample 時の半径スケール。
-     */
-    void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius, f32 scatter) noexcept;
-
-    /**
-     * Bloom separable Gaussian blur: 1 つの mip を H or V 方向に 1 次元ガウスぼかしする。
-     * H パス (mip→tmp) と V パス (tmp→mip) を続けて呼ぶと «円形» の 2D ガウスになる。
-     * box mip チェーンと違い点光源が四角くならない (DirectXTK 風)。
-     *
-     * @param cmd コマンドリスト。
-     * @param mip 対象 mip 段 (m_BloomMips[mip] ↔ m_BloomTmp[mip])。
-     * @param horizontal true=水平パス (mip→tmp)、false=垂直パス (tmp→mip)。
-     * @param amount ガウスの広がり (texel 単位の step スケール)。
-     */
-    void Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept;
-
-    /**
-     * TAA resolve パス: 現フレームと history を neighborhood-clamp blend する。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param p 適用する効果のパラメータ。
-     */
-    void Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
-
-    /**
-     * Tonemap パス: HDR + Bloom を合成し tonemap して backbuffer へ書く。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param sc 出力先スワップチェーン。
-     * @param buf_idx 書き出すバックバッファの index。
-     * @param p 適用する効果のパラメータ。
-     */
-    void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
-                        const FPostProcessParams& p) noexcept;
-
-    /**
-     * Auto-exposure: HDR を log2 輝度の mip chain に縮約する luma reduction パス。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     */
-    void Pass_LumaReduce  (IRhiCommandList& cmd) noexcept;
-
-    /**
-     * Auto-exposure: 測定した平均輝度から目標露出へ eye adaptation で順応させる。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     * @param p 適用する効果のパラメータ。
-     */
-    void Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
-
-    /**
-     * Auto-exposure: 順応済み露出を HDR に掛けて m_ExposedRt へ書く。
-     *
-     * @param cmd コマンドを積むコマンドリスト。
-     */
-    void Pass_ExposureApply(IRhiCommandList& cmd) noexcept;
-
-    /**
-     * 下流パス (TAA / Bloom / Tonemap) が読むシーン texture を返す。
-     *
-     * @param p 適用する効果のパラメータ。
-     * @return auto-exposure 有効なら露出適用後の m_ExposedRt、そうでなければ raw m_HdrRt。
-     */
-    IRhiTexture* SceneInput(const FPostProcessParams& p) const noexcept;
-
-    /**
-     * 同一フレーム内の各 fullscreen draw 専用 Post CB を取得する。
-     *
-     * @details Raw DX12 の cpu_writable buffer はフレーム間のみリング化されるため、同じ
-     * buffer を複数パスで Update すると、実行時に全 draw が最後の値を読む。各 draw に
-     * 別 resource を割り当てて GPU address を固定する。
-     * @return 次の CB。1 フレームの上限を超えた場合は null。
-     */
-    IRhiBuffer* AcquirePostCb() noexcept;
-
-    /** Init で受け取った device (Resize で再利用)。 */
-    IRhiDevice* m_Device = nullptr;
-
-    /** 出力解像度の幅。 */
-    u32         m_Width  = 0;
-
-    /** 出力解像度の高さ。 */
-    u32         m_Height = 0;
-
-    /** 最終出力 (バックバッファ) のフォーマット。 */
-    EFormat      m_ColorFormat = EFormat::B8G8R8A8_UNorm;
-
-    /** HDR RT のフォーマット。 */
-    EFormat      m_HdrFormat   = EFormat::R16G16B16A16_Float;
-
-    /** メイン HDR RT (シーン描画先)。 */
-    TUniquePtr<IRhiTexture> m_HdrRt;
-
-    /** Bloom mip chain (各段は HDR、解像度は半分ずつ)。 */
-    TUniquePtr<IRhiTexture> m_BloomMips[kBloomMips];
-
-    /** Bloom separable Gaussian の ping-pong 用テンポラリ (各 mip と同サイズ)。 */
-    TUniquePtr<IRhiTexture> m_BloomTmp[kBloomMips];
-
-    /** 共通の全画面三角形 VS。 */
-    TUniquePtr<IRhiShader>   m_VsFullscreen;
-
-    /** Bloom 抽出パスのピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsExtract;
-
-    /** Bloom downsample パスのピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsDownsample;
-
-    /** Bloom upsample パスのピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsUpsample;
-
-    /** Bloom separable Gaussian blur パスのピクセルシェーダ (DirectXTK 風、H/V 2 パスで円形)。 */
-    TUniquePtr<IRhiShader>   m_PsGaussian;
-
-    /** Tonemap パスのピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsTonemap;
-
-    /** Bloom 抽出パイプライン (HDR → bloom_mips[0])。 */
-    TUniquePtr<IRhiPipeline> m_PipeExtract;
-
-    /** Bloom downsample パイプライン (bloom_mips[i] → bloom_mips[i+1])。 */
-    TUniquePtr<IRhiPipeline> m_PipeDownsample;
-
-    /** Bloom upsample パイプライン (bloom_mips[i+1] + bloom_mips[i] → bloom_mips[i])。 */
-    TUniquePtr<IRhiPipeline> m_PipeUpsample;
-
-    /** Bloom Gaussian blur パイプライン (separable、Opaque)。 */
-    TUniquePtr<IRhiPipeline> m_PipeGaussian;
-
-    /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
-    TUniquePtr<IRhiPipeline> m_PipeTonemap;
-
-    /**
-     * 各 fullscreen draw のパラメータを固定する Post CB ring。
-     *
-     * @details 最大構成は luma 13 + TAA 1 + bloom 14 + tonemap 1 draw。将来の
-     * パス追加にも余裕を持たせて 64 本確保し、Render 冒頭で cursor を戻す。
-     */
-    static constexpr u32     kPostCbRing = 64;
-    TUniquePtr<IRhiBuffer>   m_CbPost[kPostCbRing];
-    u32                      m_PostCbCursor = 0;
-
-    /**
-     * TAA の ping-pong history RT。
-     *
-     * @details m_Taa[N%2] が current frame の resolved 出力、m_Taa[(N+1)%2] が previous frame の
-     * resolved 出力 (= history input)。frame index で role を swap する。
-     */
-    TUniquePtr<IRhiTexture>  m_Taa[2];
-
-    /** TAA resolve パスのピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsTaaResolve;
-
-    /** TAA resolve パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_PipeTaaResolve;
-
-    /** TAA の現フレーム index (history ping-pong 用)。 */
-    u32                     m_TaaFrame = 0;
-
-    /** TAA reprojection 用の行列 2 枚を渡す CB (separate b1)。 */
-    TUniquePtr<IRhiBuffer>   m_CbTaaReproj;
-
-    /** depth 未指定時の fallback depth テクスチャ (1x1)。 */
-    TUniquePtr<IRhiTexture>  m_TaaDepthFb;
-
-    /** Bloom / SSR が無い texture slot に必ず bind する 1x1 黒テクスチャ。 */
-    TUniquePtr<IRhiTexture>  m_BlackFb;
-
-    /**
-     * Auto-exposure の最大 luma mip 段数。
-     *
-     * @details 4K (3840) でも floor(log2)+1 に収まる値。
-     */
-    static constexpr u32 kMaxLumaMips = 13;
-
-    /**
-     * 平均輝度測定用の luma mip chain。
-     *
-     * @details m_HdrRt の 1/2 から 1x1 まで縮約する。最深段 (1x1) にシーン平均 log2 輝度が入る。
-     */
-    TUniquePtr<IRhiTexture>  m_LumaMips[kMaxLumaMips];
-
-    /** 実際に確保した luma mip の段数。 */
-    u32                     m_LumaMipCount = 0;
-
-    /**
-     * 順応済み露出を保持する 1x1 ping-pong テクスチャ。
-     *
-     * @details frame N が m_Exposure[N%2] に書き、m_Exposure[(N+1)%2] = 前フレーム値を読む。
-     */
-    TUniquePtr<IRhiTexture>  m_Exposure[2];
-
-    /** m_HdrRt に自動露出を掛けた結果 (下流パスはこれを読む)。 */
-    TUniquePtr<IRhiTexture>  m_ExposedRt;
-
-    /** HDR → log2 輝度の抽出 (downsample 兼) ピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsLumaExtract;
-
-    /** log2 輝度を box average で縮約するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsLumaDown;
-
-    /** 露出順応 (eye adaptation) のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsExposure;
-
-    /** m_HdrRt * 露出 → m_ExposedRt のピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_PsExposeApply;
-
-    /** luma 抽出パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_PipeLumaExtract;
-
-    /** luma downsample パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_PipeLumaDown;
-
-    /** 露出順応パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_PipeExposure;
-
-    /** 露出適用パイプライン。 */
-    TUniquePtr<IRhiPipeline> m_PipeExposeApply;
-
-    /** auto-exposure 用パラメータ CB。 */
-    TUniquePtr<IRhiBuffer>   m_CbAuto;
-
-    /** 露出 ping-pong / cold-start 判定に使うフレームカウンタ。 */
-    u32                     m_AutoFrame = 0;
-
-    /** luma mip / 露出テクスチャのフォーマット。 */
-    EFormat                  m_LumaFormat = EFormat::R16G16_Float;
-};
-
-} // namespace acs
-
 // ===================== render/RefractionShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // スクリーンスペース屈折シェーダ
@@ -93653,301 +95803,6 @@ private:
 // ---- 低レベル RHI（バックエンド非依存の描画インターフェイス）----------------
 
 // ---- 高レベルヘルパ ---------------------------------------------------------
-
-// ===================== render/WaterSurface3D.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// 3D interactive water surface: layered normal map, analytic waves, refraction,
-// Fresnel reflection, GGX sun highlights, foam, and persistent disturbances.
-
-
-namespace acs {
-
-class IRhiBuffer;
-class IRhiCommandList;
-class IRhiDevice;
-class IRhiPipeline;
-class IRhiShader;
-class IRhiTexture;
-
-/**
- * Authoring parameters for FWaterSurface3D.
- *
- * @details
- * The surface is physically based around water IOR 1.333. Colors and absorption
- * describe the volume below the surface, while analytic waves and a generated
- * tileable normal map provide independent macro/micro detail. The renderer is
- * intentionally specialized for a horizontal world-XZ surface: displacement is
- * along world +Y and every disturbance ignores the supplied world-point Y.
- */
-struct FWaterSurface3DParams {
-    /** Shallow-water in-scattering color. */
-    FVec3 shallow_color{0.055f, 0.38f, 0.50f};
-
-    /** Deep-water in-scattering color. */
-    FVec3 deep_color{0.008f, 0.055f, 0.16f};
-
-    /** Beer-Lambert absorption coefficient in inverse world units. */
-    FVec3 absorption{0.34f, 0.13f, 0.040f};
-
-    /** Homogeneous single-scattering coefficient in inverse world units. */
-    FVec3 scattering{0.018f, 0.050f, 0.085f};
-
-    /** Henyey-Greenstein phase anisotropy (-0.95..0.95). */
-    f32 phase_anisotropy = 0.62f;
-
-    /** Whitewater/contact-foam color. */
-    FVec3 foam_color{0.88f, 0.96f, 1.0f};
-
-    /** Main flow direction in the horizontal XZ plane. */
-    FVec2 flow_direction{0.92f, 0.38f};
-
-    /** Microfacet roughness used by the water GGX lobe. */
-    f32 roughness = 0.105f;
-
-    /** Strength of the sampled normal map. */
-    f32 normal_strength = 0.82f;
-
-    /** World-space tiling density of the generated normal map. */
-    f32 normal_tiling = 0.075f;
-
-    /** Screen-space refraction strength. */
-    f32 refraction_strength = 0.72f;
-
-    /** Approximate optical depth when no explicit scene-depth texture is supplied. */
-    f32 optical_depth = 1.35f;
-
-    /** Analytic macro-wave displacement amplitude. */
-    f32 wave_amplitude = 0.105f;
-
-    /** Analytic macro-wave spatial scale. */
-    f32 wave_scale = 0.78f;
-
-    /** Analytic wave/normal-map animation speed. */
-    f32 wave_speed = 0.72f;
-
-    /** Dynamic ripple propagation speed in world units per second. */
-    f32 ripple_speed = 2.65f;
-
-    /** Dynamic ripple wavelength in world units. */
-    f32 ripple_wavelength = 0.52f;
-
-    /** Dynamic ripple lifetime in seconds. */
-    f32 ripple_lifetime = 4.0f;
-
-    /** Dynamic ripple amplitude damping coefficient. */
-    f32 ripple_damping = 0.78f;
-
-    /** Contact/crest foam multiplier. */
-    f32 foam_intensity = 0.82f;
-};
-
-/**
- * High-quality interactive 3D water renderer.
- *
- * @details
- * FWaterSurface3D is renderer-facing and accepts any sufficiently tessellated
- * horizontal mesh. The mesh and model transform must keep the surface in the
- * world XZ plane; tilted/arbitrarily oriented water is not supported. Dynamic
- * disturbances are stored independently and are never overwritten while active.
- * Impact and wake reservations are separate, so a long cursor/body wake cannot
- * erase impacts (and impacts cannot starve wakes).
- *
- * Typical frame order:
- *  1. Draw opaque scene to a color target.
- *  2. Copy that target to a sampleable background texture.
- *  3. SetFrame(), then DrawMesh() with the copied background and, when
- *     available, the shader-visible opaque depth and SSR/planar reflection.
- *  4. Run bloom/tonemapping if using HDR.
- */
-class FWaterSurface3D {
-public:
-    /** Maximum simultaneously visible disturbances. */
-    static constexpr u32 kMaxRipples = 64;
-
-    /** Slots reserved exclusively for circular impact disturbances. */
-    static constexpr u32 kImpactRippleSlots = 16;
-
-    /** Slots reserved exclusively for directional wake disturbances. */
-    static constexpr u32 kWakeRippleSlots = 48;
-
-    static_assert(kImpactRippleSlots + kWakeRippleSlots == kMaxRipples);
-
-    FWaterSurface3D() noexcept;
-    ~FWaterSurface3D() noexcept;
-
-    FWaterSurface3D(const FWaterSurface3D&) = delete;
-    FWaterSurface3D& operator=(const FWaterSurface3D&) = delete;
-
-    /**
-     * Creates shaders, pipeline, constant-buffer ring, and a generated normal map.
-     */
-    TResult<void> Init(IRhiDevice& device,
-                       EFormat rt_format = EFormat::R16G16B16A16_Float,
-                       EFormat depth_format = EFormat::D32_Float,
-                       u32 msaa_samples = 1) noexcept;
-
-    /** Releases all GPU resources. Safe to call repeatedly. */
-    void Shutdown() noexcept;
-
-    /** Advances analytic animation and all active disturbances. */
-    void Update(f32 dt) noexcept;
-
-    /**
-     * Adds a circular impact at a world-space point.
-     *
-     * @return true when accepted. false means all impact-reserved slots are
-     *         active; existing waves are preserved and the new event is dropped.
-     */
-    bool AddDisturbance(FVec3 world_point, f32 radius, f32 strength) noexcept;
-
-    /**
-     * Adds one directional, elongated wake event from a moving body.
-     *
-     * @return true when accepted; false when the wake-reserved pool is full.
-     */
-    bool AddWake(FVec3 world_point, FVec3 world_velocity,
-                 f32 radius, f32 strength) noexcept;
-
-    /** Immediately removes every active disturbance. */
-    void ClearDisturbances() noexcept;
-
-    /** Number of active persistent disturbance slots. */
-    u32 ActiveRippleCount() const noexcept;
-
-    /**
-     * Normalized amplitude applied to a disturbance at the supplied age.
-     *
-     * @details Exponential physical damping is combined with a C2-continuous
-     * lifetime tail. The tail occupies the final 35% of the lifetime and
-     * reaches exactly zero with zero first and second derivatives, preventing
-     * displacement, normals, and foam from popping when a slot is released.
-     * This public evaluator also lets editor tooling preview the exact runtime
-     * attenuation curve.
-     */
-    static f32 EvaluateRippleAmplitudeScale(
-        f32 age, f32 lifetime, f32 damping) noexcept;
-
-    /**
-     * Replaces all authoring parameters used from the next draw onward.
-     *
-     * @details Non-finite values fall back to the corresponding default and
-     * physically bounded quantities are clamped. A malformed inspector value
-     * therefore cannot inject NaNs into every displaced vertex.
-     */
-    void SetParams(const FWaterSurface3DParams& params) noexcept;
-
-    /** Returns the current authoring parameters. */
-    const FWaterSurface3DParams& Params() const noexcept { return m_Params; }
-
-    /**
-     * Sets camera, viewport, and sun state for subsequent water draws.
-     *
-     * @details Starts a new buffered frame for this water renderer. Up to 64
-     * DrawMesh calls may follow before the next SetFrame call.
-     *
-     * @param sun_direction Direction from the surface toward the sun.
-     */
-    void SetFrame(const FMat4& view_projection, FVec3 camera_pos,
-                  u32 screen_width, u32 screen_height,
-                  FVec3 sun_direction = FVec3{-0.42f, 0.82f, -0.38f},
-                  FVec3 sun_color = FVec3{5.0f, 4.4f, 3.8f}) noexcept;
-
-    /**
-     * Selects an optional directional-light shadow map.
-     *
-     * @details The map must be shader-visible depth and use the supplied light
-     * view-projection matrix. Passing nullptr disables shadow sampling and
-     * restores fully-lit direct sunlight. The pointer remains caller-owned.
-     *
-     * @param depth_bias Receiver depth bias in light clip-depth units.
-     * @param pcf_radius PCF kernel radius in shadow-map texels.
-     */
-    void SetShadowMap(IRhiTexture* shadow_map,
-                      const FMat4& light_view_projection,
-                      f32 depth_bias = 0.0012f,
-                      f32 pcf_radius = 1.5f) noexcept;
-
-    /**
-     * Draws a tessellated water mesh.
-     *
-     * @details The mesh/model must describe a horizontal world-XZ surface.
-     * When scene_depth is supplied, the caller must not bind that same texture
-     * as a DSV for this pass. DrawMesh selects a no-DSV pipeline and performs
-     * the opaque-scene depth test in the pixel shader.
-     *
-     * @param scene_color Copy of the opaque scene rendered before the water.
-     *        nullptr selects a safe generated fallback while keeping all other
-     *        reflection and lighting effects active.
-     * @param scene_depth Optional shader-visible opaque-scene depth. Enables
-     *        manual foreground occlusion, reconstructed optical thickness, and
-     *        contact foam.
-     * @param screen_reflection Optional SSR/planar reflection texture. RGB is
-     *        reflected radiance and alpha is the valid-hit mask.
-     */
-    void DrawMesh(IRhiCommandList& command_list, const FGpuMesh& mesh,
-                  const FMat4& model,
-                  IRhiTexture* scene_color = nullptr,
-                  IRhiTexture* scene_depth = nullptr,
-                  IRhiTexture* screen_reflection = nullptr) noexcept;
-
-    IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
-    IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
-    f32 Time() const noexcept { return m_Time; }
-
-private:
-    struct FRipple {
-        FVec2 center{0, 0};
-        FVec2 direction{1, 0};
-        f32 initial_radius = 0.0f;
-        f32 initial_amplitude = 0.0f;
-        f32 amplitude = 0.0f;
-        f32 age = 0.0f;
-        f32 speed = 0.0f;
-        f32 lifetime = 0.0f;
-        f32 anisotropy = 1.0f;
-        bool active = false;
-    };
-
-    static constexpr u32 kBufferedFrames = 4;
-    static constexpr u32 kMaxDrawsPerFrame = 64;
-    static constexpr u32 kConstantBufferRing =
-        kBufferedFrames * kMaxDrawsPerFrame;
-
-    bool AddEvent(FVec3 world_point, FVec2 direction, f32 anisotropy,
-                  f32 radius, f32 strength,
-                  u32 first_slot, u32 slot_count) noexcept;
-
-    IRhiDevice* m_Device = nullptr;
-    TUniquePtr<IRhiShader> m_Vs;
-    TUniquePtr<IRhiShader> m_Ps;
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-    TUniquePtr<IRhiPipeline> m_ManualDepthPipeline;
-    TUniquePtr<IRhiBuffer> m_FrameCb[kConstantBufferRing];
-    TUniquePtr<IRhiBuffer> m_ObjectCb[kConstantBufferRing];
-    u32 m_FrameSlot = 0;
-    u32 m_DrawCursor = 0;
-    bool m_DrawOverflowLogged = false;
-    TUniquePtr<IRhiTexture> m_NormalMap;
-    TUniquePtr<IRhiTexture> m_SceneFallback;
-
-    FWaterSurface3DParams m_Params{};
-    FRipple m_Ripples[kMaxRipples]{};
-
-    FMat4 m_ViewProjection{};
-    FMat4 m_InverseViewProjection{};
-    FVec3 m_CameraPos{0, 2, -5};
-    FVec3 m_SunDirection{-0.42f, 0.82f, -0.38f};
-    FVec3 m_SunColor{5.0f, 4.4f, 3.8f};
-    IRhiTexture* m_ShadowMap = nullptr;
-    FMat4 m_LightViewProjection{};
-    f32 m_ShadowBias = 0.0012f;
-    f32 m_ShadowPcfRadius = 1.5f;
-    u32 m_ScreenWidth = 1;
-    u32 m_ScreenHeight = 1;
-    f32 m_Time = 0.0f;
-};
-
-} // namespace acs
 
 // ===================== render/ShadowMap.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -94511,692 +96366,6 @@ private:
 
 } // namespace acs
 
-// ===================== render/Sky.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// 手続き生成スカイ（グラデーション + 太陽）
-//
-// 用途: 3D シーンの背景に「空」を描く。シーン描画より先に呼ぶ。
-//       テクスチャ（キューブマップ）不要、ピクセルシェーダで天頂・地平線・
-//       地面の色を補間して描画する。
-//
-// 使い方:
-//   FSky sky;
-//   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   sky.PresetDay();
-//
-//   // 描画フレーム中、シーンの最初に
-//   sky.Render(*cl, camera);
-//   // ... FStandardShader でメッシュを描く ...
-
-
-namespace acs {
-
-class FCamera;
-
-/**
- * 手続き生成スカイ (グラデーション + 太陽)。
- *
- * @details
- * テクスチャ (キューブマップ) 不要で、ピクセルシェーダが視線方向から天頂・地平線・
- * 地面の色を補間して背景を描く。シーン描画より先にフルスクリーン三角形で塗り、
- * 深度の書き込み・テストは行わない (背景塗りなので既存深度を維持)。太陽は視線と太陽
- * 方向の角度で半径・ハローを付ける。VS/PS/PSO/定数バッファを単独所有する。
- */
-class FSky {
-public:
-    /** CPU-compiled shader bytecode handed to the render-owner thread. */
-    struct FCompiledShaders {
-        TUniquePtr<IRhiShader> vertex;
-        TUniquePtr<IRhiShader> pixel;
-
-        /** Aggregate a backend-managed asynchronous compile without waiting. */
-        EShaderStatus Status() const noexcept;
-    };
-
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSky() noexcept = default;
-
-    /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSky() noexcept = default;
-
-    /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSky(const FSky&)            = delete;
-
-    /** コピー代入も禁止。 */
-    FSky& operator=(const FSky&) = delete;
-
-    /**
-     * GPU リソース (VS/PS/PSO/定数バッファ) を確保する。
-     *
-     * @param device リソース生成に使う RHI デバイス。
-     * @param rt_format 描画先カラーターゲットのフォーマット。
-     * @param depth_format 深度ターゲットのフォーマット (パイプライン作成用)。
-     * @return 成功なら空の TResult、確保失敗ならエラー。
-     */
-    TResult<void> Init(IRhiDevice& device,
-                      EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
-                      EFormat depth_format = EFormat::D32_Float) noexcept;
-
-    /**
-     * Compile the raw-DX12 HLSL bytecode without touching an RHI device.
-     * Other backends retain the regular owner-thread Init path.
-     */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
-
-    /**
-     * Submit shader compilation to a supporting RHI backend. Submission and
-     * later PSO/resource creation stay on the render-owner thread.
-     */
-    static TResult<FCompiledShaders> BeginCompileShadersAsync(
-        IRhiDevice& device) noexcept;
-
-    /**
-     * Install CPU-compiled shaders and create the buffer and PSO.
-     * Must be called by the render-owner thread.
-     */
-    TResult<void> InitWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        EFormat rt_format = EFormat::B8G8R8A8_UNorm,
-        EFormat depth_format = EFormat::D32_Float) noexcept;
-
-    /** 確保した GPU リソースを解放する。 */
-    void Shutdown() noexcept;
-
-    /**
-     * 太陽方向を設定する (内部で正規化する)。
-     *
-     * @details カメラの右手/左手系の前提なし。シェーダ側でも normalize する。
-     * @param dir 原点から太陽へ向く方向ベクトル。
-     */
-    void SetSunDirection(FVec3 dir) noexcept;
-
-    /**
-     * 太陽の色を設定する。
-     *
-     * @param c 太陽の RGB 色。
-     */
-    void SetSunColor(FVec3 c)       noexcept { m_SunColor = c; }
-
-    /**
-     * 太陽の見かけ半径を設定する。
-     *
-     * @param angular 視線角の cos 値からの差 (0.001 = 鋭い、0.05 = 大きい)。
-     */
-    void SetSunRadius(f32 angular) noexcept { m_SunRadius  = angular; }
-
-    /**
-     * 太陽の周りのハロー (グロー) の広がりを設定する。
-     *
-     * @param angular ハローの角度的な広がり。
-     */
-    void SetSunGlow(f32 angular)   noexcept { m_SunGlow    = angular; }
-
-    /**
-     * 天頂の色を設定する。
-     *
-     * @param c 天頂 (真上) 方向の RGB 色。
-     */
-    void SetZenithColor(FVec3 c)    noexcept { m_Zenith  = c; }
-
-    /**
-     * 地平線の色を設定する。
-     *
-     * @param c 地平線 (dir.y=0) 方向の RGB 色。
-     */
-    void SetHorizonColor(FVec3 c)   noexcept { m_Horizon = c; }
-
-    /**
-     * 地面方向の色を設定する。
-     *
-     * @param c 地面 (真下) 方向の RGB 色。
-     */
-    void SetGroundColor(FVec3 c)    noexcept { m_Ground  = c; }
-
-    /**
-     * 手続き的な雲の量と濃さを設定する。
-     *
-     * @param coverage 雲量 (0=快晴、1=全天曇り)。
-     * @param density 雲の濃さ/輪郭の鋭さ (1=やわらか、2〜3=もくもく)。
-     */
-    void SetClouds(f32 coverage, f32 density = 1.6f) noexcept {
-        m_CloudCoverage = coverage < 0.0f ? 0.0f : (coverage > 1.0f ? 1.0f : coverage);
-        m_CloudDensity  = density  < 0.1f ? 0.1f : density;
-    }
-
-    /**
-     * 雲を描くかどうかを切り替える。
-     *
-     * @param on true で雲を描画 (既定 ON)。
-     */
-    void SetCloudsEnabled(bool on)  noexcept { m_bCloudsEnabled = on; }
-
-    /**
-     * 雲の基本色を設定する。
-     *
-     * @param c 雲の RGB 色 (太陽方向で明色に、濃い所は暗色に補間される)。
-     */
-    void SetCloudColor(FVec3 c)     noexcept { m_CloudColor = c; }
-
-    /**
-     * 雲が流れる速さを設定する。
-     *
-     * @param speed 風速 (0=静止、1=標準)。SetTime と併用してアニメする。
-     */
-    void SetCloudWind(f32 speed)    noexcept { m_CloudWind = speed; }
-
-    /**
-     * 雲アニメ用の時間を設定する (任意。決定論的に制御したいときだけ呼ぶ)。
-     *
-     * @details 呼ばなくても Render() が内部で時間を進めるので雲は流れる。毎フレーム
-     *          経過秒を渡すと、その値が当該フレームで優先される (リプレイ/スクショ向け)。
-     * @param seconds 起動からの経過秒など、単調増加する時間値。
-     */
-    void SetTime(f32 seconds)       noexcept { m_Time = seconds; }
-
-    /** 昼空プリセットを適用する (青空 + 白い太陽)。 */
-    void PresetDay()    noexcept;
-
-    /** 夕焼けプリセットを適用する (茜色 + 暖色太陽)。 */
-    void PresetSunset() noexcept;
-
-    /** 夜空プリセットを適用する (紺青 + 弱い月光)。 */
-    void PresetNight()  noexcept;
-
-    /**
-     * 現在の太陽方向を返す (FStandardShader / IBL と整合させたいときに)。
-     *
-     * @return 正規化済みの太陽方向ベクトル。
-     */
-    FVec3 SunDirection() const noexcept { return m_SunDir; }
-
-    /**
-     * 現在の太陽色を返す。
-     *
-     * @return 太陽の RGB 色。
-     */
-    FVec3 SunColor()     const noexcept { return m_SunColor; }
-
-    /**
-     * 現在の太陽半径を返す。
-     *
-     * @return 太陽の見かけ半径 (視線角 cos 値からの差)。
-     */
-    f32  SunRadius()    const noexcept { return m_SunRadius; }
-
-    /**
-     * 現在の太陽ハロー幅を返す。
-     *
-     * @return 太陽ハローの角度的な広がり。
-     */
-    f32  SunGlow()      const noexcept { return m_SunGlow; }
-
-    /**
-     * 現在の天頂色を返す。
-     *
-     * @return 天頂方向の RGB 色。
-     */
-    FVec3 ZenithColor()  const noexcept { return m_Zenith; }
-
-    /**
-     * 現在の地平線色を返す。
-     *
-     * @return 地平線方向の RGB 色。
-     */
-    FVec3 HorizonColor() const noexcept { return m_Horizon; }
-
-    /**
-     * 現在の地面色を返す。
-     *
-     * @return 地面方向の RGB 色。
-     */
-    FVec3 GroundColor()  const noexcept { return m_Ground; }
-
-    /**
-     * スカイを描画する (フレーム先頭で呼ぶ)。
-     *
-     * @details 深度バッファは「背景に塗る」想定で書き込み無し・テスト無し。
-     * @param cl 描画コマンドを積むコマンドリスト。
-     * @param camera 逆 view-projection と視点を取り出すカメラ。
-     */
-    void Render(IRhiCommandList& cl, const FCamera& camera) noexcept;
-
-private:
-    /** フルスクリーン三角形の頂点シェーダ。 */
-    TUniquePtr<IRhiShader>   m_Vs;
-
-    /** 空の色を計算するピクセルシェーダ。 */
-    TUniquePtr<IRhiShader>   m_Ps;
-
-    /** スカイ描画のパイプライン。 */
-    TUniquePtr<IRhiPipeline> m_Pipeline;
-
-    /** スカイパラメータを渡す定数バッファ。 */
-    TUniquePtr<IRhiBuffer>   m_Cb;
-
-    /** 太陽方向 (正規化済み)。 */
-    FVec3 m_SunDir    = FVec3{0.5f, 0.8f, 0.3f};
-
-    /** 太陽の RGB 色。 */
-    FVec3 m_SunColor  = FVec3{1.0f, 0.95f, 0.85f};
-
-    /** 太陽の見かけ半径 (視線角 cos 値からの差)。 */
-    f32  m_SunRadius = 0.0006f;
-
-    /** 太陽ハローの角度的な広がり。 */
-    f32  m_SunGlow   = 0.04f;
-
-    /** 天頂方向の RGB 色。 */
-    FVec3 m_Zenith     = FVec3{0.18f, 0.40f, 0.78f};
-
-    /** 地平線方向の RGB 色。 */
-    FVec3 m_Horizon    = FVec3{0.70f, 0.80f, 0.95f};
-
-    /** 地面方向の RGB 色。 */
-    FVec3 m_Ground     = FVec3{0.20f, 0.18f, 0.16f};
-
-    /** 雲を描画するか (既定 ON)。 */
-    bool m_bCloudsEnabled = true;
-
-    /** 雲量 (0=快晴、1=全天曇り)。 */
-    f32  m_CloudCoverage = 0.50f;
-
-    /** 雲の濃さ/輪郭の鋭さ。 */
-    f32  m_CloudDensity  = 1.6f;
-
-    /** 雲が流れる速さ。 */
-    f32  m_CloudWind     = 1.0f;
-
-    /** 雲アニメ用の時間 (SetTime で更新)。 */
-    f32  m_Time          = 0.0f;
-
-    /** 雲の基本 RGB 色。 */
-    FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
-};
-
-/**
- * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
- *
- * @details
- * compute シェーダで全画面の視線ごとに雲スラブをレイマーチし、3D 手続きノイズ (Worley FBM) の
- * 密度を coverage/height-gradient で remap、太陽方向へ light-march して Beer 透過率を求め、
- * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (straight 散乱色
- * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
- * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
- * 復元する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
- * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
- * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
- */
-/**
- * World-space altitude band used by FVolumetricClouds.
- *
- * The cloud density field must never be translated with the camera.  Keeping
- * these heights in world space makes translation, orbit and temporal
- * reprojection observe the same density field.
- */
-struct FVolumetricCloudLayer {
-    f32 base_height = 1500.0f;
-    f32 top_height = 4000.0f;
-    f32 horizontal_noise_scale = 0.035f;
-};
-
-/** Ray interval through a horizontal world-space cloud layer. */
-struct FVolumetricCloudRayInterval {
-    f32 enter = 0.0f;
-    f32 exit = 0.0f;
-    bool hit = false;
-};
-
-/** Local planet radius used by the curved world-space cloud shell. */
-inline constexpr f32 kVolumetricCloudPlanetRadius = 6360000.0f;
-
-/**
- * World-origin grid used by the local curved-shell patch.
- *
- * The shell origin stays fixed through the centre of each cell and is eased
- * across a transition band near cell boundaries. Density/weather coordinates
- * remain absolute world coordinates; only the numerically local planet
- * tangent patch is rebased.
- */
-inline constexpr f32 kVolumetricCloudOriginRebaseGrid = 64.0f;
-inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
-
-/**
- * Internal trace divisor used by the Ultra output-quality policy.
- *
- * Ultra still resolves and composites at the complete viewport resolution.
- * Every reduced texel is freshly marched each frame, and a sixteen-phase 4x4
- * subpixel schedule maps those rays onto exact full-resolution coordinates.
- * World/depth reprojection retains the other fifteen phases, so the steady
- * image recovers native detail without increasing the quarter-size workload.
- */
-inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
-
-/** Sanitized current-trace dimensions selected for a full-resolution output. */
-struct FVolumetricCloudTraceResolution {
-    u32 width = 1u;
-    u32 height = 1u;
-    f32 quality_multiplier = 1.0f;
-    f32 effective_dimension_scale = 0.25f;
-};
-
-/**
- * Resolve the authored CloudRenderScale and the internal Ultra trace policy.
- *
- * CloudRenderScale is a monotonic quality multiplier over the policy's base
- * quarter-dimension trace: authored 1.0 uses quarter dimensions, 0.75 uses
- * 0.1875 dimensions, and 0.5 or below uses the 0.125 lower bound. The resolved
- * output and temporal history remain full resolution.
- */
-FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
-    u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
-
-/**
- * Experimental shallow sun optical-depth cache.
- *
- * The current two-volume implementation costs more GPU time than the exact
- * far-light tail on the measured desktop path, so keep it compiled for
- * further iteration but do not allocate or dispatch it by default.
- */
-inline constexpr bool kVolumetricCloudShadowCacheEnabled = false;
-
-/** Quality-preserving shallow sun optical-depth cache dimensions. */
-inline constexpr u32 kVolumetricCloudShadowCacheWidth = 96u;
-inline constexpr u32 kVolumetricCloudShadowCacheHeight = 32u;
-inline constexpr u32 kVolumetricCloudShadowCacheDepth = 96u;
-inline constexpr f32 kVolumetricCloudShadowCacheExtent = 48000.0f;
-inline constexpr f32 kVolumetricCloudShadowCacheCellSize =
-    kVolumetricCloudShadowCacheExtent /
-    static_cast<f32>(kVolumetricCloudShadowCacheWidth);
-inline constexpr f32 kVolumetricCloudShadowCacheSafeRadius = 8000.0f;
-
-/** Stable material-space footprint used by the cloud sun-depth cache. */
-struct FVolumetricCloudShadowCacheMapping {
-    FVec2 min_material_xz{};
-    FVec2 center_material_xz{};
-};
-
-/** Convert the scalar cloud advection distance to its shared XZ direction. */
-FVec2 VolumetricCloudWindOffsetXZ(f32 wind_offset) noexcept;
-
-/** Absolute world XZ with the shared cloud advection removed. */
-FVec2 VolumetricCloudMaterialXZ(FVec3 world_position,
-                                f32 wind_offset) noexcept;
-
-/** Snap a cache footprint to the material-space voxel lattice. */
-FVolumetricCloudShadowCacheMapping CenterVolumetricCloudShadowCache(
-    FVec2 material_position) noexcept;
-
-/**
- * Compute the soft-snapped XZ world origin used by the curved cloud shell.
- *
- * The returned Y is zero so authored cloud heights retain their world-Y
- * meaning. The cell centre is stationary during ordinary editor orbits, while
- * a C1-continuous transition near cell boundaries avoids a full-cell shell
- * jump. The density field itself is never translated with the camera.
- */
-FVec3 RebaseVolumetricCloudWorldOrigin(
-    FVec3 camera_position,
-    f32 grid_size = kVolumetricCloudOriginRebaseGrid) noexcept;
-
-/**
- * Stable world-distance march parameters for a cloud ray.
- *
- * Uniformly splitting the layer by height makes every pixel sample the same
- * horizontal planes.  In perspective that correlation appears as rays
- * converging on the view zenith.  A world-distance step keeps the sampling
- * frequency independent of view angle; empty space may use coarse_step while
- * occupied density uses fine_step.
- */
-struct FVolumetricCloudMarchPlan {
-    f32 enter = 0.0f;
-    f32 exit = 0.0f;
-    f32 fine_step = 1.0f;
-    f32 coarse_step = 4.0f;
-    f32 visibility = 0.0f;
-    u32 max_samples = 192;
-    bool hit = false;
-};
-
-/**
- * Intersect a world-space ray with a horizontal cloud altitude band.
- * This CPU companion mirrors the shader interval calculation and is useful for
- * camera/world-anchoring validation.
- */
-FVolumetricCloudRayInterval IntersectVolumetricCloudLayer(
-    FVec3 ray_origin, FVec3 ray_direction,
-    const FVolumetricCloudLayer& layer) noexcept;
-
-/**
- * Intersect the nearest continuous segment of a curved cloud shell.
- *
- * The planet centre is
- * (world_origin.x, world_origin.y-planet_radius, world_origin.z).  A discrete
- * rebased origin keeps the local tangent patch numerically stable during long
- * XZ travel without making the density field camera-relative.
- */
-FVolumetricCloudRayInterval IntersectVolumetricCloudShell(
-    FVec3 ray_origin, FVec3 ray_direction,
-    const FVolumetricCloudLayer& layer,
-    f32 planet_radius = kVolumetricCloudPlanetRadius,
-    FVec3 world_origin = FVec3{}) noexcept;
-
-/**
- * Build the bounded, angle-stable ray-march plan mirrored by the cloud shader.
- */
-FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
-    FVec3 ray_origin, FVec3 ray_direction,
-    const FVolumetricCloudLayer& layer,
-    f32 max_distance = kVolumetricCloudMaxDistance,
-    FVec3 world_origin = FVec3{}) noexcept;
-
-/**
- * Return true when lighting changes make accumulated cloud color stale.
- *
- * Direction is expected to be normalized, matching RenderCompute's stored
- * frame signature.
- */
-bool VolumetricCloudLightingChanged(
-    FVec3 previous_sun_direction, FVec3 previous_sun_color,
-    FVec3 previous_sky_color, FVec3 sun_direction,
-    FVec3 sun_color, FVec3 sky_color) noexcept;
-
-/**
- * Detect a discontinuous camera cut without treating ordinary world-space
- * translation as a cut.
- *
- * Comparing view-projection matrix elements directly also compares their
- * translation terms. In a metre-scale editor that invalidates temporal cloud
- * history during normal fly/pan motion and repeatedly exposes the cold 4x4
- * reconstruction pattern. This comparison instead measures representative
- * view-ray directions and reserves the distance test for a real teleport.
- */
-bool VolumetricCloudViewCutDetected(
-    const FMat4& previous_inv_view_proj, FVec3 previous_camera_position,
-    const FMat4& current_inv_view_proj,
-    FVec3 current_camera_position) noexcept;
-
-class FVolumetricClouds {
-public:
-    /** CPU-compiled shader bytecode handed to the render-owner thread. */
-    struct FCompiledShaders {
-        TUniquePtr<IRhiShader> cloud;
-        TUniquePtr<IRhiShader> noise;
-        TUniquePtr<IRhiShader> weather;
-        TUniquePtr<IRhiShader> detail;
-        TUniquePtr<IRhiShader> curl;
-        TUniquePtr<IRhiShader> composite_vertex;
-        TUniquePtr<IRhiShader> composite_pixel;
-        TUniquePtr<IRhiShader> composite_atmosphere_pixel;
-        TUniquePtr<IRhiShader> resolve;
-        TUniquePtr<IRhiShader> shadow;
-        TUniquePtr<IRhiShader> shadow_finalize;
-
-        /** Aggregate all submitted shader jobs without waiting. */
-        EShaderStatus Status() const noexcept;
-    };
-
-    /** compute (雲レイマーチ) + composite (全画面 alpha blend) パイプラインを生成。 */
-    TResult<void> Init(IRhiDevice& device, EFormat hdr_format) noexcept;
-
-    /** Compile raw-DX12 HLSL without touching an RHI device. */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
-
-    /** Submit all cloud shaders to a backend-managed compiler pool. */
-    static TResult<FCompiledShaders> BeginCompileShadersAsync(
-        IRhiDevice& device) noexcept;
-
-    /**
-     * Create owner-thread resources from CPU-compiled bytecode and publish the
-     * complete mandatory cloud resource set atomically.
-     */
-    TResult<void> InitWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        EFormat hdr_format) noexcept;
-
-    /** 初期化済みか。 */
-    bool Ready() const noexcept { return m_Ready; }
-
-    /**
-     * Scaled ray-march output and full-resolution reconstruction historyを確保/再確保。
-     * render_scale は Ultra internal quarter-dimension trace に対する
-     * 0.5..1.0 の品質倍率として扱い、resolved output は常に full-resolution。
-     */
-    bool EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
-                    f32 render_scale = 0.5f) noexcept;
-
-    /** Set the fixed world-space cloud altitude band and invalidate history. */
-    void SetLayer(const FVolumetricCloudLayer& layer) noexcept;
-
-    /** Current sanitized world-space cloud altitude band. */
-    const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
-
-    /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
-    u64 ShadowCacheDispatchCount() const noexcept {
-        return m_ShadowCacheDispatchCount;
-    }
-
-    /** Whether the optional cache resources were created successfully. */
-    bool ShadowCacheAvailable() const noexcept {
-        return m_ShadowCacheAvailable;
-    }
-
-    /** Whether the current material-space cache key has valid GPU contents. */
-    bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
-
-    /** Full-resolution resolved cloud distance/confidence for later fog passes. */
-    IRhiTexture* ResolvedDepth() const noexcept {
-        return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;
-    }
-
-    /**
-     * 雲を compute でレイマーチして内部 UAV テクスチャへ書く (render pass の «外» で呼ぶ)。
-     * Ultra は毎 frame quarter-dimension の全 texel を更新し、それぞれを 4x4 block
-     * 内の exact full-resolution subpixel へ 16 phase で割り当てる。camera motion や
-     * 履歴無効化でも native/full seed に戻らず、未更新 subpixel は world/depth
-     * reprojection、初回/disocclusion は spatial fallback で解決する。
-     */
-    void RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
-                       FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
-                       f32 coverage, f32 density, f32 wind, f32 time) noexcept;
-
-    /**
-     * 雲 (straight 散乱色+alpha) を現在の RT へ alpha blend する。
-     * 解決済み cloud ray distance と scene_depth から復元した scene ray distance を比較し、
-     * 手前にある方だけを表示する。カメラが雲層内/上空にいる場合も前景雲を失わない。
-     * atmosphere_volume と atmosphere_transmittance がある場合は、可視 cloud の
-     * 代表距離までの RGB transmittance と premultiplied atmospheric in-scatter を
-     * 適用してから背景へ alpha blend する。
-     * local fog は ResolvedDepth() を使う後段 pass で同じ cloud 距離へ終端する。
-     * depth は SRV として読むので、この render pass の DSV には同時 bind しないこと。
-     */
-    void Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
-                   u32 scW, u32 scH,
-                   IRhiTexture* atmosphere_volume = nullptr,
-                   IRhiTexture* atmosphere_transmittance = nullptr,
-                   f32 atmosphere_max_distance = 1.0f) noexcept;
-
-    /** 全 GPU リソースを解放 (acs_editor_destroy から呼ぶ。UAF 防止)。 */
-    void Shutdown() noexcept;
-
-private:
-    TResult<void> InitCandidateWithCompiledShaders(
-        IRhiDevice& device,
-        FCompiledShaders&& shaders,
-        EFormat hdr_format) noexcept;
-
-    bool                     m_Ready = false;
-    bool                     m_NoiseBaked = false;       // Phase 4.5: shape noise を焼いたか
-    EFormat                  m_HdrFormat = EFormat::R16G16B16A16_Float;
-    TUniquePtr<IRhiShader>   m_NoiseCs;                  // Phase 4.5: Perlin-Worley 生成 compute
-    TUniquePtr<IRhiPipeline> m_NoisePipe;                // compute (noise gen)
-    TUniquePtr<IRhiTexture>  m_ShapeTex;                 // 128^3 RG16F Perlin-Worley/low-frequency Worley
-    bool                     m_WeatherBaked = false;
-    TUniquePtr<IRhiShader>   m_WeatherCs;
-    TUniquePtr<IRhiPipeline> m_WeatherPipe;
-    TUniquePtr<IRhiTexture>  m_WeatherTex;               // 512^2 coverage/type/precipitation/warp
-    bool                     m_DetailBaked = false;
-    TUniquePtr<IRhiShader>   m_DetailCs;
-    TUniquePtr<IRhiPipeline> m_DetailPipe;
-    TUniquePtr<IRhiTexture>  m_DetailTex;                // 64^3 RG16F independent Worley edge erosion
-    bool                     m_CurlBaked = false;
-    TUniquePtr<IRhiShader>   m_CurlCs;
-    TUniquePtr<IRhiPipeline> m_CurlPipe;
-    TUniquePtr<IRhiTexture>  m_CurlTex;                  // 128^2 independent world-space curl warp
-    TUniquePtr<IRhiShader>   m_CloudCs;
-    TUniquePtr<IRhiPipeline> m_CloudPipe;     // compute
-    TUniquePtr<IRhiShader>   m_ShadowCs;      // raw shallow sun optical depth
-    TUniquePtr<IRhiPipeline> m_ShadowPipe;
-    TUniquePtr<IRhiShader>   m_ShadowFinalizeCs; // bake spatial confidence
-    TUniquePtr<IRhiPipeline> m_ShadowFinalizePipe;
-    TUniquePtr<IRhiTexture>  m_ShadowRawTex;  // 96x32x96 mean/pattern error tau
-    TUniquePtr<IRhiTexture>  m_ShadowTex;     // 96x32x96 mean/max error tau
-    TUniquePtr<IRhiShader>   m_CompVs, m_CompPs;
-    TUniquePtr<IRhiPipeline> m_CompPipe;      // graphics (alpha blend)
-    TUniquePtr<IRhiShader>   m_CompAtmosPs;
-    TUniquePtr<IRhiPipeline> m_CompAtmosPipe; // cloud-distance terminated physical AP (RGB L/T)
-    TUniquePtr<IRhiBuffer>   m_CompAtmosCb;
-    TUniquePtr<IRhiShader>   m_ResolveCs;      // 深度対応の color/depth 空間・時間再構成
-    TUniquePtr<IRhiPipeline> m_ResolvePipe;    // 全解像度 color/depth compute UAV 解決
-    TUniquePtr<IRhiBuffer>   m_Cb;
-    TUniquePtr<IRhiTexture>  m_CloudTex;       // scaled ray-march RGBA16F の非乗算カラー + アルファ
-    TUniquePtr<IRhiTexture>  m_CloudDepth;     // scaled ray-march RG32F (代表距離、信頼度)
-    TUniquePtr<IRhiTexture>  m_HistoryColor[2];// 全解像度 RGBA16F の時間履歴 ping-pong
-    TUniquePtr<IRhiTexture>  m_HistoryDepth[2];// 全解像度 RG32F の雲距離・信頼度 ping-pong
-    FMat4                    m_PrevViewProj = FMat4::Identity();
-    FMat4                    m_PrevInvViewProj = FMat4::Identity();
-    FVec3                    m_PrevCamPos{};
-    FVec3                    m_WorldOrigin{};
-    FVec3                    m_PrevSunDir{};
-    FVec3                    m_PrevSunColor{};
-    FVec3                    m_PrevSkyColor{};
-    f32                      m_PrevWindOffset = 0.0f;
-    f32                      m_PrevWindSpeed = 0.0f;
-    f32                      m_PrevCoverage = -1.0f;
-    f32                      m_PrevDensity = -1.0f;
-    f32                      m_PrevTime = -1.0f;
-    FVec2                    m_ShadowGridMinQ{};
-    FVec2                    m_ShadowGridCenterQ{};
-    FVec2                    m_ShadowCurvatureAnchor{};
-    FVec3                    m_ShadowSunDir{};
-    FVolumetricCloudLayer    m_ShadowLayer{};
-    f32                      m_ShadowCoverage = -1.0f;
-    u64                      m_ShadowCacheDispatchCount = 0;
-    bool                     m_ShadowGridInitialized = false;
-    bool                     m_ShadowCacheAvailable = false;
-    bool                     m_ShadowCacheValid = false;
-    FVolumetricCloudLayer    m_Layer{};
-    u32                      m_FrameIndex = 0;
-    u32                      m_TemporalPhase = 0;
-    u32                      m_ResolvedIndex = 0;
-    bool                     m_HistoryValid = false;
-    u32                      m_W = 0, m_H = 0;         // scaled ray-march の寸法
-    u32                      m_FullW = 0, m_FullH = 0; // 再構成先の寸法
-};
-
-} // namespace acs
-
 // ===================== render/SpriteSortList.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // FSpriteSortList — FSpriteBatch 用の明示的 depth/layer 順序レイヤ
@@ -95487,6 +96656,16 @@ namespace acs {
  */
 class FSsao {
 public:
+    /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+        TUniquePtr<IRhiShader> blur_pixel;
+
+        /** Aggregate a backend-managed asynchronous compile without waiting. */
+        EShaderStatus Status() const noexcept;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSsao() noexcept = default;
 
@@ -95508,6 +96687,29 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
+
+    /**
+     * Submit all SSAO shader stages to a supporting asynchronous backend.
+     *
+     * @details The returned handles must be polled with FCompiledShaders::Status
+     * and committed with InitWithCompiledShaders on the render-owner thread.
+     */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /**
+     * Create render targets, PSOs and the constant buffer from ready shaders.
+     *
+     * @param device Render-owner RHI device.
+     * @param shaders Ready vertex, GTAO pixel and blur pixel shaders.
+     * @param width Output width.
+     * @param height Output height.
+     */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        u32 width,
+        u32 height) noexcept;
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
@@ -95578,7 +96780,9 @@ private:
      * @param device パイプライン生成に使う RHI デバイス。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
+    TResult<void> CreatePipeline(
+        IRhiDevice& device,
+        FCompiledShaders& shaders) noexcept;
 
     /** Init で受け取った device (Resize で再利用)。 */
     IRhiDevice*             m_Device = nullptr;
@@ -96810,136 +98014,6 @@ acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient() noexcept;
 void InstallFileTelemetryAsDefault() noexcept;
 
 } // namespace acs::telemetryfile
-
-// ===================== threading/Thread.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// ACS Threading — スレッド生成・操作（std::thread 代替）
-//
-// CreateThread を直接ラップ。STL の std::thread と異なり例外を投げず、失敗は
-// TResult<FThread, FErrorCode> で返す。
-//
-// 主な機能:
-//   FThread::Spawn     — エントリ関数を別スレッドで起動
-//   FThread::Join      — スレッド終了を待機
-//   FThread::Detach    — スレッドハンドルを切り離す
-//   SleepMs / Yield   — 現在スレッドの停止・譲渡
-//   HardwareConcurrency — 論理 CPU 数（FThreadPool のデフォルト worker 数等で使用）
-
-
-namespace acs {
-
-/** スレッドのエントリポイント関数型。引数 user には Spawn 時の任意ポインタが渡る。 */
-using ThreadEntry = void (*)(void* user);
-
-/** スレッド生成オプション。 */
-struct FThreadConfig {
-    /** デバッガ表示用のスレッド名 (nullptr で無名、Spawn 時に最大 63 UTF-16 単位をコピー)。 */
-    const wchar_t* name        = nullptr;
-
-    /** スタックサイズ (バイト、0 = OS デフォルト)。 */
-    u32            stack_bytes = 0;
-
-    /** スレッド優先度 (-2..+2、THREAD_PRIORITY_* 相当、0 = 通常)。 */
-    i32            priority    = 0;
-
-    /** CPU アフィニティマスク (0 = ピン留めなし)。 */
-    u64            affinity    = 0;
-};
-
-/**
- * RAII で OS スレッドハンドルを所有するスレッド型 (std::thread 代替)。
- *
- * @details
- * CreateThread を直接ラップする。コピー不可・ムーブ可で、デストラクタはハンドルが
- * 残っていれば CloseHandle する (Detach 相当で、スレッドの終了は待たない)。
- */
-class FThread {
-public:
-    /** 空のハンドル (スレッドなし) を構築する。 */
-    FThread() noexcept = default;
-
-    /** ハンドルが残っていれば CloseHandle する (スレッド終了は待たない)。 */
-    ~FThread() noexcept;
-
-    /** コピー禁止 (OS ハンドルを単独所有するため)。 */
-    FThread(const FThread&) = delete;
-
-    /** コピー代入も禁止。 */
-    FThread& operator=(const FThread&) = delete;
-
-    /**
-     * ムーブ構築する。ハンドル所有権を奪い、相手を空にする。
-     *
-     * @param other ムーブ元 (実行後は空ハンドルになる)。
-     */
-    FThread(FThread&& other) noexcept;
-
-    /**
-     * ムーブ代入する。自身が持つハンドルを閉じてから所有権を奪う。
-     *
-     * @param other ムーブ元 (実行後は空ハンドルになる)。
-     * @return 自身への参照。
-     */
-    FThread& operator=(FThread&& other) noexcept;
-
-    /**
-     * 新しいスレッドを起動する。
-     *
-     * @details トランポリン経由で entry を呼ぶ。entry が null なら Threading エラー。
-     * @param entry スレッドで実行するエントリ関数。
-     * @param user entry に渡す任意ポインタ。
-     * @param cfg スレッド生成オプション (名前・スタック・優先度・アフィニティ)。
-     * @return 起動した FThread。失敗時は Memory / OS / Threading カテゴリのエラー。
-     */
-    static TResult<FThread> Spawn(ThreadEntry entry, void* user,
-                                const FThreadConfig& cfg = {}) noexcept;
-
-    /**
-     * Join 可能か (有効なハンドルを保持しているか) を返す。
-     *
-     * @return 有効なハンドルを持つなら true。
-     */
-    bool Joinable() const noexcept { return m_Handle != nullptr; }
-
-    /** スレッド終了までブロックして待機し、その後ハンドルを閉じる (空ハンドルなら何もしない)。 */
-    void Join() noexcept;
-
-    /** ハンドルだけ閉じてスレッドは独立して継続させる (終了は待たない)。 */
-    void Detach() noexcept;
-
-    /**
-     * このスレッドの ID を返す。
-     *
-     * @return スレッド ID (空ハンドルなら既定値)。
-     */
-    FThreadId Id() const noexcept { return m_Id; }
-
-private:
-    /** OS スレッドハンドル (CloseHandle 対象、null = スレッドなし)。 */
-    void*    m_Handle = nullptr;
-
-    /** 生成したスレッドの ID。 */
-    FThreadId m_Id     = {};
-};
-
-/**
- * 現在のスレッドを指定ミリ秒スリープさせる。
- *
- * @param ms スリープするミリ秒数。
- */
-void SleepMs(u32 ms) noexcept;
-
-/** 現在のスレッドが CPU を放棄し、同優先度の実行可能な他スレッドへ譲渡する。 */
-void Yield() noexcept;
-
-/**
- * 論理 CPU 数を返す。
- *
- * @return 論理プロセッサ数 (取得できなければ 1)。
- */
-u32  HardwareConcurrency() noexcept;
-
-} // namespace acs
 
 // ===================== ui/UiRenderer.h =====================
 // SPDX-License-Identifier: Apache-2.0

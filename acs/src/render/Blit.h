@@ -37,6 +37,14 @@ namespace acs {
  */
 class FBlit {
 public:
+    /** Compiled shader handles awaiting owner-thread PSO creation. */
+    struct FCompiledShaders {
+        TUniquePtr<IRhiShader> vertex;
+        TUniquePtr<IRhiShader> pixel;
+
+        EShaderStatus Status() const noexcept;
+    };
+
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FBlit() noexcept = default;
 
@@ -60,6 +68,19 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> Init(IRhiDevice& device, EFormat rt_format) noexcept;
+
+    /** Compile raw-DX12 shader bytecode without touching an RHI device. */
+    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+
+    /** Submit both shaders to a backend-managed compiler pool. */
+    static TResult<FCompiledShaders> BeginCompileShadersAsync(
+        IRhiDevice& device) noexcept;
+
+    /** Create and atomically publish the PSO from ready shader handles. */
+    TResult<void> InitWithCompiledShaders(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format) noexcept;
 
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;

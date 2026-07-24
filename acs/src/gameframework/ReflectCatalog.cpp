@@ -28,6 +28,7 @@
 #include "gameframework/RigidBody2D.h"          // ARigidBody2D (剛体ボディ・コンポーネント)
 #include "gameframework/PrimitiveRenderer2D.h"  // APrimitiveRenderer2D (形状描画 + コライダー形状)
 #include "gameframework/MeshComponent3D.h"       // AMeshComponent3D (3D メッシュ: primitive/color を反射プロパティ化)
+#include "gameframework/WaterSurface3DComponent.h"
 #include "gameframework/Effects2D.h"   // FWater2D / FFire2D / FTrail2D / FStencilClip2D
 #include "gameframework/Light2DComponent.h"  // ALight2DComponent (2D 点光源)
 #include "gameframework/Follow2DComponent.h"  // AFollow2DComponent (オブジェクト参照デモ)
@@ -119,6 +120,49 @@ ACS_REGISTER_COMPONENT(APrimitiveRenderer2D,
 ACS_REGISTER_COMPONENT(AMeshComponent3D,
     ACS_RPROP_I ("primitive", 0),                       // m_Prim (EMeshPrimitive3D)
     ACS_RPROP_V4("color", 1.0f, 1.0f, 1.0f, 1.0f))      // m_Color{1,1,1,1} (RGBA)
+ACS_REGISTER_COMPONENT(AWaterSurface3DComponent,
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, shallowColor,
+        EFieldKind::Vec3, FIELD_COLOR, "Volume", 0.055f, 0.38f, 0.50f, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, deepColor,
+        EFieldKind::Vec3, FIELD_COLOR, "Volume", 0.008f, 0.055f, 0.16f, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, absorption,
+        EFieldKind::Vec3, FIELD_NONE, "Volume", 0.34f, 0.13f, 0.040f, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, scattering,
+        EFieldKind::Vec3, FIELD_NONE, "Volume", 0.018f, 0.050f, 0.085f, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, roughness,
+        EFieldKind::F32, FIELD_NONE, "Surface Detail", 0.105f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, normalStrength,
+        EFieldKind::F32, FIELD_NONE, "Surface Detail", 0.82f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, normalTiling,
+        EFieldKind::F32, FIELD_NONE, "Surface Detail", 0.075f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, flowDirection,
+        EFieldKind::Vec2, FIELD_NONE, "Waves", 0.92f, 0.38f, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, waveAmplitude,
+        EFieldKind::F32, FIELD_NONE, "Waves", 0.105f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, waveScale,
+        EFieldKind::F32, FIELD_NONE, "Waves", 0.78f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, waveSpeed,
+        EFieldKind::F32, FIELD_NONE, "Waves", 0.72f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, rippleSpeed,
+        EFieldKind::F32, FIELD_NONE, "Interaction", 2.65f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, rippleWavelength,
+        EFieldKind::F32, FIELD_NONE, "Interaction", 0.52f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, rippleLifetime,
+        EFieldKind::F32, FIELD_NONE, "Interaction", 4.0f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, rippleDamping,
+        EFieldKind::F32, FIELD_NONE, "Interaction", 0.78f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, refractionStrength,
+        EFieldKind::F32, FIELD_NONE, "Optics", 0.72f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, opticalDepth,
+        EFieldKind::F32, FIELD_NONE, "Optics", 1.35f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, foamIntensity,
+        EFieldKind::F32, FIELD_NONE, "Optics", 0.82f, 0, 0, 0),
+    // Appended to preserve the positional CPROP3D schema written by older
+    // 18-field interactive-water scenes.
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, phaseAnisotropy,
+        EFieldKind::F32, FIELD_NONE, "Volume", 0.62f, 0, 0, 0),
+    ACS_RFIELD_DFC(AWaterSurface3DComponent, foamColor,
+        EFieldKind::Vec3, FIELD_COLOR, "Surface Detail", 0.88f, 0.96f, 1.0f, 0))
 // 剛体ボディ (現実的な剛体物理の dynamics。形状は APrimitiveRenderer2D の shape を使う)。
 // bodyType: 0=Static, 1=Dynamic。値はエディタが保持し Play で読む。
 ACS_REGISTER_COMPONENT(ARigidBody2D,

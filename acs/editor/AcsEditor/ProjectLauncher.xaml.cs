@@ -21,7 +21,7 @@ public partial class ProjectLauncher : Window
     /// <summary>選択 (作成 or オープン) されたプロジェクト。キャンセル時は null。</summary>
     public Project? SelectedProject { get; private set; }
 
-    private string _template = "2d";
+    private string _template = "3d";
     private bool _openInProgress;
 
     public ProjectLauncher()
@@ -59,8 +59,8 @@ public partial class ProjectLauncher : Window
 
     private void UpdateTemplateToggles()
     {
-        TplBlank.IsChecked = _template == "blank";
-        Tpl2D.IsChecked    = _template == "2d";
+        Tpl3D.IsChecked = _template == "3d";
+        Tpl2D.IsChecked = _template == "2d";
     }
 
     private void OnBrowseLocation(object sender, RoutedEventArgs e)

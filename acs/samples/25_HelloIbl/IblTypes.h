@@ -22,6 +22,10 @@ inline constexpr acs::u32 kEquirectHeight = 128;
 // 動的球 (公転発光オーブ) の数。color pass + motion pass の両方が参照。
 inline constexpr acs::u32 kDynCount = 3;
 
+// PBR material-lobe preview grid. The frame-level object-CB reservation and
+// SceneDraw share this value so the reservation cannot silently undercount.
+inline constexpr acs::u32 kPbrGridSize = 5;
+
 // ガラス球のワールド配置。clear (左) / frosted (右)。
 inline constexpr acs::FVec3 kGlassPos       {-1.4f, 1.5f, 0.0f};
 inline constexpr acs::FVec3 kFrostedGlassPos{ 1.4f, 1.5f, 0.0f};

@@ -50,6 +50,8 @@ const FSettingDesc kSchema[] = {
       "3D ボリュメトリック指数ハイトフォグの密度。0=オフ / 0.02〜0.05 で自然な大気感。色は空の地平色に追従" },
     { "Rendering", "SkyMode",       ESettingType::Int,   "0",              nullptr,
       "3D 空モデル。0=FSky (グラデ+手続き雲) / 1=FAtmosphere (物理大気散乱 Rayleigh+Mie、背景と IBL が物理ベースに。要 Diligent)" },
+    { "Rendering", "AerialPerspective", ESettingType::Int, "0",            nullptr,
+      "3D 物理大気の空気遠近法。0=オフ / 1=オン。距離に応じた散乱と透過率をカメラボリュームで合成" },
     { "Rendering", "CloudCoverage", ESettingType::Float, "0.5",            nullptr,
       "3D ボリュメトリック雲の雲量。0=雲オフ / 0.1〜1.0。world-space 3D density、自己影、silver lining、時間再構成を使用" },
     { "Rendering", "CloudDensity",  ESettingType::Float, "1.6",            nullptr,

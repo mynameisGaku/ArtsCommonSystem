@@ -3,6 +3,10 @@
 #include "render/Blit.h"
 #include "foundation/Move.h"
 
+#if !WITH_RENDER_DILIGENT
+#include "render/Dx12/Dx12Shader.h"
+#endif
+
 namespace acs {
 
 namespace {
@@ -35,31 +39,123 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
+TResult<FBlit::FCompiledShaders> CompileBlitShadersWithDevice(
+    IRhiDevice& device, bool compile_async) noexcept {
+    FBlit::FCompiledShaders compiled{};
+
+    FShaderDesc vertex_description{};
+    vertex_description.stage = EShaderStage::Vertex;
+    vertex_description.hlsl_source = kBlitHLSL;
+    vertex_description.entry_point = "VSMain";
+    vertex_description.debug_name = "FBlit.VS";
+    vertex_description.compile_async = compile_async;
+    auto vertex = CreateRhiShader(device, vertex_description);
+    if (vertex.IsErr()) {
+        return Err<FBlit::FCompiledShaders>(vertex.Error());
+    }
+    compiled.vertex = Move(vertex.Value());
+
+    FShaderDesc pixel_description{};
+    pixel_description.stage = EShaderStage::Pixel;
+    pixel_description.hlsl_source = kBlitHLSL;
+    pixel_description.entry_point = "PSMain";
+    pixel_description.debug_name = "FBlit.PS";
+    pixel_description.compile_async = compile_async;
+    auto pixel = CreateRhiShader(device, pixel_description);
+    if (pixel.IsErr()) {
+        return Err<FBlit::FCompiledShaders>(pixel.Error());
+    }
+    compiled.pixel = Move(pixel.Value());
+
+    return TResult<FBlit::FCompiledShaders>(OkInit, Move(compiled));
+}
+
 } // namespace
+
+EShaderStatus FBlit::FCompiledShaders::Status() const noexcept {
+    if (!vertex || !pixel) return EShaderStatus::Failed;
+    const EShaderStatus vertex_status = vertex->Status();
+    const EShaderStatus pixel_status = pixel->Status();
+    if (vertex_status == EShaderStatus::Failed ||
+        pixel_status == EShaderStatus::Failed) {
+        return EShaderStatus::Failed;
+    }
+    if (vertex_status == EShaderStatus::Compiling ||
+        pixel_status == EShaderStatus::Compiling) {
+        return EShaderStatus::Compiling;
+    }
+    return EShaderStatus::Ready;
+}
 
 /** ブリット用 VS/PS をコンパイルし、rt_format に合わせた PSO を生成する。 */
 TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
-    FShaderDesc vs_d{};
-    vs_d.stage = EShaderStage::Vertex;
-    vs_d.hlsl_source = kBlitHLSL;
-    vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FBlit.VS";
-    auto vs_r = CreateRhiShader(device, vs_d);
-    if (vs_r.IsErr()) return Err<void>(vs_r.Error());
-    m_Vs = Move(vs_r.Value());
+    auto compiled = CompileBlitShadersWithDevice(device, false);
+    if (compiled.IsErr()) return Err<void>(compiled.Error());
+    return InitWithCompiledShaders(
+        device, Move(compiled.Value()), rt_format);
+}
 
-    FShaderDesc ps_d{};
-    ps_d.stage = EShaderStage::Pixel;
-    ps_d.hlsl_source = kBlitHLSL;
-    ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FBlit.PS";
-    auto ps_r = CreateRhiShader(device, ps_d);
-    if (ps_r.IsErr()) return Err<void>(ps_r.Error());
-    m_Ps = Move(ps_r.Value());
+TResult<FBlit::FCompiledShaders> FBlit::CompileShadersCpu() noexcept {
+#if !WITH_RENDER_DILIGENT
+    auto compile = [](EShaderStage stage, const char* entry_point,
+                      const char* debug_name) noexcept
+        -> TResult<TUniquePtr<IRhiShader>> {
+        FShaderDesc description{};
+        description.stage = stage;
+        description.hlsl_source = kBlitHLSL;
+        description.entry_point = entry_point;
+        description.debug_name = debug_name;
+        auto shader = MakeUnique<FDx12Shader>();
+        if (!shader) {
+            return ACS_ERR(Memory, 725, "FBlit shader allocation failed");
+        }
+        const FHrResult result = shader->Init(description);
+        if (result.IsErr()) {
+            return ACS_ERR_OS(
+                Render, 726, "FBlit shader CPU compile failed",
+                static_cast<u32>(result.hr));
+        }
+        auto* allocator = shader.GetAllocator();
+        TUniquePtr<IRhiShader> output(shader.Release(), allocator);
+        return TResult<TUniquePtr<IRhiShader>>(OkInit, Move(output));
+    };
 
+    FCompiledShaders compiled{};
+    auto vertex = compile(
+        EShaderStage::Vertex, "VSMain", "FBlit.VS");
+    if (vertex.IsErr()) return Err<FCompiledShaders>(vertex.Error());
+    compiled.vertex = Move(vertex.Value());
+    auto pixel = compile(
+        EShaderStage::Pixel, "PSMain", "FBlit.PS");
+    if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
+    compiled.pixel = Move(pixel.Value());
+    return TResult<FCompiledShaders>(OkInit, Move(compiled));
+#else
+    return ACS_ERR(
+        Render, 727,
+        "FBlit CPU compilation is available only on raw DX12");
+#endif
+}
+
+TResult<FBlit::FCompiledShaders> FBlit::BeginCompileShadersAsync(
+    IRhiDevice& device) noexcept {
+    if (!device.SupportsAsyncShaderCompilation()) {
+        return ACS_ERR(
+            Render, 728,
+            "FBlit backend-managed asynchronous compilation is unsupported");
+    }
+    return CompileBlitShadersWithDevice(device, true);
+}
+
+TResult<void> FBlit::InitWithCompiledShaders(
+    IRhiDevice& device, FCompiledShaders&& shaders,
+    EFormat rt_format) noexcept {
+    if (shaders.Status() != EShaderStatus::Ready) {
+        return ACS_ERR(Render, 729, "FBlit compiled shader set is not ready");
+    }
     FPipelineDesc pd{};
-    pd.vs            = m_Vs.Get();
-    pd.ps            = m_Ps.Get();
+    pd.vs            = shaders.vertex.Get();
+    pd.ps            = shaders.pixel.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
     pd.depth_format  = EFormat::Unknown;       // depth 不使用
@@ -77,8 +173,12 @@ TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     // 頂点バッファ無し (SV_VertexID 駆動): vertex_stride=0, layout_count=0 (既定値)
     auto pl_r = CreateRhiPipeline(device, pd);
     if (pl_r.IsErr()) return Err<void>(pl_r.Error());
-    m_Pipeline = Move(pl_r.Value());
+    TUniquePtr<IRhiPipeline> pipeline = Move(pl_r.Value());
 
+    m_Pipeline.Reset();
+    m_Vs = Move(shaders.vertex);
+    m_Ps = Move(shaders.pixel);
+    m_Pipeline = Move(pipeline);
     return Ok();
 }
 

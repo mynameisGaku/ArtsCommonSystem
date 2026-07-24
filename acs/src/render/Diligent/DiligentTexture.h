@@ -152,7 +152,7 @@ public:
      *
      * @return depth target なら true。
      */
-    bool IsDepthTarget()     const noexcept { return m_IsDepth; }
+    bool IsDepthTarget() const noexcept override { return m_IsDepth; }
 
     /**
      * 深度バッファが stencil 成分を持つかを返す。
@@ -171,6 +171,11 @@ public:
      * @return shader_visible_depth で生成されていれば true。
      */
     bool ShaderVisibleDepth() const noexcept { return m_DepthSrv; }
+    bool IsShaderVisibleDepth() const noexcept override {
+        return m_IsDepth && m_DepthSrv;
+    }
+
+    u32 SampleCount() const noexcept override { return 1u; }
 
 private:
     /** per-slice view とテクスチャ本体を解放して空状態へ戻す。 */

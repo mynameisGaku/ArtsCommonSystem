@@ -10,6 +10,7 @@
 // 使い方:
 //   FPbrShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
+//   shd.BeginFrame(/* expected object draws across every pass */ 1);
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, 1, ambient_color);
 //   shd.SetObject(model_mat, base_color, /*metallic=*/0.0f, /*roughness=*/0.5f,
@@ -40,6 +41,7 @@
 #include "render/StandardShader.h"      // FDirLight / FPointLight を再利用
 
 #include "foundation/Result.h"
+#include "container/Array.h"
 #include "memory/UniquePtr.h"
 #include "math/Vec.h"
 #include "math/Mat.h"
@@ -69,6 +71,11 @@ public:
     struct FCompiledShaders {
         TUniquePtr<IRhiShader> vertex;
         TUniquePtr<IRhiShader> pixel;
+        /**
+         * Optional three-target SSSS variant. Failure to compile this shader
+         * never invalidates the established single-target PBR path.
+         */
+        TUniquePtr<IRhiShader> pixel_subsurface_mrt;
 
         /** Aggregate a backend-managed asynchronous compile without waiting. */
         EShaderStatus Status() const noexcept;
@@ -97,21 +104,28 @@ public:
     TResult<void> Init(IRhiDevice& device,
                       EFormat rt_format    = EFormat::B8G8R8A8_UNorm,
                       EFormat depth_format = EFormat::D32_Float,
-                      ECullMode cull_mode  = ECullMode::Back) noexcept;
+                      ECullMode cull_mode  = ECullMode::Back,
+                      bool include_subsurface_mrt = true) noexcept;
 
     /**
      * Compile the DX12 HLSL bytecode without touching an RHI device.
      * This is safe to run on a startup worker. Other backends return an
      * unsupported error and retain the regular owner-thread Init path.
+     * Set include_subsurface_mrt=false when the scene has no opaque
+     * subsurface or Substrate MFP material; true preserves the public default.
      */
-    static TResult<FCompiledShaders> CompileShadersCpu() noexcept;
+    static TResult<FCompiledShaders> CompileShadersCpu(
+        bool include_subsurface_mrt = true) noexcept;
 
     /**
      * Submit shader compilation to a supporting RHI backend. The returned
      * shader handles are polled and committed on the render-owner thread.
+     * The optional MRT shader is not submitted when
+     * include_subsurface_mrt=false.
      */
     static TResult<FCompiledShaders> BeginCompileShadersAsync(
-        IRhiDevice& device) noexcept;
+        IRhiDevice& device,
+        bool include_subsurface_mrt = true) noexcept;
 
     /**
      * Install CPU-compiled shaders and create all RHI buffers, textures and
@@ -124,8 +138,46 @@ public:
         EFormat depth_format = EFormat::D32_Float,
         ECullMode cull_mode = ECullMode::Back) noexcept;
 
+    /**
+     * Fully initialize an unpublished candidate from a raw-DX12 worker.
+     *
+     * The target object must be inactive and must not be read until the worker
+     * is joined. Other backends fail without changing the object.
+     */
+    TResult<void> BuildInitializedCandidateForRawDx12(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format = EFormat::B8G8R8A8_UNorm,
+        EFormat depth_format = EFormat::D32_Float,
+        ECullMode cull_mode = ECullMode::Back) noexcept;
+
     /** 確保した GPU リソースを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
+
+    /**
+     * Start one command-list frame and reserve immutable per-draw object CBs.
+     *
+     * @details Call exactly once before recording any PBR draw for a frame.
+     * The cursor is deliberately not reset by SetLights: an MRT attempt and a
+     * later single-target fallback can therefore coexist in one command list
+     * without the fallback overwriting CB storage referenced by earlier draws.
+     * The pool persists across frames and grows geometrically when the hint (or
+     * a later SetObject) exceeds the current capacity.
+     *
+     * @param required_object_draws Upper bound for all PBR draws recorded in
+     * this frame, including fallback passes.
+     * @return true when the requested capacity is ready. Existing capacity
+     * remains usable if growth fails.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    /** Number of reusable per-object constant buffers currently retained. */
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_ObjectCbs.Size());
+    }
+
+    /** Number of per-object slots consumed since the last BeginFrame. */
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
 
     /**
      * 有向光源と camera・環境光を設定する (frame CB を更新)。
@@ -436,13 +488,13 @@ public:
      * Subsurface scattering (内部散乱) を member に格納する。
      *
      * @details
-     * 肌/ロウ/大理石のような質感を、wrapped diffuse (terminator の柔らかさ) + 裏面
-     * translucency (逆光の透け) の薄物向け解析近似で表現する。既存の Lambert diffuse を
-     * エネルギー正規化した散乱 lobe へ置換するため、weight に比例した単純加算ではない。
-     * これは画面空間 diffusion を行う SSSS pass ではなく、LUT・追加 pass を使わない近似。
+     * 通常の 1-RT 描画では、肌/ロウ/大理石のような質感を wrapped diffuse +
+     * 裏面 translucency の薄物向け解析近似で表現する。SSSS MRT 描画では
+     * sss_color * weight を RGB ごとの平均自由行程として RGBA16F に抽出し、
+     * FSubsurfaceScattering が物理距離に基づいて diffuse 成分だけを拡散する。
      * member に格納され次の SetObject / DrawMesh が反映する (既定 weight=0 で無効)。
-     * @param sss_color 内部散乱の色 (肌なら赤み)。
-     * @param weight SSS 強度 (0=OFF、1=フル)。
+     * @param sss_color RGB ごとの相対散乱距離 (肌なら赤が長い)。
+     * @param weight SSS coverage と legacy 最大散乱距離 (0=OFF、1=1cm)。
      */
     void SetSubsurface(FVec3 sss_color, f32 weight) noexcept;
 
@@ -497,6 +549,16 @@ public:
      */
     IRhiPipeline* Pipeline()    const noexcept { return m_Pipeline.Get(); }
 
+    /** True only when the optional diffuse/material MRT variant is usable. */
+    bool HasSubsurfaceMrtPipeline() const noexcept {
+        return m_SubsurfaceMrtPipeline.Get() != nullptr;
+    }
+
+    /** Optional SSSS MRT pipeline, primarily for diagnostics/tests. */
+    IRhiPipeline* SubsurfaceMrtPipeline() const noexcept {
+        return m_SubsurfaceMrtPipeline.Get();
+    }
+
     /**
      * per-frame 定数バッファを返す。
      *
@@ -510,7 +572,8 @@ public:
      * @return object CB (b1、model・material 設定)。
      */
     IRhiBuffer*   PerObjectCB() const noexcept {
-        return m_CurrentObjCb < kObjRing ? m_ObjectCbs[m_CurrentObjCb].Get() : nullptr;
+        return m_CurrentObjectCb < m_ObjectCbs.Size()
+            ? m_ObjectCbs[m_CurrentObjectCb].Get() : nullptr;
     }
 
     /**
@@ -532,7 +595,7 @@ public:
      * @param ao ambient occlusion [0,1]。
      * @param albedo albedo テクスチャ (null なら既定の白)。
      */
-    void DrawMesh(IRhiCommandList& cmd,
+    bool DrawMesh(IRhiCommandList& cmd,
                   const FGpuMesh& mesh,
                   const FMat4& model,
                   FVec3 base_color = FVec3{1, 1, 1},
@@ -541,9 +604,33 @@ public:
                   f32  ao         = 1.0f,
                   IRhiTexture* albedo = nullptr) noexcept;
 
+    /**
+     * Draw the same material into scene-color, diffuse-only and SSS material
+     * targets. Returns false without issuing work when the optional PSO is
+     * unavailable, allowing the caller to use DrawMesh unchanged.
+     */
+    bool DrawMeshSubsurfaceMrt(IRhiCommandList& cmd,
+                               const FGpuMesh& mesh,
+                               const FMat4& model,
+                               FVec3 base_color = FVec3{1, 1, 1},
+                               f32 metallic = 0.0f,
+                               f32 roughness = 0.5f,
+                               f32 ao = 1.0f,
+                               IRhiTexture* albedo = nullptr) noexcept;
+
 private:
+    TResult<void> InitWithCompiledShadersInternal(
+        IRhiDevice& device,
+        FCompiledShaders&& shaders,
+        EFormat rt_format,
+        EFormat depth_format,
+        ECullMode cull_mode) noexcept;
+
     /** 現在の member 値から frame CB レイアウトを構築して GPU に書き込む。 */
     void FlushFrameCB() noexcept;
+
+    /** Grow the persistent object-CB pool without invalidating existing slots. */
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
 
     /** Device that owns the currently committed RHI resources (non-owning). */
     IRhiDevice* m_ResourceDevice = nullptr;
@@ -554,21 +641,34 @@ private:
     /** Cook-Torrance BRDF を評価するピクセルシェーダ。 */
     TUniquePtr<IRhiShader>   m_Ps;
 
+    /** Optional MRT pixel shader for diffusion-safe SSSS extraction. */
+    TUniquePtr<IRhiShader>   m_SubsurfaceMrtPs;
+
     /** PBR 描画のパイプライン。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
+
+    /** Optional 3-RT PBR pipeline; never required for base shader validity. */
+    TUniquePtr<IRhiPipeline> m_SubsurfaceMrtPipeline;
 
     /** per-frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /** per-object 定数バッファ (b1) のリング。
-     *  単一の frame-cycled CB だと «フレーム内の複数 SetObject» が同一スロットを上書きし、
-     *  実行時に全 DrawIndexed が «最後の値» を読む (= 全メッシュが最後のノードの model/material に
-     *  なる)。SetLights で cursor をリセットし、SetObject ごとに未使用バッファを消費する。
-     *  上限到達時は wrap せず current を無効化し、記録済み draw の上書きを防ぐ。 */
-    static constexpr u32     kObjRing = 256;
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kObjRing];
-    u32                      m_ObjRingCursor = 0;
-    u32                      m_CurrentObjCb = 0;
+    /**
+     * Persistent, growable per-object constant-buffer pool.
+     *
+     * A single frame-cycled CB cannot represent multiple recorded draws:
+     * later CPU updates would make every DrawIndexed observe the final object.
+     * Each draw therefore consumes a distinct buffer until the next BeginFrame.
+     * Pool storage survives frame resets and grows geometrically, removing
+     * the former 256-object visibility cliff without per-frame allocation
+     * churn.
+     */
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_ObjectCapacityFailureLogged = false;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;

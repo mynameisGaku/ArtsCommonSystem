@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstddef>
 #include <cmath>
+#include <chrono>
 
 namespace acs {
 
@@ -552,7 +553,8 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
                         float3 sheenColor, float sheenWeight,
                         float3 iridFresnel, float iridWeight,
                         float3 directF0, float3 directF90,
-                        float secondRoughness, float secondWeight)
+                        float secondRoughness, float secondWeight,
+                        out float3 diffuseLighting)
 {
     float NoV = saturate(dot(N, V));
     float3 R  = reflect(-V, N);
@@ -571,10 +573,14 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
         irr = irradiance.SampleLevel(irradiance_sampler, N, 0).rgb;
     }
     float3 diffuse_ibl = kd * base * irr;
+    float3 material_diffuse_ibl = diffuse_ibl;
     // Sheen ambient (Phase 35-1a): irradiance を sheen 色で着色した簡易 ambient + base 減衰
     if (sheenWeight > 0.0) {
         float maxC = max(sheenColor.r, max(sheenColor.g, sheenColor.b));
-        diffuse_ibl = diffuse_ibl * saturate(1.0 - sheenWeight * maxC * 0.5)
+        float baseAttenuation =
+            saturate(1.0 - sheenWeight * maxC * 0.5);
+        material_diffuse_ibl *= baseAttenuation;
+        diffuse_ibl = diffuse_ibl * baseAttenuation
                     + irr * sheenColor * sheenWeight * 0.25;
     }
 
@@ -610,6 +616,7 @@ float3 ComputeIblAmbient(float3 N, float3 V, float3 world_p, float3 base,
     // 拡散 IBL: WickedEngine は間接拡散を削らない (GIBoost>=1 で寧ろ増す)。以前の ×0.45 は «浮く»
     // 対策の local hack で影/環境光領域が ~55% 暗く dull/flat だった。接地は AO + 強い太陽キー
     // (SunIntensity) + 接地影/キャスト影で担保し、IBL は ~0.85 (ほぼ等倍) へ戻す。鏡面 IBL は据え置き。
+    diffuseLighting = material_diffuse_ibl * (0.85 * ao);
     return (diffuse_ibl * 0.85 + specular_ibl) * ao;
 }
 
@@ -741,9 +748,11 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
                        float anisotropy, float3 T_world,
                        float3 iridFresnel, float iridWeight,
                        float3 directF0, float3 directF90,
-                       float secondRoughness, float secondWeight)
+                       float secondRoughness, float secondWeight,
+                       out float3 diffuseLighting)
 {
     float3 brdf_value = float3(0, 0, 0);
+    diffuseLighting = float3(0, 0, 0);
     float3 H = normalize(V + L);
     float NdotL = saturate(dot(N, L));
     if (NdotL > 0.0) {
@@ -788,6 +797,7 @@ float3 BrdfCookTorrance(float3 N, float3 V, float3 L,
     }
     float3 kd = (1.0 - F) * (1.0 - metallic);
     float3 diffuse = kd * base / PI;
+    diffuseLighting = diffuse * NdotL;
     brdf_value = (diffuse + specular) * NdotL;
     }
     return brdf_value;
@@ -1145,21 +1155,26 @@ void AcsEvaluateExpressions(float2 uv, float3 world_position,
 // 1 光源ぶんの layered BRDF を評価 (base Cook-Torrance + clearcoat 層 + sheen 層)。
 // L = surface→light、戻り値は放射輝度係数 (光色・距離減衰・shadow は呼び側で乗算)。
 // dir/area/point の 3 ループはこの 1 関数を呼ぶだけにし、lobe 追加を 1 箇所に集約する。
-float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
+float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m,
+                           bool applyAnalyticSss,
+                           out float3 diffuseLighting) {
+    float3 baseDiffuse = float3(0, 0, 0);
     float3 base_brdf = BrdfCookTorrance(N, V, L, m.albedo, m.metallic, m.roughness,
                                         m.anisotropy, m.aniso_tangent,
                                         m.irid_fresnel, m.irid_weight,
                                         m.f0, m.f90,
-                                        m.second_roughness, m.second_weight);
+                                        m.second_roughness, m.second_weight,
+                                        baseDiffuse);
     ClearcoatTerm cc = EvalClearcoat(N, V, L, m.clearcoat, m.coat_roughness,
                                      m.coat_f0);
     float3 lit = base_brdf * cc.attenuation + cc.spec_times_nol;
+    diffuseLighting = baseDiffuse * cc.attenuation;
 
     // Thin-material subsurface approximation.  This is deliberately not advertised as
     // screen-space SSSS: it only redistributes the direct diffuse lobe and adds a small,
     // bounded back-light response.  Replacing the Lambert lobe (instead of adding on top
     // of it) keeps the material from creating energy as sss_weight approaches one.
-    if (m.sss_weight > 0.0 && m.metallic < 1.0) {
+    if (applyAnalyticSss && m.sss_weight > 0.0 && m.metallic < 1.0) {
         float mfp = dot(m.mean_free_path_cm, float3(0.2126, 0.7152, 0.0722));
         const float kWrap = lerp(0.20, 0.60, saturate(mfp / (mfp + 1.0)));
         const float kTransmissionShare = lerp(0.08, 0.24, saturate(mfp / (mfp + 0.5)));
@@ -1190,8 +1205,11 @@ float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
         float3 scatterTint = lerp(float3(1.0, 1.0, 1.0), saturate(m.sss_color), 0.75);
         float3 lambertDiffuse = kd * m.albedo * (NoL / PI);
         float3 scatteredDiffuse = kd * m.albedo * scatterTint * (scatterResponse / PI);
-        lit += (scatteredDiffuse - lambertDiffuse)
-             * saturate(m.sss_weight) * cc.attenuation;
+        float3 analyticSssDelta =
+            (scatteredDiffuse - lambertDiffuse)
+            * saturate(m.sss_weight) * cc.attenuation;
+        lit += analyticSssDelta;
+        diffuseLighting += analyticSssDelta;
     }
 
     // Sheen (Phase 35-1a): 布/ベルベットの fuzz 層を base に加算。エネルギー保存の
@@ -1206,7 +1224,10 @@ float3 EvalSurfaceForLight(float3 N, float3 V, float3 L, SurfaceMaterial m) {
                      * NoL * m.sheen_weight;
         float  maxC = max(m.sheen_color.r, max(m.sheen_color.g, m.sheen_color.b));
         // saturate: SetSheen が範囲クランプ済だが、CB を直接書く経路でも負にしない防御。
-        lit = lit * saturate(1.0 - m.sheen_weight * maxC * 0.5) + sheen;
+        float baseAttenuation =
+            saturate(1.0 - m.sheen_weight * maxC * 0.5);
+        diffuseLighting *= baseAttenuation;
+        lit = lit * baseAttenuation + sheen;
     }
     return lit;
 }
@@ -1253,7 +1274,14 @@ float FogHgPhase(float cos_theta, float g) {
     return (1.0 - g2) / (denom * sqrt(denom));
 }
 )" R"(
-float4 PSMain(VSOut v) : SV_TARGET {
+struct PbrSurfaceOutputs {
+    float4 scene_color;
+    float4 diffuse_lighting;
+    float4 ssss_material;
+    float4 world_normal;
+};
+
+PbrSurfaceOutputs EvaluatePbr(VSOut v, bool applyAnalyticSss) {
     float3 geometric_normal = normalize(v.world_n);
     bool substrate_enabled = substrate_secondary.w > 0.5;
     float slab_values[39];
@@ -1503,19 +1531,25 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // uniform branching なので片方の TextureCube サンプルは PSO の dead code
     // として削除される (FXC の判断による)。
     float3 col;
+    float3 diffuse_col = float3(0, 0, 0);
     // IBL cubemap が無くても SH9 / probe grid が有れば ambient 経路へ (SH9 standalone を許可)。
     if (ibl_params.x >= 0.5 || ibl_params.z >= 0.5 || probe_params.x >= 1.0) {
+        float3 base_ibl_diffuse = float3(0, 0, 0);
         float3 base_ibl = ComputeIblAmbient(N, V, v.world_p, albedo_rgb, metallic, roughness, ao,
                                             ssr_rgb, ssr_weight,
                                             mat.sheen_color, mat.sheen_weight,
                                             mat.irid_fresnel, mat.irid_weight,
                                             mat.f0, mat.f90,
-                                            mat.second_roughness, mat.second_weight);
+                                            mat.second_roughness, mat.second_weight,
+                                            base_ibl_diffuse);
         IblCoatTerm cc_ibl = ComputeIblClearcoat(N, V, clearcoat, coat_roughness,
                                                  mat.coat_f0);
         col = (base_ibl * cc_ibl.attenuation + cc_ibl.spec * ao) * ssao_factor;
+        diffuse_col =
+            base_ibl_diffuse * cc_ibl.attenuation * ssao_factor;
     } else {
         col = ambient.xyz * albedo_rgb * ao * ssao_factor;
+        diffuse_col = col;
     }
 
     // SSGI (Phase 33c): screen-space 1 bounce indirect light を ambient に加算。
@@ -1524,14 +1558,21 @@ float4 PSMain(VSOut v) : SV_TARGET {
     if (ssgi_params.x >= 0.5) {
         float2 screen_uv = v.pos.xy * float2(ssao_params.z, ssao_params.w);
         float3 gi = ssgi_color.SampleLevel(ssgi_color_sampler, screen_uv, 0).rgb;
-        col += gi * albedo_rgb * (1.0 - metallic) * ssgi_params.y * ssao_factor;
+        float3 gi_diffuse =
+            gi * albedo_rgb * (1.0 - metallic) *
+            ssgi_params.y * ssao_factor;
+        col += gi_diffuse;
+        diffuse_col += gi_diffuse;
     }
 
     // Lightmap (Phase 33f): mesh の uv で baked static GI を sample して
     // ambient に加算。非金属の diffuse のみ (metallic surface には baked light は乗らない)。
     if (lightmap_params.x >= 0.5) {
         float3 lm = lightmap.SampleLevel(lightmap_sampler, v.uv, 0).rgb;
-        col += lm * albedo_rgb * (1.0 - metallic) * lightmap_params.y;
+        float3 lightmap_diffuse =
+            lm * albedo_rgb * (1.0 - metallic) * lightmap_params.y;
+        col += lightmap_diffuse;
+        diffuse_col += lightmap_diffuse;
     }
 
     // 有向光源 (i==0 のみ shadow_map で遮蔽)
@@ -1543,7 +1584,11 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 L = normalize(light_dir[i].xyz);
         // i==0 (= sun) は shadow map (PCSS) と contact shadow (Phase 34q) の両方で遮蔽
         float k = (i == 0) ? (shadow * contact_shadow) : 1.0;
-        col += light_color[i].xyz * EvalSurfaceForLight(N, V, L, mat) * k;
+        float3 light_diffuse = float3(0, 0, 0);
+        float3 light_lit = EvalSurfaceForLight(
+            N, V, L, mat, applyAnalyticSss, light_diffuse);
+        col += light_color[i].xyz * light_lit * k;
+        diffuse_col += light_color[i].xyz * light_diffuse * k;
     }
 
     // 矩形 area light: 4x4 stratified sample で Monte Carlo 積分。
@@ -1563,6 +1608,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float facing = dot(area_n, v.world_p - area_c);
         if (facing > 0.0) {
             float3 area_sum = float3(0, 0, 0);
+            float3 area_diffuse_sum = float3(0, 0, 0);
             const int kSamples = 4;
             [loop]
             for (int sy = 0; sy < kSamples; ++sy) {
@@ -1577,12 +1623,18 @@ float4 PSMain(VSOut v) : SV_TARGET {
                     // inverse square + 面要素の cos(法線方向)
                     float cos_area = saturate(-dot(area_n, L));
                     float att = cos_area / max(dist * dist, 1e-4);
-                    area_sum += EvalSurfaceForLight(N, V, L, mat) * att;
+                    float3 area_diffuse = float3(0, 0, 0);
+                    area_sum += EvalSurfaceForLight(
+                        N, V, L, mat, applyAnalyticSss,
+                        area_diffuse) * att;
+                    area_diffuse_sum += area_diffuse * att;
                 }
             }
             // (axisX × axisY の長さ) = 面の半面積 ×4。N_sample で割って full area で乗算。
             float area = 4.0 * length(cross(axisX, axisY));
-            col += col_a * area_sum * (area / (float)(kSamples * kSamples));
+            float area_scale = area / (float)(kSamples * kSamples);
+            col += col_a * area_sum * area_scale;
+            diffuse_col += col_a * area_diffuse_sum * area_scale;
         }
     }
 
@@ -1598,7 +1650,11 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float3 L = to_light / max(dist, 1e-4);
         float  att = 1.0 - dist / rng;
         att = att * att;
-        col += point_color[j].xyz * EvalSurfaceForLight(N, V, L, mat) * att;
+        float3 point_diffuse = float3(0, 0, 0);
+        float3 point_lit = EvalSurfaceForLight(
+            N, V, L, mat, applyAnalyticSss, point_diffuse);
+        col += point_color[j].xyz * point_lit * att;
+        diffuse_col += point_color[j].xyz * point_diffuse * att;
     }
 
     // Emissive (Phase 34l): 自己発光。lighting と無関係に加算する。fog より前に
@@ -1629,6 +1685,9 @@ float4 PSMain(VSOut v) : SV_TARGET {
                           * (phase * fog_height_params.w * sun_visibility);
         }
         col = col * transmittance + in_scatter * (1.0 - transmittance);
+        // Atmospheric in-scatter is not material diffuse and must not be
+        // diffused by the later screen-space pass.
+        diffuse_col *= transmittance;
     }
 
     // Aerial perspective (WickedEngine camera-volume LUT)。screen uv + 深度→スライス (LUT 焼きの
@@ -1644,9 +1703,70 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float2 sUv = saturate(float2(apNdc.x * 0.5 + 0.5, -apNdc.y * 0.5 + 0.5));
         float4 ap = ap_volume.SampleLevel(ap_volume_sampler, float3(sUv, zc), 0);
         col = col * (1.0 - ap.a) + ap.rgb;
+        diffuse_col *= (1.0 - ap.a);
     }
 
-    return float4(col, substrate_enabled ? dynamic_coverage : base_color.w);
+    float output_alpha =
+        substrate_enabled ? dynamic_coverage : base_color.w;
+    // The material MRT carries a physical RGB diffusion profile, not a
+    // quantized colour hash. Substrate authors mean-free-path and thickness in
+    // centimetres; editor scene units are metres. Legacy SSS uses its scalar
+    // as both coverage and maximum MFP, with subsurfaceColor defining the
+    // relative RGB distances. A neutral 0.5 thickness response keeps that
+    // established one-scalar authoring at exactly 1x radius.
+    float thickness_response = substrate_enabled
+        ? saturate(dynamic_thickness / (dynamic_thickness + 0.01))
+        : 0.5;
+    float3 profile_radius_cm = substrate_enabled
+        ? dynamic_mfp
+        : saturate(sss_params.xyz) * saturate(sss_params.w);
+    float radius_scale =
+        lerp(0.75, 1.25, thickness_response);
+    float3 scatter_radius_world = min(
+        max(profile_radius_cm, 0.0.xxx) * (0.01 * radius_scale),
+        1000.0.xxx);
+    float profile_max_world = max(
+        scatter_radius_world.x,
+        max(scatter_radius_world.y, scatter_radius_world.z));
+    float coverage = profile_max_world > 1e-7
+        ? saturate(mat.sss_weight)
+        : 0.0;
+
+    PbrSurfaceOutputs outputs;
+    outputs.scene_color = float4(col, output_alpha);
+    outputs.diffuse_lighting = float4(diffuse_col, output_alpha);
+    outputs.ssss_material = coverage > 1e-4
+        ? float4(scatter_radius_world, coverage)
+        : float4(0, 0, 0, 0);
+    // Preserve the final shading normal, after tangent-space normal mapping
+    // and per-pixel Substrate expressions. SSSS uses this instead of a
+    // geometric prepass normal so diffusion cannot cross authored detail.
+    outputs.world_normal = float4(normalize(N), 1.0);
+    return outputs;
+}
+
+float4 PSMain(VSOut v) : SV_TARGET {
+    // The established one-RT fallback keeps its bounded analytic thin SSS.
+    return EvaluatePbr(v, true).scene_color;
+}
+
+struct PbrSsssMrtOutput {
+    float4 scene_color : SV_TARGET0;
+    float4 diffuse_lighting : SV_TARGET1;
+    float4 ssss_material : SV_TARGET2;
+    float4 world_normal : SV_TARGET3;
+};
+
+PbrSsssMrtOutput PSMainSsss(VSOut v) {
+    // MRT starts from unblurred diffuse. Analytic SSS is disabled so the
+    // blurred-original replacement cannot double-scatter the same energy.
+    PbrSurfaceOutputs surface = EvaluatePbr(v, false);
+    PbrSsssMrtOutput outputs;
+    outputs.scene_color = surface.scene_color;
+    outputs.diffuse_lighting = surface.diffuse_lighting;
+    outputs.ssss_material = surface.ssss_material;
+    outputs.world_normal = surface.world_normal;
+    return outputs;
 }
 )";
 
@@ -1882,12 +2002,19 @@ EShaderStatus FPbrShader::FCompiledShaders::Status() const noexcept {
         pixel_status == EShaderStatus::Compiling) {
         return EShaderStatus::Compiling;
     }
+    // The MRT shader is optional, but if a backend accepted an asynchronous
+    // compile request, wait for it to settle before installing the set.
+    // A settled failure is ignored so the one-RT path remains available.
+    if (pixel_subsurface_mrt &&
+        pixel_subsurface_mrt->Status() == EShaderStatus::Compiling) {
+        return EShaderStatus::Compiling;
+    }
     return EShaderStatus::Ready;
 }
 
 /** Compile raw-DX12 bytecode without accessing the render device. */
 TResult<FPbrShader::FCompiledShaders>
-FPbrShader::CompileShadersCpu() noexcept {
+FPbrShader::CompileShadersCpu(bool include_subsurface_mrt) noexcept {
 #if !WITH_RENDER_DILIGENT
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -1926,8 +2053,23 @@ FPbrShader::CompileShadersCpu() noexcept {
         vertex.Release(), vertex.GetAllocator());
     compiled.pixel = TUniquePtr<IRhiShader>(
         pixel.Release(), pixel.GetAllocator());
+    // Optional capability: base PBR installation must survive a missing
+    // compiler feature, shader error or allocation failure here.
+    if (include_subsurface_mrt) {
+        FShaderDesc ssss_ps_d = ps_d;
+        ssss_ps_d.entry_point = "PSMainSsss";
+        ssss_ps_d.debug_name = "Pbr.SsssMrt.PS";
+        if (auto ssss_pixel = MakeUnique<FDx12Shader>(); ssss_pixel) {
+            const FHrResult ssss_result = ssss_pixel->Init(ssss_ps_d);
+            if (ssss_result.IsOk()) {
+                compiled.pixel_subsurface_mrt = TUniquePtr<IRhiShader>(
+                    ssss_pixel.Release(), ssss_pixel.GetAllocator());
+            }
+        }
+    }
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
 #else
+    (void)include_subsurface_mrt;
     return ACS_ERR(
         Render, 375,
         "PBR CPU compilation is available only on the raw DX12 backend");
@@ -1935,7 +2077,9 @@ FPbrShader::CompileShadersCpu() noexcept {
 }
 
 TResult<FPbrShader::FCompiledShaders>
-FPbrShader::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+FPbrShader::BeginCompileShadersAsync(
+    IRhiDevice& device,
+    bool include_subsurface_mrt) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
             Render, 377,
@@ -1964,6 +2108,16 @@ FPbrShader::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
     compiled.pixel = Move(pixel.Value());
 
+    if (include_subsurface_mrt) {
+        FShaderDesc ssss_ps_d = ps_d;
+        ssss_ps_d.entry_point = "PSMainSsss";
+        ssss_ps_d.debug_name = "Pbr.SsssMrt.PS";
+        auto ssss_pixel = CreateRhiShader(device, ssss_ps_d);
+        if (ssss_pixel.IsOk()) {
+            compiled.pixel_subsurface_mrt = Move(ssss_pixel.Value());
+        }
+    }
+
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
 }
 
@@ -1972,7 +2126,8 @@ TResult<void> FPbrShader::Init(
     IRhiDevice& device,
     EFormat rt_format,
     EFormat depth_format,
-    ECullMode cull_mode) noexcept {
+    ECullMode cull_mode,
+    bool include_subsurface_mrt) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kPbrHLSL;
@@ -1995,6 +2150,15 @@ TResult<void> FPbrShader::Init(
     else
         compiled.pixel = Move(r.Value());
 
+    if (include_subsurface_mrt) {
+        FShaderDesc ssss_ps_d = ps_d;
+        ssss_ps_d.entry_point = "PSMainSsss";
+        ssss_ps_d.debug_name = "Pbr.SsssMrt.PS";
+        if (auto r = CreateRhiShader(device, ssss_ps_d); r.IsOk()) {
+            compiled.pixel_subsurface_mrt = Move(r.Value());
+        }
+    }
+
     return InitWithCompiledShaders(
         device, Move(compiled), rt_format, depth_format, cull_mode);
 }
@@ -2006,9 +2170,53 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
     EFormat rt_format,
     EFormat depth_format,
     ECullMode cull_mode) noexcept {
+    return InitWithCompiledShadersInternal(
+        device, Move(shaders), rt_format, depth_format, cull_mode);
+}
+
+TResult<void> FPbrShader::BuildInitializedCandidateForRawDx12(
+    IRhiDevice& device,
+    FCompiledShaders&& shaders,
+    EFormat rt_format,
+    EFormat depth_format,
+    ECullMode cull_mode) noexcept {
+#if !WITH_RENDER_DILIGENT
+    const char* const backend = device.BackendName();
+    if (backend == nullptr || std::strcmp(backend, "DX12") != 0) {
+        return ACS_ERR(
+            Render, 378,
+            "PBR background candidate creation requires raw DX12");
+    }
+    if (m_ResourceDevice != nullptr) {
+        return ACS_ERR(
+            Render, 379,
+            "PBR background candidate target is already initialized");
+    }
+    return InitWithCompiledShadersInternal(
+        device, Move(shaders), rt_format, depth_format, cull_mode);
+#else
+    (void)device;
+    (void)shaders;
+    (void)rt_format;
+    (void)depth_format;
+    (void)cull_mode;
+    return ACS_ERR(
+        Render, 378,
+        "PBR background candidate creation requires raw DX12");
+#endif
+}
+
+TResult<void> FPbrShader::InitWithCompiledShadersInternal(
+    IRhiDevice& device,
+    FCompiledShaders&& shaders,
+    EFormat rt_format,
+    EFormat depth_format,
+    ECullMode cull_mode) noexcept {
     if (shaders.vertex.Get() == nullptr || shaders.pixel.Get() == nullptr) {
         return ACS_ERR(Render, 376, "PBR compiled shader set is incomplete");
     }
+    using FInitClock = std::chrono::steady_clock;
+    const auto init_started = FInitClock::now();
 
     // Keep the live shader fully usable until every replacement resource,
     // including the PSO, has been created.  Besides giving re-initialization a
@@ -2017,8 +2225,9 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
     // the expensive bytecode.
     struct FInitCandidates {
         TUniquePtr<IRhiPipeline> pipeline;
+        TUniquePtr<IRhiPipeline> subsurface_mrt_pipeline;
         TUniquePtr<IRhiBuffer> frame_cb;
-        TUniquePtr<IRhiBuffer> object_cbs[kObjRing];
+        TArray<TUniquePtr<IRhiBuffer>> object_cbs;
         TUniquePtr<IRhiTexture> white;
         TUniquePtr<IRhiTexture> shadow_fb;
         TUniquePtr<IRhiTexture> normal_map_fb;
@@ -2040,16 +2249,25 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
         return Err<void>(r.Error());
     else candidates.frame_cb = Move(r.Value());
 
-    // object CB はリング (kObjRing 本) を確保し、SetObject ごとに別バッファを使う。
-    for (u32 i = 0; i < kObjRing; ++i) {
+    // Keep startup bounded, then grow this reusable pool from BeginFrame when
+    // an authored scene needs more slots.  Each slot remains distinct for the
+    // lifetime of a recorded command list, including MRT fallback passes.
+    if (!candidates.object_cbs.TryReserve(kInitialObjectBufferCapacity)) {
+        return ACS_ERR(
+            Render, 380, "PBR initial object-CB pool allocation failed");
+    }
+    for (u32 i = 0; i < kInitialObjectBufferCapacity; ++i) {
         FBufferDesc ob{};
         ob.size = CBSize<FObjectCbLayout>();
         ob.usage = EBufferUsage::Uniform;
         ob.cpu_writable = true;
         if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
             return Err<void>(r.Error());
-        else candidates.object_cbs[i] = Move(r.Value());
+        else if (!candidates.object_cbs.TryPushBack(Move(r.Value())))
+            return ACS_ERR(
+                Render, 381, "PBR initial object-CB pool publish failed");
     }
+    const auto constant_buffers_ready = FInitClock::now();
 
     // 1x1 白テクスチャ (albedo fallback)
     const u8 white[4] = {255, 255, 255, 255};
@@ -2157,6 +2375,7 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
     if (auto r = CreateRhiTexture(device, bt); r.IsErr())
         return Err<void>(r.Error());
     else candidates.ibl_brdf_fb = Move(r.Value());
+    const auto fallback_resources_ready = FInitClock::now();
 
     FPipelineDesc pd{};
     pd.vs = shaders.vertex.Get();
@@ -2245,6 +2464,44 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
     if (auto r = CreateRhiPipeline(device, pd); r.IsErr())
         return Err<void>(r.Error());
     else candidates.pipeline = Move(r.Value());
+    const auto base_pipeline_ready = FInitClock::now();
+
+    // SSSS extraction is strictly optional. A shader/PSO/backend failure here
+    // must not poison a complete and usable single-target PBR installation.
+    if (shaders.pixel_subsurface_mrt &&
+        shaders.pixel_subsurface_mrt->Status() == EShaderStatus::Ready) {
+        FPipelineDesc ssss_pd = pd;
+        ssss_pd.ps = shaders.pixel_subsurface_mrt.Get();
+        ssss_pd.rt_count = 4u;
+        ssss_pd.rt_formats[0] = rt_format;
+        ssss_pd.rt_formats[1] = EFormat::R16G16B16A16_Float;
+        ssss_pd.rt_formats[2] = EFormat::R16G16B16A16_Float;
+        ssss_pd.rt_formats[3] = EFormat::R16G16B16A16_Float;
+        if (auto r = CreateRhiPipeline(device, ssss_pd); r.IsOk()) {
+            candidates.subsurface_mrt_pipeline = Move(r.Value());
+        }
+    }
+    const auto mrt_pipeline_ready = FInitClock::now();
+    const auto elapsed_ms = [](auto begin, auto end) noexcept {
+        return std::chrono::duration<double, std::milli>(
+            end - begin).count();
+    };
+    const char* const mrt_state =
+        shaders.pixel_subsurface_mrt.Get() == nullptr
+            ? "off"
+            : (candidates.subsurface_mrt_pipeline.Get() != nullptr
+                ? "ready" : "unavailable");
+    ACS_LOG_INFO(
+        "PBR owner commit phases: constant_buffers=%.3f ms, "
+        "fallback_textures=%.3f ms, fallback_resources=%.3f ms, "
+        "base_pso=%.3f ms, mrt_pso=%.3f ms, total=%.3f ms, mrt=%s",
+        elapsed_ms(init_started, constant_buffers_ready),
+        elapsed_ms(constant_buffers_ready, fallback_resources_ready),
+        elapsed_ms(init_started, fallback_resources_ready),
+        elapsed_ms(fallback_resources_ready, base_pipeline_ready),
+        elapsed_ms(base_pipeline_ready, mrt_pipeline_ready),
+        elapsed_ms(init_started, mrt_pipeline_ready),
+        mrt_state);
 
     const bool device_changed =
         m_ResourceDevice != nullptr && m_ResourceDevice != &device;
@@ -2252,13 +2509,16 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
     // Commit cannot fail.  Release the old PSO before its shaders/resources,
     // then publish the replacement PSO last so no live state can be observed
     // with mismatched dependencies.
+    m_SubsurfaceMrtPipeline.Reset();
     m_Pipeline.Reset();
+    m_SubsurfaceMrtPs.Reset();
     m_Vs = Move(shaders.vertex);
     m_Ps = Move(shaders.pixel);
-    m_FrameCb = Move(candidates.frame_cb);
-    for (u32 i = 0; i < kObjRing; ++i) {
-        m_ObjectCbs[i] = Move(candidates.object_cbs[i]);
+    if (candidates.subsurface_mrt_pipeline) {
+        m_SubsurfaceMrtPs = Move(shaders.pixel_subsurface_mrt);
     }
+    m_FrameCb = Move(candidates.frame_cb);
+    m_ObjectCbs = Move(candidates.object_cbs);
     m_White = Move(candidates.white);
     m_ShadowFb = Move(candidates.shadow_fb);
     m_NormalMapFb = Move(candidates.normal_map_fb);
@@ -2271,8 +2531,13 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
     m_IblPrefilterFb = Move(candidates.ibl_prefilter_fb);
     m_IblBrdfFb = Move(candidates.ibl_brdf_fb);
     m_Pipeline = Move(candidates.pipeline);
-    m_ObjRingCursor = 0;
-    m_CurrentObjCb = 0; // legacy manual bind path may query before its first SetObject
+    m_SubsurfaceMrtPipeline =
+        Move(candidates.subsurface_mrt_pipeline);
+    m_ObjectCbCursor = 0u;
+    // The manual bind path may query before its first SetObject.
+    m_CurrentObjectCb =
+        m_ObjectCbs.IsEmpty() ? kInvalidObjectBuffer : 0u;
+    m_ObjectCapacityFailureLogged = false;
 
     // Non-owning texture bindings cannot cross RHI devices.  Preserve them for
     // a same-device PSO rebuild, but neutralize every dependent enable value
@@ -2314,8 +2579,9 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
 /** 全 GPU リソースと参照ポインタを解放する。 */
 void FPbrShader::Shutdown() noexcept {
     ClearSubstrateSurface();
+    m_SubsurfaceMrtPipeline.Reset();
     m_Pipeline.Reset();
-    for (u32 i = 0; i < kObjRing; ++i) m_ObjectCbs[i].Reset();
+    m_ObjectCbs.ReleaseStorage();
     m_FrameCb.Reset();
     m_ShadowFb.Reset();
     m_ShadowDepth = nullptr;
@@ -2343,6 +2609,7 @@ void FPbrShader::Shutdown() noexcept {
     m_IblPrefilterFb.Reset();
     m_IblIrradianceFb.Reset();
     m_White.Reset();
+    m_SubsurfaceMrtPs.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
     m_ResourceDevice = nullptr;
@@ -2352,8 +2619,49 @@ void FPbrShader::Shutdown() noexcept {
     m_IblMips       = 0;
     m_IblEnabled    = false;
     m_ShadowParams.y = 0.0f;
-    m_ObjRingCursor = 0;
-    m_CurrentObjCb  = kObjRing;
+    m_ObjectCbCursor = 0u;
+    m_CurrentObjectCb = kInvalidObjectBuffer;
+    m_ObjectCapacityFailureLogged = false;
+}
+
+bool FPbrShader::EnsureObjectCapacity(
+    u32 required_object_draws) noexcept {
+    if (required_object_draws <= m_ObjectCbs.Size()) return true;
+    if (m_ResourceDevice == nullptr) return false;
+
+    u32 target = static_cast<u32>(m_ObjectCbs.Size());
+    if (target < kInitialObjectBufferCapacity)
+        target = kInitialObjectBufferCapacity;
+    while (target < required_object_draws) {
+        const u32 growth = target > 1u ? target / 2u : 1u;
+        if (target > (~u32{0}) - growth) {
+            target = required_object_draws;
+        } else {
+            target += growth;
+        }
+    }
+
+    if (!m_ObjectCbs.TryReserve(target)) return false;
+    while (m_ObjectCbs.Size() < target) {
+        FBufferDesc description{};
+        description.size = CBSize<FObjectCbLayout>();
+        description.usage = EBufferUsage::Uniform;
+        description.cpu_writable = true;
+        auto created = CreateRhiBuffer(*m_ResourceDevice, description);
+        if (created.IsErr())
+            return m_ObjectCbs.Size() >= required_object_draws;
+        if (!m_ObjectCbs.TryPushBack(Move(created.Value())))
+            return m_ObjectCbs.Size() >= required_object_draws;
+    }
+    return true;
+}
+
+bool FPbrShader::BeginFrame(u32 required_object_draws) noexcept {
+    m_ObjectCbCursor = 0u;
+    m_CurrentObjectCb =
+        m_ObjectCbs.IsEmpty() ? kInvalidObjectBuffer : 0u;
+    m_ObjectCapacityFailureLogged = false;
+    return EnsureObjectCapacity(required_object_draws);
 }
 
 /** IBL テクスチャを記録し、3 つ揃っていれば IBL ambient を有効化する。 */
@@ -2577,8 +2885,6 @@ void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
     m_Vp = vp;
     m_Eye = eye;
     m_Ambient = ambient;
-    m_ObjRingCursor = 0;
-    m_CurrentObjCb = 0; // keep PerObjectCB bindable until the first object consumes slot 0
     if (count > kMaxDirLights) count = kMaxDirLights;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
@@ -2673,19 +2979,25 @@ void FPbrShader::FlushFrameCB() noexcept {
 /** model と PBR/拡張パラメータから ObjectCBLayout を構築して object CB に書き込む。 */
 void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
-    if (m_ObjRingCursor >= kObjRing) {
-        if (m_ObjRingCursor == kObjRing) {
-            ACS_LOG_WARN("FPbrShader: per-frame object limit (%u) exceeded; "
-                         "remaining PBR draws are skipped", kObjRing);
-            ++m_ObjRingCursor;
+    if (m_ObjectCbCursor == kInvalidObjectBuffer ||
+        (m_ObjectCbCursor >= m_ObjectCbs.Size() &&
+         !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
+        if (!m_ObjectCapacityFailureLogged) {
+            ACS_LOG_WARN(
+                "FPbrShader: unable to grow per-frame object-CB pool "
+                "(required=%u, retained=%zu); remaining PBR draws are skipped",
+                m_ObjectCbCursor == kInvalidObjectBuffer
+                    ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
+                m_ObjectCbs.Size());
+            m_ObjectCapacityFailureLogged = true;
         }
-        m_CurrentObjCb = kObjRing;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
         return;
     }
-    m_CurrentObjCb = m_ObjRingCursor++;
-    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjCb].Get();
+    m_CurrentObjectCb = m_ObjectCbCursor++;
+    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
     if (!object_cb) {
-        m_CurrentObjCb = kObjRing;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
         return;
     }
     FObjectCbLayout cb{};
@@ -2990,13 +3302,16 @@ void FPbrShader::ClearSubstrateSurface() noexcept {
 }
 
 /** SetObject + パイプライン/CB/テクスチャ/VB/IB bind + DrawIndexed をまとめて発行する。 */
-void FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
-                        FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
-                        IRhiTexture* albedo) noexcept {
-    if (!m_Pipeline || !m_FrameCb || !m_ObjectCbs[0]) return;
+bool FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
+                         FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
+                         IRhiTexture* albedo) noexcept {
+    if (!m_Pipeline || !m_FrameCb || m_ObjectCbs.IsEmpty() ||
+        !m_ObjectCbs[0] || !mesh.vertex_buffer || !mesh.index_buffer) {
+        return false;
+    }
     SetObject(model, base_color, metallic, roughness, ao);   // リングを次へ進め、現在バッファへ書込む
     IRhiBuffer* object_cb = PerObjectCB();
-    if (!object_cb) return;
+    if (!object_cb) return false;
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetConstantBuffer(0, *m_FrameCb);
     cmd.SetConstantBuffer(1, *object_cb);                     // SetObject が書いた «現在» のリングバッファ
@@ -3005,6 +3320,35 @@ void FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat
     cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cmd.SetIndexBuffer(*mesh.index_buffer);
     cmd.DrawIndexed(mesh.index_count);
+    return true;
+}
+
+bool FPbrShader::DrawMeshSubsurfaceMrt(
+    IRhiCommandList& cmd,
+    const FGpuMesh& mesh,
+    const FMat4& model,
+    FVec3 base_color,
+    f32 metallic,
+    f32 roughness,
+    f32 ao,
+    IRhiTexture* albedo) noexcept {
+    if (!m_SubsurfaceMrtPipeline || !m_FrameCb || m_ObjectCbs.IsEmpty() ||
+        !m_ObjectCbs[0] ||
+        !mesh.vertex_buffer || !mesh.index_buffer) {
+        return false;
+    }
+    SetObject(model, base_color, metallic, roughness, ao);
+    IRhiBuffer* object_cb = PerObjectCB();
+    if (!object_cb) return false;
+    cmd.SetPipeline(*m_SubsurfaceMrtPipeline);
+    cmd.SetConstantBuffer(0, *m_FrameCb);
+    cmd.SetConstantBuffer(1, *object_cb);
+    cmd.SetTexture(0, *(albedo ? albedo : m_White.Get()));
+    BindIblTextures(cmd);
+    cmd.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
+    cmd.SetIndexBuffer(*mesh.index_buffer);
+    cmd.DrawIndexed(mesh.index_count);
+    return true;
 }
 
 } // namespace acs

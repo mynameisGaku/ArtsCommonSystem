@@ -135,12 +135,11 @@ public partial class MainWindow
         SceneOpenRollbackSnapshot snapshot)
     {
         if (Engine == IntPtr.Zero) return false;
-        int restored2D =
-            EngineInterop.acs_editor_scene_load_text(Engine, snapshot.Legacy2D);
-        int restored3D = restored2D != 0
-            ? EngineInterop.acs_editor_scene3d_load_text(Engine, snapshot.World3D)
-            : 0;
-        if (restored2D == 0 || restored3D == 0) return false;
+        int restored = EngineInterop.acs_editor_scene_document_load_text(
+            Engine,
+            snapshot.Legacy2D,
+            snapshot.World3D);
+        if (restored == 0) return false;
 
         _legacySceneSourceMode = snapshot.LegacySourceMode;
         _sceneViewMode = snapshot.SceneViewMode;
@@ -427,22 +426,35 @@ public partial class MainWindow
         ViewportHost.Visibility = Visibility.Hidden;
     }
 
-    private void EstablishEmptySceneDocument(
+    private static bool LoadLegacySceneSourceAsDocument(
+        IntPtr engine,
+        bool sourceUses3D,
+        string sourceText)
+    {
+        string scene2D = sourceUses3D
+            ? EngineInterop.EmptyScene2DText
+            : sourceText;
+        string scene3D = sourceUses3D
+            ? sourceText
+            : EngineInterop.EmptyScene3DText;
+        return EngineInterop.acs_editor_scene_document_load_text(
+            engine, scene2D, scene3D) != 0;
+    }
+
+    private void ConfigureSceneDocumentAdapter(
         bool use3D,
         string? sourcePath,
-        bool keepSourcePath)
+        bool keepSourcePath,
+        EditorSceneViewMode? initialView = null)
     {
         IntPtr engine = Engine;
         if (engine == IntPtr.Zero)
             throw new InvalidOperationException(
-                "The editor engine was lost while establishing an empty scene.");
-
-        // Both compatibility payloads are cleared so neither the initial demo nor the
-        // previously active source can become a later fallback.
-        EngineInterop.acs_editor_scene_new(engine);
-        EngineInterop.acs_editor_scene3d_new(engine);
+                "The editor engine was lost while configuring the scene document.");
         EngineInterop.acs_editor_set_view3d(engine, use3D ? 1 : 0);
-        _sceneViewMode = EditorSceneViewModePolicy.InitialForLegacySource(sourcePath);
+        _sceneViewMode =
+            initialView ??
+            EditorSceneViewModePolicy.InitialForLegacySource(sourcePath);
         EditorSceneViewDescriptor view =
             EditorSceneViewModePolicy.Describe(_sceneViewMode);
         EngineInterop.acs_editor_set_ortho3d(
@@ -456,6 +468,24 @@ public partial class MainWindow
         _scene2DDirty = false;
         _scene3DDirty = false;
         SetCurrentScenePath(keepSourcePath ? sourcePath : null);
+    }
+
+    private void EstablishEmptySceneDocument(
+        bool use3D,
+        string? sourcePath,
+        bool keepSourcePath,
+        EditorSceneViewMode? initialView = null)
+    {
+        IntPtr engine = Engine;
+        if (engine == IntPtr.Zero)
+            throw new InvalidOperationException(
+                "The editor engine was lost while establishing an empty scene.");
+
+        // Both compatibility payloads are cleared in one native retirement
+        // transaction so no demo/previous payload can become a fallback.
+        EngineInterop.acs_editor_scene_document_new(engine);
+        ConfigureSceneDocumentAdapter(
+            use3D, sourcePath, keepSourcePath, initialView);
     }
 
     /// <summary>
@@ -474,6 +504,10 @@ public partial class MainWindow
         }
 
         bool initialIs3D = scenePath != null && Is3DScenePath(scenePath);
+        EditorSceneViewMode initialProjectView =
+            EditorSceneViewModePolicy.InitialForProject(
+                scenePath,
+                _project?.Template);
         string initialSourceFormat = initialIs3D ? ".acs3d" : ".acscene";
         ActiveSceneLoad load = BeginSceneLoad(
             scenePath == null
@@ -505,15 +539,30 @@ public partial class MainWindow
                     ? SceneDocumentMode.ThreeD
                     : SceneDocumentMode.TwoD;
                 _view3d = initialIs3D;
-                EstablishEmptySceneDocument(
-                    initialIs3D,
-                    scenePath,
-                    keepSourcePath: !exists);
                 if (exists)
                 {
-                    loaded = initialIs3D
-                        ? EngineInterop.acs_editor_scene3d_load_text(Engine, text!) != 0
-                        : EngineInterop.acs_editor_scene_load_text(Engine, text!) != 0;
+                    // The combined loader validates both payloads before
+                    // retiring the old world. Do not precede a valid startup
+                    // load with document_new: one source load owns one GPU
+                    // retirement transaction.
+                    ConfigureSceneDocumentAdapter(
+                        initialIs3D,
+                        scenePath,
+                        keepSourcePath: false,
+                        initialView: initialProjectView);
+                }
+                else
+                {
+                    EstablishEmptySceneDocument(
+                        initialIs3D,
+                        scenePath,
+                        keepSourcePath: true,
+                        initialView: initialProjectView);
+                }
+                if (exists)
+                {
+                    loaded = LoadLegacySceneSourceAsDocument(
+                        Engine, initialIs3D, text!);
                     if (!loaded)
                     {
                         // Native parsers can mutate before reporting failure. Re-clear both
@@ -521,7 +570,8 @@ public partial class MainWindow
                         EstablishEmptySceneDocument(
                             initialIs3D,
                             sourcePath: null,
-                            keepSourcePath: false);
+                            keepSourcePath: false,
+                            initialView: initialProjectView);
                     }
                     else
                     {
@@ -584,7 +634,8 @@ public partial class MainWindow
                 EstablishEmptySceneDocument(
                     initialIs3D,
                     sourcePath: null,
-                    keepSourcePath: false);
+                    keepSourcePath: false,
+                    initialView: initialProjectView);
                 RestoreActiveSceneDocumentState();
                 ApplySceneViewModePresentation();
             });

@@ -18,10 +18,15 @@ internal static class BuildSceneCompatibility
         string Summary,
         string Detail);
 
-    internal static Result Evaluate(bool runtimeSourceIs3D, string? runtimeSourcePath)
+    internal static Result Evaluate(
+        bool runtimeSourceIs3D,
+        string? runtimeSourcePath,
+        RuntimeBuildCapabilities runtimeCapabilities)
     {
         if (!runtimeSourceIs3D)
             return new Result(true, "", "", "");
+        if (runtimeCapabilities.SupportsLegacyScene3D)
+            return new Result(true, "", "", runtimeCapabilities.Evidence);
 
         string displayPath = string.IsNullOrWhiteSpace(runtimeSourcePath)
             ? "(unsaved .acs3d source)"
@@ -29,8 +34,8 @@ internal static class BuildSceneCompatibility
         return new Result(
             false,
             Unsupported3DCode,
-            "The loaded legacy runtime source is .acs3d, but the generated runtime still loads only .acscene data.",
-            $"Loaded source: {displayPath}. No unrelated .acscene payload was written and no build pipeline was started.");
+            "The loaded source is .acs3d, but this project's runtime has no verified legacy-3D bootstrap.",
+            $"Loaded source: {displayPath}. {runtimeCapabilities.Evidence} No scene payload was written and no build pipeline was started.");
     }
 }
 
@@ -46,11 +51,18 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(loadedSource) && _project != null)
             loadedSource = ResolveConfiguredProjectScenePath();
         bool loadedSourceIs3D = _legacySceneSourceMode == SceneDocumentMode.ThreeD;
+        RuntimeBuildCapabilities runtimeCapabilities =
+            _project == null
+                ? new RuntimeBuildCapabilities(
+                    false,
+                    "No project is loaded, so runtime capability cannot be verified.")
+                : ProjectManager.DetectRuntimeBuildCapabilities(_project);
 
         BuildSceneCompatibility.Result result =
             BuildSceneCompatibility.Evaluate(
                 loadedSourceIs3D,
-                loadedSource);
+                loadedSource,
+                runtimeCapabilities);
         if (result.IsSupported)
             return true;
 
@@ -61,7 +73,7 @@ public partial class MainWindow
         BuildLog($"Build compatibility failed: [{result.Code}] {operation} blocked. {result.Summary}");
         BuildLog($"Build compatibility failed: [{result.Code}] {result.Detail}");
         BuildLog(
-            $"Build compatibility failed: [{result.Code}] ACS3D runtime/manifest parity must be implemented before 3D Build, Run or Package can be enabled.");
+            $"Build compatibility failed: [{result.Code}] Add an explicit FLegacyScene3DAdapter bootstrap to this project's Source/Game.cpp before 3D Build, Run or Package can be enabled.");
         return false;
     }
 }

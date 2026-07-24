@@ -101,6 +101,10 @@ public static class PackageCore
         @"^(?<prefix>(?:SPRT|MAT)\s+-?\d+\s+)(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex Scene3DReference = new(
+        @"^(?<prefix>(?<verb>MSH3D|SPR3D|MAT3D|PFAB3D)\s+-?\d+\s+)(?<path>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex MaterialReference = new(
         @"^(?<prefix>(?:albedo|normal|substrateExprTexture\d+)\s+)(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -1908,9 +1912,15 @@ public static class PackageCore
                 sourceAssetsRoot,
                 projectRoot);
         }
+        if (extension == ".acsprefab")
+        {
+            return RewritePrefabPayload(
+                source,
+                sourceAssetsRoot,
+                projectRoot);
+        }
         Regex? expression = extension switch
         {
-            ".acsprefab" => SceneReference,
             ".acsmat" => MaterialReference,
             _ => null,
         };
@@ -1921,6 +1931,47 @@ public static class PackageCore
                 sourceAssetsRoot,
                 projectRoot,
                 expression);
+    }
+
+    internal static byte[] RewritePrefabPayloadForSelfTest(
+        byte[] source,
+        string sourceAssetsRoot,
+        string projectRoot) =>
+        RewritePrefabPayload(source, sourceAssetsRoot, projectRoot);
+
+    private static byte[] RewritePrefabPayload(
+        byte[] source,
+        string sourceAssetsRoot,
+        string projectRoot) =>
+        RewriteReferencePayload(
+            source,
+            sourceAssetsRoot,
+            projectRoot,
+            SelectPrefabReferenceExpression(source));
+
+    private static Regex SelectPrefabReferenceExpression(byte[] source)
+    {
+        try
+        {
+            using var memory = new MemoryStream(source, writable: false);
+            using var reader = new StreamReader(
+                memory,
+                Utf8Strict,
+                detectEncodingFromByteOrderMarks: true);
+            return reader.ReadLine() switch
+            {
+                "ACS3D v2" => Scene3DReference,
+                "ACSCENE v1" => SceneReference,
+                _ => throw new InvalidDataException(
+                    "Prefab payload must begin with exactly 'ACS3D v2' or 'ACSCENE v1'."),
+            };
+        }
+        catch (DecoderFallbackException error)
+        {
+            throw new InvalidDataException(
+                "Prefab Cook source is not valid UTF-8.",
+                error);
+        }
     }
 
     private static byte[] RewriteCanonicalScenePayload(
@@ -1992,6 +2043,14 @@ public static class PackageCore
                 continue;
 
             string reference = match.Groups["path"].Value.Trim();
+            if (string.Equals(
+                    match.Groups["verb"].Value,
+                    "MAT3D",
+                    StringComparison.Ordinal) &&
+                IsLegacyNumeric3DMaterial(reference))
+            {
+                continue;
+            }
             if (!TryResolveAssetReference(
                     reference,
                     sourceAssetsRoot,
@@ -2015,6 +2074,24 @@ public static class PackageCore
         return changed
             ? Utf8NoBom.GetBytes(string.Join('\n', lines) + "\n")
             : source;
+    }
+
+    private static bool IsLegacyNumeric3DMaterial(string value)
+    {
+        string[] fields = value.Split(
+            [' ', '\t'],
+            StringSplitOptions.RemoveEmptyEntries);
+        return fields.Length == 2 &&
+               float.TryParse(
+                   fields[0],
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out _) &&
+               float.TryParse(
+                   fields[1],
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out _);
     }
 
     private static void WriteCookedPayload(string destination, byte[] payload)

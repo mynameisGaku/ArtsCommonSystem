@@ -73,6 +73,7 @@ internal static class EditorProfilerContract
     internal const uint FlagFog = 1u << 2;
     internal const uint FlagAerialPerspective = 1u << 3;
     internal const uint FlagGpuTimingsValid = 1u << 4;
+    internal const uint FlagSceneMeshCacheRebuilt = 1u << 5;
 
     internal static uint SnapshotSize =>
         checked((uint)Marshal.SizeOf<EditorProfilerSnapshot>());
@@ -87,6 +88,8 @@ internal static class EditorProfilerContract
 internal static class EngineInterop
 {
     private const string Dll = "acs_editor_abi";
+    public const string EmptyScene2DText = "ACSCENE v1\n0\n";
+    public const string EmptyScene3DText = "ACS3D v2\n";
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr acs_editor_version();
@@ -334,6 +337,27 @@ internal static class EngineInterop
     public static extern int acs_editor_distribute3d_selection(IntPtr handle, int axis);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_pick3d(IntPtr handle, float sx, float sy);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_water3d_hit_test(
+        IntPtr handle, float sx, float sy, float viewportWidth, float viewportHeight,
+        out int nodeId, out float worldX, out float worldY, out float worldZ);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_water3d_disturb_world(
+        IntPtr handle, int nodeId, float x, float y, float z,
+        float radius, float strength);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_water3d_wake_world(
+        IntPtr handle, int nodeId, float x, float y, float z,
+        float velocityX, float velocityY, float velocityZ,
+        float radius, float strength);
+    /// <summary>
+    /// Routes an existing viewport gesture to interactive water without
+    /// changing selection/camera state or taking Win32 pointer capture.
+    /// kind: 0=press, 1=left drag, 2=end, 3=hover.
+    /// </summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_water3d_pointer_event(
+        IntPtr handle, float sx, float sy, int kind);
     /// <summary>
     /// Serializes the legacy .acs3d scene source into <paramref name="buf"/>.
     /// A return value greater than or equal to <paramref name="cap"/> means the buffer was too
@@ -921,6 +945,21 @@ internal static class EngineInterop
     public static extern void acs_editor_scene_new(IntPtr handle);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_scene3d_new(IntPtr handle);
+    /// <summary>
+    /// Clears both compatibility graphs as one native document transaction
+    /// with one GPU retirement fence and one native undo snapshot.
+    /// </summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_scene_document_new(IntPtr handle);
+    /// <summary>
+    /// Replaces both compatibility payloads under one native GPU retirement
+    /// transaction. Both sources are validated before the old world retires.
+    /// </summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_scene_document_load_text(
+        IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string scene2DText,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string scene3DText);
 
     // ----- undo / redo (シーンスナップショット) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

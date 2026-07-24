@@ -241,6 +241,17 @@ bool FHelloIblApp::OnCustomFrame() noexcept {
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
     if (!dev || !cl || !sc || !hdr) return false;
 
+    const u64 required_object_draws =
+        1u +
+        static_cast<u64>(kPbrGridSize) *
+            static_cast<u64>(kPbrGridSize) +
+        static_cast<u64>(kDynCount);
+    const u32 object_draw_hint =
+        required_object_draws > static_cast<u64>(~u32{0})
+            ? ~u32{0}
+            : static_cast<u32>(required_object_draws);
+    if (!m_Pbr.BeginFrame(object_draw_hint)) return false;
+
     UpdateDynamicOrbs(*this);
 
     // TAA Halton(2,3) sub-pixel jitter を skybox / FPbrShader / SSR / SSAO の

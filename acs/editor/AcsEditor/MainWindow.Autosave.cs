@@ -397,10 +397,9 @@ public partial class MainWindow
                 return false;
             }
 
-            int loaded = use3D
-                ? EngineInterop.acs_editor_scene3d_load_text(Engine, content)
-                : EngineInterop.acs_editor_scene_load_text(Engine, content);
-            if (loaded == 0)
+            bool loaded =
+                LoadLegacySceneSourceAsDocument(Engine, use3D, content);
+            if (!loaded)
             {
                 Log("Recovery snapshot format was rejected; the source scene remains loaded.");
                 return false;

@@ -69,7 +69,10 @@ public:
      *
      * @return 頂点配列への可変参照。
      */
-    TArray<FMeshVertex>&       Vertices()        noexcept { return m_Vertices; }
+    TArray<FMeshVertex>&       Vertices()        noexcept {
+        MarkGeometryDirty();
+        return m_Vertices;
+    }
 
     /**
      * インデックス配列への const 参照を返す。
@@ -83,7 +86,10 @@ public:
      *
      * @return インデックス配列への可変参照。
      */
-    TArray<u32>&              Indices()         noexcept { return m_Indices; }
+    TArray<u32>&              Indices()         noexcept {
+        MarkGeometryDirty();
+        return m_Indices;
+    }
 
     /**
      * サブメッシュ配列への const 参照を返す。
@@ -97,7 +103,25 @@ public:
      *
      * @return サブメッシュ配列への可変参照。
      */
-    TArray<FSubMesh>&          SubMeshes()       noexcept { return m_Submeshes; }
+    TArray<FSubMesh>&          SubMeshes()       noexcept {
+        MarkGeometryDirty();
+        return m_Submeshes;
+    }
+
+    /**
+     * Monotonic content revision used by geometry-dependent render caches.
+     *
+     * Mutable array access conservatively advances this value. Code retaining
+     * a mutable reference across frames must call MarkGeometryDirty() after
+     * each later mutation.
+     */
+    u64 GeometryRevision() const noexcept { return m_GeometryRevision; }
+    void MarkGeometryDirty() noexcept {
+        ++m_GeometryRevision;
+        if (m_GeometryRevision == 0u) {
+            m_GeometryRevision = 1u;
+        }
+    }
 
 private:
     /** 頂点配列 (位置 + 法線 + UV)。 */
@@ -108,6 +132,9 @@ private:
 
     /** サブメッシュ範囲の配列。 */
     TArray<FSubMesh>    m_Submeshes;
+
+    /** Monotonic revision for geometry-dependent render caches. */
+    u64 m_GeometryRevision = 1u;
 };
 
 /**

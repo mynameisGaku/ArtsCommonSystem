@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FXAA フルスクリーンパス実装
+// High-quality FXAA fullscreen resolve.
 #include "render/Fxaa.h"
 #include "foundation/Move.h"
 
@@ -8,13 +8,11 @@ namespace acs {
 namespace {
 
 /**
- * FXAA シェーダの HLSL ソース。
+ * FXAA 3.11-style quality shader.
  *
- * @details
- * FXAA 3.11 の簡易品質版 (中心 + 対角 4 近傍)。SV_VertexID で fullscreen 三角形を
- * 生成するので頂点バッファ不要 (FBlit と同じパターン)。入力サイズは GetDimensions で
- * 取得するため cbuffer も不要。低コントラスト画素は早期 return で素通しし、ベタ塗りや
- * 文字のにじみを防ぐ。
+ * A full 3x3 stencil classifies the edge, a bounded bidirectional search
+ * locates its endpoints, and a sub-pixel term preserves thin coverage. The
+ * fixed twelve-iteration search keeps GPU cost finite at every resolution.
  */
 const char* kFxaaHLSL = R"(
 Texture2D    src : register(t0);
@@ -31,50 +29,142 @@ VSOut VSMain(uint id : SV_VertexID) {
     return o;
 }
 
-float Luma(float3 c) { return dot(c, float3(0.299, 0.587, 0.114)); }
+float Luma(float3 c) {
+    return dot(max(c, 0.0), float3(0.2126, 0.7152, 0.0722));
+}
+
+float2 ClampUv(float2 uv, float2 px) {
+    // The sampler also clamps, but keeping the search inside texel centres
+    // prevents the long-edge walk from repeatedly filtering the border texel.
+    return clamp(uv, px * 0.5, 1.0 - px * 0.5);
+}
+
+float4 SampleColor(float2 uv, float2 px) {
+    return src.SampleLevel(src_sampler, ClampUv(uv, px), 0);
+}
+
+float SampleLuma(float2 uv, float2 px) {
+    return Luma(SampleColor(uv, px).rgb);
+}
 
 float4 PSMain(VSOut v) : SV_TARGET {
     uint w, h;
     src.GetDimensions(w, h);
-    float2 px = float2(1.0 / w, 1.0 / h);
+    float2 px = rcp(float2(max(w, 1u), max(h, 1u)));
+    float2 uv = ClampUv(v.uv, px);
 
-    float3 rgbM  = src.SampleLevel(src_sampler, v.uv, 0).rgb;
-    float3 rgbNW = src.SampleLevel(src_sampler, v.uv + px * float2(-1, -1), 0).rgb;
-    float3 rgbNE = src.SampleLevel(src_sampler, v.uv + px * float2( 1, -1), 0).rgb;
-    float3 rgbSW = src.SampleLevel(src_sampler, v.uv + px * float2(-1,  1), 0).rgb;
-    float3 rgbSE = src.SampleLevel(src_sampler, v.uv + px * float2( 1,  1), 0).rgb;
-    float lM  = Luma(rgbM);
-    float lNW = Luma(rgbNW), lNE = Luma(rgbNE);
-    float lSW = Luma(rgbSW), lSE = Luma(rgbSE);
-    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
-    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+    float4 center = SampleColor(uv, px);
+    float lM  = Luma(center.rgb);
+    float lN  = SampleLuma(uv + px * float2( 0, -1), px);
+    float lS  = SampleLuma(uv + px * float2( 0,  1), px);
+    float lW  = SampleLuma(uv + px * float2(-1,  0), px);
+    float lE  = SampleLuma(uv + px * float2( 1,  0), px);
+    float lNW = SampleLuma(uv + px * float2(-1, -1), px);
+    float lNE = SampleLuma(uv + px * float2( 1, -1), px);
+    float lSW = SampleLuma(uv + px * float2(-1,  1), px);
+    float lSE = SampleLuma(uv + px * float2( 1,  1), px);
 
-    // 低コントラストはエッジ無しとみなして素通し (ぼけ防止 + 早期 return)
-    if (lMax - lMin < max(0.0312, lMax * 0.125)) return float4(rgbM, 1.0);
+    float lMin = min(lM, min(min(lN, lS), min(lW, lE)));
+    float lMax = max(lM, max(max(lN, lS), max(lW, lE)));
+    float lRange = lMax - lMin;
+    // FXAA 3.11 quality-preset thresholds: ignore sub-visible contrast while
+    // retaining dark thin geometry.
+    if (lRange < max(0.0312, lMax * 0.125)) return center;
 
-    // 対角近傍の輝度勾配からエッジ接線方向を推定する
-    float2 dir;
-    dir.x = -((lNW + lNE) - (lSW + lSE));
-    dir.y =  ((lNW + lSW) - (lNE + lSE));
-    float dirReduce = max((lNW + lNE + lSW + lSE) * 0.25 * 0.125, 1.0 / 128.0);
-    float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
-    dir = clamp(dir * rcpDirMin, -8.0, 8.0) * px;
+    // Classify the edge with the full cardinal/diagonal stencil. The old
+    // diagonal-only gradient mistook long horizontal and vertical silhouettes
+    // for texture detail and could not search their endpoints.
+    float edgeHorizontal =
+        abs(-2.0 * lW + lNW + lSW) +
+        2.0 * abs(-2.0 * lM + lN + lS) +
+        abs(-2.0 * lE + lNE + lSE);
+    float edgeVertical =
+        abs(-2.0 * lN + lNW + lNE) +
+        2.0 * abs(-2.0 * lM + lW + lE) +
+        abs(-2.0 * lS + lSW + lSE);
+    bool horizontal = edgeHorizontal >= edgeVertical;
 
-    // エッジに沿った 2 タップ (近距離) と 4 タップ (遠距離) のブレンド
-    float3 rgbA = 0.5 * (src.SampleLevel(src_sampler, v.uv + dir * (1.0 / 3.0 - 0.5), 0).rgb
-                       + src.SampleLevel(src_sampler, v.uv + dir * (2.0 / 3.0 - 0.5), 0).rgb);
-    float3 rgbB = rgbA * 0.5 + 0.25 * (src.SampleLevel(src_sampler, v.uv + dir * -0.5, 0).rgb
-                                     + src.SampleLevel(src_sampler, v.uv + dir *  0.5, 0).rgb);
-    // 遠距離タップが近傍レンジを外れたらエッジ越え → 近距離側を採用
-    float lB = Luma(rgbB);
-    float3 col = (lB < lMin || lB > lMax) ? rgbA : rgbB;
-    return float4(col, 1.0);
+    float lNegative = horizontal ? lN : lW;
+    float lPositive = horizontal ? lS : lE;
+    float gradientNegative = abs(lNegative - lM);
+    float gradientPositive = abs(lPositive - lM);
+    bool negativeSteeper = gradientNegative >= gradientPositive;
+    float gradient = max(gradientNegative, gradientPositive);
+    float lLocalAverage =
+        0.5 * (lM + (negativeSteeper ? lNegative : lPositive));
+
+    float signedNormalStep = horizontal ? px.y : px.x;
+    if (negativeSteeper) signedNormalStep = -signedNormalStep;
+    float2 normalStep = horizontal
+        ? float2(0.0, signedNormalStep)
+        : float2(signedNormalStep, 0.0);
+    float2 edgeStep = horizontal ? float2(px.x, 0.0)
+                                 : float2(0.0, px.y);
+    float2 edgeUv = uv + normalStep * 0.5;
+
+    float2 uvNegative = edgeUv - edgeStep;
+    float2 uvPositive = edgeUv + edgeStep;
+    float lEndNegative = 0.0;
+    float lEndPositive = 0.0;
+    bool reachedNegative = false;
+    bool reachedPositive = false;
+    const float gradientThreshold = gradient * 0.25;
+
+    // Fixed finite quality budget. The widening tail reaches long shallow
+    // edges without unbounded loops or resolution-dependent worst cases.
+    static const float kSearchStep[12] = {
+        1.0, 1.0, 1.0, 1.5, 1.5, 2.0,
+        2.0, 2.0, 3.0, 4.0, 6.0, 8.0
+    };
+    [unroll]
+    for (int i = 0; i < 12; ++i) {
+        if (!reachedNegative) {
+            lEndNegative = SampleLuma(uvNegative, px) - lLocalAverage;
+            reachedNegative = abs(lEndNegative) >= gradientThreshold;
+            if (!reachedNegative) uvNegative -= edgeStep * kSearchStep[i];
+        }
+        if (!reachedPositive) {
+            lEndPositive = SampleLuma(uvPositive, px) - lLocalAverage;
+            reachedPositive = abs(lEndPositive) >= gradientThreshold;
+            if (!reachedPositive) uvPositive += edgeStep * kSearchStep[i];
+        }
+        if (reachedNegative && reachedPositive) break;
+    }
+
+    float distanceNegative = horizontal ? uv.x - uvNegative.x
+                                        : uv.y - uvNegative.y;
+    float distancePositive = horizontal ? uvPositive.x - uv.x
+                                        : uvPositive.y - uv.y;
+    distanceNegative = max(distanceNegative, 0.0);
+    distancePositive = max(distancePositive, 0.0);
+    bool useNegative = distanceNegative < distancePositive;
+    float nearestDistance = min(distanceNegative, distancePositive);
+    float edgeSpan = max(distanceNegative + distancePositive, 1e-6);
+    float endpointDelta = useNegative ? lEndNegative : lEndPositive;
+    bool centerBelowAverage = lM < lLocalAverage;
+    bool endpointOpposesCenter =
+        ((endpointDelta < 0.0) != centerBelowAverage);
+    float edgeOffset = endpointOpposesCenter
+        ? max(0.0, 0.5 - nearestDistance / edgeSpan)
+        : 0.0;
+
+    // Preserve thin sub-pixel coverage even when both endpoint searches land
+    // symmetrically. This remains below half a pixel so resolved texture
+    // detail is not softened.
+    float neighborhoodLuma =
+        (2.0 * (lN + lS + lW + lE) + lNW + lNE + lSW + lSE) / 12.0;
+    float subpixel = saturate(
+        abs(neighborhoodLuma - lM) / max(lRange, 1e-6));
+    subpixel = smoothstep(0.0, 1.0, subpixel);
+    subpixel = subpixel * subpixel * 0.75;
+
+    float finalOffset = min(max(edgeOffset, subpixel), 0.5);
+    return SampleColor(uv + normalStep * finalOffset, px);
 }
 )";
 
 } // namespace
 
-/** FXAA 用 VS/PS をコンパイルし、rt_format に合わせた PSO を生成する。 */
 TResult<void> FFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -99,10 +189,10 @@ TResult<void> FFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     pd.ps            = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
     pd.rt_format     = rt_format;
-    pd.depth_format  = EFormat::Unknown;       // depth 不使用
+    pd.depth_format  = EFormat::Unknown;
     pd.depth_test    = false;
     pd.depth_write   = false;
-    pd.cull_mode     = ECullMode::None;        // 3 頂点の fullscreen 三角形
+    pd.cull_mode     = ECullMode::None;
     pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 0;
     pd.texture_slots = 1;
@@ -118,19 +208,17 @@ TResult<void> FFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     return Ok();
 }
 
-/** パイプラインとシェーダを解放する。 */
 void FFxaa::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
 }
 
-/** 現在 bind 中のターゲットへ src を FXAA 解決しつつフルスクリーン三角形で描く。 */
 void FFxaa::Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept {
     if (!m_Pipeline) return;
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetTexture(0, src);
-    cmd.Draw(3, 0);                          // fullscreen 三角形 (頂点バッファ無し)
+    cmd.Draw(3, 0);
 }
 
 } // namespace acs

@@ -17,7 +17,7 @@ namespace helloibl {
 
 namespace {
 
-constexpr u32 kGrid    = 5;
+constexpr u32 kGrid    = kPbrGridSize;
 constexpr f32 kSpacing = 1.4f;
 
 } // anonymous namespace

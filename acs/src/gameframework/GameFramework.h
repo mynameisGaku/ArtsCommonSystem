@@ -29,6 +29,7 @@
 #include "gameframework/TriggerComponent.h"
 #include "gameframework/TilemapComponent.h"
 #include "gameframework/Effects2D.h"
+#include "gameframework/WaterSurface3DComponent.h"
 #include "gameframework/SceneServices.h"
 
 #include "gameframework/NodeId.h"

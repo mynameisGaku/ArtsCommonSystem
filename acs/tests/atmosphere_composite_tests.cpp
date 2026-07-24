@@ -762,3 +762,408 @@ ACS_TEST(Atmosphere, AerialPerspectiveShadersInitializeOnAvailableGpu) {
     }
     atmosphere.Shutdown();
 }
+
+ACS_TEST(Atmosphere,
+         InteractiveWaterWritesDepthBeforeAllSceneSpaceAtmosphereComposites) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t draw_scene =
+        source.find("void DrawScene3D(");
+    const std::size_t water =
+        source.find("DrawInteractiveWater3DPass(", draw_scene);
+    const std::size_t aerial = source.find(
+        "h.sky_atmo.CompositeAerialPerspective(", water);
+    const std::size_t cloud =
+        source.find("h.vclouds3d.Composite(", water);
+    const std::size_t local_fog =
+        source.find("h.sky_atmo.CompositeLocalFog(", water);
+
+    EXPECT_TRUE(draw_scene != std::string::npos);
+    EXPECT_TRUE(water != std::string::npos);
+    EXPECT_TRUE(aerial != std::string::npos);
+    EXPECT_TRUE(cloud != std::string::npos);
+    EXPECT_TRUE(local_fog != std::string::npos);
+    EXPECT_TRUE(water < aerial);
+    EXPECT_TRUE(aerial < cloud);
+    EXPECT_TRUE(cloud < local_fog);
+
+    const std::size_t helper = source.find(
+        "void DrawInteractiveWater3DPass(");
+    const std::size_t helper_end =
+        source.find("int ParentId3D(", helper);
+    const std::string water_pass =
+        helper != std::string::npos &&
+                helper_end != std::string::npos
+            ? source.substr(helper, helper_end - helper)
+            : std::string{};
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "command_list.CopyDepthTexture("));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "command_list.BeginRenderToTextureLoad(\n"
+        "        hdr_target, scene_depth);"));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "host.water3d_depth_copy.Get()"));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "host.water3d.SetEnvironment(\n"
+        "        host.sky_zenith, host.sky_horizon, host.sky_ground);"));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "true);"));
+    EXPECT_TRUE(Contains(
+        water_pass,
+        "opaque PBR fallback remains active"));
+}
+
+ACS_TEST(Atmosphere,
+         InteractiveWaterClockAdvancesOnceBeforePresentationEarlyExits) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t render = source.find(
+        "ACS_EDITOR_API void acs_editor_render(");
+    const std::size_t render_end = source.find(
+        "ACS_EDITOR_API void acs_editor_resize(", render);
+    const std::string render_body =
+        render != std::string::npos &&
+                render_end != std::string::npos
+            ? source.substr(render, render_end - render)
+            : std::string{};
+    const std::size_t safe_dt =
+        render_body.find("const f32 safe_dt =");
+    const std::size_t update =
+        render_body.find("host->water3d.Update(safe_dt);");
+    const std::size_t startup_exit =
+        render_body.find("if (!host->startup_ready)");
+    const std::size_t suppressed_exit =
+        render_body.find("if (host->scene_presentation_suppressed)");
+
+    EXPECT_TRUE(!render_body.empty());
+    EXPECT_TRUE(safe_dt != std::string::npos);
+    EXPECT_TRUE(update != std::string::npos);
+    EXPECT_TRUE(startup_exit != std::string::npos);
+    EXPECT_TRUE(suppressed_exit != std::string::npos);
+    EXPECT_TRUE(safe_dt < update);
+    EXPECT_TRUE(update < startup_exit);
+    EXPECT_TRUE(update < suppressed_exit);
+    EXPECT_TRUE(render_body.find(
+        "host->water3d.Update(", update + 1u) == std::string::npos);
+
+    const std::size_t draw = source.find("void DrawScene3D(");
+    const std::size_t draw_end = source.find(
+        "ACS_EDITOR_API void acs_editor_render(", draw);
+    const std::string draw_body =
+        draw != std::string::npos &&
+                draw_end != std::string::npos
+            ? source.substr(draw, draw_end - draw)
+            : std::string{};
+    EXPECT_FALSE(Contains(draw_body, ".water3d.Update("));
+}
+
+ACS_TEST(Atmosphere,
+         InvalidCustomWaterMeshUsesTessellatedGridFallback) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t helper =
+        source.find("FGpuMesh* WaterGpuMeshForNode3D(");
+    const std::size_t helper_end =
+        source.find("bool Water3DPassAvailable(", helper);
+    const std::string mesh_policy =
+        helper != std::string::npos &&
+                helper_end != std::string::npos
+            ? source.substr(helper, helper_end - helper)
+            : std::string{};
+
+    EXPECT_TRUE(!mesh_policy.empty());
+    EXPECT_TRUE(Contains(
+        source, "FWaterSurface3D::IsLocalXzSurfaceMesh(*mesh)"));
+    EXPECT_TRUE(Contains(
+        mesh_policy,
+        "!IsValidCustomWaterSurfaceMesh(*record, source)"));
+    EXPECT_TRUE(Contains(
+        mesh_policy, "return WaterGridFallback(host);"));
+}
+
+ACS_TEST(EditorPerformance,
+         SceneMeshPrepassPersistsVerticesAndUploadsOnlyOnInvalidation) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t draw = source.find("void DrawScene3D(");
+    const std::size_t draw_end = source.find(
+        "ACS_EDITOR_API void acs_editor_render(", draw);
+    const std::string draw_body =
+        draw != std::string::npos &&
+                draw_end != std::string::npos
+            ? source.substr(draw, draw_end - draw)
+            : std::string{};
+
+    EXPECT_TRUE(Contains(source, "TArray<FM3DVtx> scene_mesh_vertices;"));
+    EXPECT_TRUE(Contains(source, "TArray<FSceneMeshCacheKey> scene_mesh_key;"));
+    EXPECT_TRUE(Contains(source, "bool RefreshSceneMeshCache("));
+    EXPECT_TRUE(Contains(source, "key.mesh->GeometryRevision()"));
+    EXPECT_TRUE(Contains(
+        source, "h.profiler_work.scene_mesh_cache_rebuilt = true;"));
+    EXPECT_FALSE(Contains(draw_body, "new TArray<FM3DVtx>"));
+    EXPECT_FALSE(Contains(
+        draw_body,
+        "h.m3d_dyn_vb->Update(dv.Data()"));
+}
+
+ACS_TEST(EditorPerformance,
+         GizmoAndSpriteScratchRemainAllocationFreeAfterWarmup) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t gizmo_begin =
+        source.find("void DrawGizmo3DOverlay(");
+    const std::size_t gizmo_end =
+        source.find("// ===== Phase 5 VXGI", gizmo_begin);
+    const std::string gizmo =
+        gizmo_begin != std::string::npos &&
+                gizmo_end != std::string::npos
+            ? source.substr(gizmo_begin, gizmo_end - gizmo_begin)
+            : std::string{};
+    const std::size_t sprite_begin =
+        source.find("// --- (2.5) ");
+    const std::size_t sprite_end =
+        source.find(
+            "// Without the HDR/post chain", sprite_begin);
+    const std::string sprites =
+        sprite_begin != std::string::npos &&
+                sprite_end != std::string::npos
+            ? source.substr(sprite_begin, sprite_end - sprite_begin)
+            : std::string{};
+
+    EXPECT_TRUE(Contains(source, "TArray<FM3DVtx> gizmo_vertices;"));
+    EXPECT_TRUE(Contains(source, "TArray<FSprVtx> sprite_vertices;"));
+    EXPECT_TRUE(Contains(
+        source, "TArray<IRhiTexture*> sprite_draw_textures;"));
+    EXPECT_TRUE(Contains(gizmo, "h.gizmo_vertices"));
+    EXPECT_TRUE(Contains(gizmo, "gv.Clear();"));
+    EXPECT_TRUE(Contains(gizmo, "gv.Capacity() < 4096u"));
+    EXPECT_FALSE(Contains(gizmo, "TArray<FM3DVtx> gv;"));
+    EXPECT_TRUE(Contains(sprites, "h.sprite_vertices"));
+    EXPECT_TRUE(Contains(sprites, "h.sprite_draw_textures"));
+    EXPECT_TRUE(Contains(
+        sprites, "kMaxSpr * kVerticesPerSprite"));
+    EXPECT_FALSE(Contains(sprites, "TArray<FSprVtx> sv;"));
+    EXPECT_FALSE(Contains(
+        sprites, "TArray<IRhiTexture*> stex;"));
+
+    const std::size_t find_node_begin =
+        source.find("game::ANode* FindNode3DNode(");
+    const std::size_t find_node_end =
+        source.find("// ----- 3D ", find_node_begin);
+    const std::string find_node =
+        find_node_begin != std::string::npos &&
+                find_node_end != std::string::npos
+            ? source.substr(
+                  find_node_begin, find_node_end - find_node_begin)
+            : std::string{};
+    EXPECT_TRUE(!find_node.empty());
+    EXPECT_FALSE(Contains(
+        find_node, "TArray<game::ANode*>"));
+}
+
+ACS_TEST(EditorPerformance,
+         RawPbrWorkerPublishesACompleteCandidateWithoutOwnerDriverWork) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t worker =
+        source.find("void PbrCompileWorkerEntry(");
+    const std::size_t worker_end =
+        source.find("bool BeginPbrCompileWorker(", worker);
+    const std::string worker_body =
+        worker != std::string::npos &&
+                worker_end != std::string::npos
+            ? source.substr(worker, worker_end - worker)
+            : std::string{};
+
+    EXPECT_TRUE(Contains(
+        worker_body, "FPbrShader::CompileShadersCpu(true)"));
+    EXPECT_TRUE(Contains(
+        worker_body, "BuildInitializedCandidateForRawDx12("));
+
+    const std::size_t phase =
+        source.find("if (h.r3d_init_phase == 9u)");
+    const std::size_t raw =
+        source.find("} else if (raw_dx12) {", phase);
+    const std::size_t raw_end =
+        source.find(
+            "// Backends without an asynchronous compiler", raw);
+    const std::string raw_branch =
+        raw != std::string::npos &&
+                raw_end != std::string::npos
+            ? source.substr(raw, raw_end - raw)
+            : std::string{};
+    EXPECT_TRUE(Contains(raw_branch, "h.pbr3d_ready = true;"));
+    EXPECT_FALSE(Contains(
+        raw_branch, "InitWithCompiledShaders("));
+}
+
+ACS_TEST(EditorLifecycle,
+         FullDocumentReplacementRetiresGpuResourcesOnceBeforeBothGraphs) {
+    const std::string source = ReadEditorAbiSource();
+    auto body_between = [&](const char* begin_token,
+                            const char* end_token) {
+        const std::size_t begin = source.find(begin_token);
+        const std::size_t end =
+            begin != std::string::npos
+                ? source.find(end_token, begin + 1u)
+                : std::string::npos;
+        return begin != std::string::npos &&
+                       end != std::string::npos
+            ? source.substr(begin, end - begin)
+            : std::string{};
+    };
+
+    const std::string retirement = body_between(
+        "void BeginSceneResourceRetirement(FEditorHost& h) noexcept {",
+        "void Pass_AtmosphereIbl(");
+    const std::size_t increment = retirement.find(
+        "++h.scene_resource_retirement_depth;");
+    const std::size_t outer_only = retirement.find(
+        "h.scene_resource_retirement_depth != 1u");
+    const std::size_t join = retirement.find(
+        "JoinSceneReplacementStartupWorker(h);");
+    const std::size_t wait = retirement.find("device->WaitIdle();");
+    EXPECT_TRUE(!retirement.empty());
+    EXPECT_TRUE(increment < outer_only);
+    EXPECT_TRUE(outer_only < join);
+    EXPECT_TRUE(join < wait);
+    EXPECT_TRUE(retirement.find(
+        "device->WaitIdle();", wait + 1u) == std::string::npos);
+
+    const std::string clear2d = body_between(
+        "void ClearScene(FEditorHost& h)",
+        "void ClearScene3DResourcesRetired(");
+    const std::string clear3d = body_between(
+        "void ClearScene3D(FEditorHost& h)",
+        "/** node ");
+    EXPECT_TRUE(clear2d.find(
+        "FSceneResourceRetirementScope retirement(h);") <
+        clear2d.find("ClearScene2DResourcesRetired(h);"));
+    EXPECT_TRUE(clear3d.find(
+        "FSceneResourceRetirementScope retirement(h);") <
+        clear3d.find("ClearScene3DResourcesRetired(h);"));
+
+    const std::string document_new = body_between(
+        "ACS_EDITOR_API void acs_editor_scene_document_new(",
+        "// =============================================================================");
+    EXPECT_TRUE(document_new.find(
+        "FSceneResourceRetirementScope retirement(*host);") <
+        document_new.find("ClearScene(*host);"));
+    EXPECT_TRUE(document_new.find("ClearScene(*host);") <
+        document_new.find("ClearScene3D(*host);"));
+
+    const std::string restore = body_between(
+        "void RestoreSnapshot(", "void ClearStack(");
+    const std::size_t restore_validate_2d = restore.find(
+        "ValidateEditorScene2DText(body)");
+    const std::size_t restore_validate_3d = restore.find(
+        "ValidateEditorScene3DText(s3d)");
+    const std::size_t restore_retirement = restore.find(
+        "FSceneResourceRetirementScope retirement(h);");
+    const std::size_t restore_2d = restore.find(
+        "LoadSceneTextValidated(h, body);", restore_retirement);
+    const std::size_t restore_3d = restore.find(
+        "LoadScene3DTextImpl(", restore_2d);
+    EXPECT_TRUE(restore_validate_2d < restore_validate_3d);
+    EXPECT_TRUE(restore_validate_3d < restore_retirement);
+    EXPECT_TRUE(restore_retirement < restore_2d);
+    EXPECT_TRUE(restore_2d < restore_3d);
+
+    const std::string document_load = body_between(
+        "ACS_EDITOR_API int acs_editor_scene_document_load_text(",
+        "/** ACS3D subtree");
+    const std::size_t document_validate_2d = document_load.find(
+        "ValidateEditorScene2DText(scene2d_text)");
+    const std::size_t document_validate_3d = document_load.find(
+        "ValidateEditorScene3DText(scene3d_text)");
+    const std::size_t document_undo = document_load.find(
+        "PushUndo(*host);");
+    const std::size_t document_retirement = document_load.find(
+        "FSceneResourceRetirementScope retirement(*host);");
+    const std::size_t document_2d = document_load.find(
+        "LoadSceneTextValidated(*host, scene2d_text);");
+    const std::size_t document_3d = document_load.find(
+        "LoadScene3DTextImpl(");
+    EXPECT_TRUE(document_validate_2d < document_validate_3d);
+    EXPECT_TRUE(document_validate_3d < document_undo);
+    EXPECT_TRUE(document_undo < document_retirement);
+    EXPECT_TRUE(document_retirement < document_2d);
+    EXPECT_TRUE(document_2d < document_3d);
+
+    const std::string load2d = body_between(
+        "ACS_EDITOR_API int acs_editor_scene_load_text(",
+        "/** シーンを空 ");
+    EXPECT_TRUE(load2d.find("ValidateEditorScene2DText(text)") <
+                load2d.find("PushUndo(*host);"));
+    EXPECT_TRUE(load2d.find("PushUndo(*host);") <
+                load2d.find("LoadSceneTextValidated(*host, text);"));
+
+    const std::string load3d_impl = body_between(
+        "bool prevalidated) noexcept {",
+        "/** 3D シーンをテキストから読み込む");
+    EXPECT_TRUE(load3d_impl.find("ValidateEditorScene3DText(text)") <
+                load3d_impl.find("ClearScene3D(*host);"));
+
+    EXPECT_TRUE(source.find("h.scene3d.Clear();") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "h.scene3d.Clear();",
+        source.find("h.scene3d.Clear();") + 1u) == std::string::npos);
+    EXPECT_TRUE(source.find(
+        "NewObject<game::ANode>()") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "NewObject<game::ANode>()",
+        source.find("NewObject<game::ANode>()") + 1u) ==
+        std::string::npos);
+}
+
+ACS_TEST(EditorLifecycle,
+         WaterHotRemoveDrainsUnpublishedWorkBeforeFeatureGate) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t begin =
+        source.find("bool AdvanceWater3DInitialization(");
+    const std::size_t end =
+        source.find("bool EnsureWater3DBackgroundBeforeFrame(", begin);
+    const std::string body =
+        begin != std::string::npos && end != std::string::npos
+            ? source.substr(begin, end - begin)
+            : std::string{};
+    const std::size_t requested =
+        body.find("const bool requested =");
+    const std::size_t hot_remove =
+        body.find("if (!requested)");
+    const std::size_t ready_gate =
+        body.find("if (host.water3d_ready");
+
+    EXPECT_TRUE(!body.empty());
+    EXPECT_TRUE(requested < hot_remove);
+    EXPECT_TRUE(hot_remove < ready_gate);
+    EXPECT_TRUE(Contains(
+        body, "host.water3d_init_state == 1u"));
+    EXPECT_TRUE(Contains(
+        body, "host.water3d_pending_shaders.Status()"));
+    EXPECT_TRUE(Contains(
+        body, "host.water3d_init_state == 4u"));
+    EXPECT_TRUE(Contains(body, "host.water3d.Shutdown();"));
+    EXPECT_TRUE(Contains(
+        body, "host.water3d_init_state = 0u;"));
+}
+
+ACS_TEST(EditorPerformance,
+         WaterFeatureScanReusesHostOwnedSceneDfsScratch) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t begin =
+        source.find("ACS_EDITOR_API void acs_editor_render(");
+    const std::size_t end =
+        source.find("ACS_EDITOR_API void acs_editor_resize(", begin);
+    const std::string render =
+        begin != std::string::npos && end != std::string::npos
+            ? source.substr(begin, end - begin)
+            : std::string{};
+
+    EXPECT_TRUE(Contains(
+        render,
+        "TArray<game::ANode*>& water_nodes = "
+        "host->scene_mesh_nodes;"));
+    EXPECT_TRUE(Contains(render, "water_nodes.Clear();"));
+    EXPECT_FALSE(Contains(
+        render, "TArray<game::ANode*> water_nodes;"));
+}

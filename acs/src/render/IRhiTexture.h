@@ -133,6 +133,27 @@ public:
      * @return cubemap なら true。
      */
     virtual bool   IsCubemap()  const noexcept { return false; }
+
+    /**
+     * Returns whether the texture owns a depth-stencil target view.
+     *
+     * The default is false so lightweight test/back-end textures remain
+     * source compatible. Production depth implementations override it.
+     */
+    virtual bool IsDepthTarget() const noexcept { return false; }
+
+    /**
+     * Returns whether a depth texture also owns a shader-resource view.
+     *
+     * A depth snapshot used while the live scene depth is bound as a DSV must
+     * return true here. This is deliberately separate from IsDepthTarget():
+     * shadow-only or transient depth resources do not necessarily expose an
+     * SRV.
+     */
+    virtual bool IsShaderVisibleDepth() const noexcept { return false; }
+
+    /** Number of samples stored per texel (one for non-MSAA textures). */
+    virtual u32 SampleCount() const noexcept { return 1; }
 };
 
 /**

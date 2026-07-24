@@ -919,7 +919,7 @@ public partial class MainWindow : Window
     private Task WaitForAssetDocumentMutationsAsync() =>
         _assetDocumentMutationLifecycles.WaitForDrainAsync();
 
-    private void OnAssetActivated(object? sender, AssetActivatedEventArgs e)
+    private async void OnAssetActivated(object? sender, AssetActivatedEventArgs e)
     {
         // Blueprint and Material editors are managed document surfaces and remain available while
         // the native scene engine is still starting. A new Content Browser asset must therefore
@@ -956,7 +956,21 @@ public partial class MainWindow : Window
                 else Log("スプライト割当に失敗: " + e.FullPath);
                 break;
             case "scene":
-                Log($"シーンアセット: {System.IO.Path.GetFileName(e.FullPath)}");
+                try
+                {
+                    await OpenScenePathAsync(e.FullPath);
+                }
+                catch (Exception error)
+                {
+                    // Routed/event callbacks are async void. Keep every fault
+                    // from the shared scene-open task inside the dispatcher
+                    // boundary instead of escalating it as an unhandled WPF
+                    // exception.
+                    Log(
+                        "Open failed: " + error.Message,
+                        "Scene",
+                        LogLevel.Error);
+                }
                 break;
             case "prefab":
                 InstantiatePrefab(e.FullPath, _selectedId);   // 選択ノード配下へ (無ければ root)
@@ -1160,6 +1174,10 @@ public partial class MainWindow : Window
         ViewportLoadingTitle.Text = "Loading scene…";
         ViewportLoadingDetail.Text = "Attaching the renderer";
         ViewportLoadingOverlay.Visibility = Visibility.Visible;
+        // HwndHost has its own child HWND and cannot be covered by a WPF
+        // overlay. Keep it physically absent from composition until the
+        // generation-gated scene transaction publishes a complete scene.
+        ViewportHost.Visibility = Visibility.Hidden;
         UpdateEditorInputEnabled();
         Log("ACS Editor started.");
 
@@ -2743,7 +2761,6 @@ public partial class MainWindow : Window
     {
         // Blueprint は独立ウィンドウなので中央は常にビューポート。
         BlueprintTabBtn.IsChecked = false;
-        ViewportHost.Visibility   = Visibility.Visible;
         SceneTools.Visibility     = Visibility.Visible;
         if (Engine == IntPtr.Zero) { SceneTabBtn.IsChecked = true; GameTabBtn.IsChecked = false; return; }
         SceneTabBtn.IsChecked = !game;
@@ -3207,16 +3224,16 @@ public partial class MainWindow : Window
 
         // Keep this durability boundary fail-closed even if a future caller forgets the outer
         // compatibility guard. Runtime simulation data must never replace editable source either.
-        if (_legacySceneSourceMode == SceneDocumentMode.ThreeD)
+        if (!EnsureBuildSceneCompatibility("Scene save for build"))
+            return false;
+        bool use3D = _legacySceneSourceMode == SceneDocumentMode.ThreeD;
+        SceneDocumentMode sourceMode =
+            use3D ? SceneDocumentMode.ThreeD : SceneDocumentMode.TwoD;
+        if (use3D ? !_scene3DInitialized : !_scene2DInitialized)
         {
             BuildLog(
-                $"Scene save failed: [{BuildSceneCompatibility.Unsupported3DCode}] " +
-                "the loaded legacy scene source is .acs3d. Build/Run/Package was aborted.");
-            return false;
-        }
-        if (!_scene2DInitialized)
-        {
-            BuildLog("Scene save failed: the .acscene source is not initialized. Build aborted.");
+                $"Scene save failed: the {(use3D ? ".acs3d" : ".acscene")} " +
+                "source is not initialized. Build aborted.");
             return false;
         }
         if (EngineInterop.acs_editor_play_state(Engine) != 0 || PreviewBtn.IsChecked == true)
@@ -3232,7 +3249,7 @@ public partial class MainWindow : Window
                 _project.RootDir,
                 _project.AssetsDir,
                 _project.InitialScene,
-                SceneDocumentMode.TwoD);
+                sourceMode);
             var configuredBuffer = new byte[1024];
             if (EngineInterop.acs_editor_settings_get_value(
                     Engine, "Game", "DefaultScene", configuredBuffer, configuredBuffer.Length) != 0)
@@ -3247,13 +3264,13 @@ public partial class MainWindow : Window
                             _project.RootDir,
                             _project.AssetsDir,
                             configured,
-                            SceneDocumentMode.TwoD);
+                            sourceMode);
                     }
                     catch (Exception ex)
                     {
                         BuildLog(
                             "Scene save failed: [DEFAULT_SCENE_INVALID] Game.DefaultScene must " +
-                            "be a relative 2D .acscene under Assets. " +
+                            $"be a relative {(use3D ? ".acs3d" : ".acscene")} under Assets. " +
                             "Build/Run/Package was aborted.");
                         BuildLog($"Game.DefaultScene: {configured}");
                         BuildLog(ex.Message);
@@ -3291,17 +3308,19 @@ public partial class MainWindow : Window
                 return false;
             }
             string? previousPath = _currentScenePath;
-            string text = EngineInterop.SceneText(Engine);
+            string text = use3D
+                ? EngineInterop.Scene3DText(Engine)
+                : EngineInterop.SceneText(Engine);
             SceneSourceFile.WriteProjectSceneAtomicText(
                 target,
                 text,
                 _project.RootDir,
                 _project.AssetsDir,
-                SceneDocumentMode.TwoD);
+                sourceMode);
             SetCurrentScenePath(target);
             MarkSceneClean(text);
-            NotifySceneDocumentSaved(use3D: false, target);
-            await OnSceneSourceSavedAsync(use3D: false, previousPath, target);
+            NotifySceneDocumentSaved(use3D, target);
+            await OnSceneSourceSavedAsync(use3D, previousPath, target);
             BuildLog($"シーンを保存: {target}");
             return true;
         }
@@ -4166,7 +4185,17 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("Blueprint 読込エラー: " + ex.Message); return; }
         string comp = AcsbpFormat.ExtractCmp(text);
         if (string.IsNullOrWhiteSpace(comp)) { Log("この Blueprint はコンポーネントを持たないため配置できません (ロジックのみ)。"); return; }
-        if (comp.TrimStart().StartsWith("ACS3D"))   // 3D Blueprint (ACS3D テキスト) → 3D サブツリーとして実体化
+        bool payloadUses3D = comp.TrimStart().StartsWith(
+            "ACS3D",
+            StringComparison.Ordinal);
+        if (!AllowAssetPlacement(
+                payloadUses3D,
+                "Blueprint",
+                System.IO.Path.GetFileName(path)))
+        {
+            return;
+        }
+        if (payloadUses3D)   // 3D Blueprint (ACS3D テキスト) → 3D サブツリーとして実体化
         {
             int parent3d = EngineInterop.acs_editor_selected3d(Engine);
             int rid = EngineInterop.acs_editor_paste_subtree3d(Engine, comp, parent3d);
@@ -4213,6 +4242,27 @@ public partial class MainWindow : Window
         System.Text.RegularExpressions.Regex.Replace(text, @"^PFAB(3D)? .*\r?\n?", "",
             System.Text.RegularExpressions.RegexOptions.Multiline);
 
+    private bool AllowAssetPlacement(
+        bool payloadUses3D,
+        string assetLabel,
+        string fileName)
+    {
+        AssetScenePlacementDecision decision =
+            AssetScenePlacementPolicy.Evaluate(
+                activeSourceUses3D: _view3d,
+                payloadUses3D);
+        if (decision == AssetScenePlacementDecision.Allow)
+            return true;
+
+        string message = AssetScenePlacementPolicy.RejectionMessage(
+            decision,
+            assetLabel,
+            fileName);
+        StatusText.Text = message;
+        Log(message, "Asset", LogLevel.Warn);
+        return false;
+    }
+
     /// <summary>.acsprefab を読み、parentId 配下にインスタンス化する(id 再マップは ABI 側)。</summary>
     private void InstantiatePrefab(string path, int parentId)
     {
@@ -4220,7 +4270,17 @@ public partial class MainWindow : Window
         string text;
         try { text = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8); }
         catch (Exception ex) { Log("プレハブ読込エラー: " + ex.Message); return; }
-        if (text.TrimStart().StartsWith("ACS3D"))   // 3D プレハブ (ACS3D テキスト) → 3D サブツリーとして実体化
+        bool payloadUses3D = text.TrimStart().StartsWith(
+            "ACS3D",
+            StringComparison.Ordinal);
+        if (!AllowAssetPlacement(
+                payloadUses3D,
+                "Prefab",
+                System.IO.Path.GetFileName(path)))
+        {
+            return;
+        }
+        if (payloadUses3D)   // 3D プレハブ (ACS3D テキスト) → 3D サブツリーとして実体化
         {
             int parent3d = EngineInterop.acs_editor_selected3d(Engine);
             int rid = EngineInterop.acs_editor_paste_subtree3d(Engine, text, parent3d);
@@ -4509,6 +4569,7 @@ public partial class MainWindow : Window
         int flags = EngineInterop.acs_editor_component_prop_flags_at(typeName, prop);
         bool hidden   = (flags & 0x2) != 0;   // FIELD_HIDDEN → 出さない
         bool readOnly = (flags & 0x1) != 0;   // FIELD_READONLY (VisibleAnywhere) → 表示のみ
+        bool colorField = (flags & 0x8) != 0; // FIELD_COLOR → color swatch/picker
         if (hidden) return null;
         // スキーマは 2D/3D 共通 (型名駆動)。値の get/set だけ 2D/3D の ABI を切替える。
         float vx, vy, vz, vw;
@@ -4622,11 +4683,27 @@ public partial class MainWindow : Window
         // 成分数: FVec2=2, FVec3=3, FVec4=4, それ以外 (F32/I32/U32/Enum)=1。
         int n = kind == 4 ? 2 : kind == 5 ? 3 : kind == 6 ? 4 : 1;
         bool isInt = kind == 1 || kind == 2 || kind == 8;   // Enum も整数値として扱う
-        bool isColor = pname.IndexOf("color", StringComparison.OrdinalIgnoreCase) >= 0
-                    || pname.IndexOf("tint",  StringComparison.OrdinalIgnoreCase) >= 0;
-        string[] axis = isColor ? new[] { "R", "G", "B", "A" } : new[] { "X", "Y", "Z", "W" };
+        bool colorNamed = pname.IndexOf("color", StringComparison.OrdinalIgnoreCase) >= 0
+                       || pname.IndexOf("tint",  StringComparison.OrdinalIgnoreCase) >= 0;
+        bool colorVector = colorField && (n == 3 || n == 4);
+        string[] axis = (colorField || colorNamed)
+            ? new[] { "R", "G", "B", "A" }
+            : new[] { "X", "Y", "Z", "W" };
 
         var boxes = new StackPanel { Orientation = Orientation.Horizontal };
+        var editors = new List<TextBox>(n);
+        Button? colorSwatch = null;
+        static byte ColorByte(float value) =>
+            (byte)Math.Clamp(value * 255.0f, 0.0f, 255.0f);
+        void RefreshColorSwatch()
+        {
+            if (colorSwatch == null || n < 3) return;
+            colorSwatch.Background = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(
+                    ColorByte(vals[0]),
+                    ColorByte(vals[1]),
+                    ColorByte(vals[2])));
+        }
         for (int c = 0; c < n; c++)
         {
             int ci = c;
@@ -4643,12 +4720,73 @@ public partial class MainWindow : Window
                 if (isInt) v = (float)Math.Round(v);
                 vals[ci] = v;
                 tb.Text = v.ToString(isInt ? "0" : "0.###", CultureInfo.InvariantCulture);
+                RefreshColorSwatch();
                 Commit();
             }
             tb.LostKeyboardFocus += (_, __) => Apply();
             tb.KeyDown += (_, ev) => { if (ev.Key == Key.Enter) { Apply(); Keyboard.ClearFocus(); } };
             EnableScrub(tb, isInt ? 1.0 : 0.1, Apply, isInt);   // 数値欄をドラッグでも増減
+            editors.Add(tb);
             boxes.Children.Add(tb);
+        }
+        if (colorVector)
+        {
+            colorSwatch = new Button
+            {
+                Width = 24,
+                Height = 20,
+                Margin = new Thickness(0, 0, 2, 0),
+                Padding = new Thickness(0),
+                BorderThickness = new Thickness(1),
+                BorderBrush =
+                    (System.Windows.Media.Brush)FindResource("CtrlBorder"),
+                ToolTip = n == 4
+                    ? "RGBA カラーを選択"
+                    : "RGB カラーを選択",
+            };
+            RefreshColorSwatch();
+            colorSwatch.Click += (_, __) =>
+            {
+                for (int component = 0;
+                     component < editors.Count;
+                     ++component)
+                {
+                    vals[component] = ParseF(
+                        editors[component].Text,
+                        vals[component]);
+                }
+                var initial = System.Windows.Media.Color.FromArgb(
+                    n == 4 ? ColorByte(vals[3]) : byte.MaxValue,
+                    ColorByte(vals[0]),
+                    ColorByte(vals[1]),
+                    ColorByte(vals[2]));
+                if (!ColorPickerDialog.TryPick(
+                        this,
+                        initial,
+                        allowAlpha: n == 4,
+                        out var picked))
+                {
+                    RefreshColorSwatch();
+                    return;
+                }
+
+                vals[0] = picked.R / 255.0f;
+                vals[1] = picked.G / 255.0f;
+                vals[2] = picked.B / 255.0f;
+                if (n == 4) vals[3] = picked.A / 255.0f;
+                for (int component = 0;
+                     component < editors.Count;
+                     ++component)
+                {
+                    editors[component].Text =
+                        vals[component].ToString(
+                            "0.###",
+                            CultureInfo.InvariantCulture);
+                }
+                RefreshColorSwatch();
+                Commit();
+            };
+            boxes.Children.Add(colorSwatch);
         }
         panel.Children.Add(boxes);
         return panel;
@@ -4703,8 +4841,7 @@ public partial class MainWindow : Window
         {
             // New replaces the singular managed world. Both native compatibility payloads are
             // cleared so a later save/undo cannot resurrect hidden content from another source.
-            EngineInterop.acs_editor_scene_new(Engine);
-            EngineInterop.acs_editor_scene3d_new(Engine);
+            EngineInterop.acs_editor_scene_document_new(Engine);
             _scene2DPath = null;
             _scene3DDocumentPath = null;
             _scene2DInitialized =
@@ -4744,12 +4881,32 @@ public partial class MainWindow : Window
         };
         if (dlg.ShowDialog(this) != true) return;
 
+        try
+        {
+            await OpenScenePathAsync(dlg.FileName);
+        }
+        catch (Exception error)
+        {
+            // OpenScenePathAsync owns transactional rollback once a load has
+            // begun. This outer event boundary covers failures before that
+            // transaction exists (prompt/dispatcher/service failures).
+            Log(
+                "Open failed: " + error.Message,
+                "Scene",
+                LogLevel.Error);
+        }
+    }
+
+    private async System.Threading.Tasks.Task OpenScenePathAsync(
+        string requestedPath)
+    {
+        if (Engine == IntPtr.Zero) return;
         string selectedPath;
         SceneDocumentMode selectedSourceMode;
         try
         {
             selectedPath = ValidateLegacySceneDocumentPath(
-                dlg.FileName,
+                requestedPath,
                 out selectedSourceMode);
         }
         catch (Exception ex)
@@ -4800,16 +4957,10 @@ public partial class MainWindow : Window
             rollback = CaptureSceneOpenRollbackSnapshot();
             _sceneOpenTransactionInProgress = true;
             nativeLoadAttempted = true;
-            int ok = selectedUses3D
-                ? EngineInterop.acs_editor_scene3d_load_text(Engine, text)
-                : EngineInterop.acs_editor_scene_load_text(Engine, text);
+            int ok = LoadLegacySceneSourceAsDocument(
+                Engine, selectedUses3D, text) ? 1 : 0;
             if (ok != 0)
             {
-                if (selectedUses3D)
-                    EngineInterop.acs_editor_scene_new(Engine);
-                else
-                    EngineInterop.acs_editor_scene3d_new(Engine);
-
                 _legacySceneSourceMode = selectedSourceMode;
                 _view3d = selectedUses3D;
                 EngineInterop.acs_editor_set_view3d(

@@ -288,6 +288,7 @@ ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
     FDirLight light{};
     light.direction = FVec3{0, 0, 1};
     light.color = FVec3{1.5f, 1.5f, 1.5f};
+    EXPECT_TRUE(shader.BeginFrame(1u));
     shader.SetLights(
         FMat4::Identity(), FVec3{0, 0, 2}, &light, 1,
         FVec3{0.2f, 0.2f, 0.2f});
@@ -302,9 +303,9 @@ ACS_TEST(Render, RawDx12PbrSh9FallbackPreservesBaseColor)
     command->BeginRenderToTexture(
         *color_result.Value(), FClearColor{0, 0, 0, 1},
         depth_result.Value().Get(), 1.0f);
-    shader.DrawMesh(
+    EXPECT_TRUE(shader.DrawMesh(
         *command, gpu_mesh, FMat4::Identity(),
-        FVec3{0.85f, 0.20f, 0.10f}, 0.0f, 0.5f, 1.0f);
+        FVec3{0.85f, 0.20f, 0.10f}, 0.0f, 0.5f, 1.0f));
     command->EndRenderToTexture(*color_result.Value());
     command->End();
     command->Submit();
@@ -395,11 +396,16 @@ PSOut PSMain() {
     command->EndRenderToTexture(*sentinel_result.Value());
 
     IRhiTexture* mrt[2] = {first_result.Value().Get(), second_result.Value().Get()};
-    command->BeginRenderToTextureMrt(mrt, 2, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    EXPECT_FALSE(command->BeginRenderToTextureMrt(
+        nullptr, 2u, FClearColor{0, 0, 0, 1}, nullptr, 1.0f));
+    EXPECT_FALSE(command->BeginRenderToTextureMrtLoad(
+        nullptr, 2u, FClearColor{0, 0, 0, 1}, 0u, nullptr, false,
+        1.0f));
+    EXPECT_TRUE(command->BeginRenderToTextureMrt(
+        mrt, 2u, FClearColor{0, 0, 0, 1}, nullptr, 1.0f));
     command->SetPipeline(*pipeline_result.Value());
     command->Draw(3, 0);
-    command->EndRenderToTexture(*first_result.Value());
-    command->EndRenderToTexture(*second_result.Value());
+    command->EndRenderToTextureMrt(mrt, 2u);
     command->End();
     command->Submit();
     device.WaitIdle();
@@ -499,12 +505,11 @@ PSOut PSMain() {
     command->Begin();
     IRhiTexture* targets[2] = {
         color_result.Value().Get(), depth_result.Value().Get()};
-    command->BeginRenderToTextureMrt(
-        targets, 2, FClearColor{0, 0, 0, 0}, nullptr, 1.0f);
+    EXPECT_TRUE(command->BeginRenderToTextureMrt(
+        targets, 2u, FClearColor{0, 0, 0, 0}, nullptr, 1.0f));
     command->SetPipeline(*pipeline_result.Value());
     command->Draw(3, 0);
-    command->EndRenderToTexture(*color_result.Value());
-    command->EndRenderToTexture(*depth_result.Value());
+    command->EndRenderToTextureMrt(targets, 2u);
     command->End();
     command->Submit();
     device.WaitIdle();
@@ -535,6 +540,144 @@ ACS_TEST(Render, Dx12ComputePipelineRejectsMissingShader)
         EXPECT_EQ(static_cast<u16>(result.Error().category), static_cast<u16>(EErrCategory::Render));
     }
 }
+
+ACS_TEST(Render, RawDx12DefersOpenListResourceAndDescriptorRetirement)
+{
+    FDx12Device device;
+    FDeviceConfig config{};
+    if (device.Init(config).IsErr()) return;
+
+    FDx12CommandList command;
+    EXPECT_TRUE(command.Init(device).IsOk());
+    if (command.NativeHandle() == nullptr) return;
+
+    FTextureDesc texture_desc{};
+    texture_desc.width = 16u;
+    texture_desc.height = 16u;
+    texture_desc.format = EFormat::R8G8B8A8_UNorm;
+    texture_desc.is_render_target = true;
+    auto old_texture = CreateRhiTexture(device, texture_desc);
+    EXPECT_TRUE(old_texture.IsOk());
+
+    const f32 vertices[6] = {
+        -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f};
+    FBufferDesc buffer_desc{};
+    buffer_desc.size = sizeof(vertices);
+    buffer_desc.usage = EBufferUsage::Vertex;
+    buffer_desc.cpu_writable = true;
+    buffer_desc.initial_data = vertices;
+    auto old_buffer = CreateRhiBuffer(device, buffer_desc);
+    EXPECT_TRUE(old_buffer.IsOk());
+    if (old_texture.IsErr() || old_buffer.IsErr()) return;
+
+    auto* dx_texture =
+        static_cast<FDx12Texture*>(old_texture.Value().Get());
+    auto* dx_buffer =
+        static_cast<FDx12Buffer*>(old_buffer.Value().Get());
+    ID3D12Resource* old_texture_resource = dx_texture->Resource();
+    ID3D12Resource* old_buffer_resource = dx_buffer->Resource();
+    const UINT64 old_srv = dx_texture->SrvGpuHandle().ptr;
+    const SIZE_T old_rtv = dx_texture->RtvCpuHandle().ptr;
+    EXPECT_TRUE(old_texture_resource != nullptr);
+    EXPECT_TRUE(old_buffer_resource != nullptr);
+    EXPECT_TRUE(old_srv != 0u);
+    EXPECT_TRUE(old_rtv != 0u);
+
+    command.Begin();
+    command.BeginRenderToTexture(
+        *old_texture.Value(), FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
+    command.SetVertexBuffer(*old_buffer.Value(), sizeof(f32) * 2u);
+    command.EndRenderToTexture(*old_texture.Value());
+
+    // These objects are gone from the editor-facing graph while the command
+    // list which references them is still open and has not been submitted.
+    old_texture.Value().Reset();
+    old_buffer.Value().Reset();
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(2u));
+
+    // Calling AddRef after transfer is a direct lifetime probe. The retirement
+    // queue, not the destroyed wrapper, still owns the original COM reference.
+    EXPECT_TRUE(old_texture_resource->AddRef() >= 2u);
+    old_texture_resource->Release();
+    EXPECT_TRUE(old_buffer_resource->AddRef() >= 2u);
+    old_buffer_resource->Release();
+
+    // The old descriptor slots cannot be recycled before the submission fence
+    // because recorded RTV/descriptor-table handles identify slots, not views.
+    auto replacement = CreateRhiTexture(device, texture_desc);
+    EXPECT_TRUE(replacement.IsOk());
+    if (replacement.IsErr()) return;
+    auto* replacement_texture =
+        static_cast<FDx12Texture*>(replacement.Value().Get());
+    EXPECT_TRUE(replacement_texture->SrvGpuHandle().ptr != old_srv);
+    EXPECT_TRUE(replacement_texture->RtvCpuHandle().ptr != old_rtv);
+
+    // A transient upload executes and signals before the still-open main list.
+    // Its earlier fence must not seal resources referenced by that main list.
+    FBufferDesc one_off_upload_desc{};
+    one_off_upload_desc.size = sizeof(vertices);
+    one_off_upload_desc.usage = EBufferUsage::Vertex;
+    one_off_upload_desc.initial_data = vertices;
+    auto one_off_upload =
+        CreateRhiBuffer(device, one_off_upload_desc);
+    EXPECT_TRUE(one_off_upload.IsOk());
+    device.CollectRetiredResources();
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(2u));
+    if (device.RetiredResourceCount() == static_cast<usize>(2u)) {
+        EXPECT_TRUE(old_texture_resource->AddRef() >= 2u);
+        old_texture_resource->Release();
+        EXPECT_TRUE(old_buffer_resource->AddRef() >= 2u);
+        old_buffer_resource->Release();
+    }
+
+    command.End();
+    command.Submit();
+    device.WaitIdle();
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(0u));
+
+    // Once the fence completes, the free lists may safely recycle both slots.
+    auto recycled = CreateRhiTexture(device, texture_desc);
+    EXPECT_TRUE(recycled.IsOk());
+    if (recycled.IsErr()) return;
+    auto* recycled_texture =
+        static_cast<FDx12Texture*>(recycled.Value().Get());
+    EXPECT_EQ(recycled_texture->SrvGpuHandle().ptr, old_srv);
+    EXPECT_EQ(recycled_texture->RtvCpuHandle().ptr, old_rtv);
+
+    replacement.Value().Reset();
+    recycled.Value().Reset();
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(2u));
+    // Generic WaitIdle signals do not claim pending main-list retirements.
+    // An empty main submission is sufficient when no draw references remain.
+    command.Begin();
+    command.End();
+    command.Submit();
+    device.WaitIdle();
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(0u));
+}
+
+ACS_TEST(Render, RawDx12ReinitializeDrainsRetirementQueue)
+{
+    FDx12Device device;
+    FDeviceConfig config{};
+    if (device.Init(config).IsErr()) return;
+
+    FTextureDesc texture_desc{};
+    texture_desc.width = 8u;
+    texture_desc.height = 8u;
+    texture_desc.is_render_target = true;
+    auto texture = CreateRhiTexture(device, texture_desc);
+    EXPECT_TRUE(texture.IsOk());
+    if (texture.IsErr()) return;
+
+    texture.Value().Reset();
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(1u));
+
+    // Init begins with the same Reset path as destruction. A successful final
+    // Signal must drain the retirement record before heaps/device are replaced.
+    EXPECT_TRUE(device.Init(config).IsOk());
+    EXPECT_EQ(device.RetiredResourceCount(), static_cast<usize>(0u));
+}
 #    endif
 
 ACS_TEST(Render, Dx12ReinitializeAndRollback)
@@ -547,8 +690,18 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
         return;
     }
 
+    const auto submit_retirement_fence =
+        [&device](FDx12CommandList& command_list) {
+            command_list.Begin();
+            command_list.End();
+            command_list.Submit();
+            device.WaitIdle();
+        };
+
     {
         FDx12Texture texture;
+        FDx12CommandList retirement_command;
+        EXPECT_TRUE(retirement_command.Init(device).IsOk());
 
         // 公開ファクトリが Diligent を選ぶ構成でも、raw DX12 の契約を直接検証する。
         FTextureDesc invalid{};
@@ -577,6 +730,7 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
             EXPECT_TRUE(texture.Init(device, render_target).IsOk());
             EXPECT_TRUE(texture.Resource() != nullptr);
             EXPECT_TRUE(texture.HasRtv());
+            submit_retirement_fence(retirement_command);
         }
 
         // 成功後の失敗でも、直前のリソースを残さず空状態へ戻る。
@@ -584,11 +738,14 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
         EXPECT_TRUE(texture.Resource() == nullptr);
         EXPECT_FALSE(texture.HasSrv());
         EXPECT_FALSE(texture.HasRtv());
+        submit_retirement_fence(retirement_command);
     }
 
     {
         const u32 initial_data[4] = {1u, 2u, 3u, 4u};
         FDx12Buffer buffer;
+        FDx12CommandList retirement_command;
+        EXPECT_TRUE(retirement_command.Init(device).IsOk());
         FBufferDesc static_desc{};
         static_desc.size = sizeof(initial_data);
         static_desc.initial_data = initial_data;
@@ -601,12 +758,14 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
         for (u32 i = 0; i < 16; ++i) {
             EXPECT_TRUE(buffer.Init(device, dynamic_desc).IsOk());
             EXPECT_TRUE(buffer.Resource() != nullptr);
+            submit_retirement_fence(retirement_command);
         }
 
         FBufferDesc invalid_desc{};
         EXPECT_TRUE(buffer.Init(device, invalid_desc).IsErr());
         EXPECT_TRUE(buffer.Resource() == nullptr);
         EXPECT_EQ(buffer.Size(), static_cast<usize>(0));
+        submit_retirement_fence(retirement_command);
     }
 
     {

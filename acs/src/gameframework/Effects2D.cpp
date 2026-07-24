@@ -5,6 +5,8 @@
 #include "render/SpriteBatch.h"
 #include "math/Math.h"
 
+#include <cmath>
+
 namespace acs::game {
 
 namespace {
@@ -371,17 +373,88 @@ void AWater2DComponent::SetSplineRegion(const FVec2* control, u32 count,
  */
 bool AWater2DComponent::TryAddDisturbance(FVec2 world_point, f32 radius, f32 strength,
                                           u32 first_slot, u32 slot_count) noexcept {
+    if (!std::isfinite(world_point.x) || !std::isfinite(world_point.y)
+        || !std::isfinite(radius) || !std::isfinite(strength)
+        || std::abs(strength) < 1e-6f) {
+        return false;
+    }
     if (radius < 0.0f) radius = 0.0f;
+    if (radius > 1.0e15f) radius = 1.0e15f;
+    if (strength > 65504.0f) strength = 65504.0f;
+    if (strength < -65504.0f) strength = -65504.0f;
     if (first_slot >= kMaxRipples || slot_count == 0) return false;
     const u32 remaining = kMaxRipples - first_slot;
     const u32 end_slot = first_slot + (slot_count < remaining ? slot_count : remaining);
     for (u32 i = first_slot; i < end_slot; ++i) {
         if (m_Ripples[i].active) continue;
-        m_Ripples[i] =
-            FRipple{world_point, strength, strength, 0.0f, m_RippleSpeed, radius, true};
+        FRipple& ripple = m_Ripples[i];
+        ripple.center = world_point;
+        ripple.amp0 = strength;
+        ripple.amp = strength;
+        ripple.time = 0.0f;
+        ripple.speed = m_RippleSpeed;
+        ripple.initial_radius = radius;
+        ripple.lifetime = m_RippleLifetime;
+        ripple.damping = m_RippleDamping;
+        ripple.active = true;
         return true;
     }
     return false;
+}
+
+void AWater2DComponent::SetRippleDecay(
+    f32 lifetime_sec, f32 damping_sec) noexcept {
+    if (!std::isfinite(lifetime_sec)) lifetime_sec = 3.0f;
+    if (!std::isfinite(damping_sec)) damping_sec = 2.0f;
+    if (lifetime_sec < 0.1f) lifetime_sec = 0.1f;
+    if (lifetime_sec > 3600.0f) lifetime_sec = 3600.0f;
+    if (damping_sec < 0.0f) damping_sec = 0.0f;
+    if (damping_sec > 64.0f) damping_sec = 64.0f;
+    m_RippleLifetime = lifetime_sec;
+    m_RippleDamping = damping_sec;
+}
+
+void AWater2DComponent::SetRipplePropagation(
+    f32 speed, f32 wavelength) noexcept {
+    if (!std::isfinite(speed)) speed = 3.2f;
+    if (!std::isfinite(wavelength)) wavelength = 0.9f;
+    if (speed < 0.0f) speed = 0.0f;
+    if (speed > 256.0f) speed = 256.0f;
+    if (wavelength < 0.001f) wavelength = 0.001f;
+    if (wavelength > 1024.0f) wavelength = 1024.0f;
+    m_RippleSpeed = speed;
+    m_RippleWavelength = wavelength;
+}
+
+f32 AWater2DComponent::EvaluateRippleAmplitudeScale(
+    f32 age, f32 lifetime, f32 damping) noexcept {
+    if (!std::isfinite(age) || !std::isfinite(lifetime)
+        || !std::isfinite(damping) || lifetime <= 0.0f) {
+        return 0.0f;
+    }
+
+    const f64 safe_age = age > 0.0f ? static_cast<f64>(age) : 0.0;
+    const f64 normalized_age = safe_age / static_cast<f64>(lifetime);
+    if (normalized_age >= 1.0) return 0.0f;
+
+    // The first 65% keeps the requested exponential damping. The final 35%
+    // uses 1-smootherstep, whose first and second derivatives are zero at both
+    // joins. Releasing the persistent slot therefore cannot remove a finite
+    // height, analytic normal, or glow contribution.
+    constexpr f64 kFadeStart = 0.65;
+    constexpr f64 kFadeDuration = 1.0 - kFadeStart;
+    f64 tail = (normalized_age - kFadeStart) / kFadeDuration;
+    if (tail < 0.0) tail = 0.0;
+    if (tail > 1.0) tail = 1.0;
+    const f64 smootherstep =
+        tail * tail * tail * (tail * (tail * 6.0 - 15.0) + 10.0);
+    const f64 envelope = 1.0 - smootherstep;
+    const f64 safe_damping =
+        damping > 0.0f ? static_cast<f64>(damping) : 0.0;
+    const f64 physical = std::exp(-safe_damping * safe_age);
+    const f64 scale = physical * envelope;
+    return std::isfinite(scale) && scale > 0.0
+        ? static_cast<f32>(scale) : 0.0f;
 }
 
 /** 接触半径を持つ放射状 disturbance を衝撃用予約枠へ追加する。 */
@@ -503,8 +576,9 @@ f32 AWater2DComponent::RippleAt(FVec2 world) const noexcept {
         const f32 r  = m_Ripples[i].initial_radius
                      + m_Ripples[i].speed * m_Ripples[i].time;   // 輪の現半径
         const f32 rw = d - r;                                    // 輪 front への符号付き距離
-        const f32 env = Exp(-m_Ripples[i].time * 2.0f) * Exp(-(rw*rw) / sig2);
-        off += m_Ripples[i].amp0 * Cos(rw * k - m_Ripples[i].time * 9.0f) * env;
+        const f32 env = Exp(-(rw*rw) / sig2);
+        off += m_Ripples[i].amp
+             * Cos(rw * k - m_Ripples[i].time * 9.0f) * env;
     }
     return off;
 }
@@ -546,12 +620,27 @@ f32 AWater2DComponent::CausticAt(FVec2 world) const noexcept {
 
 /** 時刻を進め、各リップルの寿命・振幅減衰を更新して期限切れを無効化する。 */
 void AWater2DComponent::OnUpdate(f32 dt) noexcept {
-    m_Time += dt;
+    if (!std::isfinite(dt) || dt <= 0.0f) return;
+    const f64 next_time = static_cast<f64>(m_Time) + static_cast<f64>(dt);
+    m_Time = static_cast<f32>(std::fmod(next_time, 65536.0));
     for (u32 i = 0; i < kMaxRipples; ++i) {
-        if (!m_Ripples[i].active) continue;
-        m_Ripples[i].time += dt;
-        m_Ripples[i].amp = m_Ripples[i].amp0 * Exp(-m_Ripples[i].time * 2.0f);
-        if (m_Ripples[i].time > 3.0f || Abs(m_Ripples[i].amp) < 0.002f) m_Ripples[i].active = false;
+        FRipple& ripple = m_Ripples[i];
+        if (!ripple.active) continue;
+        const f64 next_age =
+            static_cast<f64>(ripple.time) + static_cast<f64>(dt);
+        if (next_age >= static_cast<f64>(ripple.lifetime)) {
+            ripple.time = ripple.lifetime;
+            ripple.amp = 0.0f;
+            ripple.active = false;
+            continue;
+        }
+        ripple.time = static_cast<f32>(next_age);
+        const f32 amplitude_scale = EvaluateRippleAmplitudeScale(
+            ripple.time, ripple.lifetime, ripple.damping);
+        ripple.amp = ripple.amp0 * amplitude_scale;
+        // Only release an event early when its contribution has underflowed
+        // exactly to zero. Absolute cutoffs made low-strength ripples pop.
+        if (amplitude_scale <= 0.0f) ripple.active = false;
     }
 }
 

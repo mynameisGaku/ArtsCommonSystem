@@ -4,6 +4,7 @@
 
 #include "render/IRhiDevice.h"
 #include "render/Dx12/Dx12Common.h"
+#include "container/Array.h"
 
 namespace acs {
 
@@ -141,6 +142,60 @@ public:
     void FreeRtvSlot(i32 index) noexcept;
 
     /**
+     * Transfer an unreferenced buffer resource to the device retirement queue.
+     *
+     * The resource remains alive through the next graphics-queue submission
+     * that can contain already-recorded references to it. The normal path
+     * never waits for the GPU.
+     */
+    void RetireResource(ID3D12Resource* resource) noexcept;
+
+    /**
+     * Transfer a texture resource and all descriptor slots to retirement.
+     *
+     * Descriptor indices remain unavailable until the owning fence completes,
+     * so an in-flight descriptor table cannot observe a replacement view.
+     */
+    void RetireTextureResource(
+        ID3D12Resource* resource,
+        i32 srv_slot, i32 uav_slot, i32 dsv_slot,
+        TArray<i32>&& rtv_slots) noexcept;
+
+    /** Release every retirement whose sealed queue fence has completed. */
+    void CollectRetiredResources() noexcept;
+
+    /** Number of transferred resources still pending or in flight. */
+    usize RetiredResourceCount() noexcept;
+
+    /**
+     * Execute the main renderer command lists and signal their completion.
+     *
+     * Retirement sealing is part of the same queue-order transaction as
+     * ExecuteCommandLists. Only this path may attach pending retirements to a
+     * fence, because it is the only submission known to contain references
+     * recorded by the main renderer command list.
+     *
+     * @return The signalled fence value, or 0 when execution could not be
+     *         followed by a successful Signal.
+     */
+    u64 SubmitGraphicsCommandLists(
+        ID3D12CommandList* const* command_lists,
+        u32 command_list_count) noexcept;
+
+    /**
+     * Execute one transient upload/readback list and signal its completion.
+     *
+     * This deliberately does not seal pending retirements: an editor frame
+     * may still be open and unsubmitted while the transient list is queued.
+     * Sealing against this earlier fence could release a resource before the
+     * main list which references it is ever executed.
+     *
+     * @return The signalled fence value, or 0 on failure.
+     */
+    u64 ExecuteOneOffGraphicsCommandList(
+        ID3D12CommandList* command_list) noexcept;
+
+    /**
      * 指定 RTV スロットの CPU デスクリプタハンドルを返す。
      *
      * @param index RTV スロットインデックス。
@@ -179,6 +234,12 @@ public:
      *
      * @details ExecuteCommandLists の後に呼び、戻り値を後で WaitForFenceValue に渡す。
      * @return その投入が完了する fence 値。
+     */
+    /**
+     * Signal already-submitted queue work without sealing retirements.
+     *
+     * A generic wait cannot prove that a currently open main command list has
+     * been submitted, so sealing is restricted to SubmitGraphicsCommandLists.
      */
     u64 SignalGraphicsQueue() noexcept;
 
@@ -220,8 +281,86 @@ public:
     FHrResult Init(const FDeviceConfig& configuration) noexcept;
 
 private:
+    struct FRetiredResource {
+        ID3D12Resource* resource = nullptr;
+        i32 srv_slot = -1;
+        i32 uav_slot = -1;
+        i32 dsv_slot = -1;
+        TArray<i32> rtv_slots;
+        u64 fence_value = 0u;
+
+        FRetiredResource() noexcept = default;
+        FRetiredResource(const FRetiredResource&) = delete;
+        FRetiredResource& operator=(const FRetiredResource&) = delete;
+
+        FRetiredResource(FRetiredResource&& other) noexcept
+            : resource(other.resource),
+              srv_slot(other.srv_slot),
+              uav_slot(other.uav_slot),
+              dsv_slot(other.dsv_slot),
+              rtv_slots(Move(other.rtv_slots)),
+              fence_value(other.fence_value)
+        {
+            other.resource = nullptr;
+            other.srv_slot = -1;
+            other.uav_slot = -1;
+            other.dsv_slot = -1;
+            other.fence_value = 0u;
+        }
+
+        FRetiredResource& operator=(FRetiredResource&& other) noexcept
+        {
+            if (this == &other) return *this;
+            resource = other.resource;
+            srv_slot = other.srv_slot;
+            uav_slot = other.uav_slot;
+            dsv_slot = other.dsv_slot;
+            rtv_slots = Move(other.rtv_slots);
+            fence_value = other.fence_value;
+            other.resource = nullptr;
+            other.srv_slot = -1;
+            other.uav_slot = -1;
+            other.dsv_slot = -1;
+            other.fence_value = 0u;
+            return *this;
+        }
+    };
+
     /** 所有する Win32/COM リソースを解放し、再初期化可能な空状態へ戻す。 */
     void Reset() noexcept;
+
+    /** Release one entry after its fence, or during final device teardown. */
+    void ReleaseRetiredResource(FRetiredResource& retired) noexcept;
+
+    /** Final teardown fallback after WaitIdle: release pending and sealed work. */
+    void ReleaseAllRetiredResources() noexcept;
+
+    /**
+     * Drop retirement metadata without releasing GPU-visible objects.
+     *
+     * Used only when the final queue signal fails and completion is unknown.
+     * Leaking is safer than releasing an object still referenced by the GPU.
+     */
+    void AbandonAllRetiredResources() noexcept;
+
+    /** Queue a fully populated retirement record, with a fixed emergency path. */
+    void QueueRetiredResource(FRetiredResource&& retired) noexcept;
+
+    /**
+     * Execute command lists and signal while holding the queue-order lock.
+     *
+     * seal_retirements is true only for the main renderer Submit path.
+     */
+    u64 ExecuteGraphicsCommandListsAndSignal(
+        ID3D12CommandList* const* command_lists,
+        u32 command_list_count,
+        bool seal_retirements) noexcept;
+
+    /** Signal helper; caller must hold m_QueueSubmissionLock. */
+    u64 SignalGraphicsQueueLocked() noexcept;
+
+    /** Attach all pending retirements to a successful main-submit fence. */
+    void SealPendingRetirements(u64 fence_value) noexcept;
 
     /**
      * SRV/DSV/RTV のデスクリプタヒープを生成する。
@@ -252,10 +391,43 @@ private:
     u64 m_IdleValue = 0;
 
     /** fence 値の採番と Signal を直列化する SRW ロック。 */
-    SRWLOCK m_FenceSignalLock = SRWLOCK_INIT;
+    /**
+     * Serializes ExecuteCommandLists + Signal queue-order transactions.
+     *
+     * Main submission holds Retirement -> QueueSubmission so a retirement
+     * cannot be inserted between Execute and sealing. One-off submissions
+     * hold only QueueSubmission and never seal.
+     */
+    SRWLOCK m_QueueSubmissionLock = SRWLOCK_INIT;
 
     /** 単一の完了イベントを使う待機処理を直列化する SRW ロック。 */
     SRWLOCK m_FenceWaitLock = SRWLOCK_INIT;
+
+    /**
+     * Protects retirement insertion, signal sealing, and collection.
+     *
+     * Lock order is Retirement -> QueueSubmission and Retirement -> Descriptor.
+     * No descriptor or fence path acquires this lock in the reverse order.
+     */
+    SRWLOCK m_RetirementLock = SRWLOCK_INIT;
+
+    /**
+     * fence_value==0 entries await the next main renderer Submit. One-off
+     * upload/readback signals never seal these entries.
+     */
+    TArray<FRetiredResource> m_RetiredResources;
+
+    /**
+     * Allocation-free fallback when growing m_RetiredResources fails.
+     *
+     * The record already owns the texture's RTV-array storage, so moving it
+     * into this fixed array does not allocate. Exhausting both stores retains
+     * (leaks) the final record rather than risking an in-flight release.
+     */
+    static constexpr u32 kEmergencyRetirementCapacity = 256u;
+    FRetiredResource
+        m_EmergencyRetiredResources[kEmergencyRetirementCapacity]{};
+    u32 m_EmergencyRetiredResourceCount = 0u;
 
     /** UTF-8 化したアダプタ名バッファ。 */
     char m_AdapterName[128]{};

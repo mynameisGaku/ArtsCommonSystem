@@ -81,9 +81,43 @@ void FDx12Device::Reset() noexcept
     render_internal::FD3D12DebugDeviceReportHandle debug_device = render_internal::CaptureD3D12DebugDeviceReportHandle(
         m_Device);
 #endif
-    // event まで揃っている場合だけ待機できる。Init 途中のロールバックでは
-    // fence だけ存在する状態もあるため、NULL event を待ってはいけない。
-    if (m_GfxQueue && m_IdleFence && m_IdleEvent) WaitIdle();
+    // Final teardown signals and waits for every command list already submitted
+    // to the queue. The owning renderer destroys its command list before the
+    // device, so a completed final fence permits releasing both sealed and
+    // still-pending retirement records without assigning an earlier one-off
+    // fence to open main-list references.
+    bool final_signal_completed = false;
+    if (m_GfxQueue && m_IdleFence && m_IdleEvent) {
+        const u64 final_fence = SignalGraphicsQueue();
+        if (final_fence != 0u) {
+            WaitForFenceValue(final_fence);
+            const u64 completed = m_IdleFence->GetCompletedValue();
+            final_signal_completed =
+                completed == static_cast<u64>(-1) ||
+                completed >= final_fence;
+            if (final_signal_completed) {
+                // Device teardown follows destruction of the owning command
+                // list. Once every submitted queue item is complete, even
+                // records which were never sealed by a main Submit are safe to
+                // release before descriptor heaps and the device disappear.
+                ReleaseAllRetiredResources();
+            }
+        }
+    } else if (m_GfxQueue == nullptr) {
+        // A partial Init which never created a queue cannot have submitted GPU
+        // references, so direct teardown is safe and avoids rollback leaks.
+        ReleaseAllRetiredResources();
+    }
+
+    // A failed Signal does not prove completion. Likewise, records retired
+    // after the final Signal are not covered by it. Preserve their COM
+    // ownership and descriptor indices (leak-safe device-failure fallback)
+    // rather than risking a GPU use-after-free during shutdown.
+    if (!final_signal_completed && m_GfxQueue != nullptr) {
+        AbandonAllRetiredResources();
+    } else if (RetiredResourceCount() != 0u) {
+        AbandonAllRetiredResources();
+    }
     if (m_IdleEvent) {
         ::CloseHandle(m_IdleEvent);
         m_IdleEvent = nullptr;
@@ -202,7 +236,9 @@ void FDx12Device::FreeSrvSlot(i32 index) noexcept
 
 D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept
 {
-    if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= m_SrvHighWater) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    // Handle math only needs the immutable heap capacity. Reading the mutable
+    // high-water mark here raced with free-threaded background allocation.
+    if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= kSrvCapacity) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetCPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<SIZE_T>(m_SrvHandleSize) * static_cast<SIZE_T>(index);
     return h;
@@ -210,7 +246,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept
 
 D3D12_GPU_DESCRIPTOR_HANDLE FDx12Device::SrvGpuHandle(i32 index) const noexcept
 {
-    if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= m_SrvHighWater) return D3D12_GPU_DESCRIPTOR_HANDLE{0};
+    if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= kSrvCapacity) return D3D12_GPU_DESCRIPTOR_HANDLE{0};
     D3D12_GPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetGPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<UINT64>(m_SrvHandleSize) * static_cast<UINT64>(index);
     return h;
@@ -236,7 +272,7 @@ void FDx12Device::FreeDsvSlot(i32 index) noexcept
 
 D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept
 {
-    if (!m_DsvHeap || index < 0 || static_cast<u32>(index) >= m_DsvHighWater) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    if (!m_DsvHeap || index < 0 || static_cast<u32>(index) >= kDsvCapacity) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_DsvHeap->GetCPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<SIZE_T>(m_DsvHandleSize) * static_cast<SIZE_T>(index);
     return h;
@@ -260,9 +296,156 @@ void FDx12Device::FreeRtvSlot(i32 index) noexcept
     if (m_RtvFreeCount < kRtvCapacity) m_RtvFreeList[m_RtvFreeCount++] = index;
 }
 
+void FDx12Device::ReleaseRetiredResource(
+    FRetiredResource& retired) noexcept
+{
+    // Lock order is retirement -> descriptor.  Callers hold (or exclusively
+    // own teardown of) m_RetirementLock; descriptor allocation never enters
+    // the retirement lock, so this direction cannot deadlock.
+    if (retired.srv_slot >= 0) FreeSrvSlot(retired.srv_slot);
+    if (retired.uav_slot >= 0) FreeSrvSlot(retired.uav_slot);
+    if (retired.dsv_slot >= 0) FreeDsvSlot(retired.dsv_slot);
+    for (usize i = 0; i < retired.rtv_slots.Size(); ++i) {
+        if (retired.rtv_slots[i] >= 0)
+            FreeRtvSlot(retired.rtv_slots[i]);
+    }
+    retired.srv_slot = -1;
+    retired.uav_slot = -1;
+    retired.dsv_slot = -1;
+    retired.rtv_slots.ReleaseStorage();
+    ACS_SAFE_RELEASE(retired.resource);
+    retired.fence_value = 0u;
+}
+
+void FDx12Device::ReleaseAllRetiredResources() noexcept
+{
+    FExclusiveLockGuard retirement_guard(m_RetirementLock);
+    for (usize i = 0; i < m_RetiredResources.Size(); ++i)
+        ReleaseRetiredResource(m_RetiredResources[i]);
+    m_RetiredResources.Clear();
+    for (u32 i = 0u; i < m_EmergencyRetiredResourceCount; ++i)
+        ReleaseRetiredResource(m_EmergencyRetiredResources[i]);
+    m_EmergencyRetiredResourceCount = 0u;
+}
+
+void FDx12Device::AbandonAllRetiredResources() noexcept
+{
+    FExclusiveLockGuard retirement_guard(m_RetirementLock);
+    auto abandon = [](FRetiredResource& retired) noexcept {
+        // Deliberately drop only CPU-side bookkeeping. The raw COM reference
+        // and descriptor indices are not released/recycled because completion
+        // is unknown. The enclosing device teardown owns this fail-safe leak.
+        retired.resource = nullptr;
+        retired.srv_slot = -1;
+        retired.uav_slot = -1;
+        retired.dsv_slot = -1;
+        retired.rtv_slots.ReleaseStorage();
+        retired.fence_value = 0u;
+    };
+    for (usize i = 0; i < m_RetiredResources.Size(); ++i)
+        abandon(m_RetiredResources[i]);
+    m_RetiredResources.ReleaseStorage();
+    for (u32 i = 0u; i < m_EmergencyRetiredResourceCount; ++i)
+        abandon(m_EmergencyRetiredResources[i]);
+    m_EmergencyRetiredResourceCount = 0u;
+}
+
+void FDx12Device::QueueRetiredResource(
+    FRetiredResource&& retired) noexcept
+{
+    if (retired.resource == nullptr &&
+        retired.srv_slot < 0 && retired.uav_slot < 0 &&
+        retired.dsv_slot < 0 && retired.rtv_slots.IsEmpty()) {
+        return;
+    }
+
+    {
+        FExclusiveLockGuard retirement_guard(m_RetirementLock);
+        if (m_RetiredResources.TryPushBack(Move(retired))) return;
+        if (m_EmergencyRetiredResourceCount <
+            kEmergencyRetirementCapacity) {
+            m_EmergencyRetiredResources[
+                m_EmergencyRetiredResourceCount++] = Move(retired);
+            return;
+        }
+    }
+
+    // Do not WaitIdle or directly release here: this resource may already be
+    // referenced by the currently open/recorded command list, which has not
+    // reached ExecuteCommandLists and therefore cannot be covered by a fence
+    // yet. Exhausting both metadata stores intentionally leaks the transferred
+    // ownership and descriptor indices; a leak is safer than GPU UAF.
+    retired.resource = nullptr;
+    retired.srv_slot = -1;
+    retired.uav_slot = -1;
+    retired.dsv_slot = -1;
+    retired.rtv_slots.ReleaseStorage();
+    retired.fence_value = 0u;
+}
+
+void FDx12Device::RetireResource(ID3D12Resource* resource) noexcept
+{
+    if (resource == nullptr) return;
+    FRetiredResource retired{};
+    retired.resource = resource;
+    QueueRetiredResource(Move(retired));
+}
+
+void FDx12Device::RetireTextureResource(
+    ID3D12Resource* resource,
+    i32 srv_slot, i32 uav_slot, i32 dsv_slot,
+    TArray<i32>&& rtv_slots) noexcept
+{
+    FRetiredResource retired{};
+    retired.resource = resource;
+    retired.srv_slot = srv_slot;
+    retired.uav_slot = uav_slot;
+    retired.dsv_slot = dsv_slot;
+    retired.rtv_slots = Move(rtv_slots);
+    QueueRetiredResource(Move(retired));
+}
+
+void FDx12Device::CollectRetiredResources() noexcept
+{
+    if (m_IdleFence == nullptr) return;
+    const u64 completed = m_IdleFence->GetCompletedValue();
+    FExclusiveLockGuard retirement_guard(m_RetirementLock);
+    for (usize i = m_RetiredResources.Size(); i-- > 0u;) {
+        FRetiredResource& retired = m_RetiredResources[i];
+        if (retired.fence_value == 0u ||
+            (completed != static_cast<u64>(-1) &&
+             retired.fence_value > completed)) {
+            continue;
+        }
+        ReleaseRetiredResource(retired);
+        m_RetiredResources.RemoveAtSwap(i);
+    }
+    for (u32 i = m_EmergencyRetiredResourceCount; i-- > 0u;) {
+        FRetiredResource& retired = m_EmergencyRetiredResources[i];
+        if (retired.fence_value == 0u ||
+            (completed != static_cast<u64>(-1) &&
+             retired.fence_value > completed)) {
+            continue;
+        }
+        ReleaseRetiredResource(retired);
+        --m_EmergencyRetiredResourceCount;
+        if (i != m_EmergencyRetiredResourceCount) {
+            retired = Move(m_EmergencyRetiredResources[
+                m_EmergencyRetiredResourceCount]);
+        }
+    }
+}
+
+usize FDx12Device::RetiredResourceCount() noexcept
+{
+    FExclusiveLockGuard retirement_guard(m_RetirementLock);
+    return m_RetiredResources.Size() +
+           static_cast<usize>(m_EmergencyRetiredResourceCount);
+}
+
 D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::RtvCpuHandle(i32 index) const noexcept
 {
-    if (!m_RtvHeap || index < 0 || static_cast<u32>(index) >= m_RtvHighWater) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
+    if (!m_RtvHeap || index < 0 || static_cast<u32>(index) >= kRtvCapacity) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
     h.ptr += static_cast<SIZE_T>(m_RtvHandleSize) * static_cast<SIZE_T>(index);
     return h;
@@ -376,17 +559,95 @@ void FDx12Device::WaitIdle() noexcept
     const u64 value = SignalGraphicsQueue();
     if (value == 0) return;
     WaitForFenceValue(value);
+    CollectRetiredResources();
 }
 
-// フレーム単位で利用する Signal/Wait（WaitIdle と同じ fence を共有）
-u64 FDx12Device::SignalGraphicsQueue() noexcept
+u64 FDx12Device::SignalGraphicsQueueLocked() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence) return 0;
-    FExclusiveLockGuard guard(m_FenceSignalLock);
-    const u64 next_value = m_IdleValue + 1;
-    if (next_value == 0 || FAILED(m_GfxQueue->Signal(m_IdleFence, next_value))) return 0;
+    const u64 next_value = m_IdleValue + 1u;
+    if (next_value == 0u ||
+        FAILED(m_GfxQueue->Signal(m_IdleFence, next_value))) {
+        return 0u;
+    }
     m_IdleValue = next_value;
     return next_value;
+}
+
+void FDx12Device::SealPendingRetirements(u64 fence_value) noexcept
+{
+    if (fence_value == 0u) return;
+    for (usize i = 0; i < m_RetiredResources.Size(); ++i) {
+        if (m_RetiredResources[i].fence_value == 0u)
+            m_RetiredResources[i].fence_value = fence_value;
+    }
+    for (u32 i = 0u; i < m_EmergencyRetiredResourceCount; ++i) {
+        if (m_EmergencyRetiredResources[i].fence_value == 0u)
+            m_EmergencyRetiredResources[i].fence_value = fence_value;
+    }
+}
+
+u64 FDx12Device::ExecuteGraphicsCommandListsAndSignal(
+    ID3D12CommandList* const* command_lists,
+    u32 command_list_count,
+    bool seal_retirements) noexcept
+{
+    if (!m_GfxQueue || !m_IdleFence || command_lists == nullptr ||
+        command_list_count == 0u) {
+        return 0u;
+    }
+    for (u32 i = 0u; i < command_list_count; ++i) {
+        if (command_lists[i] == nullptr) return 0u;
+    }
+
+    if (seal_retirements) {
+        // Insertion, Execute, Signal, and sealing are one ordered transaction.
+        // A retirement queued before this lock is covered by this main list;
+        // one queued afterward remains pending for the next main submission.
+        FExclusiveLockGuard retirement_guard(m_RetirementLock);
+        FExclusiveLockGuard submission_guard(m_QueueSubmissionLock);
+        m_GfxQueue->ExecuteCommandLists(
+            command_list_count, command_lists);
+        const u64 fence_value = SignalGraphicsQueueLocked();
+        if (fence_value != 0u) {
+            SealPendingRetirements(fence_value);
+        }
+        // On Signal failure the executed work has no completion proof. Keep
+        // every retirement unsealed and owned instead of releasing early.
+        return fence_value;
+    }
+
+    // Upload/readback lists are queue ordered with main submissions, but must
+    // not seal resources referenced by a main list which is still only
+    // recorded in CPU memory.
+    FExclusiveLockGuard submission_guard(m_QueueSubmissionLock);
+    m_GfxQueue->ExecuteCommandLists(command_list_count, command_lists);
+    return SignalGraphicsQueueLocked();
+}
+
+u64 FDx12Device::SubmitGraphicsCommandLists(
+    ID3D12CommandList* const* command_lists,
+    u32 command_list_count) noexcept
+{
+    return ExecuteGraphicsCommandListsAndSignal(
+        command_lists, command_list_count, true);
+}
+
+u64 FDx12Device::ExecuteOneOffGraphicsCommandList(
+    ID3D12CommandList* command_list) noexcept
+{
+    ID3D12CommandList* lists[1] = {command_list};
+    return ExecuteGraphicsCommandListsAndSignal(
+        lists, 1u, false);
+}
+
+// Generic queue waits never seal retirement records. Only the main renderer
+// Submit path proves that its currently recorded references have been queued.
+u64 FDx12Device::SignalGraphicsQueue() noexcept
+{
+    if (!m_GfxQueue || !m_IdleFence) return 0u;
+    FExclusiveLockGuard submission_guard(m_QueueSubmissionLock);
+    return SignalGraphicsQueueLocked();
 }
 
 void FDx12Device::WaitForFenceValue(u64 value) noexcept
@@ -495,11 +756,19 @@ bool FDx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u3
         if (need) transition(D3D12_RESOURCE_STATE_COPY_SOURCE, cur); // 元の状態へ戻す
         ok = SUCCEEDED(cl->Close());
         if (ok) {
-            ID3D12CommandList* lists[] = {cl};
-            m_GfxQueue->ExecuteCommandLists(1, lists);
-            const u64 fence_value = SignalGraphicsQueue();
+            const u64 fence_value =
+                ExecuteOneOffGraphicsCommandList(cl);
             ok = fence_value != 0;
-            if (ok) WaitForFenceValue(fence_value);
+            if (ok) {
+                WaitForFenceValue(fence_value);
+            } else {
+                // The copy may have executed even though no completion fence
+                // was produced. Preserve all objects referenced by that list
+                // rather than freeing them under potentially active GPU work.
+                cl = nullptr;
+                alloc = nullptr;
+                rb = nullptr;
+            }
         }
 
         void* mapped = nullptr;
@@ -518,7 +787,7 @@ bool FDx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u3
     }
     if (cl) cl->Release();
     if (alloc) alloc->Release();
-    rb->Release();
+    if (rb) rb->Release();
     return ok;
 }
 

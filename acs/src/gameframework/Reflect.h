@@ -91,6 +91,7 @@ enum EFieldFlags : u32 {
     FIELD_READONLY  = 1u << 0,   /**< 編集不可 (表示のみ)。 */
     FIELD_HIDDEN    = 1u << 1,   /**< UI に出さない。 */
     FIELD_TRANSIENT = 1u << 2,   /**< シリアライズ対象外。 */
+    FIELD_COLOR     = 1u << 3,   /**< Vec3/Vec4 を色として編集する。 */
 };
 
 /** 反射された 1 フィールド (名前 + 種別 + オフセット + サイズ + フラグ + 既定値 + カテゴリ)。 */

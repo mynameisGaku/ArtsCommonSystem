@@ -156,6 +156,7 @@
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="MAJOR PASS" Foreground="{StaticResource TextDim}" FontSize="10"/>
                         <TextBlock Grid.Column="1" Text="CPU RECORD" Foreground="{StaticResource TextDim}" FontSize="10"/>
@@ -165,6 +166,7 @@
                         <TextBlock Grid.Row="3" Text="Cloud"/>
                         <TextBlock Grid.Row="4" Text="Fog composite"/>
                         <TextBlock Grid.Row="5" Text="Post chain"/>
+                        <TextBlock Grid.Row="6" Text="Scene mesh cache"/>
                         <TextBlock x:Name="OpaqueCpuValue" Grid.Row="1" Grid.Column="1" FontFamily="Consolas"/>
                         <TextBlock x:Name="AtmosphereCpuValue" Grid.Row="2" Grid.Column="1" FontFamily="Consolas"/>
                         <TextBlock x:Name="CloudCpuValue" Grid.Row="3" Grid.Column="1" FontFamily="Consolas"/>
@@ -175,6 +177,9 @@
                         <TextBlock x:Name="CloudGpuValue" Grid.Row="3" Grid.Column="2" FontFamily="Consolas"/>
                         <TextBlock x:Name="FogGpuValue" Grid.Row="4" Grid.Column="2" FontFamily="Consolas"/>
                         <TextBlock x:Name="PostGpuValue" Grid.Row="5" Grid.Column="2" FontFamily="Consolas"/>
+                        <TextBlock x:Name="MeshCacheStateValue" Grid.Row="6" Grid.Column="1"
+                                   Grid.ColumnSpan="2" Text="--" FontFamily="Consolas"
+                                   ToolTip="HIT reuses world-space vertices, AABB and the dynamic vertex-buffer upload. REBUILT means geometry, transform, material, visibility or water ownership changed."/>
                     </Grid>
 
                     <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>

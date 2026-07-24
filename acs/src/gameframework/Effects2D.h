@@ -375,13 +375,32 @@ public:
     /**
      * リップルの伝播パラメータを設定する。
      *
-     * @details wavelength は下限 1e-3 を下回ると 1.0 にフォールバックする。
+     * @details 非有限値は既定値へ戻し、speed は 0..256、
+     * wavelength は 1e-3..1024 に clamp する。
      * @param speed 輪が広がる速さ。
      * @param wavelength リップルの波長。
      */
-    void SetRipplePropagation(f32 speed, f32 wavelength) noexcept {
-        m_RippleSpeed = speed; m_RippleWavelength = wavelength > 1e-3f ? wavelength : 1.0f;
-    }
+    void SetRipplePropagation(f32 speed, f32 wavelength) noexcept;
+
+    /**
+     * 波紋の寿命と物理減衰を設定する。
+     *
+     * @details 寿命末尾は C2 連続な envelope で厳密に 0 へ収束するため、
+     * slot 解放時に変位・法線・glow が突然消えない。設定変更は新規波紋から
+     * 適用され、既に進行中の波紋の位相と寿命は変えない。
+     *
+     * @param lifetime_sec 波紋を保持する秒数 (0.1..3600)。
+     * @param damping_sec 振幅へ適用する指数減衰係数 (0..64)。
+     */
+    void SetRippleDecay(f32 lifetime_sec, f32 damping_sec) noexcept;
+
+    /**
+     * runtime と同じ連続減衰 envelope を評価する。
+     *
+     * @return 初期振幅へ掛ける有限な倍率。寿命到達時は厳密に 0。
+     */
+    static f32 EvaluateRippleAmplitudeScale(
+        f32 age, f32 lifetime, f32 damping) noexcept;
 
     /**
      * 点が実際の水面三角形内にあるかを判定する。
@@ -510,6 +529,8 @@ private:
         f32 time = 0;
         f32 speed = 0;
         f32 initial_radius = 0;
+        f32 lifetime = 3.0f;
+        f32 damping = 2.0f;
         bool active = false;
     };
 
@@ -709,6 +730,12 @@ private:
 
     /** リップルの波長。 */
     f32   m_RippleWavelength = 0.9f;
+
+    /** 新規波紋の寿命。進行中の波紋は各 slot に取り込んだ値を保持する。 */
+    f32   m_RippleLifetime = 3.0f;
+
+    /** 新規波紋へ適用する指数減衰係数。 */
+    f32   m_RippleDamping = 2.0f;
 };
 
 /**

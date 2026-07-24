@@ -340,7 +340,7 @@ ACS_TEST(PbrExpressionContract, EditorPreviewUsesProductionSphereAndVm) {
         "shader.SetNormalMap(normal_texture.Get(), pbr.normalStrength);"));
     EXPECT_TRUE(Contains(
         source,
-        "lit ? p.normalStrength : 1.0f"));
+        "lit ? pbr.normalStrength : 1.0f"));
     EXPECT_TRUE(Contains(
         source,
         "if (mat.pbr.shadingMode == 1)"));
