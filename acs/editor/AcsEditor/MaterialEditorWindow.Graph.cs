@@ -1325,6 +1325,215 @@ public partial class MaterialEditorWindow
         SetDiagnostics(new[] { $"INFO   Added #{added} {NodeDisplayName(added)}. Drag from a green output socket to an input." });
     }
 
+    private static double DuplicateCoordinate(double value, double maximum)
+    {
+        const double offset = 32.0;
+        double forward = value + offset;
+        return forward <= maximum
+            ? forward
+            : Math.Max(0, value - offset);
+    }
+
+    private static GraphNode CloneGraphNode(GraphNode source, double maximumX, double maximumY) =>
+        new()
+        {
+            StableId = Guid.NewGuid().ToString("N"),
+            Type = source.Type,
+            InputA = source.InputA,
+            InputB = source.InputB,
+            Factor = source.Factor,
+            Flags = source.Flags,
+            Slab = (float[])source.Slab.Clone(),
+            ExpressionRoots = (int[])source.ExpressionRoots.Clone(),
+            IsExpanded = source.IsExpanded,
+            X = DuplicateCoordinate(source.X, maximumX),
+            Y = DuplicateCoordinate(source.Y, maximumY)
+        };
+
+    private static ExpressionNode CloneExpressionNode(
+        ExpressionNode source, double maximumX, double maximumY) =>
+        new()
+        {
+            StableId = Guid.NewGuid().ToString("N"),
+            Op = source.Op,
+            DeclaredType = source.DeclaredType,
+            TextureSlot = source.TextureSlot,
+            TextureFlags = source.TextureFlags,
+            ComponentIndex = source.ComponentIndex,
+            Inputs = (int[])source.Inputs.Clone(),
+            ParameterId = source.ParameterId,
+            TextureAssetIdLow = source.TextureAssetIdLow,
+            TextureAssetIdHigh = source.TextureAssetIdHigh,
+            Value = (float[])source.Value.Clone(),
+            ParameterName = source.ParameterName,
+            X = DuplicateCoordinate(source.X, maximumX),
+            Y = DuplicateCoordinate(source.Y, maximumY)
+        };
+
+    private void DuplicateSelectedNode()
+    {
+        if (ValidExpressionIndex(_selectedExpression))
+        {
+            if (_expressionNodes.Count >= _expressionMaxNodes)
+            {
+                SetDiagnostics(new[]
+                {
+                    $"ERROR  Shader expression capacity is {_expressionMaxNodes} nodes."
+                });
+                return;
+            }
+
+            ExpressionNode source = _expressionNodes[_selectedExpression];
+            ExpressionNode copy = CloneExpressionNode(
+                source,
+                GraphCanvas.Width - ExpressionNodeWidth,
+                GraphCanvas.Height - ExpressionNodeHeight(source));
+            _expressionNodes.Add(copy);
+            int added = _expressionNodes.Count - 1;
+            MarkGraphDirty();
+            SelectExpressionNode(added);
+            SetDiagnostics(new[]
+            {
+                $"INFO   Duplicated shader expression as [expr {added}]."
+            });
+            return;
+        }
+
+        if (!ValidNodeIndex(_selectedNode))
+            return;
+        if (_graphNodes.Count >= _runtimeMaxNodes)
+        {
+            SetDiagnostics(new[]
+            {
+                $"ERROR  Runtime capacity is {_runtimeMaxNodes} material expressions."
+            });
+            return;
+        }
+
+        GraphNode graphSource = _graphNodes[_selectedNode];
+        GraphNode graphCopy = CloneGraphNode(
+            graphSource,
+            GraphCanvas.Width - GraphNodeWidthFor(graphSource),
+            GraphCanvas.Height - GraphNodeHeightFor(graphSource));
+        _graphNodes.Add(graphCopy);
+        int graphAdded = _graphNodes.Count - 1;
+        MarkGraphDirty();
+        SelectGraphNode(graphAdded);
+        SetDiagnostics(new[]
+        {
+            $"INFO   Duplicated material expression as #{graphAdded}."
+        });
+    }
+
+    internal static (int Passed, int Failed) RunDuplicationContractSelfTest(
+        TextWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        int passed = 0;
+        int failed = 0;
+
+        void Check(bool condition, string label)
+        {
+            if (condition)
+            {
+                passed++;
+                output.WriteLine("PASS: " + label);
+            }
+            else
+            {
+                failed++;
+                output.WriteLine("FAIL: " + label);
+            }
+        }
+
+        var graph = new GraphNode
+        {
+            StableId = "source-closure",
+            Type = 3,
+            InputA = 4,
+            InputB = 7,
+            Factor = 0.25f,
+            Flags = 0x300u,
+            Slab = Enumerable.Range(0, SlabScalarCount).Select(i => (float)i).ToArray(),
+            ExpressionRoots = Enumerable.Range(0, SlabScalarCount).ToArray(),
+            IsExpanded = true,
+            X = 100,
+            Y = 200
+        };
+        GraphNode graphCopy = CloneGraphNode(graph, 1000, 1000);
+        Check(
+            graphCopy.StableId != graph.StableId &&
+            graphCopy.Type == graph.Type &&
+            graphCopy.InputA == graph.InputA &&
+            graphCopy.InputB == graph.InputB &&
+            graphCopy.Factor == graph.Factor &&
+            graphCopy.Flags == graph.Flags &&
+            graphCopy.IsExpanded == graph.IsExpanded,
+            "material-expression duplicate preserves editable topology and properties");
+        Check(
+            graphCopy.X == 132 && graphCopy.Y == 232,
+            "material-expression duplicate receives a deterministic visible offset");
+        Check(
+            !ReferenceEquals(graphCopy.Slab, graph.Slab) &&
+            !ReferenceEquals(graphCopy.ExpressionRoots, graph.ExpressionRoots) &&
+            graphCopy.Slab.SequenceEqual(graph.Slab) &&
+            graphCopy.ExpressionRoots.SequenceEqual(graph.ExpressionRoots),
+            "material-expression duplicate deep-copies slab and dynamic bindings");
+        graphCopy.Slab[0] = -1;
+        graphCopy.ExpressionRoots[0] = -1;
+        Check(
+            graph.Slab[0] == 0 && graph.ExpressionRoots[0] == 0,
+            "editing a duplicated material expression cannot mutate its source arrays");
+
+        var expression = new ExpressionNode
+        {
+            StableId = "source-expression",
+            Op = 10,
+            DeclaredType = 3,
+            TextureSlot = 2,
+            TextureFlags = 9,
+            ComponentIndex = 1,
+            Inputs = new[] { 1, 2, 3 },
+            ParameterId = 0x12345678,
+            TextureAssetIdLow = 0x89ABCDEF,
+            TextureAssetIdHigh = 0x76543210,
+            Value = new[] { 0.1f, 0.2f, 0.3f, 0.4f },
+            ParameterName = "Tint",
+            X = 980,
+            Y = 980
+        };
+        ExpressionNode expressionCopy =
+            CloneExpressionNode(expression, 1000, 1000);
+        Check(
+            expressionCopy.StableId != expression.StableId &&
+            expressionCopy.Op == expression.Op &&
+            expressionCopy.DeclaredType == expression.DeclaredType &&
+            expressionCopy.TextureSlot == expression.TextureSlot &&
+            expressionCopy.TextureFlags == expression.TextureFlags &&
+            expressionCopy.ComponentIndex == expression.ComponentIndex &&
+            expressionCopy.ParameterId == expression.ParameterId &&
+            expressionCopy.TextureAssetIdLow == expression.TextureAssetIdLow &&
+            expressionCopy.TextureAssetIdHigh == expression.TextureAssetIdHigh &&
+            expressionCopy.ParameterName == expression.ParameterName,
+            "shader-expression duplicate preserves typed parameter and texture identity");
+        Check(
+            expressionCopy.X == 948 && expressionCopy.Y == 948,
+            "duplicate offset remains visible when the source is at the graph edge");
+        Check(
+            !ReferenceEquals(expressionCopy.Inputs, expression.Inputs) &&
+            !ReferenceEquals(expressionCopy.Value, expression.Value) &&
+            expressionCopy.Inputs.SequenceEqual(expression.Inputs) &&
+            expressionCopy.Value.SequenceEqual(expression.Value),
+            "shader-expression duplicate deep-copies connections and literal values");
+        expressionCopy.Inputs[0] = -1;
+        expressionCopy.Value[0] = -1;
+        Check(
+            expression.Inputs[0] == 1 && expression.Value[0] == 0.1f,
+            "editing a duplicated shader expression cannot mutate its source arrays");
+
+        return (passed, failed);
+    }
+
     private void ConnectNodes(int source, int destination, int input)
     {
         if (!ValidNodeIndex(source) || !ValidNodeIndex(destination) || source == destination) return;
@@ -1663,7 +1872,11 @@ public partial class MaterialEditorWindow
     private void UpdateGraphZoom() =>
         GraphCanvas.LayoutTransform = new ScaleTransform(_graphZoom, _graphZoom);
 
-    private void OnDeleteNodeClicked(object sender, RoutedEventArgs e) => DeleteSelectedNode();
+    private void OnDuplicateNodeClicked(object sender, RoutedEventArgs e) =>
+        DuplicateSelectedNode();
+
+    private void OnDeleteNodeClicked(object sender, RoutedEventArgs e) =>
+        DeleteSelectedNode();
 
     private void OnSetRootClicked(object sender, RoutedEventArgs e) => SetRoot(_selectedNode);
 
@@ -1996,7 +2209,12 @@ public partial class MaterialEditorWindow
             Keyboard.FocusedElement is PasswordBox)
             return;
 
-        if (e.Key == Key.Delete)
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.D)
+        {
+            DuplicateSelectedNode();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Delete)
         {
             DeleteSelectedNode();
             e.Handled = true;

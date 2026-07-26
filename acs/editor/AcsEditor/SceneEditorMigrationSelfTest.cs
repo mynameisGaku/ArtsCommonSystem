@@ -99,9 +99,13 @@ internal static class SceneEditorMigrationSelfTest
             Path.Combine(sourceRoot, "MainWindow.Documents.cs"));
         string autosaveSource = File.ReadAllText(
             Path.Combine(sourceRoot, "MainWindow.Autosave.cs"));
+        string view3DSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "MainWindow.View3D.cs"));
         string switchBody = ExtractMethodBody(sceneModeSource, "SwitchSceneViewMode(");
         string initializeBody =
             ExtractMethodBody(sceneModeSource, "InitializeProjectSceneDocument(");
+        string beginLoadBody =
+            ExtractMethodBody(sceneModeSource, "private ActiveSceneLoad BeginSceneLoad(");
         string establishEmptyBody =
             ExtractMethodBody(sceneModeSource, "EstablishEmptySceneDocument(");
         string configureAdapterBody =
@@ -139,6 +143,25 @@ internal static class SceneEditorMigrationSelfTest
                 autosaveSource,
                 "ApplyRecoveryCandidateAsync(");
 
+        int publishedCompletionCalls = 0;
+        int unavailableCompletionCalls = 0;
+        SceneLoadPublicationBranch.Run(
+            publishScene: true,
+            () => publishedCompletionCalls++,
+            () => unavailableCompletionCalls++);
+        bool publishedCompletionWasExclusive =
+            publishedCompletionCalls == 1 &&
+            unavailableCompletionCalls == 0;
+        SceneLoadPublicationBranch.Run(
+            publishScene: false,
+            () => publishedCompletionCalls++,
+            () => unavailableCompletionCalls++);
+        Check(
+            publishedCompletionWasExclusive &&
+            publishedCompletionCalls == 1 &&
+            unavailableCompletionCalls == 1,
+            "scene load completion executes exactly one published or unavailable presentation branch");
+
         const string viewAssignment = @"_view3d\s*=(?!=)";
         const string sourceAssignment =
             @"_legacySceneSourceMode\s*=(?!=)";
@@ -166,7 +189,8 @@ internal static class SceneEditorMigrationSelfTest
             configureAdapterBody + "\n" + restoreOpenBody + "\n" + openBody;
         bool adapterWritesAreConfined =
             CountMatches(auditedManagedCs, viewAssignment) ==
-                CountMatches(allowedAdapterBodies, viewAssignment) &&
+                // One additional write is the unpublished 3D-first bootstrap initializer.
+                CountMatches(allowedAdapterBodies, viewAssignment) + 1 &&
             // The one additional source-mode assignment is its default field initializer.
             CountMatches(auditedManagedCs, sourceAssignment) ==
                 CountMatches(allowedAdapterBodies, sourceAssignment) + 1 &&
@@ -178,6 +202,17 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             adapterWritesAreConfined,
             "source adapter selection is confined to project initialization and explicit Open");
+        Check(
+            sceneModeSource.Contains(
+                "_sceneViewMode = EditorSceneViewMode.Perspective;",
+                StringComparison.Ordinal) &&
+            sceneModeSource.Contains(
+                "_legacySceneSourceMode = SceneDocumentMode.ThreeD;",
+                StringComparison.Ordinal) &&
+            view3DSource.Contains(
+                "private bool _view3d = true;",
+                StringComparison.Ordinal),
+            "unpublished editor bootstrap state is one 3D world in Perspective view");
 
         int parseResult = openBody.IndexOf(
             "if (ok != 0)",
@@ -279,6 +314,9 @@ internal static class SceneEditorMigrationSelfTest
 
         bool startupLoadIsGated =
             initializeBody.Contains("BeginSceneLoad(", StringComparison.Ordinal) &&
+            beginLoadBody.Contains(
+                "SceneModeText.Text = \"VIEW: LOADING\"",
+                StringComparison.Ordinal) &&
             initializeBody.Contains(
                 "SceneSourceFile.ReadBoundedTextAsync(",
                 StringComparison.Ordinal) &&
@@ -387,15 +425,31 @@ internal static class SceneEditorMigrationSelfTest
         int hwndPublish = completeLoadBody.IndexOf(
             "ViewportHost.Visibility = Visibility.Visible",
             StringComparison.Ordinal);
+        int viewDescriptorPublish = completeLoadBody.IndexOf(
+            "ApplySceneViewModePresentation()",
+            StringComparison.Ordinal);
         Check(
             Regex.IsMatch(
                 mainWindowXaml,
                 @"x:Name=""ViewportHost""[^>]*Visibility=""Hidden""",
                 RegexOptions.CultureInvariant |
                 RegexOptions.Singleline) &&
+            Regex.IsMatch(
+                mainWindowXaml,
+                @"x:Name=""SceneModeText""[^>]*Text=""VIEW: LOADING""",
+                RegexOptions.CultureInvariant |
+                RegexOptions.Singleline) &&
+            completeLoadBody.Contains(
+                "SceneModeText.Text = \"VIEW: UNAVAILABLE\"",
+                StringComparison.Ordinal) &&
+            completeLoadBody.Contains(
+                "SceneLoadPublicationBranch.Run(",
+                StringComparison.Ordinal) &&
             initialHide >= 0 &&
             childPublish > initialHide &&
+            viewDescriptorPublish >= 0 &&
             nativePublish >= 0 &&
+            viewDescriptorPublish < nativePublish &&
             hwndPublish > nativePublish &&
             !setGameViewBody.Contains(
                 "ViewportHost.Visibility",
@@ -403,7 +457,7 @@ internal static class SceneEditorMigrationSelfTest
             CountMatches(
                 auditedManagedCs,
                 @"ViewportHost\.Visibility\s*=\s*Visibility\.Visible") == 1,
-            "HwndHost stays hidden across attach and warm-up until a scene transaction publishes");
+            "published scenes restore their view descriptor before the gated HwndHost is revealed");
 
         string nativeEditorPath = Path.GetFullPath(
             Path.Combine(

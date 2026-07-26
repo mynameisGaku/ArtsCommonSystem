@@ -11,8 +11,10 @@ namespace AcsEditor;
 /// </summary>
 internal enum EditorSceneViewMode
 {
-    Perspective,
-    TwoD,
+    Perspective = 0,
+    // Keep the historical TwoD ordinal for any editor-state snapshots while naming the
+    // behavior precisely: this is a projection preset, never a second scene type.
+    Orthographic = 1,
 }
 
 internal readonly record struct EditorSceneViewDescriptor(
@@ -61,7 +63,7 @@ internal static class EditorSceneViewModePolicy
             ToolbarLabel: "Perspective",
             StatusLabel: "PERSPECTIVE",
             Description: "Perspective view of the scene's 3D world."),
-        EditorSceneViewMode.TwoD => new(
+        EditorSceneViewMode.Orthographic => new(
             IsOrthographic: true,
             ToolbarLabel: "2D (Orthographic)",
             StatusLabel: "2D",
@@ -80,7 +82,7 @@ internal static class EditorSceneViewModePolicy
             ".acs3d",
             StringComparison.OrdinalIgnoreCase)
             ? EditorSceneViewMode.Perspective
-            : EditorSceneViewMode.TwoD;
+            : EditorSceneViewMode.Orthographic;
 
     /// <summary>
     /// New 2D projects still author an ACS3D world. Their template selects only the initial
@@ -98,7 +100,7 @@ internal static class EditorSceneViewModePolicy
             projectTemplate,
             "2d",
             StringComparison.OrdinalIgnoreCase)
-            ? EditorSceneViewMode.TwoD
+            ? EditorSceneViewMode.Orthographic
             : InitialForLegacySource(path);
 
     internal static bool IsSupportedByLegacySource(
@@ -119,7 +121,7 @@ internal static class EditorSceneViewModePolicy
             string.Equals(value, "orthographic", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(value, "ortho", StringComparison.OrdinalIgnoreCase))
         {
-            mode = EditorSceneViewMode.TwoD;
+            mode = EditorSceneViewMode.Orthographic;
             return true;
         }
 

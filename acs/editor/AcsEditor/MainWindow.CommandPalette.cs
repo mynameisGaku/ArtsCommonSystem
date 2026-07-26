@@ -117,7 +117,7 @@ public partial class MainWindow
             "viewport projection 3d");
         Add("scene.view-2d", "Scene View: 2D (Orthographic)", "Scene",
             "Use the XY-front orthographic pan-navigation preset on the current scene.", "",
-            () => SwitchSceneViewMode(EditorSceneViewMode.TwoD), SceneReady,
+            () => SwitchSceneViewMode(EditorSceneViewMode.Orthographic), SceneReady,
             "viewport xy sprite");
         Add("scene.create-empty", "Create Empty Object", "Scene",
             "Create an empty transform at the scene root.", "",

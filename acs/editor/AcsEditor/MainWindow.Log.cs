@@ -3,7 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -44,6 +46,83 @@ namespace AcsEditor
         public Brush  Brush { get; init; } = LogTheme.InfoText;
     }
 
+    internal readonly record struct EditorLogPumpSnapshot(
+        long EngineEntriesDrained,
+        long UiBatches,
+        long RetentionTrimmed,
+        int RetainedEntries,
+        int RetentionCapacity,
+        int LastBatchEntries,
+        int MaximumBatchEntries,
+        double LastDrainMilliseconds,
+        double MaximumDrainMilliseconds,
+        double LastApplyMilliseconds,
+        double MaximumApplyMilliseconds);
+
+    /// <summary>
+    /// Fixed-capacity console storage with one collection notification per
+    /// append batch. Engine startup can publish hundreds of messages at once;
+    /// notifying WPF for every item made sorting, filtering and realization
+    /// monopolize the Dispatcher even though the native renderer kept running.
+    /// </summary>
+    internal sealed class BoundedLogCollection : ObservableCollection<LogEntry>
+    {
+        internal BoundedLogCollection(int capacity)
+        {
+            if (capacity < 1)
+                throw new ArgumentOutOfRangeException(nameof(capacity));
+            Capacity = capacity;
+        }
+
+        internal int Capacity { get; }
+
+        internal int AppendBatch(IReadOnlyList<LogEntry> entries)
+        {
+            ArgumentNullException.ThrowIfNull(entries);
+            if (entries.Count == 0) return 0;
+            if (entries.Count == 1 && Items.Count < Capacity)
+            {
+                // Ordinary editor commands usually emit one line. Preserve
+                // the cheap incremental Add notification for that path; bulk
+                // Reset is reserved for actual bursts or retention trimming.
+                Add(entries[0]);
+                return 0;
+            }
+
+            CheckReentrancy();
+            int previousCount = Items.Count;
+            int retainedFromBatch = Math.Min(Capacity, entries.Count);
+            int firstRetained = entries.Count - retainedFromBatch;
+            int retainedFromExisting = Math.Min(
+                previousCount,
+                Capacity - retainedFromBatch);
+            int firstExisting = previousCount - retainedFromExisting;
+            int trimmed =
+                previousCount + entries.Count -
+                retainedFromExisting - retainedFromBatch;
+
+            // Mutate the backing collection directly and publish one Reset.
+            // ListCollectionView then evaluates its sort/filter once, while
+            // ordinary ObservableCollection.Add would do so for every line.
+            if (firstExisting > 0)
+            {
+                for (int i = 0; i < retainedFromExisting; ++i)
+                    Items[i] = Items[firstExisting + i];
+            }
+            while (Items.Count > retainedFromExisting)
+                Items.RemoveAt(Items.Count - 1);
+            for (int i = firstRetained; i < entries.Count; ++i)
+                Items.Add(entries[i]);
+
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(
+                new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Reset));
+            return trimmed;
+        }
+    }
+
     /// <summary>ログの配色テーブル (凍結ブラシ。タグごとに識別色)。</summary>
     internal static class LogTheme
     {
@@ -78,9 +157,20 @@ namespace AcsEditor
 
     public partial class MainWindow
     {
-        private readonly ObservableCollection<LogEntry> _logAll = new();
+        internal const int ConsoleLogRetentionCapacity = 5000;
+        private readonly BoundedLogCollection _logAll =
+            new(ConsoleLogRetentionCapacity);
         private ICollectionView? _logView;
         private long _logSeq;
+        private long _engineLogEntriesDrained;
+        private long _engineLogUiBatches;
+        private long _consoleLogRetentionTrimmed;
+        private int _engineLogLastBatchEntries;
+        private int _engineLogMaximumBatchEntries;
+        private double _engineLogLastDrainMilliseconds;
+        private double _engineLogMaximumDrainMilliseconds;
+        private double _engineLogLastApplyMilliseconds;
+        private double _engineLogMaximumApplyMilliseconds;
 
         /// <summary>コンストラクタから呼ぶ: ビューを作り ConsoleList に束縛する。</summary>
         private void InitLog()
@@ -121,13 +211,141 @@ namespace AcsEditor
         private void Log(string msg, string tag, LogLevel level)
         {
             if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => Log(msg, tag, level)); return; }
-            _logAll.Add(new LogEntry { Seq = ++_logSeq, Time = DateTime.Now, Tag = tag, Level = level, Message = msg });
-            // 自動スクロール (表示順の末尾へ)。新しい順表示なら先頭、古い順なら末尾。
-            if (_logView != null && ConsoleList.Items.Count > 0)
+            AppendLogBatch(
+                new[]
+                {
+                    CreateLogEntry(msg, tag, level),
+                },
+                engineBatch: false,
+                drainMilliseconds: 0);
+        }
+
+        private LogEntry CreateLogEntry(
+            string message,
+            string tag,
+            LogLevel level) =>
+            new()
             {
-                var last = ConsoleList.Items[_logNewestFirst ? 0 : ConsoleList.Items.Count - 1];
+                Seq = ++_logSeq,
+                Time = DateTime.Now,
+                Tag = tag,
+                Level = level,
+                Message = message,
+            };
+
+        private void AppendEngineLogBatch(
+            IReadOnlyList<(int Severity, string Message)> messages,
+            double drainMilliseconds)
+        {
+            Dispatcher.VerifyAccess();
+            if (messages.Count == 0)
+            {
+                RecordEngineLogBatch(
+                    entries: 0,
+                    drainMilliseconds: drainMilliseconds,
+                    applyMilliseconds: 0);
+                return;
+            }
+
+            var entries = new LogEntry[messages.Count];
+            for (int i = 0; i < messages.Count; ++i)
+            {
+                (int severity, string message) = messages[i];
+                LogLevel level = severity >= 4
+                    ? LogLevel.Error
+                    : severity == 3
+                        ? LogLevel.Warn
+                        : LogLevel.Info;
+                entries[i] = CreateLogEntry(message, "Engine", level);
+            }
+            AppendLogBatch(
+                entries,
+                engineBatch: true,
+                drainMilliseconds: drainMilliseconds);
+        }
+
+        private void AppendLogBatch(
+            IReadOnlyList<LogEntry> entries,
+            bool engineBatch,
+            double drainMilliseconds)
+        {
+            Dispatcher.VerifyAccess();
+            if (entries.Count == 0) return;
+
+            long begin = Stopwatch.GetTimestamp();
+            int trimmed = _logAll.AppendBatch(entries);
+            _consoleLogRetentionTrimmed += trimmed;
+
+            // Auto-scroll only when the console is actually visible, and only
+            // once for the complete batch. Hidden panels must have near-zero
+            // presentation overhead while the viewport is chasing high FPS.
+            if (ConsoleList.IsVisible &&
+                _logView != null &&
+                ConsoleList.Items.Count > 0)
+            {
+                var last = ConsoleList.Items[
+                    _logNewestFirst ? 0 : ConsoleList.Items.Count - 1];
                 if (last != null) ConsoleList.ScrollIntoView(last);
             }
+            double applyMilliseconds =
+                (Stopwatch.GetTimestamp() - begin) * 1000.0 /
+                Stopwatch.Frequency;
+            if (engineBatch)
+            {
+                RecordEngineLogBatch(
+                    entries.Count,
+                    drainMilliseconds,
+                    applyMilliseconds);
+            }
+        }
+
+        private void RecordEngineLogBatch(
+            int entries,
+            double drainMilliseconds,
+            double applyMilliseconds)
+        {
+            _engineLogEntriesDrained += entries;
+            if (entries > 0) _engineLogUiBatches++;
+            _engineLogLastBatchEntries = entries;
+            _engineLogMaximumBatchEntries = Math.Max(
+                _engineLogMaximumBatchEntries,
+                entries);
+            _engineLogLastDrainMilliseconds =
+                FiniteNonNegative(drainMilliseconds);
+            _engineLogMaximumDrainMilliseconds = Math.Max(
+                _engineLogMaximumDrainMilliseconds,
+                _engineLogLastDrainMilliseconds);
+            _engineLogLastApplyMilliseconds =
+                FiniteNonNegative(applyMilliseconds);
+            _engineLogMaximumApplyMilliseconds = Math.Max(
+                _engineLogMaximumApplyMilliseconds,
+                _engineLogLastApplyMilliseconds);
+        }
+
+        private static double FiniteNonNegative(double value) =>
+            double.IsFinite(value) && value >= 0 ? value : 0;
+
+        internal EditorLogPumpSnapshot GetEditorLogPumpSnapshot() =>
+            new(
+                _engineLogEntriesDrained,
+                _engineLogUiBatches,
+                _consoleLogRetentionTrimmed,
+                _logAll.Count,
+                _logAll.Capacity,
+                _engineLogLastBatchEntries,
+                _engineLogMaximumBatchEntries,
+                _engineLogLastDrainMilliseconds,
+                _engineLogMaximumDrainMilliseconds,
+                _engineLogLastApplyMilliseconds,
+                _engineLogMaximumApplyMilliseconds);
+
+        internal void ResetEditorLogPumpPeaks()
+        {
+            _engineLogMaximumBatchEntries = _engineLogLastBatchEntries;
+            _engineLogMaximumDrainMilliseconds =
+                _engineLogLastDrainMilliseconds;
+            _engineLogMaximumApplyMilliseconds =
+                _engineLogLastApplyMilliseconds;
         }
 
         private bool LogFilterPredicate(object o)

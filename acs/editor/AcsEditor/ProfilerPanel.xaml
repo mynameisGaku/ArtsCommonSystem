@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:AcsEditor"
              Background="{StaticResource Panel2}"
-             Loaded="OnLoaded" Unloaded="OnUnloaded">
+             Loaded="OnLoaded" Unloaded="OnUnloaded"
+             IsVisibleChanged="OnIsVisibleChanged">
     <UserControl.Resources>
         <Style x:Key="ProfilerMetricLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
@@ -180,6 +181,34 @@
                         <TextBlock x:Name="MeshCacheStateValue" Grid.Row="6" Grid.Column="1"
                                    Grid.ColumnSpan="2" Text="--" FontFamily="Consolas"
                                    ToolTip="HIT reuses world-space vertices, AABB and the dynamic vertex-buffer upload. REBUILT means geometry, transform, material, visibility or water ownership changed."/>
+                    </Grid>
+
+                    <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="EDITOR UI / LOG PUMP"
+                                   Foreground="{StaticResource TextDim}" FontSize="10"
+                                   ToolTip="Native ACS_LOG polling and WPF console publication are time-budgeted and batch-notified on the editor Dispatcher."/>
+                        <TextBlock x:Name="LogPumpStateValue" Grid.Column="1"
+                                   Text="IDLE" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="1" Text="Drain last / peak"/>
+                        <TextBlock x:Name="LogDrainValue" Grid.Row="1" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="2" Text="UI apply last / peak"/>
+                        <TextBlock x:Name="LogApplyValue" Grid.Row="2" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="3" Text="Console retained / trimmed"/>
+                        <TextBlock x:Name="LogRetentionValue" Grid.Row="3" Grid.Column="1"
+                                   Text="0 / 0" FontFamily="Consolas"/>
                     </Grid>
 
                     <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>

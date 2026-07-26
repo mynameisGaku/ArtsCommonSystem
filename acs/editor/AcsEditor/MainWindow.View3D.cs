@@ -14,7 +14,9 @@ namespace AcsEditor;
 
 public partial class MainWindow
 {
-    private bool _view3d;                 // 3D ビューポートモードか
+    // Bootstrap state is the canonical 3D world. Legacy .acscene loading explicitly changes
+    // this source-adapter flag before any viewport is published.
+    private bool _view3d = true;
     private bool _pop3d;                  // 3D Inspector を populate 中 (編集イベントの再入抑止)
 
     // ===== Hierarchy: 3D ノード一覧 =====

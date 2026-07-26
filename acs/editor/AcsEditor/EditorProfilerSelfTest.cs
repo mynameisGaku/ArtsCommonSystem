@@ -112,6 +112,17 @@ internal static class EditorProfilerSelfTest
                   new EditorProfilerAverage(84.0f, 0.72f, 0.32f, 4.91f)) ==
               "Editor 84 FPS  |  GPU 204 FPS / 4.91 ms  |  CPU 0.72 ms",
             "compact summary distinguishes editor cadence from GPU throughput");
+        Check(
+            EditorProfilerPresentationPolicy.ShouldPresentDetails(
+                panelVisible: true,
+                nativeFrameAdvanced: true) &&
+            !EditorProfilerPresentationPolicy.ShouldPresentDetails(
+                panelVisible: false,
+                nativeFrameAdvanced: true) &&
+            !EditorProfilerPresentationPolicy.ShouldPresentDetails(
+                panelVisible: true,
+                nativeFrameAdvanced: false),
+            "collapsed profiler docks keep sampling without invalidating hidden WPF details");
 
         Check(!App.ShouldForceSoftwareUi(Array.Empty<string>(), false, 2) &&
               App.ShouldForceSoftwareUi(Array.Empty<string>(), true, 2) &&

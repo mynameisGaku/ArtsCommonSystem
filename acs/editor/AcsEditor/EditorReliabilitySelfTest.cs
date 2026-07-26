@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -24,6 +25,74 @@ internal static class EditorReliabilitySelfTest
             output.WriteLine((condition ? "PASS: " : "FAIL: ") + description);
             if (!condition) failures++;
         }
+
+        var boundedLogs = new BoundedLogCollection(capacity: 5);
+        int collectionResets = 0;
+        boundedLogs.CollectionChanged += (_, args) =>
+        {
+            if (args.Action == NotifyCollectionChangedAction.Reset)
+                collectionResets++;
+        };
+        static LogEntry TestLog(long sequence) =>
+            new()
+            {
+                Seq = sequence,
+                Time = DateTime.UnixEpoch,
+                Tag = "Engine",
+                Level = LogLevel.Info,
+                Message = "line " + sequence,
+            };
+        int firstTrimmed = boundedLogs.AppendBatch(
+            new[] { TestLog(1), TestLog(2), TestLog(3) });
+        int secondTrimmed = boundedLogs.AppendBatch(
+            new[] { TestLog(4), TestLog(5), TestLog(6), TestLog(7) });
+        Check(
+            firstTrimmed == 0 &&
+            secondTrimmed == 2 &&
+            collectionResets == 2 &&
+            boundedLogs.Select(entry => entry.Seq)
+                .SequenceEqual(new long[] { 3, 4, 5, 6, 7 }),
+            "engine console appends one WPF reset per batch and retains the newest bounded history");
+
+        int oversizedTrimmed = boundedLogs.AppendBatch(
+            new[]
+            {
+                TestLog(8), TestLog(9), TestLog(10), TestLog(11),
+                TestLog(12), TestLog(13), TestLog(14),
+            });
+        Check(
+            oversizedTrimmed == 7 &&
+            collectionResets == 3 &&
+            boundedLogs.Select(entry => entry.Seq)
+                .SequenceEqual(new long[] { 10, 11, 12, 13, 14 }) &&
+            MainWindow.EngineLogPumpMaximumBatchEntries <= 64 &&
+            MainWindow.EngineLogPumpMaximumDrainMilliseconds <= 2.0 &&
+            MainWindow.ConsoleLogRetentionCapacity == 5000,
+            "oversized log bursts discard only the oldest lines and the Dispatcher slice stays tightly bounded");
+
+        var startupBurst = new BoundedLogCollection(
+            MainWindow.ConsoleLogRetentionCapacity);
+        int startupNotifications = 0;
+        startupBurst.CollectionChanged += (_, _) => startupNotifications++;
+        LogEntry[] twoHundredLines = Enumerable.Range(1, 200)
+            .Select(index => TestLog(index))
+            .ToArray();
+        int startupTrimmed = 0;
+        for (int first = 0;
+             first < twoHundredLines.Length;
+             first += MainWindow.EngineLogPumpMaximumBatchEntries)
+        {
+            startupTrimmed += startupBurst.AppendBatch(
+                twoHundredLines
+                    .Skip(first)
+                    .Take(MainWindow.EngineLogPumpMaximumBatchEntries)
+                    .ToArray());
+        }
+        Check(
+            startupNotifications == 4 &&
+            startupTrimmed == 0 &&
+            startupBurst.Count == 200,
+            "the former 200-notification startup tick is published in four bounded collection updates");
 
         EditorInteractionHealthAssessment disabled =
             EditorInteractionHealthPolicy.Evaluate(new(

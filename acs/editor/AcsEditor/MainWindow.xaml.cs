@@ -248,6 +248,9 @@ public partial class MainWindow : Window
             ProfilerView.Stop();
             _engineStartupTimer?.Stop();
             _engineStartupTimer = null;
+            _engineLogTimer?.Stop();
+            _engineLogTimer = null;
+            _engineLogDrainQueued = false;
             _engineStartupGeneration++;
             _sceneLoadCancellation?.Cancel();
             _sceneLoadCancellation = null;
@@ -1194,6 +1197,8 @@ public partial class MainWindow : Window
         ViewportHost.Child = _viewport;
         SynchronizeWindowInteractionWithViewport();
         ProfilerView.EngineProvider = () => Engine;
+        ProfilerView.LogPumpProvider = GetEditorLogPumpSnapshot;
+        ProfilerView.ResetEditorPeaks = ResetEditorLogPumpPeaks;
         ProfilerView.SummaryChanged += summary => ProfilerStatusText.Text = summary;
         ProfilerView.Start();
     }
@@ -1515,21 +1520,73 @@ public partial class MainWindow : Window
     }
 
     private System.Windows.Threading.DispatcherTimer? _engineLogTimer;
+    private bool _engineLogDrainQueued;
+    internal const int EngineLogPumpMaximumBatchEntries = 64;
+    internal const double EngineLogPumpMaximumDrainMilliseconds = 2.0;
 
     /// <summary>エンジン側 ACS_LOG をキューから定期的に引いてコンソールへ流す。</summary>
     private void StartEngineLogPump()
     {
         if (_engineLogTimer != null) return;
-        _engineLogTimer = new System.Windows.Threading.DispatcherTimer {
-            Interval = TimeSpan.FromMilliseconds(250) };
-        _engineLogTimer.Tick += (_, __) => {
-            for (int i = 0; i < 200 && EngineInterop.LogPoll(out int sev, out string msg); i++)   // tick 毎に上限
-            {
-                var level = sev >= 4 ? LogLevel.Error : sev == 3 ? LogLevel.Warn : LogLevel.Info;
-                Log(msg, "Engine", level);
-            }
+        _engineLogTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(100),
+        };
+        _engineLogTimer.Tick += (_, _) =>
+        {
+            if (!_engineLogDrainQueued)
+                DrainEngineLogBatch();
         };
         _engineLogTimer.Start();
+    }
+
+    private void DrainEngineLogBatch()
+    {
+        Dispatcher.VerifyAccess();
+        _engineLogDrainQueued = false;
+        if (_engineStartupState == EditorEngineStartupState.Closed)
+            return;
+
+        var messages =
+            new List<(int Severity, string Message)>(
+                EngineLogPumpMaximumBatchEntries);
+        long begin = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool budgetReached = false;
+        while (messages.Count < EngineLogPumpMaximumBatchEntries &&
+               EngineInterop.LogPoll(out int severity, out string message))
+        {
+            messages.Add((severity, message));
+            double elapsedMilliseconds =
+                (System.Diagnostics.Stopwatch.GetTimestamp() - begin) *
+                1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            if (elapsedMilliseconds >=
+                EngineLogPumpMaximumDrainMilliseconds)
+            {
+                budgetReached = true;
+                break;
+            }
+        }
+
+        double drainMilliseconds =
+            (System.Diagnostics.Stopwatch.GetTimestamp() - begin) *
+            1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        AppendEngineLogBatch(messages, drainMilliseconds);
+
+        // Saturation means the native queue may still contain messages.
+        // Continue at Background priority in another bounded slice instead of
+        // either waiting 100 ms or monopolizing this Dispatcher turn.
+        if ((budgetReached ||
+             messages.Count == EngineLogPumpMaximumBatchEntries) &&
+            !_engineLogDrainQueued &&
+            !Dispatcher.HasShutdownStarted &&
+            !Dispatcher.HasShutdownFinished)
+        {
+            _engineLogDrainQueued = true;
+            _ = Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Background,
+                new Action(DrainEngineLogBatch));
+        }
     }
 
     // ===== プロジェクト設定 (Config/ProjectSettings.ini) =====

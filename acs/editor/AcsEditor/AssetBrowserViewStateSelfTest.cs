@@ -275,6 +275,96 @@ internal static class AssetBrowserViewStateSelfTest
                   !AssetBrowserDropPolicy.Evaluate(
                       oversizedPayload, 42, dropRoot, destination, true).IsValid,
                 "inconsistent duplicates and unbounded selections fail closed");
+
+            string externalRoot = Path.GetFullPath(Path.Combine(
+                Path.GetTempPath(),
+                "acs-asset-browser-external-drop"));
+            string externalA = Path.Combine(externalRoot, "Aircraft.png");
+            string externalB = Path.Combine(externalRoot, "Engine.wav");
+            AssetBrowserImportDropPlan importPlan =
+                AssetBrowserDropPolicy.EvaluateExternalImport(
+                    new[] { externalB, externalA, externalA.ToUpperInvariant() },
+                    dropRoot,
+                    destination,
+                    destinationIsDirectory: true);
+            Check(importPlan.IsValid &&
+                  string.Equals(
+                      importPlan.DestinationDirectory,
+                      destination,
+                      StringComparison.OrdinalIgnoreCase) &&
+                  importPlan.SourcePaths.SequenceEqual(
+                      new[] { externalA, externalB },
+                      StringComparer.OrdinalIgnoreCase),
+                "external file drops are canonicalized, deduplicated, and sorted for a folder import");
+
+            AssetBrowserImportDropPlan backgroundImport =
+                AssetBrowserDropPolicy.EvaluateExternalImport(
+                    new[] { externalA },
+                    dropRoot,
+                    dropRoot,
+                    destinationIsDirectory: true);
+            Check(backgroundImport.IsValid &&
+                  string.Equals(
+                      backgroundImport.DestinationDirectory,
+                      dropRoot,
+                      StringComparison.OrdinalIgnoreCase),
+                "background external drops import into the current Assets directory");
+
+            string databaseInternals = Path.Combine(
+                dropRoot,
+                AssetDatabase.InternalDirectoryName,
+                "payload");
+            Check(!AssetBrowserDropPolicy.EvaluateExternalImport(
+                      new[] { externalA },
+                      dropRoot,
+                      Path.Combine(dropRoot, AssetDatabase.InternalDirectoryName),
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      new[] { databaseInternals },
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      new[] { sourceFile },
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      new[] { externalA },
+                      dropRoot,
+                      Path.Combine(Path.GetDirectoryName(dropRoot)!, "Outside"),
+                      destinationIsDirectory: true).IsValid,
+                "external import drops cannot target database internals, reimport managed Assets, or escape Assets");
+
+            string[] oversizedExternalDrop = Enumerable.Range(0, 4097)
+                .Select(index => Path.Combine(externalRoot, index + ".bin"))
+                .ToArray();
+            Check(!AssetBrowserDropPolicy.EvaluateExternalImport(
+                      null,
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      Array.Empty<string>(),
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      new[] { "relative.png" },
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      oversizedExternalDrop,
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: true).IsValid &&
+                  !AssetBrowserDropPolicy.EvaluateExternalImport(
+                      new[] { externalA },
+                      dropRoot,
+                      destination,
+                      destinationIsDirectory: false).IsValid,
+                "empty, relative, oversized, and non-folder external import drops fail closed");
         }
         catch (Exception error)
         {

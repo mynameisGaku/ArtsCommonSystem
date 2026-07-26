@@ -10,14 +10,39 @@ using System.Windows.Threading;
 namespace AcsEditor;
 
 /// <summary>
+/// Selects exactly one scene-load presentation outcome. Keeping this branch executable outside
+/// WPF lets the regression suite prove that a restored/current scene cannot share the
+/// unavailable presentation path.
+/// </summary>
+internal static class SceneLoadPublicationBranch
+{
+    internal static void Run(
+        bool publishScene,
+        Action publishCurrentScene,
+        Action publishUnavailable)
+    {
+        ArgumentNullException.ThrowIfNull(publishCurrentScene);
+        ArgumentNullException.ThrowIfNull(publishUnavailable);
+        if (publishScene)
+        {
+            publishCurrentScene();
+            return;
+        }
+        publishUnavailable();
+    }
+}
+
+/// <summary>
 /// One editor scene document with Perspective and 2D (XY Orthographic) view presets. The current
 /// native editor still has separate legacy 2D and 3D serializers, so this class keeps both as
 /// reversible compatibility adapters behind the single managed document identity.
 /// </summary>
 public partial class MainWindow
 {
-    private EditorSceneViewMode _sceneViewMode = EditorSceneViewMode.TwoD;
-    private SceneDocumentMode _legacySceneSourceMode = SceneDocumentMode.TwoD;
+    // The unpublished bootstrap state follows the canonical editor model: one 3D world viewed
+    // in Perspective. Project/source loading may then choose Orthographic or a legacy adapter.
+    private EditorSceneViewMode _sceneViewMode = EditorSceneViewMode.Perspective;
+    private SceneDocumentMode _legacySceneSourceMode = SceneDocumentMode.ThreeD;
     private string? _scene2DPath;
     private string? _scene3DDocumentPath;
     private bool _scene2DInitialized;
@@ -377,6 +402,9 @@ public partial class MainWindow
 
         ViewportLoadingTitle.Text = "Loading scene…";
         ViewportLoadingDetail.Text = detail;
+        SceneModeText.Text = "VIEW: LOADING";
+        SceneModeText.ToolTip =
+            "No scene view is published while the replacement document is loading.";
         ViewportLoadingOverlay.Visibility = Visibility.Visible;
         ViewportHost.IsHitTestVisible = false;
         // Renderer warm-up is already complete whenever a scene load begins. Hiding the
@@ -403,26 +431,35 @@ public partial class MainWindow
                 if (!current) return;
 
                 _sceneLoadCancellation = null;
-                if (publishScene)
-                {
-                    IntPtr engine = RawEngine;
-                    if (engine != IntPtr.Zero)
+                SceneLoadPublicationBranch.Run(
+                    publishScene,
+                    () =>
                     {
-                        EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 0);
-                    }
-                    ViewportHost.Visibility = Visibility.Visible;
-                    ViewportLoadingOverlay.Visibility = Visibility.Collapsed;
-                    _ = Dispatcher.BeginInvoke(
-                        DispatcherPriority.Loaded,
-                        new Action(
-                            () => _viewport?.ResumeRenderingAfterSceneLoad()));
-                }
-                else
-                {
-                    ViewportLoadingTitle.Text = "Scene loading stopped";
-                    ViewportLoadingDetail.Text =
-                        "The viewport remains blank because this load did not publish a scene.";
-                }
+                        // This path also publishes the pre-existing scene after a manual Open
+                        // fails before native loading begins. Restore its descriptor before the
+                        // HWND is revealed so VIEW: LOADING can never survive publication.
+                        ApplySceneViewModePresentation();
+                        IntPtr engine = RawEngine;
+                        if (engine != IntPtr.Zero)
+                        {
+                            EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 0);
+                        }
+                        ViewportHost.Visibility = Visibility.Visible;
+                        ViewportLoadingOverlay.Visibility = Visibility.Collapsed;
+                        _ = Dispatcher.BeginInvoke(
+                            DispatcherPriority.Loaded,
+                            new Action(
+                                () => _viewport?.ResumeRenderingAfterSceneLoad()));
+                    },
+                    () =>
+                    {
+                        SceneModeText.Text = "VIEW: UNAVAILABLE";
+                        SceneModeText.ToolTip =
+                            "No scene view was published by the failed or cancelled load.";
+                        ViewportLoadingTitle.Text = "Scene loading stopped";
+                        ViewportLoadingDetail.Text =
+                            "The viewport remains blank because this load did not publish a scene.";
+                    });
             },
             load,
             UpdateEditorInputEnabled);
@@ -438,6 +475,9 @@ public partial class MainWindow
         if (engine != IntPtr.Zero)
             EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 1);
         ViewportLoadingOverlay.Visibility = Visibility.Visible;
+        SceneModeText.Text = "VIEW: UNAVAILABLE";
+        SceneModeText.ToolTip =
+            "No scene view is published while the viewport is unavailable.";
         ViewportLoadingTitle.Text = "Viewport unavailable";
         ViewportLoadingDetail.Text = detail;
         ViewportHost.IsHitTestVisible = false;
@@ -719,7 +759,7 @@ public partial class MainWindow
         PerspectiveViewBtn.IsChecked =
             _sceneViewMode == EditorSceneViewMode.Perspective;
         Scene2DViewBtn.IsChecked =
-            _sceneViewMode == EditorSceneViewMode.TwoD;
+            _sceneViewMode == EditorSceneViewMode.Orthographic;
         bool editable = Engine == IntPtr.Zero ||
                         (EngineInterop.acs_editor_play_state(Engine) == 0 &&
                          PreviewBtn.IsChecked != true);
@@ -748,5 +788,5 @@ public partial class MainWindow
         SwitchSceneViewMode(EditorSceneViewMode.Perspective);
 
     private void OnSceneView2D(object sender, RoutedEventArgs e) =>
-        SwitchSceneViewMode(EditorSceneViewMode.TwoD);
+        SwitchSceneViewMode(EditorSceneViewMode.Orthographic);
 }

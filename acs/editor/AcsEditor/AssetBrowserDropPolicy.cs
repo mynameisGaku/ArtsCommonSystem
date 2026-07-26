@@ -32,6 +32,18 @@ internal sealed record AssetBrowserDropPlan(
         new("", Array.Empty<string>(), false, false, reason);
 }
 
+internal sealed record AssetBrowserImportDropPlan(
+    string DestinationDirectory,
+    IReadOnlyList<string> SourcePaths,
+    string RejectionReason)
+{
+    internal bool IsValid =>
+        DestinationDirectory.Length != 0 && SourcePaths.Count != 0;
+
+    internal static AssetBrowserImportDropPlan Rejected(string reason) =>
+        new("", Array.Empty<string>(), reason);
+}
+
 /// <summary>
 /// Pure, filesystem-independent validation for Asset View drop targets. The
 /// transactional workflow performs authoritative filesystem validation again
@@ -121,6 +133,83 @@ internal static class AssetBrowserDropPolicy
             canMove,
             CanCopy: true,
             RejectionReason: "");
+    }
+
+    /// <summary>
+    /// Plans an Explorer/file-manager drop without probing the filesystem on
+    /// WPF's drag-over path. The import workflow revalidates every source as an
+    /// ordinary file, rejects reparse points, and revalidates the destination
+    /// immediately before publishing the transaction.
+    /// </summary>
+    internal static AssetBrowserImportDropPlan EvaluateExternalImport(
+        IEnumerable<string>? sourcePaths,
+        string currentAssetsRoot,
+        string destinationDirectory,
+        bool destinationIsDirectory)
+    {
+        if (!destinationIsDirectory)
+        {
+            return AssetBrowserImportDropPlan.Rejected(
+                "Imported files require an Asset View folder destination.");
+        }
+        if (!TryNormalizeAbsolute(currentAssetsRoot, out string assetsRoot) ||
+            !TryNormalizeAbsolute(destinationDirectory, out string destination) ||
+            !IsUnderOrEqual(destination, assetsRoot))
+        {
+            return AssetBrowserImportDropPlan.Rejected(
+                "The import destination is outside the current Assets root.");
+        }
+
+        string databaseRoot = Path.Combine(
+            assetsRoot,
+            AssetDatabase.InternalDirectoryName);
+        if (IsUnderOrEqual(destination, databaseRoot))
+        {
+            return AssetBrowserImportDropPlan.Rejected(
+                "Assets/.acsdb is reserved for the asset database.");
+        }
+        if (sourcePaths == null)
+        {
+            return AssetBrowserImportDropPlan.Rejected(
+                "The external file drop is empty.");
+        }
+
+        var sources = new HashSet<string>(PathComparer);
+        int entryCount = 0;
+        foreach (string? sourcePath in sourcePaths)
+        {
+            entryCount++;
+            if (entryCount > MaxDraggedEntries)
+            {
+                return AssetBrowserImportDropPlan.Rejected(
+                    "The external file drop is too large.");
+            }
+            if (!TryNormalizeAbsolute(sourcePath, out string source))
+            {
+                return AssetBrowserImportDropPlan.Rejected(
+                    "The external file drop contains an invalid path.");
+            }
+            if (IsUnderOrEqual(source, assetsRoot))
+            {
+                return AssetBrowserImportDropPlan.Rejected(
+                    "Files already managed below Assets must be moved or copied " +
+                    "inside the Asset View.");
+            }
+            sources.Add(source);
+        }
+
+        if (sources.Count == 0)
+        {
+            return AssetBrowserImportDropPlan.Rejected(
+                "The external file drop is empty.");
+        }
+        string[] orderedSources = sources
+            .OrderBy(static path => path, PathComparer)
+            .ToArray();
+        return new AssetBrowserImportDropPlan(
+            destination,
+            Array.AsReadOnly(orderedSources),
+            "");
     }
 
     private static bool TryNormalizeAbsolute(string? path, out string normalized)

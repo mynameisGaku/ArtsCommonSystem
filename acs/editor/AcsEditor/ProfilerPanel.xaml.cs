@@ -12,8 +12,12 @@ public partial class ProfilerPanel : UserControl
     private readonly DispatcherTimer _timer;
     private readonly EditorProfilerHistory _history = new(120);
     private bool _interopUnavailable;
+    private bool _hasLatestSnapshot;
+    private EditorProfilerSnapshot _latestSnapshot;
 
     internal Func<IntPtr>? EngineProvider { get; set; }
+    internal Func<EditorLogPumpSnapshot>? LogPumpProvider { get; set; }
+    internal Action? ResetEditorPeaks { get; set; }
     internal event Action<string>? SummaryChanged;
 
     public ProfilerPanel()
@@ -37,6 +41,7 @@ public partial class ProfilerPanel : UserControl
     internal void ResetHistory()
     {
         _history.Reset();
+        _hasLatestSnapshot = false;
         HistoryGraph.SetHistory(_history.Points);
         HistoryGraph.SetPeaks(-1, -1);
         AvailabilityText.Text = _interopUnavailable
@@ -71,8 +76,24 @@ public partial class ProfilerPanel : UserControl
         TimingSourceText.Text = EditorProfilerFormatting.TimingSource(snapshot);
         if (_history.Add(snapshot))
         {
-            UpdateValues(snapshot);
-            HistoryGraph.SetHistory(_history.Points);
+            _latestSnapshot = snapshot;
+            _hasLatestSnapshot = true;
+            if (EditorProfilerPresentationPolicy.ShouldPresentDetails(
+                    IsVisible,
+                    nativeFrameAdvanced: true))
+            {
+                UpdateValues(snapshot);
+                HistoryGraph.SetHistory(_history.Points);
+            }
+            else
+            {
+                // Keep the always-visible status strip current without
+                // touching dozens of collapsed TextBlocks or invalidating the
+                // history graph. Full presentation catches up on reveal.
+                SummaryChanged?.Invoke(
+                    EditorProfilerFormatting.CompactSummary(
+                        _history.Average()));
+            }
         }
     }
 
@@ -149,7 +170,30 @@ public partial class ProfilerPanel : UserControl
         CloudStepsValue.Text =
             $"{snapshot.CloudMarchSteps} / {snapshot.CloudLightSteps}";
 
+        UpdateEditorUiMetrics();
         SummaryChanged?.Invoke(EditorProfilerFormatting.CompactSummary(average));
+    }
+
+    private void UpdateEditorUiMetrics()
+    {
+        EditorLogPumpSnapshot snapshot =
+            LogPumpProvider?.Invoke() ?? default;
+        LogPumpStateValue.Text = snapshot.LastBatchEntries > 0
+            ? $"{snapshot.LastBatchEntries} lines"
+            : "IDLE";
+        LogPumpStateValue.ToolTip =
+            $"{snapshot.EngineEntriesDrained:N0} engine lines in " +
+            $"{snapshot.UiBatches:N0} WPF batch(es); " +
+            $"largest batch {snapshot.MaximumBatchEntries:N0}.";
+        LogDrainValue.Text =
+            $"{snapshot.LastDrainMilliseconds:0.00} / " +
+            $"{snapshot.MaximumDrainMilliseconds:0.00} ms";
+        LogApplyValue.Text =
+            $"{snapshot.LastApplyMilliseconds:0.00} / " +
+            $"{snapshot.MaximumApplyMilliseconds:0.00} ms";
+        LogRetentionValue.Text =
+            $"{snapshot.RetainedEntries:N0}/{snapshot.RetentionCapacity:N0} / " +
+            $"{snapshot.RetentionTrimmed:N0}";
     }
 
     private void OnPauseChanged(object sender, RoutedEventArgs e)
@@ -163,7 +207,19 @@ public partial class ProfilerPanel : UserControl
     {
         IntPtr engine = EngineProvider?.Invoke() ?? IntPtr.Zero;
         EngineInterop.ResetProfilerPeaks(engine);
+        ResetEditorPeaks?.Invoke();
         ResetHistory();
+    }
+
+    private void OnIsVisibleChanged(
+        object sender,
+        DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible && _hasLatestSnapshot)
+        {
+            UpdateValues(_latestSnapshot);
+            HistoryGraph.SetHistory(_history.Points);
+        }
     }
 
     private void OnDisplayChanged(object sender, RoutedEventArgs e)

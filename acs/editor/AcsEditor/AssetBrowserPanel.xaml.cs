@@ -2997,10 +2997,33 @@ public partial class AssetBrowserPanel : UserControl
             ? dlg.ShowDialog(owner)
             : dlg.ShowDialog();
         if (accepted != true) return;
-        if (!CanStartAssetOperation("Import assets")) return;
+        await ImportAssetsAsync(
+            dlg.FileNames,
+            _currentDir,
+            "Import assets");
+    }
+
+    private async Task ImportAssetsAsync(
+        IReadOnlyList<string> sourcePaths,
+        string destinationDirectory,
+        string action)
+    {
+        if (_project == null)
+        {
+            Log?.Invoke("インポートにはプロジェクトが必要です。");
+            return;
+        }
+        if (_assetDatabase == null)
+        {
+            ReportAssetOperationFailure(
+                "アセット索引の準備完了後にインポートしてください。");
+            return;
+        }
+        if (sourcePaths.Count == 0 || !CanStartAssetOperation(action))
+            return;
+
         AssetDatabase database = _assetDatabase;
-        string destinationDirectory = _currentDir;
-        string[] sources = dlg.FileNames.ToArray();
+        string[] sources = sourcePaths.ToArray();
         int generation = _projectRefreshGeneration;
         CancellationToken cancellationToken =
             _projectRefreshCancellation?.Token ?? CancellationToken.None;
@@ -3165,20 +3188,31 @@ public partial class AssetBrowserPanel : UserControl
     private void OnTileDragOver(object sender, DragEventArgs e)
     {
         e.Handled = true;
-        if (!TryGetAssetBrowserDrop(
+        if (TryGetAssetBrowserDrop(
                 e,
                 out _,
                 out AssetItem? target,
-                out AssetBrowserDropPlan? plan) ||
-            plan == null)
+                out AssetBrowserDropPlan? plan) &&
+            plan != null)
         {
-            SetDropTarget(null);
-            e.Effects = DragDropEffects.None;
+            SetDropTarget(target);
+            e.Effects = DragDropEffects.Copy;
             return;
         }
 
-        SetDropTarget(target);
-        e.Effects = DragDropEffects.Copy;
+        if (TryGetExternalAssetImportDrop(
+                e,
+                out AssetItem? importTarget,
+                out AssetBrowserImportDropPlan? importPlan) &&
+            importPlan != null)
+        {
+            SetDropTarget(importTarget);
+            e.Effects = DragDropEffects.Copy;
+            return;
+        }
+
+        SetDropTarget(null);
+        e.Effects = DragDropEffects.None;
     }
 
     private void OnTileDragLeave(object sender, DragEventArgs e)
@@ -3186,23 +3220,38 @@ public partial class AssetBrowserPanel : UserControl
         SetDropTarget(null);
     }
 
-    private void OnTileDrop(object sender, DragEventArgs e)
+    private async void OnTileDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
-        bool valid = TryGetAssetBrowserDrop(
+        bool internalDrop = TryGetAssetBrowserDrop(
             e,
             out AssetBrowserDragPayload? payload,
             out _,
             out AssetBrowserDropPlan? plan);
         SetDropTarget(null);
-        if (!valid || payload == null || plan == null)
+        if (internalDrop && payload != null && plan != null)
         {
-            e.Effects = DragDropEffects.None;
+            e.Effects = DragDropEffects.Copy;
+            ShowAssetDropActionMenu(payload, plan);
             return;
         }
 
-        e.Effects = DragDropEffects.Copy;
-        ShowAssetDropActionMenu(payload, plan);
+        if (TryGetExternalAssetImportDrop(
+                e,
+                out _,
+                out AssetBrowserImportDropPlan? importPlan) &&
+            importPlan != null)
+        {
+            e.Effects = DragDropEffects.Copy;
+            using IDisposable lifecycle = _assetOperationLifecycles.Enter();
+            await ImportAssetsAsync(
+                importPlan.SourcePaths,
+                importPlan.DestinationDirectory,
+                "Import dropped assets");
+            return;
+        }
+
+        e.Effects = DragDropEffects.None;
     }
 
     private bool TryGetAssetBrowserDrop(
@@ -3234,6 +3283,49 @@ public partial class AssetBrowserPanel : UserControl
         catch
         {
             payload = null;
+            plan = null;
+            return false;
+        }
+    }
+
+    private bool TryGetExternalAssetImportDrop(
+        DragEventArgs e,
+        out AssetItem? target,
+        out AssetBrowserImportDropPlan? plan)
+    {
+        target = null;
+        plan = null;
+        if (_assetOperationInProgress || _assetOperationsSuspended ||
+            _project == null || _assetDatabase == null)
+            return false;
+        try
+        {
+            // Our in-process drag also exposes FileDrop for the viewport and
+            // Explorer. Never reinterpret a rejected internal move/copy as an
+            // external import.
+            if (e.Data.GetDataPresent(typeof(AssetBrowserDragPayload)) ||
+                !e.Data.GetDataPresent(DataFormats.FileDrop) ||
+                e.Data.GetData(DataFormats.FileDrop) is not string[] sourcePaths)
+            {
+                return false;
+            }
+
+            AssetItem? hovered =
+                GetItemFromEventSource(e.OriginalSource as DependencyObject);
+            target = hovered is { IsDirectory: true } && Items.Contains(hovered)
+                ? hovered
+                : null;
+            string destination = target?.FullPath ?? _currentDir;
+            plan = AssetBrowserDropPolicy.EvaluateExternalImport(
+                sourcePaths,
+                _project.AssetsDir,
+                destination,
+                destinationIsDirectory: true);
+            return plan.IsValid;
+        }
+        catch
+        {
+            target = null;
             plan = null;
             return false;
         }

@@ -25,6 +25,19 @@ internal readonly record struct EditorProfilerAverage(
     float CpuSubmitMs,
     float GpuFrameMs);
 
+internal static class EditorProfilerPresentationPolicy
+{
+    /// <summary>
+    /// Sampling remains active while the dock is collapsed so the status strip
+    /// and history stay current. Expensive WPF detail updates are published
+    /// only for a new native frame while the panel is visible.
+    /// </summary>
+    internal static bool ShouldPresentDetails(
+        bool panelVisible,
+        bool nativeFrameAdvanced) =>
+        panelVisible && nativeFrameAdvanced;
+}
+
 /// <summary>
 /// Fixed-capacity sampled history. The native renderer remains per-frame while
 /// the WPF panel samples at 10 Hz, keeping UI overhead independent of frame rate.

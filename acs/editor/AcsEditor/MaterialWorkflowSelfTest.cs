@@ -153,6 +153,11 @@ internal static class MaterialWorkflowSelfTest
             }
             Check(invalidNameRejected,
                 "generated material names reject directory traversal");
+
+            (int duplicatePassed, int duplicateFailed) =
+                MaterialEditorWindow.RunDuplicationContractSelfTest(output);
+            passed += duplicatePassed;
+            failed += duplicateFailed;
         }
         catch (Exception error)
         {

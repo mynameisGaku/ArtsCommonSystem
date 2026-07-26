@@ -52,6 +52,24 @@ internal static class EditorDocumentHostSelfTest
                 "world envelope preserves 2D and 3D subsystem payloads exactly");
             EditorSceneViewMode[] editorViews =
                 Enum.GetValues<EditorSceneViewMode>();
+            Check(
+                editorViews.SequenceEqual(
+                    new[]
+                    {
+                        EditorSceneViewMode.Perspective,
+                        EditorSceneViewMode.Orthographic,
+                    }) &&
+                (int)EditorSceneViewMode.Perspective == 0 &&
+                (int)EditorSceneViewMode.Orthographic == 1 &&
+                EditorSceneViewModePolicy.TryParse(
+                    "2d",
+                    out EditorSceneViewMode legacy2DViewName) &&
+                legacy2DViewName == EditorSceneViewMode.Orthographic &&
+                EditorSceneViewModePolicy.TryParse(
+                    "twod",
+                    out EditorSceneViewMode legacyTwoDViewName) &&
+                legacyTwoDViewName == EditorSceneViewMode.Orthographic,
+                "Orthographic view naming preserves the historical value and text aliases");
             string[] viewFingerprints = editorViews
                 .Select(_ => SceneWorldDocumentEnvelope.Pack("2D payload", "3D payload"))
                 .Distinct(StringComparer.Ordinal)
@@ -78,7 +96,7 @@ internal static class EditorDocumentHostSelfTest
 
             var legacy2DViewState = new EditorSceneViewState(
                 SceneDocumentMode.TwoD,
-                EditorSceneViewMode.TwoD);
+                EditorSceneViewMode.Orthographic);
             string legacy2DPayloadKey = legacy2DViewState.ActivePayloadKey;
             bool perspectiveRejected = !legacy2DViewState.TryChangeView(
                 EditorSceneViewMode.Perspective,
@@ -92,7 +110,7 @@ internal static class EditorDocumentHostSelfTest
                 !EditorSceneViewModePolicy.Describe(
                     EditorSceneViewMode.Perspective).IsOrthographic &&
                 EditorSceneViewModePolicy.Describe(
-                    EditorSceneViewMode.TwoD).IsOrthographic,
+                    EditorSceneViewMode.Orthographic).IsOrthographic,
                 "2D preset is the honest XY Orthographic projection supported by native editor");
             Check(
                 EditorSceneViewModePolicy.InitialForProject(
@@ -100,10 +118,10 @@ internal static class EditorDocumentHostSelfTest
                     "3d") == EditorSceneViewMode.Perspective &&
                 EditorSceneViewModePolicy.InitialForProject(
                     "Assets/main.acs3d",
-                    "2d") == EditorSceneViewMode.TwoD &&
+                    "2d") == EditorSceneViewMode.Orthographic &&
                 EditorSceneViewModePolicy.InitialForProject(
                     "Assets/main.acscene",
-                    "blank") == EditorSceneViewMode.TwoD,
+                    "blank") == EditorSceneViewMode.Orthographic,
                 "project template selects only the initial ACS3D camera preset while legacy .acscene stays 2D");
 
             bool malformedWorldRejected = false;
