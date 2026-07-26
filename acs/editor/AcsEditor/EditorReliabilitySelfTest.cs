@@ -186,8 +186,117 @@ internal static class EditorReliabilitySelfTest
               stalledHeartbeat.Contains("DISPATCHER_HEARTBEAT_STALL") &&
               stalledHeartbeat.Contains("PROFILER_HEARTBEAT_STALL") &&
               sparseHeartbeat.Contains("DISPATCHER_TICK_DENSITY_LOW") &&
-              sparseHeartbeat.Contains("PROFILER_TICK_DENSITY_LOW"),
-            "soak policy rejects long dispatcher/profiler gaps and low heartbeat density");
+              sparseHeartbeat.Contains("PROFILER_TICK_DENSITY_LOW") &&
+              MainWindow.InteractionHeartbeatPriority ==
+                  DispatcherPriority.Input,
+            "soak policy rejects heartbeat stalls and measures responsiveness at input priority");
+
+        long watchdogClock = 0;
+        using (var watchdog = new EditorDispatcherWatchdog(
+                   _ => { },
+                   stallThreshold: TimeSpan.FromMilliseconds(1500),
+                   pollInterval: TimeSpan.FromMilliseconds(500),
+                   timestampProvider: () => watchdogClock,
+                   timestampFrequency: 1000,
+                   startAutomatically: false))
+        {
+            watchdog.Beat("startup / scene");
+            watchdogClock = 1499;
+            watchdog.PollForSelfTest();
+            EditorDispatcherWatchdogSnapshot beforeStall =
+                watchdog.Snapshot();
+            watchdogClock = 2000;
+            watchdog.PollForSelfTest();
+            watchdogClock = 2500;
+            watchdog.PollForSelfTest();
+            watchdog.SetPhase("later dispatcher work");
+            EditorDispatcherWatchdogSnapshot active =
+                watchdog.Snapshot();
+            watchdog.Beat("ready");
+            EditorDispatcherWatchdogSnapshot recovered =
+                watchdog.Snapshot();
+            watchdog.ResetPeaks();
+            EditorDispatcherWatchdogSnapshot reset =
+                watchdog.Snapshot();
+            Check(
+                !beforeStall.StallActive &&
+                active.StallActive &&
+                active.StallCount == 1 &&
+                active.Phase == "startup / scene" &&
+                Math.Abs(active.ActiveStallMilliseconds - 2500) < 0.001 &&
+                !recovered.StallActive &&
+                recovered.StallCount == 1 &&
+                Math.Abs(recovered.LastDispatcherGapMilliseconds - 2500) <
+                    0.001 &&
+                Math.Abs(recovered.MaximumDispatcherGapMilliseconds - 2500) <
+                    0.001 &&
+                Math.Abs(recovered.LongestStallMilliseconds - 2500) < 0.001 &&
+                recovered.Phase == "ready" &&
+                reset.MaximumDispatcherGapMilliseconds == 0 &&
+                reset.LongestStallMilliseconds == 0 &&
+                reset.StallCount == 1,
+                "independent dispatcher watchdog records one blocked interval, recovery, phase, and resettable peaks");
+        }
+        long delayedPollClock = 0;
+        var delayedPollTransitions =
+            new List<EditorDispatcherWatchdogTransition>();
+        using (var delayedPollWatchdog = new EditorDispatcherWatchdog(
+                   transition => delayedPollTransitions.Add(transition),
+                   stallThreshold: TimeSpan.FromMilliseconds(1500),
+                   pollInterval: TimeSpan.FromMilliseconds(500),
+                   timestampProvider: () => delayedPollClock,
+                   timestampFrequency: 1000,
+                   startAutomatically: false))
+        {
+            delayedPollWatchdog.Beat("before long pause");
+            delayedPollClock = 2500;
+            delayedPollWatchdog.Beat("recovered without poll");
+            bool transitionsDrained =
+                delayedPollWatchdog.WaitForTransitionsForSelfTest(
+                    TimeSpan.FromSeconds(2));
+            EditorDispatcherWatchdogSnapshot recoveredWithoutPoll =
+                delayedPollWatchdog.Snapshot();
+            Check(
+                transitionsDrained &&
+                delayedPollTransitions.Count == 2 &&
+                delayedPollTransitions[0].Sequence == 1 &&
+                !delayedPollTransitions[0].Recovered &&
+                delayedPollTransitions[1].Sequence == 2 &&
+                delayedPollTransitions[1].Recovered &&
+                delayedPollTransitions[0].ObservedUtc <=
+                    delayedPollTransitions[1].ObservedUtc &&
+                recoveredWithoutPoll.StallCount == 1 &&
+                !recoveredWithoutPoll.StallActive &&
+                Math.Abs(
+                    recoveredWithoutPoll.LongestStallMilliseconds - 2500) <
+                    0.001,
+                "recovery heartbeat records ordered stall evidence even when the ThreadPool poll was delayed");
+        }
+        using (var extremeWatchdog = new EditorDispatcherWatchdog(
+                   _ => { },
+                   stallThreshold: TimeSpan.MaxValue,
+                   pollInterval: TimeSpan.FromMilliseconds(1),
+                   timestampProvider: () => 0,
+                   timestampFrequency: double.MaxValue,
+                   startAutomatically: false))
+        {
+            Check(
+                extremeWatchdog.StallThresholdTicksForSelfTest ==
+                    long.MaxValue,
+                "watchdog threshold conversion saturates instead of wrapping an extreme duration to a one-tick stall");
+        }
+        Check(
+            MainWindow.SanitizeDiagnosticField(
+                "startup scene\r\ncode=FORGED\u202E") ==
+                "startup_scene__code_FORGED_" &&
+            MainWindow.SanitizeDiagnosticField(
+                "phase\u200B\u2060\uFEFF\u2028\uD800") ==
+                "phase_____" &&
+            MainWindow.SanitizeDiagnosticField(null) == "unknown" &&
+            MainWindow.SanitizeDiagnosticMessage(
+                "owned title\r\nFORGED\u202E\uD800") ==
+                "owned title__FORGED__",
+            "interaction diagnostics reject line injection, key separators, format controls, and surrogate fragments");
 
         string validReport = JsonSerializer.Serialize(new
         {

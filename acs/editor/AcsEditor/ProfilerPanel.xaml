@@ -196,10 +196,14 @@
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="EDITOR UI / LOG PUMP"
                                    Foreground="{StaticResource TextDim}" FontSize="10"
-                                   ToolTip="Native ACS_LOG polling and WPF console publication are time-budgeted and batch-notified on the editor Dispatcher."/>
+                                   ToolTip="Native ACS_LOG polling and WPF publication are time-budgeted. Dispatcher stalls are detected by an independent ThreadPool watchdog, so evidence survives a blocked UI thread."/>
                         <TextBlock x:Name="LogPumpStateValue" Grid.Column="1"
                                    Text="IDLE" FontFamily="Consolas"/>
                         <TextBlock Grid.Row="1" Text="Drain last / peak"/>
@@ -218,6 +222,21 @@
                                    ToolTip="GPU yields are frame-slot backpressure events returned without waiting on the WPF Dispatcher. Slow calls exceeded 50 ms."/>
                         <TextBlock x:Name="NativeBackpressureValue" Grid.Row="5" Grid.Column="1"
                                    Text="0 / 0" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="6" Text="Dispatcher gap last / peak"/>
+                        <TextBlock x:Name="DispatcherGapValue" Grid.Row="6" Grid.Column="1"
+                                   Text="0.0 / 0.0 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="7" Text="UI stalls / longest"
+                                   ToolTip="A stall is declared after two seconds without a Dispatcher heartbeat. ACTIVE means the watchdog currently observes a blocked UI thread."/>
+                        <TextBlock x:Name="DispatcherStallValue" Grid.Row="7" Grid.Column="1"
+                                   Text="0 / 0.0 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="8" Text="Profiler tick CPU last / peak"
+                                   ToolTip="Managed Dispatcher callback cost. The displayed sample includes native snapshot polling and detail publication, but not the two counter TextBlock writes that publish the result."/>
+                        <TextBlock x:Name="ProfilerUiValue" Grid.Row="8" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="9" Text="Graph OnRender CPU last / peak"
+                                   ToolTip="CPU time used to generate WPF drawing commands in OnRender. This is not compositor or GPU presentation time."/>
+                        <TextBlock x:Name="ProfilerGraphValue" Grid.Row="9" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
                     </Grid>
 
                     <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>

@@ -449,6 +449,42 @@ public static partial class ProjectManager
             project.ProjectFilePath,
             MaxProjectManifestBytes,
             ".acsproject manifest");
+        Project capturedManifest;
+        try
+        {
+            capturedManifest = ParseManifestSnapshot(
+                manifest.Path,
+                manifest.Bytes);
+        }
+        catch (InvalidDataException error)
+        {
+            return Deferred(
+                "The captured project manifest is not valid for recovery: " +
+                error.Message);
+        }
+        manifestReference = SceneSourceFile.NormalizeProjectSceneReference(
+            project.RootDir,
+            project.AssetsDir,
+            capturedManifest.InitialScene);
+        if ((!string.Equals(
+                 manifestReference,
+                 journal.SourceReference,
+                 StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(
+                 manifestReference,
+                 journal.DestinationReference,
+                 StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(
+                 capturedManifest.CanonicalSceneAssetId) &&
+             !string.Equals(
+                 NormalizeAssetId(
+                     capturedManifest.CanonicalSceneAssetId),
+                 journal.AssetId,
+                 StringComparison.Ordinal)))
+        {
+            return Deferred(
+                "The captured project manifest no longer matches the journaled scene identity.");
+        }
         ReferenceFileSnapshot settings = CaptureOptionalOrdinaryFile(
             GetProjectSettingsPath(project),
             MaxProjectSettingsBytes,

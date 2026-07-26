@@ -368,6 +368,8 @@ inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
  * image recovers native detail without increasing the quarter-size workload.
  */
 inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
+inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 192u;
+inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
 
 /** Sanitized current-trace dimensions selected for a full-resolution output. */
 struct FVolumetricCloudTraceResolution {
@@ -387,6 +389,82 @@ struct FVolumetricCloudTraceResolution {
  */
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
+
+/**
+ * Inputs used to account for the exact compute work submitted by one cloud
+ * frame. These booleans describe dispatches, not authoring quality levels.
+ */
+struct FVolumetricCloudFrameWorkloadPlan {
+    u32 trace_width = 0u;
+    u32 trace_height = 0u;
+    u32 output_width = 0u;
+    u32 output_height = 0u;
+    bool bake_shape_noise = false;
+    bool bake_weather = false;
+    bool bake_detail_noise = false;
+    bool bake_curl_noise = false;
+    bool rebuild_shadow_cache = false;
+};
+
+enum class EVolumetricCloudFrameSkipReason : u32 {
+    None = 0u,
+    ResourcesNotReady = 1u,
+    InvalidCamera = 2u,
+    InvalidProjection = 3u,
+};
+
+/**
+ * Allocation-free diagnostic for the most recent RenderCompute attempt.
+ *
+ * Logical invocations exclude workgroup padding; launched threads include it.
+ * maximum_*_samples are conservative shader-loop ceilings rather than measured
+ * samples because empty-space skipping and transmittance exits are data
+ * dependent. GPU timestamps remain authoritative for elapsed cost.
+ */
+struct FVolumetricCloudFrameWorkload {
+    u64 submission_index = 0u;
+    u32 trace_width = 0u;
+    u32 trace_height = 0u;
+    u32 output_width = 0u;
+    u32 output_height = 0u;
+
+    u32 steady_dispatches = 0u;
+    u32 one_time_bake_dispatches = 0u;
+    u32 shadow_cache_dispatches = 0u;
+    u32 total_compute_dispatches = 0u;
+    u32 composite_draws = 0u;
+
+    u64 trace_logical_invocations = 0u;
+    u64 trace_launched_threads = 0u;
+    u64 resolve_logical_invocations = 0u;
+    u64 resolve_launched_threads = 0u;
+    u64 one_time_bake_logical_invocations = 0u;
+    u64 one_time_bake_launched_threads = 0u;
+    u64 shadow_cache_logical_invocations = 0u;
+    u64 shadow_cache_launched_threads = 0u;
+    u64 total_logical_invocations = 0u;
+    u64 total_launched_threads = 0u;
+    u64 maximum_view_samples = 0u;
+    u64 maximum_light_samples = 0u;
+
+    EVolumetricCloudFrameSkipReason skip_reason =
+        EVolumetricCloudFrameSkipReason::None;
+    bool attempted = false;
+    bool submitted = false;
+    bool history_was_available = false;
+    bool history_reused = false;
+    bool history_invalidated = false;
+    bool temporal_super_resolution = false;
+};
+
+/**
+ * Deterministically account for a cloud frame without recording GPU work.
+ *
+ * All additions and products saturate at u64 max so malformed diagnostic input
+ * cannot wrap into a deceptively small workload.
+ */
+FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
+    const FVolumetricCloudFrameWorkloadPlan& plan) noexcept;
 
 /**
  * Resolve centered analytic coverage for the planet/cloud horizon.
@@ -463,7 +541,7 @@ struct FVolumetricCloudMarchPlan {
     f32 fine_step = 1.0f;
     f32 coarse_step = 4.0f;
     f32 visibility = 0.0f;
-    u32 max_samples = 192;
+    u32 max_samples = kVolumetricCloudMaxViewMarchSamples;
     bool hit = false;
 };
 
@@ -594,6 +672,11 @@ public:
     /** Whether the current material-space cache key has valid GPU contents. */
     bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
 
+    /** Exact submitted-work accounting for the latest compute/composite frame. */
+    const FVolumetricCloudFrameWorkload& LastFrameWorkload() const noexcept {
+        return m_LastFrameWorkload;
+    }
+
     /** Full-resolution resolved cloud distance/confidence for later fog passes. */
     IRhiTexture* ResolvedDepth() const noexcept {
         return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;
@@ -702,6 +785,8 @@ private:
     bool                     m_HistoryValid = false;
     u32                      m_W = 0, m_H = 0;         // scaled ray-march の寸法
     u32                      m_FullW = 0, m_FullH = 0; // 再構成先の寸法
+    u64                      m_WorkloadSubmissionIndex = 0u;
+    FVolumetricCloudFrameWorkload m_LastFrameWorkload{};
 };
 
 } // namespace acs

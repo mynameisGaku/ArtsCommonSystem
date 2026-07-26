@@ -28,10 +28,14 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
         Array.Empty<EditorProfilerPoint>();
     private float _cpuPeakMs = -1;
     private float _gpuPeakMs = -1;
+    private double _lastRenderMilliseconds;
+    private double _maximumRenderMilliseconds;
 
     internal bool ShowCpu { get; set; } = true;
     internal bool ShowGpu { get; set; } = true;
     internal bool ShowPasses { get; set; } = true;
+    internal double LastRenderMilliseconds => _lastRenderMilliseconds;
+    internal double MaximumRenderMilliseconds => _maximumRenderMilliseconds;
 
     internal void SetHistory(IReadOnlyList<EditorProfilerPoint> points)
     {
@@ -49,6 +53,30 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
     }
 
     protected override void OnRender(DrawingContext drawingContext)
+    {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            RenderHistory(drawingContext);
+        }
+        finally
+        {
+            _lastRenderMilliseconds =
+                (System.Diagnostics.Stopwatch.GetTimestamp() - started) *
+                1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            _maximumRenderMilliseconds = Math.Max(
+                _maximumRenderMilliseconds,
+                _lastRenderMilliseconds);
+        }
+    }
+
+    internal void ResetRenderDiagnostics()
+    {
+        _lastRenderMilliseconds = 0;
+        _maximumRenderMilliseconds = 0;
+    }
+
+    private void RenderHistory(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
         Rect bounds = new(0, 0, Math.Max(0, ActualWidth), Math.Max(0, ActualHeight));

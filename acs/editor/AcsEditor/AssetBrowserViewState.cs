@@ -2,9 +2,160 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 
 namespace AcsEditor;
+
+internal enum AssetBrowserSearchScope
+{
+    CurrentFolder = 0,
+    Subfolders = 1,
+    EntireProject = 2,
+}
+
+/// <summary>
+/// Pure, fail-closed path policy for Content Browser search scopes. A reusable Filter
+/// normalizes the project roots once so large Asset Database snapshots do not repeat
+/// root work for every indexed record.
+/// </summary>
+internal static class AssetBrowserSearchScopePolicy
+{
+    internal readonly struct Filter
+    {
+        private readonly string _assetsRoot;
+        private readonly string _currentDirectory;
+
+        internal Filter(
+            string assetsRoot,
+            string currentDirectory,
+            AssetBrowserSearchScope scope)
+        {
+            _assetsRoot = assetsRoot;
+            _currentDirectory = currentDirectory;
+            Scope = scope;
+            IsValid = true;
+        }
+
+        internal AssetBrowserSearchScope Scope { get; }
+        internal bool IsValid { get; }
+
+        internal bool Includes(string assetPath)
+        {
+            if (!IsValid ||
+                !TryNormalize(assetPath, out string asset) ||
+                !IsUnder(asset, _assetsRoot))
+            {
+                return false;
+            }
+
+            return Scope switch
+            {
+                AssetBrowserSearchScope.CurrentFolder =>
+                    Path.GetDirectoryName(asset) is string parent &&
+                    PathEquals(parent, _currentDirectory),
+                AssetBrowserSearchScope.Subfolders =>
+                    IsUnder(asset, _currentDirectory),
+                AssetBrowserSearchScope.EntireProject => true,
+                _ => false,
+            };
+        }
+    }
+
+    internal static AssetBrowserSearchScope ParseTag(string? tag) =>
+        tag?.Trim().ToLowerInvariant() switch
+        {
+            "subfolders" => AssetBrowserSearchScope.Subfolders,
+            "entireproject" => AssetBrowserSearchScope.EntireProject,
+            _ => AssetBrowserSearchScope.CurrentFolder,
+        };
+
+    internal static Filter CreateFilter(
+        string assetsRoot,
+        string currentDirectory,
+        AssetBrowserSearchScope scope)
+    {
+        if (!Enum.IsDefined(scope) ||
+            !TryNormalize(assetsRoot, out string root) ||
+            !TryNormalize(currentDirectory, out string current) ||
+            !IsUnderOrEqual(current, root))
+        {
+            return default;
+        }
+        return new Filter(root, current, scope);
+    }
+
+    internal static bool IncludesAsset(
+        string assetsRoot,
+        string currentDirectory,
+        string assetPath,
+        AssetBrowserSearchScope scope) =>
+        CreateFilter(assetsRoot, currentDirectory, scope)
+            .Includes(assetPath);
+
+    internal static string StatusLabel(AssetBrowserSearchScope scope) =>
+        scope switch
+        {
+            AssetBrowserSearchScope.CurrentFolder => "current folder",
+            AssetBrowserSearchScope.Subfolders => "subfolders",
+            AssetBrowserSearchScope.EntireProject => "all assets",
+            _ => "invalid scope",
+        };
+
+    private static bool TryNormalize(string? path, out string normalized)
+    {
+        normalized = "";
+        if (string.IsNullOrWhiteSpace(path) ||
+            !Path.IsPathFullyQualified(path))
+        {
+            return false;
+        }
+        try
+        {
+            normalized = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(path));
+            return normalized.Length != 0;
+        }
+        catch (Exception error) when (
+            error is ArgumentException or NotSupportedException or
+                PathTooLongException)
+        {
+            normalized = "";
+            return false;
+        }
+    }
+
+    private static bool IsUnder(string candidate, string root)
+    {
+        try
+        {
+            string relative = Path.GetRelativePath(root, candidate);
+            return relative != "." &&
+                   !Path.IsPathRooted(relative) &&
+                   relative != ".." &&
+                   !relative.StartsWith(
+                       ".." + Path.DirectorySeparatorChar,
+                       StringComparison.Ordinal) &&
+                   !relative.StartsWith(
+                       ".." + Path.AltDirectorySeparatorChar,
+                       StringComparison.Ordinal);
+        }
+        catch (Exception error) when (
+            error is ArgumentException or NotSupportedException or IOException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsUnderOrEqual(string candidate, string root) =>
+        PathEquals(candidate, root) || IsUnder(candidate, root);
+
+    private static bool PathEquals(string left, string right) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(left),
+            Path.TrimEndingDirectorySeparator(right),
+            StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>
 /// Pure search/filter evaluator for the Asset View. It intentionally accepts only a small,

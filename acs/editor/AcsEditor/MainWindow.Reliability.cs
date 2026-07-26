@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -29,12 +30,29 @@ public partial class MainWindow
     private static extern bool IsWindowEnabled(nint window);
 
     private static readonly object InteractionLogLock = new();
+    private static readonly Queue<InteractionDiagnosticWorkItem>
+        InteractionLogQueue = new();
+    private static bool _interactionLogPumpRunning;
+    private static readonly string InteractionDiagnosticSessionFileName =
+        "interaction-health-" +
+        DateTimeOffset.UtcNow.ToString(
+            "yyyyMMddTHHmmssfffZ",
+            CultureInfo.InvariantCulture) +
+        "-" +
+        Environment.ProcessId.ToString(CultureInfo.InvariantCulture) +
+        ".log";
     private static readonly JsonSerializerOptions InteractionReportJson = new()
     {
         WriteIndented = true,
     };
+    private const long InteractionDiagnosticLogMaximumBytes =
+        2L * 1024L * 1024L;
+    internal const DispatcherPriority InteractionHeartbeatPriority =
+        DispatcherPriority.Input;
 
     private DispatcherTimer? _interactionHealthTimer;
+    private DispatcherTimer? _dispatcherHeartbeatTimer;
+    private EditorDispatcherWatchdog? _dispatcherWatchdog;
     private EditorInteractionHealthKind _lastInteractionHealthKind =
         EditorInteractionHealthKind.Healthy;
     private ulong _lastInteractionProfilerFrame;
@@ -59,6 +77,10 @@ public partial class MainWindow
         DateTimeOffset RequestedUtc,
         long RequestedTimestamp,
         bool RequireRecoveryPrompt);
+
+    private sealed record InteractionDiagnosticWorkItem(
+        string Line,
+        TaskCompletionSource<bool>? Completion);
 
     private sealed record InteractionSoakReport(
         int SchemaVersion,
@@ -86,6 +108,9 @@ public partial class MainWindow
 
     private void InitializeInteractionHealthDiagnostics()
     {
+        _dispatcherWatchdog = new EditorDispatcherWatchdog(
+            OnDispatcherWatchdogTransition);
+        _dispatcherWatchdog.Beat("constructing main window");
         Loaded += OnInteractionDiagnosticsLoaded;
         Closing += (_, _) => _interactionWindowClosing = true;
         Closed += (_, _) =>
@@ -93,6 +118,21 @@ public partial class MainWindow
             _interactionWindowClosing = true;
             _interactionHealthTimer?.Stop();
             _interactionHealthTimer = null;
+            _dispatcherHeartbeatTimer?.Stop();
+            _dispatcherHeartbeatTimer = null;
+            _dispatcherWatchdog?.Dispose();
+            _dispatcherWatchdog = null;
+            Task<bool> closeDiagnostic = QueueInteractionDiagnostic(
+                "code=EDITOR_CLOSED",
+                awaitWrite: true);
+            try
+            {
+                _ = closeDiagnostic.Wait(TimeSpan.FromMilliseconds(500));
+            }
+            catch
+            {
+                // Process shutdown must continue even if diagnostics fail.
+            }
         };
     }
 
@@ -129,6 +169,14 @@ public partial class MainWindow
     private void OnInteractionDiagnosticsLoaded(object sender, RoutedEventArgs e)
     {
         if (_interactionHealthTimer != null) return;
+        _dispatcherWatchdog?.Beat("window loaded");
+        _dispatcherHeartbeatTimer = new DispatcherTimer(
+            TimeSpan.FromMilliseconds(
+                EditorInteractionSoakPolicy.TimerIntervalMilliseconds),
+            InteractionHeartbeatPriority,
+            OnDispatcherHeartbeatTick,
+            Dispatcher);
+        _dispatcherHeartbeatTimer.Start();
         _interactionHealthTimer = new DispatcherTimer(
             TimeSpan.FromMilliseconds(
                 EditorInteractionSoakPolicy.TimerIntervalMilliseconds),
@@ -140,6 +188,8 @@ public partial class MainWindow
 
     private void OnInteractionHealthTick(object? sender, EventArgs e)
     {
+        _dispatcherWatchdog?.SetPhase(
+            "interaction health / " + _engineStartupState);
         bool profilerAdvanced = false;
         IntPtr engine = RawEngine;
         if (engine != IntPtr.Zero &&
@@ -204,7 +254,7 @@ public partial class MainWindow
                         string.IsNullOrWhiteSpace(window.Title)
                             ? window.GetType().Name
                             : window.Title));
-            QueueInteractionDiagnostic(
+            _ = QueueInteractionDiagnostic(
                 $"code={assessment.Code} fault={assessment.IsFault} " +
                 $"enabled={IsEnabled} nativeEnabled={nativeWindowEnabled} " +
                 $"hitTest={IsHitTestVisible} " +
@@ -212,7 +262,7 @@ public partial class MainWindow
                 $"capture={capture.OwnsCapture} " +
                 $"activeButtons={capture.ActiveButtonMask} " +
                 $"physicalButtons={capture.PhysicallyDownButtonMask} " +
-                $"mismatchMs={capture.MismatchAgeMilliseconds:0.0} " +
+                $"mismatchMs={capture.MismatchAgeMilliseconds.ToString("0.0", CultureInfo.InvariantCulture)} " +
                 $"owned=[{ownedTitles}]");
             _lastInteractionHealthKind = assessment.Kind;
         }
@@ -230,8 +280,11 @@ public partial class MainWindow
                 _interactionSoakStartedTimestamp = nowTimestamp;
                 _lastInteractionSoakTickTimestamp = nowTimestamp;
                 _lastInteractionProfilerAdvanceTimestamp = nowTimestamp;
-                QueueInteractionDiagnostic(
-                    $"code=SOAK_STARTED seconds={soak.Duration.TotalSeconds:0.###}");
+                _ = QueueInteractionDiagnostic(
+                    "code=SOAK_STARTED seconds=" +
+                    soak.Duration.TotalSeconds.ToString(
+                        "0.###",
+                        CultureInfo.InvariantCulture));
             }
             else if (ElapsedMilliseconds(
                          soak.RequestedTimestamp,
@@ -269,6 +322,29 @@ public partial class MainWindow
                 nowTimestamp) >= soak.Duration.TotalMilliseconds)
             CompleteInteractionSoak(now);
     }
+
+    private void OnDispatcherHeartbeatTick(object? sender, EventArgs e) =>
+        _dispatcherWatchdog?.Beat(
+            "input heartbeat / " + _engineStartupState);
+
+    private void OnDispatcherWatchdogTransition(
+        EditorDispatcherWatchdogTransition transition)
+    {
+        _ = QueueInteractionDiagnostic(
+            $"code={(transition.Recovered ? "DISPATCHER_RECOVERED" : "DISPATCHER_STALL")} " +
+            $"sequence={transition.Sequence.ToString(CultureInfo.InvariantCulture)} " +
+            $"durationMs={transition.DurationMilliseconds.ToString("0.0", CultureInfo.InvariantCulture)} " +
+            $"phase={SanitizeDiagnosticField(transition.Phase)} " +
+            $"stallCount={transition.StallCount.ToString(CultureInfo.InvariantCulture)} " +
+            $"debuggerAttached={Debugger.IsAttached}",
+            observedUtc: transition.ObservedUtc);
+    }
+
+    private EditorDispatcherWatchdogSnapshot GetDispatcherWatchdogSnapshot() =>
+        _dispatcherWatchdog?.Snapshot() ?? default;
+
+    private void ResetDispatcherWatchdogPeaks() =>
+        _dispatcherWatchdog?.ResetPeaks();
 
     private void CompleteInteractionSoak(DateTimeOffset completedUtc)
     {
@@ -358,13 +434,40 @@ public partial class MainWindow
                 "Interaction soak report write failed: " + error.Message);
         }
 
-        QueueInteractionDiagnostic(
+        Task<bool> diagnosticWrite = QueueInteractionDiagnostic(
             $"code=SOAK_COMPLETED result={report.Result} " +
             $"ticks={report.DispatcherTicks} " +
             $"profilerAdvances={report.ProfilerAdvancedTicks} " +
-            $"maxDispatcherGapMs={report.MaximumDispatcherGapMilliseconds:0.0} " +
-            $"maxProfilerGapMs={report.MaximumProfilerGapMilliseconds:0.0} " +
-            $"recoveryObserved={report.RecoveryPromptObserved}");
+            $"maxDispatcherGapMs={report.MaximumDispatcherGapMilliseconds.ToString("0.0", CultureInfo.InvariantCulture)} " +
+            $"maxProfilerGapMs={report.MaximumProfilerGapMilliseconds.ToString("0.0", CultureInfo.InvariantCulture)} " +
+            $"recoveryObserved={report.RecoveryPromptObserved}",
+            awaitWrite: true);
+        _ = CompleteInteractionSoakAfterDiagnosticAsync(
+            diagnosticWrite,
+            soak,
+            exitCode);
+    }
+
+    private static async Task CompleteInteractionSoakAfterDiagnosticAsync(
+        Task<bool> diagnosticWrite,
+        InteractionSoakConfiguration soak,
+        int exitCode)
+    {
+        try
+        {
+            bool persisted = await diagnosticWrite.WaitAsync(
+                TimeSpan.FromSeconds(2));
+            if (!persisted)
+            {
+                Console.Error.WriteLine(
+                    "Interaction soak completed, but its final diagnostic could not be persisted.");
+            }
+        }
+        catch (TimeoutException)
+        {
+            Console.Error.WriteLine(
+                "Interaction soak diagnostic drain exceeded two seconds.");
+        }
         soak.Complete(exitCode);
     }
 
@@ -380,35 +483,141 @@ public partial class MainWindow
             "ACS",
             "Editor",
             "Diagnostics",
-            "interaction-health.log");
+            InteractionDiagnosticSessionFileName);
 
-    private static void QueueInteractionDiagnostic(string message)
+    private static Task<bool> QueueInteractionDiagnostic(
+        string message,
+        bool awaitWrite = false,
+        DateTimeOffset? observedUtc = null)
     {
+        string safeMessage = SanitizeDiagnosticMessage(message);
         string line =
-            $"{DateTimeOffset.UtcNow:O} pid={Environment.ProcessId} {message}";
-        Trace.WriteLine(line);
-        Console.Error.WriteLine(line);
-        string path = InteractionDiagnosticLogPath();
-        _ = Task.Run(() =>
+            (observedUtc ?? DateTimeOffset.UtcNow).ToString(
+                "O",
+                CultureInfo.InvariantCulture) +
+            " pid=" +
+            Environment.ProcessId.ToString(CultureInfo.InvariantCulture) +
+            " " +
+            safeMessage;
+        TaskCompletionSource<bool>? completion = awaitWrite
+            ? new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously)
+            : null;
+        bool startPump;
+        lock (InteractionLogLock)
         {
-            try
+            InteractionLogQueue.Enqueue(
+                new InteractionDiagnosticWorkItem(line, completion));
+            startPump = !_interactionLogPumpRunning;
+            if (startPump)
+                _interactionLogPumpRunning = true;
+        }
+        if (startPump)
+            _ = Task.Run(DrainInteractionDiagnosticQueue);
+        return completion?.Task ?? Task.FromResult(true);
+    }
+
+    private static void DrainInteractionDiagnosticQueue()
+    {
+        while (true)
+        {
+            InteractionDiagnosticWorkItem item;
+            lock (InteractionLogLock)
             {
-                lock (InteractionLogLock)
+                if (InteractionLogQueue.Count == 0)
                 {
-                    string? parent = Path.GetDirectoryName(path);
-                    if (!string.IsNullOrEmpty(parent))
-                        Directory.CreateDirectory(parent);
-                    File.AppendAllText(
-                        path,
-                        line + Environment.NewLine,
-                        new UTF8Encoding(
-                            encoderShouldEmitUTF8Identifier: false));
+                    _interactionLogPumpRunning = false;
+                    return;
                 }
+                item = InteractionLogQueue.Dequeue();
             }
-            catch
+
+            bool persisted = TryWriteInteractionDiagnostic(item.Line);
+            item.Completion?.TrySetResult(persisted);
+        }
+    }
+
+    private static bool TryWriteInteractionDiagnostic(string line)
+    {
+        try
+        {
+            Trace.WriteLine(line);
+            Console.Error.WriteLine(line);
+            string path = InteractionDiagnosticLogPath();
+            string? parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent))
+                Directory.CreateDirectory(parent);
+            long currentLength = File.Exists(path)
+                ? new FileInfo(path).Length
+                : 0;
+            long appendedBytes = Encoding.UTF8.GetByteCount(
+                line + Environment.NewLine);
+            if (appendedBytes > InteractionDiagnosticLogMaximumBytes ||
+                currentLength >
+                    InteractionDiagnosticLogMaximumBytes - appendedBytes)
             {
-                // Diagnostics must never become an editor availability risk.
+                string previous = path + ".previous";
+                if (File.Exists(path))
+                    File.Move(path, previous, overwrite: true);
             }
-        });
+            File.AppendAllText(
+                path,
+                line + Environment.NewLine,
+                new UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: false));
+            return true;
+        }
+        catch
+        {
+            // Diagnostics must never become an editor availability risk.
+            return false;
+        }
+    }
+
+    internal static string SanitizeDiagnosticMessage(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "unknown";
+
+        var sanitized = new StringBuilder(Math.Min(value.Length, 4096));
+        foreach (char character in value)
+        {
+            if (sanitized.Length == 4096)
+                break;
+            sanitized.Append(
+                IsUnsafeDiagnosticCharacter(character)
+                    ? '_'
+                    : character);
+        }
+        return sanitized.ToString();
+    }
+
+    internal static string SanitizeDiagnosticField(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "unknown";
+
+        var sanitized = new StringBuilder(Math.Min(value.Length, 80));
+        foreach (char character in value)
+        {
+            if (sanitized.Length == 80)
+                break;
+            sanitized.Append(
+                IsUnsafeDiagnosticCharacter(character) ||
+                character is '=' or ' '
+                    ? '_'
+                    : character);
+        }
+        return sanitized.ToString();
+    }
+
+    private static bool IsUnsafeDiagnosticCharacter(char character)
+    {
+        UnicodeCategory category = char.GetUnicodeCategory(character);
+        return char.IsControl(character) ||
+               category is UnicodeCategory.Format or
+                   UnicodeCategory.LineSeparator or
+                   UnicodeCategory.ParagraphSeparator or
+                   UnicodeCategory.Surrogate;
     }
 }

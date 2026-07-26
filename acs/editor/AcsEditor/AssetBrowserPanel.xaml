@@ -215,9 +215,16 @@
                     <ComboBoxItem Content="テキスト" Tag="text"/>
                     <ComboBoxItem Content="その他" Tag="file"/>
                 </ComboBox>
-                <CheckBox x:Name="RecursiveToggle" Content="再帰" Margin="0,0,8,2"
-                          TabIndex="5" VerticalAlignment="Center" ToolTip="子フォルダー内も検索"
-                          Checked="OnRecursiveFilterChanged" Unchecked="OnRecursiveFilterChanged"/>
+                <ComboBox x:Name="SearchScopeBox" Width="112" Margin="0,0,8,2"
+                          TabIndex="5" SelectedIndex="0"
+                          IsEnabled="False"
+                          VerticalContentAlignment="Center"
+                          ToolTip="検索スコープ: 現在のフォルダー / サブフォルダー / プロジェクト全体"
+                          SelectionChanged="OnSearchScopeChanged">
+                    <ComboBoxItem Content="このフォルダー" Tag="CurrentFolder"/>
+                    <ComboBoxItem Content="サブフォルダー" Tag="Subfolders"/>
+                    <ComboBoxItem Content="全Assets" Tag="EntireProject"/>
+                </ComboBox>
                 <Button x:Name="NewAssetButton" Content="＋ 新規" Margin="0,0,6,2"
                         TabIndex="6" ToolTip="現在のフォルダーにACSアセットを作成"
                         Click="OnOpenNewAssetMenu">

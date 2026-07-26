@@ -159,6 +159,20 @@ versions, template, `initialScene`, and the persistent
 is still validated and journalled so a rename or interrupted publication
 cannot silently package a different file.
 
+Schema version 1 is the current project contract; an omitted version is the
+only legacy form migrated to version 1. Reads are bounded and strict UTF-8,
+reject duplicate property names case-insensitively, reject unsupported
+versions and malformed or zero Asset IDs, and keep field-type failures behind
+one `InvalidDataException` boundary. Project strings reject control, Unicode
+format, and line/paragraph separator characters before they reach logs or UI.
+Manifest and `Game.DefaultScene` updates publish flushed sibling files under
+the project-wide `AssetMutationLock`; a missing destination uses a no-overwrite
+rename. The lease is the cooperative multi-editor serialization boundary.
+Non-cooperating external file writers are detected by snapshot validation and
+leave the operation or recovery journal fail-closed; the editor does not claim
+filesystem compare-and-swap semantics that Windows path replacement cannot
+provide.
+
 Editor-only preferences such as recent projects and workspace layouts are not
 project source assets. Verification runs isolate `APPDATA` and
 `LOCALAPPDATA`, so they never update a developer's normal preferences.
@@ -270,8 +284,9 @@ an implementation of Unreal's serialized Substrate asset format.
 
 The current Asset View provides:
 
-- folder history, favourites, collections, recursive search, type filters,
-  list/tile presentation, thumbnails, and a preview pane;
+- folder history, favourites, collections, explicit current-folder/subfolder/
+  all-assets search scopes, type filters, list/tile presentation, thumbnails,
+  and a preview pane;
 - query tokens including `name:`, `path:`, `type:`, `id:`, and exclusions;
 - open/place, rename, duplicate, copy/cut/paste, migrate, and reveal/copy-path
   actions;
@@ -279,6 +294,13 @@ The current Asset View provides:
 - Reference Viewer and same-kind Replace References preview/commit;
 - redirector cleanup;
 - recoverable Trash, restore-last-delete, retention, and explicit emptying.
+
+All-assets search reads the immutable Asset Database snapshot on a worker task;
+it does not walk the project filesystem from the UI thread. Scope evaluation
+normalizes every candidate and fails closed unless both the current folder and
+candidate remain inside the active project's `Assets` root. Folder tiles are
+intentionally omitted from the all-assets result set so the result represents
+indexed assets rather than a second, potentially expensive directory crawl.
 
 Rename, move, duplicate, replace-reference, and delete paths inspect or
 rewrite supported references transactionally. Referenced assets are refused
@@ -307,13 +329,45 @@ Managed metrics include:
 
 - Editor log drain/apply/retention cost and queue peaks;
 - native attach, resize, and render call duration;
-- slow native-call and GPU-backpressure yield counts.
+- slow native-call and GPU-backpressure yield counts;
+- Dispatcher heartbeat gap, detected UI-stall count and longest stall;
+- Profiler Dispatcher-callback CPU cost and history-graph `OnRender` command
+  generation CPU cost (not compositor/GPU time).
 
 The history records each native frame index once and can be paused or reset.
+The visible dock samples at 10 Hz. A collapsed dock keeps the status summary
+current at 2 Hz without updating the detailed metric grid or invalidating the
+graph, so profiling does not become a significant hidden UI workload.
+When the native frame index stops, visible managed diagnostics continue to
+refresh; only native history insertion and graph invalidation wait for a new
+frame. This keeps the watchdog, log-pump, and native-call evidence useful while
+investigating a renderer stall.
 GPU timestamp results arrive after a backend-dependent number of frames.
 Unavailable or warming-up data is shown as such; it is not replaced with a
 CPU estimate. This profiler is an Editor performance overview, not a GPU
 capture debugger, allocation tracker, or platform telemetry service.
+
+### UI-stall evidence
+
+`EditorDispatcherWatchdog` is driven by a ThreadPool timer, independent of the
+WPF Dispatcher. A minimal `DispatcherPriority.Input` heartbeat records startup
+phase and normal interaction health every 500 ms, so starvation is measured at
+the same scheduling class as user input rather than a hidden background panel.
+If no heartbeat arrives for two seconds, the watchdog
+writes `DISPATCHER_STALL`; the first later heartbeat writes
+`DISPATCHER_RECOVERED` with the measured duration and phase. This distinction
+is important because a `DispatcherTimer` cannot produce evidence while the
+Dispatcher itself is blocked.
+
+Each Editor process writes a session-scoped
+`%LOCALAPPDATA%\ACS\Editor\Diagnostics\interaction-health-<UTC>-<PID>.log`.
+A single FIFO worker preserves transition order, rotates the current session
+at 2 MiB to `.previous`, and performs console/file I/O away from the UI thread.
+Reliability-soak completion awaits its final diagnostic asynchronously; normal
+window close performs one bounded 500 ms drain after stopping the watchdog.
+Lines are bounded and control-, bidi-, and line-injection safe; the phase token
+additionally removes key/value separators. The watchdog diagnoses a stall; it
+does not abort a native call or attempt unsafe UI-thread recovery.
 
 ## Build, package, and distribution
 

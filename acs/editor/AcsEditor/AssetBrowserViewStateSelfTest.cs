@@ -105,6 +105,107 @@ internal static class AssetBrowserViewStateSelfTest
                   !Matches("type:texture", selectedKind: "folder", kind: "texture", isDirectory: true),
                 "directories consistently use folder as both query and selected-filter kind");
 
+            string scopeRoot = Path.GetFullPath(Path.Combine(
+                Path.GetTempPath(),
+                "acs-asset-browser-search-scope",
+                "Assets"));
+            string currentFolder = Path.Combine(scopeRoot, "Characters");
+            string currentAsset = Path.Combine(currentFolder, "Hero.acsbp");
+            string nestedAsset = Path.Combine(
+                currentFolder,
+                "Enemies",
+                "Boss.acsbp");
+            string siblingAsset = Path.Combine(
+                scopeRoot,
+                "Environment",
+                "Sky.acsmat");
+            Check(
+                AssetBrowserSearchScopePolicy.ParseTag(null) ==
+                    AssetBrowserSearchScope.CurrentFolder &&
+                AssetBrowserSearchScopePolicy.ParseTag("unknown") ==
+                    AssetBrowserSearchScope.CurrentFolder &&
+                AssetBrowserSearchScopePolicy.ParseTag(" SUBFOLDERS ") ==
+                    AssetBrowserSearchScope.Subfolders &&
+                AssetBrowserSearchScopePolicy.ParseTag("EntireProject") ==
+                    AssetBrowserSearchScope.EntireProject,
+                "search-scope tags default narrowly and parse the two explicit broad scopes");
+            Check(
+                AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    currentAsset,
+                    AssetBrowserSearchScope.CurrentFolder) &&
+                !AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    nestedAsset,
+                    AssetBrowserSearchScope.CurrentFolder),
+                "current-folder search includes direct children but not descendants");
+            Check(
+                AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    currentAsset,
+                    AssetBrowserSearchScope.Subfolders) &&
+                AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    nestedAsset,
+                    AssetBrowserSearchScope.Subfolders) &&
+                !AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    siblingAsset,
+                    AssetBrowserSearchScope.Subfolders),
+                "subfolder search includes the current subtree without leaking into siblings");
+            Check(
+                AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    currentAsset,
+                    AssetBrowserSearchScope.EntireProject) &&
+                AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    siblingAsset,
+                    AssetBrowserSearchScope.EntireProject),
+                "all-assets search spans the indexed project independently of the current folder");
+            Check(
+                !AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    Path.Combine(
+                        Path.GetDirectoryName(scopeRoot)!,
+                        "Assets-Other",
+                        "Outside.acsmat"),
+                    AssetBrowserSearchScope.EntireProject) &&
+                !AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    Path.Combine(
+                        Path.GetDirectoryName(scopeRoot)!,
+                        "Outside"),
+                    currentAsset,
+                    AssetBrowserSearchScope.EntireProject) &&
+                !AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    "relative.acsmat",
+                    AssetBrowserSearchScope.EntireProject) &&
+                !AssetBrowserSearchScopePolicy.IncludesAsset(
+                    scopeRoot,
+                    currentFolder,
+                    currentAsset,
+                    (AssetBrowserSearchScope)999),
+                "search scopes fail closed for root escapes, relative paths, and invalid enum values");
+            Check(
+                AssetBrowserSearchScopePolicy.StatusLabel(
+                    AssetBrowserSearchScope.CurrentFolder) == "current folder" &&
+                AssetBrowserSearchScopePolicy.StatusLabel(
+                    AssetBrowserSearchScope.Subfolders) == "subfolders" &&
+                AssetBrowserSearchScopePolicy.StatusLabel(
+                    AssetBrowserSearchScope.EntireProject) == "all assets",
+                "search-scope status labels are stable for UI diagnostics");
+
             string boundaryName = new('x', 1024);
             Check(Matches(boundaryName + " -name:" + boundaryName, name: boundaryName),
                 "queries longer than 1024 UTF-16 code units are bounded before evaluation");

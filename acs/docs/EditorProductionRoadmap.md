@@ -1,6 +1,6 @@
 # ACS Editor Production Roadmap
 
-更新日: 2026-07-20
+更新日: 2026-07-27
 
 ## 目的
 
@@ -16,7 +16,7 @@ UE と同等という表現は、単一機能の有無ではなく、次のワ�
 - エラーを「ビルド成功」に見せず、原因と修正箇所をエディタ上で説明できる。
 - 配布物を再現可能な手順で生成し、起動確認まで自動化できる。
 
-本調査は 2026-07-20 時点の WPF Editor、Editor ABI、ランタイム、既存ツール群を対象にした。記載する行番号は調査時点の証跡であり、コード変更により移動する可能性がある。
+本調査は 2026-07-27 時点の WPF Editor、Editor ABI、ランタイム、既存ツール群を対象にした。記載する行番号は調査時点の証跡であり、コード変更により移動する可能性がある。
 
 ## 結論
 
@@ -30,7 +30,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 |---|---|---|---|
 | シーン / Outliner | 2D/3D 階層、検索、複数選択、DnD、表示切替、Scene Save All、自動保存・復旧あり | 3D と実行・配布経路の不一致、3D sibling reorder、subscene | P0 |
 | Details / Components | Transform、コンポーネント追加削除、反射プロパティ、CallInEditor あり | 複数選択編集、mixed value、reset/copy/paste/diff、配列・構造体編集 | P1 |
-| Asset Browser | Import、監視、検索、サムネイル、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | reimport、改名移動 UI、全体検索、dependency-driven cook/DDC | P0 |
+| Asset Browser | Import、監視、current/subfolder/all-assets 検索、サムネイル、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | tag filter、dependency-driven cook/DDC | P0 |
 | Undo / Redo | Scene と Blueprint に個別 snapshot 履歴、Scene 自動保存・復旧あり | 共通 transaction、Material/Asset/Settings の履歴、履歴表示 | P0 |
 | Play / Preview | Play/Pause/Step/Stop、状態復元、Game View、Hot Reload あり | 3D parity、Possess/Eject/Simulate、Play 設定、複数クライアント | P0/P1 |
 | Build / Package | Windows x64、Development/Test/Shipping、deterministic Cook/`.acpak`/ZIP、native verify、manifest、3D fail-closed あり | dependency closure、製品 metadata、署名、installer、自動 smoke、他 platform | P0 |
@@ -156,7 +156,7 @@ managed/native 接続は `EngineInterop.cs` の多数の P/Invoke と、約 9,90
 
 ### 4. Asset Browser と Asset Registry
 
-Asset Browser はファイル監視、Import、検索、サムネイル、配置に加え、隣接 `.acsmeta` の安定 GUID と `Assets/.acsdb/index.v1.json` の決定的 index を使う。DB は source/importer/version/import settings、SHA-256、依存 Asset ID を保持し、Reference Viewer は直接・推移依存と参照元、欠損 ID、循環を読み取り専用で表示する。
+Asset Browser はファイル監視、Import、current folder / subfolders / all Assets の明示的な検索スコープ、サムネイル、配置に加え、隣接 `.acsmeta` の安定 GUID と `Assets/.acsdb/index.v1.json` の決定的 index を使う。全 Assets 検索は UI thread から filesystem を再走査せず、immutable DB snapshot を background task で絞り込む。DB は source/importer/version/import settings、SHA-256、依存 Asset ID を保持し、Reference Viewer は直接・推移依存と参照元、欠損 ID、循環を読み取り専用で表示する。
 
 New Asset の実装は認識済み ACS 形式だけに閉じている。ツールバーと背景コンテキストメニューから Folder、Material (`.acsmat`)、統一 Scene (`.acs3d`)、Blueprint (`.acsbp`)、Prefab (`.acsprefab`) を作成でき、作成後は新規項目を選択してインライン rename を開始する。payload は同一ディレクトリの一時名へ完全に書いてから no-overwrite move で公開し、Windows 予約名、大小文字を無視した payload/metadata/material-graph 衝突、`Assets/.acsdb` と一時領域、reparse point、Assets 外への書き込みを拒否する。キャンセルまたは serializer 失敗時は material graph と metadata を含む一時 family を除去する。
 
@@ -177,7 +177,7 @@ runtime の `FAssetRegistry` は loader と path-hash cache であり、editor d
 不足:
 
 - importer ごとの実 reimport pipeline と設定 UI。
-- folder tree、breadcrumb、recursive/global search、type/tag filter、collection。
+- tag filter と検索条件を再利用できる dynamic collection。
 - 追加 asset type の作成を公開する場合の canonical serializer と schema migration。
 - Asset DB dependency closure を起点にした未使用 Asset 除外 cook。
 - thumbnail cache と Derived Data Cache。
@@ -398,6 +398,7 @@ flowchart TD
 実装済み基盤:
 
 - Initial Scene の移動追従を永続 journal に記録し、Project Settings と manifest の片側だけが更新された状態を起動時に検証して復旧する。
+- `.acsproject` version 1 の bounded/strict UTF-8 contract、case-insensitive duplicate/property binding、未対応 version・不正 field type・zero GUID・Unicode format spoof の fail-closed 検証を共通 snapshot parser に統合した。BOM 付き legacy manifest の移動追従と journal recovery は canonical no-BOM 出力へ安全に収束する。
 
 依存: なし。すべての最優先作業の起点。
 
@@ -711,14 +712,14 @@ deterministic/async Document Host と Scene adapter は実装済みで、2D/3D S
 
 ### 6. Asset Browser の低リスク操作
 
-永続 Asset DB と reference graph に加え、New Folder/ACS asset、breadcrumb、recursive read-only search、Reveal in Explorer、transactional rename/move/duplicate、redirector、project-local Trash を実装済み。新規作成は canonical serializer を持つ形式だけを公開し、同一ディレクトリの atomic publish と共通 project mutation lease を使う。今後追加する asset type も、拡張子だけを UI に足すのではなく serializer、index importer、open/edit 導線、rollback self-test を一組で導入する。
+永続 Asset DB と reference graph に加え、New Folder/ACS asset、breadcrumb、current/subfolder/all-assets の read-only search scope、Reveal in Explorer、transactional rename/move/duplicate、redirector、project-local Trash を実装済み。全 Assets 検索は immutable DB snapshot のみを worker task で評価し、Assets root 外の current folder/candidate は fail closed で除外する。新規作成は canonical serializer を持つ形式だけを公開し、同一ディレクトリの atomic publish と共通 project mutation lease を使う。今後追加する asset type も、拡張子だけを UI に足すのではなく serializer、index importer、open/edit 導線、rollback self-test を一組で導入する。
 
 検証:
 
 - symlink、`..`、大文字小文字差を含む path が project root 外へ書き込まない。
 - payload/`.acsmeta`/material graph の大小文字差衝突で上書きせず suffix を選ぶ。
 - キャンセル、serializer 失敗、予約 staging target で部分ファイルを残さない。
-- read-only search が current directory の再帰列挙で UI を停止させない。
+- current/subfolder/all-assets search が UI thread で filesystem を列挙せず、scope 変更中も stale materialization を公開しない。
 
 ### 7. ABI capability 表示
 

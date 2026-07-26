@@ -614,6 +614,143 @@ ACS_TEST(VolumetricClouds,
     EXPECT_EQ(sanitized.height, 1u);
 }
 
+ACS_TEST(VolumetricClouds,
+         WorkloadDiagnosticsSeparateSteadyBakeAndShadowDispatches) {
+    FVolumetricCloudFrameWorkloadPlan steadyPlan{};
+    steadyPlan.trace_width = 480u;
+    steadyPlan.trace_height = 270u;
+    steadyPlan.output_width = 1920u;
+    steadyPlan.output_height = 1080u;
+    const FVolumetricCloudFrameWorkload steady =
+        PlanVolumetricCloudFrameWorkload(steadyPlan);
+
+    EXPECT_EQ(steady.steady_dispatches, 2u);
+    EXPECT_EQ(steady.one_time_bake_dispatches, 0u);
+    EXPECT_EQ(steady.shadow_cache_dispatches, 0u);
+    EXPECT_EQ(steady.total_compute_dispatches, 2u);
+    EXPECT_EQ(steady.trace_logical_invocations, 129600u);
+    EXPECT_EQ(steady.trace_launched_threads, 130560u);
+    EXPECT_EQ(steady.resolve_logical_invocations, 2073600u);
+    EXPECT_EQ(steady.resolve_launched_threads, 2073600u);
+    EXPECT_EQ(steady.total_logical_invocations, 2203200u);
+    EXPECT_EQ(steady.total_launched_threads, 2204160u);
+    EXPECT_EQ(steady.maximum_view_samples, 24883200u);
+    EXPECT_EQ(steady.maximum_light_samples, 199065600u);
+    EXPECT_TRUE(steady.temporal_super_resolution);
+    EXPECT_FALSE(steady.attempted);
+    EXPECT_FALSE(steady.submitted);
+
+    FVolumetricCloudFrameWorkloadPlan coldPlan = steadyPlan;
+    coldPlan.bake_shape_noise = true;
+    coldPlan.bake_weather = true;
+    coldPlan.bake_detail_noise = true;
+    coldPlan.bake_curl_noise = true;
+    coldPlan.rebuild_shadow_cache = true;
+    const FVolumetricCloudFrameWorkload cold =
+        PlanVolumetricCloudFrameWorkload(coldPlan);
+
+    EXPECT_EQ(cold.steady_dispatches, 2u);
+    EXPECT_EQ(cold.one_time_bake_dispatches, 4u);
+    EXPECT_EQ(cold.shadow_cache_dispatches, 2u);
+    EXPECT_EQ(cold.total_compute_dispatches, 8u);
+    EXPECT_EQ(cold.one_time_bake_logical_invocations, 2637824u);
+    EXPECT_EQ(cold.one_time_bake_launched_threads, 2637824u);
+    EXPECT_EQ(cold.shadow_cache_logical_invocations, 589824u);
+    EXPECT_EQ(cold.shadow_cache_launched_threads, 589824u);
+    EXPECT_EQ(cold.total_logical_invocations, 5430848u);
+    EXPECT_EQ(cold.total_launched_threads, 5431808u);
+    EXPECT_EQ(cold.maximum_view_samples, steady.maximum_view_samples);
+    EXPECT_EQ(cold.maximum_light_samples, steady.maximum_light_samples);
+}
+
+ACS_TEST(VolumetricClouds,
+         WorkloadDiagnosticsAccountForPaddingAndSaturateHostileSizes) {
+    FVolumetricCloudFrameWorkloadPlan oddPlan{};
+    oddPlan.trace_width = 480u;
+    oddPlan.trace_height = 270u;
+    oddPlan.output_width = 1919u;
+    oddPlan.output_height = 1079u;
+    const FVolumetricCloudFrameWorkload odd =
+        PlanVolumetricCloudFrameWorkload(oddPlan);
+    EXPECT_EQ(odd.trace_logical_invocations, 129600u);
+    EXPECT_EQ(odd.trace_launched_threads, 130560u);
+    EXPECT_EQ(odd.resolve_logical_invocations, 2070601u);
+    EXPECT_EQ(odd.resolve_launched_threads, 2073600u);
+    EXPECT_TRUE(odd.temporal_super_resolution);
+
+    FVolumetricCloudFrameWorkloadPlan hostilePlan{};
+    hostilePlan.trace_width = std::numeric_limits<u32>::max();
+    hostilePlan.trace_height = std::numeric_limits<u32>::max();
+    hostilePlan.output_width = std::numeric_limits<u32>::max();
+    hostilePlan.output_height = std::numeric_limits<u32>::max();
+    const FVolumetricCloudFrameWorkload hostile =
+        PlanVolumetricCloudFrameWorkload(hostilePlan);
+    const u64 maximumU32 = std::numeric_limits<u32>::max();
+    const u64 maximumLogical2D = maximumU32 * maximumU32;
+    EXPECT_EQ(
+        hostile.trace_logical_invocations,
+        maximumLogical2D);
+    EXPECT_EQ(
+        hostile.trace_launched_threads,
+        std::numeric_limits<u64>::max());
+    EXPECT_EQ(
+        hostile.resolve_logical_invocations,
+        maximumLogical2D);
+    EXPECT_EQ(
+        hostile.total_logical_invocations,
+        std::numeric_limits<u64>::max());
+    EXPECT_EQ(
+        hostile.total_launched_threads,
+        std::numeric_limits<u64>::max());
+    EXPECT_EQ(
+        hostile.maximum_view_samples,
+        std::numeric_limits<u64>::max());
+    EXPECT_EQ(
+        hostile.maximum_light_samples,
+        std::numeric_limits<u64>::max());
+    EXPECT_FALSE(hostile.temporal_super_resolution);
+}
+
+ACS_TEST(VolumetricClouds,
+         RuntimeWorkloadPublicationFollowsActualDispatchAndCompositeSites) {
+    const std::string source = ReadSkySource();
+    const std::string compact = CompactShader(source);
+    EXPECT_TRUE(!compact.empty());
+
+    EXPECT_TRUE(Contains(
+        compact,
+        "m_LastFrameWorkload={};"
+        "m_LastFrameWorkload.attempted=true;"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "m_LastFrameWorkload="
+        "PlanVolumetricCloudFrameWorkload(workloadPlan);"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(bakeShapeNoiseThisFrame){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(bakeWeatherThisFrame){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(bakeDetailNoiseThisFrame){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(bakeCurlNoiseThisFrame){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(rebuildShadowCacheThisFrame){"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "m_LastFrameWorkload.submitted=true;"));
+    EXPECT_TRUE(Contains(
+        compact,
+        "if(m_LastFrameWorkload.submitted&&"
+        "m_LastFrameWorkload.composite_draws!=~u32{0}){"));
+    EXPECT_EQ(kVolumetricCloudMaxViewMarchSamples, 192u);
+    EXPECT_EQ(kVolumetricCloudMaxLightMarchSamples, 8u);
+}
+
 ACS_TEST(VolumetricClouds, MarchPlanUsesWorldDistanceInsteadOfHeightSlices) {
     EXPECT_NEAR(kVolumetricCloudMaxDistance, 250000.0f, 1e-3f);
     const FVolumetricCloudLayer layer{96.0f, 128.0f, 0.035f};
@@ -3217,10 +3354,9 @@ ACS_TEST(VolumetricClouds,
     }
 
     const std::size_t noiseBake =
-        compact.find("if(!m_NoiseBaked&&m_NoisePipe&&m_ShapeTex){");
+        compact.find("if(bakeShapeNoiseThisFrame){");
     const std::size_t shadowBuild =
-        compact.find(
-            "if(shadowWillBuildThisFrame&&m_NoiseBaked&&m_WeatherBaked&&");
+        compact.find("if(rebuildShadowCacheThisFrame){");
     const std::size_t dummyU0 =
         compact.find("cl.BindUav(0,*m_CloudTex);", shadowBuild);
     const std::size_t dummyU1 =

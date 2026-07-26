@@ -14,6 +14,8 @@ public partial class ProfilerPanel : UserControl
     private bool _interopUnavailable;
     private bool _hasLatestSnapshot;
     private EditorProfilerSnapshot _latestSnapshot;
+    private double _lastPresentationMilliseconds;
+    private double _maximumPresentationMilliseconds;
 
     internal Func<IntPtr>? EngineProvider { get; set; }
     internal Func<EditorLogPumpSnapshot>? LogPumpProvider { get; set; }
@@ -21,6 +23,8 @@ public partial class ProfilerPanel : UserControl
         get;
         set;
     }
+    internal Func<EditorDispatcherWatchdogSnapshot>?
+        DispatcherWatchdogProvider { get; set; }
     internal Action? ResetEditorPeaks { get; set; }
     internal event Action<string>? SummaryChanged;
 
@@ -29,13 +33,15 @@ public partial class ProfilerPanel : UserControl
         InitializeComponent();
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(100),
+            Interval = EditorProfilerPresentationPolicy.SampleInterval(
+                panelVisible: false),
         };
         _timer.Tick += OnSampleTick;
     }
 
     internal void Start()
     {
+        UpdateSampleCadence();
         if (!_timer.IsEnabled)
             _timer.Start();
     }
@@ -48,6 +54,9 @@ public partial class ProfilerPanel : UserControl
         _hasLatestSnapshot = false;
         HistoryGraph.SetHistory(_history.Points);
         HistoryGraph.SetPeaks(-1, -1);
+        HistoryGraph.ResetRenderDiagnostics();
+        _lastPresentationMilliseconds = 0;
+        _maximumPresentationMilliseconds = 0;
         AvailabilityText.Text = _interopUnavailable
             ? "Profiler ABI unavailable"
             : "History reset";
@@ -58,6 +67,32 @@ public partial class ProfilerPanel : UserControl
 
     private void OnSampleTick(object? sender, EventArgs e)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            SampleProfiler();
+        }
+        finally
+        {
+            _lastPresentationMilliseconds =
+                (System.Diagnostics.Stopwatch.GetTimestamp() - started) *
+                1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            _maximumPresentationMilliseconds = Math.Max(
+                _maximumPresentationMilliseconds,
+                _lastPresentationMilliseconds);
+            if (IsVisible)
+                UpdateProfilerPresentationMetrics();
+        }
+    }
+
+    private void SampleProfiler()
+    {
+        // Managed diagnostics remain live even when the renderer stops
+        // advancing its native frame index. Only native history and graph
+        // invalidation are gated by EditorProfilerHistory.Add.
+        if (EditorProfilerPresentationPolicy.ShouldPresentManagedDiagnostics(
+                IsVisible))
+            UpdateEditorUiMetrics();
         if (_history.IsPaused || _interopUnavailable)
             return;
 
@@ -174,7 +209,6 @@ public partial class ProfilerPanel : UserControl
         CloudStepsValue.Text =
             $"{snapshot.CloudMarchSteps} / {snapshot.CloudLightSteps}";
 
-        UpdateEditorUiMetrics();
         SummaryChanged?.Invoke(EditorProfilerFormatting.CompactSummary(average));
     }
 
@@ -210,6 +244,30 @@ public partial class ProfilerPanel : UserControl
         NativeCallValue.ToolTip =
             $"Last call: {native.LastNativeCallKind}; " +
             $"{native.NativeCallCount:N0} measured native calls.";
+
+        EditorDispatcherWatchdogSnapshot dispatcher =
+            DispatcherWatchdogProvider?.Invoke() ?? default;
+        DispatcherGapValue.Text =
+            $"{dispatcher.LastDispatcherGapMilliseconds:0.0} / " +
+            $"{dispatcher.MaximumDispatcherGapMilliseconds:0.0} ms";
+        DispatcherGapValue.ToolTip =
+            $"Heartbeat age {dispatcher.HeartbeatAgeMilliseconds:0.0} ms; " +
+            $"phase: {dispatcher.Phase ?? "unavailable"}; " +
+            $"{dispatcher.HeartbeatCount:N0} heartbeats.";
+        DispatcherStallValue.Text = dispatcher.StallActive
+            ? $"ACTIVE {dispatcher.ActiveStallMilliseconds:0} ms"
+            : $"{dispatcher.StallCount:N0} / " +
+              $"{dispatcher.LongestStallMilliseconds:0.0} ms";
+    }
+
+    private void UpdateProfilerPresentationMetrics()
+    {
+        ProfilerUiValue.Text =
+            $"{_lastPresentationMilliseconds:0.00} / " +
+            $"{_maximumPresentationMilliseconds:0.00} ms";
+        ProfilerGraphValue.Text =
+            $"{HistoryGraph.LastRenderMilliseconds:0.00} / " +
+            $"{HistoryGraph.MaximumRenderMilliseconds:0.00} ms";
     }
 
     private void OnPauseChanged(object sender, RoutedEventArgs e)
@@ -231,11 +289,24 @@ public partial class ProfilerPanel : UserControl
         object sender,
         DependencyPropertyChangedEventArgs e)
     {
+        UpdateSampleCadence();
         if (IsVisible && _hasLatestSnapshot)
         {
             UpdateValues(_latestSnapshot);
+            UpdateEditorUiMetrics();
+            UpdateProfilerPresentationMetrics();
             HistoryGraph.SetHistory(_history.Points);
         }
+    }
+
+    private void UpdateSampleCadence()
+    {
+        if (_timer == null)
+            return;
+        TimeSpan requested =
+            EditorProfilerPresentationPolicy.SampleInterval(IsVisible);
+        if (_timer.Interval != requested)
+            _timer.Interval = requested;
     }
 
     private void OnDisplayChanged(object sender, RoutedEventArgs e)

@@ -417,6 +417,23 @@ internal static class SceneSaveSelfTest
                     return true;
                 }
             }
+            bool ManifestBytesRejectedAsInvalidData(byte[] bytes)
+            {
+                File.WriteAllBytes(manifestPath, bytes);
+                try
+                {
+                    _ = ProjectManager.ReadManifest(manifestPath);
+                    return false;
+                }
+                catch (InvalidDataException)
+                {
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
 
             Check(
                 ManifestBytesRejected(new byte[(1024 * 1024) + 1]),
@@ -428,6 +445,97 @@ internal static class SceneSaveSelfTest
                 ManifestBytesRejected(
                     Encoding.UTF8.GetBytes("{\"version\":1,\0\"name\":\"bad\"}")),
                 "project manifest read rejects embedded NUL bytes");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"VERSION\":1,\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects case-insensitive duplicate properties");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"extension\":{\"mode\":1,\"MODE\":2}," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects duplicate properties inside extension objects");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":2,\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read fails closed on unsupported schema versions");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"VERSION\":2,\"initialScene\":\"Assets/main.acscene\"}")),
+                "case-variant schema fields cannot bypass version validation");
+            Check(
+                ManifestBytesRejectedAsInvalidData(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":\"one\",\"initialScene\":\"Assets/main.acscene\"}")) &&
+                ManifestBytesRejectedAsInvalidData(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"name\":{},\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest field type failures use the stable invalid-data boundary");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"canonicalSceneAssetId\":\"not-an-asset-id\"," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects malformed canonical Asset IDs");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"canonicalSceneAssetId\":" +
+                        "\"00000000000000000000000000000000\"," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects the reserved zero Asset GUID");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"name\":\"spoof\\u202Ename\"," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects escaped bidirectional formatting characters");
+            Check(
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"name\":\"line\\u2028break\"," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")) &&
+                ManifestBytesRejected(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"name\":\"zero\\u200Bwidth\"," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects line separators and invisible format characters");
+            Check(
+                ManifestBytesRejectedAsInvalidData(
+                    Encoding.UTF8.GetBytes(
+                        "{\"version\":1,\"name\":\"broken\\uD800\"," +
+                        "\"initialScene\":\"Assets/main.acscene\"}")),
+                "project manifest read rejects malformed surrogate text through the stable boundary");
+
+            File.WriteAllText(
+                manifestPath,
+                "{\"name\":\"Legacy\",\"initialScene\":\"Assets/main.acscene\"}");
+            Project legacyVersionProject = ProjectManager.ReadManifest(manifestPath);
+            Check(
+                legacyVersionProject.Version == 1,
+                "legacy manifest without an explicit version migrates to schema version 1");
+            string unsafeFallbackManifest = Path.Combine(
+                projectRoot,
+                "fallback\u202Ename.acsproject");
+            File.WriteAllText(
+                unsafeFallbackManifest,
+                "{\"version\":1,\"name\":\"\"," +
+                "\"initialScene\":\"Assets/main.acscene\"}");
+            bool unsafeFallbackNameRejected = false;
+            try
+            {
+                _ = ProjectManager.ReadManifest(unsafeFallbackManifest);
+            }
+            catch (InvalidDataException)
+            {
+                unsafeFallbackNameRejected = true;
+            }
+            Check(
+                unsafeFallbackNameRejected,
+                "unsafe manifest filenames cannot bypass project-name text validation");
 
             WriteManifest("Assets/Scenes/../main.acscene");
             Project normalizedProject = ProjectManager.ReadManifest(manifestPath);
@@ -535,8 +643,7 @@ internal static class SceneSaveSelfTest
         Directory.CreateDirectory(config);
 
         string manifestPath = Path.Combine(projectRoot, "ReferenceFollow.acsproject");
-        File.WriteAllText(
-            manifestPath,
+        string manifestText =
             """
             {
               "version": 1,
@@ -547,7 +654,12 @@ internal static class SceneSaveSelfTest
               "canonicalSceneAssetId": "11111111111111111111111111111111",
               "futureProperty": { "preserve": true }
             }
-            """);
+            """;
+        File.WriteAllBytes(
+            manifestPath,
+            Encoding.UTF8.GetPreamble()
+                .Concat(Encoding.UTF8.GetBytes(manifestText))
+                .ToArray());
         string settingsPath = Path.Combine(config, "ProjectSettings.ini");
         File.WriteAllText(
             settingsPath,
@@ -573,7 +685,7 @@ internal static class SceneSaveSelfTest
             preflightAccepted = false;
         }
         check(preflightAccepted,
-            "initial-scene path follow preflight accepts coherent manifest and settings");
+            "initial-scene path follow preflight accepts a coherent BOM legacy manifest");
 
         string firstDestination = Path.Combine(scenes, "Opening.acscene");
         File.Move(initial, firstDestination);
@@ -616,8 +728,10 @@ internal static class SceneSaveSelfTest
             first.CurrentReference == "Assets/Scenes/Opening.acscene" &&
             project.InitialScene == first.CurrentReference &&
             persistedFirst.InitialScene == first.CurrentReference &&
-            ReadIniValue(settingsPath, "Game", "DefaultScene") == first.CurrentReference,
-            "committed scene move updates manifest, Project state, and Game.DefaultScene together");
+            ReadIniValue(settingsPath, "Game", "DefaultScene") == first.CurrentReference &&
+            !File.ReadAllBytes(manifestPath).AsSpan().StartsWith(
+                new byte[] { 0xEF, 0xBB, 0xBF }),
+            "committed scene move updates BOM legacy manifest, Project state, and Game.DefaultScene together");
         check(
             firstManifest["futureProperty"]?["preserve"]?.GetValue<bool>() == true &&
             ReadIniValue(settingsPath, "Rendering", "Exposure") == "1.25" &&

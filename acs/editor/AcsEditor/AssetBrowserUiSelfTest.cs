@@ -373,6 +373,19 @@ internal static class AssetBrowserUiSelfTest
                   panel.Tiles.ItemsPanel != null &&
                   panel.Tiles.ItemContainerStyle != null,
                 "Asset View constructs its default tile presentation without opening a window");
+            string[] searchScopes = panel.SearchScopeBox.Items
+                .OfType<ComboBoxItem>()
+                .Select(static item => item.Tag as string)
+                .Where(static tag => tag != null)
+                .Cast<string>()
+                .ToArray();
+            Check(
+                searchScopes.SequenceEqual(
+                    new[] { "CurrentFolder", "Subfolders", "EntireProject" },
+                    StringComparer.Ordinal) &&
+                panel.SearchScopeBox.SelectedIndex == 0 &&
+                !panel.SearchScopeBox.IsEnabled,
+                "search scope exposes narrow, subtree, and all-assets modes and stays disabled without a project");
 
             long snapshotWriteTicks =
                 new DateTime(2025, 4, 3, 2, 1, 0, DateTimeKind.Utc).Ticks;

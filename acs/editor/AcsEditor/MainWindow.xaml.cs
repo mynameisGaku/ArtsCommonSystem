@@ -1172,6 +1172,7 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _dispatcherWatchdog?.Beat("attaching renderer host");
         _engineStartupState = EditorEngineStartupState.WaitingForAttach;
         StatusText.Text = "Attaching renderer...";
         ViewportLoadingTitle.Text = "Loading scene…";
@@ -1207,10 +1208,13 @@ public partial class MainWindow : Window
         ProfilerView.LogPumpProvider = GetEditorLogPumpSnapshot;
         ProfilerView.NativeRenderProvider =
             () => _viewport?.GetNativeRenderDiagnostic() ?? default;
+        ProfilerView.DispatcherWatchdogProvider =
+            GetDispatcherWatchdogSnapshot;
         ProfilerView.ResetEditorPeaks = () =>
         {
             ResetEditorLogPumpPeaks();
             _viewport?.ResetNativeRenderDiagnostics();
+            ResetDispatcherWatchdogPeaks();
         };
         ProfilerView.SummaryChanged += summary => ProfilerStatusText.Text = summary;
         ProfilerView.Start();
@@ -1223,6 +1227,7 @@ public partial class MainWindow : Window
     private void OnEngineAttached()
     {
         if (_engineStartupState == EditorEngineStartupState.Closed) return;
+        _dispatcherWatchdog?.Beat("renderer attached");
 
         // The HwndHost stays hidden behind the WPF loading surface until a
         // complete scene is published. Native warm-up still needs cooperative
@@ -1320,6 +1325,8 @@ public partial class MainWindow : Window
         }
 
         int stage = _engineStartupCompletionStage;
+        _dispatcherWatchdog?.Beat(
+            "startup / " + EngineStartupCompletionStageName(stage));
         StatusText.Text =
             $"Initializing editor... {stage + 1}/{EngineStartupCompletionStageCount}  " +
             EngineStartupCompletionStageName(stage);
@@ -1391,6 +1398,7 @@ public partial class MainWindow : Window
         }
 
         _engineStartupState = EditorEngineStartupState.Ready;
+        _dispatcherWatchdog?.Beat("ready");
         _viewport?.SetHiddenStartupRenderingAllowed(false);
         StatusText.Text = "Ready";
         UpdateEditorInputEnabled();

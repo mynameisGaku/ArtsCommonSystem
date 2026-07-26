@@ -317,7 +317,9 @@ public static partial class ProjectManager
             project.ProjectFilePath,
             MaxProjectManifestBytes,
             ".acsproject manifest");
-        Project persisted = ReadManifest(manifest.Path);
+        Project persisted = ParseManifestSnapshot(
+            manifest.Path,
+            manifest.Bytes);
         EnsureSnapshotUnchanged(manifest, ".acsproject manifest");
         if (!string.Equals(
                 persisted.CanonicalSceneAssetId,
@@ -385,7 +387,9 @@ public static partial class ProjectManager
         ReferenceFileSnapshot manifest,
         string expectedReference)
     {
-        Project persisted = ReadManifest(manifest.Path);
+        Project persisted = ParseManifestSnapshot(
+            manifest.Path,
+            manifest.Bytes);
         EnsureSnapshotUnchanged(manifest, ".acsproject manifest");
         if (!string.Equals(
                 persisted.InitialScene,
@@ -541,11 +545,16 @@ public static partial class ProjectManager
         byte[] source,
         string currentReference)
     {
+        ReadOnlySpan<byte> payload = source;
+        if (payload.StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }))
+            payload = payload[3..];
+        ValidateManifestJson(payload);
+
         JsonNode? node;
         try
         {
             node = JsonNode.Parse(
-                source,
+                payload.ToArray(),
                 documentOptions: new JsonDocumentOptions
                 {
                     AllowTrailingCommas = false,
@@ -831,7 +840,13 @@ public static partial class ProjectManager
         EnsureSnapshotUnchanged(
             snapshot,
             Path.GetFileName(destination));
-        File.Move(temporary, destination, overwrite: true);
+        // A target that did not exist at snapshot time must never be replaced: another editor
+        // may have published it after the compare step. File.Move(false) keeps that final race
+        // fail-closed instead of silently clobbering the competing writer.
+        File.Move(
+            temporary,
+            destination,
+            overwrite: snapshot.Existed);
     }
 
     private static bool TryRestoreSnapshot(

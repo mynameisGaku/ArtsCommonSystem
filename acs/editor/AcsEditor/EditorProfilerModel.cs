@@ -27,6 +27,9 @@ internal readonly record struct EditorProfilerAverage(
 
 internal static class EditorProfilerPresentationPolicy
 {
+    internal const double VisibleSampleIntervalMilliseconds = 100.0;
+    internal const double HiddenSampleIntervalMilliseconds = 500.0;
+
     /// <summary>
     /// Sampling remains active while the dock is collapsed so the status strip
     /// and history stay current. Expensive WPF detail updates are published
@@ -36,6 +39,15 @@ internal static class EditorProfilerPresentationPolicy
         bool panelVisible,
         bool nativeFrameAdvanced) =>
         panelVisible && nativeFrameAdvanced;
+
+    internal static bool ShouldPresentManagedDiagnostics(bool panelVisible) =>
+        panelVisible;
+
+    internal static TimeSpan SampleInterval(bool panelVisible) =>
+        TimeSpan.FromMilliseconds(
+            panelVisible
+                ? VisibleSampleIntervalMilliseconds
+                : HiddenSampleIntervalMilliseconds);
 }
 
 /// <summary>

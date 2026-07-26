@@ -2510,6 +2510,175 @@ FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     return resolution;
 }
 
+namespace {
+
+constexpr u64 kCloudWorkloadMaximum = ~u64{0};
+
+u64 SaturatingCloudWorkloadAdd(u64 left, u64 right) noexcept {
+    return right > kCloudWorkloadMaximum - left
+        ? kCloudWorkloadMaximum : left + right;
+}
+
+u64 SaturatingCloudWorkloadMultiply(u64 left, u64 right) noexcept {
+    if (left == 0u || right == 0u) return 0u;
+    return right > kCloudWorkloadMaximum / left
+        ? kCloudWorkloadMaximum : left * right;
+}
+
+u64 CloudLogicalInvocations2D(u32 width, u32 height) noexcept {
+    return SaturatingCloudWorkloadMultiply(
+        static_cast<u64>(width), static_cast<u64>(height));
+}
+
+u64 CloudLogicalInvocations3D(
+    u32 width, u32 height, u32 depth) noexcept {
+    return SaturatingCloudWorkloadMultiply(
+        CloudLogicalInvocations2D(width, height),
+        static_cast<u64>(depth));
+}
+
+u64 CloudRoundedThreadExtent(u32 extent, u32 group_size) noexcept {
+    if (extent == 0u || group_size == 0u) return 0u;
+    const u64 groups =
+        (static_cast<u64>(extent) + group_size - 1u) / group_size;
+    return SaturatingCloudWorkloadMultiply(
+        groups, static_cast<u64>(group_size));
+}
+
+u64 CloudLaunchedThreads2D(
+    u32 width, u32 height, u32 group_width, u32 group_height) noexcept {
+    return SaturatingCloudWorkloadMultiply(
+        CloudRoundedThreadExtent(width, group_width),
+        CloudRoundedThreadExtent(height, group_height));
+}
+
+u64 CloudLaunchedThreads3D(
+    u32 width, u32 height, u32 depth,
+    u32 group_width, u32 group_height, u32 group_depth) noexcept {
+    return SaturatingCloudWorkloadMultiply(
+        CloudLaunchedThreads2D(
+            width, height, group_width, group_height),
+        CloudRoundedThreadExtent(depth, group_depth));
+}
+
+u32 CloudCeilDivisor(u32 value, u32 divisor) noexcept {
+    if (divisor == 0u) return 0u;
+    return value / divisor + (value % divisor != 0u ? 1u : 0u);
+}
+
+} // namespace
+
+FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
+    const FVolumetricCloudFrameWorkloadPlan& plan) noexcept {
+    FVolumetricCloudFrameWorkload out{};
+    out.trace_width = plan.trace_width;
+    out.trace_height = plan.trace_height;
+    out.output_width = plan.output_width;
+    out.output_height = plan.output_height;
+
+    out.trace_logical_invocations =
+        CloudLogicalInvocations2D(plan.trace_width, plan.trace_height);
+    out.resolve_logical_invocations =
+        CloudLogicalInvocations2D(plan.output_width, plan.output_height);
+    if (out.trace_logical_invocations != 0u) {
+        out.trace_launched_threads = CloudLaunchedThreads2D(
+            plan.trace_width, plan.trace_height, 8u, 8u);
+        ++out.steady_dispatches;
+    }
+    if (out.resolve_logical_invocations != 0u) {
+        out.resolve_launched_threads = CloudLaunchedThreads2D(
+            plan.output_width, plan.output_height, 8u, 8u);
+        ++out.steady_dispatches;
+    }
+
+    const auto add_bake_2d =
+        [&out](bool enabled, u32 width, u32 height,
+               u32 group_width, u32 group_height) noexcept {
+            if (!enabled) return;
+            ++out.one_time_bake_dispatches;
+            out.one_time_bake_logical_invocations =
+                SaturatingCloudWorkloadAdd(
+                    out.one_time_bake_logical_invocations,
+                    CloudLogicalInvocations2D(width, height));
+            out.one_time_bake_launched_threads =
+                SaturatingCloudWorkloadAdd(
+                    out.one_time_bake_launched_threads,
+                    CloudLaunchedThreads2D(
+                        width, height, group_width, group_height));
+        };
+    const auto add_bake_3d =
+        [&out](bool enabled, u32 width, u32 height, u32 depth,
+               u32 group_width, u32 group_height,
+               u32 group_depth) noexcept {
+            if (!enabled) return;
+            ++out.one_time_bake_dispatches;
+            out.one_time_bake_logical_invocations =
+                SaturatingCloudWorkloadAdd(
+                    out.one_time_bake_logical_invocations,
+                    CloudLogicalInvocations3D(width, height, depth));
+            out.one_time_bake_launched_threads =
+                SaturatingCloudWorkloadAdd(
+                    out.one_time_bake_launched_threads,
+                    CloudLaunchedThreads3D(
+                        width, height, depth,
+                        group_width, group_height, group_depth));
+        };
+
+    add_bake_3d(plan.bake_shape_noise, 128u, 128u, 128u, 4u, 4u, 4u);
+    add_bake_2d(plan.bake_weather, 512u, 512u, 8u, 8u);
+    add_bake_3d(plan.bake_detail_noise, 64u, 64u, 64u, 4u, 4u, 4u);
+    add_bake_2d(plan.bake_curl_noise, 128u, 128u, 8u, 8u);
+
+    if (plan.rebuild_shadow_cache) {
+        out.shadow_cache_dispatches = 2u;
+        const u64 logical = CloudLogicalInvocations3D(
+            kVolumetricCloudShadowCacheWidth,
+            kVolumetricCloudShadowCacheHeight,
+            kVolumetricCloudShadowCacheDepth);
+        const u64 launched = CloudLaunchedThreads3D(
+            kVolumetricCloudShadowCacheWidth,
+            kVolumetricCloudShadowCacheHeight,
+            kVolumetricCloudShadowCacheDepth,
+            4u, 4u, 4u);
+        out.shadow_cache_logical_invocations =
+            SaturatingCloudWorkloadMultiply(logical, 2u);
+        out.shadow_cache_launched_threads =
+            SaturatingCloudWorkloadMultiply(launched, 2u);
+    }
+
+    out.total_compute_dispatches =
+        out.steady_dispatches +
+        out.one_time_bake_dispatches +
+        out.shadow_cache_dispatches;
+    out.total_logical_invocations = SaturatingCloudWorkloadAdd(
+        SaturatingCloudWorkloadAdd(
+            out.trace_logical_invocations,
+            out.resolve_logical_invocations),
+        SaturatingCloudWorkloadAdd(
+            out.one_time_bake_logical_invocations,
+            out.shadow_cache_logical_invocations));
+    out.total_launched_threads = SaturatingCloudWorkloadAdd(
+        SaturatingCloudWorkloadAdd(
+            out.trace_launched_threads,
+            out.resolve_launched_threads),
+        SaturatingCloudWorkloadAdd(
+            out.one_time_bake_launched_threads,
+            out.shadow_cache_launched_threads));
+    out.maximum_view_samples = SaturatingCloudWorkloadMultiply(
+        out.trace_logical_invocations,
+        kVolumetricCloudMaxViewMarchSamples);
+    out.maximum_light_samples = SaturatingCloudWorkloadMultiply(
+        out.maximum_view_samples,
+        kVolumetricCloudMaxLightMarchSamples);
+    out.temporal_super_resolution =
+        plan.output_width != 0u && plan.output_height != 0u &&
+        plan.trace_width == CloudCeilDivisor(
+            plan.output_width, kVolumetricCloudUltraTraceDivisor) &&
+        plan.trace_height == CloudCeilDivisor(
+            plan.output_height, kVolumetricCloudUltraTraceDivisor);
+    return out;
+}
+
 f32 ResolveVolumetricCloudHorizonCoverage(
     f32 signed_elevation, f32 cutoff,
     f32 elevation_delta_x, f32 elevation_delta_y) noexcept {
@@ -3499,22 +3668,39 @@ bool FVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
 void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                                       FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
                                       f32 coverage, f32 density, f32 wind, f32 time) noexcept {
+    const bool historyWasAvailable = m_HistoryValid;
+    m_LastFrameWorkload = {};
+    m_LastFrameWorkload.attempted = true;
+    m_LastFrameWorkload.history_was_available =
+        historyWasAvailable;
     if (!m_Ready || !m_CloudTex || !m_CloudDepth || !m_HistoryColor[0] ||
         !m_HistoryColor[1] || !m_HistoryDepth[0] || !m_HistoryDepth[1] ||
         !m_CloudPipe || !m_ResolvePipe || !m_Cb ||
         !m_WeatherPipe || !m_WeatherTex ||
-        !m_DetailPipe || !m_DetailTex || !m_CurlPipe || !m_CurlTex) return;
+        !m_DetailPipe || !m_DetailTex || !m_CurlPipe || !m_CurlTex) {
+        m_LastFrameWorkload.skip_reason =
+            EVolumetricCloudFrameSkipReason::ResourcesNotReady;
+        return;
+    }
     // A corrupt camera transform cannot produce a meaningful world ray and
     // would otherwise seed NaNs into every temporal/history resource. Fail
     // closed for this frame; the ordinary sky remains available.
     if (!IsFiniteCloudMatrix(inv_view_proj) ||
         !IsFiniteCloudVector(cam_pos)) {
         m_HistoryValid = false;
+        m_LastFrameWorkload.skip_reason =
+            EVolumetricCloudFrameSkipReason::InvalidCamera;
+        m_LastFrameWorkload.history_invalidated =
+            historyWasAvailable;
         return;
     }
     const FMat4 viewProj = Inverse(inv_view_proj);
     if (!IsFiniteCloudMatrix(viewProj)) {
         m_HistoryValid = false;
+        m_LastFrameWorkload.skip_reason =
+            EVolumetricCloudFrameSkipReason::InvalidProjection;
+        m_LastFrameWorkload.history_invalidated =
+            historyWasAvailable;
         return;
     }
     const FVec3 safeSun = NormalizeSafe(sun_dir);
@@ -3698,6 +3884,39 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     // reconstruction never changes resource selection or dispatch work.
     if (!historyValid) m_TemporalPhase = 0u;
 
+    const bool bakeShapeNoiseThisFrame =
+        !m_NoiseBaked && m_NoisePipe && m_ShapeTex;
+    const bool bakeWeatherThisFrame =
+        !m_WeatherBaked && m_WeatherPipe && m_WeatherTex;
+    const bool bakeDetailNoiseThisFrame =
+        !m_DetailBaked && m_DetailPipe && m_DetailTex;
+    const bool bakeCurlNoiseThisFrame =
+        !m_CurlBaked && m_CurlPipe && m_CurlTex;
+    const bool rebuildShadowCacheThisFrame =
+        shadowWillBuildThisFrame &&
+        (m_NoiseBaked || bakeShapeNoiseThisFrame) &&
+        (m_WeatherBaked || bakeWeatherThisFrame) &&
+        (m_DetailBaked || bakeDetailNoiseThisFrame) &&
+        (m_CurlBaked || bakeCurlNoiseThisFrame);
+    FVolumetricCloudFrameWorkloadPlan workloadPlan{};
+    workloadPlan.trace_width = m_W;
+    workloadPlan.trace_height = m_H;
+    workloadPlan.output_width = m_FullW;
+    workloadPlan.output_height = m_FullH;
+    workloadPlan.bake_shape_noise = bakeShapeNoiseThisFrame;
+    workloadPlan.bake_weather = bakeWeatherThisFrame;
+    workloadPlan.bake_detail_noise = bakeDetailNoiseThisFrame;
+    workloadPlan.bake_curl_noise = bakeCurlNoiseThisFrame;
+    workloadPlan.rebuild_shadow_cache = rebuildShadowCacheThisFrame;
+    m_LastFrameWorkload =
+        PlanVolumetricCloudFrameWorkload(workloadPlan);
+    m_LastFrameWorkload.attempted = true;
+    m_LastFrameWorkload.history_was_available =
+        historyWasAvailable;
+    m_LastFrameWorkload.history_reused = historyValid;
+    m_LastFrameWorkload.history_invalidated =
+        historyWasAvailable && !historyValid;
+
     FCloudCb cb{};
     cb.invViewProj = inv_view_proj;
     cb.prevViewProj = historyValid ? m_PrevViewProj : viewProj;
@@ -3712,10 +3931,7 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cb.dims   = FVec4{ static_cast<f32>(m_W), static_cast<f32>(m_H),
                        static_cast<f32>(m_FullW), static_cast<f32>(m_FullH) };
     const bool temporalSuperResolution =
-        m_W == (m_FullW + kVolumetricCloudUltraTraceDivisor - 1u) /
-                   kVolumetricCloudUltraTraceDivisor &&
-        m_H == (m_FullH + kVolumetricCloudUltraTraceDivisor - 1u) /
-                   kVolumetricCloudUltraTraceDivisor;
+        m_LastFrameWorkload.temporal_super_resolution;
     // Ultra writes every quarter-dimension texel on every frame, independent
     // of camera motion/history validity. temporal.w selects exact 4x4 subpixel
     // rays and the full-resolution sixteen-phase resolve; it never changes the
@@ -3747,32 +3963,31 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheHeight)};
     m_Cb->Update(&cb, sizeof(cb));
     // Phase 4.5: 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
-    if (!m_NoiseBaked && m_NoisePipe && m_ShapeTex) {
+    if (bakeShapeNoiseThisFrame) {
         cl.SetComputePipeline(*m_NoisePipe);
         cl.BindUav(0, *m_ShapeTex);
         cl.Dispatch(32, 32, 32);   // 128/4
         m_NoiseBaked = true;
     }
-    if (!m_WeatherBaked && m_WeatherPipe && m_WeatherTex) {
+    if (bakeWeatherThisFrame) {
         cl.SetComputePipeline(*m_WeatherPipe);
         cl.BindUav(0, *m_WeatherTex);
         cl.Dispatch(64, 64, 1);    // 512/8
         m_WeatherBaked = true;
     }
-    if (!m_DetailBaked && m_DetailPipe && m_DetailTex) {
+    if (bakeDetailNoiseThisFrame) {
         cl.SetComputePipeline(*m_DetailPipe);
         cl.BindUav(0, *m_DetailTex);
         cl.Dispatch(16, 16, 16);   // 64/4
         m_DetailBaked = true;
     }
-    if (!m_CurlBaked && m_CurlPipe && m_CurlTex) {
+    if (bakeCurlNoiseThisFrame) {
         cl.SetComputePipeline(*m_CurlPipe);
         cl.BindUav(0, *m_CurlTex);
         cl.Dispatch(16, 16, 1);    // 128/8
         m_CurlBaked = true;
     }
-    if (shadowWillBuildThisFrame && m_NoiseBaked && m_WeatherBaked &&
-        m_DetailBaked && m_CurlBaked) {
+    if (rebuildShadowCacheThisFrame) {
         cl.SetComputePipeline(*m_ShadowPipe);
         cl.SetConstantBuffer(0, *m_Cb);
         cl.SetTexture(0, *m_ShapeTex);
@@ -3845,6 +4060,12 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     cl.BindUav(1, *m_HistoryDepth[cur]);
     cl.Dispatch((m_FullW + 7u) / 8u, (m_FullH + 7u) / 8u, 1);
 
+    m_LastFrameWorkload.submitted = true;
+    if (m_WorkloadSubmissionIndex != kCloudWorkloadMaximum) {
+        ++m_WorkloadSubmissionIndex;
+    }
+    m_LastFrameWorkload.submission_index =
+        m_WorkloadSubmissionIndex;
     m_ResolvedIndex = cur;
     ++m_FrameIndex;
     m_TemporalPhase = (m_TemporalPhase + 1u) & 15u;
@@ -3894,6 +4115,10 @@ void FVolumetricClouds::Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
     if (useAtmosphere) cl.SetTexture(3, *atmosphere_volume);
     if (useAtmosphere) cl.SetTexture(4, *atmosphere_transmittance);
     cl.Draw(3, 0);
+    if (m_LastFrameWorkload.submitted &&
+        m_LastFrameWorkload.composite_draws != ~u32{0}) {
+        ++m_LastFrameWorkload.composite_draws;
+    }
 }
 
 void FVolumetricClouds::Shutdown() noexcept {
@@ -3925,6 +4150,8 @@ void FVolumetricClouds::Shutdown() noexcept {
     m_ShadowLayer = FVolumetricCloudLayer{}; m_ShadowCoverage = -1.0f;
     m_ShadowCacheDispatchCount = 0; m_ShadowGridInitialized = false;
     m_ShadowCacheAvailable = false; m_ShadowCacheValid = false;
+    m_WorkloadSubmissionIndex = 0u;
+    m_LastFrameWorkload = {};
 }
 
 } // namespace acs

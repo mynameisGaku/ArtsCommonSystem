@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,6 +12,8 @@ namespace AcsEditor;
 /// <summary>プロジェクトの新規作成・オープン・最近使った一覧。フォルダ生成とテンプレート展開を担う。</summary>
 public static partial class ProjectManager
 {
+    private const int CurrentProjectManifestVersion = 1;
+
     internal readonly record struct NewProjectScenePlan(
         string Template,
         string InitialScene,
@@ -21,7 +24,7 @@ public static partial class ProjectManager
     // マニフェスト JSON の (デ)シリアライズ用 DTO (Project の計算プロパティを書き出さないため分離)。
     private sealed class ManifestDto
     {
-        public int    version       { get; set; } = 1;
+        public int    version       { get; set; } = CurrentProjectManifestVersion;
         public string name          { get; set; } = "";
         public string engineVersion { get; set; } = "";
         public string template      { get; set; } = "blank";
@@ -30,6 +33,10 @@ public static partial class ProjectManager
     }
 
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions ManifestReadJsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
     /// <summary>
@@ -207,8 +214,18 @@ public static partial class ProjectManager
             MaxProjectManifestBytes,
             ".acsproject manifest",
             requireWritable: false);
-        string projectFilePath = manifest.Path;
-        ReadOnlySpan<byte> manifestBytes = manifest.Bytes;
+        return ParseManifestSnapshot(manifest.Path, manifest.Bytes);
+    }
+
+    private static Project ParseManifestSnapshot(
+        string projectFilePath,
+        ReadOnlySpan<byte> manifestBytes)
+    {
+        projectFilePath = Path.GetFullPath(projectFilePath);
+        string projectRoot = Path.GetDirectoryName(projectFilePath)
+            ?? throw new InvalidDataException(
+                ".acsproject path has no project directory.");
+        SceneSourceFile.ValidateProjectRootDirectory(projectRoot);
         if (manifestBytes.StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }))
             manifestBytes = manifestBytes[3..];
         string json;
@@ -225,14 +242,33 @@ public static partial class ProjectManager
         if (json.IndexOf('\0') >= 0)
             throw new InvalidDataException(
                 "The .acsproject manifest contains an embedded NUL.");
-        var dto = JsonSerializer.Deserialize<ManifestDto>(json)
-                  ?? throw new InvalidDataException("マニフェストの解析に失敗しました。");
+        ValidateManifestJson(manifestBytes);
+        ManifestDto dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<ManifestDto>(
+                      json,
+                      ManifestReadJsonOpts)
+                  ?? throw new InvalidDataException(
+                      "The .acsproject manifest could not be parsed.");
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidDataException(
+                "The .acsproject manifest has an invalid field type or value.",
+                error);
+        }
+        ValidateManifestDto(dto);
+        string effectiveName = string.IsNullOrEmpty(dto.name)
+            ? Path.GetFileNameWithoutExtension(projectFilePath)
+            : dto.name;
+        ValidateManifestText(effectiveName, "name", 256);
         var proj = new Project
         {
             Version = dto.version,
-            Name = string.IsNullOrEmpty(dto.name) ? Path.GetFileNameWithoutExtension(projectFilePath) : dto.name,
-            EngineVersion = dto.engineVersion,
-            Template = dto.template,
+            Name = effectiveName,
+            EngineVersion = dto.engineVersion ?? "",
+            Template = dto.template ?? "blank",
             InitialScene = string.IsNullOrEmpty(dto.initialScene) ? "Assets/main.acscene" : dto.initialScene,
             CanonicalSceneAssetId = dto.canonicalSceneAssetId ?? "",
             ProjectFilePath = projectFilePath,
@@ -242,6 +278,128 @@ public static partial class ProjectManager
             proj.AssetsDir,
             proj.InitialScene);
         return proj;
+    }
+
+    private static void ValidateManifestJson(ReadOnlySpan<byte> utf8)
+    {
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(
+                utf8.ToArray(),
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 32,
+                });
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidDataException(
+                "The .acsproject manifest is not valid JSON.",
+                error);
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException(
+                    "The .acsproject manifest root must be a JSON object.");
+            }
+            ValidateUniqueJsonProperties(document.RootElement);
+        }
+    }
+
+    private static void ValidateUniqueJsonProperties(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (!names.Add(property.Name))
+                {
+                    throw new InvalidDataException(
+                        "The .acsproject manifest contains a duplicate JSON property.");
+                }
+                ValidateUniqueJsonProperties(property.Value);
+            }
+            return;
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (JsonElement item in element.EnumerateArray())
+            ValidateUniqueJsonProperties(item);
+    }
+
+    private static void ValidateManifestDto(ManifestDto dto)
+    {
+        if (dto.version != CurrentProjectManifestVersion)
+        {
+            throw new InvalidDataException(
+                $"Unsupported .acsproject manifest version {dto.version}. " +
+                $"This editor supports version {CurrentProjectManifestVersion}.");
+        }
+
+        ValidateManifestText(dto.name, "name", 256);
+        ValidateManifestText(dto.engineVersion, "engineVersion", 128);
+        ValidateManifestText(dto.template, "template", 64);
+        ValidateManifestText(dto.initialScene, "initialScene", 1024);
+
+        string canonicalSceneAssetId = dto.canonicalSceneAssetId ?? "";
+        if (canonicalSceneAssetId.Length != 0 &&
+            (!Guid.TryParseExact(
+                 canonicalSceneAssetId,
+                 "N",
+                 out Guid parsedAssetId) ||
+             parsedAssetId == Guid.Empty))
+        {
+            throw new InvalidDataException(
+                "The .acsproject canonicalSceneAssetId must be empty for a legacy project " +
+                "or contain a non-zero 32-digit Asset GUID.");
+        }
+    }
+
+    private static void ValidateManifestText(
+        string? value,
+        string field,
+        int maximumCharacters)
+    {
+        if (value == null)
+            return;
+        if (value.Length > maximumCharacters)
+        {
+            throw new InvalidDataException(
+                $"The .acsproject {field} exceeds {maximumCharacters} characters.");
+        }
+        int offset = 0;
+        while (offset < value.Length)
+        {
+            OperationStatus status = Rune.DecodeFromUtf16(
+                value.AsSpan(offset),
+                out Rune rune,
+                out int consumed);
+            if (status != OperationStatus.Done || consumed <= 0)
+            {
+                throw new InvalidDataException(
+                    $"The .acsproject {field} is not well-formed UTF-16.");
+            }
+            System.Globalization.UnicodeCategory category =
+                Rune.GetUnicodeCategory(rune);
+            if (category is
+                System.Globalization.UnicodeCategory.Control or
+                System.Globalization.UnicodeCategory.Format or
+                System.Globalization.UnicodeCategory.LineSeparator or
+                System.Globalization.UnicodeCategory.ParagraphSeparator)
+            {
+                throw new InvalidDataException(
+                    $"The .acsproject {field} contains a control or formatting character.");
+            }
+            offset += consumed;
+        }
     }
 
     private static void WriteManifest(Project p)
@@ -256,7 +414,30 @@ public static partial class ProjectManager
             template = p.Template, initialScene = p.InitialScene,
             canonicalSceneAssetId = p.CanonicalSceneAssetId,
         };
-        File.WriteAllText(p.ProjectFilePath, JsonSerializer.Serialize(dto, JsonOpts), Utf8NoBom);
+        ValidateManifestDto(dto);
+        byte[] serialized = StrictUtf8NoBom.GetBytes(
+            JsonSerializer.Serialize(dto, JsonOpts) + Environment.NewLine);
+        if (serialized.LongLength > MaxProjectManifestBytes)
+        {
+            throw new InvalidDataException(
+                $"The .acsproject manifest exceeds {MaxProjectManifestBytes} bytes.");
+        }
+
+        SceneSourceFile.ValidateProjectRootDirectory(p.RootDir);
+        ReferenceFileSnapshot snapshot = CaptureOptionalOrdinaryFile(
+            p.ProjectFilePath,
+            MaxProjectManifestBytes,
+            ".acsproject manifest");
+        string temporary = CreateSiblingTemporaryPath(snapshot.Path);
+        try
+        {
+            WriteTemporaryBytes(temporary, serialized);
+            PublishTemporary(temporary, snapshot.Path, snapshot);
+        }
+        finally
+        {
+            TryDeleteOrdinaryFile(temporary);
+        }
     }
 
     // ===== 最近使ったプロジェクト (%APPDATA%/AcsEditor/recents.txt、新しい順) =====

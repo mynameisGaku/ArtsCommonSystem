@@ -131,3 +131,20 @@ no-STL 不変条件を守るため `TArray<T>` 上の自前 sparse-set 設計を
 アセット（画像・glTF/FBX メッシュ・音声）は `FAssetRegistry` 経由で読み込まれ、
 非同期ロードも選べます。ImGui 統合は現状 raw DX12 バックエンドのみを対象と
 しています。
+
+### ボリュメトリック雲の workload 診断
+
+`FVolumetricClouds::LastFrameWorkload()` は、直近の cloud compute/composite が
+実際に投入した仕事量を allocation なしで保持します。定常フレームの trace と
+full-resolution resolve、初回だけの shape/weather/detail/curl bake、任意の
+shadow-cache rebuild を別々の dispatch 数として記録します。logical invocation
+は有効 texel/voxel 数、launched thread は 8x8 または 4x4x4 workgroup の端数を
+含む実 dispatch 範囲です。
+
+`maximum_view_samples` と `maximum_light_samples` は shader loop の保守的な上限で、
+empty-space skipping、透過率 early exit、画面内容による分岐後の実行数では
+ありません。したがって最適化判断では、これらのカウンタで「初回 bake」と
+「定常処理」を分離し、RHI の cloud GPU timestamp を実時間の正本として併記します。
+この診断は描画解像度、march 数、lighting 数、temporal reconstruction を変更せず、
+計測のために画質を下げません。算術は `u64` 飽和で、異常な診断入力が小さい値へ
+wrap することも防ぎます。

@@ -121,8 +121,20 @@ internal static class EditorProfilerSelfTest
                 nativeFrameAdvanced: true) &&
             !EditorProfilerPresentationPolicy.ShouldPresentDetails(
                 panelVisible: true,
-                nativeFrameAdvanced: false),
-            "collapsed profiler docks keep sampling without invalidating hidden WPF details");
+                nativeFrameAdvanced: false) &&
+            EditorProfilerPresentationPolicy.ShouldPresentManagedDiagnostics(
+                panelVisible: true) &&
+            !EditorProfilerPresentationPolicy.ShouldPresentManagedDiagnostics(
+                panelVisible: false),
+            "native history waits for frame advance while visible managed diagnostics remain live");
+        Check(
+            EditorProfilerPresentationPolicy.SampleInterval(
+                panelVisible: true) ==
+                TimeSpan.FromMilliseconds(100) &&
+            EditorProfilerPresentationPolicy.SampleInterval(
+                panelVisible: false) ==
+                TimeSpan.FromMilliseconds(500),
+            "collapsed profiler docks reduce managed sampling load while visible diagnostics stay responsive");
 
         Check(!App.ShouldForceSoftwareUi(Array.Empty<string>(), false, 2) &&
               App.ShouldForceSoftwareUi(Array.Empty<string>(), true, 2) &&

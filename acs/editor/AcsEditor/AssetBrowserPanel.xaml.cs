@@ -132,7 +132,8 @@ public partial class AssetBrowserPanel : UserControl
     private string? _activeCollectionName;
     private string _filter = "";
     private string _kindFilter = "all";
-    private bool _recursiveFilter;
+    private AssetBrowserSearchScope _searchScope =
+        AssetBrowserSearchScope.CurrentFolder;
     private AssetBrowserHistory _history = new();
     private FileSystemWatcher? _watcher;
     private readonly DispatcherTimer _debounce;
@@ -1033,7 +1034,9 @@ public partial class AssetBrowserPanel : UserControl
             _activeCollectionName != null && _sourcesStore != null;
         PathText.Text = collectionView
             ? "Collections / " + _activeCollectionName
-            : RelDisplay(_currentDir);
+            : _searchScope == AssetBrowserSearchScope.EntireProject
+                ? "All Assets  |  Target " + RelDisplay(_currentDir)
+                : RelDisplay(_currentDir);
         MarkCurrentSourceNode();
         UpdateNavigationControls();
         AssetCountText.Text = collectionView
@@ -1048,7 +1051,7 @@ public partial class AssetBrowserPanel : UserControl
             _assetSnapshot,
             _filter,
             _kindFilter,
-            _recursiveFilter,
+            _searchScope,
             _presentationState.ShowFolders,
             _presentationState.ShowEmptyFolders);
         int projectGeneration = _projectRefreshGeneration;
@@ -1143,6 +1146,7 @@ public partial class AssetBrowserPanel : UserControl
                         assetCount,
                         folderCount,
                         result.IsCollection,
+                        result.IsGlobalSearch,
                         loading: true);
                     if (!queuedInitialThumbnails)
                     {
@@ -1162,6 +1166,7 @@ public partial class AssetBrowserPanel : UserControl
                 assetCount,
                 folderCount,
                 result.IsCollection,
+                result.IsGlobalSearch,
                 loading: false);
             FinishPendingViewSelection(result.Items);
             QueueThumbnailViewportRefresh();
@@ -1201,7 +1206,13 @@ public partial class AssetBrowserPanel : UserControl
         try
         {
             HashSet<string>? nonEmptyFolders = null;
-            if (request.ShowFolders && !request.ShowEmptyFolders)
+            bool needsFolderCandidates =
+                collectionView ||
+                request.SearchScope !=
+                    AssetBrowserSearchScope.EntireProject;
+            if (needsFolderCandidates &&
+                request.ShowFolders &&
+                !request.ShowEmptyFolders)
             {
                 nonEmptyFolders = BuildNonEmptyFolderSet(
                     request.AssetsRoot,
@@ -1239,6 +1250,9 @@ public partial class AssetBrowserPanel : UserControl
         return new AssetViewBuildResult(
             items.AsReadOnly(),
             collectionView,
+            !collectionView &&
+                request.SearchScope ==
+                    AssetBrowserSearchScope.EntireProject,
             warning);
     }
 
@@ -1248,7 +1262,16 @@ public partial class AssetBrowserPanel : UserControl
         ICollection<AssetViewCandidate> items,
         CancellationToken cancellationToken)
     {
-        if (request.ShowFolders)
+        AssetBrowserSearchScopePolicy.Filter searchScope =
+            AssetBrowserSearchScopePolicy.CreateFilter(
+                request.AssetsRoot,
+                request.CurrentDirectory,
+                request.SearchScope);
+        if (!searchScope.IsValid)
+            return;
+
+        if (request.ShowFolders &&
+            request.SearchScope != AssetBrowserSearchScope.EntireProject)
         {
             foreach (string directory in Directory.GetDirectories(request.CurrentDirectory)
                          .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
@@ -1292,11 +1315,7 @@ public partial class AssetBrowserPanel : UserControl
         }
 
         foreach (AssetRecord record in request.Snapshot
-                     .Where(record => request.RecursiveFilter
-                         ? IsUnder(record.FullPath, request.CurrentDirectory)
-                         : PathEquals(
-                             Path.GetDirectoryName(record.FullPath) ?? "",
-                             request.CurrentDirectory))
+                     .Where(record => searchScope.Includes(record.FullPath))
                      .OrderBy(static record =>
                          record.RelativePath,
                          StringComparer.OrdinalIgnoreCase))
@@ -1434,9 +1453,14 @@ public partial class AssetBrowserPanel : UserControl
         int assetCount,
         int folderCount,
         bool collection,
+        bool globalSearch,
         bool loading) =>
         $"{assetCount} assets  |  {folderCount} folders" +
         (collection ? "  |  collection" : "") +
+        (globalSearch
+            ? "  |  " + AssetBrowserSearchScopePolicy.StatusLabel(
+                AssetBrowserSearchScope.EntireProject)
+            : "") +
         (loading ? "  |  loading..." : "");
 
     private void ApplyPendingViewSelection(AssetItem item)
@@ -1506,7 +1530,7 @@ public partial class AssetBrowserPanel : UserControl
         IReadOnlyList<AssetRecord> Snapshot,
         string Filter,
         string KindFilter,
-        bool RecursiveFilter,
+        AssetBrowserSearchScope SearchScope,
         bool ShowFolders,
         bool ShowEmptyFolders);
 
@@ -1522,6 +1546,7 @@ public partial class AssetBrowserPanel : UserControl
     private sealed record AssetViewBuildResult(
         IReadOnlyList<AssetViewCandidate> Items,
         bool IsCollection,
+        bool IsGlobalSearch,
         string? Warning);
 
     private void ReportIndexResult(AssetDatabaseRefreshResult result)
@@ -1620,6 +1645,8 @@ public partial class AssetBrowserPanel : UserControl
                           (_activeCollectionName != null ||
                            (!string.IsNullOrEmpty(_currentDir) &&
                             !PathEquals(_currentDir, _project.AssetsDir)));
+        SearchScopeBox.IsEnabled =
+            _project != null && _activeCollectionName == null;
     }
 
     private void OnSourceTreeSelected(
@@ -2091,10 +2118,16 @@ public partial class AssetBrowserPanel : UserControl
         if (IsInitialized && !_suppressViewFilterRefresh) RequestViewRefresh();
     }
 
-    private void OnRecursiveFilterChanged(object sender, RoutedEventArgs e)
+    private void OnSearchScopeChanged(object sender, SelectionChangedEventArgs e)
     {
-        _recursiveFilter = RecursiveToggle.IsChecked == true;
-        if (IsInitialized && !_suppressViewFilterRefresh) RequestViewRefresh();
+        _searchScope = SearchScopeBox.SelectedItem is ComboBoxItem
+            {
+                Tag: string tag,
+            }
+            ? AssetBrowserSearchScopePolicy.ParseTag(tag)
+            : AssetBrowserSearchScope.CurrentFolder;
+        if (IsInitialized && !_suppressViewFilterRefresh)
+            RequestViewRefresh();
     }
 
     private void RequestViewRefresh()
