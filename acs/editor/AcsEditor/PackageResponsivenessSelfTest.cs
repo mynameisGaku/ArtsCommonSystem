@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -61,6 +63,10 @@ internal static class PackageResponsivenessSelfTest
         await VerifyLatestOnlyValidationAsync();
         await VerifyConfigSnapshotAsync();
         VerifyPrefabCookRewrite();
+        VerifyBlueprintCookRewrite();
+        VerifyBlueprintCookCacheVersion();
+        VerifyBlueprintParentPathPolicy();
+        VerifyBlueprintInheritanceClosure();
         await VerifyProcessOutputBoundAsync();
         await VerifyProcessCancellationAsync();
         await VerifyPriorGameProcessDrainAsync();
@@ -138,6 +144,627 @@ internal static class PackageResponsivenessSelfTest
                     assets,
                     root),
                 "unknown prefab payload headers fail closed");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static void VerifyBlueprintCookRewrite()
+    {
+        string root = FixtureRoot("blueprint-cook");
+        string assets = Path.Combine(root, "Assets");
+        string blueprints = Path.Combine(assets, "Blueprints");
+        string parent = Path.Combine(blueprints, "Base.acsbp");
+        string outside = Path.Combine(root, "Outside.acsbp");
+        string mesh = Path.Combine(assets, "Models", "aircraft.glb");
+        string sprite = Path.Combine(assets, "Textures", "cloud.png");
+        string material = Path.Combine(assets, "Materials", "cloud.acsmat");
+        string nestedPrefab = Path.Combine(assets, "Prefabs", "engine.acsprefab");
+        Directory.CreateDirectory(blueprints);
+        Directory.CreateDirectory(Path.GetDirectoryName(mesh)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sprite)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(material)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(nestedPrefab)!);
+        File.WriteAllText(parent, "ACSBP 1\n", new UTF8Encoding(false));
+        File.WriteAllText(outside, "ACSBP 1\n", new UTF8Encoding(false));
+        File.WriteAllBytes(mesh, [0x67, 0x6c, 0x54, 0x46]);
+        File.WriteAllBytes(sprite, [1, 2, 3, 4]);
+        File.WriteAllText(material, "ACSMAT 1\n", new UTF8Encoding(false));
+        File.WriteAllText(nestedPrefab, "ACS3D v2\n", new UTF8Encoding(false));
+
+        try
+        {
+            string source3D =
+                "ACSBP 1\n" +
+                $"PARENT {parent}\n" +
+                "CMP 6\n" +
+                "ACS3D v2\n" +
+                "N3D 1\n" +
+                $"MSH3D 1 {mesh}\n" +
+                $"SPR3D 1 {sprite}\n" +
+                $"MAT3D 1 {material}\n" +
+                $"PFAB3D 1 {nestedPrefab}\n";
+            string rewritten3D = Encoding.UTF8.GetString(
+                PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(source3D),
+                    assets,
+                    root));
+            string portableRoot = root.Replace('\\', '/');
+            Check(
+                rewritten3D ==
+                    "ACSBP 1\n" +
+                    "PARENT Assets/Blueprints/Base.acsbp\n" +
+                    "CMP 6\n" +
+                    "ACS3D v2\n" +
+                    "N3D 1\n" +
+                    "MSH3D 1 Assets/Models/aircraft.glb\n" +
+                    "SPR3D 1 Assets/Textures/cloud.png\n" +
+                    "MAT3D 1 Assets/Materials/cloud.acsmat\n" +
+                    "PFAB3D 1 Assets/Prefabs/engine.acsprefab\n" &&
+                !rewritten3D.Contains(root, StringComparison.OrdinalIgnoreCase) &&
+                !rewritten3D.Contains(
+                    portableRoot,
+                    StringComparison.OrdinalIgnoreCase),
+                "Blueprint Cook rewrites PARENT and every ACS3D CMP reference in one portable transaction");
+
+            string source2D =
+                "ACSBP 1\n" +
+                "CMP 6\n" +
+                "ACSCENE v1\n" +
+                "0\n" +
+                $"SPRT 1 {sprite}\n" +
+                $"MAT 1 {material}\n" +
+                $"PFAB 1 {nestedPrefab}\n" +
+                "RPLY 1 3 0 0 1 0 0 1\n";
+            string rewritten2D = Encoding.UTF8.GetString(
+                PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(source2D),
+                    assets,
+                    root));
+            Check(
+                rewritten2D ==
+                    "ACSBP 1\n" +
+                    "CMP 6\n" +
+                    "ACSCENE v1\n" +
+                    "0\n" +
+                    "SPRT 1 Assets/Textures/cloud.png\n" +
+                    "MAT 1 Assets/Materials/cloud.acsmat\n" +
+                    "PFAB 1 Assets/Prefabs/engine.acsprefab\n" +
+                    "RPLY 1 3 0 0 1 0 0 1\n",
+                "Blueprint Cook rewrites legacy ACSCENE CMP sprite, material, and prefab references");
+
+            string rewrittenAbsolute = Encoding.UTF8.GetString(
+                PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nPARENT " + parent + "\n"),
+                    assets,
+                    root));
+            Check(
+                rewrittenAbsolute ==
+                    "ACSBP 1\nPARENT Assets/Blueprints/Base.acsbp\n" &&
+                !rewrittenAbsolute.Contains(root, StringComparison.OrdinalIgnoreCase),
+                "Blueprint Cook rewrites an in-Assets absolute PARENT to a portable Assets path");
+
+            string portableSource =
+                "ACSBP 1\nPARENT Assets/Blueprints/Base.acsbp\n";
+            byte[] portableBytes = new UTF8Encoding(false).GetBytes(portableSource);
+            byte[] portableResult =
+                PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    portableBytes,
+                    assets,
+                    root);
+            Check(
+                ReferenceEquals(portableBytes, portableResult) &&
+                Encoding.UTF8.GetString(portableResult) == portableSource,
+                "portable Blueprint PARENT remains byte-stable");
+
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 2\nPARENT Assets/Blueprints/Base.acsbp\n"),
+                    assets,
+                    root),
+                "unknown Blueprint headers fail closed");
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nPARENT " + outside + "\n"),
+                    assets,
+                    root),
+                "Blueprint PARENT outside Assets fails closed");
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nPARENT Assets/Blueprints/Base.acsbp\n" +
+                        "PARENT Assets/Blueprints/Base.acsbp\n"),
+                    assets,
+                    root),
+                "duplicate Blueprint PARENT directives fail closed");
+
+            byte[] transactionalSource = new UTF8Encoding(false).GetBytes(
+                "ACSBP 1\n" +
+                $"PARENT {parent}\n" +
+                "CMP 4\n" +
+                "ACS3D v2\n" +
+                $"MSH3D 1 {mesh}\n" +
+                $"SPR3D 1 {sprite}\n" +
+                "MAT3D 1 Assets/Materials/Missing.acsmat\n");
+            byte[] transactionalSnapshot = transactionalSource.ToArray();
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    transactionalSource,
+                    assets,
+                    root),
+                "Blueprint PARENT and CMP rewrite fails closed when a later component dependency is missing");
+            Check(
+                transactionalSource.SequenceEqual(transactionalSnapshot),
+                "failed Blueprint Cook leaves the original PARENT and CMP payload byte-for-byte untouched");
+
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nCMP nope\nACS3D v2\n"),
+                    assets,
+                    root),
+                "non-numeric Blueprint CMP counts fail closed");
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nCMP 2147483648\nACS3D v2\n"),
+                    assets,
+                    root),
+                "overflowing Blueprint CMP counts fail closed");
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nCMP 2\nACS3D v2"),
+                    assets,
+                    root),
+                "truncated Blueprint CMP bodies fail closed");
+            CheckThrows<InvalidDataException>(
+                () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                    new UTF8Encoding(false).GetBytes(
+                        "ACSBP 1\nCMP 2\nACS3D v2\nBOGUS 1\n"),
+                    assets,
+                    root),
+                "unknown embedded Blueprint CMP grammar fails closed");
+
+            foreach ((string malformedText, string label) in new[]
+            {
+                (
+                    "ACSBP 1\nCMP\t2\nACS3D v2\n" +
+                    "PFAB3D 1 Assets/Prefabs/engine.acsprefab\n",
+                    "tab-delimited Blueprint CMP cannot hide component dependencies"),
+                (
+                    "ACSBP 1\nCMP  1\nACS3D v2\n",
+                    "multi-space Blueprint CMP is rejected as non-canonical"),
+                (
+                    "ACSBP 1\nCMP 1 \nACS3D v2\n",
+                    "trailing Blueprint CMP tokens are rejected"),
+                (
+                    "ACSBP 1\nPARENT\tAssets/Blueprints/Base.acsbp\n",
+                    "tab-delimited Blueprint PARENT cannot hide inheritance"),
+                (
+                    "ACSBP 1\nPARENT\n",
+                    "empty Blueprint PARENT is rejected"),
+                (
+                    "ACSBP 1\nPARENT  Assets/Blueprints/Base.acsbp\n",
+                    "multi-space Blueprint PARENT is rejected as non-canonical"),
+            })
+            {
+                byte[] malformedBytes =
+                    new UTF8Encoding(false).GetBytes(malformedText);
+                byte[] malformedSnapshot = malformedBytes.ToArray();
+                CheckThrows<InvalidDataException>(
+                    () => PackageCore.RewriteBlueprintPayloadForSelfTest(
+                        malformedBytes,
+                        assets,
+                        root),
+                    label);
+                Check(
+                    malformedBytes.SequenceEqual(malformedSnapshot),
+                    label + " without mutating the source payload");
+            }
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static void VerifyBlueprintInheritanceClosure()
+    {
+        string root = FixtureRoot("blueprint-inheritance");
+        string assets = Path.Combine(root, "Assets");
+        string blueprints = Path.Combine(assets, "Blueprints");
+        string scene = Path.Combine(assets, "main.acs3d");
+        string child = Path.Combine(blueprints, "Child.acsbp");
+        string parent = Path.Combine(blueprints, "Parent.acsbp");
+        string grandparent = Path.Combine(blueprints, "Grandparent.acsbp");
+        string mesh = Path.Combine(assets, "Models", "aircraft.glb");
+        string sprite = Path.Combine(assets, "Textures", "cloud.png");
+        string material = Path.Combine(assets, "Materials", "cloud.acsmat");
+        string nestedPrefab = Path.Combine(assets, "Prefabs", "engine.acsprefab");
+        Directory.CreateDirectory(blueprints);
+        Directory.CreateDirectory(Path.GetDirectoryName(mesh)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sprite)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(material)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(nestedPrefab)!);
+        File.WriteAllText(
+            scene,
+            "ACS3D v2\nPFAB3D 1 Assets/Blueprints/Child.acsbp\n",
+            new UTF8Encoding(false));
+        File.WriteAllText(
+            child,
+            "ACSBP 1\n" +
+            "PARENT Assets/Blueprints/Parent.acsbp\n" +
+            "CMP 6\n" +
+            "ACS3D v2\n" +
+            "N3D 1\n" +
+            "MSH3D 1 Assets/Models/aircraft.glb\n" +
+            "SPR3D 1 Assets/Textures/cloud.png\n" +
+            "MAT3D 1 Assets/Materials/cloud.acsmat\n" +
+            "PFAB3D 1 Assets/Prefabs/engine.acsprefab\n",
+            new UTF8Encoding(false));
+        File.WriteAllText(
+            parent,
+            "ACSBP 1\nPARENT Assets/Blueprints/Grandparent.acsbp\n",
+            new UTF8Encoding(false));
+        File.WriteAllText(grandparent, "ACSBP 1\n", new UTF8Encoding(false));
+        File.WriteAllBytes(mesh, [0x67, 0x6c, 0x54, 0x46]);
+        File.WriteAllBytes(sprite, [1, 2, 3, 4]);
+        File.WriteAllText(material, "ACSMAT 1\n", new UTF8Encoding(false));
+        File.WriteAllText(nestedPrefab, "ACS3D v2\n", new UTF8Encoding(false));
+
+        try
+        {
+            var database = new AssetDatabase(root, assets);
+            database.Refresh(verifyContent: true);
+            database.TryGetByPath(scene, out AssetRecord? sceneRecord);
+            database.TryGetByPath(child, out AssetRecord? childRecord);
+            if (sceneRecord == null || childRecord == null)
+                throw new InvalidDataException(
+                    "Blueprint inheritance fixture was not indexed.");
+            database.UpdateImportMetadata(
+                sceneRecord.AssetId,
+                sceneRecord.Metadata.Source,
+                sceneRecord.Metadata.Importer,
+                sceneRecord.Metadata.ImporterVersion,
+                [childRecord.AssetId],
+                sceneRecord.Metadata.ImportSettings);
+
+            AssetCookPlan nested = new AssetCookPlanner(root, assets).Build(scene);
+            string[] nestedPaths = nested.Assets
+                .Select(static asset => asset.RelativePath)
+                .OrderBy(static path => path, StringComparer.Ordinal)
+                .ToArray();
+            Check(
+                !nested.HasErrors &&
+                nestedPaths.SequenceEqual(
+                    new[]
+                    {
+                        "Blueprints/Child.acsbp",
+                        "Blueprints/Grandparent.acsbp",
+                        "Blueprints/Parent.acsbp",
+                        "Materials/cloud.acsmat",
+                        "Models/aircraft.glb",
+                        "Prefabs/engine.acsprefab",
+                        "Textures/cloud.png",
+                        "main.acs3d",
+                    },
+                    StringComparer.Ordinal),
+                "Blueprint PARENT and CMP dependencies join Cook closure without sidecar dependency metadata");
+
+            File.WriteAllText(
+                grandparent,
+                "ACSBP 1\nPARENT Assets/Blueprints/Child.acsbp\n",
+                new UTF8Encoding(false));
+            AssetCookPlan cyclic = new AssetCookPlanner(root, assets).Build(scene);
+            Check(
+                cyclic.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_CYCLE"),
+                "source-authored Blueprint inheritance cycle fails closed");
+
+            File.WriteAllText(
+                grandparent,
+                "ACSBP 1\nPARENT Assets/Blueprints/Missing.acsbp\n",
+                new UTF8Encoding(false));
+            AssetCookPlan missing = new AssetCookPlanner(root, assets).Build(scene);
+            Check(
+                missing.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_REFERENCE_MISSING"),
+                "missing nested Blueprint parent fails closed");
+
+            File.WriteAllText(grandparent, "ACSBP 1\n", new UTF8Encoding(false));
+            File.WriteAllText(
+                child,
+                "ACSBP 1\n" +
+                "PARENT Assets/Blueprints/Parent.acsbp\n" +
+                "CMP 2\n" +
+                "ACS3D v2\n" +
+                "PFAB3D 1 Assets/Prefabs/Missing.acsprefab\n",
+                new UTF8Encoding(false));
+            AssetCookPlan missingComponent =
+                new AssetCookPlanner(root, assets).Build(scene);
+            Check(
+                missingComponent.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_REFERENCE_MISSING"),
+                "missing Blueprint CMP dependency fails closed");
+
+            File.WriteAllText(
+                child,
+                "ACSBP 1\nCMP 2\nACS3D v2\nBOGUS 1\n",
+                new UTF8Encoding(false));
+            AssetCookPlan malformed =
+                new AssetCookPlanner(root, assets).Build(scene);
+            Check(
+                malformed.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_SCAN_FAILED"),
+                "malformed Blueprint CMP grammar cannot publish a partial Cook closure");
+
+            File.WriteAllText(
+                child,
+                "ACSBP 1\nPARENT\tAssets/Blueprints/Parent.acsbp\n",
+                new UTF8Encoding(false));
+            AssetCookPlan hiddenParent =
+                new AssetCookPlanner(root, assets).Build(scene);
+            Check(
+                hiddenParent.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_SCAN_FAILED"),
+                "non-canonical Blueprint PARENT cannot disappear from the Cook scanner");
+
+            File.WriteAllText(
+                child,
+                "ACSBP 1\nCMP\t2\nACS3D v2\n" +
+                "PFAB3D 1 Assets/Prefabs/engine.acsprefab\n",
+                new UTF8Encoding(false));
+            AssetCookPlan hiddenComponent =
+                new AssetCookPlanner(root, assets).Build(scene);
+            Check(
+                hiddenComponent.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_SCAN_FAILED"),
+                "non-canonical Blueprint CMP cannot disappear from the Cook scanner");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static void VerifyBlueprintCookCacheVersion()
+    {
+        string root = FixtureRoot("blueprint-ddc-version");
+        string cacheRoot = Path.Combine(root, "Temp", "DerivedDataCache");
+        Directory.CreateDirectory(root);
+        try
+        {
+            const string assetId = "11111111111111111111111111111111";
+            var metadata = new AssetMetadata(
+                1,
+                assetId,
+                "blueprint",
+                "Blueprints/Child.acsbp",
+                "AcsBlueprintImporter",
+                1,
+                Array.Empty<string>(),
+                new Dictionary<string, string>(StringComparer.Ordinal));
+            var record = new AssetRecord(
+                assetId,
+                "Blueprints/Child.acsbp",
+                Path.Combine(root, "Assets", "Blueprints", "Child.acsbp"),
+                "blueprint",
+                64,
+                0,
+                "same-source-content-hash",
+                metadata);
+            const string graphHash = "same-asset-graph-hash";
+            KeyValuePair<string, string>[] currentSettings =
+                PackageCore.CreateAssetCookerSettingsForSelfTest(graphHash);
+            KeyValuePair<string, string>[] legacySettings = currentSettings
+                .Select(static setting =>
+                    setting.Key == "referenceRewriteVersion"
+                        ? new KeyValuePair<string, string>(setting.Key, "3")
+                        : setting)
+                .ToArray();
+
+            var cache = new DerivedDataCache(root, cacheRoot);
+            DerivedDataCacheResult legacy = cache.GetOrCreate(
+                record,
+                PackageCore.AssetCookerVersionForSelfTest,
+                legacySettings,
+                () => Encoding.UTF8.GetBytes("absolute-parent-v3"));
+            int currentProducerCalls = 0;
+            DerivedDataCacheResult current = cache.GetOrCreate(
+                record,
+                PackageCore.AssetCookerVersionForSelfTest,
+                currentSettings,
+                () =>
+                {
+                    ++currentProducerCalls;
+                    return Encoding.UTF8.GetBytes("portable-parent-v4");
+                });
+            DerivedDataCacheResult currentHit = cache.GetOrCreate(
+                record,
+                PackageCore.AssetCookerVersionForSelfTest,
+                currentSettings,
+                () => throw new InvalidOperationException(
+                    "Current Blueprint Cook cache unexpectedly missed."));
+
+            Check(
+                legacy.Status == DerivedDataCacheStatus.Miss &&
+                current.Status == DerivedDataCacheStatus.Miss &&
+                currentHit.Status == DerivedDataCacheStatus.Hit &&
+                !string.Equals(legacy.Key, current.Key, StringComparison.Ordinal) &&
+                currentProducerCalls == 1 &&
+                Encoding.UTF8.GetString(current.Payload) == "portable-parent-v4" &&
+                Encoding.UTF8.GetString(currentHit.Payload) == "portable-parent-v4",
+                "Blueprint rewrite v4 cannot reuse a v3 DDC payload with identical source, metadata, and graph hash");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static void VerifyBlueprintParentPathPolicy()
+    {
+        string root = FixtureRoot("blueprint-parent-path");
+        string assets = Path.Combine(root, "Assets");
+        string blueprints = Path.Combine(assets, "Blueprints");
+        string child = Path.Combine(blueprints, "Child.acsbp");
+        string parent = Path.Combine(blueprints, "Base.acsbp");
+        string grandparent = Path.Combine(blueprints, "Grandparent.acsbp");
+        Directory.CreateDirectory(blueprints);
+        File.WriteAllText(child, "ACSBP 1\n", new UTF8Encoding(false));
+        File.WriteAllText(parent, "ACSBP 1\n", new UTF8Encoding(false));
+        File.WriteAllText(grandparent, "ACSBP 1\n", new UTF8Encoding(false));
+
+        try
+        {
+            bool madePortable = BlueprintParentPathPolicy.TryMakePortable(
+                assets,
+                child,
+                parent,
+                out string portable,
+                out _);
+            bool resolvedPortable = BlueprintParentPathPolicy.TryResolve(
+                assets,
+                portable,
+                out string resolved,
+                out _);
+            Check(
+                madePortable &&
+                portable == "Assets/Blueprints/Base.acsbp" &&
+                resolvedPortable &&
+                string.Equals(resolved, parent, StringComparison.OrdinalIgnoreCase),
+                "Blueprint parent nested path round-trips through portable Assets form");
+
+            Check(
+                BlueprintParentPathPolicy.TryResolve(
+                    assets,
+                    "assets/blueprints/base.ACSBP",
+                    out string caseResolved,
+                    out _) &&
+                string.Equals(caseResolved, parent, StringComparison.OrdinalIgnoreCase),
+                "portable Blueprint parent keeps Windows case-insensitive compatibility");
+
+            Check(
+                !BlueprintParentPathPolicy.TryResolve(
+                    assets,
+                    "Assets/Blueprints/../Base.acsbp",
+                    out _,
+                    out _) &&
+                !BlueprintParentPathPolicy.TryResolve(
+                    assets,
+                    parent,
+                    out _,
+                    out _) &&
+                !BlueprintParentPathPolicy.TryResolve(
+                    assets,
+                    "Assets/Blueprints/Missing.acsbp",
+                    out _,
+                    out _),
+                "Blueprint parent rejects dot-segment, persisted absolute, and missing paths");
+
+            foreach ((string directive, string label) in new[]
+            {
+                (
+                    "PARENT\tAssets/Blueprints/Grandparent.acsbp\n",
+                    "Blueprint parent selection rejects a tab-delimited PARENT"),
+                (
+                    "PARENT  Assets/Blueprints/Grandparent.acsbp\n",
+                    "Blueprint parent selection rejects a multi-space PARENT"),
+                (
+                    "PARENT\n",
+                    "Blueprint parent selection rejects an empty PARENT"),
+            })
+            {
+                File.WriteAllText(
+                    parent,
+                    "ACSBP 1\n" + directive,
+                    new UTF8Encoding(false));
+                Check(
+                    !BlueprintParentPathPolicy.TryMakePortable(
+                        assets,
+                        child,
+                        parent,
+                        out _,
+                        out string malformedError) &&
+                    malformedError.Contains(
+                        "PARENT",
+                        StringComparison.Ordinal),
+                    label);
+            }
+
+            File.WriteAllText(
+                parent,
+                "ACSBP 1\nPARENT Assets/Blueprints/Grandparent.acsbp\n",
+                new UTF8Encoding(false));
+            Check(
+                BlueprintParentPathPolicy.TryMakePortable(
+                    assets,
+                    child,
+                    parent,
+                    out string nestedPortable,
+                    out _) &&
+                nestedPortable == "Assets/Blueprints/Base.acsbp",
+                "nested Blueprint parent chain validates without flattening subfolders");
+
+            File.WriteAllText(
+                grandparent,
+                "ACSBP 1\nPARENT Assets/Blueprints/Child.acsbp\n",
+                new UTF8Encoding(false));
+            Check(
+                !BlueprintParentPathPolicy.TryMakePortable(
+                    assets,
+                    child,
+                    parent,
+                    out _,
+                    out _),
+                "Blueprint parent selection rejects a nested inheritance cycle");
+
+            File.WriteAllText(
+                grandparent,
+                "ACSBP 1\nPARENT Assets/Blueprints/Missing.acsbp\n",
+                new UTF8Encoding(false));
+            Check(
+                !BlueprintParentPathPolicy.TryMakePortable(
+                    assets,
+                    child,
+                    parent,
+                    out _,
+                    out _),
+                "Blueprint parent selection rejects a missing nested ancestor");
+
+            string linkedDirectory = Path.Combine(assets, "Linked");
+            string externalDirectory = Path.Combine(root, "External");
+            Directory.CreateDirectory(externalDirectory);
+            File.WriteAllText(
+                Path.Combine(externalDirectory, "LinkedParent.acsbp"),
+                "ACSBP 1\n",
+                new UTF8Encoding(false));
+            try
+            {
+                Directory.CreateSymbolicLink(linkedDirectory, externalDirectory);
+                Check(
+                    !BlueprintParentPathPolicy.TryMakePortable(
+                        assets,
+                        child,
+                        Path.Combine(linkedDirectory, "LinkedParent.acsbp"),
+                        out _,
+                        out _),
+                    "Blueprint parent selection rejects reparse-point paths");
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or
+                    PlatformNotSupportedException)
+            {
+                Pass(
+                    "reparse-point Blueprint parent test skipped by host policy: " +
+                    error.GetType().Name);
+            }
         }
         finally
         {

@@ -108,7 +108,7 @@ ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
     shadow.SetCurrentCascade(99);
     EXPECT_TRUE(shadow.LightCB() == cascade0);
 
-    shadow.BeginFrame();
+    EXPECT_TRUE(shadow.BeginFrame(2u));
     FMat4 invalid_model = FMat4::Identity();
     invalid_model.m[1][2] = std::numeric_limits<f32>::quiet_NaN();
     EXPECT_FALSE(shadow.TrySetCaster(invalid_model));
@@ -122,7 +122,7 @@ ACS_TEST(ShadowMap, CascadeAndCasterBuffersRemainDrawImmutable)
     EXPECT_EQ(shadow.CasterDrawCount(), 2u);
 
     // A new frame reuses slot 0 only after the previous frame's RHI slot advances.
-    shadow.BeginFrame();
+    EXPECT_TRUE(shadow.BeginFrame(1u));
     EXPECT_TRUE(shadow.TrySetCaster(FMat4::Translation(FVec3{3, 0, 0})));
     EXPECT_TRUE(shadow.CasterObjectCB() == caster0);
     EXPECT_EQ(shadow.CasterDrawCount(), 1u);
@@ -164,8 +164,16 @@ ACS_TEST(ShadowMap, SingleProjectionFallbackMatchesActiveCascadeState)
         shadow.CascadeScissor(3).right,
         static_cast<i32>(64u * FShadowMap::kMaxCascades));
 
-    // A valid CSM update restores the capacity reserved by Init without
-    // requiring a destructive renderer reinitialization.
+    // BeginFrame must reserve the complete Init-time cascade capacity even
+    // while a single-volume fallback is active. A valid CSM update can restore
+    // all cascades later in the same frame without allocating mid-pass.
+    constexpr u32 kRestoredCsmCastersPerCascade = 96u;
+    EXPECT_TRUE(shadow.BeginFrame(kRestoredCsmCastersPerCascade));
+    for (u32 cascade = 0; cascade < FShadowMap::kMaxCascades; ++cascade) {
+        EXPECT_TRUE(shadow.CasterBufferCapacity(cascade) >=
+                    kRestoredCsmCastersPerCascade);
+    }
+
     shadow.SetDirectionalLightCascades(
         FVec3{0.3f, 0.8f, -0.4f},
         FMat4::LookAtLH(FVec3{0.0f, 2.0f, -8.0f},
@@ -178,6 +186,19 @@ ACS_TEST(ShadowMap, SingleProjectionFallbackMatchesActiveCascadeState)
     EXPECT_TRUE(shadow.LightCB() == cascade3);
     EXPECT_NEAR(shadow.CascadeViewport(3).x, 192.0f, 1e-6f);
     EXPECT_NEAR(shadow.CascadeViewport(3).width, 64.0f, 1e-6f);
+    for (u32 cascade = 0; cascade < FShadowMap::kMaxCascades; ++cascade) {
+        shadow.SetCurrentCascade(cascade);
+        for (u32 draw = 0; draw < kRestoredCsmCastersPerCascade; ++draw) {
+            EXPECT_TRUE(shadow.TrySetCaster(FMat4::Translation(FVec3{
+                static_cast<f32>(draw), static_cast<f32>(cascade), 0.0f})));
+        }
+        EXPECT_EQ(shadow.CasterDrawCount(cascade),
+                  kRestoredCsmCastersPerCascade);
+        EXPECT_FALSE(shadow.CasterOverflowed(cascade));
+    }
+    EXPECT_EQ(shadow.CasterDrawCount(),
+              kRestoredCsmCastersPerCascade * FShadowMap::kMaxCascades);
+    EXPECT_FALSE(shadow.CasterOverflowed());
 
     // Invalid camera transforms use the same explicit single-volume state.
     FMat4 singular{
@@ -195,30 +216,42 @@ ACS_TEST(ShadowMap, SingleProjectionFallbackMatchesActiveCascadeState)
     shadow.Shutdown();
 }
 
-ACS_TEST(ShadowMap, CasterRingNeverWrapsWithinFrame)
+ACS_TEST(ShadowMap, CasterPoolGrowsBeyondFormerFixedLimit)
 {
     FDeviceConfig config{};
     auto device_result = CreateRhiDevice(config);
     if (device_result.IsErr()) return;
 
     FShadowMap shadow;
+    EXPECT_FALSE(shadow.BeginFrame(0u));
     EXPECT_TRUE(shadow.Init(*device_result.Value(), 64, 1).IsOk());
     if (!shadow.DepthTexture()) return;
 
-    shadow.BeginFrame();
-    for (u32 draw = 0; draw < FShadowMap::kMaxCasterDrawsPerCascade; ++draw) {
+    EXPECT_FALSE(shadow.BeginFrame(std::numeric_limits<u32>::max()));
+    EXPECT_FALSE(shadow.TrySetCaster(FMat4::Identity()));
+    EXPECT_EQ(shadow.CasterDrawCount(), 0u);
+    EXPECT_TRUE(shadow.CasterObjectCB() == nullptr);
+
+    constexpr u32 kLargeCasterCount = 512u;
+    EXPECT_TRUE(shadow.BeginFrame(kLargeCasterCount));
+    EXPECT_TRUE(shadow.CasterBufferCapacity() >= kLargeCasterCount);
+    IRhiBuffer* first_caster = nullptr;
+    for (u32 draw = 0; draw < kLargeCasterCount; ++draw) {
         EXPECT_TRUE(shadow.TrySetCaster(
             FMat4::Translation(FVec3{static_cast<f32>(draw), 0, 0})));
+        if (draw == 0u) first_caster = shadow.CasterObjectCB();
     }
-    IRhiBuffer* last_valid = shadow.CasterObjectCB();
-    EXPECT_FALSE(shadow.TrySetCaster(FMat4::Identity()));
-    EXPECT_TRUE(shadow.CasterOverflowed());
-    EXPECT_TRUE(shadow.CasterOverflowed(0));
-    EXPECT_EQ(shadow.CasterDrawCount(),
-              FShadowMap::kMaxCasterDrawsPerCascade);
-    EXPECT_EQ(shadow.CasterDrawCount(0),
-              FShadowMap::kMaxCasterDrawsPerCascade);
-    EXPECT_TRUE(shadow.CasterObjectCB() == last_valid);
+    EXPECT_TRUE(first_caster != nullptr);
+    EXPECT_TRUE(shadow.CasterObjectCB() != first_caster);
+    EXPECT_FALSE(shadow.CasterOverflowed());
+    EXPECT_EQ(shadow.CasterDrawCount(), kLargeCasterCount);
+    EXPECT_EQ(shadow.CasterDrawCount(0), kLargeCasterCount);
+
+    const u32 retained_capacity = shadow.CasterBufferCapacity();
+    EXPECT_TRUE(shadow.BeginFrame(1u));
+    EXPECT_EQ(shadow.CasterBufferCapacity(), retained_capacity);
+    EXPECT_TRUE(shadow.TrySetCaster(FMat4::Identity()));
+    EXPECT_TRUE(shadow.CasterObjectCB() == first_caster);
 
     shadow.Shutdown();
 }
@@ -238,7 +271,7 @@ ACS_TEST(ShadowMap, EveryCascadeHasAnIndependentCasterRing)
     // must retain its complete caster set instead of dropping the final one.
     constexpr u32 kCastersPerCascade = 65;
     IRhiBuffer* first_buffer[FShadowMap::kMaxCascades] = {};
-    shadow.BeginFrame();
+    EXPECT_TRUE(shadow.BeginFrame(kCastersPerCascade));
     for (u32 cascade = 0; cascade < FShadowMap::kMaxCascades; ++cascade) {
         shadow.SetCurrentCascade(cascade);
         for (u32 draw = 0; draw < kCastersPerCascade; ++draw) {

@@ -13,6 +13,351 @@ using System.Windows.Shapes;
 
 namespace AcsEditor;
 
+internal static class BlueprintParentPathPolicy
+{
+    private const long MaxBlueprintBytes = 64L * 1024 * 1024;
+    private const int MaxInheritanceDepth = 1024;
+
+    internal static bool TryMakePortable(
+        string assetsRoot,
+        string? currentBlueprintPath,
+        string selectedParentPath,
+        out string portablePath,
+        out string error)
+    {
+        portablePath = "";
+        if (!TryNormalizeAssetsRoot(assetsRoot, out string root, out error))
+            return false;
+        if (string.IsNullOrWhiteSpace(selectedParentPath) ||
+            !System.IO.Path.IsPathRooted(selectedParentPath))
+        {
+            error = "The selected Blueprint parent must be an absolute file-system path.";
+            return false;
+        }
+        if (!TryValidateAbsoluteBlueprint(
+                root,
+                selectedParentPath,
+                out string selected,
+                out error))
+        {
+            return false;
+        }
+
+        string? current = null;
+        if (!string.IsNullOrWhiteSpace(currentBlueprintPath))
+        {
+            if (!System.IO.Path.IsPathRooted(currentBlueprintPath) ||
+                !TryValidateAbsoluteBlueprint(
+                    root,
+                    currentBlueprintPath,
+                    out current,
+                    out error))
+            {
+                error =
+                    "The current Blueprint must be a safe asset under the project Assets root. " +
+                    error;
+                return false;
+            }
+        }
+        if (!TryValidateParentChain(root, current, selected, out error))
+            return false;
+
+        string relative = System.IO.Path.GetRelativePath(root, selected);
+        portablePath = "Assets/" + relative.Replace('\\', '/');
+        return true;
+    }
+
+    internal static bool TryResolve(
+        string assetsRoot,
+        string persistedPath,
+        out string resolvedPath,
+        out string error)
+    {
+        resolvedPath = "";
+        if (!TryNormalizeAssetsRoot(assetsRoot, out string root, out error))
+            return false;
+        return TryResolveUnderRoot(root, persistedPath, out resolvedPath, out error);
+    }
+
+    private static bool TryValidateParentChain(
+        string assetsRoot,
+        string? currentBlueprint,
+        string selectedParent,
+        out string error)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (currentBlueprint != null)
+            visited.Add(currentBlueprint);
+
+        string candidate = selectedParent;
+        int depth = 0;
+        while (true)
+        {
+            if (++depth > MaxInheritanceDepth)
+            {
+                error =
+                    $"Blueprint inheritance exceeds the {MaxInheritanceDepth}-asset safety limit.";
+                return false;
+            }
+            if (!visited.Add(candidate))
+            {
+                error = "Blueprint inheritance would create a cycle.";
+                return false;
+            }
+
+            if (!TryReadParentDirective(candidate, out string? parent, out error))
+                return false;
+            if (parent == null)
+                return true;
+            if (!TryResolveUnderRoot(
+                    assetsRoot,
+                    parent,
+                    out candidate,
+                    out error))
+            {
+                error =
+                    $"Blueprint inheritance parent '{parent}' is invalid. " + error;
+                return false;
+            }
+        }
+    }
+
+    private static bool TryReadParentDirective(
+        string blueprintPath,
+        out string? parent,
+        out string error)
+    {
+        parent = null;
+        error = "";
+        try
+        {
+            var info = new System.IO.FileInfo(blueprintPath);
+            if (!info.Exists || info.Length > MaxBlueprintBytes)
+            {
+                error = !info.Exists
+                    ? "Blueprint parent does not exist."
+                    : $"Blueprint parent exceeds {MaxBlueprintBytes} bytes.";
+                return false;
+            }
+
+            string text;
+            using (var reader = new System.IO.StreamReader(
+                       blueprintPath,
+                       new UTF8Encoding(false, true),
+                       detectEncodingFromByteOrderMarks: true))
+            {
+                text = reader.ReadToEnd();
+            }
+            AcsbpCookDocument document = AcsbpFormat.ParseForCook(text);
+            for (int index = 1; index < document.Lines.Length; ++index)
+            {
+                if (document.IsComponentLine(index))
+                    continue;
+                if (AcsbpFormat.TryParseCanonicalParentDirective(
+                        document.Lines[index],
+                        out string parsedParent))
+                    parent = parsedParent;
+            }
+            return true;
+        }
+        catch (System.IO.InvalidDataException exception)
+        {
+            error = "Blueprint parent payload is invalid: " + exception.Message;
+            return false;
+        }
+        catch (Exception exception) when (
+            exception is System.IO.IOException or
+                UnauthorizedAccessException or
+                DecoderFallbackException)
+        {
+            error = "Blueprint parent could not be read safely: " + exception.Message;
+            return false;
+        }
+    }
+
+    private static bool TryResolveUnderRoot(
+        string root,
+        string persistedPath,
+        out string resolvedPath,
+        out string error)
+    {
+        resolvedPath = "";
+        error = "";
+        if (string.IsNullOrWhiteSpace(persistedPath))
+        {
+            error = "Blueprint PARENT path is empty.";
+            return false;
+        }
+
+        string value = persistedPath.Trim().Replace('\\', '/');
+        if (System.IO.Path.IsPathRooted(value))
+        {
+            error = "Absolute Blueprint PARENT paths are not portable.";
+            return false;
+        }
+        string[] segments = value.Split(
+            '/',
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(static segment => segment is "." or ".."))
+        {
+            error = "Blueprint PARENT paths cannot contain '.' or '..' segments.";
+            return false;
+        }
+        if (segments.Length > 0 &&
+            string.Equals(segments[0], "Assets", StringComparison.OrdinalIgnoreCase))
+        {
+            value = string.Join('/', segments.Skip(1));
+        }
+        else
+        {
+            value = string.Join('/', segments);
+        }
+        if (value.Length == 0)
+        {
+            error = "Blueprint PARENT path does not name an asset.";
+            return false;
+        }
+
+        string combined;
+        try
+        {
+            combined = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(
+                    root,
+                    value.Replace('/', System.IO.Path.DirectorySeparatorChar)));
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException or
+                System.IO.PathTooLongException)
+        {
+            error = "Blueprint PARENT path is invalid: " + exception.Message;
+            return false;
+        }
+        return TryValidateAbsoluteBlueprint(
+            root,
+            combined,
+            out resolvedPath,
+            out error);
+    }
+
+    private static bool TryValidateAbsoluteBlueprint(
+        string root,
+        string path,
+        out string resolvedPath,
+        out string error)
+    {
+        resolvedPath = "";
+        error = "";
+        string full;
+        try
+        {
+            full = System.IO.Path.GetFullPath(path);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException or
+                System.IO.PathTooLongException)
+        {
+            error = "Blueprint path is invalid: " + exception.Message;
+            return false;
+        }
+
+        if (!IsUnder(full, root))
+        {
+            error = "Blueprint parent must remain under the project Assets root.";
+            return false;
+        }
+        if (!System.IO.Path.GetExtension(full).Equals(
+                ".acsbp",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Blueprint parent must use the .acsbp extension.";
+            return false;
+        }
+        try
+        {
+            if (!System.IO.File.Exists(full))
+            {
+                error = "Blueprint parent does not exist.";
+                return false;
+            }
+            if (HasReparsePointBetween(root, full))
+            {
+                error = "Blueprint parent crosses a reparse point.";
+                return false;
+            }
+        }
+        catch (Exception exception) when (
+            exception is System.IO.IOException or UnauthorizedAccessException)
+        {
+            error = "Blueprint parent could not be inspected safely: " + exception.Message;
+            return false;
+        }
+        resolvedPath = full;
+        return true;
+    }
+
+    private static bool TryNormalizeAssetsRoot(
+        string assetsRoot,
+        out string root,
+        out string error)
+    {
+        root = "";
+        error = "";
+        try
+        {
+            root = System.IO.Path.TrimEndingDirectorySeparator(
+                System.IO.Path.GetFullPath(assetsRoot));
+            if (!System.IO.Directory.Exists(root))
+            {
+                error = "The project Assets root does not exist.";
+                return false;
+            }
+            if ((System.IO.File.GetAttributes(root) &
+                 System.IO.FileAttributes.ReparsePoint) != 0)
+            {
+                error = "The project Assets root cannot be a reparse point.";
+                return false;
+            }
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is System.IO.IOException or UnauthorizedAccessException or
+                ArgumentException or NotSupportedException)
+        {
+            error = "The project Assets root is invalid: " + exception.Message;
+            return false;
+        }
+    }
+
+    private static bool HasReparsePointBetween(string root, string path)
+    {
+        string current = path;
+        while (true)
+        {
+            if ((System.IO.File.GetAttributes(current) &
+                 System.IO.FileAttributes.ReparsePoint) != 0)
+            {
+                return true;
+            }
+            if (string.Equals(
+                    System.IO.Path.TrimEndingDirectorySeparator(current),
+                    root,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            current = System.IO.Path.GetDirectoryName(current)
+                ?? throw new System.IO.InvalidDataException(
+                    "Blueprint parent path has no Assets ancestor.");
+        }
+    }
+
+    private static bool IsUnder(string path, string root) =>
+        path.StartsWith(
+            root + System.IO.Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+}
+
 /// <summary>
 /// ビジュアル Blueprint グラフエディタ。
 /// BP1: ノード/ピン/接続線の描画 + ノードドラッグ + 背景パン。
@@ -4650,12 +4995,17 @@ public partial class BlueprintEditor : UserControl
         return added;
     }
 
-    /// <summary>親 (継承元) の相対/絶対パスを実ファイルへ解決 (相対は DefaultDir 基準)。</summary>
+    /// <summary>親 (継承元) の portable Assets 相対パスを安全な実ファイルへ解決。</summary>
     private string? ResolveParentPath(string path)
     {
-        if (System.IO.File.Exists(path)) return path;
-        if (DefaultDir != null) { string p = System.IO.Path.Combine(DefaultDir, path); if (System.IO.File.Exists(p)) return p; }
-        return null;
+        if (DefaultDir == null) return null;
+        return BlueprintParentPathPolicy.TryResolve(
+            DefaultDir,
+            path,
+            out string resolved,
+            out _)
+            ? resolved
+            : null;
     }
 
     private static int    ParseInt(string s)    => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
@@ -4720,8 +5070,20 @@ public partial class BlueprintEditor : UserControl
             Filter = "ACS Blueprint (*.acsbp)|*.acsbp", DefaultExt = ".acsbp", Title = "継承元 (親) の .acsbp を選択" };
         if (DefaultDir != null && System.IO.Directory.Exists(DefaultDir)) dlg.InitialDirectory = DefaultDir;
         if (ShowDialogWithVisualOwner(dlg) != true) return;
+        string error = "The project Assets root is unavailable.";
+        if (DefaultDir == null ||
+            !BlueprintParentPathPolicy.TryMakePortable(
+                DefaultDir,
+                CurrentPath,
+                dlg.FileName,
+                out string portableParent,
+                out error))
+        {
+            LogSink?.Invoke("Blueprint parent was rejected: " + error);
+            return;
+        }
         BeginEdit();
-        _parentPath = MakeRelative(dlg.FileName);
+        _parentPath = portableParent;
         Deserialize(Serialize());   // 現在の子 (継承ノードは保存対象外) を保ったまま、新しい親を継承ノードとして読み直す
         CommitEdit();
     }
@@ -4732,18 +5094,6 @@ public partial class BlueprintEditor : UserControl
         return owner != null
             ? dialog.ShowDialog(owner)
             : dialog.ShowDialog();
-    }
-
-    /// <summary>DefaultDir 直下なら名前のみ、そうでなければ絶対パスを返す (PARENT 行に書く相対パス)。</summary>
-    private string MakeRelative(string full)
-    {
-        if (DefaultDir != null)
-        {
-            string d = System.IO.Path.GetFullPath(DefaultDir);
-            string f = System.IO.Path.GetFullPath(full);
-            if (f.StartsWith(d, StringComparison.OrdinalIgnoreCase)) return System.IO.Path.GetFileName(f);
-        }
-        return full;
     }
 
     // ----- 実行 (BP5: イベントから exec チェーンを辿る簡易インタプリタ) -----

@@ -33,6 +33,13 @@ void FLightsScene::Render(FStandardShader&  shader,
                          const FGpuMesh&   cube,
                          const FGpuMesh&   sphere,
                          f32              time) noexcept {
+    constexpr u32 kNonObjectDraws = 1u + kPointCount;
+    if (m_Objects.Size() >
+        static_cast<usize>(~u32{0} - kNonObjectDraws)) return;
+    const u32 object_draws =
+        static_cast<u32>(m_Objects.Size()) + kNonObjectDraws;
+    if (!shader.BeginFrame(object_draws)) return;
+
     // --- ライト設定 ---
     // dir ライトはほぼ無効化 (ambient と同程度) に落とし、点光源の色を
     // 主役にする。完全に 0 にしないのは陰側が真っ黒になって読みにくいため。

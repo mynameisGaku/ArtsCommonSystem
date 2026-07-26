@@ -10,23 +10,36 @@ using namespace acs;
 
 namespace helloshowcase {
 
-IRhiTexture* ExecuteMotionPass(FAssets& a, IRhiCommandList& cl,
-                               const FMat4& vp_no_jitter,
-                               const FMat4& prev_vp_no_jitter,
-                               bool prev_vp_valid,
-                               f32 prev_orb_phase,
-                               const FMat4 (&orb_curr)[kOrbCount]) noexcept {
+FMotionPassOutput ExecuteMotionPass(
+    FAssets& a, IRhiCommandList& cl,
+    const FMat4& vp_no_jitter,
+    const FMat4& prev_vp_no_jitter,
+    bool prev_vp_valid,
+    f32 prev_orb_phase,
+    const FMat4 (&orb_curr)[kOrbCount]) noexcept {
+    constexpr u32 kRequiredDraws =
+        1u + kSphereCount + kOrbCount;
     const FMat4& motion_prev_vp = prev_vp_valid ? prev_vp_no_jitter : vp_no_jitter;
-    a.motion.Begin(cl, vp_no_jitter, motion_prev_vp);
+    if (!a.motion.BeginFrame(kRequiredDraws) ||
+        !a.motion.Begin(cl, vp_no_jitter, motion_prev_vp)) {
+        return {};
+    }
+
+    bool complete = true;
 
     const FMat4 floor_model = FMat4::Translation(FVec3{0, kFloorY, 0});
-    a.motion.DrawMesh(cl, a.gm_floor, floor_model, floor_model);
+    if (!a.motion.DrawMesh(
+            cl, a.gm_floor, floor_model, floor_model)) {
+        complete = false;
+    }
 
     // 床 + 静的 sphere (ガラス含む — motion 上は静的なので curr == prev)
     for (u32 i = 0; i < kSphereCount; ++i) {
         const FMat4 m = FMat4::Scale(FVec3{kSphereScale, kSphereScale, kSphereScale}) *
                        FMat4::Translation(FVec3{kSphereX[i], kSphereY, kSphereZ});
-        a.motion.DrawMesh(cl, a.gm_sphere, m, m);
+        if (!a.motion.DrawMesh(cl, a.gm_sphere, m, m)) {
+            complete = false;
+        }
     }
 
     // 公転 orb は dynamic — prev pos を計算。motion vector では pulse による
@@ -41,12 +54,21 @@ IRhiTexture* ExecuteMotionPass(FAssets& a, IRhiCommandList& cl,
         };
         const FMat4 prev = FMat4::Scale(FVec3{kOrbScale, kOrbScale, kOrbScale}) *
                           FMat4::Translation(pos_prev);
-        a.motion.DrawMesh(cl, a.gm_sphere, orb_curr[i],
-                          prev_vp_valid ? prev : orb_curr[i]);
+        if (!a.motion.DrawMesh(
+                cl, a.gm_sphere, orb_curr[i],
+                prev_vp_valid ? prev : orb_curr[i])) {
+            complete = false;
+        }
     }
     a.motion.End(cl);
 
-    return prev_vp_valid ? a.motion.OutputTexture() : nullptr;
+    if (!complete ||
+        a.motion.ObjectDrawCount() != kRequiredDraws) {
+        return {};
+    }
+    return FMotionPassOutput{
+        prev_vp_valid ? a.motion.OutputTexture() : nullptr,
+        a.motion.OutputNormalTexture()};
 }
 
 } // namespace helloshowcase

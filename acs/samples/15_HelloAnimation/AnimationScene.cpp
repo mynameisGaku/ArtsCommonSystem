@@ -119,6 +119,9 @@ void FAnimationScene::Render(FSky&                sky,
                             const FSkinnedGpuMesh& snake_gpu,
                             const FMat4*         palette,
                             u32                 palette_n) noexcept {
+    if (!std_shader.BeginFrame(1u) ||
+        !skin_shader.BeginFrame(1u)) return;
+
     // 1. 空
     sky.Render(cl, camera);
 

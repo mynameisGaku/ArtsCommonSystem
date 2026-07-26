@@ -24,14 +24,18 @@
 //   FMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
-//   if (mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
-//       for (each mesh) mv.DrawMesh(*cl, gm, curr_model, prev_model);
+//   if (mv.BeginFrame(visible_mesh_count) &&
+//       mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
+//       for (each mesh) {
+//           if (!mv.DrawMesh(*cl, gm, curr_model, prev_model)) abort_output;
+//       }
 //       mv.End(*cl);
 //       post_params.taa_motion_texture = mv.OutputTexture();
 //   }
 #pragma once
 
 #include "foundation/Result.h"
+#include "container/Array.h"
 #include "memory/UniquePtr.h"
 #include "math/Mat.h"
 #include "render/RenderAssets.h"        // FGpuMesh
@@ -56,8 +60,15 @@ namespace acs {
  */
 class FMotionVector {
 public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FMotionVector() noexcept = default;
+    /**
+     * 空状態で構築する (GPU リソースは Init で確保)。
+     *
+     * @param object_pool_allocator 可変長 object-CB 所有配列の allocator。
+     *        通常は既定値を使い、failure-injection tests だけ差し替える。
+     */
+    explicit FMotionVector(
+        FAllocator& object_pool_allocator = DefaultAllocator()) noexcept
+        : m_Cbs(object_pool_allocator) {}
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
     ~FMotionVector() noexcept = default;
@@ -91,6 +102,30 @@ public:
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
     /**
+     * Start one logical command-list frame and reserve immutable object CBs.
+     *
+     * @details The retained pool grows geometrically and never shrinks between
+     * frames. Reserve before Begin() so large scenes do not allocate from
+     * inside an active render pass. A failed growth leaves every existing
+     * buffer usable and the caller must skip publishing this frame's motion
+     * output; a later BeginFrame() can retry.
+     *
+     * @param required_draws Exact number of eligible motion meshes, or a safe
+     *        upper bound when exact counting is more expensive. UINT32_MAX is
+     *        reserved as the invalid cursor sentinel and is rejected.
+     * @return true when the complete requested pool is available.
+     */
+    bool BeginFrame(u32 required_draws = 0u) noexcept;
+
+    /** Number of persistent per-object buffers currently retained. */
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_Cbs.Size());
+    }
+
+    /** Successfully recorded object draws since the latest BeginFrame/Begin. */
+    u32 ObjectDrawCount() const noexcept { return m_DrawCursor; }
+
+    /**
      * モーションパスを開始する (motion RT を 0 クリア + 内部 depth を bind してパイプライン設定)。
      *
      * @details motion vector は jitter なしの VP で計算する (TAA jitter は color pass 専用)。
@@ -112,8 +147,11 @@ public:
      * @param mesh 描画する GPU mesh。
      * @param model 現フレームの model 行列。
      * @param prev_model 前フレームの model 行列。
+     * @return true only when a complete indexed draw was recorded. false
+     *         means the frame's motion output is incomplete and must not be
+     *         consumed as authoritative TAA/SSR/SSGI history.
      */
-    void DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
+    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                   const FMat4& model, const FMat4& prev_model) noexcept;
 
     /**
@@ -156,6 +194,9 @@ private:
      */
     TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
+    /** Grow the persistent object-CB pool without invalidating old entries. */
+    bool EnsureObjectCapacity(u32 required_draws) noexcept;
+
     /** Init で受け取った device (Resize で再利用)。 */
     IRhiDevice*             m_Device = nullptr;
 
@@ -190,15 +231,19 @@ private:
     TUniquePtr<IRhiPipeline> m_Pipeline;
 
     /**
-     * Per-draw constant-buffer ring.
+     * Persistent growable per-draw constant-buffer pool.
      *
      * A single mapped upload CB cannot be overwritten between draws in one
      * command list: raw DX12 consumes it later on the GPU and every draw would
-     * otherwise observe the final object's matrices.
+     * otherwise observe the final object's matrices. The old fixed 256-entry
+     * ring silently lost motion for the rest of a large scene; this pool is
+     * reserved before the pass and grows geometrically when needed.
      */
-    static constexpr u32     kObjectCbRing = 256;
-    TUniquePtr<IRhiBuffer>   m_Cbs[kObjectCbRing];
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_Cbs;
     u32                      m_DrawCursor = 0;
+    bool                     m_CapacityFailureLogged = false;
 
     /**
      * True only between a successful MRT Begin and its matching End.

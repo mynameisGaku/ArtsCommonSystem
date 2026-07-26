@@ -49,7 +49,7 @@ public sealed class AssetCookPlanner
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     private static readonly Regex SceneReference = new(
-        @"^(?:(?:SPRT|MAT)\s+-?\d+\s+)(?<path>.+?)\s*$",
+        @"^(?:(?:SPRT|MAT|PFAB)\s+-?\d+\s+)(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex MaterialReference = new(
         @"^(?:(?:albedo|normal|substrateExprTexture\d+)\s+)(?<path>.+?)\s*$",
@@ -150,6 +150,8 @@ public sealed class AssetCookPlanner
             static item => item.AssetId,
             StringComparer.OrdinalIgnoreCase);
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var dependencyGraph = new Dictionary<string, IReadOnlyList<string>>(
+            StringComparer.OrdinalIgnoreCase);
         var pending = new Queue<string>();
         pending.Enqueue(root.AssetId);
 
@@ -181,9 +183,10 @@ public sealed class AssetCookPlanner
                 continue;
             }
 
-            VerifyDiscoveredDependencies(asset, diagnostics, cancellationToken);
-            foreach (string dependency in asset.Metadata.Dependencies
-                         .OrderBy(static item => item, StringComparer.Ordinal))
+            IReadOnlyList<string> effectiveDependencies =
+                EffectiveDependencyIds(asset, diagnostics, cancellationToken);
+            dependencyGraph[asset.AssetId] = effectiveDependencies;
+            foreach (string dependency in effectiveDependencies)
             {
                 if (!byId.ContainsKey(dependency))
                 {
@@ -200,13 +203,14 @@ public sealed class AssetCookPlanner
             }
         }
 
-        AssetReferenceAnalysis analysis = _database.AnalyzeReferences(root.AssetId, maxDepth: 256);
-        foreach (AssetDependencyCycle cycle in analysis.Cycles)
+        foreach (IReadOnlyList<string> cycle in FindDependencyCycles(
+                     root.AssetId,
+                     dependencyGraph))
         {
             diagnostics.Add(new(
                 AssetCookDiagnosticSeverity.Error,
                 "ASSET_DEPENDENCY_CYCLE",
-                "Reachable dependency cycle: " + string.Join(" -> ", cycle.AssetIds),
+                "Reachable dependency cycle: " + string.Join(" -> ", cycle),
                 root.RelativePath,
                 root.AssetId));
         }
@@ -219,6 +223,52 @@ public sealed class AssetCookPlanner
             .ThenBy(static item => item.AssetId, StringComparer.Ordinal)
             .ToArray();
         return FinalizePlan(root, assets, diagnostics);
+    }
+
+    private IReadOnlyList<string> EffectiveDependencyIds(
+        AssetRecord asset,
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        string[] metadata = asset.Metadata.Dependencies
+            .OrderBy(static item => item, StringComparer.Ordinal)
+            .ToArray();
+        if (!Path.GetExtension(asset.RelativePath).Equals(
+                ".acsbp",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            VerifyDiscoveredDependencies(asset, diagnostics, cancellationToken);
+            return Array.AsReadOnly(metadata);
+        }
+
+        // Blueprint inheritance is authored in the ACSBP source itself. The editor historically
+        // did not mirror PARENT into sidecar metadata, so making that sidecar authoritative drops
+        // nested parents from a package. Treat source-discovered Blueprint edges as authoritative
+        // additions while retaining other importer-provided dependencies as a safe superset.
+        try
+        {
+            IReadOnlyList<string> discovered = DiscoverDependencyIds(
+                asset,
+                diagnostics,
+                cancellationToken);
+            return Array.AsReadOnly(metadata
+                .Concat(discovered)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static item => item, StringComparer.Ordinal)
+                .ToArray());
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or InvalidDataException or
+                JsonException or ArgumentException or FormatException or NotSupportedException)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "ASSET_DEPENDENCY_SCAN_FAILED",
+                error.Message,
+                asset.RelativePath,
+                asset.AssetId));
+            return Array.AsReadOnly(metadata);
+        }
     }
 
     private void VerifyDiscoveredDependencies(
@@ -275,6 +325,11 @@ public sealed class AssetCookPlanner
             ScanGltf(asset, ids, diagnostics, cancellationToken);
             return Array.AsReadOnly(ids.ToArray());
         }
+        if (string.Equals(extension, ".acsbp", StringComparison.OrdinalIgnoreCase))
+        {
+            ScanBlueprint(asset, ids, diagnostics, cancellationToken);
+            return Array.AsReadOnly(ids.ToArray());
+        }
 
         EnsureScannableTextFile(asset.FullPath);
         Regex expression = extension.ToLowerInvariant() switch
@@ -311,6 +366,86 @@ public sealed class AssetCookPlanner
                 relativeToAssetDirectory: extension is ".obj" or ".mtl");
         }
         return Array.AsReadOnly(ids.ToArray());
+    }
+
+    private void ScanBlueprint(
+        AssetRecord asset,
+        SortedSet<string> ids,
+        List<AssetCookDiagnostic> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        EnsureScannableTextFile(asset.FullPath);
+        string text = File.ReadAllText(asset.FullPath, StrictUtf8);
+        AcsbpCookDocument document = AcsbpFormat.ParseForCook(text);
+
+        int parentCount = 0;
+        for (int index = 1; index < document.Lines.Length; ++index)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (document.IsComponentLine(index))
+                continue;
+            string line = document.Lines[index];
+            if (!AcsbpFormat.TryParseCanonicalParentDirective(
+                    line,
+                    out string reference))
+                continue;
+            if (++parentCount > 1)
+                throw new InvalidDataException(
+                    "Blueprint payload may contain at most one PARENT directive.");
+
+            if (!Path.GetExtension(reference).Equals(
+                    ".acsbp",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                diagnostics.Add(new(
+                    AssetCookDiagnosticSeverity.Error,
+                    "BLUEPRINT_PARENT_EXTENSION",
+                    "Blueprint PARENT must reference an .acsbp asset.",
+                    asset.RelativePath,
+                    asset.AssetId));
+                continue;
+            }
+            ResolveAndAdd(
+                asset,
+                reference,
+                ids,
+                diagnostics,
+                relativeToAssetDirectory: false);
+        }
+
+        if (!document.HasComponents)
+            return;
+        Regex componentExpression = document.ComponentExtension == ".acs3d"
+            ? Scene3DReference
+            : SceneReference;
+        int componentEnd = document.ComponentStart + document.ComponentCount;
+        for (int index = document.ComponentStart + 1;
+             index < componentEnd;
+             ++index)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string line = document.Lines[index];
+            string directive = FirstToken(line);
+            bool referenceDirective = document.ComponentExtension == ".acs3d"
+                ? directive is "MSH3D" or "SPR3D" or "MAT3D" or "PFAB3D"
+                : directive is "SPRT" or "MAT" or "PFAB";
+            if (!referenceDirective)
+                continue;
+
+            Match match = componentExpression.Match(line);
+            if (!match.Success)
+                throw new InvalidDataException(
+                    $"Blueprint CMP reference directive '{directive}' is malformed.");
+            string reference = match.Groups["path"].Value.Trim();
+            if (directive == "MAT3D" && IsLegacyNumeric3DMaterial(reference))
+                continue;
+            ResolveAndAdd(
+                asset,
+                reference,
+                ids,
+                diagnostics,
+                relativeToAssetDirectory: false);
+        }
     }
 
     private static Regex SelectPrefabReferenceExpression(string path)
@@ -532,11 +667,116 @@ public sealed class AssetCookPlanner
         string extension = Path.GetExtension(relativePath);
         return extension.Equals(".acscene", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".acsprefab", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".acsbp", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".acs3d", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".acsmat", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".gltf", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".obj", StringComparison.OrdinalIgnoreCase) ||
                extension.Equals(".mtl", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> FindDependencyCycles(
+        string rootAssetId,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> dependencyGraph)
+    {
+        var state = new Dictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        var path = new List<string>();
+        var stackIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var cycles = new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        var frames = new Stack<(string AssetId, string[] Dependencies, int NextIndex)>();
+
+        void Push(string assetId)
+        {
+            state[assetId] = 1;
+            stackIndex[assetId] = path.Count;
+            path.Add(assetId);
+            string[] dependencies = dependencyGraph.TryGetValue(
+                    assetId,
+                    out IReadOnlyList<string>? values)
+                ? values
+                    .Where(dependencyGraph.ContainsKey)
+                    .OrderBy(static id => id, StringComparer.Ordinal)
+                    .ToArray()
+                : Array.Empty<string>();
+            frames.Push((assetId, dependencies, 0));
+        }
+
+        Push(rootAssetId);
+        while (frames.Count != 0)
+        {
+            (string assetId, string[] dependencies, int nextIndex) = frames.Pop();
+            if (nextIndex >= dependencies.Length)
+            {
+                if (path.Count == 0 ||
+                    !string.Equals(path[^1], assetId, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "Cook dependency traversal stack is inconsistent.");
+                }
+                path.RemoveAt(path.Count - 1);
+                stackIndex.Remove(assetId);
+                state[assetId] = 2;
+                continue;
+            }
+
+            string dependency = dependencies[nextIndex];
+            frames.Push((assetId, dependencies, nextIndex + 1));
+            state.TryGetValue(dependency, out byte dependencyState);
+            if (dependencyState == 0)
+            {
+                Push(dependency);
+            }
+            else if (dependencyState == 1 &&
+                     stackIndex.TryGetValue(dependency, out int start))
+            {
+                string[] cycle = CanonicalizeCycle(
+                    path.Skip(start).Append(dependency).ToArray());
+                cycles.TryAdd(
+                    string.Join(">", cycle),
+                    Array.AsReadOnly(cycle));
+            }
+        }
+
+        return Array.AsReadOnly(cycles.Values.ToArray());
+    }
+
+    private static string[] CanonicalizeCycle(IReadOnlyList<string> cycle)
+    {
+        if (cycle.Count < 2 ||
+            !string.Equals(cycle[0], cycle[^1], StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Cook dependency cycle must repeat its first asset id.");
+        }
+
+        string[] body = cycle.Take(cycle.Count - 1).ToArray();
+        string[]? best = null;
+        for (int start = 0; start < body.Length; ++start)
+        {
+            var rotated = new string[body.Length];
+            for (int index = 0; index < body.Length; ++index)
+                rotated[index] = body[(start + index) % body.Length];
+            if (best == null || CompareAssetIdSequence(rotated, best) < 0)
+                best = rotated;
+        }
+
+        var canonical = new string[body.Length + 1];
+        Array.Copy(best!, canonical, body.Length);
+        canonical[^1] = canonical[0];
+        return canonical;
+    }
+
+    private static int CompareAssetIdSequence(
+        IReadOnlyList<string> left,
+        IReadOnlyList<string> right)
+    {
+        for (int index = 0; index < Math.Min(left.Count, right.Count); ++index)
+        {
+            int comparison = string.CompareOrdinal(left[index], right[index]);
+            if (comparison != 0)
+                return comparison;
+        }
+        return left.Count.CompareTo(right.Count);
     }
 
     private static bool IsLegacyNumeric3DMaterial(string value)
@@ -555,6 +795,12 @@ public sealed class AssetCookPlanner
                    System.Globalization.NumberStyles.Float,
                    System.Globalization.CultureInfo.InvariantCulture,
                    out _);
+    }
+
+    private static string FirstToken(string line)
+    {
+        int separator = line.IndexOfAny([' ', '\t']);
+        return separator < 0 ? line : line[..separator];
     }
 
     private static void EnsureScannableTextFile(string path)

@@ -132,20 +132,27 @@ ACS_TEST(PostEffects,
     if (draw.empty() || editor.empty()) return;
 
     // TAA-only and motion-blur-only configurations do not request the normal
-    // G-buffer. Motion still has its own MRT/depth pass and must run whenever
-    // there is an actual consumer and drawable geometry.
+    // G-buffer. Motion still has its own MRT/depth pass and counts its exact
+    // eligible set before reserving persistent per-object buffers.
     EXPECT_TRUE(draw.find(
         "const bool wantsMotion = taaOn || h.q_ssr_on ||") !=
                 std::string::npos);
     EXPECT_TRUE(draw.find(
-        "wantsMotion && dvCount > 0u && h.mv_ready && h.pbr3d_ready") !=
+        "wantsMotion && h.mv_ready && h.pbr3d_ready") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "canDrawMotion && motionEligibleCount > 0u") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.mv3d.BeginFrame(motionEligibleCount)") !=
                 std::string::npos);
     EXPECT_TRUE(draw.find("gbufReady && h.mv_ready") ==
                 std::string::npos);
 
-    // Any disabled, resized, failed-Begin, or skipped-node discontinuity
-    // invalidates history. The first successful frame then uses current VP
-    // and world transforms as previous values, producing zero motion.
+    // A node advances its transform history only after its draw was actually
+    // recorded. The texture is authoritative only when every pre-counted
+    // target succeeded, so partial passes cold-start instead of poisoning
+    // TAA/SSR/SSGI history.
     EXPECT_TRUE(draw.find(
         "const bool motionHistoryReady = h.mv_computed;") !=
                 std::string::npos);
@@ -154,6 +161,13 @@ ACS_TEST(PostEffects,
                 std::string::npos);
     EXPECT_TRUE(draw.find(
         "motionHistoryReady && er != nullptr &&") !=
+                std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "const bool recorded =") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "if (recorded && er != nullptr)") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.mv3d.ObjectDrawCount() == motionEligibleCount") !=
                 std::string::npos);
     EXPECT_TRUE(CountOccurrences(
         draw, "invalidateMotionHistory();") >= 3u);
@@ -182,6 +196,111 @@ ACS_TEST(PostEffects,
         "host->ortho3d != ortho3d") != std::string::npos);
     EXPECT_TRUE(set_projection.find(
         "host->mv_computed = false;") != std::string::npos);
+}
+
+ACS_TEST(PostEffects,
+         MotionVectorCallsitesPublishOnlyCompleteAuthoritativeOutputs)
+{
+    const std::string motion_header =
+        ReadWorkspaceSource("src/render/MotionVector.h");
+    const std::string motion_source =
+        ReadWorkspaceSource("src/render/MotionVector.cpp");
+    const std::string ibl_gbuffer =
+        ReadWorkspaceSource("samples/25_HelloIbl/GBufferPass.cpp");
+    const std::string ibl_app =
+        ReadWorkspaceSource("samples/25_HelloIbl/HelloIblApp.cpp");
+    const std::string ibl_effects =
+        ReadWorkspaceSource("samples/25_HelloIbl/ScreenSpaceEffects.cpp");
+    const std::string showcase_header =
+        ReadWorkspaceSource("samples/27_HelloShowcase/MotionPass.h");
+    const std::string showcase_motion =
+        ReadWorkspaceSource("samples/27_HelloShowcase/MotionPass.cpp");
+    const std::string showcase_app =
+        ReadWorkspaceSource("samples/27_HelloShowcase/ShowcaseApp.cpp");
+    const std::string reference =
+        ReadWorkspaceSource("docs/reference/data/render_core.js");
+    const std::string recipes =
+        ReadWorkspaceSource("docs/RECIPES.md");
+
+    EXPECT_TRUE(!motion_header.empty());
+    EXPECT_TRUE(!motion_source.empty());
+    EXPECT_TRUE(!ibl_gbuffer.empty());
+    EXPECT_TRUE(!ibl_app.empty());
+    EXPECT_TRUE(!ibl_effects.empty());
+    EXPECT_TRUE(!showcase_header.empty());
+    EXPECT_TRUE(!showcase_motion.empty());
+    EXPECT_TRUE(!showcase_app.empty());
+    EXPECT_TRUE(!reference.empty());
+    EXPECT_TRUE(!recipes.empty());
+    if (motion_header.empty() || motion_source.empty() ||
+        ibl_gbuffer.empty() || ibl_app.empty() || ibl_effects.empty() ||
+        showcase_header.empty() || showcase_motion.empty() ||
+        showcase_app.empty() || reference.empty() || recipes.empty()) {
+        return;
+    }
+
+    // UINT32_MAX is a reserved cursor value, never an allocation request, and
+    // DrawMesh checks it before evaluating cursor + 1.
+    EXPECT_TRUE(motion_header.find(
+        "kInvalidObjectBuffer = ~u32{0}") != std::string::npos);
+    EXPECT_TRUE(motion_source.find(
+        "required_draws == kInvalidObjectBuffer") != std::string::npos);
+    EXPECT_TRUE(motion_source.find(
+        "m_DrawCursor == kInvalidObjectBuffer ||") != std::string::npos);
+
+    // HelloIbl pre-counts floor + grid + dynamic + optional glass draws and
+    // gates every temporal/normal consumer with the complete-pass result.
+    EXPECT_TRUE(ibl_gbuffer.find(
+        "1u + kGrid * kGrid + kDynCount +") != std::string::npos);
+    EXPECT_TRUE(ibl_gbuffer.find(
+        "app.m_ShowRefraction ? 2u : 0u") != std::string::npos);
+    EXPECT_TRUE(ibl_gbuffer.find(
+        "app.m_Motion.BeginFrame(required_draws)") != std::string::npos);
+    EXPECT_TRUE(ibl_gbuffer.find(
+        "app.m_Motion.ObjectDrawCount() == required_draws") !=
+                std::string::npos);
+    EXPECT_TRUE(ibl_app.find(
+        "m_MotionGBufferValid && m_bUseMotionVec") !=
+                std::string::npos);
+    EXPECT_EQ(CountOccurrences(
+        ibl_effects, "if (!app.m_MotionGBufferValid)"),
+        static_cast<std::size_t>(3u));
+
+    // HelloShowcase returns both attachments only after all exact-count draws
+    // succeed, then clears SSR/SSAO warm state instead of reusing stale data.
+    EXPECT_TRUE(showcase_header.find(
+        "struct FMotionPassOutput") != std::string::npos);
+    EXPECT_TRUE(showcase_motion.find(
+        "1u + kSphereCount + kOrbCount") != std::string::npos);
+    EXPECT_TRUE(showcase_motion.find(
+        "a.motion.BeginFrame(kRequiredDraws)") != std::string::npos);
+    EXPECT_TRUE(showcase_motion.find(
+        "a.motion.ObjectDrawCount() != kRequiredDraws") !=
+                std::string::npos);
+    EXPECT_TRUE(showcase_app.find(
+        "motion_output.normal != nullptr") != std::string::npos);
+    EXPECT_TRUE(showcase_app.find(
+        "m_SsrWarm = false;") != std::string::npos);
+    EXPECT_TRUE(showcase_app.find(
+        "m_bSsaoWarm = false;") != std::string::npos);
+
+    // Public examples must teach the same fail-closed lifecycle rather than
+    // the former void Begin/Draw API.
+    EXPECT_TRUE(reference.find(
+        "bool BeginFrame(u32 required_draws = 0)") != std::string::npos);
+    EXPECT_TRUE(reference.find(
+        "bool Begin(IRhiCommandList& cl") != std::string::npos);
+    EXPECT_TRUE(reference.find(
+        "bool DrawMesh(IRhiCommandList& cl") != std::string::npos);
+    EXPECT_TRUE(reference.find(
+        "sig: \"void DrawMesh(IRhiCommandList& cl") ==
+                std::string::npos);
+    EXPECT_TRUE(recipes.find(
+        "## TAA / SSR 用のモーション・法線 G-buffer") !=
+                std::string::npos);
+    EXPECT_TRUE(recipes.find(
+        "motion.ObjectDrawCount() == motion_draw_count") !=
+                std::string::npos);
 }
 
 ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
@@ -1555,53 +1674,101 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
     }
 
     FStandardShader standard;
+    EXPECT_FALSE(standard.BeginFrame(0u));
     const auto standard_result =
         standard.Init(device, EFormat::R16G16B16A16_Float, EFormat::D32_Float);
     EXPECT_TRUE(standard_result.IsOk());
     if (standard_result.IsOk()) {
-        standard.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
-                           nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
-        EXPECT_TRUE(standard.SetObject(FMat4::Identity()));
-        IRhiBuffer* first_object = standard.PerObjectCB();
-        EXPECT_TRUE(standard.SetObject(FMat4::Identity()));
-        EXPECT_TRUE(standard.PerObjectCB() != first_object);
-        for (u32 i = 2; i < FStandardShader::kMaxObjectDrawsPerFrame; ++i)
-            EXPECT_TRUE(standard.SetObject(FMat4::Identity()));
-        EXPECT_TRUE(!standard.SetObject(FMat4::Identity()));
+        EXPECT_FALSE(standard.BeginFrame(
+            std::numeric_limits<u32>::max()));
+        EXPECT_FALSE(standard.SetObject(FMat4::Identity()));
+        EXPECT_EQ(standard.ObjectDrawCount(), 0u);
         EXPECT_TRUE(standard.PerObjectCB() == nullptr);
 
+        constexpr u32 kLargeStandardDrawCount = 512u;
+        EXPECT_TRUE(standard.BeginFrame(kLargeStandardDrawCount));
+        EXPECT_TRUE(
+            standard.ObjectBufferCapacity() >= kLargeStandardDrawCount);
+        standard.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
+                           nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
+        IRhiBuffer* first_object = nullptr;
+        for (u32 i = 0u; i < kLargeStandardDrawCount; ++i) {
+            EXPECT_TRUE(standard.SetObject(FMat4::Identity()));
+            if (i == 0u) first_object = standard.PerObjectCB();
+        }
+        EXPECT_TRUE(first_object != nullptr);
+        EXPECT_TRUE(standard.PerObjectCB() != first_object);
+        EXPECT_EQ(
+            standard.ObjectDrawCount(), kLargeStandardDrawCount);
+
+        const u32 retained_standard_capacity =
+            standard.ObjectBufferCapacity();
+        EXPECT_TRUE(standard.BeginFrame(1u));
+        EXPECT_EQ(
+            standard.ObjectBufferCapacity(), retained_standard_capacity);
+        EXPECT_EQ(standard.ObjectDrawCount(), 0u);
         standard.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
                            nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
         EXPECT_TRUE(standard.SetObject(FMat4::Identity()));
         EXPECT_TRUE(standard.PerObjectCB() != nullptr);
+        standard.SetLights(FMat4::Identity(), FVec3{1.0f, 0.0f, 0.0f},
+                           nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
+        EXPECT_EQ(standard.ObjectDrawCount(), 1u);
+        standard.Shutdown();
+        EXPECT_FALSE(standard.BeginFrame(0u));
     }
 
     FSkinnedShader skinned;
+    EXPECT_FALSE(skinned.BeginFrame(0u));
     const auto skinned_result =
         skinned.Init(device, EFormat::R16G16B16A16_Float, EFormat::D32_Float);
     EXPECT_TRUE(skinned_result.IsOk());
     if (skinned_result.IsOk()) {
-        skinned.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
-                          nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
-        EXPECT_TRUE(skinned.SetObject(FMat4::Identity()));
-        EXPECT_TRUE(skinned.SetBonePalette(nullptr, 0));
-        IRhiBuffer* first_object = skinned.PerObjectCB();
-        IRhiBuffer* first_bones = skinned.BonesCB();
-        EXPECT_TRUE(skinned.SetObject(FMat4::Identity()));
-        EXPECT_TRUE(skinned.SetBonePalette(nullptr, 0));
-        EXPECT_TRUE(skinned.PerObjectCB() != first_object);
-        EXPECT_TRUE(skinned.BonesCB() != first_bones);
-        for (u32 i = 2; i < FSkinnedShader::kMaxObjectDrawsPerFrame; ++i)
-            EXPECT_TRUE(skinned.SetObject(FMat4::Identity()));
-        EXPECT_TRUE(!skinned.SetObject(FMat4::Identity()));
+        EXPECT_FALSE(skinned.BeginFrame(
+            std::numeric_limits<u32>::max()));
+        EXPECT_FALSE(skinned.SetObject(FMat4::Identity()));
+        EXPECT_FALSE(skinned.SetBonePalette(nullptr, 0));
+        EXPECT_EQ(skinned.ObjectDrawCount(), 0u);
         EXPECT_TRUE(skinned.PerObjectCB() == nullptr);
         EXPECT_TRUE(skinned.BonesCB() == nullptr);
-        EXPECT_TRUE(!skinned.SetBonePalette(nullptr, 0));
 
+        constexpr u32 kLargeSkinnedDrawCount = 512u;
+        EXPECT_TRUE(skinned.BeginFrame(kLargeSkinnedDrawCount));
+        EXPECT_TRUE(
+            skinned.ObjectBufferCapacity() >= kLargeSkinnedDrawCount);
+        skinned.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
+                          nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
+        IRhiBuffer* first_skinned_object = nullptr;
+        IRhiBuffer* first_bones = nullptr;
+        for (u32 i = 0u; i < kLargeSkinnedDrawCount; ++i) {
+            EXPECT_TRUE(skinned.SetObject(FMat4::Identity()));
+            EXPECT_TRUE(skinned.SetBonePalette(nullptr, 0));
+            if (i == 0u) {
+                first_skinned_object = skinned.PerObjectCB();
+                first_bones = skinned.BonesCB();
+            }
+        }
+        EXPECT_TRUE(first_skinned_object != nullptr);
+        EXPECT_TRUE(first_bones != nullptr);
+        EXPECT_TRUE(skinned.PerObjectCB() != first_skinned_object);
+        EXPECT_TRUE(skinned.BonesCB() != first_bones);
+        EXPECT_EQ(skinned.ObjectDrawCount(), kLargeSkinnedDrawCount);
+
+        const u32 retained_skinned_capacity =
+            skinned.ObjectBufferCapacity();
+        EXPECT_TRUE(skinned.BeginFrame(1u));
+        EXPECT_EQ(
+            skinned.ObjectBufferCapacity(), retained_skinned_capacity);
+        EXPECT_EQ(skinned.ObjectDrawCount(), 0u);
         skinned.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
                           nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
         EXPECT_TRUE(skinned.SetObject(FMat4::Identity()));
         EXPECT_TRUE(skinned.SetBonePalette(nullptr, 0));
+        skinned.SetLights(FMat4::Identity(), FVec3{1.0f, 0.0f, 0.0f},
+                          nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
+        EXPECT_EQ(skinned.ObjectDrawCount(), 1u);
+        skinned.Shutdown();
+        EXPECT_FALSE(skinned.BeginFrame(0u));
     }
 
     // Runtime startup remains base-only even though Legacy can now lazily
@@ -1998,6 +2165,191 @@ ACS_TEST(PostEffects,
                 std::string::npos);
     EXPECT_TRUE(hello_lightmap.find(
         "m_Pbr.PerObjectCB()") != std::string::npos);
+}
+
+ACS_TEST(PostEffects,
+         GrowableLegacyShaderPoolsCoverEveryRealCallsite)
+{
+    const std::string standard =
+        ReadWorkspaceSource("src/render/StandardShader.cpp");
+    const std::string standard_header =
+        ReadWorkspaceSource("src/render/StandardShader.h");
+    const std::string skinned =
+        ReadWorkspaceSource("src/render/SkinnedShader.cpp");
+    const std::string skinned_header =
+        ReadWorkspaceSource("src/render/SkinnedShader.h");
+    const std::string shadow =
+        ReadWorkspaceSource("src/render/ShadowMap.cpp");
+    const std::string shadow_header =
+        ReadWorkspaceSource("src/render/ShadowMap.h");
+    const std::string render_reference =
+        ReadWorkspaceSource("docs/reference/data/render_core.js");
+    const std::string recipes =
+        ReadWorkspaceSource("docs/RECIPES.md");
+
+    EXPECT_TRUE(!standard.empty());
+    EXPECT_TRUE(!standard_header.empty());
+    EXPECT_TRUE(!skinned.empty());
+    EXPECT_TRUE(!skinned_header.empty());
+    EXPECT_TRUE(!shadow.empty());
+    EXPECT_TRUE(!shadow_header.empty());
+    EXPECT_TRUE(!render_reference.empty());
+    EXPECT_TRUE(!recipes.empty());
+    if (standard.empty() || standard_header.empty() ||
+        skinned.empty() || skinned_header.empty() ||
+        shadow.empty() || shadow_header.empty() ||
+        render_reference.empty() || recipes.empty()) return;
+
+    const std::string standard_set_lights =
+        ExtractFunction(
+            standard, "void FStandardShader::SetLights(");
+    const std::string skinned_set_lights =
+        ExtractFunction(
+            skinned, "void FSkinnedShader::SetLights(");
+    EXPECT_TRUE(standard_set_lights.find("m_ObjectCbCursor") ==
+                std::string::npos);
+    EXPECT_TRUE(skinned_set_lights.find("m_ObjectCbCursor") ==
+                std::string::npos);
+    EXPECT_TRUE(standard.find(
+        "bool FStandardShader::BeginFrame(u32 required_object_draws)") !=
+        std::string::npos);
+    EXPECT_TRUE(skinned.find(
+        "bool FSkinnedShader::BeginFrame(u32 required_object_draws)") !=
+        std::string::npos);
+    EXPECT_TRUE(shadow.find(
+        "bool FShadowMap::BeginFrame(") != std::string::npos);
+    const std::string shadow_begin_frame =
+        ExtractFunction(shadow, "bool FShadowMap::BeginFrame(");
+    const std::string shadow_ensure_capacity =
+        ExtractFunction(shadow, "bool FShadowMap::EnsureCasterCapacity(");
+    EXPECT_TRUE(shadow_begin_frame.find("cascade < m_CascadeCapacity") !=
+                std::string::npos);
+    EXPECT_TRUE(shadow_begin_frame.find("cascade < m_CascadeCount") ==
+                std::string::npos);
+    EXPECT_TRUE(shadow_ensure_capacity.find(
+                    "cascade >= m_CascadeCapacity") != std::string::npos);
+    EXPECT_TRUE(shadow_ensure_capacity.find(
+                    "cascade >= m_CascadeCount") == std::string::npos);
+    EXPECT_TRUE(standard_header.find(
+                    "[[deprecated(\"growable pool; not a hard limit\")]]") !=
+                std::string::npos);
+    EXPECT_TRUE(standard_header.find("kMaxObjectDrawsPerFrame = 256u") !=
+                std::string::npos);
+    EXPECT_TRUE(skinned_header.find("kMaxObjectDrawsPerFrame = 256u") !=
+                std::string::npos);
+    EXPECT_TRUE(shadow_header.find(
+                    "kMaxCasterDrawsPerCascade = 256u") !=
+                std::string::npos);
+    EXPECT_TRUE(shadow_header.find("kMaxCasterDrawsPerFrame") !=
+                std::string::npos);
+    EXPECT_TRUE(standard.find("kMaxObjectDrawsPerFrame") ==
+                std::string::npos);
+    EXPECT_TRUE(skinned.find("kMaxObjectDrawsPerFrame") ==
+                std::string::npos);
+    EXPECT_TRUE(shadow.find("kMaxCasterDrawsPerCascade") ==
+                std::string::npos);
+    EXPECT_TRUE(shadow.find("kMaxCasterDrawsPerFrame") ==
+                std::string::npos);
+    EXPECT_TRUE(skinned_header.find("struct FDrawBufferPair") !=
+                std::string::npos);
+    EXPECT_TRUE(skinned_header.find("TArray<FDrawBufferPair>") !=
+                std::string::npos);
+
+    struct FCallsiteContract {
+        const char* path;
+        const char* begin_gate;
+        std::size_t expected_begin_frames;
+    };
+    const FCallsiteContract callsites[] = {
+        {"samples/10_HelloModel/ModelScene.cpp",
+         "if (!shader.BeginFrame(", 1u},
+        {"samples/11_HelloRaycast3D/RaycastScene.cpp",
+         "!shader.BeginFrame(", 1u},
+        {"samples/12_HelloLights/LightsScene.cpp",
+         "if (!shader.BeginFrame(", 1u},
+        {"samples/13_HelloSky/SkyScene.cpp",
+         "if (!shader.BeginFrame(", 1u},
+        {"samples/14_HelloShadows/ShadowsScene.cpp",
+         "if (!shader.BeginFrame(", 2u},
+        {"samples/15_HelloAnimation/AnimationScene.cpp",
+         "if (!std_shader.BeginFrame(", 2u},
+        {"samples/24_HelloBloom/HelloBloomApp.cpp",
+         "if (!m_Shader.BeginFrame(", 1u},
+        {"samples/25_HelloIbl/ShadowPass.cpp",
+         "if (!app.m_Shadow.BeginFrame(", 1u},
+        {"samples/67_HelloWater3D/HelloWater3DApp.cpp",
+         "if (!m_OpaqueShader.BeginFrame(", 1u},
+    };
+    for (const FCallsiteContract& contract : callsites) {
+        const std::string source =
+            ReadWorkspaceSource(contract.path);
+        EXPECT_TRUE(!source.empty());
+        if (source.empty()) continue;
+        EXPECT_TRUE(source.find(contract.begin_gate) !=
+                    std::string::npos);
+        EXPECT_EQ(
+            CountOccurrences(source, ".BeginFrame("),
+            contract.expected_begin_frames);
+    }
+
+    const std::string shadows_scene =
+        ReadWorkspaceSource(
+            "samples/14_HelloShadows/ShadowsScene.cpp");
+    const std::string animation_scene =
+        ReadWorkspaceSource(
+            "samples/15_HelloAnimation/AnimationScene.cpp");
+    EXPECT_TRUE(shadows_scene.find("!shadow.BeginFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(animation_scene.find("!skin_shader.BeginFrame(") !=
+                std::string::npos);
+
+    const std::string ibl_shadow_pass =
+        ReadWorkspaceSource("samples/25_HelloIbl/ShadowPass.cpp");
+    const std::size_t configure_csm =
+        ibl_shadow_pass.find("SetDirectionalLightCascades(");
+    const std::size_t reserve_casters =
+        ibl_shadow_pass.find("m_Shadow.BeginFrame(");
+    EXPECT_TRUE(configure_csm != std::string::npos);
+    EXPECT_TRUE(reserve_casters != std::string::npos);
+    EXPECT_TRUE(configure_csm < reserve_casters);
+
+    EXPECT_TRUE(render_reference.find(
+        "if (!shd.BeginFrame(/* exact standard draws this frame */ 1u)) "
+        "return;") != std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "if (!shd.BeginFrame(/* exact skinned draws this frame */ 1u)) "
+        "return;") != std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "{ sig: \"bool SetObject(const FMat4& model") !=
+        std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "{ sig: \"bool SetObject(...)\"") != std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "if (!shd.SetBonePalette(palette, nb)) return;") !=
+        std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "{ sig: \"bool SetBonePalette(") != std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "if (!sm.BeginFrame(static_cast&lt;u32&gt;(casters.Size()))) "
+        "return;") != std::string::npos);
+    EXPECT_TRUE(render_reference.find(
+        "bool TrySetCaster(const FMat4& model)") != std::string::npos);
+    EXPECT_TRUE(render_reference.find("sm.SetCaster(") ==
+                std::string::npos);
+    EXPECT_TRUE(recipes.find(
+        "if (!shd.BeginFrame(/* exact skinned draws */ 1u)) return;") !=
+        std::string::npos);
+    EXPECT_TRUE(recipes.find(
+        "if (!shd.SetBonePalette(palette, nb)) return;") !=
+        std::string::npos);
+    EXPECT_EQ(
+        CountOccurrences(
+            recipes,
+            "if (!shd.BeginFrame(/* exact standard draws */ 1u)) return;"),
+        static_cast<std::size_t>(2u));
+    EXPECT_TRUE(recipes.find("if (!sm.BeginFrame(caster_count) ||") !=
+                std::string::npos);
+    EXPECT_TRUE(recipes.find("sm.SetCaster(") == std::string::npos);
 }
 
 ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)

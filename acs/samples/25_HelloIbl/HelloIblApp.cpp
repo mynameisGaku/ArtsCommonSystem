@@ -335,7 +335,9 @@ bool FHelloIblApp::OnCustomFrame() noexcept {
     // motion texture を TAA / SSGI へ渡す。frame 0 は prev VP 未確定なので渡さず、
     // depth reprojection 側の cold-start ガードに委ねる。
     IRhiTexture* motion_tex =
-        (m_bUseMotionVec && m_TaaPrevVpValid) ? m_Motion.OutputTexture() : nullptr;
+        (m_MotionGBufferValid && m_bUseMotionVec && m_TaaPrevVpValid)
+            ? m_Motion.OutputTexture()
+            : nullptr;
     m_PostParams.taa_motion_texture = motion_tex;
 
     // ===== Screen-space effects (1-frame latency) =====

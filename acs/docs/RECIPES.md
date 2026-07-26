@@ -197,9 +197,11 @@ player.Update(dt);
 FMat4 palette[64];
 u32 nb = player.WritePalette(palette, 64);
 
+// このフレームで記録する skinned draw はこの 1 回だけ
+if (!shd.BeginFrame(/* exact skinned draws */ 1u)) return;
 shd.SetLights(camera.ViewProjection(), camera.Eye(), lights, count, ambient);
-shd.SetObject(model_mat, base_color, specular, shininess);
-shd.SetBonePalette(palette, nb);
+if (!shd.SetObject(model_mat, base_color, specular, shininess)) return;
+if (!shd.SetBonePalette(palette, nb)) return;
 
 cl->SetPipeline(*shd.Pipeline());
 cl->SetConstantBuffer(0, *shd.PerFrameCB());
@@ -211,6 +213,7 @@ cl->SetIndexBuffer (*gm.index_buffer);
 cl->DrawIndexed(gm.index_count);
 ```
 - 最大 64 ボーン、4 ボーン/頂点まで影響
+- 旧 `kMaxObjectDrawsPerFrame` は互換用の目安値であり、ハード上限ではない
 - TRS キーフレームを Slerp/Lerp で時刻補間
 - FAnimationPlayer がループ再生・一時停止・任意時刻指定
 - 15_HelloAnimation サンプルが手続き 4 ボーン円柱でうねうねデモ
@@ -329,18 +332,23 @@ sm.Init(*device, /*size=*/2048);
 shd.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection(), /*bias=*/0.001f);
 
 // 毎フレーム
+const u32 caster_count = static_cast<u32>(casters.Size());
+const u32 standard_draw_count = static_cast<u32>(visible_meshes.Size());
 sm.SetDirectionalLight(sun_dir, scene_center, scene_radius);
+if (!sm.BeginFrame(caster_count) ||
+    !shd.BeginFrame(standard_draw_count)) return;
 
 // 1) シャドウパス
 cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
 cl->SetPipeline(*sm.CasterPipeline());
 cl->SetConstantBuffer(0, *sm.LightCB());
-cl->SetConstantBuffer(1, *sm.CasterObjectCB());
-for (each caster) {
-    sm.SetCaster(model_mat);
-    cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-    cl->SetIndexBuffer(*gm.index_buffer);
-    cl->DrawIndexed(gm.index_count);
+for (const auto& caster : casters) {
+    if (!sm.TrySetCaster(caster.model)) continue;
+    cl->SetConstantBuffer(1, *sm.CasterObjectCB());
+    cl->SetVertexBuffer(*caster.mesh.vertex_buffer,
+                        caster.mesh.vertex_stride);
+    cl->SetIndexBuffer(*caster.mesh.index_buffer);
+    cl->DrawIndexed(caster.mesh.index_count);
 }
 cl->EndShadowPass(*sm.DepthTexture());
 
@@ -352,6 +360,7 @@ cl->SetTexture(1, *shd.ShadowTextureOrDefault());
 // ... draw scene ...
 ```
 - 4-tap PCF でソフトシャドウ風
+- 旧 `kMaxCasterDrawsPerCascade/Frame` は互換用の目安値であり、ハード上限ではない
 - ライト VP 外の領域は自動で「光が当たる」扱い
 - ライトが真上のときは UP ベクトル自動切替
 - バイアスでシャドウアクネを抑制
@@ -365,6 +374,8 @@ pts[0].position = FVec3{ 2, 1.5f, 0};   pts[0].color = FVec3{1.0f, 0.3f, 0.3f}; 
 pts[1].position = FVec3{-2, 1.5f, 0};   pts[1].color = FVec3{0.3f, 1.0f, 0.4f}; pts[1].range = 6.0f;
 pts[2].position = FVec3{ 0, 1.5f, 3};   pts[2].color = FVec3{0.3f, 0.5f, 1.0f}; pts[2].range = 6.0f;
 
+const u32 visible_draw_count = static_cast<u32>(visible_meshes.Size());
+if (!shd.BeginFrame(visible_draw_count)) return;
 shd.SetLights(camera.ViewProjection(), camera.Eye(),
               dir_lights, dir_count, ambient);
 shd.SetPointLights(pts, 3);     // 最大 4 灯
@@ -383,13 +394,15 @@ lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f };   // 暖色キーライト
 lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f };
 lights[1].color     = FVec3{ 0.3f, 0.4f, 0.6f };   // 寒色フィル
 
+// 下の SetObject で記録する Standard draw はこの 1 回だけ
+if (!shd.BeginFrame(/* exact standard draws */ 1u)) return;
 shd.SetLights(camera.ViewProjection(), camera.Eye(),
               lights, 2, FVec3{0.08f, 0.10f, 0.14f});
 
-shd.SetObject(model_mat,
-              FVec3{1.0f, 0.85f, 0.4f},   // ベース色
-              /*specular=*/0.6f,
-              /*shininess=*/64.0f);       // 大 = シャープなハイライト
+if (!shd.SetObject(model_mat,
+                   FVec3{1.0f, 0.85f, 0.4f},   // ベース色
+                   /*specular=*/0.6f,
+                   /*shininess=*/64.0f)) return; // 大 = シャープなハイライト
 ```
 - 最大 4 灯
 - Blinn-Phong（ハーフベクトル）
@@ -427,13 +440,15 @@ FStandardShader shd;
 shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 
 // 毎フレーム
+// この例で記録する Standard draw はこの 1 回だけ
+if (!shd.BeginFrame(/* exact standard draws */ 1u)) return;
 shd.SetFrame(camera.ViewProjection(), camera.Eye(),
              FVec3{-0.5f, 0.8f, 0.3f},   // 光源方向
              FVec3{1, 1, 1},              // 光源色
              FVec3{0.1f, 0.1f, 0.15f});   // 環境光
 
 // 各オブジェクト
-shd.SetObject(model_matrix, FVec3{1, 0.85f, 0.4f});  // ベース色
+if (!shd.SetObject(model_matrix, FVec3{1, 0.85f, 0.4f})) return;  // ベース色
 
 cl->SetPipeline(*shd.Pipeline());
 cl->SetConstantBuffer(0, *shd.PerFrameCB());
@@ -443,6 +458,45 @@ cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
 cl->SetIndexBuffer (*gm.index_buffer);
 cl->DrawIndexed(gm.index_count);
 ```
+- 旧 `kMaxObjectDrawsPerFrame` は互換用の目安値であり、ハード上限ではない
+
+## TAA / SSR 用のモーション・法線 G-buffer
+
+`FMotionVector` は motion と world normal を MRT へ再ラスタライズします。対象数を
+pass 前に正確に予約し、途中失敗した texture を TAA / SSR / SSGI / SSAO へ渡さない
+ことが履歴の整合性を保つ条件です。
+
+```cpp
+const u32 motion_draw_count =
+    static_cast<u32>(visible_meshes.Size());
+bool motion_gbuffer_valid = false;
+
+if (motion.BeginFrame(motion_draw_count) &&
+    motion.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
+    bool complete = true;
+    for (const auto& visible : visible_meshes) {
+        if (!motion.DrawMesh(*cl, visible.mesh,
+                             visible.world, visible.prev_world)) {
+            complete = false;
+        }
+    }
+    motion.End(*cl);  // Begin 成功後は、途中 Draw 失敗時も必ず閉じる
+    motion_gbuffer_valid =
+        complete &&
+        motion.ObjectDrawCount() == motion_draw_count;
+}
+
+post_params.taa_motion_texture =
+    motion_gbuffer_valid ? motion.OutputTexture() : nullptr;
+if (motion_gbuffer_valid) {
+    ssr.Render(/* scene color/depth */, *motion.OutputNormalTexture(),
+               /* matrices */, motion.OutputTexture());
+}
+```
+
+- `BeginFrame` の pool は必要数まで増え、フレーム間で保持される
+- `UINT32_MAX` は内部の無効 cursor sentinel なので予約数に使えない
+- `Begin` / `DrawMesh` の `false` を無視して出力を公開してはいけない
 
 ---
 

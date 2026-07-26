@@ -251,14 +251,16 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/StandardShader.h",
       summary: "HLSL を書かずに使える<b>標準ライティングシェーダ</b>。Lambert 拡散 + Blinn-Phong スペキュラ + 環境光 + アルベドテクスチャで、有向光源 最大 4 灯 + 点光源 4 灯 + <t>シャドウマップ</t>に対応。",
       when: "とりあえず 3D メッシュをまともなライティングで描きたいとき。PBR まで要らない手軽な経路。",
-      sample: "FStandardShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\nshd.SetFrame(cam.ViewProjection(), cam.Eye(),\n             FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});\nshd.DrawMesh(*rdr.CommandList(), gm, model, FVec3{1,1,1}, 0.5f, 64.0f);",
+      sample: "FStandardShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\n// 毎フレーム。実際に記録する Standard draw 数を正確に渡す\nif (!shd.BeginFrame(/* exact standard draws this frame */ 1u)) return;\nshd.SetFrame(cam.ViewProjection(), cam.Eye(),\n             FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});\nshd.DrawMesh(*rdr.CommandList(), gm, model, FVec3{1,1,1}, 0.5f, 64.0f);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "VS+PS・パイプライン・定数バッファ・既定白テクスチャを作る。" },
+        { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "毎フレームの描画記録前に呼び、実際に記録する Standard draw 数を正確に渡す。必要な draw 専用 CB を先に確保できなければ false。" },
+        { sig: "[[deprecated]] kMaxObjectDrawsPerFrame = 256", desc: "旧固定リングとのソース互換用の目安値。プールは必要数まで増えるため、ハード上限ではない。" },
         { sig: "void SetFrame(view_projection, camera_pos, light_dir, light_color, ambient_color)", desc: "毎フレーム。カメラ + 1 灯の有向光源 + 環境光の簡易版。" },
         { sig: "void SetLights(view_projection, camera_pos, const FDirLight* lights, u32 count, ambient_color)", desc: "有向光源 最大 4 灯のマルチライト版。" },
         { sig: "void SetPointLights(const FPointLight* lights, u32 count)", desc: "点光源を最大 4 灯追加する(SetFrame/SetLights と独立)。" },
         { sig: "void SetShadowMap(IRhiTexture* tex, const FMat4& light_vp, f32 bias = 0.001f, f32 filter_radius = 1.0f)", desc: "<t>シャドウマップ</t>を設定。null で影なし。filter_radius は <t>PCSS</t> の柔らかさ。" },
-        { sig: "void SetObject(const FMat4& model, base_color, specular_strength, shininess)", desc: "描くオブジェクトごとの<t>モデル行列</t>と材質。" },
+        { sig: "bool SetObject(const FMat4& model, base_color, specular_strength, shininess)", desc: "描くオブジェクトごとの<t>モデル行列</t>と材質を draw 専用 CB に設定。失敗時は false なので、その draw を記録しない。" },
         { sig: "void DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, base_color, specular_strength, shininess, IRhiTexture* albedo = nullptr)", desc: "Object CB 更新 + 1 回の描画をまとめた便利 API。albedo=null で白テクスチャ。" },
         { sig: "bool IsShadowEnabled() const / IRhiTexture* ShadowTextureOrDefault() const", desc: "<t>シャドウマップ</t>が設定済みか / 設定された深度テクスチャ(未設定なら既定白テクスチャ)を返す。" },
         { sig: "IRhiPipeline* Pipeline() / IRhiBuffer* PerFrameCB() / PerObjectCB() / IRhiTexture* DefaultWhiteTexture()", desc: "細かく手で描きたいとき用のアクセサ。" }
@@ -312,12 +314,15 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/SkinnedShader.h",
       summary: "<b>GPU スキニング</b>対応のライティングシェーダ。FStandardShader と同じライト設定 API に加え、最大 64 本の<t>ボーンパレット</t>行列を送り、頂点をボーンに従って変形して描く。",
       when: "スケルタルアニメーションするキャラを描くとき。<code>WritePalette</code> で得たボーン行列を毎フレーム渡す。",
-      sample: "FSkinnedShader shd;\nshd.Init(*dev, color_fmt, depth_fmt);\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, count, ambient);\nshd.SetObject(model, base_color, specular, shininess);\nFMat4 palette[64];\nu32 nb = anim_player.WritePalette(palette, 64);\nshd.SetBonePalette(palette, nb);",
+      sample: "FSkinnedShader shd;\nshd.Init(*dev, color_fmt, depth_fmt);\n// 毎フレーム。実際に記録する skinned draw 数を正確に渡す\nif (!shd.BeginFrame(/* exact skinned draws this frame */ 1u)) return;\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, count, ambient);\nif (!shd.SetObject(model, base_color, specular, shininess)) return;\nFMat4 palette[64];\nu32 nb = anim_player.WritePalette(palette, 64);\nif (!shd.SetBonePalette(palette, nb)) return;",
       members: [
         { sig: "static constexpr u32 kMaxBones = 64", desc: "ボーンパレットの上限。" },
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "初期化。Bones 用の定数バッファ(b2)を追加で持つ。" },
-        { sig: "void SetFrame(...) / SetLights(...) / SetPointLights(...) / SetObject(...)", desc: "FStandardShader と同じ形式のライト・オブジェクト設定。" },
-        { sig: "void SetBonePalette(const FMat4* palette, u32 count)", desc: "ボーン行列パレット(最大 64)。残りは単位行列で埋める。" },
+        { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "毎フレームの描画記録前に呼び、実際に記録する skinned draw 数を正確に渡す。Object/Bones の CB ペアを先に確保できなければ false。" },
+        { sig: "[[deprecated]] kMaxObjectDrawsPerFrame = 256", desc: "旧固定リングとのソース互換用の目安値。Object/Bones ペアのプールは必要数まで増えるため、ハード上限ではない。" },
+        { sig: "void SetFrame(...) / SetLights(...) / SetPointLights(...)", desc: "FStandardShader と同じ形式のライト設定。" },
+        { sig: "bool SetObject(...)", desc: "Object/Bones の draw 専用 CB ペアを選択して材質を設定。失敗時は false なので、その draw を記録しない。" },
+        { sig: "bool SetBonePalette(const FMat4* palette, u32 count)", desc: "ボーン行列パレット(最大 64)を直前の SetObject と同じ draw 専用 CB へ設定。失敗時は false。残りは単位行列で埋める。" },
         { sig: "IRhiBuffer* BonesCB() / PerFrameCB() / PerObjectCB() / IRhiPipeline* Pipeline()", desc: "手描き用アクセサ。<code>BonesCB()</code> は b2 にバインドする。" }
       ]
     },
@@ -437,13 +442,15 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/ShadowMap.h",
       summary: "有向光源の<b><t>シャドウマップ</t></b>(ortho 投影 depth)。単一カスケード(伝統的)と<b><t>CSM</t></b>(カメラ frustum を距離で 2〜4 分割し近景高解像・遠景広範囲を 1 枚の atlas に並べる)の 2 モード。",
       when: "3D シーンに影を落としたいとき。広い屋外で遠くまで鮮鋭な影が要るなら CSM。<code>FStandardShader</code>/<code>FPbrShader</code> の SetShadowMap に渡す。",
-      sample: "FShadowMap sm;\nsm.Init(*dev, /*size=*/2048);              // 単一カスケード\nsm.SetDirectionalLight(light_dir, scene_center, 15.0f);\ncl-&gt;BeginShadowPass(*sm.DepthTexture(), 1.0f);\ncl-&gt;SetPipeline(*sm.CasterPipeline());\ncl-&gt;SetConstantBuffer(0, *sm.LightCB());\nfor (auto& c : casters) { sm.SetCaster(c.model); /* draw */ }\ncl-&gt;EndShadowPass(*sm.DepthTexture());\npbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection());",
+      sample: "FShadowMap sm;\nsm.Init(*dev, /*size=*/2048);              // 単一カスケード\nsm.SetDirectionalLight(light_dir, scene_center, 15.0f);\n// 毎フレーム。各 cascade に実際に記録する caster 数を正確に渡す\nif (!sm.BeginFrame(static_cast&lt;u32&gt;(casters.Size()))) return;\ncl-&gt;BeginShadowPass(*sm.DepthTexture(), 1.0f);\ncl-&gt;SetPipeline(*sm.CasterPipeline());\ncl-&gt;SetConstantBuffer(0, *sm.LightCB());\nfor (auto& c : casters) {\n    if (!sm.TrySetCaster(c.model)) continue;\n    cl-&gt;SetConstantBuffer(1, *sm.CasterObjectCB());\n    /* draw */\n}\ncl-&gt;EndShadowPass(*sm.DepthTexture());\npbr.SetShadowMap(sm.DepthTexture(), sm.LightViewProjection());",
       members: [
         { sig: "static constexpr u32 kMaxCascades = 4", desc: "カスケード上限。" },
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, u32 size = 2048, u32 cascade_count = 1)", desc: "cascade_count=1 で単一 2D depth、2 以上で CSM atlas。" },
+        { sig: "bool BeginFrame(u32 required_casters_per_cascade = 0)", desc: "毎フレームの shadow pass 記録前に呼び、各 cascade の正確な caster 数を渡す。Init で予約した全 cascade を先行確保できなければ false。" },
+        { sig: "[[deprecated]] kMaxCasterDrawsPerCascade = 256 / kMaxCasterDrawsPerFrame", desc: "旧固定リングとのソース互換用の目安値。caster プールは必要数まで増えるため、どちらもハード上限ではない。" },
         { sig: "void SetDirectionalLight(FVec3 light_dir, FVec3 scene_center, f32 scene_radius)", desc: "単一カスケード用に光源 ortho を設定。" },
         { sig: "void SetDirectionalLightCascades(FVec3 light_dir, const FMat4& view, const FMat4& proj, f32 near_z, f32 far_z, f32 lambda = 0.5f)", desc: "CSM 用に frustum を near→far で実用分割し各 ortho を計算。lambda は uniform↔log のブレンド。" },
-        { sig: "void SetCurrentCascade(u32 cascade) / void SetCaster(const FMat4& model)", desc: "描画する cascade を選ぶ / キャスターの<t>モデル行列</t>を設定。" },
+        { sig: "void SetCurrentCascade(u32 cascade) / bool TrySetCaster(const FMat4& model)", desc: "描画する cascade を選ぶ / キャスターの<t>モデル行列</t>を draw 専用 CB に設定。false ならその draw を記録しない。" },
         { sig: "IRhiTexture* DepthTexture() / IRhiPipeline* CasterPipeline() / IRhiBuffer* LightCB() / CasterObjectCB()", desc: "シャドウパスで使う深度・パイプライン・定数バッファ。" },
         { sig: "FMat4 LightViewProjection(u32 cascade = 0) / f32 CascadeSplit(u32) / u32 CascadeCount()", desc: "主パスで影をサンプルするための light VP と分割情報。" },
         { sig: "FViewport CascadeViewport(u32) / FScissorRect CascadeScissor(u32)", desc: "atlas 内の各 cascade 領域の<t>ビューポート</t>/<t>シザー</t>。" }
@@ -537,14 +544,16 @@ ACS_REF.modules.push({
       name: "FMotionVector",
       kind: "クラス", header: "render/MotionVector.h",
       summary: "シーン全 mesh を再ラスタライズして<b>モーションベクトル + 法線 G-buffer</b>を書き出すパス。motion(画面空間の移動量、prev_uv−curr_uv)は <t>TAA</t> の正確な reproject に、world 法線は <t>SSR</t>/<t>SSGI</t>/<t>SSAO</t> の入力に使う。",
-      when: "TAA で動く物体のゴーストを消したい / 画面空間効果に高品質な法線を供給したいとき。",
-      sample: "FMotionVector mv;\nmv.Init(*dev, w, h);\nmv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter);\nfor (auto& m : meshes) mv.DrawMesh(*cl, m.gm, m.model, m.prev_model);\nmv.End(*cl);\npost_params.taa_motion_texture = mv.OutputTexture();\nssr.Render(..., mv.OutputNormalTexture(), ..., mv.OutputTexture());",
+      when: "TAA で動く物体のゴーストを消したい / 画面空間効果に高品質な法線を供給したいとき。全対象 draw の成功を確認してから出力を公開する。",
+      sample: "FMotionVector mv;\nmv.Init(*dev, w, h);\nconst u32 motion_draws = static_cast&lt;u32&gt;(visible_meshes.Size());\nbool motion_valid = false;\nif (mv.BeginFrame(motion_draws) &amp;&amp;\n    mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {\n    bool complete = true;\n    for (auto&amp; m : visible_meshes)\n        if (!mv.DrawMesh(*cl, m.gm, m.model, m.prev_model)) complete = false;\n    mv.End(*cl);\n    motion_valid = complete &amp;&amp; mv.ObjectDrawCount() == motion_draws;\n}\npost_params.taa_motion_texture = motion_valid ? mv.OutputTexture() : nullptr;\nif (motion_valid)\n    ssr.Render(..., mv.OutputNormalTexture(), ..., mv.OutputTexture());",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, u32 width, u32 height) / Resize(...)", desc: "motion RT(RG16F)+ normal RT(RGBA16F)+ 内部 depth を作る。" },
-        { sig: "void Begin(IRhiCommandList& cl, const FMat4& view_proj, const FMat4& prev_view_proj)", desc: "motion RT を 0 クリアしパイプライン設定。jitter なしの VP を渡す。" },
-        { sig: "void DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model)", desc: "1 mesh の motion を描く。静的 mesh は prev_model に model と同値を渡す。" },
+        { sig: "bool BeginFrame(u32 required_draws = 0)", desc: "毎フレームの pass 前に正確な対象数を渡し、永続 per-object CB pool を先行確保する。UINT32_MAX は無効 sentinel のため false。確保失敗時も既存 pool は保持され、後続フレームで再試行できる。" },
+        { sig: "bool Begin(IRhiCommandList& cl, const FMat4& view_proj, const FMat4& prev_view_proj)", desc: "motion RT を 0 クリアしパイプライン設定。jitter なしの VP を渡す。MRT 開始失敗時は false。" },
+        { sig: "bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh, const FMat4& model, const FMat4& prev_model)", desc: "1 mesh の motion を描く。静的 mesh は prev_model に model と同値を渡す。draw を完全に記録できなければ false。" },
         { sig: "void End(IRhiCommandList& cl)", desc: "パス終了(主パス RT へ復帰)。" },
-        { sig: "IRhiTexture* OutputTexture() / OutputNormalTexture()", desc: "モーションベクトル / world 法線テクスチャ。" }
+        { sig: "u32 ObjectBufferCapacity() / ObjectDrawCount()", desc: "永続 pool の使用可能数 / 今フレームに記録できた draw 数。対象数との一致を出力公開条件に使う。" },
+        { sig: "IRhiTexture* OutputTexture() / OutputNormalTexture()", desc: "モーションベクトル / world 法線テクスチャ。BeginFrame・Begin・全 DrawMesh が成功したフレームだけ後段へ渡す。" }
       ]
     },
     {

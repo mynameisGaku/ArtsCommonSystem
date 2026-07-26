@@ -45918,6 +45918,7 @@ TResult<void> UploadSkinnedMesh(IRhiDevice& device,
 // 使い方（単一ライトのお手軽版）:
 //   FStandardShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
+//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
 //   shd.SetFrame(camera.ViewProjection(), camera.Eye(),
 //                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
 //
@@ -45990,8 +45991,12 @@ struct FPointLight {
  */
 class FStandardShader {
 public:
-    /** 1 フレームで安全に記録できる Object CB / draw 数。 */
-    static constexpr u32 kMaxObjectDrawsPerFrame = 256;
+    /**
+     * Source-compatibility estimate from the former fixed ring.
+     * The pool is growable; this is not a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FStandardShader() noexcept = default;
@@ -46021,6 +46026,20 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /**
+     * Start one command-recording frame and reserve immutable per-draw CBs.
+     *
+     * @return true when the complete requested frame fits. On false SetObject
+     * refuses every draw until a later successful BeginFrame.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_ObjectCbs.Size());
+    }
+
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
 
     /**
      * カメラ + 1 灯の有向光源 + 環境光で Frame CB を更新する (マルチライト不要時の簡易 API)。
@@ -46129,7 +46148,7 @@ public:
      * @return Object 定数バッファ。
      */
     IRhiBuffer*    PerObjectCB()   const noexcept {
-        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
+        return m_CurrentObjectCb < m_ObjectCbs.Size()
              ? m_ObjectCbs[m_CurrentObjectCb].Get()
              : nullptr;
     }
@@ -46166,6 +46185,9 @@ public:
                   IRhiTexture* albedo    = nullptr) noexcept;
 
 private:
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
+
+    IRhiDevice* m_ResourceDevice = nullptr;
     /** キャッシュ済みの Frame 状態を Frame 定数バッファへ書き込む。 */
     void FlushFrameCB() noexcept;
 
@@ -46185,12 +46207,16 @@ private:
      * Object 定数バッファ (b1) の非ラップリング。
      *
      * Raw DX12 は command list の実行時に upload buffer を読むため、同じ CB を draw 間で
-     * 上書きすると全 draw が最後の model/material を参照する。SetLights をフレーム境界
-     * として cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
+     * 上書きすると全 draw が最後の model/material を参照する。BeginFrame だけが
+     * cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
      */
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxObjectDrawsPerFrame];
-    u32                      m_ObjectCbCursor = 0;
-    u32                      m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_FrameCapacityReady = false;
+    bool                     m_ObjectCapacityFailureLogged = false;
 
     /** デフォルトの 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;
@@ -95028,8 +95054,11 @@ private:
 //   FMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
-//   if (mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
-//       for (each mesh) mv.DrawMesh(*cl, gm, curr_model, prev_model);
+//   if (mv.BeginFrame(visible_mesh_count) &&
+//       mv.Begin(*cl, vp_no_jitter, prev_vp_no_jitter)) {
+//       for (each mesh) {
+//           if (!mv.DrawMesh(*cl, gm, curr_model, prev_model)) abort_output;
+//       }
 //       mv.End(*cl);
 //       post_params.taa_motion_texture = mv.OutputTexture();
 //   }
@@ -95049,8 +95078,15 @@ namespace acs {
  */
 class FMotionVector {
 public:
-    /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FMotionVector() noexcept = default;
+    /**
+     * 空状態で構築する (GPU リソースは Init で確保)。
+     *
+     * @param object_pool_allocator 可変長 object-CB 所有配列の allocator。
+     *        通常は既定値を使い、failure-injection tests だけ差し替える。
+     */
+    explicit FMotionVector(
+        FAllocator& object_pool_allocator = DefaultAllocator()) noexcept
+        : m_Cbs(object_pool_allocator) {}
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
     ~FMotionVector() noexcept = default;
@@ -95084,6 +95120,30 @@ public:
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
     /**
+     * Start one logical command-list frame and reserve immutable object CBs.
+     *
+     * @details The retained pool grows geometrically and never shrinks between
+     * frames. Reserve before Begin() so large scenes do not allocate from
+     * inside an active render pass. A failed growth leaves every existing
+     * buffer usable and the caller must skip publishing this frame's motion
+     * output; a later BeginFrame() can retry.
+     *
+     * @param required_draws Exact number of eligible motion meshes, or a safe
+     *        upper bound when exact counting is more expensive. UINT32_MAX is
+     *        reserved as the invalid cursor sentinel and is rejected.
+     * @return true when the complete requested pool is available.
+     */
+    bool BeginFrame(u32 required_draws = 0u) noexcept;
+
+    /** Number of persistent per-object buffers currently retained. */
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_Cbs.Size());
+    }
+
+    /** Successfully recorded object draws since the latest BeginFrame/Begin. */
+    u32 ObjectDrawCount() const noexcept { return m_DrawCursor; }
+
+    /**
      * モーションパスを開始する (motion RT を 0 クリア + 内部 depth を bind してパイプライン設定)。
      *
      * @details motion vector は jitter なしの VP で計算する (TAA jitter は color pass 専用)。
@@ -95105,8 +95165,11 @@ public:
      * @param mesh 描画する GPU mesh。
      * @param model 現フレームの model 行列。
      * @param prev_model 前フレームの model 行列。
+     * @return true only when a complete indexed draw was recorded. false
+     *         means the frame's motion output is incomplete and must not be
+     *         consumed as authoritative TAA/SSR/SSGI history.
      */
-    void DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
+    bool DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                   const FMat4& model, const FMat4& prev_model) noexcept;
 
     /**
@@ -95149,6 +95212,9 @@ private:
      */
     TResult<void> CreatePipeline(IRhiDevice& device) noexcept;
 
+    /** Grow the persistent object-CB pool without invalidating old entries. */
+    bool EnsureObjectCapacity(u32 required_draws) noexcept;
+
     /** Init で受け取った device (Resize で再利用)。 */
     IRhiDevice*             m_Device = nullptr;
 
@@ -95183,15 +95249,19 @@ private:
     TUniquePtr<IRhiPipeline> m_Pipeline;
 
     /**
-     * Per-draw constant-buffer ring.
+     * Persistent growable per-draw constant-buffer pool.
      *
      * A single mapped upload CB cannot be overwritten between draws in one
      * command list: raw DX12 consumes it later on the GPU and every draw would
-     * otherwise observe the final object's matrices.
+     * otherwise observe the final object's matrices. The old fixed 256-entry
+     * ring silently lost motion for the rest of a large scene; this pool is
+     * reserved before the pass and grows geometrically when needed.
      */
-    static constexpr u32     kObjectCbRing = 256;
-    TUniquePtr<IRhiBuffer>   m_Cbs[kObjectCbRing];
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_Cbs;
     u32                      m_DrawCursor = 0;
+    bool                     m_CapacityFailureLogged = false;
 
     /**
      * True only between a successful MRT Begin and its matching End.
@@ -95821,8 +95891,8 @@ private:
 // 使い方 (single cascade、後方互換):
 //   FShadowMap sm;
 //   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
-//   sm.BeginFrame();
 //   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
+//   if (!sm.BeginFrame(/* casters */ 1)) return;
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
 //   cl->SetPipeline(*sm.CasterPipeline());
 //   cl->SetConstantBuffer(0, *sm.LightCB());
@@ -95836,8 +95906,8 @@ private:
 // 使い方 (CSM、3 cascade):
 //   FShadowMap sm;
 //   sm.Init(*dev, 2048, /*cascade_count=*/3);
-//   sm.BeginFrame();
 //   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
+//   if (!sm.BeginFrame(/* casters per cascade */ 1)) return;
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);        // atlas 全体 clear
 //   cl->SetPipeline(*sm.CasterPipeline());
 //   for (u32 c = 0; c < sm.CascadeCount(); ++c) {
@@ -95876,12 +95946,15 @@ public:
     /** サポートする cascade の最大数。 */
     static constexpr u32 kMaxCascades = 4;
 
-    /** 1 cascade で安全に保持できる immutable per-draw caster CB の最大数。 */
-    static constexpr u32 kMaxCasterDrawsPerCascade = 256;
-
-    /** 全 cascade を合計した 1 frame の最大 caster draw 数。 */
+    /**
+     * Source-compatibility estimates from the former fixed caster ring.
+     * The per-cascade pools are growable; neither value is a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxCasterDrawsPerCascade = 256u;
+    [[deprecated("growable pool; not a hard limit")]]
     static constexpr u32 kMaxCasterDrawsPerFrame =
-        kMaxCascades * kMaxCasterDrawsPerCascade;
+        kMaxCascades * 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FShadowMap() noexcept = default;
@@ -95914,7 +95987,13 @@ public:
     void Shutdown() noexcept;
 
     /** shadow pass の記録前に per-draw caster CB cursor をリセットする。 */
-    void BeginFrame() noexcept;
+    /**
+     * Pre-grow every cascade reserved by Init before recording a complete
+     * shadow pass. This also keeps a same-frame single-volume fallback followed
+     * by CSM restoration allocation-free while commands are being recorded.
+     * UINT32_MAX is rejected because it is the invalid cursor sentinel.
+     */
+    bool BeginFrame(u32 required_casters_per_cascade = 0u) noexcept;
 
     /**
      * single cascade 用に有向光源の ortho 投影を計算する (後方互換)。
@@ -95997,8 +96076,15 @@ public:
      * @return model を格納する CB。
      */
     IRhiBuffer*   CasterObjectCB() const noexcept {
-        return m_ObjectCbs[m_CurrentCascade]
-                          [m_CurrentCasters[m_CurrentCascade]].Get();
+        const u32 slot = m_CurrentCasters[m_CurrentCascade];
+        return slot < m_ObjectCbs[m_CurrentCascade].Size()
+             ? m_ObjectCbs[m_CurrentCascade][slot].Get()
+             : nullptr;
+    }
+
+    u32 CasterBufferCapacity(u32 cascade = 0u) const noexcept {
+        return cascade < m_CascadeCapacity
+             ? static_cast<u32>(m_ObjectCbs[cascade].Size()) : 0u;
     }
 
     /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */
@@ -96082,7 +96168,7 @@ public:
     u32 Size() const noexcept { return m_Size; }
 
 private:
-    bool EnsureCasterBuffer(u32 cascade, u32 slot) noexcept;
+    bool EnsureCasterCapacity(u32 cascade, u32 required_casters) noexcept;
 
     /** シャドウ深度テクスチャ (single または CSM atlas)。 */
     TUniquePtr<IRhiTexture>  m_Depth;
@@ -96097,8 +96183,7 @@ private:
     TUniquePtr<IRhiBuffer>   m_LightCbs[kMaxCascades];
 
     /** キャスターの model 行列を渡す定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxCascades]
-                                        [kMaxCasterDrawsPerCascade];
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs[kMaxCascades];
 
     IRhiDevice*              m_Device = nullptr;
 
@@ -96111,7 +96196,7 @@ private:
     /** 1 cascade あたりの一辺サイズ。 */
     u32                     m_Size          = 0;
 
-    /** 確保済みの cascade 数。 */
+    /** 現在有効な cascade 数。single-volume fallback 中は 1。 */
     u32                     m_CascadeCount = 1;
 
     /** Init 時に確保した atlas/CB の cascade 容量。single fallback 後の CSM 復帰に使う。 */
@@ -96121,6 +96206,8 @@ private:
     u32                     m_CurrentCasters[kMaxCascades] = {};
     u32                     m_CasterDrawCounts[kMaxCascades] = {};
     u32                     m_TotalCasterDrawCount = 0;
+    static constexpr u32    kInvalidCasterBuffer = ~u32{0};
+    bool                    m_FrameCapacityReady = false;
     bool                    m_CasterOverflowed[kMaxCascades] = {};
     bool                    m_CasterWarningIssued[kMaxCascades] = {};
 };
@@ -96137,6 +96224,7 @@ private:
 // 使い方:
 //   FSkinnedShader shd;
 //   shd.Init(*dev, color_fmt, depth_fmt);
+//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
 //
 //   // フレーム共通（FStandardShader と同じ呼び方）
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
@@ -96176,8 +96264,12 @@ public:
     /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
     static constexpr u32 kMaxBones = 64;
 
-    /** 1 フレームで安全に記録できる Object/Bones CB ペア数。 */
-    static constexpr u32 kMaxObjectDrawsPerFrame = 256;
+    /**
+     * Source-compatibility estimate from the former fixed ring.
+     * The pool is growable; this is not a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSkinnedShader() noexcept = default;
@@ -96205,6 +96297,20 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /**
+     * Start one command-recording frame and reserve complete Object/Bones pairs.
+     *
+     * @return true when every requested pair is ready. On false SetObject
+     * refuses the entire frame until a later successful BeginFrame.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_DrawBuffers.Size());
+    }
+
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
 
     /**
      * 単一方向光でフレーム共通の状態を設定する (SetLights の簡易版)。
@@ -96288,8 +96394,8 @@ public:
      * @return モデル行列・マテリアルを格納した定数バッファ。
      */
     IRhiBuffer*    PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
-             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+        return m_CurrentObjectCb < m_DrawBuffers.Size()
+             ? m_DrawBuffers[m_CurrentObjectCb].object.Get()
              : nullptr;
     }
 
@@ -96299,8 +96405,8 @@ public:
      * @return ボーンパレット行列を格納した定数バッファ。
      */
     IRhiBuffer*    BonesCB()     const noexcept {
-        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
-             ? m_BonesCbs[m_CurrentObjectCb].Get()
+        return m_CurrentObjectCb < m_DrawBuffers.Size()
+             ? m_DrawBuffers[m_CurrentObjectCb].bones.Get()
              : nullptr;
     }
 
@@ -96312,6 +96418,14 @@ public:
     IRhiTexture*   DefaultWhiteTexture() const noexcept { return m_White.Get(); }
 
 private:
+    struct FDrawBufferPair {
+        TUniquePtr<IRhiBuffer> object;
+        TUniquePtr<IRhiBuffer> bones;
+    };
+
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
+
+    IRhiDevice* m_ResourceDevice = nullptr;
     /** キャッシュした Frame 状態を PerFrame CB へ書き込む。 */
     void FlushFrameCB() noexcept;
 
@@ -96334,10 +96448,13 @@ private:
      * 最後の model/palette に上書きされる。SetObject が次のペアを取得し、
      * SetBonePalette はその同じペアへ書き込む。
      */
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxObjectDrawsPerFrame];
-    TUniquePtr<IRhiBuffer>   m_BonesCbs[kMaxObjectDrawsPerFrame];
-    u32                      m_ObjectCbCursor = 0;
-    u32                      m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<FDrawBufferPair>  m_DrawBuffers;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_FrameCapacityReady = false;
+    bool                     m_ObjectCapacityFailureLogged = false;
 
     /** テクスチャ未指定時の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;

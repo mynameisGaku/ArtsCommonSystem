@@ -325,6 +325,8 @@ constexpr usize CBSize() noexcept {
 
 /** VS/PS のコンパイル、定数バッファ・白テクスチャ・パイプラインを生成する。 */
 TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+    Shutdown();
+
     // シェーダコンパイル
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -353,19 +355,19 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
     m_FrameCb = Move(fcb_r.Value());
 
-    FBufferDesc ocb{};
-    ocb.size = CBSize<FObjectCbLayout>();
-    ocb.usage = EBufferUsage::Uniform;
-    ocb.cpu_writable = true;
-    for (u32 i = 0; i < kMaxObjectDrawsPerFrame; ++i) {
-        auto ocb_r = CreateRhiBuffer(device, ocb);
-        if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-        m_ObjectCbs[i] = Move(ocb_r.Value());
+    m_ResourceDevice = &device;
+    if (!EnsureObjectCapacity(kInitialObjectBufferCapacity)) {
+        const FErrorCode error = ACS_ERR(
+            Render, 381, "Standard initial object-CB pool allocation failed");
+        Shutdown();
+        return error;
     }
-    m_ObjectCbCursor = 0;
+    m_ObjectCbCursor = 0u;
     // Legacy manual paths may query/bind before their first SetObject. Slot 0 is
     // exactly the slot the first SetObject will populate, so this remains safe.
-    m_CurrentObjectCb = 0;
+    m_CurrentObjectCb = 0u;
+    m_FrameCapacityReady = true;
+    m_ObjectCapacityFailureLogged = false;
 
     // 1×1 白テクスチャ
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -419,12 +421,59 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
 void FStandardShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
-    for (auto& cb : m_ObjectCbs) cb.Reset();
-    m_ObjectCbCursor = 0;
-    m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    m_ObjectCbs.ReleaseStorage();
+    m_ObjectCbCursor = 0u;
+    m_CurrentObjectCb = kInvalidObjectBuffer;
+    m_FrameCapacityReady = false;
+    m_ObjectCapacityFailureLogged = false;
+    m_ResourceDevice = nullptr;
     m_FrameCb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
+}
+
+bool FStandardShader::EnsureObjectCapacity(
+    u32 required_object_draws) noexcept {
+    if (required_object_draws == kInvalidObjectBuffer) return false;
+    if (!m_ResourceDevice) return false;
+    if (required_object_draws <= m_ObjectCbs.Size()) return true;
+
+    u32 target = static_cast<u32>(m_ObjectCbs.Size());
+    if (target < kInitialObjectBufferCapacity)
+        target = kInitialObjectBufferCapacity;
+    while (target < required_object_draws) {
+        const u32 growth = target > 1u ? target / 2u : 1u;
+        if (target > kInvalidObjectBuffer - growth) {
+            target = required_object_draws;
+        } else {
+            target += growth;
+        }
+    }
+
+    if (!m_ObjectCbs.TryReserve(target)) return false;
+    while (m_ObjectCbs.Size() < target) {
+        FBufferDesc description{};
+        description.size = CBSize<FObjectCbLayout>();
+        description.usage = EBufferUsage::Uniform;
+        description.cpu_writable = true;
+        auto created = CreateRhiBuffer(*m_ResourceDevice, description);
+        if (created.IsErr())
+            return m_ObjectCbs.Size() >= required_object_draws;
+        if (!m_ObjectCbs.TryPushBack(Move(created.Value())))
+            return m_ObjectCbs.Size() >= required_object_draws;
+    }
+    return true;
+}
+
+bool FStandardShader::BeginFrame(u32 required_object_draws) noexcept {
+    m_ObjectCbCursor = 0u;
+    m_CurrentObjectCb =
+        m_ObjectCbs.IsEmpty() ? kInvalidObjectBuffer : 0u;
+    m_ObjectCapacityFailureLogged = false;
+    m_FrameCapacityReady = EnsureObjectCapacity(required_object_draws);
+    if (!m_FrameCapacityReady)
+        m_CurrentObjectCb = kInvalidObjectBuffer;
+    return m_FrameCapacityReady;
 }
 
 /** 単一の有向光源を組み立てて SetLights に委譲する。 */
@@ -444,8 +493,6 @@ void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
     m_Vp = vp;
     m_Eye = cam;
     m_Ambient = ambient;
-    m_ObjectCbCursor = 0;
-    m_CurrentObjectCb = 0;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
     FlushFrameCB();
@@ -509,20 +556,28 @@ void FStandardShader::FlushFrameCB() noexcept {
 /** モデル行列・ベースカラー・マテリアルをオブジェクト定数バッファに書き込む。 */
 bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
-    if (m_ObjectCbCursor >= kMaxObjectDrawsPerFrame) {
-        if (m_ObjectCbCursor == kMaxObjectDrawsPerFrame) {
-            ACS_LOG_WARN("FStandardShader: per-frame object limit (%u) exceeded; "
-                         "remaining standard draws are skipped",
-                         kMaxObjectDrawsPerFrame);
-            ++m_ObjectCbCursor;
+    if (!m_FrameCapacityReady ||
+        m_ObjectCbCursor == kInvalidObjectBuffer ||
+        (m_ObjectCbCursor >= m_ObjectCbs.Size() &&
+         !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
+        if (!m_ObjectCapacityFailureLogged) {
+            ACS_LOG_WARN(
+                "FStandardShader: unable to grow per-frame object-CB pool "
+                "(required=%u, retained=%zu); remaining draws are skipped",
+                m_ObjectCbCursor == kInvalidObjectBuffer
+                    ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
+                m_ObjectCbs.Size());
+            m_ObjectCapacityFailureLogged = true;
         }
-        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        m_FrameCapacityReady = false;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
         return false;
     }
     m_CurrentObjectCb = m_ObjectCbCursor++;
     IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
     if (!object_cb) {
-        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        m_FrameCapacityReady = false;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
         return false;
     }
     FObjectCbLayout cb{};

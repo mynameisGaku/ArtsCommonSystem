@@ -7,6 +7,7 @@
 // 使い方（単一ライトのお手軽版）:
 //   FStandardShader shd;
 //   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
+//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
 //   shd.SetFrame(camera.ViewProjection(), camera.Eye(),
 //                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
 //
@@ -39,6 +40,7 @@
 #include "render/IRhiCommandList.h"
 
 #include "foundation/Result.h"
+#include "container/Array.h"
 #include "memory/UniquePtr.h"
 #include "math/Vec.h"
 #include "math/Mat.h"
@@ -92,8 +94,12 @@ struct FPointLight {
  */
 class FStandardShader {
 public:
-    /** 1 フレームで安全に記録できる Object CB / draw 数。 */
-    static constexpr u32 kMaxObjectDrawsPerFrame = 256;
+    /**
+     * Source-compatibility estimate from the former fixed ring.
+     * The pool is growable; this is not a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FStandardShader() noexcept = default;
@@ -123,6 +129,20 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /**
+     * Start one command-recording frame and reserve immutable per-draw CBs.
+     *
+     * @return true when the complete requested frame fits. On false SetObject
+     * refuses every draw until a later successful BeginFrame.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_ObjectCbs.Size());
+    }
+
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
 
     /**
      * カメラ + 1 灯の有向光源 + 環境光で Frame CB を更新する (マルチライト不要時の簡易 API)。
@@ -231,7 +251,7 @@ public:
      * @return Object 定数バッファ。
      */
     IRhiBuffer*    PerObjectCB()   const noexcept {
-        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
+        return m_CurrentObjectCb < m_ObjectCbs.Size()
              ? m_ObjectCbs[m_CurrentObjectCb].Get()
              : nullptr;
     }
@@ -268,6 +288,9 @@ public:
                   IRhiTexture* albedo    = nullptr) noexcept;
 
 private:
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
+
+    IRhiDevice* m_ResourceDevice = nullptr;
     /** キャッシュ済みの Frame 状態を Frame 定数バッファへ書き込む。 */
     void FlushFrameCB() noexcept;
 
@@ -287,12 +310,16 @@ private:
      * Object 定数バッファ (b1) の非ラップリング。
      *
      * Raw DX12 は command list の実行時に upload buffer を読むため、同じ CB を draw 間で
-     * 上書きすると全 draw が最後の model/material を参照する。SetLights をフレーム境界
-     * として cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
+     * 上書きすると全 draw が最後の model/material を参照する。BeginFrame だけが
+     * cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
      */
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxObjectDrawsPerFrame];
-    u32                      m_ObjectCbCursor = 0;
-    u32                      m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_FrameCapacityReady = false;
+    bool                     m_ObjectCapacityFailureLogged = false;
 
     /** デフォルトの 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;

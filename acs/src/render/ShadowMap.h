@@ -14,8 +14,8 @@
 // 使い方 (single cascade、後方互換):
 //   FShadowMap sm;
 //   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
-//   sm.BeginFrame();
 //   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
+//   if (!sm.BeginFrame(/* casters */ 1)) return;
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);
 //   cl->SetPipeline(*sm.CasterPipeline());
 //   cl->SetConstantBuffer(0, *sm.LightCB());
@@ -29,8 +29,8 @@
 // 使い方 (CSM、3 cascade):
 //   FShadowMap sm;
 //   sm.Init(*dev, 2048, /*cascade_count=*/3);
-//   sm.BeginFrame();
 //   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
+//   if (!sm.BeginFrame(/* casters per cascade */ 1)) return;
 //   cl->BeginShadowPass(*sm.DepthTexture(), 1.0f);        // atlas 全体 clear
 //   cl->SetPipeline(*sm.CasterPipeline());
 //   for (u32 c = 0; c < sm.CascadeCount(); ++c) {
@@ -54,6 +54,7 @@
 #pragma once
 
 #include "foundation/Result.h"
+#include "container/Array.h"
 #include "memory/UniquePtr.h"
 #include "math/Mat.h"
 #include "math/Vec.h"
@@ -80,12 +81,15 @@ public:
     /** サポートする cascade の最大数。 */
     static constexpr u32 kMaxCascades = 4;
 
-    /** 1 cascade で安全に保持できる immutable per-draw caster CB の最大数。 */
-    static constexpr u32 kMaxCasterDrawsPerCascade = 256;
-
-    /** 全 cascade を合計した 1 frame の最大 caster draw 数。 */
+    /**
+     * Source-compatibility estimates from the former fixed caster ring.
+     * The per-cascade pools are growable; neither value is a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxCasterDrawsPerCascade = 256u;
+    [[deprecated("growable pool; not a hard limit")]]
     static constexpr u32 kMaxCasterDrawsPerFrame =
-        kMaxCascades * kMaxCasterDrawsPerCascade;
+        kMaxCascades * 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FShadowMap() noexcept = default;
@@ -118,7 +122,13 @@ public:
     void Shutdown() noexcept;
 
     /** shadow pass の記録前に per-draw caster CB cursor をリセットする。 */
-    void BeginFrame() noexcept;
+    /**
+     * Pre-grow every cascade reserved by Init before recording a complete
+     * shadow pass. This also keeps a same-frame single-volume fallback followed
+     * by CSM restoration allocation-free while commands are being recorded.
+     * UINT32_MAX is rejected because it is the invalid cursor sentinel.
+     */
+    bool BeginFrame(u32 required_casters_per_cascade = 0u) noexcept;
 
     /**
      * single cascade 用に有向光源の ortho 投影を計算する (後方互換)。
@@ -201,8 +211,15 @@ public:
      * @return model を格納する CB。
      */
     IRhiBuffer*   CasterObjectCB() const noexcept {
-        return m_ObjectCbs[m_CurrentCascade]
-                          [m_CurrentCasters[m_CurrentCascade]].Get();
+        const u32 slot = m_CurrentCasters[m_CurrentCascade];
+        return slot < m_ObjectCbs[m_CurrentCascade].Size()
+             ? m_ObjectCbs[m_CurrentCascade][slot].Get()
+             : nullptr;
+    }
+
+    u32 CasterBufferCapacity(u32 cascade = 0u) const noexcept {
+        return cascade < m_CascadeCapacity
+             ? static_cast<u32>(m_ObjectCbs[cascade].Size()) : 0u;
     }
 
     /** BeginFrame() 以降に消費した per-draw caster CB slot 数。 */
@@ -286,7 +303,7 @@ public:
     u32 Size() const noexcept { return m_Size; }
 
 private:
-    bool EnsureCasterBuffer(u32 cascade, u32 slot) noexcept;
+    bool EnsureCasterCapacity(u32 cascade, u32 required_casters) noexcept;
 
     /** シャドウ深度テクスチャ (single または CSM atlas)。 */
     TUniquePtr<IRhiTexture>  m_Depth;
@@ -301,8 +318,7 @@ private:
     TUniquePtr<IRhiBuffer>   m_LightCbs[kMaxCascades];
 
     /** キャスターの model 行列を渡す定数バッファ (b1)。 */
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxCascades]
-                                        [kMaxCasterDrawsPerCascade];
+    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs[kMaxCascades];
 
     IRhiDevice*              m_Device = nullptr;
 
@@ -315,7 +331,7 @@ private:
     /** 1 cascade あたりの一辺サイズ。 */
     u32                     m_Size          = 0;
 
-    /** 確保済みの cascade 数。 */
+    /** 現在有効な cascade 数。single-volume fallback 中は 1。 */
     u32                     m_CascadeCount = 1;
 
     /** Init 時に確保した atlas/CB の cascade 容量。single fallback 後の CSM 復帰に使う。 */
@@ -325,6 +341,8 @@ private:
     u32                     m_CurrentCasters[kMaxCascades] = {};
     u32                     m_CasterDrawCounts[kMaxCascades] = {};
     u32                     m_TotalCasterDrawCount = 0;
+    static constexpr u32    kInvalidCasterBuffer = ~u32{0};
+    bool                    m_FrameCapacityReady = false;
     bool                    m_CasterOverflowed[kMaxCascades] = {};
     bool                    m_CasterWarningIssued[kMaxCascades] = {};
 };

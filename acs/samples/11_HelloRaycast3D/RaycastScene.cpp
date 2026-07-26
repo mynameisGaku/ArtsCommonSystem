@@ -43,6 +43,10 @@ void FRaycastScene::Render(FStandardShader& shader,
                           FFont& font,
                           u32 screen_w,
                           u32 screen_h) noexcept {
+    const u32 target_count = m_Targets.Count();
+    if (target_count == ~u32{0} ||
+        !shader.BeginFrame(target_count + 1u)) return;
+
     // ---- 2 灯ライティング (暖色キー + 寒色フィル) ----
     // フィルの色を寒色にして、影側でも色が完全に潰れないように演出する。
     FDirLight lights[2];

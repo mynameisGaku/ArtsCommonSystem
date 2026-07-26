@@ -87,25 +87,46 @@ struct FMotionCb {
 } // namespace
 
 TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+    Shutdown();
     m_PassActive = false;
     m_Device = &device;
     m_Width  = width  > 0 ? width  : 1;
     m_Height = height > 0 ? height : 1;
 
-    if (auto r = CreateTargets(device, m_Width, m_Height); r.IsErr()) return r;
-    if (auto r = CreatePipeline(device);                 r.IsErr()) return r;
+    if (auto r = CreateTargets(device, m_Width, m_Height); r.IsErr()) {
+        const auto error = r.Error();
+        Shutdown();
+        return Err<void>(error);
+    }
+    if (auto r = CreatePipeline(device); r.IsErr()) {
+        const auto error = r.Error();
+        Shutdown();
+        return Err<void>(error);
+    }
 
     FBufferDesc cbd{};
     cbd.size         = 256;          // MotionCB (192B) を 256 アラインで確保
     cbd.usage        = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
-    for (u32 i = 0; i < kObjectCbRing; ++i) {
+    if (!m_Cbs.TryReserve(kInitialObjectBufferCapacity)) {
+        Shutdown();
+        return ACS_ERR(
+            Render, 367,
+            "FMotionVector object-buffer pool allocation failed");
+    }
+    for (u32 i = 0; i < kInitialObjectBufferCapacity; ++i) {
         auto cbr = CreateRhiBuffer(device, cbd);
         if (cbr.IsErr()) {
-            for (u32 j = 0; j < i; ++j) m_Cbs[j].Reset();
-            return Err<void>(cbr.Error());
+            const auto error = cbr.Error();
+            Shutdown();
+            return Err<void>(error);
         }
-        m_Cbs[i] = Move(cbr.Value());
+        if (!m_Cbs.TryPushBack(Move(cbr.Value()))) {
+            Shutdown();
+            return ACS_ERR(
+                Render, 368,
+                "FMotionVector object-buffer pool commit failed");
+        }
     }
 
     return Ok();
@@ -113,7 +134,7 @@ TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
 
 void FMotionVector::Shutdown() noexcept {
     m_PassActive = false;
-    for (auto& cb : m_Cbs) cb.Reset();
+    m_Cbs.ReleaseStorage();
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
@@ -124,6 +145,7 @@ void FMotionVector::Shutdown() noexcept {
     m_Width  = 0;
     m_Height = 0;
     m_DrawCursor = 0;
+    m_CapacityFailureLogged = false;
 }
 
 TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
@@ -221,6 +243,56 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
+bool FMotionVector::EnsureObjectCapacity(u32 required_draws) noexcept {
+    if (required_draws == kInvalidObjectBuffer) return false;
+    if (!m_Device) return false;
+    if (required_draws <= m_Cbs.Size()) return true;
+
+    u32 target = static_cast<u32>(m_Cbs.Size());
+    if (target < kInitialObjectBufferCapacity) {
+        target = kInitialObjectBufferCapacity;
+    }
+    while (target < required_draws) {
+        const u32 growth = target > 1u ? target / 2u : 1u;
+        if (target > kInvalidObjectBuffer - growth) {
+            target = required_draws;
+            break;
+        }
+        target += growth;
+    }
+
+    // Reserving the owner array is transactional: all already-created GPU
+    // buffers stay valid if the allocation fails, and a later frame can retry.
+    if (!m_Cbs.TryReserve(target)) return false;
+
+    FBufferDesc desc{};
+    desc.size         = 256;
+    desc.usage        = EBufferUsage::Uniform;
+    desc.cpu_writable = true;
+    // Geometric reserve avoids repeatedly reallocating the owner array, while
+    // GPU buffers themselves are created only for draws actually requested.
+    while (m_Cbs.Size() < required_draws) {
+        auto created = CreateRhiBuffer(*m_Device, desc);
+        if (created.IsErr()) return m_Cbs.Size() >= required_draws;
+        if (!m_Cbs.TryPushBack(Move(created.Value()))) {
+            return m_Cbs.Size() >= required_draws;
+        }
+    }
+    return true;
+}
+
+bool FMotionVector::BeginFrame(u32 required_draws) noexcept {
+    m_DrawCursor = 0;
+    m_CapacityFailureLogged = false;
+    if (EnsureObjectCapacity(required_draws)) return true;
+
+    ACS_LOG_WARN("FMotionVector: could not reserve %u per-object buffers "
+                 "(retained %u); motion output will be skipped this frame",
+                 required_draws, static_cast<u32>(m_Cbs.Size()));
+    m_CapacityFailureLogged = true;
+    return false;
+}
+
 bool FMotionVector::Begin(IRhiCommandList& cl,
                          const FMat4& view_proj, const FMat4& prev_view_proj) noexcept {
     m_PassActive = false;
@@ -228,6 +300,7 @@ bool FMotionVector::Begin(IRhiCommandList& cl,
     m_Vp      = view_proj;
     m_PrevVp = prev_view_proj;
     m_DrawCursor = 0;
+    m_CapacityFailureLogged = false;
     // motion / normal RT を (0,0,0,0) クリア → 描かれない pixel (= sky 等) は
     // motion 0 (TAA は hist_uv = uv で reproject 無し)、normal 0 (SSR/SSGI/SSAO は
     // sky を depth で先に弾くので未使用)。
@@ -241,20 +314,24 @@ bool FMotionVector::Begin(IRhiCommandList& cl,
     return true;
 }
 
-void FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
-                            const FMat4& model, const FMat4& prev_model) noexcept {
-    if (!m_PassActive) return;
-    if (!mesh.vertex_buffer || !mesh.index_buffer) return;
-    if (m_DrawCursor >= kObjectCbRing) {
-        if (m_DrawCursor == kObjectCbRing) {
-            ACS_LOG_WARN("FMotionVector: per-frame draw limit (%u) exceeded; "
-                         "remaining motion draws are skipped", kObjectCbRing);
-            ++m_DrawCursor;
+bool FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
+                             const FMat4& model, const FMat4& prev_model) noexcept {
+    if (!m_PassActive) return false;
+    if (!mesh.vertex_buffer || !mesh.index_buffer) return false;
+    if (m_DrawCursor == kInvalidObjectBuffer ||
+        (m_DrawCursor >= m_Cbs.Size() &&
+         !EnsureObjectCapacity(m_DrawCursor + 1u))) {
+        if (!m_CapacityFailureLogged) {
+            ACS_LOG_WARN("FMotionVector: object-buffer growth failed at draw %u; "
+                         "motion output is incomplete",
+                         m_DrawCursor);
+            m_CapacityFailureLogged = true;
         }
-        return;
+        return false;
     }
-    IRhiBuffer* cb_buffer = m_Cbs[m_DrawCursor++].Get();
-    if (!cb_buffer) return;
+    IRhiBuffer* cb_buffer = m_Cbs[m_DrawCursor].Get();
+    if (!cb_buffer) return false;
+    ++m_DrawCursor;
     FMotionCb cb{};
     cb.curr_mvp   = model      * m_Vp;
     cb.prev_mvp   = prev_model * m_PrevVp;
@@ -271,6 +348,7 @@ void FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
     cl.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     cl.SetIndexBuffer(*mesh.index_buffer);
     cl.DrawIndexed(mesh.index_count);
+    return true;
 }
 
 void FMotionVector::End(IRhiCommandList& cl) noexcept {

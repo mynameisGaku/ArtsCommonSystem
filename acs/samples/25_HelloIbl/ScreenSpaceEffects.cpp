@@ -14,6 +14,10 @@ namespace helloibl {
 void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
                    const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app.m_ShowSsr) return;
+    if (!app.m_MotionGBufferValid) {
+        app.m_SsrWarm = false;
+        return;
+    }
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
     IRhiCommandList* cl    = app.GetRenderer().CommandList();
@@ -29,8 +33,10 @@ void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
     // frame 0 は未確定なので現 VP を渡し reprojection を無効化。
     const FMat4& ssr_prev_vp = app.m_TaaPrevVpValid ? app.m_PrevVpNoJitter
                                                      : vp_no_jitter;
-    IRhiTexture* motion_tex = (app.m_bUseMotionVec && app.m_TaaPrevVpValid)
-                                  ? app.m_Motion.OutputTexture() : nullptr;
+    IRhiTexture* motion_tex =
+        (app.m_bUseMotionVec && app.m_TaaPrevVpValid)
+            ? app.m_Motion.OutputTexture()
+            : nullptr;
     app.m_Ssr.Render(*dev, *cl, *hdr, *depth,
                     *app.m_Motion.OutputNormalTexture(),
                     vp_for_render, inv_vp, ssr_prev_vp,
@@ -43,6 +49,10 @@ void RenderSsrPass(FHelloIblApp& app, const FMat4& vp_for_render,
 void RenderSsaoPass(FHelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FVec3& sun_dir) noexcept {
     if (!app.m_bUseSsao) return;
+    if (!app.m_MotionGBufferValid) {
+        app.m_bSsaoWarm = false;
+        return;
+    }
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
     IRhiCommandList* cl    = app.GetRenderer().CommandList();
@@ -63,6 +73,10 @@ void RenderSsaoPass(FHelloIblApp& app, const FMat4& vp_for_render,
 void RenderSsgiPass(FHelloIblApp& app, const FMat4& vp_for_render,
                     const FMat4& inv_vp, const FMat4& vp_no_jitter) noexcept {
     if (!app.m_bUseSsgi) return;
+    if (!app.m_MotionGBufferValid) {
+        app.m_bSsgiWarm = false;
+        return;
+    }
 
     IRhiDevice*      dev   = app.GetRenderer().Device();
     IRhiCommandList* cl    = app.GetRenderer().CommandList();

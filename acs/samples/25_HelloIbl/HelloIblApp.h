@@ -182,6 +182,7 @@ private:
     acs::FSsao               m_Ssao;
     acs::FSsgi               m_Ssgi;
     acs::FMotionVector       m_Motion;
+    bool                    m_MotionGBufferValid = false;
     bool                    m_bUseMotionVec   = true;
     acs::FRefractionShader   m_Refr;                     // screen-space 屈折
     acs::FBlit               m_Blit;                     // HDR -> m_BgRt コピー

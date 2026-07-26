@@ -6,6 +6,7 @@
 #include "render/IRhiCommandList.h"
 #include "render/IRhiDevice.h"
 #include "render/MotionVector.h"
+#include "memory/SystemAllocator.h"
 
 using namespace acs;
 
@@ -147,6 +148,30 @@ public:
     bool shader_visible = false;
 };
 
+class FSwitchableMotionPoolAllocator final : public FAllocator {
+public:
+    explicit FSwitchableMotionPoolAllocator(FAllocator& backing) noexcept
+        : m_Backing(&backing) {}
+
+    void SetFailing(bool failing) noexcept { m_Failing = failing; }
+
+    void* Alloc(
+        usize size, usize alignment,
+        FSourceLoc location) noexcept override {
+        return m_Failing
+            ? nullptr
+            : m_Backing->Alloc(size, alignment, location);
+    }
+
+    void Free(void* pointer) noexcept override {
+        m_Backing->Free(pointer);
+    }
+
+private:
+    FAllocator* m_Backing = nullptr;
+    bool m_Failing = false;
+};
+
 } // namespace
 
 ACS_TEST(Render, RhiCommandStatisticsCountAndReset)
@@ -261,8 +286,8 @@ ACS_TEST(Render, MotionVectorMrtFailureSkipsPipelineDrawAndEnd)
         mesh.index_buffer = Move(index_result.Value());
         mesh.vertex_stride = sizeof(FMeshVertex);
         mesh.index_count = 3u;
-        motion.DrawMesh(
-            rejected, mesh, FMat4::Identity(), FMat4::Identity());
+        EXPECT_FALSE(motion.DrawMesh(
+            rejected, mesh, FMat4::Identity(), FMat4::Identity()));
     }
     EXPECT_EQ(rejected.set_constant_buffer_count, 0u);
     EXPECT_EQ(rejected.set_vertex_buffer_count, 0u);
@@ -288,6 +313,85 @@ ACS_TEST(Render, MotionVectorMrtFailureSkipsPipelineDrawAndEnd)
     EXPECT_EQ(accepted.single_rt_end_count, 0u);
     motion.End(accepted);
     EXPECT_EQ(accepted.mrt_end_count, 1u);
+}
+
+ACS_TEST(Render, MotionVectorPoolGrowsPastLegacyLimitAndRecoversAllocation)
+{
+    FDeviceConfig config{};
+    auto device_result = CreateRhiDevice(config);
+    if (device_result.IsErr()) return;
+
+    FSystemAllocator backing;
+    FSwitchableMotionPoolAllocator pool_allocator{backing};
+    FMotionVector motion{pool_allocator};
+    const auto init_result = motion.Init(*device_result.Value(), 16u, 16u);
+    EXPECT_TRUE(init_result.IsOk());
+    if (init_result.IsErr()) return;
+
+    const u32 initial_capacity = motion.ObjectBufferCapacity();
+    EXPECT_TRUE(initial_capacity > 0u);
+    EXPECT_TRUE(initial_capacity < 512u);
+
+    // UINT32_MAX is the invalid draw-cursor sentinel. Reject it before any
+    // geometric growth arithmetic or giant owner-array allocation is reached.
+    constexpr u32 kInvalidDrawCount = ~u32{0};
+    EXPECT_FALSE(motion.BeginFrame(kInvalidDrawCount));
+    EXPECT_EQ(motion.ObjectBufferCapacity(), initial_capacity);
+    EXPECT_EQ(motion.ObjectDrawCount(), 0u);
+    EXPECT_TRUE(motion.BeginFrame(initial_capacity));
+    EXPECT_EQ(motion.ObjectBufferCapacity(), initial_capacity);
+
+    // Owner-array allocation failure is transactional: the retained GPU
+    // buffers remain available, and the following frame can retry growth.
+    pool_allocator.SetFailing(true);
+    EXPECT_FALSE(motion.BeginFrame(initial_capacity + 1u));
+    EXPECT_EQ(motion.ObjectBufferCapacity(), initial_capacity);
+    EXPECT_EQ(motion.ObjectDrawCount(), 0u);
+
+    pool_allocator.SetFailing(false);
+    EXPECT_TRUE(motion.BeginFrame(512u));
+    EXPECT_TRUE(motion.ObjectBufferCapacity() >= 512u);
+
+    FBufferDesc vertex_desc{};
+    vertex_desc.size = sizeof(FMeshVertex) * 3u;
+    vertex_desc.usage = EBufferUsage::Vertex;
+    auto vertex_result =
+        CreateRhiBuffer(*device_result.Value(), vertex_desc);
+    FBufferDesc index_desc{};
+    index_desc.size = sizeof(u16) * 3u;
+    index_desc.usage = EBufferUsage::Index16;
+    auto index_result =
+        CreateRhiBuffer(*device_result.Value(), index_desc);
+    EXPECT_TRUE(vertex_result.IsOk());
+    EXPECT_TRUE(index_result.IsOk());
+    if (vertex_result.IsErr() || index_result.IsErr()) return;
+
+    FGpuMesh mesh{};
+    mesh.vertex_buffer = Move(vertex_result.Value());
+    mesh.index_buffer = Move(index_result.Value());
+    mesh.vertex_stride = sizeof(FMeshVertex);
+    mesh.index_count = 3u;
+
+    FStatisticsCommandList command_list;
+    EXPECT_TRUE(motion.Begin(
+        command_list, FMat4::Identity(), FMat4::Identity()));
+    for (u32 i = 0; i < 512u; ++i) {
+        EXPECT_TRUE(motion.DrawMesh(
+            command_list, mesh, FMat4::Identity(), FMat4::Identity()));
+    }
+    motion.End(command_list);
+
+    EXPECT_EQ(motion.ObjectDrawCount(), 512u);
+    EXPECT_EQ(command_list.Statistics().draw_calls, 512u);
+    EXPECT_EQ(command_list.set_constant_buffer_count, 512u);
+    EXPECT_EQ(command_list.set_vertex_buffer_count, 512u);
+    EXPECT_EQ(command_list.set_index_buffer_count, 512u);
+
+    // The persistent pool is retained across frames; BeginFrame only resets
+    // the logical cursor and never causes frame-to-frame allocation churn.
+    EXPECT_TRUE(motion.BeginFrame(1u));
+    EXPECT_TRUE(motion.ObjectBufferCapacity() >= 512u);
+    EXPECT_EQ(motion.ObjectDrawCount(), 0u);
 }
 
 ACS_TEST(Render, DepthTextureCopyContractRejectsUnsafeResources)

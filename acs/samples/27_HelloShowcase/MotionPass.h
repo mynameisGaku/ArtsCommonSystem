@@ -7,8 +7,8 @@
 //   - motion (RG16F)  : prev_uv - curr_uv (TAA / SSR temporal が読む)
 //   - normal (RGBA16F): world-space normal (SSR / SSAO が読む)
 //
-// 戻り値: 前フレームに 1 度でも本 pass を走らせていれば motion 出力テクスチャ、
-//        そうでなければ nullptr (FPostProcess の TAA に渡しても無視されるため)。
+// 戻り値: 全対象 draw が記録できたときだけ normal を公開する。motion はさらに
+//        前フレーム VP が有効な場合だけ公開し、cold start と失敗出力を後段から隔離する。
 #pragma once
 
 #include "ShowcaseAssets.h"
@@ -20,12 +20,18 @@ namespace acs { class IRhiCommandList; class IRhiTexture; }
 
 namespace helloshowcase {
 
-acs::IRhiTexture* ExecuteMotionPass(FAssets& a,
-                                     acs::IRhiCommandList& cl,
-                                     const acs::FMat4& vp_no_jitter,
-                                     const acs::FMat4& prev_vp_no_jitter,
-                                     bool prev_vp_valid,
-                                     acs::f32 prev_orb_phase,
-                                     const acs::FMat4 (&orb_curr)[kOrbCount]) noexcept;
+struct FMotionPassOutput {
+    acs::IRhiTexture* motion = nullptr;
+    acs::IRhiTexture* normal = nullptr;
+};
+
+FMotionPassOutput ExecuteMotionPass(
+    FAssets& a,
+    acs::IRhiCommandList& cl,
+    const acs::FMat4& vp_no_jitter,
+    const acs::FMat4& prev_vp_no_jitter,
+    bool prev_vp_valid,
+    acs::f32 prev_orb_phase,
+    const acs::FMat4 (&orb_curr)[kOrbCount]) noexcept;
 
 } // namespace helloshowcase

@@ -49,10 +49,14 @@ void FShadowsScene::Render(FSky&             sky,
                           const FGpuMesh&   cube,
                           const FGpuMesh&   sphere,
                           FVec3             sun_dir) noexcept {
+    if (m_Casters.Size() >= static_cast<usize>(~u32{0})) return;
+    const u32 caster_draws = static_cast<u32>(m_Casters.Size());
+    if (!shader.BeginFrame(caster_draws + 1u) ||
+        !shadow.BeginFrame(caster_draws)) return;
+
     sky.SetSunDirection(sun_dir);
 
     // === 1. シャドウパス ===
-    shadow.BeginFrame();
     shadow.SetDirectionalLight(sun_dir, FVec3{0, 1, 0}, /*radius=*/12.0f);
     cl.BeginShadowPass(*shadow.DepthTexture(), 1.0f);
     cl.SetPipeline(*shadow.CasterPipeline());

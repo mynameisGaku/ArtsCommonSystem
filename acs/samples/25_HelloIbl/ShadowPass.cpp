@@ -24,14 +24,15 @@ void RenderShadowPass(FHelloIblApp& app, const FVec3& sun_dir) noexcept {
 
     // CSM: カメラ frustum を 3 cascade に分けて atlas へ焼く。
     // scene 範囲 (object は 30m 内) を near=0.1 / far=40 でカバー。
-    app.m_Shadow.BeginFrame();
+    constexpr u32 kGridCast    = 5;
+    constexpr u32 kCastersPerCascade = kGridCast * kGridCast;
     app.m_Shadow.SetDirectionalLightCascades(sun_dir,
                                             app.m_Camera.View(), app.m_Camera.Projection(),
                                             /*near=*/0.1f, /*far=*/40.0f);
+    if (!app.m_Shadow.BeginFrame(kCastersPerCascade)) return;
     cl->BeginShadowPass(*app.m_Shadow.DepthTexture(), 1.0f);   // atlas 全体 clear
     cl->SetPipeline(*app.m_Shadow.CasterPipeline());
 
-    constexpr u32 kGridCast    = 5;
     constexpr f32 kSpacingCast = 1.4f;
     for (u32 c = 0; c < app.m_Shadow.CascadeCount(); ++c) {
         // cascade ごとに viewport / scissor / light VP を切替えて caster 描画

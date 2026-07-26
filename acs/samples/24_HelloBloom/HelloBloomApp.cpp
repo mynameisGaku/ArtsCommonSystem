@@ -80,6 +80,7 @@ bool FHelloBloomApp::OnCustomFrame() noexcept {
     IRhiTexture*     depth = GetRenderer().DepthBuffer();
     // false を返すと FApplication が既定フローでフレームを完走してくれる (失敗時の保険)。
     if (!cl || !sc || !hdr) return false;
+    if (!m_Shader.BeginFrame(5u)) return false;
 
     const u32 buf_idx = sc->AcquireNextImage();
     cl->Begin();

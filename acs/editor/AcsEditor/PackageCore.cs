@@ -92,13 +92,14 @@ public sealed class PackageValidationException : InvalidOperationException
 public static class PackageCore
 {
     private const string AssetCookerVersion = "acs-package-cook-v2";
+    private const string ReferenceRewriteVersion = "4";
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private static readonly UTF8Encoding Utf8Strict = new(false, true);
     private static readonly DateTimeOffset ZipEpoch =
         new(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
     private static readonly Regex SceneReference = new(
-        @"^(?<prefix>(?:SPRT|MAT)\s+-?\d+\s+)(?<path>.+?)\s*$",
+        @"^(?<prefix>(?:SPRT|MAT|PFAB)\s+-?\d+\s+)(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex Scene3DReference = new(
@@ -108,7 +109,6 @@ public static class PackageCore
     private static readonly Regex MaterialReference = new(
         @"^(?<prefix>(?:albedo|normal|substrateExprTexture\d+)\s+)(?<path>.+?)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private static readonly Regex ProductVersionPattern = new(
         @"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -1399,11 +1399,7 @@ public static class PackageCore
                 projectRoot,
                 Path.Combine(project.TempDirectory, "DerivedDataCache", "Cook"));
             KeyValuePair<string, string>[] cookerSettings =
-            [
-                new("assetGraphHash", cookPlan.GraphHash),
-                new("platform", "win-x64"),
-                new("referenceRewriteVersion", "3"),
-            ];
+                CreateAssetCookerSettings(cookPlan.GraphHash);
 
             string cookedScene = Path.Combine(cookRoot, "main.acscene");
             for (int index = 0; index < cookPlan.Assets.Count; index++)
@@ -1919,6 +1915,13 @@ public static class PackageCore
                 sourceAssetsRoot,
                 projectRoot);
         }
+        if (extension == ".acsbp")
+        {
+            return RewriteBlueprintPayload(
+                source,
+                sourceAssetsRoot,
+                projectRoot);
+        }
         Regex? expression = extension switch
         {
             ".acsmat" => MaterialReference,
@@ -1938,6 +1941,27 @@ public static class PackageCore
         string sourceAssetsRoot,
         string projectRoot) =>
         RewritePrefabPayload(source, sourceAssetsRoot, projectRoot);
+
+    internal static byte[] RewriteBlueprintPayloadForSelfTest(
+        byte[] source,
+        string sourceAssetsRoot,
+        string projectRoot) =>
+        RewriteBlueprintPayload(source, sourceAssetsRoot, projectRoot);
+
+    internal static string AssetCookerVersionForSelfTest =>
+        AssetCookerVersion;
+
+    internal static KeyValuePair<string, string>[]
+        CreateAssetCookerSettingsForSelfTest(string assetGraphHash) =>
+        CreateAssetCookerSettings(assetGraphHash);
+
+    private static KeyValuePair<string, string>[] CreateAssetCookerSettings(
+        string assetGraphHash) =>
+    [
+        new("assetGraphHash", assetGraphHash),
+        new("platform", "win-x64"),
+        new("referenceRewriteVersion", ReferenceRewriteVersion),
+    ];
 
     private static byte[] RewritePrefabPayload(
         byte[] source,
@@ -1972,6 +1996,125 @@ public static class PackageCore
                 "Prefab Cook source is not valid UTF-8.",
                 error);
         }
+    }
+
+    private static byte[] RewriteBlueprintPayload(
+        byte[] source,
+        string sourceAssetsRoot,
+        string projectRoot)
+    {
+        string text;
+        try
+        {
+            text = Utf8Strict.GetString(source);
+        }
+        catch (DecoderFallbackException error)
+        {
+            throw new InvalidDataException(
+                "Blueprint Cook source is not valid UTF-8.",
+                error);
+        }
+        AcsbpCookDocument document = AcsbpFormat.ParseForCook(text);
+        string[] lines = document.Lines.ToArray();
+
+        bool changed = false;
+        int parentCount = 0;
+        for (int index = 1; index < lines.Length; ++index)
+        {
+            if (document.IsComponentLine(index))
+                continue;
+            if (!AcsbpFormat.TryParseCanonicalParentDirective(
+                    lines[index],
+                    out string reference))
+                continue;
+            if (++parentCount > 1)
+            {
+                throw new InvalidDataException(
+                    "Blueprint payload may contain at most one PARENT directive.");
+            }
+
+            if (!Path.GetExtension(reference).Equals(
+                    ".acsbp",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "Blueprint PARENT must reference an .acsbp asset.");
+            }
+            if (!TryResolveAssetReference(
+                    reference,
+                    sourceAssetsRoot,
+                    projectRoot,
+                    out _,
+                    out string relative,
+                    out string error))
+            {
+                throw new InvalidDataException(error);
+            }
+
+            string rewritten =
+                "PARENT " +
+                "Assets/" +
+                relative.Replace('\\', '/');
+            if (!string.Equals(lines[index], rewritten, StringComparison.Ordinal))
+            {
+                lines[index] = rewritten;
+                changed = true;
+            }
+        }
+
+        if (document.HasComponents)
+        {
+            Regex componentExpression = document.ComponentExtension == ".acs3d"
+                ? Scene3DReference
+                : SceneReference;
+            int componentEnd = document.ComponentStart + document.ComponentCount;
+            for (int index = document.ComponentStart + 1;
+                 index < componentEnd;
+                 ++index)
+            {
+                string directive = FirstToken(lines[index]);
+                bool referenceDirective = document.ComponentExtension == ".acs3d"
+                    ? directive is "MSH3D" or "SPR3D" or "MAT3D" or "PFAB3D"
+                    : directive is "SPRT" or "MAT" or "PFAB";
+                if (!referenceDirective)
+                    continue;
+
+                Match match = componentExpression.Match(lines[index]);
+                if (!match.Success)
+                {
+                    throw new InvalidDataException(
+                        $"Blueprint CMP reference directive '{directive}' is malformed.");
+                }
+                string reference = match.Groups["path"].Value.Trim();
+                if (directive == "MAT3D" && IsLegacyNumeric3DMaterial(reference))
+                    continue;
+                if (!TryResolveAssetReference(
+                        reference,
+                        sourceAssetsRoot,
+                        projectRoot,
+                        out _,
+                        out string relative,
+                        out string error))
+                {
+                    throw new InvalidDataException(error);
+                }
+                string rewritten =
+                    match.Groups["prefix"].Value +
+                    "Assets/" +
+                    relative.Replace('\\', '/');
+                if (!string.Equals(lines[index], rewritten, StringComparison.Ordinal))
+                {
+                    lines[index] = rewritten;
+                    changed = true;
+                }
+            }
+        }
+
+        if (!changed)
+            return source;
+        while (lines.Length > 0 && lines[^1].Length == 0)
+            Array.Resize(ref lines, lines.Length - 1);
+        return Utf8NoBom.GetBytes(string.Join('\n', lines) + "\n");
     }
 
     private static byte[] RewriteCanonicalScenePayload(
@@ -2092,6 +2235,12 @@ public static class PackageCore
                    System.Globalization.NumberStyles.Float,
                    System.Globalization.CultureInfo.InvariantCulture,
                    out _);
+    }
+
+    private static string FirstToken(string line)
+    {
+        int separator = line.IndexOfAny([' ', '\t']);
+        return separator < 0 ? line : line[..separator];
     }
 
     private static void WriteCookedPayload(string destination, byte[] payload)

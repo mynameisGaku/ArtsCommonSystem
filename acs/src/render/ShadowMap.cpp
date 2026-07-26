@@ -137,6 +137,7 @@ ACS_FORCEINLINE void StabilizeOrthoProjection(const FMat4& light_view,
 /** 深度テクスチャ・キャスター VS・定数バッファ・depth-only パイプラインを生成する。 */
 TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
     Shutdown();
+
     if (size == 0) size = 2048;
     if (cascade_count == 0) cascade_count = 1;
     if (cascade_count > kMaxCascades) cascade_count = kMaxCascades;
@@ -145,7 +146,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
     m_CascadeCapacity = cascade_count;
     m_Device        = &device;
     m_CurrentCascade = 0;
-    BeginFrame();
+    (void)BeginFrame();
 
     auto fail_init = [this](FErrorCode error) noexcept -> TResult<void> {
         Shutdown();
@@ -188,7 +189,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
 
     // Keep the legacy post-Init CasterObjectCB() contract non-null per cascade.
     for (u32 cascade = 0; cascade < m_CascadeCount; ++cascade) {
-        if (!EnsureCasterBuffer(cascade, 0))
+        if (!EnsureCasterCapacity(cascade, 1u))
             return fail_init(ACS_ERR(
                 Render, 115,
                 "FShadowMap: failed to create caster constant buffer"));
@@ -228,8 +229,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
 void FShadowMap::Shutdown() noexcept {
     m_Pipeline.Reset();
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
-        for (u32 draw = 0; draw < kMaxCasterDrawsPerCascade; ++draw)
-            m_ObjectCbs[cascade][draw].Reset();
+        m_ObjectCbs[cascade].ReleaseStorage();
     }
     for (u32 i = 0; i < kMaxCascades; ++i) m_LightCbs[i].Reset();
     m_Vs.Reset();
@@ -240,6 +240,7 @@ void FShadowMap::Shutdown() noexcept {
     m_CascadeCapacity = 1;
     m_CurrentCascade = 0;
     m_TotalCasterDrawCount = 0;
+    m_FrameCapacityReady = false;
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
         m_CurrentCasters[cascade] = 0;
         m_CasterDrawCounts[cascade] = 0;
@@ -249,7 +250,8 @@ void FShadowMap::Shutdown() noexcept {
 }
 
 /** Reset the CPU cursor; already-recorded GPU addresses remain immutable. */
-void FShadowMap::BeginFrame() noexcept {
+bool FShadowMap::BeginFrame(
+    u32 required_casters_per_cascade) noexcept {
     m_TotalCasterDrawCount = 0;
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
         m_CurrentCasters[cascade] = 0;
@@ -257,21 +259,55 @@ void FShadowMap::BeginFrame() noexcept {
         m_CasterOverflowed[cascade] = false;
         m_CasterWarningIssued[cascade] = false;
     }
+    m_FrameCapacityReady =
+        required_casters_per_cascade != kInvalidCasterBuffer;
+    for (u32 cascade = 0;
+         m_FrameCapacityReady && cascade < m_CascadeCapacity;
+         ++cascade) {
+        m_FrameCapacityReady = EnsureCasterCapacity(
+            cascade, required_casters_per_cascade);
+    }
+    if (!m_FrameCapacityReady) {
+        for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
+            m_CurrentCasters[cascade] = kInvalidCasterBuffer;
+            if (cascade < m_CascadeCapacity)
+                m_CasterOverflowed[cascade] = true;
+        }
+    }
+    return m_FrameCapacityReady;
 }
 
-/** Lazily allocate a distinct RHI buffer for one caster draw. */
-bool FShadowMap::EnsureCasterBuffer(u32 cascade, u32 slot) noexcept {
-    if (cascade >= m_CascadeCount ||
-        slot >= kMaxCasterDrawsPerCascade || !m_Device) return false;
-    if (m_ObjectCbs[cascade][slot]) return true;
+/** Grow one cascade's persistent immutable per-draw CB pool. */
+bool FShadowMap::EnsureCasterCapacity(
+    u32 cascade, u32 required_casters) noexcept {
+    if (cascade >= m_CascadeCapacity || !m_Device ||
+        required_casters == kInvalidCasterBuffer) return false;
+    TArray<TUniquePtr<IRhiBuffer>>& buffers = m_ObjectCbs[cascade];
+    if (required_casters <= buffers.Size()) return true;
 
-    FBufferDesc desc{};
-    desc.size = 256;
-    desc.usage = EBufferUsage::Uniform;
-    desc.cpu_writable = true;
-    auto result = CreateRhiBuffer(*m_Device, desc);
-    if (result.IsErr()) return false;
-    m_ObjectCbs[cascade][slot] = Move(result.Value());
+    u32 target = static_cast<u32>(buffers.Size());
+    if (target == 0u) target = 1u;
+    while (target < required_casters) {
+        const u32 growth = target > 1u ? target / 2u : 1u;
+        if (target > kInvalidCasterBuffer - growth) {
+            target = required_casters;
+        } else {
+            target += growth;
+        }
+    }
+
+    if (!buffers.TryReserve(target)) return false;
+    while (buffers.Size() < target) {
+        FBufferDesc desc{};
+        desc.size = 256;
+        desc.usage = EBufferUsage::Uniform;
+        desc.cpu_writable = true;
+        auto result = CreateRhiBuffer(*m_Device, desc);
+        if (result.IsErr())
+            return buffers.Size() >= required_casters;
+        if (!buffers.TryPushBack(Move(result.Value())))
+            return buffers.Size() >= required_casters;
+    }
     return true;
 }
 
@@ -496,28 +532,34 @@ void FShadowMap::SetCaster(const FMat4& model) noexcept {
 
 /** Write the model matrix to a buffer used by this draw only. */
 bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
-    if (!IsFinite(model)) return false;
+    if (!IsFinite(model) || !m_FrameCapacityReady) return false;
     const u32 cascade = m_CurrentCascade;
     u32& draw_count = m_CasterDrawCounts[cascade];
-    if (draw_count >= kMaxCasterDrawsPerCascade) {
+    if (draw_count == kInvalidCasterBuffer ||
+        m_TotalCasterDrawCount == kInvalidCasterBuffer) {
         m_CasterOverflowed[cascade] = true;
         if (!m_CasterWarningIssued[cascade]) {
-            ACS_LOG_WARN("FShadowMap cascade %u caster CB ring exhausted "
-                         "(%u draws); extra caster draws are skipped",
-                         cascade, kMaxCasterDrawsPerCascade);
+            ACS_LOG_WARN(
+                "FShadowMap cascade %u caster cursor overflow; "
+                "remaining caster draws are skipped", cascade);
             m_CasterWarningIssued[cascade] = true;
         }
+        m_FrameCapacityReady = false;
         return false;
     }
 
     const u32 slot = draw_count;
-    if (!EnsureCasterBuffer(cascade, slot)) {
+    if (!EnsureCasterCapacity(cascade, slot + 1u)) {
         m_CasterOverflowed[cascade] = true;
         if (!m_CasterWarningIssued[cascade]) {
-            ACS_LOG_WARN("FShadowMap failed to allocate cascade %u caster CB "
-                         "slot %u; the caster draw is skipped", cascade, slot);
+            ACS_LOG_WARN(
+                "FShadowMap failed to grow cascade %u caster-CB pool "
+                "(required=%u, retained=%zu); remaining pass is skipped",
+                cascade, slot + 1u, m_ObjectCbs[cascade].Size());
             m_CasterWarningIssued[cascade] = true;
         }
+        m_FrameCapacityReady = false;
+        m_CurrentCasters[cascade] = kInvalidCasterBuffer;
         return false;
     }
 

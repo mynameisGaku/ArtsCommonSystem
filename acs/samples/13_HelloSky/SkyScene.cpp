@@ -24,6 +24,8 @@ void FSkyScene::Render(FSky&             sky,
                       const FGpuMesh&   plane,
                       const FGpuMesh&   sphere,
                       f32              angle) noexcept {
+    if (!shader.BeginFrame(2u)) return;
+
     // FSky を先に描く。深度書込みも深度テストも無効なので、後続のメッシュは
     // 自動で空を覆い隠す形になる (背景塗り)。
     sky.Render(cl, camera);

@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\editor\AcsEditor\AssetDatabase.cs" Link="AssetDatabase.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AcsbpFormat.cs" Link="AcsbpFormat.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetCookPlanner.cs" Link="AssetCookPlanner.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetCreationWorkflow.cs" Link="AssetCreationWorkflow.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetImportWorkflow.cs" Link="AssetImportWorkflow.cs"/>

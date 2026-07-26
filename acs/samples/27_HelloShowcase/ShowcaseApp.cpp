@@ -139,25 +139,33 @@ bool FShowcaseApp::OnCustomFrame() noexcept {
     }
 
     // ===== Motion + normal G-buffer pass (TAA / SSR / SSAO 用) =====
-    IRhiTexture* motion_tex = ExecuteMotionPass(m_Assets, *cl, vp_no_jitter,
-                                                 m_PrevVpNoJitter, m_bPrevVpValid,
-                                                 m_PrevOrbPhase, orb_curr);
+    const FMotionPassOutput motion_output =
+        ExecuteMotionPass(
+            m_Assets, *cl, vp_no_jitter,
+            m_PrevVpNoJitter, m_bPrevVpValid,
+            m_PrevOrbPhase, orb_curr);
 
     // ===== SSR / SSAO (1-frame latency で次フレームの PBR が合成) =====
     const FMat4& ssr_prev_vp = m_bPrevVpValid ? m_PrevVpNoJitter : vp_no_jitter;
-    ExecuteSsrPass(m_Assets, *dev, *cl, *hdr, *depth,
-                   view_proj_jittered, inv_vp, ssr_prev_vp,
-                   m_CamPos, motion_tex, m_ShowSsr);
-    if (m_ShowSsr) m_SsrWarm = true;
-    ExecuteSsaoPass(m_Assets, *dev, *cl, *depth,
-                    view_proj_jittered, inv_vp, m_Camera.View(), m_CamPos);
-    m_bSsaoWarm = true;
+    if (motion_output.normal != nullptr) {
+        ExecuteSsrPass(m_Assets, *dev, *cl, *hdr, *depth,
+                       view_proj_jittered, inv_vp, ssr_prev_vp,
+                       m_CamPos, motion_output.motion, m_ShowSsr);
+        m_SsrWarm = m_ShowSsr;
+        ExecuteSsaoPass(m_Assets, *dev, *cl, *depth,
+                        view_proj_jittered, inv_vp,
+                        m_Camera.View(), m_CamPos);
+        m_bSsaoWarm = true;
+    } else {
+        m_SsrWarm = false;
+        m_bSsaoWarm = false;
+    }
 
     // ===== Post-process (HDR -> LDR backbuffer) =====
     const u32 buf_idx = sc->AcquireNextImage();
     ExecuteBloomPass(m_Assets, *cl, *sc, buf_idx, *depth,
                      m_PostParams, vp_no_jitter, m_PrevVpNoJitter,
-                     m_bPrevVpValid, motion_tex);
+                     m_bPrevVpValid, motion_output.motion);
 
     // ===== HUD overlay =====
     ExecuteHudPass(m_Assets, *cl, *sc, m_Paused, m_ShowSsr, m_ShowRefraction);

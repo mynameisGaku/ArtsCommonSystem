@@ -7,6 +7,7 @@
 // 使い方:
 //   FSkinnedShader shd;
 //   shd.Init(*dev, color_fmt, depth_fmt);
+//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
 //
 //   // フレーム共通（FStandardShader と同じ呼び方）
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
@@ -31,6 +32,7 @@
 #pragma once
 
 #include "foundation/Result.h"
+#include "container/Array.h"
 #include "memory/UniquePtr.h"
 #include "math/Vec.h"
 #include "math/Mat.h"
@@ -58,8 +60,12 @@ public:
     /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
     static constexpr u32 kMaxBones = 64;
 
-    /** 1 フレームで安全に記録できる Object/Bones CB ペア数。 */
-    static constexpr u32 kMaxObjectDrawsPerFrame = 256;
+    /**
+     * Source-compatibility estimate from the former fixed ring.
+     * The pool is growable; this is not a hard draw limit.
+     */
+    [[deprecated("growable pool; not a hard limit")]]
+    static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
     FSkinnedShader() noexcept = default;
@@ -87,6 +93,20 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /**
+     * Start one command-recording frame and reserve complete Object/Bones pairs.
+     *
+     * @return true when every requested pair is ready. On false SetObject
+     * refuses the entire frame until a later successful BeginFrame.
+     */
+    bool BeginFrame(u32 required_object_draws = 0u) noexcept;
+
+    u32 ObjectBufferCapacity() const noexcept {
+        return static_cast<u32>(m_DrawBuffers.Size());
+    }
+
+    u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
 
     /**
      * 単一方向光でフレーム共通の状態を設定する (SetLights の簡易版)。
@@ -170,8 +190,8 @@ public:
      * @return モデル行列・マテリアルを格納した定数バッファ。
      */
     IRhiBuffer*    PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
-             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+        return m_CurrentObjectCb < m_DrawBuffers.Size()
+             ? m_DrawBuffers[m_CurrentObjectCb].object.Get()
              : nullptr;
     }
 
@@ -181,8 +201,8 @@ public:
      * @return ボーンパレット行列を格納した定数バッファ。
      */
     IRhiBuffer*    BonesCB()     const noexcept {
-        return m_CurrentObjectCb < kMaxObjectDrawsPerFrame
-             ? m_BonesCbs[m_CurrentObjectCb].Get()
+        return m_CurrentObjectCb < m_DrawBuffers.Size()
+             ? m_DrawBuffers[m_CurrentObjectCb].bones.Get()
              : nullptr;
     }
 
@@ -194,6 +214,14 @@ public:
     IRhiTexture*   DefaultWhiteTexture() const noexcept { return m_White.Get(); }
 
 private:
+    struct FDrawBufferPair {
+        TUniquePtr<IRhiBuffer> object;
+        TUniquePtr<IRhiBuffer> bones;
+    };
+
+    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
+
+    IRhiDevice* m_ResourceDevice = nullptr;
     /** キャッシュした Frame 状態を PerFrame CB へ書き込む。 */
     void FlushFrameCB() noexcept;
 
@@ -216,10 +244,13 @@ private:
      * 最後の model/palette に上書きされる。SetObject が次のペアを取得し、
      * SetBonePalette はその同じペアへ書き込む。
      */
-    TUniquePtr<IRhiBuffer>   m_ObjectCbs[kMaxObjectDrawsPerFrame];
-    TUniquePtr<IRhiBuffer>   m_BonesCbs[kMaxObjectDrawsPerFrame];
-    u32                      m_ObjectCbCursor = 0;
-    u32                      m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    static constexpr u32     kInitialObjectBufferCapacity = 64u;
+    static constexpr u32     kInvalidObjectBuffer = ~u32{0};
+    TArray<FDrawBufferPair>  m_DrawBuffers;
+    u32                      m_ObjectCbCursor = 0u;
+    u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+    bool                     m_FrameCapacityReady = false;
+    bool                     m_ObjectCapacityFailureLogged = false;
 
     /** テクスチャ未指定時の 1x1 白テクスチャ。 */
     TUniquePtr<IRhiTexture>  m_White;

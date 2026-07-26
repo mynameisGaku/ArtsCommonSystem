@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\editor\AcsEditor\AssetDatabase.cs" Link="AssetDatabase.cs" />
+    <Compile Include="..\..\editor\AcsEditor\AcsbpFormat.cs" Link="AcsbpFormat.cs" />
     <Compile Include="..\..\editor\AcsEditor\AssetCookPlanner.cs" Link="AssetCookPlanner.cs" />
     <Compile Include="..\..\editor\AcsEditor\DerivedDataCache.cs" Link="DerivedDataCache.cs" />
     <Compile Include="..\..\editor\AcsEditor\AssetMutationLock.cs" Link="AssetMutationLock.cs" />

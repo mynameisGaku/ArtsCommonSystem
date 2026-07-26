@@ -178,6 +178,8 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+    Shutdown();
+
     // === シェーダ ===
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -206,32 +208,21 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
     m_FrameCb = Move(fcb_r.Value());
 
-    FBufferDesc ocb{};
-    ocb.size = CBSize<FObjectCbLayout>();
-    ocb.usage = EBufferUsage::Uniform;
-    ocb.cpu_writable = true;
-    FBufferDesc bcb{};
-    bcb.size = CBSize<FBonesCbLayout>();        // 64 * 64 = 4096B、256 アラインで 4096
-    bcb.usage = EBufferUsage::Uniform;
-    bcb.cpu_writable = true;
+    m_ResourceDevice = &device;
+    if (!EnsureObjectCapacity(kInitialObjectBufferCapacity)) {
+        const FErrorCode error = ACS_ERR(
+            Render, 382, "Skinned initial Object/Bones pool allocation failed");
+        Shutdown();
+        return error;
+    }
 
     // SetObject ごとに Object/Bones の同じ index を使う。先行 draw が後続
     // SetObject/SetBonePalette の Update で上書きされないよう、リングは非ラップ。
-    FBonesCbLayout initial{};
-    for (u32 i = 0; i < kMaxBones; ++i) initial.palette[i] = FMat4::Identity();
-    for (u32 i = 0; i < kMaxObjectDrawsPerFrame; ++i) {
-        auto ocb_r = CreateRhiBuffer(device, ocb);
-        if (ocb_r.IsErr()) return Err<void>(ocb_r.Error());
-        m_ObjectCbs[i] = Move(ocb_r.Value());
-
-        auto bcb_r = CreateRhiBuffer(device, bcb);
-        if (bcb_r.IsErr()) return Err<void>(bcb_r.Error());
-        m_BonesCbs[i] = Move(bcb_r.Value());
-        m_BonesCbs[i]->Update(&initial, sizeof(initial));
-    }
-    m_ObjectCbCursor = 0;
+    m_ObjectCbCursor = 0u;
     // 最初の SetObject が slot 0 を使うので、legacy の事前 bind も維持できる。
-    m_CurrentObjectCb = 0;
+    m_CurrentObjectCb = 0u;
+    m_FrameCapacityReady = true;
+    m_ObjectCapacityFailureLogged = false;
 
     // === 1×1 白テクスチャ ===
     const u8 white_pixel[4] = { 255, 255, 255, 255 };
@@ -281,13 +272,78 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
 void FSkinnedShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
-    for (auto& cb : m_BonesCbs) cb.Reset();
-    for (auto& cb : m_ObjectCbs) cb.Reset();
-    m_ObjectCbCursor = 0;
-    m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    m_DrawBuffers.ReleaseStorage();
+    m_ObjectCbCursor = 0u;
+    m_CurrentObjectCb = kInvalidObjectBuffer;
+    m_FrameCapacityReady = false;
+    m_ObjectCapacityFailureLogged = false;
+    m_ResourceDevice = nullptr;
     m_FrameCb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
+}
+
+bool FSkinnedShader::EnsureObjectCapacity(
+    u32 required_object_draws) noexcept {
+    if (required_object_draws == kInvalidObjectBuffer) return false;
+    if (!m_ResourceDevice) return false;
+    if (required_object_draws <= m_DrawBuffers.Size()) return true;
+
+    u32 target = static_cast<u32>(m_DrawBuffers.Size());
+    if (target < kInitialObjectBufferCapacity)
+        target = kInitialObjectBufferCapacity;
+    while (target < required_object_draws) {
+        const u32 growth = target > 1u ? target / 2u : 1u;
+        if (target > kInvalidObjectBuffer - growth) {
+            target = required_object_draws;
+        } else {
+            target += growth;
+        }
+    }
+
+    if (!m_DrawBuffers.TryReserve(target)) return false;
+    FBonesCbLayout identity_palette{};
+    for (u32 i = 0; i < kMaxBones; ++i)
+        identity_palette.palette[i] = FMat4::Identity();
+
+    while (m_DrawBuffers.Size() < target) {
+        FBufferDesc object_description{};
+        object_description.size = CBSize<FObjectCbLayout>();
+        object_description.usage = EBufferUsage::Uniform;
+        object_description.cpu_writable = true;
+        auto object =
+            CreateRhiBuffer(*m_ResourceDevice, object_description);
+        if (object.IsErr())
+            return m_DrawBuffers.Size() >= required_object_draws;
+
+        FBufferDesc bones_description{};
+        bones_description.size = CBSize<FBonesCbLayout>();
+        bones_description.usage = EBufferUsage::Uniform;
+        bones_description.cpu_writable = true;
+        auto bones =
+            CreateRhiBuffer(*m_ResourceDevice, bones_description);
+        if (bones.IsErr())
+            return m_DrawBuffers.Size() >= required_object_draws;
+        bones.Value()->Update(&identity_palette, sizeof(identity_palette));
+
+        FDrawBufferPair pair{};
+        pair.object = Move(object.Value());
+        pair.bones = Move(bones.Value());
+        if (!m_DrawBuffers.TryPushBack(Move(pair)))
+            return m_DrawBuffers.Size() >= required_object_draws;
+    }
+    return true;
+}
+
+bool FSkinnedShader::BeginFrame(u32 required_object_draws) noexcept {
+    m_ObjectCbCursor = 0u;
+    m_CurrentObjectCb =
+        m_DrawBuffers.IsEmpty() ? kInvalidObjectBuffer : 0u;
+    m_ObjectCapacityFailureLogged = false;
+    m_FrameCapacityReady = EnsureObjectCapacity(required_object_draws);
+    if (!m_FrameCapacityReady)
+        m_CurrentObjectCb = kInvalidObjectBuffer;
+    return m_FrameCapacityReady;
 }
 
 void FSkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
@@ -305,8 +361,6 @@ void FSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
     m_Vp = vp;
     m_Eye = cam;
     m_Ambient = ambient;
-    m_ObjectCbCursor = 0;
-    m_CurrentObjectCb = 0;
     m_DirCount = count;
     for (u32 i = 0; i < count; ++i) m_DirLights[i] = lights[i];
     FlushFrameCB();
@@ -343,20 +397,29 @@ void FSkinnedShader::FlushFrameCB() noexcept {
 
 bool FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                               f32 specular_strength, f32 shininess) noexcept {
-    if (m_ObjectCbCursor >= kMaxObjectDrawsPerFrame) {
-        if (m_ObjectCbCursor == kMaxObjectDrawsPerFrame) {
-            ACS_LOG_WARN("FSkinnedShader: per-frame object limit (%u) exceeded; "
-                         "remaining skinned draws are skipped",
-                         kMaxObjectDrawsPerFrame);
-            ++m_ObjectCbCursor;
+    if (!m_FrameCapacityReady ||
+        m_ObjectCbCursor == kInvalidObjectBuffer ||
+        (m_ObjectCbCursor >= m_DrawBuffers.Size() &&
+         !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
+        if (!m_ObjectCapacityFailureLogged) {
+            ACS_LOG_WARN(
+                "FSkinnedShader: unable to grow per-frame Object/Bones pool "
+                "(required=%u, retained=%zu); remaining draws are skipped",
+                m_ObjectCbCursor == kInvalidObjectBuffer
+                    ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
+                m_DrawBuffers.Size());
+            m_ObjectCapacityFailureLogged = true;
         }
-        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+        m_FrameCapacityReady = false;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
         return false;
     }
     m_CurrentObjectCb = m_ObjectCbCursor++;
-    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
-    if (!object_cb || !m_BonesCbs[m_CurrentObjectCb]) {
-        m_CurrentObjectCb = kMaxObjectDrawsPerFrame;
+    FDrawBufferPair& pair = m_DrawBuffers[m_CurrentObjectCb];
+    IRhiBuffer* object_cb = pair.object.Get();
+    if (!object_cb || !pair.bones) {
+        m_FrameCapacityReady = false;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
         return false;
     }
     FObjectCbLayout cb{};

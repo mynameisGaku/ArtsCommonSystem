@@ -8270,51 +8270,80 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             }
         }
     };
+    auto motionMeshForNode = [&](game::ANode* node) noexcept -> FGpuMesh* {
+        AEditor3DRecordComponent* record = Rec3D(node);
+        if (!IsEffectivelyVisibleAndEnabled(node) ||
+            (record != nullptr && record->is_empty)) {
+            return nullptr;
+        }
+        game::AMeshComponent3D* meshComponent = Mesh3D(node);
+        if (meshComponent == nullptr ||
+            meshComponent->RenderHandle() != nullptr ||
+            IsRenderedByWater3D(h, node)) {
+            return nullptr;
+        }
+        FGpuMesh* mesh = GpuMeshForNode3D(h, node);
+        if (mesh == nullptr || mesh->vertex_buffer.Get() == nullptr ||
+            mesh->index_buffer.Get() == nullptr) {
+            return nullptr;
+        }
+        return mesh;
+    };
+
+    // Reserve the exact visible set before opening the render pass. This keeps
+    // object-CB growth out of command recording and removes the old silent
+    // 256-draw truncation for large scenes.
+    u32 motionEligibleCount = 0;
+    const bool canDrawMotion = wantsMotion && h.mv_ready && h.pbr3d_ready;
+    if (canDrawMotion) {
+        for (u32 i = 0; i < all3d.Size(); ++i) {
+            if (motionMeshForNode(all3d[i]) != nullptr) {
+                ++motionEligibleCount;
+            } else if (AEditor3DRecordComponent* record = Rec3D(all3d[i])) {
+                record->prev_world_valid = false;
+            }
+        }
+    }
     const bool motionDrawRequested =
-        wantsMotion && dvCount > 0u && h.mv_ready && h.pbr3d_ready;
+        canDrawMotion && motionEligibleCount > 0u;
     if (motionDrawRequested) {
         if (!motionHistoryReady) invalidateMotionHistory();
         const FMat4& previousVp =
             motionHistoryReady ? h.prev_vp_nojit : vp_nojit;
-        if (h.mv3d.Begin(*cl, vp_nojit, previousVp)) {
-        for (u32 i = 0; i < all3d.Size(); ++i) {
-            game::ANode* nn = all3d[i];
-            AEditor3DRecordComponent* er = Rec3D(nn);
-            if (!IsEffectivelyVisibleAndEnabled(nn) ||
-                (er != nullptr && er->is_empty)) {
-                if (er != nullptr) er->prev_world_valid = false;
-                continue;
+        if (h.mv3d.BeginFrame(motionEligibleCount) &&
+            h.mv3d.Begin(*cl, vp_nojit, previousVp)) {
+            bool motionComplete = true;
+            for (u32 i = 0; i < all3d.Size(); ++i) {
+                game::ANode* nn = all3d[i];
+                FGpuMesh* gm = motionMeshForNode(nn);
+                if (gm == nullptr) continue;
+
+                AEditor3DRecordComponent* er = Rec3D(nn);
+                const FMat4 world = nn->World().ToMat4();
+                const FMat4 prevW =
+                    (motionHistoryReady && er != nullptr &&
+                     er->prev_world_valid)
+                        ? er->prev_world
+                        : world;
+                const bool recorded =
+                    h.mv3d.DrawMesh(*cl, *gm, world, prevW);
+                motionComplete = motionComplete && recorded;
+                if (recorded && er != nullptr) {
+                    er->prev_world = world;
+                    er->prev_world_valid = true;
+                } else if (er != nullptr) {
+                    er->prev_world_valid = false;
+                }
             }
-            game::AMeshComponent3D* mc = Mesh3D(nn);
-            if (mc == nullptr || mc->RenderHandle() != nullptr ||
-                IsRenderedByWater3D(h, nn)) {
-                if (er != nullptr) er->prev_world_valid = false;
-                continue;
-            }
-            FGpuMesh* gm = GpuMeshForNode3D(h, nn);
-            if (gm == nullptr || gm->vertex_buffer.Get() == nullptr ||
-                gm->index_buffer.Get() == nullptr) {
-                if (er != nullptr) er->prev_world_valid = false;
-                continue;
-            }
-            const FMat4 world = nn->World().ToMat4();
-            const FMat4 prevW =
-                (motionHistoryReady && er != nullptr &&
-                 er->prev_world_valid)
-                    ? er->prev_world
-                    : world;
-            h.mv3d.DrawMesh(*cl, *gm, world, prevW);
-            if (er != nullptr) {
-                er->prev_world = world;
-                er->prev_world_valid = true;
-            }
-        }
-        h.mv3d.End(*cl);
-        h.mv_computed = true;
+            h.mv3d.End(*cl);
+            h.mv_computed =
+                motionComplete &&
+                h.mv3d.ObjectDrawCount() == motionEligibleCount;
+            if (!h.mv_computed) invalidateMotionHistory();
         } else {
-            // A rejected MRT bind must never leave object transforms looking
-            // like contiguous history. The next successful frame is a
-            // zero-motion cold start for both camera and objects.
+            // A rejected pool reservation or MRT bind must never leave object
+            // transforms looking like contiguous history. The next successful
+            // frame is a zero-motion cold start for camera and objects.
             invalidateMotionHistory();
         }
     } else if (motionHistoryReady) {

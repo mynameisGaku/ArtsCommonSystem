@@ -423,6 +423,7 @@ bool FHelloWater3DApp::OnCustomFrame() noexcept {
         || !m_SceneCopy || !m_FloorTexture) {
         return false;
     }
+    if (!m_OpaqueShader.BeginFrame(1u)) return false;
 
     const u32 buffer_index = swapchain->AcquireNextImage();
     command_list->Begin();

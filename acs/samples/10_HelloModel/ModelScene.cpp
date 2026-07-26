@@ -78,6 +78,8 @@ void FModelScene::Update(f32 dt, FAssetFuture& async_mesh, bool& async_loaded) n
 }
 
 void FModelScene::Render(FStandardShader& shader, IRhiCommandList& cl) noexcept {
+    if (!shader.BeginFrame(2u + kCubeCount)) return;
+
     // Frame 共通設定（カメラ + 1 灯方向光 + 環境光）
     shader.SetFrame(m_Camera.ViewProjection(),
                     m_Camera.Eye(),
