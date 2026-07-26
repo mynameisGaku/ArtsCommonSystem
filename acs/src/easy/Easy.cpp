@@ -179,6 +179,9 @@ struct FEasyState {
     /** Quit() が呼ばれた。 */
     bool quit_req    = false;
 
+    /** Resize failure: do not record into a possibly missing backbuffer. */
+    bool renderer_failure_pending = false;
+
     /** 「枠の外で描画した」警告を 1 度だけ出すためのフラグ。 */
     bool warned_draw = false;
 
@@ -511,8 +514,13 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
  */
 void EasyEventBridge(void* /*user*/, const FEvent& e) noexcept {
     FInput::OnEvent(e);
+    if (g_state.renderer_failure_pending) return;
     if (e.type == EEventType::WindowResize) {
-        g_state.renderer.OnResize(e.resize.width, e.resize.height);
+        if (!g_state.renderer.OnResize(
+                e.resize.width, e.resize.height)) {
+            g_state.renderer_failure_pending = true;
+            return;
+        }
         if (g_state.post_available)
             (void)g_state.post.Resize(e.resize.width, e.resize.height);
     }
@@ -587,7 +595,10 @@ void ReleaseSaveStorage() noexcept;
 void ShutdownEasy() noexcept {
     CleanupJobs();                            // 未完了ジョブを待ってクロージャを解放 (pool 破棄前)
     // GPU の処理完了を待ってから GPU リソースを解放する（use-after-free 防止）
-    if (g_state.renderer.Device()) g_state.renderer.Device()->WaitIdle();
+    if (g_state.renderer.Device() &&
+        g_state.renderer.Device()->IsOperational()) {
+        g_state.renderer.Device()->WaitIdle();
+    }
     g_state.batch.Shutdown();
     g_state.font.Shutdown();
     g_state.font_ok = false;
@@ -625,6 +636,7 @@ void ShutdownEasy() noexcept {
     g_state.booted = false;
     g_state.frame_open = false;
     g_state.quit_req = false;
+    g_state.renderer_failure_pending = false;
 }
 
 /** OpenWindow の途中失敗を逆順に巻き戻し、失敗状態を確定する。 */
@@ -820,6 +832,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     g_state.finished = false;
     g_state.frame_open = false;
     g_state.quit_req = false;
+    g_state.renderer_failure_pending = false;
     g_state.warned_draw = false;
     g_state.fs_request = -1;
     g_state.ui_active = 0;
@@ -952,10 +965,23 @@ bool NextFrame() noexcept {
             g_state.post.Render(*cl, *sc, g_state.post_buf_idx, g_state.pp_params);
             cl->EndRenderToSwapchain(*sc, g_state.post_buf_idx);
             cl->End();
-            cl->Submit();
-            sc->Present();
+            if (!cl->Submit() || !sc->Present()) {
+                ACS_LOG_ERROR(
+                    "easy: renderer submit/present failed; "
+                    "stopping the frame loop");
+                g_state.frame_open = false;
+                RunShutdownOnce();
+                return false;
+            }
         } else {
-            g_state.renderer.EndFrame();
+            if (!g_state.renderer.EndFrame()) {
+                ACS_LOG_ERROR(
+                    "easy: renderer submit/present failed; "
+                    "stopping the frame loop");
+                g_state.frame_open = false;
+                RunShutdownOnce();
+                return false;
+            }
         }
         g_state.frame_open = false;
     }
@@ -968,6 +994,13 @@ bool NextFrame() noexcept {
     if (g_state.fs_request >= 0) {
         g_state.window.SetFullscreen(g_state.fs_request == 1);
         g_state.fs_request = -1;
+    }
+    if (g_state.renderer_failure_pending) {
+        ACS_LOG_ERROR(
+            "easy: renderer resize failed; "
+            "stopping before frame recording");
+        RunShutdownOnce();
+        return false;
     }
 
     FMemorySystem::ResetTemp();

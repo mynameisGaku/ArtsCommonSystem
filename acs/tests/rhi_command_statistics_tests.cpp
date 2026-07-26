@@ -16,7 +16,10 @@ class FStatisticsCommandList : public IRhiCommandList {
 public:
     void Begin() noexcept override { ++begin_count; }
     void End() noexcept override {}
-    void Submit() noexcept override { ++submit_count; }
+    bool Submit() noexcept override {
+        ++submit_count;
+        return submit_result;
+    }
 
     void BeginRenderToSwapchain(
         IRhiSwapchain&, u32, const FClearColor&, IRhiTexture*, f32) noexcept override {}
@@ -98,6 +101,7 @@ public:
     u32 single_rt_end_count = 0u;
     u32 begin_count = 0u;
     u32 submit_count = 0u;
+    bool submit_result = true;
     u32 set_pipeline_count = 0u;
     u32 set_vertex_buffer_count = 0u;
     u32 set_index_buffer_count = 0u;
@@ -110,9 +114,12 @@ ACS_TEST(Render,
     FStatisticsCommandList command;
     EXPECT_TRUE(command.CanBeginWithoutGpuWait());
     EXPECT_TRUE(command.TryBeginWithoutGpuWait());
-    command.SubmitWithoutGpuWait();
+    EXPECT_TRUE(command.SubmitWithoutGpuWait());
     EXPECT_EQ(command.begin_count, 1u);
     EXPECT_EQ(command.submit_count, 1u);
+    command.submit_result = false;
+    EXPECT_FALSE(command.SubmitWithoutGpuWait());
+    EXPECT_EQ(command.submit_count, 2u);
 }
 
 class FTimingCommandList final : public FStatisticsCommandList {

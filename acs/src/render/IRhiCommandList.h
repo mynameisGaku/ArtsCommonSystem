@@ -111,8 +111,13 @@ public:
     /** 記録を終了する (GPU 投入準備完了)。 */
     virtual void End() noexcept = 0;
 
-    /** GPU に投入して完了を待つ (簡易実装、本来は GPU フェンスで非同期化)。 */
-    virtual void Submit() noexcept = 0;
+    /**
+     * GPU に投入して完了を待つ (簡易実装、本来は GPU フェンスで非同期化)。
+     *
+     * @return キュー投入と、その完了を証明する fence の発行に成功したとき true。
+     *         false の場合は Present やフレーム統計の公開を行ってはならない。
+     */
+    virtual bool Submit() noexcept = 0;
 
     /**
      * Return whether the current frame slot can be reset without a CPU fence
@@ -136,7 +141,7 @@ public:
      * The default remains the normal Submit path. Backends that expose an
      * asynchronous fence ring override it for latency-sensitive editor hosts.
      */
-    virtual void SubmitWithoutGpuWait() noexcept { Submit(); }
+    virtual bool SubmitWithoutGpuWait() noexcept { return Submit(); }
 
     /**
      * Start asynchronous GPU timestamp collection for one rendered frame.

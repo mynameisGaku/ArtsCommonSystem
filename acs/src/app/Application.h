@@ -70,7 +70,8 @@ public:
      * 再度 Run する場合は前回のレンダラを先に閉じるため、派生側の前回 GPU 所有物は
      * OnShutdown で解放しておくこと。
      * @param configuration ウィンドウ・ロガー・レンダラ等の起動オプション。
-     * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5。
+     * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5、
+     *         実行中の resize/submit/present 失敗で 6。
      */
     int Run(const FAppConfig& configuration) noexcept;
 
@@ -330,6 +331,14 @@ private:
 
     /** メインループ継続フラグ (Quit で false)。 */
     bool m_bRunning = true;
+
+    /**
+     * WindowResize callback で検出した描画系失敗。
+     *
+     * Resize は失敗時にバックバッファ未取得状態になり得るため、イベント処理から
+     * 戻った同じ iteration で BeginFrame へ進まず、安全に終了する。
+     */
+    bool m_RendererFailurePending = false;
 
     /** Run の再入を防ぐ。 */
     bool m_RunActive = false;

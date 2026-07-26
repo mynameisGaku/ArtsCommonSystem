@@ -5,6 +5,7 @@
 #include "render/IRhiDevice.h"
 #include "render/Sky.h"
 #include "math/Math.h"
+#include "editor_abi/EditorFrameContract.h"
 
 #include <cmath>
 #include <filesystem>
@@ -921,66 +922,21 @@ ACS_TEST(Atmosphere,
 
 ACS_TEST(EditorPerformance,
          CooperativeFrameBeginSeparatesBackpressureFromFatalFailure) {
-    const std::string source = ReadEditorAbiSource();
-    const std::size_t neutral_begin =
-        source.find("int PresentNeutralEditorFrame(");
-    const std::size_t neutral_end =
-        source.find("bool PresentNeutralEditorFrame(", neutral_begin);
-    const std::string neutral =
-        neutral_begin != std::string::npos &&
-                neutral_end != std::string::npos
-            ? source.substr(neutral_begin, neutral_end - neutral_begin)
-            : std::string{};
-    const std::size_t render_begin =
-        source.find("static int RenderEditorFrame(");
-    const std::size_t render_end =
-        source.find("ACS_EDITOR_API void acs_editor_render(", render_begin);
-    const std::string render =
-        render_begin != std::string::npos &&
-                render_end != std::string::npos
-            ? source.substr(render_begin, render_end - render_begin)
-            : std::string{};
+    using editor_frame::EResult;
+    EXPECT_TRUE(
+        editor_frame::Classify(editor_frame::ToAbi(EResult::Busy)) ==
+        EResult::Busy);
+    EXPECT_TRUE(
+        editor_frame::Classify(editor_frame::ToAbi(EResult::Fatal)) ==
+        EResult::Fatal);
+    EXPECT_TRUE(editor_frame::Classify(27) == EResult::Presented);
 
-    EXPECT_TRUE(!neutral.empty());
-    EXPECT_TRUE(!render.empty());
-
-    const std::size_t neutral_preflight = neutral.find(
-        "!host.renderer.CanBeginFrameWithoutGpuWait()");
-    const std::size_t neutral_busy =
-        neutral.find("return 0;", neutral_preflight);
-    const std::size_t neutral_try = neutral.find(
-        "host.renderer.TryBeginFrameWithoutGpuWait(");
-    const std::size_t neutral_fatal =
-        neutral.find("return -1;", neutral_try);
-    EXPECT_TRUE(neutral_preflight != std::string::npos);
-    EXPECT_TRUE(neutral_busy != std::string::npos);
-    EXPECT_TRUE(neutral_try != std::string::npos);
-    EXPECT_TRUE(neutral_fatal != std::string::npos);
-    EXPECT_TRUE(neutral_preflight < neutral_busy);
-    EXPECT_TRUE(neutral_busy < neutral_try);
-    EXPECT_TRUE(neutral_try < neutral_fatal);
-    EXPECT_TRUE(Contains(
-        neutral,
-        "Both checks execute serially on the HWND/RHI owner thread."));
-
-    const std::size_t render_preflight = render.find(
-        "!host->renderer.CanBeginFrameWithoutGpuWait()");
-    const std::size_t render_busy =
-        render.find("return 0;", render_preflight);
-    const std::size_t render_try = render.find(
-        "host->renderer.TryBeginFrameWithoutGpuWait(clear)");
-    const std::size_t render_fatal =
-        render.find("return -1;", render_try);
-    EXPECT_TRUE(render_preflight != std::string::npos);
-    EXPECT_TRUE(render_busy != std::string::npos);
-    EXPECT_TRUE(render_try != std::string::npos);
-    EXPECT_TRUE(render_fatal != std::string::npos);
-    EXPECT_TRUE(render_preflight < render_busy);
-    EXPECT_TRUE(render_busy < render_try);
-    EXPECT_TRUE(render_try < render_fatal);
-    EXPECT_TRUE(Contains(
-        render,
-        "classify it as fatal so the managed pump does not spin forever."));
+    EXPECT_FALSE(editor_frame::ShouldPublishProfiler(
+        editor_frame::ToAbi(EResult::Busy)));
+    EXPECT_FALSE(editor_frame::ShouldPublishProfiler(
+        editor_frame::ToAbi(EResult::Fatal)));
+    EXPECT_TRUE(editor_frame::ShouldPublishProfiler(
+        editor_frame::ToAbi(EResult::Presented)));
 }
 
 ACS_TEST(Atmosphere,

@@ -306,16 +306,18 @@ void FDiligentCommandList::End() noexcept {
     // Diligent はコマンドが即時積まれるので EOF も不要
 }
 
-void FDiligentCommandList::Submit() noexcept {
-    if (!m_Device) return;
+bool FDiligentCommandList::Submit() noexcept {
+    if (!m_Device || !m_Device->IsDeviceHealthy()) return false;
     auto* ctx = m_Device->Context();
-    if (!ctx) return;
+    if (!ctx) return false;
     // Flush the real commands first. FinishFrame and its completion fence must
     // happen after this Flush so dynamic allocations are retired in GPU order.
     ctx->Flush();
+    if (!m_Device->IsDeviceHealthy()) return false;
     m_Device->MarkFrameSubmitted();
     if (m_MainSwapchain == nullptr)
-        m_Device->FinishPendingSubmittedFrame();
+        return m_Device->FinishPendingSubmittedFrame();
+    return true;
 }
 
 void FDiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer_index*/,

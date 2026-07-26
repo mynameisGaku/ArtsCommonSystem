@@ -267,8 +267,7 @@ bool FLight2DApp::OnCustomFrame() noexcept {
 
     cl->EndRenderToSwapchain(*sc, buf_idx);
     cl->End();
-    cl->Submit();
-    sc->Present();
+    if (!cl->Submit() || !sc->Present()) Quit();
     return true;
 }
 

@@ -114,8 +114,13 @@ void FApplication::EventBridge(void* user_data, const FEvent& event) noexcept
 {
     FApplication* const app = static_cast<FApplication*>(user_data);
     FInput::OnEvent(event);
+    if (app->m_RendererFailurePending) return;
     if (event.type == EEventType::WindowResize) {
-        app->m_Renderer.OnResize(event.resize.width, event.resize.height);
+        if (!app->m_Renderer.OnResize(
+                event.resize.width, event.resize.height)) {
+            app->m_RendererFailurePending = true;
+            return;
+        }
     }
     app->OnEvent(event);
 }
@@ -139,6 +144,7 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     m_FrameTimer = FFrameTimer{};
     m_Dt = 0.0f;
     m_bRunning = true;
+    m_RendererFailurePending = false;
 
     // 既に起動済みのプロセス基盤は借用し、この Run が起動したものだけを終了する。
     FLogConfig lc{};
@@ -205,12 +211,20 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
 
     // 派生クラスの初期化フック
     OnStart();
+    bool renderer_failed = false;
 
     // メインループ
     while (m_bRunning && !m_Window.ShouldClose()) {
         // フレーム先頭処理
         FInput::Update();            // 押下状態を 1 フレーム進める
         m_Window.PollEvents();      // OS メッセージ処理
+        if (m_RendererFailurePending) {
+            ACS_LOG_ERROR(
+                "FApplication: renderer resize failed; "
+                "stopping before frame recording");
+            renderer_failed = true;
+            break;
+        }
         FMemorySystem::ResetTemp(); // Temp セグメントを毎フレーム巻き戻し
         m_Dt = m_FrameTimer.Tick();
 
@@ -226,13 +240,20 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
             // m_ClearColor は既定で FAppConfig 由来。SetClearColor() で毎フレーム変更可能。
             m_Renderer.BeginFrame(m_ClearColor);
             OnRender();
-            m_Renderer.EndFrame();
+            if (!m_Renderer.EndFrame()) {
+                ACS_LOG_ERROR(
+                    "FApplication: renderer submit/present failed; "
+                    "stopping the main loop");
+                renderer_failed = true;
+                break;
+            }
         }
     }
 
     // 派生クラスが GPU リソースを保持しているはずなので、OnShutdown より先に
     // GPU 完了を待つ。これを忘れると use-after-free でクラッシュしがち。
-    if (m_Renderer.Device()) m_Renderer.Device()->WaitIdle();
+    if (m_Renderer.Device() && m_Renderer.Device()->IsOperational())
+        m_Renderer.Device()->WaitIdle();
 
     // 派生クラスの終了フック
     OnShutdown();
@@ -247,10 +268,13 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
 
     // 派生デストラクタが GPU/既定アロケータ由来のメンバを安全に解放できるよう、
     // Renderer/Window/ThreadPool/MemorySystem/Logger はオブジェクト破棄まで生存させる。
-    ACS_LOG_INFO("ACS FApplication run completed cleanly.");
+    if (renderer_failed)
+        ACS_LOG_ERROR("ACS FApplication stopped after a renderer failure.");
+    else
+        ACS_LOG_INFO("ACS FApplication run completed cleanly.");
     m_RunCompleted = true;
     m_RunActive = false;
-    return 0;
+    return renderer_failed ? 6 : 0;
 }
 
 } // namespace acs

@@ -4,6 +4,7 @@
 #include "render/Dx12/Dx12Device.h"
 #include "platform/Window.h"
 #include "memory/UniquePtr.h"
+#include "foundation/Log.h"
 
 namespace acs {
 
@@ -162,11 +163,26 @@ u32 FDx12Swapchain::AcquireNextImage() noexcept {
     return m_Swapchain ? m_Swapchain->GetCurrentBackBufferIndex() : 0;
 }
 
-void FDx12Swapchain::Present() noexcept {
-    if (!m_Swapchain || !HasAllBuffers()) return;
+bool FDx12Swapchain::Present() noexcept {
+    if (!m_Swapchain || !HasAllBuffers() || !m_Device ||
+        !m_Device->D3DDevice()) {
+        return false;
+    }
     const UINT sync_interval = m_bVsync ? 1 : 0;
     const UINT flags = (!m_bVsync && m_bAllowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0;
-    (void)m_Swapchain->Present(sync_interval, flags);
+    const HRESULT present_hr =
+        m_Swapchain->Present(sync_interval, flags);
+    if (FAILED(present_hr)) {
+        const HRESULT removed_hr =
+            m_Device->D3DDevice()->GetDeviceRemovedReason();
+        ACS_LOG_ERROR(
+            "FDx12Swapchain::Present failed: hr=0x%08X, "
+            "device_removed=0x%08X",
+            static_cast<u32>(present_hr),
+            static_cast<u32>(removed_hr));
+        return false;
+    }
+    return true;
 }
 
 bool FDx12Swapchain::Resize(u32 width, u32 height) noexcept {
@@ -177,8 +193,8 @@ bool FDx12Swapchain::Resize(u32 width, u32 height) noexcept {
         return AcquireBuffers(*m_Device).IsOk();
     }
 
-    // 進行中の GPU 作業が終わるまで待ってから解放しないと「使用中」エラーになる
-    m_Device->WaitIdle();
+    // FRenderer::OnResize owns the single GPU-idle boundary. Keeping that
+    // ownership above the backend avoids two serial queue drains per resize.
     ReleaseBuffers();
 
     const HRESULT hr = m_Swapchain->ResizeBuffers(m_BufferCount, width, height, DXGI_FORMAT_UNKNOWN,

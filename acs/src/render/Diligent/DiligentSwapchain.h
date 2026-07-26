@@ -56,7 +56,7 @@ public:
     u32  AcquireNextImage() noexcept override;
 
     /** 現在のバックバッファを画面に提示する (vsync 設定に従う)。 */
-    void Present()          noexcept override;
+    bool Present()          noexcept override;
 
     /**
      * スワップチェインを新しいサイズに作り直す。

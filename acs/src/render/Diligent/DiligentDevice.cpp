@@ -11,13 +11,14 @@
 #    include "foundation/Platform.h"
 #    include "memory/Memory.h"
 #    include "memory/MemorySystem.h"
+#    include <d3d12.h>
+#    include "RenderDeviceD3D12.h"
 
 #    include <cstring>
 #    include <thread>
 
 #    if ACS_BUILD_DEBUG
 #        include "render/Dx12/Dx12LiveObjectDiagnosticsInternal.h"
-#        include "RenderDeviceD3D12.h"
 #    endif
 
 namespace acs {
@@ -27,6 +28,35 @@ bool FDiligentDevice::SupportsAsyncShaderCompilation() const noexcept
     return m_Device != nullptr &&
            m_Device->GetDeviceInfo().Features.AsyncShaderCompilation ==
                Diligent::DEVICE_FEATURE_STATE_ENABLED;
+}
+
+bool FDiligentDevice::IsDeviceHealthy() const noexcept
+{
+    if (m_Device == nullptr || m_Context == nullptr ||
+        m_IdleFence == nullptr) {
+        return false;
+    }
+
+    if (m_ActualBackend == ERhiBackendKind::D3D12) {
+        Diligent::IRenderDeviceD3D12* diligent_device = nullptr;
+        m_Device->QueryInterface(
+            Diligent::IID_RenderDeviceD3D12,
+            reinterpret_cast<Diligent::IObject**>(&diligent_device));
+        if (diligent_device == nullptr) return false;
+        ID3D12Device* const native_device =
+            diligent_device->GetD3D12Device();
+        const bool healthy =
+            native_device != nullptr &&
+            SUCCEEDED(native_device->GetDeviceRemovedReason());
+        diligent_device->Release();
+        return healthy;
+    }
+
+    // Diligent's Vulkan timeline-fence implementation initializes the result
+    // to UINT64_MAX and leaves it there when the native status query fails.
+    // D3D12 fences use the same sentinel after device removal.
+    return m_IdleFence->GetCompletedValue() !=
+           static_cast<Diligent::Uint64>(~Diligent::Uint64{0});
 }
 
 namespace {
@@ -366,22 +396,24 @@ void FDiligentDevice::WaitIdle() noexcept
     // FinishFrame must precede WaitForIdle: FinishFrame moves dynamic descriptor
     // chunks to Diligent's stale list, and WaitForIdle's IdleCommandQueue(true)
     // then maps that list to the release queue and purges it after the GPU is idle.
-    FinishPendingSubmittedFrame();
+    (void)FinishPendingSubmittedFrame();
 
     m_Context->WaitForIdle();
     if (m_Device) m_Device->ReleaseStaleResources(false);
 }
 
-void FDiligentDevice::FinishPendingSubmittedFrame() noexcept
+bool FDiligentDevice::FinishPendingSubmittedFrame() noexcept
 {
-    if (!m_FrameSubmissionPending || !m_Context) return;
+    if (!m_FrameSubmissionPending) return true;
+    if (!m_Context) return false;
 
     // Submit() already flushed all commands. Close the Diligent frame now so its
     // dynamic allocations enter the stale list before the next real submission.
     m_Context->FinishFrame();
     if (m_Device) m_Device->ReleaseStaleResources(false);
-    QueueFinishedFrameFence();
+    const bool fence_queued = QueueFinishedFrameFence();
     m_FrameSubmissionPending = false;
+    return fence_queued;
 }
 
 void FDiligentDevice::PrepareCommandRecording() noexcept
@@ -391,7 +423,7 @@ void FDiligentDevice::PrepareCommandRecording() noexcept
     // A primary submission that never reached Present still needs a frame boundary.
     // FinishPendingSubmittedFrame closes it and submits a completion fence after
     // Diligent's frame-end work before this slot can be reused.
-    FinishPendingSubmittedFrame();
+    (void)FinishPendingSubmittedFrame();
 
     // 今から書き込む frame slot は kFramesInFlight submissions 前に使ったもの。
     // 描画（dynamic descriptor allocation）を始める前に GPU 完了を待つ。
@@ -405,7 +437,7 @@ void FDiligentDevice::PrepareCommandRecording() noexcept
 
 bool FDiligentDevice::CanPrepareCommandRecordingWithoutWait() const noexcept
 {
-    if (m_Context == nullptr || m_FrameSubmissionPending)
+    if (!IsDeviceHealthy() || m_FrameSubmissionPending)
         return false;
     const u64 fence_value = m_FrameFences[m_FrameSlot];
     return fence_value == 0u ||
@@ -422,26 +454,29 @@ void FDiligentDevice::MarkFrameSubmitted() noexcept
     m_FrameSubmissionPending = true;
 }
 
-void FDiligentDevice::NotifyPrimaryPresentFinished() noexcept
+bool FDiligentDevice::NotifyPrimaryPresentFinished() noexcept
 {
-    if (!m_FrameSubmissionPending) return;
+    if (!m_FrameSubmissionPending) return false;
 
     // IsPrimary Present has already called FinishFrame and ReleaseStaleResources.
-    QueueFinishedFrameFence();
+    const bool fence_queued = QueueFinishedFrameFence();
     m_FrameSubmissionPending = false;
+    return fence_queued;
 }
 
-void FDiligentDevice::QueueFinishedFrameFence() noexcept
+bool FDiligentDevice::QueueFinishedFrameFence() noexcept
 {
+    if (!m_Context || !IsDeviceHealthy()) return false;
     const u32 submitted_slot = m_FrameSlot;
     const u64 fence_value = SignalGraphicsQueue();
-    if (fence_value != 0) {
-        // FinishFrame/primary Present may submit Diligent's trailing stale-resource
-        // work internally. Flush the queued signal now so it orders after that work.
-        m_Context->Flush();
-        m_FrameFences[submitted_slot] = fence_value;
-    }
+    if (fence_value == 0) return false;
+    // FinishFrame/primary Present may submit Diligent's trailing stale-resource
+    // work internally. Flush the queued signal now so it orders after that work.
+    m_Context->Flush();
+    if (!IsDeviceHealthy()) return false;
+    m_FrameFences[submitted_slot] = fence_value;
     AdvanceFrameSlot();
+    return true;
 }
 
 bool FDiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept

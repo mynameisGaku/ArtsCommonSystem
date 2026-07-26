@@ -96,21 +96,35 @@ u32 FDiligentSwapchain::AcquireNextImage() noexcept {
 }
 
 /** 現在のバックバッファを vsync 設定に従って提示する。 */
-void FDiligentSwapchain::Present() noexcept {
-    if (!m_Swap) return;
+bool FDiligentSwapchain::Present() noexcept {
+    if (!m_Swap || !m_Device || !m_Device->IsDeviceHealthy())
+        return false;
     m_Swap->Present(m_bVsync ? 1 : 0);
     // IsPrimary=true の Present は Diligent 内部で FinishFrame() 済み。
-    // 次の Begin/WaitIdle が二重に FinishFrame() しないよう pending を消す。
-    if (m_Device) m_Device->NotifyPrimaryPresentFinished();
+    // Success or failure, clear the pending marker so shutdown never performs
+    // a second FinishFrame for the same primary Present. Fence failure and
+    // backend device loss are propagated to FRenderer.
+    const bool finalized =
+        m_Device->NotifyPrimaryPresentFinished();
+    const bool healthy = m_Device->IsDeviceHealthy();
+    if (!healthy || !finalized) {
+        ACS_LOG_ERROR(
+            "FDiligentSwapchain::Present failed: backend=%s",
+            m_Device->BackendName());
+        return false;
+    }
+    return true;
 }
 
 /** スワップチェインを新しいサイズに作り直す。 */
 bool FDiligentSwapchain::Resize(u32 width, u32 height) noexcept {
-    if (!m_Swap) return false;               // スワップチェイン未初期化 = リサイズ不能
+    if (!m_Swap || !m_Device || !m_Device->IsDeviceHealthy())
+        return false;                         // スワップチェイン未初期化 = リサイズ不能
     if (width == 0 || height == 0) return true;  // 無効サイズ要求は no-op
+    m_Swap->Resize(width, height);
+    if (!m_Device->IsDeviceHealthy()) return false;
     m_Width  = width;
     m_Height = height;
-    m_Swap->Resize(width, height);
     return true;
 }
 

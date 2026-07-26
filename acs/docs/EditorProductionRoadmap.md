@@ -158,6 +158,10 @@ managed/native 接続は `EngineInterop.cs` の多数の P/Invoke と、約 9,90
 
 Asset Browser はファイル監視、Import、検索、サムネイル、配置に加え、隣接 `.acsmeta` の安定 GUID と `Assets/.acsdb/index.v1.json` の決定的 index を使う。DB は source/importer/version/import settings、SHA-256、依存 Asset ID を保持し、Reference Viewer は直接・推移依存と参照元、欠損 ID、循環を読み取り専用で表示する。
 
+New Asset の実装は認識済み ACS 形式だけに閉じている。ツールバーと背景コンテキストメニューから Folder、Material (`.acsmat`)、統一 Scene (`.acs3d`)、Blueprint (`.acsbp`)、Prefab (`.acsprefab`) を作成でき、作成後は新規項目を選択してインライン rename を開始する。payload は同一ディレクトリの一時名へ完全に書いてから no-overwrite move で公開し、Windows 予約名、大小文字を無視した payload/metadata/material-graph 衝突、`Assets/.acsdb` と一時領域、reparse point、Assets 外への書き込みを拒否する。キャンセルまたは serializer 失敗時は material graph と metadata を含む一時 family を除去する。
+
+検証入口は `--asset-creation-selftest`。同じ契約は `--asset-browser-selftest` の aggregate にも含まれる。
+
 - `editor/AcsEditor/AssetBrowserPanel.xaml:12-117`
 - `editor/AcsEditor/AssetBrowserPanel.xaml.cs:68-197`
 - `editor/AcsEditor/AssetBrowserPanel.xaml.cs:225-316`
@@ -174,7 +178,7 @@ runtime の `FAssetRegistry` は loader と path-hash cache であり、editor d
 
 - importer ごとの実 reimport pipeline と設定 UI。
 - folder tree、breadcrumb、recursive/global search、type/tag filter、collection。
-- New Folder、rename、move、duplicate、safe delete、redirector。
+- 追加 asset type の作成を公開する場合の canonical serializer と schema migration。
 - Asset DB dependency closure を起点にした未使用 Asset 除外 cook。
 - thumbnail cache と Derived Data Cache。
 
@@ -701,11 +705,13 @@ panel show/hide/reset、window bounds、row/column size、visibility を version
 
 ### 6. Asset Browser の低リスク操作
 
-永続 Asset DB と reference graph は実装済み。次に New Folder、breadcrumb、recursive read-only search、Reveal in Explorer を追加する。rename/move/delete は transaction と redirector/safe-delete policy が揃うまで制限し、少なくとも project root 外への path traversal を拒否する。
+永続 Asset DB と reference graph に加え、New Folder/ACS asset、breadcrumb、recursive read-only search、Reveal in Explorer、transactional rename/move/duplicate、redirector、project-local Trash を実装済み。新規作成は canonical serializer を持つ形式だけを公開し、同一ディレクトリの atomic publish と共通 project mutation lease を使う。今後追加する asset type も、拡張子だけを UI に足すのではなく serializer、index importer、open/edit 導線、rollback self-test を一組で導入する。
 
 検証:
 
 - symlink、`..`、大文字小文字差を含む path が project root 外へ書き込まない。
+- payload/`.acsmeta`/material graph の大小文字差衝突で上書きせず suffix を選ぶ。
+- キャンセル、serializer 失敗、予約 staging target で部分ファイルを残さない。
 - read-only search が current directory の再帰列挙で UI を停止させない。
 
 ### 7. ABI capability 表示

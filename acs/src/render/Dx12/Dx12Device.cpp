@@ -562,6 +562,13 @@ void FDx12Device::WaitIdle() noexcept
     CollectRetiredResources();
 }
 
+bool FDx12Device::IsOperational() const noexcept
+{
+    return m_Device != nullptr &&
+           m_GfxQueue != nullptr &&
+           SUCCEEDED(m_Device->GetDeviceRemovedReason());
+}
+
 u64 FDx12Device::SignalGraphicsQueueLocked() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence) return 0;

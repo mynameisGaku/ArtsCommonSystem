@@ -17,7 +17,7 @@
 //       //   FParticleSystem  — 簡易 GPU パーティクル
 //       //   FShadowMap       — depth-only パス
 //       //   FPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
-//       rdr.EndFrame();
+//       if (!rdr.EndFrame()) break;
 //   }
 //   rdr.Shutdown();
 //
@@ -107,14 +107,21 @@ public:
     /** Query the same frame-slot gate without mutating renderer state. */
     bool CanBeginFrameWithoutGpuWait() const noexcept;
 
-    /** フレームを終了する (コマンドを GPU に投入し Present)。 */
-    void EndFrame() noexcept;
+    /** Return false once the backend reports device removal/loss. */
+    bool IsOperational() const noexcept;
+
+    /**
+     * フレームを終了する (コマンドを GPU に投入し Present)。
+     *
+     * @return Submit と Present の両方が成功したとき true。
+     */
+    bool EndFrame() noexcept;
 
     /**
      * Submit and present without waiting for the following frame slot. The
      * next TryBeginFrameWithoutGpuWait call reports backpressure instead.
      */
-    void EndFrameWithoutGpuWait() noexcept;
+    bool EndFrameWithoutGpuWait() noexcept;
 
     /**
      * ウィンドウサイズ変更時に呼ぶ (スワップチェーン・深度を再作成)。
@@ -122,7 +129,7 @@ public:
      * @param width 新しいウィンドウ幅。
      * @param height 新しいウィンドウ高さ。
      */
-    void OnResize(u32 width, u32 height) noexcept;
+    bool OnResize(u32 width, u32 height) noexcept;
 
     /**
      * RHI デバイスを返す。
@@ -177,7 +184,7 @@ public:
 private:
     bool BeginFrameInternal(
         const FClearColor& clear, bool avoid_gpu_wait) noexcept;
-    void EndFrameInternal(bool avoid_gpu_wait) noexcept;
+    bool EndFrameInternal(bool avoid_gpu_wait) noexcept;
     /**
      * 深度バッファを指定サイズで作り直す。
      *

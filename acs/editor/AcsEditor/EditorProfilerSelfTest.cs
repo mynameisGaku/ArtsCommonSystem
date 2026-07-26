@@ -249,6 +249,42 @@ internal static class EditorProfilerSelfTest
             EngineViewport.CommitRenderTimestamp(4.0, 7.0, 0) == 4.0 &&
             EngineViewport.CommitRenderTimestamp(4.0, 7.0, -1) == 4.0,
             "successful frames consume at most 100 ms while preserving stalled time for later frames");
+        Check(
+            EngineViewport.ShouldDeferFinalResize(
+                awaitingStableSize: true,
+                requestedWidth: 1600,
+                requestedHeight: 900,
+                candidateWidth: 0,
+                candidateHeight: 0) &&
+            EngineViewport.ShouldDeferFinalResize(
+                awaitingStableSize: true,
+                requestedWidth: 1700,
+                requestedHeight: 900,
+                candidateWidth: 1600,
+                candidateHeight: 900) &&
+            !EngineViewport.ShouldDeferFinalResize(
+                awaitingStableSize: true,
+                requestedWidth: 1700,
+                requestedHeight: 900,
+                candidateWidth: 1700,
+                candidateHeight: 900) &&
+            !EngineViewport.ShouldDeferFinalResize(
+                awaitingStableSize: false,
+                requestedWidth: 1700,
+                requestedHeight: 900,
+                candidateWidth: 0,
+                candidateHeight: 0),
+            "window interactions wait for two identical size observations and commit only the final resize");
+        ViewportResizeResultPolicy resizeSucceeded =
+            EngineViewport.ClassifyResizeResult(1);
+        ViewportResizeResultPolicy resizeRetry =
+            EngineViewport.ClassifyResizeResult(0);
+        Check(
+            resizeSucceeded.CommitDimensions &&
+            resizeSucceeded.ContinueToRender &&
+            !resizeRetry.CommitDimensions &&
+            resizeRetry.ContinueToRender,
+            "failed resize keeps old dimensions for retry but still renders once so device loss reaches the fatal pump contract");
         int leftGestureMask = EngineViewport.ActivePointerButtonMask(
             gizmoDragging: true,
             gizmo3dDragging: false,

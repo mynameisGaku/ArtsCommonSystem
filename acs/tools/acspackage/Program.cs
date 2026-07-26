@@ -37,6 +37,26 @@ internal static class Program
         bool IncludeSymbols,
         PackageProfile Profile);
 
+    private sealed record VerifyCommandOptions(
+        string ArchivePath,
+        string? ReportPath,
+        bool Quiet);
+
+    private sealed record VerificationReport(
+        int schemaVersion,
+        bool verified,
+        string archivePath,
+        DateTimeOffset verifiedUtc,
+        string packageId,
+        string buildId,
+        int fileCount,
+        long uncompressedBytes,
+        string assetPackSha256,
+        int cookedAssetCount,
+        string profile,
+        string? errorCode,
+        string? errorMessage);
+
     public static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -57,6 +77,8 @@ internal static class Program
                 Console.WriteLine("UNRESOLVED " + unresolved);
             return resolution.Unresolved.Count == 0 ? 0 : 1;
         }
+        if (args.Length >= 1 && args[0] == "verify")
+            return await RunVerifyCommandWithDiagnosticsAsync(args);
         if (args.Length < 2 || args[0] is not ("validate" or "package"))
         {
             PrintUsage();
@@ -168,6 +190,349 @@ internal static class Program
             return 1;
         }
     }
+
+    private static async Task<int> RunVerifyCommandWithDiagnosticsAsync(
+        string[] args)
+    {
+        VerifyCommandOptions options;
+        try
+        {
+            options = ParseVerifyOptions(args);
+            if (options.ReportPath != null)
+                ValidateNewReportDestination(options.ReportPath);
+        }
+        catch (ArgumentException error)
+        {
+            Console.Error.WriteLine("ERROR: " + error.Message);
+            PrintVerifyUsage();
+            return 2;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine("ERROR: " + error.Message);
+            return 1;
+        }
+
+        PackageVerificationResult verification;
+        try
+        {
+            IProgress<PackageProgress>? progress = options.Quiet
+                ? null
+                : new Progress<PackageProgress>(item =>
+                    Console.WriteLine($"[{item.Phase}] {item.Message}"));
+            verification = await PackageCore.VerifyPackageArchiveAsync(
+                options.ArchivePath,
+                progress);
+        }
+        catch (Exception error)
+        {
+            if (options.ReportPath != null)
+            {
+                try
+                {
+                    await WriteVerificationReportAsync(
+                        options.ReportPath,
+                        CreateFailureVerificationReport(
+                            options.ArchivePath,
+                            error));
+                }
+                catch (Exception reportError)
+                {
+                    Console.Error.WriteLine(
+                        "ERROR: 検証失敗レポートを書き込めません: " +
+                        reportError.Message);
+                }
+            }
+
+            Console.Error.WriteLine("ERROR: Package verification failed: " + error.Message);
+            return 1;
+        }
+
+        if (options.ReportPath != null)
+        {
+            try
+            {
+                await WriteVerificationReportAsync(
+                    options.ReportPath,
+                    CreateSuccessfulVerificationReport(verification));
+            }
+            catch (Exception error)
+            {
+                Console.Error.WriteLine(
+                    "ERROR: 検証レポートを書き込めません: " + error.Message);
+                return 1;
+            }
+        }
+
+        if (!options.Quiet)
+        {
+            Console.WriteLine("Package verification: PASS");
+            Console.WriteLine($"Archive: {verification.ZipPath}");
+            Console.WriteLine($"Package ID: {verification.PackageId}");
+            Console.WriteLine($"Build ID: {verification.BuildId}");
+            Console.WriteLine(
+                $"Files: {verification.FileCount}, bytes: " +
+                verification.UncompressedBytes);
+            Console.WriteLine(
+                $"Cooked assets: {verification.CookedAssetCount}, profile: " +
+                verification.Profile);
+            Console.WriteLine(
+                "Asset pack SHA-256: " + verification.AssetPackSha256);
+            if (options.ReportPath != null)
+                Console.WriteLine("Report: " + options.ReportPath);
+        }
+        return 0;
+    }
+
+    private static VerifyCommandOptions ParseVerifyOptions(string[] args)
+    {
+        if (args.Length < 2 ||
+            !string.Equals(args[0], "verify", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "verify には検証対象の package.zip が必要です。");
+        }
+
+        if (string.IsNullOrWhiteSpace(args[1]) ||
+            args[1].StartsWith("--", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "verify には検証対象の package.zip が必要です。");
+        }
+
+        string archive = Path.GetFullPath(args[1]);
+        string? report = null;
+        bool quiet = false;
+        for (int index = 2; index < args.Length; index++)
+        {
+            switch (args[index])
+            {
+                case "--report":
+                    if (report != null)
+                        throw new ArgumentException("--report は一度だけ指定できます。");
+                    string value = NextValue(args, ref index, "--report");
+                    if (string.IsNullOrWhiteSpace(value) ||
+                        value.StartsWith("--", StringComparison.Ordinal))
+                        throw new ArgumentException("--report には出力先が必要です。");
+                    report = Path.GetFullPath(value);
+                    break;
+                case "--quiet":
+                    if (quiet)
+                        throw new ArgumentException("--quiet は一度だけ指定できます。");
+                    quiet = true;
+                    break;
+                default:
+                    throw new ArgumentException($"不明な verify 引数です: {args[index]}");
+            }
+        }
+
+        if (report != null && PathsEqual(archive, report))
+        {
+            throw new ArgumentException(
+                "検証レポートは検証対象のZIPと同じパスには書き込めません。");
+        }
+
+        return new(archive, report, quiet);
+    }
+
+    private static VerificationReport CreateSuccessfulVerificationReport(
+        PackageVerificationResult verification) =>
+        new(
+            schemaVersion: 1,
+            verified: true,
+            archivePath: verification.ZipPath,
+            verifiedUtc: DateTimeOffset.UtcNow,
+            packageId: verification.PackageId,
+            buildId: verification.BuildId,
+            fileCount: verification.FileCount,
+            uncompressedBytes: verification.UncompressedBytes,
+            assetPackSha256: verification.AssetPackSha256,
+            cookedAssetCount: verification.CookedAssetCount,
+            profile: verification.Profile.ToString(),
+            errorCode: null,
+            errorMessage: null);
+
+    private static VerificationReport CreateFailureVerificationReport(
+        string archivePath,
+        Exception error) =>
+        new(
+            schemaVersion: 1,
+            verified: false,
+            archivePath: Path.GetFullPath(archivePath),
+            verifiedUtc: DateTimeOffset.UtcNow,
+            packageId: "",
+            buildId: "",
+            fileCount: 0,
+            uncompressedBytes: 0,
+            assetPackSha256: "",
+            cookedAssetCount: 0,
+            profile: "",
+            errorCode: VerificationErrorCode(error),
+            errorMessage: error.Message);
+
+    private static string VerificationErrorCode(Exception error) =>
+        error switch
+        {
+            FileNotFoundException => "ARCHIVE_NOT_FOUND",
+            InvalidDataException => "ARCHIVE_INVALID",
+            UnauthorizedAccessException => "ACCESS_DENIED",
+            IOException => "ARCHIVE_IO_ERROR",
+            OperationCanceledException => "CANCELLED",
+            _ => "VERIFY_FAILED",
+        };
+
+    private static async Task WriteVerificationReportAsync(
+        string reportPath,
+        VerificationReport report)
+    {
+        string destination = Path.GetFullPath(reportPath);
+        ValidateNewReportDestination(destination);
+        string parent = Path.GetDirectoryName(destination)
+            ?? throw new IOException(
+                "検証レポートの親ディレクトリを解決できません。");
+
+        RejectExistingReparsePointsInPath(parent, "Verification report directory");
+        Directory.CreateDirectory(parent);
+        RejectExistingReparsePointsInPath(parent, "Verification report directory");
+        ValidateNewReportDestination(destination);
+
+        string temporary = Path.Combine(
+            parent,
+            "." + Path.GetFileName(destination) + "." +
+            Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            await using (var output = new FileStream(
+                temporary,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 16 * 1024,
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(
+                    output,
+                    report,
+                    new JsonSerializerOptions { WriteIndented = true });
+                await output.FlushAsync();
+                output.Flush(flushToDisk: true);
+            }
+
+            RejectExistingReparsePointsInPath(parent, "Verification report directory");
+            ValidateNewReportDestination(destination);
+            File.Move(temporary, destination, overwrite: false);
+        }
+        finally
+        {
+            TryDeleteOwnedReportTemporaryFile(temporary, parent);
+        }
+    }
+
+    private static void ValidateNewReportDestination(string reportPath)
+    {
+        string destination = Path.GetFullPath(reportPath);
+        RejectExistingReparsePointsInPath(destination, "Verification report");
+        if (File.Exists(destination) || Directory.Exists(destination))
+        {
+            throw new IOException(
+                "既存の検証レポートは上書きしません: " + destination);
+        }
+    }
+
+    private static void RejectExistingReparsePointsInPath(
+        string path,
+        string label)
+    {
+        string current = Path.GetFullPath(path);
+        while (!string.IsNullOrEmpty(current))
+        {
+            if (TryGetExistingAttributes(current, out FileAttributes attributes) &&
+                (attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new IOException(
+                    $"{label} が reparse point を経由しています: {current}");
+            }
+
+            string? parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(parent) || PathsEqual(parent, current))
+                break;
+            current = parent;
+        }
+    }
+
+    private static void TryDeleteOwnedReportTemporaryFile(
+        string temporary,
+        string allowedParent)
+    {
+        try
+        {
+            string fullTemporary = Path.GetFullPath(temporary);
+            string fullParent = Path.GetFullPath(allowedParent);
+            if (!PathsEqual(Path.GetDirectoryName(fullTemporary) ?? "", fullParent) ||
+                !Path.GetFileName(fullTemporary).StartsWith(
+                    ".",
+                    StringComparison.Ordinal) ||
+                !Path.GetFileName(fullTemporary).EndsWith(
+                    ".tmp",
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            // Recheck immediately before deletion. If a same-user process
+            // replaced the report directory or the temporary leaf with a
+            // junction/symlink, leave the path untouched rather than following
+            // it outside the directory that this command created in.
+            RejectExistingReparsePointsInPath(
+                fullParent,
+                "Verification report cleanup directory");
+            RejectExistingReparsePointsInPath(
+                fullTemporary,
+                "Verification report cleanup file");
+            if (!TryGetExistingAttributes(
+                    fullTemporary,
+                    out FileAttributes attributes) ||
+                (attributes & (FileAttributes.Directory |
+                               FileAttributes.ReparsePoint)) != 0)
+            {
+                return;
+            }
+            File.Delete(fullTemporary);
+        }
+        catch
+        {
+            // Cleanup is best-effort and is constrained to our private sibling file.
+        }
+    }
+
+    private static bool TryGetExistingAttributes(
+        string path,
+        out FileAttributes attributes)
+    {
+        try
+        {
+            attributes = File.GetAttributes(path);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            attributes = default;
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            attributes = default;
+            return false;
+        }
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
 
     private static CommandOptions ParseOptions(string[] args)
     {
@@ -471,16 +836,30 @@ internal static class Program
 
               acspackage validate <project.acsproject> [options]
               acspackage package  <project.acsproject> [options]
+              acspackage verify <package.zip> [--report <new-report.json>] [--quiet]
               acspackage deps <game.exe> [additional-search-dir ...]
               acspackage --self-test
 
-            Options:
+            Project/package options:
               --output <dir>          ZIP output directory (default: Build/Packages)
               --version <semver>      Product/package version (default: 0.1.0)
               --profile <name>        Development, Test, or Shipping (default)
               --engine-root <dir>     ACS directory containing engine/CMakeLists.txt
               --skip-build            Package an existing Release executable
               --include-symbols        Include game PDB (Development/Test only)
+
+            Verify options:
+              --report <new-file>      Atomically create a JSON verification report
+              --quiet                  Suppress progress and PASS summary
+            """);
+    }
+
+    private static void PrintVerifyUsage()
+    {
+        Console.WriteLine(
+            """
+            Usage:
+              acspackage verify <package.zip> [--report <new-report.json>] [--quiet]
             """);
     }
 
@@ -621,6 +1000,100 @@ internal static class Program
             Assert(
                 first.ArchiveVerified && second.ArchiveVerified,
                 "completed packages must pass full archive verification before publication");
+            string verificationReport = Path.Combine(
+                testRoot,
+                "package-verification.json");
+            int verifyExit = await RunVerifyCommandWithDiagnosticsAsync(
+                [
+                    "verify",
+                    first.ZipPath,
+                    "--report",
+                    verificationReport,
+                    "--quiet",
+                ]);
+            Assert(
+                verifyExit == 0 && File.Exists(verificationReport),
+                "standalone verify command must create a report for a valid package");
+            using (JsonDocument reportDocument = JsonDocument.Parse(
+                File.ReadAllText(verificationReport, Encoding.UTF8)))
+            {
+                JsonElement report = reportDocument.RootElement;
+                Assert(
+                    report.GetProperty("schemaVersion").GetInt32() == 1 &&
+                    report.GetProperty("verified").GetBoolean() &&
+                    report.GetProperty("archivePath").GetString() ==
+                        first.ZipPath &&
+                    report.GetProperty("packageId").GetString() ==
+                        first.PackageId &&
+                    report.GetProperty("buildId").GetString() ==
+                        first.BuildId &&
+                    report.GetProperty("profile").GetString() ==
+                        first.Profile.ToString() &&
+                    report.GetProperty("errorCode").ValueKind ==
+                        JsonValueKind.Null,
+                    "standalone verification report must preserve verified package identity");
+            }
+            bool reportOverwriteRejected = false;
+            try
+            {
+                ValidateNewReportDestination(verificationReport);
+            }
+            catch (IOException)
+            {
+                reportOverwriteRejected = true;
+            }
+            Assert(
+                reportOverwriteRejected,
+                "standalone verification reports must never overwrite existing files");
+            bool archiveOverwriteRejected = false;
+            try
+            {
+                ParseVerifyOptions(
+                    [
+                        "verify",
+                        first.ZipPath,
+                        "--report",
+                        first.ZipPath,
+                    ]);
+            }
+            catch (ArgumentException)
+            {
+                archiveOverwriteRejected = true;
+            }
+            Assert(
+                archiveOverwriteRejected,
+                "verification report path must not alias the package archive");
+            Assert(
+                !Directory.EnumerateFiles(
+                    testRoot,
+                    ".package-verification.json.*.tmp",
+                    SearchOption.TopDirectoryOnly).Any(),
+                "standalone verification report must not leave temporary files");
+            string failureReport = Path.Combine(
+                testRoot,
+                "failed-package-verification.json");
+            await WriteVerificationReportAsync(
+                failureReport,
+                CreateFailureVerificationReport(
+                    Path.Combine(testRoot, "missing-package.zip"),
+                    new FileNotFoundException("Package archive was not found.")));
+            using (JsonDocument failureDocument = JsonDocument.Parse(
+                File.ReadAllText(failureReport, Encoding.UTF8)))
+            {
+                JsonElement report = failureDocument.RootElement;
+                Assert(
+                    !report.GetProperty("verified").GetBoolean() &&
+                    report.GetProperty("errorCode").GetString() ==
+                        "ARCHIVE_NOT_FOUND" &&
+                    report.GetProperty("packageId").GetString() == "",
+                    "failed verification report must be machine-readable and fail closed");
+            }
+            Assert(
+                !Directory.EnumerateFiles(
+                    testRoot,
+                    ".failed-package-verification.json.*.tmp",
+                    SearchOption.TopDirectoryOnly).Any(),
+                "failed verification report must not leave temporary files");
             Assert(
                 SHA256.HashData(File.ReadAllBytes(first.ZipPath))
                     .SequenceEqual(SHA256.HashData(File.ReadAllBytes(second.ZipPath))),
@@ -1092,7 +1565,8 @@ internal static class Program
                 "deterministic Cook/acpak+ZIP, native and archive SHA-256 verify, " +
                 "canonical/bootstrap manifest, " +
                 "2D+supported 3D package smoke, metadata/source exclusions, path rewrite, and " +
-                "identity-mismatch/traversal/reparse/runtime-adapter guards.");
+                "identity-mismatch/traversal/reparse/runtime-adapter guards, plus standalone " +
+                "verification report safety.");
             return 0;
         }
         catch (Exception error)

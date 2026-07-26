@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using AcsEditor.Packaging;
 
@@ -328,6 +329,309 @@ internal static class AssetCreationSelfTest
                 "parallel creation publishes unique assets without a check-then-write race");
             Check(concurrentPaths.All(path => File.ReadAllText(path) == "ACSBP 1\n"),
                 "parallel creation never exposes partial Blueprint contents");
+
+            string phase2 = Path.Combine(assets, "Phase2");
+            Directory.CreateDirectory(phase2);
+            AcsAssetCreationResult namedScene = AssetCreationWorkflow.CreateNamed(
+                assets,
+                phase2,
+                AcsAssetTemplate.Scene,
+                "Gameplay");
+            Check(
+                namedScene.FullPath == Path.Combine(phase2, "Gameplay.acs3d") &&
+                File.ReadAllText(namedScene.FullPath) == "ACS3D v2\n",
+                "explicit-name creation keeps the template-owned extension and canonical payload");
+
+            File.WriteAllText(
+                Path.Combine(phase2, "weather.ACS3D"),
+                "case-insensitive collision");
+            AcsAssetCreationResult caseCollision =
+                AssetCreationWorkflow.CreateNamed(
+                    assets,
+                    phase2,
+                    AcsAssetTemplate.Scene,
+                    "Weather");
+            Check(
+                caseCollision.FullPath == Path.Combine(phase2, "Weather1.acs3d") &&
+                File.ReadAllText(
+                    Path.Combine(phase2, "weather.ACS3D")) ==
+                "case-insensitive collision",
+                "explicit-name collision suffixing is case-insensitive and preserves the occupant");
+
+            string metadataReservation =
+                Path.Combine(phase2, "MetadataOwned.acs3d") +
+                AssetDatabase.MetadataSuffix;
+            File.WriteAllText(metadataReservation, "orphan metadata reservation");
+            AcsAssetCreationResult metadataCollision =
+                AssetCreationWorkflow.CreateNamed(
+                    assets,
+                    phase2,
+                    AcsAssetTemplate.Scene,
+                    "MetadataOwned");
+            Check(
+                metadataCollision.FullPath ==
+                Path.Combine(phase2, "MetadataOwned1.acs3d") &&
+                File.ReadAllText(metadataReservation) ==
+                "orphan metadata reservation",
+                "payload creation treats a pre-existing metadata sidecar as an occupied asset family");
+
+            string graphReservation =
+                Path.Combine(phase2, "GraphOwned.acsmat.graph.json");
+            File.WriteAllText(graphReservation, "orphan graph reservation");
+            AcsAssetCreationResult graphCollision =
+                AssetCreationWorkflow.CreateNamed(
+                    assets,
+                    phase2,
+                    AcsAssetTemplate.Material,
+                    "GraphOwned",
+                    FakeCanonicalMaterialWriter);
+            Check(
+                graphCollision.FullPath ==
+                Path.Combine(phase2, "GraphOwned1.acsmat") &&
+                File.ReadAllText(graphReservation) ==
+                "orphan graph reservation",
+                "Material creation reserves graph and graph-metadata companion names");
+
+            string graphMetadataReservation =
+                Path.Combine(phase2, "GraphMetadataOwned.acsmat.graph.json") +
+                AssetDatabase.MetadataSuffix;
+            File.WriteAllText(
+                graphMetadataReservation,
+                "orphan graph metadata reservation");
+            AcsAssetCreationResult graphMetadataCollision =
+                AssetCreationWorkflow.CreateNamed(
+                    assets,
+                    phase2,
+                    AcsAssetTemplate.Material,
+                    "GraphMetadataOwned",
+                    FakeCanonicalMaterialWriter);
+            Check(
+                graphMetadataCollision.FullPath ==
+                Path.Combine(phase2, "GraphMetadataOwned1.acsmat") &&
+                File.ReadAllText(graphMetadataReservation) ==
+                "orphan graph metadata reservation",
+                "Material creation treats graph metadata as a case-insensitive family reservation");
+
+            string[] reservedNames =
+            {
+                "CON",
+                "lpt9.txt",
+                ".acsdb",
+                "Asset.tmp-stage",
+                "Asset.acsmeta",
+                "bad/name",
+                "trailing.",
+                new string('x', 129),
+            };
+            int rejectedReservedNames = 0;
+            foreach (string reservedName in reservedNames)
+            {
+                try
+                {
+                    _ = AssetCreationWorkflow.CreateNamed(
+                        assets,
+                        phase2,
+                        AcsAssetTemplate.Blueprint,
+                        reservedName);
+                }
+                catch (InvalidDataException)
+                {
+                    rejectedReservedNames++;
+                }
+            }
+            Check(
+                rejectedReservedNames == reservedNames.Length,
+                "explicit-name creation rejects Windows devices, paths, metadata, and staging names");
+
+            using (var cancelledBeforeStart = new CancellationTokenSource())
+            {
+                cancelledBeforeStart.Cancel();
+                bool cancellationObserved = false;
+                try
+                {
+                    _ = AssetCreationWorkflow.CreateNamed(
+                        assets,
+                        phase2,
+                        AcsAssetTemplate.Scene,
+                        "CancelledScene",
+                        cancellationToken: cancelledBeforeStart.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationObserved = true;
+                }
+                Check(
+                    cancellationObserved &&
+                    !File.Exists(Path.Combine(phase2, "CancelledScene.acs3d")),
+                    "pre-cancelled creation performs no filesystem publication");
+            }
+
+            using (var retiredProjectToken = new CancellationTokenSource())
+            {
+                retiredProjectToken.Cancel();
+                CancellationTokenSource renewedProjectToken =
+                    AssetBrowserPanel.RenewProjectOperationCancellation(
+                        retiredProjectToken);
+                try
+                {
+                    Check(
+                        !ReferenceEquals(
+                            retiredProjectToken,
+                            renewedProjectToken) &&
+                        !renewedProjectToken.IsCancellationRequested,
+                        "resuming a cancelled editor close renews the project operation generation");
+                }
+                finally
+                {
+                    renewedProjectToken.Dispose();
+                }
+            }
+            using (var activeProjectToken = new CancellationTokenSource())
+            {
+                Check(
+                    ReferenceEquals(
+                        activeProjectToken,
+                        AssetBrowserPanel.RenewProjectOperationCancellation(
+                            activeProjectToken)),
+                    "resume preserves a still-active project operation generation");
+            }
+
+            using (var switchedProject = new CancellationTokenSource())
+            using (var writerEntered = new ManualResetEventSlim(false))
+            using (var releaseWriter = new ManualResetEventSlim(false))
+            {
+                Task<bool> cancelledCreation = Task.Run(() =>
+                {
+                    try
+                    {
+                        _ = AssetCreationWorkflow.CreateNamed(
+                            assets,
+                            phase2,
+                            AcsAssetTemplate.Material,
+                            "CancelledMaterial",
+                            (path, unusedName) =>
+                            {
+                                _ = unusedName;
+                                File.WriteAllText(path, "partial material");
+                                File.WriteAllText(
+                                    path + AssetDatabase.MetadataSuffix,
+                                    "partial metadata");
+                                File.WriteAllText(
+                                    path + ".graph.json",
+                                    "partial graph");
+                                File.WriteAllText(
+                                    path + ".graph.json" +
+                                    AssetDatabase.MetadataSuffix,
+                                    "partial graph metadata");
+                                writerEntered.Set();
+                                releaseWriter.Wait(TimeSpan.FromSeconds(5));
+                                // Cancellation wins over a serializer rejection so the UI can
+                                // retire a switched project without reporting a corrupt asset.
+                                return false;
+                            },
+                            switchedProject.Token);
+                        return false;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return true;
+                    }
+                });
+                bool writerStarted = writerEntered.Wait(TimeSpan.FromSeconds(5));
+                switchedProject.Cancel();
+                releaseWriter.Set();
+                bool completed = cancelledCreation.Wait(TimeSpan.FromSeconds(5));
+                Check(
+                    writerStarted &&
+                    completed &&
+                    cancelledCreation.Result &&
+                    !File.Exists(
+                        Path.Combine(phase2, "CancelledMaterial.acsmat")) &&
+                    !Directory.EnumerateFileSystemEntries(phase2)
+                        .Any(AssetCreationWorkflow.IsTemporaryPath),
+                    "project-switch cancellation during serialization removes the entire temporary material family");
+            }
+
+            string switchedProjectRoot = Path.Combine(root, "SwitchedProject");
+            string switchedAssets = Path.Combine(switchedProjectRoot, "Assets");
+            Directory.CreateDirectory(switchedAssets);
+            var switchedDatabase = new AssetDatabase(
+                switchedProjectRoot,
+                switchedAssets);
+            _ = switchedDatabase.Refresh(verifyContent: true);
+            AcsAssetCreationResult publishedBeforeSwitch =
+                AssetCreationWorkflow.CreateNamed(
+                    switchedAssets,
+                    switchedAssets,
+                    AcsAssetTemplate.Scene,
+                    "PublishedBeforeSwitch");
+            bool cancelledIndex = false;
+            using (var cancelledRefresh = new CancellationTokenSource())
+            {
+                cancelledRefresh.Cancel();
+                try
+                {
+                    _ = switchedDatabase.Refresh(
+                        cancellationToken: cancelledRefresh.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancelledIndex = true;
+                }
+            }
+            AssetDatabaseRefreshResult recoveredAfterSwitch =
+                switchedDatabase.Refresh(verifyContent: true);
+            bool recoveredPublishedAsset = switchedDatabase.TryGetByPath(
+                publishedBeforeSwitch.FullPath,
+                out AssetRecord? recoveredRecord);
+            Check(
+                cancelledIndex &&
+                recoveredAfterSwitch.Warnings.Count == 0 &&
+                recoveredPublishedAsset &&
+                recoveredRecord?.Kind == "scene" &&
+                File.ReadAllText(publishedBeforeSwitch.FullPath) == "ACS3D v2\n" &&
+                !Directory.EnumerateFileSystemEntries(
+                        switchedAssets,
+                        "*",
+                        SearchOption.AllDirectories)
+                    .Any(AssetCreationWorkflow.IsTemporaryPath),
+                "project switch after atomic publication is recovered by the next authoritative index refresh");
+
+            string metadataDirectory = Path.Combine(phase2, "Hidden.acsmeta");
+            string stagingDirectory = Path.Combine(phase2, "Preview.tmp-staging");
+            string internalStaging = Path.Combine(
+                assets,
+                AssetDatabase.InternalDirectoryName,
+                AssetDatabase.ImportStagingDirectoryName);
+            Directory.CreateDirectory(metadataDirectory);
+            Directory.CreateDirectory(stagingDirectory);
+            Directory.CreateDirectory(internalStaging);
+            int rejectedInternalTargets = 0;
+            foreach (string reservedTarget in new[]
+                     {
+                         metadataDirectory,
+                         stagingDirectory,
+                         internalStaging,
+                     })
+            {
+                try
+                {
+                    _ = AssetCreationWorkflow.Create(
+                        assets,
+                        reservedTarget,
+                        AcsAssetTemplate.Scene);
+                }
+                catch (InvalidDataException)
+                {
+                    rejectedInternalTargets++;
+                }
+            }
+            Check(
+                rejectedInternalTargets == 3 &&
+                !File.Exists(Path.Combine(metadataDirectory, "Scene.acs3d")) &&
+                !File.Exists(Path.Combine(stagingDirectory, "Scene.acs3d")) &&
+                !File.Exists(Path.Combine(internalStaging, "Scene.acs3d")),
+                "creation refuses metadata, temporary, and .acsdb staging directories");
 
             bool missingWriterRejected = false;
             try

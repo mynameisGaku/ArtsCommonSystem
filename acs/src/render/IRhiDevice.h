@@ -74,6 +74,18 @@ public:
     {
         return false;
     }
+
+    /**
+     * Return whether the backend can accept more rendering work.
+     *
+     * Backends override this for device-removal/loss detection. The default
+     * preserves compatibility for implementations without an explicit health
+     * query.
+     */
+    virtual bool IsOperational() const noexcept
+    {
+        return true;
+    }
 };
 
 /**

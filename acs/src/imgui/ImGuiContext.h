@@ -13,7 +13,7 @@
 //       ImGui::Text("Hello, world!");
 //       ImGui::End();
 //       imgui.Render();           // 描画コマンドをコマンドリストに発行
-//       renderer.EndFrame();
+//       if (!renderer.EndFrame()) break;
 //   }
 //   imgui.Shutdown();
 #pragma once

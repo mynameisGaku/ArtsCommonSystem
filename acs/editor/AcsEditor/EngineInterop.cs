@@ -200,7 +200,7 @@ internal static class EngineInterop
     }
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern void acs_editor_resize(IntPtr handle, uint width, uint height);
+    public static extern int acs_editor_resize(IntPtr handle, uint width, uint height);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_destroy(IntPtr handle);

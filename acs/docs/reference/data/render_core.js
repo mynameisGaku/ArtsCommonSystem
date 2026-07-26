@@ -10,12 +10,12 @@ ACS_REF.modules.push({
       kind: "クラス", header: "render/Renderer.h",
       summary: "ウィンドウへの描画ループを統括する<b>司令塔</b>。<t>デバイス</t>・<t>スワップチェイン</t>・<t>コマンドリスト</t>・深度バッファをまとめて初期化し、毎フレームの「開始→描く→終了」を 1 つにまとめる。",
       when: "とりあえず 3D / 2D を画面に出したいとき最初に作るもの。低レベル RHI を自分で組み立てる前の、いちばん簡単な入口。",
-      sample: "FRenderer rdr;\nrdr.Init(window);                       // Device+Swapchain+CmdList+深度を一括作成\nwhile (!window.ShouldClose()) {\n    window.PollEvents();\n    rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});   // クリア色で塗る\n    // rdr.CommandList() にコマンドを積む\n    rdr.EndFrame();                      // GPU 投入 + Present\n}\nrdr.Shutdown();",
+      sample: "FRenderer rdr;\nrdr.Init(window);                       // Device+Swapchain+CmdList+深度を一括作成\nwhile (!window.ShouldClose()) {\n    window.PollEvents();\n    rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});   // クリア色で塗る\n    // rdr.CommandList() にコマンドを積む\n    if (!rdr.EndFrame()) break;           // Submit/Present failure は継続しない\n}\nrdr.Shutdown();",
       members: [
         { sig: "TResult&lt;void&gt; Init(FWindow& w, bool enable_debug = false, bool enable_depth = true)", ret: "成功/失敗", desc: "ウィンドウに紐付けて初期化。<code>enable_depth=true</code> で深度バッファ(D32_Float)も自動作成。", when: "ウィンドウ作成直後に 1 回。" },
         { sig: "void BeginFrame(const FClearColor& clear)", desc: "フレーム開始。バックバッファをクリア色で塗り、深度を 1.0 でクリアする。" },
-        { sig: "void EndFrame()", desc: "フレーム終了。積んだコマンドを GPU に投入して画面に <t>Present</t> する。" },
-        { sig: "void OnResize(u32 width, u32 height)", desc: "ウィンドウサイズ変更時に呼ぶ(<t>スワップチェイン</t>と深度を作り直す)。" },
+        { sig: "bool EndFrame()", ret: "Submit と Present の両方が成功したとき true", desc: "フレーム終了。積んだコマンドを GPU に投入して画面に <t>Present</t> する。device removal や提示失敗は false。" },
+        { sig: "bool OnResize(u32 width, u32 height)", ret: "スワップチェインと深度の再作成に成功したとき true", desc: "ウィンドウサイズ変更時に一度だけ GPU idle を待ち、<t>スワップチェイン</t>と深度を作り直す。失敗時は false。" },
         { sig: "IRhiCommandList* CommandList() const", ret: "コマンドリスト", desc: "<code>BeginFrame</code> 後、この<t>コマンドリスト</t>に描画命令を積む。" },
         { sig: "IRhiDevice* Device() / IRhiSwapchain* Swapchain() / IRhiTexture* DepthBuffer()", desc: "内部リソースへのアクセサ。シェーダ等の Init に渡す。" },
         { sig: "EFormat ColorFormat() / EFormat DepthFormat()", ret: "フォーマット", desc: "描画ターゲットの<t>フォーマット</t>。パイプライン/シェーダ作成時に渡す。" },
@@ -91,10 +91,10 @@ ACS_REF.modules.push({
       kind: "インターフェース", header: "render/IRhiSwapchain.h",
       summary: "画面に表示される<b>バックバッファ</b>を管理し、描き終えた絵を画面へ送り出す<t>スワップチェイン</t>。ダブル/トリプルバッファで描画と表示を分ける。",
       when: "毎フレーム「描く前にバックバッファを取得」「描いた後に提示」する。普通は <code>FRenderer</code> が裏で扱う。",
-      sample: "u32 idx = sc-&gt;AcquireNextImage();    // 次に書けるバッファを取得\n// ... idx へ描画 ...\nsc-&gt;Present();                       // 画面に反映",
+      sample: "u32 idx = sc-&gt;AcquireNextImage();    // 次に書けるバッファを取得\n// ... idx へ描画 ...\nif (!sc-&gt;Present()) { /* device loss: 描画ループを停止 */ }",
       members: [
         { sig: "u32 AcquireNextImage()", ret: "バックバッファ番号", desc: "次に書き込めるバックバッファをロックして取得する。" },
-        { sig: "void Present()", desc: "描き終えた絵を画面へ反映する。" },
+        { sig: "bool Present()", ret: "提示成功なら true", desc: "描き終えた絵を画面へ反映する。backend/device failure は false。" },
         { sig: "bool Resize(u32 width, u32 height)", ret: "成功か", desc: "サイズ変更。false のときは本フレームの描画をスキップし次フレームで再試行する。" },
         { sig: "u32 BufferCount() / Width() / Height() const", desc: "バックバッファ枚数 / 現在の解像度。" }
       ]
@@ -117,7 +117,7 @@ ACS_REF.modules.push({
       when: "実際の描画はすべてこれ経由。<code>FRenderer::CommandList()</code> から得たものに命令を積む。",
       sample: "auto* cl = rdr.CommandList();\ncl-&gt;SetPipeline(*pipe);\ncl-&gt;SetConstantBuffer(0, *frame_cb);\ncl-&gt;SetTexture(0, *tex);\ncl-&gt;SetVertexBuffer(*vb, stride);\ncl-&gt;SetIndexBuffer(*ib);\ncl-&gt;DrawIndexed(index_count);",
       members: [
-        { sig: "void Begin() / End() / Submit()", desc: "記録開始 / 記録終了 / GPU へ投入。" },
+        { sig: "void Begin() / End(); bool Submit()", desc: "記録開始 / 記録終了 / GPU へ投入。投入と completion fence の発行に失敗すると false。" },
         { sig: "void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "バックバッファを RT としてバインド+クリア。depth を渡すと深度もバインド+クリア。", when: "画面への描画パスの最初。" },
         { sig: "void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index)", desc: "バックバッファ描画を終え、<t>Present</t> 可能状態にする。" },
         { sig: "void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "オフスクリーン RT への描画開始(HDR RT / ポストプロセス用)。", when: "HDR パイプラインや反射の捕捉。" },

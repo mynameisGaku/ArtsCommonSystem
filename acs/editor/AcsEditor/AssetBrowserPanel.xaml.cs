@@ -727,6 +727,15 @@ public partial class AssetBrowserPanel : UserControl
         generation == _projectRefreshGeneration &&
         ReferenceEquals(database, _assetDatabase);
 
+    internal static CancellationTokenSource RenewProjectOperationCancellation(
+        CancellationTokenSource? current)
+    {
+        if (current != null && !current.IsCancellationRequested)
+            return current;
+        current?.Dispose();
+        return new CancellationTokenSource();
+    }
+
     public async Task SuspendOperationsAndWaitAsync()
     {
         Task presentationSave = FlushAssetViewPresentation();
@@ -787,15 +796,24 @@ public partial class AssetBrowserPanel : UserControl
     {
         if (!_assetOperationsSuspended) return;
         _assetOperationsSuspended = false;
+        // Suspend cancels the project generation token so in-flight creation/import workers can
+        // stop before publication. A cancelled editor-close resumes the same indexed project;
+        // renew that generation here or every later New/Import operation would inherit an
+        // already-cancelled token and fail before starting.
+        if (_project != null &&
+            (_projectRefreshCancellation == null ||
+             _projectRefreshCancellation.IsCancellationRequested))
+        {
+            _projectRefreshCancellation = RenewProjectOperationCancellation(
+                _projectRefreshCancellation);
+        }
         _imageLoads.Resume();
         ResumeAssetViewPresentationIo();
         UpdateAssetOperationUi();
         if (_project != null && _assetDatabase == null)
         {
-            _projectRefreshCancellation?.Cancel();
-            _projectRefreshCancellation?.Dispose();
-            var cancellation = new CancellationTokenSource();
-            _projectRefreshCancellation = cancellation;
+            CancellationTokenSource cancellation =
+                _projectRefreshCancellation ??= new CancellationTokenSource();
             _ = InitializeProjectAsync(
                 _project,
                 _projectRefreshGeneration,
@@ -1887,6 +1905,8 @@ public partial class AssetBrowserPanel : UserControl
         AssetDatabase database = _assetDatabase;
         string currentDirectory = _currentDir;
         int generation = _projectRefreshGeneration;
+        CancellationToken cancellationToken =
+            _projectRefreshCancellation?.Token ?? CancellationToken.None;
         AcsAssetCreationResult created;
         AssetDatabaseRefreshResult indexResult;
         try
@@ -1903,9 +1923,18 @@ public partial class AssetBrowserPanel : UserControl
                     template == AcsAssetTemplate.Material
                         ? static (path, name) =>
                             EngineInterop.acs_editor_material_create(path, name) != 0
-                        : null);
-                return (result, database.Refresh());
-            });
+                        : null,
+                    cancellationToken);
+                return (
+                    result,
+                    database.Refresh(cancellationToken: cancellationToken));
+            }, cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (IsCurrentOperationContext(database, generation))
+                Log?.Invoke("Asset creation/indexing was cancelled safely.");
+            return;
         }
         catch (Exception error)
         {

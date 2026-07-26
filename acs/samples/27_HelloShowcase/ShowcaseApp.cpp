@@ -172,8 +172,7 @@ bool FShowcaseApp::OnCustomFrame() noexcept {
 
     cl->EndRenderToSwapchain(*sc, buf_idx);
     cl->End();
-    cl->Submit();
-    sc->Present();
+    if (!cl->Submit() || !sc->Present()) Quit();
 
     // 次フレーム用の前 VP / orb phase (TAA reprojection / motion 用)
     m_PrevVpNoJitter = vp_no_jitter;

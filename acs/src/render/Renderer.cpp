@@ -123,7 +123,10 @@ TResult<void> FRenderer::RebuildDepth(u32 w, u32 h) noexcept {
 }
 
 void FRenderer::Shutdown() noexcept {
-    if (m_Device) m_Device->WaitIdle();  // GPU 完了を待ってから解放
+    // A removed device cannot make forward progress. Waiting in that state can
+    // turn an already-reported render failure into an application hang.
+    if (m_Device && m_Device->IsOperational())
+        m_Device->WaitIdle();  // GPU 完了を待ってから解放
     // Shutdown 中や直後に EndFrame が呼ばれても、解放済みコマンドリストへ触れない。
     m_bFrameOpen = false;
     m_CurrentBuffer = 0;
@@ -173,34 +176,51 @@ bool FRenderer::CanBeginFrameWithoutGpuWait() const noexcept {
            m_Cmd->CanBeginWithoutGpuWait();
 }
 
+bool FRenderer::IsOperational() const noexcept {
+    return m_Device && m_Swapchain && m_Cmd &&
+           m_Device->IsOperational();
+}
+
 bool FRenderer::TryBeginFrameWithoutGpuWait(
     const FClearColor& clear) noexcept {
     return BeginFrameInternal(clear, true);
 }
 
 // フレーム終了: バックバッファを Present 状態に戻して GPU 投入 → 画面に提示
-void FRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
-    if (!m_bFrameOpen) return;
+bool FRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
+    if (!m_bFrameOpen) return false;
+    if (!m_Cmd || !m_Swapchain) {
+        m_bFrameOpen = false;
+        ACS_LOG_ERROR("FRenderer::EndFrame: frame resources are unavailable");
+        return false;
+    }
     m_Cmd->EndRenderToSwapchain(*m_Swapchain, m_CurrentBuffer);
     m_Cmd->End();
-    if (avoid_gpu_wait)
-        m_Cmd->SubmitWithoutGpuWait();
-    else
-        m_Cmd->Submit();
-    m_Swapchain->Present();
+    const bool submitted = avoid_gpu_wait
+        ? m_Cmd->SubmitWithoutGpuWait()
+        : m_Cmd->Submit();
     m_bFrameOpen = false;
+    if (!submitted) {
+        ACS_LOG_ERROR("FRenderer::EndFrame: command submission failed");
+        return false;
+    }
+    if (!m_Swapchain->Present()) {
+        ACS_LOG_ERROR("FRenderer::EndFrame: swapchain present failed");
+        return false;
+    }
+    return true;
 }
 
-void FRenderer::EndFrame() noexcept {
-    EndFrameInternal(false);
+bool FRenderer::EndFrame() noexcept {
+    return EndFrameInternal(false);
 }
 
-void FRenderer::EndFrameWithoutGpuWait() noexcept {
-    EndFrameInternal(true);
+bool FRenderer::EndFrameWithoutGpuWait() noexcept {
+    return EndFrameInternal(true);
 }
 
-void FRenderer::OnResize(u32 width, u32 height) noexcept {
-    if (!m_Swapchain) return;
+bool FRenderer::OnResize(u32 width, u32 height) noexcept {
+    if (!m_Swapchain) return false;
     if (m_Device) m_Device->WaitIdle();
     if (!m_Swapchain->Resize(width, height)) {
         // リサイズ失敗 (バックバッファ未取得状態)。深度再構築や本フレームの描画を行わず、
@@ -208,9 +228,18 @@ void FRenderer::OnResize(u32 width, u32 height) noexcept {
         // ガードするため、ここで早期 return しても安全に縮退する。
         ACS_LOG_WARN("FRenderer::OnResize: swapchain Resize に失敗 (%ux%u)。次フレームで再試行します。",
                      width, height);
-        return;
+        return false;
     }
-    if (m_EnableDepth) (void)RebuildDepth(width, height);
+    if (m_EnableDepth) {
+        const auto depth_result = RebuildDepth(width, height);
+        if (depth_result.IsErr()) {
+            ACS_LOG_ERROR(
+                "FRenderer::OnResize: depth rebuild failed (%ux%u): %s",
+                width, height, depth_result.Error().message);
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace acs

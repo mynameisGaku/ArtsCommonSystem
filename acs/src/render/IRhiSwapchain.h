@@ -68,13 +68,21 @@ public:
      */
     virtual u32 AcquireNextImage() noexcept = 0;
 
-    /** 描画済みバックバッファを画面に反映する（描画後に呼ぶ）。 */
-    virtual void Present() noexcept = 0;
+    /**
+     * 描画済みバックバッファを画面に反映する（描画後に呼ぶ）。
+     *
+     * @return OS/backend が提示を受理し、デバイスが継続可能なとき true。
+     *         device removal や backend の提示失敗は false。
+     */
+    virtual bool Present() noexcept = 0;
 
     /**
      * ウィンドウサイズ変更時にバックバッファを作り直す。
      *
      * @details
+     * 呼び出し側は Resize の前に GPU idle を保証する。backend 実装は
+     * 重複する WaitIdle を行わず、バッファ再作成だけを担当する。
+     *
      * false が返った場合はバッファ再取得に失敗してバックバッファ未取得状態のため、
      * 呼び出し側は本フレームの描画をスキップし次フレームで再試行すること
      * （null バックバッファ参照を避ける）。

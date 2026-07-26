@@ -1,5 +1,11 @@
 # Arts Common System (ACS)
 
+## ACS Editor
+
+The current desktop Editor architecture, scene and asset workflows, profiler,
+packaging constraints, and aggregate verification commands are documented in
+[`acs/docs/EditorArchitecture.md`](acs/docs/EditorArchitecture.md).
+
 Windows 64-bit 向けのモジュール式 C++20 ゲームフレームワークです。ウィンドウ・入力・
 2D/3D 描画・ECS・アセット・音声・ネットワーク・UI・GameFramework と、初学者向けの
 `acs::easy` ファサードを同じツリーで提供します。既定の描画バックエンドは raw

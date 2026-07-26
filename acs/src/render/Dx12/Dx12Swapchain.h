@@ -15,8 +15,8 @@ class FDx12Device;
  * @details
  * IDXGISwapChain3 と RTV ヒープを所有し、最大 kMaxBuffers 個のバックバッファと
  * その RTV を管理する。FLIP_DISCARD + ALLOW_TEARING で生成し、vsync 設定に応じて
- * Present の同期間隔とフラグを切り替える。Resize は GPU の idle を待ってから
- * バッファを作り直す。
+ * Present の同期間隔とフラグを切り替える。Resize は呼び出し側が保証した GPU idle
+ * の下でバッファを作り直す。
  */
 class FDx12Swapchain final : public IRhiSwapchain {
 public:
@@ -68,14 +68,18 @@ public:
      */
     u32  AcquireNextImage() noexcept override;
 
-    /** バックバッファを表示する (vsync 設定で同期間隔と tearing フラグを切替)。 */
-    void Present() noexcept override;
+    /**
+     * バックバッファを表示する (vsync 設定で同期間隔と tearing フラグを切替)。
+     * DXGI の HRESULT と device-removal reason を検査し、失敗を false で返す。
+     */
+    bool Present() noexcept override;
 
     /**
      * スワップチェインを指定サイズに作り直す。
      *
      * @details
-     * サイズ 0 や変化なしは no-op で成功扱い。GPU の idle を待ってから ResizeBuffers し、
+     * サイズ 0 や変化なしは no-op で成功扱い。呼び出し側が GPU idle を保証してから
+     * ResizeBuffers し、
      * バッファ再取得が成功した場合のみ寸法を確定する (失敗時は旧寸法を保つ)。
      * @param width 新しい幅。
      * @param height 新しい高さ。
@@ -123,7 +127,7 @@ private:
      */
     FHrResult AcquireBuffers(FDx12Device& device) noexcept;
 
-    /** Init で受け取った DX12 デバイス (Resize での WaitIdle/再取得に使う)。 */
+    /** Init で受け取った DX12 デバイス (Resize のバッファ再取得に使う)。 */
     FDx12Device*          m_Device       = nullptr;
 
     /** 所有する DXGI スワップチェイン (SwapChain3)。 */

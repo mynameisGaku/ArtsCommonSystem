@@ -3,7 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace AcsEditor;
 
@@ -26,6 +28,49 @@ internal sealed record AcsAssetTemplateDefinition(
 internal sealed record AcsAssetCreationResult(
     string FullPath,
     AcsAssetTemplateDefinition Definition);
+
+/// <summary>
+/// Self-contained filename policy shared by creation requests without taking a dependency on
+/// the much larger management workflow. AssetCreationWorkflow is also linked into the
+/// command-line packager, so this boundary must remain limited to BCL and AssetDatabase rules.
+/// </summary>
+internal static class AssetCreationNameRules
+{
+    internal static string ValidateBaseName(string value)
+    {
+        string name = (value ?? "").Trim();
+        if (name.Length == 0 || name.Length > 128 || name is "." or "..")
+            throw new InvalidDataException("Asset name must contain 1 to 128 characters.");
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            name.Contains(Path.DirectorySeparatorChar) ||
+            name.Contains(Path.AltDirectorySeparatorChar) ||
+            name.EndsWith(' ') || name.EndsWith('.'))
+        {
+            throw new InvalidDataException("Asset name contains characters Windows cannot use.");
+        }
+        if (name.Contains(".tmp-", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith(AssetDatabase.MetadataSuffix, StringComparison.OrdinalIgnoreCase) ||
+            name.Equals(AssetDatabase.InternalDirectoryName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Asset name is reserved by the ACS asset database.");
+        }
+        string device = name.Split('.')[0];
+        if (device.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            device.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            device.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            device.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+            IsNumberedDevice(device, "COM") || IsNumberedDevice(device, "LPT"))
+        {
+            throw new InvalidDataException("Asset name is a reserved Windows device name.");
+        }
+        return name;
+    }
+
+    private static bool IsNumberedDevice(string value, string prefix) =>
+        value.Length == prefix.Length + 1 &&
+        value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+        value[^1] is >= '1' and <= '9';
+}
 
 internal enum AssetScenePlacementDecision
 {
@@ -83,6 +128,7 @@ internal static class AssetCreationWorkflow
 {
     private const int MaxGeneratedSuffix = 9999;
     private const string TemporaryMarker = ".tmp-";
+    private const string MaterialGraphSuffix = ".graph.json";
     private static readonly UTF8Encoding Utf8WithoutBom = new(false);
 
     internal static IReadOnlyList<AcsAssetTemplateDefinition> Definitions { get; } =
@@ -128,21 +174,72 @@ internal static class AssetCreationWorkflow
         string assetsDirectory,
         string currentDirectory,
         AcsAssetTemplate template,
-        Func<string, string, bool>? canonicalMaterialWriter = null)
+        Func<string, string, bool>? canonicalMaterialWriter = null,
+        CancellationToken cancellationToken = default)
     {
         AcsAssetTemplateDefinition definition = FindDefinition(template);
+        return CreateCore(
+            assetsDirectory,
+            currentDirectory,
+            definition,
+            definition.BaseName,
+            canonicalMaterialWriter,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates an ACS asset from an explicit editor-provided base name. The extension remains
+    /// owned by the selected template, and a case-insensitive numeric suffix is added if any
+    /// member of the asset family (payload, metadata, or material graph) already occupies it.
+    /// </summary>
+    internal static AcsAssetCreationResult CreateNamed(
+        string assetsDirectory,
+        string currentDirectory,
+        AcsAssetTemplate template,
+        string requestedBaseName,
+        Func<string, string, bool>? canonicalMaterialWriter = null,
+        CancellationToken cancellationToken = default)
+    {
+        AcsAssetTemplateDefinition definition = FindDefinition(template);
+        string validatedName = AssetCreationNameRules.ValidateBaseName(
+            requestedBaseName);
+        return CreateCore(
+            assetsDirectory,
+            currentDirectory,
+            definition,
+            validatedName,
+            canonicalMaterialWriter,
+            cancellationToken);
+    }
+
+    private static AcsAssetCreationResult CreateCore(
+        string assetsDirectory,
+        string currentDirectory,
+        AcsAssetTemplateDefinition definition,
+        string baseName,
+        Func<string, string, bool>? canonicalMaterialWriter,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         using AssetMutationLock mutationLock = AssetMutationLock.Acquire(
             assetsDirectory,
             $"Create {definition.DisplayName} asset");
+        cancellationToken.ThrowIfCancellationRequested();
         string directory = ValidateTargetDirectory(assetsDirectory, currentDirectory);
+        HashSet<string> occupiedNames = SnapshotOccupiedNames(directory);
 
         for (int suffix = 0; suffix <= MaxGeneratedSuffix; suffix++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string stem = suffix == 0
-                ? definition.BaseName
-                : definition.BaseName + suffix;
-            string destination = Path.Combine(directory, stem + definition.Extension);
-            if (File.Exists(destination) || Directory.Exists(destination))
+                ? baseName
+                : baseName + suffix;
+            string destinationName = stem + definition.Extension;
+            string destination = Path.Combine(directory, destinationName);
+            if (IsAssetFamilyOccupied(
+                    destinationName,
+                    definition.Template,
+                    occupiedNames))
                 continue;
 
             if (definition.IsDirectory)
@@ -151,9 +248,11 @@ internal static class AssetCreationWorkflow
                     assetsDirectory,
                     directory,
                     destination,
-                    definition);
+                    definition,
+                    cancellationToken);
                 if (folder != null)
                     return folder;
+                occupiedNames.Add(destinationName);
                 continue;
             }
 
@@ -167,11 +266,21 @@ internal static class AssetCreationWorkflow
                     temporary,
                     definition.Template,
                     stem,
-                    canonicalMaterialWriter);
+                    canonicalMaterialWriter,
+                    cancellationToken);
 
                 // The directory may have been replaced while the temporary file was written.
                 // Revalidate before publishing so a stale browser path cannot escape Assets.
                 ValidateTargetDirectory(assetsDirectory, directory);
+                cancellationToken.ThrowIfCancellationRequested();
+                occupiedNames = SnapshotOccupiedNames(directory);
+                if (IsAssetFamilyOccupied(
+                        destinationName,
+                        definition.Template,
+                        occupiedNames))
+                {
+                    continue;
+                }
                 try
                 {
                     File.Move(temporary, destination, overwrite: false);
@@ -181,6 +290,7 @@ internal static class AssetCreationWorkflow
                     (File.Exists(destination) || Directory.Exists(destination)))
                 {
                     // Another editor/import won this generated name. Retry the next suffix.
+                    occupiedNames.Add(destinationName);
                     continue;
                 }
 
@@ -188,7 +298,7 @@ internal static class AssetCreationWorkflow
             }
             finally
             {
-                TryDeleteTemporary(temporary);
+                TryDeleteTemporaryFamily(temporary, definition.Template);
             }
         }
 
@@ -227,8 +337,10 @@ internal static class AssetCreationWorkflow
         string path,
         AcsAssetTemplate template,
         string stem,
-        Func<string, string, bool>? canonicalMaterialWriter)
+        Func<string, string, bool>? canonicalMaterialWriter,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (template == AcsAssetTemplate.Material)
         {
             if (canonicalMaterialWriter == null)
@@ -236,7 +348,9 @@ internal static class AssetCreationWorkflow
                 throw new InvalidOperationException(
                     "Material creation requires the canonical native ACSMAT serializer.");
             }
-            if (!canonicalMaterialWriter(path, stem) ||
+            bool serialized = canonicalMaterialWriter(path, stem);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!serialized ||
                 !File.Exists(path) ||
                 new FileInfo(path).Length == 0)
             {
@@ -257,13 +371,15 @@ internal static class AssetCreationWorkflow
             FileOptions.WriteThrough);
         stream.Write(bytes);
         stream.Flush(flushToDisk: true);
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private static AcsAssetCreationResult? TryCreateDirectory(
         string assetsDirectory,
         string directory,
         string destination,
-        AcsAssetTemplateDefinition definition)
+        AcsAssetTemplateDefinition definition,
+        CancellationToken cancellationToken)
     {
         string temporary = Path.Combine(
             directory,
@@ -271,8 +387,10 @@ internal static class AssetCreationWorkflow
             Guid.NewGuid().ToString("N"));
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(temporary);
             ValidateTargetDirectory(assetsDirectory, directory);
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 Directory.Move(temporary, destination);
@@ -289,6 +407,34 @@ internal static class AssetCreationWorkflow
         {
             TryDeleteTemporaryDirectory(temporary);
         }
+    }
+
+    private static HashSet<string> SnapshotOccupiedNames(string directory) =>
+        Directory.EnumerateFileSystemEntries(
+                directory,
+                "*",
+                SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(static name => !string.IsNullOrEmpty(name))
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsAssetFamilyOccupied(
+        string destinationName,
+        AcsAssetTemplate template,
+        IReadOnlySet<string> occupiedNames)
+    {
+        if (occupiedNames.Contains(destinationName) ||
+            occupiedNames.Contains(destinationName + AssetDatabase.MetadataSuffix))
+        {
+            return true;
+        }
+
+        if (template != AcsAssetTemplate.Material)
+            return false;
+        string graphName = destinationName + MaterialGraphSuffix;
+        return occupiedNames.Contains(graphName) ||
+               occupiedNames.Contains(graphName + AssetDatabase.MetadataSuffix);
     }
 
     private static string ValidateTargetDirectory(
@@ -319,6 +465,17 @@ internal static class AssetCreationWorkflow
                          new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
                          StringSplitOptions.RemoveEmptyEntries))
             {
+                if (segment.Equals(
+                        AssetDatabase.InternalDirectoryName,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    segment.EndsWith(
+                        AssetDatabase.MetadataSuffix,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    segment.Contains(TemporaryMarker, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        $"Asset creation target is reserved for metadata or staging: {target}");
+                }
                 cursor = Path.Combine(cursor, segment);
                 EnsureOrdinaryDirectory(cursor, "Asset creation target");
             }
@@ -346,6 +503,19 @@ internal static class AssetCreationWorkflow
             throw new InvalidDataException(
                 $"{label} must be an ordinary directory: {path}");
         }
+    }
+
+    private static void TryDeleteTemporaryFamily(
+        string path,
+        AcsAssetTemplate template)
+    {
+        TryDeleteTemporary(path);
+        TryDeleteTemporary(path + AssetDatabase.MetadataSuffix);
+        if (template != AcsAssetTemplate.Material)
+            return;
+        string graphPath = path + MaterialGraphSuffix;
+        TryDeleteTemporary(graphPath);
+        TryDeleteTemporary(graphPath + AssetDatabase.MetadataSuffix);
     }
 
     private static void TryDeleteTemporary(string path)

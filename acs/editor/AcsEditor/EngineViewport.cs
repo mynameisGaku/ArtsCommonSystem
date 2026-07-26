@@ -21,6 +21,10 @@ internal readonly record struct ViewportNativeRenderDiagnostic(
     double MaximumNativeCallMilliseconds,
     string LastNativeCallKind);
 
+internal readonly record struct ViewportResizeResultPolicy(
+    bool CommitDimensions,
+    bool ContinueToRender);
+
 /// <summary>
 /// エンジンの DX12 描画をホストするネイティブ・ビューポート。
 /// 子 HWND を作り、acs_editor_abi にアタッチして、WPF の描画フレームごとに 1 フレーム描く。
@@ -108,6 +112,8 @@ public sealed class EngineViewport : HwndHost
     private bool _attached;
     private uint _w, _h;
     private uint _pendW, _pendH;   // attach 前の «サイズ安定待ち» 用 (起動直後のリサイズ連発を回避)
+    private uint _resizePendW, _resizePendH;
+    private bool _awaitingStableResizeAfterWindowInteraction;
     private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
     private double _lastSec;
     private bool _frameActive;
@@ -268,6 +274,25 @@ public sealed class EngineViewport : HwndHost
         queued && timeoutMilliseconds > 0 &&
         nowMilliseconds - queuedAtMilliseconds >= timeoutMilliseconds;
 
+    internal static bool ShouldDeferFinalResize(
+        bool awaitingStableSize,
+        uint requestedWidth,
+        uint requestedHeight,
+        uint candidateWidth,
+        uint candidateHeight) =>
+        awaitingStableSize &&
+        (requestedWidth != candidateWidth ||
+         requestedHeight != candidateHeight);
+
+    internal static ViewportResizeResultPolicy ClassifyResizeResult(
+        int nativeResizeResult) =>
+        new(
+            CommitDimensions: nativeResizeResult > 0,
+            // A failed resize keeps _w/_h unchanged so it is retried. Still
+            // enter render: device loss is reported by render_try as fatal,
+            // while a transient resize failure can keep presenting old buffers.
+            ContinueToRender: true);
+
     private bool RenderPumpSuspended =>
         IsAnyRenderPumpSuspensionActive(
             _renderPumpSuspended,
@@ -348,6 +373,9 @@ public sealed class EngineViewport : HwndHost
         _renderPumpQueuedAt = 0;
         _renderPumpSuspended = false;
         _windowInteractionPaused = false;
+        _awaitingStableResizeAfterWindowInteraction = false;
+        _resizePendW = 0;
+        _resizePendH = 0;
         _renderFairnessYieldQueued = false;
         _trackingMouseLeave = false;
         _pointerButtonMismatchStartedAtTimestamp = 0;
@@ -456,6 +484,9 @@ public sealed class EngineViewport : HwndHost
         _hwnd = IntPtr.Zero;
         _attached = false;
         _windowInteractionPaused = false;
+        _awaitingStableResizeAfterWindowInteraction = false;
+        _resizePendW = 0;
+        _resizePendH = 0;
         _panning = false;
         _gizmoDragging = false;
         _giz3dDragging = false;
@@ -720,13 +751,16 @@ public sealed class EngineViewport : HwndHost
         Dispatcher.VerifyAccess();
         if (_destroying || _windowInteractionPaused) return;
         _windowInteractionPaused = true;
+        _awaitingStableResizeAfterWindowInteraction = true;
+        _resizePendW = 0;
+        _resizePendH = 0;
         CancelPointerInteraction();
         StopRenderPump();
     }
 
     /// <summary>
-    /// Resumes after WM_EXITSIZEMOVE. The first frame observes the final WPF
-    /// size and performs at most one native resize before rendering.
+    /// Resumes after WM_EXITSIZEMOVE. Rendering waits for two identical WPF
+    /// size observations, then applies the final dimensions exactly once.
     /// </summary>
     internal void ResumeRenderPumpAfterWindowInteraction()
     {
@@ -931,6 +965,9 @@ public sealed class EngineViewport : HwndHost
         _renderPumpSuspended = false;
         _pendW = 0;
         _pendH = 0;
+        _resizePendW = 0;
+        _resizePendH = 0;
+        _awaitingStableResizeAfterWindowInteraction = false;
         _redrawPending = true;
         QueueRenderPump();
         return true;
@@ -1339,6 +1376,9 @@ public sealed class EngineViewport : HwndHost
             {
                 if (_destroying) return false;
                 _attached = true; _w = w; _h = h; AttachFailed = false;
+                _awaitingStableResizeAfterWindowInteraction = false;
+                _resizePendW = 0;
+                _resizePendH = 0;
                 Attached?.Invoke();
                 if (_destroying) return false;
             }
@@ -1356,18 +1396,49 @@ public sealed class EngineViewport : HwndHost
             // later, only RetryAttach may clear the latch and call the ABI again.
             return false;
         }
-        else if (w != _w || h != _h)
+        else if (w == _w && h == _h)
         {
+            _awaitingStableResizeAfterWindowInteraction = false;
+            _resizePendW = 0;
+            _resizePendH = 0;
+        }
+        else
+        {
+            if (ShouldDeferFinalResize(
+                    _awaitingStableResizeAfterWindowInteraction,
+                    w,
+                    h,
+                    _resizePendW,
+                    _resizePendH))
+            {
+                _resizePendW = w;
+                _resizePendH = h;
+                return false;
+            }
+
             long resizeBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+            int resizeResult;
             try
             {
-                EngineInterop.acs_editor_resize(_engine, w, h);
+                resizeResult =
+                    EngineInterop.acs_editor_resize(_engine, w, h);
             }
             finally
             {
                 ObserveNativeCall("resize", resizeBegin);
             }
-            _w = w; _h = h;
+            ViewportResizeResultPolicy resizePolicy =
+                ClassifyResizeResult(resizeResult);
+            if (resizePolicy.CommitDimensions)
+            {
+                _w = w;
+                _h = h;
+                _awaitingStableResizeAfterWindowInteraction = false;
+                _resizePendW = 0;
+                _resizePendH = 0;
+            }
+            System.Diagnostics.Debug.Assert(
+                resizePolicy.ContinueToRender);
         }
         if (_destroying) return false;
 

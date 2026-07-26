@@ -3234,8 +3234,8 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string submit = section(
         command,
-        "void FDx12CommandList::SubmitInternal(",
-        "void FDx12CommandList::Submit()");
+        "bool FDx12CommandList::SubmitInternal(",
+        "bool FDx12CommandList::Submit()");
     const std::size_t main_submit_call =
         submit.find("SubmitGraphicsCommandLists(lists, 1u)");
     const std::size_t wait_gate =
@@ -3256,8 +3256,124 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
     EXPECT_TRUE(submit.find("SignalGraphicsQueue()") ==
                 std::string::npos);
     EXPECT_TRUE(command.find(
-        "void FDx12CommandList::SubmitWithoutGpuWait()") !=
+        "bool FDx12CommandList::SubmitWithoutGpuWait()") !=
                 std::string::npos);
     EXPECT_TRUE(command.find("SubmitInternal(false);") !=
                 std::string::npos);
+}
+
+ACS_TEST(RenderLifecycle,
+         SubmitAndPresentFailuresReachTheEditorFrameContract)
+{
+    const std::string renderer =
+        ReadWorkspaceSource("src/render/Renderer.cpp");
+    const std::string dx12_swapchain =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Swapchain.cpp");
+    const std::string diligent_swapchain =
+        ReadWorkspaceSource("src/render/Diligent/DiligentSwapchain.cpp");
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+
+    const std::string end_frame =
+        ExtractFunction(renderer, "bool FRenderer::EndFrameInternal(");
+    const std::string raw_present =
+        ExtractFunction(dx12_swapchain, "bool FDx12Swapchain::Present()");
+    const std::string diligent_present =
+        ExtractFunction(
+            diligent_swapchain,
+            "bool FDiligentSwapchain::Present()");
+    const std::string attach =
+        ExtractFunction(editor, "ACS_EDITOR_API int acs_editor_attach(");
+
+    EXPECT_TRUE(end_frame.find("if (!submitted)") != std::string::npos);
+    EXPECT_TRUE(end_frame.find("if (!m_Swapchain->Present())") !=
+                std::string::npos);
+    EXPECT_TRUE(raw_present.find("const HRESULT present_hr") !=
+                std::string::npos);
+    EXPECT_TRUE(raw_present.find("GetDeviceRemovedReason()") !=
+                std::string::npos);
+    EXPECT_TRUE(diligent_present.find(
+        "NotifyPrimaryPresentFinished()") != std::string::npos);
+    EXPECT_TRUE(diligent_present.find("IsDeviceHealthy()") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find("int SubmitAndPresentEditorFrame(") !=
+                std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "editor_frame::ShouldPublishProfiler(present_result)") !=
+                std::string::npos);
+    const std::size_t neutral_present_failure =
+        attach.find("if (!PresentNeutralEditorFrame(*host, false))");
+    const std::size_t attach_reset =
+        attach.find("host->attached = false;", neutral_present_failure);
+    const std::size_t attach_shutdown =
+        attach.find("host->renderer.Shutdown();", attach_reset);
+    const std::size_t attach_failure_return =
+        attach.find("return 0;", attach_shutdown);
+    EXPECT_TRUE(neutral_present_failure != std::string::npos);
+    EXPECT_TRUE(attach_reset != std::string::npos);
+    EXPECT_TRUE(attach_shutdown != std::string::npos);
+    EXPECT_TRUE(attach_failure_return != std::string::npos);
+}
+
+ACS_TEST(RenderLifecycle,
+         ResizeAndMsaaResourceMutationShareOneIdleBoundary)
+{
+    const std::string renderer =
+        ReadWorkspaceSource("src/render/Renderer.cpp");
+    const std::string dx12_swapchain =
+        ReadWorkspaceSource("src/render/Dx12/Dx12Swapchain.cpp");
+    const std::string editor =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+
+    const std::string resize =
+        ExtractFunction(renderer, "bool FRenderer::OnResize(");
+    const std::string backend_resize =
+        ExtractFunction(dx12_swapchain, "bool FDx12Swapchain::Resize(");
+
+    EXPECT_EQ(CountOccurrences(resize, "WaitIdle()"), 1u);
+    EXPECT_EQ(CountOccurrences(backend_resize, "WaitIdle()"), 0u);
+    EXPECT_TRUE(editor.find(
+        "if (!host->resource_mutation_idle)") != std::string::npos);
+    EXPECT_TRUE(editor.find(
+        "host->resource_mutation_idle = true;") != std::string::npos);
+}
+
+ACS_TEST(RenderLifecycle,
+         ResizeFailureStopsApplicationAndEasyBeforeFrameRecording)
+{
+    const std::string application =
+        ReadWorkspaceSource("src/app/Application.cpp");
+    const std::string easy =
+        ReadWorkspaceSource("src/easy/Easy.cpp");
+
+    const std::string app_bridge =
+        ExtractFunction(application, "void FApplication::EventBridge(");
+    const std::string app_run =
+        ExtractFunction(application, "int FApplication::Run(");
+    const std::string easy_bridge =
+        ExtractFunction(easy, "void EasyEventBridge(");
+    const std::string easy_frame =
+        ExtractFunction(easy, "bool NextFrame()");
+
+    const std::size_t app_resize_failure =
+        app_bridge.find("if (!app->m_Renderer.OnResize(");
+    const std::size_t app_failure_gate =
+        app_run.find("if (m_RendererFailurePending)");
+    const std::size_t app_begin =
+        app_run.find("m_Renderer.BeginFrame(");
+    EXPECT_TRUE(app_resize_failure != std::string::npos);
+    EXPECT_TRUE(app_failure_gate != std::string::npos);
+    EXPECT_TRUE(app_begin != std::string::npos);
+    EXPECT_TRUE(app_failure_gate < app_begin);
+
+    const std::size_t easy_resize_failure =
+        easy_bridge.find("if (!g_state.renderer.OnResize(");
+    const std::size_t easy_failure_gate =
+        easy_frame.find("if (g_state.renderer_failure_pending)");
+    const std::size_t easy_begin =
+        easy_frame.find("g_state.renderer.BeginFrame(");
+    EXPECT_TRUE(easy_resize_failure != std::string::npos);
+    EXPECT_TRUE(easy_failure_gate != std::string::npos);
+    EXPECT_TRUE(easy_begin != std::string::npos);
+    EXPECT_TRUE(easy_failure_gate < easy_begin);
 }

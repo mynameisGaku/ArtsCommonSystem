@@ -510,8 +510,7 @@ bool FHelloWater3DApp::OnCustomFrame() noexcept {
 
     command_list->EndRenderToSwapchain(*swapchain, buffer_index);
     command_list->End();
-    command_list->Submit();
-    swapchain->Present();
+    if (!command_list->Submit() || !swapchain->Present()) Quit();
     return true;
 }
 

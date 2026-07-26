@@ -226,6 +226,8 @@ public:
     /** キューに積まれた全コマンドの GPU 完了を CPU 側で待つ。 */
     void WaitIdle() noexcept override;
 
+    bool IsOperational() const noexcept override;
+
     /** mip0/slice0 (3D は depth slice 0) を CPU へ読み戻す。 */
     bool ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept override;
 

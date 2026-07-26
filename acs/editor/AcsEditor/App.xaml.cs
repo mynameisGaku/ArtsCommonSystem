@@ -249,6 +249,7 @@ public partial class App : Application
         {
             int failures = AssetBrowserViewStateSelfTest.Run(Console.Error);
             failures += AssetBrowserSourcesSelfTest.Run(Console.Error);
+            failures += AssetCreationSelfTest.Run(Console.Error);
             failures += AssetManagementSelfTest.Run(Console.Error);
             failures += AssetImportWorkflowSelfTest.Run(Console.Error);
             failures += AssetTrashWorkflowSelfTest.Run(Console.Error);

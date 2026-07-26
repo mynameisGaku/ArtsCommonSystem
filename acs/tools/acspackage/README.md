@@ -13,8 +13,26 @@ dotnet run --project tools/acspackage -- package `
 dotnet run --project tools/acspackage -- validate `
   path/to/Game.acsproject --version 1.0.0
 
+dotnet run --project tools/acspackage -- verify `
+  Build/Packages/Game-1.0.0-win64.zip `
+  --report Build/Reports/Game-1.0.0-verification.json
+
 dotnet run --project tools/acspackage -- --self-test
 ```
+
+`verify` validates the archive root, manifest identity, declared file set,
+uncompressed sizes, and every payload SHA-256 without extracting the ZIP.
+It returns `0` for a valid package, `1` for a verification or I/O failure,
+and `2` for invalid command usage. `--quiet` suppresses progress and the PASS
+summary for CI while errors remain visible.
+
+`--report` atomically creates a schema-versioned JSON result containing the
+package/build IDs, profile, file and Cooked-asset counts, byte total, and
+asset-pack digest. A failed archive verification produces `verified: false`
+with an error code when the new report can be safely created. Reports never
+overwrite an existing path, never replace the package ZIP, reject reparse
+ancestors, and publish from a private sibling temporary file only after a
+durable flush.
 
 Profiles are `Development`, `Test`, and `Shipping`. Test/Shipping use a
 verified compressed `game.acpak` without redundant loose source assets;

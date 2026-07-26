@@ -164,6 +164,19 @@ public:
     u64 SignalGraphicsQueue() noexcept;
 
     /**
+     * Return false after backend device loss or an invalid device/context.
+     *
+     * D3D12 uses GetDeviceRemovedReason directly. Other backends also inspect
+     * the shared completion fence, whose failure sentinel is UINT64_MAX.
+     */
+    bool IsDeviceHealthy() const noexcept;
+
+    bool IsOperational() const noexcept override
+    {
+        return IsDeviceHealthy();
+    }
+
+    /**
      * 指定フェンス値の完了を待つ。
      *
      * @param fence_value 待機対象のフェンス値。
@@ -215,7 +228,7 @@ public:
     /**
      * primary swapchain の Present が Diligent 側の FinishFrame() を完了したことを通知する。
      */
-    void NotifyPrimaryPresentFinished() noexcept;
+    bool NotifyPrimaryPresentFinished() noexcept;
 
     /**
      * Present を伴わない submission の Diligent frame を閉じ、dynamic descriptor 等を回収する。
@@ -224,7 +237,7 @@ public:
      * 通常の swapchain frame は primary Present が同じ処理を行うため、
      * NotifyPrimaryPresentFinished() で二重実行を防ぐ。
      */
-    void FinishPendingSubmittedFrame() noexcept;
+    bool FinishPendingSubmittedFrame() noexcept;
 
 private:
     /**
@@ -234,7 +247,7 @@ private:
      * Signal を enqueue し、即時 Flush する。slot fence はその frame-end work の
      * GPU 完了を表す。
      */
-    void QueueFinishedFrameFence() noexcept;
+    bool QueueFinishedFrameFence() noexcept;
 
     /** 所有中または初期化途中の Diligent 資源を解放し、再初期化可能な空状態へ戻す。 */
     void Reset() noexcept;

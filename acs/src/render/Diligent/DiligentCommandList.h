@@ -55,8 +55,12 @@ public:
     /** 記録終了フック (Diligent は即時 API のため no-op)。 */
     void End() noexcept override;
 
-    /** フレーム終了タイミングで Flush + フェンス Signal + フレームスロット前進を行う。 */
-    void Submit() noexcept override;
+    /**
+     * フレーム終了タイミングで Flush + フェンス Signal + フレームスロット前進を行う。
+     *
+     * @return Flush 後もデバイスが健全で、必要な frame fence を発行できたとき true。
+     */
+    bool Submit() noexcept override;
 
     bool CanBeginWithoutGpuWait() const noexcept override;
     bool TryBeginWithoutGpuWait() noexcept override;

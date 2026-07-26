@@ -415,8 +415,8 @@ void FDx12CommandList::End() noexcept {
     _open = false;
 }
 
-void FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
-    if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return;
+bool FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
+    if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return false;
     if (_open) End();
     ID3D12CommandList* lists[] = { m_CmdList };
 
@@ -427,8 +427,15 @@ void FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
     // Execute + Signal + retirement sealing are one queue-order transaction.
     // A one-off upload submitted while this list was open cannot claim these
     // retirements; only this main fence covers its recorded references.
-    m_FrameFences[cur_slot] =
+    const u64 submitted_fence =
         m_Device->SubmitGraphicsCommandLists(lists, 1u);
+    if (submitted_fence == 0u) {
+        ACS_LOG_ERROR(
+            "FDx12CommandList::Submit: Execute/Signal failed; "
+            "frame slot was not advanced");
+        return false;
+    }
+    m_FrameFences[cur_slot] = submitted_fence;
 
     // 2) 次に使うスロットが GPU で完了するまで待つ。Submit が戻った時点で
     //    「次フレームの OnUpdate で書き込む UPLOAD ヒープスロット」は
@@ -439,14 +446,15 @@ void FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
 
     // 3) Device 側のスロットを切替（リングバッファ化された CB が次スロットを返すように）
     m_Device->AdvanceFrameSlot();
+    return true;
 }
 
-void FDx12CommandList::Submit() noexcept {
-    SubmitInternal(true);
+bool FDx12CommandList::Submit() noexcept {
+    return SubmitInternal(true);
 }
 
-void FDx12CommandList::SubmitWithoutGpuWait() noexcept {
-    SubmitInternal(false);
+bool FDx12CommandList::SubmitWithoutGpuWait() noexcept {
+    return SubmitInternal(false);
 }
 
 void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,

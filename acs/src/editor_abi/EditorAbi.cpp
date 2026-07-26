@@ -74,6 +74,7 @@
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
 #include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
+#include "editor_abi/EditorFrameContract.h"  // busy/fatal/presented frame contract
 #include "editor_abi/EditorRenderPolicy.h"   // producer/consumer gates for cached render data
 
 #include <cstdint>
@@ -388,6 +389,10 @@ struct FEditorHost {
     u32                         scene_rt_w = 0, scene_rt_h = 0;
     u32                         msaa_samples = 8;      // 現在の MSAA サンプル数 (1=FXAA のみ)
     u32                         msaa_pending = 8;      // 次フレーム適用 (acs_editor_set_msaa)
+    // True only while no GPU work has been submitted since the most recent
+    // resource-mutation WaitIdle. Resize and an MSAA rebuild in the same owner-
+    // thread turn therefore share one queue drain.
+    bool                        resource_mutation_idle = false;
 
     // マテリアルプレビュー用の非 MSAA スプライトバッチ (preview_rt は sample_count=1 のため
     // MSAA PSO の本体バッチでは描けない)。EnsurePreviewRt で遅延初期化。
@@ -5279,7 +5284,13 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             h.ibl_dirty = false;
             ACS_LOG_WARN("[3D] startup IBL skipped: command list unavailable");
         }
-        h.renderer.EndFrame();
+        if (!h.renderer.EndFrame()) {
+            h.startup_failed = true;
+            ACS_LOG_ERROR(
+                "[3D] startup IBL submit/present failed");
+            return false;
+        }
+        h.resource_mutation_idle = false;
         h.r3d_init_phase = 26u;
         h.r3d_ready = true;
         return true;
@@ -9119,6 +9130,17 @@ ACS_EDITOR_API void* acs_editor_create(void) {
 constexpr FClearColor kEditorNeutralClear{
     0.035f, 0.043f, 0.055f, 1.0f};
 
+int SubmitAndPresentEditorFrame(
+    FEditorHost& host, bool avoid_gpu_wait) noexcept {
+    const bool presented = avoid_gpu_wait
+        ? host.renderer.EndFrameWithoutGpuWait()
+        : host.renderer.EndFrame();
+    if (!presented)
+        return editor_frame::ToAbi(editor_frame::EResult::Fatal);
+    host.resource_mutation_idle = false;
+    return editor_frame::ToAbi(editor_frame::EResult::Presented);
+}
+
 /**
  * Present a deterministic editor-owned frame without entering scene rendering.
  *
@@ -9131,13 +9153,15 @@ int PresentNeutralEditorFrame(
     bool avoid_gpu_wait) noexcept {
     if (!host.attached || host.renderer.Device() == nullptr ||
         host.renderer.Swapchain() == nullptr) {
-        return -1;
+        return editor_frame::ToAbi(editor_frame::EResult::Fatal);
     }
+    if (!host.renderer.IsOperational())
+        return editor_frame::ToAbi(editor_frame::EResult::Fatal);
     IRhiCommandList* command_list = host.renderer.CommandList();
     if (command_list != nullptr) command_list->ResetStatistics();
     if (avoid_gpu_wait) {
         if (!host.renderer.CanBeginFrameWithoutGpuWait()) {
-            return 0;
+            return editor_frame::ToAbi(editor_frame::EResult::Busy);
         }
         // Both checks execute serially on the HWND/RHI owner thread. No other
         // editor caller can consume this frame slot between the preflight and
@@ -9145,7 +9169,7 @@ int PresentNeutralEditorFrame(
         // than transient GPU backpressure.
         if (!host.renderer.TryBeginFrameWithoutGpuWait(
                 kEditorNeutralClear)) {
-            return -1;
+            return editor_frame::ToAbi(editor_frame::EResult::Fatal);
         }
     } else {
         host.renderer.BeginFrame(kEditorNeutralClear);
@@ -9155,11 +9179,7 @@ int PresentNeutralEditorFrame(
             host.profiler_snapshot.frame_index + 1u);
         command_list->EndGpuTimingFrame();
     }
-    if (avoid_gpu_wait)
-        host.renderer.EndFrameWithoutGpuWait();
-    else
-        host.renderer.EndFrame();
-    return 1;
+    return SubmitAndPresentEditorFrame(host, avoid_gpu_wait);
 }
 
 bool PresentNeutralEditorFrame(
@@ -9214,7 +9234,13 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
 
     // Own the child HWND's pixels before returning to WPF. Otherwise HwndHost
     // airspace can expose uninitialized/old swapchain contents during warm-up.
-    (void)PresentNeutralEditorFrame(*host, false);
+    if (!PresentNeutralEditorFrame(*host, false)) {
+        ACS_LOG_ERROR(
+            "[acs_editor_abi] attach failed during initial neutral present");
+        host->attached = false;
+        host->renderer.Shutdown();
+        return 0;
+    }
 
     ACS_LOG_INFO("[acs_editor_abi] attached to HWND %p (%ux%u)", hwnd, width, height);
     return 1;
@@ -9479,7 +9505,10 @@ static void CommitEditorFrameDelta(
 static int RenderEditorFrame(
     void* handle, float dt, bool avoid_gpu_wait) noexcept {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || !host->attached) return -1;
+    if (host == nullptr || !host->attached)
+        return editor_frame::ToAbi(editor_frame::EResult::Fatal);
+    if (!host->renderer.IsOperational())
+        return editor_frame::ToAbi(editor_frame::EResult::Fatal);
     const f32 safe_dt = std::isfinite(dt) && dt > 0.0f
         ? std::clamp(dt, 0.0f, 0.10f)
         : 0.0f;
@@ -9495,7 +9524,7 @@ static int RenderEditorFrame(
             *host, false, avoid_gpu_wait);
         if (present_result <= 0) return present_result;
         CommitEditorFrameDelta(*host, safe_dt);
-        return 1;
+        return editor_frame::ToAbi(editor_frame::EResult::Presented);
     }
     // Raw DX12 normally waits for the next allocator slot inside Submit.
     // The editor's cooperative entry point preflights that fence instead, so
@@ -9503,7 +9532,7 @@ static int RenderEditorFrame(
     // GPU owns both frame slots.
     if (avoid_gpu_wait &&
         !host->renderer.CanBeginFrameWithoutGpuWait()) {
-        return 0;
+        return editor_frame::ToAbi(editor_frame::EResult::Busy);
     }
     {
         // Reuse the host-owned DFS scratch retained by DrawScene3D. Clearing a
@@ -9535,12 +9564,15 @@ static int RenderEditorFrame(
             *host, profilerFrameBegin,
             editor_profiler::ElapsedMilliseconds(submitBegin));
         CommitEditorFrameDelta(*host, safe_dt);
-        return 1;
+        return editor_frame::ToAbi(editor_frame::EResult::Presented);
     }
 
     // MSAA サンプル数の変更を適用する (PSO はサンプル数を焼き込むためバッチごと再生成)。
     if (host->msaa_pending != host->msaa_samples && host->renderer.Device() != nullptr) {
-        host->renderer.Device()->WaitIdle();
+        if (!host->resource_mutation_idle) {
+            host->renderer.Device()->WaitIdle();
+            host->resource_mutation_idle = true;
+        }
         host->msaa_samples = host->msaa_pending;
         host->scene_rt.Reset();
         host->scene_rt_w = host->scene_rt_h = 0;
@@ -9566,7 +9598,7 @@ static int RenderEditorFrame(
         // HWND/RHI owner thread. A false result cannot be a frame-slot race;
         // classify it as fatal so the managed pump does not spin forever.
         if (!host->renderer.TryBeginFrameWithoutGpuWait(clear))
-            return -1;
+            return editor_frame::ToAbi(editor_frame::EResult::Fatal);
     } else {
         host->renderer.BeginFrame(clear);
     }
@@ -9595,14 +9627,14 @@ static int RenderEditorFrame(
         if (cl != nullptr) cl->EndGpuTimingFrame();
         const editor_profiler::FTimePoint submitBegin =
             editor_profiler::FClock::now();
-        if (avoid_gpu_wait)
-            host->renderer.EndFrameWithoutGpuWait();
-        else
-            host->renderer.EndFrame();
+        const int present_result =
+            SubmitAndPresentEditorFrame(*host, avoid_gpu_wait);
+        if (!editor_frame::ShouldPublishProfiler(present_result))
+            return present_result;
         PublishProfilerFrame(
             *host, profilerFrameBegin,
             editor_profiler::ElapsedMilliseconds(submitBegin));
-        return 1;
+        return editor_frame::ToAbi(editor_frame::EResult::Presented);
     }
 
     if (host->sprites_ready) {
@@ -9656,14 +9688,14 @@ static int RenderEditorFrame(
     }
     const editor_profiler::FTimePoint submitBegin =
         editor_profiler::FClock::now();
-    if (avoid_gpu_wait)
-        host->renderer.EndFrameWithoutGpuWait();
-    else
-        host->renderer.EndFrame();
+    const int present_result =
+        SubmitAndPresentEditorFrame(*host, avoid_gpu_wait);
+    if (!editor_frame::ShouldPublishProfiler(present_result))
+        return present_result;
     PublishProfilerFrame(
         *host, profilerFrameBegin,
         editor_profiler::ElapsedMilliseconds(submitBegin));
-    return 1;
+    return editor_frame::ToAbi(editor_frame::EResult::Presented);
 }
 
 ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
@@ -9725,12 +9757,17 @@ ACS_EDITOR_API void acs_editor_profiler_reset_peaks(void* handle) {
     host->profiler_snapshot.post_gpu_window_peak_ms = -1.0f;
 }
 
-ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t height) {
+ACS_EDITOR_API int acs_editor_resize(void* handle, uint32_t width, uint32_t height) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || !host->attached || width == 0u || height == 0u) return;
-    // 即時 OnResize (OnResize 内で WaitIdle 済み)。遅延リサイズは実測でクラッシュ率が悪化(4/8 vs 即時6/8)
-    // したため不採用。WPF レイアウト中の交錯はドック自動拡張を無効化することで回避済み。
-    host->renderer.OnResize(width, height);
+    if (host == nullptr || !host->attached ||
+        width == 0u || height == 0u) {
+        return 0;
+    }
+    // The managed host coalesces a Win32 move/size interaction to its stable
+    // final dimensions. FRenderer owns exactly one WaitIdle; backend Resize
+    // implementations only recreate buffers.
+    if (!host->renderer.OnResize(width, height)) return 0;
+    host->resource_mutation_idle = true;
     host->width  = width;
     host->height = height;
     host->profiler_snapshot.viewport_width = width;
@@ -9739,8 +9776,9 @@ ACS_EDITOR_API void acs_editor_resize(void* handle, uint32_t width, uint32_t hei
     host->water3d_depth_copy_failed = false;
     if (!host->startup_ready ||
         host->scene_presentation_suppressed) {
-        (void)PresentNeutralEditorFrame(*host, false);
+        if (PresentNeutralEditorFrame(*host, false, false) <= 0) return 0;
     }
+    return 1;
 }
 
 // =============================================================================
@@ -11906,7 +11944,7 @@ static int RenderPreview(FEditorHost& h, u32 size, u8* out_rgba, u32 out_size, D
     ResolvePreview(
         h, *cl, *h.preview_work_ldr, size);
     cl->End();
-    cl->Submit();
+    if (!cl->Submit()) return 0;
     dev->WaitIdle();
     return dev->ReadTexture(*h.preview_rt, out_rgba, out_size) ? 1 : 0;
 }
@@ -12083,7 +12121,11 @@ static int RenderPbrMaterialPreview(
     ResolvePreview(
         h, *cl, *h.preview_hdr_rt, size);
     cl->End();
-    cl->Submit();
+    if (!cl->Submit()) {
+        shader.SetNormalMap(nullptr);
+        shader.ClearSubstrateSurface();
+        return 0;
+    }
     dev->WaitIdle();
     const int result =
         dev->ReadTexture(
