@@ -911,7 +911,10 @@ ACS_TEST(VolumetricClouds,
         CompactShader(shader),
         "sampleUvw=cloudUVW("
         "p,macro.weather,macro.curl,macro.height);"
-        "macro.baseNoise=cloudBaseShape(sampleUvw);"));
+        "floatrejectionThreshold=cloudHeightThreshold("
+        "weatherCoverage,macro.profileShape);"
+        "macro.baseNoise=cloudBaseShape("
+        "sampleUvw,rejectionThreshold);"));
     EXPECT_TRUE(!Contains(
         shader, "cloudWeatherData(p-camPos"));
     EXPECT_TRUE(!Contains(
@@ -1711,7 +1714,7 @@ ACS_TEST(VolumetricClouds,
     const std::size_t profile =
         shader.find("floatsampledProfile=cloudProfile(");
     const std::size_t threshold = shader.find(
-        "floatheightThreshold=lerp(", profile);
+        "floatheightThreshold=cloudHeightThreshold(", profile);
     const std::size_t base = shader.find("floatbaseDensity=remapc(", threshold);
     const std::size_t erosion = shader.find(
         "remapc(baseDensity,detail*erosion,1.0,0.0,1.0)");
@@ -1872,14 +1875,23 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(shader, ")*4.73+float3(0.263,0.887,0.491);"));
     EXPECT_TRUE(Contains(
         shader,
-        "basePerlinWorley(a)*0.45+"
-        "basePerlinWorley(b)*0.27+"
-        "basePerlinWorley(c)*0.17+"
-        "basePerlinWorley(d)*0.11"));
+        "floatshape=basePerlinWorley(a)*0.45;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "shape+=basePerlinWorley(b)*0.27;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "shape+=basePerlinWorley(c)*0.17;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "returnsaturate(shape+basePerlinWorley(d)*0.11);"));
     const std::size_t viewShapeBegin =
-        shader.find("floatcloudBaseShape(float3uvw){");
+        shader.find(
+            "floatcloudBaseShape(float3uvw,floatrejectionThreshold){");
     const std::size_t lightShapeBegin =
-        shader.find("floatcloudBaseShapeLighting(float3uvw){");
+        shader.find(
+            "floatcloudBaseShapeLighting("
+            "float3uvw,floatrejectionThreshold){");
     const std::size_t macroBegin =
         shader.find("structCloudMacroSample", lightShapeBegin);
     EXPECT_TRUE(viewShapeBegin != std::string::npos);
@@ -1904,6 +1916,116 @@ ACS_TEST(VolumetricClouds,
             static_cast<std::size_t>(3));
     }
     EXPECT_FALSE(Contains(shader, "sampleCloudMacro(p-camPos"));
+}
+
+ACS_TEST(VolumetricClouds,
+         ShapeLobeUpperBoundsSkipOnlyProvablyEmptyDensity) {
+    const std::string source = ReadSkySource();
+    const std::string shader = CompactShader(
+        ExtractRawShader(source, "const char* kCloudCS"));
+    EXPECT_TRUE(!shader.empty());
+
+    // The early-outs retain all four de-tiling domains whenever an unvisited
+    // lobe could still cross the exact Nubis height threshold. They eliminate
+    // only texture reads whose [0,1] upper bound proves zero final density.
+    EXPECT_TRUE(Contains(
+        shader,
+        "[branch]if(shape+0.55<rejectionThreshold-1e-5)"
+        "return0.0;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "[branch]if(shape+0.28<rejectionThreshold-1e-5)"
+        "return0.0;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "[branch]if(shape+0.11<rejectionThreshold-1e-5)"
+        "return0.0;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "[branch]if(shape+0.49<rejectionThreshold-1e-5)"
+        "return0.0;"));
+    EXPECT_TRUE(Contains(
+        shader,
+        "[branch]if(shape+0.19<rejectionThreshold-1e-5)"
+        "return0.0;"));
+
+    u32 fourLobeRejects = 0u;
+    u32 fourLobeViolations = 0u;
+    u32 threeLobeRejects = 0u;
+    u32 threeLobeViolations = 0u;
+    for (u32 state = 0u; state < 65536u; ++state) {
+        const f32 a = static_cast<f32>(state & 15u) / 15.0f;
+        const f32 b = static_cast<f32>((state >> 4u) & 15u) / 15.0f;
+        const f32 c = static_cast<f32>((state >> 8u) & 15u) / 15.0f;
+        const f32 d = static_cast<f32>((state >> 12u) & 15u) / 15.0f;
+        const f32 threshold =
+            0.50f + 0.28f *
+                static_cast<f32>((state * 37u) & 255u) / 255.0f;
+
+        const f32 fullFour =
+            a * 0.45f + b * 0.27f + c * 0.17f + d * 0.11f;
+        f32 partialFour = a * 0.45f;
+        bool rejectedFour =
+            partialFour + 0.55f < threshold - 1.0e-5f;
+        if (!rejectedFour) {
+            partialFour += b * 0.27f;
+            rejectedFour =
+                partialFour + 0.28f < threshold - 1.0e-5f;
+        }
+        if (!rejectedFour) {
+            partialFour += c * 0.17f;
+            rejectedFour =
+                partialFour + 0.11f < threshold - 1.0e-5f;
+        }
+        if (rejectedFour) {
+            ++fourLobeRejects;
+            if (fullFour > threshold) ++fourLobeViolations;
+        }
+
+        const f32 fullThree =
+            a * 0.51f + b * 0.30f + c * 0.19f;
+        f32 partialThree = a * 0.51f;
+        bool rejectedThree =
+            partialThree + 0.49f < threshold - 1.0e-5f;
+        if (!rejectedThree) {
+            partialThree += b * 0.30f;
+            rejectedThree =
+                partialThree + 0.19f < threshold - 1.0e-5f;
+        }
+        if (rejectedThree) {
+            ++threeLobeRejects;
+            if (fullThree > threshold) ++threeLobeViolations;
+        }
+    }
+    EXPECT_TRUE(fourLobeRejects > 0u);
+    EXPECT_TRUE(threeLobeRejects > 0u);
+    EXPECT_EQ(fourLobeViolations, 0u);
+    EXPECT_EQ(threeLobeViolations, 0u);
+
+    // Occupancy uses coverage+0.08. Because higher coverage lowers the shape
+    // threshold, its rejection threshold is never stricter than the detailed
+    // density pass that reuses the same macro sample.
+    for (u32 coverageStep = 0u; coverageStep <= 100u; ++coverageStep) {
+        const f32 coverage =
+            static_cast<f32>(coverageStep) / 100.0f;
+        const f32 occupancyCoverage =
+            SaturateForTest(coverage + 0.08f);
+        for (u32 profileStep = 0u; profileStep <= 100u; ++profileStep) {
+            const f32 profile =
+                static_cast<f32>(profileStep) / 100.0f;
+            const auto thresholdFor = [profile](f32 value) noexcept {
+                const f32 clampedCoverage =
+                    value < 0.72f ? value : 0.72f;
+                const f32 cloudThreshold =
+                    0.72f + (0.50f - 0.72f) * clampedCoverage;
+                return 0.78f +
+                       (cloudThreshold - 0.78f) * profile;
+            };
+            EXPECT_TRUE(
+                thresholdFor(occupancyCoverage) <=
+                thresholdFor(coverage) + 1.0e-6f);
+        }
+    }
 }
 
 ACS_TEST(VolumetricClouds,
@@ -1986,7 +2108,7 @@ ACS_TEST(VolumetricClouds,
     const std::size_t lightMacro = shader.find(
         "CloudMacroSamplelightMacro="
         "sampleCloudMacroLightingFromSlowFields("
-        "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
+        "lp,viewWeatherMask,coverage,sharedLightWeather,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);",
         lightAdvance);
     const std::size_t nearDensity = shader.find(
@@ -2033,7 +2155,7 @@ ACS_TEST(VolumetricClouds,
             CountOccurrences(
                 lightBody,
                 "sampleCloudMacroLightingFromSlowFields("
-                "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
+                "lp,viewWeatherMask,coverage,sharedLightWeather,sharedLightCurl,"
                 "p,viewMacroUvw,macro.height,sharedShapeScale)"),
             static_cast<std::size_t>(1));
         EXPECT_FALSE(Contains(
@@ -2057,7 +2179,8 @@ ACS_TEST(VolumetricClouds,
         EXPECT_EQ(CountOccurrences(
                       completeLightSection,
                       "sampleCloudMacroLightingFromSlowFields("
-                      "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
+                      "lp,viewWeatherMask,coverage,"
+                      "sharedLightWeather,sharedLightCurl,"
                       "p,viewMacroUvw,macro.height,sharedShapeScale)"),
                   static_cast<std::size_t>(2));
         EXPECT_EQ(CountOccurrences(
@@ -2183,8 +2306,11 @@ ACS_TEST(VolumetricClouds,
         "p,coverage);"));
     EXPECT_TRUE(Contains(
         shader,
+        "floatrejectionThreshold=cloudHeightThreshold("
+        "weatherCoverage,macro.profileShape);"
         "macro.baseNoise=cloudBaseShapeLighting("
-        "cloudUVW(p,macro.weather,macro.curl,macro.height));"));
+        "cloudUVW(p,macro.weather,macro.curl,macro.height),"
+        "rejectionThreshold);"));
 }
 
 ACS_TEST(VolumetricClouds,
@@ -2998,7 +3124,7 @@ ACS_TEST(VolumetricClouds,
     EXPECT_TRUE(Contains(
         shader,
         "sampleCloudMacroLightingFromSlowFields("
-        "lp,viewWeatherMask,sharedLightWeather,sharedLightCurl,"
+        "lp,viewWeatherMask,coverage,sharedLightWeather,sharedLightCurl,"
         "p,viewMacroUvw,macro.height,sharedShapeScale);"));
 }
 

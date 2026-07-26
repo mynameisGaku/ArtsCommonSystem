@@ -2362,11 +2362,11 @@ ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
     const std::string render =
         ExtractFunction(post, "void FPostProcess::Render");
     const std::string taa =
-        ExtractFunction(post, "void FPostProcess::Pass_TaaResolve");
+        ExtractFunction(post, "bool FPostProcess::Pass_TaaResolve");
     const std::string exposure =
-        ExtractFunction(post, "void FPostProcess::Pass_ExposureApply");
+        ExtractFunction(post, "bool FPostProcess::Pass_ExposureApply");
     const std::string luma =
-        ExtractFunction(post, "void FPostProcess::Pass_LumaReduce");
+        ExtractFunction(post, "bool FPostProcess::Pass_LumaReduce");
     EXPECT_TRUE(!render.empty());
     EXPECT_TRUE(!taa.empty());
     EXPECT_TRUE(!exposure.empty());
@@ -2374,7 +2374,7 @@ ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
     if (render.empty() || taa.empty() || exposure.empty() || luma.empty())
         return;
 
-    const std::size_t meter = render.find("Pass_LumaReduce(cmd);");
+    const std::size_t meter = render.find("Pass_LumaReduce(cmd) &&");
     const std::size_t adapt =
         render.find("Pass_ExposureAdapt(cmd, safe_params);");
     const std::size_t resolve =
@@ -2411,11 +2411,88 @@ ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
             "IRhiTexture* FPostProcess::SceneInput");
     EXPECT_TRUE(!scene_input.empty());
     EXPECT_TRUE(scene_input.find(
-        "if (p.auto_exposure_enabled && m_ExposedRt)") !=
+        "p.auto_exposure_enabled && m_ExposureOutputValid") !=
         std::string::npos);
     EXPECT_TRUE(scene_input.find(
-        "if (p.taa_enabled && m_Taa[m_TaaFrame % 2])") !=
+        "p.taa_enabled && m_TaaOutputValid") !=
         std::string::npos);
+}
+
+ACS_TEST(PostEffects, IncompletePassesCannotPublishStaleTemporalOrBloomTargets)
+{
+    const std::string post =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    EXPECT_TRUE(!post.empty());
+    if (post.empty()) return;
+
+    const std::string render =
+        ExtractFunction(post, "void FPostProcess::Render");
+    const std::string scene_input =
+        ExtractFunction(post, "IRhiTexture* FPostProcess::SceneInput");
+    const std::string tonemap =
+        ExtractFunction(post, "bool FPostProcess::Pass_Tonemap");
+    const std::string luma =
+        ExtractFunction(post, "bool FPostProcess::Pass_LumaReduce");
+    EXPECT_TRUE(!render.empty());
+    EXPECT_TRUE(!scene_input.empty());
+    EXPECT_TRUE(!tonemap.empty());
+    EXPECT_TRUE(!luma.empty());
+    if (render.empty() || scene_input.empty() ||
+        tonemap.empty() || luma.empty()) {
+        return;
+    }
+
+    const std::size_t reset_bloom =
+        render.find("m_BloomOutputValid = false;");
+    const std::size_t reset_taa =
+        render.find("m_TaaOutputValid = false;");
+    const std::size_t reset_exposure =
+        render.find("m_ExposureOutputValid = false;");
+    const std::size_t early_guard =
+        render.find("if (!m_HdrRt || !m_PipeExtract) return;");
+    EXPECT_TRUE(reset_bloom != std::string::npos);
+    EXPECT_TRUE(reset_taa != std::string::npos);
+    EXPECT_TRUE(reset_exposure != std::string::npos);
+    EXPECT_TRUE(early_guard != std::string::npos);
+    EXPECT_TRUE(reset_bloom < early_guard);
+    EXPECT_TRUE(reset_taa < early_guard);
+    EXPECT_TRUE(reset_exposure < early_guard);
+
+    EXPECT_TRUE(render.find(
+        "m_TaaOutputValid = Pass_TaaResolve(cmd, safe_params);") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find(
+        "m_ExposureOutputValid =\n"
+        "                Pass_ExposureApply(cmd, *exposure_source);") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find(
+        "m_BloomOutputValid = bloom_complete;") !=
+                std::string::npos);
+    EXPECT_TRUE(render.find(
+        "if (m_TaaOutputValid) {\n"
+        "        m_TaaFrame++;") != std::string::npos);
+    EXPECT_TRUE(render.find(
+        "if (m_ExposureOutputValid) {\n"
+        "        m_AutoFrame++;") != std::string::npos);
+
+    EXPECT_TRUE(scene_input.find(
+        "p.auto_exposure_enabled && m_ExposureOutputValid") !=
+                std::string::npos);
+    EXPECT_TRUE(scene_input.find(
+        "p.taa_enabled && m_TaaOutputValid") !=
+                std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "if (m_BloomOutputValid && m_BloomMips[0])") !=
+                std::string::npos);
+
+    // A missing reduction level is a failed frame, never permission to adapt
+    // from the previous contents of the deepest luminance texture.
+    EXPECT_TRUE(luma.find(
+        "if (!src || !dst) return false;") !=
+                std::string::npos);
+    EXPECT_TRUE(luma.find(
+        "if (!src || !dst) continue;") ==
+                std::string::npos);
 }
 
 ACS_TEST(PostEffects, FxaaUsesBoundedLongEdgeSearchAndSubpixelCoverage)

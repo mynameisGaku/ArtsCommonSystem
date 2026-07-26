@@ -49,8 +49,19 @@ public partial class MainWindow
 
         public void Dispose()
         {
-            Cancellation.Dispose();
-            Interlocked.Exchange(ref _inputLease, null)?.Dispose();
+            IDisposable? inputLease =
+                Interlocked.Exchange(ref _inputLease, null);
+            try
+            {
+                Cancellation.Dispose();
+            }
+            finally
+            {
+                // Input availability is more important than CTS cleanup. Even a disposal
+                // failure must not leave the live editor looking healthy while every scene
+                // command remains disabled.
+                inputLease?.Dispose();
+            }
         }
     }
 
@@ -381,33 +392,40 @@ public partial class MainWindow
     private void CompleteSceneLoad(ActiveSceneLoad load, bool publishScene)
     {
         Dispatcher.VerifyAccess();
-        bool current = _sceneLoadGeneration.TryComplete(load.Ticket) &&
-                       ReferenceEquals(_sceneLoadCancellation, load.Cancellation);
-        if (current)
-        {
-            _sceneLoadCancellation = null;
-            if (publishScene)
+        SceneLoadCompletionGuard.Run(
+            () =>
             {
-                IntPtr engine = RawEngine;
-                if (engine != IntPtr.Zero)
-                    EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 0);
-                ViewportHost.Visibility = Visibility.Visible;
-                ViewportLoadingOverlay.Visibility = Visibility.Collapsed;
-                ViewportHost.IsHitTestVisible =
-                    EngineCommandsReady && !IsSceneEditingBlocked;
-                _ = Dispatcher.BeginInvoke(
-                    DispatcherPriority.Loaded,
-                    new Action(() => _viewport?.ResumeRenderingAfterSceneLoad()));
-            }
-            else
-            {
-                ViewportLoadingTitle.Text = "Scene loading stopped";
-                ViewportLoadingDetail.Text =
-                    "The viewport remains blank because this load did not publish a scene.";
-            }
-        }
-        load.Dispose();
-        UpdateEditorInputEnabled();
+                bool current =
+                    _sceneLoadGeneration.TryComplete(load.Ticket) &&
+                    ReferenceEquals(
+                        _sceneLoadCancellation,
+                        load.Cancellation);
+                if (!current) return;
+
+                _sceneLoadCancellation = null;
+                if (publishScene)
+                {
+                    IntPtr engine = RawEngine;
+                    if (engine != IntPtr.Zero)
+                    {
+                        EngineInterop.acs_editor_set_scene_presentation_suppressed(engine, 0);
+                    }
+                    ViewportHost.Visibility = Visibility.Visible;
+                    ViewportLoadingOverlay.Visibility = Visibility.Collapsed;
+                    _ = Dispatcher.BeginInvoke(
+                        DispatcherPriority.Loaded,
+                        new Action(
+                            () => _viewport?.ResumeRenderingAfterSceneLoad()));
+                }
+                else
+                {
+                    ViewportLoadingTitle.Text = "Scene loading stopped";
+                    ViewportLoadingDetail.Text =
+                        "The viewport remains blank because this load did not publish a scene.";
+                }
+            },
+            load,
+            UpdateEditorInputEnabled);
     }
 
     private void InvalidateSceneLoad(string detail)

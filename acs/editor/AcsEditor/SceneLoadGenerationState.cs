@@ -7,6 +7,45 @@ namespace AcsEditor;
 internal readonly record struct SceneLoadTicket(int Generation);
 
 /// <summary>
+/// Runs the fallible presentation part of scene-load completion while guaranteeing that the
+/// load lifetime and editor-input recovery are both settled. Presentation crosses native and
+/// WPF boundaries, so an exception there must never leave the otherwise live editor input-locked.
+/// </summary>
+internal static class SceneLoadCompletionGuard
+{
+    internal static bool ShouldEnableViewportInput(
+        bool sceneInputEnabled,
+        bool viewportPublished) =>
+        sceneInputEnabled && viewportPublished;
+
+    internal static void Run(
+        Action completePresentation,
+        IDisposable loadLifetime,
+        Action restoreInput)
+    {
+        ArgumentNullException.ThrowIfNull(completePresentation);
+        ArgumentNullException.ThrowIfNull(loadLifetime);
+        ArgumentNullException.ThrowIfNull(restoreInput);
+
+        try
+        {
+            completePresentation();
+        }
+        finally
+        {
+            try
+            {
+                loadLifetime.Dispose();
+            }
+            finally
+            {
+                restoreInput();
+            }
+        }
+    }
+}
+
+/// <summary>
 /// Dispatcher-owned generation gate for asynchronous scene replacement.  A completion may
 /// publish native state and restore input only while its ticket is the current active load.
 /// </summary>

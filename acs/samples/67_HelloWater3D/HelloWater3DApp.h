@@ -57,9 +57,9 @@ private:
     acs::f32 m_CameraDistance = 10.8f;
     acs::f32 m_FrameDt = 1.0f / 60.0f;
 
-    acs::FVec3 m_LastDragPoint{};
-    acs::f32 m_DragTravel = 0.0f;
-    bool m_HasLastDragPoint = false;
+    acs::FVec3 m_LastWakePoint{};
+    acs::f32 m_UnemittedWakeTime = 0.0f;
+    bool m_HasLastWakePoint = false;
     bool m_MouseHitsWater = false;
 };
 

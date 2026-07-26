@@ -381,7 +381,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_Extract  (IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
+    bool Pass_Extract  (IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
      * Bloom downsample パス: bloom_mips[from_mip] を次段へ 13-tap で縮約する。
@@ -389,7 +389,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param from_mip 入力元の mip 段。
      */
-    void Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept;
+    bool Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept;
 
     /**
      * Bloom upsample パス: 下段を 1 段上へ additive 合成する。
@@ -398,7 +398,7 @@ private:
      * @param to_mip 合成先の mip 段。
      * @param radius upsample 時の半径スケール。
      */
-    void Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius, f32 scatter) noexcept;
+    bool Pass_Upsample (IRhiCommandList& cmd, u32 to_mip, f32 radius, f32 scatter) noexcept;
 
     /**
      * Bloom separable Gaussian blur: 1 つの mip を H or V 方向に 1 次元ガウスぼかしする。
@@ -410,7 +410,7 @@ private:
      * @param horizontal true=水平パス (mip→tmp)、false=垂直パス (tmp→mip)。
      * @param amount ガウスの広がり (texel 単位の step スケール)。
      */
-    void Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept;
+    bool Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept;
 
     /**
      * TAA resolve パス: 現フレームと history を neighborhood-clamp blend する。
@@ -418,7 +418,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
+    bool Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
      * Tonemap パス: HDR + Bloom を合成し tonemap して backbuffer へ書く。
@@ -428,7 +428,7 @@ private:
      * @param buf_idx 書き出すバックバッファの index。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
+    bool Pass_Tonemap  (IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                         const FPostProcessParams& p) noexcept;
 
     /**
@@ -436,7 +436,7 @@ private:
      *
      * @param cmd コマンドを積むコマンドリスト。
      */
-    void Pass_LumaReduce  (IRhiCommandList& cmd) noexcept;
+    bool Pass_LumaReduce  (IRhiCommandList& cmd) noexcept;
 
     /**
      * Auto-exposure: 測定した平均輝度から目標露出へ eye adaptation で順応させる。
@@ -444,7 +444,7 @@ private:
      * @param cmd コマンドを積むコマンドリスト。
      * @param p 適用する効果のパラメータ。
      */
-    void Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
+    bool Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept;
 
     /**
      * Apply the adapted exposure after the scene-linear temporal resolve.
@@ -453,7 +453,7 @@ private:
      * @param source Scene-linear HDR. This is the current TAA resolve when
      * TAA is enabled, otherwise the raw scene target.
      */
-    void Pass_ExposureApply(IRhiCommandList& cmd,
+    bool Pass_ExposureApply(IRhiCommandList& cmd,
                             IRhiTexture& source) noexcept;
 
     /**
@@ -532,6 +532,9 @@ private:
     /** Tonemap パイプライン (HDR + bloom_mips[0] → backbuffer)。 */
     TUniquePtr<IRhiPipeline> m_PipeTonemap;
 
+    /** True only after every bloom stage for the current frame was recorded. */
+    bool                     m_BloomOutputValid = false;
+
     /**
      * 各 fullscreen draw のパラメータを固定する Post CB ring。
      *
@@ -558,6 +561,9 @@ private:
 
     /** TAA の現フレーム index (history ping-pong 用)。 */
     u32                     m_TaaFrame = 0;
+
+    /** Prevents an incomplete resolve from publishing an old/unwritten RT. */
+    bool                    m_TaaOutputValid = false;
 
     /** TAA reprojection 用の行列 2 枚を渡す CB (separate b1)。 */
     TUniquePtr<IRhiBuffer>   m_CbTaaReproj;
@@ -624,6 +630,9 @@ private:
 
     /** 露出 ping-pong / cold-start 判定に使うフレームカウンタ。 */
     u32                     m_AutoFrame = 0;
+
+    /** True only when metering, adaptation and apply completed this frame. */
+    bool                    m_ExposureOutputValid = false;
 
     /** luma mip / 露出テクスチャのフォーマット。 */
     EFormat                  m_LumaFormat = EFormat::R16G16_Float;

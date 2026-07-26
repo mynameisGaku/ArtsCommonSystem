@@ -241,6 +241,34 @@ public:
         u64 surface_id, FVec3 world_point, FVec3 world_velocity,
         f32 radius, f32 strength) noexcept;
 
+    /**
+     * Resamples a low-frequency 3D motion segment into a coherent wake trail.
+     *
+     * @details Every accepted sample owns an independent lifetime and uses a
+     * uniformly distributed point along the portion of the world-space segment
+     * whose historical age is still within ripple_lifetime. An older prefix is
+     * omitted because it would already be invisible. Existing impacts and wakes
+     * are never replaced. When fewer wake-reserved slots are available than the
+     * requested spacing would require, the available samples are spread across
+     * the complete visible tail so the newest pointer/body position remains
+     * represented instead of leaving an abrupt visual gap.
+     *
+     * @param duration Segment travel time in seconds.
+     * @param sample_spacing Maximum desired distance between wake samples.
+     * @return Number of independently persistent wake events accepted.
+     */
+    u32 AddWakeSegment(
+        FVec3 segment_start, FVec3 segment_end,
+        f32 duration, f32 sample_spacing,
+        f32 radius, f32 strength) noexcept;
+
+    /** Resamples a wake segment visible only on the identified surface. */
+    u32 AddWakeSegmentForSurface(
+        u64 surface_id,
+        FVec3 segment_start, FVec3 segment_end,
+        f32 duration, f32 sample_spacing,
+        f32 radius, f32 strength) noexcept;
+
     /** Immediately removes every active disturbance. */
     void ClearDisturbances() noexcept;
 
@@ -389,7 +417,15 @@ private:
 
     bool AddEvent(u64 surface_id, bool wake,
                   FVec3 world_point, FVec3 direction, f32 anisotropy,
-                  f32 radius, f32 strength) noexcept;
+                  f32 radius, f32 strength,
+                  f32 initial_age = 0.0f) noexcept;
+
+    bool AddWakeEventForSurface(
+        u64 surface_id, FVec3 world_point, FVec3 world_velocity,
+        f32 radius, f32 strength, f32 initial_age) noexcept;
+
+    u32 AvailableEventSlots(
+        u64 surface_id, bool wake) const noexcept;
 
     IRhiDevice* m_Device = nullptr;
     TUniquePtr<IRhiShader> m_Vs;

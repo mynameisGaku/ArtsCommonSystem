@@ -1467,10 +1467,12 @@ f32 FWaterSurface3D::EvaluateRippleAmplitudeScale(
 bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
                                FVec3 world_point, FVec3 direction,
                                f32 anisotropy, f32 radius,
-                               f32 strength) noexcept {
+                               f32 strength,
+                               f32 initial_age) noexcept {
     if (!IsFinite(world_point) || !IsFinite(direction)
         || !std::isfinite(anisotropy) || !std::isfinite(radius)
-        || !std::isfinite(strength) || std::abs(strength) < 1e-6f) {
+        || !std::isfinite(strength) || !std::isfinite(initial_age)
+        || std::abs(strength) < 1e-6f) {
         return false;
     }
     if (radius < 0.0f) radius = 0.0f;
@@ -1481,6 +1483,18 @@ bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
         world_point, FVec3{0.0f, 0.0f, 0.0f}, -1.0e15f, 1.0e15f);
     if (anisotropy < 1.0f) anisotropy = 1.0f;
     if (anisotropy > 3.5f) anisotropy = 3.5f;
+    const f32 lifetime =
+        m_Params.ripple_lifetime > 0.1f
+            ? m_Params.ripple_lifetime : 0.1f;
+    const f32 damping =
+        m_Params.ripple_damping > 0.0f
+            ? m_Params.ripple_damping : 0.0f;
+    if (initial_age < 0.0f) initial_age = 0.0f;
+    if (initial_age >= lifetime) return false;
+    const f32 amplitude_scale =
+        EvaluateRippleAmplitudeScale(
+            initial_age, lifetime, damping);
+    if (amplitude_scale <= 0.0f) return false;
 
     const u32 per_surface_limit =
         wake ? kWakeRippleSlots : kImpactRippleSlots;
@@ -1523,19 +1537,63 @@ bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
     ripple.direction = Normalize3(direction);
     ripple.initial_radius = radius;
     ripple.initial_amplitude = strength;
-    ripple.amplitude = strength;
-    ripple.age = 0.0f;
+    ripple.amplitude = strength * amplitude_scale;
+    ripple.age = initial_age;
     ripple.speed =
         m_Params.ripple_speed > 0.0f ? m_Params.ripple_speed : 0.0f;
-    ripple.lifetime =
-        m_Params.ripple_lifetime > 0.1f ? m_Params.ripple_lifetime : 0.1f;
-    ripple.damping =
-        m_Params.ripple_damping > 0.0f ? m_Params.ripple_damping : 0.0f;
+    ripple.lifetime = lifetime;
+    ripple.damping = damping;
     ripple.anisotropy = anisotropy;
     ripple.surface_id = surface_id;
     ripple.wake = wake;
     ripple.active = true;
     return true;
+}
+
+u32 FWaterSurface3D::AvailableEventSlots(
+    u64 surface_id, bool wake) const noexcept {
+    const u32 per_surface_limit =
+        wake ? kWakeRippleSlots : kImpactRippleSlots;
+    u32 matching_kind_count = 0u;
+    u32 free_slot_count = 0u;
+    bool surface_is_active = false;
+    u64 active_surfaces[kMaxTrackedSurfaces]{};
+    u32 active_surface_count = 0u;
+
+    for (u32 i = 0u; i < kMaxStoredRipples; ++i) {
+        const FRipple& ripple = m_Ripples[i];
+        if (!ripple.active) {
+            ++free_slot_count;
+            continue;
+        }
+        if (ripple.surface_id == surface_id) {
+            surface_is_active = true;
+            if (ripple.wake == wake) ++matching_kind_count;
+        }
+        bool known_surface = false;
+        for (u32 surface = 0u;
+             surface < active_surface_count; ++surface) {
+            if (active_surfaces[surface] == ripple.surface_id) {
+                known_surface = true;
+                break;
+            }
+        }
+        if (!known_surface &&
+            active_surface_count < kMaxTrackedSurfaces) {
+            active_surfaces[active_surface_count++] =
+                ripple.surface_id;
+        }
+    }
+
+    if (matching_kind_count >= per_surface_limit ||
+        free_slot_count == 0u ||
+        (!surface_is_active &&
+         active_surface_count >= kMaxTrackedSurfaces)) {
+        return 0u;
+    }
+    const u32 per_surface_available =
+        per_surface_limit - matching_kind_count;
+    return std::min(per_surface_available, free_slot_count);
 }
 
 bool FWaterSurface3D::AddDisturbance(FVec3 world_point, f32 radius,
@@ -1561,6 +1619,14 @@ bool FWaterSurface3D::AddWake(FVec3 world_point, FVec3 world_velocity,
 bool FWaterSurface3D::AddWakeForSurface(
     u64 surface_id, FVec3 world_point, FVec3 world_velocity,
     f32 radius, f32 strength) noexcept {
+    return AddWakeEventForSurface(
+        surface_id, world_point, world_velocity,
+        radius, strength, 0.0f);
+}
+
+bool FWaterSurface3D::AddWakeEventForSurface(
+    u64 surface_id, FVec3 world_point, FVec3 world_velocity,
+    f32 radius, f32 strength, f32 initial_age) noexcept {
     if (!IsFinite(world_velocity)) return false;
     const f64 speed64 = std::hypot(
         static_cast<f64>(world_velocity.x),
@@ -1581,7 +1647,101 @@ bool FWaterSurface3D::AddWakeForSurface(
     };
     if (!IsFinite(trailing_point)) return false;
     return AddEvent(surface_id, true, trailing_point, direction,
-                    anisotropy, radius, strength);
+                    anisotropy, radius, strength, initial_age);
+}
+
+u32 FWaterSurface3D::AddWakeSegment(
+    FVec3 segment_start, FVec3 segment_end,
+    f32 duration, f32 sample_spacing,
+    f32 radius, f32 strength) noexcept {
+    return AddWakeSegmentForSurface(
+        0u, segment_start, segment_end,
+        duration, sample_spacing, radius, strength);
+}
+
+u32 FWaterSurface3D::AddWakeSegmentForSurface(
+    u64 surface_id,
+    FVec3 segment_start, FVec3 segment_end,
+    f32 duration, f32 sample_spacing,
+    f32 radius, f32 strength) noexcept {
+    if (!IsFinite(segment_start) || !IsFinite(segment_end) ||
+        !std::isfinite(duration) || duration <= 0.0f ||
+        !std::isfinite(sample_spacing) || sample_spacing <= 0.0f ||
+        !std::isfinite(radius) || !std::isfinite(strength) ||
+        std::abs(strength) < 1e-6f) {
+        return 0u;
+    }
+
+    const f64 delta_x =
+        static_cast<f64>(segment_end.x) - segment_start.x;
+    const f64 delta_y =
+        static_cast<f64>(segment_end.y) - segment_start.y;
+    const f64 delta_z =
+        static_cast<f64>(segment_end.z) - segment_start.z;
+    const f64 distance =
+        std::hypot(delta_x, delta_y, delta_z);
+    if (!std::isfinite(distance) || distance <= 1e-6) return 0u;
+
+    const u32 available =
+        AvailableEventSlots(surface_id, true);
+    if (available == 0u) return 0u;
+
+    const f64 lifetime = static_cast<f64>(
+        m_Params.ripple_lifetime > 0.1f
+            ? m_Params.ripple_lifetime : 0.1f);
+    const f64 visible_duration = std::min(
+        static_cast<f64>(duration), lifetime);
+    const f64 visible_fraction =
+        visible_duration / static_cast<f64>(duration);
+    const f64 visible_distance = distance * visible_fraction;
+    const f64 requested_samples =
+        std::ceil(visible_distance /
+                  static_cast<f64>(sample_spacing));
+    u32 sample_count = available;
+    if (std::isfinite(requested_samples) &&
+        requested_samples < static_cast<f64>(available)) {
+        sample_count = std::max(
+            1u, static_cast<u32>(requested_samples));
+    }
+
+    const f64 inverse_distance = 1.0 / distance;
+    const f64 physical_speed = std::min(
+        distance / static_cast<f64>(duration), 65504.0);
+    const FVec3 velocity{
+        static_cast<f32>(
+            delta_x * inverse_distance * physical_speed),
+        static_cast<f32>(
+            delta_y * inverse_distance * physical_speed),
+        static_cast<f32>(
+            delta_z * inverse_distance * physical_speed),
+    };
+
+    u32 accepted = 0u;
+    for (u32 sample = 1u; sample <= sample_count; ++sample) {
+        const f64 visible_t =
+            static_cast<f64>(sample) /
+            static_cast<f64>(sample_count);
+        const f64 age =
+            visible_duration * (1.0 - visible_t);
+        const f64 t =
+            1.0 - visible_fraction * (1.0 - visible_t);
+        const FVec3 point{
+            static_cast<f32>(
+                static_cast<f64>(segment_start.x) + delta_x * t),
+            static_cast<f32>(
+                static_cast<f64>(segment_start.y) + delta_y * t),
+            static_cast<f32>(
+                static_cast<f64>(segment_start.z) + delta_z * t),
+        };
+        if (!AddWakeEventForSurface(
+                surface_id, point, velocity,
+                radius, strength,
+                static_cast<f32>(age))) {
+            continue;
+        }
+        ++accepted;
+    }
+    return accepted;
 }
 
 void FWaterSurface3D::ClearDisturbances() noexcept {

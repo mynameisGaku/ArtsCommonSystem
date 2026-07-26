@@ -14900,13 +14900,13 @@ ACS_EDITOR_API int acs_editor_water3d_pointer_event(
             }
             const f32 dt =
                 std::max(since_emit, 1.0f / 1000.0f);
-            const FVec3 velocity =
-                displacement * (1.0f / dt);
-            const bool accepted =
-                host->water3d.AddWakeForSurface(
-                surface_id, hit.world_point, velocity,
-                radius, strength * 0.72f);
-            if (!accepted) return hit.node_id;
+            const u32 accepted =
+                host->water3d.AddWakeSegmentForSurface(
+                    surface_id,
+                    host->water_pointer_world, hit.world_point,
+                    dt, min_distance,
+                    radius, strength * 0.72f);
+            if (accepted == 0u) return hit.node_id;
             host->water_pointer_emit_time = host->time;
         }
     }

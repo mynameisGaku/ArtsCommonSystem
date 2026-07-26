@@ -333,6 +333,10 @@ public partial class MainWindow
             !_closePreparationInputBlocked &&
             !IsSceneEditingBlocked &&
             EngineCommandsReady;
+        ViewportHost.IsHitTestVisible =
+            SceneLoadCompletionGuard.ShouldEnableViewportInput(
+                sceneInputEnabled,
+                ViewportHost.Visibility == Visibility.Visible);
         if (!sceneInputEnabled && IsSceneEditingBlocked)
             _viewport?.CancelPointerInteraction();
         SceneWorkspace.IsEnabled = sceneInputEnabled;

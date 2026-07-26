@@ -384,33 +384,39 @@ void FHelloWater3DApp::OnUpdate(f32 dt) noexcept {
 
     if (pressed && m_MouseHitsWater) {
         (void)m_Water.AddDisturbance(water_point, 0.17f, 0.24f);
-        m_LastDragPoint = water_point;
-        m_DragTravel = 0.0f;
-        m_HasLastDragPoint = true;
-    } else if (dragging && m_MouseHitsWater && m_HasLastDragPoint
+        m_LastWakePoint = water_point;
+        m_UnemittedWakeTime = 0.0f;
+        m_HasLastWakePoint = true;
+    } else if (dragging && m_MouseHitsWater && m_HasLastWakePoint
                && dt > 1e-5f) {
         const FVec3 delta{
-            water_point.x - m_LastDragPoint.x,
-            0.0f,
-            water_point.z - m_LastDragPoint.z,
+            water_point.x - m_LastWakePoint.x,
+            water_point.y - m_LastWakePoint.y,
+            water_point.z - m_LastWakePoint.z,
         };
         const f32 travel =
-            std::sqrt(delta.x * delta.x + delta.z * delta.z);
-        m_DragTravel += travel;
+            std::sqrt(delta.x * delta.x + delta.y * delta.y
+                      + delta.z * delta.z);
+        m_UnemittedWakeTime += dt;
         constexpr f32 kWakeSpacing = 0.28f;
-        if (travel > 1e-5f && m_DragTravel >= kWakeSpacing) {
-            const FVec3 velocity{
-                delta.x / dt, 0.0f, delta.z / dt,
-            };
-            (void)m_Water.AddWake(water_point, velocity, 0.19f, 0.13f);
-            m_DragTravel -= kWakeSpacing;
+        if (travel >= kWakeSpacing) {
+            const u32 accepted = m_Water.AddWakeSegment(
+                m_LastWakePoint, water_point,
+                m_UnemittedWakeTime, kWakeSpacing,
+                0.19f, 0.13f);
+            if (accepted > 0u) {
+                // Advance only after publication. A full wake pool therefore
+                // preserves the complete un-emitted segment for the next
+                // frame instead of silently punching a hole in the trail.
+                m_LastWakePoint = water_point;
+                m_UnemittedWakeTime = 0.0f;
+            }
         }
-        m_LastDragPoint = water_point;
     }
 
     if (!dragging || !m_MouseHitsWater) {
-        m_HasLastDragPoint = false;
-        m_DragTravel = 0.0f;
+        m_HasLastWakePoint = false;
+        m_UnemittedWakeTime = 0.0f;
     }
 }
 

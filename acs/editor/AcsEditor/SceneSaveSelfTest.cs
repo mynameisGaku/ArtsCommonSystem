@@ -83,6 +83,69 @@ internal static class SceneSaveSelfTest
                 !sceneLoads.TryComplete(closingSceneLoad),
                 "editor close invalidates late scene load completion");
 
+            var inputTransitions = new List<bool>();
+            var sceneInput = new SceneEditingBlockState(
+                blocked => inputTransitions.Add(blocked));
+            IDisposable sceneLoadLease = sceneInput.Enter();
+            int inputRestoreCalls = 0;
+            bool presentationFaultObserved = false;
+            try
+            {
+                SceneLoadCompletionGuard.Run(
+                    () => throw new InvalidOperationException(
+                        "injected presentation failure"),
+                    sceneLoadLease,
+                    () => inputRestoreCalls++);
+            }
+            catch (InvalidOperationException error)
+            {
+                presentationFaultObserved =
+                    error.Message == "injected presentation failure";
+            }
+            Check(
+                presentationFaultObserved &&
+                !sceneInput.IsBlocked &&
+                sceneInput.Depth == 0 &&
+                inputTransitions.SequenceEqual(new[] { true, false }) &&
+                inputRestoreCalls == 1,
+                "scene presentation faults cannot strand editor input");
+
+            IDisposable viewportLoadLease = sceneInput.Enter();
+            bool viewportInputDuringLoad =
+                SceneLoadCompletionGuard.ShouldEnableViewportInput(
+                    sceneInputEnabled: !sceneInput.IsBlocked,
+                    viewportPublished: true);
+            viewportLoadLease.Dispose();
+            bool viewportInputAfterLoad =
+                SceneLoadCompletionGuard.ShouldEnableViewportInput(
+                    sceneInputEnabled: !sceneInput.IsBlocked,
+                    viewportPublished: true);
+            Check(
+                !viewportInputDuringLoad &&
+                viewportInputAfterLoad &&
+                !SceneLoadCompletionGuard.ShouldEnableViewportInput(
+                    sceneInputEnabled: true,
+                    viewportPublished: false),
+                "viewport input returns only after scene publication and the final load lease");
+
+            int cleanupFaultRestoreCalls = 0;
+            bool cleanupFaultObserved = false;
+            try
+            {
+                SceneLoadCompletionGuard.Run(
+                    static () => { },
+                    new ThrowingDisposable("injected cleanup failure"),
+                    () => cleanupFaultRestoreCalls++);
+            }
+            catch (InvalidOperationException error)
+            {
+                cleanupFaultObserved =
+                    error.Message == "injected cleanup failure";
+            }
+            Check(
+                cleanupFaultObserved && cleanupFaultRestoreCalls == 1,
+                "scene load cleanup faults still run final input recovery");
+
             Check(
                 EditorShortcutRouting.ResolveBuildShortcut(
                     System.Windows.Input.Key.F5,
@@ -437,6 +500,11 @@ internal static class SceneSaveSelfTest
 
         log.WriteLine($"Scene save self-test: {failures} failure(s)");
         return failures;
+    }
+
+    private sealed class ThrowingDisposable(string message) : IDisposable
+    {
+        public void Dispose() => throw new InvalidOperationException(message);
     }
 
     private static bool RejectsMode(

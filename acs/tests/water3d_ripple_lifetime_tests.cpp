@@ -5,7 +5,9 @@
 #include "render/WaterSurface3D.h"
 
 #include <cmath>
+#include <cstdio>
 #include <limits>
+#include <string>
 
 using namespace acs;
 
@@ -25,6 +27,37 @@ void AddWaterMeshQuadIndices(FMeshAsset& mesh) {
     mesh.Indices().PushBack(0u);
     mesh.Indices().PushBack(2u);
     mesh.Indices().PushBack(3u);
+}
+
+std::string ReadHelloWater3DSource(const char* file_name) {
+    std::string path = __FILE__;
+    const std::size_t separator = path.find_last_of("\\/");
+    if (separator == std::string::npos) return {};
+    path.resize(separator);
+    path += "/../samples/67_HelloWater3D/";
+    path += file_name;
+    std::FILE* file = nullptr;
+#if defined(_MSC_VER)
+    if (fopen_s(&file, path.c_str(), "rb") != 0) return {};
+#else
+    file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) return {};
+#endif
+    if (std::fseek(file, 0, SEEK_END) != 0) {
+        std::fclose(file);
+        return {};
+    }
+    const long size = std::ftell(file);
+    if (size < 0 || std::fseek(file, 0, SEEK_SET) != 0) {
+        std::fclose(file);
+        return {};
+    }
+    std::string source(static_cast<std::size_t>(size), '\0');
+    const std::size_t read = source.empty()
+        ? 0u : std::fread(source.data(), 1u, source.size(), file);
+    std::fclose(file);
+    if (read != source.size()) return {};
+    return source;
 }
 
 } // namespace
@@ -54,6 +87,170 @@ ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
         FVec3{200.0f, 0.0f, 0.0f},
         FVec3{4.0f, 0.0f, 1.0f}, 0.20f, 0.18f));
     EXPECT_EQ(water.ActiveRippleCount(), FWaterSurface3D::kMaxRipples);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         LowFrequencyMotionResamplesAContinuousThreeDimensionalWake) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 2.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    const u32 accepted = water.AddWakeSegmentForSurface(
+        42u,
+        FVec3{-2.0f, 1.0f, -3.0f},
+        FVec3{ 2.0f, 3.0f,  3.0f},
+        0.20f, 1.0f, 0.18f, 0.16f);
+
+    // sqrt(4^2 + 2^2 + 6^2) = sqrt(56): ceil at unit spacing is 8.
+    EXPECT_EQ(accepted, 8u);
+    EXPECT_EQ(water.ActiveRippleCountForSurface(42u), 8u);
+    EXPECT_EQ(water.ActiveRippleCount(), 8u);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         SegmentResamplingUsesReservedCapacityWithoutReplacingImpacts) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 4.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    for (u32 impact = 0u;
+         impact < FWaterSurface3D::kImpactRippleSlots; ++impact) {
+        EXPECT_TRUE(water.AddDisturbanceForSurface(
+            7u, FVec3{static_cast<f32>(impact), 0.0f, 0.0f},
+            0.15f, 0.20f));
+    }
+    const u32 wakes = water.AddWakeSegmentForSurface(
+        7u, FVec3{0.0f, 0.0f, 0.0f},
+        FVec3{100.0f, 0.0f, 0.0f},
+        0.25f, 0.10f, 0.18f, 0.16f);
+
+    EXPECT_EQ(wakes, FWaterSurface3D::kWakeRippleSlots);
+    EXPECT_EQ(
+        water.ActiveRippleCountForSurface(7u),
+        FWaterSurface3D::kMaxRipples);
+    EXPECT_EQ(water.AddWakeSegmentForSurface(
+                  7u, FVec3{100.0f, 0.0f, 0.0f},
+                  FVec3{101.0f, 0.0f, 0.0f},
+                  0.1f, 0.1f, 0.18f, 0.16f),
+              0u);
+    EXPECT_EQ(
+        water.ActiveRippleCountForSurface(7u),
+        FWaterSurface3D::kMaxRipples);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         SeparatelyResampledSegmentsKeepIndependentAges) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 1.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{0.0f, 0.0f, 0.0f},
+                  FVec3{4.0f, 0.0f, 0.0f},
+                  0.1f, 0.5f, 0.18f, 0.16f),
+              8u);
+    water.Update(0.40f);
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{4.0f, 0.0f, 0.0f},
+                  FVec3{8.0f, 0.0f, 0.0f},
+                  0.1f, 0.5f, 0.18f, 0.16f),
+              8u);
+    EXPECT_EQ(water.ActiveRippleCount(), 16u);
+
+    water.Update(0.61f);
+    // The first segment reaches its own endpoint. A refresh/overwrite scheme
+    // would either keep all 16 alive or erase old samples at insertion time.
+    EXPECT_EQ(water.ActiveRippleCount(), 8u);
+    water.Update(0.40f);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         SamplesWithinOneSegmentRetainTheirHistoricalAges) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 1.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{0.0f, 0.0f, 0.0f},
+                  FVec3{4.0f, 0.0f, 0.0f},
+                  0.8f, 0.5f, 0.18f, 0.16f),
+              8u);
+    // Sample ages are 0.7, 0.6, ... 0.0 seconds. Advancing 0.31 seconds
+    // retires only the oldest sample instead of refreshing the whole trail.
+    water.Update(0.31f);
+    EXPECT_EQ(water.ActiveRippleCount(), 7u);
+    water.Update(0.70f);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         SegmentOlderThanLifetimeKeepsOnlyItsVisibleTail) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.ripple_lifetime = 1.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    // Only the final one world unit occurred within the one-second lifetime.
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{0.0f, 0.0f, 0.0f},
+                  FVec3{4.0f, 0.0f, 0.0f},
+                  4.0f, 0.5f, 0.18f, 0.16f),
+              2u);
+    EXPECT_EQ(water.ActiveRippleCount(), 2u);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         MalformedWakeSegmentsNeverConsumePersistentSlots) {
+    FWaterSurface3D water;
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{0.0f, 0.0f, 0.0f},
+                  FVec3{1.0f, 0.0f, 0.0f},
+                  0.0f, 0.1f, 0.18f, 0.16f),
+              0u);
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{0.0f, 0.0f, 0.0f},
+                  FVec3{1.0f, 0.0f, 0.0f},
+                  0.1f, nan, 0.18f, 0.16f),
+              0u);
+    EXPECT_EQ(water.AddWakeSegment(
+                  FVec3{0.0f, 0.0f, 0.0f},
+                  FVec3{nan, 0.0f, 0.0f},
+                  0.1f, 0.1f, 0.18f, 0.16f),
+              0u);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+}
+
+ACS_TEST(Water3DSampleContract,
+         SlowDragPublishesTheWholeUnemittedSegment) {
+    const std::string source =
+        ReadHelloWater3DSource("HelloWater3DApp.cpp");
+    const std::string header =
+        ReadHelloWater3DSource("HelloWater3DApp.h");
+    EXPECT_TRUE(!source.empty());
+    EXPECT_TRUE(!header.empty());
+    EXPECT_TRUE(source.find(
+        "m_LastWakePoint, water_point,") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_UnemittedWakeTime, kWakeSpacing") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_LastWakePoint = water_point;") != std::string::npos);
+    EXPECT_TRUE(source.find(
+        "m_UnemittedWakeTime = 0.0f;") != std::string::npos);
+    EXPECT_TRUE(header.find("m_LastWakePoint") != std::string::npos);
+    EXPECT_TRUE(header.find("m_UnemittedWakeTime") != std::string::npos);
+    EXPECT_TRUE(source.find("m_LastDragPoint") == std::string::npos);
 }
 
 ACS_TEST(Water3DRippleLifetime, FullImpactPoolDropsNewEventWithoutRefreshingOldOne) {

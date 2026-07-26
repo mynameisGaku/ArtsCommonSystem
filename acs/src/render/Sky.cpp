@@ -965,6 +965,10 @@ float3 cloudUVW(
                   (xz.y+weatherWarp.y+curlWarp.y)*shapeScale);
 }
 float cloudThr(float coverage){ return lerp(0.72,0.50,saturate(coverage)); }
+float cloudHeightThreshold(float coverage,float profileShape){
+    return lerp(
+        0.78,cloudThr(min(coverage,0.72)),profileShape);
+}
 float basePerlinWorley(float2 ns){
     // R は bake pass で Perlin-Worley dilation 済み。
     return saturate(ns.r-(1.0-ns.g)*0.12);
@@ -973,20 +977,30 @@ float cloudWeatherMask(float4 weather,float coverage){
     float threshold=lerp(0.90,0.35,saturate(coverage));
     return smoothstep(threshold,min(threshold+0.14,0.98),weather.r);
 }
-float cloudBaseShape(float3 uvw){
+float cloudBaseShape(float3 uvw,float rejectionThreshold){
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
+    float shape=basePerlinWorley(a)*0.45;
+    // Every lobe is saturated to [0,1]. If the accumulated value plus the
+    // exact maximum of all unvisited lobes cannot cross the density threshold,
+    // later volume fetches are provably invisible. The small guard keeps the
+    // rejection conservative under floating-point contraction.
+    [branch] if(shape+0.55<rejectionThreshold-1e-5) return 0.0;
     // Preserve the flight-scale bank while adding an incommensurate
     // mid-frequency lobe. The former 0.613 multiplier made both lobes larger
     // than the complete upward editor view after switching to metre units.
     float3 uvwB=rotateNoise(uvw)*1.83
                +float3(0.371,0.119,0.733);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
+    shape+=basePerlinWorley(b)*0.27;
+    [branch] if(shape+0.28<rejectionThreshold-1e-5) return 0.0;
     float3 uvwC=float3(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
         dot(uvw,float3(0.612,0.319,0.724)))*3.17
         +float3(0.817,0.293,0.157);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
+    shape+=basePerlinWorley(c)*0.17;
+    [branch] if(shape+0.11<rejectionThreshold-1e-5) return 0.0;
     // A fourth, irrationally scaled world-space domain removes the last
     // conspicuous common landmark shared by the three lower-frequency lobes.
     // All domains remain anchored to the absolute world point; this is
@@ -997,28 +1011,27 @@ float cloudBaseShape(float3 uvw){
         dot(uvw,float3(-0.267,0.355,0.896)))*4.73
         +float3(0.263,0.887,0.491);
     float2 d=shapeNoise.SampleLevel(shapeNoise_sampler,uvwD,0);
-    return saturate(basePerlinWorley(a)*0.45
-                   +basePerlinWorley(b)*0.27
-                   +basePerlinWorley(c)*0.17
-                   +basePerlinWorley(d)*0.11);
+    return saturate(shape+basePerlinWorley(d)*0.11);
 }
 // Light-cone integration already evaluates this field at eight decorrelated
 // world positions. Keep its macro approximation at three lobes so the fourth
 // silhouette de-tiling fetch is paid only by the view ray, where it is visible.
-float cloudBaseShapeLighting(float3 uvw){
+float cloudBaseShapeLighting(float3 uvw,float rejectionThreshold){
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
+    float shape=basePerlinWorley(a)*0.51;
+    [branch] if(shape+0.49<rejectionThreshold-1e-5) return 0.0;
     float3 uvwB=rotateNoise(uvw)*1.83
                +float3(0.371,0.119,0.733);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
+    shape+=basePerlinWorley(b)*0.30;
+    [branch] if(shape+0.19<rejectionThreshold-1e-5) return 0.0;
     float3 uvwC=float3(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
         dot(uvw,float3(0.612,0.319,0.724)))*3.17
         +float3(0.817,0.293,0.157);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
-    return saturate(basePerlinWorley(a)*0.51
-                   +basePerlinWorley(b)*0.30
-                   +basePerlinWorley(c)*0.19);
+    return saturate(shape+basePerlinWorley(c)*0.19);
 }
 
 // View marching used to evaluate weather, curl and all base-shape lobes once
@@ -1059,7 +1072,10 @@ CloudMacroSample sampleCloudMacro(
             macro.curl=cloudCurlOffset(p);
             sampleUvw=cloudUVW(
                 p,macro.weather,macro.curl,macro.height);
-            macro.baseNoise=cloudBaseShape(sampleUvw);
+            float rejectionThreshold=cloudHeightThreshold(
+                weatherCoverage,macro.profileShape);
+            macro.baseNoise=cloudBaseShape(
+                sampleUvw,rejectionThreshold);
         }
     }
     return macro;
@@ -1086,9 +1102,12 @@ CloudMacroSample sampleCloudMacroLighting(
         if(macro.profileWeight>0.0){
             macro.profileShape=pow(macro.profileWeight,0.65);
             macro.curl=cloudCurlOffset(p);
+            float rejectionThreshold=cloudHeightThreshold(
+                weatherCoverage,macro.profileShape);
             macro.baseNoise=cloudBaseShapeLighting(
                 cloudUVW(
-                    p,macro.weather,macro.curl,macro.height));
+                    p,macro.weather,macro.curl,macro.height),
+                rejectionThreshold);
         }
     }
     return macro;
@@ -1100,7 +1119,8 @@ CloudMacroSample sampleCloudMacroLighting(
 // while this helper preserves the exact height profile and three-lobe shape
 // lookup at every probe.
 CloudMacroSample sampleCloudMacroLightingFromSlowFields(
-    float3 p,float slowWeatherMask,float4 slowWeather,float2 slowCurl,
+    float3 p,float slowWeatherMask,float weatherCoverage,
+    float4 slowWeather,float2 slowCurl,
     float3 referenceP,float3 referenceUvw,float referenceHeight,
     float shapeScale){
     CloudMacroSample macro;
@@ -1132,7 +1152,10 @@ CloudMacroSample sampleCloudMacroLightingFromSlowFields(
                 (p.x-referenceP.x)*shapeScale,
                 (macro.height-referenceHeight)*0.78,
                 (p.z-referenceP.z)*shapeScale);
-            macro.baseNoise=cloudBaseShapeLighting(lightingUvw);
+            float rejectionThreshold=cloudHeightThreshold(
+                weatherCoverage,macro.profileShape);
+            macro.baseNoise=cloudBaseShapeLighting(
+                lightingUvw,rejectionThreshold);
         }
     }
     return macro;
@@ -1145,9 +1168,8 @@ float cloudShapeFromMacro(CloudMacroSample macro,float coverage){
             // threshold, then close only its extreme tail with profileWeight.
             // Applying the raw profile after thresholding creates horizontal
             // density shelves at every layer boundary.
-            float heightThreshold=lerp(
-                0.78,cloudThr(min(coverage,0.72)),
-                macro.profileShape);
+            float heightThreshold=cloudHeightThreshold(
+                coverage,macro.profileShape);
             shapeResult=remapc(
                 macro.baseNoise,heightThreshold,
                 min(heightThreshold+0.22,0.98),0.0,1.0)
@@ -1170,9 +1192,8 @@ float cloudDensityFromMacro(
     float densityResult=0.0;
     if(weatherMask>0.001){
         if(macro.profileWeight>0.0){
-            float heightThreshold=lerp(
-                0.78,cloudThr(min(coverage,0.72)),
-                macro.profileShape);
+            float heightThreshold=cloudHeightThreshold(
+                coverage,macro.profileShape);
             float baseDensity=remapc(
                 macro.baseNoise,heightThreshold,
                 min(heightThreshold+0.22,0.98),0.0,1.0);
@@ -1639,7 +1660,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                 lp+=coneDir*lightStep;
                 CloudMacroSample lightMacro=
                     sampleCloudMacroLightingFromSlowFields(
-                        lp,viewWeatherMask,
+                        lp,viewWeatherMask,coverage,
                         sharedLightWeather,sharedLightCurl,
                         p,viewMacroUvw,macro.height,sharedShapeScale);
                 float lightDensity=cloudDensityFromMacro(
@@ -1689,7 +1710,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
                     lp+=coneDir*lightStep;
                     CloudMacroSample lightMacro=
                         sampleCloudMacroLightingFromSlowFields(
-                            lp,viewWeatherMask,
+                            lp,viewWeatherMask,coverage,
                             sharedLightWeather,sharedLightCurl,
                             p,viewMacroUvw,macro.height,sharedShapeScale);
                     float lightDensity=cloudShapeFromMacro(
