@@ -9126,22 +9126,46 @@ constexpr FClearColor kEditorNeutralClear{
  * returning, so this is safe immediately after AdvanceEditorStartup. Startup
  * callers disable GPU timing to keep warm-up and first-frame profiling clean.
  */
-bool PresentNeutralEditorFrame(
-    FEditorHost& host, bool record_gpu_timing) noexcept {
+int PresentNeutralEditorFrame(
+    FEditorHost& host, bool record_gpu_timing,
+    bool avoid_gpu_wait) noexcept {
     if (!host.attached || host.renderer.Device() == nullptr ||
         host.renderer.Swapchain() == nullptr) {
-        return false;
+        return -1;
     }
     IRhiCommandList* command_list = host.renderer.CommandList();
     if (command_list != nullptr) command_list->ResetStatistics();
-    host.renderer.BeginFrame(kEditorNeutralClear);
+    if (avoid_gpu_wait) {
+        if (!host.renderer.CanBeginFrameWithoutGpuWait()) {
+            return 0;
+        }
+        // Both checks execute serially on the HWND/RHI owner thread. No other
+        // editor caller can consume this frame slot between the preflight and
+        // begin, so a failed begin here is an invariant/backend failure rather
+        // than transient GPU backpressure.
+        if (!host.renderer.TryBeginFrameWithoutGpuWait(
+                kEditorNeutralClear)) {
+            return -1;
+        }
+    } else {
+        host.renderer.BeginFrame(kEditorNeutralClear);
+    }
     if (record_gpu_timing && command_list != nullptr) {
         command_list->BeginGpuTimingFrame(
             host.profiler_snapshot.frame_index + 1u);
         command_list->EndGpuTimingFrame();
     }
-    host.renderer.EndFrame();
-    return true;
+    if (avoid_gpu_wait)
+        host.renderer.EndFrameWithoutGpuWait();
+    else
+        host.renderer.EndFrame();
+    return 1;
+}
+
+bool PresentNeutralEditorFrame(
+    FEditorHost& host, bool record_gpu_timing) noexcept {
+    return PresentNeutralEditorFrame(
+        host, record_gpu_timing, false) > 0;
 }
 
 ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, uint32_t height) {
@@ -9439,20 +9463,26 @@ static void PublishProfilerFrame(
     }
 }
 
-ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
+static void CommitEditorFrameDelta(
+    FEditorHost& host, f32 safe_dt) noexcept {
+    host.frame_dt = safe_dt > 1e-4f
+        ? std::clamp(safe_dt, 1.0f / 240.0f, 0.10f)
+        : (1.0f / 60.0f);
+    if (host.water3d_ready) {
+        // Advance once per submitted editor frame, independently of 2D/3D
+        // view selection or refraction availability. Backpressured attempts
+        // must not consume ripple lifetime ahead of the rest of simulation.
+        host.water3d.Update(safe_dt);
+    }
+}
+
+static int RenderEditorFrame(
+    void* handle, float dt, bool avoid_gpu_wait) noexcept {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr || !host->attached) return;
+    if (host == nullptr || !host->attached) return -1;
     const f32 safe_dt = std::isfinite(dt) && dt > 0.0f
         ? std::clamp(dt, 0.0f, 0.10f)
         : 0.0f;
-    host->frame_dt = safe_dt > 1e-4f
-        ? std::clamp(safe_dt, 1.0f / 240.0f, 0.10f)
-        : (1.0f / 60.0f);
-    if (host->water3d_ready) {
-        // Advance once per editor render pump, independently of scene
-        // presentation, 2D/3D view selection, or refraction availability.
-        host->water3d.Update(safe_dt);
-    }
     // Do not enter BeginFrame until all startup upload phases are complete.
     // Each call performs one bounded phase and then returns to the Win32/WPF
     // message pump, keeping the editor responsive throughout shader warm-up.
@@ -9461,8 +9491,19 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         // A phase may be pending, may have failed non-fatally, or may just have
         // resized the swapchain. Presenting here keeps the child HWND at a
         // deterministic color until the complete scene stack is publishable.
-        (void)PresentNeutralEditorFrame(*host, false);
-        return;
+        const int present_result = PresentNeutralEditorFrame(
+            *host, false, avoid_gpu_wait);
+        if (present_result <= 0) return present_result;
+        CommitEditorFrameDelta(*host, safe_dt);
+        return 1;
+    }
+    // Raw DX12 normally waits for the next allocator slot inside Submit.
+    // The editor's cooperative entry point preflights that fence instead, so
+    // expensive scene preparation and simulation are not repeated while the
+    // GPU owns both frame slots.
+    if (avoid_gpu_wait &&
+        !host->renderer.CanBeginFrameWithoutGpuWait()) {
+        return 0;
     }
     {
         // Reuse the host-owned DFS scratch retained by DrawScene3D. Clearing a
@@ -9487,22 +9528,15 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         // expose the previous/default scene while managed file I/O is in flight.
         const editor_profiler::FTimePoint submitBegin =
             editor_profiler::FClock::now();
-        (void)PresentNeutralEditorFrame(*host, true);
+        const int present_result = PresentNeutralEditorFrame(
+            *host, true, avoid_gpu_wait);
+        if (present_result <= 0) return present_result;
         PublishProfilerFrame(
             *host, profilerFrameBegin,
             editor_profiler::ElapsedMilliseconds(submitBegin));
-        return;
+        CommitEditorFrameDelta(*host, safe_dt);
+        return 1;
     }
-    host->time += safe_dt;
-
-    if (host->play_state == 1) EditorStepPlay(*host, safe_dt);   // 再生中は物理を進める
-    if (host->logic_play)      EditorTickLogic(*host, safe_dt);  // インプロセス Play: ユーザーロジックを進める
-    if (host->preview_live && host->root.Get() != nullptr) {   // Preview: エンジンコンポーネントの実 OnUpdate
-        const f32 cdt = safe_dt > 0.05f ? 0.05f : safe_dt;
-        host->root->UpdateTree(cdt);
-        host->root->ResolveStructuralChanges();
-    }
-
 
     // MSAA サンプル数の変更を適用する (PSO はサンプル数を焼き込むためバッチごと再生成)。
     if (host->msaa_pending != host->msaa_samples && host->renderer.Device() != nullptr) {
@@ -9527,7 +9561,25 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         commandList != nullptr) {
         commandList->ResetStatistics();
     }
-    host->renderer.BeginFrame(clear);
+    if (avoid_gpu_wait) {
+        // The cooperative preflight above and this begin run on the same
+        // HWND/RHI owner thread. A false result cannot be a frame-slot race;
+        // classify it as fatal so the managed pump does not spin forever.
+        if (!host->renderer.TryBeginFrameWithoutGpuWait(clear))
+            return -1;
+    } else {
+        host->renderer.BeginFrame(clear);
+    }
+    CommitEditorFrameDelta(*host, safe_dt);
+    host->time += safe_dt;
+
+    if (host->play_state == 1) EditorStepPlay(*host, safe_dt);   // 再生中は物理を進める
+    if (host->logic_play)      EditorTickLogic(*host, safe_dt);  // インプロセス Play: ユーザーロジックを進める
+    if (host->preview_live && host->root.Get() != nullptr) {   // Preview: エンジンコンポーネントの実 OnUpdate
+        const f32 cdt = safe_dt > 0.05f ? 0.05f : safe_dt;
+        host->root->UpdateTree(cdt);
+        host->root->ResolveStructuralChanges();
+    }
     if (IRhiCommandList* commandList = host->renderer.CommandList();
         commandList != nullptr) {
         commandList->BeginGpuTimingFrame(
@@ -9543,11 +9595,14 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
         if (cl != nullptr) cl->EndGpuTimingFrame();
         const editor_profiler::FTimePoint submitBegin =
             editor_profiler::FClock::now();
-        host->renderer.EndFrame();
+        if (avoid_gpu_wait)
+            host->renderer.EndFrameWithoutGpuWait();
+        else
+            host->renderer.EndFrame();
         PublishProfilerFrame(
             *host, profilerFrameBegin,
             editor_profiler::ElapsedMilliseconds(submitBegin));
-        return;
+        return 1;
     }
 
     if (host->sprites_ready) {
@@ -9601,10 +9656,27 @@ ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
     }
     const editor_profiler::FTimePoint submitBegin =
         editor_profiler::FClock::now();
-    host->renderer.EndFrame();
+    if (avoid_gpu_wait)
+        host->renderer.EndFrameWithoutGpuWait();
+    else
+        host->renderer.EndFrame();
     PublishProfilerFrame(
         *host, profilerFrameBegin,
         editor_profiler::ElapsedMilliseconds(submitBegin));
+    return 1;
+}
+
+ACS_EDITOR_API void acs_editor_render(void* handle, float dt) {
+    (void)RenderEditorFrame(handle, dt, false);
+}
+
+/**
+ * Cooperative editor pump. Returns 1 after a submit/present, 0 when the GPU
+ * still owns the current frame slot, and -1 for an invalid/unattached host.
+ * RHI calls remain on the caller's existing owner thread.
+ */
+ACS_EDITOR_API int acs_editor_render_try(void* handle, float dt) {
+    return RenderEditorFrame(handle, dt, true);
 }
 
 ACS_EDITOR_API int acs_editor_profiler_get(

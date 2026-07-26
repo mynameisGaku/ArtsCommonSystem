@@ -3234,21 +3234,30 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string submit = section(
         command,
-        "void FDx12CommandList::Submit()",
-        "void FDx12CommandList::BeginRenderToSwapchain(");
+        "void FDx12CommandList::SubmitInternal(",
+        "void FDx12CommandList::Submit()");
     const std::size_t main_submit_call =
         submit.find("SubmitGraphicsCommandLists(lists, 1u)");
+    const std::size_t wait_gate =
+        submit.find("if (wait_for_next_slot)");
     const std::size_t next_slot_wait =
         submit.find("WaitForFenceValue(m_FrameFences[next_slot])");
     const std::size_t retirement_collect =
         submit.find("CollectRetiredResources()", next_slot_wait);
     EXPECT_TRUE(main_submit_call != std::string::npos);
+    EXPECT_TRUE(wait_gate != std::string::npos);
     EXPECT_TRUE(next_slot_wait != std::string::npos);
     EXPECT_TRUE(retirement_collect != std::string::npos);
     EXPECT_TRUE(main_submit_call < next_slot_wait);
+    EXPECT_TRUE(wait_gate < next_slot_wait);
     EXPECT_TRUE(next_slot_wait < retirement_collect);
     EXPECT_TRUE(submit.find("GraphicsQueue()->ExecuteCommandLists") ==
                 std::string::npos);
     EXPECT_TRUE(submit.find("SignalGraphicsQueue()") ==
+                std::string::npos);
+    EXPECT_TRUE(command.find(
+        "void FDx12CommandList::SubmitWithoutGpuWait()") !=
+                std::string::npos);
+    EXPECT_TRUE(command.find("SubmitInternal(false);") !=
                 std::string::npos);
 }

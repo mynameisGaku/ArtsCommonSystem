@@ -207,6 +207,12 @@ public:
     void PrepareCommandRecording() noexcept;
 
     /**
+     * Return whether PrepareCommandRecording can reuse the current frame slot
+     * without waiting. A pending primary frame must first reach Present.
+     */
+    bool CanPrepareCommandRecordingWithoutWait() const noexcept;
+
+    /**
      * primary swapchain の Present が Diligent 側の FinishFrame() を完了したことを通知する。
      */
     void NotifyPrimaryPresentFinished() noexcept;

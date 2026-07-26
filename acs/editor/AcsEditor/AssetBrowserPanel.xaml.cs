@@ -3030,7 +3030,7 @@ public partial class AssetBrowserPanel : UserControl
         try
         {
             AssetImportOperationResult operation = await RunAssetOperationAsync(
-                () => AssetImportWorkflow.ImportFiles(
+                () => AssetImportWorkflow.ImportExternalPaths(
                     database,
                     destinationDirectory,
                     sources,
@@ -3046,16 +3046,25 @@ public partial class AssetBrowserPanel : UserControl
             foreach (string warning in operation.Warnings)
                 Log?.Invoke("Import warning: " + warning);
             RefreshView();
-            SelectAssets(operation.Imported.Select(
-                static item => item.DestinationPath));
-            Log?.Invoke(
-                $"{operation.Imported.Count} 個のアセットをインポートしました → " +
-                RelDisplay(destinationDirectory));
+            SelectAssets(
+                operation.Imported.Select(static item => item.DestinationPath)
+                    .Concat(operation.ImportedDirectories));
+            Log?.Invoke(operation.ImportedDirectories.Count == 0
+                ? $"{operation.Imported.Count} 個のアセットをインポートしました → " +
+                  RelDisplay(destinationDirectory)
+                : $"{operation.Imported.Count} 個のアセットと " +
+                  $"{operation.ImportedDirectories.Count} 個のフォルダーを" +
+                  "インポートしました → " +
+                  RelDisplay(destinationDirectory));
         }
         catch (Exception error)
         {
             if (!IsCurrentOperationContext(database, generation)) return;
-            TryRefreshAfterOperationFailure();
+            // A retained import journal or destination race must remain
+            // unindexed until recovery/inspection. An ordinary Refresh could
+            // otherwise adopt foreign collision bytes as a managed asset.
+            if (error is not AssetImportRecoveryRequiredException)
+                TryRefreshAfterOperationFailure();
             ReportAssetOperationFailure("アセットをインポートできませんでした: " + error.Message);
         }
     }

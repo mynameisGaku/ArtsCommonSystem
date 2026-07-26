@@ -130,6 +130,18 @@ internal static class SceneEditorMigrationSelfTest
                 "private async void OnAssetActivated(");
         string onLoadedBody =
             ExtractMethodBody(shellSource, "private void OnLoaded(");
+        string onEngineAttachedBody =
+            ExtractMethodBody(shellSource, "private void OnEngineAttached(");
+        string completeEngineStartupBody =
+            ExtractMethodBody(shellSource, "private void CompleteEngineStartup(");
+        string runEngineStartupCompletionBody =
+            ExtractMethodBody(
+                shellSource,
+                "private void RunEngineStartupCompletionStage(");
+        string failEngineStartupBody =
+            ExtractMethodBody(shellSource, "private void FailEngineStartup(");
+        string retryEngineAttachmentBody =
+            ExtractMethodBody(shellSource, "internal bool RetryEngineAttachment(");
         string setGameViewBody =
             ExtractMethodBody(shellSource, "private void SetGameView(");
         string newSceneBody =
@@ -405,7 +417,7 @@ internal static class SceneEditorMigrationSelfTest
             "EngineInterop.acs_editor_attach(",
             StringComparison.Ordinal);
         int renderCall = viewportSource.IndexOf(
-            "EngineInterop.acs_editor_render(",
+            "EngineInterop.TryRenderEditorFrame(",
             StringComparison.Ordinal);
         Check(
             createCall >= 0 &&
@@ -415,6 +427,9 @@ internal static class SceneEditorMigrationSelfTest
             "viewport suppresses native presentation before its render pump starts");
         int initialHide = onLoadedBody.IndexOf(
             "ViewportHost.Visibility = Visibility.Hidden",
+            StringComparison.Ordinal);
+        int initialHiddenRenderingAllowance = onLoadedBody.IndexOf(
+            "SetHiddenStartupRenderingAllowed(true)",
             StringComparison.Ordinal);
         int childPublish = onLoadedBody.IndexOf(
             "ViewportHost.Child = _viewport",
@@ -445,6 +460,9 @@ internal static class SceneEditorMigrationSelfTest
             completeLoadBody.Contains(
                 "SceneLoadPublicationBranch.Run(",
                 StringComparison.Ordinal) &&
+            initialHiddenRenderingAllowance >= 0 &&
+            initialHiddenRenderingAllowance < initialHide &&
+            initialHiddenRenderingAllowance < childPublish &&
             initialHide >= 0 &&
             childPublish > initialHide &&
             viewDescriptorPublish >= 0 &&
@@ -458,6 +476,70 @@ internal static class SceneEditorMigrationSelfTest
                 auditedManagedCs,
                 @"ViewportHost\.Visibility\s*=\s*Visibility\.Visible") == 1,
             "published scenes restore their view descriptor before the gated HwndHost is revealed");
+        Check(
+            onEngineAttachedBody.Contains(
+                "SetHiddenStartupRenderingAllowed(true)",
+                StringComparison.Ordinal) &&
+            !completeEngineStartupBody.Contains(
+                "SetHiddenStartupRenderingAllowed(false)",
+                StringComparison.Ordinal) &&
+            runEngineStartupCompletionBody.Contains(
+                "_engineStartupState = EditorEngineStartupState.Ready",
+                StringComparison.Ordinal) &&
+            runEngineStartupCompletionBody.IndexOf(
+                "_engineStartupState = EditorEngineStartupState.Ready",
+                StringComparison.Ordinal) <
+            runEngineStartupCompletionBody.IndexOf(
+                "SetHiddenStartupRenderingAllowed(false)",
+                StringComparison.Ordinal) &&
+            failEngineStartupBody.Contains(
+                "SetHiddenStartupRenderingAllowed(false)",
+                StringComparison.Ordinal) &&
+            retryEngineAttachmentBody.IndexOf(
+                "SetHiddenStartupRenderingAllowed(true)",
+                StringComparison.Ordinal) >= 0 &&
+            retryEngineAttachmentBody.IndexOf(
+                "SetHiddenStartupRenderingAllowed(true)",
+                StringComparison.Ordinal) <
+            retryEngineAttachmentBody.IndexOf(
+                "RetryAttach()",
+                StringComparison.Ordinal) &&
+            viewportSource.Contains(
+                "_hiddenStartupRenderingAllowed",
+                StringComparison.Ordinal) &&
+            !ExtractMethodBody(
+                    viewportSource,
+                    "protected override HandleRef BuildWindowCore(")
+                .Contains(
+                    "_hiddenStartupRenderingAllowed = false",
+                    StringComparison.Ordinal),
+            "hidden renderer warm-up is enabled before hide/child attach, survives HWND construction, and is bounded by ready/failure");
+
+        string engineInteropSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "EngineInterop.cs"));
+        string cooperativeRenderBody = ExtractMethodBody(
+            engineInteropSource,
+            "internal static int TryRenderEditorFrame(");
+        Check(
+            cooperativeRenderBody.Contains(
+                "catch (EntryPointNotFoundException)",
+                StringComparison.Ordinal) &&
+            cooperativeRenderBody.Contains(
+                "return EditorRenderFatalResult",
+                StringComparison.Ordinal) &&
+            !cooperativeRenderBody.Contains(
+                "acs_editor_render(handle",
+                StringComparison.Ordinal) &&
+            viewportSource.Contains(
+                "EngineInterop.TryRenderEditorFrame(",
+                StringComparison.Ordinal) &&
+            viewportSource.Contains(
+                "RenderingFailed?.Invoke(",
+                StringComparison.Ordinal) &&
+            shellSource.Contains(
+                "_viewport.RenderingFailed += OnEngineRenderingFailed",
+                StringComparison.Ordinal),
+            "missing cooperative ABI entry points fail closed, stop the viewport pump, and never fall back to blocking render");
 
         string nativeEditorPath = Path.GetFullPath(
             Path.Combine(
@@ -475,7 +557,7 @@ internal static class SceneEditorMigrationSelfTest
         string nativeRenderBody =
             ExtractMethodBody(
                 nativeEditorSource,
-                "ACS_EDITOR_API void acs_editor_render(");
+                "static int RenderEditorFrame(");
         Check(
             nativeCreateBody.Contains("ClearScene(*host)", StringComparison.Ordinal) &&
             !nativeCreateBody.Contains("InitDemoScene", StringComparison.Ordinal),
@@ -485,12 +567,15 @@ internal static class SceneEditorMigrationSelfTest
                 "scene_presentation_suppressed",
                 StringComparison.Ordinal) &&
             nativeRenderBody.Contains(
-                "PresentNeutralEditorFrame(*host, true)",
+                "PresentNeutralEditorFrame(",
                 StringComparison.Ordinal) &&
             nativeRenderBody.Contains(
-                "return;",
+                "const int present_result",
+                StringComparison.Ordinal) &&
+            nativeRenderBody.Contains(
+                "if (present_result <= 0) return present_result;",
                 StringComparison.Ordinal),
-            "native loading gate presents a neutral frame without drawing scene content");
+            "native loading gate presents a neutral frame without drawing scene content and preserves busy/fatal results");
 
         bool viewSwitchIsProjectionOnly =
             switchBody.Length > 0 &&

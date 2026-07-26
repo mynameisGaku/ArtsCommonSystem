@@ -44,6 +44,10 @@ public:
     /** コマンドリストをキューへ投入し、GPU 完了 fence を Signal して次スロットを待つ。 */
     void Submit() noexcept override;
 
+    bool CanBeginWithoutGpuWait() const noexcept override;
+    bool TryBeginWithoutGpuWait() noexcept override;
+    void SubmitWithoutGpuWait() noexcept override;
+
     bool BeginGpuTimingFrame(u64 frame_index) noexcept override;
     bool BeginGpuTimingPass(ERhiGpuTimingPass pass) noexcept override;
     void EndGpuTimingPass() noexcept override;
@@ -268,6 +272,8 @@ public:
     void* NativeHandle() noexcept override { return m_CmdList; }
 
 private:
+    bool BeginCurrentSlot() noexcept;
+    void SubmitInternal(bool wait_for_next_slot) noexcept;
     static constexpr u32 kGpuTimingFrameSlots = 2;
     static constexpr u32 kGpuTimingQueriesPerSlot = 32;
     static constexpr u32 kGpuTimingSegmentsPerSlot = 15;

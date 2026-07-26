@@ -310,6 +310,19 @@ internal static class AssetBrowserViewStateSelfTest
                       StringComparison.OrdinalIgnoreCase),
                 "background external drops import into the current Assets directory");
 
+            string externalFolder = Path.Combine(externalRoot, "EnvironmentPack");
+            AssetBrowserImportDropPlan recursiveImport =
+                AssetBrowserDropPolicy.EvaluateExternalImport(
+                    new[] { externalFolder, externalA },
+                    dropRoot,
+                    destination,
+                    destinationIsDirectory: true);
+            Check(recursiveImport.IsValid &&
+                  recursiveImport.SourcePaths.SequenceEqual(
+                      new[] { externalA, externalFolder },
+                      StringComparer.OrdinalIgnoreCase),
+                "external folder roots and loose files share the bounded import drop plan");
+
             string databaseInternals = Path.Combine(
                 dropRoot,
                 AssetDatabase.InternalDirectoryName,

@@ -194,6 +194,8 @@
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="EDITOR UI / LOG PUMP"
                                    Foreground="{StaticResource TextDim}" FontSize="10"
@@ -208,6 +210,13 @@
                                    Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
                         <TextBlock Grid.Row="3" Text="Console retained / trimmed"/>
                         <TextBlock x:Name="LogRetentionValue" Grid.Row="3" Grid.Column="1"
+                                   Text="0 / 0" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="4" Text="Native call last / peak"/>
+                        <TextBlock x:Name="NativeCallValue" Grid.Row="4" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="5" Text="GPU yields / slow calls"
+                                   ToolTip="GPU yields are frame-slot backpressure events returned without waiting on the WPF Dispatcher. Slow calls exceeded 50 ms."/>
+                        <TextBlock x:Name="NativeBackpressureValue" Grid.Row="5" Grid.Column="1"
                                    Text="0 / 0" FontFamily="Consolas"/>
                     </Grid>
 

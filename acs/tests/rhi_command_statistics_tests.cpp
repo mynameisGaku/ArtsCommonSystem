@@ -14,9 +14,9 @@ namespace {
 
 class FStatisticsCommandList : public IRhiCommandList {
 public:
-    void Begin() noexcept override {}
+    void Begin() noexcept override { ++begin_count; }
     void End() noexcept override {}
-    void Submit() noexcept override {}
+    void Submit() noexcept override { ++submit_count; }
 
     void BeginRenderToSwapchain(
         IRhiSwapchain&, u32, const FClearColor&, IRhiTexture*, f32) noexcept override {}
@@ -96,11 +96,24 @@ public:
     u32 mrt_end_target_count = 0u;
     IRhiTexture* mrt_end_targets[8]{};
     u32 single_rt_end_count = 0u;
+    u32 begin_count = 0u;
+    u32 submit_count = 0u;
     u32 set_pipeline_count = 0u;
     u32 set_vertex_buffer_count = 0u;
     u32 set_index_buffer_count = 0u;
     u32 set_constant_buffer_count = 0u;
 };
+
+ACS_TEST(Render,
+         NonBlockingCommandListDefaultsPreserveLegacyBackendContract)
+{
+    FStatisticsCommandList command;
+    EXPECT_TRUE(command.CanBeginWithoutGpuWait());
+    EXPECT_TRUE(command.TryBeginWithoutGpuWait());
+    command.SubmitWithoutGpuWait();
+    EXPECT_EQ(command.begin_count, 1u);
+    EXPECT_EQ(command.submit_count, 1u);
+}
 
 class FTimingCommandList final : public FStatisticsCommandList {
 public:

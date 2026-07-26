@@ -4,9 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AcsEditor.Packaging;
@@ -17,6 +20,10 @@ internal static class PackageResponsivenessSelfTest
 {
     private static int _failures;
     private static TextWriter _output = TextWriter.Null;
+    private sealed record VerifierManifestFile(
+        string path,
+        long size,
+        string sha256);
 
     internal static int Run(TextWriter output)
     {
@@ -62,6 +69,7 @@ internal static class PackageResponsivenessSelfTest
     {
         await VerifyLatestOnlyValidationAsync();
         await VerifyConfigSnapshotAsync();
+        await VerifyArchiveIntegrityAsync();
         VerifyPrefabCookRewrite();
         VerifyBlueprintCookRewrite();
         VerifyBlueprintCookCacheVersion();
@@ -73,6 +81,209 @@ internal static class PackageResponsivenessSelfTest
         await VerifyOwnerCloseDrainAsync();
         await VerifyCleanupRetryAsync();
         VerifyValidateCancellation();
+    }
+
+    private static async Task VerifyArchiveIntegrityAsync()
+    {
+        string root = FixtureRoot("archive-verifier");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string valid = CreateVerifierPackage(root, "valid");
+            PackageVerificationResult verified =
+                await PackageCore.VerifyPackageArchiveAsync(valid);
+            Check(
+                verified.PackageId == "Verifier-1.2.3-win64" &&
+                verified.FileCount == 2 &&
+                verified.UncompressedBytes > 0 &&
+                verified.Profile == PackageProfile.Shipping &&
+                verified.AssetPackSha256.Length == 64,
+                "package archive verifier accepts a complete manifest and payload");
+
+            string corrupt = CreateVerifierPackage(
+                root,
+                "corrupt",
+                corruptExecutable: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(corrupt),
+                "package archive verifier rejects payload hash corruption");
+
+            string extra = CreateVerifierPackage(
+                root,
+                "extra",
+                addUnlistedPayload: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(extra),
+                "package archive verifier rejects unlisted payloads");
+
+            string traversal = CreateVerifierPackage(
+                root,
+                "traversal",
+                addTraversalEntry: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(traversal),
+                "package archive verifier rejects traversal entry paths");
+
+            string caseCollision = CreateVerifierPackage(
+                root,
+                "case-collision",
+                addCaseCollision: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(caseCollision),
+                "package archive verifier rejects Windows case-colliding paths");
+
+            string attributed = CreateVerifierPackage(
+                root,
+                "external-attributes",
+                addExternalAttributes: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(attributed),
+                "package archive verifier rejects link and platform attribute entries");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static string CreateVerifierPackage(
+        string directory,
+        string suffix,
+        bool corruptExecutable = false,
+        bool addUnlistedPayload = false,
+        bool addTraversalEntry = false,
+        bool addCaseCollision = false,
+        bool addExternalAttributes = false)
+    {
+        const string packageId = "Verifier-1.2.3-win64";
+        byte[] executable = Encoding.ASCII.GetBytes("MZ ACS verifier fixture");
+        byte[] assetPack = Encoding.ASCII.GetBytes("ACPAK verifier fixture");
+        var declaredPayloads = new Dictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            ["Verifier.exe"] = executable,
+            ["game.acpak"] = assetPack,
+        };
+        VerifierManifestFile[] files = declaredPayloads
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => new VerifierManifestFile(
+                item.Key,
+                item.Value.LongLength,
+                Convert.ToHexString(SHA256.HashData(item.Value)).ToLowerInvariant()))
+            .ToArray();
+        string buildId = VerifierBuildId(files);
+        VerifierManifestFile assetPackFile = files.Single(
+            file => file.path == "game.acpak");
+        var manifest = new
+        {
+            schemaVersion = 3,
+            productName = "Verifier",
+            productVersion = "1.2.3",
+            projectSchemaVersion = 1,
+            engineVersion = "self-test",
+            platform = "win-x64",
+            configuration = "Release",
+            profile = "Shipping",
+            executable = "Verifier.exe",
+            buildId,
+            canonicalSceneAssetId = "0123456789abcdef0123456789abcdef",
+            canonicalSceneKind = "Scene3D",
+            canonicalSceneImporter = "CanonicalSceneAdapter",
+            canonicalSceneImporterVersion = 1,
+            assetGraphHash = new string('a', 64),
+            sceneBootstrap = new
+            {
+                path = CanonicalSceneAdapter.BootstrapPath,
+                contract = CanonicalSceneAdapter.BootstrapContract,
+                sourceFormat = CanonicalSceneAdapter.LegacyScene3DFormat,
+                adapterProjectionHint = "perspective",
+            },
+            assetPack = new
+            {
+                path = "game.acpak",
+                size = assetPackFile.size,
+                sha256 = assetPackFile.sha256,
+                formatVersion = 1,
+                compressed = true,
+                sourceFileCount = 1,
+            },
+            files,
+        };
+
+        string path = Path.Combine(directory, suffix + ".zip");
+        using FileStream output = new(path, FileMode.CreateNew, FileAccess.Write);
+        using var archive = new ZipArchive(output, ZipArchiveMode.Create);
+        foreach ((string payloadPath, byte[] declaredBytes) in declaredPayloads)
+        {
+            byte[] bytes = declaredBytes;
+            if (corruptExecutable && payloadPath == "Verifier.exe")
+            {
+                bytes = declaredBytes.ToArray();
+                bytes[^1] ^= 0x01;
+            }
+            ZipArchiveEntry written = WriteVerifierEntry(
+                archive,
+                packageId + "/" + payloadPath,
+                bytes);
+            if (addExternalAttributes &&
+                payloadPath == "Verifier.exe")
+            {
+                written.ExternalAttributes = 1;
+            }
+        }
+        if (addUnlistedPayload)
+        {
+            WriteVerifierEntry(
+                archive,
+                packageId + "/unexpected.bin",
+                [0xde, 0xad, 0xbe, 0xef]);
+        }
+        if (addTraversalEntry)
+        {
+            WriteVerifierEntry(
+                archive,
+                packageId + "/../escape.bin",
+                [0x01]);
+        }
+        if (addCaseCollision)
+        {
+            WriteVerifierEntry(
+                archive,
+                packageId + "/GAME.ACPAK",
+                [0x02]);
+        }
+        WriteVerifierEntry(
+            archive,
+            packageId + "/package-manifest.json",
+            JsonSerializer.SerializeToUtf8Bytes(manifest));
+        return path;
+    }
+
+    private static ZipArchiveEntry WriteVerifierEntry(
+        ZipArchive archive,
+        string path,
+        byte[] payload)
+    {
+        ZipArchiveEntry entry = archive.CreateEntry(
+            path,
+            CompressionLevel.NoCompression);
+        using Stream stream = entry.Open();
+        stream.Write(payload);
+        return entry;
+    }
+
+    private static string VerifierBuildId(
+        IReadOnlyList<VerifierManifestFile> files)
+    {
+        var canonical = new StringBuilder();
+        foreach (VerifierManifestFile file in files)
+        {
+            canonical.Append(file.path).Append('\0')
+                     .Append(file.size).Append('\0')
+                     .Append(file.sha256).Append('\n');
+        }
+        return Convert.ToHexString(
+                SHA256.HashData(new UTF8Encoding(false).GetBytes(canonical.ToString())))
+            .ToLowerInvariant();
     }
 
     private static void VerifyPrefabCookRewrite()
@@ -1150,6 +1361,26 @@ internal static class PackageResponsivenessSelfTest
         try
         {
             action();
+            Fail(label + " (no exception)");
+        }
+        catch (TException)
+        {
+            Pass(label);
+        }
+        catch (Exception error)
+        {
+            Fail(label + $" (wrong exception: {error.GetType().Name})");
+        }
+    }
+
+    private static async Task CheckThrowsAsync<TException>(
+        Func<Task> action,
+        string label)
+        where TException : Exception
+    {
+        try
+        {
+            await action();
             Fail(label + " (no exception)");
         }
         catch (TException)

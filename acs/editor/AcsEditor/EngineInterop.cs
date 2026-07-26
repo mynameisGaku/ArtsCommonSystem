@@ -112,6 +112,37 @@ internal static class EngineInterop
     public static extern void acs_editor_render(IntPtr handle, float dt);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int acs_editor_render_try(IntPtr handle, float dt);
+
+    internal const int EditorRenderFatalResult = -1;
+
+    internal static int TryRenderEditorFrame(IntPtr handle, float dt)
+    {
+        if (handle == IntPtr.Zero)
+            return EditorRenderFatalResult;
+
+        try
+        {
+            return acs_editor_render_try(handle, dt);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // A stale native DLL cannot provide the cooperative frame contract.
+            // Falling back to acs_editor_render would put an unbounded GPU wait
+            // back on WPF's dispatcher, so fail closed and let the viewport stop.
+            return EditorRenderFatalResult;
+        }
+        catch (DllNotFoundException)
+        {
+            return EditorRenderFatalResult;
+        }
+        catch (BadImageFormatException)
+        {
+            return EditorRenderFatalResult;
+        }
+    }
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     private static extern int acs_editor_profiler_get(
         IntPtr handle,
         ref EditorProfilerSnapshot snapshot,

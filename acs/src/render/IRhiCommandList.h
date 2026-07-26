@@ -115,6 +115,30 @@ public:
     virtual void Submit() noexcept = 0;
 
     /**
+     * Return whether the current frame slot can be reset without a CPU fence
+     * wait. Backends without an explicit frame-slot fence keep the legacy
+     * always-ready behavior.
+     */
+    virtual bool CanBeginWithoutGpuWait() const noexcept { return true; }
+
+    /**
+     * Begin recording only when the current frame slot is immediately
+     * reusable. The default preserves the existing backend contract; explicit
+     * fence-ring backends override this to fail closed before allocator reset.
+     */
+    virtual bool TryBeginWithoutGpuWait() noexcept {
+        Begin();
+        return true;
+    }
+
+    /**
+     * Submit without waiting for the next frame slot on the calling thread.
+     * The default remains the normal Submit path. Backends that expose an
+     * asynchronous fence ring override it for latency-sensitive editor hosts.
+     */
+    virtual void SubmitWithoutGpuWait() noexcept { Submit(); }
+
+    /**
      * Start asynchronous GPU timestamp collection for one rendered frame.
      *
      * The default implementation is unsupported. Implementations must never

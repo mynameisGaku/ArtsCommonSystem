@@ -153,6 +153,8 @@ internal static class Program
             Console.WriteLine($"Package: {result.ZipPath}");
             Console.WriteLine($"Build ID: {result.BuildId}");
             Console.WriteLine($"Files: {result.FileCount}, bytes: {result.UncompressedBytes}");
+            Console.WriteLine(
+                $"Archive verification: {(result.ArchiveVerified ? "PASS" : "NOT RUN")}");
             return 0;
         }
         catch (PackageValidationException error)
@@ -616,6 +618,9 @@ internal static class Program
                 [runtime],
                 secondProgress);
 
+            Assert(
+                first.ArchiveVerified && second.ArchiveVerified,
+                "completed packages must pass full archive verification before publication");
             Assert(
                 SHA256.HashData(File.ReadAllBytes(first.ZipPath))
                     .SequenceEqual(SHA256.HashData(File.ReadAllBytes(second.ZipPath))),
@@ -1084,7 +1089,8 @@ internal static class Program
 
             Console.WriteLine(
                 "SELF-TEST PASS: canonical Asset-ID dependency closure, DDC miss/hit reuse, " +
-                "deterministic Cook/acpak+ZIP, native verify, canonical/bootstrap manifest, " +
+                "deterministic Cook/acpak+ZIP, native and archive SHA-256 verify, " +
+                "canonical/bootstrap manifest, " +
                 "2D+supported 3D package smoke, metadata/source exclusions, path rewrite, and " +
                 "identity-mismatch/traversal/reparse/runtime-adapter guards.");
             return 0;

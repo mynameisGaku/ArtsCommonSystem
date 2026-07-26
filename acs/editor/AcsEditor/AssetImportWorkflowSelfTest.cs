@@ -129,6 +129,550 @@ internal static class AssetImportWorkflowSelfTest
                 "import chooses a collision-free name without overwriting an asset");
             File.Delete(collisionSource);
 
+            TestProject recursive = NewProject("recursive-folder");
+            string environmentPack = Path.Combine(
+                recursive.Sources,
+                "EnvironmentPack");
+            string nestedTextures = Path.Combine(
+                environmentPack,
+                "Textures",
+                "Terrain");
+            string emptyFolder = Path.Combine(
+                environmentPack,
+                "Meshes",
+                "Empty");
+            Directory.CreateDirectory(nestedTextures);
+            Directory.CreateDirectory(emptyFolder);
+            string albedoSource = Path.Combine(nestedTextures, "albedo.png");
+            string meshSource = Path.Combine(environmentPack, "island.glb");
+            string looseSource = Path.Combine(recursive.Sources, "readme.txt");
+            File.WriteAllText(albedoSource, "albedo", new UTF8Encoding(false));
+            File.WriteAllText(meshSource, "mesh", new UTF8Encoding(false));
+            File.WriteAllText(looseSource, "loose", new UTF8Encoding(false));
+
+            AssetImportOperationResult recursiveImport =
+                AssetImportWorkflow.ImportExternalPaths(
+                    recursive.Database,
+                    recursive.Target,
+                    new[] { environmentPack, looseSource });
+            string importedPack = Path.Combine(
+                recursive.Target,
+                "EnvironmentPack");
+            string importedAlbedo = Path.Combine(
+                importedPack,
+                "Textures",
+                "Terrain",
+                "albedo.png");
+            string importedMesh = Path.Combine(importedPack, "island.glb");
+            string importedLoose = Path.Combine(recursive.Target, "readme.txt");
+            Check(recursiveImport.Imported.Count == 3 &&
+                  recursiveImport.ImportedDirectories.SequenceEqual(
+                      new[] { importedPack },
+                      StringComparer.OrdinalIgnoreCase) &&
+                  File.ReadAllText(importedAlbedo) == "albedo" &&
+                  File.ReadAllText(importedMesh) == "mesh" &&
+                  File.ReadAllText(importedLoose) == "loose" &&
+                  Directory.Exists(Path.Combine(
+                      importedPack,
+                      "Meshes",
+                      "Empty")) &&
+                  recursive.Database.TryGetByPath(importedAlbedo, out _) &&
+                  recursive.Database.TryGetByPath(importedMesh, out _) &&
+                  recursive.Database.TryGetByPath(importedLoose, out _),
+                "recursive drop preserves hierarchy and empty folders, imports loose files, indexes, and returns the root selection");
+            Check(TransactionDirectories(
+                      recursive.Assets,
+                      "import-staging").Length == 0,
+                "recursive import cleans every per-file and private-directory staging entry");
+
+            AssetImportOperationResult recursiveCollision =
+                AssetImportWorkflow.ImportExternalPaths(
+                    recursive.Database,
+                    recursive.Target,
+                    new[] { environmentPack });
+            string collisionPack = Path.Combine(
+                recursive.Target,
+                "EnvironmentPack (1)");
+            Check(recursiveCollision.ImportedDirectories.SequenceEqual(
+                      new[] { collisionPack },
+                      StringComparer.OrdinalIgnoreCase) &&
+                  File.Exists(Path.Combine(collisionPack, "island.glb")) &&
+                  File.ReadAllText(importedMesh) == "mesh",
+                "recursive import reserves a collision-free folder root without merging or overwriting");
+
+            TestProject recursiveRollback = NewProject("recursive-rollback");
+            string rollbackFolder = Path.Combine(
+                recursiveRollback.Sources,
+                "RollbackPack");
+            Directory.CreateDirectory(rollbackFolder);
+            File.WriteAllText(
+                Path.Combine(rollbackFolder, "first.bin"),
+                "first",
+                new UTF8Encoding(false));
+            bool recursiveRolledBack = false;
+            try
+            {
+                _ = AssetImportWorkflow.ImportExternalPaths(
+                    recursiveRollback.Database,
+                    recursiveRollback.Target,
+                    new[] { rollbackFolder },
+                    testHooks: new AssetImportTestHooks(
+                        FailAfter: AssetImportCheckpoint.AssetPublished));
+            }
+            catch (IOException)
+            {
+                recursiveRolledBack = true;
+            }
+            Check(recursiveRolledBack &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveRollback.Target,
+                      "RollbackPack")) &&
+                  recursiveRollback.Database.Snapshot().Count == 0 &&
+                  TransactionDirectories(
+                      recursiveRollback.Assets,
+                      "import-staging").Length == 0,
+                "recursive batch failure rolls back payload, metadata, hierarchy, index, and journals");
+
+            TestProject recursiveCrash = NewProject(
+                "recursive-crash-rollback");
+            string recursiveCrashFolder = Path.Combine(
+                recursiveCrash.Sources,
+                "CrashPack");
+            Directory.CreateDirectory(Path.Combine(
+                recursiveCrashFolder,
+                "Empty",
+                "Nested"));
+            File.WriteAllText(
+                Path.Combine(recursiveCrashFolder, "first.bin"),
+                "first",
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(recursiveCrashFolder, "second.bin"),
+                "second",
+                new UTF8Encoding(false));
+            bool recursiveProcessTerminated =
+                SimulateRecursiveImportCrash(
+                    recursiveCrash,
+                    recursiveCrashFolder,
+                    AssetImportCheckpoint.MetadataPublished);
+            string recursiveCrashDestination = Path.Combine(
+                recursiveCrash.Target,
+                "CrashPack");
+            bool recursivePartialStateExisted =
+                File.Exists(Path.Combine(
+                    recursiveCrashDestination,
+                    "first.bin")) &&
+                !File.Exists(Path.Combine(
+                    recursiveCrashDestination,
+                    "second.bin")) &&
+                Directory.Exists(Path.Combine(
+                    recursiveCrashDestination,
+                    "Empty",
+                    "Nested"));
+            AssetImportReconciliationResult recursiveCrashRecovery =
+                AssetImportWorkflow.Reconcile(recursiveCrash.Database);
+            _ = recursiveCrash.Database.Refresh(verifyContent: true);
+            Check(recursiveProcessTerminated &&
+                  recursivePartialStateExisted &&
+                  recursiveCrashRecovery.DiscardedTransactions == 1 &&
+                  recursiveCrashRecovery.PreservedTransactions == 0 &&
+                  !Directory.Exists(recursiveCrashDestination) &&
+                  recursiveCrash.Database.Snapshot().Count == 0 &&
+                  TransactionDirectories(
+                      recursiveCrash.Assets,
+                      "import-staging").Length == 0,
+                "startup rolls an interrupted recursive batch back as one all-or-nothing transaction");
+
+            TestProject recursiveCommittedCrash = NewProject(
+                "recursive-committed-crash");
+            string committedFolder = Path.Combine(
+                recursiveCommittedCrash.Sources,
+                "CommittedPack");
+            Directory.CreateDirectory(Path.Combine(
+                committedFolder,
+                "Empty"));
+            File.WriteAllText(
+                Path.Combine(committedFolder, "one.bin"),
+                "one",
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(committedFolder, "two.bin"),
+                "two",
+                new UTF8Encoding(false));
+            bool committedCleanupInterrupted =
+                SimulateRecursiveImportCrash(
+                    recursiveCommittedCrash,
+                    committedFolder,
+                    AssetImportCheckpoint.RecursiveBatchCommitted);
+            string committedDestination = Path.Combine(
+                recursiveCommittedCrash.Target,
+                "CommittedPack");
+            string committedBatchDirectory = TransactionDirectories(
+                recursiveCommittedCrash.Assets,
+                "import-staging").Single();
+            string partiallyCleanedChild = Directory
+                .EnumerateDirectories(
+                    committedBatchDirectory,
+                    "*",
+                    SearchOption.TopDirectoryOnly)
+                .First(path => Guid.TryParseExact(
+                    Path.GetFileName(path),
+                    "N",
+                    out _));
+            File.Delete(Path.Combine(
+                partiallyCleanedChild,
+                "manifest.v1.json"));
+            AssetImportReconciliationResult committedRecovery =
+                AssetImportWorkflow.Reconcile(
+                    recursiveCommittedCrash.Database);
+            _ = recursiveCommittedCrash.Database.Refresh(
+                verifyContent: true);
+            Check(committedCleanupInterrupted &&
+                  committedRecovery.CompletedTransactions == 1 &&
+                  committedRecovery.PreservedTransactions == 0 &&
+                  File.ReadAllText(Path.Combine(
+                      committedDestination,
+                      "one.bin")) == "one" &&
+                  File.ReadAllText(Path.Combine(
+                      committedDestination,
+                      "two.bin")) == "two" &&
+                  Directory.Exists(Path.Combine(
+                      committedDestination,
+                      "Empty")) &&
+                  recursiveCommittedCrash.Database.Snapshot().Count == 2 &&
+                  TransactionDirectories(
+                      recursiveCommittedCrash.Assets,
+                      "import-staging").Length == 0,
+                "startup verifies and finalizes a committed recursive batch whose journal cleanup was interrupted");
+
+            TestProject recursiveAmbiguousCrash = NewProject(
+                "recursive-ambiguous-crash");
+            string ambiguousFolder = Path.Combine(
+                recursiveAmbiguousCrash.Sources,
+                "AmbiguousPack");
+            Directory.CreateDirectory(ambiguousFolder);
+            File.WriteAllText(
+                Path.Combine(ambiguousFolder, "asset.bin"),
+                "owned",
+                new UTF8Encoding(false));
+            bool ambiguousProcessTerminated =
+                SimulateRecursiveImportCrash(
+                    recursiveAmbiguousCrash,
+                    ambiguousFolder,
+                    AssetImportCheckpoint.MetadataPublished);
+            string recursiveAmbiguousDestination = Path.Combine(
+                recursiveAmbiguousCrash.Target,
+                "AmbiguousPack",
+                "asset.bin");
+            File.WriteAllText(
+                recursiveAmbiguousDestination,
+                "foreign-change",
+                new UTF8Encoding(false));
+            AssetImportReconciliationResult recursiveAmbiguousRecovery =
+                AssetImportWorkflow.Reconcile(
+                    recursiveAmbiguousCrash.Database);
+            Check(ambiguousProcessTerminated &&
+                  recursiveAmbiguousRecovery.PreservedTransactions == 1 &&
+                  File.ReadAllText(recursiveAmbiguousDestination) ==
+                      "foreign-change" &&
+                  File.Exists(
+                      recursiveAmbiguousDestination +
+                      AssetDatabase.MetadataSuffix) &&
+                  TransactionDirectories(
+                      recursiveAmbiguousCrash.Assets,
+                      "import-staging").Length == 1,
+                "startup preserves the complete batch journal and changed destination when rollback ownership is ambiguous");
+
+            TestProject recursiveSourceRace = NewProject("recursive-source-race");
+            string sourceRaceFolder = Path.Combine(
+                recursiveSourceRace.Sources,
+                "SourceRacePack");
+            Directory.CreateDirectory(sourceRaceFolder);
+            string changingSource = Path.Combine(
+                sourceRaceFolder,
+                "changing.bin");
+            File.WriteAllText(
+                changingSource,
+                "before",
+                new UTF8Encoding(false));
+            bool sourceRaceRolledBack = false;
+            try
+            {
+                _ = AssetImportWorkflow.ImportExternalPaths(
+                    recursiveSourceRace.Database,
+                    recursiveSourceRace.Target,
+                    new[] { sourceRaceFolder },
+                    testHooks: new AssetImportTestHooks(
+                        Observe: checkpoint =>
+                        {
+                            if (checkpoint == AssetImportCheckpoint.Prepared)
+                            {
+                                File.WriteAllText(
+                                    changingSource,
+                                    "changed-after-snapshot",
+                                    new UTF8Encoding(false));
+                            }
+                        }));
+            }
+            catch (IOException)
+            {
+                sourceRaceRolledBack = true;
+            }
+            Check(sourceRaceRolledBack &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveSourceRace.Target,
+                      "SourceRacePack")) &&
+                  recursiveSourceRace.Database.Snapshot().Count == 0 &&
+                  TransactionDirectories(
+                      recursiveSourceRace.Assets,
+                      "import-staging").Length == 0,
+                "recursive import rechecks its complete source snapshot and rolls back a changing tree");
+
+            TestProject recursiveRace = NewProject("recursive-race");
+            string raceFolder = Path.Combine(
+                recursiveRace.Sources,
+                "RacePack");
+            Directory.CreateDirectory(raceFolder);
+            File.WriteAllText(
+                Path.Combine(raceFolder, "race.bin"),
+                "source",
+                new UTF8Encoding(false));
+            string looseRaceSource = Path.Combine(
+                recursiveRace.Sources,
+                "race-loose.bin");
+            File.WriteAllText(
+                looseRaceSource,
+                "source",
+                new UTF8Encoding(false));
+            string racedDestination = Path.Combine(
+                recursiveRace.Target,
+                "race-loose.bin");
+            bool destinationRacePreserved = false;
+            try
+            {
+                _ = AssetImportWorkflow.ImportExternalPaths(
+                    recursiveRace.Database,
+                    recursiveRace.Target,
+                    new[] { raceFolder, looseRaceSource },
+                    testHooks: new AssetImportTestHooks(
+                        Observe: checkpoint =>
+                        {
+                            if (checkpoint == AssetImportCheckpoint.Prepared)
+                            {
+                                File.WriteAllText(
+                                    racedDestination,
+                                    "foreign",
+                                    new UTF8Encoding(false));
+                            }
+                        }));
+            }
+            catch (IOException)
+            {
+                destinationRacePreserved = true;
+            }
+            bool foreignPayloadPreserved =
+                File.Exists(racedDestination) &&
+                File.ReadAllText(racedDestination) == "foreign";
+            bool foreignMetadataAbsent = !File.Exists(
+                racedDestination + AssetDatabase.MetadataSuffix);
+            int racedIndexCount = recursiveRace.Database.Snapshot().Count;
+            int racedJournalCount = TransactionDirectories(
+                recursiveRace.Assets,
+                "import-staging").Length;
+            if (!destinationRacePreserved ||
+                !foreignPayloadPreserved ||
+                !foreignMetadataAbsent ||
+                racedIndexCount != 0 ||
+                racedJournalCount != 1)
+            {
+                output.WriteLine(
+                    $"INFO: destination race state: exception={destinationRacePreserved}, " +
+                    $"payload={foreignPayloadPreserved}, metadataAbsent={foreignMetadataAbsent}, " +
+                    $"index={racedIndexCount}, journals={racedJournalCount}");
+            }
+            Check(destinationRacePreserved &&
+                  foreignPayloadPreserved &&
+                  foreignMetadataAbsent &&
+                  racedIndexCount == 0 &&
+                  racedJournalCount == 1 &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveRace.Target,
+                      "RacePack")),
+                "destination race never overwrites foreign data and retains its journal as fail-closed recovery evidence");
+
+            TestProject recursiveDirectoryRace = NewProject(
+                "recursive-directory-race");
+            string directoryRaceFolder = Path.Combine(
+                recursiveDirectoryRace.Sources,
+                "ForeignEmptyPack");
+            Directory.CreateDirectory(directoryRaceFolder);
+            File.WriteAllText(
+                Path.Combine(directoryRaceFolder, "owned.bin"),
+                "owned",
+                new UTF8Encoding(false));
+            string foreignEmptyDestination = Path.Combine(
+                recursiveDirectoryRace.Target,
+                "ForeignEmptyPack");
+            bool directoryRaceProcessTerminated =
+                SimulateRecursiveImportCrash(
+                    recursiveDirectoryRace,
+                    directoryRaceFolder,
+                    AssetImportCheckpoint.RecursiveDirectoryPrepared,
+                    checkpoint =>
+                    {
+                        if (checkpoint ==
+                            AssetImportCheckpoint.RecursiveDirectoryPrepared)
+                        {
+                            Directory.CreateDirectory(
+                                foreignEmptyDestination);
+                        }
+                    });
+            AssetImportReconciliationResult directoryRaceRecovery =
+                AssetImportWorkflow.Reconcile(
+                    recursiveDirectoryRace.Database);
+            bool foreignEmptyDirectoryPreserved =
+                Directory.Exists(foreignEmptyDestination) &&
+                !new DirectoryInfo(foreignEmptyDestination)
+                    .EnumerateFileSystemInfos(
+                        "*",
+                        SearchOption.TopDirectoryOnly)
+                    .Any();
+            Check(directoryRaceProcessTerminated &&
+                  foreignEmptyDirectoryPreserved &&
+                  directoryRaceRecovery.DiscardedTransactions == 0 &&
+                  directoryRaceRecovery.PreservedTransactions == 1 &&
+                  recursiveDirectoryRace.Database.Snapshot().Count == 0 &&
+                  TransactionDirectories(
+                      recursiveDirectoryRace.Assets,
+                      "import-staging").Length == 1,
+                "recursive recovery never deletes a foreign empty directory created after its prepared journal");
+
+            TestProject recursiveLimits = NewProject("recursive-limits");
+            string depthPack = Path.Combine(
+                recursiveLimits.Sources,
+                "DepthPack");
+            Directory.CreateDirectory(Path.Combine(depthPack, "One"));
+            File.WriteAllText(
+                Path.Combine(depthPack, "One", "deep.bin"),
+                "depth",
+                new UTF8Encoding(false));
+            string countPack = Path.Combine(
+                recursiveLimits.Sources,
+                "CountPack");
+            Directory.CreateDirectory(countPack);
+            File.WriteAllText(
+                Path.Combine(countPack, "one.bin"),
+                "1",
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(countPack, "two.bin"),
+                "2",
+                new UTF8Encoding(false));
+            string sizePack = Path.Combine(
+                recursiveLimits.Sources,
+                "SizePack");
+            Directory.CreateDirectory(sizePack);
+            File.WriteAllText(
+                Path.Combine(sizePack, "large.bin"),
+                "12345",
+                new UTF8Encoding(false));
+            bool depthLimited = RejectRecursiveImport(
+                recursiveLimits,
+                depthPack,
+                new AssetImportTraversalLimits(1, 100, 1024));
+            bool countLimited = RejectRecursiveImport(
+                recursiveLimits,
+                countPack,
+                new AssetImportTraversalLimits(8, 2, 1024));
+            bool sizeLimited = RejectRecursiveImport(
+                recursiveLimits,
+                sizePack,
+                new AssetImportTraversalLimits(8, 100, 4));
+            Check(depthLimited && countLimited && sizeLimited &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveLimits.Target,
+                      "DepthPack")) &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveLimits.Target,
+                      "CountPack")) &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveLimits.Target,
+                      "SizePack")),
+                "recursive depth, entry-count, and total-byte budgets reject before destination mutation");
+
+            TestProject recursiveReserved = NewProject("recursive-reserved");
+            string reservedPack = Path.Combine(
+                recursiveReserved.Sources,
+                "ReservedPack");
+            Directory.CreateDirectory(Path.Combine(
+                reservedPack,
+                AssetDatabase.InternalDirectoryName));
+            File.WriteAllText(
+                Path.Combine(
+                    reservedPack,
+                    AssetDatabase.InternalDirectoryName,
+                    "payload.bin"),
+                "private",
+                new UTF8Encoding(false));
+            bool reservedFolderRejected = RejectRecursiveImport(
+                recursiveReserved,
+                reservedPack,
+                new AssetImportTraversalLimits(8, 100, 1024));
+            string managedPack = Path.Combine(
+                recursiveReserved.Assets,
+                "ManagedPack");
+            Directory.CreateDirectory(managedPack);
+            File.WriteAllText(
+                Path.Combine(managedPack, "managed.bin"),
+                "managed",
+                new UTF8Encoding(false));
+            bool managedSourceRejected = RejectRecursiveImport(
+                recursiveReserved,
+                managedPack,
+                new AssetImportTraversalLimits(8, 100, 1024));
+            Check(reservedFolderRejected && managedSourceRejected &&
+                  !Directory.Exists(Path.Combine(
+                      recursiveReserved.Target,
+                      "ReservedPack")),
+                "recursive import rejects nested .acsdb names and every source already below Assets");
+
+            TestProject recursiveLink = NewProject("recursive-link");
+            string linkPack = Path.Combine(
+                recursiveLink.Sources,
+                "LinkPack");
+            string linkOutside = Path.Combine(
+                recursiveLink.Sources,
+                "LinkOutside");
+            Directory.CreateDirectory(linkPack);
+            Directory.CreateDirectory(linkOutside);
+            File.WriteAllText(
+                Path.Combine(linkOutside, "outside.bin"),
+                "outside",
+                new UTF8Encoding(false));
+            try
+            {
+                Directory.CreateSymbolicLink(
+                    Path.Combine(linkPack, "Linked"),
+                    linkOutside);
+                bool recursiveLinkRejected = RejectRecursiveImport(
+                    recursiveLink,
+                    linkPack,
+                    new AssetImportTraversalLimits(8, 100, 1024));
+                Check(recursiveLinkRejected &&
+                      !Directory.Exists(Path.Combine(
+                          recursiveLink.Target,
+                          "LinkPack")),
+                    "recursive import rejects nested directory symlinks without following them");
+            }
+            catch (Exception error) when (
+                error is UnauthorizedAccessException or IOException or
+                    NotSupportedException)
+            {
+                output.WriteLine(
+                    "SKIP: recursive import reparse-point runtime test: " +
+                    error.Message);
+            }
+
             string goodBatchSource = WriteSource(fresh, "batch.txt", "batch");
             string reservedSource = WriteSource(
                 fresh,
@@ -636,6 +1180,28 @@ internal static class AssetImportWorkflowSelfTest
         return failed;
     }
 
+    private static bool RejectRecursiveImport(
+        TestProject project,
+        string sourcePath,
+        AssetImportTraversalLimits limits)
+    {
+        try
+        {
+            _ = AssetImportWorkflow.ImportExternalPaths(
+                project.Database,
+                project.Target,
+                new[] { sourcePath },
+                traversalLimits: limits);
+            return false;
+        }
+        catch (Exception error) when (
+            error is IOException or UnauthorizedAccessException or
+                InvalidDataException or ArgumentException)
+        {
+            return true;
+        }
+    }
+
     private static bool SimulateImportCrash(
         TestProject project,
         string source,
@@ -649,6 +1215,29 @@ internal static class AssetImportWorkflowSelfTest
                 new[] { source },
                 testHooks: new AssetImportTestHooks(
                     SimulateCrashAfter: checkpoint));
+            return false;
+        }
+        catch (AssetImportSimulatedCrashException)
+        {
+            return true;
+        }
+    }
+
+    private static bool SimulateRecursiveImportCrash(
+        TestProject project,
+        string source,
+        AssetImportCheckpoint checkpoint,
+        Action<AssetImportCheckpoint>? observe = null)
+    {
+        try
+        {
+            _ = AssetImportWorkflow.ImportExternalPaths(
+                project.Database,
+                project.Target,
+                new[] { source },
+                testHooks: new AssetImportTestHooks(
+                    SimulateCrashAfter: checkpoint,
+                    Observe: observe));
             return false;
         }
         catch (AssetImportSimulatedCrashException)

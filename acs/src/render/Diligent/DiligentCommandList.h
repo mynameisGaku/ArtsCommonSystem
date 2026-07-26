@@ -58,6 +58,9 @@ public:
     /** フレーム終了タイミングで Flush + フェンス Signal + フレームスロット前進を行う。 */
     void Submit() noexcept override;
 
+    bool CanBeginWithoutGpuWait() const noexcept override;
+    bool TryBeginWithoutGpuWait() noexcept override;
+
     bool BeginGpuTimingFrame(u64 frame_index) noexcept override;
     bool BeginGpuTimingPass(ERhiGpuTimingPass pass) noexcept override;
     void EndGpuTimingPass() noexcept override;

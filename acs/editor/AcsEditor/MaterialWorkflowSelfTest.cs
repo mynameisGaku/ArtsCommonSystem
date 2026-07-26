@@ -158,6 +158,10 @@ internal static class MaterialWorkflowSelfTest
                 MaterialEditorWindow.RunDuplicationContractSelfTest(output);
             passed += duplicatePassed;
             failed += duplicateFailed;
+            (int historyPassed, int historyFailed) =
+                MaterialEditorWindow.RunHistoryContractSelfTest(output);
+            passed += historyPassed;
+            failed += historyFailed;
         }
         catch (Exception error)
         {

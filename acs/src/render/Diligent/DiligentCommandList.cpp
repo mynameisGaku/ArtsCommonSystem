@@ -291,6 +291,17 @@ void FDiligentCommandList::Begin() noexcept {
     // Diligent は明示的な Begin/End が不要（IDeviceContext は即時実行）。
 }
 
+bool FDiligentCommandList::CanBeginWithoutGpuWait() const noexcept {
+    return m_Device != nullptr &&
+           m_Device->CanPrepareCommandRecordingWithoutWait();
+}
+
+bool FDiligentCommandList::TryBeginWithoutGpuWait() noexcept {
+    if (!CanBeginWithoutGpuWait()) return false;
+    Begin();
+    return true;
+}
+
 void FDiligentCommandList::End() noexcept {
     // Diligent はコマンドが即時積まれるので EOF も不要
 }

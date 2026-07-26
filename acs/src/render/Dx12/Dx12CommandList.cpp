@@ -371,16 +371,17 @@ bool FDx12CommandList::TryGetGpuTiming(
     return out_snapshot.valid;
 }
 
-void FDx12CommandList::Begin() noexcept {
-    if (!m_Device || !m_CmdList) return;
+bool FDx12CommandList::BeginCurrentSlot() noexcept {
+    if (!m_Device || !m_CmdList) return false;
     const u32 slot = m_Device->CurrentFrameSlot();
-    if (slot >= FDx12Device::kFramesInFlight || !_allocators[slot]) return;
+    if (slot >= FDx12Device::kFramesInFlight || !_allocators[slot])
+        return false;
 
     m_BoundPipe = nullptr;
     m_BackbufferIsRt = false;
     _open = false;
-    if (FAILED(_allocators[slot]->Reset())) return;
-    if (FAILED(m_CmdList->Reset(_allocators[slot], nullptr))) return;
+    if (FAILED(_allocators[slot]->Reset())) return false;
+    if (FAILED(m_CmdList->Reset(_allocators[slot], nullptr))) return false;
 
     // 共有 SRV ヒープを bind（テクスチャをバインドする際に必要）
     if (m_Device && m_Device->SrvHeap()) {
@@ -388,6 +389,24 @@ void FDx12CommandList::Begin() noexcept {
         m_CmdList->SetDescriptorHeaps(1, heaps);
     }
     _open = true;
+    return true;
+}
+
+void FDx12CommandList::Begin() noexcept {
+    (void)BeginCurrentSlot();
+}
+
+bool FDx12CommandList::CanBeginWithoutGpuWait() const noexcept {
+    if (!m_Device || !m_CmdList) return false;
+    const u32 slot = m_Device->CurrentFrameSlot();
+    return slot < FDx12Device::kFramesInFlight &&
+           _allocators[slot] != nullptr &&
+           m_Device->IsFenceComplete(m_FrameFences[slot]);
+}
+
+bool FDx12CommandList::TryBeginWithoutGpuWait() noexcept {
+    if (!CanBeginWithoutGpuWait()) return false;
+    return BeginCurrentSlot();
 }
 
 void FDx12CommandList::End() noexcept {
@@ -396,7 +415,7 @@ void FDx12CommandList::End() noexcept {
     _open = false;
 }
 
-void FDx12CommandList::Submit() noexcept {
+void FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
     if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return;
     if (_open) End();
     ID3D12CommandList* lists[] = { m_CmdList };
@@ -414,11 +433,20 @@ void FDx12CommandList::Submit() noexcept {
     // 2) 次に使うスロットが GPU で完了するまで待つ。Submit が戻った時点で
     //    「次フレームの OnUpdate で書き込む UPLOAD ヒープスロット」は
     //    GPU から見て開放済み = 競合しない。
-    m_Device->WaitForFenceValue(m_FrameFences[next_slot]);
+    if (wait_for_next_slot)
+        m_Device->WaitForFenceValue(m_FrameFences[next_slot]);
     m_Device->CollectRetiredResources();
 
     // 3) Device 側のスロットを切替（リングバッファ化された CB が次スロットを返すように）
     m_Device->AdvanceFrameSlot();
+}
+
+void FDx12CommandList::Submit() noexcept {
+    SubmitInternal(true);
+}
+
+void FDx12CommandList::SubmitWithoutGpuWait() noexcept {
+    SubmitInternal(false);
 }
 
 void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,

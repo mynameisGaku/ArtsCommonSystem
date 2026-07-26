@@ -192,6 +192,7 @@ public partial class MaterialEditorWindow
         else
             SelectGraphNode(_selectedNode);
         CompileGraph(userInitiated: false);
+        InitializeGraphHistory();
         if (!_loadedGraphLayout)
             Loaded += (_, _) => OnFitGraphClicked(this, new RoutedEventArgs());
     }
@@ -512,8 +513,8 @@ public partial class MaterialEditorWindow
                 return false;
             }
             _substrateEnabled = 1;
-            _graphDirty = false;
             SaveGraphLayout();
+            MarkGraphHistorySaved();
             GraphAssetStateText.Text = "ACSMAT Substrate DAG - saved";
             StatusText.Text = "Saved";
             StatusText.Foreground = (Brush)FindResource("OkFg");
@@ -1308,6 +1309,8 @@ public partial class MaterialEditorWindow
             SetDiagnostics(new[] { $"ERROR  Runtime capacity is {_runtimeMaxNodes} material expressions." });
             return;
         }
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Add Material Expression");
         var node = new GraphNode
         {
             Type = entry.Type,
@@ -1383,6 +1386,8 @@ public partial class MaterialEditorWindow
                 return;
             }
 
+            using GraphHistoryScope history =
+                BeginGraphHistoryChange("Duplicate Shader Expression");
             ExpressionNode source = _expressionNodes[_selectedExpression];
             ExpressionNode copy = CloneExpressionNode(
                 source,
@@ -1410,6 +1415,8 @@ public partial class MaterialEditorWindow
             return;
         }
 
+        using GraphHistoryScope graphHistory =
+            BeginGraphHistoryChange("Duplicate Material Expression");
         GraphNode graphSource = _graphNodes[_selectedNode];
         GraphNode graphCopy = CloneGraphNode(
             graphSource,
@@ -1537,14 +1544,17 @@ public partial class MaterialEditorWindow
     private void ConnectNodes(int source, int destination, int input)
     {
         if (!ValidNodeIndex(source) || !ValidNodeIndex(destination) || source == destination) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Connect Material Expressions");
         GraphNode n = _graphNodes[destination];
+        int previous = input == 0 ? n.InputA : n.InputB;
         if (input == 0) n.InputA = source;
         else n.InputB = source;
         List<string> validation = ValidateGraph();
         if (validation.Any(m => m.Contains("cycle", StringComparison.OrdinalIgnoreCase)))
         {
-            if (input == 0) n.InputA = -1;
-            else n.InputB = -1;
+            if (input == 0) n.InputA = previous;
+            else n.InputB = previous;
             SetDiagnostics(new[] { "ERROR  Connection would create a cycle and was rejected." });
             return;
         }
@@ -1560,6 +1570,8 @@ public partial class MaterialEditorWindow
             return;
         }
         if (!ValidNodeIndex(_selectedNode)) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Delete Material Expression");
         int removed = _selectedNode;
         _graphNodes.RemoveAt(removed);
         foreach (GraphNode n in _graphNodes)
@@ -1581,6 +1593,8 @@ public partial class MaterialEditorWindow
     private void SetRoot(int index)
     {
         if (!ValidNodeIndex(index)) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Set Front Material");
         _substrateRoot = index;
         MarkGraphDirty();
         RenderGraph();
@@ -1687,6 +1701,7 @@ public partial class MaterialEditorWindow
         if (p.X >= _outputX && p.X <= _outputX + GraphOutputWidth &&
             p.Y >= _outputY && p.Y <= _outputY + GraphOutputHeight)
         {
+            BeginGraphDragHistory("Move Front Material Output");
             _draggingOutput = true;
             _dragAnchor = p;
             _outputDragOrigin = new Point(_outputX, _outputY);
@@ -1702,6 +1717,8 @@ public partial class MaterialEditorWindow
             if (e.ClickCount == 2 && hitNode.Type == 0 &&
                 p.Y <= hitNode.Y + 31)
             {
+                using GraphHistoryScope history =
+                    BeginGraphHistoryChange("Toggle Slab Inputs");
                 hitNode.IsExpanded = !hitNode.IsExpanded;
                 MarkGraphDirty();
                 SelectGraphNode(hit);
@@ -1710,6 +1727,7 @@ public partial class MaterialEditorWindow
                 return;
             }
             SelectGraphNode(hit);
+            BeginGraphDragHistory("Move Material Expression");
             _dragNode = hit;
             _draggingNode = true;
             _dragAnchor = p;
@@ -1720,6 +1738,7 @@ public partial class MaterialEditorWindow
         else if (ExpressionNodeAt(p) is int expressionHit && expressionHit >= 0)
         {
             SelectExpressionNode(expressionHit);
+            BeginGraphDragHistory("Move Shader Expression");
             _dragExpressionNode = expressionHit;
             _draggingExpressionNode = true;
             _dragAnchor = p;
@@ -1822,17 +1841,20 @@ public partial class MaterialEditorWindow
         {
             _draggingNode = false;
             _dragNode = -1;
+            EndGraphDragHistory();
             SaveGraphLayout();
         }
         if (_draggingExpressionNode)
         {
             _draggingExpressionNode = false;
             _dragExpressionNode = -1;
+            EndGraphDragHistory();
             SaveGraphLayout();
         }
         if (_draggingOutput)
         {
             _draggingOutput = false;
+            EndGraphDragHistory();
             SaveGraphLayout();
         }
         GraphCanvas.ReleaseMouseCapture();
@@ -1925,8 +1947,11 @@ public partial class MaterialEditorWindow
     private void OnOperatorFactorSlider(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_graphUiSync || !ValidNodeIndex(_selectedNode) || _graphNodes[_selectedNode].Type == 0) return;
-        _graphUiSync = true;
         GraphNode n = _graphNodes[_selectedNode];
+        using GraphHistoryScope history = BeginGraphHistoryChange(
+            "Edit Operator Factor",
+            $"closure:{n.StableId}:factor");
+        _graphUiSync = true;
         n.Factor = (float)e.NewValue;
         OperatorFactorBox.Text = F(n.Factor);
         _graphUiSync = false;
@@ -1939,6 +1964,9 @@ public partial class MaterialEditorWindow
     {
         if (_graphUiSync || !ValidNodeIndex(_selectedNode) || _graphNodes[_selectedNode].Type == 0) return;
         GraphNode n = _graphNodes[_selectedNode];
+        using GraphHistoryScope history = BeginGraphHistoryChange(
+            "Edit Operator Factor",
+            $"closure:{n.StableId}:factor");
         float value = P(OperatorFactorBox.Text, n.Factor);
         if (n.Type != 3) value = Math.Clamp(value, 0, 1);
         else value = Math.Max(0, value);
@@ -1956,6 +1984,8 @@ public partial class MaterialEditorWindow
     {
         if (_graphUiSync || !ValidNodeIndex(_selectedNode)) return;
         GraphNode n = _graphNodes[_selectedNode];
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Toggle Operator Parameter");
         if (OperatorUseParameter.IsChecked == true) n.Flags |= 1u;
         else n.Flags &= ~1u;
         MarkGraphDirty();
@@ -2025,6 +2055,8 @@ public partial class MaterialEditorWindow
         GraphNode node = _graphNodes[_selectedNode];
         Color initial = PickerColor(node.Slab[start], node.Slab[start + 1], node.Slab[start + 2]);
         if (!ColorPickerDialog.TryPick(this, initial, false, out Color picked)) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Edit Slab Color");
         node.Slab[start] = picked.R / 255f;
         node.Slab[start + 1] = picked.G / 255f;
         node.Slab[start + 2] = picked.B / 255f;
@@ -2049,6 +2081,9 @@ public partial class MaterialEditorWindow
             return;
         }
         box.ClearValue(Border.BorderBrushProperty);
+        using GraphHistoryScope history = BeginGraphHistoryChange(
+            $"Edit {SlabPropertyNames[scalarIndex]}",
+            $"closure:{n.StableId}:slab:{scalarIndex}");
         n.Slab[scalarIndex] = value;
         MarkGraphDirty();
         BuildParameterList(n);
@@ -2078,6 +2113,8 @@ public partial class MaterialEditorWindow
             _graphUiSync = false;
             return;
         }
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Change Slab Building Block");
         n.Flags = (n.Flags & ~(0xFu << 8)) | ((uint)nextMode << 8);
         if (choice == MessageBoxResult.Yes)
         {
@@ -2142,6 +2179,7 @@ public partial class MaterialEditorWindow
 
     private void OnMaterialEditorClosing(object? sender, CancelEventArgs e)
     {
+        EndGraphDragHistory();
         BeginCloseAttempt();
         // A deleted document must never recreate either the .acsmat file or its graph sidecar.
         if (!_assetPathAvailable)
@@ -2187,6 +2225,39 @@ public partial class MaterialEditorWindow
 
     private void OnMaterialEditorKeyDown(object sender, KeyEventArgs e)
     {
+        bool undoGesture =
+            Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z;
+        bool redoGesture =
+            (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Y) ||
+            (Keyboard.Modifiers ==
+                (ModifierKeys.Control | ModifierKeys.Shift) &&
+             e.Key == Key.Z);
+        bool graphPropertyHasFocus =
+            SelectedSlabPanel.IsKeyboardFocusWithin ||
+            SelectedOperatorPanel.IsKeyboardFocusWithin ||
+            SelectedExpressionPanel.IsKeyboardFocusWithin;
+        if ((undoGesture || redoGesture) &&
+            Keyboard.FocusedElement is
+                System.Windows.Controls.Primitives.TextBoxBase &&
+            !graphPropertyHasFocus)
+        {
+            // Palette search, asset name, and legacy material fields keep native
+            // text undo. Graph inspector fields commit semantic history entries.
+            return;
+        }
+        if (undoGesture)
+        {
+            UndoGraphEdit();
+            e.Handled = true;
+            return;
+        }
+        if (redoGesture)
+        {
+            RedoGraphEdit();
+            e.Handled = true;
+            return;
+        }
+
         // Save/apply are asset-level commands and remain available from property editors.
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.S)
         {

@@ -1177,6 +1177,13 @@ public partial class MainWindow : Window
         ViewportLoadingTitle.Text = "Loading scene…";
         ViewportLoadingDetail.Text = "Attaching the renderer";
         ViewportLoadingOverlay.Visibility = Visibility.Visible;
+
+        _viewport = new EngineViewport();
+        // This configuration must precede both hiding the host and publishing
+        // the HwndHost child. BuildWindowCore preserves it, so the first pump
+        // can attach even when WPF has already made the native surface hidden.
+        _viewport.SetHiddenStartupRenderingAllowed(true);
+
         // HwndHost has its own child HWND and cannot be covered by a WPF
         // overlay. Keep it physically absent from composition until the
         // generation-gated scene transaction publishes a complete scene.
@@ -1184,9 +1191,9 @@ public partial class MainWindow : Window
         UpdateEditorInputEnabled();
         Log("ACS Editor started.");
 
-        _viewport = new EngineViewport();
         _viewport.Attached += OnEngineAttached;   // アタッチ後にシーンを取り込む
         _viewport.AttachmentFailed += OnEngineAttachmentFailed;
+        _viewport.RenderingFailed += OnEngineRenderingFailed;
         _viewport.Picked += OnViewportPicked;     // ビューポート左クリックで選択
         _viewport.TransformChanged += OnViewportTransformChanged;   // ギズモ移動後に Inspector 更新
         _viewport.PolyKeyFinalize += FinalizePoly;                  // 描画中の Enter/Esc でポリゴン確定
@@ -1198,7 +1205,13 @@ public partial class MainWindow : Window
         SynchronizeWindowInteractionWithViewport();
         ProfilerView.EngineProvider = () => Engine;
         ProfilerView.LogPumpProvider = GetEditorLogPumpSnapshot;
-        ProfilerView.ResetEditorPeaks = ResetEditorLogPumpPeaks;
+        ProfilerView.NativeRenderProvider =
+            () => _viewport?.GetNativeRenderDiagnostic() ?? default;
+        ProfilerView.ResetEditorPeaks = () =>
+        {
+            ResetEditorLogPumpPeaks();
+            _viewport?.ResetNativeRenderDiagnostics();
+        };
         ProfilerView.SummaryChanged += summary => ProfilerStatusText.Text = summary;
         ProfilerView.Start();
     }
@@ -1211,6 +1224,10 @@ public partial class MainWindow : Window
     {
         if (_engineStartupState == EditorEngineStartupState.Closed) return;
 
+        // The HwndHost stays hidden behind the WPF loading surface until a
+        // complete scene is published. Native warm-up still needs cooperative
+        // frame submissions while hidden, otherwise it stalls after slice 1.
+        _viewport?.SetHiddenStartupRenderingAllowed(true);
         _engineStartupGeneration++;
         _engineStartupCompletionStage = 0;
         _engineStartupState = EditorEngineStartupState.WarmingRenderer;
@@ -1374,6 +1391,7 @@ public partial class MainWindow : Window
         }
 
         _engineStartupState = EditorEngineStartupState.Ready;
+        _viewport?.SetHiddenStartupRenderingAllowed(false);
         StatusText.Text = "Ready";
         UpdateEditorInputEnabled();
         // Input-free validation is enforced at both HWND message boundaries;
@@ -1479,6 +1497,11 @@ public partial class MainWindow : Window
         FailEngineStartup("Renderer attachment failed; automatic retry was stopped.");
     }
 
+    private void OnEngineRenderingFailed(string detail)
+    {
+        FailEngineStartup(detail);
+    }
+
     private void FailEngineStartup(string detail, Exception? exception = null)
     {
         if (_engineStartupState == EditorEngineStartupState.Closed) return;
@@ -1488,6 +1511,7 @@ public partial class MainWindow : Window
         _engineStartupGeneration++;
         _engineStartupInternalAccess = false;
         _engineStartupState = EditorEngineStartupState.Failed;
+        _viewport?.SetHiddenStartupRenderingAllowed(false);
         AssetBrowser.Engine = IntPtr.Zero;
         InvalidateSceneLoad(detail);
         ViewportHost.IsHitTestVisible = false;
@@ -1504,8 +1528,18 @@ public partial class MainWindow : Window
     internal bool RetryEngineAttachment()
     {
         if (_engineStartupState != EditorEngineStartupState.Failed ||
-            _viewport == null || !_viewport.RetryAttach())
+            _viewport == null)
         {
+            return false;
+        }
+
+        // Failure completion disables hidden rendering. Re-enable it before
+        // RetryAttach queues the first pump, otherwise a still-hidden HwndHost
+        // can circularly wait for an Attached event that can never be raised.
+        _viewport.SetHiddenStartupRenderingAllowed(true);
+        if (!_viewport.RetryAttach())
+        {
+            _viewport.SetHiddenStartupRenderingAllowed(false);
             return false;
         }
 

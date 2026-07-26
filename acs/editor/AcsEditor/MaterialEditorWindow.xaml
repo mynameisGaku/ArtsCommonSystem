@@ -96,6 +96,8 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Content="Apply" Style="{StaticResource ToolbarMaterialButton}"
                         Foreground="{StaticResource OkFg}" Click="OnApplyClicked"
@@ -110,14 +112,21 @@
                     <TextBlock x:Name="FileLabel" Text="material.acsmat" Foreground="{StaticResource Text}"
                                FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="520"/>
                 </StackPanel>
-                <Button Grid.Column="5" Content="Duplicate" Style="{StaticResource ToolbarMaterialButton}"
+                <Button x:Name="UndoGraphButton" Grid.Column="5" Content="Undo"
+                        Style="{StaticResource ToolbarMaterialButton}" IsEnabled="False"
+                        Click="OnUndoGraphClicked" ToolTip="Nothing to undo (Ctrl+Z)"/>
+                <Button x:Name="RedoGraphButton" Grid.Column="6" Content="Redo"
+                        Style="{StaticResource ToolbarMaterialButton}" IsEnabled="False"
+                        Click="OnRedoGraphClicked"
+                        ToolTip="Nothing to redo (Ctrl+Y / Ctrl+Shift+Z)"/>
+                <Button Grid.Column="7" Content="Duplicate" Style="{StaticResource ToolbarMaterialButton}"
                         Click="OnDuplicateNodeClicked"
                         ToolTip="Duplicate the selected material or shader expression (Ctrl+D)"/>
-                <Button Grid.Column="6" Content="Delete" Style="{StaticResource ToolbarMaterialButton}"
+                <Button Grid.Column="8" Content="Delete" Style="{StaticResource ToolbarMaterialButton}"
                         Click="OnDeleteNodeClicked" ToolTip="Delete selected expression (Delete)"/>
-                <Button Grid.Column="7" Content="Fit Graph" Style="{StaticResource ToolbarMaterialButton}"
+                <Button Grid.Column="9" Content="Fit Graph" Style="{StaticResource ToolbarMaterialButton}"
                         Click="OnFitGraphClicked" ToolTip="Frame all expressions (F)"/>
-                <Button Grid.Column="8" Content="Home" Style="{StaticResource ToolbarMaterialButton}"
+                <Button Grid.Column="10" Content="Home" Style="{StaticResource ToolbarMaterialButton}"
                         Click="OnHomeGraphClicked" ToolTip="Frame the Front Material output"/>
             </Grid>
         </Border>
@@ -703,7 +712,7 @@
                            Foreground="{StaticResource TextDim}"/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
-                <TextBlock Text="Ctrl+S Save   Ctrl+Enter Apply   Ctrl+D Duplicate   F Fit   Delete Remove"
+                <TextBlock Text="Ctrl+Z/Y Undo/Redo   Ctrl+S Save   Ctrl+Enter Apply   Ctrl+D Duplicate   F Fit   Delete Remove"
                            Foreground="{StaticResource TextDim}"/>
             </StatusBarItem>
         </StatusBar>

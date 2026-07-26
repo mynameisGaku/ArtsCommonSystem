@@ -97,8 +97,24 @@ public:
      */
     void BeginFrame(const FClearColor& clear) noexcept;
 
+    /**
+     * Return false instead of waiting when the backend's current frame slot is
+     * still owned by the GPU. Recording and RHI ownership stay on the caller's
+     * existing render thread.
+     */
+    bool TryBeginFrameWithoutGpuWait(const FClearColor& clear) noexcept;
+
+    /** Query the same frame-slot gate without mutating renderer state. */
+    bool CanBeginFrameWithoutGpuWait() const noexcept;
+
     /** フレームを終了する (コマンドを GPU に投入し Present)。 */
     void EndFrame() noexcept;
+
+    /**
+     * Submit and present without waiting for the following frame slot. The
+     * next TryBeginFrameWithoutGpuWait call reports backpressure instead.
+     */
+    void EndFrameWithoutGpuWait() noexcept;
 
     /**
      * ウィンドウサイズ変更時に呼ぶ (スワップチェーン・深度を再作成)。
@@ -159,6 +175,9 @@ public:
     EFormat          DepthFormat() const noexcept { return m_DepthFormat; }
 
 private:
+    bool BeginFrameInternal(
+        const FClearColor& clear, bool avoid_gpu_wait) noexcept;
+    void EndFrameInternal(bool avoid_gpu_wait) noexcept;
     /**
      * 深度バッファを指定サイズで作り直す。
      *

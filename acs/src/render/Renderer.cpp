@@ -137,10 +137,15 @@ void FRenderer::Shutdown() noexcept {
 }
 
 // フレーム開始: バックバッファ取得 → コマンド記録開始 → クリア
-void FRenderer::BeginFrame(const FClearColor& clear) noexcept {
-    if (!m_Swapchain || !m_Cmd) return;
+bool FRenderer::BeginFrameInternal(
+    const FClearColor& clear, bool avoid_gpu_wait) noexcept {
+    if (!m_Swapchain || !m_Cmd || m_bFrameOpen) return false;
+    if (avoid_gpu_wait) {
+        if (!m_Cmd->TryBeginWithoutGpuWait()) return false;
+    } else {
+        m_Cmd->Begin();
+    }
     m_CurrentBuffer = m_Swapchain->AcquireNextImage();
-    m_Cmd->Begin();
     m_Cmd->BeginRenderToSwapchain(*m_Swapchain, m_CurrentBuffer, clear,
                                  m_EnableDepth ? m_Depth.Get() : nullptr,
                                  1.0f);
@@ -156,16 +161,42 @@ void FRenderer::BeginFrame(const FClearColor& clear) noexcept {
     m_Cmd->SetScissor(sr);
 
     m_bFrameOpen = true;
+    return true;
+}
+
+void FRenderer::BeginFrame(const FClearColor& clear) noexcept {
+    (void)BeginFrameInternal(clear, false);
+}
+
+bool FRenderer::CanBeginFrameWithoutGpuWait() const noexcept {
+    return !m_bFrameOpen && m_Swapchain && m_Cmd &&
+           m_Cmd->CanBeginWithoutGpuWait();
+}
+
+bool FRenderer::TryBeginFrameWithoutGpuWait(
+    const FClearColor& clear) noexcept {
+    return BeginFrameInternal(clear, true);
 }
 
 // フレーム終了: バックバッファを Present 状態に戻して GPU 投入 → 画面に提示
-void FRenderer::EndFrame() noexcept {
+void FRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
     if (!m_bFrameOpen) return;
     m_Cmd->EndRenderToSwapchain(*m_Swapchain, m_CurrentBuffer);
     m_Cmd->End();
-    m_Cmd->Submit();
+    if (avoid_gpu_wait)
+        m_Cmd->SubmitWithoutGpuWait();
+    else
+        m_Cmd->Submit();
     m_Swapchain->Present();
     m_bFrameOpen = false;
+}
+
+void FRenderer::EndFrame() noexcept {
+    EndFrameInternal(false);
+}
+
+void FRenderer::EndFrameWithoutGpuWait() noexcept {
+    EndFrameInternal(true);
 }
 
 void FRenderer::OnResize(u32 width, u32 height) noexcept {

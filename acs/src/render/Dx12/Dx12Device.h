@@ -250,6 +250,17 @@ public:
      */
     void WaitForFenceValue(u64 value) noexcept;
 
+    /**
+     * Test a graphics fence without waiting. A zero fence represents an
+     * unused frame slot and is therefore immediately reusable.
+     */
+    bool IsFenceComplete(u64 value) const noexcept
+    {
+        return value == 0u ||
+               (m_IdleFence != nullptr &&
+                m_IdleFence->GetCompletedValue() >= value);
+    }
+
     /** フレームスロット数 (定数バッファ等のリングインデックスの周期)。 */
     static constexpr u32 kFramesInFlight = 2;
 

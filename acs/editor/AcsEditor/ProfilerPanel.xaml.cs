@@ -17,6 +17,10 @@ public partial class ProfilerPanel : UserControl
 
     internal Func<IntPtr>? EngineProvider { get; set; }
     internal Func<EditorLogPumpSnapshot>? LogPumpProvider { get; set; }
+    internal Func<ViewportNativeRenderDiagnostic>? NativeRenderProvider {
+        get;
+        set;
+    }
     internal Action? ResetEditorPeaks { get; set; }
     internal event Action<string>? SummaryChanged;
 
@@ -194,6 +198,18 @@ public partial class ProfilerPanel : UserControl
         LogRetentionValue.Text =
             $"{snapshot.RetainedEntries:N0}/{snapshot.RetentionCapacity:N0} / " +
             $"{snapshot.RetentionTrimmed:N0}";
+
+        ViewportNativeRenderDiagnostic native =
+            NativeRenderProvider?.Invoke() ?? default;
+        NativeCallValue.Text =
+            $"{native.LastNativeCallMilliseconds:0.00} / " +
+            $"{native.MaximumNativeCallMilliseconds:0.00} ms";
+        NativeBackpressureValue.Text =
+            $"{native.GpuBackpressureYieldCount:N0} / " +
+            $"{native.SlowNativeCallCount:N0}";
+        NativeCallValue.ToolTip =
+            $"Last call: {native.LastNativeCallKind}; " +
+            $"{native.NativeCallCount:N0} measured native calls.";
     }
 
     private void OnPauseChanged(object sender, RoutedEventArgs e)

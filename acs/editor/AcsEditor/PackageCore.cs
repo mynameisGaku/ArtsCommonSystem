@@ -2,6 +2,7 @@
 // Deterministic, path-safe staging used by both ACS Editor and acspackage CLI.
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -73,7 +74,18 @@ public sealed record PackageResult(
     long UncompressedBytes,
     string AssetPackSha256 = "",
     int CookedAssetCount = 0,
-    PackageProfile Profile = PackageProfile.Shipping);
+    PackageProfile Profile = PackageProfile.Shipping,
+    bool ArchiveVerified = false);
+
+public sealed record PackageVerificationResult(
+    string ZipPath,
+    string PackageId,
+    string BuildId,
+    int FileCount,
+    long UncompressedBytes,
+    string AssetPackSha256,
+    int CookedAssetCount,
+    PackageProfile Profile);
 
 public sealed class PackageValidationException : InvalidOperationException
 {
@@ -93,6 +105,9 @@ public static class PackageCore
 {
     private const string AssetCookerVersion = "acs-package-cook-v2";
     private const string ReferenceRewriteVersion = "4";
+    private const int ArchiveEntryLimit = 100_000;
+    private const int ArchiveManifestLimitBytes = 4 * 1024 * 1024;
+    private const long ArchiveUncompressedLimitBytes = 1L << 40;
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private static readonly UTF8Encoding Utf8Strict = new(false, true);
     private static readonly DateTimeOffset ZipEpoch =
@@ -960,6 +975,38 @@ public static class PackageCore
                 progress,
                 cancellationToken);
 
+            progress?.Report(new(
+                "Verify",
+                "Verifying archive manifest, paths, sizes, and SHA-256 hashes...",
+                0,
+                files.Count));
+            PackageVerificationResult verification =
+                await VerifyPackageArchiveAsync(
+                    temporaryZip,
+                    progress,
+                    cancellationToken);
+            long expectedBytes = files.Sum(file => file.size);
+            if (!string.Equals(
+                    verification.PackageId,
+                    packageId,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    verification.BuildId,
+                    buildId,
+                    StringComparison.Ordinal) ||
+                verification.FileCount != files.Count ||
+                verification.UncompressedBytes != expectedBytes ||
+                verification.Profile != options.Profile ||
+                verification.CookedAssetCount != cooked.SourceFileCount ||
+                !string.Equals(
+                    verification.AssetPackSha256,
+                    cooked.Sha256,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "The completed archive does not match the package that was staged.");
+            }
+
             // 初回検証の後には、長時間の cook/archive が続く可能性がある。プロセス間の
             // 変更リースを再取得して ZIP 公開まで保持し、この最終 journal/identity 検証後に
             // Initial Scene の移動が開始されないようにする。
@@ -1003,7 +1050,8 @@ public static class PackageCore
                 totalBytes,
                 cooked.Sha256,
                 cooked.SourceFileCount,
-                options.Profile);
+                options.Profile,
+                ArchiveVerified: true);
         }
         finally
         {
@@ -1020,6 +1068,326 @@ public static class PackageCore
                     0));
             }
         }
+    }
+
+    /// <summary>
+    /// Verifies a completed package without extracting it. Every payload must be
+    /// declared by the manifest and match its size and SHA-256 digest before the
+    /// archive is eligible for publication.
+    /// </summary>
+    public static async Task<PackageVerificationResult> VerifyPackageArchiveAsync(
+        string zipPath,
+        IProgress<PackageProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(zipPath);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        string fullZipPath = Path.GetFullPath(zipPath);
+        RejectExistingReparsePointsInPath(fullZipPath, "Package ZIP");
+        if (!File.Exists(fullZipPath))
+            throw new FileNotFoundException("Package archive was not found.", fullZipPath);
+
+        await using FileStream input = new(
+            fullZipPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 128 * 1024,
+            useAsync: true);
+        using var archive = new ZipArchive(
+            input,
+            ZipArchiveMode.Read,
+            leaveOpen: false,
+            entryNameEncoding: Utf8Strict);
+
+        if (archive.Entries.Count is < 2 or > ArchiveEntryLimit)
+        {
+            throw new InvalidDataException(
+                $"Package archive entry count must be between 2 and {ArchiveEntryLimit}.");
+        }
+
+        var entriesByPath = new Dictionary<string, ZipArchiveEntry>(
+            StringComparer.OrdinalIgnoreCase);
+        var manifestEntries = new List<ZipArchiveEntry>();
+        string? archiveRoot = null;
+        long declaredArchiveBytes = 0;
+
+        foreach (ZipArchiveEntry entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ValidateArchiveEntryPath(entry.FullName);
+            if (entry.Name.Length == 0 || entry.ExternalAttributes != 0)
+            {
+                throw new InvalidDataException(
+                    "Package entries must be ordinary files without external attributes.");
+            }
+            if (!entriesByPath.TryAdd(entry.FullName, entry))
+            {
+                throw new InvalidDataException(
+                    $"Package archive contains a duplicate Windows path: {entry.FullName}");
+            }
+
+            string[] segments = entry.FullName.Split('/');
+            if (segments.Length < 2)
+            {
+                throw new InvalidDataException(
+                    $"Every package entry must be below one package root: {entry.FullName}");
+            }
+            archiveRoot ??= segments[0];
+            if (!string.Equals(segments[0], archiveRoot, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "Package archive contains entries below more than one root directory.");
+            }
+
+            if (entry.Length < 0 ||
+                entry.Length > ArchiveUncompressedLimitBytes - declaredArchiveBytes)
+            {
+                throw new InvalidDataException(
+                    "Package archive exceeds the supported uncompressed size limit.");
+            }
+            declaredArchiveBytes += entry.Length;
+
+            if (segments.Length == 2 &&
+                string.Equals(
+                    segments[1],
+                    "package-manifest.json",
+                    StringComparison.Ordinal))
+            {
+                manifestEntries.Add(entry);
+            }
+        }
+
+        if (manifestEntries.Count != 1)
+        {
+            throw new InvalidDataException(
+                "Package archive must contain exactly one root package-manifest.json.");
+        }
+        string packageId = archiveRoot ??
+            throw new InvalidDataException("Package archive root is missing.");
+
+        ZipArchiveEntry manifestEntry = manifestEntries[0];
+        if (manifestEntry.Length is < 2 or > ArchiveManifestLimitBytes)
+        {
+            throw new InvalidDataException(
+                $"Package manifest must be between 2 and {ArchiveManifestLimitBytes} bytes.");
+        }
+
+        PackageManifest? manifest;
+        await using (Stream manifestStream = manifestEntry.Open())
+        {
+            manifest = await JsonSerializer.DeserializeAsync<PackageManifest>(
+                manifestStream,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = false,
+                    UnmappedMemberHandling =
+                        System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+                    MaxDepth = 64,
+                },
+                cancellationToken);
+        }
+        if (manifest is null)
+            throw new InvalidDataException("Package manifest is empty.");
+
+        if (manifest.schemaVersion != 3 ||
+            string.IsNullOrWhiteSpace(manifest.productName) ||
+            string.IsNullOrWhiteSpace(manifest.productVersion) ||
+            manifest.projectSchemaVersion < 1 ||
+            string.IsNullOrWhiteSpace(manifest.engineVersion) ||
+            !ProductVersionPattern.IsMatch(manifest.productVersion) ||
+            !string.Equals(manifest.platform, "win-x64", StringComparison.Ordinal) ||
+            !string.Equals(manifest.configuration, "Release", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Package manifest identity or schema metadata is invalid.");
+        }
+        if (!Enum.TryParse(
+                manifest.profile,
+                ignoreCase: false,
+                out PackageProfile profile) ||
+            !Enum.IsDefined(profile) ||
+            !string.Equals(
+                manifest.profile,
+                profile.ToString(),
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Package manifest profile is invalid.");
+        }
+
+        string expectedPackageId =
+            SanitizeFileName(manifest.productName) + "-" +
+            SanitizeFileName(manifest.productVersion) +
+            (profile == PackageProfile.Shipping
+                ? ""
+                : "-" + profile.ToString().ToLowerInvariant()) +
+            "-win64";
+        if (!string.Equals(packageId, expectedPackageId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Package archive root does not match its manifest identity.");
+        }
+        if (!IsLowerHexSha256(manifest.buildId) ||
+            !IsLowerHexSha256(manifest.assetGraphHash) ||
+            !Guid.TryParseExact(
+                manifest.canonicalSceneAssetId,
+                "N",
+                out Guid canonicalSceneAssetId) ||
+            canonicalSceneAssetId == Guid.Empty ||
+            !string.Equals(
+                manifest.canonicalSceneAssetId,
+                canonicalSceneAssetId.ToString("N"),
+                StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(manifest.canonicalSceneKind) ||
+            string.IsNullOrWhiteSpace(manifest.canonicalSceneImporter) ||
+            manifest.canonicalSceneImporterVersion < 1)
+        {
+            throw new InvalidDataException(
+                "Package manifest build or canonical-scene metadata is invalid.");
+        }
+        if (manifest.sceneBootstrap is null ||
+            !string.Equals(
+                manifest.sceneBootstrap.path,
+                CanonicalSceneAdapter.BootstrapPath,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                manifest.sceneBootstrap.contract,
+                CanonicalSceneAdapter.BootstrapContract,
+                StringComparison.Ordinal) ||
+            (manifest.sceneBootstrap.sourceFormat !=
+                 CanonicalSceneAdapter.LegacyScene2DFormat &&
+             manifest.sceneBootstrap.sourceFormat !=
+                 CanonicalSceneAdapter.LegacyScene3DFormat) ||
+            (manifest.sceneBootstrap.sourceFormat ==
+                 CanonicalSceneAdapter.LegacyScene2DFormat &&
+             manifest.sceneBootstrap.adapterProjectionHint != "orthographic") ||
+            (manifest.sceneBootstrap.sourceFormat ==
+                 CanonicalSceneAdapter.LegacyScene3DFormat &&
+             manifest.sceneBootstrap.adapterProjectionHint != "perspective"))
+        {
+            throw new InvalidDataException(
+                "Package manifest scene bootstrap metadata is invalid.");
+        }
+        if (manifest.files is null ||
+            manifest.files.Count != archive.Entries.Count - 1)
+        {
+            throw new InvalidDataException(
+                "Package manifest payload count does not match the archive.");
+        }
+
+        var manifestPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        long verifiedBytes = 0;
+        string? priorPath = null;
+        for (int index = 0; index < manifest.files.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ManifestFile file = manifest.files[index] ??
+                throw new InvalidDataException("Package manifest contains a null file record.");
+            ValidateArchiveEntryPath(file.path);
+            if (string.Equals(
+                    file.path,
+                    "package-manifest.json",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !manifestPaths.Add(file.path))
+            {
+                throw new InvalidDataException(
+                    $"Package manifest contains a duplicate or reserved path: {file.path}");
+            }
+            if (priorPath is not null &&
+                StringComparer.Ordinal.Compare(priorPath, file.path) >= 0)
+            {
+                throw new InvalidDataException(
+                    "Package manifest payload paths are not strictly ordinal-sorted.");
+            }
+            priorPath = file.path;
+
+            if (file.size < 0 ||
+                file.size > ArchiveUncompressedLimitBytes - verifiedBytes ||
+                !IsLowerHexSha256(file.sha256))
+            {
+                throw new InvalidDataException(
+                    $"Package manifest file metadata is invalid: {file.path}");
+            }
+
+            string archivePath = packageId + "/" + file.path;
+            if (!entriesByPath.TryGetValue(archivePath, out ZipArchiveEntry? entry) ||
+                entry.Length != file.size)
+            {
+                throw new InvalidDataException(
+                    $"Package payload is missing or has the wrong size: {file.path}");
+            }
+
+            progress?.Report(new(
+                "Verify",
+                $"SHA-256: {file.path}",
+                index + 1,
+                manifest.files.Count));
+            (string hash, long bytesRead) =
+                await HashArchiveEntryAsync(entry, cancellationToken);
+            if (bytesRead != file.size ||
+                !string.Equals(hash, file.sha256, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Package payload hash verification failed: {file.path}");
+            }
+            verifiedBytes += bytesRead;
+        }
+
+        string recomputedBuildId = ComputeBuildId(manifest.files);
+        if (!string.Equals(
+                recomputedBuildId,
+                manifest.buildId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Package manifest build ID does not match its payload records.");
+        }
+        ValidateArchiveEntryPath(manifest.executable);
+        if (manifest.executable.Contains('/') ||
+            !manifest.executable.EndsWith(
+                ".exe",
+                StringComparison.OrdinalIgnoreCase) ||
+            !manifestPaths.Contains(manifest.executable))
+        {
+            throw new InvalidDataException(
+                "Package manifest executable is missing from the payload.");
+        }
+
+        ManifestAssetPack assetPack = manifest.assetPack ??
+            throw new InvalidDataException("Package manifest asset pack metadata is missing.");
+        if (!string.Equals(assetPack.path, "game.acpak", StringComparison.Ordinal) ||
+            assetPack.formatVersion != 1 ||
+            assetPack.sourceFileCount < 0 ||
+            !manifestPaths.Contains(assetPack.path))
+        {
+            throw new InvalidDataException(
+                "Package manifest asset pack metadata is invalid.");
+        }
+        ManifestFile assetPackFile = manifest.files.First(
+            file => string.Equals(
+                file.path,
+                assetPack.path,
+                StringComparison.OrdinalIgnoreCase));
+        if (assetPack.size != assetPackFile.size ||
+            !string.Equals(
+                assetPack.sha256,
+                assetPackFile.sha256,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Package asset pack metadata does not match its payload record.");
+        }
+
+        return new(
+            fullZipPath,
+            packageId,
+            manifest.buildId,
+            manifest.files.Count,
+            verifiedBytes,
+            assetPack.sha256,
+            assetPack.sourceFileCount,
+            profile);
     }
 
     /// <summary>
@@ -2391,6 +2759,87 @@ public static class PackageCore
         byte[] hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    private static async Task<(string Hash, long BytesRead)> HashArchiveEntryAsync(
+        ZipArchiveEntry entry,
+        CancellationToken cancellationToken)
+    {
+        await using Stream stream = entry.Open();
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
+        try
+        {
+            long total = 0;
+            while (true)
+            {
+                int read = await stream.ReadAsync(
+                    buffer.AsMemory(0, 128 * 1024),
+                    cancellationToken);
+                if (read == 0)
+                    break;
+                if (read > ArchiveUncompressedLimitBytes - total)
+                {
+                    throw new InvalidDataException(
+                        "Package payload exceeds the supported uncompressed size limit.");
+                }
+                total += read;
+                hash.AppendData(buffer, 0, read);
+            }
+            return (
+                Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(),
+                total);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static void ValidateArchiveEntryPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) ||
+            path.Length > 1024 ||
+            path[0] == '/' ||
+            path[^1] == '/' ||
+            path.Contains('\\') ||
+            path.Contains('\0') ||
+            path.Contains(':'))
+        {
+            throw new InvalidDataException($"Package archive path is invalid: {path}");
+        }
+
+        foreach (string segment in path.Split('/'))
+        {
+            if (segment.Length == 0 ||
+                segment is "." or ".." ||
+                segment[^1] is '.' or ' ' ||
+                segment.Any(character =>
+                    character < ' ' ||
+                    character is '<' or '>' or '"' or '|' or '?' or '*') ||
+                IsWindowsDeviceName(segment))
+            {
+                throw new InvalidDataException($"Package archive path is invalid: {path}");
+            }
+        }
+    }
+
+    private static bool IsWindowsDeviceName(string segment)
+    {
+        string stem = segment.Split('.', 2)[0];
+        return stem.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+               stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+               stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+               stem.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+               (stem.Length == 4 &&
+                (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                 stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+                stem[3] is >= '1' and <= '9');
+    }
+
+    private static bool IsLowerHexSha256(string value) =>
+        value is { Length: 64 } &&
+        value.All(character =>
+            character is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 
     private static string ComputeBuildId(IReadOnlyList<ManifestFile> files)
     {

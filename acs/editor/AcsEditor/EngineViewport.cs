@@ -13,6 +13,14 @@ internal readonly record struct ViewportPointerCaptureDiagnostic(
     int PhysicallyDownButtonMask,
     double MismatchAgeMilliseconds);
 
+internal readonly record struct ViewportNativeRenderDiagnostic(
+    long NativeCallCount,
+    long SlowNativeCallCount,
+    long GpuBackpressureYieldCount,
+    double LastNativeCallMilliseconds,
+    double MaximumNativeCallMilliseconds,
+    string LastNativeCallKind);
+
 /// <summary>
 /// エンジンの DX12 描画をホストするネイティブ・ビューポート。
 /// 子 HWND を作り、acs_editor_abi にアタッチして、WPF の描画フレームごとに 1 フレーム描く。
@@ -115,8 +123,15 @@ public sealed class EngineViewport : HwndHost
     private bool _renderPumpSuspended;
     private bool _windowInteractionPaused;
     private bool _renderFairnessYieldQueued;
+    private bool _hiddenStartupRenderingAllowed;
     private int _renderBurstFrames;
     private long _renderBurstStartedAtTimestamp;
+    private long _nativeCallCount;
+    private long _slowNativeCallCount;
+    private long _gpuBackpressureYieldCount;
+    private double _lastNativeCallMilliseconds;
+    private double _maximumNativeCallMilliseconds;
+    private string _lastNativeCallKind = string.Empty;
 
     // Native rendering must not be driven by CompositionTarget.Rendering:
     // that event is deliberately synchronized to WPF/DWM composition and
@@ -128,6 +143,8 @@ public sealed class EngineViewport : HwndHost
     internal const int MaxDirectRenderBurstFrames = 8;
     internal const double MaxDirectRenderBurstMilliseconds = 8.0;
     internal const double PointerCaptureRecoveryGraceMilliseconds = 100.0;
+    internal const double SlowNativeCallThresholdMilliseconds = 50.0;
+    internal const double MaximumNativeDeltaSeconds = 0.1;
     internal const int PointerButtonLeftMask = 1 << 0;
     internal const int PointerButtonRightMask = 1 << 1;
     internal const int PointerButtonMiddleMask = 1 << 2;
@@ -147,6 +164,11 @@ public sealed class EngineViewport : HwndHost
         !destroying && !suspended && handlesReady && visible && !minimized &&
         double.IsFinite(width) && double.IsFinite(height) &&
         width > 0.0 && height > 0.0;
+
+    internal static bool IsRenderSurfaceVisible(
+        bool nativeWindowVisible,
+        bool hiddenStartupRenderingAllowed) =>
+        nativeWindowVisible || hiddenStartupRenderingAllowed;
 
     internal static bool ShouldRecoverRenderPumpFromComposition(
         bool frameActive,
@@ -168,6 +190,29 @@ public sealed class EngineViewport : HwndHost
         double elapsedMilliseconds) =>
         completedFrames >= MaxDirectRenderBurstFrames ||
         elapsedMilliseconds >= MaxDirectRenderBurstMilliseconds;
+
+    internal static bool ShouldYieldForGpuBackpressure(
+        int nativeRenderResult) =>
+        nativeRenderResult == 0;
+
+    internal static double CommitRenderTimestamp(
+        double previousTimestamp,
+        double candidateTimestamp,
+        int nativeRenderResult)
+    {
+        if (nativeRenderResult <= 0)
+            return previousTimestamp;
+
+        // Consume at most the same delta passed to native code. Any excess
+        // remains between the committed timestamp and the monotonic clock so
+        // a long GPU/UI stall is recovered by later frames instead of lost.
+        return Math.Min(
+            candidateTimestamp,
+            previousTimestamp + MaximumNativeDeltaSeconds);
+    }
+
+    internal static bool IsFatalRenderResult(int nativeRenderResult) =>
+        nativeRenderResult < 0;
 
     internal static int ActivePointerButtonMask(
         bool gizmoDragging,
@@ -256,6 +301,9 @@ public sealed class EngineViewport : HwndHost
     /// <summary>HWND への attach が失敗し、自動再試行を停止したときに 1 度発火する。</summary>
     public event Action? AttachmentFailed;
 
+    /// <summary>cooperative native render contract が失われ、描画ポンプを停止したときに発火する。</summary>
+    public event Action<string>? RenderingFailed;
+
     /// <summary>エンジンハンドル (シーン API 呼び出し用、未生成時 Zero)。</summary>
     public IntPtr Engine => _destroying ? IntPtr.Zero : _engine;
 
@@ -303,6 +351,12 @@ public sealed class EngineViewport : HwndHost
         _renderFairnessYieldQueued = false;
         _trackingMouseLeave = false;
         _pointerButtonMismatchStartedAtTimestamp = 0;
+        _nativeCallCount = 0;
+        _slowNativeCallCount = 0;
+        _gpuBackpressureYieldCount = 0;
+        _lastNativeCallMilliseconds = 0.0;
+        _maximumNativeCallMilliseconds = 0.0;
+        _lastNativeCallKind = string.Empty;
         ResetRenderBurst();
         AttachFailed = false;
         _dormantRenderTimer?.Stop();
@@ -430,14 +484,31 @@ public sealed class EngineViewport : HwndHost
     {
         Window? owner = Window.GetWindow(this);
         bool minimized = owner?.WindowState == WindowState.Minimized;
+        bool renderSurfaceVisible = IsRenderSurfaceVisible(
+            _hwnd != IntPtr.Zero && IsWindowVisible(_hwnd),
+            _hiddenStartupRenderingAllowed);
         return ShouldRenderContinuously(
             _destroying,
             RenderPumpSuspended,
             _engine != IntPtr.Zero && _hwnd != IntPtr.Zero,
-            _hwnd != IntPtr.Zero && IsWindowVisible(_hwnd),
+            renderSurfaceVisible,
             minimized,
             ActualWidth,
             ActualHeight);
+    }
+
+    internal void SetHiddenStartupRenderingAllowed(bool allowed)
+    {
+        Dispatcher.VerifyAccess();
+        if (_hiddenStartupRenderingAllowed == allowed)
+            return;
+
+        _hiddenStartupRenderingAllowed = allowed;
+        if (allowed)
+        {
+            RequestRedraw();
+            QueueRenderPump();
+        }
     }
 
     private void OnCompositionWake(object? sender, EventArgs e)
@@ -914,12 +985,20 @@ public sealed class EngineViewport : HwndHost
                 if (_renderBurstFrames == 0 || _renderBurstStartedAtTimestamp == 0)
                     _renderBurstStartedAtTimestamp =
                         System.Diagnostics.Stopwatch.GetTimestamp();
-                RenderOneFrame();
+                bool gpuBackpressure = RenderOneFrame();
                 // Keep exactly one Win32 token in flight, but end every bounded
                 // burst with a real Dispatcher.Background turn. This avoids
                 // both the old per-frame Dispatcher cap and Win32-pump
                 // starvation of startup/timers/commands.
-                ScheduleNextRenderPumpAfterFrame();
+                if (gpuBackpressure)
+                {
+                    _gpuBackpressureYieldCount++;
+                    QueueRenderFairnessYield();
+                }
+                else
+                {
+                    ScheduleNextRenderPumpAfterFrame();
+                }
                 return IntPtr.Zero;
             }
 
@@ -1208,14 +1287,15 @@ public sealed class EngineViewport : HwndHost
         if (_engine != IntPtr.Zero) EngineInterop.acs_editor_logic_input_mouse_button(_engine, button, down);
     }
 
-    private void RenderOneFrame()
+    private bool RenderOneFrame()
     {
         Dispatcher.VerifyAccess();
-        if (_destroying || _engine == IntPtr.Zero || _hwnd == IntPtr.Zero) return;
+        if (_destroying || _engine == IntPtr.Zero || _hwnd == IntPtr.Zero)
+            return false;
         if (_frameActive)
         {
             _redrawPending = true;
-            return;
+            return false;
         }
 
         _frameActive = true;
@@ -1238,45 +1318,141 @@ public sealed class EngineViewport : HwndHost
         {
             // 起動直後のサイズが安定 (2 フレーム連続同値) するまで attach を待つ。確定前に attach すると
             // 直後のリサイズ連発で swapchain 再生成 + WaitIdle がフレームペーシングと競合し間欠クラッシュする。
-            if (w != _pendW || h != _pendH) { _pendW = w; _pendH = h; return; }
-            if (EngineInterop.acs_editor_attach(_engine, _hwnd, w, h) != 0)
+            if (w != _pendW || h != _pendH)
             {
-                if (_destroying) return;
+                _pendW = w;
+                _pendH = h;
+                return false;
+            }
+            long attachBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+            int attachResult;
+            try
+            {
+                attachResult =
+                    EngineInterop.acs_editor_attach(_engine, _hwnd, w, h);
+            }
+            finally
+            {
+                ObserveNativeCall("attach", attachBegin);
+            }
+            if (attachResult != 0)
+            {
+                if (_destroying) return false;
                 _attached = true; _w = w; _h = h; AttachFailed = false;
                 Attached?.Invoke();
-                if (_destroying) return;
+                if (_destroying) return false;
             }
             else
             {
                 AttachFailed = true;
                 SuspendRenderPumpForStartupFailure();
                 AttachmentFailed?.Invoke();
-                return;
+                return false;
             }
         }
         else if (!_attached)
         {
             // A failed attach is latched. Even if another wake source is added
             // later, only RetryAttach may clear the latch and call the ABI again.
-            return;
+            return false;
         }
         else if (w != _w || h != _h)
         {
-            EngineInterop.acs_editor_resize(_engine, w, h);
+            long resizeBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                EngineInterop.acs_editor_resize(_engine, w, h);
+            }
+            finally
+            {
+                ObserveNativeCall("resize", resizeBegin);
+            }
             _w = w; _h = h;
         }
-        if (_destroying) return;
+        if (_destroying) return false;
 
         // 経過秒 (dt) を計算してエンジンを 1 フレーム進める (アニメーションを描画)。
         double now = _clock.Elapsed.TotalSeconds;
-        float dt = (float)Math.Clamp(now - _lastSec, 0.0, 0.1);
-        _lastSec = now;
-        EngineInterop.acs_editor_render(_engine, dt);
+        float dt = (float)Math.Clamp(
+            now - _lastSec,
+            0.0,
+            MaximumNativeDeltaSeconds);
+        int renderResult;
+        long renderBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            renderResult =
+                EngineInterop.TryRenderEditorFrame(_engine, dt);
+        }
+        finally
+        {
+            ObserveNativeCall("render", renderBegin);
+        }
+        if (IsFatalRenderResult(renderResult))
+        {
+            _lastNativeCallKind = "render:fatal";
+            SuspendRenderPumpForStartupFailure();
+            RenderingFailed?.Invoke(
+                "The native renderer rejected the cooperative frame contract; " +
+                "automatic rendering was stopped.");
+            return false;
+        }
+
+        // A backpressured try did not advance native simulation. Preserve its
+        // elapsed time for the next submitted frame instead of making
+        // Play/physics/water run in slow motion under GPU saturation.
+        _lastSec = CommitRenderTimestamp(
+            _lastSec,
+            now,
+            renderResult);
+        return ShouldYieldForGpuBackpressure(renderResult);
         }
         finally
         {
             _frameActive = false;
             CompleteDeferredDestroyIfReady();
         }
+    }
+
+    private void ObserveNativeCall(string kind, long startedAtTimestamp)
+    {
+        double elapsedMilliseconds =
+            (System.Diagnostics.Stopwatch.GetTimestamp() -
+             startedAtTimestamp) *
+            1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        if (!double.IsFinite(elapsedMilliseconds) ||
+            elapsedMilliseconds < 0.0)
+        {
+            return;
+        }
+
+        _nativeCallCount++;
+        _lastNativeCallMilliseconds = elapsedMilliseconds;
+        _maximumNativeCallMilliseconds = Math.Max(
+            _maximumNativeCallMilliseconds,
+            elapsedMilliseconds);
+        _lastNativeCallKind = kind;
+        if (elapsedMilliseconds >= SlowNativeCallThresholdMilliseconds)
+            _slowNativeCallCount++;
+    }
+
+    internal ViewportNativeRenderDiagnostic GetNativeRenderDiagnostic() =>
+        new(
+            _nativeCallCount,
+            _slowNativeCallCount,
+            _gpuBackpressureYieldCount,
+            _lastNativeCallMilliseconds,
+            _maximumNativeCallMilliseconds,
+            _lastNativeCallKind);
+
+    internal void ResetNativeRenderDiagnostics()
+    {
+        Dispatcher.VerifyAccess();
+        _nativeCallCount = 0;
+        _slowNativeCallCount = 0;
+        _gpuBackpressureYieldCount = 0;
+        _lastNativeCallMilliseconds = 0.0;
+        _maximumNativeCallMilliseconds = 0.0;
+        _lastNativeCallKind = string.Empty;
     }
 }

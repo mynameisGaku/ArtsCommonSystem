@@ -120,7 +120,9 @@ TResult<void> FDiligentShader::Init(FDiligentDevice& device, const FShaderDesc& 
     sci.HLSLVersion    = {5, 1};
     sci.Source         = desc.hlsl_source;
     sci.EntryPoint     = desc.entry_point ? desc.entry_point : "main";
-    if (desc.compile_async && device.SupportsAsyncShaderCompilation()) {
+    const bool compile_async =
+        desc.compile_async && device.SupportsAsyncShaderCompilation();
+    if (compile_async) {
         sci.CompileFlags |= Diligent::SHADER_COMPILE_FLAG_ASYNCHRONOUS;
     }
 
@@ -144,7 +146,15 @@ TResult<void> FDiligentShader::Init(FDiligentDevice& device, const FShaderDesc& 
     sci.Desc                      = sd;
 
     Diligent::RefCntAutoPtr<Diligent::IDataBlob> compiler_output;
-    dev->CreateShader(sci, &m_Shader, &compiler_output);
+    if (compile_async) {
+        // Diligent retains ppCompilerOutput and writes through it from the
+        // compiler worker. A pointer to this stack-local RefCntAutoPtr would
+        // therefore become dangling as soon as Init returns. Async failures
+        // are still reflected by IShader::GetStatus and logged by Diligent.
+        dev->CreateShader(sci, &m_Shader, nullptr);
+    } else {
+        dev->CreateShader(sci, &m_Shader, &compiler_output);
+    }
     if (!m_Shader) {
         if (compiler_output) {
             const char* msg = static_cast<const char*>(compiler_output->GetDataPtr());

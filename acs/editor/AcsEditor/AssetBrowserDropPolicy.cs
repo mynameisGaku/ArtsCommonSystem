@@ -137,9 +137,9 @@ internal static class AssetBrowserDropPolicy
 
     /// <summary>
     /// Plans an Explorer/file-manager drop without probing the filesystem on
-    /// WPF's drag-over path. The import workflow revalidates every source as an
-    /// ordinary file, rejects reparse points, and revalidates the destination
-    /// immediately before publishing the transaction.
+    /// WPF's drag-over path. The import workflow authoritatively distinguishes
+    /// ordinary files from recursive folder roots, rejects reparse points, and
+    /// revalidates the destination immediately before each publication.
     /// </summary>
     internal static AssetBrowserImportDropPlan EvaluateExternalImport(
         IEnumerable<string>? sourcePaths,

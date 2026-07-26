@@ -552,6 +552,8 @@ public partial class MaterialEditorWindow
             });
             return;
         }
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Add Shader Expression");
         int op = entry.ExpressionOp;
         var node = new ExpressionNode
         {
@@ -600,6 +602,8 @@ public partial class MaterialEditorWindow
             source == destination || input < 0 ||
             input >= ExpressionInputCount(_expressionNodes[destination].Op))
             return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Connect Shader Expressions");
         ExpressionNode destinationNode = _expressionNodes[destination];
         if (!IsExpressionInputTypeCompatible(
                 source, destination, input, out int sourceType, out int expectedType))
@@ -654,6 +658,8 @@ public partial class MaterialEditorWindow
         if (!ValidExpressionIndex(source) || !ValidNodeIndex(closure) ||
             _graphNodes[closure].Type != 0 || scalar < 0 || scalar >= SlabScalarCount)
             return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Bind Shader Expression");
         int type = InferExpressionType(source);
         int lane = SlabScalarLane(scalar);
         if (type < 1 || (type != 1 && lane >= type))
@@ -1012,6 +1018,8 @@ public partial class MaterialEditorWindow
     private void DeleteSelectedExpression()
     {
         if (!ValidExpressionIndex(_selectedExpression)) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Delete Shader Expression");
         int removed = _selectedExpression;
         _expressionNodes.RemoveAt(removed);
         foreach (ExpressionNode node in _expressionNodes)
@@ -1309,6 +1317,8 @@ public partial class MaterialEditorWindow
             !ValidExpressionIndex(index))
             return;
         ExpressionNode node = _expressionNodes[index];
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Change Shader Expression Type");
         node.DeclaredType = node.Op == 0 ? box.SelectedIndex + 1 : box.SelectedIndex + 2;
         MarkGraphDirty();
         SelectExpressionNode(index);
@@ -1326,7 +1336,11 @@ public partial class MaterialEditorWindow
             return;
         }
         box.ClearValue(Border.BorderBrushProperty);
-        _expressionNodes[tag.Node].Value[tag.Lane] = value;
+        ExpressionNode node = _expressionNodes[tag.Node];
+        using GraphHistoryScope history = BeginGraphHistoryChange(
+            "Edit Shader Expression Value",
+            $"expression:{node.StableId}:value:{tag.Lane}");
+        node.Value[tag.Lane] = value;
         MarkGraphDirty();
         BuildLiveParameterList();
         RenderGraph();
@@ -1350,6 +1364,8 @@ public partial class MaterialEditorWindow
         if (!ColorPickerDialog.TryPick(
                 this, initial, width >= 4, out Color picked))
             return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Edit Shader Expression Color");
         node.Value[0] = picked.R / 255f;
         node.Value[1] = picked.G / 255f;
         node.Value[2] = picked.B / 255f;
@@ -1365,6 +1381,9 @@ public partial class MaterialEditorWindow
             !ValidExpressionIndex(index))
             return;
         ExpressionNode node = _expressionNodes[index];
+        using GraphHistoryScope history = BeginGraphHistoryChange(
+            "Rename Shader Parameter",
+            $"expression:{node.StableId}:parameter-name");
         node.ParameterName = (box.Text ?? "").Trim();
         node.ParameterId = ParameterId(node.ParameterName);
         MarkGraphDirty();
@@ -1381,6 +1400,8 @@ public partial class MaterialEditorWindow
             !ValidExpressionIndex(index))
             return;
         ExpressionNode node = _expressionNodes[index];
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Change Texture Slot");
         node.TextureSlot = Math.Clamp(box.SelectedIndex, 0, _expressionTextureSlots - 1);
         ExpressionNode? shared = null;
         for (int candidateIndex = 0;
@@ -1421,6 +1442,8 @@ public partial class MaterialEditorWindow
             Filter = "Texture files (*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.dds|All files (*.*)|*.*"
         };
         if (dialog.ShowDialog(this) != true) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Assign Shader Texture");
         _expressionTexturePaths[node.TextureSlot] = dialog.FileName;
         ulong id = AssetId(dialog.FileName);
         PropagateTextureSlotState(
@@ -1434,6 +1457,8 @@ public partial class MaterialEditorWindow
         if (sender is not Button { Tag: int index } || !ValidExpressionIndex(index))
             return;
         ExpressionNode node = _expressionNodes[index];
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Clear Shader Texture");
         _expressionTexturePaths[node.TextureSlot] = "";
         PropagateTextureSlotState(node.TextureSlot, node.TextureFlags, 0, 0);
         MarkGraphDirty();
@@ -1446,6 +1471,8 @@ public partial class MaterialEditorWindow
             sender is not CheckBox { Tag: int bit } check)
             return;
         ExpressionNode node = _expressionNodes[_selectedExpression];
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Change Texture Sampling");
         if (check.IsChecked == true) node.TextureFlags |= 1 << bit;
         else node.TextureFlags &= ~(1 << bit);
         PropagateTextureSlotState(
@@ -1471,6 +1498,8 @@ public partial class MaterialEditorWindow
         if (_graphUiSync || sender is not ComboBox { Tag: int index } box ||
             !ValidExpressionIndex(index))
             return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Change Component Lane");
         _expressionNodes[index].ComponentIndex = Math.Clamp(box.SelectedIndex, 0, 3);
         MarkGraphDirty();
         RenderGraph();
@@ -1481,6 +1510,8 @@ public partial class MaterialEditorWindow
         if (sender is not Button { Tag: ExpressionInputTag tag } ||
             !ValidExpressionIndex(tag.Node))
             return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Disconnect Shader Input");
         _expressionNodes[tag.Node].Inputs[tag.Input] = -1;
         MarkGraphDirty();
         SelectExpressionNode(tag.Node);
@@ -1489,6 +1520,8 @@ public partial class MaterialEditorWindow
     private void OnSetExpressionRoot(object sender, RoutedEventArgs e)
     {
         if (!ValidExpressionIndex(_selectedExpression)) return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Set Shader Preview Root");
         _expressionRoot = _selectedExpression;
         MarkGraphDirty();
         SelectExpressionNode(_selectedExpression);
@@ -1499,6 +1532,8 @@ public partial class MaterialEditorWindow
         if (sender is not Button { Tag: int scalar } ||
             !ValidNodeIndex(_selectedNode) || scalar < 0 || scalar >= SlabScalarCount)
             return;
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Disconnect Slab Binding");
         _graphNodes[_selectedNode].ExpressionRoots[scalar] = -1;
         MarkGraphDirty();
         SelectGraphNode(_selectedNode);
@@ -1548,6 +1583,8 @@ public partial class MaterialEditorWindow
     // persistence regression checks. Every node is a real runtime expression.
     internal void BuildExpressionGraphForTest(bool unsupportedOperatorRoot = false)
     {
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Build Shader Expression Fixture");
         _graphNodes.Clear();
         var slab = new GraphNode
         {
@@ -1652,6 +1689,8 @@ public partial class MaterialEditorWindow
     internal bool ConfigureSharedTextureForTest()
     {
         if (_expressionNodes.Count < 9) BuildExpressionGraphForTest();
+        using GraphHistoryScope history =
+            BeginGraphHistoryChange("Configure Shared Texture Fixture");
         const string testPath = "Assets/QA/shared_substrate_texture.dds";
         _expressionTexturePaths[0] = testPath;
         ulong id = AssetId(testPath);

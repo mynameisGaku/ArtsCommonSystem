@@ -818,12 +818,19 @@ ACS_TEST(Atmosphere,
 }
 
 ACS_TEST(Atmosphere,
-         InteractiveWaterClockAdvancesOnceBeforePresentationEarlyExits) {
+         InteractiveWaterClockAdvancesOnlyForSubmittedFrames) {
     const std::string source = ReadEditorAbiSource();
+    const std::size_t commit = source.find(
+        "static void CommitEditorFrameDelta(");
     const std::size_t render = source.find(
-        "ACS_EDITOR_API void acs_editor_render(");
+        "static int RenderEditorFrame(");
+    const std::string commit_body =
+        commit != std::string::npos &&
+                render != std::string::npos
+            ? source.substr(commit, render - commit)
+            : std::string{};
     const std::size_t render_end = source.find(
-        "ACS_EDITOR_API void acs_editor_resize(", render);
+        "ACS_EDITOR_API void acs_editor_render(", render);
     const std::string render_body =
         render != std::string::npos &&
                 render_end != std::string::npos
@@ -831,33 +838,149 @@ ACS_TEST(Atmosphere,
             : std::string{};
     const std::size_t safe_dt =
         render_body.find("const f32 safe_dt =");
-    const std::size_t update =
-        render_body.find("host->water3d.Update(safe_dt);");
     const std::size_t startup_exit =
         render_body.find("if (!host->startup_ready)");
+    const std::size_t gpu_preflight =
+        render_body.find("!host->renderer.CanBeginFrameWithoutGpuWait()");
     const std::size_t suppressed_exit =
         render_body.find("if (host->scene_presentation_suppressed)");
+    const std::size_t startup_present =
+        render_body.find("const int present_result =");
+    const std::size_t startup_reject =
+        render_body.find(
+            "if (present_result <= 0) return present_result;",
+            startup_present);
+    const std::size_t startup_commit =
+        render_body.find(
+            "CommitEditorFrameDelta(*host, safe_dt);",
+            startup_reject);
+    const std::size_t suppressed_present =
+        render_body.find(
+            "const int present_result =",
+            suppressed_exit);
+    const std::size_t suppressed_reject =
+        render_body.find(
+            "if (present_result <= 0) return present_result;",
+            suppressed_present);
+    const std::size_t suppressed_publish =
+        render_body.find(
+            "PublishProfilerFrame(",
+            suppressed_reject);
+    const std::size_t suppressed_commit =
+        render_body.find(
+            "CommitEditorFrameDelta(*host, safe_dt);",
+            suppressed_publish);
+    const std::size_t try_begin =
+        render_body.find("host->renderer.TryBeginFrameWithoutGpuWait(clear)");
+    const std::size_t simulation_commit =
+        render_body.find("CommitEditorFrameDelta(*host, safe_dt);",
+                         try_begin);
+    const std::size_t play_step =
+        render_body.find("EditorStepPlay(*host, safe_dt)");
 
+    EXPECT_TRUE(!commit_body.empty());
     EXPECT_TRUE(!render_body.empty());
     EXPECT_TRUE(safe_dt != std::string::npos);
-    EXPECT_TRUE(update != std::string::npos);
     EXPECT_TRUE(startup_exit != std::string::npos);
+    EXPECT_TRUE(gpu_preflight != std::string::npos);
     EXPECT_TRUE(suppressed_exit != std::string::npos);
-    EXPECT_TRUE(safe_dt < update);
-    EXPECT_TRUE(update < startup_exit);
-    EXPECT_TRUE(update < suppressed_exit);
+    EXPECT_TRUE(startup_present != std::string::npos);
+    EXPECT_TRUE(startup_reject != std::string::npos);
+    EXPECT_TRUE(startup_commit != std::string::npos);
+    EXPECT_TRUE(suppressed_present != std::string::npos);
+    EXPECT_TRUE(suppressed_reject != std::string::npos);
+    EXPECT_TRUE(suppressed_publish != std::string::npos);
+    EXPECT_TRUE(suppressed_commit != std::string::npos);
+    EXPECT_TRUE(try_begin != std::string::npos);
+    EXPECT_TRUE(simulation_commit != std::string::npos);
+    EXPECT_TRUE(play_step != std::string::npos);
+    EXPECT_TRUE(Contains(
+        commit_body,
+        "host.water3d.Update(safe_dt);"));
     EXPECT_TRUE(render_body.find(
-        "host->water3d.Update(", update + 1u) == std::string::npos);
+        "host->water3d.Update(") == std::string::npos);
+    EXPECT_TRUE(gpu_preflight < suppressed_exit);
+    EXPECT_TRUE(startup_present < startup_reject);
+    EXPECT_TRUE(startup_reject < startup_commit);
+    EXPECT_TRUE(suppressed_present < suppressed_reject);
+    EXPECT_TRUE(suppressed_reject < suppressed_publish);
+    EXPECT_TRUE(suppressed_publish < suppressed_commit);
+    EXPECT_TRUE(try_begin < simulation_commit);
+    EXPECT_TRUE(simulation_commit < play_step);
 
     const std::size_t draw = source.find("void DrawScene3D(");
     const std::size_t draw_end = source.find(
-        "ACS_EDITOR_API void acs_editor_render(", draw);
+        "static void CommitEditorFrameDelta(", draw);
     const std::string draw_body =
         draw != std::string::npos &&
                 draw_end != std::string::npos
             ? source.substr(draw, draw_end - draw)
             : std::string{};
     EXPECT_FALSE(Contains(draw_body, ".water3d.Update("));
+}
+
+ACS_TEST(EditorPerformance,
+         CooperativeFrameBeginSeparatesBackpressureFromFatalFailure) {
+    const std::string source = ReadEditorAbiSource();
+    const std::size_t neutral_begin =
+        source.find("int PresentNeutralEditorFrame(");
+    const std::size_t neutral_end =
+        source.find("bool PresentNeutralEditorFrame(", neutral_begin);
+    const std::string neutral =
+        neutral_begin != std::string::npos &&
+                neutral_end != std::string::npos
+            ? source.substr(neutral_begin, neutral_end - neutral_begin)
+            : std::string{};
+    const std::size_t render_begin =
+        source.find("static int RenderEditorFrame(");
+    const std::size_t render_end =
+        source.find("ACS_EDITOR_API void acs_editor_render(", render_begin);
+    const std::string render =
+        render_begin != std::string::npos &&
+                render_end != std::string::npos
+            ? source.substr(render_begin, render_end - render_begin)
+            : std::string{};
+
+    EXPECT_TRUE(!neutral.empty());
+    EXPECT_TRUE(!render.empty());
+
+    const std::size_t neutral_preflight = neutral.find(
+        "!host.renderer.CanBeginFrameWithoutGpuWait()");
+    const std::size_t neutral_busy =
+        neutral.find("return 0;", neutral_preflight);
+    const std::size_t neutral_try = neutral.find(
+        "host.renderer.TryBeginFrameWithoutGpuWait(");
+    const std::size_t neutral_fatal =
+        neutral.find("return -1;", neutral_try);
+    EXPECT_TRUE(neutral_preflight != std::string::npos);
+    EXPECT_TRUE(neutral_busy != std::string::npos);
+    EXPECT_TRUE(neutral_try != std::string::npos);
+    EXPECT_TRUE(neutral_fatal != std::string::npos);
+    EXPECT_TRUE(neutral_preflight < neutral_busy);
+    EXPECT_TRUE(neutral_busy < neutral_try);
+    EXPECT_TRUE(neutral_try < neutral_fatal);
+    EXPECT_TRUE(Contains(
+        neutral,
+        "Both checks execute serially on the HWND/RHI owner thread."));
+
+    const std::size_t render_preflight = render.find(
+        "!host->renderer.CanBeginFrameWithoutGpuWait()");
+    const std::size_t render_busy =
+        render.find("return 0;", render_preflight);
+    const std::size_t render_try = render.find(
+        "host->renderer.TryBeginFrameWithoutGpuWait(clear)");
+    const std::size_t render_fatal =
+        render.find("return -1;", render_try);
+    EXPECT_TRUE(render_preflight != std::string::npos);
+    EXPECT_TRUE(render_busy != std::string::npos);
+    EXPECT_TRUE(render_try != std::string::npos);
+    EXPECT_TRUE(render_fatal != std::string::npos);
+    EXPECT_TRUE(render_preflight < render_busy);
+    EXPECT_TRUE(render_busy < render_try);
+    EXPECT_TRUE(render_try < render_fatal);
+    EXPECT_TRUE(Contains(
+        render,
+        "classify it as fatal so the managed pump does not spin forever."));
 }
 
 ACS_TEST(Atmosphere,
@@ -888,7 +1011,7 @@ ACS_TEST(EditorPerformance,
     const std::string source = ReadEditorAbiSource();
     const std::size_t draw = source.find("void DrawScene3D(");
     const std::size_t draw_end = source.find(
-        "ACS_EDITOR_API void acs_editor_render(", draw);
+        "static int RenderEditorFrame(", draw);
     const std::string draw_body =
         draw != std::string::npos &&
                 draw_end != std::string::npos
@@ -1151,9 +1274,9 @@ ACS_TEST(EditorPerformance,
          WaterFeatureScanReusesHostOwnedSceneDfsScratch) {
     const std::string source = ReadEditorAbiSource();
     const std::size_t begin =
-        source.find("ACS_EDITOR_API void acs_editor_render(");
+        source.find("static int RenderEditorFrame(");
     const std::size_t end =
-        source.find("ACS_EDITOR_API void acs_editor_resize(", begin);
+        source.find("ACS_EDITOR_API void acs_editor_render(", begin);
     const std::string render =
         begin != std::string::npos && end != std::string::npos
             ? source.substr(begin, end - begin)

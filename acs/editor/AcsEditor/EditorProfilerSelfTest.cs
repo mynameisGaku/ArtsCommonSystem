@@ -216,6 +216,39 @@ internal static class EditorProfilerSelfTest
               EngineViewport.ShouldYieldRenderBurst(1, 8.0) &&
               EngineViewport.ShouldYieldRenderBurst(80, 0.0),
             "direct render bursts must yield by eight frames or the eight-millisecond UI budget");
+        Check(
+            EngineViewport.SlowNativeCallThresholdMilliseconds == 50.0 &&
+            EngineViewport.MaximumNativeDeltaSeconds == 0.1 &&
+            EngineViewport.ShouldYieldForGpuBackpressure(0) &&
+            !EngineViewport.ShouldYieldForGpuBackpressure(1) &&
+            !EngineViewport.ShouldYieldForGpuBackpressure(-1),
+            "GPU frame-slot backpressure yields to WPF without treating success or invalid handles as saturation");
+        Check(
+            EngineViewport.IsFatalRenderResult(-1) &&
+            !EngineViewport.IsFatalRenderResult(0) &&
+            !EngineViewport.IsFatalRenderResult(1) &&
+            EngineInterop.TryRenderEditorFrame(IntPtr.Zero, 1.0f / 60.0f) ==
+                EngineInterop.EditorRenderFatalResult,
+            "invalid or unavailable cooperative render contracts fail closed without entering the blocking legacy renderer");
+        Check(
+            EngineViewport.IsRenderSurfaceVisible(
+                nativeWindowVisible: true,
+                hiddenStartupRenderingAllowed: false) &&
+            EngineViewport.IsRenderSurfaceVisible(
+                nativeWindowVisible: false,
+                hiddenStartupRenderingAllowed: true) &&
+            !EngineViewport.IsRenderSurfaceVisible(
+                nativeWindowVisible: false,
+                hiddenStartupRenderingAllowed: false),
+            "hidden loading UI permits native frames only during explicit renderer warm-up");
+        Check(
+            Math.Abs(
+                EngineViewport.CommitRenderTimestamp(4.0, 7.0, 1) -
+                4.1) < 0.000001 &&
+            EngineViewport.CommitRenderTimestamp(4.0, 4.05, 1) == 4.05 &&
+            EngineViewport.CommitRenderTimestamp(4.0, 7.0, 0) == 4.0 &&
+            EngineViewport.CommitRenderTimestamp(4.0, 7.0, -1) == 4.0,
+            "successful frames consume at most 100 ms while preserving stalled time for later frames");
         int leftGestureMask = EngineViewport.ActivePointerButtonMask(
             gizmoDragging: true,
             gizmo3dDragging: false,

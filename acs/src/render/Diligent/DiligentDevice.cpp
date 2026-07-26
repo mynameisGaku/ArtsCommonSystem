@@ -403,6 +403,16 @@ void FDiligentDevice::PrepareCommandRecording() noexcept
     if (m_Device) m_Device->ReleaseStaleResources(false);
 }
 
+bool FDiligentDevice::CanPrepareCommandRecordingWithoutWait() const noexcept
+{
+    if (m_Context == nullptr || m_FrameSubmissionPending)
+        return false;
+    const u64 fence_value = m_FrameFences[m_FrameSlot];
+    return fence_value == 0u ||
+           (m_IdleFence != nullptr &&
+            m_IdleFence->GetCompletedValue() >= fence_value);
+}
+
 void FDiligentDevice::MarkFrameSubmitted() noexcept
 {
     if (!m_Context) return;

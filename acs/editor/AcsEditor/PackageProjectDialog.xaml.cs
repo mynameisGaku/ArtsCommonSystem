@@ -499,11 +499,19 @@ public partial class PackageProjectDialog : Window
             _resultZip = result.ZipPath;
             PackageSucceeded = true;
             ResultPathText.Text = result.ZipPath;
-            StatusText.Text = $"Complete  /  {result.FileCount} files  /  {FormatBytes(result.UncompressedBytes)}";
+            StatusText.Text =
+                $"{(result.ArchiveVerified ? "Verified" : "Complete")}  /  " +
+                $"{result.FileCount} files  /  {FormatBytes(result.UncompressedBytes)}";
             AppendLog($"Build ID: {result.BuildId}");
             AppendLog(
                 $"Cooked assets: {result.CookedAssetCount}  /  " +
                 $"game.acpak SHA-256: {result.AssetPackSha256}");
+            if (result.ArchiveVerified)
+            {
+                AppendLog(
+                    $"Archive verification: PASS  /  " +
+                    $"{result.FileCount} payload SHA-256 hashes.");
+            }
             AppendLog($"Package complete: {result.ZipPath}");
             OpenResultButton.IsEnabled = true;
         }
