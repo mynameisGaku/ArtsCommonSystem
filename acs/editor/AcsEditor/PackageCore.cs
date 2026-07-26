@@ -1174,20 +1174,28 @@ public static class PackageCore
                 $"Package manifest must be between 2 and {ArchiveManifestLimitBytes} bytes.");
         }
 
-        PackageManifest? manifest;
-        await using (Stream manifestStream = manifestEntry.Open())
+        byte[] manifestBytes = await ReadArchiveEntryExactAsync(
+            manifestEntry,
+            ArchiveManifestLimitBytes,
+            "Package manifest",
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        using (JsonDocument manifestDocument = JsonDocument.Parse(
+                   manifestBytes,
+                   new JsonDocumentOptions { MaxDepth = 64 }))
         {
-            manifest = await JsonSerializer.DeserializeAsync<PackageManifest>(
-                manifestStream,
+            RejectDuplicateJsonProperties(manifestDocument.RootElement);
+        }
+        PackageManifest? manifest =
+            JsonSerializer.Deserialize<PackageManifest>(
+                manifestBytes,
                 new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = false,
                     UnmappedMemberHandling =
                         System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
                     MaxDepth = 64,
-                },
-                cancellationToken);
-        }
+                });
         if (manifest is null)
             throw new InvalidDataException("Package manifest is empty.");
 
@@ -1324,9 +1332,11 @@ public static class PackageCore
                 index + 1,
                 manifest.files.Count));
             (string hash, long bytesRead) =
-                await HashArchiveEntryAsync(entry, cancellationToken);
-            if (bytesRead != file.size ||
-                !string.Equals(hash, file.sha256, StringComparison.Ordinal))
+                await HashArchiveEntryAsync(
+                    entry,
+                    file.size,
+                    cancellationToken);
+            if (!string.Equals(hash, file.sha256, StringComparison.Ordinal))
             {
                 throw new InvalidDataException(
                     $"Package payload hash verification failed: {file.path}");
@@ -2760,30 +2770,143 @@ public static class PackageCore
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    private static async Task<(string Hash, long BytesRead)> HashArchiveEntryAsync(
+    private static async Task<byte[]> ReadArchiveEntryExactAsync(
         ZipArchiveEntry entry,
+        int maximumBytes,
+        string description,
         CancellationToken cancellationToken)
     {
+        long declaredLength = entry.Length;
+        if (declaredLength < 0 || declaredLength > maximumBytes)
+        {
+            throw new InvalidDataException(
+                $"{description} exceeds the supported size limit.");
+        }
+
         await using Stream stream = entry.Open();
+        return await ReadArchiveStreamExactAsync(
+            stream,
+            checked((int)declaredLength),
+            maximumBytes,
+            description,
+            cancellationToken);
+    }
+
+    private static async Task<byte[]> ReadArchiveStreamExactAsync(
+        Stream stream,
+        int declaredLength,
+        int maximumBytes,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        if (declaredLength < 0 || declaredLength > maximumBytes)
+        {
+            throw new InvalidDataException(
+                $"{description} exceeds the supported size limit.");
+        }
+
+        byte[] content = new byte[declaredLength];
+        int offset = 0;
+        while (offset < content.Length)
+        {
+            int read = await stream.ReadAsync(
+                content.AsMemory(offset),
+                cancellationToken);
+            if (read == 0)
+            {
+                throw new InvalidDataException(
+                    $"{description} actual decompressed length does not match " +
+                    "its declared length.");
+            }
+            offset += read;
+        }
+
+        byte[] sentinel = new byte[1];
+        if (await stream.ReadAsync(
+                sentinel.AsMemory(),
+                cancellationToken) != 0)
+        {
+            throw new InvalidDataException(
+                $"{description} actual decompressed length does not match " +
+                "its declared length.");
+        }
+        return content;
+    }
+
+    internal static Task<byte[]> ReadManifestStreamExactForSelfTestAsync(
+        Stream stream,
+        int declaredLength,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return ReadArchiveStreamExactAsync(
+            stream,
+            declaredLength,
+            ArchiveManifestLimitBytes,
+            "Package manifest",
+            cancellationToken);
+    }
+
+    private static async Task<(string Hash, long BytesRead)> HashArchiveEntryAsync(
+        ZipArchiveEntry entry,
+        long expectedBytes,
+        CancellationToken cancellationToken)
+    {
+        if (expectedBytes < 0 || entry.Length != expectedBytes)
+        {
+            throw new InvalidDataException(
+                "Package payload declared length does not match its manifest.");
+        }
+
+        await using Stream stream = entry.Open();
+        return await HashArchiveStreamExactAsync(
+            stream,
+            expectedBytes,
+            cancellationToken);
+    }
+
+    private static async Task<(string Hash, long BytesRead)>
+        HashArchiveStreamExactAsync(
+            Stream stream,
+            long expectedBytes,
+            CancellationToken cancellationToken)
+    {
+        if (expectedBytes < 0 ||
+            expectedBytes > ArchiveUncompressedLimitBytes)
+        {
+            throw new InvalidDataException(
+                "Package payload exceeds the supported uncompressed size limit.");
+        }
+
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         byte[] buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
         try
         {
             long total = 0;
-            while (true)
+            while (total < expectedBytes)
             {
+                int requested = (int)Math.Min(
+                    buffer.Length,
+                    expectedBytes - total);
                 int read = await stream.ReadAsync(
-                    buffer.AsMemory(0, 128 * 1024),
+                    buffer.AsMemory(0, requested),
                     cancellationToken);
                 if (read == 0)
-                    break;
-                if (read > ArchiveUncompressedLimitBytes - total)
                 {
                     throw new InvalidDataException(
-                        "Package payload exceeds the supported uncompressed size limit.");
+                        "Package payload actual decompressed length does not " +
+                        "match its declared length.");
                 }
                 total += read;
                 hash.AppendData(buffer, 0, read);
+            }
+            if (await stream.ReadAsync(
+                    buffer.AsMemory(0, 1),
+                    cancellationToken) != 0)
+            {
+                throw new InvalidDataException(
+                    "Package payload actual decompressed length does not " +
+                    "match its declared length.");
             }
             return (
                 Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(),
@@ -2793,6 +2916,52 @@ public static class PackageCore
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    internal static Task<(string Hash, long BytesRead)>
+        HashArchiveStreamExactForSelfTestAsync(
+            Stream stream,
+            long expectedBytes,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return HashArchiveStreamExactAsync(
+            stream,
+            expectedBytes,
+            cancellationToken);
+    }
+
+    private static void RejectDuplicateJsonProperties(JsonElement root)
+    {
+        static void Visit(JsonElement element, int depth)
+        {
+            if (depth > 64)
+            {
+                throw new InvalidDataException(
+                    "Package manifest JSON exceeds the supported depth limit.");
+            }
+
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    if (!names.Add(property.Name))
+                    {
+                        throw new InvalidDataException(
+                            "Package manifest JSON contains a duplicate property.");
+                    }
+                    Visit(property.Value, depth + 1);
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement item in element.EnumerateArray())
+                    Visit(item, depth + 1);
+            }
+        }
+
+        Visit(root, 0);
     }
 
     private static void ValidateArchiveEntryPath(string path)

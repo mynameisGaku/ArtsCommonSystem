@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -237,6 +239,78 @@ public partial class MainWindow
                 EditorDocumentSaveResult.Cancelled(result.Detail),
             _ => EditorDocumentSaveResult.Failed(result.Detail),
         };
+    }
+
+    private Task<EditorDocumentSaveBatchResult> SaveAllHostedDocumentsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!_documentHostInitialized)
+            throw new InvalidOperationException(
+                "The document host has not been initialized.");
+        return _documentHost.SaveAllAsync(cancellationToken).AsTask();
+    }
+
+    private Task<EditorDocumentCloseResult> PrepareHostedDocumentsForCloseAsync(
+        EditorDocumentCloseChoice choice,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_documentHostInitialized)
+            throw new InvalidOperationException(
+                "The document host has not been initialized.");
+        return _documentHost.PrepareCloseAsync(choice, cancellationToken).AsTask();
+    }
+
+    private bool TryRefreshHostedDirtyDocuments(
+        out IReadOnlyList<EditorDocument> dirtyDocuments,
+        out string detail)
+    {
+        if (!_documentHostInitialized)
+        {
+            dirtyDocuments = Array.Empty<EditorDocument>();
+            detail = "the document host has not been initialized";
+            return false;
+        }
+        return _documentHost.TryRefreshDirtyDocuments(
+            out dirtyDocuments,
+            out detail);
+    }
+
+    private void ReportHostedSaveAllResult(
+        EditorDocumentSaveBatchResult result,
+        string operation = "Save All")
+    {
+        EditorDocumentSaveDiagnostic? firstIssue = result.Diagnostics
+            .Where(diagnostic =>
+                diagnostic.Status != EditorDocumentSaveStatus.Saved ||
+                diagnostic.RemainsDirty)
+            .Select(diagnostic => (EditorDocumentSaveDiagnostic?)diagnostic)
+            .FirstOrDefault();
+        string progress =
+            $"{result.SavedCount}/{result.PlannedCount} saved";
+        string message = result.Completion switch
+        {
+            EditorDocumentBatchCompletion.Success when result.PlannedCount == 0 =>
+                $"{operation}: no dirty documents.",
+            EditorDocumentBatchCompletion.Success =>
+                $"{operation}: {progress}.",
+            EditorDocumentBatchCompletion.Cancelled =>
+                $"{operation} cancelled ({progress}); unsaved documents were kept.",
+            _ when firstIssue is { } issue =>
+                $"{operation} incomplete ({progress}) at {issue.DisplayName}: " +
+                (string.IsNullOrWhiteSpace(issue.Detail)
+                    ? issue.Status.ToString()
+                    : issue.Detail),
+            _ =>
+                $"{operation} incomplete ({progress}); " +
+                $"{result.RemainingDirtyDocuments.Count} document(s) remain dirty.",
+        };
+        StatusText.Text = message;
+        Log(message, "Document", result.Completion switch
+        {
+            EditorDocumentBatchCompletion.Success => LogLevel.Success,
+            EditorDocumentBatchCompletion.Cancelled => LogLevel.Warn,
+            _ => LogLevel.Error,
+        });
     }
 
     private async Task<bool> SaveHostedSceneDocumentAsync()

@@ -182,6 +182,14 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --abi-contract-selftest -> version/capability negotiation and
+        // fail-closed diagnostics without loading the native DLL.
+        if (e.Args.Length >= 1 && e.Args[0] == "--abi-contract-selftest")
+        {
+            Shutdown(EditorAbiContractSelfTest.Run(Console.Error));
+            return;
+        }
+
         // CLI: --autosave-selftest  → atomic recovery store / checksum / retention / safety harness.
         // This path creates no WPF window and is safe in build/CI environments.
         if (e.Args.Length >= 1 && e.Args[0] == "--autosave-selftest")
@@ -216,11 +224,20 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --material-preview-selftest -> async/cancellation/cache/stale-result contract.
+        if (e.Args.Length >= 1 && e.Args[0] == "--material-preview-selftest")
+        {
+            int failures = MaterialPreviewSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --material-workflow-selftest -> deterministic material catalogue / assignment
-        // retention / collision-free asset naming shared by 2D and 3D Mesh Renderer slots.
+        // retention / collision-free asset naming plus the material preview scheduler contract.
         if (e.Args.Length >= 1 && e.Args[0] == "--material-workflow-selftest")
         {
             int failures = MaterialWorkflowSelfTest.Run(Console.Error);
+            failures += MaterialPreviewSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }

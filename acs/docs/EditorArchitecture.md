@@ -71,6 +71,26 @@ Examples include `EditorDocumentHost`, `SceneSaveAllPlanner`,
 is deliberately C-compatible; managed code does not own native scene or GPU
 objects.
 
+The native boundary is negotiated before the Editor creates a native host.
+`acs_editor_abi_query` accepts the oldest contract version understood by the
+managed host plus a required capability mask, and always reports the
+provider's version and capability mask. Contract versions are additive;
+optional surfaces are represented by bits and are never inferred from the
+product-version label. The current required host set is:
+
+- result-bearing render frames;
+- incremental startup;
+- result-bearing resize.
+
+Profiler v3, unified scene documents, high-quality material previews,
+Substrate graphs, and interactive 3D water are advertised independently.
+An older DLL without the query export, a missing required capability, a bad
+binary architecture, or a rejected query leaves the viewport disabled and
+publishes a stable startup diagnostic instead of calling further entry
+points. **Help > About ACS Editor** shows the product version, actual render
+backend, ABI version, negotiated capabilities, unknown future bits, and the
+compatibility result.
+
 Startup is incremental:
 
 1. Create the child HWND and native host.
@@ -167,9 +187,41 @@ external resources fail closed rather than being silently dropped.
 ### Save and recovery
 
 `EditorDocumentHost` supplies common identity, dirty, save, and transaction
-state. Scene Save All planning validates the active document and project
-scene reference before publication. Source writes use same-volume temporary
-files and atomic replacement where the underlying workflow supports it.
+state. The Scene adapter is connected to this host today. Material, Blueprint,
+Prefab, and Settings adapters are migration targets for the same stable
+`(kind, ID)` contract; the heterogeneous-document self-tests exercise those
+boundaries without claiming that every editor window is wired yet. Duplicate
+IDs fail closed. Registry snapshots and Save All use explicit save priority
+followed by ordinal kind/ID ordering, so results do not depend on hash-table or
+window activation order. Dirty documents are captured and saved sequentially
+through asynchronous contracts. A failed or unsupported writer is diagnosed
+per document while independent later writers still run; cancellation stops
+before the next writer. A batch is not successful while any registered
+document remains dirty, including a document edited during its own
+asynchronous save. Suspended documents, open transactions, and capture
+failures are explicit per-document batch failures even when their last cached
+fingerprint was clean.
+
+Close preparation captures its own deterministic dirty snapshot instead of
+depending on a UI refresh or a Scene-only boolean. Cancel performs no source
+writes, Discard is explicit, and Save authorizes close only after the complete
+dirty set succeeds. If any registered document cannot be inspected because it
+is suspended, has an open transaction, or its capture contract fails, Save
+blocks before invoking any writer. Normal unregister/registry clear refuses
+dirty, suspended, or open-transaction documents unless its caller explicitly
+chooses discard.
+Recovery state is composed as the complete 2D/3D compatibility envelope,
+replacing only the recovered source subsystem and preserving the other graph.
+It is applied through an atomic document boundary: the restored live canonical
+fingerprint must match the recovery fingerprint; parser rejection, restore
+failure, or verification failure rolls both native graphs and history metadata
+back, while success clears stale undo/redo and deliberately remains dirty.
+
+The current Scene adapter still owns validation of the active project scene
+reference and compatibility-source publication. Source writes use same-volume
+temporary files and atomic replacement where the underlying workflow supports
+it. Other document types should keep their format-specific serializer inside
+their registered save callback, not add another Save All or close path.
 
 Autosave and recovery are separate from the authoritative source file.
 Generation gates prevent an older asynchronous operation from publishing over
@@ -348,7 +400,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 | Mode | Verification surface |
 |---|---|
-| `fast` | isolated Editor Release build; document host, Asset Browser, profiler, and package-responsiveness self-tests |
+| `fast` | isolated Editor Release build; ABI negotiation, document host, Asset Browser, profiler, and package-responsiveness self-tests |
 | `managed` | isolated Editor build; every public self-test switch registered in `App.xaml.cs`; Blueprint self-test; isolated `acspackage --self-test` |
 | `full` | managed mode; isolated native CMake build with samples/tools disabled; complete CTest registration |
 

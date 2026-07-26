@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AcsEditor;
 using AcsEditor.Packaging;
 
@@ -12,6 +14,17 @@ namespace AcsPackage;
 
 internal static class Program
 {
+    private const int InspectArchiveEntryLimit = 100_000;
+    private const int InspectManifestLimitBytes = 4 * 1024 * 1024;
+    private const long InspectCentralDirectoryLimitBytes = 128L * 1024 * 1024;
+    private const long InspectArchiveUncompressedLimitBytes = 128L << 30;
+    private const long InspectCompressionRatioCheckThresholdBytes = 16L << 20;
+    private const long InspectMaximumCompressionRatio = 200;
+    private const long InspectArchiveFileLimitBytes =
+        129L << 30;
+    private const int TerminalTextLimit = 512;
+    private static readonly UTF8Encoding Utf8Strict = new(false, true);
+
     private sealed class CaptureProgress<T> : IProgress<T>
     {
         public List<T> Items { get; } = [];
@@ -42,6 +55,17 @@ internal static class Program
         string? ReportPath,
         bool Quiet);
 
+    private sealed record InspectCommandOptions(
+        string ArchivePath,
+        string? JsonPath,
+        bool Quiet);
+
+    private sealed record DiffCommandOptions(
+        string LeftArchivePath,
+        string RightArchivePath,
+        string? JsonPath,
+        bool Quiet);
+
     private sealed record VerificationReport(
         int schemaVersion,
         bool verified,
@@ -54,6 +78,113 @@ internal static class Program
         string assetPackSha256,
         int cookedAssetCount,
         string profile,
+        string? errorCode,
+        string? errorMessage);
+
+    private sealed record InspectedManifestFile(
+        string path,
+        long size,
+        string sha256);
+
+    private sealed record InspectedManifestAssetPack(
+        string path,
+        long size,
+        string sha256,
+        int formatVersion,
+        bool compressed,
+        int sourceFileCount);
+
+    private sealed record InspectedPackageManifest(
+        int schemaVersion,
+        string productName,
+        string productVersion,
+        int projectSchemaVersion,
+        string engineVersion,
+        string platform,
+        string configuration,
+        string profile,
+        string executable,
+        string buildId,
+        string canonicalSceneAssetId,
+        string canonicalSceneKind,
+        string canonicalSceneImporter,
+        int canonicalSceneImporterVersion,
+        string assetGraphHash,
+        CanonicalSceneBootstrapEnvelope? sceneBootstrap,
+        InspectedManifestAssetPack? assetPack,
+        IReadOnlyList<InspectedManifestFile> files);
+
+    private sealed record PackageFileInspection(
+        string path,
+        long size,
+        string sha256);
+
+    private sealed record PackageInspectionReport(
+        int schemaVersion,
+        bool verified,
+        string archivePath,
+        string archiveSha256,
+        string packageId,
+        int manifestSchemaVersion,
+        string productName,
+        string productVersion,
+        int projectSchemaVersion,
+        string engineVersion,
+        string platform,
+        string configuration,
+        string profile,
+        string executable,
+        string buildId,
+        string canonicalSceneAssetId,
+        string canonicalSceneKind,
+        string canonicalSceneImporter,
+        int canonicalSceneImporterVersion,
+        string assetGraphHash,
+        CanonicalSceneBootstrapEnvelope? sceneBootstrap,
+        InspectedManifestAssetPack? assetPack,
+        int fileCount,
+        long uncompressedBytes,
+        IReadOnlyList<PackageFileInspection> files,
+        string? errorCode,
+        string? errorMessage);
+
+    private sealed record PackageDiffSide(
+        string archivePath,
+        string archiveSha256,
+        string packageId,
+        string buildId,
+        string productName,
+        string productVersion,
+        string profile,
+        int fileCount,
+        long uncompressedBytes);
+
+    private sealed record PackageMetadataChange(
+        string field,
+        string left,
+        string right);
+
+    private sealed record PackageFileModification(
+        string path,
+        long leftSize,
+        long rightSize,
+        string leftSha256,
+        string rightSha256);
+
+    private sealed record PackageDiffReport(
+        int schemaVersion,
+        bool compared,
+        bool identical,
+        bool archiveBytesEqual,
+        bool provenanceEqual,
+        bool payloadsEqual,
+        PackageDiffSide? left,
+        PackageDiffSide? right,
+        IReadOnlyList<PackageMetadataChange> metadataChanges,
+        IReadOnlyList<PackageFileInspection> added,
+        IReadOnlyList<PackageFileInspection> removed,
+        IReadOnlyList<PackageFileModification> modified,
+        int unchangedFileCount,
         string? errorCode,
         string? errorMessage);
 
@@ -79,6 +210,10 @@ internal static class Program
         }
         if (args.Length >= 1 && args[0] == "verify")
             return await RunVerifyCommandWithDiagnosticsAsync(args);
+        if (args.Length >= 1 && args[0] == "inspect")
+            return await RunInspectCommandWithDiagnosticsAsync(args);
+        if (args.Length >= 1 && args[0] == "diff")
+            return await RunDiffCommandWithDiagnosticsAsync(args);
         if (args.Length < 2 || args[0] is not ("validate" or "package"))
         {
             PrintUsage();
@@ -284,6 +419,1096 @@ internal static class Program
         return 0;
     }
 
+    private static async Task<int> RunInspectCommandWithDiagnosticsAsync(
+        string[] args)
+    {
+        InspectCommandOptions options;
+        try
+        {
+            options = ParseInspectOptions(args);
+            if (options.JsonPath != null)
+                ValidateNewReportDestination(options.JsonPath);
+        }
+        catch (ArgumentException error)
+        {
+            Console.Error.WriteLine(FormatTerminalText(
+                "ERROR: " + error.Message));
+            PrintInspectUsage();
+            return 2;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(FormatTerminalText(
+                "ERROR: " + error.Message));
+            return 1;
+        }
+
+        bool jsonWriteStarted = false;
+        PackageInspectionReport inspection;
+        try
+        {
+            IProgress<PackageProgress>? progress = options.Quiet
+                ? null
+                : new Progress<PackageProgress>(item =>
+                    Console.WriteLine(FormatTerminalText(
+                        $"[{item.Phase}] {item.Message}")));
+            inspection = await InspectPackageArchiveAsync(
+                options.ArchivePath,
+                progress);
+            if (options.JsonPath != null)
+            {
+                jsonWriteStarted = true;
+                await WriteNewJsonDocumentAsync(options.JsonPath, inspection);
+            }
+        }
+        catch (Exception error)
+        {
+            if (options.JsonPath != null && !jsonWriteStarted)
+            {
+                try
+                {
+                    await WriteNewJsonDocumentAsync(
+                        options.JsonPath,
+                        CreateFailedInspectionReport(
+                            options.ArchivePath,
+                            error));
+                }
+                catch (Exception reportError)
+                {
+                    Console.Error.WriteLine(FormatTerminalText(
+                        "ERROR: Could not write inspection failure JSON: " +
+                        reportError.Message));
+                }
+            }
+
+            Console.Error.WriteLine(FormatTerminalText(
+                "ERROR: Package inspection failed: " + error.Message));
+            return 1;
+        }
+
+        if (!options.Quiet)
+        {
+            Console.WriteLine(FormatTerminalText("Package inspection: PASS"));
+            Console.WriteLine(FormatTerminalText(
+                $"Archive: {inspection.archivePath}"));
+            Console.WriteLine(FormatTerminalText(
+                $"Archive SHA-256: {inspection.archiveSha256}"));
+            Console.WriteLine(FormatTerminalText(
+                $"Package ID: {inspection.packageId}"));
+            Console.WriteLine(FormatTerminalText(
+                $"Build ID: {inspection.buildId}"));
+            Console.WriteLine(FormatTerminalText(
+                $"Product: {inspection.productName} " +
+                inspection.productVersion));
+            Console.WriteLine(FormatTerminalText(
+                $"Engine: {inspection.engineVersion}, profile: " +
+                inspection.profile));
+            Console.WriteLine(FormatTerminalText(
+                $"Files: {inspection.fileCount}, bytes: " +
+                inspection.uncompressedBytes));
+            Console.WriteLine(FormatTerminalText(
+                "Asset pack SHA-256: " +
+                (inspection.assetPack?.sha256 ?? "")));
+            if (options.JsonPath != null)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    "JSON: " + options.JsonPath));
+            }
+        }
+        return 0;
+    }
+
+    private static async Task<int> RunDiffCommandWithDiagnosticsAsync(
+        string[] args)
+    {
+        DiffCommandOptions options;
+        try
+        {
+            options = ParseDiffOptions(args);
+            if (options.JsonPath != null)
+                ValidateNewReportDestination(options.JsonPath);
+        }
+        catch (ArgumentException error)
+        {
+            Console.Error.WriteLine(FormatTerminalText(
+                "ERROR: " + error.Message));
+            PrintDiffUsage();
+            return 2;
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(FormatTerminalText(
+                "ERROR: " + error.Message));
+            return 3;
+        }
+
+        bool jsonWriteStarted = false;
+        PackageDiffReport comparison;
+        try
+        {
+            IProgress<PackageProgress>? leftProgress = options.Quiet
+                ? null
+                : new Progress<PackageProgress>(item =>
+                    Console.WriteLine(FormatTerminalText(
+                        $"[left:{item.Phase}] {item.Message}")));
+            IProgress<PackageProgress>? rightProgress = options.Quiet
+                ? null
+                : new Progress<PackageProgress>(item =>
+                    Console.WriteLine(FormatTerminalText(
+                        $"[right:{item.Phase}] {item.Message}")));
+            PackageInspectionReport left = await InspectPackageArchiveAsync(
+                options.LeftArchivePath,
+                leftProgress);
+            // A lexical same-path comparison is one point-in-time input, not two
+            // sequential reads with an exchange window between them.
+            PackageInspectionReport right = PathsEqual(
+                options.LeftArchivePath,
+                options.RightArchivePath)
+                ? left
+                : await InspectPackageArchiveAsync(
+                    options.RightArchivePath,
+                    rightProgress);
+            comparison = CreatePackageDiffReport(left, right);
+            if (options.JsonPath != null)
+            {
+                jsonWriteStarted = true;
+                await WriteNewJsonDocumentAsync(options.JsonPath, comparison);
+            }
+        }
+        catch (Exception error)
+        {
+            if (options.JsonPath != null && !jsonWriteStarted)
+            {
+                try
+                {
+                    await WriteNewJsonDocumentAsync(
+                        options.JsonPath,
+                        CreateFailedDiffReport(error));
+                }
+                catch (Exception reportError)
+                {
+                    Console.Error.WriteLine(FormatTerminalText(
+                        "ERROR: Could not write diff failure JSON: " +
+                        reportError.Message));
+                }
+            }
+
+            Console.Error.WriteLine(FormatTerminalText(
+                "ERROR: Package diff failed: " + error.Message));
+            return 3;
+        }
+
+        if (!options.Quiet)
+        {
+            Console.WriteLine(FormatTerminalText(
+                "Package diff: " +
+                (comparison.identical ? "IDENTICAL" : "DIFFERENT")));
+            Console.WriteLine(FormatTerminalText(
+                "Archive bytes: " +
+                (comparison.archiveBytesEqual ? "equal" : "different")));
+            Console.WriteLine(FormatTerminalText(
+                "Provenance: " +
+                (comparison.provenanceEqual ? "equal" : "different")));
+            Console.WriteLine(FormatTerminalText(
+                "Payloads: " +
+                (comparison.payloadsEqual ? "equal" : "different")));
+            Console.WriteLine(FormatTerminalText(
+                $"Metadata changes: {comparison.metadataChanges.Count}, " +
+                $"added: {comparison.added.Count}, " +
+                $"removed: {comparison.removed.Count}, " +
+                $"modified: {comparison.modified.Count}, " +
+                $"unchanged: {comparison.unchangedFileCount}"));
+            foreach (PackageMetadataChange change in comparison.metadataChanges)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    $"META {change.field}: {change.left} -> {change.right}"));
+            }
+            foreach (PackageFileInspection file in comparison.added)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    "ADD " + file.path));
+            }
+            foreach (PackageFileInspection file in comparison.removed)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    "REMOVE " + file.path));
+            }
+            foreach (PackageFileModification file in comparison.modified)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    "MODIFY " + file.path));
+            }
+            if (options.JsonPath != null)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    "JSON: " + options.JsonPath));
+            }
+        }
+
+        return comparison.identical ? 0 : 1;
+    }
+
+    private static string FormatTerminalText(string? value)
+    {
+        value ??= "";
+        const string truncationSuffix = "...";
+        int contentLimit = TerminalTextLimit - truncationSuffix.Length;
+        var output = new StringBuilder(
+            Math.Min(value.Length, TerminalTextLimit));
+        bool truncated = false;
+
+        foreach (char character in value)
+        {
+            string? escaped = character switch
+            {
+                '\r' => "\\r",
+                '\n' => "\\n",
+                '\t' => "\\t",
+                '\u001B' => "\\x1B",
+                >= '\0' and <= '\u001F' =>
+                    $"\\x{(int)character:X2}",
+                >= '\u007F' and <= '\u009F' =>
+                    $"\\x{(int)character:X2}",
+                _ when char.GetUnicodeCategory(character) is
+                    System.Globalization.UnicodeCategory.Format or
+                    System.Globalization.UnicodeCategory.LineSeparator or
+                    System.Globalization.UnicodeCategory.ParagraphSeparator or
+                    System.Globalization.UnicodeCategory.Surrogate =>
+                    $"\\u{(int)character:X4}",
+                _ => null,
+            };
+
+            int length = escaped?.Length ?? 1;
+            if (output.Length + length > contentLimit)
+            {
+                truncated = true;
+                break;
+            }
+            if (escaped is null)
+                output.Append(character);
+            else
+                output.Append(escaped);
+        }
+
+        if (truncated)
+            output.Append(truncationSuffix);
+        return output.ToString();
+    }
+
+    private static InspectCommandOptions ParseInspectOptions(string[] args)
+    {
+        if (args.Length < 2 ||
+            !string.Equals(args[0], "inspect", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(args[1]) ||
+            args[1].StartsWith("--", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "inspect requires one package.zip path.");
+        }
+
+        string archive = Path.GetFullPath(args[1]);
+        string? json = null;
+        bool quiet = false;
+        for (int index = 2; index < args.Length; index++)
+        {
+            switch (args[index])
+            {
+                case "--json":
+                    if (json != null)
+                        throw new ArgumentException(
+                            "--json may be specified only once.");
+                    string value = NextValue(args, ref index, "--json");
+                    if (string.IsNullOrWhiteSpace(value) ||
+                        value.StartsWith("--", StringComparison.Ordinal))
+                    {
+                        throw new ArgumentException(
+                            "--json requires a new output file path.");
+                    }
+                    json = Path.GetFullPath(value);
+                    break;
+                case "--quiet":
+                    if (quiet)
+                        throw new ArgumentException(
+                            "--quiet may be specified only once.");
+                    quiet = true;
+                    break;
+                default:
+                    throw new ArgumentException(
+                        $"Unknown inspect argument: {args[index]}");
+            }
+        }
+
+        if (json != null && PathsEqual(archive, json))
+        {
+            throw new ArgumentException(
+                "Inspection JSON must not replace the package archive.");
+        }
+        return new(archive, json, quiet);
+    }
+
+    private static DiffCommandOptions ParseDiffOptions(string[] args)
+    {
+        if (args.Length < 3 ||
+            !string.Equals(args[0], "diff", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(args[1]) ||
+            string.IsNullOrWhiteSpace(args[2]) ||
+            args[1].StartsWith("--", StringComparison.Ordinal) ||
+            args[2].StartsWith("--", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "diff requires left-package.zip and right-package.zip paths.");
+        }
+
+        string left = Path.GetFullPath(args[1]);
+        string right = Path.GetFullPath(args[2]);
+        string? json = null;
+        bool quiet = false;
+        for (int index = 3; index < args.Length; index++)
+        {
+            switch (args[index])
+            {
+                case "--json":
+                    if (json != null)
+                        throw new ArgumentException(
+                            "--json may be specified only once.");
+                    string value = NextValue(args, ref index, "--json");
+                    if (string.IsNullOrWhiteSpace(value) ||
+                        value.StartsWith("--", StringComparison.Ordinal))
+                    {
+                        throw new ArgumentException(
+                            "--json requires a new output file path.");
+                    }
+                    json = Path.GetFullPath(value);
+                    break;
+                case "--quiet":
+                    if (quiet)
+                        throw new ArgumentException(
+                            "--quiet may be specified only once.");
+                    quiet = true;
+                    break;
+                default:
+                    throw new ArgumentException(
+                        $"Unknown diff argument: {args[index]}");
+            }
+        }
+
+        if (json != null &&
+            (PathsEqual(left, json) || PathsEqual(right, json)))
+        {
+            throw new ArgumentException(
+                "Diff JSON must not replace either package archive.");
+        }
+        return new(left, right, json, quiet);
+    }
+
+    private static void ValidateInspectionArchiveEnvelope(
+        FileStream archiveLease,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        (long declaredEntryCount, _) =
+            ReadZipCentralDirectoryEnvelope(archiveLease);
+        archiveLease.Position = 0;
+        using (var archive = new ZipArchive(
+                   archiveLease,
+                   ZipArchiveMode.Read,
+                   leaveOpen: true,
+                   entryNameEncoding: Utf8Strict))
+        {
+            if (archive.Entries.Count != declaredEntryCount ||
+                archive.Entries.Count is < 2 or > InspectArchiveEntryLimit)
+            {
+                throw new InvalidDataException(
+                    "Package archive entry count is outside inspection limits.");
+            }
+
+            long uncompressedBytes = 0;
+            long compressedBytes = 0;
+            int entryIndex = 0;
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                if ((entryIndex++ & 1023) == 0)
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                long length = entry.Length;
+                long compressedLength = entry.CompressedLength;
+                if (length < 0 ||
+                    compressedLength < 0 ||
+                    compressedLength > archiveLease.Length ||
+                    length > InspectArchiveUncompressedLimitBytes -
+                        uncompressedBytes)
+                {
+                    throw new InvalidDataException(
+                        "Package archive exceeds inspection size limits.");
+                }
+                uncompressedBytes += length;
+                if (compressedLength > long.MaxValue - compressedBytes)
+                {
+                    throw new InvalidDataException(
+                        "Package archive exceeds inspection size limits.");
+                }
+                compressedBytes += compressedLength;
+
+                if (length >= InspectCompressionRatioCheckThresholdBytes &&
+                    ExceedsMaximumCompressionRatio(
+                        length,
+                        compressedLength))
+                {
+                    throw new InvalidDataException(
+                        "Package archive contains a suspicious compression ratio.");
+                }
+            }
+            if (uncompressedBytes >=
+                    InspectCompressionRatioCheckThresholdBytes &&
+                ExceedsMaximumCompressionRatio(
+                    uncompressedBytes,
+                    compressedBytes))
+            {
+                throw new InvalidDataException(
+                    "Package archive has a suspicious aggregate compression ratio.");
+            }
+        }
+        archiveLease.Position = 0;
+    }
+
+    private static bool ExceedsMaximumCompressionRatio(
+        long uncompressedBytes,
+        long compressedBytes)
+    {
+        if (uncompressedBytes <= 0) return false;
+        if (compressedBytes <= 0) return true;
+
+        // Compare uncompressedBytes > compressedBytes * ratio without
+        // multiplying attacker-controlled declared sizes.
+        long quotient =
+            uncompressedBytes / InspectMaximumCompressionRatio;
+        long remainder =
+            uncompressedBytes % InspectMaximumCompressionRatio;
+        return quotient > compressedBytes ||
+               (quotient == compressedBytes && remainder > 0);
+    }
+
+    private static (long EntryCount, long CentralDirectoryBytes)
+        ReadZipCentralDirectoryEnvelope(FileStream archiveLease)
+    {
+        const uint endOfCentralDirectorySignature = 0x06054b50u;
+        const uint zip64LocatorSignature = 0x07064b50u;
+        const uint zip64EndOfCentralDirectorySignature = 0x06064b50u;
+        const int endOfCentralDirectorySize = 22;
+        const int zip64LocatorSize = 20;
+        const int zip64EndOfCentralDirectoryMinimumSize = 56;
+
+        long archiveLength = archiveLease.Length;
+        int tailLength = checked((int)Math.Min(
+            archiveLength,
+            ushort.MaxValue +
+                endOfCentralDirectorySize +
+                zip64LocatorSize));
+        if (tailLength < endOfCentralDirectorySize)
+        {
+            throw new InvalidDataException(
+                "Package archive has no ZIP central directory.");
+        }
+
+        byte[] tail = new byte[tailLength];
+        archiveLease.Position = archiveLength - tailLength;
+        archiveLease.ReadExactly(tail);
+        int endIndex = -1;
+        for (int index = tail.Length - endOfCentralDirectorySize;
+             index >= 0;
+             index--)
+        {
+            ReadOnlySpan<byte> candidate = tail.AsSpan(index);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(candidate) !=
+                endOfCentralDirectorySignature)
+            {
+                continue;
+            }
+
+            int commentLength =
+                BinaryPrimitives.ReadUInt16LittleEndian(candidate[20..]);
+            if (index + endOfCentralDirectorySize + commentLength ==
+                tail.Length)
+            {
+                endIndex = index;
+                break;
+            }
+        }
+        if (endIndex < 0)
+        {
+            throw new InvalidDataException(
+                "Package archive has an invalid ZIP end record.");
+        }
+
+        ReadOnlySpan<byte> endRecord = tail.AsSpan(
+            endIndex,
+            endOfCentralDirectorySize);
+        ushort diskNumber =
+            BinaryPrimitives.ReadUInt16LittleEndian(endRecord[4..]);
+        ushort centralDirectoryDisk =
+            BinaryPrimitives.ReadUInt16LittleEndian(endRecord[6..]);
+        ushort diskEntryCount =
+            BinaryPrimitives.ReadUInt16LittleEndian(endRecord[8..]);
+        ushort totalEntryCount =
+            BinaryPrimitives.ReadUInt16LittleEndian(endRecord[10..]);
+        uint centralDirectorySize =
+            BinaryPrimitives.ReadUInt32LittleEndian(endRecord[12..]);
+        uint centralDirectoryOffset =
+            BinaryPrimitives.ReadUInt32LittleEndian(endRecord[16..]);
+        if (diskNumber != 0 ||
+            centralDirectoryDisk != 0 ||
+            diskEntryCount != totalEntryCount)
+        {
+            throw new InvalidDataException(
+                "Multi-disk ZIP archives are not inspectable packages.");
+        }
+
+        long endRecordOffset =
+            archiveLength - tailLength + endIndex;
+        bool usesZip64 =
+            totalEntryCount == ushort.MaxValue ||
+            centralDirectorySize == uint.MaxValue ||
+            centralDirectoryOffset == uint.MaxValue;
+        if (!usesZip64)
+        {
+            return ValidateZipCentralDirectoryBounds(
+                totalEntryCount,
+                centralDirectorySize,
+                centralDirectoryOffset,
+                endRecordOffset);
+        }
+
+        long locatorOffset = endRecordOffset - zip64LocatorSize;
+        if (locatorOffset < 0)
+        {
+            throw new InvalidDataException(
+                "ZIP64 locator is missing.");
+        }
+        Span<byte> locator = stackalloc byte[zip64LocatorSize];
+        archiveLease.Position = locatorOffset;
+        archiveLease.ReadExactly(locator);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(locator) !=
+                zip64LocatorSignature ||
+            BinaryPrimitives.ReadUInt32LittleEndian(locator[4..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(locator[16..]) != 1)
+        {
+            throw new InvalidDataException(
+                "ZIP64 locator is invalid or multi-disk.");
+        }
+
+        ulong zip64EndOffset =
+            BinaryPrimitives.ReadUInt64LittleEndian(locator[8..]);
+        if (zip64EndOffset > (ulong)long.MaxValue ||
+            zip64EndOffset + zip64EndOfCentralDirectoryMinimumSize >
+                (ulong)archiveLength)
+        {
+            throw new InvalidDataException(
+                "ZIP64 end record is outside the archive.");
+        }
+
+        Span<byte> zip64End =
+            stackalloc byte[zip64EndOfCentralDirectoryMinimumSize];
+        archiveLease.Position = checked((long)zip64EndOffset);
+        archiveLease.ReadExactly(zip64End);
+        ulong zip64RecordPayloadSize =
+            BinaryPrimitives.ReadUInt64LittleEndian(zip64End[4..]);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(zip64End) !=
+                zip64EndOfCentralDirectorySignature ||
+            zip64RecordPayloadSize < 44 ||
+            zip64EndOffset + 12 > (ulong)locatorOffset ||
+            zip64RecordPayloadSize !=
+                (ulong)locatorOffset - zip64EndOffset - 12 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(zip64End[16..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(zip64End[20..]) != 0)
+        {
+            throw new InvalidDataException(
+                "ZIP64 end record is invalid or multi-disk.");
+        }
+
+        ulong zip64DiskEntryCount =
+            BinaryPrimitives.ReadUInt64LittleEndian(zip64End[24..]);
+        ulong zip64TotalEntryCount =
+            BinaryPrimitives.ReadUInt64LittleEndian(zip64End[32..]);
+        if (zip64DiskEntryCount != zip64TotalEntryCount)
+        {
+            throw new InvalidDataException(
+                "Multi-disk ZIP64 archives are not inspectable packages.");
+        }
+        return ValidateZipCentralDirectoryBounds(
+            zip64TotalEntryCount,
+            BinaryPrimitives.ReadUInt64LittleEndian(zip64End[40..]),
+            BinaryPrimitives.ReadUInt64LittleEndian(zip64End[48..]),
+            checked((long)zip64EndOffset));
+    }
+
+    private static (long EntryCount, long CentralDirectoryBytes)
+        ValidateZipCentralDirectoryBounds(
+            ulong entryCount,
+            ulong centralDirectorySize,
+            ulong centralDirectoryOffset,
+            long expectedEndOffset)
+    {
+        if (entryCount is < 2 or > InspectArchiveEntryLimit ||
+            centralDirectorySize is 0 ||
+            centralDirectorySize >
+                (ulong)InspectCentralDirectoryLimitBytes ||
+            centralDirectoryOffset > (ulong)long.MaxValue ||
+            centralDirectorySize > (ulong)long.MaxValue ||
+            centralDirectoryOffset + centralDirectorySize !=
+                (ulong)expectedEndOffset)
+        {
+            throw new InvalidDataException(
+                "ZIP central directory exceeds inspection limits or is non-canonical.");
+        }
+        return (checked((long)entryCount), checked((long)centralDirectorySize));
+    }
+
+    private static void RejectDuplicateJsonProperties(JsonElement root)
+    {
+        static void Visit(JsonElement element, int depth)
+        {
+            if (depth > 64)
+            {
+                throw new InvalidDataException(
+                    "Package manifest JSON exceeds the inspection depth limit.");
+            }
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    if (!names.Add(property.Name))
+                    {
+                        throw new InvalidDataException(
+                            "Package manifest JSON contains a duplicate property.");
+                    }
+                    Visit(property.Value, depth + 1);
+                }
+            }
+            else if (element.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement item in element.EnumerateArray())
+                    Visit(item, depth + 1);
+            }
+        }
+
+        Visit(root, 0);
+    }
+
+    private static async Task<PackageInspectionReport>
+        InspectPackageArchiveAsync(
+            string archivePath,
+            IProgress<PackageProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+    {
+        string fullArchivePath = Path.GetFullPath(archivePath);
+        RejectExistingReparsePointsInPath(
+            fullArchivePath,
+            "Package inspection archive");
+        if (!File.Exists(fullArchivePath))
+        {
+            throw new FileNotFoundException(
+                "Package archive was not found.",
+                fullArchivePath);
+        }
+
+        await using var archiveLease = new FileStream(
+            fullArchivePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 128 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (archiveLease.Length is <= 0 or > InspectArchiveFileLimitBytes)
+        {
+            throw new InvalidDataException(
+                "Package archive exceeds the inspectable compressed-size limit.");
+        }
+        ValidateInspectionArchiveEnvelope(archiveLease, cancellationToken);
+
+        PackageVerificationResult verification =
+            await PackageCore.VerifyPackageArchiveAsync(
+                fullArchivePath,
+                progress,
+                cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        RejectExistingReparsePointsInPath(
+            fullArchivePath,
+            "Package inspection archive");
+
+        archiveLease.Position = 0;
+        byte[] archiveDigest = await SHA256.HashDataAsync(
+            archiveLease,
+            cancellationToken);
+        string archiveSha256 =
+            Convert.ToHexString(archiveDigest).ToLowerInvariant();
+
+        archiveLease.Position = 0;
+        using var archive = new ZipArchive(
+            archiveLease,
+            ZipArchiveMode.Read,
+            leaveOpen: true,
+            entryNameEncoding: Utf8Strict);
+        if (archive.Entries.Count is < 2 or > InspectArchiveEntryLimit)
+        {
+            throw new InvalidDataException(
+                "Verified package entry count is outside inspection limits.");
+        }
+
+        string manifestPath =
+            verification.PackageId + "/package-manifest.json";
+        ZipArchiveEntry[] manifestEntries = archive.Entries
+            .Where(entry => string.Equals(
+                entry.FullName,
+                manifestPath,
+                StringComparison.Ordinal))
+            .ToArray();
+        if (manifestEntries.Length != 1 ||
+            manifestEntries[0].Length is < 2 or > InspectManifestLimitBytes)
+        {
+            throw new InvalidDataException(
+                "Verified package manifest is missing or exceeds inspection limits.");
+        }
+
+        InspectedPackageManifest? manifest;
+        await using (Stream manifestStream = manifestEntries[0].Open())
+        {
+            using JsonDocument manifestDocument = await JsonDocument.ParseAsync(
+                manifestStream,
+                new JsonDocumentOptions
+                {
+                    MaxDepth = 64,
+                },
+                cancellationToken);
+            RejectDuplicateJsonProperties(manifestDocument.RootElement);
+            manifest = manifestDocument.RootElement.Deserialize<
+                InspectedPackageManifest>(
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = false,
+                    UnmappedMemberHandling =
+                        System.Text.Json.Serialization.
+                            JsonUnmappedMemberHandling.Disallow,
+                    MaxDepth = 64,
+                });
+        }
+        if (manifest is null ||
+            manifest.sceneBootstrap is null ||
+            manifest.assetPack is null ||
+            manifest.files is null)
+        {
+            throw new InvalidDataException(
+                "Verified package manifest is incomplete.");
+        }
+
+        long manifestBytes = 0;
+        var files = new List<PackageFileInspection>(manifest.files.Count);
+        foreach (InspectedManifestFile? file in manifest.files)
+        {
+            if (file is null ||
+                string.IsNullOrWhiteSpace(file.path) ||
+                file.size < 0 ||
+                !IsLowerHexSha256(file.sha256) ||
+                file.size > long.MaxValue - manifestBytes)
+            {
+                throw new InvalidDataException(
+                    "Verified package file inventory is invalid.");
+            }
+            manifestBytes += file.size;
+            files.Add(new(file.path, file.size, file.sha256));
+        }
+
+        if (manifest.schemaVersion != 3 ||
+            manifest.files.Count != verification.FileCount ||
+            manifestBytes != verification.UncompressedBytes ||
+            !string.Equals(
+                manifest.buildId,
+                verification.BuildId,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                manifest.profile,
+                verification.Profile.ToString(),
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                manifest.assetPack.sha256,
+                verification.AssetPackSha256,
+                StringComparison.Ordinal) ||
+            manifest.assetPack.sourceFileCount !=
+                verification.CookedAssetCount)
+        {
+            throw new InvalidDataException(
+                "Verified package result and inspected manifest disagree.");
+        }
+
+        return new(
+            schemaVersion: 1,
+            verified: true,
+            archivePath: fullArchivePath,
+            archiveSha256,
+            packageId: verification.PackageId,
+            manifestSchemaVersion: manifest.schemaVersion,
+            productName: manifest.productName,
+            productVersion: manifest.productVersion,
+            projectSchemaVersion: manifest.projectSchemaVersion,
+            engineVersion: manifest.engineVersion,
+            platform: manifest.platform,
+            configuration: manifest.configuration,
+            profile: manifest.profile,
+            executable: manifest.executable,
+            buildId: manifest.buildId,
+            canonicalSceneAssetId: manifest.canonicalSceneAssetId,
+            canonicalSceneKind: manifest.canonicalSceneKind,
+            canonicalSceneImporter: manifest.canonicalSceneImporter,
+            canonicalSceneImporterVersion:
+                manifest.canonicalSceneImporterVersion,
+            assetGraphHash: manifest.assetGraphHash,
+            sceneBootstrap: manifest.sceneBootstrap,
+            assetPack: manifest.assetPack,
+            fileCount: verification.FileCount,
+            uncompressedBytes: verification.UncompressedBytes,
+            files,
+            errorCode: null,
+            errorMessage: null);
+    }
+
+    private static PackageInspectionReport CreateFailedInspectionReport(
+        string archivePath,
+        Exception error) =>
+        new(
+            schemaVersion: 1,
+            verified: false,
+            archivePath: Path.GetFullPath(archivePath),
+            archiveSha256: "",
+            packageId: "",
+            manifestSchemaVersion: 0,
+            productName: "",
+            productVersion: "",
+            projectSchemaVersion: 0,
+            engineVersion: "",
+            platform: "",
+            configuration: "",
+            profile: "",
+            executable: "",
+            buildId: "",
+            canonicalSceneAssetId: "",
+            canonicalSceneKind: "",
+            canonicalSceneImporter: "",
+            canonicalSceneImporterVersion: 0,
+            assetGraphHash: "",
+            sceneBootstrap: null,
+            assetPack: null,
+            fileCount: 0,
+            uncompressedBytes: 0,
+            files: Array.Empty<PackageFileInspection>(),
+            errorCode: VerificationErrorCode(error),
+            errorMessage: error.Message);
+
+    private static PackageDiffReport CreatePackageDiffReport(
+        PackageInspectionReport left,
+        PackageInspectionReport right)
+    {
+        var metadata = new List<PackageMetadataChange>();
+        void Compare(string field, string leftValue, string rightValue)
+        {
+            if (!string.Equals(
+                    leftValue,
+                    rightValue,
+                    StringComparison.Ordinal))
+            {
+                metadata.Add(new(field, leftValue, rightValue));
+            }
+        }
+
+        string Number(int value) =>
+            value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string Number64(long value) =>
+            value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        string Boolean(bool value) => value ? "true" : "false";
+
+        Compare(
+            "manifestSchemaVersion",
+            Number(left.manifestSchemaVersion),
+            Number(right.manifestSchemaVersion));
+        Compare("packageId", left.packageId, right.packageId);
+        Compare("productName", left.productName, right.productName);
+        Compare("productVersion", left.productVersion, right.productVersion);
+        Compare(
+            "projectSchemaVersion",
+            Number(left.projectSchemaVersion),
+            Number(right.projectSchemaVersion));
+        Compare("engineVersion", left.engineVersion, right.engineVersion);
+        Compare("platform", left.platform, right.platform);
+        Compare("configuration", left.configuration, right.configuration);
+        Compare("profile", left.profile, right.profile);
+        Compare("executable", left.executable, right.executable);
+        Compare("buildId", left.buildId, right.buildId);
+        Compare(
+            "canonicalSceneAssetId",
+            left.canonicalSceneAssetId,
+            right.canonicalSceneAssetId);
+        Compare(
+            "canonicalSceneKind",
+            left.canonicalSceneKind,
+            right.canonicalSceneKind);
+        Compare(
+            "canonicalSceneImporter",
+            left.canonicalSceneImporter,
+            right.canonicalSceneImporter);
+        Compare(
+            "canonicalSceneImporterVersion",
+            Number(left.canonicalSceneImporterVersion),
+            Number(right.canonicalSceneImporterVersion));
+        Compare("assetGraphHash", left.assetGraphHash, right.assetGraphHash);
+        Compare(
+            "sceneBootstrap.path",
+            left.sceneBootstrap?.path ?? "",
+            right.sceneBootstrap?.path ?? "");
+        Compare(
+            "sceneBootstrap.contract",
+            left.sceneBootstrap?.contract ?? "",
+            right.sceneBootstrap?.contract ?? "");
+        Compare(
+            "sceneBootstrap.sourceFormat",
+            left.sceneBootstrap?.sourceFormat ?? "",
+            right.sceneBootstrap?.sourceFormat ?? "");
+        Compare(
+            "sceneBootstrap.adapterProjectionHint",
+            left.sceneBootstrap?.adapterProjectionHint ?? "",
+            right.sceneBootstrap?.adapterProjectionHint ?? "");
+        Compare(
+            "assetPack.path",
+            left.assetPack?.path ?? "",
+            right.assetPack?.path ?? "");
+        Compare(
+            "assetPack.size",
+            Number64(left.assetPack?.size ?? 0),
+            Number64(right.assetPack?.size ?? 0));
+        Compare(
+            "assetPack.sha256",
+            left.assetPack?.sha256 ?? "",
+            right.assetPack?.sha256 ?? "");
+        Compare(
+            "assetPack.formatVersion",
+            Number(left.assetPack?.formatVersion ?? 0),
+            Number(right.assetPack?.formatVersion ?? 0));
+        Compare(
+            "assetPack.compressed",
+            Boolean(left.assetPack?.compressed ?? false),
+            Boolean(right.assetPack?.compressed ?? false));
+        Compare(
+            "assetPack.sourceFileCount",
+            Number(left.assetPack?.sourceFileCount ?? 0),
+            Number(right.assetPack?.sourceFileCount ?? 0));
+
+        Dictionary<string, PackageFileInspection> leftFiles =
+            left.files.ToDictionary(file => file.path, StringComparer.Ordinal);
+        Dictionary<string, PackageFileInspection> rightFiles =
+            right.files.ToDictionary(file => file.path, StringComparer.Ordinal);
+        var added = new List<PackageFileInspection>();
+        var removed = new List<PackageFileInspection>();
+        var modified = new List<PackageFileModification>();
+        int unchanged = 0;
+
+        foreach (string path in leftFiles.Keys
+                     .Union(rightFiles.Keys, StringComparer.Ordinal)
+                     .OrderBy(path => path, StringComparer.Ordinal))
+        {
+            bool hasLeft = leftFiles.TryGetValue(
+                path,
+                out PackageFileInspection? leftFile);
+            bool hasRight = rightFiles.TryGetValue(
+                path,
+                out PackageFileInspection? rightFile);
+            if (!hasLeft)
+            {
+                added.Add(rightFile!);
+            }
+            else if (!hasRight)
+            {
+                removed.Add(leftFile!);
+            }
+            else if (leftFile!.size != rightFile!.size ||
+                     !string.Equals(
+                         leftFile.sha256,
+                         rightFile.sha256,
+                         StringComparison.Ordinal))
+            {
+                modified.Add(new(
+                    path,
+                    leftFile.size,
+                    rightFile.size,
+                    leftFile.sha256,
+                    rightFile.sha256));
+            }
+            else
+            {
+                unchanged++;
+            }
+        }
+
+        bool archiveBytesEqual = string.Equals(
+            left.archiveSha256,
+            right.archiveSha256,
+            StringComparison.Ordinal);
+        bool provenanceEqual = metadata.Count == 0;
+        bool payloadsEqual =
+            added.Count == 0 && removed.Count == 0 && modified.Count == 0;
+        bool identical =
+            archiveBytesEqual && provenanceEqual && payloadsEqual;
+        return new(
+            schemaVersion: 1,
+            compared: true,
+            identical,
+            archiveBytesEqual,
+            provenanceEqual,
+            payloadsEqual,
+            left: CreateDiffSide(left),
+            right: CreateDiffSide(right),
+            metadataChanges: metadata,
+            added,
+            removed,
+            modified,
+            unchangedFileCount: unchanged,
+            errorCode: null,
+            errorMessage: null);
+    }
+
+    private static PackageDiffSide CreateDiffSide(
+        PackageInspectionReport inspection) =>
+        new(
+            inspection.archivePath,
+            inspection.archiveSha256,
+            inspection.packageId,
+            inspection.buildId,
+            inspection.productName,
+            inspection.productVersion,
+            inspection.profile,
+            inspection.fileCount,
+            inspection.uncompressedBytes);
+
+    private static PackageDiffReport CreateFailedDiffReport(Exception error) =>
+        new(
+            schemaVersion: 1,
+            compared: false,
+            identical: false,
+            archiveBytesEqual: false,
+            provenanceEqual: false,
+            payloadsEqual: false,
+            left: null,
+            right: null,
+            metadataChanges: Array.Empty<PackageMetadataChange>(),
+            added: Array.Empty<PackageFileInspection>(),
+            removed: Array.Empty<PackageFileInspection>(),
+            modified: Array.Empty<PackageFileModification>(),
+            unchangedFileCount: 0,
+            errorCode: VerificationErrorCode(error),
+            errorMessage: error.Message);
+
+    private static bool IsLowerHexSha256(string value) =>
+        value is { Length: 64 } &&
+        value.All(character =>
+            character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
     private static VerifyCommandOptions ParseVerifyOptions(string[] args)
     {
         if (args.Length < 2 ||
@@ -384,6 +1609,13 @@ internal static class Program
     private static async Task WriteVerificationReportAsync(
         string reportPath,
         VerificationReport report)
+    {
+        await WriteNewJsonDocumentAsync(reportPath, report);
+    }
+
+    private static async Task WriteNewJsonDocumentAsync<T>(
+        string reportPath,
+        T report)
     {
         string destination = Path.GetFullPath(reportPath);
         ValidateNewReportDestination(destination);
@@ -837,6 +2069,8 @@ internal static class Program
               acspackage validate <project.acsproject> [options]
               acspackage package  <project.acsproject> [options]
               acspackage verify <package.zip> [--report <new-report.json>] [--quiet]
+              acspackage inspect <package.zip> [--json <new-file.json>] [--quiet]
+              acspackage diff <left.zip> <right.zip> [--json <new-file.json>] [--quiet]
               acspackage deps <game.exe> [additional-search-dir ...]
               acspackage --self-test
 
@@ -851,6 +2085,10 @@ internal static class Program
             Verify options:
               --report <new-file>      Atomically create a JSON verification report
               --quiet                  Suppress progress and PASS summary
+
+            Inspect/diff options:
+              --json <new-file>        Atomically create a machine-readable JSON result
+              --quiet                  Suppress progress and human-readable summary
             """);
     }
 
@@ -860,6 +2098,24 @@ internal static class Program
             """
             Usage:
               acspackage verify <package.zip> [--report <new-report.json>] [--quiet]
+            """);
+    }
+
+    private static void PrintInspectUsage()
+    {
+        Console.WriteLine(
+            """
+            Usage:
+              acspackage inspect <package.zip> [--json <new-file.json>] [--quiet]
+            """);
+    }
+
+    private static void PrintDiffUsage()
+    {
+        Console.WriteLine(
+            """
+            Usage:
+              acspackage diff <left.zip> <right.zip> [--json <new-file.json>] [--quiet]
             """);
     }
 
@@ -1094,6 +2350,145 @@ internal static class Program
                     ".failed-package-verification.json.*.tmp",
                     SearchOption.TopDirectoryOnly).Any(),
                 "failed verification report must not leave temporary files");
+
+            string inspectionJson = Path.Combine(
+                testRoot,
+                "package-inspection.json");
+            int inspectExit = await RunInspectCommandWithDiagnosticsAsync(
+                [
+                    "inspect",
+                    first.ZipPath,
+                    "--json",
+                    inspectionJson,
+                    "--quiet",
+                ]);
+            Assert(
+                inspectExit == 0 && File.Exists(inspectionJson),
+                "inspect must verify the archive and atomically create JSON");
+            using (JsonDocument inspectionDocument = JsonDocument.Parse(
+                File.ReadAllText(inspectionJson, Encoding.UTF8)))
+            {
+                JsonElement inspection = inspectionDocument.RootElement;
+                JsonElement[] inspectedFiles = inspection
+                    .GetProperty("files")
+                    .EnumerateArray()
+                    .ToArray();
+                Assert(
+                    inspection.GetProperty("schemaVersion").GetInt32() == 1 &&
+                    inspection.GetProperty("verified").GetBoolean() &&
+                    inspection.GetProperty("archivePath").GetString() ==
+                        first.ZipPath &&
+                    inspection.GetProperty("archiveSha256").GetString() is
+                        { Length: 64 } &&
+                    inspection.GetProperty("packageId").GetString() ==
+                        first.PackageId &&
+                    inspection.GetProperty("buildId").GetString() ==
+                        first.BuildId &&
+                    inspection.GetProperty("productVersion").GetString() ==
+                        "1.2.3" &&
+                    inspection.GetProperty("profile").GetString() ==
+                        "Shipping" &&
+                    inspection.GetProperty("assetPack")
+                        .GetProperty("sha256").GetString() ==
+                        first.AssetPackSha256 &&
+                    inspectedFiles.Length == first.FileCount &&
+                    inspectedFiles
+                        .Select(file =>
+                            file.GetProperty("path").GetString() ?? "")
+                        .SequenceEqual(
+                            inspectedFiles
+                                .Select(file =>
+                                    file.GetProperty("path").GetString() ?? "")
+                                .OrderBy(path => path, StringComparer.Ordinal)) &&
+                    inspection.GetProperty("errorCode").ValueKind ==
+                        JsonValueKind.Null,
+                    "inspect JSON must expose stable provenance and the sorted payload ledger");
+            }
+            bool inspectionArchiveAliasRejected = false;
+            try
+            {
+                ParseInspectOptions(
+                    [
+                        "inspect",
+                        first.ZipPath,
+                        "--json",
+                        first.ZipPath,
+                    ]);
+            }
+            catch (ArgumentException)
+            {
+                inspectionArchiveAliasRejected = true;
+            }
+            Assert(
+                inspectionArchiveAliasRejected,
+                "inspection JSON must not alias its package archive");
+
+            string identicalDiffJson = Path.Combine(
+                testRoot,
+                "package-identical-diff.json");
+            int identicalDiffExit = await RunDiffCommandWithDiagnosticsAsync(
+                [
+                    "diff",
+                    first.ZipPath,
+                    second.ZipPath,
+                    "--json",
+                    identicalDiffJson,
+                    "--quiet",
+                ]);
+            Assert(
+                identicalDiffExit == 0 && File.Exists(identicalDiffJson),
+                "byte-identical packages must produce diff exit code 0 and JSON");
+            using (JsonDocument diffDocument = JsonDocument.Parse(
+                File.ReadAllText(identicalDiffJson, Encoding.UTF8)))
+            {
+                JsonElement diff = diffDocument.RootElement;
+                Assert(
+                    diff.GetProperty("schemaVersion").GetInt32() == 1 &&
+                    diff.GetProperty("compared").GetBoolean() &&
+                    diff.GetProperty("identical").GetBoolean() &&
+                    diff.GetProperty("archiveBytesEqual").GetBoolean() &&
+                    diff.GetProperty("provenanceEqual").GetBoolean() &&
+                    diff.GetProperty("payloadsEqual").GetBoolean() &&
+                    diff.GetProperty("metadataChanges").GetArrayLength() == 0 &&
+                    diff.GetProperty("added").GetArrayLength() == 0 &&
+                    diff.GetProperty("removed").GetArrayLength() == 0 &&
+                    diff.GetProperty("modified").GetArrayLength() == 0 &&
+                    diff.GetProperty("unchangedFileCount").GetInt32() ==
+                        first.FileCount &&
+                    diff.GetProperty("errorCode").ValueKind ==
+                        JsonValueKind.Null,
+                    "identical diff JSON must distinguish archive, provenance, and payload equality");
+            }
+            bool diffArchiveAliasRejected = false;
+            try
+            {
+                ParseDiffOptions(
+                    [
+                        "diff",
+                        first.ZipPath,
+                        second.ZipPath,
+                        "--json",
+                        second.ZipPath,
+                    ]);
+            }
+            catch (ArgumentException)
+            {
+                diffArchiveAliasRejected = true;
+            }
+            Assert(
+                diffArchiveAliasRejected,
+                "diff JSON must not alias either package archive");
+            Assert(
+                !Directory.EnumerateFiles(
+                    testRoot,
+                    ".package-inspection.json.*.tmp",
+                    SearchOption.TopDirectoryOnly).Any() &&
+                !Directory.EnumerateFiles(
+                    testRoot,
+                    ".package-identical-diff.json.*.tmp",
+                    SearchOption.TopDirectoryOnly).Any(),
+                "inspect and diff JSON must not leave private temporary files");
+
             Assert(
                 SHA256.HashData(File.ReadAllBytes(first.ZipPath))
                     .SequenceEqual(SHA256.HashData(File.ReadAllBytes(second.ZipPath))),
@@ -1310,6 +2705,48 @@ internal static class Program
                         entry.FullName == developmentPrefix + "game.acpak"),
                     "Development profile must still emit game.acpak");
             }
+
+            string differentDiffJson = Path.Combine(
+                testRoot,
+                "package-different-diff.json");
+            int differentDiffExit = await RunDiffCommandWithDiagnosticsAsync(
+                [
+                    "diff",
+                    first.ZipPath,
+                    development.ZipPath,
+                    "--json",
+                    differentDiffJson,
+                    "--quiet",
+                ]);
+            Assert(
+                differentDiffExit == 1 && File.Exists(differentDiffJson),
+                "valid packages with differences must produce diff exit code 1 and JSON");
+            using (JsonDocument diffDocument = JsonDocument.Parse(
+                File.ReadAllText(differentDiffJson, Encoding.UTF8)))
+            {
+                JsonElement diff = diffDocument.RootElement;
+                Assert(
+                    diff.GetProperty("compared").GetBoolean() &&
+                    !diff.GetProperty("identical").GetBoolean() &&
+                    !diff.GetProperty("archiveBytesEqual").GetBoolean() &&
+                    !diff.GetProperty("provenanceEqual").GetBoolean() &&
+                    !diff.GetProperty("payloadsEqual").GetBoolean() &&
+                    diff.GetProperty("metadataChanges")
+                        .EnumerateArray()
+                        .Any(change =>
+                            change.GetProperty("field").GetString() ==
+                            "profile") &&
+                    diff.GetProperty("added").GetArrayLength() > 0 &&
+                    diff.GetProperty("errorCode").ValueKind ==
+                        JsonValueKind.Null,
+                    "different diff JSON must separate provenance changes from payload additions");
+            }
+            Assert(
+                !Directory.EnumerateFiles(
+                    testRoot,
+                    ".package-different-diff.json.*.tmp",
+                    SearchOption.TopDirectoryOnly).Any(),
+                "different diff must not leave a private temporary file");
 
             var traversalProject = project with { InitialScene = "../outside.acscene" };
             IReadOnlyList<PackageIssue> traversalIssues =
@@ -1552,6 +2989,9 @@ internal static class Program
                 "external glTF URI must fail closed");
             File.Delete(externalGltf);
 
+            await TestInspectionAdversarialGuardsAsync(
+                testRoot,
+                first.ZipPath);
             await TestReparsePointIfSupportedAsync(
                 testRoot,
                 assets,
@@ -1566,7 +3006,9 @@ internal static class Program
                 "canonical/bootstrap manifest, " +
                 "2D+supported 3D package smoke, metadata/source exclusions, path rewrite, and " +
                 "identity-mismatch/traversal/reparse/runtime-adapter guards, plus standalone " +
-                "verification report safety.");
+                "verification/inspection reports, adversarial ZIP/JSON/terminal and " +
+                "exact-length guards, and " +
+                "deterministic package diff safety.");
             return 0;
         }
         catch (Exception error)
@@ -1586,6 +3028,869 @@ internal static class Program
         }
     }
 
+    private static async Task TestInspectionAdversarialGuardsAsync(
+        string testRoot,
+        string validArchive)
+    {
+        string adversarialRoot = Path.Combine(
+            testRoot,
+            "InspectionAdversarial");
+        Directory.CreateDirectory(adversarialRoot);
+
+        async Task<Exception?> CaptureInspectionFailureAsync(string path)
+        {
+            try
+            {
+                _ = await InspectPackageArchiveAsync(path);
+                return null;
+            }
+            catch (Exception error)
+            {
+                return error;
+            }
+        }
+
+        async Task<int> RunWithCapturedErrorAsync(Func<Task<int>> action)
+        {
+            TextWriter original = Console.Error;
+            using var captured = new StringWriter(
+                System.Globalization.CultureInfo.InvariantCulture);
+            try
+            {
+                Console.SetError(captured);
+                return await action();
+            }
+            finally
+            {
+                Console.SetError(original);
+            }
+        }
+
+        async Task<(int ExitCode, string Output, string Error)>
+            RunWithCapturedConsoleAsync(Func<Task<int>> action)
+        {
+            TextWriter originalOutput = Console.Out;
+            TextWriter originalError = Console.Error;
+            using var capturedOutput = new StringWriter(
+                System.Globalization.CultureInfo.InvariantCulture);
+            using var capturedError = new StringWriter(
+                System.Globalization.CultureInfo.InvariantCulture);
+            try
+            {
+                Console.SetOut(capturedOutput);
+                Console.SetError(capturedError);
+                int exitCode = await action();
+                return (
+                    exitCode,
+                    capturedOutput.ToString(),
+                    capturedError.ToString());
+            }
+            finally
+            {
+                Console.SetOut(originalOutput);
+                Console.SetError(originalError);
+            }
+        }
+
+        string terminalAttack =
+            "Product\u001B[31m\nForged\t\u009B\u202E";
+        string terminalSafe = FormatTerminalText(terminalAttack);
+        Assert(
+            terminalSafe ==
+                "Product\\x1B[31m\\nForged\\t\\x9B\\u202E" &&
+            !terminalSafe.Any(character =>
+                character is '\u001B' or '\n' or '\r' or '\u009B'),
+            "terminal formatter must escape control, C1, and format characters");
+        string terminalTruncated = FormatTerminalText(
+            new string('x', TerminalTextLimit + 64));
+        Assert(
+            terminalTruncated.Length == TerminalTextLimit &&
+            terminalTruncated.EndsWith("...", StringComparison.Ordinal),
+            "terminal formatter output must be bounded and visibly truncated");
+
+        string firstJson = Path.Combine(adversarialRoot, "first.json");
+        string secondJson = Path.Combine(adversarialRoot, "second.json");
+        Assert(
+            await RunInspectCommandWithDiagnosticsAsync(
+                ["inspect", validArchive, "--json", firstJson, "--quiet"]) == 0 &&
+            await RunInspectCommandWithDiagnosticsAsync(
+                ["inspect", validArchive, "--json", secondJson, "--quiet"]) == 0 &&
+            File.ReadAllBytes(firstJson).SequenceEqual(
+                File.ReadAllBytes(secondJson)),
+            "repeated inspection JSON for one archive must be byte-deterministic");
+        Assert(
+            await RunDiffCommandWithDiagnosticsAsync(
+                ["diff", validArchive, validArchive, "--quiet"]) == 0,
+            "same-path diff must use one stable inspection snapshot");
+
+        string terminalMetadataArchive = Path.Combine(
+            adversarialRoot,
+            "terminal-metadata.zip");
+        File.Copy(validArchive, terminalMetadataArchive);
+        using (ZipArchive archive = ZipFile.Open(
+                   terminalMetadataArchive,
+                   ZipArchiveMode.Update,
+                   entryNameEncoding: Utf8Strict))
+        {
+            ZipArchiveEntry manifestEntry = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith(
+                    "/package-manifest.json",
+                    StringComparison.Ordinal));
+            string manifestName = manifestEntry.FullName;
+            JsonNode manifestNode;
+            using (var reader = new StreamReader(
+                       manifestEntry.Open(),
+                       Utf8Strict,
+                       detectEncodingFromByteOrderMarks: false,
+                       leaveOpen: false))
+            {
+                manifestNode = JsonNode.Parse(reader.ReadToEnd()) ??
+                    throw new InvalidDataException(
+                        "Self-test package manifest is empty.");
+            }
+            // engineVersion is printed by inspect but does not derive the
+            // package root identity, so this remains a valid success archive.
+            manifestNode["engineVersion"] = terminalAttack;
+            manifestEntry.Delete();
+            ZipArchiveEntry replacement = archive.CreateEntry(
+                manifestName,
+                CompressionLevel.Optimal);
+            replacement.ExternalAttributes = 0;
+            using var writer = new StreamWriter(
+                replacement.Open(),
+                Utf8Strict,
+                leaveOpen: false);
+            writer.Write(manifestNode.ToJsonString());
+        }
+        string terminalMetadataJson = Path.Combine(
+            adversarialRoot,
+            "terminal-metadata.json");
+        (int terminalMetadataExit, string terminalMetadataOutput,
+            string terminalMetadataError) =
+            await RunWithCapturedConsoleAsync(() =>
+                RunInspectCommandWithDiagnosticsAsync(
+                    [
+                        "inspect",
+                        terminalMetadataArchive,
+                        "--json",
+                        terminalMetadataJson,
+                    ]));
+        Assert(
+            terminalMetadataExit == 0 &&
+            terminalMetadataOutput.Contains(
+                "Product\\x1B[31m\\nForged\\t\\x9B\\u202E",
+                StringComparison.Ordinal) &&
+            !terminalMetadataOutput.Contains('\u001B') &&
+            !terminalMetadataOutput.Contains('\u009B'),
+            "inspect stdout must terminal-escape archive-controlled metadata; " +
+            $"exit={terminalMetadataExit}, output=" +
+            FormatTerminalText(terminalMetadataOutput) +
+            ", error=" + FormatTerminalText(terminalMetadataError));
+        using (JsonDocument terminalMetadataDocument = JsonDocument.Parse(
+                   File.ReadAllText(terminalMetadataJson, Encoding.UTF8)))
+        {
+            Assert(
+                terminalMetadataDocument.RootElement
+                    .GetProperty("engineVersion")
+                    .GetString() == terminalAttack,
+                "inspection JSON must preserve raw metadata semantics");
+        }
+
+        string terminalFailureArchive = Path.Combine(
+            adversarialRoot,
+            "terminal-failure.zip");
+        string terminalFailurePath =
+            "Terminal/evil\u001B[31m\nname\u009B.txt";
+        using (FileStream output = new(
+                   terminalFailureArchive,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        using (var archive = new ZipArchive(
+                   output,
+                   ZipArchiveMode.Create,
+                   leaveOpen: false,
+                   entryNameEncoding: Utf8Strict))
+        {
+            WriteTestZipEntry(
+                archive,
+                "Terminal/package-manifest.json",
+                "{}");
+            WriteTestZipEntry(
+                archive,
+                terminalFailurePath,
+                "unsafe");
+        }
+        string terminalFailureJson = Path.Combine(
+            adversarialRoot,
+            "terminal-failure.json");
+        (int terminalFailureExit, _, string terminalFailureError) =
+            await RunWithCapturedConsoleAsync(() =>
+                RunInspectCommandWithDiagnosticsAsync(
+                    [
+                        "inspect",
+                        terminalFailureArchive,
+                        "--json",
+                        terminalFailureJson,
+                        "--quiet",
+                    ]));
+        string terminalFailureBody =
+            terminalFailureError.TrimEnd('\r', '\n');
+        Assert(
+            terminalFailureExit == 1 &&
+            terminalFailureBody.Contains("\\x1B", StringComparison.Ordinal) &&
+            terminalFailureBody.Contains("\\n", StringComparison.Ordinal) &&
+            terminalFailureBody.Contains("\\x9B", StringComparison.Ordinal) &&
+            !terminalFailureBody.Any(character =>
+                character is '\u001B' or '\n' or '\r' or '\u009B'),
+            "inspect stderr must terminal-escape archive-controlled failures");
+        using (JsonDocument terminalFailureDocument = JsonDocument.Parse(
+                   File.ReadAllText(terminalFailureJson, Encoding.UTF8)))
+        {
+            Assert(
+                terminalFailureDocument.RootElement
+                    .GetProperty("errorMessage")
+                    .GetString()?
+                    .Contains(terminalFailurePath, StringComparison.Ordinal) ==
+                    true,
+                "inspection failure JSON must preserve the raw error value");
+        }
+        (int terminalDiffExit, _, string terminalDiffError) =
+            await RunWithCapturedConsoleAsync(() =>
+                RunDiffCommandWithDiagnosticsAsync(
+                    [
+                        "diff",
+                        terminalFailureArchive,
+                        validArchive,
+                        "--quiet",
+                    ]));
+        string terminalDiffBody =
+            terminalDiffError.TrimEnd('\r', '\n');
+        Assert(
+            terminalDiffExit == 3 &&
+            terminalDiffBody.Contains("\\x1B", StringComparison.Ordinal) &&
+            terminalDiffBody.Contains("\\n", StringComparison.Ordinal) &&
+            terminalDiffBody.Contains("\\x9B", StringComparison.Ordinal) &&
+            !terminalDiffBody.Any(character =>
+                character is '\u001B' or '\n' or '\r' or '\u009B'),
+            "diff stderr must terminal-escape archive-controlled failures");
+
+        byte[] exposedOverflow = new byte[4096];
+        using (var manifestOverflowStream = new MemoryStream(
+                   exposedOverflow,
+                   writable: false))
+        {
+            Exception? manifestOverflowFailure = null;
+            try
+            {
+                _ = await PackageCore
+                    .ReadManifestStreamExactForSelfTestAsync(
+                        manifestOverflowStream,
+                        declaredLength: 16);
+            }
+            catch (Exception error)
+            {
+                manifestOverflowFailure = error;
+            }
+            Assert(
+                manifestOverflowFailure is InvalidDataException &&
+                manifestOverflowStream.Position == 17,
+                "manifest exact reader must abort after declared length plus one byte");
+        }
+        using (var payloadOverflowStream = new MemoryStream(
+                   exposedOverflow,
+                   writable: false))
+        {
+            Exception? payloadOverflowFailure = null;
+            try
+            {
+                _ = await PackageCore
+                    .HashArchiveStreamExactForSelfTestAsync(
+                        payloadOverflowStream,
+                        expectedBytes: 16);
+            }
+            catch (Exception error)
+            {
+                payloadOverflowFailure = error;
+            }
+            Assert(
+                payloadOverflowFailure is InvalidDataException &&
+                payloadOverflowStream.Position == 17,
+                "payload hashing must abort after declared length plus one byte");
+        }
+
+        string forgedManifestLength = Path.Combine(
+            adversarialRoot,
+            "forged-manifest-length.zip");
+        File.Copy(validArchive, forgedManifestLength);
+        string forgedManifestEntryName;
+        using (ZipArchive archive = ZipFile.OpenRead(forgedManifestLength))
+        {
+            forgedManifestEntryName = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith(
+                    "/package-manifest.json",
+                    StringComparison.Ordinal)).FullName;
+        }
+        byte[] forgedManifestBytes =
+            File.ReadAllBytes(forgedManifestLength);
+        PatchZipDeclaredUncompressedSize(
+            forgedManifestBytes,
+            forgedManifestEntryName,
+            declaredSize: 2);
+        File.WriteAllBytes(forgedManifestLength, forgedManifestBytes);
+        Exception? forgedManifestFailure = null;
+        try
+        {
+            _ = await PackageCore.VerifyPackageArchiveAsync(
+                forgedManifestLength);
+        }
+        catch (Exception error)
+        {
+            forgedManifestFailure = error;
+        }
+        Assert(
+            forgedManifestFailure is JsonException or InvalidDataException,
+            "manifest verification must reject a forged smaller central-directory " +
+            "length; actual=" +
+            FormatTerminalText(forgedManifestFailure?.GetType().Name));
+
+        string forgedPayloadLength = Path.Combine(
+            adversarialRoot,
+            "forged-payload-length.zip");
+        File.Copy(validArchive, forgedPayloadLength);
+        string forgedPayloadEntryName;
+        using (ZipArchive archive = ZipFile.Open(
+                   forgedPayloadLength,
+                   ZipArchiveMode.Update,
+                   entryNameEncoding: Utf8Strict))
+        {
+            ZipArchiveEntry manifestEntry = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith(
+                    "/package-manifest.json",
+                    StringComparison.Ordinal));
+            string manifestName = manifestEntry.FullName;
+            string packageRoot =
+                manifestName[..manifestName.IndexOf('/')];
+            JsonNode manifestNode;
+            using (var reader = new StreamReader(
+                       manifestEntry.Open(),
+                       Utf8Strict,
+                       detectEncodingFromByteOrderMarks: false,
+                       leaveOpen: false))
+            {
+                manifestNode = JsonNode.Parse(reader.ReadToEnd()) ??
+                    throw new InvalidDataException(
+                        "Self-test package manifest is empty.");
+            }
+            JsonArray files =
+                manifestNode["files"]?.AsArray() ??
+                throw new InvalidDataException(
+                    "Self-test package manifest has no files.");
+            JsonObject payloadRecord = files
+                .Select(node => node?.AsObject())
+                .First(record =>
+                    record?["size"]?.GetValue<long>() > 1)!;
+            string payloadPath =
+                payloadRecord["path"]?.GetValue<string>() ??
+                throw new InvalidDataException(
+                    "Self-test package payload path is missing.");
+            payloadRecord["size"] = 1;
+            forgedPayloadEntryName = packageRoot + "/" + payloadPath;
+
+            manifestEntry.Delete();
+            ZipArchiveEntry replacement = archive.CreateEntry(
+                manifestName,
+                CompressionLevel.Optimal);
+            replacement.ExternalAttributes = 0;
+            using var writer = new StreamWriter(
+                replacement.Open(),
+                Utf8Strict,
+                leaveOpen: false);
+            writer.Write(manifestNode.ToJsonString());
+        }
+        byte[] forgedPayloadBytes =
+            File.ReadAllBytes(forgedPayloadLength);
+        PatchZipDeclaredUncompressedSize(
+            forgedPayloadBytes,
+            forgedPayloadEntryName,
+            declaredSize: 1);
+        File.WriteAllBytes(forgedPayloadLength, forgedPayloadBytes);
+        Exception? forgedPayloadFailure = null;
+        try
+        {
+            _ = await PackageCore.VerifyPackageArchiveAsync(
+                forgedPayloadLength);
+        }
+        catch (Exception error)
+        {
+            forgedPayloadFailure = error;
+        }
+        Assert(
+            forgedPayloadFailure is InvalidDataException,
+            "payload verification must reject a forged smaller central-directory " +
+            "length; actual=" +
+            FormatTerminalText(forgedPayloadFailure?.ToString()));
+
+        string compressionBomb = Path.Combine(
+            adversarialRoot,
+            "compression-bomb.zip");
+        using (FileStream output = new(
+                   compressionBomb,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        using (var archive = new ZipArchive(
+                   output,
+                   ZipArchiveMode.Create,
+                   leaveOpen: false,
+                   entryNameEncoding: Utf8Strict))
+        {
+            WriteTestZipEntry(
+                archive,
+                "Bomb/package-manifest.json",
+                "{}");
+            ZipArchiveEntry payload = archive.CreateEntry(
+                "Bomb/payload.bin",
+                CompressionLevel.Optimal);
+            payload.ExternalAttributes = 0;
+            byte[] zeros = new byte[64 * 1024];
+            using Stream payloadStream = payload.Open();
+            long remaining =
+                InspectCompressionRatioCheckThresholdBytes + 1024 * 1024;
+            while (remaining > 0)
+            {
+                int count = (int)Math.Min(zeros.Length, remaining);
+                payloadStream.Write(zeros, 0, count);
+                remaining -= count;
+            }
+        }
+        await using (FileStream bombInput = new(
+                         compressionBomb,
+                         FileMode.Open,
+                         FileAccess.Read,
+                         FileShare.Read))
+        {
+            Exception? ratioFailure = null;
+            try
+            {
+                ValidateInspectionArchiveEnvelope(bombInput);
+            }
+            catch (Exception error)
+            {
+                ratioFailure = error;
+            }
+            Assert(
+                ratioFailure is InvalidDataException &&
+                ratioFailure.Message.Contains(
+                    "suspicious compression ratio",
+                    StringComparison.Ordinal),
+                "inspection must reject a high-ratio ZIP before payload verification");
+        }
+        string bombFailureJson = Path.Combine(
+            adversarialRoot,
+            "compression-bomb-failure.json");
+        int bombExit = await RunWithCapturedErrorAsync(() =>
+            RunInspectCommandWithDiagnosticsAsync(
+                [
+                    "inspect",
+                    compressionBomb,
+                    "--json",
+                    bombFailureJson,
+                    "--quiet",
+                ]));
+        using (JsonDocument failure = JsonDocument.Parse(
+                   File.ReadAllText(bombFailureJson, Encoding.UTF8)))
+        {
+            Assert(
+                bombExit == 1 &&
+                !failure.RootElement.GetProperty("verified").GetBoolean() &&
+                failure.RootElement.GetProperty("errorCode").GetString() ==
+                    "ARCHIVE_INVALID",
+                "invalid inspection must return exit 1 and atomically publish failure JSON");
+        }
+        string bombDiffFailureJson = Path.Combine(
+            adversarialRoot,
+            "compression-bomb-diff-failure.json");
+        int bombDiffExit = await RunWithCapturedErrorAsync(() =>
+            RunDiffCommandWithDiagnosticsAsync(
+                [
+                    "diff",
+                    compressionBomb,
+                    validArchive,
+                    "--json",
+                    bombDiffFailureJson,
+                    "--quiet",
+                ]));
+        using (JsonDocument failure = JsonDocument.Parse(
+                   File.ReadAllText(bombDiffFailureJson, Encoding.UTF8)))
+        {
+            Assert(
+                bombDiffExit == 3 &&
+                !failure.RootElement.GetProperty("compared").GetBoolean() &&
+                failure.RootElement.GetProperty("errorCode").GetString() ==
+                    "ARCHIVE_INVALID",
+                "invalid diff must return exit 3 and atomically publish failure JSON");
+        }
+
+        string aggregateCompressionBomb = Path.Combine(
+            adversarialRoot,
+            "aggregate-compression-bomb.zip");
+        using (FileStream output = new(
+                   aggregateCompressionBomb,
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        using (var archive = new ZipArchive(
+                   output,
+                   ZipArchiveMode.Create,
+                   leaveOpen: false,
+                   entryNameEncoding: Utf8Strict))
+        {
+            WriteTestZipEntry(
+                archive,
+                "AggregateBomb/package-manifest.json",
+                "{}");
+            byte[] zeros = new byte[64 * 1024];
+            for (int entryIndex = 0; entryIndex < 3; entryIndex++)
+            {
+                ZipArchiveEntry payload = archive.CreateEntry(
+                    $"AggregateBomb/payload-{entryIndex}.bin",
+                    CompressionLevel.Optimal);
+                payload.ExternalAttributes = 0;
+                using Stream payloadStream = payload.Open();
+                long remaining =
+                    InspectCompressionRatioCheckThresholdBytes / 2;
+                while (remaining > 0)
+                {
+                    int count = (int)Math.Min(zeros.Length, remaining);
+                    payloadStream.Write(zeros, 0, count);
+                    remaining -= count;
+                }
+            }
+        }
+        await using (FileStream aggregateBombInput = new(
+                         aggregateCompressionBomb,
+                         FileMode.Open,
+                         FileAccess.Read,
+                         FileShare.Read))
+        {
+            Exception? aggregateRatioFailure = null;
+            try
+            {
+                ValidateInspectionArchiveEnvelope(aggregateBombInput);
+            }
+            catch (Exception error)
+            {
+                aggregateRatioFailure = error;
+            }
+            Assert(
+                aggregateRatioFailure is InvalidDataException &&
+                aggregateRatioFailure.Message.Contains(
+                    "aggregate compression ratio",
+                    StringComparison.Ordinal),
+                "inspection must reject aggregate high-ratio ZIPs composed of sub-threshold entries");
+        }
+
+        string invalidEnvelope = Path.Combine(
+            adversarialRoot,
+            "invalid-envelope.zip");
+        File.Copy(validArchive, invalidEnvelope);
+        byte[] envelopeBytes = File.ReadAllBytes(invalidEnvelope);
+        int endRecord = FindZipEndRecord(envelopeBytes);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            envelopeBytes.AsSpan(endRecord + 12),
+            checked((uint)InspectCentralDirectoryLimitBytes + 1));
+        File.WriteAllBytes(invalidEnvelope, envelopeBytes);
+        await using (FileStream invalidEnvelopeInput = new(
+                         invalidEnvelope,
+                         FileMode.Open,
+                         FileAccess.Read,
+                         FileShare.Read))
+        {
+            Exception? envelopeFailure = null;
+            try
+            {
+                ValidateInspectionArchiveEnvelope(invalidEnvelopeInput);
+            }
+            catch (Exception error)
+            {
+                envelopeFailure = error;
+            }
+            Assert(
+                envelopeFailure is InvalidDataException &&
+                envelopeFailure.Message.Contains(
+                    "central directory",
+                    StringComparison.OrdinalIgnoreCase),
+                "inspection must reject an oversized/non-canonical central directory envelope");
+        }
+
+        string duplicateManifest = Path.Combine(
+            adversarialRoot,
+            "duplicate-manifest-property.zip");
+        File.Copy(validArchive, duplicateManifest);
+        using (ZipArchive archive = ZipFile.Open(
+                   duplicateManifest,
+                   ZipArchiveMode.Update,
+                   entryNameEncoding: Utf8Strict))
+        {
+            ZipArchiveEntry manifestEntry = archive.Entries.Single(entry =>
+                entry.FullName.EndsWith(
+                    "/package-manifest.json",
+                    StringComparison.Ordinal));
+            string manifestName = manifestEntry.FullName;
+            string manifestText;
+            using (var reader = new StreamReader(
+                       manifestEntry.Open(),
+                       Utf8Strict,
+                       detectEncodingFromByteOrderMarks: false,
+                       leaveOpen: false))
+            {
+                manifestText = reader.ReadToEnd();
+            }
+            using JsonDocument document = JsonDocument.Parse(manifestText);
+            string bootstrapPath = document.RootElement
+                .GetProperty("sceneBootstrap")
+                .GetProperty("path")
+                .GetString()!;
+            int bootstrapProperty = manifestText.IndexOf(
+                "\"sceneBootstrap\"",
+                StringComparison.Ordinal);
+            int bootstrapObject = manifestText.IndexOf(
+                '{',
+                bootstrapProperty);
+            Assert(
+                bootstrapProperty >= 0 && bootstrapObject > bootstrapProperty,
+                "self-test manifest sceneBootstrap object is missing");
+            manifestText = manifestText.Insert(
+                bootstrapObject + 1,
+                "\"path\":" +
+                JsonSerializer.Serialize(bootstrapPath) +
+                ",");
+
+            manifestEntry.Delete();
+            ZipArchiveEntry replacement = archive.CreateEntry(
+                manifestName,
+                CompressionLevel.Optimal);
+            replacement.ExternalAttributes = 0;
+            using var writer = new StreamWriter(
+                replacement.Open(),
+                Utf8Strict,
+                leaveOpen: false);
+            writer.Write(manifestText);
+        }
+        Exception? duplicateVerificationFailure = null;
+        try
+        {
+            _ = await PackageCore.VerifyPackageArchiveAsync(
+                duplicateManifest);
+        }
+        catch (Exception error)
+        {
+            duplicateVerificationFailure = error;
+        }
+        Assert(
+            duplicateVerificationFailure is InvalidDataException &&
+            duplicateVerificationFailure.Message.Contains(
+                "duplicate property",
+                StringComparison.Ordinal),
+            "the shared package verification gate must recursively reject " +
+            "duplicate manifest JSON properties");
+        Exception? duplicatePropertyFailure =
+            await CaptureInspectionFailureAsync(duplicateManifest);
+        Assert(
+            duplicatePropertyFailure is InvalidDataException &&
+            duplicatePropertyFailure.Message.Contains(
+                "duplicate property",
+                StringComparison.Ordinal),
+            "inspection must recursively reject duplicate manifest JSON properties");
+
+        string caseCollision = Path.Combine(
+            adversarialRoot,
+            "case-collision.zip");
+        File.Copy(validArchive, caseCollision);
+        using (ZipArchive archive = ZipFile.Open(
+                   caseCollision,
+                   ZipArchiveMode.Update,
+                   entryNameEncoding: Utf8Strict))
+        {
+            string existing = archive.Entries
+                .First(entry => !entry.FullName.EndsWith(
+                    "/package-manifest.json",
+                    StringComparison.Ordinal))
+                .FullName;
+            string collision = existing.ToUpperInvariant();
+            Assert(
+                !string.Equals(existing, collision, StringComparison.Ordinal),
+                "self-test payload path must have a distinct case variant");
+            WriteTestZipEntry(archive, collision, "collision");
+        }
+        Exception? collisionFailure =
+            await CaptureInspectionFailureAsync(caseCollision);
+        Assert(
+            collisionFailure is InvalidDataException &&
+            collisionFailure.Message.Contains(
+                "duplicate Windows path",
+                StringComparison.Ordinal),
+            "inspection verification must reject case-insensitive ZIP collisions");
+
+        string traversal = Path.Combine(
+            adversarialRoot,
+            "traversal.zip");
+        File.Copy(validArchive, traversal);
+        using (ZipArchive archive = ZipFile.Open(
+                   traversal,
+                   ZipArchiveMode.Update,
+                   entryNameEncoding: Utf8Strict))
+        {
+            string root = archive.Entries[0].FullName.Split('/')[0];
+            WriteTestZipEntry(
+                archive,
+                root + "/../escape.txt",
+                "escape");
+        }
+        Exception? traversalFailure =
+            await CaptureInspectionFailureAsync(traversal);
+        Assert(
+            traversalFailure is InvalidDataException &&
+            traversalFailure.Message.Contains(
+                "path is invalid",
+                StringComparison.Ordinal),
+            "inspection verification must reject ZIP traversal entries");
+
+        string symlinkEntry = Path.Combine(
+            adversarialRoot,
+            "symlink-entry.zip");
+        File.Copy(validArchive, symlinkEntry);
+        using (ZipArchive archive = ZipFile.Open(
+                   symlinkEntry,
+                   ZipArchiveMode.Update,
+                   entryNameEncoding: Utf8Strict))
+        {
+            string root = archive.Entries[0].FullName.Split('/')[0];
+            ZipArchiveEntry link = archive.CreateEntry(
+                root + "/payload-link",
+                CompressionLevel.NoCompression);
+            link.ExternalAttributes = unchecked((int)0xA0000000);
+            using var writer = new StreamWriter(
+                link.Open(),
+                Utf8Strict,
+                leaveOpen: false);
+            writer.Write("target");
+        }
+        Exception? symlinkFailure =
+            await CaptureInspectionFailureAsync(symlinkEntry);
+        Assert(
+            symlinkFailure is InvalidDataException &&
+            symlinkFailure.Message.Contains(
+                "ordinary files",
+                StringComparison.Ordinal),
+            "inspection verification must reject ZIP symlink attributes");
+        Assert(
+            !Directory.EnumerateFiles(
+                    adversarialRoot,
+                    ".*.tmp",
+                    SearchOption.TopDirectoryOnly)
+                .Any(),
+            "inspection and diff reports must not leave sibling temp files");
+    }
+
+    private static void WriteTestZipEntry(
+        ZipArchive archive,
+        string path,
+        string content)
+    {
+        ZipArchiveEntry entry = archive.CreateEntry(
+            path,
+            CompressionLevel.NoCompression);
+        entry.ExternalAttributes = 0;
+        using var writer = new StreamWriter(
+            entry.Open(),
+            Utf8Strict,
+            leaveOpen: false);
+        writer.Write(content);
+    }
+
+    private static int FindZipEndRecord(byte[] archive)
+    {
+        const uint signature = 0x06054b50u;
+        for (int index = archive.Length - 22; index >= 0; index--)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(
+                    archive.AsSpan(index)) != signature)
+            {
+                continue;
+            }
+            int commentLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                archive.AsSpan(index + 20));
+            if (index + 22 + commentLength == archive.Length)
+                return index;
+        }
+        throw new InvalidDataException(
+            "Self-test ZIP end record was not found.");
+    }
+
+    private static void PatchZipDeclaredUncompressedSize(
+        byte[] archive,
+        string entryName,
+        uint declaredSize)
+    {
+        const uint centralSignature = 0x02014b50u;
+        const int centralHeaderSize = 46;
+
+        int endRecord = FindZipEndRecord(archive);
+        int entryCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            archive.AsSpan(endRecord + 10));
+        int offset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(
+            archive.AsSpan(endRecord + 16)));
+        for (int index = 0; index < entryCount; index++)
+        {
+            if (offset < 0 ||
+                offset > archive.Length - centralHeaderSize ||
+                BinaryPrimitives.ReadUInt32LittleEndian(
+                    archive.AsSpan(offset)) != centralSignature)
+            {
+                throw new InvalidDataException(
+                    "Self-test ZIP central directory is invalid.");
+            }
+
+            int nameLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                archive.AsSpan(offset + 28));
+            int extraLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                archive.AsSpan(offset + 30));
+            int commentLength = BinaryPrimitives.ReadUInt16LittleEndian(
+                archive.AsSpan(offset + 32));
+            int recordLength = checked(
+                centralHeaderSize +
+                nameLength +
+                extraLength +
+                commentLength);
+            if (recordLength > archive.Length - offset)
+            {
+                throw new InvalidDataException(
+                    "Self-test ZIP central record exceeds the archive.");
+            }
+
+            string candidate = Utf8Strict.GetString(
+                archive,
+                offset + centralHeaderSize,
+                nameLength);
+            if (string.Equals(
+                    candidate,
+                    entryName,
+                    StringComparison.Ordinal))
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    archive.AsSpan(offset + 24),
+                    declaredSize);
+                return;
+            }
+            offset += recordLength;
+        }
+
+        throw new InvalidDataException(
+            "Self-test ZIP entry was not found in the central directory.");
+    }
+
     private static async Task TestReparsePointIfSupportedAsync(
         string testRoot,
         string assets,
@@ -1602,10 +3907,14 @@ internal static class Program
         string externalDdc = Path.Combine(testRoot, "ExternalDdc");
         string outputLink = Path.Combine(testRoot, "OutputLink");
         string externalOutput = Path.Combine(testRoot, "ExternalOutput");
+        string jsonOutputLink = Path.Combine(testRoot, "JsonOutputLink");
+        string externalJsonOutput =
+            Path.Combine(testRoot, "ExternalJsonOutput");
         bool assetLinkCreated = false;
         bool tempLinkCreated = false;
         bool ddcLinkCreated = false;
         bool outputLinkCreated = false;
+        bool jsonOutputLinkCreated = false;
         string linkedProjectRoot = Path.Combine(testRoot, "LinkedProjectRoot");
         bool projectRootLinkCreated = false;
         Directory.CreateDirectory(external);
@@ -1716,6 +4025,32 @@ internal static class Program
                 "packaging must fail before traversing an output ancestor reparse point");
             Assert(!Directory.Exists(Path.Combine(externalOutput, "Nested")),
                 "output validation must not create a directory through a reparse point");
+
+            Directory.CreateDirectory(externalJsonOutput);
+            Directory.CreateSymbolicLink(
+                jsonOutputLink,
+                externalJsonOutput);
+            jsonOutputLinkCreated = true;
+            bool jsonOutputRejected = false;
+            try
+            {
+                await WriteNewJsonDocumentAsync(
+                    Path.Combine(jsonOutputLink, "inspection.json"),
+                    new { schemaVersion = 1, verified = true });
+            }
+            catch (IOException)
+            {
+                jsonOutputRejected = true;
+            }
+            Assert(
+                jsonOutputRejected,
+                "machine-readable output must reject a reparse-point ancestor");
+            Assert(
+                !File.Exists(
+                    Path.Combine(externalJsonOutput, "inspection.json")),
+                "JSON validation must not publish through a reparse point");
+            Directory.Delete(jsonOutputLink);
+            jsonOutputLinkCreated = false;
         }
         catch (UnauthorizedAccessException)
         {
@@ -1753,6 +4088,17 @@ internal static class Program
                 if (outputLinkCreated && Directory.Exists(outputLink) &&
                     (File.GetAttributes(outputLink) & FileAttributes.ReparsePoint) != 0)
                     Directory.Delete(outputLink);
+            }
+            catch { }
+            try
+            {
+                if (jsonOutputLinkCreated &&
+                    Directory.Exists(jsonOutputLink) &&
+                    (File.GetAttributes(jsonOutputLink) &
+                     FileAttributes.ReparsePoint) != 0)
+                {
+                    Directory.Delete(jsonOutputLink);
+                }
             }
             catch { }
             try

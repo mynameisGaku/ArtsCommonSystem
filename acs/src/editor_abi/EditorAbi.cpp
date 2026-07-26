@@ -75,6 +75,7 @@
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
 #include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
 #include "editor_abi/EditorFrameContract.h"  // busy/fatal/presented frame contract
+#include "editor_abi/EditorAbiCapabilities.h" // versioned host capability negotiation
 #include "editor_abi/EditorRenderPolicy.h"   // producer/consumer gates for cached render data
 
 #include <cstdint>
@@ -9110,7 +9111,39 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
 // =============================================================================
 
 ACS_EDITOR_API const char* acs_editor_version(void) {
-    return "ACS Editor 0.14 (DX12)";
+    return "ACS Editor 0.15";
+}
+
+ACS_EDITOR_API std::uint32_t acs_editor_abi_contract_version(void) {
+    return editor_abi::kContractVersion;
+}
+
+ACS_EDITOR_API std::uint64_t acs_editor_abi_capabilities(void) {
+    return editor_abi::kCapabilities;
+}
+
+ACS_EDITOR_API const char* acs_editor_render_backend(void) {
+#if WITH_RENDER_DILIGENT
+    return "Diligent";
+#else
+    return "Raw DX12";
+#endif
+}
+
+ACS_EDITOR_API int acs_editor_abi_query(
+    std::uint32_t requested_version,
+    std::uint64_t required_capabilities,
+    std::uint32_t* out_version,
+    std::uint64_t* out_capabilities) {
+    if (out_version != nullptr) {
+        *out_version = editor_abi::kContractVersion;
+    }
+    if (out_capabilities != nullptr) {
+        *out_capabilities = editor_abi::kCapabilities;
+    }
+    return editor_abi::IsCompatible(
+        requested_version,
+        required_capabilities) ? 1 : 0;
 }
 
 ACS_EDITOR_API void* acs_editor_create(void) {

@@ -37,6 +37,23 @@ public partial class MainWindow
 
     private async void OnSaveAllScenes(object sender, RoutedEventArgs e)
     {
+        if (_documentHostInitialized)
+        {
+            try
+            {
+                EditorDocumentSaveBatchResult hostedResult =
+                    await SaveAllHostedDocumentsAsync();
+                ReportHostedSaveAllResult(hostedResult);
+            }
+            catch (Exception ex)
+            {
+                string message = "Save All failed before completion: " + ex.Message;
+                StatusText.Text = message;
+                Log(message, "Document", LogLevel.Error);
+            }
+            return;
+        }
+
         SaveAllResult result = await SaveAllInitializedSceneDocumentsAsync();
         ReportSaveAllResult(result);
     }

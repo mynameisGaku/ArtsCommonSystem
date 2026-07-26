@@ -1494,7 +1494,9 @@ public partial class MainWindow : Window
 
     private void OnEngineAttachmentFailed()
     {
-        FailEngineStartup("Renderer attachment failed; automatic retry was stopped.");
+        FailEngineStartup(
+            _viewport?.AttachmentFailureDetail ??
+            "Renderer attachment failed; automatic retry was stopped.");
     }
 
     private void OnEngineRenderingFailed(string detail)
@@ -5291,8 +5293,19 @@ public partial class MainWindow : Window
             MaxRestoreBtn.Content = WindowState == WindowState.Maximized ? "❐" : "□";
     }
 
-    private void OnAbout(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(this,
-            "ACS Editor\n\nWPF (.NET) editor shell hosting the ACS C++ engine\nvia a C ABI (P/Invoke) + native HWND viewport.\n\n" + EngineInterop.Version(),
-            "About ACS Editor", MessageBoxButton.OK, MessageBoxImage.Information);
+    private void OnAbout(object sender, RoutedEventArgs e)
+    {
+        EditorAbiSnapshot abi = EngineInterop.AbiSnapshot();
+        MessageBox.Show(
+            this,
+            "ACS Editor\n\n" +
+            "WPF (.NET) editor shell hosting the ACS C++ engine\n" +
+            "via a versioned C ABI (P/Invoke) + native HWND viewport.\n\n" +
+            abi.ToDisplayText(),
+            "About ACS Editor",
+            MessageBoxButton.OK,
+            abi.Compatible
+                ? MessageBoxImage.Information
+                : MessageBoxImage.Warning);
+    }
 }

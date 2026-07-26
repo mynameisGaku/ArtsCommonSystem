@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -267,7 +268,24 @@ public partial class MainWindow
             && EngineInterop.acs_editor_play_state(Engine) == 0 && PreviewBtn.IsChecked != true)
             RefreshDirtyStateFromNativeScene();
         RememberActiveSceneDocumentState();
-        if (!_scene2DDirty && !_scene3DDirty)
+        IReadOnlyList<EditorDocument>? hostedDirtyDocuments = null;
+        if (_documentHostInitialized &&
+            !TryRefreshHostedDirtyDocuments(
+                out hostedDirtyDocuments,
+                out string documentRefreshError))
+        {
+            Log(
+                "Close preparation could not verify document state: " +
+                documentRefreshError,
+                "Document",
+                LogLevel.Error);
+            return false;
+        }
+
+        bool hasDirtyDocuments = _documentHostInitialized
+            ? hostedDirtyDocuments!.Count > 0
+            : _scene2DDirty || _scene3DDirty;
+        if (!hasDirtyDocuments)
         {
             SetClosePreparationInputBlocked(blocked: true);
             if (!await DrainStandaloneGameForEditorCloseAsync())
@@ -276,15 +294,34 @@ public partial class MainWindow
             return true;
         }
 
+        string dirtySummary = _documentHostInitialized
+            ? string.Join(
+                "\n",
+                hostedDirtyDocuments!
+                    .Take(6)
+                    .Select(document => "  • " + document.DisplayName))
+            : "  • Scene";
+        if (_documentHostInitialized && hostedDirtyDocuments!.Count > 6)
+            dirtySummary += $"\n  • …and {hostedDirtyDocuments.Count - 6} more";
+
         var result = MessageBox.Show(this,
-            "There are unsaved changes in the scene.\n\nSave before closing?",
-            "Unsaved Scene", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+            "There are unsaved documents:\n\n" + dirtySummary +
+            "\n\nSave before closing?",
+            "Unsaved Documents", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
         if (result == MessageBoxResult.Cancel) {
             return false;
         }
         if (result != MessageBoxResult.Yes)
         {
             SetClosePreparationInputBlocked(blocked: true);
+            if (_documentHostInitialized)
+            {
+                EditorDocumentCloseResult discardResult =
+                    await PrepareHostedDocumentsForCloseAsync(
+                        EditorDocumentCloseChoice.Discard);
+                if (!discardResult.CanClose)
+                    return false;
+            }
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
             await StopAndDiscardSessionRecoveriesAsync();
@@ -294,6 +331,26 @@ public partial class MainWindow
         // Prevent edits in the await windows between source commit, worker drain, recovery discard,
         // and final close. Save dialogs remain interactive as separate owned windows.
         SetClosePreparationInputBlocked(blocked: true);
+        if (_documentHostInitialized)
+        {
+            EditorDocumentCloseResult closeResult =
+                await PrepareHostedDocumentsForCloseAsync(EditorDocumentCloseChoice.Save);
+            if (!closeResult.CanClose)
+            {
+                if (closeResult.SaveResult != null)
+                    ReportHostedSaveAllResult(
+                        closeResult.SaveResult,
+                        operation: "Close save");
+                else
+                    Log(closeResult.Detail, "Document", LogLevel.Error);
+                return false;
+            }
+            if (!await DrainStandaloneGameForEditorCloseAsync())
+                return false;
+            await StopAndDiscardSessionRecoveriesAsync();
+            return true;
+        }
+
         SaveAllResult saveResult = await SaveAllInitializedSceneDocumentsAsync();
         if (saveResult.Completion != SaveAllCompletion.Success)
         {

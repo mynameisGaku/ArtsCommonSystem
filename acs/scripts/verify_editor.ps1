@@ -729,17 +729,21 @@ if ($Mode -eq "full") {
 }
 
 $fastEditorTests = @(
+    "--abi-contract-selftest",
     "--document-host-selftest",
+    "--material-preview-selftest",
     "--asset-browser-selftest",
     "--profiler-selftest",
     "--package-responsiveness-selftest"
 )
 $allEditorTests = @(
+    "--abi-contract-selftest",
     "--autosave-selftest",
     "--scene-save-selftest",
     "--document-host-selftest",
     "--scene-editor-migration-selftest",
     "--material-workflow-selftest",
+    "--material-preview-selftest",
     "--asset-creation-selftest",
     "--asset-import-selftest",
     "--asset-browser-selftest",

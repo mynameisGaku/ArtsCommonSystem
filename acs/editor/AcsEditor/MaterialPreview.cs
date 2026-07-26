@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -19,14 +21,61 @@ internal static class MaterialPreview
     // アニメ効果(Wave/HueShift)が静止プレビューでも見えるよう、代表的な時刻を使う。
     private const float PreviewTime = 1.0f;
 
-    private static float[]? _baseCache;   // サンプル絵 (RGBA float, 行優先) のキャッシュ
-    private static int _baseSize;
+    private const int BasePatternCacheCapacity = 4;
+    private static readonly object BasePatternGate = new();
+    private static readonly Dictionary<int, float[]> BasePatterns = new();
+    private static readonly Dictionary<int, LinkedListNode<int>> BasePatternNodes = new();
+    private static readonly LinkedList<int> BasePatternLru = new();
 
     /// <summary>効果プリセットを適用したサムネイル画像を返す。</summary>
     public static BitmapSource Render(int effect, float strength, float p0, float p1, float p2,
                                       float[] color4, bool animated, int size)
+        => Render(effect, strength, p0, p1, p2, color4, animated, size, CancellationToken.None);
+
+    internal static BitmapSource Render(
+        MaterialPreviewRequest request,
+        CancellationToken cancellationToken)
     {
-        if (size < 8) size = 8;
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Kind == MaterialPreviewKind.Pbr)
+        {
+            return RenderPbr(
+                new[] { request.ColorR, request.ColorG, request.ColorB, request.ColorA },
+                request.Metallic,
+                request.Roughness,
+                new[] { request.EmissiveR, request.EmissiveG, request.EmissiveB },
+                request.EmissiveStrength,
+                request.NormalStrength,
+                request.AmbientOcclusion,
+                request.PixelSize,
+                cancellationToken);
+        }
+
+        return Render(
+            request.Effect,
+            request.Strength,
+            request.Param0,
+            request.Param1,
+            request.Param2,
+            new[] { request.ColorR, request.ColorG, request.ColorB, request.ColorA },
+            request.Animated,
+            request.PixelSize,
+            cancellationToken);
+    }
+
+    private static BitmapSource Render(
+        int effect,
+        float strength,
+        float p0,
+        float p1,
+        float p2,
+        float[] color4,
+        bool animated,
+        int size,
+        CancellationToken cancellationToken)
+    {
+        size = Math.Clamp(size, 8, 1024);
+        cancellationToken.ThrowIfCancellationRequested();
         float[] src = GetBasePattern(size);
         float t = animated ? PreviewTime : 0.0f;
         float cr = color4.Length > 0 ? color4[0] : 1f;
@@ -36,6 +85,8 @@ internal static class MaterialPreview
         var px = new byte[size * size * 4];   // BGRA32
         for (int y = 0; y < size; y++)
         {
+            if ((y & 3) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < size; x++)
             {
                 float u = (x + 0.5f) / size;
@@ -141,6 +192,7 @@ internal static class MaterialPreview
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var bmp = BitmapSource.Create(size, size, 96, 96, PixelFormats.Bgra32, null, px, size * 4);
         bmp.Freeze();
         return bmp;
@@ -154,8 +206,30 @@ internal static class MaterialPreview
     public static BitmapSource RenderPbr(float[] baseColor4, float metallic, float roughness,
                                          float[] emissive3, float emissiveStrength,
                                          float normalStrength, float ao, int size)
+        => RenderPbr(
+            baseColor4,
+            metallic,
+            roughness,
+            emissive3,
+            emissiveStrength,
+            normalStrength,
+            ao,
+            size,
+            CancellationToken.None);
+
+    private static BitmapSource RenderPbr(
+        float[] baseColor4,
+        float metallic,
+        float roughness,
+        float[] emissive3,
+        float emissiveStrength,
+        float normalStrength,
+        float ao,
+        int size,
+        CancellationToken cancellationToken)
     {
-        if (size < 8) size = 8;
+        size = Math.Clamp(size, 8, 1024);
+        cancellationToken.ThrowIfCancellationRequested();
         float bcr = baseColor4[0], bcg = baseColor4[1], bcb = baseColor4[2];
         float emr = emissive3[0] * emissiveStrength, emg = emissive3[1] * emissiveStrength, emb = emissive3[2] * emissiveStrength;
         float rough = Math.Clamp(roughness, 0.04f, 1f);
@@ -175,6 +249,8 @@ internal static class MaterialPreview
         var px = new byte[size * size * 4];
         for (int y = 0; y < size; y++)
         {
+            if ((y & 3) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < size; x++)
             {
                 // 画面 -> 単位円。中心 (0,0)、半径 1 の球。
@@ -231,6 +307,7 @@ internal static class MaterialPreview
                 px[o + 0] = ToByte(bb); px[o + 1] = ToByte(gg); px[o + 2] = ToByte(rr); px[o + 3] = 255;
             }
         }
+        cancellationToken.ThrowIfCancellationRequested();
         var bmp = BitmapSource.Create(size, size, 96, 96, PixelFormats.Bgra32, null, px, size * 4);
         bmp.Freeze();
         return bmp;
@@ -239,7 +316,51 @@ internal static class MaterialPreview
     // ===== サンプル絵 (ミニ風景: 空グラデ + 太陽 + 丘) — 効果が読みやすい色/形/勾配を含む =====
     private static float[] GetBasePattern(int size)
     {
-        if (_baseCache != null && _baseSize == size) return _baseCache;
+        lock (BasePatternGate)
+        {
+            if (BasePatterns.TryGetValue(size, out float[]? cached))
+            {
+                TouchBasePatternLocked(size);
+                return cached;
+            }
+        }
+
+        // Build outside the lock. A concurrent duplicate is harmless and avoids
+        // serializing unrelated preview sizes behind a relatively expensive fill.
+        float[] built = BuildBasePattern(size);
+        lock (BasePatternGate)
+        {
+            if (BasePatterns.TryGetValue(size, out float[]? cached))
+            {
+                TouchBasePatternLocked(size);
+                return cached;
+            }
+
+            BasePatterns.Add(size, built);
+            var node = new LinkedListNode<int>(size);
+            BasePatternNodes.Add(size, node);
+            BasePatternLru.AddFirst(node);
+            while (BasePatterns.Count > BasePatternCacheCapacity)
+            {
+                LinkedListNode<int>? oldest = BasePatternLru.Last;
+                if (oldest is null) break;
+                BasePatternLru.RemoveLast();
+                BasePatternNodes.Remove(oldest.Value);
+                BasePatterns.Remove(oldest.Value);
+            }
+            return built;
+        }
+    }
+
+    private static void TouchBasePatternLocked(int size)
+    {
+        LinkedListNode<int> node = BasePatternNodes[size];
+        BasePatternLru.Remove(node);
+        BasePatternLru.AddFirst(node);
+    }
+
+    private static float[] BuildBasePattern(int size)
+    {
         var img = new float[size * size * 4];
         for (int y = 0; y < size; y++)
         {
@@ -269,7 +390,6 @@ internal static class MaterialPreview
                 img[o + 0] = r; img[o + 1] = g; img[o + 2] = b; img[o + 3] = 1.0f;
             }
         }
-        _baseCache = img; _baseSize = size;
         return img;
     }
 

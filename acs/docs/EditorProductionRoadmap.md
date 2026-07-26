@@ -35,7 +35,7 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | Play / Preview | Play/Pause/Step/Stop、状態復元、Game View、Hot Reload あり | 3D parity、Possess/Eject/Simulate、Play 設定、複数クライアント | P0/P1 |
 | Build / Package | Windows x64、Development/Test/Shipping、deterministic Cook/`.acpak`/ZIP、native verify、manifest、3D fail-closed あり | dependency closure、製品 metadata、署名、installer、自動 smoke、他 platform | P0 |
 | Project Settings | schema 駆動 UI、検索、検証、保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
-| Material Editor | typed node graph、compile diagnostics、HDR/ACES、1x–4x SSAA、3種 mesh、debounce preview あり | Undo、instance/function、async/cancellation、preview/shader cache | P0/P1 |
+| Material Editor | typed node graph、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | native API を live window へ接続する fenced GPU readback、Undo、instance/function、shader cache | P0/P1 |
 | Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo あり | property override、nested prefab、variant、conflict/diff、安定 ID | P2 |
 | Navigation | 2D grid A* と Tilemap bridge あり | 3D navmesh、bake UI、agent/area/link、debug/cook | P2 |
 | Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化あり | docking、multi-document、shortcut editor、複数 workspace | P1 |
@@ -193,7 +193,7 @@ Scene は native snapshot を最大 128 件保持し、drag 中の連続操作�
 - `editor/AcsEditor/MainWindow.xaml.cs:3108-3124`
 - `editor/AcsEditor/BlueprintEditor.xaml.cs:3383-3416`
 
-Scene は dirty 状態に連動する世代管理付き自動保存、checksum 検証、起動時 recovery dialog と、2D/3D の初期化済み dirty 文書を mode switch なしで原子的に保存する Save All を持つ。Material Editor、Asset 操作、Project Settings は同じ transaction に参加しておらず、全 editor document の dirty、Save、Close、Undo 履歴を統一する host はまだない。
+Scene は dirty 状態に連動する世代管理付き自動保存、checksum 検証、起動時 recovery dialog と、2D/3D の初期化済み dirty 文書を mode switch なしで原子的に保存する Save All を持つ。共通の deterministic/async Document Host と Scene adapter は実装済みで、Scene の dirty、Save、Close を host 経由で扱える。Material/Blueprint/Prefab/Settings adapter、multi-document tab UI、全 document 共通の transaction/Undo 履歴はまだ移行作業として残る。
 
 - `editor/AcsEditor/MainWindow.Autosave.cs`
 - `editor/AcsEditor/SceneAutosaveStore.cs`
@@ -203,7 +203,7 @@ Scene は dirty 状態に連動する世代管理付き自動保存、checksum �
 
 不足:
 
-- `IEditorDocument`、`IEditorCommand`、transaction scope、command label。
+- `EditorDocumentHost` への Material/Blueprint/Prefab/Settings adapter、multi-document tab、`IEditorCommand`、transaction scope、command label。
 - property delta と object identity に基づく Undo。
 - Scene、Material、Blueprint、Prefab、Settings、Asset operation の共通履歴。
 - Undo History UI、coalescing policy、transaction test。
@@ -276,22 +276,22 @@ Project Settings は native schema catalog から UI を生成し、検索、cat
 
 ### 9. Material Editor と Preview
 
-Material Editor は typed node palette、graph canvas、compile diagnostics、PBR property、GPU preview、CPU fallback を持つ。高品質 preview の vertical slice として、linear HDR render target、ACES/sRGB resolve、1x/2x/4x SSAA、Sphere/Cube/Plane、Studio/Checker/Black background、180 ms debounce が実装された。
+Material Editor は typed node palette、graph canvas、compile diagnostics、PBR property、native GPU preview API、CPU-safe fallback を持つ。native API 側には linear HDR render target、ACES/sRGB resolve、1x/2x/4x SSAA、Sphere/Cube/Plane、Studio/Checker/Black background の契約があるが、共有 viewport RHI の resource-lifetime race を避けるため、現在の live window にはまだ接続していない。live window は単一 mesh/background の CPU-safe renderer と 192/256/384 px の出力解像度 preset、180 ms debounce を使い、未接続の mesh/background selector は無効化して理由を表示する。
 
-- `editor/AcsEditor/MaterialEditorWindow.xaml:96-195`
-- `editor/AcsEditor/MaterialEditorWindow.xaml:231-278`
-- `editor/AcsEditor/MaterialEditorWindow.xaml.cs:28-41`
-- `editor/AcsEditor/MaterialEditorWindow.xaml.cs:460-539`
-- `src/editor_abi/EditorAbi.cpp:6506-7106`
+- `editor/AcsEditor/MaterialEditorWindow.xaml:234-296`
+- `editor/AcsEditor/MaterialEditorWindow.xaml.cs`
+- `editor/AcsEditor/MaterialPreviewPipeline.cs`
+- `editor/AcsEditor/MaterialPreviewSelfTest.cs`
+- `src/editor_abi/EditorAbi.cpp:12144-12310`
 
-単純な固定解像度引き上げではなく、HDR/ACES と supersample resolve を品質選択にしたことで、初期の画質改善は完了した。現在も GPU submit/readback は同期経路であるため、次段階は async generation/readback、stale job cancellation、同一入力 cache とする。
+第2 vertical slice では CPU generation を dispatcher 外へ移し、入力変更時点での cooperative cancellation と generation token による stale result suppression、同一入力の in-flight coalescing、8 entry LRU cache、generation time/cache hit 表示を追加した。出力解像度は immutable request key に含め、失敗時は last-good image を保持する。mesh/background は将来の fenced native GPU path 用 request contract として残すが、live window からは既定値だけを渡す。
 
 不足:
 
 - Material graph の Undo/Redo。
 - Material Instance、parameter collection、function/subgraph。
-- async generation/readback と cancellation。
-- preview/shader cache と last-good preview の保持。
+- native GPU submit/readback の専用 queue、fence、非同期 readback、shutdown drain。
+- compiled shader cache と runtime 基準 screenshot test。
 
 ### 10. Prefab と Blueprint
 
@@ -425,15 +425,14 @@ flowchart TD
 - optional feature を symbol の有無ではなく capability で判定できる。
 - native error が Build Results/Output Log の Asset と operation に紐づく。
 
-### P0-C: Document、Transaction、Autosave
+### P0-C: Document、Transaction、Autosave（共通 host 基盤と Scene 統合済み）
 
 成果物:
 
-- `IEditorDocument` と Document Host。
-- Save、Save As、Save All、dirty tab、close confirmation。
+- 実装済み: deterministic/async `EditorDocumentHost` と `EditorDocument`、Scene adapter、Scene の Save、Save All、dirty、close confirmation。
+- 残り: Material/Blueprint/Prefab/Settings adapter と multi-document tab。
 - 共通 transaction scope と Undo History。
 - autosave journal、recovery dialog、世代管理。
-- Scene/Material/Blueprint/Prefab/Settings adapter。
 
 依存: stable object/document ID は P0-A/B と合わせる。
 
@@ -537,17 +536,22 @@ flowchart TD
 
 ### P1-C: Viewport、Preview、Play Workflow
 
-実装済み preview vertical slice:
+実装済み live preview vertical slice:
 
-- Material preview の HDR/ACES、1x/2x/4x SSAA。
-- Sphere/Cube/Plane と background/quality selector。
+- 単一 mesh/background の CPU-safe material preview と 192/256/384 px 出力解像度 selector。
+- native preview API の HDR/ACES、1x/2x/4x SSAA、Sphere/Cube/Plane、background 契約（live window には未接続）。
+- 未接続の mesh/background selector の無効化と理由表示。
 - 180 ms debounce。
+- dispatcher 外の cancellable CPU generation と generation token による stale result suppression。
+- 同一入力の in-flight coalescing、8 entry LRU cache、last-good image 保持。
+- output resolution、generation time、cache hit/shared job の状態表示。
 
 残り成果物:
 
 - fly navigation、camera speed、bookmark、local/world/pivot mode。
 - render mode、debug overlay、resolution scale、performance stats。
-- async/cancellable/cached material/asset preview service。
+- native GPU preview の fenced async readback と compiled shader cache。
+- Asset View preview への共通 async/cancellable/cache service 適用。
 - Selected Viewport/New Window/Standalone/Simulate。
 - Possess/Eject、spawn location、Play setting。
 
@@ -676,15 +680,17 @@ Scene pipeline 統一まで、3D document が active の場合は既存 2D `Scen
 - 3D Scene 編集後の Build が、別の 2D Scene を暗黙出力しない。
 - message から Project Scene 設定または対応 issue を開ける。
 
-### 3. Material Preview の高品質化（初期 vertical slice 実装済み）
+### 3. Material Preview の非同期化（live CPU 第2 vertical slice 実装済み）
 
-180 ms debounce、linear HDR、ACES/sRGB resolve、1x/2x/4x SSAA、Sphere/Cube/Plane と background selector を実装した。次段階は同期 GPU readback を async/cancellable job と cache に置き換える。
+live CPU-safe generation を dispatcher 外の latest-wins job にした。入力変更時に debounce を待たず旧 job を無効化し、renderer 内では行単位に cooperative cancellation を検査する。同一入力は実行中 job と凍結済み bitmap の 8 entry LRU cache を共有し、UI は出力解像度、generation time、cache hit/shared job を表示する。native API にある linear HDR、ACES/sRGB resolve、1x/2x/4x SSAA、Sphere/Cube/Plane、background 契約は、専用 queue/fence と async readback を備えるまで live window へ接続しない。
 
-残りの検証:
+`--material-preview-selftest` と既存 `--material-workflow-selftest` aggregate は、同一入力 cache、PixelSize を含む cache identity、LRU 上限、in-flight coalescing、stale result suppression、debounce 前 invalidation、dispatcher-safe freeze、失敗境界を検証する。
 
-- 数値欄を連続入力しても debounce 前に GPU render/readback が発生しない。
-- 古い preview job が新しい結果を上書きしない。
-- preview quality、generation time、cache hit を表示できる。
+残り:
+
+- native GPU preview を viewport frame と競合しない専用 queue/fence と async readback に移す。
+- compiled shader cache と preview/runtime 基準 screenshot test を追加する。
+- Asset View の image/material preview を同じ scheduler contract へ統合する。
 
 ### 4. Workspace layout の per-user 永続化（初期実装済み）
 
@@ -695,9 +701,9 @@ panel show/hide/reset、window bounds、row/column size、visibility を version
 - panel resize/非表示後の再起動で復元する。
 - 破損 JSON は既定 layout に fallback し、Project を壊さない。
 
-### 5. Save All、dirty indicator、close confirmation の統一（Scene vertical slice 実装済み）
+### 5. Save All、dirty indicator、close confirmation の統一（共通 host と Scene adapter 実装済み）
 
-2D/3D Scene は mode switch なしの Save All、原子的 source write、dirty indicator、close confirmation、自動保存・復旧を持つ。次に Material/Blueprint/Prefab/Settings を document registry に登録し、未保存 document 一覧と共通 Save All command へ拡張する。
+deterministic/async Document Host と Scene adapter は実装済みで、2D/3D Scene は mode switch なしの Save All、原子的 source write、dirty indicator、close confirmation、自動保存・復旧を持つ。次に Material/Blueprint/Prefab/Settings adapter と multi-document tab を host へ移行し、未保存 document 一覧と共通 Save All command を全 document へ拡張する。
 
 検証:
 
@@ -716,19 +722,26 @@ panel show/hide/reset、window bounds、row/column size、visibility を version
 
 ### 7. ABI capability 表示
 
-完全な ABI 分割前に、version と主要 capability を query し、About/Diagnostics に表示する。利用不可機能を crash ではなく disable にする第一歩になる。
+初期 vertical slice を実装済み。managed host は product label を解析せず、
+versioned `acs_editor_abi_query` と capability bitmask で必須の frame-result、
+incremental-startup、resize-result 契約を検証する。旧 DLL、version 不一致、必須
+capability 不足、bad image は native host を作る前に fail closed とし、
+About/起動診断へ backend、provider version、既知/未知 bit、欠落理由を表示する。
+native lifecycle test と headless managed self-test で current/future/legacy/missing
+capability を固定した。次段階は typed native error payload、operation ID、optional
+service 単位の UI disable、async job/cancellation ABI である。
 
 ## 推奨する直近の着手順
 
 1. 完了: 3D Build/Run/Package guard と snap 同期修正で、現状の誤動作を停止。
 2. P0-A の Scene manifest/schema/loader の設計を ADR と test fixture で固定する。
 3. P0-B の ABI version/capability と async diagnostic contract を追加する。
-4. 進行中: P0-C は Scene Save All/autosave/recovery を実装済み。共通 Document Host/transaction を Material、Blueprint、Prefab、Settings へ拡張する。
+4. 進行中: P0-C は deterministic/async Document Host、Scene adapter、Scene Save All/autosave/recovery を実装済み。Material、Blueprint、Prefab、Settings adapter、multi-document tab、共通 transaction を追加する。
 5. 進行中: P0-D は GUID/metadata/dependency index/Reference Viewer を実装済み。reimport、safe rename/move/delete、global search、DDC を追加する。
 6. 進行中: P0-E は deterministic Cook/pack/native verify/Shipping runtime smoke まで実装済み。Asset DB dependency closure、製品 metadata、署名、installer、自動 smoke の CI 統合を追加する。
 7. その後に docking、Content Browser、Details、Viewport、Prefab、Navigation を依存順に拡張する。
 
-プレビュー画質の初期 vertical slice は debounce、HDR/ACES、SSAA と mesh/background selector まで完了した。次は job cancellation、async readback、cache を追加し、画質を維持したまま同期 stall と重複生成を減らす。
+live Material Preview は debounce、dispatcher 外の cancellable latest-wins generation、in-flight coalescing、8 entry LRU cache、last-good image、192/256/384 px 出力まで完了した。HDR/ACES、SSAA、mesh/background は native preview API のみで、live window への接続には専用 queue/fence と async readback が残る。
 
 ## 完成の定義
 

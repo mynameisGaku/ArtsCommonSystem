@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 
 namespace AcsEditor;
@@ -352,6 +353,26 @@ public partial class MainWindow
     /// Applies verified recovery over an already loaded source baseline. The original scene path
     /// remains active and the recovered document remains dirty until an explicit source save.
     /// </summary>
+    internal static EditorDocumentState ComposeSceneRecoveryState(
+        EditorDocumentState currentState,
+        bool recover3D,
+        string recoveredContent)
+    {
+        ArgumentNullException.ThrowIfNull(currentState);
+        ArgumentNullException.ThrowIfNull(recoveredContent);
+        SceneWorldDocumentEnvelope.Unpack(
+            currentState.Payload,
+            out string current2D,
+            out string current3D);
+        string recovered2D = recover3D ? current2D : recoveredContent;
+        string recovered3D = recover3D ? recoveredContent : current3D;
+        return new EditorDocumentState(
+            SceneWorldDocumentEnvelope.Pack(recovered2D, recovered3D),
+            SceneWorldDocumentEnvelope.Pack(
+                NormalizeSceneSnapshot(recovered2D),
+                NormalizeSceneSnapshot(recovered3D)));
+    }
+
     private async Task<bool> ApplyRecoveryCandidateAsync(SceneRecoveryCandidate candidate)
     {
         if (_autosaveStore == null || Engine == IntPtr.Zero) return false;
@@ -397,21 +418,30 @@ public partial class MainWindow
                 return false;
             }
 
-            bool loaded =
-                LoadLegacySceneSourceAsDocument(Engine, use3D, content);
-            if (!loaded)
-            {
-                Log("Recovery snapshot format was rejected; the source scene remains loaded.");
-                return false;
-            }
+            EditorDocumentState recoveredState = ComposeSceneRecoveryState(
+                CaptureCanonicalSceneDocumentState(),
+                use3D,
+                content);
+            EditorDocument recoveryDocument =
+                EnsureSceneDocumentRegistered(use3D);
+            // The native parsers may mutate before reporting rejection. The
+            // hosted document boundary captures both native graphs and its
+            // history checkpoint, then restores both on any rejection,
+            // exception, or post-load fingerprint mismatch.
+            recoveryDocument.ApplyRecoveredState(recoveredState);
 
             if (use3D) _scene3DInitialized = true;
             else _scene2DInitialized = true;
             SetCurrentScenePath(candidate.Identity.OriginalPath);
             RefreshAfterSceneChange();
-            MarkSceneDirty();
+            SetSceneDirty(true);
             RememberActiveSceneDocumentState();
-            ResetSceneDocumentHistory(use3D, markSaved: false);
+            ResetPendingSceneHistoryMetadata();
+            _sceneMutationRevision.AcknowledgeDocument();
+            _documentHost.Activate(
+                recoveryDocument.Id,
+                synchronizeOutgoing: false);
+            CommandManager.InvalidateRequerySuggested();
 
             string stableHash = SceneAutosaveStore.ComputeContentSha256(
                 NormalizeSceneSnapshot(content));

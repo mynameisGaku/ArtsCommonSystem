@@ -154,6 +154,10 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 autosaveSource,
                 "ApplyRecoveryCandidateAsync(");
+        string composeRecoveryBody =
+            ExtractMethodBody(
+                autosaveSource,
+                "ComposeSceneRecoveryState(");
 
         int publishedCompletionCalls = 0;
         int unavailableCompletionCalls = 0;
@@ -304,11 +308,28 @@ internal static class SceneEditorMigrationSelfTest
                 "EngineInterop.acs_editor_scene_document_load_text(",
                 StringComparison.Ordinal) &&
             applyRecoveryBody.Contains(
+                "recoveryDocument.ApplyRecoveredState(recoveredState)",
+                StringComparison.Ordinal) &&
+            applyRecoveryBody.Contains(
+                "ComposeSceneRecoveryState(",
+                StringComparison.Ordinal) &&
+            composeRecoveryBody.Contains(
+                "SceneWorldDocumentEnvelope.Pack(",
+                StringComparison.Ordinal) &&
+            !applyRecoveryBody.Contains(
                 "LoadLegacySceneSourceAsDocument(",
                 StringComparison.Ordinal);
         Check(
             fullDocumentRetirementIsCombined,
-            "new, open, rollback, recovery and document history use one native retirement transaction");
+            "new, open, rollback, recovery and document history use atomic full-document retirement");
+        Check(
+            CountMatches(
+                applyRecoveryBody,
+                @"SetSceneDirty\s*\(\s*true\s*\)") == 1 &&
+            !applyRecoveryBody.Contains(
+                "MarkSceneDirty()",
+                StringComparison.Ordinal),
+            "successful recovery remains source-dirty without queuing a phantom hosted-document edit");
         Check(
             openCommandBody.Contains(
                 "await OpenScenePathAsync(dlg.FileName)",
@@ -410,9 +431,12 @@ internal static class SceneEditorMigrationSelfTest
         int createCall = viewportSource.IndexOf(
             "EngineInterop.acs_editor_create()",
             StringComparison.Ordinal);
-        int suppressCall = viewportSource.IndexOf(
-            "acs_editor_set_scene_presentation_suppressed(_engine, 1)",
-            StringComparison.Ordinal);
+        Match suppressMatch = Regex.Match(
+            viewportSource,
+            @"acs_editor_set_scene_presentation_suppressed\s*\(\s*" +
+            @"createdEngine\s*,\s*1\s*\)",
+            RegexOptions.CultureInvariant);
+        int suppressCall = suppressMatch.Success ? suppressMatch.Index : -1;
         int attachCall = viewportSource.IndexOf(
             "EngineInterop.acs_editor_attach(",
             StringComparison.Ordinal);

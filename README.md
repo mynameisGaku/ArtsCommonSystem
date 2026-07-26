@@ -5,6 +5,10 @@
 The current desktop Editor architecture, scene and asset workflows, profiler,
 packaging constraints, and aggregate verification commands are documented in
 [`acs/docs/EditorArchitecture.md`](acs/docs/EditorArchitecture.md).
+Current production-foundation slices include explicit native ABI capability
+negotiation, cancellable/cached material previews, deterministic multi-document
+save coordination, and package `verify`/`inspect`/`diff` commands that operate
+without extracting or executing the archive.
 
 Windows 64-bit 向けのモジュール式 C++20 ゲームフレームワークです。ウィンドウ・入力・
 2D/3D 描画・ECS・アセット・音声・ネットワーク・UI・GameFramework と、初学者向けの

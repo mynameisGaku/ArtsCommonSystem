@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Editor ABI DLL の生成・破棄契約を、GPU 接続なしで実 DLL 境界から検証する。
 #include "editor_abi/EditorProfiler.h"
+#include "editor_abi/EditorAbiCapabilities.h"
 
 #include <windows.h>
 #include <cmath>
@@ -10,6 +11,16 @@
 #include <string>
 
 extern "C" __declspec(dllimport) void* acs_editor_create(void);
+extern "C" __declspec(dllimport) std::uint32_t
+acs_editor_abi_contract_version(void);
+extern "C" __declspec(dllimport) std::uint64_t
+acs_editor_abi_capabilities(void);
+extern "C" __declspec(dllimport) int acs_editor_abi_query(
+    std::uint32_t requested_version,
+    std::uint64_t required_capabilities,
+    std::uint32_t* out_version,
+    std::uint64_t* out_capabilities);
+extern "C" __declspec(dllimport) const char* acs_editor_render_backend(void);
 extern "C" __declspec(dllimport) void acs_editor_destroy(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node_count(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_add_node3d(
@@ -88,6 +99,51 @@ DWORD ProcessHandleCount() noexcept
 {
     DWORD count = 0;
     return ::GetProcessHandleCount(::GetCurrentProcess(), &count) ? count : 0;
+}
+
+/** Host compatibility is negotiated explicitly and never inferred from a label. */
+bool RunAbiCapabilityContract() noexcept
+{
+    using namespace acs::editor_abi;
+    static_assert(kContractVersion == 1u);
+    static_assert(sizeof(std::uint32_t) == 4u);
+    static_assert(sizeof(std::uint64_t) == 8u);
+    static_assert(
+        (kCapabilities & kRequiredManagedHostCapabilities) ==
+        kRequiredManagedHostCapabilities);
+
+    std::uint32_t version = 0u;
+    std::uint64_t capabilities = 0ull;
+    const bool accepts_current =
+        acs_editor_abi_query(
+            kContractVersion,
+            kRequiredManagedHostCapabilities,
+            &version,
+            &capabilities) == 1 &&
+        version == kContractVersion &&
+        capabilities == acs_editor_abi_capabilities() &&
+        acs_editor_abi_contract_version() == kContractVersion;
+    const bool rejects_invalid_version =
+        acs_editor_abi_query(0u, 0ull, nullptr, nullptr) == 0;
+    const bool rejects_future_version =
+        acs_editor_abi_query(
+            kContractVersion + 1u,
+            0ull,
+            nullptr,
+            nullptr) == 0;
+    const bool rejects_unknown_requirement =
+        acs_editor_abi_query(
+            kContractVersion,
+            1ull << 63u,
+            nullptr,
+            nullptr) == 0;
+    const char* const backend = acs_editor_render_backend();
+    return accepts_current &&
+           rejects_invalid_version &&
+           rejects_future_version &&
+           rejects_unknown_requirement &&
+           backend != nullptr &&
+           backend[0] != '\0';
 }
 
 /** A production host starts blank and can enter/leave the loading presentation gate. */
@@ -788,6 +844,7 @@ int main()
     acs_editor_destroy(nullptr); // null 破棄は常に no-op であることも通す。
 
     // OS とランタイムの初回遅延初期化を基準値から除外する。
+    if (!RunAbiCapabilityContract()) return 18;
     if (!RunOneLifecycle()) return 1;
     if (!RunStartupStatusContract()) return 13;
     if (!RunDestroyDuringAsyncWarmup()) return 14;

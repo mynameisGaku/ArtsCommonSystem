@@ -95,6 +95,16 @@ internal static class EngineInterop
     public static extern IntPtr acs_editor_version();
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int acs_editor_abi_query(
+        uint requestedVersion,
+        ulong requiredCapabilities,
+        out uint providerVersion,
+        out ulong providerCapabilities);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr acs_editor_render_backend();
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr acs_editor_create();
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -1251,6 +1261,49 @@ internal static class EngineInterop
         catch (Exception ex)
         {
             return "ABI load failed: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Queries the additive ABI contract. Missing exports and load failures are
+    /// represented as an incompatible snapshot so callers can disable native
+    /// functionality without parsing a marketing-version string.
+    /// </summary>
+    public static EditorAbiSnapshot AbiSnapshot()
+    {
+        string productVersion = Version();
+        try
+        {
+            int result = acs_editor_abi_query(
+                EditorAbiContract.RequestedVersion,
+                (ulong)EditorAbiContract.RequiredCapabilities,
+                out uint providerVersion,
+                out ulong providerCapabilities);
+            string backend =
+                Marshal.PtrToStringAnsi(acs_editor_render_backend()) ??
+                "(unknown backend)";
+            return EditorAbiContract.Evaluate(
+                queryAvailable: true,
+                queryResult: result,
+                providerVersion,
+                providerCapabilities,
+                productVersion,
+                backend);
+        }
+        catch (Exception ex) when (
+            ex is DllNotFoundException or
+                  EntryPointNotFoundException or
+                  BadImageFormatException)
+        {
+            return EditorAbiContract.Evaluate(
+                queryAvailable: false,
+                queryResult: 0,
+                providerVersion: 0,
+                capabilityBits: 0,
+                productVersion,
+                renderBackend: null,
+                diagnostic:
+                    "ABI capability query failed closed: " + ex.Message);
         }
     }
 }

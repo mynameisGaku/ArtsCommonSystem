@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -79,6 +80,87 @@ internal readonly record struct EditorDocumentSaveResult(
 
     internal static EditorDocumentSaveResult Unsupported(string detail = "") =>
         new(EditorDocumentSaveStatus.Unsupported, detail);
+}
+
+internal enum EditorDocumentBatchCompletion
+{
+    Success,
+    Cancelled,
+    Failed,
+}
+
+internal readonly record struct EditorDocumentSaveDiagnostic(
+    EditorDocumentId DocumentId,
+    string DisplayName,
+    EditorDocumentSaveStatus Status,
+    string Detail,
+    bool RemainsDirty);
+
+internal sealed class EditorDocumentSaveBatchResult
+{
+    internal EditorDocumentSaveBatchResult(
+        EditorDocumentBatchCompletion completion,
+        IReadOnlyList<EditorDocumentSaveDiagnostic> diagnostics,
+        IReadOnlyList<EditorDocumentId> remainingDirtyDocuments,
+        int plannedCount)
+    {
+        if (plannedCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(plannedCount));
+        Completion = completion;
+        Diagnostics = Array.AsReadOnly(
+            (diagnostics ?? throw new ArgumentNullException(nameof(diagnostics))).ToArray());
+        RemainingDirtyDocuments = Array.AsReadOnly(
+            (remainingDirtyDocuments ??
+             throw new ArgumentNullException(nameof(remainingDirtyDocuments))).ToArray());
+        PlannedCount = plannedCount;
+    }
+
+    internal EditorDocumentBatchCompletion Completion { get; }
+    internal IReadOnlyList<EditorDocumentSaveDiagnostic> Diagnostics { get; }
+    internal IReadOnlyList<EditorDocumentId> RemainingDirtyDocuments { get; }
+    internal int PlannedCount { get; }
+    internal int SavedCount =>
+        Diagnostics.Count(result => result.Status == EditorDocumentSaveStatus.Saved);
+    internal int FailureCount =>
+        Diagnostics.Count(result =>
+            result.Status is EditorDocumentSaveStatus.Failed or
+                EditorDocumentSaveStatus.Unsupported);
+}
+
+internal enum EditorDocumentCloseChoice
+{
+    Save,
+    Discard,
+    Cancel,
+}
+
+internal enum EditorDocumentCloseCompletion
+{
+    Ready,
+    Cancelled,
+    Failed,
+}
+
+internal sealed class EditorDocumentCloseResult
+{
+    internal EditorDocumentCloseResult(
+        EditorDocumentCloseCompletion completion,
+        IReadOnlyList<EditorDocumentId> dirtyDocuments,
+        EditorDocumentSaveBatchResult? saveResult,
+        string detail)
+    {
+        Completion = completion;
+        DirtyDocuments = Array.AsReadOnly(
+            (dirtyDocuments ?? throw new ArgumentNullException(nameof(dirtyDocuments))).ToArray());
+        SaveResult = saveResult;
+        Detail = detail ?? "";
+    }
+
+    internal EditorDocumentCloseCompletion Completion { get; }
+    internal IReadOnlyList<EditorDocumentId> DirtyDocuments { get; }
+    internal EditorDocumentSaveBatchResult? SaveResult { get; }
+    internal string Detail { get; }
+    internal bool CanClose => Completion == EditorDocumentCloseCompletion.Ready;
 }
 
 internal delegate ValueTask<EditorDocumentSaveResult> EditorDocumentSaveContract(
@@ -192,7 +274,8 @@ internal sealed class EditorDocument
         EditorDocumentSaveContract? save = null,
         bool initiallySaved = true,
         int historyLimit = 128,
-        EditorDocumentState? initialState = null)
+        EditorDocumentState? initialState = null,
+        int saveOrder = 0)
     {
         if (historyLimit < 1)
             throw new ArgumentOutOfRangeException(nameof(historyLimit));
@@ -203,11 +286,15 @@ internal sealed class EditorDocument
         _restore = restore ?? throw new ArgumentNullException(nameof(restore));
         _save = save;
         _historyLimit = historyLimit;
-        _observed = initialState ?? CaptureVerified();
+        SaveOrder = saveOrder;
+        _observed = initialState == null
+            ? CaptureVerified()
+            : VerifyState(initialState);
         _savedFingerprint = initiallySaved ? _observed.ContentFingerprint : null;
     }
 
     internal EditorDocumentId Id { get; }
+    internal int SaveOrder { get; }
     internal string DisplayName { get; private set; }
     internal string? SourcePath { get; private set; }
     internal bool IsDirty =>
@@ -410,7 +497,9 @@ internal sealed class EditorDocument
         bool markSaved,
         EditorDocumentState? currentState = null)
     {
-        EditorDocumentState current = currentState ?? CaptureVerified();
+        EditorDocumentState current = currentState == null
+            ? CaptureVerified()
+            : VerifyState(currentState);
         _history.Clear();
         _cursor = 0;
         _transactionDepth = 0;
@@ -419,6 +508,49 @@ internal sealed class EditorDocument
         _hasPendingChanges = false;
         _savedFingerprint = markSaved ? current.ContentFingerprint : null;
         RaiseChanged();
+    }
+
+    internal void ApplyRecoveredState(EditorDocumentState recoveredState)
+    {
+        ArgumentNullException.ThrowIfNull(recoveredState);
+        if (_suspendDepth > 0)
+            throw new InvalidOperationException(
+                "A suspended document cannot apply recovery state.");
+        if (_transactionDepth > 0)
+            throw new InvalidOperationException(
+                "Complete the active transaction before applying recovery state.");
+
+        EditorDocumentState verifiedRecovery = VerifyState(recoveredState);
+        EditorDocumentState rollbackState = CaptureVerified();
+        Checkpoint rollbackCheckpoint = CaptureCheckpoint();
+        try
+        {
+            RestoreVerified(verifiedRecovery);
+            EditorDocumentState liveRecovery = CaptureVerified();
+            if (!HistoryEquivalent(verifiedRecovery, liveRecovery))
+            {
+                throw new InvalidDataException(
+                    "Recovered content does not match its declared fingerprint.");
+            }
+            ResetHistory(markSaved: false, currentState: liveRecovery);
+        }
+        catch (Exception recoveryError)
+        {
+            try
+            {
+                RestoreVerified(rollbackState);
+                rollbackCheckpoint.Restore(this);
+                RaiseChanged();
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "Document recovery failed and the live-state rollback also failed.",
+                    recoveryError,
+                    rollbackError);
+            }
+            throw;
+        }
     }
 
     /// <summary>Clears undo/redo while preserving the existing dirty/save point relationship.</summary>
@@ -468,6 +600,9 @@ internal sealed class EditorDocument
         if (_suspendDepth > 0)
             return EditorDocumentSaveResult.Failed(
                 $"{DisplayName} is suspended by Play/Preview.");
+        if (_transactionDepth > 0)
+            return EditorDocumentSaveResult.Failed(
+                $"{DisplayName} still has an open transaction.");
 
         Synchronize("Edit");
         cancellationToken.ThrowIfCancellationRequested();
@@ -554,8 +689,20 @@ internal sealed class EditorDocument
     }
 
     private EditorDocumentState CaptureVerified() =>
-        _capture() ?? throw new InvalidOperationException(
-            $"Document capture returned null for {Id}.");
+        VerifyState(
+            _capture() ?? throw new InvalidOperationException(
+                $"Document capture returned null for {Id}."));
+
+    private EditorDocumentState VerifyState(EditorDocumentState state)
+    {
+        if (state.Payload == null)
+            throw new InvalidOperationException(
+                $"Document payload is null for {Id}.");
+        if (state.ContentFingerprint == null)
+            throw new InvalidOperationException(
+                $"Document content fingerprint is null for {Id}.");
+        return state;
+    }
 
     private void RestoreVerified(EditorDocumentState state)
     {
@@ -609,9 +756,16 @@ internal sealed class EditorDocument
 internal sealed class EditorDocumentHost
 {
     private readonly Dictionary<EditorDocumentId, EditorDocument> _documents = new();
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
 
     internal EditorDocument? ActiveDocument { get; private set; }
-    internal IReadOnlyCollection<EditorDocument> Documents => _documents.Values;
+    internal IReadOnlyList<EditorDocument> Documents =>
+        Array.AsReadOnly(SnapshotInDeterministicOrder());
+    internal IReadOnlyList<EditorDocument> DirtyDocuments =>
+        Array.AsReadOnly(
+            SnapshotInDeterministicOrder()
+                .Where(document => document.IsDirty)
+                .ToArray());
 
     internal event EventHandler? ActiveDocumentChanged;
     internal event EventHandler? DocumentStateChanged;
@@ -650,9 +804,29 @@ internal sealed class EditorDocumentHost
         return target;
     }
 
-    internal bool Unregister(EditorDocumentId id)
+    internal bool Unregister(
+        EditorDocumentId id,
+        bool discardUnsavedChanges = false)
     {
-        if (!_documents.Remove(id, out EditorDocument? document))
+        if (!_documents.TryGetValue(id, out EditorDocument? document))
+            return false;
+        if (!discardUnsavedChanges)
+        {
+            if (document.IsSuspended || document.IsInTransaction)
+                return false;
+            try
+            {
+                document.Synchronize("Edit");
+            }
+            catch
+            {
+                return false;
+            }
+            if (document.IsDirty)
+                return false;
+        }
+
+        if (!_documents.Remove(id))
             return false;
         document.StateChanged -= OnDocumentStateChanged;
         if (ReferenceEquals(document, ActiveDocument))
@@ -663,13 +837,34 @@ internal sealed class EditorDocumentHost
         return true;
     }
 
-    internal void Clear()
+    internal bool Clear(bool discardUnsavedChanges = false)
     {
-        foreach (EditorDocument document in _documents.Values)
+        EditorDocument[] documents = SnapshotInDeterministicOrder();
+        if (!discardUnsavedChanges)
+        {
+            foreach (EditorDocument document in documents)
+            {
+                if (document.IsSuspended || document.IsInTransaction)
+                    return false;
+                try
+                {
+                    document.Synchronize("Edit");
+                }
+                catch
+                {
+                    return false;
+                }
+                if (document.IsDirty)
+                    return false;
+            }
+        }
+
+        foreach (EditorDocument document in documents)
             document.StateChanged -= OnDocumentStateChanged;
         _documents.Clear();
         ActiveDocument = null;
         ActiveDocumentChanged?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     internal bool Undo(out EditorDocumentTransactionInfo? transaction)
@@ -684,12 +879,309 @@ internal sealed class EditorDocumentHost
         return ActiveDocument != null && ActiveDocument.Redo(out transaction);
     }
 
-    internal ValueTask<EditorDocumentSaveResult> SaveActiveAsync(
-        CancellationToken cancellationToken = default) =>
-        ActiveDocument == null
-            ? ValueTask.FromResult(EditorDocumentSaveResult.Unsupported(
-                "There is no active document."))
-            : ActiveDocument.SaveAsync(cancellationToken);
+    internal bool TryRefreshDirtyDocuments(
+        out IReadOnlyList<EditorDocument> dirtyDocuments,
+        out string detail)
+    {
+        EditorDocument[] refreshed =
+            RefreshDirtyDocumentsDeterministically(out detail);
+        dirtyDocuments = Array.AsReadOnly(refreshed);
+        return string.IsNullOrEmpty(detail);
+    }
+
+    internal async ValueTask<EditorDocumentSaveResult> SaveActiveAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _saveGate.WaitAsync(cancellationToken);
+        try
+        {
+            return ActiveDocument == null
+                ? EditorDocumentSaveResult.Unsupported(
+                    "There is no active document.")
+                : await ActiveDocument.SaveAsync(cancellationToken);
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    internal async ValueTask<EditorDocumentSaveBatchResult> SaveAllAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _saveGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return CancelledBatch(Array.Empty<EditorDocumentSaveDiagnostic>());
+        }
+
+        try
+        {
+            return await SaveAllUnderGateAsync(cancellationToken);
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    internal async ValueTask<EditorDocumentCloseResult> PrepareCloseAsync(
+        EditorDocumentCloseChoice choice,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _saveGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return new EditorDocumentCloseResult(
+                EditorDocumentCloseCompletion.Cancelled,
+                DirtyIds(),
+                null,
+                "Close preparation was cancelled.");
+        }
+
+        try
+        {
+            EditorDocument[] dirtyDocuments =
+                RefreshDirtyDocumentsDeterministically(
+                    out string inspectionFailure);
+            EditorDocumentId[] dirtyBefore = dirtyDocuments
+                .Select(document => document.Id)
+                .ToArray();
+            if (choice == EditorDocumentCloseChoice.Cancel)
+            {
+                return new EditorDocumentCloseResult(
+                    EditorDocumentCloseCompletion.Cancelled,
+                    dirtyBefore,
+                    null,
+                    string.IsNullOrEmpty(inspectionFailure)
+                        ? "Close was cancelled before any document was saved or discarded."
+                        : "Close was cancelled; document inspection also reported: " +
+                          inspectionFailure);
+            }
+            if (choice == EditorDocumentCloseChoice.Discard)
+            {
+                return new EditorDocumentCloseResult(
+                    string.IsNullOrEmpty(inspectionFailure)
+                        ? EditorDocumentCloseCompletion.Ready
+                        : EditorDocumentCloseCompletion.Failed,
+                    dirtyBefore,
+                    null,
+                    inspectionFailure);
+            }
+            if (!string.IsNullOrEmpty(inspectionFailure))
+            {
+                return new EditorDocumentCloseResult(
+                    EditorDocumentCloseCompletion.Failed,
+                    dirtyBefore,
+                    null,
+                    "Close cannot save because one or more documents could not be inspected: " +
+                    inspectionFailure);
+            }
+
+            EditorDocumentSaveBatchResult saveResult =
+                await SaveAllUnderGateAsync(cancellationToken);
+            EditorDocumentCloseCompletion completion = saveResult.Completion switch
+            {
+                EditorDocumentBatchCompletion.Success =>
+                    EditorDocumentCloseCompletion.Ready,
+                EditorDocumentBatchCompletion.Cancelled =>
+                    EditorDocumentCloseCompletion.Cancelled,
+                _ => EditorDocumentCloseCompletion.Failed,
+            };
+            string detail = completion switch
+            {
+                EditorDocumentCloseCompletion.Ready => "",
+                EditorDocumentCloseCompletion.Cancelled =>
+                    "Close was cancelled while saving documents.",
+                _ => "One or more documents could not be saved.",
+            };
+            return new EditorDocumentCloseResult(
+                completion,
+                dirtyBefore,
+                saveResult,
+                detail);
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    private async ValueTask<EditorDocumentSaveBatchResult> SaveAllUnderGateAsync(
+        CancellationToken cancellationToken)
+    {
+        var diagnostics = new List<EditorDocumentSaveDiagnostic>();
+        var savePlan = new List<EditorDocument>();
+        foreach (EditorDocument document in SnapshotInDeterministicOrder())
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return CancelledBatch(diagnostics);
+
+            if (document.IsSuspended)
+            {
+                diagnostics.Add(new EditorDocumentSaveDiagnostic(
+                    document.Id,
+                    document.DisplayName,
+                    EditorDocumentSaveStatus.Failed,
+                    "Document is suspended by Play/Preview.",
+                    document.IsDirty));
+                continue;
+            }
+            if (document.IsInTransaction)
+            {
+                diagnostics.Add(new EditorDocumentSaveDiagnostic(
+                    document.Id,
+                    document.DisplayName,
+                    EditorDocumentSaveStatus.Failed,
+                    "Document still has an open transaction.",
+                    document.IsDirty));
+                continue;
+            }
+
+            try
+            {
+                document.Synchronize("Edit");
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(new EditorDocumentSaveDiagnostic(
+                    document.Id,
+                    document.DisplayName,
+                    EditorDocumentSaveStatus.Failed,
+                    "State capture failed: " + ExceptionDetail(ex),
+                    RemainsDirty: true));
+                continue;
+            }
+
+            if (document.IsDirty)
+                savePlan.Add(document);
+        }
+
+        bool cancelled = false;
+        int plannedCount = diagnostics.Count + savePlan.Count;
+        foreach (EditorDocument document in savePlan)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                cancelled = true;
+                break;
+            }
+
+            EditorDocumentSaveResult result;
+            try
+            {
+                result = await document.SaveAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                result = EditorDocumentSaveResult.Cancelled(
+                    "The save operation was cancelled.");
+            }
+            catch (Exception ex)
+            {
+                result = EditorDocumentSaveResult.Failed(ExceptionDetail(ex));
+            }
+
+            bool remainsDirty = document.IsDirty;
+            string detail = result.Detail ?? "";
+            if (result.Status == EditorDocumentSaveStatus.Saved && remainsDirty)
+            {
+                detail = string.IsNullOrWhiteSpace(detail)
+                    ? "The document changed while it was being saved and remains dirty."
+                    : detail + " The document remains dirty.";
+            }
+            diagnostics.Add(new EditorDocumentSaveDiagnostic(
+                document.Id,
+                document.DisplayName,
+                result.Status,
+                detail,
+                remainsDirty));
+
+            if (result.Status == EditorDocumentSaveStatus.Cancelled)
+            {
+                cancelled = true;
+                break;
+            }
+        }
+
+        EditorDocumentId[] remainingDirty = DirtyIds();
+        bool failed = diagnostics.Any(result =>
+            result.Status is EditorDocumentSaveStatus.Failed or
+                EditorDocumentSaveStatus.Unsupported) ||
+            remainingDirty.Length > 0;
+        EditorDocumentBatchCompletion completion = cancelled
+            ? EditorDocumentBatchCompletion.Cancelled
+            : failed
+                ? EditorDocumentBatchCompletion.Failed
+                : EditorDocumentBatchCompletion.Success;
+        return new EditorDocumentSaveBatchResult(
+            completion,
+            diagnostics,
+            remainingDirty,
+            plannedCount);
+    }
+
+    private EditorDocumentSaveBatchResult CancelledBatch(
+        IReadOnlyList<EditorDocumentSaveDiagnostic> diagnostics) =>
+        new(
+            EditorDocumentBatchCompletion.Cancelled,
+            diagnostics,
+            DirtyIds(),
+            diagnostics.Count);
+
+    private EditorDocumentId[] DirtyIds() =>
+        SnapshotInDeterministicOrder()
+            .Where(document => document.IsDirty)
+            .Select(document => document.Id)
+            .ToArray();
+
+    private EditorDocument[] RefreshDirtyDocumentsDeterministically(
+        out string detail)
+    {
+        var failures = new List<string>();
+        foreach (EditorDocument document in SnapshotInDeterministicOrder())
+        {
+            if (document.IsSuspended)
+            {
+                failures.Add($"{document.Id}: document is suspended");
+                continue;
+            }
+            if (document.IsInTransaction)
+            {
+                failures.Add($"{document.Id}: a transaction is still open");
+                continue;
+            }
+            try
+            {
+                document.Synchronize("Edit");
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{document.Id}: {ExceptionDetail(ex)}");
+            }
+        }
+
+        detail = string.Join("; ", failures);
+        return SnapshotInDeterministicOrder()
+            .Where(document => document.IsDirty)
+            .ToArray();
+    }
+
+    private EditorDocument[] SnapshotInDeterministicOrder() =>
+        _documents.Values
+            .OrderBy(document => document.SaveOrder)
+            .ThenBy(document => document.Id.Kind, StringComparer.Ordinal)
+            .ThenBy(document => document.Id.StableId, StringComparer.Ordinal)
+            .ToArray();
+
+    private static string ExceptionDetail(Exception exception) =>
+        exception.GetType().Name + ": " + exception.Message;
 
     private void OnDocumentStateChanged(object? sender, EventArgs e) =>
         DocumentStateChanged?.Invoke(sender, e);

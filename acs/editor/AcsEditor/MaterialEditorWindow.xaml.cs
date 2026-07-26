@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -26,8 +27,10 @@ public partial class MaterialEditorWindow : Window
     private string _normalPath = "";
     private readonly float[] _toonSpec = { 1, 1, 1 };  // ハイライト色 (UI 無し: ロード値を保持)
     private readonly DispatcherTimer _previewTimer = new();
+    private readonly MaterialPreviewPipeline _previewPipeline = new();
     private bool _closeInProgress;
     private bool _lifetimeEnded;
+    private bool _previewPipelineDisposed;
     private bool _previewTimerSubscribed;
     private bool _assetPathAvailable = true;
     private bool _assetPathMutationSuspended;
@@ -69,6 +72,7 @@ public partial class MaterialEditorWindow : Window
         if (!CanAccessAssetPath || !IsEnabled) return false;
         _assetPathMutationSuspended = true;
         _previewTimer.Stop();
+        _previewPipeline.CancelPending();
         IsEnabled = false;
         return true;
     }
@@ -89,6 +93,8 @@ public partial class MaterialEditorWindow : Window
         _assetPathAvailable = false;
         _assetPathMutationSuspended = false;
         try { _previewTimer.Stop(); }
+        catch { }
+        try { _previewPipeline.CancelPending(); }
         catch { }
         try { IsEnabled = false; }
         catch { }
@@ -134,11 +140,11 @@ public partial class MaterialEditorWindow : Window
             EngineInterop.acs_editor_reload_material(engine, _path);
     }
 
-    private void OnPreviewTimerTick(object? sender, EventArgs e)
+    private async void OnPreviewTimerTick(object? sender, EventArgs e)
     {
         _previewTimer.Stop();
         if (!_closeInProgress && CanAccessAssetPath && IsLoaded)
-            RenderPreviewNow();
+            await RenderPreviewNowAsync();
     }
 
     private void OnMaterialEditorLoaded(object sender, RoutedEventArgs e)
@@ -152,6 +158,7 @@ public partial class MaterialEditorWindow : Window
     {
         _closeInProgress = true;
         _previewTimer.Stop();
+        _previewPipeline.CancelPending();
     }
 
     private void CancelCloseAttempt()
@@ -172,6 +179,11 @@ public partial class MaterialEditorWindow : Window
         _closeInProgress = true;
         _lifetimeEnded = true;
         _previewTimer.Stop();
+        if (!_previewPipelineDisposed)
+        {
+            _previewPipeline.Dispose();
+            _previewPipelineDisposed = true;
+        }
         if (_previewTimerSubscribed)
         {
             _previewTimer.Tick -= OnPreviewTimerTick;
@@ -592,8 +604,9 @@ public partial class MaterialEditorWindow : Window
     private void RefreshPreview()
     {
         if (_loading || _closeInProgress || !CanAccessAssetPath || !IsLoaded) return;
-        // Saving and graph edits can emit several events per keystroke.
-        // Debounce the deterministic CPU preview until input has been idle briefly.
+        // Invalidate/cancel before debounce elapses. Otherwise an older job could
+        // complete during the idle window and briefly display stale parameters.
+        _previewPipeline.CancelPending();
         _previewTimer.Stop();
         _previewTimer.Start();
     }
@@ -606,55 +619,119 @@ public partial class MaterialEditorWindow : Window
     {
         _previewTimer.Stop();
         if (!_closeInProgress && CanAccessAssetPath && IsLoaded)
-            RenderPreviewNow();
+        {
+            MaterialPreviewGenerationResult result =
+                _previewPipeline.GenerateLatestAsync(CapturePreviewRequest())
+                    .GetAwaiter().GetResult();
+            ApplyPreviewResult(result);
+        }
     }
 
-    private void RenderPreviewNow()
+    private async Task RenderPreviewNowAsync()
     {
         if (_closeInProgress || !CanAccessAssetPath || !IsLoaded) return;
-        UpdatePreviewModeText();
-        try
-        {
-            // The material window shares the main viewport's engine. Running its
-            // preview command list/readback between steady-state viewport frames is
-            // a known resource-lifetime race, so this live preview is deliberately
-            // CPU-only. Scene rendering still uses the real compiled GPU material.
-            int quality = PreviewQualityBox.SelectedIndex < 0
-                ? 1 : PreviewQualityBox.SelectedIndex;
-            int previewSize = quality switch { 0 => 192, 2 => 384, _ => 256 };
-            if (_kind == 0)
-            {
-                var bc = new[] { P(BcR.Text, 1f), P(BcG.Text, 1f), P(BcB.Text, 1f), P(BcA.Text, 1f) };
-                var em = new[] { P(EmR.Text), P(EmG.Text), P(EmB.Text) };
-                PreviewImage.Source = MaterialPreview.RenderPbr(bc, P(Metallic.Text), P(Roughness.Text),
-                    em, P(EmStr.Text), P(NormalStr.Text, 1f), P(Ao.Text, 1f), previewSize);
-            }
-            else
-            {
-                int effect = EffectBox.SelectedIndex < 0 ? 0 : EffectBox.SelectedIndex;
-                var color = new[] { P(ColR.Text), P(ColG.Text), P(ColB.Text), P(ColA.Text, 1f) };
-                PreviewImage.Source = MaterialPreview.Render(effect, P(Strength.Text, 1f),
-                    P(P0.Text), P(P1.Text), P(P2.Text), color, AnimatedBox.IsChecked == true, previewSize);
-            }
-        }
-        catch { /* プレビュー失敗は無視 */ }
+        MaterialPreviewRequest request = CapturePreviewRequest();
+        UpdatePreviewModeText(request);
+        PreviewStateText.Text = "Preview: generating…";
+
+        MaterialPreviewGenerationResult result =
+            await _previewPipeline.GenerateLatestAsync(request);
+        ApplyPreviewResult(result);
     }
 
-    private void UpdatePreviewModeText()
+    private MaterialPreviewRequest CapturePreviewRequest()
     {
-        if (PreviewModeText == null) return;
         int quality = PreviewQualityBox.SelectedIndex < 0
             ? 1 : PreviewQualityBox.SelectedIndex;
-        int model = PreviewModelBox.SelectedIndex < 0
-            ? 0 : PreviewModelBox.SelectedIndex;
-        string modelName = model switch
-        {
-            1 => "Cube",
-            2 => "Plane",
-            _ => "Sphere"
-        };
         int previewSize = quality switch { 0 => 192, 2 => 384, _ => 256 };
-        PreviewModeText.Text = $"{modelName} · CPU-safe · {previewSize}px";
+        // The live CPU renderer currently supports one mesh/background path.
+        // The disabled selectors reserve the native GPU preview contract only.
+        const int model = 0;
+        const int background = 0;
+
+        if (_kind == 0)
+        {
+            var baseColor = new[]
+            {
+                P(BcR.Text, 1f),
+                P(BcG.Text, 1f),
+                P(BcB.Text, 1f),
+                P(BcA.Text, 1f),
+            };
+            var emissive = new[] { P(EmR.Text), P(EmG.Text), P(EmB.Text) };
+            return MaterialPreviewRequest.CreatePbr(
+                model,
+                background,
+                quality,
+                previewSize,
+                baseColor,
+                P(Metallic.Text),
+                P(Roughness.Text),
+                emissive,
+                P(EmStr.Text),
+                P(NormalStr.Text, 1f),
+                P(Ao.Text, 1f));
+        }
+
+        int effect = EffectBox.SelectedIndex < 0 ? 0 : EffectBox.SelectedIndex;
+        var color = new[]
+        {
+            P(ColR.Text),
+            P(ColG.Text),
+            P(ColB.Text),
+            P(ColA.Text, 1f),
+        };
+        return MaterialPreviewRequest.CreateEffect(
+            model,
+            background,
+            quality,
+            previewSize,
+            effect,
+            P(Strength.Text, 1f),
+            P(P0.Text),
+            P(P1.Text),
+            P(P2.Text),
+            color,
+            AnimatedBox.IsChecked == true);
+    }
+
+    private void ApplyPreviewResult(MaterialPreviewGenerationResult result)
+    {
+        if (_closeInProgress ||
+            !CanAccessAssetPath ||
+            !IsLoaded ||
+            !_previewPipeline.IsCurrent(result))
+        {
+            return;
+        }
+
+        UpdatePreviewModeText(result.Request);
+        if (result.Error is not null)
+        {
+            // Preserve the last-good image. Preview failure must not blank the editor
+            // or escape an async-void dispatcher event.
+            PreviewStateText.Text = "Preview: failed · last good retained";
+            return;
+        }
+        if (result.Image is null) return;
+
+        PreviewImage.Source = result.Image;
+        string source = result.CacheHit
+            ? "cache hit"
+            : result.Coalesced ? "shared job" : "generated";
+        PreviewStateText.Text =
+            $"Preview: {result.Duration.TotalMilliseconds:0.0} ms · {source}";
+    }
+
+    private void UpdatePreviewModeText(MaterialPreviewRequest? request = null)
+    {
+        if (PreviewModeText == null) return;
+        int quality = request?.Quality ??
+            (PreviewQualityBox.SelectedIndex < 0 ? 1 : PreviewQualityBox.SelectedIndex);
+        int previewSize = request?.PixelSize ??
+            (quality switch { 0 => 192, 2 => 384, _ => 256 });
+        PreviewModeText.Text =
+            $"CPU preview · async · {previewSize}px";
     }
 
     private void OnPreviewOptionChanged(object sender, SelectionChangedEventArgs e)

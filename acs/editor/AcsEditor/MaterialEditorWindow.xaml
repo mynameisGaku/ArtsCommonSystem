@@ -257,7 +257,7 @@
                         <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
                                 Background="#E620242A" BorderBrush="#FF424A56" BorderThickness="1"
                                 Padding="7,4">
-                            <TextBlock x:Name="PreviewModeText" Text="HDR · ACES · 2× SSAA"
+                            <TextBlock x:Name="PreviewModeText" Text="CPU preview · async · 256px"
                                        Foreground="#FFC6CCD5" FontSize="10"/>
                         </Border>
                         <Border Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="8"
@@ -273,25 +273,30 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <ComboBox Grid.Column="0" x:Name="PreviewModelBox" SelectedIndex="0"
-                                      Margin="0,0,4,0" Height="27"
-                                      ToolTip="Preview mesh" SelectionChanged="OnPreviewOptionChanged">
+                                      Margin="0,0,4,0" Height="27" IsEnabled="False"
+                                      ToolTipService.ShowOnDisabled="True"
+                                      ToolTip="Mesh selection is reserved for the fenced native GPU preview."
+                                      SelectionChanged="OnPreviewOptionChanged">
                                 <ComboBoxItem Content="Sphere"/>
                                 <ComboBoxItem Content="Cube"/>
                                 <ComboBoxItem Content="Plane"/>
                             </ComboBox>
                             <ComboBox Grid.Column="1" x:Name="PreviewBackgroundBox" SelectedIndex="0"
-                                      Margin="2,0" Height="27"
-                                      ToolTip="Preview background" SelectionChanged="OnPreviewOptionChanged">
+                                      Margin="2,0" Height="27" IsEnabled="False"
+                                      ToolTipService.ShowOnDisabled="True"
+                                      ToolTip="Background selection is reserved for the fenced native GPU preview."
+                                      SelectionChanged="OnPreviewOptionChanged">
                                 <ComboBoxItem Content="Studio"/>
                                 <ComboBoxItem Content="Checker"/>
                                 <ComboBoxItem Content="Black"/>
                             </ComboBox>
                             <ComboBox Grid.Column="2" x:Name="PreviewQualityBox" SelectedIndex="1"
                                       Margin="4,0,0,0" Height="27"
-                                      ToolTip="Preview quality" SelectionChanged="OnPreviewOptionChanged">
-                                <ComboBoxItem Content="Fast · 1×"/>
-                                <ComboBoxItem Content="High · 2×"/>
-                                <ComboBoxItem Content="Production · 4×"/>
+                                      ToolTip="CPU preview output resolution"
+                                      SelectionChanged="OnPreviewOptionChanged">
+                                <ComboBoxItem Content="Fast · 192px"/>
+                                <ComboBoxItem Content="High · 256px"/>
+                                <ComboBoxItem Content="Production · 384px"/>
                             </ComboBox>
                         </Grid>
                     </Grid>

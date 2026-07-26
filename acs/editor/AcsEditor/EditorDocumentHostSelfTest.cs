@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -50,6 +51,37 @@ internal static class EditorDocumentHostSelfTest
                 unpacked2D == "ACSCENE\nnode Ω\nACS_EDITOR_WORLD 1\n" &&
                 unpacked3D == "ACS3D\nnode 雲\n",
                 "world envelope preserves 2D and 3D subsystem payloads exactly");
+            var currentCompatibilityWorld = new EditorDocumentState(
+                SceneWorldDocumentEnvelope.Pack(
+                    "ACSCENE\n2D retained\n",
+                    "ACS3D\n3D retained\n"),
+                SceneWorldDocumentEnvelope.Pack(
+                    "ACSCENE\n2D retained\n",
+                    "ACS3D\n3D retained\n"));
+            EditorDocumentState recovered3DState =
+                MainWindow.ComposeSceneRecoveryState(
+                    currentCompatibilityWorld,
+                    recover3D: true,
+                    "ACS3D\n3D recovered\n");
+            SceneWorldDocumentEnvelope.Unpack(
+                recovered3DState.Payload,
+                out string recoveryRetained2D,
+                out string recoveryReplaced3D);
+            EditorDocumentState recovered2DState =
+                MainWindow.ComposeSceneRecoveryState(
+                    currentCompatibilityWorld,
+                    recover3D: false,
+                    "ACSCENE\n2D recovered\n");
+            SceneWorldDocumentEnvelope.Unpack(
+                recovered2DState.Payload,
+                out string recoveryReplaced2D,
+                out string recoveryRetained3D);
+            Check(
+                recoveryRetained2D == "ACSCENE\n2D retained\n" &&
+                recoveryReplaced3D == "ACS3D\n3D recovered\n" &&
+                recoveryReplaced2D == "ACSCENE\n2D recovered\n" &&
+                recoveryRetained3D == "ACS3D\n3D retained\n",
+                "recovery replaces only its source subsystem and preserves the compatibility graph");
             EditorSceneViewMode[] editorViews =
                 Enum.GetValues<EditorSceneViewMode>();
             Check(
@@ -551,6 +583,427 @@ internal static class EditorDocumentHostSelfTest
                 }
             }
             Check(cancellationObserved, "save contract honors cancellation");
+
+            var aggregateSaveOrder = new List<string>();
+            string aggregateSceneState = "scene-dirty";
+            string aggregateBlueprintState = "blueprint-dirty";
+            string aggregateMaterialState = "material-dirty";
+            var aggregateHost = new EditorDocumentHost();
+            var aggregateMaterial = new EditorDocument(
+                new EditorDocumentId("material", "zulu"),
+                "Zulu Material",
+                null,
+                () => EditorDocumentState.Text(aggregateMaterialState),
+                state => aggregateMaterialState = state.Payload,
+                _ =>
+                {
+                    aggregateSaveOrder.Add("material:zulu");
+                    return ValueTask.FromResult(
+                        EditorDocumentSaveResult.Failed("material writer failed"));
+                },
+                initiallySaved: false);
+            var aggregateBlueprint = new EditorDocument(
+                new EditorDocumentId("blueprint", "alpha"),
+                "Alpha Blueprint",
+                null,
+                () => EditorDocumentState.Text(aggregateBlueprintState),
+                state => aggregateBlueprintState = state.Payload,
+                _ =>
+                {
+                    aggregateSaveOrder.Add("blueprint:alpha");
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                },
+                initiallySaved: false);
+            var aggregateScene = new EditorDocument(
+                new EditorDocumentId("scene", "main"),
+                "Main Scene",
+                null,
+                () => EditorDocumentState.Text(aggregateSceneState),
+                state => aggregateSceneState = state.Payload,
+                _ =>
+                {
+                    aggregateSaveOrder.Add("scene:main");
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                },
+                initiallySaved: false,
+                saveOrder: -10);
+            aggregateHost.Register(aggregateMaterial);
+            aggregateHost.Register(aggregateBlueprint);
+            aggregateHost.Register(aggregateScene);
+            Check(
+                aggregateHost.Documents.Select(item => item.Id.ToString()).SequenceEqual(
+                    new[] { "scene:main", "blueprint:alpha", "material:zulu" }),
+                "document snapshots use explicit priority then stable identity order");
+
+            EditorDocumentSaveBatchResult aggregateResult =
+                aggregateHost.SaveAllAsync().AsTask().GetAwaiter().GetResult();
+            Check(
+                aggregateSaveOrder.SequenceEqual(
+                    new[] { "scene:main", "blueprint:alpha", "material:zulu" }),
+                "Save All executes different document types in deterministic order");
+            Check(
+                aggregateResult.Completion == EditorDocumentBatchCompletion.Failed &&
+                aggregateResult.PlannedCount == 3 &&
+                aggregateResult.SavedCount == 2 &&
+                aggregateResult.FailureCount == 1 &&
+                aggregateResult.Diagnostics.Count == 3 &&
+                aggregateResult.Diagnostics[2].DocumentId == aggregateMaterial.Id &&
+                aggregateResult.Diagnostics[2].Detail.Contains(
+                    "material writer failed",
+                    StringComparison.Ordinal) &&
+                aggregateResult.RemainingDirtyDocuments.SequenceEqual(
+                    new[] { aggregateMaterial.Id }),
+                "Save All retains per-document diagnostics and continues after partial failure");
+
+            EditorDocumentCloseResult blockedPartialClose =
+                aggregateHost.PrepareCloseAsync(EditorDocumentCloseChoice.Save)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                !blockedPartialClose.CanClose &&
+                blockedPartialClose.Completion ==
+                    EditorDocumentCloseCompletion.Failed &&
+                blockedPartialClose.SaveResult?.FailureCount == 1 &&
+                blockedPartialClose.DirtyDocuments.SequenceEqual(
+                    new[] { aggregateMaterial.Id }),
+                "close remains blocked with the failed document identified");
+
+            int hostStateNotifications = 0;
+            aggregateHost.DocumentStateChanged += (_, _) => hostStateNotifications++;
+            Check(
+                !aggregateHost.Unregister(aggregateMaterial.Id),
+                "normal unregister refuses a dirty document");
+            int notificationsBeforeDiscard = hostStateNotifications;
+            Check(
+                aggregateHost.Unregister(
+                    aggregateMaterial.Id,
+                    discardUnsavedChanges: true) &&
+                !aggregateHost.TryGet(aggregateMaterial.Id, out _),
+                "explicit discard unregister removes a dirty document");
+            aggregateMaterial.NotifyPotentialChange();
+            Check(
+                hostStateNotifications == notificationsBeforeDiscard,
+                "unregister detaches document state notifications");
+
+            int cancelledSaveCalls = 0;
+            int skippedSaveCalls = 0;
+            var cancellationHost = new EditorDocumentHost();
+            cancellationHost.Register(new EditorDocument(
+                new EditorDocumentId("asset", "cancel-first"),
+                "Cancel First",
+                null,
+                () => EditorDocumentState.Text("cancel"),
+                _ => { },
+                _ =>
+                {
+                    cancelledSaveCalls++;
+                    return ValueTask.FromResult(
+                        EditorDocumentSaveResult.Cancelled("user cancelled"));
+                },
+                initiallySaved: false));
+            cancellationHost.Register(new EditorDocument(
+                new EditorDocumentId("asset", "later"),
+                "Later",
+                null,
+                () => EditorDocumentState.Text("later"),
+                _ => { },
+                _ =>
+                {
+                    skippedSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                },
+                initiallySaved: false,
+                saveOrder: 10));
+            EditorDocumentSaveBatchResult cancelledBatch =
+                cancellationHost.SaveAllAsync().AsTask().GetAwaiter().GetResult();
+            Check(
+                cancelledBatch.Completion == EditorDocumentBatchCompletion.Cancelled &&
+                cancelledBatch.PlannedCount == 2 &&
+                cancelledBatch.Diagnostics.Count == 1 &&
+                cancelledSaveCalls == 1 &&
+                skippedSaveCalls == 0 &&
+                cancelledBatch.RemainingDirtyDocuments.Count == 2,
+                "Save All cancellation stops later writers and preserves every dirty document");
+
+            EditorDocumentCloseResult cancelledClose =
+                cancellationHost.PrepareCloseAsync(EditorDocumentCloseChoice.Cancel)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                !cancelledClose.CanClose &&
+                cancelledClose.Completion == EditorDocumentCloseCompletion.Cancelled &&
+                cancelledSaveCalls == 1 &&
+                skippedSaveCalls == 0,
+                "close cancellation performs no document writes");
+            EditorDocumentCloseResult cleanClose =
+                aggregateHost.PrepareCloseAsync(EditorDocumentCloseChoice.Save)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                cleanClose.CanClose &&
+                cleanClose.Completion == EditorDocumentCloseCompletion.Ready,
+                "close save succeeds after the only failed document is explicitly discarded");
+
+            int closeSaveCalls = 0;
+            var closeHost = new EditorDocumentHost();
+            var closeDocument = new EditorDocument(
+                new EditorDocumentId("settings", "project"),
+                "Project Settings",
+                null,
+                () => EditorDocumentState.Text("changed"),
+                _ => { },
+                _ =>
+                {
+                    closeSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                },
+                initiallySaved: false);
+            closeHost.Register(closeDocument);
+            EditorDocumentCloseResult discardClose =
+                closeHost.PrepareCloseAsync(EditorDocumentCloseChoice.Discard)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                discardClose.CanClose &&
+                closeSaveCalls == 0 &&
+                closeDocument.IsDirty,
+                "explicit close discard authorizes close without mutating document state");
+            EditorDocumentCloseResult savedClose =
+                closeHost.PrepareCloseAsync(EditorDocumentCloseChoice.Save)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                savedClose.CanClose &&
+                savedClose.SaveResult?.Completion ==
+                    EditorDocumentBatchCompletion.Success &&
+                closeSaveCalls == 1 &&
+                !closeDocument.IsDirty,
+                "close save aggregates all dirty registered document types");
+
+            string unnotifiedCloseContent = "clean";
+            int unnotifiedCloseSaveCalls = 0;
+            var unnotifiedCloseHost = new EditorDocumentHost();
+            var unnotifiedCloseDocument = new EditorDocument(
+                new EditorDocumentId("prefab", "unnotified"),
+                "Unnotified Prefab",
+                null,
+                () => EditorDocumentState.Text(unnotifiedCloseContent),
+                state => unnotifiedCloseContent = state.Payload,
+                _ =>
+                {
+                    unnotifiedCloseSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                });
+            unnotifiedCloseHost.Register(unnotifiedCloseDocument);
+            unnotifiedCloseContent = "changed without notification";
+            EditorDocumentCloseResult unnotifiedCancel =
+                unnotifiedCloseHost.PrepareCloseAsync(EditorDocumentCloseChoice.Cancel)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                unnotifiedCancel.Completion ==
+                    EditorDocumentCloseCompletion.Cancelled &&
+                unnotifiedCancel.DirtyDocuments.SequenceEqual(
+                    new[] { unnotifiedCloseDocument.Id }) &&
+                unnotifiedCloseSaveCalls == 0,
+                "core close preflight detects an unnotified edit without a UI refresh");
+            EditorDocumentCloseResult unnotifiedSave =
+                unnotifiedCloseHost.PrepareCloseAsync(EditorDocumentCloseChoice.Save)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                unnotifiedSave.CanClose &&
+                unnotifiedCloseSaveCalls == 1 &&
+                !unnotifiedCloseDocument.IsDirty,
+                "core close saves its own preflight snapshot without relying on UI sequencing");
+
+            int inspectionBlockedSaveCalls = 0;
+            int inspectionWritableSaveCalls = 0;
+            bool inspectionCaptureThrows = false;
+            var inspectionHost = new EditorDocumentHost();
+            var inspectionSuspendedDocument = new EditorDocument(
+                new EditorDocumentId("material", "suspended"),
+                "Suspended Material",
+                null,
+                () => EditorDocumentState.Text("suspended"),
+                _ => { },
+                _ =>
+                {
+                    inspectionBlockedSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                });
+            var inspectionTransactionDocument = new EditorDocument(
+                new EditorDocumentId("scene3d", "transaction"),
+                "Transactional Scene",
+                null,
+                () => EditorDocumentState.Text("transaction"),
+                _ => { },
+                _ =>
+                {
+                    inspectionBlockedSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                });
+            var inspectionCaptureDocument = new EditorDocument(
+                new EditorDocumentId("asset", "capture-failure"),
+                "Capture Failure",
+                null,
+                () =>
+                {
+                    if (inspectionCaptureThrows)
+                        throw new IOException("capture unavailable");
+                    return EditorDocumentState.Text("capture");
+                },
+                _ => { },
+                _ =>
+                {
+                    inspectionBlockedSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                });
+            var inspectionWritableDocument = new EditorDocument(
+                new EditorDocumentId("settings", "writable"),
+                "Writable Settings",
+                null,
+                () => EditorDocumentState.Text("writable"),
+                _ => { },
+                _ =>
+                {
+                    inspectionWritableSaveCalls++;
+                    return ValueTask.FromResult(EditorDocumentSaveResult.Saved());
+                },
+                initiallySaved: false);
+            inspectionHost.Register(inspectionSuspendedDocument);
+            inspectionHost.Register(inspectionTransactionDocument);
+            inspectionHost.Register(inspectionCaptureDocument);
+            inspectionHost.Register(inspectionWritableDocument);
+            inspectionSuspendedDocument.Suspend();
+            IDisposable inspectionTransaction =
+                inspectionTransactionDocument.BeginTransaction("Open transaction");
+            inspectionCaptureThrows = true;
+
+            EditorDocumentCloseResult inspectionBlockedClose =
+                inspectionHost.PrepareCloseAsync(EditorDocumentCloseChoice.Save)
+                    .AsTask().GetAwaiter().GetResult();
+            Check(
+                !inspectionBlockedClose.CanClose &&
+                inspectionBlockedClose.Completion ==
+                    EditorDocumentCloseCompletion.Failed &&
+                inspectionBlockedClose.SaveResult == null &&
+                inspectionBlockedClose.DirtyDocuments.SequenceEqual(
+                    new[] { inspectionWritableDocument.Id }) &&
+                inspectionBlockedClose.Detail.Contains(
+                    "document is suspended",
+                    StringComparison.Ordinal) &&
+                inspectionBlockedClose.Detail.Contains(
+                    "transaction is still open",
+                    StringComparison.Ordinal) &&
+                inspectionBlockedClose.Detail.Contains(
+                    "capture unavailable",
+                    StringComparison.Ordinal) &&
+                inspectionBlockedSaveCalls == 0 &&
+                inspectionWritableSaveCalls == 0,
+                "close save fails before writing when any document cannot be inspected");
+
+            EditorDocumentSaveBatchResult inspectionBlockedBatch =
+                inspectionHost.SaveAllAsync().AsTask().GetAwaiter().GetResult();
+            Check(
+                inspectionBlockedBatch.Completion ==
+                    EditorDocumentBatchCompletion.Failed &&
+                inspectionBlockedBatch.PlannedCount == 4 &&
+                inspectionBlockedBatch.SavedCount == 1 &&
+                inspectionBlockedBatch.FailureCount == 3 &&
+                inspectionBlockedBatch.Diagnostics.Count == 4 &&
+                inspectionBlockedBatch.Diagnostics.Any(diagnostic =>
+                    diagnostic.DocumentId == inspectionSuspendedDocument.Id &&
+                    diagnostic.Detail.Contains(
+                        "suspended",
+                        StringComparison.OrdinalIgnoreCase)) &&
+                inspectionBlockedBatch.Diagnostics.Any(diagnostic =>
+                    diagnostic.DocumentId == inspectionTransactionDocument.Id &&
+                    diagnostic.Detail.Contains(
+                        "open transaction",
+                        StringComparison.OrdinalIgnoreCase)) &&
+                inspectionBlockedBatch.Diagnostics.Any(diagnostic =>
+                    diagnostic.DocumentId == inspectionCaptureDocument.Id &&
+                    diagnostic.Detail.Contains(
+                        "capture unavailable",
+                        StringComparison.Ordinal)) &&
+                inspectionBlockedBatch.RemainingDirtyDocuments.Count == 0 &&
+                inspectionBlockedSaveCalls == 0 &&
+                inspectionWritableSaveCalls == 1,
+                "Save All diagnoses suspended, open-transaction, and capture-failing documents");
+            inspectionTransaction.Dispose();
+            inspectionSuspendedDocument.Resume();
+
+            string recoveredContent = "saved";
+            var recoveryDocument = new EditorDocument(
+                new EditorDocumentId("blueprint", "recover"),
+                "Recovered Blueprint",
+                null,
+                () => EditorDocumentState.Text(recoveredContent),
+                state =>
+                {
+                    recoveredContent = state.Payload;
+                    if (state.Payload == "broken")
+                        throw new InvalidDataException("recovery rejected");
+                });
+            recoveredContent = "edited";
+            recoveryDocument.Synchronize("Edit");
+            recoveryDocument.ApplyRecoveredState(
+                EditorDocumentState.Text("recovered"));
+            Check(
+                recoveredContent == "recovered" &&
+                recoveryDocument.IsDirty &&
+                !recoveryDocument.CanUndo &&
+                !recoveryDocument.CanRedo,
+                "recovery applies a verified dirty boundary with cleared history");
+            recoveryDocument.MarkSaved();
+            bool recoveryFailed = false;
+            try
+            {
+                recoveryDocument.ApplyRecoveredState(
+                    EditorDocumentState.Text("broken"));
+            }
+            catch (InvalidDataException)
+            {
+                recoveryFailed = true;
+            }
+            Check(
+                recoveryFailed &&
+                recoveredContent == "recovered" &&
+                !recoveryDocument.IsDirty,
+                "partially mutating recovery failure restores live content and document bookkeeping atomically");
+
+            bool inconsistentRecoveryFailed = false;
+            try
+            {
+                recoveryDocument.ApplyRecoveredState(
+                    new EditorDocumentState("tampered", "claimed-fingerprint"));
+            }
+            catch (InvalidDataException)
+            {
+                inconsistentRecoveryFailed = true;
+            }
+            Check(
+                inconsistentRecoveryFailed &&
+                recoveredContent == "recovered" &&
+                !recoveryDocument.IsDirty,
+                "recovery rejects a payload whose restored fingerprint is inconsistent");
+
+            string normalizedRecoveryContent = "BASE";
+            var normalizedRecoveryDocument = new EditorDocument(
+                new EditorDocumentId("settings", "normalized-recovery"),
+                "Normalized Recovery",
+                null,
+                () => EditorDocumentState.Text(
+                    normalizedRecoveryContent,
+                    value => value.Trim().ToUpperInvariant()),
+                state => normalizedRecoveryContent = state.Payload.Trim());
+            normalizedRecoveryDocument.ApplyRecoveredState(
+                EditorDocumentState.Text(
+                    " recovered ",
+                    value => value.Trim().ToUpperInvariant()));
+            Check(
+                normalizedRecoveryContent == "recovered" &&
+                normalizedRecoveryDocument.IsDirty,
+                "recovery accepts serializer normalization and tracks the live canonical capture");
+
+            Check(
+                aggregateHost.Clear() &&
+                aggregateHost.Documents.Count == 0,
+                "clean document registry can be cleared deterministically");
         }
         catch (Exception ex)
         {

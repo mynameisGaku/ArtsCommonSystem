@@ -323,6 +323,13 @@ public sealed class EngineViewport : HwndHost
     /// <summary>最後に試行した attach が失敗したか (UI のステータス表示用)。</summary>
     public bool AttachFailed { get; private set; }
 
+    /// <summary>
+    /// Stable diagnostic for a fail-closed ABI/create/attach failure. This is
+    /// deliberately separate from the native log pump because the DLL may not
+    /// be loadable.
+    /// </summary>
+    public string? AttachmentFailureDetail { get; private set; }
+
     /// <summary>HWND への attach が失敗し、自動再試行を停止したときに 1 度発火する。</summary>
     public event Action? AttachmentFailed;
 
@@ -387,6 +394,7 @@ public sealed class EngineViewport : HwndHost
         _lastNativeCallKind = string.Empty;
         ResetRenderBurst();
         AttachFailed = false;
+        AttachmentFailureDetail = null;
         _dormantRenderTimer?.Stop();
 
         // 子ウィンドウ (予約クラス "STATIC")。DX12 スワップチェインの提示先。
@@ -394,12 +402,65 @@ public sealed class EngineViewport : HwndHost
             WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
             0, 0, 1, 1, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
-        _engine = EngineInterop.acs_editor_create();
-        if (_engine != IntPtr.Zero)
+        EditorAbiSnapshot abi = EngineInterop.AbiSnapshot();
+        if (!abi.Compatible)
         {
-            // Scene loading is a presentation transaction.  Suppress before the render pump
-            // can attach so the native child HWND never exposes its initial/previous payload.
-            EngineInterop.acs_editor_set_scene_presentation_suppressed(_engine, 1);
+            AttachFailed = true;
+            AttachmentFailureDetail =
+                "Native editor ABI is incompatible. " + abi.ToDisplayText();
+        }
+        else
+        {
+            IntPtr createdEngine = IntPtr.Zero;
+            try
+            {
+                createdEngine = EngineInterop.acs_editor_create();
+                if (createdEngine != IntPtr.Zero)
+                {
+                    // Do not publish a usable host until every v1 bootstrap
+                    // entry point has succeeded. A stale/partial DLL must not
+                    // leave a native host alive behind a failed HwndHost.
+                    EngineInterop.acs_editor_set_scene_presentation_suppressed(
+                        createdEngine,
+                        1);
+                }
+                _engine = createdEngine;
+            }
+            catch (Exception error) when (
+                error is DllNotFoundException or
+                         EntryPointNotFoundException or
+                         BadImageFormatException)
+            {
+                string cleanupDiagnostic = "";
+                if (createdEngine != IntPtr.Zero)
+                {
+                    try
+                    {
+                        EngineInterop.acs_editor_destroy(createdEngine);
+                    }
+                    catch (Exception cleanupError) when (
+                        cleanupError is DllNotFoundException or
+                                        EntryPointNotFoundException or
+                                        BadImageFormatException)
+                    {
+                        cleanupDiagnostic =
+                            " Native host cleanup also failed: " +
+                            cleanupError.Message;
+                    }
+                }
+                _engine = IntPtr.Zero;
+                AttachFailed = true;
+                AttachmentFailureDetail =
+                    "Native editor host bootstrap failed closed: " +
+                    error.Message +
+                    cleanupDiagnostic;
+            }
+        }
+        if (_engine == IntPtr.Zero)
+        {
+            AttachFailed = true;
+            AttachmentFailureDetail ??=
+                "Native editor host creation returned a null handle.";
         }
 
         // STATIC のウィンドウプロシージャを差し替えてマウス入力 (pick / pan / zoom) を拾う。
@@ -421,7 +482,14 @@ public sealed class EngineViewport : HwndHost
             DispatcherPriority.Loaded,
             new Action(() =>
             {
-                if (loadGeneration == _renderPumpGeneration)
+                if (loadGeneration != _renderPumpGeneration)
+                    return;
+                if (AttachFailed)
+                {
+                    SuspendRenderPumpForStartupFailure();
+                    AttachmentFailed?.Invoke();
+                }
+                else
                     QueueRenderPump();
             }));
         return new HandleRef(this, _hwnd);
@@ -962,6 +1030,7 @@ public sealed class EngineViewport : HwndHost
         }
 
         AttachFailed = false;
+        AttachmentFailureDetail = null;
         _renderPumpSuspended = false;
         _pendW = 0;
         _pendH = 0;
@@ -1385,6 +1454,8 @@ public sealed class EngineViewport : HwndHost
             else
             {
                 AttachFailed = true;
+                AttachmentFailureDetail =
+                    "Renderer attachment failed; automatic retry was stopped.";
                 SuspendRenderPumpForStartupFailure();
                 AttachmentFailed?.Invoke();
                 return false;

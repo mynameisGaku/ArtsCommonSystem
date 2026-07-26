@@ -1,0 +1,180 @@
+// SPDX-License-Identifier: Apache-2.0
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+
+namespace AcsEditor;
+
+[Flags]
+internal enum EditorAbiCapability : ulong
+{
+    None                   = 0,
+    FrameResultContract    = 1UL << 0,
+    IncrementalStartup     = 1UL << 1,
+    ProfilerV3             = 1UL << 2,
+    UnifiedSceneDocument   = 1UL << 3,
+    MaterialPreviewQuality = 1UL << 4,
+    SubstrateGraph         = 1UL << 5,
+    InteractiveWater3D     = 1UL << 6,
+    ResizeResultContract   = 1UL << 7,
+}
+
+internal readonly record struct EditorAbiSnapshot(
+    bool QueryAvailable,
+    bool Compatible,
+    uint ProviderVersion,
+    EditorAbiCapability Capabilities,
+    EditorAbiCapability MissingRequired,
+    ulong UnknownCapabilityBits,
+    string ProductVersion,
+    string RenderBackend,
+    string Diagnostic)
+{
+    internal string ToDisplayText()
+    {
+        EditorAbiCapability currentCapabilities = Capabilities;
+        EditorAbiCapability currentMissingRequired = MissingRequired;
+        string compatibility = Compatible ? "Compatible" : "INCOMPATIBLE";
+        string capabilities = string.Join(
+            ", ",
+            EditorAbiContract.KnownCapabilities
+                .Where(capability =>
+                    currentCapabilities.HasFlag(capability))
+                .Select(EditorAbiContract.DisplayName));
+        if (capabilities.Length == 0)
+            capabilities = "(none)";
+
+        string text =
+            $"{ProductVersion}\n" +
+            $"Render backend: {RenderBackend}\n" +
+            $"Editor ABI: v{ProviderVersion} ({compatibility})\n" +
+            $"Capabilities: {capabilities}";
+        if (currentMissingRequired != EditorAbiCapability.None)
+        {
+            text += "\nMissing required: " +
+                    string.Join(
+                        ", ",
+                        EditorAbiContract.KnownCapabilities
+                            .Where(capability =>
+                                currentMissingRequired.HasFlag(capability))
+                            .Select(EditorAbiContract.DisplayName));
+        }
+        if (UnknownCapabilityBits != 0UL)
+        {
+            text += "\nAdditional provider bits: 0x" +
+                    UnknownCapabilityBits.ToString(
+                        "X16",
+                        CultureInfo.InvariantCulture);
+        }
+        if (!string.IsNullOrWhiteSpace(Diagnostic))
+            text += "\nDiagnostic: " + Diagnostic;
+        return text;
+    }
+}
+
+internal static class EditorAbiContract
+{
+    internal const uint RequestedVersion = 1;
+
+    internal const EditorAbiCapability RequiredCapabilities =
+        EditorAbiCapability.FrameResultContract |
+        EditorAbiCapability.IncrementalStartup |
+        EditorAbiCapability.ResizeResultContract;
+
+    internal static readonly IReadOnlyList<EditorAbiCapability>
+        KnownCapabilities = Array.AsReadOnly(new[]
+        {
+            EditorAbiCapability.FrameResultContract,
+            EditorAbiCapability.IncrementalStartup,
+            EditorAbiCapability.ProfilerV3,
+            EditorAbiCapability.UnifiedSceneDocument,
+            EditorAbiCapability.MaterialPreviewQuality,
+            EditorAbiCapability.SubstrateGraph,
+            EditorAbiCapability.InteractiveWater3D,
+            EditorAbiCapability.ResizeResultContract,
+        });
+
+    private const EditorAbiCapability AllKnownCapabilities =
+        EditorAbiCapability.FrameResultContract |
+        EditorAbiCapability.IncrementalStartup |
+        EditorAbiCapability.ProfilerV3 |
+        EditorAbiCapability.UnifiedSceneDocument |
+        EditorAbiCapability.MaterialPreviewQuality |
+        EditorAbiCapability.SubstrateGraph |
+        EditorAbiCapability.InteractiveWater3D |
+        EditorAbiCapability.ResizeResultContract;
+
+    internal static EditorAbiSnapshot Evaluate(
+        bool queryAvailable,
+        int queryResult,
+        uint providerVersion,
+        ulong capabilityBits,
+        string? productVersion,
+        string? renderBackend,
+        string? diagnostic = null)
+    {
+        var capabilities = (EditorAbiCapability)capabilityBits;
+        EditorAbiCapability missing =
+            RequiredCapabilities & ~capabilities;
+        bool versionCompatible =
+            providerVersion >= RequestedVersion;
+        bool compatible =
+            queryAvailable &&
+            queryResult == 1 &&
+            versionCompatible &&
+            missing == EditorAbiCapability.None;
+        ulong unknown =
+            capabilityBits & ~(ulong)AllKnownCapabilities;
+
+        string normalizedDiagnostic = diagnostic?.Trim() ?? "";
+        if (!compatible && normalizedDiagnostic.Length == 0)
+        {
+            normalizedDiagnostic = !queryAvailable
+                ? "The loaded DLL does not expose capability negotiation."
+                : !versionCompatible
+                    ? $"Provider ABI v{providerVersion} is older than requested v{RequestedVersion}."
+                    : missing != EditorAbiCapability.None
+                        ? "The provider is missing capabilities required by this editor host."
+                        : "The provider rejected the compatibility query.";
+        }
+
+        return new EditorAbiSnapshot(
+            queryAvailable,
+            compatible,
+            providerVersion,
+            capabilities,
+            missing,
+            unknown,
+            string.IsNullOrWhiteSpace(productVersion)
+                ? "(unknown product version)"
+                : productVersion.Trim(),
+            string.IsNullOrWhiteSpace(renderBackend)
+                ? "(unknown backend)"
+                : renderBackend.Trim(),
+            normalizedDiagnostic);
+    }
+
+    internal static string DisplayName(EditorAbiCapability capability) =>
+        capability switch
+        {
+            EditorAbiCapability.FrameResultContract =>
+                "frame-result-v1",
+            EditorAbiCapability.IncrementalStartup =>
+                "incremental-startup",
+            EditorAbiCapability.ProfilerV3 =>
+                "profiler-v3",
+            EditorAbiCapability.UnifiedSceneDocument =>
+                "unified-scene-document",
+            EditorAbiCapability.MaterialPreviewQuality =>
+                "material-preview-quality",
+            EditorAbiCapability.SubstrateGraph =>
+                "substrate-graph",
+            EditorAbiCapability.InteractiveWater3D =>
+                "interactive-water-3d",
+            EditorAbiCapability.ResizeResultContract =>
+                "resize-result-v1",
+            _ => "unknown",
+        };
+}

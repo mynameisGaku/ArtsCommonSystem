@@ -19,6 +19,7 @@
     <Compile Include="..\..\editor\AcsEditor\AssetReimportWorkflow.cs" Link="AssetReimportWorkflow.cs"/>
     <Compile Include="..\..\editor\AcsEditor\CanonicalSceneAdapter.cs" Link="CanonicalSceneAdapter.cs"/>
     <Compile Include="..\..\editor\AcsEditor\DerivedDataCache.cs" Link="DerivedDataCache.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\EditorAbiContract.cs" Link="EditorAbiContract.cs"/>
     <Compile Include="..\..\editor\AcsEditor\EngineInterop.cs" Link="EngineInterop.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageCore.cs" Link="PackageCore.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageProcessRunner.cs" Link="PackageProcessRunner.cs"/>
