@@ -17,6 +17,22 @@ using Microsoft.Win32;
 
 namespace AcsEditor;
 
+internal static class PackageDurabilityBoundary
+{
+    internal static async Task<ProjectSettingsDurabilityCheckpoint?> VerifyAsync(
+        Func<CancellationToken, Task<ProjectSettingsDurabilityCheckpoint?>>?
+            verify,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (verify == null) return null;
+        ProjectSettingsDurabilityCheckpoint? checkpoint =
+            await verify(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return checkpoint;
+    }
+}
+
 public partial class PackageProjectDialog : Window
 {
     internal const bool DisablesOwnerDuringPrompt = false;
@@ -25,6 +41,11 @@ public partial class PackageProjectDialog : Window
 
     private readonly Project _project;
     private readonly Action<string> _externalLog;
+    private readonly EditorOperationJournal _operations;
+    private readonly Func<
+        CancellationToken,
+        Task<ProjectSettingsDurabilityCheckpoint?>>?
+        _beforePackageDurability;
     private readonly PackageShutdownCoordinator _shutdown = new();
     private CancellationTokenSource? _cancellation;
     private TaskCompletionSource<bool>? _activePackageCompletion;
@@ -46,6 +67,11 @@ public partial class PackageProjectDialog : Window
     public bool PackageSucceeded { get; private set; }
     private bool IsCloseRequested =>
         _allowClose || _ownerShutdownRequested;
+    private bool IsPackageCancellationRequested =>
+        EditorOperationCancellationClassifier.IsCancellationRequested(
+            _cancellation?.IsCancellationRequested == true,
+            IsCloseRequested,
+            _dialogLifetime.IsCancellationRequested);
 
     private sealed record IssueRow(
         string Label,
@@ -53,11 +79,30 @@ public partial class PackageProjectDialog : Window
         string Detail,
         Brush Color);
 
-    public PackageProjectDialog(Project project, Action<string> externalLog)
+    public PackageProjectDialog(
+        Project project,
+        Action<string> externalLog)
+        : this(
+            project,
+            externalLog,
+            operations: null,
+            beforePackageDurability: null)
+    {
+    }
+
+    internal PackageProjectDialog(
+        Project project,
+        Action<string> externalLog,
+        EditorOperationJournal? operations,
+        Func<CancellationToken, Task<ProjectSettingsDurabilityCheckpoint?>>?
+            beforePackageDurability = null)
     {
         InitializeComponent();
         _project = project;
         _externalLog = externalLog;
+        _operations = operations ?? new EditorOperationJournal(
+            completedCapacity: 16);
+        _beforePackageDurability = beforePackageDurability;
         ProjectTitle.Text = project.Name;
         VersionBox.Text = "0.1.0";
         OutputBox.Text = Path.Combine(project.RootDir, "Build", "Packages");
@@ -414,6 +459,12 @@ public partial class PackageProjectDialog : Window
     {
         if (_busy || IsCloseRequested)
             return;
+        using EditorOperationSession operation = _operations.Begin(
+            EditorOperationService.Package,
+            EditorOperationCodes.PackageStarted,
+            $"Package pipeline started for {_project.Name}.",
+            assetId: _project.CanonicalSceneAssetId,
+            path: _project.ProjectFilePath);
         _validationDebounce.Stop();
         _validation.CancelLatest();
         checked { _validationGeneration++; }
@@ -457,6 +508,32 @@ public partial class PackageProjectDialog : Window
 
         try
         {
+            StatusText.Text = "Saving project settings...";
+            ProjectSettingsDurabilityCheckpoint? checkpoint =
+                await PackageDurabilityBoundary.VerifyAsync(
+                    _beforePackageDurability,
+                    _cancellation.Token);
+            if (checkpoint == null)
+            {
+                operation.Fail(
+                    EditorOperationCodes.PackageValidationFailed,
+                    "Package was blocked because Project Settings could not be made durable.",
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
+                StatusText.Text = "Project Settings save failed";
+                ResultPathText.Text = "Package was not generated.";
+                AppendLog(
+                    "Package blocked: Project Settings durability verification failed.");
+                return;
+            }
+            options = options with
+            {
+                ExpectedProjectSettingsSha256 = checkpoint.Utf8Sha256,
+            };
+            // The durability callback may reconcile Project.InitialScene from the
+            // authoritative manifest. Snapshot only after that boundary.
+            project = SnapshotProject();
+
             IReadOnlyList<PackageIssue> preflight =
                 await RunPreflightAsync(
                     project,
@@ -467,9 +544,15 @@ public partial class PackageProjectDialog : Window
             if (IsCloseRequested)
                 return;
             DisplayValidation(preflight);
+            ReportPackageIssues(operation, preflight);
             if (preflight.Any(
                     issue => issue.Severity == PackageIssueSeverity.Error))
             {
+                operation.Fail(
+                    EditorOperationCodes.PackageValidationFailed,
+                    "Package preflight rejected one or more inputs.",
+                    assetId: project.CanonicalSceneAssetId,
+                    path: project.ProjectFilePath);
                 StatusText.Text = "Validation failed";
                 ResultPathText.Text = "Package was not generated.";
                 foreach (PackageIssue issue in preflight)
@@ -490,6 +573,13 @@ public partial class PackageProjectDialog : Window
                 progress,
                 _cancellation.Token);
             _cancellation.Token.ThrowIfCancellationRequested();
+            operation.Succeed(
+                EditorOperationCodes.PackageSucceeded,
+                result.ArchiveVerified
+                    ? $"Package archive verified with {result.FileCount} payload files."
+                    : $"Package archive completed with {result.FileCount} payload files.",
+                assetId: project.CanonicalSceneAssetId,
+                path: result.ZipPath);
             if (IsCloseRequested ||
                 Dispatcher.HasShutdownStarted ||
                 Dispatcher.HasShutdownFinished)
@@ -516,7 +606,13 @@ public partial class PackageProjectDialog : Window
             OpenResultButton.IsEnabled = true;
         }
         catch (OperationCanceledException)
+            when (IsPackageCancellationRequested)
         {
+            operation.Cancel(
+                EditorOperationCodes.PackageCancelled,
+                "Package pipeline was cancelled before publication completed.",
+                assetId: project.CanonicalSceneAssetId,
+                path: project.ProjectFilePath);
             if (IsCloseRequested ||
                 _dialogLifetime.IsCancellationRequested ||
                 Dispatcher.HasShutdownStarted ||
@@ -530,6 +626,12 @@ public partial class PackageProjectDialog : Window
         }
         catch (PackageValidationException error)
         {
+            ReportPackageIssues(operation, error.Issues);
+            operation.Fail(
+                EditorOperationCodes.PackageValidationFailed,
+                "Package validation failed during the pipeline.",
+                assetId: project.CanonicalSceneAssetId,
+                path: project.ProjectFilePath);
             if (IsCloseRequested ||
                 _dialogLifetime.IsCancellationRequested ||
                 Dispatcher.HasShutdownStarted ||
@@ -545,6 +647,24 @@ public partial class PackageProjectDialog : Window
         }
         catch (Exception error)
         {
+            bool cancellationRequested =
+                IsPackageCancellationRequested;
+            if (cancellationRequested)
+            {
+                operation.Cancel(
+                    EditorOperationCodes.PackageCancelled,
+                    "Package pipeline stopped after cancellation was requested.",
+                    assetId: project.CanonicalSceneAssetId,
+                    path: project.ProjectFilePath);
+            }
+            else
+            {
+                operation.Fail(
+                    EditorOperationCodes.PackageFailed,
+                    error.Message,
+                    assetId: project.CanonicalSceneAssetId,
+                    path: project.ProjectFilePath);
+            }
             if (IsCloseRequested ||
                 _dialogLifetime.IsCancellationRequested ||
                 Dispatcher.HasShutdownStarted ||
@@ -552,12 +672,41 @@ public partial class PackageProjectDialog : Window
             {
                 return;
             }
-            StatusText.Text = "Package failed";
-            ResultPathText.Text = "Package was not generated.";
-            AppendLog("ERROR: " + error.Message);
+            if (cancellationRequested)
+            {
+                StatusText.Text = "Cancelled";
+                ResultPathText.Text =
+                    "Package cancelled. Existing package was not replaced.";
+                AppendLog("Package cancelled.");
+            }
+            else
+            {
+                StatusText.Text = "Package failed";
+                ResultPathText.Text = "Package was not generated.";
+                AppendLog("ERROR: " + error.Message);
+            }
         }
         finally
         {
+            if (!operation.IsCompleted)
+            {
+                if (IsPackageCancellationRequested)
+                {
+                    operation.Cancel(
+                        EditorOperationCodes.PackageCancelled,
+                        "Package pipeline stopped while its UI owner was closing.",
+                        assetId: project.CanonicalSceneAssetId,
+                        path: project.ProjectFilePath);
+                }
+                else
+                {
+                    operation.Fail(
+                        EditorOperationCodes.PackageFailed,
+                        "Package pipeline ended without a terminal result.",
+                        assetId: project.CanonicalSceneAssetId,
+                        path: project.ProjectFilePath);
+                }
+            }
             _cancellation?.Dispose();
             _cancellation = null;
             if (!IsCloseRequested &&
@@ -571,6 +720,28 @@ public partial class PackageProjectDialog : Window
             if (ReferenceEquals(_activePackageCompletion, operationCompletion))
                 _activePackageCompletion = null;
             operationCompletion.TrySetResult(true);
+        }
+    }
+
+    private static void ReportPackageIssues(
+        EditorOperationSession operation,
+        IEnumerable<PackageIssue> issues)
+    {
+        foreach (PackageIssue issue in issues)
+        {
+            EditorOperationSeverity severity = issue.Severity switch
+            {
+                PackageIssueSeverity.Error =>
+                    EditorOperationSeverity.Error,
+                PackageIssueSeverity.Warning =>
+                    EditorOperationSeverity.Warning,
+                _ => EditorOperationSeverity.Info,
+            };
+            operation.Report(
+                severity,
+                EditorOperationCodes.PackageIssue(issue.Code),
+                issue.Message,
+                path: issue.Path);
         }
     }
 

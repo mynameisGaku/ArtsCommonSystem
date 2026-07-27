@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Project Settings is a UI over the existing FProjectSettings editor ABI.
-// Values are still applied immediately and persisted through the MainWindow callback.
+// Values are applied immediately and join the common hosted transaction/save contract.
 
 using System;
 using System.Collections.Generic;
@@ -16,7 +16,7 @@ namespace AcsEditor;
 public partial class ProjectSettingsWindow : Window
 {
     private readonly IntPtr _engine;
-    private readonly Action _onChanged;
+    private readonly Func<string, string?, Func<bool>, bool> _applyMutation;
     private readonly List<Entry> _entries = new();
     private string _selectedCat = "";
     private bool _uiReady;
@@ -32,12 +32,17 @@ public partial class ProjectSettingsWindow : Window
 
     private sealed record CategoryItem(string Name, int Count, bool IsAll = false);
 
-    public ProjectSettingsWindow(Window owner, IntPtr engine, Action onChanged)
+    public ProjectSettingsWindow(
+        Window owner,
+        IntPtr engine,
+        Func<string, string?, Func<bool>, bool> applyMutation)
     {
         InitializeComponent();
         Owner = owner;
         _engine = engine;
-        _onChanged = onChanged;
+        _applyMutation =
+            applyMutation ??
+            throw new ArgumentNullException(nameof(applyMutation));
         _uiReady = true;
         Reload(keepSelection: false);
         UpdateSearchChrome();
@@ -272,8 +277,13 @@ public partial class ProjectSettingsWindow : Window
             string key = entry.Key;
             removeButton.Click += (_, _) =>
             {
-                EngineInterop.acs_editor_settings_remove(_engine, category, key);
-                _onChanged();
+                _ = _applyMutation(
+                    $"Remove {category}.{key}",
+                    null,
+                    () => EngineInterop.acs_editor_settings_remove(
+                        _engine,
+                        category,
+                        key) != 0);
                 Reload(keepSelection: true);
             };
             DockPanel.SetDock(removeButton, Dock.Right);
@@ -530,12 +540,22 @@ public partial class ProjectSettingsWindow : Window
         if (index >= 0 && string.Equals(_entries[index].Value, value, StringComparison.Ordinal))
             return true;
 
-        if (EngineInterop.acs_editor_settings_set(_engine, category, key, value) == 0)
+        if (index < 0)
             return false;
-
-        if (index >= 0)
-            _entries[index] = _entries[index] with { Value = value };
-        _onChanged();
+        bool committed = _applyMutation(
+            $"Edit {category}.{key}",
+            $"settings.{category}.{key}",
+            () => EngineInterop.acs_editor_settings_set(
+                _engine,
+                category,
+                key,
+                value) != 0);
+        if (!committed)
+        {
+            Reload(keepSelection: true);
+            return false;
+        }
+        _entries[index] = _entries[index] with { Value = value };
         return true;
     }
 
@@ -549,13 +569,22 @@ public partial class ProjectSettingsWindow : Window
             return;
         }
 
-        if (EngineInterop.acs_editor_settings_add(_engine, category, key, NewValue.Text) == 0)
+        bool committed = _applyMutation(
+            $"Add {category}.{key}",
+            null,
+            () => EngineInterop.acs_editor_settings_add(
+                _engine,
+                category,
+                key,
+                NewValue.Text) != 0);
+        if (!committed)
         {
-            ShowAddValidation("The setting could not be added. The key may already exist in this category.");
+            Reload(keepSelection: true);
+            ShowAddValidation(
+                "The setting could not be added. Editing may be unavailable, or the key may already exist.");
             return;
         }
 
-        _onChanged();
         _selectedCat = category;
         NewKey.Clear();
         NewValue.Clear();

@@ -297,6 +297,7 @@ internal sealed class EditorDocument
     internal int SaveOrder { get; }
     internal string DisplayName { get; private set; }
     internal string? SourcePath { get; private set; }
+    internal Exception? LastObserverError { get; private set; }
     internal bool IsDirty =>
         _hasPendingChanges ||
         _savedFingerprint == null ||
@@ -730,7 +731,27 @@ internal sealed class EditorDocument
     private static EditorDocumentTransactionInfo Info(Transaction transaction) =>
         new(transaction.Label, transaction.Timestamp, transaction.MergeKey);
 
-    private void RaiseChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
+    private void RaiseChanged()
+    {
+        EventHandler? handlers = StateChanged;
+        if (handlers == null)
+            return;
+
+        // State mutation is authoritative; UI/host observers are diagnostics and invalidation
+        // consumers. An observer exception must never turn a committed transaction into an
+        // apparent record failure that a caller then rolls back while leaving history behind.
+        foreach (Delegate candidate in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((EventHandler)candidate)(this, EventArgs.Empty);
+            }
+            catch (Exception error)
+            {
+                LastObserverError = error;
+            }
+        }
+    }
 
     internal sealed class EditorDocumentTransactionScope : IDisposable
     {
@@ -899,6 +920,33 @@ internal sealed class EditorDocumentHost
                 ? EditorDocumentSaveResult.Unsupported(
                     "There is no active document.")
                 : await ActiveDocument.SaveAsync(cancellationToken);
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    internal async ValueTask<EditorDocumentSaveResult> SaveDocumentAsync(
+        EditorDocumentId id,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _saveGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return EditorDocumentSaveResult.Cancelled(
+                "Document save was cancelled before it acquired the host gate.");
+        }
+
+        try
+        {
+            return _documents.TryGetValue(id, out EditorDocument? document)
+                ? await document.SaveAsync(cancellationToken)
+                : EditorDocumentSaveResult.Unsupported(
+                    $"Document is not registered: {id}");
         }
         finally
         {

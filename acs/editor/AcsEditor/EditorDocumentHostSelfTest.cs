@@ -32,6 +32,31 @@ internal static class EditorDocumentHostSelfTest
 
         try
         {
+            string observerState = "A";
+            var observerDocument = new EditorDocument(
+                new EditorDocumentId("settings", "observer-failure"),
+                "Observer Failure",
+                null,
+                () => EditorDocumentState.Text(observerState),
+                state => observerState = state.Payload,
+                initiallySaved: true);
+            observerDocument.StateChanged += (_, _) =>
+                throw new InvalidOperationException(
+                    "synthetic observer failure");
+            observerState = "B";
+            observerDocument.NotifyPotentialChange();
+            bool observerTransactionRecorded =
+                observerDocument.Synchronize("Edit observed setting");
+            bool observerUndoAvailable = observerDocument.CanUndo;
+            bool observerUndoWorked =
+                observerDocument.Undo(out _) && observerState == "A";
+            Check(
+                observerTransactionRecorded &&
+                observerUndoAvailable &&
+                observerUndoWorked &&
+                observerDocument.LastObserverError is InvalidOperationException,
+                "observer exceptions never escape or change committed transaction history");
+
             string content = "A\nSEL 1";
             string restored = "";
             int saveCalls = 0;

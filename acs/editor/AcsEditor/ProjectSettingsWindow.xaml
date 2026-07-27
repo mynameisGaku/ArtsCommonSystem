@@ -285,7 +285,7 @@
                                        Margin="0,3,0,0"/>
                         </StackPanel>
                         <TextBlock Grid.Column="1"
-                                   Text="Saved immediately"
+                                   Text="Unsaved changes join Save All"
                                    Style="{StaticResource MutedText}"
                                    VerticalAlignment="Center"/>
                     </Grid>

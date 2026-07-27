@@ -734,6 +734,7 @@ $fastEditorTests = @(
     "--material-preview-selftest",
     "--asset-browser-selftest",
     "--profiler-selftest",
+    "--operation-diagnostics-selftest",
     "--package-responsiveness-selftest"
 )
 $allEditorTests = @(
@@ -741,14 +742,17 @@ $allEditorTests = @(
     "--autosave-selftest",
     "--scene-save-selftest",
     "--document-host-selftest",
+    "--project-settings-selftest",
     "--scene-editor-migration-selftest",
     "--material-workflow-selftest",
     "--material-preview-selftest",
     "--asset-creation-selftest",
     "--asset-import-selftest",
     "--asset-browser-selftest",
+    "--thumbnail-ddc-selftest",
     "--workspace-selftest",
     "--profiler-selftest",
+    "--operation-diagnostics-selftest",
     "--package-responsiveness-selftest",
     "--editor-reliability-selftest",
     "--bptest"

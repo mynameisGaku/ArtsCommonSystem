@@ -117,27 +117,40 @@ public partial class MainWindow
         if (_documentHostInitialized || Engine == IntPtr.Zero)
             return;
 
-        // Capture the two native compatibility payloads once. The same immutable state seeds the
-        // host save baseline and the document, avoiding four full scene serializations during the
-        // final startup dispatcher stage.
-        EditorDocumentState initialState = CaptureCanonicalSceneDocumentState();
-        SceneWorldDocumentEnvelope.Unpack(
-            initialState.ContentFingerprint,
-            out _hostSavedSubsystem2D,
-            out _hostSavedSubsystem3D);
-        EditorDocument scene = EnsureSceneDocumentRegistered(_view3d, initialState);
-        _documentHost.DocumentStateChanged += OnHostedDocumentStateChanged;
-        _documentHost.Activate(scene.Id, synchronizeOutgoing: false);
-        _documentHostInitialized = true;
-        MaterialDocumentHostRegistration.RequireEveryExistingDocumentHosted(
-            _materialEditorWindows.ToArray(),
-            TryRegisterHostedMaterialDocument,
-            RollbackDocumentHostInitialization);
-        _sceneMutationRevision.AcknowledgeDocument();
+        try
+        {
+            // Capture the two native compatibility payloads once. The same immutable state seeds
+            // the host save baseline and the document, avoiding four full scene serializations
+            // during the final startup dispatcher stage.
+            EditorDocumentState initialState = CaptureCanonicalSceneDocumentState();
+            SceneWorldDocumentEnvelope.Unpack(
+                initialState.ContentFingerprint,
+                out _hostSavedSubsystem2D,
+                out _hostSavedSubsystem3D);
+            EditorDocument scene =
+                EnsureSceneDocumentRegistered(_view3d, initialState);
+            _documentHost.DocumentStateChanged += OnHostedDocumentStateChanged;
+            _documentHost.Activate(scene.Id, synchronizeOutgoing: false);
+            _documentHostInitialized = true;
+            EnsureProjectSettingsDocumentRegistered(
+                _initialProjectSettingsDocumentState,
+                _initialProjectSettingsDocumentInitiallySaved);
+            MaterialDocumentHostRegistration.RequireEveryExistingDocumentHosted(
+                _materialEditorWindows.ToArray(),
+                TryRegisterHostedMaterialDocument,
+                RollbackDocumentHostInitialization);
+            _sceneMutationRevision.AcknowledgeDocument();
 
-        _documentHistoryTimer.Tick += OnDocumentHistoryTick;
-        _documentHistoryTimer.Start();
-        Closed += (_, _) => _documentHistoryTimer.Stop();
+            _documentHistoryTimer.Tick += OnDocumentHistoryTick;
+            _documentHistoryTimer.Start();
+            Closed += (_, _) => _documentHistoryTimer.Stop();
+        }
+        catch
+        {
+            if (_documentHostInitialized)
+                RollbackDocumentHostInitialization();
+            throw;
+        }
     }
 
     private void RollbackDocumentHostInitialization()
@@ -174,6 +187,7 @@ public partial class MainWindow
             _documentHostInitialized = false;
             _hostSavedSubsystem2D = null;
             _hostSavedSubsystem3D = null;
+            _projectSettingsDocument = null;
         }
 
         if (cleanupErrors.Count != 0)

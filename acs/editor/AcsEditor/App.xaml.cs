@@ -182,6 +182,17 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --operation-diagnostics-selftest -> managed Build/Package
+        // operation identity, typed diagnostics, aggregation and cancellation.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--operation-diagnostics-selftest")
+        {
+            int failures =
+                EditorOperationDiagnosticsSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
         // CLI: --abi-contract-selftest -> version/capability negotiation and
         // fail-closed diagnostics without loading the native DLL.
         if (e.Args.Length >= 1 && e.Args[0] == "--abi-contract-selftest")
@@ -212,7 +223,16 @@ public partial class App : Application
         {
             int failures = EditorDocumentHostSelfTest.Run(Console.Error);
             failures += MaterialDocumentHostSelfTest.Run(Console.Error);
+            failures += ProjectSettingsDocumentSelfTest.Run(Console.Error);
             Shutdown(failures);
+            return;
+        }
+
+        // CLI: --project-settings-selftest -> bounded/project-contained load + hosted durability.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--project-settings-selftest")
+        {
+            Shutdown(ProjectSettingsDocumentSelfTest.Run(Console.Error));
             return;
         }
 
@@ -274,8 +294,18 @@ public partial class App : Application
             failures += AssetPathChangeSelfTest.Run(Console.Error);
             failures += AssetViewPresentationSelfTest.Run(Console.Error);
             failures += AssetImageWorkerSelfTest.Run(Console.Error);
+            failures += ThumbnailDerivedDataCacheSelfTest.Run(Console.Error);
             failures += AssetBrowserUiSelfTest.Run(Console.Error);
             Shutdown(failures);
+            return;
+        }
+
+        // CLI: --thumbnail-ddc-selftest -> persistent thumbnail hit/miss,
+        // invalidation, corruption recovery, budgets, cancellation, and path safety.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--thumbnail-ddc-selftest")
+        {
+            Shutdown(ThumbnailDerivedDataCacheSelfTest.Run(Console.Error));
             return;
         }
 

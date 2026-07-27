@@ -68,6 +68,7 @@ internal static class PackageResponsivenessSelfTest
     private static async Task RunAsync()
     {
         await VerifyLatestOnlyValidationAsync();
+        await VerifyPackageDurabilityBoundaryAsync();
         await VerifyConfigSnapshotAsync();
         await VerifyArchiveIntegrityAsync();
         VerifyPrefabCookRewrite();
@@ -83,6 +84,47 @@ internal static class PackageResponsivenessSelfTest
         await VerifyOwnerCloseDrainAsync();
         await VerifyCleanupRetryAsync();
         VerifyValidateCancellation();
+    }
+
+    private static async Task VerifyPackageDurabilityBoundaryAsync()
+    {
+        int calls = 0;
+        ProjectSettingsDurabilityCheckpoint expected =
+            ProjectSettingsDurabilityCheckpoint.Create(
+                "[Game]\nDefaultScene=Assets/main.acscene\n");
+        ProjectSettingsDurabilityCheckpoint? accepted =
+            await PackageDurabilityBoundary.VerifyAsync(
+                _ =>
+                {
+                    calls++;
+                    return Task.FromResult<ProjectSettingsDurabilityCheckpoint?>(
+                        expected);
+                },
+                CancellationToken.None);
+        ProjectSettingsDurabilityCheckpoint? rejected =
+            await PackageDurabilityBoundary.VerifyAsync(
+                _ =>
+                {
+                    calls++;
+                    return Task.FromResult<ProjectSettingsDurabilityCheckpoint?>(
+                        null);
+                },
+                CancellationToken.None);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await CheckThrowsAsync<OperationCanceledException>(
+            () => PackageDurabilityBoundary.VerifyAsync(
+                _ =>
+                {
+                    calls++;
+                    return Task.FromResult<ProjectSettingsDurabilityCheckpoint?>(
+                        expected);
+                },
+                cancelled.Token),
+            "Package action durability boundary honors pre-cancellation");
+        Check(
+            accepted == expected && rejected == null && calls == 2,
+            "Package action returns the exact Settings durability checkpoint");
     }
 
     private static async Task VerifyArchiveIntegrityAsync()
@@ -1437,7 +1479,8 @@ internal static class PackageResponsivenessSelfTest
         string settings = Path.Combine(config, "ProjectSettings.ini");
         File.WriteAllText(
             settings,
-            "[Game]\nDefaultScene=Assets/main.acscene\n",
+            "[Game]\nDefaultScene=Assets/main.acscene\n" +
+            "[Plugin]\nMode=Baseline\n",
             new UTF8Encoding(false));
         File.WriteAllText(
             Path.Combine(config, "Input.ini"),
@@ -1454,6 +1497,9 @@ internal static class PackageResponsivenessSelfTest
 
         try
         {
+            string expectedSettingsHash = Convert.ToHexString(
+                    SHA256.HashData(File.ReadAllBytes(settings)))
+                .ToLowerInvariant();
             PackageCore.PackageDirectorySnapshot snapshot =
                 await PackageCore.StageDirectorySnapshotAsync(
                     config,
@@ -1462,6 +1508,36 @@ internal static class PackageResponsivenessSelfTest
             Check(snapshot.Existed && snapshot.Files.Count == 2,
                 "Config snapshot captures deterministic file set");
             PackageCore.ValidateDirectorySnapshot(config, snapshot);
+            PackageCore.ValidateProjectSettingsCheckpoint(
+                snapshot,
+                expectedSettingsHash);
+            Pass("matching Package Settings checkpoint is accepted");
+            Check(
+                ProjectSettingsCheckpointIsRejected(snapshot, "ABC"),
+                "malformed Package Settings checkpoint is rejected with a stable diagnostic");
+            IReadOnlyList<PackageIssue> invalidCheckpointIssues =
+                PackageCore.Validate(
+                    project,
+                    new PackageOptions(
+                        Path.Combine(root, "Output"),
+                        ExpectedProjectSettingsSha256: "ABC"),
+                    Assembly.GetExecutingAssembly().Location);
+            Check(
+                invalidCheckpointIssues.Any(static issue =>
+                    issue.Code == "CONFIG_CHECKPOINT_INVALID"),
+                "Package preflight rejects malformed Settings checkpoint format");
+            var missingSettingsSnapshot =
+                new PackageCore.PackageDirectorySnapshot(
+                    Existed: true,
+                    snapshot.Files
+                        .Where(static file =>
+                            file.RelativePath != "ProjectSettings.ini")
+                        .ToArray());
+            Check(
+                ProjectSettingsCheckpointIsRejected(
+                    missingSettingsSnapshot,
+                    expectedSettingsHash),
+                "Package Settings checkpoint rejects missing canonical ProjectSettings.ini");
             Check(
                 File.ReadAllText(Path.Combine(staged, "ProjectSettings.ini"))
                     .Contains("Assets/main.acscene", StringComparison.Ordinal),
@@ -1469,7 +1545,21 @@ internal static class PackageResponsivenessSelfTest
             PackageCore.ValidateStagedConfiguration(staged, project);
             Pass("staged Config DefaultScene matches cooked scene");
 
-            File.AppendAllText(settings, "; changed\n", new UTF8Encoding(false));
+            File.WriteAllText(
+                settings,
+                "[Game]\nDefaultScene=Assets/main.acscene\n" +
+                "[Plugin]\nMode=ExternalAfterGate\n",
+                new UTF8Encoding(false));
+            PackageCore.PackageDirectorySnapshot racedSnapshot =
+                await PackageCore.StageDirectorySnapshotAsync(
+                    config,
+                    Path.Combine(root, "RacedStage", "Config"),
+                    CancellationToken.None);
+            Check(
+                ProjectSettingsCheckpointIsRejected(
+                    racedSnapshot,
+                    expectedSettingsHash),
+                "Package Settings checkpoint rejects unknown-key gate-to-Stage edit with a stable diagnostic");
             CheckThrows<InvalidDataException>(
                 () => PackageCore.ValidateDirectorySnapshot(config, snapshot),
                 "Config mutation is rejected before publish");
@@ -1485,6 +1575,26 @@ internal static class PackageResponsivenessSelfTest
         finally
         {
             TryDeleteFixture(root);
+        }
+    }
+
+    private static bool ProjectSettingsCheckpointIsRejected(
+        PackageCore.PackageDirectorySnapshot snapshot,
+        string expectedSha256)
+    {
+        try
+        {
+            PackageCore.ValidateProjectSettingsCheckpoint(
+                snapshot,
+                expectedSha256);
+            return false;
+        }
+        catch (PackageValidationException error)
+        {
+            return error.Issues.Count == 1 &&
+                   error.Issues[0].Severity == PackageIssueSeverity.Error &&
+                   error.Issues[0].Code == "CONFIG_CHANGED_DURING_PACKAGE" &&
+                   error.Issues[0].Path == "ProjectSettings.ini";
         }
     }
 

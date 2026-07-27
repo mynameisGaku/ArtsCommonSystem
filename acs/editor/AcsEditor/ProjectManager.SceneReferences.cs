@@ -21,7 +21,12 @@ internal enum ProjectSceneReferenceCommitPoint
 internal sealed record ProjectSceneReferenceUpdate(
     string PreviousReference,
     string CurrentReference,
-    bool SettingsFileCreated);
+    bool SettingsFileCreated,
+    string DurableSettingsSource);
+
+internal sealed record ProjectSettingsSaveCommit(
+    string DurableSettingsSource,
+    string AuthoritativeInitialScene);
 
 /// <summary>
 /// Captures the bounded UTF-8 result of the native project-settings serializer.
@@ -197,7 +202,8 @@ public static partial class ProjectManager
             return new ProjectSceneReferenceUpdate(
                 previousReference,
                 previousReference,
-                SettingsFileCreated: false);
+                SettingsFileCreated: false,
+                DurableSettingsSource: "");
         }
 
         ReferenceFileSnapshot manifest = CaptureRequiredOrdinaryFile(
@@ -255,7 +261,9 @@ public static partial class ProjectManager
             return new ProjectSceneReferenceUpdate(
                 previousReference,
                 currentReference,
-                SettingsFileCreated: !settings.Existed);
+                SettingsFileCreated: !settings.Existed,
+                DurableSettingsSource:
+                    StrictUtf8NoBom.GetString(updatedSettings));
         }
         catch (Exception error)
         {
@@ -295,7 +303,7 @@ public static partial class ProjectManager
     /// The manifest is authoritative for Game.DefaultScene; unrelated serialized settings remain
     /// last-writer-wins, while both project writers share the same cross-process mutation lease.
     /// </summary>
-    internal static void SaveProjectSettings(
+    internal static ProjectSettingsSaveCommit SaveProjectSettings(
         Project project,
         string serializedSettings)
     {
@@ -366,6 +374,9 @@ public static partial class ProjectManager
             WriteTemporaryBytes(temporary, updatedSettings);
             EnsureSnapshotUnchanged(manifest, ".acsproject manifest");
             PublishTemporary(temporary, settings.Path, settings);
+            return new ProjectSettingsSaveCommit(
+                StrictUtf8NoBom.GetString(updatedSettings),
+                authoritativeReference);
         }
         finally
         {

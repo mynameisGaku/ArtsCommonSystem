@@ -27,6 +27,8 @@ public partial class MainWindow : Window
     private bool _engineStartupInternalAccess;
     private int _engineStartupGeneration;
     private int _engineStartupCompletionStage;
+    private readonly ProjectSettingsLoadGenerationGate
+        _projectSettingsLoadGeneration = new();
     private bool _showProfilerAtStartup;
     private Project? _project;        // 開いているプロジェクト (null = プロジェクト無しの素の起動)
     private string? _currentScenePath;   // 現在のシーンファイル (Save 先)。プロジェクトの初期シーン等。
@@ -253,6 +255,7 @@ public partial class MainWindow : Window
             _engineLogTimer = null;
             _engineLogDrainQueued = false;
             _engineStartupGeneration++;
+            _projectSettingsLoadGeneration.Invalidate();
             _sceneLoadCancellation?.Cancel();
             _sceneLoadCancellation = null;
             _sceneLoadGeneration.Invalidate();
@@ -589,7 +592,9 @@ public partial class MainWindow : Window
                     // settings object is refreshed. A later Build/Run therefore cannot observe
                     // mismatched persistent startup-scene references.
                     if (Engine != IntPtr.Zero)
-                        LoadProjectSettings();
+                        ApplyPersistedInitialSceneReference(
+                            update.CurrentReference,
+                            update.DurableSettingsSource);
                     Log(
                         $"Initial scene references followed asset path: " +
                         $"{update.PreviousReference} -> {update.CurrentReference}");
@@ -1263,24 +1268,147 @@ public partial class MainWindow : Window
         if (_engineStartupState == EditorEngineStartupState.Closed) return;
         _dispatcherWatchdog?.Beat("renderer attached");
 
-        // The HwndHost stays hidden behind the WPF loading surface until a
-        // complete scene is published. Native warm-up still needs cooperative
-        // frame submissions while hidden, otherwise it stalls after slice 1.
-        _viewport?.SetHiddenStartupRenderingAllowed(true);
-        _engineStartupGeneration++;
+        // Pause hidden submissions while the bounded settings snapshot and parse run on a
+        // worker. Re-enabling this flag queues the first warm-up frame after native settings
+        // application, so quality-dependent resources cannot race the source load.
+        _viewport?.SetHiddenStartupRenderingAllowed(false);
+        int generation = ++_engineStartupGeneration;
         _engineStartupCompletionStage = 0;
         _engineStartupState = EditorEngineStartupState.WarmingRenderer;
-        Log("Viewport attached — renderer warm-up started.");
+        Log("Viewport attached — loading project settings.");
         StartEngineLogPump();
-
-        // Settings are deliberately applied before incremental GPU preparation
-        // so shadow/MSAA/quality resources are created with project values.
-        if (_project != null)
-            RunWithStartupEngineAccess(LoadProjectSettings);
         ViewportHost.IsHitTestVisible = false;
+        StatusText.Text = _project == null
+            ? "Initializing renderer..."
+            : "Loading project settings...";
+        ViewportLoadingDetail.Text = StatusText.Text;
+
+        if (_project == null)
+        {
+            _projectSettingsLoadGeneration.Invalidate();
+            BeginRendererWarmup(generation);
+            return;
+        }
+        _ = ContinueEngineStartupAfterProjectSettingsLoadAsync(generation);
+    }
+
+    private async Task ContinueEngineStartupAfterProjectSettingsLoadAsync(
+        int startupGeneration)
+    {
+        Dispatcher.VerifyAccess();
+        Project? project = _project;
+        if (project == null)
+        {
+            BeginRendererWarmup(startupGeneration);
+            return;
+        }
+
+        string projectRoot = project.RootDir;
+        string settingsPath =
+            Path.Combine(projectRoot, "Config", "ProjectSettings.ini");
+        ProjectSettingsLoadTicket ticket =
+            _projectSettingsLoadGeneration.Begin();
+        string source = "";
+        Exception? sourceError = null;
+        try
+        {
+            source = await ProjectSettingsDocumentContract.ReadSourceAsync(
+                projectRoot,
+                settingsPath,
+                ticket.CancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (ticket.CancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception error)
+        {
+            sourceError = error;
+        }
+
+        Dispatcher.VerifyAccess();
+        if (!IsCurrentProjectSettingsStartupLoad(
+                ticket,
+                startupGeneration,
+                project,
+                projectRoot))
+        {
+            return;
+        }
+
+        try
+        {
+            RunWithStartupEngineAccess(
+                () => ApplyProjectSettingsSourceOrDefaults(
+                    source,
+                    sourceError));
+        }
+        catch (Exception error)
+        {
+            FailEngineStartup(
+                "Project settings defaults recovery failed during renderer startup.",
+                error);
+            return;
+        }
+
+        if (!IsCurrentProjectSettingsStartupLoad(
+                ticket,
+                startupGeneration,
+                project,
+                projectRoot))
+        {
+            return;
+        }
+        _projectSettingsLoadGeneration.Invalidate();
+        BeginRendererWarmup(startupGeneration);
+    }
+
+    private bool IsCurrentProjectSettingsStartupLoad(
+        ProjectSettingsLoadTicket ticket,
+        int startupGeneration,
+        Project project,
+        string projectRoot)
+    {
+        if (!_projectSettingsLoadGeneration.IsCurrent(ticket) ||
+            startupGeneration != _engineStartupGeneration ||
+            _engineStartupState != EditorEngineStartupState.WarmingRenderer ||
+            RawEngine == IntPtr.Zero ||
+            !ReferenceEquals(_project, project))
+        {
+            return false;
+        }
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(
+                    Path.GetFullPath(project.RootDir)),
+                Path.TrimEndingDirectorySeparator(
+                    Path.GetFullPath(projectRoot)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void BeginRendererWarmup(int startupGeneration)
+    {
+        Dispatcher.VerifyAccess();
+        if (startupGeneration != _engineStartupGeneration ||
+            _engineStartupState != EditorEngineStartupState.WarmingRenderer ||
+            RawEngine == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // The HwndHost stays hidden behind the WPF loading surface until a complete scene is
+        // published. Cooperative hidden submissions now begin with project settings applied.
+        _viewport?.SetHiddenStartupRenderingAllowed(true);
+        Log("Project settings stage complete — renderer warm-up started.");
         StatusText.Text = "Initializing renderer...";
         ViewportLoadingDetail.Text = "Initializing renderer…";
-
         _engineStartupTimer?.Stop();
         _engineStartupTimer = new System.Windows.Threading.DispatcherTimer(
             TimeSpan.FromMilliseconds(50),
@@ -1553,6 +1681,7 @@ public partial class MainWindow : Window
         _engineStartupTimer?.Stop();
         _engineStartupTimer = null;
         _engineStartupGeneration++;
+        _projectSettingsLoadGeneration.Invalidate();
         _engineStartupInternalAccess = false;
         _engineStartupState = EditorEngineStartupState.Failed;
         _viewport?.SetHiddenStartupRenderingAllowed(false);
@@ -1671,38 +1800,70 @@ public partial class MainWindow : Window
     private string SettingsIniPath =>
         System.IO.Path.Combine(_project!.RootDir, "Config", "ProjectSettings.ini");
 
-    /// <summary>INI を読み込み ABI でパース+適用する (無ければ既定値)。AA コンボも同期する。</summary>
-    private void LoadProjectSettings()
+    /// <summary>
+    /// Applies a worker-preflighted ProjectSettings.ini snapshot on the Dispatcher. Because the
+    /// native load ABI returns no status, every source entry must survive serialization.
+    /// </summary>
+    private void ApplyProjectSettingsSourceOrDefaults(
+        string source,
+        Exception? sourceError)
     {
-        if (Engine == IntPtr.Zero || _project == null) return;
-        try
+        if (sourceError == null)
         {
-            string text = System.IO.File.Exists(SettingsIniPath)
-                ? System.IO.File.ReadAllText(SettingsIniPath, System.Text.Encoding.UTF8) : "";
-            EngineInterop.acs_editor_settings_load_text(Engine, text);
-            SyncAaCombo();
-            SyncQualityMenu();
-            if (text.Length > 0) Log($"Project settings ← {SettingsIniPath}");
-        }
-        catch (Exception ex) { Log("Project settings load error: " + ex.Message); }
-    }
+            try
+            {
+                ProjectSettingsDocumentContract.Parse(source);
+                EngineInterop.acs_editor_settings_load_text(Engine, "");
+                if (source.Length != 0)
+                    EngineInterop.acs_editor_settings_load_text(Engine, source);
+                EditorDocumentState loaded =
+                    CaptureProjectSettingsDocumentState();
+                ProjectSettingsDocumentContract.EnsureSourceEntriesPreserved(
+                    source,
+                    loaded.Payload);
 
-    /// <summary>ABI の設定を INI へシリアライズして保存し、AA コンボを同期する。</summary>
-    private void SaveProjectSettings()
-    {
-        if (Engine == IntPtr.Zero || _project == null) return;
+                _projectSettingsPersistenceGate.ClearAfterVerifiedLoad();
+                EditorDocumentState canonical =
+                    ProjectSettingsDocumentContract.CreateState(loaded.Payload);
+                _initialProjectSettingsDocumentState = canonical;
+                _initialProjectSettingsDocumentInitiallySaved = true;
+                _projectSettingsDocument?.ResetHistory(
+                    markSaved: true,
+                    canonical);
+                SynchronizeProjectSettingsChrome();
+                if (source.Length > 0)
+                    Log($"Project settings ← {SettingsIniPath}");
+                return;
+            }
+            catch (Exception error)
+            {
+                sourceError = error;
+            }
+        }
+
+        string reason =
+            "ProjectSettings.ini was rejected and will not be overwritten: " +
+            sourceError.Message;
         try
         {
-            string serializedSettings = ProjectSettingsSerialization.Capture(
-                buffer => EngineInterop.acs_editor_settings_serialize(
-                    Engine,
-                    buffer,
-                    buffer.Length));
-            ProjectManager.SaveProjectSettings(_project, serializedSettings);
-            SyncAaCombo();
-            SyncQualityMenu();
+            EngineInterop.acs_editor_settings_load_text(Engine, "");
+            EditorDocumentState defaults =
+                CaptureProjectSettingsDocumentState();
+            _projectSettingsPersistenceGate.Latch(reason);
+            _initialProjectSettingsDocumentState = defaults;
+            _initialProjectSettingsDocumentInitiallySaved = false;
+            _projectSettingsDocument?.ResetHistory(
+                markSaved: false,
+                defaults);
+            SynchronizeProjectSettingsChrome();
         }
-        catch (Exception ex) { Log("Project settings save error: " + ex.Message); }
+        catch (Exception recoveryError)
+        {
+            throw new InvalidOperationException(
+                reason + " Defaults recovery also failed.",
+                new AggregateException(sourceError, recoveryError));
+        }
+        Log(reason, "Settings", LogLevel.Error);
     }
 
     /// <summary>Rendering.MsaaSamples の現在値をツールバーの AA コンボへ反映する (再発火させない)。</summary>
@@ -1751,15 +1912,32 @@ public partial class MainWindow : Window
     {
         if (Engine == IntPtr.Zero || _suppressQuality) return;
         if (sender is not MenuItem mi || mi.Tag is not string level) return;
-        ApplyQualityMenuCheck(level);
-        if (EngineInterop.acs_editor_settings_set(Engine, "Rendering", "QualityLevel", level) != 0)
+        bool applied = _project == null
+            ? EngineInterop.acs_editor_settings_set(
+                Engine,
+                "Rendering",
+                "QualityLevel",
+                level) != 0
+            : TryApplyProjectSettingsMutation(
+                "Change graphics quality",
+                "settings.Rendering.QualityLevel",
+                () => EngineInterop.acs_editor_settings_set(
+                    Engine,
+                    "Rendering",
+                    "QualityLevel",
+                    level) != 0);
+        if (applied)
         {
-            if (_project != null) SaveProjectSettings();
+            SyncQualityMenu();
             int ss = EngineInterop.acs_editor_quality_shadow_size(Engine);
             string shadowDesc = ss > 0 ? ss + "px" : "オフ";
             Log($"Graphics Quality: {level}  (影 {shadowDesc})", "General", LogLevel.Info);
         }
-        else Log($"品質設定の適用に失敗: {level}");
+        else
+        {
+            SyncQualityMenu();
+            Log($"品質設定の適用に失敗: {level}");
+        }
     }
 
     /// <summary>Lighting メニュー: 時間帯プリセット (太陽方向/色/強度 + 空の色 + 露出) を一括適用。</summary>
@@ -1767,9 +1945,18 @@ public partial class MainWindow : Window
     {
         if (Engine == IntPtr.Zero) return;
         if (sender is not MenuItem mi || mi.Tag is not string preset) return;
-        if (EngineInterop.acs_editor_apply_lighting_preset(Engine, preset) != 0)
+        bool applied = _project == null
+            ? EngineInterop.acs_editor_apply_lighting_preset(
+                Engine,
+                preset) != 0
+            : TryApplyProjectSettingsMutation(
+                "Apply lighting preset",
+                "settings.Rendering.LightingPreset",
+                () => EngineInterop.acs_editor_apply_lighting_preset(
+                    Engine,
+                    preset) != 0);
+        if (applied)
         {
-            if (_project != null) SaveProjectSettings();   // Sun*/Sky*/Exposure を INI へ永続化
             Log($"Lighting preset: {preset} (太陽/空/露出を一括設定)", "General", LogLevel.Info);
         }
         else Log($"照明プリセットの適用に失敗: {preset}");
@@ -1786,8 +1973,20 @@ public partial class MainWindow : Window
 
     private void OnProjectSettings(object sender, RoutedEventArgs e)
     {
-        if (Engine == IntPtr.Zero) return;
-        var win = new ProjectSettingsWindow(this, Engine, SaveProjectSettings);
+        if (Engine == IntPtr.Zero ||
+            _project == null ||
+            !_documentHostInitialized ||
+            !CanEditProjectSettings())
+        {
+            return;
+        }
+        EditorDocument settings =
+            EnsureProjectSettingsDocumentRegistered();
+        _documentHost.Activate(settings.Id);
+        var win = new ProjectSettingsWindow(
+            this,
+            Engine,
+            TryApplyProjectSettingsMutation);
         win.ShowDialog();
         SynchronizeSnapSettingsFromProject();
     }
@@ -2367,11 +2566,27 @@ public partial class MainWindow : Window
     {
         if (Engine == IntPtr.Zero || _suppressAa) return;
         if (sender is not MenuItem mi || mi.Tag is not string tag || !int.TryParse(tag, out int samples)) return;
-        ApplyAaMenuCheck(samples);   // 排他チェック
-        if (_project != null && EngineInterop.acs_editor_settings_set(Engine, "Rendering", "MsaaSamples", samples.ToString()) != 0)
-            SaveProjectSettings();
+        if (_project != null)
+        {
+            if (!TryApplyProjectSettingsMutation(
+                    "Change anti-aliasing",
+                    "settings.Rendering.MsaaSamples",
+                    () => EngineInterop.acs_editor_settings_set(
+                        Engine,
+                        "Rendering",
+                        "MsaaSamples",
+                        samples.ToString()) != 0))
+            {
+                SyncAaCombo();
+                Log("AA 設定の適用に失敗しました。", "Settings", LogLevel.Error);
+                return;
+            }
+        }
         else
+        {
             EngineInterop.acs_editor_set_msaa(Engine, samples);
+            ApplyAaMenuCheck(samples);
+        }
         Log(samples == 1 ? "AA: FXAA" : $"AA: MSAA {samples}x");
     }
 
@@ -3242,12 +3457,35 @@ public partial class MainWindow : Window
         ShowBottomTab("build");
         BuildLog($"==== Build Standalone: {_project.Name} ====");
         using BuildWorkflowLease workflow = BeginBuildWorkflow();
+        using EditorOperationSession operation = BeginEditorOperation(
+            EditorOperationService.Build,
+            EditorOperationCodes.BuildStarted,
+            $"Standalone build started for {_project.Name}.");
         _building = true;
         SetBuildUiEnabled(false);
         try
         {
             // Autosave cleanup is asynchronous; reserve the build slot before awaiting it.
-            if (!await SaveSceneForBuildAsync()) return;
+            if (!await SaveDocumentsForBuildAsync(workflow.Token))
+            {
+                if (workflow.IsCancellationRequested)
+                {
+                    operation.Cancel(
+                        EditorOperationCodes.BuildCancelled,
+                        "Standalone build was cancelled while saving required editor documents.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+                else
+                {
+                    operation.Fail(
+                        EditorOperationCodes.BuildSceneSaveFailed,
+                        "Standalone build stopped because required editor documents could not be saved.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+                return;
+            }
             workflow.Token.ThrowIfCancellationRequested();
             bool force = _pendingReconfigure;
             _pendingReconfigure = false;
@@ -3267,15 +3505,87 @@ public partial class MainWindow : Window
                     workflow.Token);
                 workflow.Token.ThrowIfCancellationRequested();
                 _gameProcess = BuildService.Run(_project, BuildLog);
+                if (_gameProcess == null)
+                {
+                    operation.Fail(
+                        EditorOperationCodes.BuildLaunchFailed,
+                        "Standalone build completed but the game process could not be launched.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: exe);
+                }
+                else
+                {
+                    operation.Succeed(
+                        EditorOperationCodes.BuildSucceeded,
+                        "Standalone build completed and the game process was launched.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: exe);
+                }
+            }
+            else
+            {
+                operation.Fail(
+                    EditorOperationCodes.BuildFailed,
+                    "Standalone build did not produce an executable.",
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
             }
         }
         catch (OperationCanceledException)
             when (workflow.IsCancellationRequested)
         {
+            operation.Cancel(
+                EditorOperationCodes.BuildCancelled,
+                "Standalone build/run was cancelled during editor shutdown.",
+                assetId: _project.CanonicalSceneAssetId,
+                path: _project.ProjectFilePath);
             BuildLog("Standalone Build/Run cancelled during editor shutdown.");
         }
-        catch (Exception ex) { BuildLog("Build エラー: " + ex.Message); }
-        finally { _building = false; SetBuildUiEnabled(true); }
+        catch (Exception ex)
+        {
+            if (workflow.IsCancellationRequested)
+            {
+                operation.Cancel(
+                    EditorOperationCodes.BuildCancelled,
+                    "Standalone build/run stopped during cancellation: " +
+                    ex.Message,
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
+            }
+            else
+            {
+                operation.Fail(
+                    EditorOperationCodes.BuildFailed,
+                    ex.Message,
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
+            }
+            BuildLog("Build エラー: " + ex.Message);
+        }
+        finally
+        {
+            if (!operation.IsCompleted)
+            {
+                if (workflow.IsCancellationRequested)
+                {
+                    operation.Cancel(
+                        EditorOperationCodes.BuildCancelled,
+                        "Standalone build ended during cancellation.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+                else
+                {
+                    operation.Fail(
+                        EditorOperationCodes.BuildFailed,
+                        "Standalone build ended without a terminal result.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+            }
+            _building = false;
+            SetBuildUiEnabled(true);
+        }
     }
 
     private async System.Threading.Tasks.Task DoBuild(bool run)
@@ -3287,12 +3597,35 @@ public partial class MainWindow : Window
         ShowBottomTab("build");
         BuildLog($"==== Build: {_project.Name} ====");
         using BuildWorkflowLease workflow = BeginBuildWorkflow();
+        using EditorOperationSession operation = BeginEditorOperation(
+            EditorOperationService.Build,
+            EditorOperationCodes.BuildStarted,
+            $"{(run ? "Build and Run" : "Build")} started for {_project.Name}.");
         _building = true;
         SetBuildUiEnabled(false);
         try
         {
             // Source save and recovery cleanup are part of the build transaction.
-            if (!await SaveSceneForBuildAsync()) return;
+            if (!await SaveDocumentsForBuildAsync(workflow.Token))
+            {
+                if (workflow.IsCancellationRequested)
+                {
+                    operation.Cancel(
+                        EditorOperationCodes.BuildCancelled,
+                        "Build was cancelled while saving required editor documents.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+                else
+                {
+                    operation.Fail(
+                        EditorOperationCodes.BuildSceneSaveFailed,
+                        "Build stopped because required editor documents could not be saved.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+                return;
+            }
             workflow.Token.ThrowIfCancellationRequested();
             bool force = _pendingReconfigure;
             _pendingReconfigure = false;
@@ -3315,23 +3648,90 @@ public partial class MainWindow : Window
                     workflow.Token.ThrowIfCancellationRequested();
                     RunGame();
                 }
+                operation.Succeed(
+                    EditorOperationCodes.BuildSucceeded,
+                    run
+                        ? "Build completed and Game View was started."
+                        : "Build completed successfully.",
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: exe);
+            }
+            else
+            {
+                operation.Fail(
+                    EditorOperationCodes.BuildFailed,
+                    "Build did not produce the requested artifact.",
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
             }
         }
         catch (OperationCanceledException)
             when (workflow.IsCancellationRequested)
         {
+            operation.Cancel(
+                EditorOperationCodes.BuildCancelled,
+                "Build was cancelled during editor shutdown.",
+                assetId: _project.CanonicalSceneAssetId,
+                path: _project.ProjectFilePath);
             BuildLog("Build cancelled during editor shutdown.");
         }
-        catch (Exception ex) { BuildLog("Build エラー: " + ex.Message); }
+        catch (Exception ex)
+        {
+            if (workflow.IsCancellationRequested)
+            {
+                operation.Cancel(
+                    EditorOperationCodes.BuildCancelled,
+                    "Build stopped during cancellation: " + ex.Message,
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
+            }
+            else
+            {
+                operation.Fail(
+                    EditorOperationCodes.BuildFailed,
+                    ex.Message,
+                    assetId: _project.CanonicalSceneAssetId,
+                    path: _project.ProjectFilePath);
+            }
+            BuildLog("Build エラー: " + ex.Message);
+        }
         finally
         {
+            if (!operation.IsCompleted)
+            {
+                if (workflow.IsCancellationRequested)
+                {
+                    operation.Cancel(
+                        EditorOperationCodes.BuildCancelled,
+                        "Build ended during cancellation.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+                else
+                {
+                    operation.Fail(
+                        EditorOperationCodes.BuildFailed,
+                        "Build ended without a terminal result.",
+                        assetId: _project.CanonicalSceneAssetId,
+                        path: _project.ProjectFilePath);
+                }
+            }
             _building = false;
             SetBuildUiEnabled(true);
         }
     }
 
-    // ビルド前に現在のシーンをプロジェクトの初期シーン (Assets/main.acscene) へ保存する。
-    // これでスタンドアロン (Build & Run) が «編集中と同じシーン» を読み込む。
+    private async System.Threading.Tasks.Task<bool> SaveDocumentsForBuildAsync(
+        System.Threading.CancellationToken cancellationToken)
+    {
+        if (!await SaveProjectSettingsForBuildAsync(cancellationToken))
+            return false;
+        cancellationToken.ThrowIfCancellationRequested();
+        return await SaveSceneForBuildAsync();
+    }
+
+    // ビルド前に現在のシーンをプロジェクトの初期シーンへ保存する。
+    // これでスタンドアロン (Build & Run) が編集中と同じシーンを読み込む。
     private async System.Threading.Tasks.Task<bool> SaveSceneForBuildAsync()
     {
         if (Engine == IntPtr.Zero || _project == null)

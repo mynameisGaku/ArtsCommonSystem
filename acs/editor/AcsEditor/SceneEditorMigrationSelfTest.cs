@@ -53,13 +53,17 @@ internal static class SceneEditorMigrationSelfTest
                 output.WriteLine("      " + detail);
         }
 
+        int contractFailures =
+            SceneContractFixtureSelfTest.Run(output);
+
         string? sourceRoot = FindManagedSourceRoot();
         Check(sourceRoot != null, "managed editor source root was located");
         if (sourceRoot == null)
         {
             output.WriteLine(
-                $"Scene editor migration self-test: passed={passed} failed={failed}");
-            return failed;
+                $"Scene editor migration self-test: passed={passed} " +
+                $"failed={failed + contractFailures}");
+            return failed + contractFailures;
         }
 
         string[] sourceFiles = Directory
@@ -132,6 +136,8 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(shellSource, "private void OnLoaded(");
         string onEngineAttachedBody =
             ExtractMethodBody(shellSource, "private void OnEngineAttached(");
+        string beginRendererWarmupBody =
+            ExtractMethodBody(shellSource, "private void BeginRendererWarmup(");
         string completeEngineStartupBody =
             ExtractMethodBody(shellSource, "private void CompleteEngineStartup(");
         string runEngineStartupCompletionBody =
@@ -502,6 +508,15 @@ internal static class SceneEditorMigrationSelfTest
             "published scenes restore their view descriptor before the gated HwndHost is revealed");
         Check(
             onEngineAttachedBody.Contains(
+                "SetHiddenStartupRenderingAllowed(false)",
+                StringComparison.Ordinal) &&
+            onEngineAttachedBody.Contains(
+                "ContinueEngineStartupAfterProjectSettingsLoadAsync",
+                StringComparison.Ordinal) &&
+            onEngineAttachedBody.Contains(
+                "BeginRendererWarmup(generation)",
+                StringComparison.Ordinal) &&
+            beginRendererWarmupBody.Contains(
                 "SetHiddenStartupRenderingAllowed(true)",
                 StringComparison.Ordinal) &&
             !completeEngineStartupBody.Contains(
@@ -537,7 +552,7 @@ internal static class SceneEditorMigrationSelfTest
                 .Contains(
                     "_hiddenStartupRenderingAllowed = false",
                     StringComparison.Ordinal),
-            "hidden renderer warm-up is enabled before hide/child attach, survives HWND construction, and is bounded by ready/failure");
+            "hidden rendering attaches safely, pauses for worker Settings load, then warm-up is bounded by ready/failure");
 
         string engineInteropSource = File.ReadAllText(
             Path.Combine(sourceRoot, "EngineInterop.cs"));
@@ -622,9 +637,10 @@ internal static class SceneEditorMigrationSelfTest
                 StringComparison.Ordinal),
             "dormant compatibility-payload hydration path is absent");
 
+        int totalFailures = failed + contractFailures;
         output.WriteLine(
-            $"Scene editor migration self-test: passed={passed} failed={failed}");
-        return failed;
+            $"Scene editor migration self-test: passed={passed} failed={totalFailures}");
+        return totalFailures;
     }
 
     private static int CountMatches(string source, string pattern) =>

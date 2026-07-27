@@ -2,7 +2,7 @@
 # ACS Editor: architecture and workflows
 
 This document describes the production ACS Editor under
-`editor/AcsEditor`, as implemented on 2026-07-26. It is the authoritative
+`editor/AcsEditor`, as implemented on 2026-07-27. It is the authoritative
 overview for the desktop Editor, asset authoring, profiling, packaging, and
 verification entry points.
 
@@ -21,6 +21,9 @@ are not the WPF desktop Editor described here.
 The Editor is not binary- or project-compatible with Unreal Editor or Unity.
 Its UI and workflows may use familiar conventions, but ACS assets and scene
 formats are ACS contracts.
+
+The scene identity and 2D-authoring policy is fixed by
+[ADR 0001: Single 3D scene document with Orthographic 2D authoring](adr/0001-single-scene-document.md).
 
 ## Runtime architecture
 
@@ -220,9 +223,10 @@ external resources fail closed rather than being silently dropped.
 ### Save and recovery
 
 `EditorDocumentHost` supplies common identity, dirty, save, and transaction
-state. The Scene adapter and the authored Substrate graph in each open Material
-Editor are connected to this host today. Blueprint, Prefab, and Settings
-adapters are migration targets for the same stable `(kind, ID)` contract.
+state. The Scene adapter, the authored Substrate graph in each open Material
+Editor, and the project-owned `ProjectSettings.ini` document are connected to
+this host today. Blueprint and Prefab adapters are migration targets for the
+same stable `(kind, ID)` contract.
 Material documents prefer the adjacent Asset Database GUID, so rename/move
 does not replace their identity; a loose material uses a canonical absolute
 path and is rebound after a successful path mutation. A supplied malformed
@@ -271,7 +275,51 @@ non-Discard close.
 This vertical slice does not claim that all legacy material controls are
 transactional: the legacy PBR/effect panels still use their existing immediate
 native writers. Common material autosave/recovery, cross-window Undo routing,
-and Blueprint/Prefab/Settings registration remain follow-up work.
+and Blueprint/Prefab registration remain follow-up work.
+
+Project Settings uses the canonical settings-file path as its stable identity
+and participates in common dirty, Undo/Redo transaction, Save All, and
+Save/Discard/Cancel owner-close behavior. The managed adapter preflights the
+same bounded INI grammar as the native parser and verifies that every input
+entry, including unknown/custom keys, survives native load and canonical
+serialization. Parse failures leave the source untouched and register an
+unsaved, read-only settings document. Persistence uses the existing
+cross-process lease and atomic publisher on a worker task; a failed write stays
+dirty. If history restore fails and its native rollback cannot be verified, a
+one-way safety latch blocks both editing and persistence until a complete
+source reload succeeds.
+
+Startup captures and parses `Config/ProjectSettings.ini` on a worker, then
+applies the immutable result to native state only on the Dispatcher. A
+generation/cancellation gate discards results from a superseded attach, project,
+startup failure, or closed window. Reads require the exact
+`project root/Config/ProjectSettings.ini` chain and reject reparse points,
+malformed UTF-8, parser-limit violations, and files over the persistence limit.
+
+Build, Run, Standalone, and Package must cross a Project Settings durability
+gate before saving the Scene or starting downstream work. The gate invokes the
+hosted save contract for both clean and dirty Settings through the common save
+exclusion, so external disk/manifest drift cannot pass through the clean
+shortcut; cancelled, suspended, transactional, or failed persistence aborts
+the operation. Package runs the Settings gate again when the user presses the
+Package action, after any unbounded dialog delay and before taking the project
+snapshot used by preflight and publication. If a concurrent editor made the
+manifest's `Game.DefaultScene` authoritative, the save callback applies that
+durable canonical rewrite only when live state still equals its pre-write
+snapshot, then reconciles `Project.InitialScene` before Scene/build gates run.
+Otherwise it preserves the newer live state and remains dirty.
+
+The Package action also carries the SHA-256 of the exact durable UTF-8 Settings
+bytes into `PackageCore`. The Config Stage must contain exactly one
+case-canonical `ProjectSettings.ini` whose captured hash matches that
+checkpoint; a missing file, malformed checkpoint, or gate-to-Stage edit fails
+closed as `CONFIG_CHANGED_DURING_PACKAGE`. The existing final source-snapshot
+validation independently rejects edits that occur after Stage.
+
+Initial-Scene path-follow transactions return the exact Settings source they
+published. A clean editor applies and round-trip-verifies that complete
+snapshot without rereading on the UI thread, so unrelated keys committed by a
+different editor cannot be silently replaced by a DefaultScene-only refresh.
 
 Recovery state is composed as the complete 2D/3D compatibility envelope,
 replacing only the recovered source subsystem and preserving the other graph.
@@ -351,6 +399,70 @@ candidate remain inside the active project's `Assets` root. Folder tiles are
 intentionally omitted from the all-assets result set so the result represents
 indexed assets rather than a second, potentially expensive directory crawl.
 
+Image and Material tiles retain the bounded decoded-image LRU for the current
+session and add a project-local persistent thumbnail DDC under
+`Temp/DerivedDataCache/AssetBrowserThumbnails`. Its key is derived from the
+Asset Database content SHA-256, thumbnail generator version, asset kind, and
+requested edge; source paths and timestamps are not cache identity, so a safe
+rename can reuse identical derived data while a content, quality, or generator
+change cannot. Only records whose current size and write timestamp still match
+the immutable view snapshot are allowed to use or publish persistent entries;
+a persistent hit re-stats the source before it can enter the in-memory cache or
+current UI generation. This is a normal filesystem-race guard, not proof
+against a non-cooperating process that replaces bytes while deliberately
+preserving both size and timestamp.
+Schema-v2 payloads are canonical lossless Pbgra32 pixels with an embedded key,
+byte length, and SHA-256 checksum in the cache envelope. The fixed little-
+endian raw header declares and validates its version, pixel format, width,
+height, stride, and exact byte count. Persistent cache bytes never enter an
+in-process compressed-image codec: after all bounds agree, the Editor creates
+a frozen surface from the already-sized pixel buffer. Publication uses a
+flushed private sibling file and atomic replacement. A malformed envelope, checksum
+failure, legacy/compressed payload at a v2 key, noncanonical stride, or
+unexpected dimensions removes that entry and falls back to the same full-
+quality generator. The schema, generator, outer magic, and key encoding were
+all advanced together, so schema-v1 PNG entries cannot be interpreted as raw
+surfaces and simply age out under the normal cache budget. Cache failure never
+replaces the source asset or lowers preview quality.
+
+The managed cache is bounded to 256 MiB and 4096 entries. Its worker-side
+initial reconciliation builds byte/count accounting and deterministic
+timestamp/path eviction order. Normal hits and publications update that
+bounded ledger incrementally instead of enumerating and sorting the complete
+cache after every thumbnail. A full filesystem reconciliation runs on the
+first cache request after the periodic deadline, once when entering the
+high-water band, on explicit maintenance, or after an
+unknown/missing/size-mismatched/corrupt entry exposes cross-process drift.
+Reconciliation has explicit directory and entry-inspection ceilings; a
+same-user process that externally inflates the cache beyond that bounded scan
+disables the persistent layer instead of causing an unbounded allocation or
+loop. It removes only canonical private temporary files older than the stale
+threshold, leaving a second Editor's fresh atomic write untouched. Publication
+and any required oldest-first eviction complete under the same in-process
+gate, so the published local entry set is back within its configured
+byte/count limit before Store returns; the flushed private publication may
+transiently consume at most one additional bounded payload. Deterministic
+injected filesystem counters keep the self-test contract that steady-state N
+publications, including eviction, perform N atomic writes with only bounded
+high-water reconciliation rather than N full scans or accumulated entry
+stats.
+
+Project-root containment, ordinary-directory traversal, and entry reparse
+checks run before reads, writes, cleanup, and publication. Cache lookup,
+encoding, reconciliation, and cleanup stay inside the existing background
+image generation, cancellation, and generation gates; an obsolete request may
+leave only valid content-addressed reusable data and cannot publish an image
+into the current view.
+
+The thumbnail DDC has no cross-process cache lease. Two Editor processes may
+redundantly generate, replace, or evict the same content-addressed entry. A
+complete atomic entry is equivalent regardless of the winner; an I/O,
+sharing, or path-safety race disables the persistent layer for that browser
+session and falls back to the bounded memory cache and full-quality generator.
+Source assets and Asset Database identity never depend on cache success. This
+is a consistency fallback, not a filesystem compare-and-swap claim against a
+non-cooperating same-user process replacing a validated cache path.
+
 Rename, move, duplicate, replace-reference, and delete paths inspect or
 rewrite supported references transactionally. Referenced assets are refused
 when an operation cannot preserve the graph safely. Interrupted import,
@@ -359,6 +471,38 @@ reimport, and Trash transactions leave recovery information under
 
 The browser authors source assets. It does not currently mount a packaged
 `.acpak` as a writable authoring layer.
+
+## Managed operation diagnostics
+
+Long-running managed Editor work has a version-1 typed diagnostic contract in
+`EditorOperationDiagnostics.cs`. Every diagnostic carries a nonzero canonical
+operation GUID, contiguous per-operation sequence, service (`Build` or
+`Package`), severity, stable `ACS.*` code, message, and optional Asset ID and
+path. Codes and required fields are validated before publication; unknown or
+lowercase codes and empty operation IDs fail closed.
+
+`EditorOperationSession` owns the lifecycle. Success, failure, and cancellation
+append exactly one terminal diagnostic, freeze the ordered aggregate, and are
+idempotent under repeated completion. Leaving a session scope without a
+terminal outcome produces `ACS.OPERATION.INCOMPLETE` instead of silently
+claiming success. Each operation retains at most 256 diagnostics: the final
+slot is reserved for terminal completion and overflow produces one
+`ACS.OPERATION.DIAGNOSTICS_TRUNCATED` warning. `EditorOperationJournal` removes
+completed sessions from its active set atomically, retains a bounded result
+history, and returns retained results in operation-start order even when
+completion order differs.
+
+Build, Build and Run, and Standalone Build publish typed start and terminal
+diagnostics around their existing cancellation lease. The Package dialog opens
+a fresh operation for each Package invocation, maps existing stable preflight
+issue codes into `ACS.PACKAGE.*`, and completes only after success, validation
+failure, cancellation, or an exception. The same events are formatted into the
+existing Build log with their operation ID, so this foundation does not remove
+or reinterpret legacy process output. This slice is managed-only; native ABI
+jobs and native typed errors remain separate follow-up work.
+`--operation-diagnostics-selftest` fixes contract validation, deterministic
+ordering and eviction, observer isolation, overflow truncation, and
+cancellation-safe terminal publication.
 
 ## Profiler
 
@@ -521,7 +665,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 | Mode | Verification surface |
 |---|---|
-| `fast` | isolated Editor Release build; ABI negotiation, document host, Asset Browser, profiler, and package-responsiveness self-tests |
+| `fast` | isolated Editor Release build; ABI negotiation, document host (including Project Settings), Material Preview, Asset Browser (including thumbnail DDC), profiler, managed operation diagnostics, and package-responsiveness self-tests |
 | `managed` | isolated Editor build; every public self-test switch registered in `App.xaml.cs`; Blueprint self-test; isolated `acspackage --self-test` |
 | `full` | managed mode; isolated native CMake build with samples/tools disabled; complete CTest registration |
 

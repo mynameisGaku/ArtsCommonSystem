@@ -58,7 +58,8 @@ public sealed record PackageOptions(
     string ProductVersion = "0.1.0",
     bool IncludeDebugSymbols = false,
     PackageProfile Profile = PackageProfile.Shipping,
-    string? AssetPackToolPath = null);
+    string? AssetPackToolPath = null,
+    string? ExpectedProjectSettingsSha256 = null);
 
 public sealed record PackageProgress(
     string Phase,
@@ -297,6 +298,16 @@ public static class PackageCore
                 PackageIssueSeverity.Error,
                 "PRODUCT_VERSION_INVALID",
                 "パッケージ版は SemVer 形式 (例: 1.0.0 / 1.0.0-beta.1) で指定してください。"));
+        }
+
+        if (options.ExpectedProjectSettingsSha256 is string expectedSettings &&
+            !IsLowerHexSha256(expectedSettings))
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Error,
+                "CONFIG_CHECKPOINT_INVALID",
+                "The Project Settings durability checkpoint must be a lowercase SHA-256 value.",
+                expectedSettings));
         }
 
         issues.Add(new(
@@ -816,6 +827,9 @@ public static class PackageCore
                     project.ConfigDirectory,
                     Path.Combine(packageRoot, "Config"),
                     cancellationToken);
+            ValidateProjectSettingsCheckpoint(
+                configSnapshot,
+                options.ExpectedProjectSettingsSha256);
             ValidateStagedConfiguration(
                 Path.Combine(packageRoot, "Config"),
                 project,
@@ -2018,6 +2032,50 @@ public static class PackageCore
             throw StagedConfigMismatch(
                 "Staged Config DefaultScene no longer matches the cooked initial scene.",
                 configuredScene);
+        }
+    }
+
+    internal static void ValidateProjectSettingsCheckpoint(
+        PackageDirectorySnapshot snapshot,
+        string? expectedSha256)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (expectedSha256 == null)
+            return;
+
+        if (!IsLowerHexSha256(expectedSha256))
+        {
+            throw StagedConfigMismatch(
+                "The Project Settings durability checkpoint is malformed.",
+                "ProjectSettings.ini");
+        }
+
+        PackageInputFileSnapshot[] candidates = snapshot.Files
+            .Where(file => string.Equals(
+                file.RelativePath,
+                "ProjectSettings.ini",
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (!snapshot.Existed ||
+            candidates.Length != 1 ||
+            !string.Equals(
+                candidates[0].RelativePath,
+                "ProjectSettings.ini",
+                StringComparison.Ordinal))
+        {
+            throw StagedConfigMismatch(
+                "The staged Config does not contain exactly one canonical ProjectSettings.ini.",
+                "ProjectSettings.ini");
+        }
+
+        if (!string.Equals(
+            candidates[0].Sha256,
+            expectedSha256,
+            StringComparison.Ordinal))
+        {
+            throw StagedConfigMismatch(
+                "ProjectSettings.ini changed after the Package action durability checkpoint.",
+                "ProjectSettings.ini");
         }
     }
 

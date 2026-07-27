@@ -1027,6 +1027,11 @@ internal static class SceneSaveSelfTest
         File.WriteAllText(initial, "initial-scene");
 
         Project project = ProjectManager.ReadManifest(manifestPath);
+        // Model an unrelated settings edit committed by another editor after this Project
+        // instance was opened but before the startup-scene path transaction begins.
+        File.AppendAllText(
+            settingsPath,
+            "\n[Plugin.External]\nMode=ExternalEdit\n");
         bool preflightAccepted = true;
         try
         {
@@ -1087,8 +1092,16 @@ internal static class SceneSaveSelfTest
         check(
             firstManifest["futureProperty"]?["preserve"]?.GetValue<bool>() == true &&
             ReadIniValue(settingsPath, "Rendering", "Exposure") == "1.25" &&
-            ReadIniValue(settingsPath, "Game", "WindowWidth") == "1600",
-            "scene reference update preserves future manifest data and unrelated settings");
+            ReadIniValue(settingsPath, "Game", "WindowWidth") == "1600" &&
+            ReadIniValue(settingsPath, "Plugin.External", "Mode") ==
+                "ExternalEdit" &&
+            first.DurableSettingsSource == File.ReadAllText(settingsPath) &&
+            ProjectSettingsDocumentContract.Parse(first.DurableSettingsSource)
+                .TryGetValue(
+                    new ProjectSettingKey("Plugin.External", "Mode"),
+                    out string? externalMode) &&
+            externalMode == "ExternalEdit",
+            "scene reference update returns the exact durable Settings snapshot and preserves unrelated external keys");
 
         // Model a second editor that remains open across the next initial-scene move.
         Project staleSettingsWriter = ProjectManager.ReadManifest(manifestPath);

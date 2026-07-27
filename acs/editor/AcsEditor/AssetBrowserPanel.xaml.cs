@@ -47,6 +47,7 @@ public sealed class AssetItem : INotifyPropertyChanged
     public bool IsDirectory { get; init; }
     public long SizeBytes { get; init; } = -1;
     public long LastWriteUtcTicks { get; init; }
+    public string ContentHash { get; init; } = "";
     public string Glyph { get; init; } = "";
     public Brush GlyphBrush { get; init; } = Brushes.Gray;
     public ImageSource? Thumb
@@ -115,7 +116,9 @@ public partial class AssetBrowserPanel : UserControl
         AssetBrowserSourcesStore? SourcesStore,
         IReadOnlyList<AssetBrowserFavoriteView> Favorites,
         IReadOnlyList<AssetBrowserCollectionView> Collections,
-        string? SourcesWarning);
+        string? SourcesWarning,
+        ThumbnailDerivedDataCache? ThumbnailCache,
+        string? ThumbnailCacheWarning);
 
     public ObservableCollection<AssetItem> Items { get; } = new();
     private ObservableCollection<AssetBrowserSourceNode> SourceRoots { get; } = new();
@@ -178,6 +181,8 @@ public partial class AssetBrowserPanel : UserControl
     private AssetItem? _dropTargetItem;
     private ContextMenu? _dropActionMenu;
     private readonly AssetImageCache _thumbnailCache = new();
+    private ThumbnailDerivedDataCache? _thumbnailDdc;
+    private int _thumbnailDdcFailureReported;
 
     /// <summary>画像/音声などのアセットがアクティブ化されたとき (MainWindow が割当を担う)。</summary>
     public event EventHandler<AssetActivatedEventArgs>? AssetActivated;
@@ -248,6 +253,8 @@ public partial class AssetBrowserPanel : UserControl
         _imageLoadDrainTask = BeginImageLoadDrain(suspend: false);
         _project = project;
         _assetDatabase = null;
+        _thumbnailDdc = null;
+        _thumbnailDdcFailureReported = 0;
         _sourcesStore = null;
         _activeCollectionName = null;
         _assetSnapshot = Array.Empty<AssetRecord>();
@@ -352,6 +359,24 @@ public partial class AssetBrowserPanel : UserControl
                         "Reimport");
                     AssetDatabaseRefreshResult refreshed = candidate.Refresh(
                         cancellationToken: cancellationToken);
+                    ThumbnailDerivedDataCache? thumbnailCache = null;
+                    string? thumbnailCacheWarning = null;
+                    try
+                    {
+                        thumbnailCache = new ThumbnailDerivedDataCache(
+                            project.RootDir,
+                            Path.Combine(
+                                project.TempDir,
+                                "DerivedDataCache",
+                                "AssetBrowserThumbnails"));
+                    }
+                    catch (Exception error) when (
+                        IsRecoverablePersistentThumbnailCacheFailure(error))
+                    {
+                        thumbnailCacheWarning =
+                            "Persistent Asset thumbnail cache is unavailable: " +
+                            error.Message;
+                    }
                     return new ProjectInitializationResult(
                         candidate,
                         refreshed,
@@ -361,7 +386,9 @@ public partial class AssetBrowserPanel : UserControl
                         sourcesStore,
                         favorites,
                         collections,
-                        sourcesWarning);
+                        sourcesWarning,
+                        thumbnailCache,
+                        thumbnailCacheWarning);
                 },
                 waitForTurn: true,
                 cancellationToken);
@@ -392,12 +419,15 @@ public partial class AssetBrowserPanel : UserControl
             return;
         }
         _assetDatabase = database;
+        _thumbnailDdc = initialization.ThumbnailCache;
         _sourcesStore = initialization.SourcesStore;
         _assetSnapshot = initialization.Snapshot;
         UpdateAssetOperationUi();
         ReportIndexResult(result);
         if (initialization.SourcesWarning != null)
             Log?.Invoke(initialization.SourcesWarning);
+        if (initialization.ThumbnailCacheWarning != null)
+            Log?.Invoke(initialization.ThumbnailCacheWarning);
         foreach (string warning in importRecovery.Warnings)
             Log?.Invoke("Import recovery: " + warning);
         if (importRecovery.CompletedTransactions != 0 ||
@@ -1136,6 +1166,7 @@ public partial class AssetBrowserPanel : UserControl
                         IsDirectory = candidate.IsDirectory,
                         SizeBytes = candidate.SizeBytes,
                         LastWriteUtcTicks = candidate.LastWriteUtcTicks,
+                        ContentHash = candidate.ContentHash,
                         Glyph = candidate.IsDirectory
                             ? "📁"
                             : GlyphFor(candidate.Kind),
@@ -1324,7 +1355,8 @@ public partial class AssetBrowserPanel : UserControl
                     "dir",
                     IsDirectory: true,
                     SizeBytes: 0,
-                    LastWriteUtcTicks: 0));
+                    LastWriteUtcTicks: 0,
+                    ContentHash: ""));
             }
         }
 
@@ -1353,7 +1385,8 @@ public partial class AssetBrowserPanel : UserControl
                 record.Kind,
                 IsDirectory: false,
                 record.SizeBytes,
-                record.LastWriteUtcTicks));
+                record.LastWriteUtcTicks,
+                record.ContentHash));
         }
     }
 
@@ -1408,7 +1441,8 @@ public partial class AssetBrowserPanel : UserControl
                     "dir",
                     IsDirectory: true,
                     SizeBytes: 0,
-                    LastWriteUtcTicks: 0));
+                    LastWriteUtcTicks: 0,
+                    ContentHash: ""));
                 continue;
             }
 
@@ -1433,7 +1467,8 @@ public partial class AssetBrowserPanel : UserControl
                 record.Kind,
                 IsDirectory: false,
                 record.SizeBytes,
-                record.LastWriteUtcTicks));
+                record.LastWriteUtcTicks,
+                record.ContentHash));
         }
     }
 
@@ -1555,7 +1590,8 @@ public partial class AssetBrowserPanel : UserControl
         string Kind,
         bool IsDirectory,
         long SizeBytes,
-        long LastWriteUtcTicks);
+        long LastWriteUtcTicks,
+        string ContentHash);
 
     private sealed record AssetViewBuildResult(
         IReadOnlyList<AssetViewCandidate> Items,
@@ -3803,8 +3839,7 @@ public partial class AssetBrowserPanel : UserControl
                 {
                     token.ThrowIfCancellationRequested();
                     return LoadCachedImage(
-                        item.FullPath,
-                        item.Kind,
+                        item,
                         item.Kind == "image" ? 320 : 256,
                         token,
                         imageGeneration);
@@ -3861,8 +3896,7 @@ public partial class AssetBrowserPanel : UserControl
                 loaded[index] = (
                     item,
                     LoadCachedImage(
-                        item.FullPath,
-                        item.Kind,
+                        item,
                         decodeWidth,
                         cancellationToken,
                         imageGeneration));
@@ -3890,9 +3924,29 @@ public partial class AssetBrowserPanel : UserControl
                     loaded[index] = (item, cached);
                     continue;
                 }
+                if (TryLoadPersistentThumbnail(
+                        item,
+                        decodeWidth,
+                        sourceLength,
+                        sourceWriteTicks,
+                        cancellationToken,
+                        out ImageSource? persistent))
+                {
+                    bool retained = _imageLoads.TryRunIfCurrent(
+                        imageGeneration,
+                        () => _thumbnailCache.Put(
+                            key,
+                            sourceLength,
+                            sourceWriteTicks,
+                            persistent!));
+                    if (retained)
+                        loaded[index] = (item, persistent);
+                    continue;
+                }
                 misses.Add(
                     new ThumbnailDecodeMiss(
                         index,
+                        item,
                         fullPath,
                         key,
                         sourceLength,
@@ -3942,6 +3996,13 @@ public partial class AssetBrowserPanel : UserControl
                     loaded[miss.ResultIndex] = (
                         candidates[miss.ResultIndex],
                         image);
+                    TryStorePersistentThumbnail(
+                        miss.Item,
+                        decodeWidth,
+                        miss.SourceLength,
+                        miss.SourceWriteTicks,
+                        image,
+                        cancellationToken);
                 }
             }
             catch
@@ -3952,8 +4013,7 @@ public partial class AssetBrowserPanel : UserControl
     }
 
     private ImageSource? LoadCachedImage(
-        string path,
-        string kind,
+        AssetItem item,
         int decodeWidth,
         CancellationToken cancellationToken,
         int imageGeneration)
@@ -3961,6 +4021,8 @@ public partial class AssetBrowserPanel : UserControl
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string path = item.FullPath;
+            string kind = item.Kind;
             if (!string.Equals(
                     kind,
                     "image",
@@ -3986,6 +4048,26 @@ public partial class AssetBrowserPanel : UserControl
                     out ImageSource? cached))
             {
                 return cached;
+            }
+            if (TryLoadPersistentThumbnail(
+                    item,
+                    decodeWidth,
+                    sourceLength,
+                    sourceWriteTicks,
+                    cancellationToken,
+                    out ImageSource? persistent))
+            {
+                if (!_imageLoads.TryRunIfCurrent(
+                        imageGeneration,
+                        () => _thumbnailCache.Put(
+                            key,
+                            sourceLength,
+                            sourceWriteTicks,
+                            persistent!)))
+                {
+                    return null;
+                }
+                return persistent;
             }
 
             ImageSource? image = kind == "material"
@@ -4016,6 +4098,13 @@ public partial class AssetBrowserPanel : UserControl
                 {
                     return null;
                 }
+                TryStorePersistentThumbnail(
+                    item,
+                    decodeWidth,
+                    sourceLength,
+                    sourceWriteTicks,
+                    image,
+                    cancellationToken);
             }
             return image;
         }
@@ -4030,8 +4119,190 @@ public partial class AssetBrowserPanel : UserControl
         }
     }
 
+    private bool TryLoadPersistentThumbnail(
+        AssetItem item,
+        int decodeWidth,
+        long sourceLength,
+        long sourceWriteTicks,
+        CancellationToken cancellationToken,
+        out ImageSource? image)
+    {
+        image = null;
+        ThumbnailDerivedDataCache? cache = _thumbnailDdc;
+        if (cache == null ||
+            !CanUsePersistentThumbnail(
+                item,
+                sourceLength,
+                sourceWriteTicks))
+        {
+            return false;
+        }
+
+        try
+        {
+            ThumbnailDerivedDataCacheLookup lookup = cache.TryLoad(
+                item.ContentHash,
+                item.Kind,
+                decodeWidth,
+                cancellationToken);
+            if (lookup.Status != ThumbnailDerivedDataCacheStatus.Hit ||
+                lookup.Image == null)
+            {
+                return false;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ThumbnailSourceSnapshotMatches(
+                    item.FullPath,
+                    sourceLength,
+                    sourceWriteTicks))
+            {
+                return false;
+            }
+            image = lookup.Image;
+            return true;
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (
+            IsRecoverablePersistentThumbnailCacheFailure(error))
+        {
+            DisablePersistentThumbnailCache(cache, error);
+            return false;
+        }
+    }
+
+    private void TryStorePersistentThumbnail(
+        AssetItem item,
+        int decodeWidth,
+        long sourceLength,
+        long sourceWriteTicks,
+        ImageSource image,
+        CancellationToken cancellationToken)
+    {
+        ThumbnailDerivedDataCache? cache = _thumbnailDdc;
+        if (cache == null ||
+            !CanUsePersistentThumbnail(
+                item,
+                sourceLength,
+                sourceWriteTicks))
+        {
+            return;
+        }
+
+        try
+        {
+            _ = cache.Store(
+                item.ContentHash,
+                item.Kind,
+                decodeWidth,
+                image,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (
+            IsRecoverablePersistentThumbnailCacheFailure(error))
+        {
+            DisablePersistentThumbnailCache(cache, error);
+        }
+    }
+
+    private static bool CanUsePersistentThumbnail(
+        AssetItem item,
+        long sourceLength,
+        long sourceWriteTicks) =>
+        !item.IsDirectory &&
+        item.SizeBytes == sourceLength &&
+        item.LastWriteUtcTicks == sourceWriteTicks &&
+        ThumbnailDerivedDataCache.IsCanonicalContentHash(
+            item.ContentHash) &&
+        item.Kind is "image" or "material";
+
+    internal static bool ThumbnailSourceSnapshotMatches(
+        string path,
+        long expectedLength,
+        long expectedWriteUtcTicks)
+    {
+        if (string.IsNullOrWhiteSpace(path) ||
+            expectedLength < 0 ||
+            expectedWriteUtcTicks <= 0)
+        {
+            return false;
+        }
+        try
+        {
+            var info = new FileInfo(
+                Path.GetFullPath(path));
+            info.Refresh();
+            return info.Exists &&
+                   info.Length == expectedLength &&
+                   info.LastWriteTimeUtc.Ticks ==
+                       expectedWriteUtcTicks;
+        }
+        catch (Exception error) when (
+            IsRecoverablePersistentThumbnailCacheFailure(error))
+        {
+            return false;
+        }
+    }
+
+    private static bool
+        IsRecoverablePersistentThumbnailCacheFailure(
+            Exception error) =>
+        error is not OutOfMemoryException and
+        not StackOverflowException and
+        not AccessViolationException;
+
+    private void DisablePersistentThumbnailCache(
+        ThumbnailDerivedDataCache cache,
+        Exception error)
+    {
+        if (!ReferenceEquals(
+                Interlocked.CompareExchange(
+                    ref _thumbnailDdc,
+                    null,
+                    cache),
+                cache))
+        {
+            return;
+        }
+        if (Interlocked.Exchange(
+                ref _thumbnailDdcFailureReported,
+                1) == 0)
+        {
+            PublishPersistentThumbnailCacheDiagnostic(
+                Log,
+                "Persistent Asset thumbnail cache was disabled: " +
+                error.Message);
+        }
+    }
+
+    internal static void PublishPersistentThumbnailCacheDiagnostic(
+        Action<string>? observer,
+        string message)
+    {
+        try
+        {
+            observer?.Invoke(message);
+        }
+        catch (Exception observerError) when (
+            IsRecoverablePersistentThumbnailCacheFailure(
+                observerError))
+        {
+            // Diagnostics are optional; a failing observer cannot suppress
+            // the full-quality source-generation fallback.
+        }
+    }
+
     private sealed record ThumbnailDecodeMiss(
         int ResultIndex,
+        AssetItem Item,
         string FullPath,
         string CacheKey,
         long SourceLength,

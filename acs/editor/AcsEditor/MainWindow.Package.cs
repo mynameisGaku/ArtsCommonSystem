@@ -115,10 +115,14 @@ public partial class MainWindow
         {
             // Source save now awaits autosave generation drain. Keep that await inside the same
             // build exclusion window so repeated shortcuts/clicks cannot start a second package.
-            if (!await SaveSceneForBuildAsync())
+            if (!await SaveDocumentsForBuildAsync(workflow.Token))
                 return;
             workflow.Token.ThrowIfCancellationRequested();
-            var dialog = new PackageProjectDialog(_project, BuildLog);
+            var dialog = new PackageProjectDialog(
+                _project,
+                BuildLog,
+                EditorOperations,
+                SaveProjectSettingsCheckpointAsync);
             _activePackageDialog = dialog;
             try
             {
