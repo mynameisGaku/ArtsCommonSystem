@@ -777,6 +777,7 @@ public partial class MainWindow
             (_legacySceneSourceMode == SceneDocumentMode.TwoD
                 ? " Perspective requires an explicit source conversion and is disabled."
                 : "");
+        UpdateCameraFrustumControl();
         UpdateSceneName();
     }
 

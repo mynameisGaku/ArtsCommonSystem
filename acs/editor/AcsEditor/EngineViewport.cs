@@ -37,6 +37,18 @@ public sealed class EngineViewport : HwndHost
         IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
 
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr hwnd,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
 
     // ----- マウス入力のためのウィンドウプロシージャ subclass -----
     [DllImport("user32.dll", SetLastError = true)]
@@ -86,6 +98,7 @@ public sealed class EngineViewport : HwndHost
 
     private const int GWLP_WNDPROC  = -4;
     private const int WM_CANCELMODE = WaterPointerRoutingPolicy.WmCancelMode;
+    private const int WM_KILLFOCUS  = 0x0008;
     private const int WM_KEYDOWN    = 0x0100;
     private const int WM_MOUSEMOVE  = 0x0200, WM_LBUTTONDOWN = 0x0201,
                       WM_LBUTTONUP = WaterPointerRoutingPolicy.WmLeftButtonUp,
@@ -106,8 +119,15 @@ public sealed class EngineViewport : HwndHost
     private const int WS_VISIBLE = 0x10000000;
     private const int WS_CLIPCHILDREN = 0x02000000;
     private const int WS_CLIPSIBLINGS = 0x04000000;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_SHOWWINDOW = 0x0040;
 
     private IntPtr _hwnd;
+    private IntPtr _embeddedSurfaceParent;
+    private IntPtr _externalSurfaceParent;
+    private uint _externalSurfaceWidth;
+    private uint _externalSurfaceHeight;
     private IntPtr _engine;
     private EditorAbiCapability _abiCapabilities;
     private bool _attached;
@@ -159,6 +179,31 @@ public sealed class EngineViewport : HwndHost
         DispatcherPriority.Background;
     internal const DispatcherPriority DormantWakePriority =
         DispatcherPriority.Background;
+
+    internal static bool ShouldRouteEditorViewportInteraction(
+        bool gameView) => !gameView;
+
+    internal static bool ShouldRouteGameplayInput(
+        bool gameView,
+        bool logicPlayActive) =>
+        gameView && logicPlayActive;
+
+    private bool CanRouteEditorViewportInteraction() =>
+        _engine != IntPtr.Zero &&
+        ShouldRouteEditorViewportInteraction(
+            EngineInterop.acs_editor_is_game_view(_engine) != 0);
+
+    private bool CanRouteGameplayInput() =>
+        _engine != IntPtr.Zero &&
+        ShouldRouteGameplayInput(
+            EngineInterop.acs_editor_is_game_view(_engine) != 0,
+            EngineInterop.acs_editor_logic_play_active(_engine) != 0);
+
+    internal void ResetGameInput()
+    {
+        if (_engine != IntPtr.Zero)
+            EngineInterop.acs_editor_logic_input_reset(_engine);
+    }
 
     internal static bool ShouldRenderContinuously(
         bool destroying,
@@ -408,6 +453,10 @@ public sealed class EngineViewport : HwndHost
         _hwnd = CreateWindowExW(0, "STATIC", string.Empty,
             WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
             0, 0, 1, 1, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        _embeddedSurfaceParent = hwndParent.Handle;
+        _externalSurfaceParent = IntPtr.Zero;
+        _externalSurfaceWidth = 0;
+        _externalSurfaceHeight = 0;
 
         EditorAbiSnapshot abi = EngineInterop.AbiSnapshot();
         _abiCapabilities = abi.Capabilities;
@@ -511,6 +560,175 @@ public sealed class EngineViewport : HwndHost
         QueueRenderPump();
     }
 
+    /// <summary>
+    /// Reparents only the already-created native render child into an owned
+    /// floating window. The HwndHost and native editor engine stay alive in the
+    /// main visual tree; no second renderer, scene clone, or swapchain host is
+    /// created.
+    /// </summary>
+    internal bool TryFloatRenderSurface(
+        IntPtr externalParent,
+        Int32Rect physicalClientBounds)
+    {
+        Dispatcher.VerifyAccess();
+        if (_destroying ||
+            _hwnd == IntPtr.Zero ||
+            externalParent == IntPtr.Zero ||
+            physicalClientBounds.Width <= 0 ||
+            physicalClientBounds.Height <= 0)
+        {
+            return false;
+        }
+        if (_externalSurfaceParent == externalParent)
+            return UpdateFloatingRenderSurfaceBounds(physicalClientBounds);
+        if (_externalSurfaceParent != IntPtr.Zero ||
+            _embeddedSurfaceParent == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        IntPtr previousParent = SetParent(_hwnd, externalParent);
+        if (previousParent == IntPtr.Zero)
+            return false;
+
+        _externalSurfaceParent = externalParent;
+        if (!UpdateFloatingRenderSurfaceBounds(physicalClientBounds))
+        {
+            bool rollbackSucceeded =
+                SetParent(_hwnd, _embeddedSurfaceParent) != IntPtr.Zero;
+            if (RenderSurfaceTransferPolicy.AfterFailedExternalPosition(
+                    rollbackSucceeded) == RenderSurfaceOwnership.Embedded)
+            {
+                _externalSurfaceParent = IntPtr.Zero;
+                _externalSurfaceWidth = 0;
+                _externalSurfaceHeight = 0;
+                PositionEmbeddedRenderSurface();
+            }
+            return false;
+        }
+
+        RequestRedraw();
+        QueueRenderPump();
+        return true;
+    }
+
+    internal bool UpdateFloatingRenderSurfaceBounds(
+        Int32Rect physicalClientBounds)
+    {
+        Dispatcher.VerifyAccess();
+        if (_destroying ||
+            _hwnd == IntPtr.Zero ||
+            _externalSurfaceParent == IntPtr.Zero ||
+            physicalClientBounds.Width <= 0 ||
+            physicalClientBounds.Height <= 0)
+        {
+            return false;
+        }
+
+        if (!SetWindowPos(
+                _hwnd,
+                IntPtr.Zero,
+                physicalClientBounds.X,
+                physicalClientBounds.Y,
+                physicalClientBounds.Width,
+                physicalClientBounds.Height,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW))
+        {
+            return false;
+        }
+
+        _externalSurfaceWidth =
+            checked((uint)physicalClientBounds.Width);
+        _externalSurfaceHeight =
+            checked((uint)physicalClientBounds.Height);
+        RequestRedraw();
+        QueueRenderPump();
+        return true;
+    }
+
+    internal bool TryDockRenderSurface()
+    {
+        Dispatcher.VerifyAccess();
+        if (_externalSurfaceParent == IntPtr.Zero)
+            return true;
+        if (_destroying ||
+            _hwnd == IntPtr.Zero ||
+            _embeddedSurfaceParent == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        IntPtr previousParent = SetParent(_hwnd, _embeddedSurfaceParent);
+        if (previousParent == IntPtr.Zero)
+            return false;
+
+        _externalSurfaceParent = IntPtr.Zero;
+        _externalSurfaceWidth = 0;
+        _externalSurfaceHeight = 0;
+        PositionEmbeddedRenderSurface();
+        RequestRedraw();
+        QueueRenderPump();
+        return true;
+    }
+
+    internal bool IsRenderSurfaceFloating =>
+        _externalSurfaceParent != IntPtr.Zero;
+
+    private void PositionEmbeddedRenderSurface()
+    {
+        if (_hwnd == IntPtr.Zero ||
+            _embeddedSurfaceParent == IntPtr.Zero ||
+            !IsLoaded)
+        {
+            return;
+        }
+
+        try
+        {
+            Point screenOrigin = PointToScreen(new Point(0.0, 0.0));
+            var clientOrigin = new POINT
+            {
+                X = checked((int)Math.Round(screenOrigin.X)),
+                Y = checked((int)Math.Round(screenOrigin.Y)),
+            };
+            if (!ScreenToClient(_embeddedSurfaceParent, ref clientOrigin))
+                return;
+            DpiScale dpi = VisualTreeHelper.GetDpi(this);
+            int width = Math.Max(
+                1,
+                checked((int)Math.Round(ActualWidth * dpi.DpiScaleX)));
+            int height = Math.Max(
+                1,
+                checked((int)Math.Round(ActualHeight * dpi.DpiScaleY)));
+            _ = SetWindowPos(
+                _hwnd,
+                IntPtr.Zero,
+                clientOrigin.X,
+                clientOrigin.Y,
+                width,
+                height,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+        catch (InvalidOperationException)
+        {
+            // The HwndHost is already reparented correctly. A later WPF layout
+            // pass will publish its embedded bounds.
+        }
+        catch (OverflowException)
+        {
+            // Hostile/transient WPF geometry must not undo truthful ownership.
+        }
+    }
+
+    protected override void OnWindowPositionChanged(Rect rcBoundingBox)
+    {
+        // HwndHost assumes its child is parented to the containing HwndSource.
+        // While floating, the owned Camera View window owns that child and
+        // positions it explicitly in physical pixels.
+        if (_externalSurfaceParent == IntPtr.Zero)
+            base.OnWindowPositionChanged(rcBoundingBox);
+    }
+
     protected override void DestroyWindowCore(HandleRef hwnd)
     {
         Dispatcher.VerifyAccess();
@@ -559,6 +777,10 @@ public sealed class EngineViewport : HwndHost
         _engine = IntPtr.Zero;
         _abiCapabilities = EditorAbiCapability.None;
         _hwnd = IntPtr.Zero;
+        _embeddedSurfaceParent = IntPtr.Zero;
+        _externalSurfaceParent = IntPtr.Zero;
+        _externalSurfaceWidth = 0;
+        _externalSurfaceHeight = 0;
         _attached = false;
         _windowInteractionPaused = false;
         _awaitingStableResizeAfterWindowInteraction = false;
@@ -1119,6 +1341,11 @@ public sealed class EngineViewport : HwndHost
 
             case WM_CANCELMODE:
                 CancelPointerInteraction();
+                ResetGameInput();
+                break;
+
+            case WM_KILLFOCUS:
+                ResetGameInput();
                 break;
 
             case WM_NCHITTEST:
@@ -1151,6 +1378,8 @@ public sealed class EngineViewport : HwndHost
 
             case WM_LBUTTONDOWN:
                 FeedMouseButton(0, 1);   // Play 中なら game へ転送 (Play 外は no-op)
+                if (!CanRouteEditorViewportInteraction())
+                    break;
                 // 3D ビューポート: まず変形ギズモを掴めるか試し、掴めなければレイピック。
                 if (_engine != IntPtr.Zero && EngineInterop.acs_editor_get_view3d(_engine) != 0)
                 {
@@ -1255,6 +1484,8 @@ public sealed class EngineViewport : HwndHost
                 goto case WM_MBUTTONDOWN;
             case WM_MBUTTONDOWN:
                 if (msg == WM_MBUTTONDOWN) FeedMouseButton(2, 1);
+                if (!CanRouteEditorViewportInteraction())
+                    break;
                 // ギズモ/マーキー ドラッグ中はパンを始めない (gizmo/marquee/pan を相互排他に)。
                 if (!_gizmoDragging && !_marqueeDragging)
                 {
@@ -1325,7 +1556,10 @@ public sealed class EngineViewport : HwndHost
                 if (_engine != IntPtr.Zero)
                 {
                     int x = LoWord(lParam), y = HiWord(lParam);
-                    EngineInterop.acs_editor_logic_input_mouse_move(_engine, x, y);   // Play 中なら game へ (外は no-op)
+                    if (CanRouteGameplayInput())
+                        EngineInterop.acs_editor_logic_input_mouse_move(_engine, x, y);
+                    if (!CanRouteEditorViewportInteraction())
+                        break;
                     if (_giz3dDragging)
                     {
                         EngineInterop.acs_editor_gizmo3d_drag(_engine, x, y);
@@ -1366,7 +1600,7 @@ public sealed class EngineViewport : HwndHost
                 break;
 
             case WM_MOUSEWHEEL:
-                if (_engine != IntPtr.Zero)
+                if (CanRouteEditorViewportInteraction())
                 {
                     int delta = HiWord(wParam);                       // 符号付きホイール量
                     var pt = new POINT { X = LoWord(lParam), Y = HiWord(lParam) };
@@ -1399,7 +1633,8 @@ public sealed class EngineViewport : HwndHost
     // Play 中なら DLL へマウスボタンをフィードする (Play 外は editor_abi 側で no-op)。
     private void FeedMouseButton(int button, int down)
     {
-        if (_engine != IntPtr.Zero) EngineInterop.acs_editor_logic_input_mouse_button(_engine, button, down);
+        if (CanRouteGameplayInput())
+            EngineInterop.acs_editor_logic_input_mouse_button(_engine, button, down);
     }
 
     private bool RenderOneFrame()
@@ -1426,8 +1661,12 @@ public sealed class EngineViewport : HwndHost
         // DPI 変化で不変だが物理幅は変わるため、モニタ間 DPI 変化でも下の w!=_w が成立して
         // 再 attach/resize が走る。
         DpiScale dpi = VisualTreeHelper.GetDpi(this);
-        uint w = (uint)Math.Max(1.0, ActualWidth  * dpi.DpiScaleX);
-        uint h = (uint)Math.Max(1.0, ActualHeight * dpi.DpiScaleY);
+        uint w = _externalSurfaceParent != IntPtr.Zero
+            ? Math.Max(1u, _externalSurfaceWidth)
+            : (uint)Math.Max(1.0, ActualWidth * dpi.DpiScaleX);
+        uint h = _externalSurfaceParent != IntPtr.Zero
+            ? Math.Max(1u, _externalSurfaceHeight)
+            : (uint)Math.Max(1.0, ActualHeight * dpi.DpiScaleY);
 
         if (ShouldAttemptAttach(_attached, AttachFailed))
         {

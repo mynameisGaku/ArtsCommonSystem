@@ -429,7 +429,7 @@ ACS_TEST(VolumetricClouds,
 }
 
 ACS_TEST(VolumetricClouds,
-         OrthographicEditorDisablesGpuAndFallbackCloudMarches) {
+         OrthographicRenderCameraDisablesGpuAndFallbackCloudMarches) {
     const std::string editorSource =
         CompactShader(ReadEditorAbiSource());
     EXPECT_TRUE(!editorSource.empty());
@@ -438,18 +438,22 @@ ACS_TEST(VolumetricClouds,
     // is unavailable.  Orthographic mode must disable both ray marchers:
     // the GPU gate above and FSky's 48-step analytic fallback.
     const char* volumetricGate =
-        "if(h.q_cloud_coverage>0.001f&&!h.ortho3d&&"
+        "if(h.q_cloud_coverage>0.001f&&!renderOrtho&&"
         "hdrRt!=nullptr){";
     const char* fallbackGate =
         "h.sky3d.SetCloudsEnabled("
         "h.q_cloud_coverage>0.001f&&"
-        "!h.ortho3d&&!cloudsActive);";
+        "!renderOrtho&&!cloudsActive);";
     EXPECT_TRUE(Contains(editorSource, volumetricGate));
     EXPECT_TRUE(Contains(editorSource, fallbackGate));
     EXPECT_FALSE(Contains(
         editorSource,
         "h.sky3d.SetCloudsEnabled("
         "h.q_cloud_coverage>0.001f&&!cloudsActive);"));
+    EXPECT_FALSE(Contains(
+        editorSource,
+        "if(h.q_cloud_coverage>0.001f&&!h.ortho3d&&"
+        "hdrRt!=nullptr){"));
     EXPECT_TRUE(
         editorSource.find(volumetricGate) <
         editorSource.find(fallbackGate));

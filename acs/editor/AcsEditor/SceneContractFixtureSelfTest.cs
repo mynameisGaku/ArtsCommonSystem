@@ -97,6 +97,45 @@ internal static class SceneContractFixtureSelfTest
                 orthographic.Template) == EditorSceneViewMode.Orthographic,
             "package adapter projection hint cannot override the authored view preset");
 
+        const string cameraScene =
+            "ACS3D v2\n" +
+            "N3D 10 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 GameplayCamera\n" +
+            "CAM3D 10 gameplay.main 0 20 1 65 12 0.05 5000\n" +
+            "N3D 20 -1 -1 0 2 -8 0 0 0 1 1 1 1 1 1 1 CinematicCamera\n" +
+            "CAM3D 20 cinematic-a 1 20 1 45 18 0.1 8000\n";
+        CanonicalSceneAdapterInspection cameraInspection =
+            CanonicalSceneAdapter.InspectText(cameraScene, ".acs3d");
+        Check(
+            !cameraInspection.HasErrors &&
+            cameraInspection.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_CAMERA_MULTIPLE_ACTIVE"),
+            "CAM3D accepts multiple cameras and reports deterministic active selection");
+
+        const string duplicateCameraScene =
+            "ACS3D v2\n" +
+            "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 A\n" +
+            "CAM3D 1 duplicate 0 0 1 60 10 0.1 1000\n" +
+            "N3D 2 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 B\n" +
+            "CAM3D 2 duplicate 0 1 0 60 10 0.1 1000\n";
+        CanonicalSceneAdapterInspection duplicateCameraInspection =
+            CanonicalSceneAdapter.InspectText(
+                duplicateCameraScene,
+                ".acs3d");
+        CanonicalSceneAdapterInspection invalidCameraInspection =
+            CanonicalSceneAdapter.InspectText(
+                "ACS3D v2\n" +
+                "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Camera\n" +
+                "CAM3D 1 bad/id 0 0 1 60 10 1 1\n",
+                ".acs3d");
+        Check(
+            duplicateCameraInspection.HasErrors &&
+            duplicateCameraInspection.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_CAMERA_DUPLICATE") &&
+            invalidCameraInspection.HasErrors &&
+            invalidCameraInspection.Diagnostics.Any(static diagnostic =>
+                diagnostic.Code == "SCENE3D_CAMERA_INVALID"),
+            "CAM3D duplicate identity and malformed optics fail closed");
+
         CanonicalSceneAdapterInspection legacy2D =
             CanonicalSceneAdapter.InspectText(
                 "ACSCENE v1\n",

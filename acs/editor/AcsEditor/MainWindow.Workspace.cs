@@ -510,42 +510,103 @@ public partial class MainWindow
 
     private void OnToggleBottomDock(object sender, RoutedEventArgs e)
     {
-        SetBottomDockVisible(BottomDockPanel.Visibility != Visibility.Visible);
+        SetBottomDockVisible(
+            _bottomToolHost?.State == ToolPanelDockState.Hidden);
         MarkWorkspaceCustomized();
     }
 
     private void SetHierarchyVisible(bool visible)
     {
+        if (_hierarchyToolHost?.IsFloating == true)
+        {
+            _ = _hierarchyToolHost.HandleVisibilityRequest(visible);
+            return;
+        }
+        ApplyHierarchyDockVisibility(visible);
+        UpdateToolPanelPresentation(
+            ToolPanelDockingContract.HierarchyPanelId,
+            visible
+                ? ToolPanelDockState.Docked
+                : ToolPanelDockState.Hidden);
+        PersistDockedToolPanelState(
+            ToolPanelDockingContract.HierarchyPanelId,
+            visible);
+    }
+
+    private void ApplyHierarchyDockVisibility(bool visible)
+    {
         if (!visible && HierarchyColumn.ActualWidth > 0) _hierarchyWidth = HierarchyColumn.ActualWidth;
         HierarchyColumn.Width = visible ? new GridLength(Math.Max(210, _hierarchyWidth)) : new GridLength(0);
         HierarchyPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         HierarchySplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        MenuShowHierarchy.IsChecked = visible;
     }
 
     private void SetInspectorVisible(bool visible)
+    {
+        if (_inspectorToolHost?.IsFloating == true)
+        {
+            _ = _inspectorToolHost.HandleVisibilityRequest(visible);
+            return;
+        }
+        ApplyInspectorDockVisibility(visible);
+        UpdateToolPanelPresentation(
+            ToolPanelDockingContract.InspectorPanelId,
+            visible
+                ? ToolPanelDockState.Docked
+                : ToolPanelDockState.Hidden);
+        PersistDockedToolPanelState(
+            ToolPanelDockingContract.InspectorPanelId,
+            visible);
+    }
+
+    private void ApplyInspectorDockVisibility(bool visible)
     {
         if (!visible && InspectorColumn.ActualWidth > 0) _inspectorWidth = InspectorColumn.ActualWidth;
         InspectorColumn.Width = visible ? new GridLength(Math.Max(280, _inspectorWidth)) : new GridLength(0);
         InspectorPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         InspectorSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        MenuShowInspector.IsChecked = visible;
     }
 
     private void SetBottomDockVisible(bool visible)
+    {
+        if (_bottomToolHost?.IsFloating == true)
+        {
+            _ = _bottomToolHost.HandleVisibilityRequest(visible);
+            return;
+        }
+        ApplyBottomDockVisibility(visible);
+        UpdateToolPanelPresentation(
+            ToolPanelDockingContract.BottomPanelId,
+            visible
+                ? ToolPanelDockState.Docked
+                : ToolPanelDockState.Hidden);
+        PersistDockedToolPanelState(
+            ToolPanelDockingContract.BottomPanelId,
+            visible);
+    }
+
+    private void ApplyBottomDockVisibility(bool visible)
     {
         if (!visible && BottomDockRow.ActualHeight > 0) _bottomDockHeight = BottomDockRow.ActualHeight;
         BottomDockRow.Height = visible ? new GridLength(Math.Max(140, _bottomDockHeight)) : new GridLength(0);
         BottomDockPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         BottomDockSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        MenuShowBottom.IsChecked = visible;
-        BottomDockToggleBtn.Content = visible ? "Hide" : "Show";
     }
 
     private void OnResetEditorLayout(object sender, RoutedEventArgs e)
     {
+        if (!ResetDockableToolPanels())
+            return;
         DeleteSavedEditorLayout();
-        ActivateWorkspaceByName(EditorWorkspaceStore.DefaultWorkspaceName);
+        _suppressToolPanelPersistence = true;
+        try
+        {
+            ActivateWorkspaceByName(EditorWorkspaceStore.DefaultWorkspaceName);
+        }
+        finally
+        {
+            _suppressToolPanelPersistence = false;
+        }
         Log("Editor layout reset.");
     }
 

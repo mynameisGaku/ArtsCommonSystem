@@ -26,6 +26,28 @@ public partial class MainWindow
         HierarchyTree.Items.Clear();
         int count = EngineInterop.acs_editor_node3d_count(Engine);
         int sel = EngineInterop.acs_editor_selected3d(Engine);
+        int designatedCameraNode = GetDesignatedCameraNode();
+        var cameraNodeIds = new System.Collections.Generic.HashSet<int>();
+        UpdateCameraFrustumControl();
+        if (CameraAuthoringAvailable)
+        {
+            int cameraCount = Math.Min(
+                Math.Max(
+                    0,
+                    EngineInterop.acs_editor_camera3d_count(Engine)),
+                CameraAuthoringContract.MaximumCameraCount);
+            for (int cameraIndex = 0;
+                 cameraIndex < cameraCount;
+                 ++cameraIndex)
+            {
+                int cameraNode =
+                    EngineInterop.acs_editor_camera3d_node_id_at(
+                        Engine,
+                        cameraIndex);
+                if (cameraNode >= 0)
+                    cameraNodeIds.Add(cameraNode);
+            }
+        }
         // DFS pre-order (親が子より先) で来るので、親 TreeViewItem は既に作られている。
         var byId = new System.Collections.Generic.Dictionary<int, TreeViewItem>();
         for (int i = 0; i < count; ++i)
@@ -57,10 +79,31 @@ public partial class MainWindow
             };
             var hdr = new StackPanel { Orientation = Orientation.Horizontal };
             hdr.Children.Add(eye);
-            (string glyph, Brush gcol) = PrimGlyph(id);   // ノード種別アイコン (Cube/Sphere/Plane/Mesh)
+            bool isCamera = cameraNodeIds.Contains(id);
+            (string glyph, Brush gcol) = isCamera
+                ? ("▹", new SolidColorBrush(Color.FromRgb(0xA9, 0x8B, 0xE8)))
+                : PrimGlyph(id);   // ノード種別アイコン (Cube/Sphere/Plane/Mesh/Camera)
             hdr.Children.Add(new TextBlock { Text = glyph, FontSize = 11, Margin = new Thickness(0, 0, 5, 0),
                                              VerticalAlignment = VerticalAlignment.Center, Foreground = gcol });
             hdr.Children.Add(new TextBlock { Text = Node3DName(id), VerticalAlignment = VerticalAlignment.Center });
+            if (isCamera && id == designatedCameraNode)
+            {
+                hdr.Children.Add(new Border
+                {
+                    Margin = new Thickness(7, 0, 0, 0),
+                    Padding = new Thickness(4, 0, 4, 0),
+                    CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush(Color.FromArgb(0x32, 0xA9, 0x8B, 0xE8)),
+                    Child = new TextBlock
+                    {
+                        Text = "ACTIVE",
+                        FontSize = 8,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(0xC9, 0xB6, 0xF3)),
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
+                });
+            }
             var tvi = new TreeViewItem
             {
                 Header = hdr,
@@ -353,6 +396,16 @@ public partial class MainWindow
         var dim    = (Brush)FindResource("TextDim");
         shownComponents = 0;
 
+        if (TryGetCameraAuthoringState(id, out CameraAuthoringState camera) &&
+            DetailsMatches(
+                "component", "native", "camera", "projection", "field of view",
+                "fov", "orthographic", "near clip", "far clip", "priority",
+                "active", "enabled"))
+        {
+            panel.Children.Add(BuildCameraComponent(camera));
+            shownComponents++;
+        }
+
         // The render payload is a native component. It is fixed for renderable nodes, so the
         // card carries a NATIVE badge and no remove action.
         if (kind != 6 && DetailsMatches(
@@ -443,6 +496,8 @@ public partial class MainWindow
         add.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         add.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var combo = new ComboBox { VerticalAlignment = VerticalAlignment.Center, MinWidth = 130 };
+        bool hasCamera = TryGetCameraAuthoringState(id, out _);
+        if (!hasCamera) combo.Items.Add(CameraComponentDisplayName);
         foreach (var it in CompAddBox.Items) combo.Items.Add(it);
         if (combo.Items.Count > 0) combo.SelectedIndex = 0;
         var btn = new Button
@@ -455,7 +510,16 @@ public partial class MainWindow
         Grid.SetColumn(btn, 1);
         btn.Click += (_, __) =>
         {
-            if (combo.SelectedItem is string tn && EngineInterop.acs_editor_node3d_add_component(Engine, id, tn) != 0)
+            if (combo.SelectedItem is not string tn) return;
+            if (string.Equals(
+                    tn,
+                    CameraComponentDisplayName,
+                    StringComparison.Ordinal))
+            {
+                AttachCameraToNode(id);
+                return;
+            }
+            if (EngineInterop.acs_editor_node3d_add_component(Engine, id, tn) != 0)
             {
                 Log($"3D ノード {id} に {tn} を追加");
                 Populate3DInspector(id);

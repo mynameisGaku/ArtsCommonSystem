@@ -74,6 +74,17 @@ public:
     FScene3D& operator=(FScene3D&&)      = delete;
 
     /**
+     * Atomically exchange complete scene ownership.
+     *
+     * Used by checked loaders to build a replacement graph off to the side
+     * and publish it only after every allocation and component commit succeeds.
+     */
+    void SwapContents(FScene3D& other) noexcept {
+        m_Root.Swap(other.m_Root);
+        m_Pool.Swap(other.m_Pool);
+    }
+
+    /**
      * シーンの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
      *
      * @return root ANode への参照。

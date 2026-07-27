@@ -21,6 +21,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "math/Vec.h"
 
 namespace acs::game {
 
@@ -36,6 +37,8 @@ inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
 inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
 inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
+inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
+inline constexpr u32 kScene3DSerializeMaxCameraIdBytes = 64u;
 inline constexpr u64 kScene3DAssetMaxBytes = 256u * 1024u * 1024u;
 
 /** Scene3D テキスト保存・読み込みの安定した失敗理由。 */
@@ -72,6 +75,9 @@ enum class EScene3DSerializeError : u8 {
     InvalidMaterial,
     InvalidComponent,
     InvalidComponentProperty,
+    InvalidCamera,
+    DuplicateCamera,
+    CameraLimitExceeded,
     DirectiveLimitExceeded,
     ComponentLimitExceeded,
     FileOpenFailed,
@@ -85,6 +91,36 @@ enum class EScene3DSerializeError : u8 {
     MaterialDecodeFailed,
 };
 
+/** Authored ACS3D camera projection encoded by CAM3D. */
+enum class EScene3DCameraProjection : u8 {
+    Perspective = 0,
+    Orthographic = 1,
+};
+
+/**
+ * Deterministically selected authored camera returned by the checked loader.
+ *
+ * @details The camera pose is derived from the selected N3D node's complete
+ * world transform after hierarchy commit. Forward is local +Z and Up is local
+ * +Y. StableId is a case-sensitive canonical ASCII identity.
+ */
+struct FScene3DCameraState {
+    bool IsAuthored = false;
+    bool IsActivePreferred = false;
+    i32 NodeId = -1;
+    i32 Priority = 0;
+    EScene3DCameraProjection Projection =
+        EScene3DCameraProjection::Perspective;
+    f32 FovYDegrees = 60.0f;
+    f32 OrthographicHeight = 10.0f;
+    f32 NearPlane = 0.05f;
+    f32 FarPlane = 1000.0f;
+    FVec3 Position{0.0f, 0.0f, 0.0f};
+    FVec3 Forward{0.0f, 0.0f, 1.0f};
+    FVec3 Up{0.0f, 1.0f, 0.0f};
+    char StableId[kScene3DSerializeMaxCameraIdBytes + 1u]{};
+};
+
 /** 検証付きテキスト保存結果。RequiredBytes は終端 NUL を含む必要容量。 */
 struct FScene3DSaveResult {
     EScene3DSerializeError Error = EScene3DSerializeError::None;
@@ -92,6 +128,7 @@ struct FScene3DSaveResult {
     u32 RequiredBytes = 0u;
     u32 NodeCount = 0u;
     u32 MeshPathCount = 0u;
+    u32 CameraCount = 0u;
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && BytesWritten > 0u
@@ -108,6 +145,9 @@ struct FScene3DLoadResult {
     u32 MeshPathCount = 0u;
     u32 ErrorLine = 0u;
     u32 DependenciesLoaded = 0u;
+    u32 CameraCount = 0u;
+    u32 ActivePreferredCameraCount = 0u;
+    FScene3DCameraState ActiveCamera{};
 
     bool Succeeded() const noexcept {
         return Error == EScene3DSerializeError::None && NodeCount > 0u;

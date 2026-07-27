@@ -19,6 +19,26 @@ internal enum EditorEngineStartupState
     Closed,
 }
 
+internal readonly record struct EditorViewSwitchPlan(
+    bool StartPlay,
+    bool StopPlay,
+    bool MutateEditorNavigationCamera);
+
+internal static class EditorViewSwitchPolicy
+{
+    internal static EditorViewSwitchPlan Plan(bool gameView, int playState)
+    {
+        _ = gameView;
+        _ = playState;
+        // Scene/Game tabs choose a presentation camera only. Simulation
+        // lifetime and the editor navigation pose belong to Play/Stop.
+        return new EditorViewSwitchPlan(
+            StartPlay: false,
+            StopPlay: false,
+            MutateEditorNavigationCamera: false);
+    }
+}
+
 public partial class MainWindow : Window
 {
     private EngineViewport? _viewport;
@@ -178,8 +198,10 @@ public partial class MainWindow : Window
         _sceneEditingBlock = new SceneEditingBlockState(_ => UpdateEditorInputEnabled());
         InitializeWindowInteraction();
         InitLog();              // ConsoleList をタグ付きログビューに束縛
+        InitializeDockableToolPanels();
         Loaded += OnLoaded;
         Loaded += (_, _) => RestoreEditorLayout();
+        Loaded += (_, _) => RestoreFloatingToolPanels();
         Loaded += (_, _) =>
         {
             if (_showProfilerAtStartup)
@@ -235,6 +257,7 @@ public partial class MainWindow : Window
         // ポリゴン描画中の Enter/Esc を拾う。+ Play 中はゲーム入力を DLL へフィードする。
         PreviewKeyDown += OnGlobalKeyDown;
         PreviewKeyUp   += OnGlobalKeyUp;
+        Deactivated += (_, _) => ResetGameInput();
 
         // アセットブラウザ: ダブルクリックで編集し、ドラッグで明示的に割り当てる。
         AssetBrowser.AssetActivated += OnAssetActivated;
@@ -268,6 +291,11 @@ public partial class MainWindow : Window
             if (_gameProcess != null && !_gameProcess.HasExited) { try { _gameProcess.Kill(); } catch { } }
         };
         Closing += OnEditorClosing;
+        // Registered after the asynchronous close gate. The first close attempt
+        // is cancelled while documents drain; only the approved second attempt
+        // returns the live Camera View surface to this window.
+        Closing += OnCameraViewOwnerClosing;
+        Closing += OnDockableToolPanelsOwnerClosing;
     }
 
     /// <summary>プロジェクトを開いた状態で起動する。初期シーンは attach 後にロードする。</summary>
@@ -2611,33 +2639,60 @@ public partial class MainWindow : Window
     // ===== Play / Pause / Step (物理プレビュー) =====
     // 物理ボディ (Inspector の Physics で動的/静的) を持つノードを Play で落下・衝突させ、
     // Stop で開始状態へ復元する。ステップは ABI の render(dt) 内で進む。
+    private bool StartPlayMode()
+    {
+        if (Engine == IntPtr.Zero ||
+            EngineInterop.acs_editor_play_state(Engine) != 0)
+        {
+            return false;
+        }
+
+        SuspendSceneDocumentHistoryForSimulation();
+        if (EngineInterop.acs_editor_play_start(Engine) == 0)
+        {
+            ResumeSceneDocumentHistoryAfterSimulation();
+            Log("Play could not start because a complete restore snapshot was unavailable.",
+                "Play", LogLevel.Error);
+            return false;
+        }
+
+        // プロジェクトの reflect DLL があれば、インプロセス Play で «ユーザーコンポーネント» も実行する。
+        string? dll = _project != null ? BuildService.ReflectDllPath(_project) : null;
+        if (dll != null && System.IO.File.Exists(dll))
+        {
+            int r = EngineInterop.acs_editor_logic_play_start(Engine, dll);
+            Log(r == 1 ? "▶ Play — 物理 + ユーザーロジック (インプロセス)。"
+                       : $"▶ Play — 物理プレビュー (logic 起動失敗 {r})。");
+        }
+        else Log("▶ Play — 物理プレビュー開始。");
+        return true;
+    }
+
+    private bool StopPlayMode()
+    {
+        if (Engine == IntPtr.Zero ||
+            EngineInterop.acs_editor_play_state(Engine) == 0)
+        {
+            return false;
+        }
+
+        ResetGameInput();
+        if (EngineInterop.acs_editor_logic_play_active(Engine) != 0)
+            EngineInterop.acs_editor_logic_play_stop(Engine);
+        EngineInterop.acs_editor_play_stop(Engine);    // 開始状態へ復元
+        RefreshAfterSceneChange();                     // 復元後の位置/選択を UI に反映 (3D Inspector も再同期)
+        ResumeSceneDocumentHistoryAfterSimulation();
+        Log("⏹ Stop — 開始状態へ復元。");
+        return true;
+    }
+
     private void OnPlay(object sender, RoutedEventArgs e)   // Play / Stop トグル
     {
         if (Engine == IntPtr.Zero) return;
-        int st = EngineInterop.acs_editor_play_state(Engine);
-        if (st == 0)
-        {
-            SuspendSceneDocumentHistoryForSimulation();
-            EngineInterop.acs_editor_play_start(Engine);
-            // プロジェクトの reflect DLL があれば、インプロセス Play で «ユーザーコンポーネント» も実行する。
-            string? dll = _project != null ? BuildService.ReflectDllPath(_project) : null;
-            if (dll != null && System.IO.File.Exists(dll))
-            {
-                int r = EngineInterop.acs_editor_logic_play_start(Engine, dll);
-                Log(r == 1 ? "▶ Play — 物理 + ユーザーロジック (インプロセス)。"
-                           : $"▶ Play — 物理プレビュー (logic 起動失敗 {r})。");
-            }
-            else Log("▶ Play — 物理プレビュー開始。");
-        }
+        if (EngineInterop.acs_editor_play_state(Engine) == 0)
+            StartPlayMode();
         else
-        {
-            if (EngineInterop.acs_editor_logic_play_active(Engine) != 0)
-                EngineInterop.acs_editor_logic_play_stop(Engine);
-            EngineInterop.acs_editor_play_stop(Engine);    // 開始状態へ復元
-            RefreshAfterSceneChange();                     // 復元後の位置/選択を UI に反映 (3D Inspector も再同期)
-            ResumeSceneDocumentHistoryAfterSimulation();
-            Log("⏹ Stop — 開始状態へ復元。");
-        }
+            StopPlayMode();
         UpdatePlayButtons();
     }
 
@@ -3112,36 +3167,40 @@ public partial class MainWindow : Window
         // Blueprint は独立ウィンドウなので中央は常にビューポート。
         BlueprintTabBtn.IsChecked = false;
         SceneTools.Visibility     = Visibility.Visible;
+        if (!game && DetachedCameraViewOwnsLiveSurface)
+        {
+            SceneTabBtn.IsChecked = false;
+            GameTabBtn.IsChecked = true;
+            Log(
+                "Re-dock Camera View before switching the one live renderer " +
+                "surface back to Scene View.",
+                "Camera",
+                LogLevel.Info);
+            return;
+        }
         if (Engine == IntPtr.Zero) { SceneTabBtn.IsChecked = true; GameTabBtn.IsChecked = false; return; }
+        EditorViewSwitchPlan plan = EditorViewSwitchPolicy.Plan(
+            game,
+            EngineInterop.acs_editor_play_state(Engine));
+        System.Diagnostics.Debug.Assert(
+            !plan.StartPlay &&
+            !plan.StopPlay &&
+            !plan.MutateEditorNavigationCamera);
+        ResetGameInput();
         SceneTabBtn.IsChecked = !game;
         GameTabBtn.IsChecked  = game;
         EngineInterop.acs_editor_set_game_view(Engine, game ? 1 : 0);
         if (game)
         {
-            // ゲーム全体を中央へフレーミングしてから Play を開始 (= その view を game camera の基準に)。
-            EngineInterop.acs_editor_camera_frame_all(Engine);
-            if (EngineInterop.acs_editor_play_state(Engine) == 0)
-            {
-                SuspendSceneDocumentHistoryForSimulation();
-                EngineInterop.acs_editor_play_start(Engine);
-                string? dll = _project != null ? BuildService.ReflectDllPath(_project) : null;
-                if (dll != null && System.IO.File.Exists(dll))
-                    EngineInterop.acs_editor_logic_play_start(Engine, dll);
-            }
-            Log("▶ Game View — ゲームを再生中。Scene タブで編集へ戻ります。");
+            Log(EngineInterop.acs_editor_play_state(Engine) == 0
+                ? "▶ Game View — authored game camera preview (Play is stopped)."
+                : "▶ Game View — simulation continues through the authored game camera.");
         }
         else
         {
-            // 編集へ戻る: Play を止めて開始状態へ復元。
-            if (EngineInterop.acs_editor_play_state(Engine) != 0)
-            {
-                if (EngineInterop.acs_editor_logic_play_active(Engine) != 0)
-                    EngineInterop.acs_editor_logic_play_stop(Engine);
-                EngineInterop.acs_editor_play_stop(Engine);
-                RefreshAfterSceneChange();
-                ResumeSceneDocumentHistoryAfterSimulation();
-            }
-            Log("◳ Scene View — 編集に戻りました。");
+            Log(EngineInterop.acs_editor_play_state(Engine) == 0
+                ? "◳ Scene View — editor navigation camera."
+                : "◳ Scene View — editor navigation camera; simulation continues.");
         }
         UpdatePlayButtons();
     }
@@ -3335,10 +3394,11 @@ public partial class MainWindow : Window
             SyncSelectionUi();
             e.Handled = true;
         }
-        // 編集中 (Play でない・テキスト入力でない) のギズモ/ビュー ショートカット (UE5/Unity 流:
-        // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中は下の FeedGameKey へ流す。
+        // Scene View のギズモ/ビュー ショートカット (UE5/Unity 流:
+        // W=移動 / E=回転 / R=拡縮 / F=選択にフォーカス)。Play 中でも
+        // editor navigation remains independent; Game View only routes gameplay input.
         else if (Engine != IntPtr.Zero
-                 && EngineInterop.acs_editor_logic_play_active(Engine) == 0
+                 && EngineInterop.acs_editor_is_game_view(Engine) == 0
                  && Keyboard.FocusedElement is not System.Windows.Controls.TextBox
                  && (e.Key == Key.W || e.Key == Key.E || e.Key == Key.R || e.Key == Key.F))
         {
@@ -3380,10 +3440,19 @@ public partial class MainWindow : Window
     private void FeedGameKey(Key key, bool down)
     {
         if (Engine == IntPtr.Zero) return;
-        if (EngineInterop.acs_editor_logic_play_active(Engine) == 0) return;
+        if (!EngineViewport.ShouldRouteGameplayInput(
+                EngineInterop.acs_editor_is_game_view(Engine) != 0,
+                EngineInterop.acs_editor_logic_play_active(Engine) != 0))
+            return;
         if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) return;
         int ek = KeyFromWpf(key);
         if (ek != 0) EngineInterop.acs_editor_logic_input_key(Engine, ek, down ? 1 : 0);
+    }
+
+    private void ResetGameInput()
+    {
+        if (Engine != IntPtr.Zero)
+            EngineInterop.acs_editor_logic_input_reset(Engine);
     }
 
     // WPF System.Windows.Input.Key → acs::EKey の整数値 (enum 順: Unknown=0, A=1..Z=26,
@@ -3883,10 +3952,14 @@ public partial class MainWindow : Window
     // (スタンドアロン exe は Build で生成済み。出荷時はそれを配布できる。)
     private void RunGame()
     {
-        if (_project == null) return;
-        // Play を作り直すため、既に Game View ならいったん Scene に戻してから入り直す。
-        if (Engine != IntPtr.Zero && EngineInterop.acs_editor_is_game_view(Engine) != 0) SetGameView(false);
-        SetGameView(true);
+        if (_project == null || Engine == IntPtr.Zero) return;
+        // Run explicitly owns a deterministic restart. Scene/Game tab changes
+        // never imply Stop, restore, or Start.
+        if (EngineInterop.acs_editor_play_state(Engine) != 0)
+            StopPlayMode();
+        if (StartPlayMode())
+            SetGameView(true);
+        UpdatePlayButtons();
     }
 
     private void SetBuildUiEnabled(bool enabled)

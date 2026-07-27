@@ -36,10 +36,10 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | Build / Package | Windows x64、Development/Test/Shipping、canonical Scene Asset ID起点のdependency-closure Cook、`.acpak`/ZIP、native verify、manifest、3D fail-closed あり | 製品 metadata、署名、installer、自動 smoke、他 platform | P0 |
 | Project Settings | schema 駆動 UI、検索、検証、未知キー保持、Document Host の dirty/Undo/Save All/close、非同期 atomic 保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
 | Material Editor | typed node graph、semantic Undo/Redo、Document Host dirty/Save All/close、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | legacy property writer の transaction 化、native API を live window へ接続する fenced GPU readback、instance/function、shader cache | P0/P1 |
-| Profiler / Diagnostics | Profiler v3 の CPU/GPU/pass 計測、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
+| Profiler / Diagnostics | Profiler v4 の CPU/GPU/pass/実フラスタムカリング計測、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
 | Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo あり | property override、nested prefab、variant、conflict/diff、安定 ID | P2 |
 | Navigation | 2D grid A* と Tilemap bridge あり | 3D navmesh、bake UI、agent/area/link、debug/cook | P2 |
-| Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化あり | docking、multi-document、shortcut editor、複数 workspace | P1 |
+| Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化、Outliner/Details/下部ツールのfloat・再dock・DPI対応snapあり | tab tear-off、multi-document、shortcut editor、複数workspaceの完全統合 | P1 |
 | Release operations | Windows x64 deterministic ZIP、runtime 依存解決、Cook/`.acpak` native verify、manifest hash あり | metadata、署名、installer、patch、store upload、他platform | P0/P3 |
 
 ステータスを要約すると、現在は「対応済みの Scene/Asset 範囲を決定的かつ fail-closed に Windows x64 へ出荷できる開発用エディタ」であり、Editor の全 authoring 機能、製品 metadata、署名、installer、継続 smoke を備えた統合環境にはまだ達していない。
@@ -79,7 +79,7 @@ WPF Shell は `.NET 10 / Windows / win-x64` で、Editor ABI は Raw DX12 構成
 - `editor/AcsEditor/AcsEditor.csproj`
 - `engine/CMakeLists.txt:152-164`
 
-managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に集中しているが、接続前の数値 contract と capability negotiation は実装済みである。managed host は versioned `acs_editor_abi_query` へ必須 bit を渡し、provider version、既知/未知 capability、構造体 version/size を検証する。Profiler v3 と packed 168-byte の `cloud-workload-v1` は独立した optional capability であり、後者を追加しても既存 Profiler snapshot を再解釈しない。
+managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に集中しているが、接続前の数値 contract と capability negotiation は実装済みである。managed host は versioned `acs_editor_abi_query` へ必須 bit を渡し、provider version、既知/未知 capability、構造体 version/size を検証する。Profiler v4 と packed 168-byte の `cloud-workload-v1` は独立した optional capability であり、後者を追加しても既存 Profiler snapshot を再解釈しない。
 
 - `editor/AcsEditor/EngineInterop.cs`
 - `editor/AcsEditor/EditorAbiContract.cs`
@@ -409,7 +409,7 @@ flowchart TD
 
 - 実装済み: 数値 contract version、feature bit、required/optional capability query、構造体 version/size 検証。
 - 実装済み: legacy/future/missing capability の fail-closed smoke test と起動診断。
-- 実装済み: Profiler v3 から独立した `cloud-workload-v1` snapshot。dispatch、logical/launched invocation、history、sample ceiling、skip reason を exact native workload から表示する。
+- 実装済み: Profiler v4 から独立した `cloud-workload-v1` snapshot。dispatch、logical/launched invocation、history、sample ceiling、skip reason を exact native workload から表示する。
 - 実装済み: managed version-1 operation diagnostic。非zero operation GUID、service、severity、stable `ACS.*` code、message、optional Asset/path、連番、bounded aggregate、success/failure/cancel の単一 terminal を持ち、Build と Package で legacy log と並走する。
 - 残り: native typed error payload、native async job API/cancellation、managed の残り service への適用。
 - 残り: managed 側の Scene、Asset、Preview、Build service interface と optional service 単位の UI disable。
@@ -503,7 +503,7 @@ flowchart TD
 
 成果物:
 
-- docking、tab tear-off、multi-monitor、named workspace。
+- Outliner、Details、下部ツールのdocking、multi-monitor、named workspaceは実装済み。document/tool tab tear-offは残り。
 - layout と panel size の per-user 永続化。
 - multi-document tab、Recent、Favorites。
 - command registry、command palette、shortcut editor。
@@ -694,12 +694,15 @@ live CPU-safe generation を dispatcher 外の latest-wins job にした。入�
 
 ### 4. Workspace layout の per-user 永続化（初期実装済み）
 
-panel show/hide/reset、window bounds、row/column size、visibility を versioned user-local JSON として保存する。破損値と monitor topology 変更は安全な既定値へ fallback し、Project file には混ぜない。last selected tab、名前付き workspace、自由 docking は次段階とする。
+panel show/hide/reset、window bounds、row/column size、visibility を versioned user-local JSON として保存する。破損値と monitor topology 変更は安全な既定値へ fallback し、Project file には混ぜない。Outliner、Details、Console/Build/Assets/Profilerを含む下部ツールは明示registryのstable IDでfloat・再dockでき、owner/monitor端へ12 DIPのDPI対応snapを行う。unknown/duplicate ID、非finite配置、unsupported versionはfail closedにし、detach失敗はDockedへrollback、redock失敗はFloatingを維持する。document tab tear-offと任意dock treeは次段階とする。
 
 検証:
 
 - panel resize/非表示後の再起動で復元する。
 - 破損 JSON は既定 layout に fallback し、Project を壊さない。
+- 負座標monitor、切断monitor、DPI変更後もfloating panelのタイトル領域を最近傍work areaへ復元する。
+- float/re-dock失敗時にvisualが複製・消失せず、Scene dirty/Undo/Project設定を変更しない。
+- layout reset途中の失敗は全panelを開始時のDocked/Floating/Hiddenへ戻し、全成功時だけdefault配置をcommitする。
 
 ### 5. Save All、dirty indicator、close confirmation の統一（Scene と Material graph 統合済み）
 
@@ -728,7 +731,8 @@ incremental-startup、resize-result 契約を検証する。旧 DLL、version �
 capability 不足、bad image は native host を作る前に fail closed とし、
 About/起動診断へ backend、provider version、既知/未知 bit、欠落理由を表示する。
 native lifecycle test と headless managed self-test で current/future/legacy/missing
-capability を固定した。Profiler v3 は 208-byte version-3 のまま維持し、volumetric
+capability を固定した。Profiler v4 は 224-byte version-4 とし、実際のmain-view
+frustum tested/visible/culled数と解決済みgame-camera nodeを追加した。volumetric
 cloud の exact workload は独立した 168-byte `cloud-workload-v1` optional contract
 として追加した。Cloud panel は dispatch、logical/launched invocation、history、
 sample ceiling、skip reason を表示するが、品質設定や march count は変更しない。

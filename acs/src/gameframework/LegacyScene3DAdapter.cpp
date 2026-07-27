@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/LegacyScene3DAdapter.h"
+#include "gameframework/CameraComponent3D.h"
 
 #include "asset/MeshAsset.h"
 #include "asset/MeshPrimitive.h"
@@ -22,6 +23,7 @@
 
 #include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace acs::game {
@@ -44,6 +46,16 @@ const AMeshComponent3D* FindMesh(const ANode& node) noexcept {
         const AComponent* component = node.ComponentAt(index);
         if (component != nullptr && component->Kind() == kind)
             return static_cast<const AMeshComponent3D*>(component);
+    }
+    return nullptr;
+}
+
+const ACameraComponent3D* FindCamera(const ANode& node) noexcept {
+    const void* kind = ComponentKindOf<ACameraComponent3D>();
+    for (u32 index = 0u; index < node.ComponentCount(); ++index) {
+        const AComponent* component = node.ComponentAt(index);
+        if (component != nullptr && component->Kind() == kind)
+            return static_cast<const ACameraComponent3D*>(component);
     }
     return nullptr;
 }
@@ -126,6 +138,124 @@ bool IsEffectivelyActive(const ANode& node) noexcept {
         if (++depth > kNodeMaxTreeDepth) return false;
     }
     return true;
+}
+
+bool IsEffectivelyEnabled(const ANode& node) noexcept {
+    const ANode* current = &node;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (current->IsPendingDestroy() || !current->IsEnabled()) return false;
+        current = current->Parent();
+        if (++depth > kNodeMaxTreeDepth) return false;
+    }
+    return true;
+}
+
+bool NormalizeCameraBasisVector(FVec3 value, FVec3& output) noexcept {
+    const f32 length_squared = LengthSq(value);
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-12f)
+        return false;
+    output = value * (1.0f / std::sqrt(length_squared));
+    return Finite(output);
+}
+
+bool BuildLiveCameraState(
+    const ANode& node,
+    const ACameraComponent3D& component,
+    FScene3DCameraState& state) noexcept {
+    if (!IsEffectivelyEnabled(node)) return false;
+    const FTransform3D world = node.World();
+    FVec3 forward;
+    FVec3 authored_up;
+    FVec3 right;
+    FVec3 up;
+    if (!Finite(world.position)
+        || !NormalizeCameraBasisVector(
+            Rotate(world.rotation, FVec3{0.0f, 0.0f, 1.0f}), forward)
+        || !NormalizeCameraBasisVector(
+            Rotate(world.rotation, FVec3{0.0f, 1.0f, 0.0f}), authored_up)
+        || !NormalizeCameraBasisVector(Cross(authored_up, forward), right)
+        || !NormalizeCameraBasisVector(Cross(forward, right), up)) {
+        return false;
+    }
+    state = FScene3DCameraState{};
+    state.IsAuthored = true;
+    state.IsActivePreferred = component.IsActivePreferred();
+    state.NodeId = node.SerialId();
+    state.Priority = component.Priority();
+    state.Projection = component.Projection();
+    state.FovYDegrees = component.FovYDegrees();
+    state.OrthographicHeight = component.OrthographicHeight();
+    state.NearPlane = component.NearPlane();
+    state.FarPlane = component.FarPlane();
+    state.Position = world.position;
+    state.Forward = forward;
+    state.Up = up;
+    std::snprintf(
+        state.StableId, sizeof(state.StableId), "%s",
+        component.StableId());
+    return true;
+}
+
+bool LiveCameraPrecedes(
+    const FScene3DCameraState& left,
+    const FScene3DCameraState& right) noexcept {
+    if (left.IsActivePreferred != right.IsActivePreferred)
+        return left.IsActivePreferred;
+    if (left.Priority != right.Priority) return left.Priority > right.Priority;
+    const int identity_order = std::strcmp(left.StableId, right.StableId);
+    if (identity_order != 0) return identity_order < 0;
+    return left.NodeId < right.NodeId;
+}
+
+void ResolveDeterministicCameraRecursive(
+    const ANode& node,
+    FScene3DCameraState& best,
+    bool& found,
+    u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return;
+    if (const ACameraComponent3D* component = FindCamera(node)) {
+        FScene3DCameraState candidate;
+        if (BuildLiveCameraState(node, *component, candidate)
+            && (!found || LiveCameraPrecedes(candidate, best))) {
+            best = candidate;
+            found = true;
+        }
+    }
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child != nullptr)
+            ResolveDeterministicCameraRecursive(*child, best, found, depth + 1u);
+    }
+}
+
+u32 CountCamerasRecursive(const ANode& node, u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return 0u;
+    u32 count = FindCamera(node) != nullptr ? 1u : 0u;
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child != nullptr)
+            count += CountCamerasRecursive(*child, depth + 1u);
+    }
+    return count;
+}
+
+const ANode* FindCameraByStableIdRecursive(
+    const ANode& node, const char* stable_id, u32 depth = 0u) noexcept {
+    if (depth > kNodeMaxTreeDepth) return nullptr;
+    if (const ACameraComponent3D* component = FindCamera(node)) {
+        if (std::strcmp(component->StableId(), stable_id) == 0) return &node;
+    }
+    for (u32 index = 0u; index < node.ChildCount(); ++index) {
+        const ANode* child = node.Child(index);
+        if (child == nullptr) continue;
+        if (const ANode* found =
+                FindCameraByStableIdRecursive(
+                    *child, stable_id, depth + 1u)) {
+            return found;
+        }
+    }
+    return nullptr;
 }
 
 bool IsPlanarWaterMesh(const AMeshComponent3D& component) noexcept {
@@ -320,7 +450,21 @@ FLegacyScene3DAdapter::~FLegacyScene3DAdapter() noexcept {
 FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(const char* path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DFile(m_Graph, path);
-    if (m_LoadResult.Succeeded()) FrameScene();
+    if (m_LoadResult.Succeeded()) {
+        AdoptLoadedCamera();
+        if (!m_UseAuthoredCamera) FrameScene();
+    }
+    return m_LoadResult;
+}
+
+FScene3DLoadResult FLegacyScene3DAdapter::LoadText(
+    const char* text, u32 size) noexcept {
+    if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
+    m_LoadResult = TryLoadScene3DText(m_Graph, text, size);
+    if (m_LoadResult.Succeeded()) {
+        AdoptLoadedCamera();
+        if (!m_UseAuthoredCamera) FrameScene();
+    }
     return m_LoadResult;
 }
 
@@ -329,8 +473,121 @@ FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(
     const char* virtual_path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DAssetPack(m_Graph, pack, virtual_path);
-    if (m_LoadResult.Succeeded()) FrameScene();
+    if (m_LoadResult.Succeeded()) {
+        AdoptLoadedCamera();
+        if (!m_UseAuthoredCamera) FrameScene();
+    }
     return m_LoadResult;
+}
+
+void FLegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
+    m_HasExplicitCameraOverride = false;
+    // The loaded graph supersedes every authored-camera cache from the
+    // previous scene. Starting from a clean state also ensures a no-camera
+    // load reaches the caller's FrameScene fallback exactly once.
+    m_UseAuthoredCamera = false;
+    m_AuthoredCamera = FScene3DCameraState{};
+    m_ActiveCameraNodeId =
+        m_LoadResult.ActiveCamera.IsAuthored
+            ? m_LoadResult.ActiveCamera.NodeId : -1;
+    m_UseAuthoredCamera = RefreshAuthoredCameraPose();
+}
+
+bool FLegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
+    if (m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0) {
+        const ANode* node =
+            m_Graph.Root().FindBySerialId(m_ActiveCameraNodeId);
+        const ACameraComponent3D* component =
+            node != nullptr ? FindCamera(*node) : nullptr;
+        FScene3DCameraState live;
+        if (node != nullptr && component != nullptr
+            && BuildLiveCameraState(*node, *component, live)) {
+            m_AuthoredCamera = live;
+            m_Projection =
+                live.Projection == EScene3DCameraProjection::Orthographic
+                    ? ESceneProjectionMode::Orthographic
+                    : ESceneProjectionMode::Perspective;
+            m_UseAuthoredCamera = true;
+            return true;
+        }
+        // An explicit override is sticky only while it remains a valid,
+        // effectively enabled camera. Once invalid, return to deterministic
+        // automatic selection instead of retaining a stale pose.
+        m_HasExplicitCameraOverride = false;
+    }
+
+    FScene3DCameraState deterministic;
+    bool found = false;
+    ResolveDeterministicCameraRecursive(
+        m_Graph.Root(), deterministic, found);
+    if (!found) {
+        const bool lost_authored_camera = m_UseAuthoredCamera;
+        m_UseAuthoredCamera = false;
+        m_ActiveCameraNodeId = -1;
+        m_AuthoredCamera = FScene3DCameraState{};
+        m_Projection = ESceneProjectionMode::Perspective;
+        if (lost_authored_camera) FrameScene();
+        return false;
+    }
+    m_AuthoredCamera = deterministic;
+    m_ActiveCameraNodeId = deterministic.NodeId;
+    m_Projection =
+        deterministic.Projection == EScene3DCameraProjection::Orthographic
+            ? ESceneProjectionMode::Orthographic
+            : ESceneProjectionMode::Perspective;
+    m_UseAuthoredCamera = true;
+    return true;
+}
+
+u32 FLegacyScene3DAdapter::CameraCount() const noexcept {
+    return CountCamerasRecursive(m_Graph.Root());
+}
+
+bool FLegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
+    if (stable_id == nullptr || stable_id[0] == '\0') return false;
+    const ANode* node =
+        FindCameraByStableIdRecursive(m_Graph.Root(), stable_id);
+    const ACameraComponent3D* component =
+        node != nullptr ? FindCamera(*node) : nullptr;
+    FScene3DCameraState live;
+    if (node == nullptr || component == nullptr
+        || !BuildLiveCameraState(*node, *component, live)) {
+        return false;
+    }
+    m_AuthoredCamera = live;
+    m_ActiveCameraNodeId = live.NodeId;
+    m_UseAuthoredCamera = true;
+    m_HasExplicitCameraOverride = true;
+    m_Projection =
+        live.Projection == EScene3DCameraProjection::Orthographic
+            ? ESceneProjectionMode::Orthographic
+            : ESceneProjectionMode::Perspective;
+    return true;
+}
+
+bool FLegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
+    const ANode* node = m_Graph.Root().FindBySerialId(node_id);
+    const ACameraComponent3D* component =
+        node != nullptr ? FindCamera(*node) : nullptr;
+    FScene3DCameraState live;
+    if (node == nullptr || component == nullptr
+        || !BuildLiveCameraState(*node, *component, live)) {
+        return false;
+    }
+    m_AuthoredCamera = live;
+    m_ActiveCameraNodeId = live.NodeId;
+    m_UseAuthoredCamera = true;
+    m_HasExplicitCameraOverride = true;
+    m_Projection =
+        live.Projection == EScene3DCameraProjection::Orthographic
+            ? ESceneProjectionMode::Orthographic
+            : ESceneProjectionMode::Perspective;
+    return true;
+}
+
+bool FLegacyScene3DAdapter::ClearActiveCameraOverride() noexcept {
+    m_HasExplicitCameraOverride = false;
+    return RefreshAuthoredCameraPose();
 }
 
 void FLegacyScene3DAdapter::FrameScene() noexcept {
@@ -509,7 +766,10 @@ void FLegacyScene3DAdapter::OnEnter() noexcept {
     m_PostParams.grain_intensity = 0.002f;
     m_PostParams.cas_strength = 0.16f;
     m_PostParams.taa_enabled = false;
-    FrameScene();
+    // Load already adopted the authored selection. Re-resolve here instead of
+    // keying off the last load result so a failed transactional hot reload
+    // cannot eject the still-published scene from its valid camera.
+    if (!RefreshAuthoredCameraPose()) FrameScene();
 }
 
 void FLegacyScene3DAdapter::OnExit() noexcept {
@@ -525,29 +785,36 @@ void FLegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
         std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
     m_PostParams.grain_time += m_PostParams.delta_time;
     m_Graph.Update(dt);
+    RefreshAuthoredCameraPose();
     if (FInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
         return;
     }
 
-    const f32 turn = 1.45f * dt;
-    if (FInput::IsKeyDown(EKey::Left)) m_Yaw -= turn;
-    if (FInput::IsKeyDown(EKey::Right)) m_Yaw += turn;
-    if (FInput::IsKeyDown(EKey::Up)) m_Pitch += turn * 0.75f;
-    if (FInput::IsKeyDown(EKey::Down)) m_Pitch -= turn * 0.75f;
-    const f32 pitch_limit = 0.475f * kPi;
-    if (m_Pitch > pitch_limit) m_Pitch = pitch_limit;
-    if (m_Pitch < -pitch_limit) m_Pitch = -pitch_limit;
+    if (!m_UseAuthoredCamera) {
+        const f32 turn = 1.45f * dt;
+        if (FInput::IsKeyDown(EKey::Left)) m_Yaw -= turn;
+        if (FInput::IsKeyDown(EKey::Right)) m_Yaw += turn;
+        if (FInput::IsKeyDown(EKey::Up)) m_Pitch += turn * 0.75f;
+        if (FInput::IsKeyDown(EKey::Down)) m_Pitch -= turn * 0.75f;
+        const f32 pitch_limit = 0.475f * kPi;
+        if (m_Pitch > pitch_limit) m_Pitch = pitch_limit;
+        if (m_Pitch < -pitch_limit) m_Pitch = -pitch_limit;
 
-    const f32 move = (m_Distance > 1.0f ? m_Distance : 1.0f) * 0.55f * dt;
-    const FVec3 horizontal_forward{Sin(m_Yaw), 0.0f, Cos(m_Yaw)};
-    const FVec3 right{Cos(m_Yaw), 0.0f, -Sin(m_Yaw)};
-    if (FInput::IsKeyDown(EKey::W)) m_Target += horizontal_forward * move;
-    if (FInput::IsKeyDown(EKey::S)) m_Target -= horizontal_forward * move;
-    if (FInput::IsKeyDown(EKey::D)) m_Target += right * move;
-    if (FInput::IsKeyDown(EKey::A)) m_Target -= right * move;
-    if (FInput::IsKeyDown(EKey::E)) m_Target.y += move;
-    if (FInput::IsKeyDown(EKey::Q)) m_Target.y -= move;
+        const f32 move =
+            (m_Distance > 1.0f ? m_Distance : 1.0f) * 0.55f * dt;
+        const FVec3 horizontal_forward{
+            Sin(m_Yaw), 0.0f, Cos(m_Yaw)};
+        const FVec3 right{Cos(m_Yaw), 0.0f, -Sin(m_Yaw)};
+        if (FInput::IsKeyDown(EKey::W))
+            m_Target += horizontal_forward * move;
+        if (FInput::IsKeyDown(EKey::S))
+            m_Target -= horizontal_forward * move;
+        if (FInput::IsKeyDown(EKey::D)) m_Target += right * move;
+        if (FInput::IsKeyDown(EKey::A)) m_Target -= right * move;
+        if (FInput::IsKeyDown(EKey::E)) m_Target.y += move;
+        if (FInput::IsKeyDown(EKey::Q)) m_Target.y -= move;
+    }
     UpdateCameraView();
 }
 
@@ -556,6 +823,7 @@ void FLegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept {
 }
 
 void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
+    RefreshAuthoredCameraPose();
     if (!EnsureGpu(context)) return;
     UpdateCameraProjection(context.Width(), context.Height());
     UpdateCameraView();
@@ -2552,6 +2820,23 @@ void FLegacyScene3DAdapter::UpdateCameraProjection(
     const f32 safe_width = width > 0u ? static_cast<f32>(width) : 1.0f;
     const f32 safe_height = height > 0u ? static_cast<f32>(height) : 1.0f;
     const f32 aspect = safe_width / safe_height;
+    if (m_UseAuthoredCamera) {
+        if (m_AuthoredCamera.Projection ==
+            EScene3DCameraProjection::Orthographic) {
+            m_Camera.SetOrthographic(
+                m_AuthoredCamera.OrthographicHeight * aspect,
+                m_AuthoredCamera.OrthographicHeight,
+                m_AuthoredCamera.NearPlane,
+                m_AuthoredCamera.FarPlane);
+        } else {
+            m_Camera.SetPerspective(
+                m_AuthoredCamera.FovYDegrees * kDeg2Rad,
+                aspect,
+                m_AuthoredCamera.NearPlane,
+                m_AuthoredCamera.FarPlane);
+        }
+        return;
+    }
     const f32 far_plane = m_Distance * 200.0f + 1000.0f;
     if (m_Projection == ESceneProjectionMode::Orthographic) {
         const f32 view_height = m_Distance * 1.25f;
@@ -2564,6 +2849,13 @@ void FLegacyScene3DAdapter::UpdateCameraProjection(
 }
 
 void FLegacyScene3DAdapter::UpdateCameraView() noexcept {
+    if (m_UseAuthoredCamera) {
+        m_Camera.SetLookAt(
+            m_AuthoredCamera.Position,
+            m_AuthoredCamera.Position + m_AuthoredCamera.Forward,
+            m_AuthoredCamera.Up);
+        return;
+    }
     const FVec3 forward{
         Sin(m_Yaw) * Cos(m_Pitch),
         -Sin(m_Pitch),

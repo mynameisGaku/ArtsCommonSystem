@@ -9,7 +9,7 @@ namespace acs::editor_cloud_workload {
 
 /**
  * Additive, optional snapshot contract for the exact work submitted by the
- * volumetric-cloud renderer. This is deliberately separate from profiler v3.
+ * volumetric-cloud renderer. This is deliberately separate from profiler v4.
  */
 inline constexpr u32 kSnapshotVersion = 1u;
 inline constexpr u32 kSnapshotSize = 168u;

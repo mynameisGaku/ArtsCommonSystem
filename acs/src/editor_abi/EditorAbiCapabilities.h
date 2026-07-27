@@ -24,6 +24,8 @@ enum class ECapability : std::uint64_t {
     InteractiveWater3D    = 1ull << 6u,
     ResizeResultContract  = 1ull << 7u,
     VolumetricCloudWorkloadV1 = 1ull << 8u,
+    ProfilerV4            = 1ull << 9u,
+    CameraAuthoringV1     = 1ull << 10u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -35,7 +37,8 @@ enum class ECapability : std::uint64_t {
 inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
     CapabilityBit(ECapability::IncrementalStartup) |
-    CapabilityBit(ECapability::ProfilerV3) |
+    CapabilityBit(ECapability::ProfilerV4) |
+    CapabilityBit(ECapability::CameraAuthoringV1) |
     CapabilityBit(ECapability::UnifiedSceneDocument) |
     CapabilityBit(ECapability::MaterialPreviewQuality) |
     CapabilityBit(ECapability::SubstrateGraph) |

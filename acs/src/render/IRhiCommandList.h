@@ -188,6 +188,15 @@ public:
                                         f32 depth_clear = 1.0f) noexcept = 0;
 
     /**
+     * Rebind an already rendered swapchain backbuffer without clearing it.
+     *
+     * Intended for final display-space editor overlays after post processing.
+     * No depth target is bound, so callers must use an overlay pipeline.
+     */
+    virtual void BeginRenderToSwapchainLoad(
+        IRhiSwapchain& sc, u32 buffer_index) noexcept = 0;
+
+    /**
      * バックバッファ描画を終了し Present 可能状態にする。
      *
      * @param sc 描画先スワップチェイン。

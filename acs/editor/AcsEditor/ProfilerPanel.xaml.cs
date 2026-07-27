@@ -185,6 +185,10 @@ public partial class ProfilerPanel : UserControl
         DrawCallsValue.Text = snapshot.DrawCalls.ToString("N0");
         DispatchCallsValue.Text = snapshot.DispatchCalls.ToString("N0");
         TrianglesValue.Text = snapshot.Triangles.ToString("N0");
+        CullingStateValue.Text =
+            EditorProfilerFormatting.CullingState(snapshot);
+        CullingCountsValue.Text =
+            EditorProfilerFormatting.CullingCounts(snapshot);
 
         OpaqueCpuValue.Text = EditorProfilerFormatting.Milliseconds(snapshot.OpaqueCpuMs);
         AtmosphereCpuValue.Text = EditorProfilerFormatting.Milliseconds(snapshot.AtmosphereCpuMs);

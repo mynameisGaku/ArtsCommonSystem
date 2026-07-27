@@ -4,6 +4,7 @@
 #include "test/Expect.h"
 
 #include "asset/MeshAsset.h"
+#include "gameframework/CameraComponent3D.h"
 #include "gameframework/LegacyScene3DAdapter.h"
 #include "gameframework/MeshComponent3D.h"
 #include "gameframework/WaterSurface3DComponent.h"
@@ -12,10 +13,20 @@
 #include "math/Quat.h"
 #include "memory/SharedPtr.h"
 
+#include <cmath>
+#include <cstring>
+#include <limits>
+
 using namespace acs;
 using namespace acs::game;
 
 namespace {
+
+void ExpectVec3Near(FVec3 actual, FVec3 expected, f32 epsilon) noexcept {
+    EXPECT_NEAR(actual.x, expected.x, epsilon);
+    EXPECT_NEAR(actual.y, expected.y, epsilon);
+    EXPECT_NEAR(actual.z, expected.z, epsilon);
+}
 
 FScene3DSpawnResult SpawnWaterPlane(
     FLegacyScene3DAdapter& runtime,
@@ -193,4 +204,252 @@ ACS_TEST(LegacyScene3DWaterRuntime, NonPlanarCustomMeshStaysOpaque) {
     EXPECT_FALSE(runtime.AddWaterDisturbance(
         surface.Id, FVec3{0.25f, 0.0f, 0.25f}));
     EXPECT_EQ(runtime.ActiveWaterRippleCount(surface.Id), 0u);
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         SelectsSwitchesAndRefreshesLiveHierarchicalPose) {
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 10 -1 -1 10 0 0 0 90 0 2 3 4 1 1 1 1 Rig\n"
+        "N3D 20 10 -1 1 2 3 0 0 0 1 1 1 1 1 1 1 Gameplay\n"
+        "CAM3D 20 camera-b 0 5 1 70 12 0.1 2000\n"
+        "N3D 30 -1 -1 -4 5 6 10 20 30 7 0.5 3 1 1 1 1 Cinematic\n"
+        "CAM3D 30 camera-a 1 5 1 45 18 0.2 4000\n";
+
+    FLegacyScene3DAdapter runtime;
+    const FScene3DLoadResult loaded =
+        runtime.LoadText(kScene, sizeof(kScene) - 1u);
+    EXPECT_TRUE(loaded.Succeeded());
+    EXPECT_EQ(loaded.CameraCount, 2u);
+    EXPECT_EQ(loaded.ActivePreferredCameraCount, 2u);
+    EXPECT_TRUE(loaded.ActiveCamera.IsAuthored);
+    EXPECT_TRUE(
+        std::strcmp(loaded.ActiveCamera.StableId, "camera-a") == 0);
+    EXPECT_EQ(runtime.CameraCount(), 2u);
+    EXPECT_TRUE(runtime.AuthoredCamera() != nullptr);
+    if (runtime.AuthoredCamera() == nullptr) return;
+    EXPECT_TRUE(
+        std::strcmp(runtime.AuthoredCamera()->StableId, "camera-a") == 0);
+    EXPECT_EQ(
+        runtime.AuthoredCamera()->Projection,
+        EScene3DCameraProjection::Orthographic);
+
+    ANode* gameplay = runtime.Graph().Root().FindBySerialId(20);
+    ANode* cinematic = runtime.Graph().Root().FindBySerialId(30);
+    EXPECT_TRUE(gameplay != nullptr);
+    EXPECT_TRUE(cinematic != nullptr);
+    if (gameplay == nullptr || cinematic == nullptr) return;
+    EXPECT_TRUE(gameplay->GetComponent<ACameraComponent3D>() != nullptr);
+    EXPECT_TRUE(cinematic->GetComponent<ACameraComponent3D>() != nullptr);
+
+    ACameraComponent3D* gameplay_component =
+        gameplay->GetComponent<ACameraComponent3D>();
+    EXPECT_TRUE(gameplay_component != nullptr);
+    if (gameplay_component == nullptr) return;
+    FScene3DCameraState promoted_gameplay;
+    promoted_gameplay.IsAuthored = true;
+    promoted_gameplay.IsActivePreferred = true;
+    promoted_gameplay.Priority = 50;
+    promoted_gameplay.Projection = EScene3DCameraProjection::Perspective;
+    promoted_gameplay.FovYDegrees = 70.0f;
+    promoted_gameplay.OrthographicHeight = 12.0f;
+    promoted_gameplay.NearPlane = 0.1f;
+    promoted_gameplay.FarPlane = 2000.0f;
+    std::memcpy(promoted_gameplay.StableId, "camera-b", 9u);
+    EXPECT_TRUE(
+        gameplay_component->TrySetAuthoredState(promoted_gameplay));
+    EXPECT_TRUE(runtime.RefreshActiveCamera());
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, 20);
+
+    EXPECT_TRUE(runtime.SetActiveCamera(30));
+    EXPECT_TRUE(runtime.RefreshActiveCamera());
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, 30);
+    EXPECT_TRUE(runtime.UseAutomaticCameraSelection());
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, 20);
+
+    EXPECT_TRUE(runtime.SetActiveCamera("camera-b"));
+    const FScene3DCameraState* gameplay_camera = runtime.AuthoredCamera();
+    EXPECT_TRUE(gameplay_camera != nullptr);
+    if (gameplay_camera == nullptr) return;
+    EXPECT_EQ(gameplay_camera->NodeId, 20);
+    EXPECT_EQ(
+        gameplay_camera->Projection,
+        EScene3DCameraProjection::Perspective);
+    EXPECT_NEAR(gameplay_camera->FovYDegrees, 70.0f, 1e-6f);
+    ExpectVec3Near(
+        gameplay_camera->Position, gameplay->World().position, 1e-5f);
+    ExpectVec3Near(
+        gameplay_camera->Forward,
+        Rotate(gameplay->World().rotation, FVec3{0, 0, 1}), 1e-5f);
+    ExpectVec3Near(
+        gameplay_camera->Up,
+        Rotate(gameplay->World().rotation, FVec3{0, 1, 0}), 1e-5f);
+
+    ANode* rig = runtime.Graph().Root().FindBySerialId(10);
+    EXPECT_TRUE(rig != nullptr);
+    if (rig == nullptr) return;
+    rig->Local().position = FVec3{100, 20, -30};
+    rig->Local().SetEulerDeg(FVec3{-15, 130, 25});
+    EXPECT_TRUE(runtime.RefreshActiveCamera());
+    gameplay_camera = runtime.AuthoredCamera();
+    EXPECT_TRUE(gameplay_camera != nullptr);
+    if (gameplay_camera == nullptr) return;
+    ExpectVec3Near(
+        gameplay_camera->Position, gameplay->World().position, 1e-4f);
+    ExpectVec3Near(
+        gameplay_camera->Forward,
+        Rotate(gameplay->World().rotation, FVec3{0, 0, 1}), 1e-4f);
+
+    EXPECT_TRUE(runtime.SetActiveCamera(30));
+    const i32 stable_node = runtime.AuthoredCamera()->NodeId;
+    rig->SetEnabled(false);
+    EXPECT_TRUE(!runtime.SetActiveCamera("camera-b"));
+    EXPECT_TRUE(!runtime.SetActiveCamera("missing-camera"));
+    EXPECT_EQ(runtime.AuthoredCamera()->NodeId, stable_node);
+
+    cinematic->SetEnabled(false);
+    EXPECT_TRUE(!runtime.RefreshActiveCamera());
+    EXPECT_TRUE(runtime.AuthoredCamera() == nullptr);
+    EXPECT_EQ(
+        runtime.ProjectionMode(),
+        ESceneProjectionMode::Perspective);
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         RejectsMalformedAndDuplicateCameraContractsTransactionally) {
+    constexpr char kInvalidOptics[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Camera\n"
+        "CAM3D 1 camera 0 0 1 60 10 1 1\n";
+    constexpr char kDuplicateIdentity[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 A\n"
+        "CAM3D 1 duplicate 0 0 1 60 10 0.1 1000\n"
+        "N3D 2 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 B\n"
+        "CAM3D 2 duplicate 0 1 0 60 10 0.1 1000\n";
+    constexpr char kInvalidIdentity[] =
+        "ACS3D v2\n"
+        "N3D 1 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Camera\n"
+        "CAM3D 1 bad/id 0 0 1 60 10 0.1 1000\n";
+
+    FLegacyScene3DAdapter runtime;
+    runtime.Graph().Spawn(FStringView("Keep"));
+    const FScene3DLoadResult optics =
+        runtime.LoadText(kInvalidOptics, sizeof(kInvalidOptics) - 1u);
+    EXPECT_EQ(optics.Error, EScene3DSerializeError::InvalidCamera);
+    EXPECT_TRUE(runtime.Graph().FindByName(FStringView("Keep")) != nullptr);
+    const FScene3DLoadResult duplicate = runtime.LoadText(
+        kDuplicateIdentity, sizeof(kDuplicateIdentity) - 1u);
+    EXPECT_EQ(duplicate.Error, EScene3DSerializeError::DuplicateCamera);
+    EXPECT_TRUE(runtime.Graph().FindByName(FStringView("Keep")) != nullptr);
+    const FScene3DLoadResult identity =
+        runtime.LoadText(kInvalidIdentity, sizeof(kInvalidIdentity) - 1u);
+    EXPECT_EQ(identity.Error, EScene3DSerializeError::InvalidCamera);
+    EXPECT_TRUE(runtime.Graph().FindByName(FStringView("Keep")) != nullptr);
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         SaveRoundTripPreservesCamerasAndPublishedGraphOwnership) {
+    constexpr char kScene[] =
+        "ACS3D v2\n"
+        "N3D 10 -1 -1 0 0 0 0 0 0 1 1 1 1 1 1 1 Rig\n"
+        "N3D 20 10 -1 1 2 3 0 10 0 1 1 1 1 1 1 1 Gameplay\n"
+        "CAM3D 20 gameplay.main 0 9 1 72 14 0.05 9000\n"
+        "N3D 30 -1 -1 4 5 6 0 20 0 1 1 1 1 1 1 1 Cinematic\n"
+        "CAM3D 30 cinematic.main 1 3 0 45 21 0.2 12000\n";
+
+    FScene3D source;
+    FScene3DLoadResult loaded =
+        TryLoadScene3DText(source, kScene, sizeof(kScene) - 1u);
+    EXPECT_TRUE(loaded.Succeeded());
+    EXPECT_EQ(loaded.CameraCount, 2u);
+
+    const FScene3DSaveResult query =
+        TrySaveScene3DText(source, nullptr, 0u);
+    EXPECT_EQ(query.Error, EScene3DSerializeError::BufferTooSmall);
+    EXPECT_EQ(query.CameraCount, 2u);
+
+    char saved_text[4096]{};
+    const FScene3DSaveResult saved =
+        TrySaveScene3DText(source, saved_text, sizeof(saved_text));
+    EXPECT_TRUE(saved.Succeeded());
+    EXPECT_EQ(saved.CameraCount, 2u);
+    EXPECT_EQ(saved.RequiredBytes, query.RequiredBytes);
+    EXPECT_EQ(saved.RequiredBytes, std::strlen(saved_text) + 1u);
+    EXPECT_TRUE(std::strstr(
+        saved_text,
+        "CAM3D 2 gameplay.main 0 9 1") != nullptr);
+    EXPECT_TRUE(std::strstr(
+        saved_text,
+        "CAM3D 3 cinematic.main 1 3 0") != nullptr);
+
+    FScene3D destination;
+    destination.Spawn(FStringView("MustBeReplaced"));
+    const FScene3DLoadResult roundtrip = TryLoadScene3DText(
+        destination, saved_text, saved.BytesWritten);
+    EXPECT_TRUE(roundtrip.Succeeded());
+    EXPECT_EQ(roundtrip.CameraCount, 2u);
+    EXPECT_TRUE(roundtrip.ActiveCamera.IsAuthored);
+    EXPECT_TRUE(std::strcmp(
+        roundtrip.ActiveCamera.StableId, "gameplay.main") == 0);
+
+    ANode* gameplay =
+        destination.Root().FindBySerialId(roundtrip.ActiveCamera.NodeId);
+    ANode* rig = destination.Root().FindBySerialId(1);
+    EXPECT_TRUE(gameplay != nullptr);
+    EXPECT_TRUE(rig != nullptr);
+    if (gameplay == nullptr || rig == nullptr) return;
+    EXPECT_TRUE(rig->Parent() == &destination.Root());
+    EXPECT_TRUE(gameplay->Parent() == rig);
+    EXPECT_TRUE(destination.Get(gameplay->Id()) == gameplay);
+    EXPECT_TRUE(destination.Get(rig->Id()) == rig);
+    const ACameraComponent3D* camera =
+        gameplay->GetComponent<ACameraComponent3D>();
+    EXPECT_TRUE(camera != nullptr);
+    if (camera == nullptr) return;
+    EXPECT_TRUE(std::strcmp(camera->StableId(), "gameplay.main") == 0);
+    EXPECT_NEAR(camera->FovYDegrees(), 72.0f, 1.0e-6f);
+}
+
+ACS_TEST(LegacyScene3DCameraRuntime,
+         CheckedComponentSetterIsStatePreserving) {
+    ACameraComponent3D component;
+    FScene3DCameraState valid;
+    valid.IsAuthored = true;
+    valid.Priority = 7;
+    valid.FovYDegrees = 75.0f;
+    valid.OrthographicHeight = 8.0f;
+    valid.NearPlane = 0.2f;
+    valid.FarPlane = 4000.0f;
+    std::memcpy(valid.StableId, "safe-camera", 12u);
+    EXPECT_TRUE(component.TrySetAuthoredState(valid));
+
+    FScene3DCameraState invalid = valid;
+    std::memset(
+        invalid.StableId, 'x',
+        sizeof(invalid.StableId));
+    invalid.FovYDegrees = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_TRUE(!component.TrySetAuthoredState(invalid));
+    EXPECT_TRUE(std::strcmp(component.StableId(), "safe-camera") == 0);
+    EXPECT_EQ(component.Priority(), 7);
+    EXPECT_NEAR(component.FovYDegrees(), 75.0f, 1.0e-6f);
+
+    FScene3D duplicate_component_scene;
+    ANode& camera_node =
+        duplicate_component_scene.Spawn(FStringView("Camera"));
+    ACameraComponent3D& first =
+        camera_node.AddComponent<ACameraComponent3D>();
+    ACameraComponent3D& second =
+        camera_node.AddComponent<ACameraComponent3D>();
+    FScene3DCameraState first_state = valid;
+    std::memcpy(first_state.StableId, "camera-a", 9u);
+    FScene3DCameraState second_state = valid;
+    std::memcpy(second_state.StableId, "camera-b", 9u);
+    EXPECT_TRUE(first.TrySetAuthoredState(first_state));
+    EXPECT_TRUE(second.TrySetAuthoredState(second_state));
+    char output[1024]{};
+    EXPECT_EQ(
+        TrySaveScene3DText(
+            duplicate_component_scene, output, sizeof(output)).Error,
+        EScene3DSerializeError::DuplicateCamera);
 }

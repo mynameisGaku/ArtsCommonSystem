@@ -313,6 +313,17 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0] == "--workspace-selftest")
         {
             int failures = EditorWorkspaceSelfTest.Run(Console.Error);
+            failures += ToolPanelDockingSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --camera-authoring-selftest -> authored camera identity,
+        // projection bounds, deterministic designation, and exclusive activation.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--camera-authoring-selftest")
+        {
+            int failures = CameraAuthoringSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }

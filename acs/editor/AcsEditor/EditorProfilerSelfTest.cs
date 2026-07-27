@@ -31,19 +31,19 @@ internal static class EditorProfilerSelfTest
                 snapshot) ==
             EditorCloudWorkloadQueryStatus.ContractError;
 
-        Check(Marshal.SizeOf<EditorProfilerSnapshot>() == 208,
-            "managed profiler snapshot keeps the version-3 ABI size");
-        Check(EditorProfilerContract.Version == 3,
-            "profiler contract requests the version-3 rolling-query ABI");
-        Check(EditorProfilerContract.SnapshotSize == 208,
+        Check(Marshal.SizeOf<EditorProfilerSnapshot>() == 224,
+            "managed profiler snapshot keeps the version-4 culling ABI size");
+        Check(EditorProfilerContract.Version == 4,
+            "profiler contract requests the version-4 culling ABI");
+        Check(EditorProfilerContract.SnapshotSize == 224,
             "profiler contract reports the packed snapshot size");
         Check(Marshal.SizeOf<EditorCloudWorkloadSnapshot>() == 168 &&
               EditorCloudWorkloadContract.Version == 1 &&
               EditorCloudWorkloadContract.SnapshotSize == 168,
             "cloud workload v1 uses an independent fixed 168-byte ABI");
-        Check(EditorProfilerContract.Version == 3 &&
-              EditorProfilerContract.SnapshotSize == 208,
-            "adding cloud workload diagnostics does not revise profiler v3");
+        Check(EditorProfilerContract.Version == 4 &&
+              EditorProfilerContract.SnapshotSize == 224,
+            "cloud workload remains independent from profiler v4");
 
         var workload = new EditorCloudWorkloadSnapshot
         {
@@ -346,6 +346,31 @@ internal static class EditorProfilerSelfTest
                   new EditorProfilerAverage(84.0f, 0.72f, 0.32f, 4.91f)) ==
               "Editor 84 FPS  |  GPU 204 FPS / 4.91 ms  |  CPU 0.72 ms",
             "compact summary distinguishes editor cadence from GPU throughput");
+        var cullingSnapshot = new EditorProfilerSnapshot
+        {
+            Flags =
+                EditorProfilerContract.FlagFrustumCullingEnabled |
+                EditorProfilerContract.FlagGameView |
+                EditorProfilerContract.FlagRuntimeSceneCamera,
+            FrustumTested = 420,
+            FrustumVisible = 125,
+            FrustumCulled = 295,
+            ActiveCameraNodeId = 17,
+        };
+        Check(
+            EditorProfilerFormatting.CullingState(cullingSnapshot) ==
+                "ON · Camera #17" &&
+            EditorProfilerFormatting.CullingCounts(cullingSnapshot) ==
+                "420 / 125 / 295" &&
+            EditorProfilerFormatting.CullingState(default) == "DISABLED",
+            "camera culling diagnostics expose state, exact counts and the runtime camera");
+        cullingSnapshot.Flags =
+            EditorProfilerContract.FlagFrustumCullingEnabled |
+            EditorProfilerContract.FlagGameView;
+        Check(
+            EditorProfilerFormatting.CullingState(cullingSnapshot) ==
+                "ON · Game fallback",
+            "camera culling diagnostics distinguish deterministic game fallback from editor navigation");
         Check(
             EditorProfilerPresentationPolicy.ShouldPresentDetails(
                 panelVisible: true,
@@ -455,6 +480,35 @@ internal static class EditorProfilerSelfTest
               !EngineViewport.ShouldRenderContinuously(
                   false, false, true, true, false, 0, 720),
             "native render pump uses Background for mandatory fairness and dormant recovery");
+        Check(
+            EngineViewport.ShouldRouteEditorViewportInteraction(
+                gameView: false) &&
+            !EngineViewport.ShouldRouteEditorViewportInteraction(
+                gameView: true),
+            "Game View routes gameplay input without mutating the independent editor navigation camera");
+        Check(
+            !EngineViewport.ShouldRouteGameplayInput(
+                gameView: false,
+                logicPlayActive: true) &&
+            !EngineViewport.ShouldRouteGameplayInput(
+                gameView: true,
+                logicPlayActive: false) &&
+            EngineViewport.ShouldRouteGameplayInput(
+                gameView: true,
+                logicPlayActive: true),
+            "gameplay input is isolated to an active Play session shown through Game View");
+        EditorViewSwitchPlan sceneWhilePlaying =
+            EditorViewSwitchPolicy.Plan(gameView: false, playState: 1);
+        EditorViewSwitchPlan gameWhilePlaying =
+            EditorViewSwitchPolicy.Plan(gameView: true, playState: 1);
+        Check(
+            !sceneWhilePlaying.StartPlay &&
+            !sceneWhilePlaying.StopPlay &&
+            !sceneWhilePlaying.MutateEditorNavigationCamera &&
+            !gameWhilePlaying.StartPlay &&
+            !gameWhilePlaying.StopPlay &&
+            !gameWhilePlaying.MutateEditorNavigationCamera,
+            "Scene/Game tab switching keeps Play running and preserves the exact editor camera pose");
         Check(EngineViewport.MaxDirectRenderBurstFrames == 8 &&
               Math.Abs(EngineViewport.MaxDirectRenderBurstMilliseconds - 8.0) < 0.001 &&
               !EngineViewport.ShouldYieldRenderBurst(7, 7.99) &&

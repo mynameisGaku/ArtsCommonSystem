@@ -60,11 +60,16 @@ internal struct EditorProfilerSnapshot
     public float CloudGpuWindowPeakMs;
     public float FogGpuWindowPeakMs;
     public float PostGpuWindowPeakMs;
+
+    public uint FrustumTested;
+    public uint FrustumVisible;
+    public uint FrustumCulled;
+    public int ActiveCameraNodeId;
 }
 
 internal static class EditorProfilerContract
 {
-    internal const uint Version = 3;
+    internal const uint Version = 4;
     internal const uint TimingCpuRecordSubmit = 1;
     internal const uint TimingGpuTimestamp = 2;
 
@@ -74,6 +79,9 @@ internal static class EditorProfilerContract
     internal const uint FlagAerialPerspective = 1u << 3;
     internal const uint FlagGpuTimingsValid = 1u << 4;
     internal const uint FlagSceneMeshCacheRebuilt = 1u << 5;
+    internal const uint FlagFrustumCullingEnabled = 1u << 6;
+    internal const uint FlagGameView = 1u << 7;
+    internal const uint FlagRuntimeSceneCamera = 1u << 8;
 
     internal static uint SnapshotSize =>
         checked((uint)Marshal.SizeOf<EditorProfilerSnapshot>());
@@ -906,6 +914,96 @@ internal static class EngineInterop
         IntPtr handle, out float yaw, out float pitch, out float distance,
         out float targetX, out float targetY, out float targetZ);
 
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_game_camera3d_get(
+        IntPtr handle,
+        float aspect,
+        out int projection,
+        out int sourceNodeId,
+        [Out] float[] position3,
+        [Out] float[] forward3,
+        [Out] float[] up3,
+        [Out] float[] projection4);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_game_camera_preview_set(
+        IntPtr handle, int nodeId);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_game_camera_preview_clear(
+        IntPtr handle);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_game_camera_preview_get(
+        IntPtr handle, out int nodeId);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_camera_frustum_set_visible(
+        IntPtr handle, int visible);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_camera_frustum_get_visible(
+        IntPtr handle);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_camera3d_count(
+        IntPtr handle);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_camera3d_node_id_at(
+        IntPtr handle, int index);
+
+    // ----- authored 3D cameras (CAM3D records) -----
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_add_camera3d(
+        IntPtr handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string stableId);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_camera_get(
+        IntPtr handle,
+        int nodeId,
+        [Out] byte[] stableId,
+        int stableCapacity,
+        out int projection,
+        out int priority,
+        out int active,
+        [Out] float[] projectionValues);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_camera_set(
+        IntPtr handle,
+        int nodeId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string stableId,
+        int projection,
+        int priority,
+        int active,
+        float fieldOfViewDegrees,
+        float orthographicHeight,
+        float nearPlane,
+        float farPlane);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_camera_clear(
+        IntPtr handle,
+        int nodeId);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_camera_align_to_view(
+        IntPtr handle,
+        int nodeId);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_scene3d_active_camera(
+        IntPtr handle,
+        out int nodeId,
+        [Out] byte[] stableId,
+        int stableCapacity,
+        out int projection,
+        out int priority,
+        [Out] float[] projectionValues);
+
     // ----- transform gizmo (move / rotate / scale) -----
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_gizmo_set_mode(IntPtr handle, int mode);
@@ -1007,6 +1105,9 @@ internal static class EngineInterop
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void acs_editor_logic_input_mouse_move(IntPtr handle, float x, float y);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void acs_editor_logic_input_reset(IntPtr handle);
 
     // ゲームビュー (Game View タブ): editor chrome を消してゲーム画面だけ描く。
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

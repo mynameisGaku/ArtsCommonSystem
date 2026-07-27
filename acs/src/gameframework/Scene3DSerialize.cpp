@@ -4,6 +4,7 @@
 #include "gameframework/Scene3D.h"
 #include "gameframework/ANode.h"
 #include "gameframework/AssetPack.h"
+#include "gameframework/CameraComponent3D.h"
 #include "gameframework/ComponentFactory.h"
 #include "gameframework/Material2D.h"
 #include "gameframework/MeshComponent3D.h"
@@ -77,6 +78,30 @@ struct FParsedComponentProperty {
     f32 Value[4]{};
 };
 
+struct FParsedCamera {
+    u32 NodeIndex = 0u;
+    i32 NodeId = -1;
+    i32 Priority = 0;
+    EScene3DCameraProjection Projection =
+        EScene3DCameraProjection::Perspective;
+    bool ActivePreferred = false;
+    f32 FovYDegrees = 60.0f;
+    f32 OrthographicHeight = 10.0f;
+    f32 NearPlane = 0.05f;
+    f32 FarPlane = 1000.0f;
+    char StableId[kScene3DSerializeMaxCameraIdBytes + 1u]{};
+};
+
+constexpr i32 kScene3DCameraMinPriority = -1000000;
+constexpr i32 kScene3DCameraMaxPriority = 1000000;
+constexpr f32 kScene3DCameraMinFovDegrees = 1.0f;
+constexpr f32 kScene3DCameraMaxFovDegrees = 179.0f;
+constexpr f32 kScene3DCameraMinOrthoHeight = 0.001f;
+constexpr f32 kScene3DCameraMaxOrthoHeight = 1000000.0f;
+constexpr f32 kScene3DCameraMinNearPlane = 0.0001f;
+constexpr f32 kScene3DCameraMaxNearPlane = 1000000.0f;
+constexpr f32 kScene3DCameraMaxFarPlane = 1000000000.0f;
+
 /** const ノードから最初の AMeshComponent3D を探す。 */
 const AMeshComponent3D* FindMesh(const ANode& node) noexcept {
     const void* kind = ComponentKindOf<AMeshComponent3D>();
@@ -86,6 +111,28 @@ const AMeshComponent3D* FindMesh(const ANode& node) noexcept {
             return static_cast<const AMeshComponent3D*>(component);
     }
     return nullptr;
+}
+
+const ACameraComponent3D* FindCamera(const ANode& node) noexcept {
+    const void* kind = ComponentKindOf<ACameraComponent3D>();
+    for (u32 i = 0; i < node.ComponentCount(); ++i) {
+        const AComponent* component = node.ComponentAt(i);
+        if (component != nullptr && component->Kind() == kind)
+            return static_cast<const ACameraComponent3D*>(component);
+    }
+    return nullptr;
+}
+
+bool HasMultipleCameras(const ANode& node) noexcept {
+    const void* kind = ComponentKindOf<ACameraComponent3D>();
+    bool found = false;
+    for (u32 i = 0u; i < node.ComponentCount(); ++i) {
+        const AComponent* component = node.ComponentAt(i);
+        if (component == nullptr || component->Kind() != kind) continue;
+        if (found) return true;
+        found = true;
+    }
+    return false;
 }
 
 bool IsFinite(FVec3 value) noexcept {
@@ -238,6 +285,39 @@ EScene3DSerializeError FormatMeshLine(
 
     const int written = std::snprintf(
         line, static_cast<size_t>(capacity), "MSH3D %d %s\n", id, path);
+    if (written <= 0 || static_cast<u32>(written) >= capacity)
+        return EScene3DSerializeError::SerializedSizeOverflow;
+    line_size = static_cast<u32>(written);
+    return EScene3DSerializeError::None;
+}
+
+EScene3DSerializeError FormatCameraLine(
+    const ACameraComponent3D& camera, i32 id, char* line, u32 capacity,
+    u32& line_size) noexcept {
+    FScene3DCameraState checked;
+    checked.IsAuthored = true;
+    checked.IsActivePreferred = camera.IsActivePreferred();
+    checked.Priority = camera.Priority();
+    checked.Projection = camera.Projection();
+    checked.FovYDegrees = camera.FovYDegrees();
+    checked.OrthographicHeight = camera.OrthographicHeight();
+    checked.NearPlane = camera.NearPlane();
+    checked.FarPlane = camera.FarPlane();
+    std::snprintf(
+        checked.StableId, sizeof(checked.StableId), "%s", camera.StableId());
+    ACameraComponent3D validator;
+    if (!validator.TrySetAuthoredState(checked))
+        return EScene3DSerializeError::InvalidCamera;
+
+    const int written = std::snprintf(
+        line, static_cast<size_t>(capacity),
+        "CAM3D %d %s %d %d %d %.9g %.9g %.9g %.9g\n",
+        id, camera.StableId(), static_cast<int>(camera.Projection()),
+        camera.Priority(), camera.IsActivePreferred() ? 1 : 0,
+        static_cast<double>(camera.FovYDegrees()),
+        static_cast<double>(camera.OrthographicHeight()),
+        static_cast<double>(camera.NearPlane()),
+        static_cast<double>(camera.FarPlane()));
     if (written <= 0 || static_cast<u32>(written) >= capacity)
         return EScene3DSerializeError::SerializedSizeOverflow;
     line_size = static_cast<u32>(written);
@@ -414,6 +494,30 @@ bool IsOnlyWhitespace(const char* cursor, const char* end) noexcept {
     return cursor == end;
 }
 
+bool IsCameraIdByte(char value, bool first) noexcept {
+    const bool alpha = (value >= 'A' && value <= 'Z')
+                    || (value >= 'a' && value <= 'z');
+    const bool digit = value >= '0' && value <= '9';
+    return alpha || digit || (!first && (value == '_' || value == '.'
+                                         || value == '-'));
+}
+
+bool ParseCameraId(
+    const char*& cursor, const char* end,
+    char (&destination)[kScene3DSerializeMaxCameraIdBytes + 1u]) noexcept {
+    SkipSpaces(cursor, end);
+    const char* begin = cursor;
+    while (cursor < end && *cursor != ' ' && *cursor != '\t') ++cursor;
+    const u32 size = static_cast<u32>(cursor - begin);
+    if (size == 0u || size > kScene3DSerializeMaxCameraIdBytes) return false;
+    for (u32 index = 0u; index < size; ++index) {
+        if (!IsCameraIdByte(begin[index], index == 0u)) return false;
+        destination[index] = begin[index];
+    }
+    destination[size] = '\0';
+    return true;
+}
+
 u32* FindNodeIndex(THashMap<i32, u32>& id_to_index, i32 id) noexcept {
     return id >= 0 ? id_to_index.Find(id) : nullptr;
 }
@@ -562,6 +666,64 @@ EScene3DSerializeError ParseComponentPropertyLine(
     return EScene3DSerializeError::None;
 }
 
+EScene3DSerializeError ParseCameraLine(
+    const char* line, u32 size, const TArray<FParsedNode>& nodes,
+    THashMap<i32, u32>& id_to_index,
+    TArray<FParsedCamera>& cameras) noexcept {
+    if (cameras.Size() >= kScene3DSerializeMaxCameraCount)
+        return EScene3DSerializeError::CameraLimitExceeded;
+
+    const char* cursor = line + 6u;
+    const char* end = line + size;
+    i32 node_id = -1;
+    i32 projection = -1;
+    i32 active = -1;
+    FParsedCamera parsed;
+    if (!ParseI32(cursor, end, node_id))
+        return EScene3DSerializeError::InvalidInteger;
+    const u32* node_index = id_to_index.Find(node_id);
+    if (node_id < 0 || node_index == nullptr || *node_index >= nodes.Size())
+        return EScene3DSerializeError::InvalidNodeId;
+    if (!ParseCameraId(cursor, end, parsed.StableId)
+        || !ParseI32(cursor, end, projection)
+        || !ParseI32(cursor, end, parsed.Priority)
+        || !ParseI32(cursor, end, active)
+        || !ParseF32(cursor, end, parsed.FovYDegrees)
+        || !ParseF32(cursor, end, parsed.OrthographicHeight)
+        || !ParseF32(cursor, end, parsed.NearPlane)
+        || !ParseF32(cursor, end, parsed.FarPlane)
+        || !IsOnlyWhitespace(cursor, end)) {
+        return EScene3DSerializeError::InvalidCamera;
+    }
+    if ((projection != 0 && projection != 1)
+        || (active != 0 && active != 1)
+        || parsed.Priority < kScene3DCameraMinPriority
+        || parsed.Priority > kScene3DCameraMaxPriority
+        || parsed.FovYDegrees < kScene3DCameraMinFovDegrees
+        || parsed.FovYDegrees > kScene3DCameraMaxFovDegrees
+        || parsed.OrthographicHeight < kScene3DCameraMinOrthoHeight
+        || parsed.OrthographicHeight > kScene3DCameraMaxOrthoHeight
+        || parsed.NearPlane < kScene3DCameraMinNearPlane
+        || parsed.NearPlane > kScene3DCameraMaxNearPlane
+        || parsed.FarPlane <= parsed.NearPlane
+        || parsed.FarPlane > kScene3DCameraMaxFarPlane) {
+        return EScene3DSerializeError::InvalidCamera;
+    }
+    for (u32 index = 0u; index < cameras.Size(); ++index) {
+        if (cameras[index].NodeIndex == *node_index
+            || std::strcmp(cameras[index].StableId, parsed.StableId) == 0) {
+            return EScene3DSerializeError::DuplicateCamera;
+        }
+    }
+    parsed.NodeIndex = *node_index;
+    parsed.NodeId = node_id;
+    parsed.Projection = static_cast<EScene3DCameraProjection>(projection);
+    parsed.ActivePreferred = active != 0;
+    if (!cameras.TryPushBack(parsed))
+        return EScene3DSerializeError::AllocationFailure;
+    return EScene3DSerializeError::None;
+}
+
 EScene3DSerializeError PrepareComponents(
     TArray<FParsedComponent>& components,
     const TArray<FParsedComponentProperty>& properties) noexcept {
@@ -638,6 +800,9 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
     case EScene3DSerializeError::InvalidMaterial:         return "invalid_material";
     case EScene3DSerializeError::InvalidComponent:        return "invalid_component";
     case EScene3DSerializeError::InvalidComponentProperty:return "invalid_component_property";
+    case EScene3DSerializeError::InvalidCamera:           return "invalid_camera";
+    case EScene3DSerializeError::DuplicateCamera:         return "duplicate_camera";
+    case EScene3DSerializeError::CameraLimitExceeded:     return "camera_limit_exceeded";
     case EScene3DSerializeError::DirectiveLimitExceeded:  return "directive_limit_exceeded";
     case EScene3DSerializeError::ComponentLimitExceeded:  return "component_limit_exceeded";
     case EScene3DSerializeError::FileOpenFailed:          return "file_open_failed";
@@ -685,6 +850,37 @@ FScene3DSaveResult TrySaveScene3DText(
             }
             ++result.MeshPathCount;
         }
+        const ACameraComponent3D* camera = FindCamera(*nodes[i]);
+        if (camera != nullptr) {
+            if (HasMultipleCameras(*nodes[i])) {
+                result.Error = EScene3DSerializeError::DuplicateCamera;
+                return result;
+            }
+            if (result.CameraCount >= kScene3DSerializeMaxCameraCount) {
+                result.Error =
+                    EScene3DSerializeError::CameraLimitExceeded;
+                return result;
+            }
+            for (u32 previous = 0u; previous < i; ++previous) {
+                const ACameraComponent3D* previous_camera =
+                    FindCamera(*nodes[previous]);
+                if (previous_camera != nullptr
+                    && std::strcmp(
+                        previous_camera->StableId(), camera->StableId()) == 0) {
+                    result.Error = EScene3DSerializeError::DuplicateCamera;
+                    return result;
+                }
+            }
+            result.Error = FormatCameraLine(
+                *camera, static_cast<i32>(i), line, sizeof(line), line_size);
+            if (result.Error != EScene3DSerializeError::None) return result;
+            if (!CheckedAdd(text_bytes, line_size)) {
+                result.Error =
+                    EScene3DSerializeError::SerializedSizeOverflow;
+                return result;
+            }
+            ++result.CameraCount;
+        }
     }
     result.RequiredBytes = text_bytes;
     if (!CheckedAdd(result.RequiredBytes, 1u)) {
@@ -704,6 +900,7 @@ FScene3DSaveResult TrySaveScene3DText(
 
     u32 cursor = 0u;
     u32 emitted_mesh_paths = 0u;
+    u32 emitted_cameras = 0u;
     for (u32 i = 0u; i < nodes.Size(); ++i) {
         u32 line_size = 0u;
         result.Error = FormatNodeLine(
@@ -734,11 +931,27 @@ FScene3DSaveResult TrySaveScene3DText(
             cursor += line_size;
             ++emitted_mesh_paths;
         }
+        const ACameraComponent3D* camera = FindCamera(*nodes[i]);
+        if (camera != nullptr) {
+            result.Error = FormatCameraLine(
+                *camera, static_cast<i32>(i), line, sizeof(line), line_size);
+            if (result.Error != EScene3DSerializeError::None
+                || line_size > cap - cursor - 1u) {
+                result.Error = EScene3DSerializeError::SceneChangedDuringSave;
+                result.BytesWritten = cursor;
+                out[cursor] = '\0';
+                return result;
+            }
+            std::memcpy(out + cursor, line, line_size);
+            cursor += line_size;
+            ++emitted_cameras;
+        }
     }
     out[cursor] = '\0';
     result.BytesWritten = cursor;
     if (cursor + 1u != result.RequiredBytes
-        || emitted_mesh_paths != result.MeshPathCount) {
+        || emitted_mesh_paths != result.MeshPathCount
+        || emitted_cameras != result.CameraCount) {
         result.Error = EScene3DSerializeError::SceneChangedDuringSave;
         return result;
     }
@@ -757,10 +970,130 @@ struct FParsedScene3DDocument {
     TArray<FParsedNode> Nodes;
     TArray<FParsedComponent> Components;
     TArray<FParsedComponentProperty> Properties;
+    TArray<FParsedCamera> Cameras;
     bool EditorDocument = false;
     u32 MeshPathCount = 0u;
     u32 SourceBytes = 0u;
 };
+
+bool CameraRecordPrecedes(
+    const FParsedCamera& left, const FParsedCamera& right) noexcept {
+    if (left.ActivePreferred != right.ActivePreferred)
+        return left.ActivePreferred;
+    if (left.Priority != right.Priority) return left.Priority > right.Priority;
+    const int identity_order = std::strcmp(left.StableId, right.StableId);
+    if (identity_order != 0) return identity_order < 0;
+    return left.NodeId < right.NodeId;
+}
+
+bool ParsedNodeEffectivelyEnabled(
+    const TArray<FParsedNode>& nodes, u32 node_index) noexcept {
+    u32 traversed = 0u;
+    i32 current = static_cast<i32>(node_index);
+    while (current >= 0) {
+        if (static_cast<u32>(current) >= nodes.Size()
+            || traversed++ > kScene3DSerializeMaxTreeDepth
+            || !nodes[static_cast<u32>(current)].Enabled) {
+            return false;
+        }
+        current = nodes[static_cast<u32>(current)].ParentIndex;
+    }
+    return true;
+}
+
+bool NormalizeCameraVector(FVec3 input, FVec3& output) noexcept {
+    const f32 length_squared =
+        input.x * input.x + input.y * input.y + input.z * input.z;
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-12f)
+        return false;
+    const f32 inverse_length = 1.0f / std::sqrt(length_squared);
+    output = FVec3{
+        input.x * inverse_length,
+        input.y * inverse_length,
+        input.z * inverse_length};
+    return IsFinite(output);
+}
+
+FVec3 CrossCameraVector(FVec3 left, FVec3 right) noexcept {
+    return FVec3{
+        left.y * right.z - left.z * right.y,
+        left.z * right.x - left.x * right.z,
+        left.x * right.y - left.y * right.x};
+}
+
+EScene3DSerializeError BuildSelectedCameraState(
+    const FParsedScene3DDocument& document,
+    FScene3DCameraState& selected,
+    u32& active_preferred_count) noexcept {
+    active_preferred_count = 0u;
+    const FParsedCamera* best = nullptr;
+    for (u32 index = 0u; index < document.Cameras.Size(); ++index) {
+        const FParsedCamera& candidate = document.Cameras[index];
+        if (candidate.ActivePreferred) ++active_preferred_count;
+        if (!ParsedNodeEffectivelyEnabled(document.Nodes, candidate.NodeIndex))
+            continue;
+        if (best == nullptr || CameraRecordPrecedes(candidate, *best))
+            best = &candidate;
+    }
+    if (best == nullptr) return EScene3DSerializeError::None;
+
+    TArray<FTransform3D> world_transforms;
+    if (!world_transforms.TryResize(document.Nodes.Size()))
+        return EScene3DSerializeError::AllocationFailure;
+    for (u32 index = 0u; index < document.Nodes.Size(); ++index) {
+        const FParsedNode& node = document.Nodes[index];
+        FTransform3D local;
+        local.position = node.Position;
+        local.SetEulerDeg(node.RotationDeg);
+        local.scale = node.Scale;
+        if (node.ParentIndex >= 0) {
+            const u32 parent_index = static_cast<u32>(node.ParentIndex);
+            if (parent_index >= index)
+                return EScene3DSerializeError::InvalidParent;
+            world_transforms[index] =
+                world_transforms[parent_index].Compose(local);
+        } else {
+            world_transforms[index] = local;
+        }
+    }
+
+    const FTransform3D& world = world_transforms[best->NodeIndex];
+    if (!IsFinite(world.position))
+        return EScene3DSerializeError::InvalidCamera;
+    FVec3 forward;
+    FVec3 authored_up;
+    if (!NormalizeCameraVector(
+            Rotate(world.rotation, FVec3{0.0f, 0.0f, 1.0f}), forward)
+        || !NormalizeCameraVector(
+            Rotate(world.rotation, FVec3{0.0f, 1.0f, 0.0f}), authored_up)) {
+        return EScene3DSerializeError::InvalidCamera;
+    }
+    FVec3 right;
+    FVec3 up;
+    if (!NormalizeCameraVector(
+            CrossCameraVector(authored_up, forward), right)
+        || !NormalizeCameraVector(
+            CrossCameraVector(forward, right), up)) {
+        return EScene3DSerializeError::InvalidCamera;
+    }
+
+    selected.IsAuthored = true;
+    selected.IsActivePreferred = best->ActivePreferred;
+    selected.NodeId = best->NodeId;
+    selected.Priority = best->Priority;
+    selected.Projection = best->Projection;
+    selected.FovYDegrees = best->FovYDegrees;
+    selected.OrthographicHeight = best->OrthographicHeight;
+    selected.NearPlane = best->NearPlane;
+    selected.FarPlane = best->FarPlane;
+    selected.Position = world.position;
+    selected.Forward = forward;
+    selected.Up = up;
+    std::memcpy(
+        selected.StableId, best->StableId,
+        kScene3DSerializeMaxCameraIdBytes + 1u);
+    return EScene3DSerializeError::None;
+}
 
 bool StartsWith(const char* line, u32 size, const char* prefix, u32 prefix_size) noexcept {
     return size >= prefix_size && std::memcmp(line, prefix, prefix_size) == 0;
@@ -862,6 +1195,10 @@ FScene3DLoadResult ParseScene3DDocument(
             error = ParseComponentPropertyLine(
                 line, line_size, document.Nodes, id_to_index,
                 document.Properties);
+        } else if (StartsWith(line, line_size, "CAM3D ", 6u)) {
+            error = ParseCameraLine(
+                line, line_size, document.Nodes, id_to_index,
+                document.Cameras);
         } else if (document.EditorDocument
                    && StartsWith(line, line_size, "SEL3D ", 6u)) {
             const char* selection = line + 6u;
@@ -923,6 +1260,17 @@ FScene3DLoadResult ParseScene3DDocument(
 FScene3DLoadResult CommitScene3DDocument(
     FScene3D& scene, FParsedScene3DDocument& document,
     u32 dependencies_loaded) noexcept {
+    FScene3DCameraState active_camera;
+    u32 active_preferred_camera_count = 0u;
+    const EScene3DSerializeError camera_error = BuildSelectedCameraState(
+        document, active_camera, active_preferred_camera_count);
+    if (camera_error != EScene3DSerializeError::None) {
+        return LoadFailure(
+            camera_error, document.SourceBytes, 0u,
+            static_cast<u32>(document.Nodes.Size()),
+            document.MeshPathCount);
+    }
+
     TArray<ANode*> runtime_nodes;
     if (!runtime_nodes.TryReserve(document.Nodes.Size())) {
         return LoadFailure(
@@ -931,21 +1279,24 @@ FScene3DLoadResult CommitScene3DDocument(
             document.MeshPathCount);
     }
 
-    scene.Clear();
-    scene.Root().RemoveAllComponents();
-    scene.Root().SetName(FStringView("Root"));
-    scene.Root().Local() = FTransform3D{};
-    scene.Root().SetVisible(true);
-    scene.Root().SetEnabled(true);
+    // Build into a private graph. The caller's graph is not touched until the
+    // full node/component/camera commit has succeeded.
+    FScene3D staged_scene;
+    staged_scene.Clear();
+    staged_scene.Root().RemoveAllComponents();
+    staged_scene.Root().SetName(FStringView("Root"));
+    staged_scene.Root().Local() = FTransform3D{};
+    staged_scene.Root().SetVisible(true);
+    staged_scene.Root().SetEnabled(true);
 
     for (u32 i = 0u; i < document.Nodes.Size(); ++i) {
         FParsedNode& record = document.Nodes[i];
         ANode* node = nullptr;
         if (!document.EditorDocument && i == 0u) {
-            node = &scene.Root();
+            node = &staged_scene.Root();
             node->SetName(FStringView(record.Name));
         } else {
-            ANode* parent = &scene.Root();
+            ANode* parent = &staged_scene.Root();
             if (record.ParentIndex >= 0) {
                 const u32 parent_index =
                     static_cast<u32>(record.ParentIndex);
@@ -959,7 +1310,7 @@ FScene3DLoadResult CommitScene3DDocument(
                 parent = runtime_nodes[parent_index];
             }
             const FScene3DSpawnResult spawned =
-                scene.TrySpawn(FStringView(record.Name), parent);
+                staged_scene.TrySpawn(FStringView(record.Name), parent);
             if (!spawned.Succeeded()) {
                 return LoadFailure(
                     EScene3DSerializeError::AllocationFailure,
@@ -1019,7 +1370,41 @@ FScene3DLoadResult CommitScene3DDocument(
             Move(component.Instance));
     }
 
-    return FScene3DLoadResult{
+    for (u32 i = 0u; i < document.Cameras.Size(); ++i) {
+        const FParsedCamera& camera = document.Cameras[i];
+        if (camera.NodeIndex >= runtime_nodes.Size()) {
+            return LoadFailure(
+                EScene3DSerializeError::InvalidCamera,
+                document.SourceBytes, 0u,
+                static_cast<u32>(document.Nodes.Size()),
+                document.MeshPathCount);
+        }
+        FScene3DCameraState authored;
+        authored.IsAuthored = true;
+        authored.IsActivePreferred = camera.ActivePreferred;
+        authored.NodeId = camera.NodeId;
+        authored.Priority = camera.Priority;
+        authored.Projection = camera.Projection;
+        authored.FovYDegrees = camera.FovYDegrees;
+        authored.OrthographicHeight = camera.OrthographicHeight;
+        authored.NearPlane = camera.NearPlane;
+        authored.FarPlane = camera.FarPlane;
+        std::memcpy(
+            authored.StableId, camera.StableId,
+            kScene3DSerializeMaxCameraIdBytes + 1u);
+        ACameraComponent3D& component =
+            runtime_nodes[camera.NodeIndex]
+                ->AddComponent<ACameraComponent3D>();
+        if (!component.TrySetAuthoredState(authored)) {
+            return LoadFailure(
+                EScene3DSerializeError::InvalidCamera,
+                document.SourceBytes, 0u,
+                static_cast<u32>(document.Nodes.Size()),
+                document.MeshPathCount);
+        }
+    }
+
+    FScene3DLoadResult result{
         EScene3DSerializeError::None,
         document.SourceBytes,
         static_cast<u32>(document.Nodes.Size())
@@ -1028,6 +1413,11 @@ FScene3DLoadResult CommitScene3DDocument(
         0u,
         dependencies_loaded
     };
+    result.CameraCount = document.Cameras.Size();
+    result.ActivePreferredCameraCount = active_preferred_camera_count;
+    result.ActiveCamera = active_camera;
+    scene.SwapContents(staged_scene);
+    return result;
 }
 
 bool EndsWithIgnoreCase(const char* path, const char* extension) noexcept {

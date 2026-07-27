@@ -192,6 +192,26 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="CAMERA CULLING"
+                                   Foreground="{StaticResource TextDim}" FontSize="10"
+                                   ToolTip="One conservative frustum test per eligible authored 3D render node. Downstream depth, motion, opaque and transmission passes reuse the same decision."/>
+                        <TextBlock x:Name="CullingStateValue" Grid.Column="1"
+                                   Text="DISABLED" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="1" Text="Tested / visible / culled"/>
+                        <TextBlock x:Name="CullingCountsValue" Grid.Row="1" Grid.Column="1"
+                                   Text="0 / 0 / 0" FontFamily="Consolas"/>
+                    </Grid>
+
+                    <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>

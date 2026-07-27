@@ -71,6 +71,8 @@ public:
                                 const FClearColor& clear,
                                 IRhiTexture* depth = nullptr,
                                 f32 depth_clear = 1.0f) noexcept override;
+    void BeginRenderToSwapchainLoad(
+        IRhiSwapchain& sc, u32 buffer_index) noexcept override;
 
     /**
      * バックバッファを RenderTarget→Present へ戻してパスを終了する。

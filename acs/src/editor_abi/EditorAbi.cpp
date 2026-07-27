@@ -74,6 +74,7 @@
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
 #include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
+#include "editor_abi/EditorFrustumCulling.h"
 #include "editor_abi/EditorCloudWorkload.h"  // optional exact cloud-work snapshot ABI
 #include "editor_abi/EditorFrameContract.h"  // busy/fatal/presented frame contract
 #include "editor_abi/EditorAbiCapabilities.h" // versioned host capability negotiation
@@ -257,6 +258,16 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
         material_expression_tex[kShaderExpressionMaxTextureSlots];
     FMat4         prev_world = FMat4::Identity(); ///< 前フレームの world 行列 (FMotionVector のモーションベクタ用、実行時のみ・非シリアライズ)。
     bool          prev_world_valid = false;       ///< prev_world が前フレーム値を持つか (新規ノードは初回 motion=0)。
+    bool          has_scene_camera = false;       ///< CAM3D authored camera component is present.
+    char          scene_camera_id[
+        game::kScene3DSerializeMaxCameraIdBytes + 1u] = {};
+    int           scene_camera_projection = 0;    ///< 0=Perspective, 1=Orthographic.
+    int           scene_camera_priority = 0;
+    bool          scene_camera_active = false;
+    f32           scene_camera_fov_deg = 60.0f;
+    f32           scene_camera_ortho_height = 10.0f;
+    f32           scene_camera_near = 0.05f;
+    f32           scene_camera_far = 1000.0f;
     // アタッチされた Component 型 (リフレクション type-id)。2D の AEditorNode と同じ «エディタ・メタデータ» 方式。
     game::FTypeId components[kMaxComponents] = {};
     u32           component_count            = 0;
@@ -643,6 +654,7 @@ struct FEditorHost {
     TUniquePtr<IRhiBuffer>   shadow_cascade_cb[acs::FShadowMap::kMaxCascades];  // CSM: cascade 毎に別 CB (1フレーム内の上書き回避)
     bool                     shadow_ready = false;
     FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
+    FDebugDraw3D    camera_frustum_dbg3d; // post後のdisplay-space camera線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     u32          r3d_init_phase = 0;      // incremental startup phase
     bool         r3d_init_failed = false;
@@ -651,9 +663,16 @@ struct FEditorHost {
     TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;
     TSharedPtr<FMeshAsset> cpu_water_plane;
     TArray<game::ANode*> scene_mesh_nodes;
+    TArray<game::ANode*> camera_resolve_nodes;
+    TArray<int> camera_node_ids_scratch;
     TArray<FM3DVtx> scene_mesh_vertices;
     TArray<FSceneMeshCacheKey> scene_mesh_key;
     TArray<FSceneMeshCacheKey> scene_mesh_key_scratch;
+    TArray<u32> scene_mesh_vertex_offset;
+    TArray<u32> scene_mesh_vertex_count;
+    TArray<FVec3> scene_mesh_local_center;
+    TArray<f32> scene_mesh_local_radius;
+    TArray<u8> scene_mesh_visible;
     // Hot render-path scratch. Capacity is retained by the host so selecting
     // an object or drawing sprites never allocates after the first warm frame.
     TArray<FM3DVtx> gizmo_vertices;
@@ -666,6 +685,9 @@ struct FEditorHost {
     u64 scene_mesh_revision = 0u;
     u64 vxgi_tri_uploaded_revision = 0u;
     bool scene_mesh_cache_valid = false;
+    int last_render_camera_node_id = -2; // -2=Scene View, -1=game fallback
+    int game_camera_preview_node_id = -1; // non-persistent Camera View override
+    bool show_camera_frustum = true;
     int          sel3d         = -1;      // primary (active) 3D ノード id。常に sel3d_multi の一員、空なら -1。
     TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
     int          next_id3d     = 1;
@@ -704,6 +726,16 @@ struct FEditorHost {
     // Play モード (物理プレビュー): 0=stopped, 1=playing, 2=paused。
     int                            play_state    = 0;
     char*                          play_snapshot = nullptr;   // play 開始時のシーン (停止で復元)
+    bool                           play_camera_snapshot_valid = false;
+    f32                            play_cam_pan_x = 0.0f;
+    f32                            play_cam_pan_y = 0.0f;
+    f32                            play_cam_zoom = 1.0f;
+    bool                           play_view3d = false;
+    bool                           play_ortho3d = false;
+    f32                            play_cam3d_yaw = 0.0f;
+    f32                            play_cam3d_pitch = 0.0f;
+    f32                            play_cam3d_dist = 14.0f;
+    FVec3                          play_cam3d_target{0.0f, 1.0f, 0.0f};
     TUniquePtr<game::FRigidWorld2D> play_world;
     TArray<u32>                    play_body;                 // world ボディ index (play_node と parallel)
     TArray<int>                    play_node;                 // 対応する編集ノード id (parallel)
@@ -730,15 +762,14 @@ struct FEditorHost {
     bool      logic_play  = false;
     FGameShim logic_shim;
     TArray<game::FTransform2D> logic_saved;  // Play 開始時の各ノード transform (停止で復元)
-    // Play 開始時の editor カメラ (停止で復元)。Play 中は game camera を読み戻して追従する。
-    f32  logic_cam_pan_x = 0.0f;
-    f32  logic_cam_pan_y = 0.0f;
-    f32  logic_cam_zoom  = 1.0f;
-    // Play 開始時に game へ渡したカメラ (center/zoom)。get_camera がこれと «変わったら» 追従を開始する
-    // (= ユーザーロジックがカメラを動かしたときだけ。動かさなければ Play 中も手動 pan/zoom を許す)。
+    // Play 開始時に game へ渡した deterministic camera (center/zoom)。
+    // get_camera がこれと変わったら、以後は game camera の値を保持する。
     f32  logic_game_cam0_x   = 0.0f;
     f32  logic_game_cam0_y   = 0.0f;
     f32  logic_game_cam0_zoom = 1.0f;
+    f32  logic_game_pan_x = 0.0f;
+    f32  logic_game_pan_y = 0.0f;
+    f32  logic_game_zoom = 1.0f;
     bool logic_cam_following  = false;   // game がカメラを動かして追従モードに入ったか
 
     // トランスフォームギズモの状態。
@@ -1219,10 +1250,19 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.giz3d_handle = 0;
     h.water3d_draw_count = 0u;
     h.scene_mesh_nodes.Clear();
+    h.camera_resolve_nodes.Clear();
+    h.camera_node_ids_scratch.Clear();
     h.scene_mesh_vertices.Clear();
     h.scene_mesh_key.Clear();
     h.scene_mesh_key_scratch.Clear();
+    h.scene_mesh_vertex_offset.Clear();
+    h.scene_mesh_vertex_count.Clear();
+    h.scene_mesh_local_center.Clear();
+    h.scene_mesh_local_radius.Clear();
+    h.scene_mesh_visible.Clear();
     h.scene_mesh_cache_valid = false;
+    h.last_render_camera_node_id = -2;
+    h.game_camera_preview_node_id = -1;
 }
 
 void ClearScene3D(FEditorHost& h) noexcept {
@@ -3940,6 +3980,10 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     const EFormat hdrf = EFormat::R16G16B16A16_Float;
     if (h.r3d_init_phase == 0u) {
     if (h.dbg3d.Init(*dev, hdrf).IsErr()) { ACS_LOG_ERROR("[3D] DebugDraw3D init 失敗"); return false; }
+    if (h.camera_frustum_dbg3d.Init(*dev, cf).IsErr()) {
+        ACS_LOG_ERROR("[3D] camera frustum DebugDraw3D init 失敗");
+        return false;
+    }
 
     FShaderDesc vs{}; vs.stage = EShaderStage::Vertex; vs.hlsl_source = kMesh3DHLSL; vs.entry_point = "VSMain"; vs.debug_name = "Mesh3D.VS";
     FShaderDesc ps{}; ps.stage = EShaderStage::Pixel;  ps.hlsl_source = kMesh3DHLSL; ps.entry_point = "PSMain"; ps.debug_name = "Mesh3D.PS";
@@ -5582,6 +5626,13 @@ TSharedPtr<FAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
 AEditor3DRecordComponent* Rec3D(game::ANode* n) noexcept {
     return (n != nullptr) ? n->GetComponent<AEditor3DRecordComponent>() : nullptr;
 }
+const AEditor3DRecordComponent* Rec3D(
+    const game::ANode* n) noexcept {
+    return n != nullptr
+        ? const_cast<game::ANode*>(n)
+              ->GetComponent<AEditor3DRecordComponent>()
+        : nullptr;
+}
 
 /** ANode から AMeshComponent3D (prim/color/mesh) を取り出す (無ければ null)。 */
 game::AMeshComponent3D* Mesh3D(game::ANode* n) noexcept {
@@ -5767,6 +5818,79 @@ bool IsEffectivelyVisibleAndEnabled(
     return node != nullptr;
 }
 
+struct FDeterministicGameCamera2D {
+    f32 center_x = 0.0f;
+    f32 center_y = 0.0f;
+    f32 zoom = 1.0f;
+    f32 pan_x = 0.0f;
+    f32 pan_y = 0.0f;
+};
+
+/**
+ * Resolve the legacy 2D Game View camera from authored scene bounds only.
+ *
+ * Editor pan/zoom is deliberately excluded: changing Scene View navigation
+ * must never alter the game camera. Empty scenes use a fixed origin/1x
+ * default. The viewport only converts that world camera to screen-space pan.
+ */
+FDeterministicGameCamera2D ResolveDeterministicGameCamera2D(
+    const FEditorHost& host, u32 viewport_width,
+    u32 viewport_height) noexcept {
+    FDeterministicGameCamera2D result{};
+    f32 minimum_x = std::numeric_limits<f32>::max();
+    f32 minimum_y = std::numeric_limits<f32>::max();
+    f32 maximum_x = -std::numeric_limits<f32>::max();
+    f32 maximum_y = -std::numeric_limits<f32>::max();
+    bool found = false;
+    for (u32 index = 0u; index < host.nodes.Size(); ++index) {
+        const AEditorNode* node = host.nodes[index];
+        if (!IsEffectivelyVisibleAndEnabled(node)) continue;
+        const game::FTransform2D world = node->World2D();
+        if (!std::isfinite(world.position.x) ||
+            !std::isfinite(world.position.y) ||
+            !std::isfinite(world.rotation) ||
+            !std::isfinite(world.scale.x) ||
+            !std::isfinite(world.scale.y) ||
+            !std::isfinite(node->base)) {
+            continue;
+        }
+        const f32 half_width =
+            std::max(1.0f, std::fabs(node->base * world.scale.x) * 0.5f);
+        const f32 half_height =
+            std::max(1.0f, std::fabs(node->base * world.scale.y) * 0.5f);
+        const f32 cosine = std::fabs(std::cos(world.rotation));
+        const f32 sine = std::fabs(std::sin(world.rotation));
+        const f32 extent_x =
+            cosine * half_width + sine * half_height;
+        const f32 extent_y =
+            sine * half_width + cosine * half_height;
+        minimum_x = std::min(minimum_x, world.position.x - extent_x);
+        minimum_y = std::min(minimum_y, world.position.y - extent_y);
+        maximum_x = std::max(maximum_x, world.position.x + extent_x);
+        maximum_y = std::max(maximum_y, world.position.y + extent_y);
+        found = true;
+    }
+
+    const f32 width = viewport_width > 1u
+        ? static_cast<f32>(viewport_width) : 1280.0f;
+    const f32 height = viewport_height > 1u
+        ? static_cast<f32>(viewport_height) : 720.0f;
+    if (found) {
+        result.center_x = (minimum_x + maximum_x) * 0.5f;
+        result.center_y = (minimum_y + maximum_y) * 0.5f;
+        const f32 bounds_width = std::max(1.0f, maximum_x - minimum_x);
+        const f32 bounds_height = std::max(1.0f, maximum_y - minimum_y);
+        result.zoom = std::clamp(
+            std::min(
+                width * 0.85f / bounds_width,
+                height * 0.85f / bounds_height),
+            0.05f, 4.0f);
+    }
+    result.pan_x = width * 0.5f - result.center_x * result.zoom;
+    result.pan_y = height * 0.5f - result.center_y * result.zoom;
+    return result;
+}
+
 int WaterSurface3DSlot(
     const AEditor3DRecordComponent* record) noexcept {
     if (record == nullptr) return -1;
@@ -5936,6 +6060,518 @@ void Dfs3DCollect(game::ANode* n, TArray<game::ANode*>& out) noexcept {
         game::ANode* c = n->Child(i);
         if (c != nullptr) { out.PushBack(c); Dfs3DCollect(c, out); }
     }
+}
+
+constexpr int kSceneCameraMinPriority = -1000000;
+constexpr int kSceneCameraMaxPriority = 1000000;
+
+bool IsCanonicalSceneCameraId(const char* stable_id) noexcept {
+    if (stable_id == nullptr || stable_id[0] == '\0') return false;
+    u32 length = 0u;
+    for (; stable_id[length] != '\0'; ++length) {
+        if (length >= game::kScene3DSerializeMaxCameraIdBytes) return false;
+        const char value = stable_id[length];
+        const bool alpha = (value >= 'A' && value <= 'Z')
+                        || (value >= 'a' && value <= 'z');
+        const bool digit = value >= '0' && value <= '9';
+        if (!alpha && !digit
+            && (length == 0u || (value != '_' && value != '.'
+                                 && value != '-'))) {
+            return false;
+        }
+    }
+    return length > 0u;
+}
+
+bool IsSceneCameraConfigValid(
+    int projection, int priority, int active,
+    f32 fov_deg, f32 ortho_height,
+    f32 near_plane, f32 far_plane) noexcept {
+    return (projection == 0 || projection == 1)
+        && priority >= kSceneCameraMinPriority
+        && priority <= kSceneCameraMaxPriority
+        && (active == 0 || active == 1)
+        && std::isfinite(fov_deg) && fov_deg >= 1.0f && fov_deg <= 179.0f
+        && std::isfinite(ortho_height)
+        && ortho_height >= 0.001f && ortho_height <= 1000000.0f
+        && std::isfinite(near_plane)
+        && near_plane >= 0.0001f && near_plane <= 1000000.0f
+        && std::isfinite(far_plane)
+        && far_plane > near_plane && far_plane <= 1000000000.0f;
+}
+
+bool SceneCameraIdIsUnique(
+    FEditorHost& host, int except_node_id, const char* stable_id) noexcept {
+    TArray<game::ANode*> nodes;
+    Dfs3DCollect(&host.scene3d.Root(), nodes);
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        AEditor3DRecordComponent* record = Rec3D(nodes[index]);
+        if (record == nullptr || !record->has_scene_camera
+            || record->id == except_node_id) {
+            continue;
+        }
+        if (std::strcmp(record->scene_camera_id, stable_id) == 0)
+            return false;
+    }
+    return true;
+}
+
+bool MakeUniqueClonedSceneCameraId(
+    FEditorHost& host, const char* source_id, int new_node_id,
+    char* output, u32 output_capacity) noexcept {
+    if (!IsCanonicalSceneCameraId(source_id) || output == nullptr
+        || output_capacity
+            < game::kScene3DSerializeMaxCameraIdBytes + 1u) {
+        return false;
+    }
+    for (u32 attempt = 0u; attempt <= game::kScene3DSerializeMaxCameraCount;
+         ++attempt) {
+        char suffix[32]{};
+        const int suffix_length = attempt == 0u
+            ? std::snprintf(suffix, sizeof(suffix), "-copy-%d", new_node_id)
+            : std::snprintf(
+                suffix, sizeof(suffix), "-copy-%d-%u",
+                new_node_id, attempt);
+        if (suffix_length <= 0
+            || static_cast<u32>(suffix_length)
+                >= game::kScene3DSerializeMaxCameraIdBytes) {
+            return false;
+        }
+        const u32 prefix_capacity =
+            game::kScene3DSerializeMaxCameraIdBytes
+            - static_cast<u32>(suffix_length);
+        const u32 source_length =
+            static_cast<u32>(std::strlen(source_id));
+        const u32 prefix_length =
+            source_length < prefix_capacity ? source_length : prefix_capacity;
+        const int written = std::snprintf(
+            output, output_capacity, "%.*s%s",
+            static_cast<int>(prefix_length), source_id, suffix);
+        if (written <= 0
+            || static_cast<u32>(written)
+                > game::kScene3DSerializeMaxCameraIdBytes) {
+            return false;
+        }
+        if (SceneCameraIdIsUnique(host, new_node_id, output)) return true;
+    }
+    return false;
+}
+
+bool IsEditorCameraNodeEffectivelyEnabled(
+    const game::ANode& node) noexcept {
+    const game::ANode* current = &node;
+    u32 depth = 0u;
+    while (current != nullptr) {
+        if (current->IsPendingDestroy() || !current->IsEnabled()) return false;
+        current = current->Parent();
+        if (++depth > game::kNodeMaxTreeDepth) return false;
+    }
+    return true;
+}
+
+struct FResolvedSceneCamera3D {
+    game::ANode* node = nullptr;
+    AEditor3DRecordComponent* record = nullptr;
+    game::FTransform3D world{};
+};
+
+bool SceneCameraRecordPrecedes(
+    const AEditor3DRecordComponent& left,
+    const AEditor3DRecordComponent& right) noexcept {
+    if (left.scene_camera_active != right.scene_camera_active)
+        return left.scene_camera_active;
+    if (left.scene_camera_priority != right.scene_camera_priority)
+        return left.scene_camera_priority > right.scene_camera_priority;
+    const int identity_order =
+        std::strcmp(left.scene_camera_id, right.scene_camera_id);
+    if (identity_order != 0) return identity_order < 0;
+    return left.id < right.id;
+}
+
+bool ResolveActiveCamera3DFromNodes(
+    const TArray<game::ANode*>& nodes,
+    FResolvedSceneCamera3D& output) noexcept {
+    output = FResolvedSceneCamera3D{};
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        game::ANode* node = nodes[index];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        if (record == nullptr || !record->has_scene_camera
+            || !IsEditorCameraNodeEffectivelyEnabled(*node)) {
+            continue;
+        }
+        if (output.record == nullptr
+            || SceneCameraRecordPrecedes(*record, *output.record)) {
+            output.node = node;
+            output.record = record;
+        }
+    }
+    if (output.node == nullptr) return false;
+    output.world = output.node->World();
+    return std::isfinite(output.world.position.x)
+        && std::isfinite(output.world.position.y)
+        && std::isfinite(output.world.position.z);
+}
+
+bool ResolveActiveCamera3D(
+    FEditorHost& host, FResolvedSceneCamera3D& output) noexcept {
+    host.camera_resolve_nodes.Clear();
+    Dfs3DCollect(
+        &host.scene3d.Root(), host.camera_resolve_nodes);
+    return ResolveActiveCamera3DFromNodes(
+        host.camera_resolve_nodes, output);
+}
+
+bool ResolvePreviewCamera3DFromNodes(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes,
+    FResolvedSceneCamera3D& output) noexcept {
+    output = FResolvedSceneCamera3D{};
+    if (host.game_camera_preview_node_id < 0)
+        return false;
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        game::ANode* node = nodes[index];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        if (record == nullptr ||
+            record->id != host.game_camera_preview_node_id)
+            continue;
+        if (!record->has_scene_camera ||
+            !IsEditorCameraNodeEffectivelyEnabled(*node)) {
+            host.game_camera_preview_node_id = -1;
+            return false;
+        }
+        output.node = node;
+        output.record = record;
+        output.world = node->World();
+        if (std::isfinite(output.world.position.x) &&
+            std::isfinite(output.world.position.y) &&
+            std::isfinite(output.world.position.z)) {
+            return true;
+        }
+        break;
+    }
+    host.game_camera_preview_node_id = -1;
+    output = FResolvedSceneCamera3D{};
+    return false;
+}
+
+struct FRenderCamera3D {
+    FCamera camera{};
+    FVec3 eye{0.0f, 0.0f, 0.0f};
+    FVec3 forward{0.0f, 0.0f, 1.0f};
+    FVec3 up{0.0f, 1.0f, 0.0f};
+    bool orthographic = false;
+    bool authored = false;
+    int node_id = -1;
+    f32 fov_y_degrees = 50.0f;
+    f32 orthographic_height = 10.0f;
+    f32 near_plane = 0.05f;
+    f32 far_plane = 500.0f;
+};
+
+bool NormalizeRenderCameraVector(
+    FVec3 value, FVec3& output) noexcept {
+    const f32 length_squared =
+        value.x * value.x + value.y * value.y + value.z * value.z;
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-12f)
+        return false;
+    const f32 inverse_length = 1.0f / std::sqrt(length_squared);
+    output = value * inverse_length;
+    return std::isfinite(output.x) &&
+           std::isfinite(output.y) &&
+           std::isfinite(output.z);
+}
+
+bool BuildResolvedRenderCamera3D(
+    const FResolvedSceneCamera3D& resolved,
+    f32 aspect, FRenderCamera3D& output) noexcept {
+    if (resolved.node == nullptr || resolved.record == nullptr)
+        return false;
+    const AEditor3DRecordComponent& record = *resolved.record;
+    if (!std::isfinite(aspect) || aspect <= 0.0f
+        || !IsCanonicalSceneCameraId(record.scene_camera_id)
+        || !IsSceneCameraConfigValid(
+            record.scene_camera_projection,
+            record.scene_camera_priority,
+            record.scene_camera_active ? 1 : 0,
+            record.scene_camera_fov_deg,
+            record.scene_camera_ortho_height,
+            record.scene_camera_near,
+            record.scene_camera_far)) {
+        return false;
+    }
+    FVec3 forward;
+    FVec3 authored_up;
+    FVec3 right;
+    FVec3 up;
+    if (!NormalizeRenderCameraVector(
+            Rotate(
+                resolved.world.rotation,
+                FVec3{0.0f, 0.0f, 1.0f}),
+            forward) ||
+        !NormalizeRenderCameraVector(
+            Rotate(
+                resolved.world.rotation,
+                FVec3{0.0f, 1.0f, 0.0f}),
+            authored_up) ||
+        !NormalizeRenderCameraVector(
+            Cross(authored_up, forward), right) ||
+        !NormalizeRenderCameraVector(
+            Cross(forward, right), up)) {
+        return false;
+    }
+
+    output = FRenderCamera3D{};
+    output.eye = resolved.world.position;
+    output.forward = forward;
+    output.up = up;
+    output.orthographic = record.scene_camera_projection == 1;
+    output.authored = true;
+    output.node_id = record.id;
+    output.fov_y_degrees = record.scene_camera_fov_deg;
+    output.orthographic_height = record.scene_camera_ortho_height;
+    output.near_plane = record.scene_camera_near;
+    output.far_plane = record.scene_camera_far;
+    if (output.orthographic) {
+        output.camera.SetOrthographic(
+            output.orthographic_height * aspect,
+            output.orthographic_height,
+            output.near_plane, output.far_plane);
+    } else {
+        output.camera.SetPerspective(
+            output.fov_y_degrees * 3.14159265f / 180.0f,
+            aspect, output.near_plane, output.far_plane);
+    }
+    output.camera.SetLookAt(
+        output.eye, output.eye + output.forward, output.up);
+    return true;
+}
+
+bool BuildAuthoredRenderCamera3D(
+    FEditorHost& host, f32 aspect,
+    const TArray<game::ANode*>& nodes,
+    bool allow_preview,
+    FRenderCamera3D& output) noexcept {
+    FResolvedSceneCamera3D resolved;
+    if (allow_preview &&
+        ResolvePreviewCamera3DFromNodes(
+            host, nodes, resolved)) {
+        if (BuildResolvedRenderCamera3D(
+                resolved, aspect, output)) {
+            return true;
+        }
+        host.game_camera_preview_node_id = -1;
+    }
+    if (!ResolveActiveCamera3DFromNodes(nodes, resolved))
+        return false;
+    return BuildResolvedRenderCamera3D(
+        resolved, aspect, output);
+}
+
+void ComputeDeterministicGameBounds3D(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes,
+    FVec3& minimum,
+    FVec3& maximum, bool& found) noexcept {
+    minimum = FVec3{1.0e30f, 1.0e30f, 1.0e30f};
+    maximum = FVec3{-1.0e30f, -1.0e30f, -1.0e30f};
+    found = false;
+    if (&nodes == &host.scene_mesh_nodes &&
+        host.scene_mesh_cache_valid &&
+        !host.scene_mesh_vertices.IsEmpty() &&
+        std::isfinite(host.scene_mesh_bb_min.x) &&
+        std::isfinite(host.scene_mesh_bb_min.y) &&
+        std::isfinite(host.scene_mesh_bb_min.z) &&
+        std::isfinite(host.scene_mesh_bb_max.x) &&
+        std::isfinite(host.scene_mesh_bb_max.y) &&
+        std::isfinite(host.scene_mesh_bb_max.z)) {
+        minimum = host.scene_mesh_bb_min;
+        maximum = host.scene_mesh_bb_max;
+        found = true;
+        return;
+    }
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        game::ANode* node = nodes[index];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        if (!IsEffectivelyVisibleAndEnabled(node) ||
+            Mesh3D(node) == nullptr ||
+            (record != nullptr && record->is_empty)) {
+            continue;
+        }
+        const game::FTransform3D world = node->World();
+        if (!std::isfinite(world.position.x) ||
+            !std::isfinite(world.position.y) ||
+            !std::isfinite(world.position.z) ||
+            !std::isfinite(world.scale.x) ||
+            !std::isfinite(world.scale.y) ||
+            !std::isfinite(world.scale.z)) {
+            continue;
+        }
+        const f32 extent = std::max(
+            0.5f,
+            std::max(
+                std::abs(world.scale.x),
+                std::max(
+                    std::abs(world.scale.y),
+                    std::abs(world.scale.z))));
+        minimum.x = std::min(minimum.x, world.position.x - extent);
+        minimum.y = std::min(minimum.y, world.position.y - extent);
+        minimum.z = std::min(minimum.z, world.position.z - extent);
+        maximum.x = std::max(maximum.x, world.position.x + extent);
+        maximum.y = std::max(maximum.y, world.position.y + extent);
+        maximum.z = std::max(maximum.z, world.position.z + extent);
+        found = true;
+    }
+}
+
+void BuildDeterministicFallbackCamera3D(
+    FEditorHost& host,
+    const TArray<game::ANode*>& nodes,
+    f32 aspect,
+    FRenderCamera3D& output) noexcept {
+    FVec3 minimum;
+    FVec3 maximum;
+    bool found = false;
+    ComputeDeterministicGameBounds3D(
+        host, nodes, minimum, maximum, found);
+    if (!found) {
+        minimum = FVec3{-2.0f, -1.0f, -2.0f};
+        maximum = FVec3{2.0f, 3.0f, 2.0f};
+    }
+    const FVec3 center{
+        (minimum.x + maximum.x) * 0.5f,
+        (minimum.y + maximum.y) * 0.5f,
+        (minimum.z + maximum.z) * 0.5f};
+    const FVec3 extent{
+        maximum.x - minimum.x,
+        maximum.y - minimum.y,
+        maximum.z - minimum.z};
+    const f32 radius = std::max(
+        1.0f,
+        0.5f * std::sqrt(
+            extent.x * extent.x +
+            extent.y * extent.y +
+            extent.z * extent.z));
+    FVec3 forward;
+    (void)NormalizeRenderCameraVector(
+        FVec3{-0.55f, -0.35f, -0.76f}, forward);
+    const f32 distance = std::max(
+        5.0f,
+        radius /
+            std::tan(25.0f * 3.14159265f / 180.0f) *
+            1.18f);
+
+    output = FRenderCamera3D{};
+    output.eye = center - forward * distance;
+    output.forward = forward;
+    output.up = FVec3{0.0f, 1.0f, 0.0f};
+    output.near_plane = 0.05f;
+    output.far_plane = std::max(
+        500.0f, distance + radius * 6.0f);
+    output.camera.SetPerspective(
+        output.fov_y_degrees * 3.14159265f / 180.0f,
+        aspect, output.near_plane, output.far_plane);
+    output.camera.SetLookAt(
+        output.eye, center, output.up);
+}
+
+FRenderCamera3D ResolveGameRenderCamera3D(
+    FEditorHost& host, f32 aspect,
+    const TArray<game::ANode*>& nodes) noexcept {
+    FRenderCamera3D game_camera;
+    if (BuildAuthoredRenderCamera3D(
+            host, aspect, nodes, true, game_camera)) {
+        return game_camera;
+    }
+    BuildDeterministicFallbackCamera3D(
+        host, nodes, aspect, game_camera);
+    return game_camera;
+}
+
+FRenderCamera3D ResolveRenderCamera3D(
+    FEditorHost& host, f32 aspect,
+    const TArray<game::ANode*>& scene_nodes) noexcept {
+    if (host.game_view) {
+        return ResolveGameRenderCamera3D(
+            host, aspect, scene_nodes);
+    }
+
+    FRenderCamera3D editor_camera;
+    editor_camera.camera = EditorCam3D(host, aspect);
+    editor_camera.eye = Cam3DEye(host);
+    FVec3 forward{
+        host.cam3d_target.x - editor_camera.eye.x,
+        host.cam3d_target.y - editor_camera.eye.y,
+        host.cam3d_target.z - editor_camera.eye.z};
+    if (!NormalizeRenderCameraVector(
+            forward, editor_camera.forward)) {
+        editor_camera.forward = FVec3{0.0f, 0.0f, -1.0f};
+    }
+    editor_camera.orthographic = host.ortho3d;
+    editor_camera.node_id = -2;
+    editor_camera.fov_y_degrees = 50.0f;
+    editor_camera.orthographic_height =
+        host.cam3d_dist * 0.62f;
+    editor_camera.near_plane = 0.05f;
+    editor_camera.far_plane = 500.0f;
+    return editor_camera;
+}
+
+bool AlignSceneCameraNodeToView(
+    FEditorHost& host, game::ANode& node) noexcept {
+    const FCamera scene_view = EditorCam3D(host, 1.0f);
+    const FMat4 camera_world_matrix = Inverse(scene_view.View());
+    const FVec3 desired_position = scene_view.Eye();
+    const FQuat desired_rotation = FQuat::FromMatrix(camera_world_matrix);
+    if (!std::isfinite(desired_position.x)
+        || !std::isfinite(desired_position.y)
+        || !std::isfinite(desired_position.z)) {
+        return false;
+    }
+
+    FVec3 local_position = desired_position;
+    FQuat local_rotation = desired_rotation;
+    if (const game::ANode* parent = node.Parent()) {
+        const game::FTransform3D parent_world = parent->World();
+        if (!std::isfinite(parent_world.position.x)
+            || !std::isfinite(parent_world.position.y)
+            || !std::isfinite(parent_world.position.z)
+            || !std::isfinite(parent_world.scale.x)
+            || !std::isfinite(parent_world.scale.y)
+            || !std::isfinite(parent_world.scale.z)
+            || std::abs(parent_world.scale.x) < 1.0e-6f
+            || std::abs(parent_world.scale.y) < 1.0e-6f
+            || std::abs(parent_world.scale.z) < 1.0e-6f) {
+            return false;
+        }
+        const FVec3 delta = desired_position - parent_world.position;
+        const FVec3 parent_space =
+            Rotate(Inverse(parent_world.rotation), delta);
+        local_position = FVec3{
+            parent_space.x / parent_world.scale.x,
+            parent_space.y / parent_world.scale.y,
+            parent_space.z / parent_world.scale.z};
+        local_rotation =
+            desired_rotation * Inverse(parent_world.rotation);
+    }
+    game::FTransform3D candidate = node.Local();
+    candidate.position = local_position;
+    candidate.rotation = local_rotation;
+    const FVec3 euler = candidate.EulerDeg();
+    if (!std::isfinite(local_position.x)
+        || !std::isfinite(local_position.y)
+        || !std::isfinite(local_position.z)
+        || !std::isfinite(euler.x)
+        || !std::isfinite(euler.y)
+        || !std::isfinite(euler.z)) {
+        return false;
+    }
+    AEditor3DRecordComponent* record = Rec3D(&node);
+    if (record == nullptr) return false;
+    PushUndo(host);
+    node.Local().position = local_position;
+    node.Local().rotation = local_rotation;
+    record->euler = euler;
+    return true;
 }
 
 struct FEditorWaterHit {
@@ -6666,14 +7302,105 @@ void PlaneAxes(int handle, FVec3& e1, FVec3& e2, FVec3& n) noexcept {
 }
 
 /**
- * Draw the editor transform gizmo into the currently bound HDR target.
+ * Draw the selected authored-camera frustum into the currently bound target.
  *
- * This is deliberately a separate overlay draw.  Scene-space atmosphere,
- * clouds, motion blur and depth of field must finish before this function is
- * called; otherwise those effects attenuate or erase an editor control that is
- * meant to remain readable.  Tonemapping still runs afterwards so the overlay
- * follows the viewport's output transform.
+ * The caller keeps this editor-only visualization out of Game View.  The HDR
+ * path invokes it on the loaded swapchain after post processing, so TAA,
+ * bloom, clouds, motion blur, and depth of field cannot attenuate the guide.
+ * The direct-to-swapchain compatibility path invokes the same helper without
+ * introducing a second color clear.
  */
+void DrawSelectedCameraFrustumOverlay(
+    FEditorHost& host, IRhiCommandList& command_list,
+    const FMat4& view_projection, f32 aspect) noexcept {
+    if (!host.show_camera_frustum || host.game_view)
+        return;
+    game::ANode* node =
+        FindNode3DNode(host, host.sel3d);
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (node == nullptr || record == nullptr ||
+        !record->has_scene_camera) {
+        return;
+    }
+    FResolvedSceneCamera3D resolved{};
+    resolved.node = node;
+    resolved.record = record;
+    resolved.world = node->World();
+    FRenderCamera3D camera;
+    if (!BuildResolvedRenderCamera3D(
+            resolved, aspect, camera)) {
+        return;
+    }
+
+    FVec3 right;
+    if (!NormalizeRenderCameraVector(
+            Cross(camera.up, camera.forward), right)) {
+        return;
+    }
+    const f32 near_distance =
+        std::max(0.001f, camera.near_plane);
+    const f32 far_distance = std::min(
+        camera.far_plane,
+        std::max(near_distance + 0.5f, 40.0f));
+    if (!std::isfinite(far_distance) ||
+        far_distance <= near_distance) {
+        return;
+    }
+    f32 near_half_height = camera.orthographic
+        ? camera.orthographic_height * 0.5f
+        : std::tan(
+              camera.fov_y_degrees * 3.14159265f /
+              360.0f) * near_distance;
+    f32 far_half_height = camera.orthographic
+        ? near_half_height
+        : std::tan(
+              camera.fov_y_degrees * 3.14159265f /
+              360.0f) * far_distance;
+    const f32 near_half_width =
+        near_half_height * aspect;
+    const f32 far_half_width =
+        far_half_height * aspect;
+    const FVec3 near_center =
+        camera.eye + camera.forward * near_distance;
+    const FVec3 far_center =
+        camera.eye + camera.forward * far_distance;
+    auto corner = [&](FVec3 center, f32 half_width,
+                      f32 half_height, f32 x,
+                      f32 y) noexcept {
+        return center + right * (half_width * x) +
+               camera.up * (half_height * y);
+    };
+    FVec3 corners[8] = {
+        corner(near_center, near_half_width, near_half_height, -1.0f, -1.0f),
+        corner(near_center, near_half_width, near_half_height,  1.0f, -1.0f),
+        corner(near_center, near_half_width, near_half_height,  1.0f,  1.0f),
+        corner(near_center, near_half_width, near_half_height, -1.0f,  1.0f),
+        corner(far_center, far_half_width, far_half_height, -1.0f, -1.0f),
+        corner(far_center, far_half_width, far_half_height,  1.0f, -1.0f),
+        corner(far_center, far_half_width, far_half_height,  1.0f,  1.0f),
+        corner(far_center, far_half_width, far_half_height, -1.0f,  1.0f),
+    };
+    constexpr int edges[12][2] = {
+        {0,1}, {1,2}, {2,3}, {3,0},
+        {4,5}, {5,6}, {6,7}, {7,4},
+        {0,4}, {1,5}, {2,6}, {3,7},
+    };
+    const FVec4 near_color{1.0f, 0.72f, 0.18f, 0.62f};
+    const FVec4 far_color{0.20f, 0.72f, 0.92f, 0.48f};
+    host.camera_frustum_dbg3d.Begin();
+    for (u32 edge = 0u; edge < 12u; ++edge) {
+        host.camera_frustum_dbg3d.Line(
+            corners[edges[edge][0]],
+            corners[edges[edge][1]],
+            edge < 4u ? near_color : far_color);
+    }
+    host.camera_frustum_dbg3d.Line(
+        camera.eye, near_center,
+        FVec4{0.30f, 0.82f, 1.0f, 0.55f});
+    host.camera_frustum_dbg3d.End(
+        command_list, view_projection);
+}
+
 void DrawGizmo3DOverlay(FEditorHost& h, IRhiCommandList& cl,
                         const FMat4& view_proj, FVec3 camera_position) noexcept {
     game::ANode* sn = FindNode3DNode(h, h.sel3d);
@@ -7079,7 +7806,15 @@ bool SceneMeshCacheKeysMatch(
 // シーンのメッシュ頂点を M3DVtx へ展開 + AABB を求める (シャドウ/本体/VXGI が共有)。
 void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
                          TArray<FM3DVtx>& dv, FVec3& bbMin, FVec3& bbMax) noexcept {
+    h.scene_mesh_vertex_offset.Resize(all3d.Size());
+    h.scene_mesh_vertex_count.Resize(all3d.Size());
+    h.scene_mesh_local_center.Resize(all3d.Size());
+    h.scene_mesh_local_radius.Resize(all3d.Size());
     for (u32 i = 0; i < all3d.Size(); ++i) {
+        h.scene_mesh_vertex_offset[i] = 0u;
+        h.scene_mesh_vertex_count[i] = 0u;
+        h.scene_mesh_local_center[i] = FVec3{0.0f, 0.0f, 0.0f};
+        h.scene_mesh_local_radius[i] = -1.0f;
         game::ANode* nn = all3d[i];
         if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
         { AEditor3DRecordComponent* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
@@ -7088,6 +7823,51 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         const int prim = NPrim(nn);
         const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
                              : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        if (cm == nullptr || cm->Vertices().IsEmpty()) continue;
+        FVec3 local_minimum{
+            std::numeric_limits<f32>::max(),
+            std::numeric_limits<f32>::max(),
+            std::numeric_limits<f32>::max()};
+        FVec3 local_maximum{
+            -std::numeric_limits<f32>::max(),
+            -std::numeric_limits<f32>::max(),
+            -std::numeric_limits<f32>::max()};
+        bool has_finite_vertex = false;
+        for (u32 vertex_index = 0u;
+             vertex_index < cm->Vertices().Size(); ++vertex_index) {
+            const FVec3 point = cm->Vertices()[vertex_index].position;
+            if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+                !std::isfinite(point.z)) {
+                continue;
+            }
+            local_minimum.x = std::min(local_minimum.x, point.x);
+            local_minimum.y = std::min(local_minimum.y, point.y);
+            local_minimum.z = std::min(local_minimum.z, point.z);
+            local_maximum.x = std::max(local_maximum.x, point.x);
+            local_maximum.y = std::max(local_maximum.y, point.y);
+            local_maximum.z = std::max(local_maximum.z, point.z);
+            has_finite_vertex = true;
+        }
+        if (!has_finite_vertex) continue;
+        const FVec3 local_center =
+            (local_minimum + local_maximum) * 0.5f;
+        f32 local_radius_squared = 0.0f;
+        for (u32 vertex_index = 0u;
+             vertex_index < cm->Vertices().Size(); ++vertex_index) {
+            const FVec3 point = cm->Vertices()[vertex_index].position;
+            if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+                !std::isfinite(point.z)) {
+                continue;
+            }
+            const FVec3 delta = point - local_center;
+            local_radius_squared = std::max(
+                local_radius_squared,
+                delta.x * delta.x + delta.y * delta.y +
+                    delta.z * delta.z);
+        }
+        h.scene_mesh_local_center[i] = local_center;
+        h.scene_mesh_local_radius[i] =
+            std::sqrt(local_radius_squared);
         const FVec4 col = NColor(nn);
         game::AMeshComponent3D* mc = Mesh3D(nn);
         if (mc != nullptr && !mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);   // 遅延ロード (2D 鏡映)
@@ -7099,13 +7879,95 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
             if (mc->HasMaterial() && mat.kind == game::EMaterialKind::Lit)             // material 設定時は baseColor を採用
                 albedo = FVec3{ mat.pbr.baseColor.x, mat.pbr.baseColor.y, mat.pbr.baseColor.z };
         }
-        AppendMeshTris(dv, cm, nn->World().ToMat4(), albedo, h.m3d_dyn_cap, mtl, rgh);
+        const u32 vertex_offset = dv.Size();
+        AppendMeshTris(
+            dv, cm, nn->World().ToMat4(), albedo,
+            h.m3d_dyn_cap, mtl, rgh);
+        h.scene_mesh_vertex_offset[i] = vertex_offset;
+        h.scene_mesh_vertex_count[i] =
+            dv.Size() - vertex_offset;
     }
     for (u32 i = 0; i < dv.Size(); ++i) {
         const FM3DVtx& q = dv[i];
         if (q.px < bbMin.x) bbMin.x = q.px; if (q.py < bbMin.y) bbMin.y = q.py; if (q.pz < bbMin.z) bbMin.z = q.pz;
         if (q.px > bbMax.x) bbMax.x = q.px; if (q.py > bbMax.y) bbMax.y = q.py; if (q.pz > bbMax.z) bbMax.z = q.pz;
     }
+}
+
+bool SceneMeshNodeVisible(
+    const FEditorHost& host, u32 node_index) noexcept {
+    const bool visible =
+        node_index >= host.scene_mesh_visible.Size() ||
+        host.scene_mesh_visible[node_index] != 0u;
+    return editor_frustum_culling::ShouldSubmitOpaque(
+        host.profiler_work.frustum_culling_enabled,
+        visible);
+}
+
+void BuildSceneMeshVisibility(
+    FEditorHost& host, const TArray<game::ANode*>& nodes,
+    const FMat4& view_projection) noexcept {
+    host.profiler_work.frustum_culling_enabled = false;
+    host.profiler_work.frustum_tested = 0u;
+    host.profiler_work.frustum_visible = 0u;
+    host.profiler_work.frustum_culled = 0u;
+    host.scene_mesh_visible.Resize(nodes.Size());
+    for (u32 index = 0u; index < nodes.Size(); ++index)
+        host.scene_mesh_visible[index] = 1u;
+
+    if (!host.pbr3d_ready ||
+        host.scene_mesh_local_center.Size() != nodes.Size() ||
+        host.scene_mesh_local_radius.Size() != nodes.Size() ||
+        host.scene_mesh_vertex_offset.Size() != nodes.Size() ||
+        host.scene_mesh_vertex_count.Size() != nodes.Size()) {
+        return;
+    }
+    editor_frustum_culling::FPlane planes[6];
+    if (!editor_frustum_culling::ExtractPlanes(
+            view_projection, planes))
+        return;
+    editor_frustum_culling::FFrameDecision frame{};
+
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        game::ANode* node = nodes[index];
+        AEditor3DRecordComponent* record = Rec3D(node);
+        game::AMeshComponent3D* mesh = Mesh3D(node);
+        if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
+            (record != nullptr && record->is_empty) ||
+            mesh->RenderHandle() != nullptr ||
+            IsRenderedByWater3D(host, node)) {
+            continue;
+        }
+        FGpuMesh* gpu_mesh = GpuMeshForNode3D(host, node);
+        if (gpu_mesh == nullptr || !gpu_mesh->vertex_buffer ||
+            !gpu_mesh->index_buffer) {
+            continue;
+        }
+        const game::FTransform3D world = node->World();
+        const FVec3 center = TransformPoint(
+            host.scene_mesh_local_center[index],
+            world.ToMat4());
+        const editor_frustum_culling::FNodeDecision decision =
+            editor_frustum_culling::EvaluateSphere(
+                planes, center,
+                host.scene_mesh_local_radius[index],
+                world.scale);
+        frame.Apply(decision);
+        if (!frame.enabled) {
+            // A partial mask would make the diagnostic counts misleading.
+            // Keep every node visible and explicitly disable the feature.
+            for (u32 reset = 0u; reset < nodes.Size(); ++reset)
+                host.scene_mesh_visible[reset] = 1u;
+            return;
+        }
+        host.scene_mesh_visible[index] =
+            decision.visible ? 1u : 0u;
+    }
+    host.profiler_work.frustum_culling_enabled =
+        frame.enabled;
+    host.profiler_work.frustum_tested = frame.tested;
+    host.profiler_work.frustum_visible = frame.visible;
+    host.profiler_work.frustum_culled = frame.culled;
 }
 
 bool RefreshSceneMeshCache(
@@ -7247,8 +8109,12 @@ struct FShadowOut {
 // シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす。
 // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ。
 FShadowOut Pass_Shadows(FEditorHost& h, IRhiCommandList* cl, u32 dvCount,
-                        const FVec3& bbMin, const FVec3& bbMax, const FVec3& eye, const FCamera& cam) noexcept {
-    const bool wantCsm = (h.q_shadow_cascades >= 2) && !h.ortho3d && h.q_shadow_size > 0;
+                        const FVec3& bbMin, const FVec3& bbMax, const FVec3& eye,
+                        const FCamera& cam, bool camera_orthographic) noexcept {
+    const bool wantCsm =
+        (h.q_shadow_cascades >= 2) &&
+        !camera_orthographic &&
+        h.q_shadow_size > 0;
     const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::FShadowMap::kMaxCascades
                                          ? h.q_shadow_cascades : acs::FShadowMap::kMaxCascades) : 1u;
     if (h.shadow_ready && h.q_shadow_size > 0 &&
@@ -7456,6 +8322,7 @@ FPbrFrameDrawCounts CountPbrFrameDraws(
     const TArray<game::ANode*>& nodes) noexcept {
     FPbrFrameDrawCounts counts{};
     for (u32 index = 0u; index < nodes.Size(); ++index) {
+        if (!SceneMeshNodeVisible(host, index)) continue;
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
@@ -7896,30 +8763,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
 
     AdvanceRuntimeSsgi(h, scW, scH);
 
-    const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
-    const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射 (ortho3d)
-    const FVec3 eye = Cam3DEye(h);
-    const FMat4 vp_nojit = cam.ViewProjection();
-    // TAA: 透視時のみ Halton サブピクセルジッタを毎フレーム与える (color+depth+normal+SS が同じ vp で整合)。
-    // TAA history reproject だけは «jitter 無し» の vp/prev で行う (jitter が reproject を汚さないように)。
-    // 雲は no-jitter ray + 独自 TSR で resolve し、後段で ResolvedDepth の alpha を
-    // reactive mask として渡す。したがって global TAA はジオメトリへ常時使いつつ、
-    // 雲画素だけ current 100% にできる (二重 temporal history / ghost を回避)。
-    FMat4 vp = vp_nojit;
-    const bool taaOn =
-        h.q_taa_on && !h.ortho3d &&
-        h.width > 0 && h.height > 0;
-    if (taaOn) {
-        const u32 fi = (h.taa_frame % 16u) + 1u;         // Halton は i>=1
-        const float jx = (HaltonSeq(fi, 2u) - 0.5f) * 2.0f / static_cast<float>(h.width);
-        const float jy = (HaltonSeq(fi, 3u) - 0.5f) * 2.0f / static_cast<float>(h.height);
-        vp = ApplyTaaJitter(vp_nojit, jx, jy);
-    }
-
-    // --- (0) Shared scene-mesh prepass. DFS/key storage, world-space vertices,
-    // AABB and the dynamic VB are persistent. Transform/material/geometry/
-    // visibility/water-ownership changes rebuild them; camera-only editor
-    // movement now updates constant buffers without retranscoding every mesh.
+    // Build retained scene geometry before resolving the Game View fallback:
+    // the fallback frames authored scene bounds and never inherits the
+    // editor's orbit pose.
     TArray<game::ANode*>& all3d = h.scene_mesh_nodes;
     TArray<FM3DVtx>& dv = h.scene_mesh_vertices;
     {
@@ -7927,15 +8773,49 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             h.profiler_work.opaque_cpu_ms);
         all3d.Clear();
         Dfs3DCollect(&h.scene3d.Root(), all3d);
-        // The specialized water renderer owns a bounded constant-buffer ring.
-        // Select that same bounded set before keying the opaque fallback so
-        // surfaces beyond the per-frame budget remain visible.
         PrepareWater3DDrawEligibility(h, all3d);
         (void)RefreshSceneMeshCache(h, all3d);
     }
     const FVec3& bbMin = h.scene_mesh_bb_min;
     const FVec3& bbMax = h.scene_mesh_bb_max;
     u32 dvCount = static_cast<u32>(dv.Size());
+
+    const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
+    const FRenderCamera3D renderCamera =
+        ResolveRenderCamera3D(h, aspect, all3d);
+    const FCamera& cam = renderCamera.camera;
+    const FVec3 eye = renderCamera.eye;
+    const bool renderOrtho = renderCamera.orthographic;
+    h.profiler_work.render_orthographic = renderOrtho;
+    h.profiler_work.render_camera_resolved = true;
+    const FMat4 vp_nojit = cam.ViewProjection();
+    if (h.last_render_camera_node_id != renderCamera.node_id) {
+        h.last_render_camera_node_id = renderCamera.node_id;
+        h.mv_computed = false;
+        h.taa_frame = 0u;
+    }
+    h.profiler_work.runtime_scene_camera =
+        h.game_view && renderCamera.authored;
+    h.profiler_work.active_camera_node_id =
+        h.game_view && renderCamera.authored
+            ? renderCamera.node_id : -1;
+    // TAA: 透視時のみ Halton サブピクセルジッタを毎フレーム与える (color+depth+normal+SS が同じ vp で整合)。
+    // TAA history reproject だけは «jitter 無し» の vp/prev で行う (jitter が reproject を汚さないように)。
+    // 雲は no-jitter ray + 独自 TSR で resolve し、後段で ResolvedDepth の alpha を
+    // reactive mask として渡す。したがって global TAA はジオメトリへ常時使いつつ、
+    // 雲画素だけ current 100% にできる (二重 temporal history / ghost を回避)。
+    FMat4 vp = vp_nojit;
+    const bool taaOn =
+        h.q_taa_on && !renderOrtho &&
+        h.width > 0 && h.height > 0;
+    if (taaOn) {
+        const u32 fi = (h.taa_frame % 16u) + 1u;         // Halton は i>=1
+        const float jx = (HaltonSeq(fi, 2u) - 0.5f) * 2.0f / static_cast<float>(h.width);
+        const float jy = (HaltonSeq(fi, 3u) - 0.5f) * 2.0f / static_cast<float>(h.height);
+        vp = ApplyTaaJitter(vp_nojit, jx, jy);
+    }
+    BuildSceneMeshVisibility(h, all3d, vp_nojit);
+
     const bool scene_has_ssss =
         SceneHasOpaqueSsssMaterial(h, all3d);
     const bool ssss_runtime_ready = AdvanceRuntimeSsss(
@@ -7967,6 +8847,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // The aggregate editor VB is intentionally bounded and is not a
         // completeness fallback for arbitrarily large scenes. Fail before
         // recording scene RT0 rather than publishing an arbitrary mesh suffix.
+        // No geometry was submitted, so a mask computed above must not be
+        // published as if this were a completed culled frame.
+        h.profiler_work.frustum_culling_enabled = false;
+        h.profiler_work.frustum_tested = 0u;
+        h.profiler_work.frustum_visible = 0u;
+        h.profiler_work.frustum_culled = 0u;
         h.mv_computed = false;
         return;
     }
@@ -7979,7 +8865,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     IRhiTexture* apVol = nullptr;            // aerial-perspective premultiplied in-scatter
     IRhiTexture* apTransVol = nullptr;       // wavelength-dependent transmittance
     IRhiTexture* localFogVol = nullptr;      // this frame's perspective local-fog producer result only
-    if (!h.ortho3d && dvCount >= 3 && h.q_ssgi_on && h.q_vxgi_on) {
+    if (!renderOrtho && dvCount >= 3 && h.q_ssgi_on && h.q_vxgi_on) {
         vxgiVol = VxgiVoxelize(
             h, cl, dv, h.scene_mesh_revision,
             bbMin, bbMax);   // 既定OFF: VXGI(64³)は blocky。OFF時は vxgiVol=null → SetSsgi が滑らかな screen-space SSGI を使う
@@ -7999,7 +8885,9 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     }
 
     // --- シャドウパス (光源視点で深度を焼く)。出力 sh を本体パスが PCF/CSM 比較に使う ---
-    const FShadowOut sh = Pass_Shadows(h, cl, dvCount, bbMin, bbMax, eye, cam);
+    const FShadowOut sh = Pass_Shadows(
+        h, cl, dvCount, bbMin, bbMax,
+        eye, cam, renderOrtho);
 
     // --- G-buffer (法線+深度) プリパス: SSAO / SSR / SSGI の共通入力。いずれか ON で駆動 ---
     //     法線プリパスは depth も焼くが、直後の本パスが depth を clear して描き直すので干渉しない。
@@ -8200,7 +9088,21 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 cl->SetPipeline(*h.normal_pipe);
                 cl->SetConstantBuffer(0, *h.normal_cb);
                 cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
-                cl->Draw(dvCount, 0);
+                if (h.profiler_work.frustum_culling_enabled) {
+                    for (u32 node_index = 0u;
+                         node_index < all3d.Size(); ++node_index) {
+                        if (!SceneMeshNodeVisible(h, node_index))
+                            continue;
+                        const u32 vertex_count =
+                            h.scene_mesh_vertex_count[node_index];
+                        if (vertex_count == 0u) continue;
+                        cl->Draw(
+                            vertex_count,
+                            h.scene_mesh_vertex_offset[node_index]);
+                    }
+                } else {
+                    cl->Draw(dvCount, 0);
+                }
                 cl->EndRenderToTexture(*h.normal_rt);
                 gbufReady = true;
             }
@@ -8225,7 +9127,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // Cloud march と同じ範囲まで積分し、horizon cloud を 300-unit
     // far slice へ誤って clamp しない。Squared Z + 96 slices で近景精度も維持する。
     constexpr f32 kFogVolumeMaxDist = acs::kVolumetricCloudMaxDistance;
-    if (!h.ortho3d && (h.q_ap_on || h.q_fog_on)) {
+    if (!renderOrtho && (h.q_ap_on || h.q_fog_on)) {
         IRhiDevice* adev = h.renderer.Device();
         if (adev != nullptr) {
             if (!h.sky_atmo_tried) { h.sky_atmo_tried = true; (void)h.sky_atmo.Init(*adev); }
@@ -8312,6 +9214,13 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     const bool canDrawMotion = wantsMotion && h.mv_ready && h.pbr3d_ready;
     if (canDrawMotion) {
         for (u32 i = 0; i < all3d.Size(); ++i) {
+            if (!SceneMeshNodeVisible(h, i)) {
+                if (AEditor3DRecordComponent* record =
+                        Rec3D(all3d[i])) {
+                    record->prev_world_valid = false;
+                }
+                continue;
+            }
             if (motionMeshForNode(all3d[i]) != nullptr) {
                 ++motionEligibleCount;
             } else if (AEditor3DRecordComponent* record = Rec3D(all3d[i])) {
@@ -8329,6 +9238,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             h.mv3d.Begin(*cl, vp_nojit, previousVp)) {
             bool motionComplete = true;
             for (u32 i = 0; i < all3d.Size(); ++i) {
+                if (!SceneMeshNodeVisible(h, i)) continue;
                 game::ANode* nn = all3d[i];
                 FGpuMesh* gm = motionMeshForNode(nn);
                 if (gm == nullptr) continue;
@@ -8387,14 +9297,14 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     IRhiTexture* localFogSceneDepth = h.renderer.DepthBuffer();
     const bool canCompositeLocalFog =
         editor_render_policy::ShouldCompositeLocalFog(
-            h.ortho3d, h.q_fog_on,
+            renderOrtho, h.q_fog_on,
             localFogVol != nullptr, localFogSceneDepth != nullptr,
             hdrRt != nullptr && scSwap != nullptr);
 
     // --- Phase4 volumetric clouds: render pass の «外» で雲を compute レイマーチ (UAV へ書く)。
     //     composite は AP 後まで遅延する。FSky の 2D 雲は無効化して二重描画回避。
     bool cloudsActive = false;
-    if (h.q_cloud_coverage > 0.001f && !h.ortho3d && hdrRt != nullptr) {
+    if (h.q_cloud_coverage > 0.001f && !renderOrtho && hdrRt != nullptr) {
         IRhiDevice* cdev = h.renderer.Device();
         if (cdev != nullptr) {
             if (!h.vclouds_tried) { h.vclouds_tried = true;
@@ -8446,7 +9356,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.sky3d.SetGroundColor(h.sky_ground);
         h.sky3d.SetCloudsEnabled(
             h.q_cloud_coverage > 0.001f &&
-            !h.ortho3d && !cloudsActive);   // Ortho と volumetric 雲では 48-step FSky fallback を止める
+            !renderOrtho && !cloudsActive);   // Ortho と volumetric 雲では 48-step FSky fallback を止める
         h.sky3d.SetClouds(h.q_cloud_coverage, h.q_cloud_density);
         h.sky3d.SetCloudWind(h.q_cloud_wind);
         h.sky3d.Render(*cl, cam);
@@ -8494,9 +9404,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // PBR 視線ベクトル用のカメラ位置。正射(ortho)は視線が平行なので、視軸上の «遠点» を渡して
     // V = normalize(camPos - wpos) を画面全体でほぼ平行にする (透視は実 eye)。
     FVec3 camPos = eye;
-    if (h.ortho3d) {
-        const FVec3 d{ eye.x - h.cam3d_target.x, eye.y - h.cam3d_target.y, eye.z - h.cam3d_target.z };
-        camPos = FVec3{ h.cam3d_target.x + d.x * 1000.0f, h.cam3d_target.y + d.y * 1000.0f, h.cam3d_target.z + d.z * 1000.0f };
+    if (renderOrtho) {
+        camPos = eye - renderCamera.forward * 1000.0f;
     }
     // フレーム CB (view_proj + 光 + 環境光 + カメラ位置)。
     FM3DFrame fcb{};
@@ -8552,6 +9461,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     //     model + 材質(metallic/roughness/baseColor + Substrate ロブ + emissive)+ キャスト影。
     //     DrawMesh が «object CB リングの現在バッファ» を毎draw bind するので per-object が正しく出る。
     auto draw_aggregate_mesh_fallback = [&]() noexcept {
+        // This path draws one aggregate buffer and therefore cannot consume
+        // the exact per-node mask. Do not publish misleading culling counts.
+        h.profiler_work.frustum_culling_enabled = false;
+        h.profiler_work.frustum_tested = 0u;
+        h.profiler_work.frustum_visible = 0u;
+        h.profiler_work.frustum_culled = 0u;
         if (dvCount == 0u || !h.m3d_dyn_vb || !h.m3d_pipe ||
             !h.m3d_frame_cb) {
             return;
@@ -8614,7 +9529,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // local fog は perspective camera-volume が主経路。compute 不可時だけ
         // 同じ perspective domain で解析積分 height fog へ fallback。
         if (editor_render_policy::ShouldUseAnalyticLocalFog(
-                h.ortho3d, h.q_fog_on,
+                renderOrtho, h.q_fog_on,
                 canCompositeLocalFog))
             h.pbr3d.SetFog(h.sky_horizon, h.q_fog_density, h.q_fog_height_falloff,
                            0.0f, 0.42f, 0.18f);
@@ -8623,6 +9538,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // compute 不可時の解析 fog だけは上の SetFog で PBR surface に残す。
         h.pbr3d.SetAerialPerspective(nullptr, kFogVolumeMaxDist);
         for (u32 i = 0; i < all3d.Size(); ++i) {
+            if (!SceneMeshNodeVisible(h, i)) continue;
             ssss_mrt_draws_valid =
                 DrawEditorPbrNode(
                     h, *cl, all3d[i], ssss_mrt_bound) &&
@@ -8710,7 +9626,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         cl->SetScissor(resume_scissor);
     }
     // --- (2b) 無限グリッド: 視点中心の大クアッド (y=0 / ortho は z=0) を半透明描画。距離フェードで無限に見せる。
-    if (h.show_grid3d && h.grid_pipe && h.grid_vb && h.grid_cb) {
+    if (!h.game_view && h.show_grid3d && h.grid_pipe && h.grid_vb && h.grid_cb) {
         const f32 S = 800.0f;                    // クアッド半径 (フェード距離より十分大きく)
         const f32 cx = h.cam3d_target.x;
         const f32 cy = h.ortho3d ? h.cam3d_target.y : h.cam3d_target.z;
@@ -8780,6 +9696,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // legacy direct-to-swapchain fallback.  The normal editor path draws this
     // overlay after all scene-space effects below.
     if (hdrRt == nullptr && !h.game_view) {
+        DrawSelectedCameraFrustumOverlay(
+            h, *cl, vp_nojit, aspect);
         DrawGizmo3DOverlay(h, *cl, vp, camPos);
     }
 
@@ -8837,7 +9755,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     const f32 frameScale = std::clamp((1.0f / 60.0f) / h.frame_dt, 0.25f, 4.0f);
                     mcb.mbp = FVec4{ h.q_motionblur_intensity * frameScale,
                                     1.0f / static_cast<f32>(scW), 1.0f / static_cast<f32>(scH), 48.0f };
-                    mcb.mbp2 = FVec4{ 0.05f, 500.0f, 0.018f, h.ortho3d ? 1.0f : 0.0f };
+                    mcb.mbp2 = FVec4{
+                        renderCamera.near_plane,
+                        renderCamera.far_plane,
+                        0.018f, renderOrtho ? 1.0f : 0.0f };
                     h.mblur_cb->Update(&mcb, sizeof(mcb));
                     cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -8916,6 +9837,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         if (h.refr_ready && h.blit_ready && h.ibl_ready && h.ibl3d.EnvCubemap() != nullptr) {
             bool anyRefr = false;
             for (u32 i = 0; i < all3d.Size(); ++i) {
+                if (!SceneMeshNodeVisible(h, i)) continue;
                 if (!IsEffectivelyVisibleAndEnabled(all3d[i])) continue;
                 game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
                 if (!IsRenderedByWater3D(h, all3d[i]) &&
@@ -8945,6 +9867,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                       FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
                     h.refr3d.SetFrame(vp, eye, scW, scH); // opaque と同じ vp/viewport で整合
                     for (u32 i = 0; i < all3d.Size(); ++i) {
+                        if (!SceneMeshNodeVisible(h, i)) continue;
                         game::ANode* nn = all3d[i];
                         if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
                         game::AMeshComponent3D* mc = Mesh3D(nn);
@@ -9031,9 +9954,14 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     // 2. hdrRt を load 再オープン (depth は DSV にせず) → DoF ぼかしを書き戻す
                     struct FDofCb { FVec4 dofp; FVec4 dofp2; } dcb{};
                     const f32 maxBlurPx = std::clamp(h.q_dof_max * static_cast<f32>(scH), 0.0f, 48.0f);
-                    dcb.dofp  = FVec4{ h.q_dof_focus, h.q_dof_range, maxBlurPx, 0.05f };  // near=0.05
-                    dcb.dofp2 = FVec4{ 500.0f, 1.0f / static_cast<f32>(scW), 1.0f / static_cast<f32>(scH),
-                                      h.ortho3d ? 1.0f : 0.0f };
+                    dcb.dofp  = FVec4{
+                        h.q_dof_focus, h.q_dof_range,
+                        maxBlurPx, renderCamera.near_plane };
+                    dcb.dofp2 = FVec4{
+                        renderCamera.far_plane,
+                        1.0f / static_cast<f32>(scW),
+                        1.0f / static_cast<f32>(scH),
+                        renderOrtho ? 1.0f : 0.0f };
                     h.dof_cb->Update(&dcb, sizeof(dcb));
                     cl->BeginRenderToTextureLoad(*hdrRt, nullptr);
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
@@ -9100,6 +10028,18 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             FScopedRhiGpuTiming postGpuScope(
                 cl, ERhiGpuTimingPass::Post);
             h.post3d.Render(*cl, *scSwap, h.renderer.CurrentBuffer(), pp);
+        }
+        AEditor3DRecordComponent* selected_camera_record =
+            Rec3D(FindNode3DNode(h, h.sel3d));
+        if (!h.game_view && h.show_camera_frustum &&
+            selected_camera_record != nullptr &&
+            selected_camera_record->has_scene_camera) {
+            cl->BeginRenderToSwapchainLoad(
+                *scSwap, h.renderer.CurrentBuffer());
+            DrawSelectedCameraFrustumOverlay(
+                h, *cl, vp_nojit, aspect);
+            cl->EndRenderToSwapchain(
+                *scSwap, h.renderer.CurrentBuffer());
         }
     }
     h.prev_vp = vp;               // SSR/SSGI temporal reproject 用 (jitter 込み)
@@ -9471,10 +10411,27 @@ static void PublishProfilerFrame(
         snapshot.flags |=
             editor_profiler::ESnapshotFlags::SceneMeshCacheRebuilt;
     }
-    if (host.view3d && !host.ortho3d && host.q_fog_on) {
+    if (host.game_view) {
+        snapshot.flags |= editor_profiler::ESnapshotFlags::GameView;
+    }
+    if (host.profiler_work.runtime_scene_camera) {
+        snapshot.flags |=
+            editor_profiler::ESnapshotFlags::RuntimeSceneCamera;
+    }
+    if (host.profiler_work.frustum_culling_enabled) {
+        snapshot.flags |=
+            editor_profiler::ESnapshotFlags::FrustumCullingEnabled;
+    }
+    if (host.view3d &&
+        host.profiler_work.render_camera_resolved &&
+        !host.profiler_work.render_orthographic &&
+        host.q_fog_on) {
         snapshot.flags |= editor_profiler::ESnapshotFlags::Fog;
     }
-    if (host.view3d && !host.ortho3d && host.q_ap_on) {
+    if (host.view3d &&
+        host.profiler_work.render_camera_resolved &&
+        !host.profiler_work.render_orthographic &&
+        host.q_ap_on) {
         snapshot.flags |= editor_profiler::ESnapshotFlags::AerialPerspective;
     }
 
@@ -9519,6 +10476,21 @@ static void PublishProfilerFrame(
     snapshot.cloud_cpu_ms = host.profiler_work.cloud_cpu_ms;
     snapshot.fog_cpu_ms = host.profiler_work.fog_cpu_ms;
     snapshot.post_cpu_ms = host.profiler_work.post_cpu_ms;
+    if (host.profiler_work.frustum_culling_enabled) {
+        snapshot.frustum_tested =
+            host.profiler_work.frustum_tested;
+        snapshot.frustum_visible =
+            host.profiler_work.frustum_visible;
+        snapshot.frustum_culled =
+            host.profiler_work.frustum_culled;
+    } else {
+        snapshot.frustum_tested = 0u;
+        snapshot.frustum_visible = 0u;
+        snapshot.frustum_culled = 0u;
+    }
+    snapshot.active_camera_node_id =
+        host.profiler_work.runtime_scene_camera
+            ? host.profiler_work.active_camera_node_id : -1;
 
     snapshot.gpu_frame_index = 0u;
     snapshot.gpu_latency_frames = 0u;
@@ -9780,6 +10752,24 @@ static int RenderEditorFrame(
             const bool aa = (useMsaa || host->fxaa_ready) && EnsureSceneRt(*host, scW, scH);
             if (aa) cl->BeginRenderToTexture(*host->scene_rt, clear, nullptr, 1.0f);
             host->sprites.Begin(*cl, scW, scH);
+            const f32 editorCamPanX = host->cam_pan_x;
+            const f32 editorCamPanY = host->cam_pan_y;
+            const f32 editorCamZoom = host->cam_zoom;
+            const bool useGameCamera = host->game_view;
+            if (useGameCamera) {
+                if (host->logic_play && host->logic_cam_following) {
+                    host->cam_pan_x = host->logic_game_pan_x;
+                    host->cam_pan_y = host->logic_game_pan_y;
+                    host->cam_zoom = host->logic_game_zoom;
+                } else {
+                    const FDeterministicGameCamera2D game_camera =
+                        ResolveDeterministicGameCamera2D(
+                            *host, scW, scH);
+                    host->cam_pan_x = game_camera.pan_x;
+                    host->cam_pan_y = game_camera.pan_y;
+                    host->cam_zoom = game_camera.zoom;
+                }
+            }
             DrawScene(*host, host->sprites, scW, scH);
             // インプロセス Play 中はユーザーコンポーネントの OnDraw を world view で重ねて描く。
             // SetView でバッチを editor カメラ (screen=world*zoom+pan) に一致する world ビューへ切替え、
@@ -9792,6 +10782,11 @@ static int RenderEditorFrame(
                 host->logic_shim.draw(host->logic_scene, &host->sprites, vcx, vcy, vz, scW, scH);
             }
             host->sprites.End();
+            if (useGameCamera) {
+                host->cam_pan_x = editorCamPanX;
+                host->cam_pan_y = editorCamPanY;
+                host->cam_zoom = editorCamZoom;
+            }
             if (aa) {
                 if (useMsaa) {
                     // MSAA: ResolveSubresource で backbuffer へ解決 (バリアは内部で処理)。
@@ -10358,6 +11353,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->preview_sprites.Shutdown();
     host->fxaa.Shutdown();
     host->dbg3d.Shutdown();
+    host->camera_frustum_dbg3d.Shutdown();
     host->sky_atmo.Shutdown();   // GPU Hillaire 大気 (UAF 防止)
     host->vclouds3d.Shutdown();  // GPU volumetric clouds (UAF 防止)
     host->m3d_pipe.Reset(); host->m3d_overlay_pipe.Reset(); host->m3d_vs.Reset(); host->m3d_ps.Reset();
@@ -12520,11 +13516,41 @@ static void EditorStepPlay(FEditorHost& h, f32 dt) noexcept {
     }
 }
 
+static void CapturePlayEditorCamera(FEditorHost& h) noexcept {
+    h.play_cam_pan_x = h.cam_pan_x;
+    h.play_cam_pan_y = h.cam_pan_y;
+    h.play_cam_zoom = h.cam_zoom;
+    h.play_view3d = h.view3d;
+    h.play_ortho3d = h.ortho3d;
+    h.play_cam3d_yaw = h.cam3d_yaw;
+    h.play_cam3d_pitch = h.cam3d_pitch;
+    h.play_cam3d_dist = h.cam3d_dist;
+    h.play_cam3d_target = h.cam3d_target;
+    h.play_camera_snapshot_valid = true;
+}
+
+static void RestorePlayEditorCamera(FEditorHost& h) noexcept {
+    if (!h.play_camera_snapshot_valid) return;
+    h.cam_pan_x = h.play_cam_pan_x;
+    h.cam_pan_y = h.play_cam_pan_y;
+    h.cam_zoom = h.play_cam_zoom;
+    h.view3d = h.play_view3d;
+    h.ortho3d = h.play_ortho3d;
+    h.cam3d_yaw = h.play_cam3d_yaw;
+    h.cam3d_pitch = h.play_cam3d_pitch;
+    h.cam3d_dist = h.play_cam3d_dist;
+    h.cam3d_target = h.play_cam3d_target;
+    h.play_camera_snapshot_valid = false;
+    h.mv_computed = false;
+}
+
 /** 再生を開始する (現在状態をスナップショットし、物理ワールドを構築)。成功 1 / 既に再生中 0。 */
 ACS_EDITOR_API int acs_editor_play_start(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->play_state != 0) return 0;
     host->play_snapshot = DupSnapshot(*host);            // 停止時の復元用
+    if (host->play_snapshot == nullptr) return 0;
+    CapturePlayEditorCamera(*host);
     EditorBuildPlayWorld(*host);
     host->play_state = 1;
     return 1;
@@ -12543,6 +13569,7 @@ ACS_EDITOR_API int acs_editor_play_stop(void* handle) {
         delete[] host->play_snapshot;
         host->play_snapshot = nullptr;
     }
+    RestorePlayEditorCamera(*host);
     return 1;
 }
 
@@ -12990,6 +14017,18 @@ ACS_EDITOR_API int acs_editor_instance_count(void* handle) {
 
 ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle);   // 前方宣言 (start が呼ぶ)
 
+static void ResetLogicInput(FEditorHost& h) noexcept {
+    if (!h.logic_play) return;
+    if (h.logic_shim.input_key != nullptr) {
+        for (int key = 1; key <= 65; ++key)
+            h.logic_shim.input_key(key, 0);
+    }
+    if (h.logic_shim.input_mouse_button != nullptr) {
+        for (int button = 0; button < 3; ++button)
+            h.logic_shim.input_mouse_button(button, 0);
+    }
+}
+
 /** Play 中の 1 フレーム: DLL シーンを tick → 各ノード transform を読み戻して描画へ反映。 */
 static void EditorTickLogic(FEditorHost& h, f32 dt) noexcept {
     if (!h.logic_play || h.logic_scene == nullptr) return;
@@ -13017,9 +14056,9 @@ static void EditorTickLogic(FEditorHost& h, f32 dt) noexcept {
         }
     }
 
-    // game camera を読み戻して editor viewport を追従させる。ただし «ユーザーロジックがカメラを
-    // 動かしたときだけ» 追従する。動かしていない (Play 開始時の値のまま) 間は editor cam に触れず、
-    // ユーザーが Play 中も自由に pan/zoom できる。一度 game がカメラを動かしたら以後は追従モード。
+    // game camera is retained independently from the Scene View navigation
+    // camera. Game View consumes these values during its render slice; Scene
+    // View remains freely navigable throughout Play.
     if (h.logic_shim.get_camera != nullptr && h.width > 0 && h.height > 0) {
         f32 cx = 0.0f, cy = 0.0f, z = 1.0f;
         h.logic_shim.get_camera(h.logic_scene, &cx, &cy, &z);
@@ -13032,9 +14071,9 @@ static void EditorTickLogic(FEditorHost& h, f32 dt) noexcept {
             }
             if (h.logic_cam_following) {
                 const f32 w = static_cast<f32>(h.width), hh = static_cast<f32>(h.height);
-                h.cam_zoom  = z;
-                h.cam_pan_x = w * 0.5f - cx * z;   // screen=(world-cam)*z+(w/2) と一致 (DrawScene の screen=world*z+pan)
-                h.cam_pan_y = hh * 0.5f - cy * z;
+                h.logic_game_zoom  = z;
+                h.logic_game_pan_x = w * 0.5f - cx * z;
+                h.logic_game_pan_y = hh * 0.5f - cy * z;
             }
         }
     }
@@ -13117,19 +14156,23 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
             if (parentIdx >= 0) sh.set_parent(scene, static_cast<int>(i), parentIdx);
         }
     }
-    // editor カメラを退避し、play camera を現在の editor view へ合わせる (= 追従の基準点)。
-    host->logic_cam_pan_x = host->cam_pan_x;
-    host->logic_cam_pan_y = host->cam_pan_y;
-    host->logic_cam_zoom  = host->cam_zoom;
+    // Initialize the independent legacy 2D game camera from deterministic
+    // authored bounds. Scene View navigation is intentionally not consulted.
+    const FDeterministicGameCamera2D game_camera =
+        ResolveDeterministicGameCamera2D(
+            *host, host->width, host->height);
+    host->logic_game_pan_x = game_camera.pan_x;
+    host->logic_game_pan_y = game_camera.pan_y;
+    host->logic_game_zoom = game_camera.zoom;
     host->logic_cam_following = false;
-    if (sh.set_camera != nullptr && host->width > 0 && host->height > 0) {
-        const f32 z = (host->cam_zoom > 0.0001f) ? host->cam_zoom : 1.0f;
-        const f32 w = static_cast<f32>(host->width), h = static_cast<f32>(host->height);
-        const f32 vcx = (w * 0.5f - host->cam_pan_x) / z;
-        const f32 vcy = (h * 0.5f - host->cam_pan_y) / z;
-        sh.set_camera(scene, vcx, vcy, z);
-        host->logic_game_cam0_x = vcx; host->logic_game_cam0_y = vcy; host->logic_game_cam0_zoom = z;
+    if (sh.set_camera != nullptr) {
+        sh.set_camera(
+            scene, game_camera.center_x,
+            game_camera.center_y, game_camera.zoom);
     }
+    host->logic_game_cam0_x = game_camera.center_x;
+    host->logic_game_cam0_y = game_camera.center_y;
+    host->logic_game_cam0_zoom = game_camera.zoom;
 
     host->logic_dll = dll; host->logic_scene = scene; host->logic_shim = sh; host->logic_play = true;
     return 1;
@@ -13139,14 +14182,11 @@ ACS_EDITOR_API int acs_editor_logic_play_start(void* handle, const char* dll_pat
 ACS_EDITOR_API void acs_editor_logic_play_stop(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || !host->logic_play) return;
+    ResetLogicInput(*host);
     if (host->logic_scene != nullptr && host->logic_shim.destroy != nullptr)
         host->logic_shim.destroy(host->logic_scene);
     for (u32 i = 0; i < host->nodes.Size() && i < host->logic_saved.Size(); ++i)
         host->nodes[i]->SetLocal2D(host->logic_saved[i]);   // 編集状態へ復元
-    // editor カメラを Play 開始時の view へ復元する。
-    host->cam_pan_x = host->logic_cam_pan_x;
-    host->cam_pan_y = host->logic_cam_pan_y;
-    host->cam_zoom  = host->logic_cam_zoom;
     if (host->logic_dll != nullptr) FreeLibrary(host->logic_dll);
     host->logic_dll = nullptr; host->logic_scene = nullptr; host->logic_play = false;
     host->logic_saved.Clear();
@@ -13188,6 +14228,12 @@ ACS_EDITOR_API void acs_editor_logic_input_mouse_move(void* handle, float x, flo
     host->logic_shim.input_mouse_move(x, y);
 }
 
+/** Release every gameplay key/button after Game View focus or routing changes. */
+ACS_EDITOR_API void acs_editor_logic_input_reset(void* handle) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host != nullptr) ResetLogicInput(*host);
+}
+
 /**
  * ゲームビュー (Game View タブ) の表示を切り替える。
  *
@@ -13198,7 +14244,10 @@ ACS_EDITOR_API void acs_editor_logic_input_mouse_move(void* handle, float x, flo
  */
 ACS_EDITOR_API void acs_editor_set_game_view(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host != nullptr) host->game_view = (on != 0);
+    if (host == nullptr) return;
+    const bool gameView = on != 0;
+    if (host->game_view != gameView) ResetLogicInput(*host);
+    host->game_view = gameView;
 }
 
 /** 現在ゲームビューか (1/0)。 */
@@ -13497,6 +14546,25 @@ ACS_EDITOR_API void acs_editor_camera_get(void* handle, float* pan_x, float* pan
 }
 
 /**
+ * Resolve the legacy 2D Game View camera without mutating editor navigation.
+ * The returned values are world center and zoom, not screen-space pan.
+ */
+ACS_EDITOR_API int acs_editor_game_camera2d_get(
+        void* handle, unsigned viewport_width,
+        unsigned viewport_height, float* center_x,
+        float* center_y, float* zoom) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return 0;
+    const FDeterministicGameCamera2D camera =
+        ResolveDeterministicGameCamera2D(
+            *host, viewport_width, viewport_height);
+    if (center_x != nullptr) *center_x = camera.center_x;
+    if (center_y != nullptr) *center_y = camera.center_y;
+    if (zoom != nullptr) *zoom = camera.zoom;
+    return 1;
+}
+
+/**
  * 3D camera stateを直接設定する。非有限値は状態を一切変更せず拒否し、
  * pitch / distance は対話操作と同じ安全範囲へ clamp する。
  */
@@ -13535,6 +14603,159 @@ ACS_EDITOR_API int acs_editor_camera3d_get(
     return 1;
 }
 
+/**
+ * Resolve the exact camera Game View would consume without mutating editor
+ * navigation state. source_node_id is -1 for the deterministic bounds
+ * fallback; projection is 0=perspective, 1=orthographic.
+ */
+ACS_EDITOR_API int acs_editor_game_camera3d_get(
+        void* handle, float aspect,
+        int* projection, int* source_node_id,
+        float* position3, float* forward3, float* up3,
+        float* projection4) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    // Keep public projection math inside a finite, useful domain.
+    if (host == nullptr || !std::isfinite(aspect) ||
+        aspect < 1.0e-4f || aspect > 1.0e4f)
+        return 0;
+    host->camera_resolve_nodes.Clear();
+    Dfs3DCollect(
+        &host->scene3d.Root(),
+        host->camera_resolve_nodes);
+    const FRenderCamera3D resolved =
+        ResolveGameRenderCamera3D(
+            *host, aspect,
+            host->camera_resolve_nodes);
+    if (projection != nullptr)
+        *projection = resolved.orthographic ? 1 : 0;
+    if (source_node_id != nullptr)
+        *source_node_id = resolved.node_id;
+    if (position3 != nullptr) {
+        position3[0] = resolved.eye.x;
+        position3[1] = resolved.eye.y;
+        position3[2] = resolved.eye.z;
+    }
+    if (forward3 != nullptr) {
+        forward3[0] = resolved.forward.x;
+        forward3[1] = resolved.forward.y;
+        forward3[2] = resolved.forward.z;
+    }
+    if (up3 != nullptr) {
+        up3[0] = resolved.up.x;
+        up3[1] = resolved.up.y;
+        up3[2] = resolved.up.z;
+    }
+    if (projection4 != nullptr) {
+        projection4[0] = resolved.fov_y_degrees;
+        projection4[1] = resolved.orthographic_height;
+        projection4[2] = resolved.near_plane;
+        projection4[3] = resolved.far_plane;
+    }
+    return 1;
+}
+
+/**
+ * Set a non-persistent Camera View preview override.
+ *
+ * This never changes the authored active flag, scene dirty state, or undo
+ * history. Inactive camera components may be previewed; disabled/hidden nodes
+ * are rejected.
+ */
+ACS_EDITOR_API int acs_editor_game_camera_preview_set(
+        void* handle, int node_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* node =
+        host != nullptr
+            ? FindNode3DNode(*host, node_id) : nullptr;
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (host == nullptr || node == nullptr ||
+        record == nullptr || !record->has_scene_camera ||
+        !IsEditorCameraNodeEffectivelyEnabled(*node)) {
+        return 0;
+    }
+    host->game_camera_preview_node_id = node_id;
+    return 1;
+}
+
+/** Clear the non-persistent Camera View preview override. */
+ACS_EDITOR_API void acs_editor_game_camera_preview_clear(
+        void* handle) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host != nullptr)
+        host->game_camera_preview_node_id = -1;
+}
+
+/**
+ * Return the currently valid preview override.
+ *
+ * Deleted or disabled overrides are cleared automatically and reported as
+ * absent.
+ */
+ACS_EDITOR_API int acs_editor_game_camera_preview_get(
+        void* handle, int* node_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (node_id != nullptr) *node_id = -1;
+    if (host == nullptr || node_id == nullptr) return 0;
+    host->camera_resolve_nodes.Clear();
+    Dfs3DCollect(
+        &host->scene3d.Root(),
+        host->camera_resolve_nodes);
+    FResolvedSceneCamera3D resolved;
+    if (!ResolvePreviewCamera3DFromNodes(
+            *host, host->camera_resolve_nodes,
+            resolved)) {
+        return 0;
+    }
+    *node_id = resolved.record->id;
+    return 1;
+}
+
+/**
+ * Rebuild and return the bounded authored-camera enumeration.
+ *
+ * Ordering is deterministic scene DFS order. The following node_id_at calls
+ * read this retained snapshot and do not rescan the complete scene.
+ */
+ACS_EDITOR_API int acs_editor_camera3d_count(void* handle) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return 0;
+    constexpr u32 kMaximumEnumeratedCameras = 256u;
+    host->camera_resolve_nodes.Clear();
+    host->camera_node_ids_scratch.Clear();
+    Dfs3DCollect(
+        &host->scene3d.Root(),
+        host->camera_resolve_nodes);
+    if (host->camera_node_ids_scratch.Capacity() <
+        kMaximumEnumeratedCameras) {
+        host->camera_node_ids_scratch.Reserve(
+            kMaximumEnumeratedCameras);
+    }
+    for (u32 index = 0u;
+         index < host->camera_resolve_nodes.Size() &&
+         host->camera_node_ids_scratch.Size() <
+             kMaximumEnumeratedCameras;
+         ++index) {
+        AEditor3DRecordComponent* record =
+            Rec3D(host->camera_resolve_nodes[index]);
+        if (record != nullptr && record->has_scene_camera)
+            host->camera_node_ids_scratch.PushBack(record->id);
+    }
+    return static_cast<int>(
+        host->camera_node_ids_scratch.Size());
+}
+
+ACS_EDITOR_API int acs_editor_camera3d_node_id_at(
+        void* handle, int index) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || index < 0 ||
+        static_cast<u32>(index) >=
+            host->camera_node_ids_scratch.Size()) {
+        return -1;
+    }
+    return host->camera_node_ids_scratch[
+        static_cast<u32>(index)];
+}
+
 // =============================================================================
 // C ABI — 3D ビューポート (Phase 1: モード切替 / ノード / 軌道カメラ / ピック)
 // =============================================================================
@@ -13553,6 +14774,21 @@ ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
 ACS_EDITOR_API int acs_editor_get_view3d(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     return (host != nullptr && host->view3d) ? 1 : 0;
+}
+
+/** Scene View-only selected camera frustum overlay toggle. */
+ACS_EDITOR_API void acs_editor_camera_frustum_set_visible(
+        void* handle, int visible) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host != nullptr)
+        host->show_camera_frustum = visible != 0;
+}
+
+ACS_EDITOR_API int acs_editor_camera_frustum_get_visible(
+        void* handle) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    return host != nullptr && host->show_camera_frustum
+        ? 1 : 0;
 }
 
 /** 3D ビューの投影を 正射(2D ビュー) / 透視 で切り替える。正射 ON でカメラを正面 (XY 平面直視) へ。 */
@@ -13613,6 +14849,197 @@ ACS_EDITOR_API int acs_editor_add_empty3d(void* handle, const char* name) {
     return id;
 }
 
+/** Add an authored camera node aligned to the current Scene View. */
+ACS_EDITOR_API int acs_editor_add_camera3d(
+    void* handle, const char* name, const char* stable_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || !IsCanonicalSceneCameraId(stable_id)
+        || !SceneCameraIdIsUnique(*host, -1, stable_id)) {
+        return -1;
+    }
+    TArray<game::ANode*> nodes;
+    Dfs3DCollect(&host->scene3d.Root(), nodes);
+    u32 camera_count = 0u;
+    for (u32 index = 0u; index < nodes.Size(); ++index) {
+        AEditor3DRecordComponent* record = Rec3D(nodes[index]);
+        if (record != nullptr && record->has_scene_camera) ++camera_count;
+    }
+    if (camera_count >= game::kScene3DSerializeMaxCameraCount) return -1;
+
+    PushUndo(*host);
+    game::ANode& node = AddNode3D(
+        *host, (name != nullptr && name[0] != '\0') ? name : "Camera");
+    AEditor3DRecordComponent* record = Rec3D(&node);
+    if (record == nullptr) return -1;
+    const int id = host->next_id3d++;
+    record->id = id;
+    record->is_empty = true;
+    record->has_scene_camera = true;
+    std::snprintf(
+        record->scene_camera_id, sizeof(record->scene_camera_id),
+        "%s", stable_id);
+    record->scene_camera_projection = host->ortho3d ? 1 : 0;
+    record->scene_camera_priority = 0;
+    record->scene_camera_active = camera_count == 0u;
+    record->scene_camera_fov_deg = 50.0f;
+    record->scene_camera_ortho_height =
+        host->cam3d_dist * 0.62f;
+    record->scene_camera_near = 0.05f;
+    record->scene_camera_far = 500.0f;
+
+    const FCamera scene_view = EditorCam3D(*host, 1.0f);
+    node.Local().position = scene_view.Eye();
+    node.Local().rotation = FQuat::FromMatrix(Inverse(scene_view.View()));
+    record->euler = node.Local().EulerDeg();
+    SetSel3D(*host, id);
+    return id;
+}
+
+ACS_EDITOR_API int acs_editor_node3d_camera_get(
+    void* handle, int node_id,
+    char* stable_id, int stable_cap,
+    int* projection, int* priority, int* active,
+    float* out4) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* record =
+        host != nullptr ? Rec3D(FindNode3DNode(*host, node_id)) : nullptr;
+    if (record == nullptr || !record->has_scene_camera
+        || stable_id == nullptr || stable_cap <= 0
+        || projection == nullptr || priority == nullptr
+        || active == nullptr || out4 == nullptr) {
+        return 0;
+    }
+    const int required =
+        static_cast<int>(std::strlen(record->scene_camera_id)) + 1;
+    if (required > stable_cap) {
+        stable_id[0] = '\0';
+        return 0;
+    }
+    std::memcpy(stable_id, record->scene_camera_id, required);
+    *projection = record->scene_camera_projection;
+    *priority = record->scene_camera_priority;
+    *active = record->scene_camera_active ? 1 : 0;
+    out4[0] = record->scene_camera_fov_deg;
+    out4[1] = record->scene_camera_ortho_height;
+    out4[2] = record->scene_camera_near;
+    out4[3] = record->scene_camera_far;
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_node3d_camera_set(
+    void* handle, int node_id, const char* stable_id,
+    int projection, int priority, int active,
+    float fov_deg, float ortho_height,
+    float near_plane, float far_plane) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* node =
+        host != nullptr ? FindNode3DNode(*host, node_id) : nullptr;
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (host == nullptr || record == nullptr
+        || !IsCanonicalSceneCameraId(stable_id)
+        || !SceneCameraIdIsUnique(*host, node_id, stable_id)
+        || !IsSceneCameraConfigValid(
+            projection, priority, active, fov_deg, ortho_height,
+            near_plane, far_plane)) {
+        return 0;
+    }
+    if (!record->has_scene_camera) {
+        TArray<game::ANode*> nodes;
+        Dfs3DCollect(&host->scene3d.Root(), nodes);
+        u32 camera_count = 0u;
+        for (u32 index = 0u; index < nodes.Size(); ++index) {
+            AEditor3DRecordComponent* candidate = Rec3D(nodes[index]);
+            if (candidate != nullptr && candidate->has_scene_camera)
+                ++camera_count;
+        }
+        if (camera_count >= game::kScene3DSerializeMaxCameraCount) return 0;
+    }
+
+    PushUndo(*host);
+    if (active != 0) {
+        TArray<game::ANode*> nodes;
+        Dfs3DCollect(&host->scene3d.Root(), nodes);
+        for (u32 index = 0u; index < nodes.Size(); ++index) {
+            AEditor3DRecordComponent* candidate = Rec3D(nodes[index]);
+            if (candidate != nullptr && candidate->has_scene_camera)
+                candidate->scene_camera_active = false;
+        }
+    }
+    record->has_scene_camera = true;
+    std::snprintf(
+        record->scene_camera_id, sizeof(record->scene_camera_id),
+        "%s", stable_id);
+    record->scene_camera_projection = projection;
+    record->scene_camera_priority = priority;
+    record->scene_camera_active = active != 0;
+    record->scene_camera_fov_deg = fov_deg;
+    record->scene_camera_ortho_height = ortho_height;
+    record->scene_camera_near = near_plane;
+    record->scene_camera_far = far_plane;
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_node3d_camera_clear(
+    void* handle, int node_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    AEditor3DRecordComponent* record =
+        host != nullptr ? Rec3D(FindNode3DNode(*host, node_id)) : nullptr;
+    if (host == nullptr || record == nullptr || !record->has_scene_camera)
+        return 0;
+    PushUndo(*host);
+    record->has_scene_camera = false;
+    record->scene_camera_id[0] = '\0';
+    record->scene_camera_active = false;
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_scene3d_active_camera(
+    void* handle, int* out_node_id,
+    char* stable_id, int stable_cap,
+    int* projection, int* priority, float* out4) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || out_node_id == nullptr
+        || stable_id == nullptr || stable_cap <= 0
+        || projection == nullptr || priority == nullptr
+        || out4 == nullptr) {
+        return 0;
+    }
+    FResolvedSceneCamera3D resolved;
+    if (!ResolveActiveCamera3D(*host, resolved)
+        || resolved.record == nullptr) {
+        return 0;
+    }
+    const int required =
+        static_cast<int>(std::strlen(resolved.record->scene_camera_id)) + 1;
+    if (required > stable_cap) {
+        stable_id[0] = '\0';
+        return 0;
+    }
+    std::memcpy(
+        stable_id, resolved.record->scene_camera_id, required);
+    *out_node_id = resolved.record->id;
+    *projection = resolved.record->scene_camera_projection;
+    *priority = resolved.record->scene_camera_priority;
+    out4[0] = resolved.record->scene_camera_fov_deg;
+    out4[1] = resolved.record->scene_camera_ortho_height;
+    out4[2] = resolved.record->scene_camera_near;
+    out4[3] = resolved.record->scene_camera_far;
+    return 1;
+}
+
+ACS_EDITOR_API int acs_editor_node3d_camera_align_to_view(
+    void* handle, int node_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* node =
+        host != nullptr ? FindNode3DNode(*host, node_id) : nullptr;
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (host == nullptr || node == nullptr || record == nullptr
+        || !record->has_scene_camera) {
+        return 0;
+    }
+    return AlignSceneCameraNodeToView(*host, *node) ? 1 : 0;
+}
+
 /** 3D ノードの subtree を parent の下にクローンする。
  * transform/flags/components/custom mesh/sprite/procedural polygon/material/children を複製する。 */
 static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* parent) noexcept {
@@ -13637,6 +15064,27 @@ static int CloneNode3DSubtree(FEditorHost& h, game::ANode* src, game::ANode* par
                 sizeof(cr->sprite_path));
             cr->is_empty = sr->is_empty;
             cr->poly_pts = sr->poly_pts.Clone();
+            if (sr->has_scene_camera) {
+                char cloned_camera_id[
+                    game::kScene3DSerializeMaxCameraIdBytes + 1u]{};
+                if (MakeUniqueClonedSceneCameraId(
+                        h, sr->scene_camera_id, newId,
+                        cloned_camera_id, sizeof(cloned_camera_id))) {
+                    cr->has_scene_camera = true;
+                    std::memcpy(
+                        cr->scene_camera_id, cloned_camera_id,
+                        sizeof(cr->scene_camera_id));
+                    cr->scene_camera_projection =
+                        sr->scene_camera_projection;
+                    cr->scene_camera_priority = sr->scene_camera_priority;
+                    cr->scene_camera_active = sr->scene_camera_active;
+                    cr->scene_camera_fov_deg = sr->scene_camera_fov_deg;
+                    cr->scene_camera_ortho_height =
+                        sr->scene_camera_ortho_height;
+                    cr->scene_camera_near = sr->scene_camera_near;
+                    cr->scene_camera_far = sr->scene_camera_far;
+                }
+            }
             cr->component_count = sr->component_count;
             for (u32 slot = 0u;
                  slot < sr->component_count; ++slot) {
@@ -13687,12 +15135,33 @@ static int DuplicateNode3D(FEditorHost& h, game::ANode* src) noexcept {
     return newId;
 }
 
+static u32 CountSceneCamerasInSubtree(const game::ANode* node) noexcept {
+    if (node == nullptr) return 0u;
+    const AEditor3DRecordComponent* record = Rec3D(node);
+    u32 count =
+        record != nullptr && record->has_scene_camera ? 1u : 0u;
+    for (u32 index = 0u; index < node->ChildCount(); ++index) {
+        count += CountSceneCamerasInSubtree(node->Child(index));
+    }
+    return count;
+}
+
+static bool CanDuplicateNode3DSubtree(
+    const FEditorHost& host, const game::ANode* source) noexcept {
+    const u32 existing =
+        CountSceneCamerasInSubtree(&host.scene3d.Root());
+    const u32 incoming = CountSceneCamerasInSubtree(source);
+    return existing <= game::kScene3DSerializeMaxCameraCount
+        && incoming <=
+            game::kScene3DSerializeMaxCameraCount - existing;
+}
+
 /** 3D ノード (とその子孫) を複製する。複製のトップを選択し、その id を返す (失敗 -1)。 */
 ACS_EDITOR_API int acs_editor_node3d_duplicate(void* handle, int id) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     game::ANode* src = FindNode3DNode(*host, id);
-    if (src == nullptr) return -1;
+    if (src == nullptr || !CanDuplicateNode3DSubtree(*host, src)) return -1;
     PushUndo(*host);
     return DuplicateNode3D(*host, src);
 }
@@ -13708,7 +15177,7 @@ ACS_EDITOR_API int acs_editor_node3d_paste(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return -1;
     game::ANode* src = FindNode3DNode(*host, host->clip3d);
-    if (src == nullptr) return -1;
+    if (src == nullptr || !CanDuplicateNode3DSubtree(*host, src)) return -1;
     PushUndo(*host);
     return DuplicateNode3D(*host, src);
 }
@@ -14258,6 +15727,25 @@ static int EmitNode3DBlock(char* out, int cur, int cap, FEditorHost* host,
         s.x, s.y, s.z, col.x, col.y, col.z, col.w, nm);
     if (w < 0 || w >= cap - cur) { out[cap - 1] = '\0'; *overflow = true; return cur; }
     cur += w;
+    if (r->has_scene_camera && cur < cap) {
+        const int camera_written = std::snprintf(
+            out + cur, static_cast<size_t>(cap - cur),
+            "CAM3D %d %s %d %d %d %.9g %.9g %.9g %.9g\n",
+            r->id, r->scene_camera_id,
+            r->scene_camera_projection,
+            r->scene_camera_priority,
+            r->scene_camera_active ? 1 : 0,
+            static_cast<double>(r->scene_camera_fov_deg),
+            static_cast<double>(r->scene_camera_ortho_height),
+            static_cast<double>(r->scene_camera_near),
+            static_cast<double>(r->scene_camera_far));
+        if (camera_written < 0 || camera_written >= cap - cur) {
+            out[cap - 1] = '\0';
+            *overflow = true;
+            return cur;
+        }
+        cur += camera_written;
+    }
     game::AMeshComponent3D* mc = Mesh3D(nn);
     if (prim == 3 && mc != nullptr && mc->MeshPath().Size() > 0 && cur < cap) {     // カスタムメッシュの元ファイル
         char mp[300]; { const FStringView pv = mc->MeshPath(); u32 ln = 0; for (; ln < pv.Size() && ln + 1u < sizeof(mp); ++ln) mp[ln] = pv[ln]; mp[ln] = '\0'; }
@@ -14463,8 +15951,9 @@ bool ValidateEditorScene3DText(const char* text) noexcept {
         const bool material = IsEditorTextDirective(line, "MAT3D");
         const bool component = IsEditorTextDirective(line, "CMP3D");
         const bool property = IsEditorTextDirective(line, "CPROP3D");
+        const bool camera = IsEditorTextDirective(line, "CAM3D");
         const bool canonical_auxiliary =
-            mesh || material ||
+            mesh || material || camera ||
             IsEditorTextDirective(line, "FLG3D") ||
             IsEditorTextDirective(line, "EMPTY3D") ||
             IsEditorTextDirective(line, "SEL3D");
@@ -14740,6 +16229,44 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
     // Validate before the retirement boundary so a rejected source never
     // destroys the currently published world.
     if (!prevalidated && !ValidateEditorScene3DText(text)) return 0;
+    if (!clear) {
+        TArray<game::ANode*> existing_nodes;
+        Dfs3DCollect(&host->scene3d.Root(), existing_nodes);
+        u32 existing_camera_count = 0u;
+        for (u32 index = 0u; index < existing_nodes.Size(); ++index) {
+            const AEditor3DRecordComponent* record =
+                Rec3D(existing_nodes[index]);
+            if (record != nullptr && record->has_scene_camera)
+                ++existing_camera_count;
+        }
+        if (existing_camera_count > game::kScene3DSerializeMaxCameraCount)
+            return 0;
+        u32 incoming_camera_count = 0u;
+        const char* camera_cursor = text;
+        char camera_line[game::kScene3DSerializeMaxLineBytes + 1u]{};
+        while (*camera_cursor != '\0') {
+            u32 length = 0u;
+            while (*camera_cursor != '\0' && *camera_cursor != '\n') {
+                if (length + 1u >= sizeof(camera_line)) return 0;
+                camera_line[length++] = *camera_cursor++;
+            }
+            if (length > 0u && camera_line[length - 1u] == '\r') --length;
+            camera_line[length] = '\0';
+            if (*camera_cursor == '\n') ++camera_cursor;
+            if (std::strncmp(camera_line, "CAM3D ", 6u) != 0) continue;
+            int ignored_node_id = -1;
+            char stable_id[game::kScene3DSerializeMaxCameraIdBytes + 1u]{};
+            if (std::sscanf(
+                    camera_line, "CAM3D %d %64s",
+                    &ignored_node_id, stable_id) != 2
+                || !IsCanonicalSceneCameraId(stable_id)
+                || ++incoming_camera_count
+                    > game::kScene3DSerializeMaxCameraCount
+                        - existing_camera_count) {
+                return 0;
+            }
+        }
+    }
     if (clear) {
         ClearScene3D(*host);
     }
@@ -14882,6 +16409,55 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
             int cid = 0; char tn[256] = {};                          // 型名上限は他の補助行 (SPR3D/MSH3D) と同じ 256
             if (std::sscanf(line, "CMP3D %d %255[^\n]", &cid, tn) >= 2)
                 AttachComponent3D(Rec3D(FindNode3DNode(*host, cid + idOffset)), tn);
+            continue;
+        }
+        if (std::strncmp(line, "CAM3D ", 6) == 0) {
+            int camera_id = 0;
+            char stable_id[game::kScene3DSerializeMaxCameraIdBytes + 1u]{};
+            int projection = 0;
+            int priority = 0;
+            int active = 0;
+            float fov = 60.0f;
+            float ortho_height = 10.0f;
+            float near_plane = 0.05f;
+            float far_plane = 1000.0f;
+            if (std::sscanf(
+                    line,
+                    "CAM3D %d %64s %d %d %d %f %f %f %f",
+                    &camera_id, stable_id, &projection, &priority,
+                    &active, &fov, &ortho_height,
+                    &near_plane, &far_plane) == 9) {
+                AEditor3DRecordComponent* record = Rec3D(
+                    FindNode3DNode(*host, camera_id + idOffset));
+                if (record != nullptr) {
+                    const int target_node_id = camera_id + idOffset;
+                    const char* committed_stable_id = stable_id;
+                    char generated_stable_id[
+                        game::kScene3DSerializeMaxCameraIdBytes + 1u]{};
+                    if (!clear && !SceneCameraIdIsUnique(
+                            *host, target_node_id, stable_id)) {
+                        if (!MakeUniqueClonedSceneCameraId(
+                                *host, stable_id, target_node_id,
+                                generated_stable_id,
+                                sizeof(generated_stable_id))) {
+                            return 0;
+                        }
+                        committed_stable_id = generated_stable_id;
+                    }
+                    record->has_scene_camera = true;
+                    std::snprintf(
+                        record->scene_camera_id,
+                        sizeof(record->scene_camera_id),
+                        "%s", committed_stable_id);
+                    record->scene_camera_projection = projection;
+                    record->scene_camera_priority = priority;
+                    record->scene_camera_active = active != 0;
+                    record->scene_camera_fov_deg = fov;
+                    record->scene_camera_ortho_height = ortho_height;
+                    record->scene_camera_near = near_plane;
+                    record->scene_camera_far = far_plane;
+                }
+            }
             continue;
         }
         if (std::strncmp(line, "CPROP3D ", 8) == 0) {                // コンポーネント編集プロパティ値の復元 (CMP3D の直後)

@@ -8,8 +8,8 @@
 
 namespace acs::editor_profiler {
 
-constexpr u32 kSnapshotVersion = 3u;
-constexpr u32 kSnapshotSize = 208u;
+constexpr u32 kSnapshotVersion = 4u;
+constexpr u32 kSnapshotSize = 224u;
 constexpr u32 kPeakWindowFrames = 120u;
 // Roughly 1.5 seconds at the editor's typical 80 Hz render rate. A 30-query
 // window proved too short to distinguish shader changes from scheduler noise.
@@ -27,6 +27,9 @@ enum ESnapshotFlags : u32 {
     AerialPerspective = 1u << 3,
     GpuTimingsValid = 1u << 4,
     SceneMeshCacheRebuilt = 1u << 5,
+    FrustumCullingEnabled = 1u << 6,
+    GameView = 1u << 7,
+    RuntimeSceneCamera = 1u << 8,
 };
 
 #pragma pack(push, 4)
@@ -89,6 +92,13 @@ struct FSnapshot {
     f32 cloud_gpu_window_peak_ms = -1.0f;
     f32 fog_gpu_window_peak_ms = -1.0f;
     f32 post_gpu_window_peak_ms = -1.0f;
+
+    // Exact per-frame main-view culling workload. Counts cover eligible
+    // authored 3D render nodes once, not the number of downstream passes.
+    u32 frustum_tested = 0u;
+    u32 frustum_visible = 0u;
+    u32 frustum_culled = 0u;
+    i32 active_camera_node_id = -1;
 };
 #pragma pack(pop)
 
@@ -103,6 +113,14 @@ struct FAccumulator {
     f32 post_cpu_ms = 0.0f;
     bool clouds_active = false;
     bool scene_mesh_cache_rebuilt = false;
+    bool frustum_culling_enabled = false;
+    bool runtime_scene_camera = false;
+    bool render_orthographic = false;
+    bool render_camera_resolved = false;
+    u32 frustum_tested = 0u;
+    u32 frustum_visible = 0u;
+    u32 frustum_culled = 0u;
+    i32 active_camera_node_id = -1;
 };
 
 /** Small allocation-free rolling maximum used to preserve sub-sample spikes. */

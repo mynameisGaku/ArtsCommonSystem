@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Editor ABI DLL の生成・破棄契約を、GPU 接続なしで実 DLL 境界から検証する。
 #include "editor_abi/EditorProfiler.h"
+#include "editor_abi/EditorFrustumCulling.h"
 #include "editor_abi/EditorAbiCapabilities.h"
 #include "editor_abi/EditorCloudWorkload.h"
 
@@ -28,6 +29,11 @@ extern "C" __declspec(dllimport) int acs_editor_add_node3d(
     void* handle, int primitive, const char* name);
 extern "C" __declspec(dllimport) int acs_editor_add_empty3d(
     void* handle, const char* name);
+extern "C" __declspec(dllimport) int acs_editor_add_node(
+    void* handle, const char* type_name, int parent_id);
+extern "C" __declspec(dllimport) void acs_editor_node_set_transform(
+    void* handle, int id, float x, float y, float rotation,
+    float scale_x, float scale_y);
 extern "C" __declspec(dllimport) int acs_editor_node3d_set_transform(
     void* handle, int id, float px, float py, float pz, float rx, float ry, float rz,
     float sx, float sy, float sz);
@@ -71,13 +77,57 @@ extern "C" __declspec(dllimport) int acs_editor_water3d_hit_test(
     int* node_id, float* world_x,
     float* world_y, float* world_z);
 extern "C" __declspec(dllimport) void acs_editor_set_view3d(void* handle, int on);
+extern "C" __declspec(dllimport) int acs_editor_get_view3d(void* handle);
+extern "C" __declspec(dllimport) void acs_editor_set_ortho3d(
+    void* handle, int on);
+extern "C" __declspec(dllimport) int acs_editor_get_ortho3d(void* handle);
 extern "C" __declspec(dllimport) void acs_editor_scene3d_new(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_play_start(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_play_stop(void* handle);
+extern "C" __declspec(dllimport) int acs_editor_play_state(void* handle);
+extern "C" __declspec(dllimport) void acs_editor_set_game_view(
+    void* handle, int on);
+extern "C" __declspec(dllimport) int acs_editor_is_game_view(void* handle);
+extern "C" __declspec(dllimport) void acs_editor_camera_pan(
+    void* handle, float dx, float dy);
+extern "C" __declspec(dllimport) void acs_editor_camera_zoom(
+    void* handle, float factor, float anchor_x, float anchor_y);
+extern "C" __declspec(dllimport) void acs_editor_camera_get(
+    void* handle, float* pan_x, float* pan_y, float* zoom);
 extern "C" __declspec(dllimport) int acs_editor_camera3d_set(
     void* handle, float yaw, float pitch, float distance,
     float target_x, float target_y, float target_z);
 extern "C" __declspec(dllimport) int acs_editor_camera3d_get(
     void* handle, float* yaw, float* pitch, float* distance,
     float* target_x, float* target_y, float* target_z);
+extern "C" __declspec(dllimport) int acs_editor_game_camera2d_get(
+    void* handle, unsigned viewport_width, unsigned viewport_height,
+    float* center_x, float* center_y, float* zoom);
+extern "C" __declspec(dllimport) int acs_editor_game_camera3d_get(
+    void* handle, float aspect, int* projection,
+    int* source_node_id, float* position3, float* forward3,
+    float* up3, float* projection4);
+extern "C" __declspec(dllimport) int acs_editor_add_camera3d(
+    void* handle, const char* name, const char* stable_id);
+extern "C" __declspec(dllimport) int acs_editor_node3d_camera_set(
+    void* handle, int node_id, const char* stable_id,
+    int projection, int priority, int active,
+    float fov_deg, float ortho_height,
+    float near_plane, float far_plane);
+extern "C" __declspec(dllimport) int acs_editor_game_camera_preview_set(
+    void* handle, int node_id);
+extern "C" __declspec(dllimport) void acs_editor_game_camera_preview_clear(
+    void* handle);
+extern "C" __declspec(dllimport) int acs_editor_game_camera_preview_get(
+    void* handle, int* node_id);
+extern "C" __declspec(dllimport) int acs_editor_camera3d_count(
+    void* handle);
+extern "C" __declspec(dllimport) int acs_editor_camera3d_node_id_at(
+    void* handle, int index);
+extern "C" __declspec(dllimport) void
+acs_editor_camera_frustum_set_visible(void* handle, int visible);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_frustum_get_visible(void* handle);
 extern "C" __declspec(dllimport) void acs_editor_camera_frame_all(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_profiler_get(
     void* handle, acs::editor_profiler::FSnapshot* out_snapshot,
@@ -259,8 +309,8 @@ bool RunProfilerSnapshotContract() noexcept
 {
     using namespace acs::editor_profiler;
     static_assert(sizeof(FSnapshot) == kSnapshotSize);
-    static_assert(kSnapshotVersion == 3u);
-    static_assert(kSnapshotSize == 208u);
+    static_assert(kSnapshotVersion == 4u);
+    static_assert(kSnapshotSize == 224u);
     static_assert(
         SceneMeshCacheRebuilt == (1u << 5u),
         "mesh-cache rebuild profiling must not change the snapshot ABI");
@@ -414,7 +464,7 @@ bool RunProfilerSnapshotContract() noexcept
 
 /**
  * The optional cloud-workload contract is unavailable before renderer startup,
- * rejects incompatible callers, and never changes profiler v3.
+ * rejects incompatible callers, and never changes profiler v4.
  */
 bool RunCloudWorkloadSnapshotContract() noexcept
 {
@@ -422,8 +472,8 @@ bool RunCloudWorkloadSnapshotContract() noexcept
     static_assert(kSnapshotVersion == 1u);
     static_assert(kSnapshotSize == 168u);
     static_assert(sizeof(FSnapshot) == 168u);
-    static_assert(acs::editor_profiler::kSnapshotVersion == 3u);
-    static_assert(acs::editor_profiler::kSnapshotSize == 208u);
+    static_assert(acs::editor_profiler::kSnapshotVersion == 4u);
+    static_assert(acs::editor_profiler::kSnapshotSize == 224u);
 
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
@@ -921,6 +971,390 @@ bool RunCamera3DFrameAll() noexcept
     return transformed && framed;
 }
 
+/** Play/Stop owns restoration; Scene/Game tabs are display-only. */
+bool RunPlayCameraIsolation() noexcept
+{
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+
+    // Establish independent 2D navigation before making 3D the active view.
+    acs_editor_set_view3d(host, 0);
+    acs_editor_camera_pan(host, 31.25f, -17.5f);
+    acs_editor_camera_zoom(host, 1.75f, 240.0f, 180.0f);
+    float original_pan_x = 0.0f, original_pan_y = 0.0f;
+    float original_zoom = 0.0f;
+    acs_editor_camera_get(
+        host, &original_pan_x, &original_pan_y, &original_zoom);
+
+    acs_editor_set_view3d(host, 1);
+    acs_editor_set_ortho3d(host, 1);
+    const bool original_set = acs_editor_camera3d_set(
+        host, 0.42f, -0.31f, 27.5f,
+        4.25f, 5.5f, -6.75f) != 0;
+    float original_camera[6]{};
+    const bool original_read = acs_editor_camera3d_get(
+        host, &original_camera[0], &original_camera[1],
+        &original_camera[2], &original_camera[3],
+        &original_camera[4], &original_camera[5]) != 0;
+
+    const bool started =
+        acs_editor_play_start(host) != 0 &&
+        acs_editor_play_state(host) == 1;
+    acs_editor_set_ortho3d(host, 0);
+    const bool play_camera_set = acs_editor_camera3d_set(
+        host, -1.2f, 0.7f, 44.0f,
+        -9.0f, 8.0f, 7.0f) != 0;
+    float play_camera_before_tabs[6]{};
+    acs_editor_camera3d_get(
+        host, &play_camera_before_tabs[0],
+        &play_camera_before_tabs[1],
+        &play_camera_before_tabs[2],
+        &play_camera_before_tabs[3],
+        &play_camera_before_tabs[4],
+        &play_camera_before_tabs[5]);
+
+    acs_editor_set_game_view(host, 1);
+    const bool game_selected =
+        acs_editor_is_game_view(host) == 1 &&
+        acs_editor_play_state(host) == 1;
+    acs_editor_set_game_view(host, 0);
+    float play_camera_after_tabs[6]{};
+    acs_editor_camera3d_get(
+        host, &play_camera_after_tabs[0],
+        &play_camera_after_tabs[1],
+        &play_camera_after_tabs[2],
+        &play_camera_after_tabs[3],
+        &play_camera_after_tabs[4],
+        &play_camera_after_tabs[5]);
+    const bool tabs_preserved =
+        acs_editor_is_game_view(host) == 0 &&
+        acs_editor_play_state(host) == 1 &&
+        std::memcmp(
+            play_camera_before_tabs, play_camera_after_tabs,
+            sizeof(play_camera_before_tabs)) == 0;
+
+    const bool stopped =
+        acs_editor_play_stop(host) != 0 &&
+        acs_editor_play_state(host) == 0;
+    float restored_camera[6]{};
+    acs_editor_camera3d_get(
+        host, &restored_camera[0], &restored_camera[1],
+        &restored_camera[2], &restored_camera[3],
+        &restored_camera[4], &restored_camera[5]);
+    float restored_pan_x = 0.0f, restored_pan_y = 0.0f;
+    float restored_zoom = 0.0f;
+    acs_editor_camera_get(
+        host, &restored_pan_x, &restored_pan_y, &restored_zoom);
+    const bool exact_restore =
+        acs_editor_get_view3d(host) == 1 &&
+        acs_editor_get_ortho3d(host) == 1 &&
+        std::memcmp(
+            original_camera, restored_camera,
+            sizeof(original_camera)) == 0 &&
+        original_pan_x == restored_pan_x &&
+        original_pan_y == restored_pan_y &&
+        original_zoom == restored_zoom;
+
+    acs_editor_destroy(host);
+    return original_set && original_read && started &&
+           play_camera_set && game_selected && tabs_preserved &&
+           stopped && exact_restore;
+}
+
+/** Legacy 2D Game View fallback is authored-bounds based, never editor-pose based. */
+bool RunDeterministicGameCamera2D() noexcept
+{
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    const int left = acs_editor_add_node(host, "Node", -1);
+    const int right = acs_editor_add_node(host, "Node", -1);
+    if (left < 0 || right < 0) {
+        acs_editor_destroy(host);
+        return false;
+    }
+    acs_editor_node_set_transform(
+        host, left, -120.0f, 40.0f, 0.35f, 2.0f, 1.0f);
+    acs_editor_node_set_transform(
+        host, right, 310.0f, 170.0f, -0.2f, 1.0f, 3.0f);
+    float first[3]{};
+    float second[3]{};
+    const bool first_ok = acs_editor_game_camera2d_get(
+        host, 1280u, 720u, &first[0], &first[1], &first[2]) != 0;
+    acs_editor_camera_pan(host, 900.0f, -500.0f);
+    acs_editor_camera_zoom(host, 3.0f, 13.0f, 17.0f);
+    const bool second_ok = acs_editor_game_camera2d_get(
+        host, 1280u, 720u, &second[0], &second[1], &second[2]) != 0;
+    const bool independent =
+        std::memcmp(first, second, sizeof(first)) == 0 &&
+        std::isfinite(first[0]) && std::isfinite(first[1]) &&
+        std::isfinite(first[2]) && first[2] > 0.0f;
+    acs_editor_destroy(host);
+
+    void* const empty = acs_editor_create();
+    if (empty == nullptr) return false;
+    acs_editor_camera_pan(empty, -123.0f, 456.0f);
+    acs_editor_camera_zoom(empty, 2.0f, 1.0f, 1.0f);
+    float empty_center_x = 1.0f;
+    float empty_center_y = 1.0f;
+    float empty_zoom = 0.0f;
+    const bool empty_default =
+        acs_editor_game_camera2d_get(
+            empty, 1920u, 1080u, &empty_center_x,
+            &empty_center_y, &empty_zoom) != 0 &&
+        empty_center_x == 0.0f &&
+        empty_center_y == 0.0f &&
+        empty_zoom == 1.0f;
+    acs_editor_destroy(empty);
+    return first_ok && second_ok && independent && empty_default;
+}
+
+/** Game View resolves fallback/authored/preview cameras without editor mutation. */
+bool RunGameCameraResolutionAndPreview() noexcept
+{
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+    acs_editor_set_view3d(host, 1);
+    acs_editor_scene3d_new(host);
+    const int mesh_a = acs_editor_add_node3d(host, 0, "BoundsA");
+    const int mesh_b = acs_editor_add_node3d(host, 1, "BoundsB");
+    const bool meshes_ready =
+        mesh_a >= 0 && mesh_b >= 0 &&
+        acs_editor_node3d_set_transform(
+            host, mesh_a, -4.0f, 1.0f, 3.0f,
+            0.0f, 0.0f, 0.0f, 2.0f, 1.0f, 1.0f) != 0 &&
+        acs_editor_node3d_set_transform(
+            host, mesh_b, 8.0f, 3.0f, -2.0f,
+            0.0f, 0.0f, 0.0f, 1.0f, 3.0f, 1.0f) != 0;
+
+    int fallback_projection_a = -1, fallback_source_a = -9;
+    int fallback_projection_b = -1, fallback_source_b = -9;
+    float fallback_position_a[3]{}, fallback_forward_a[3]{};
+    float fallback_up_a[3]{}, fallback_params_a[4]{};
+    float fallback_position_b[3]{}, fallback_forward_b[3]{};
+    float fallback_up_b[3]{}, fallback_params_b[4]{};
+    const bool fallback_a = acs_editor_game_camera3d_get(
+        host, 16.0f / 9.0f,
+        &fallback_projection_a, &fallback_source_a,
+        fallback_position_a, fallback_forward_a,
+        fallback_up_a, fallback_params_a) != 0;
+    acs_editor_camera3d_set(
+        host, 2.3f, -0.8f, 190.0f,
+        70.0f, -30.0f, 44.0f);
+    const bool fallback_b = acs_editor_game_camera3d_get(
+        host, 16.0f / 9.0f,
+        &fallback_projection_b, &fallback_source_b,
+        fallback_position_b, fallback_forward_b,
+        fallback_up_b, fallback_params_b) != 0;
+    const bool fallback_independent =
+        fallback_source_a == -1 && fallback_source_b == -1 &&
+        fallback_projection_a == 0 && fallback_projection_b == 0 &&
+        std::memcmp(
+            fallback_position_a, fallback_position_b,
+            sizeof(fallback_position_a)) == 0 &&
+        std::memcmp(
+            fallback_forward_a, fallback_forward_b,
+            sizeof(fallback_forward_a)) == 0 &&
+        std::memcmp(
+            fallback_up_a, fallback_up_b,
+            sizeof(fallback_up_a)) == 0 &&
+        std::memcmp(
+            fallback_params_a, fallback_params_b,
+            sizeof(fallback_params_a)) == 0;
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const bool aspect_rejected =
+        acs_editor_game_camera3d_get(
+            host, nan, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr) == 0 &&
+        acs_editor_game_camera3d_get(
+            host, 0.0f, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr) == 0 &&
+        acs_editor_game_camera3d_get(
+            host, 1.0e20f, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr) == 0;
+
+    const int active_camera =
+        acs_editor_add_camera3d(
+            host, "ActiveCamera", "camera.active");
+    const int preview_camera =
+        acs_editor_add_camera3d(
+            host, "PreviewCamera", "camera.preview");
+    const bool authored =
+        active_camera >= 0 && preview_camera >= 0 &&
+        acs_editor_node3d_set_transform(
+            host, active_camera, 2.0f, 4.0f, 6.0f,
+            0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) != 0 &&
+        acs_editor_node3d_camera_set(
+            host, active_camera, "camera.active",
+            1, 100, 1, 55.0f, 18.0f, 0.25f, 900.0f) != 0 &&
+        acs_editor_node3d_set_transform(
+            host, preview_camera, -3.0f, 5.0f, 7.0f,
+            0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f) != 0 &&
+        acs_editor_node3d_camera_set(
+            host, preview_camera, "camera.preview",
+            0, 0, 0, 67.0f, 12.0f, 0.1f, 400.0f) != 0;
+
+    int projection = -1, source = -1;
+    float position[3]{}, forward[3]{}, up[3]{}, params[4]{};
+    const bool active_resolved =
+        acs_editor_game_camera3d_get(
+            host, 2.0f, &projection, &source,
+            position, forward, up, params) != 0 &&
+        source == active_camera && projection == 1 &&
+        position[0] == 2.0f && position[1] == 4.0f &&
+        position[2] == 6.0f &&
+        std::abs(forward[0]) < 1.0e-6f &&
+        std::abs(forward[1]) < 1.0e-6f &&
+        std::abs(forward[2] - 1.0f) < 1.0e-6f &&
+        params[1] == 18.0f && params[2] == 0.25f &&
+        params[3] == 900.0f;
+
+    char before_preview[32768]{};
+    char after_preview[32768]{};
+    const int before_written = acs_editor_scene3d_serialize(
+        host, before_preview,
+        static_cast<int>(sizeof(before_preview)));
+    int preview_id = -1;
+    const bool preview_resolved =
+        acs_editor_game_camera_preview_set(
+            host, preview_camera) != 0 &&
+        acs_editor_game_camera_preview_get(
+            host, &preview_id) != 0 &&
+        preview_id == preview_camera &&
+        acs_editor_game_camera3d_get(
+            host, 2.0f, &projection, &source,
+            position, forward, up, params) != 0 &&
+        source == preview_camera && projection == 0 &&
+        position[0] == -3.0f && position[1] == 5.0f &&
+        position[2] == 7.0f;
+    const int after_written = acs_editor_scene3d_serialize(
+        host, after_preview,
+        static_cast<int>(sizeof(after_preview)));
+    const bool preview_nonpersistent =
+        before_written > 0 && before_written == after_written &&
+        std::strcmp(before_preview, after_preview) == 0;
+
+    acs_editor_node3d_set_enabled(
+        host, preview_camera, 0);
+    preview_id = 77;
+    const bool invalid_preview_cleared =
+        acs_editor_game_camera_preview_get(
+            host, &preview_id) == 0 &&
+        preview_id == -1 &&
+        acs_editor_game_camera3d_get(
+            host, 2.0f, &projection, &source,
+            position, forward, up, params) != 0 &&
+        source == active_camera;
+
+    const int camera_count = acs_editor_camera3d_count(host);
+    const bool enumeration =
+        camera_count == 2 &&
+        acs_editor_camera3d_node_id_at(host, 0) ==
+            active_camera &&
+        acs_editor_camera3d_node_id_at(host, 1) ==
+            preview_camera &&
+        acs_editor_camera3d_node_id_at(host, -1) == -1 &&
+        acs_editor_camera3d_node_id_at(host, camera_count) == -1;
+    const bool frustum_toggle =
+        acs_editor_camera_frustum_get_visible(host) == 1 &&
+        (acs_editor_camera_frustum_set_visible(host, 0), true) &&
+        acs_editor_camera_frustum_get_visible(host) == 0 &&
+        (acs_editor_camera_frustum_set_visible(host, 1), true) &&
+        acs_editor_camera_frustum_get_visible(host) == 1;
+    acs_editor_game_camera_preview_clear(host);
+    preview_id = 55;
+    const bool explicitly_cleared =
+        acs_editor_game_camera_preview_get(
+            host, &preview_id) == 0 &&
+        preview_id == -1;
+
+    acs_editor_destroy(host);
+    return meshes_ready && fallback_a && fallback_b &&
+           fallback_independent && aspect_rejected && authored &&
+           active_resolved && preview_resolved &&
+           preview_nonpersistent && invalid_preview_cleared &&
+           enumeration && frustum_toggle && explicitly_cleared;
+}
+
+/** Row-vector D3D planes, conservative scale and fail-open draw policy stay exact. */
+bool RunFrustumCullingContract() noexcept
+{
+    using namespace acs::editor_frustum_culling;
+    const acs::FMat4 view = acs::FMat4::LookAtLH(
+        acs::FVec3{0.0f, 0.0f, 0.0f},
+        acs::FVec3{0.0f, 0.0f, 1.0f},
+        acs::FVec3{0.0f, 1.0f, 0.0f});
+    const acs::FMat4 projection =
+        acs::FMat4::PerspectiveFovLH(
+            90.0f * 3.14159265f / 180.0f,
+            1.0f, 1.0f, 10.0f);
+    FPlane planes[6];
+    if (!ExtractPlanes(view * projection, planes))
+        return false;
+
+    const FNodeDecision inside = EvaluateSphere(
+        planes, acs::FVec3{0.0f, 0.0f, 5.0f},
+        0.25f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision behind_near = EvaluateSphere(
+        planes, acs::FVec3{0.0f, 0.0f, 0.2f},
+        0.1f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision beyond_far = EvaluateSphere(
+        planes, acs::FVec3{0.0f, 0.0f, 11.0f},
+        0.1f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision beyond_left = EvaluateSphere(
+        planes, acs::FVec3{-8.0f, 0.0f, 5.0f},
+        0.1f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision beyond_right = EvaluateSphere(
+        planes, acs::FVec3{8.0f, 0.0f, 5.0f},
+        0.1f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const bool plane_contract =
+        inside.valid && inside.visible &&
+        behind_near.valid && !behind_near.visible &&
+        beyond_far.valid && !beyond_far.visible &&
+        beyond_left.valid && !beyond_left.visible &&
+        beyond_right.valid && !beyond_right.visible;
+
+    const FNodeDecision uniform = EvaluateSphere(
+        planes, acs::FVec3{8.0f, 0.0f, 5.0f},
+        1.0f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision nonuniform = EvaluateSphere(
+        planes, acs::FVec3{8.0f, 0.0f, 5.0f},
+        1.0f, acs::FVec3{1.0f, 3.0f, 2.0f});
+    const bool scale_contract =
+        uniform.valid && !uniform.visible &&
+        uniform.world_radius == 1.0f &&
+        nonuniform.valid && nonuniform.visible &&
+        nonuniform.world_radius == 3.0f;
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const FNodeDecision invalid = EvaluateSphere(
+        planes, acs::FVec3{0.0f, 0.0f, 5.0f},
+        nan, acs::FVec3{1.0f, 1.0f, 1.0f});
+    FFrameDecision invalid_frame{};
+    invalid_frame.Apply(inside);
+    invalid_frame.Apply(invalid);
+    const bool fail_open =
+        !invalid.valid && invalid.visible &&
+        !invalid_frame.enabled &&
+        invalid_frame.tested == 0u &&
+        invalid_frame.visible == 0u &&
+        invalid_frame.culled == 0u &&
+        ShouldSubmitOpaque(
+            invalid_frame.enabled, false);
+
+    FFrameDecision culled_frame{};
+    culled_frame.Apply(beyond_right);
+    const bool culled_skips_opaque =
+        culled_frame.enabled &&
+        culled_frame.tested == 1u &&
+        culled_frame.visible == 0u &&
+        culled_frame.culled == 1u &&
+        !ShouldSubmitOpaque(
+            culled_frame.enabled,
+            beyond_right.visible);
+    return plane_contract && scale_contract &&
+           fail_open && culled_skips_opaque;
+}
+
 } // namespace
 
 int main()
@@ -941,6 +1375,10 @@ int main()
     if (!RunWater3DPointerOcclusion()) return 16;
     if (!RunCamera3DStateSafety()) return 10;
     if (!RunCamera3DFrameAll()) return 11;
+    if (!RunPlayCameraIsolation()) return 20;
+    if (!RunDeterministicGameCamera2D()) return 21;
+    if (!RunGameCameraResolutionAndPreview()) return 22;
+    if (!RunFrustumCullingContract()) return 23;
     const DWORD baseline_handles = ProcessHandleCount();
     if (baseline_handles == 0) return 2;
 

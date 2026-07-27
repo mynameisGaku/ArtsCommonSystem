@@ -352,6 +352,26 @@ void FDiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffe
     m_MainDepth     = depth ? static_cast<FDiligentTexture*>(depth) : nullptr;
 }
 
+void FDiligentCommandList::BeginRenderToSwapchainLoad(
+    IRhiSwapchain& sc, u32 /*buffer_index*/) noexcept {
+    if (!m_Device) return;
+    auto* context = m_Device->Context();
+    if (!context) return;
+    auto& diligent_swapchain =
+        static_cast<FDiligentSwapchain&>(sc);
+    auto* swapchain = diligent_swapchain.SwapChain();
+    if (!swapchain) return;
+    auto* render_target =
+        swapchain->GetCurrentBackBufferRTV();
+    Diligent::ITextureView* render_targets[1] = {
+        render_target};
+    context->SetRenderTargets(
+        1, render_targets, nullptr,
+        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    m_MainSwapchain = &diligent_swapchain;
+    m_MainDepth = nullptr;
+}
+
 void FDiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buffer_index*/) noexcept {
     // Diligent は Present 時に PRESENT 状態に自動遷移するので何もしない
 }

@@ -484,6 +484,122 @@ ACS_TEST(PostEffects, RawDx12PostShadersAvoidFxcIsFiniteMiscompile)
     }
 }
 
+ACS_TEST(PostEffects, CameraFrustumOverlayIsSceneOnlyAndAfterHdrPost)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    const std::string draw = ReadDrawScene3DSource();
+    const std::string overlay = ExtractFunction(
+        source, "void DrawSelectedCameraFrustumOverlay");
+    EXPECT_TRUE(!draw.empty());
+    EXPECT_TRUE(!overlay.empty());
+    if (draw.empty() || overlay.empty()) return;
+
+    EXPECT_TRUE(overlay.find(
+        "if (!host.show_camera_frustum || host.game_view)") !=
+        std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "if (hdrRt == nullptr && !h.game_view)") != std::string::npos);
+
+    const std::size_t post =
+        draw.find("h.post3d.Render");
+    const std::size_t game_view_gate =
+        draw.find(
+            "if (!h.game_view && h.show_camera_frustum",
+            post);
+    const std::size_t swapchain_load =
+        draw.find("cl->BeginRenderToSwapchainLoad", game_view_gate);
+    const std::size_t frustum_draw =
+        draw.find(
+            "DrawSelectedCameraFrustumOverlay",
+            swapchain_load);
+    EXPECT_TRUE(post != std::string::npos);
+    EXPECT_TRUE(game_view_gate != std::string::npos);
+    EXPECT_TRUE(swapchain_load != std::string::npos);
+    EXPECT_TRUE(frustum_draw != std::string::npos);
+    EXPECT_TRUE(post < game_view_gate);
+    EXPECT_TRUE(game_view_gate < swapchain_load);
+    EXPECT_TRUE(swapchain_load < frustum_draw);
+    EXPECT_TRUE(draw.find(
+        "h, *cl, vp_nojit, aspect", frustum_draw) !=
+        std::string::npos);
+}
+
+ACS_TEST(PostEffects, EditorFrustumCullingMasksEveryPerNodeGeometryPass)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    const std::string draw = ReadDrawScene3DSource();
+    const std::string build_visibility = ExtractFunction(
+        source, "void BuildSceneMeshVisibility");
+    const std::string count_pbr = ExtractFunction(
+        source, "FPbrFrameDrawCounts CountPbrFrameDraws");
+    EXPECT_TRUE(!draw.empty());
+    EXPECT_TRUE(!build_visibility.empty());
+    EXPECT_TRUE(!count_pbr.empty());
+    if (draw.empty() || build_visibility.empty() || count_pbr.empty())
+        return;
+
+    const std::size_t visibility =
+        draw.find("BuildSceneMeshVisibility(h, all3d, vp_nojit);");
+    const std::size_t pbr_reserve =
+        draw.find("CountPbrFrameDraws(h, all3d);");
+    EXPECT_TRUE(visibility != std::string::npos);
+    EXPECT_TRUE(pbr_reserve != std::string::npos);
+    EXPECT_TRUE(visibility < pbr_reserve);
+
+    // Normal/depth, motion history, opaque PBR and refraction all submit
+    // individual geometry through the same conservative frame mask.
+    EXPECT_TRUE(CountOccurrences(
+        draw, "SceneMeshNodeVisible(h,") >= std::size_t{6});
+    EXPECT_TRUE(count_pbr.find(
+        "if (!SceneMeshNodeVisible(host, index)) continue;") !=
+        std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "if (!SceneMeshNodeVisible(h, i)) continue;\n"
+        "            ssss_mrt_draws_valid =") !=
+        std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "if (!SceneMeshNodeVisible(h, i)) continue;\n"
+        "                        game::ANode* nn = all3d[i];") !=
+        std::string::npos);
+
+    // A non-indexable aggregate fallback must disable diagnostics instead of
+    // claiming that nodes were culled while still issuing one combined draw.
+    const std::size_t aggregate =
+        draw.find("auto draw_aggregate_mesh_fallback");
+    const std::size_t aggregate_draw =
+        draw.find("cl->Draw(dvCount, 0);", aggregate);
+    EXPECT_TRUE(aggregate != std::string::npos);
+    EXPECT_TRUE(aggregate_draw != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.profiler_work.frustum_culling_enabled = false;",
+        aggregate) < aggregate_draw);
+
+    const std::size_t rejected_pool =
+        draw.find("if (h.pbr3d_ready && !pbr_object_pool_ready)");
+    const std::size_t rejected_return =
+        draw.find("return;", rejected_pool);
+    EXPECT_TRUE(rejected_pool != std::string::npos);
+    EXPECT_TRUE(rejected_return != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.profiler_work.frustum_culling_enabled = false;",
+        rejected_pool) < rejected_return);
+    EXPECT_TRUE(draw.find(
+        "h.profiler_work.frustum_tested = 0u;",
+        rejected_pool) < rejected_return);
+
+    // Any invalid plane/sphere decision is fail-open and clears the partial
+    // mask, keeping submitted geometry and published counters truthful.
+    EXPECT_TRUE(build_visibility.find(
+        "host.scene_mesh_visible[reset] = 1u;") !=
+        std::string::npos);
+    EXPECT_TRUE(build_visibility.find(
+        "host.profiler_work.frustum_culling_enabled =\n"
+        "        frame.enabled;") !=
+        std::string::npos);
+}
+
 ACS_TEST(PostEffects, EditorCompositeOrderKeepsCloudsInRefractionBackground)
 {
     const std::string draw = ReadDrawScene3DSource();
@@ -600,7 +716,7 @@ ACS_TEST(PostEffects, AnimatedCloudsUseReactiveMaskWhileGeometryKeepsGlobalTaa)
         return;
 
     EXPECT_TRUE(draw.find("animatedCloudsRequested") == std::string::npos);
-    EXPECT_TRUE(draw.find("h.q_taa_on && !h.ortho3d") != std::string::npos);
+    EXPECT_TRUE(draw.find("h.q_taa_on && !renderOrtho") != std::string::npos);
     EXPECT_TRUE(draw.find("Inverse(vp_nojit), eye") != std::string::npos);
     EXPECT_TRUE(draw.find(
         "pp.taa_reactive_texture = h.vclouds3d.ResolvedDepth();") !=

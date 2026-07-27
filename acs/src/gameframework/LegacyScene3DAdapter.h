@@ -43,11 +43,11 @@ struct FWaterRaycastHit {
 };
 
 /**
- * Per-camera projection state for the canonical scene runtime.
+ * Active projection state for the canonical scene runtime.
  *
- * @details This is runtime camera state, not a property of the scene asset. The legacy ACS3D
- * adapter starts in Perspective; an editor 2D mode may select Orthographic without converting
- * the root graph or the dedicated 2D renderer/physics subsystems.
+ * @details ACS3D CAM3D may author the initial projection. An editor 2D view may
+ * still select Orthographic without converting the root graph or the dedicated
+ * 2D renderer/physics subsystems.
  */
 enum class ESceneProjectionMode : u8 {
     Perspective = 0,
@@ -72,6 +72,9 @@ public:
 
     /** Load a loose legacy ACS3D document and all of its mesh/material dependencies. */
     FScene3DLoadResult LoadFile(const char* path = "main.acscene") noexcept;
+
+    /** Load an in-memory ACS3D document transactionally (tests/tools/hot reload). */
+    FScene3DLoadResult LoadText(const char* text, u32 size) noexcept;
 
     /** Load a legacy ACS3D document and all dependencies from one mounted asset pack. */
     FScene3DLoadResult LoadAssetPack(
@@ -98,6 +101,39 @@ public:
 
     /** Read-only standalone camera. */
     const FCamera& Camera() const noexcept { return m_Camera; }
+
+    /** Deterministically selected authored camera, or null for frame-scene fallback. */
+    const FScene3DCameraState* AuthoredCamera() const noexcept {
+        return m_UseAuthoredCamera ? &m_AuthoredCamera : nullptr;
+    }
+
+    /** Number of graph-owned authored camera components. */
+    u32 CameraCount() const noexcept;
+
+    /**
+     * Switch by canonical stable identity. Unknown or effectively disabled
+     * identities fail without changing the active camera.
+     */
+    bool SetActiveCamera(const char* stable_id) noexcept;
+
+    /**
+     * Switch by serialized N3D node id. Unknown or effectively disabled nodes
+     * fail without changing the active camera.
+     */
+    bool SetActiveCamera(i32 node_id) noexcept;
+
+    /** Return an explicit runtime camera cut to authored automatic selection. */
+    bool ClearActiveCameraOverride() noexcept;
+
+    /** Descriptive alias for returning to deterministic authored selection. */
+    bool UseAutomaticCameraSelection() noexcept {
+        return ClearActiveCameraOverride();
+    }
+
+    /** Refresh the active camera from its node's current world transform. */
+    bool RefreshActiveCamera() noexcept {
+        return RefreshAuthoredCameraPose();
+    }
 
     /** Recompute a useful camera target/distance from all renderable nodes. */
     void FrameScene() noexcept;
@@ -259,6 +295,8 @@ private:
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
+    void AdoptLoadedCamera() noexcept;
+    bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
@@ -341,6 +379,10 @@ private:
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
     FCamera m_Camera;
+    FScene3DCameraState m_AuthoredCamera{};
+    bool m_UseAuthoredCamera = false;
+    bool m_HasExplicitCameraOverride = false;
+    i32 m_ActiveCameraNodeId = -1;
     FVec3 m_Target{0.0f, 0.0f, 0.0f};
     f32 m_Distance = 8.0f;
     f32 m_Yaw = 0.0f;

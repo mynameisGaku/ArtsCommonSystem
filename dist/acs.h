@@ -9405,6 +9405,15 @@ public:
                                         f32 depth_clear = 1.0f) noexcept = 0;
 
     /**
+     * Rebind an already rendered swapchain backbuffer without clearing it.
+     *
+     * Intended for final display-space editor overlays after post processing.
+     * No depth target is bound, so callers must use an overlay pipeline.
+     */
+    virtual void BeginRenderToSwapchainLoad(
+        IRhiSwapchain& sc, u32 buffer_index) noexcept = 0;
+
+    /**
      * バックバッファ描画を終了し Present 可能状態にする。
      *
      * @param sc 描画先スワップチェイン。
@@ -21781,6 +21790,8 @@ enum class ECapability : std::uint64_t {
     InteractiveWater3D    = 1ull << 6u,
     ResizeResultContract  = 1ull << 7u,
     VolumetricCloudWorkloadV1 = 1ull << 8u,
+    ProfilerV4            = 1ull << 9u,
+    CameraAuthoringV1     = 1ull << 10u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -21792,7 +21803,8 @@ enum class ECapability : std::uint64_t {
 inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
     CapabilityBit(ECapability::IncrementalStartup) |
-    CapabilityBit(ECapability::ProfilerV3) |
+    CapabilityBit(ECapability::ProfilerV4) |
+    CapabilityBit(ECapability::CameraAuthoringV1) |
     CapabilityBit(ECapability::UnifiedSceneDocument) |
     CapabilityBit(ECapability::MaterialPreviewQuality) |
     CapabilityBit(ECapability::SubstrateGraph) |
@@ -21829,7 +21841,7 @@ namespace acs::editor_cloud_workload {
 
 /**
  * Additive, optional snapshot contract for the exact work submitted by the
- * volumetric-cloud renderer. This is deliberately separate from profiler v3.
+ * volumetric-cloud renderer. This is deliberately separate from profiler v4.
  */
 inline constexpr u32 kSnapshotVersion = 1u;
 inline constexpr u32 kSnapshotSize = 168u;
@@ -21928,6 +21940,158 @@ constexpr bool ShouldPublishProfiler(i32 abi_result) noexcept {
 
 } // namespace acs::editor_frame
 
+// ===================== editor_abi/EditorFrustumCulling.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <algorithm>
+#include <cmath>
+
+namespace acs::editor_frustum_culling {
+
+struct FPlane {
+    FVec3 normal{0.0f, 0.0f, 0.0f};
+    f32 distance = 0.0f;
+};
+
+inline bool MakePlane(
+    f32 x, f32 y, f32 z, f32 distance,
+    FPlane& output) noexcept {
+    const f32 length_squared = x * x + y * y + z * z;
+    if (!std::isfinite(length_squared) ||
+        length_squared <= 1.0e-12f ||
+        !std::isfinite(distance)) {
+        return false;
+    }
+    const f32 inverse_length =
+        1.0f / std::sqrt(length_squared);
+    output.normal = FVec3{
+        x * inverse_length,
+        y * inverse_length,
+        z * inverse_length};
+    output.distance = distance * inverse_length;
+    return std::isfinite(output.distance);
+}
+
+/**
+ * Extract normalized planes for ACS row-vector matrices and D3D z=[0,w].
+ */
+inline bool ExtractPlanes(
+    const FMat4& view_projection,
+    FPlane (&planes)[6]) noexcept {
+    return
+        MakePlane(
+            view_projection.m[0][3] + view_projection.m[0][0],
+            view_projection.m[1][3] + view_projection.m[1][0],
+            view_projection.m[2][3] + view_projection.m[2][0],
+            view_projection.m[3][3] + view_projection.m[3][0],
+            planes[0]) &&
+        MakePlane(
+            view_projection.m[0][3] - view_projection.m[0][0],
+            view_projection.m[1][3] - view_projection.m[1][0],
+            view_projection.m[2][3] - view_projection.m[2][0],
+            view_projection.m[3][3] - view_projection.m[3][0],
+            planes[1]) &&
+        MakePlane(
+            view_projection.m[0][3] + view_projection.m[0][1],
+            view_projection.m[1][3] + view_projection.m[1][1],
+            view_projection.m[2][3] + view_projection.m[2][1],
+            view_projection.m[3][3] + view_projection.m[3][1],
+            planes[2]) &&
+        MakePlane(
+            view_projection.m[0][3] - view_projection.m[0][1],
+            view_projection.m[1][3] - view_projection.m[1][1],
+            view_projection.m[2][3] - view_projection.m[2][1],
+            view_projection.m[3][3] - view_projection.m[3][1],
+            planes[3]) &&
+        MakePlane(
+            view_projection.m[0][2],
+            view_projection.m[1][2],
+            view_projection.m[2][2],
+            view_projection.m[3][2],
+            planes[4]) &&
+        MakePlane(
+            view_projection.m[0][3] - view_projection.m[0][2],
+            view_projection.m[1][3] - view_projection.m[1][2],
+            view_projection.m[2][3] - view_projection.m[2][2],
+            view_projection.m[3][3] - view_projection.m[3][2],
+            planes[5]);
+}
+
+struct FNodeDecision {
+    bool valid = false;
+    bool visible = true; // invalid decisions are fail-open
+    f32 world_radius = 0.0f;
+};
+
+inline FNodeDecision EvaluateSphere(
+    const FPlane (&planes)[6], FVec3 center,
+    f32 local_radius, FVec3 world_scale) noexcept {
+    FNodeDecision decision{};
+    if (!std::isfinite(center.x) ||
+        !std::isfinite(center.y) ||
+        !std::isfinite(center.z) ||
+        !std::isfinite(local_radius) ||
+        local_radius < 0.0f ||
+        !std::isfinite(world_scale.x) ||
+        !std::isfinite(world_scale.y) ||
+        !std::isfinite(world_scale.z)) {
+        return decision;
+    }
+    const f32 maximum_scale = std::max(
+        std::fabs(world_scale.x),
+        std::max(
+            std::fabs(world_scale.y),
+            std::fabs(world_scale.z)));
+    decision.world_radius =
+        local_radius * maximum_scale;
+    if (!std::isfinite(decision.world_radius))
+        return decision;
+    decision.valid = true;
+    for (const FPlane& plane : planes) {
+        const f32 signed_distance =
+            center.x * plane.normal.x +
+            center.y * plane.normal.y +
+            center.z * plane.normal.z +
+            plane.distance;
+        if (signed_distance < -decision.world_radius) {
+            decision.visible = false;
+            break;
+        }
+    }
+    return decision;
+}
+
+struct FFrameDecision {
+    bool enabled = true;
+    u32 tested = 0u;
+    u32 visible = 0u;
+    u32 culled = 0u;
+
+    void Apply(const FNodeDecision& node) noexcept {
+        if (!node.valid) {
+            enabled = false;
+            tested = 0u;
+            visible = 0u;
+            culled = 0u;
+            return;
+        }
+        if (!enabled) return;
+        ++tested;
+        if (node.visible)
+            ++visible;
+        else
+            ++culled;
+    }
+};
+
+inline bool ShouldSubmitOpaque(
+    bool culling_enabled, bool visible) noexcept {
+    return !culling_enabled || visible;
+}
+
+} // namespace acs::editor_frustum_culling
+
 // ===================== editor_abi/EditorProfiler.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -21937,8 +22101,8 @@ constexpr bool ShouldPublishProfiler(i32 abi_result) noexcept {
 
 namespace acs::editor_profiler {
 
-constexpr u32 kSnapshotVersion = 3u;
-constexpr u32 kSnapshotSize = 208u;
+constexpr u32 kSnapshotVersion = 4u;
+constexpr u32 kSnapshotSize = 224u;
 constexpr u32 kPeakWindowFrames = 120u;
 // Roughly 1.5 seconds at the editor's typical 80 Hz render rate. A 30-query
 // window proved too short to distinguish shader changes from scheduler noise.
@@ -21956,6 +22120,9 @@ enum ESnapshotFlags : u32 {
     AerialPerspective = 1u << 3,
     GpuTimingsValid = 1u << 4,
     SceneMeshCacheRebuilt = 1u << 5,
+    FrustumCullingEnabled = 1u << 6,
+    GameView = 1u << 7,
+    RuntimeSceneCamera = 1u << 8,
 };
 
 #pragma pack(push, 4)
@@ -22018,6 +22185,13 @@ struct FSnapshot {
     f32 cloud_gpu_window_peak_ms = -1.0f;
     f32 fog_gpu_window_peak_ms = -1.0f;
     f32 post_gpu_window_peak_ms = -1.0f;
+
+    // Exact per-frame main-view culling workload. Counts cover eligible
+    // authored 3D render nodes once, not the number of downstream passes.
+    u32 frustum_tested = 0u;
+    u32 frustum_visible = 0u;
+    u32 frustum_culled = 0u;
+    i32 active_camera_node_id = -1;
 };
 #pragma pack(pop)
 
@@ -22032,6 +22206,14 @@ struct FAccumulator {
     f32 post_cpu_ms = 0.0f;
     bool clouds_active = false;
     bool scene_mesh_cache_rebuilt = false;
+    bool frustum_culling_enabled = false;
+    bool runtime_scene_camera = false;
+    bool render_orthographic = false;
+    bool render_camera_resolved = false;
+    u32 frustum_tested = 0u;
+    u32 frustum_visible = 0u;
+    u32 frustum_culled = 0u;
+    i32 active_camera_node_id = -1;
 };
 
 /** Small allocation-free rolling maximum used to preserve sub-sample spikes. */
@@ -30556,6 +30738,325 @@ private:
 
     /** デッドゾーンが有効かどうか。 */
     bool m_HasDeadzone     = false;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/CameraComponent3D.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== gameframework/Scene3DSerialize.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
+// -----------------------------------------------------------------------------
+// FScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
+// (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
+// ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
+//
+// フォーマット (行ベース、editor の N3D/MSH3D を階層対応に拡張):
+//   N3D <id> <parent> <prim> <px py pz> <rx ry rz(度)> <sx sy sz> <r g b a> <name>
+//   MSH3D <id> <mesh_path>
+//   ・id        = DFS pre-order の通し番号 (root=0)。
+//   ・parent    = 親の id (-1 = root 自身)。
+//   ・prim      = EMeshPrimitive3D の整数 (AMeshComponent3D 無しは -1)。
+//   ・rot       = FTransform3D::EulerDeg() (度、XYZ。|Y|<90° で往復一致)。
+//   ・MSH3D     = prim==Mesh かつ mesh path を持つノードのみ (アセット実体のロードは
+//                 呼び出し側の責務。本シリアライザはパスのみ往復する)。
+//
+// 規約: no-STL (C の strtol/strtof/snprintf のみ) / 全 noexcept / 固定上限。
+// =============================================================================
+
+
+namespace acs::game {
+
+class FScene3D;
+class IAssetPackReader;
+
+inline constexpr u32 kScene3DSerializeMaxInputBytes = 4u * 1024u * 1024u;
+inline constexpr u32 kScene3DSerializeMaxNodeCount = 65536u;
+inline constexpr u32 kScene3DSerializeMaxTreeDepth = 512u;
+inline constexpr u32 kScene3DSerializeMaxLineBytes = 4095u;
+inline constexpr u32 kScene3DSerializeMaxNameBytes = 127u;
+inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
+inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
+inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
+inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
+inline constexpr u32 kScene3DSerializeMaxCameraCount = 256u;
+inline constexpr u32 kScene3DSerializeMaxCameraIdBytes = 64u;
+inline constexpr u64 kScene3DAssetMaxBytes = 256u * 1024u * 1024u;
+
+/** Scene3D テキスト保存・読み込みの安定した失敗理由。 */
+enum class EScene3DSerializeError : u8 {
+    None = 0,
+    NullInput,
+    NullOutput,
+    BufferTooSmall,
+    InputTooLarge,
+    LineTooLong,
+    InvalidLine,
+    InvalidInteger,
+    InvalidNumber,
+    InvalidPrimitive,
+    InvalidNodeId,
+    DuplicateNodeId,
+    InvalidParent,
+    MissingRoot,
+    MultipleRoots,
+    NodeLimitExceeded,
+    TreeDepthLimitExceeded,
+    InvalidName,
+    InvalidMeshPath,
+    DuplicateMeshPath,
+    AllocationFailure,
+    DuplicateNodeReference,
+    CyclicNodeGraph,
+    SerializedSizeOverflow,
+    SceneChangedDuringSave,
+    InvalidHeader,
+    UnsupportedVersion,
+    UnsupportedDirective,
+    InvalidNodeFlags,
+    InvalidMaterial,
+    InvalidComponent,
+    InvalidComponentProperty,
+    InvalidCamera,
+    DuplicateCamera,
+    CameraLimitExceeded,
+    DirectiveLimitExceeded,
+    ComponentLimitExceeded,
+    FileOpenFailed,
+    FileSeekFailed,
+    FileSizeLimitExceeded,
+    FileReadFailed,
+    EmbeddedNul,
+    AssetPathInvalid,
+    AssetMissing,
+    AssetDecodeFailed,
+    MaterialDecodeFailed,
+};
+
+/** Authored ACS3D camera projection encoded by CAM3D. */
+enum class EScene3DCameraProjection : u8 {
+    Perspective = 0,
+    Orthographic = 1,
+};
+
+/**
+ * Deterministically selected authored camera returned by the checked loader.
+ *
+ * @details The camera pose is derived from the selected N3D node's complete
+ * world transform after hierarchy commit. Forward is local +Z and Up is local
+ * +Y. StableId is a case-sensitive canonical ASCII identity.
+ */
+struct FScene3DCameraState {
+    bool IsAuthored = false;
+    bool IsActivePreferred = false;
+    i32 NodeId = -1;
+    i32 Priority = 0;
+    EScene3DCameraProjection Projection =
+        EScene3DCameraProjection::Perspective;
+    f32 FovYDegrees = 60.0f;
+    f32 OrthographicHeight = 10.0f;
+    f32 NearPlane = 0.05f;
+    f32 FarPlane = 1000.0f;
+    FVec3 Position{0.0f, 0.0f, 0.0f};
+    FVec3 Forward{0.0f, 0.0f, 1.0f};
+    FVec3 Up{0.0f, 1.0f, 0.0f};
+    char StableId[kScene3DSerializeMaxCameraIdBytes + 1u]{};
+};
+
+/** 検証付きテキスト保存結果。RequiredBytes は終端 NUL を含む必要容量。 */
+struct FScene3DSaveResult {
+    EScene3DSerializeError Error = EScene3DSerializeError::None;
+    u32 BytesWritten = 0u;
+    u32 RequiredBytes = 0u;
+    u32 NodeCount = 0u;
+    u32 MeshPathCount = 0u;
+    u32 CameraCount = 0u;
+
+    bool Succeeded() const noexcept {
+        return Error == EScene3DSerializeError::None && BytesWritten > 0u
+            && RequiredBytes == BytesWritten + 1u;
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/** 検証付きテキスト読み込み結果。失敗時は宛先シーンを変更しない。 */
+struct FScene3DLoadResult {
+    EScene3DSerializeError Error = EScene3DSerializeError::None;
+    u32 BytesConsumed = 0u;
+    u32 NodeCount = 0u;
+    u32 MeshPathCount = 0u;
+    u32 ErrorLine = 0u;
+    u32 DependenciesLoaded = 0u;
+    u32 CameraCount = 0u;
+    u32 ActivePreferredCameraCount = 0u;
+    FScene3DCameraState ActiveCamera{};
+
+    bool Succeeded() const noexcept {
+        return Error == EScene3DSerializeError::None && NodeCount > 0u;
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/** ログ・テレメトリ用の安定した ASCII エラー名。 */
+const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
+
+/**
+ * シーンを検証・計測してからテキストへ保存する。
+ *
+ * @details buf=nullptr/cap=0 はサイズ照会。容量不足では出力を変更しない。
+ * RequiredBytes は終端 NUL を含み、BytesWritten は含まない。
+ */
+FScene3DSaveResult TrySaveScene3DText(
+    const FScene3D& scene, char* out, u32 cap) noexcept;
+
+/**
+ * FScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
+ *
+ * @param scene 直列化するシーン。
+ * @param out 出力バッファ (null 終端される)。
+ * @param cap out の容量。
+ * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
+ */
+u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
+
+/**
+ * size bytes のテキストを完全検証してから既存シーンを置き換える。
+ *
+ * @details size は終端 NUL を含めない。切詰め、長過ぎる行、非有限値、巨大/重複 id、
+ * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
+ */
+FScene3DLoadResult TryLoadScene3DText(
+    FScene3D& scene, const char* text, u32 size) noexcept;
+
+/**
+ * 旧 `.acs3d` 文書または canonical bootstrap を loose file から読み、
+ * 参照メッシュ/マテリアルも検証して復元する。
+ *
+ * @details 本文・全依存の解析が完了するまで scene を変更しない。相対参照は scene
+ * file の親ディレクトリを基準に解決し、失敗時に別の探索 root へ fallback しない。
+ */
+FScene3DLoadResult TryLoadScene3DFile(
+    FScene3D& scene, const char* path) noexcept;
+
+/**
+ * `.acpak` 内の canonical bootstrap と参照メッシュ/マテリアルを transactional に復元する。
+ *
+ * @details virtual path は `/` 区切りの pack 内相対 path のみ受理する。entry 不足、
+ * CRC/解凍失敗、unsupported mesh、壊れた material では loose file に fallback しない。
+ */
+FScene3DLoadResult TryLoadScene3DAssetPack(
+    FScene3D& scene, IAssetPackReader& pack,
+    const char* virtual_path = "main.acscene") noexcept;
+
+/**
+ * SaveScene3DText のテキストから FScene3D を復元する (既存内容を置き換える)。
+ *
+ * @details
+ * 互換用の NUL 終端 C 文字列 API。詳細結果と入力サイズ上限が必要なら
+ * TryLoadScene3DText を使う。
+ * @param scene 復元先のシーン (内容は置き換わる)。
+ * @param text 直列化テキスト。
+ * @return 解析が成立したら true (text==null は false)。
+ */
+bool LoadScene3DText(FScene3D& scene, const char* text) noexcept;
+
+} // namespace acs::game
+
+#include <cmath>
+#include <cstring>
+
+namespace acs::game {
+
+/**
+ * Runtime representation of one authored ACS3D CAM3D record.
+ *
+ * The owning ANode supplies the live hierarchical pose. This component keeps
+ * only stable identity, selection metadata, and projection parameters.
+ */
+class ACameraComponent3D final : public AComponent {
+public:
+    ACS_GAME_COMPONENT_KIND(ACameraComponent3D)
+
+    /**
+     * Commit a fully validated authored state.
+     *
+     * Invalid/non-terminated identities and non-finite optics are rejected
+     * without modifying the component. This keeps programmatic graph edits as
+     * safe as the checked ACS3D parser.
+     */
+    bool TrySetAuthoredState(const FScene3DCameraState& state) noexcept {
+        u32 id_length = 0u;
+        for (; id_length <= kScene3DSerializeMaxCameraIdBytes; ++id_length) {
+            const char value = state.StableId[id_length];
+            if (value == '\0') break;
+            const bool alpha =
+                (value >= 'A' && value <= 'Z')
+                || (value >= 'a' && value <= 'z');
+            const bool digit = value >= '0' && value <= '9';
+            if (!alpha && !digit
+                && (id_length == 0u
+                    || (value != '_' && value != '.' && value != '-'))) {
+                return false;
+            }
+        }
+        if (id_length == 0u || id_length > kScene3DSerializeMaxCameraIdBytes
+            || (state.Projection != EScene3DCameraProjection::Perspective
+                && state.Projection != EScene3DCameraProjection::Orthographic)
+            || state.Priority < -1000000 || state.Priority > 1000000
+            || !std::isfinite(state.FovYDegrees)
+            || state.FovYDegrees < 1.0f || state.FovYDegrees > 179.0f
+            || !std::isfinite(state.OrthographicHeight)
+            || state.OrthographicHeight < 0.001f
+            || state.OrthographicHeight > 1000000.0f
+            || !std::isfinite(state.NearPlane)
+            || state.NearPlane < 0.0001f
+            || state.NearPlane > 1000000.0f
+            || !std::isfinite(state.FarPlane)
+            || state.FarPlane <= state.NearPlane
+            || state.FarPlane > 1000000000.0f) {
+            return false;
+        }
+
+        std::memcpy(
+            m_StableId, state.StableId,
+            static_cast<usize>(id_length + 1u));
+        m_Priority = state.Priority;
+        m_Projection = state.Projection;
+        m_ActivePreferred = state.IsActivePreferred;
+        m_FovYDegrees = state.FovYDegrees;
+        m_OrthographicHeight = state.OrthographicHeight;
+        m_NearPlane = state.NearPlane;
+        m_FarPlane = state.FarPlane;
+        return true;
+    }
+
+    const char* StableId() const noexcept { return m_StableId; }
+    i32 Priority() const noexcept { return m_Priority; }
+    EScene3DCameraProjection Projection() const noexcept {
+        return m_Projection;
+    }
+    bool IsActivePreferred() const noexcept { return m_ActivePreferred; }
+    f32 FovYDegrees() const noexcept { return m_FovYDegrees; }
+    f32 OrthographicHeight() const noexcept {
+        return m_OrthographicHeight;
+    }
+    f32 NearPlane() const noexcept { return m_NearPlane; }
+    f32 FarPlane() const noexcept { return m_FarPlane; }
+
+private:
+    char m_StableId[kScene3DSerializeMaxCameraIdBytes + 1u]{};
+    i32 m_Priority = 0;
+    EScene3DCameraProjection m_Projection =
+        EScene3DCameraProjection::Perspective;
+    bool m_ActivePreferred = false;
+    f32 m_FovYDegrees = 60.0f;
+    f32 m_OrthographicHeight = 10.0f;
+    f32 m_NearPlane = 0.05f;
+    f32 m_FarPlane = 1000.0f;
 };
 
 } // namespace acs::game
@@ -45282,6 +45783,13 @@ public:
     /** ムーブ代入も禁止。 */
     FNodePool& operator=(FNodePool&&)      = delete;
 
+    /** Exchange complete registry state without allocation. */
+    void Swap(FNodePool& other) noexcept {
+        acs::Swap(m_Slots, other.m_Slots);
+        acs::Swap(m_FreeIndices, other.m_FreeIndices);
+        acs::Swap(m_ActiveCount, other.m_ActiveCount);
+    }
+
     /**
      * 初期容量を予約する (再 alloc 回避用)。
      *
@@ -45477,6 +45985,17 @@ public:
     FScene3D& operator=(FScene3D&&)      = delete;
 
     /**
+     * Atomically exchange complete scene ownership.
+     *
+     * Used by checked loaders to build a replacement graph off to the side
+     * and publish it only after every allocation and component commit succeeds.
+     */
+    void SwapContents(FScene3D& other) noexcept {
+        m_Root.Swap(other.m_Root);
+        m_Pool.Swap(other.m_Pool);
+    }
+
+    /**
      * シーンの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
      *
      * @return root ANode への参照。
@@ -45620,187 +46139,6 @@ private:
     /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
     FNodePool m_Pool;
 };
-
-} // namespace acs::game
-
-// ===================== gameframework/Scene3DSerialize.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
-// -----------------------------------------------------------------------------
-// FScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
-// (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
-// ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
-//
-// フォーマット (行ベース、editor の N3D/MSH3D を階層対応に拡張):
-//   N3D <id> <parent> <prim> <px py pz> <rx ry rz(度)> <sx sy sz> <r g b a> <name>
-//   MSH3D <id> <mesh_path>
-//   ・id        = DFS pre-order の通し番号 (root=0)。
-//   ・parent    = 親の id (-1 = root 自身)。
-//   ・prim      = EMeshPrimitive3D の整数 (AMeshComponent3D 無しは -1)。
-//   ・rot       = FTransform3D::EulerDeg() (度、XYZ。|Y|<90° で往復一致)。
-//   ・MSH3D     = prim==Mesh かつ mesh path を持つノードのみ (アセット実体のロードは
-//                 呼び出し側の責務。本シリアライザはパスのみ往復する)。
-//
-// 規約: no-STL (C の strtol/strtof/snprintf のみ) / 全 noexcept / 固定上限。
-// =============================================================================
-
-
-namespace acs::game {
-
-class FScene3D;
-class IAssetPackReader;
-
-inline constexpr u32 kScene3DSerializeMaxInputBytes = 4u * 1024u * 1024u;
-inline constexpr u32 kScene3DSerializeMaxNodeCount = 65536u;
-inline constexpr u32 kScene3DSerializeMaxTreeDepth = 512u;
-inline constexpr u32 kScene3DSerializeMaxLineBytes = 4095u;
-inline constexpr u32 kScene3DSerializeMaxNameBytes = 127u;
-inline constexpr u32 kScene3DSerializeMaxMeshPathBytes = 299u;
-inline constexpr u32 kScene3DSerializeMaxMaterialPathBytes = 299u;
-inline constexpr u32 kScene3DSerializeMaxComponentsPerNode = 1024u;
-inline constexpr u32 kScene3DSerializeMaxDirectiveRecords = 262144u;
-inline constexpr u64 kScene3DAssetMaxBytes = 256u * 1024u * 1024u;
-
-/** Scene3D テキスト保存・読み込みの安定した失敗理由。 */
-enum class EScene3DSerializeError : u8 {
-    None = 0,
-    NullInput,
-    NullOutput,
-    BufferTooSmall,
-    InputTooLarge,
-    LineTooLong,
-    InvalidLine,
-    InvalidInteger,
-    InvalidNumber,
-    InvalidPrimitive,
-    InvalidNodeId,
-    DuplicateNodeId,
-    InvalidParent,
-    MissingRoot,
-    MultipleRoots,
-    NodeLimitExceeded,
-    TreeDepthLimitExceeded,
-    InvalidName,
-    InvalidMeshPath,
-    DuplicateMeshPath,
-    AllocationFailure,
-    DuplicateNodeReference,
-    CyclicNodeGraph,
-    SerializedSizeOverflow,
-    SceneChangedDuringSave,
-    InvalidHeader,
-    UnsupportedVersion,
-    UnsupportedDirective,
-    InvalidNodeFlags,
-    InvalidMaterial,
-    InvalidComponent,
-    InvalidComponentProperty,
-    DirectiveLimitExceeded,
-    ComponentLimitExceeded,
-    FileOpenFailed,
-    FileSeekFailed,
-    FileSizeLimitExceeded,
-    FileReadFailed,
-    EmbeddedNul,
-    AssetPathInvalid,
-    AssetMissing,
-    AssetDecodeFailed,
-    MaterialDecodeFailed,
-};
-
-/** 検証付きテキスト保存結果。RequiredBytes は終端 NUL を含む必要容量。 */
-struct FScene3DSaveResult {
-    EScene3DSerializeError Error = EScene3DSerializeError::None;
-    u32 BytesWritten = 0u;
-    u32 RequiredBytes = 0u;
-    u32 NodeCount = 0u;
-    u32 MeshPathCount = 0u;
-
-    bool Succeeded() const noexcept {
-        return Error == EScene3DSerializeError::None && BytesWritten > 0u
-            && RequiredBytes == BytesWritten + 1u;
-    }
-    explicit operator bool() const noexcept { return Succeeded(); }
-};
-
-/** 検証付きテキスト読み込み結果。失敗時は宛先シーンを変更しない。 */
-struct FScene3DLoadResult {
-    EScene3DSerializeError Error = EScene3DSerializeError::None;
-    u32 BytesConsumed = 0u;
-    u32 NodeCount = 0u;
-    u32 MeshPathCount = 0u;
-    u32 ErrorLine = 0u;
-    u32 DependenciesLoaded = 0u;
-
-    bool Succeeded() const noexcept {
-        return Error == EScene3DSerializeError::None && NodeCount > 0u;
-    }
-    explicit operator bool() const noexcept { return Succeeded(); }
-};
-
-/** ログ・テレメトリ用の安定した ASCII エラー名。 */
-const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
-
-/**
- * シーンを検証・計測してからテキストへ保存する。
- *
- * @details buf=nullptr/cap=0 はサイズ照会。容量不足では出力を変更しない。
- * RequiredBytes は終端 NUL を含み、BytesWritten は含まない。
- */
-FScene3DSaveResult TrySaveScene3DText(
-    const FScene3D& scene, char* out, u32 cap) noexcept;
-
-/**
- * FScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
- *
- * @param scene 直列化するシーン。
- * @param out 出力バッファ (null 終端される)。
- * @param cap out の容量。
- * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
- */
-u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
-
-/**
- * size bytes のテキストを完全検証してから既存シーンを置き換える。
- *
- * @details size は終端 NUL を含めない。切詰め、長過ぎる行、非有限値、巨大/重複 id、
- * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
- */
-FScene3DLoadResult TryLoadScene3DText(
-    FScene3D& scene, const char* text, u32 size) noexcept;
-
-/**
- * 旧 `.acs3d` 文書または canonical bootstrap を loose file から読み、
- * 参照メッシュ/マテリアルも検証して復元する。
- *
- * @details 本文・全依存の解析が完了するまで scene を変更しない。相対参照は scene
- * file の親ディレクトリを基準に解決し、失敗時に別の探索 root へ fallback しない。
- */
-FScene3DLoadResult TryLoadScene3DFile(
-    FScene3D& scene, const char* path) noexcept;
-
-/**
- * `.acpak` 内の canonical bootstrap と参照メッシュ/マテリアルを transactional に復元する。
- *
- * @details virtual path は `/` 区切りの pack 内相対 path のみ受理する。entry 不足、
- * CRC/解凍失敗、unsupported mesh、壊れた material では loose file に fallback しない。
- */
-FScene3DLoadResult TryLoadScene3DAssetPack(
-    FScene3D& scene, IAssetPackReader& pack,
-    const char* virtual_path = "main.acscene") noexcept;
-
-/**
- * SaveScene3DText のテキストから FScene3D を復元する (既存内容を置き換える)。
- *
- * @details
- * 互換用の NUL 終端 C 文字列 API。詳細結果と入力サイズ上限が必要なら
- * TryLoadScene3DText を使う。
- * @param scene 復元先のシーン (内容は置き換わる)。
- * @param text 直列化テキスト。
- * @return 解析が成立したら true (text==null は false)。
- */
-bool LoadScene3DText(FScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game
 
@@ -50298,11 +50636,11 @@ struct FWaterRaycastHit {
 };
 
 /**
- * Per-camera projection state for the canonical scene runtime.
+ * Active projection state for the canonical scene runtime.
  *
- * @details This is runtime camera state, not a property of the scene asset. The legacy ACS3D
- * adapter starts in Perspective; an editor 2D mode may select Orthographic without converting
- * the root graph or the dedicated 2D renderer/physics subsystems.
+ * @details ACS3D CAM3D may author the initial projection. An editor 2D view may
+ * still select Orthographic without converting the root graph or the dedicated
+ * 2D renderer/physics subsystems.
  */
 enum class ESceneProjectionMode : u8 {
     Perspective = 0,
@@ -50327,6 +50665,9 @@ public:
 
     /** Load a loose legacy ACS3D document and all of its mesh/material dependencies. */
     FScene3DLoadResult LoadFile(const char* path = "main.acscene") noexcept;
+
+    /** Load an in-memory ACS3D document transactionally (tests/tools/hot reload). */
+    FScene3DLoadResult LoadText(const char* text, u32 size) noexcept;
 
     /** Load a legacy ACS3D document and all dependencies from one mounted asset pack. */
     FScene3DLoadResult LoadAssetPack(
@@ -50353,6 +50694,39 @@ public:
 
     /** Read-only standalone camera. */
     const FCamera& Camera() const noexcept { return m_Camera; }
+
+    /** Deterministically selected authored camera, or null for frame-scene fallback. */
+    const FScene3DCameraState* AuthoredCamera() const noexcept {
+        return m_UseAuthoredCamera ? &m_AuthoredCamera : nullptr;
+    }
+
+    /** Number of graph-owned authored camera components. */
+    u32 CameraCount() const noexcept;
+
+    /**
+     * Switch by canonical stable identity. Unknown or effectively disabled
+     * identities fail without changing the active camera.
+     */
+    bool SetActiveCamera(const char* stable_id) noexcept;
+
+    /**
+     * Switch by serialized N3D node id. Unknown or effectively disabled nodes
+     * fail without changing the active camera.
+     */
+    bool SetActiveCamera(i32 node_id) noexcept;
+
+    /** Return an explicit runtime camera cut to authored automatic selection. */
+    bool ClearActiveCameraOverride() noexcept;
+
+    /** Descriptive alias for returning to deterministic authored selection. */
+    bool UseAutomaticCameraSelection() noexcept {
+        return ClearActiveCameraOverride();
+    }
+
+    /** Refresh the active camera from its node's current world transform. */
+    bool RefreshActiveCamera() noexcept {
+        return RefreshAuthoredCameraPose();
+    }
 
     /** Recompute a useful camera target/distance from all renderable nodes. */
     void FrameScene() noexcept;
@@ -50514,6 +50888,8 @@ private:
     void ReleaseGpu() noexcept;
     void UpdateCameraProjection(u32 width, u32 height) noexcept;
     void UpdateCameraView() noexcept;
+    void AdoptLoadedCamera() noexcept;
+    bool RefreshAuthoredCameraPose() noexcept;
     const FGpuMesh* GpuMeshFor(const AMeshComponent3D& component) const noexcept;
     u32 CollectWaterDraws(
         FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
@@ -50596,6 +50972,10 @@ private:
     FGpuMesh m_Plane;
     TArray<FCustomGpuMesh> m_CustomMeshes;
     FCamera m_Camera;
+    FScene3DCameraState m_AuthoredCamera{};
+    bool m_UseAuthoredCamera = false;
+    bool m_HasExplicitCameraOverride = false;
+    i32 m_ActiveCameraNodeId = -1;
     FVec3 m_Target{0.0f, 0.0f, 0.0f};
     f32 m_Distance = 8.0f;
     f32 m_Yaw = 0.0f;

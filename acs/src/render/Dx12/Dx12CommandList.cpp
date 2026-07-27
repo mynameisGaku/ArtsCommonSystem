@@ -524,6 +524,39 @@ void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_inde
     m_CmdList->RSSetScissorRects(1, &sr);
 }
 
+void FDx12CommandList::BeginRenderToSwapchainLoad(
+    IRhiSwapchain& sc, u32 buffer_index) noexcept {
+    auto& dx_sc = static_cast<FDx12Swapchain&>(sc);
+    ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
+    if (rt == nullptr) return;
+    if (!m_BackbufferIsRt) {
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = rt;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        barrier.Transition.StateAfter =
+            D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barrier.Transition.Subresource =
+            D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_CmdList->ResourceBarrier(1, &barrier);
+        m_BackbufferIsRt = true;
+    }
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+        dx_sc.BackBufferRTV(buffer_index);
+    m_CmdList->OMSetRenderTargets(
+        1, &rtv, FALSE, nullptr);
+    D3D12_VIEWPORT viewport{};
+    viewport.Width = static_cast<f32>(dx_sc.Width());
+    viewport.Height = static_cast<f32>(dx_sc.Height());
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    m_CmdList->RSSetViewports(1, &viewport);
+    D3D12_RECT scissor{};
+    scissor.right = static_cast<i32>(dx_sc.Width());
+    scissor.bottom = static_cast<i32>(dx_sc.Height());
+    m_CmdList->RSSetScissorRects(1, &scissor);
+}
+
 void FDx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
     if (!m_BackbufferIsRt) return;   // 既に PRESENT 状態 (二重 End 防止)
     auto& dx_sc = static_cast<FDx12Swapchain&>(sc);

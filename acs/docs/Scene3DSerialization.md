@@ -1,9 +1,9 @@
 # FScene3D テキストシリアライズ
 
 `Scene3DSerialize` は `FScene3D` の `ANode` 階層、`FTransform3D`、
-`AMeshComponent3D`、マテリアル、および反射コンポーネントを行ベースのテキストから
-復元する。保存APIが出力する従来の `N3D` / `MSH3D` 形式に加え、エディタの
-`ACS3D v2` を互換アダプタとして直接読み込める。
+`AMeshComponent3D`、マテリアル、反射コンポーネント、および明示的なゲームカメラを
+行ベースのテキストから復元する。保存APIが出力する従来の `N3D` / `MSH3D` 形式に加え、
+エディタの `ACS3D v2` を互換アダプタとして直接読み込める。
 
 パッケージ内の正準起動パスは2D/3Dとも `main.acscene` である。拡張子でシーン種別を
 決めず、内容の厳密なヘッダー (`ACSCENE v1` / `ACS3D v2`) で対応アダプタを選ぶ。
@@ -13,10 +13,11 @@
 
 - `TrySaveScene3DText` はシーン全体を検証・計測してから出力する。結果の
   `FScene3DSaveResult` にはエラー、終端 NUL を含む必要容量、書込文字数、ノード数、
-  メッシュパス数が入る。`out=nullptr, cap=0` はサイズ照会になる。
+  メッシュパス数、カメラ数が入る。`out=nullptr, cap=0` はサイズ照会になる。
 - `TryLoadScene3DText` は明示された入力サイズ内を完全に解析し、全行の検証と作業領域の
   確保が成功した後だけ既存シーンを置き換える。結果の `FScene3DLoadResult` にはエラー、
-  消費 bytes、エラー行、宣言ノード数、メッシュパス数、ロード済み依存数が入る。
+  消費 bytes、エラー行、宣言ノード数、メッシュパス数、ロード済み依存数、カメラ数、
+  active指定数、および決定的に選択されたカメラ状態が入る。
 - `TryLoadScene3DFile` はloose sceneを読み、相対メッシュ/マテリアル参照をシーンの
   親ディレクトリ基準で解決・検証してから適用する。
 - `TryLoadScene3DAssetPack` は既定でpack内の `main.acscene` を読み、同じpackだけから
@@ -27,9 +28,10 @@
 
 ## 対応フォーマット
 
-### 従来の保存形式
+### 従来互換の保存形式
 
-- ヘッダー無しの `N3D` / `MSH3D`。
+- ヘッダー無しの `N3D` / `MSH3D` / `CAM3D`。カメラ付きgraphを
+  `TrySaveScene3DText` → `TryLoadScene3DText` で往復してもカメラを失わない。
 - rootは `id=0, parent=-1` の1件だけ。
 - idは0から連続し、子のparentは必ず先に宣言されたidを参照する。
 
@@ -39,9 +41,12 @@
 - node idは一意な非負整数であれば疎でもよい。parentは先に宣言されたnodeを参照する。
 - `parent=-1` のtop-level nodeを複数保持でき、runtimeでは1つの合成root配下へ接続する。
 - `N3D`、`MSH3D`、`FLG3D`、`EMPTY3D`、`MAT3D`、`CMP3D`、
-  `CPROP3D`、`SEL3D` を扱う。
+  `CPROP3D`、`CAM3D`、`SEL3D` を扱う。
 - `MAT3D` は従来のmetallic/roughness値または `.acsmat` パスを扱う。
 - `CMP3D` は反射factoryで事前生成し、`CPROP3D` を適用してからnodeへattachする。
+- `CAM3D <nodeId> <stableId> <projection> <priority> <active> <fovYDeg>
+  <orthoHeight> <near> <far>` は既存nodeへ1件のカメラをattachする。`projection` は
+  Perspective=`0`、Orthographic=`1`、`active` は `0` または `1`。
 - `SPR3D`、`PLY3D`、`PFAB3D` と未知命令は、黙って欠落させず明示エラーでfail closedする。
 
 ## 共通の検証規則
@@ -52,6 +57,10 @@
 - transform と色は有限の `f32` だけを受理する。整数範囲外、`NaN`、`Inf`、途中で
   切れた数値、未知行、埋め込み NUL はエラーになる。
 - `MSH3D` は既出の `Mesh` ノードに1件だけ指定できる。
+- カメラは最大256件、stable IDは64 bytesまでの正準ASCIIで、nodeとstable IDの重複を
+  拒否する。投影値、priority、FOV/orthographic height、near/farは有限かつ範囲内でなければ
+  ならない。複数のactive指定は入力として保持するが、選択はactive指定、priority降順、
+  stable ID昇順、node ID昇順で決定する。
 - 保存時は明示スタックと visiting/complete 訪問表を使い、C++ 呼び出しスタックを
   消費せずに循環と共有子・重複参照を区別して拒否する。
 
@@ -85,6 +94,8 @@ stale化する。
 デコード済みmeshを `FPbrShader` で描画する。visible/enabled、階層transform、
 PBR/Substrate material、fogを反映し、loose/packの双方を同じ読み込み契約で扱う。
 
-投影方式はscene全体の固定属性ではない。各cameraがPerspective/Orthographicを選択する。
+各 `CAM3D` はgraph所有の `ACameraComponent3D` になり、姿勢は所有nodeの現在のworld
+transformから更新される。runtimeはstable IDまたはnode IDでカメラを安全に切り替えられる。
+投影方式はscene全体の固定属性ではなく、各cameraがPerspective/Orthographicを選択する。
 パッケージmanifestの `sceneBootstrap.adapterProjectionHint` は旧形式を取り込むための
 参考値にすぎず、runtime cameraを上書きするauthoritativeなscene propertyではない。

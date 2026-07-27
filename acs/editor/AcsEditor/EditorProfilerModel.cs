@@ -187,6 +187,26 @@ internal static class EditorProfilerFormatting
               $"Latest completed query is +{latencyFrames} frames asynchronous."
             : "Waiting for the first completed valid GPU query.";
 
+    internal static string CullingState(in EditorProfilerSnapshot snapshot)
+    {
+        if ((snapshot.Flags &
+             EditorProfilerContract.FlagFrustumCullingEnabled) == 0)
+            return "DISABLED";
+
+        if ((snapshot.Flags &
+             EditorProfilerContract.FlagRuntimeSceneCamera) != 0)
+            return $"ON · Camera #{snapshot.ActiveCameraNodeId}";
+        return (snapshot.Flags &
+                EditorProfilerContract.FlagGameView) != 0
+            ? "ON · Game fallback"
+            : "ON · Editor camera";
+    }
+
+    internal static string CullingCounts(in EditorProfilerSnapshot snapshot) =>
+        $"{snapshot.FrustumTested:N0} / " +
+        $"{snapshot.FrustumVisible:N0} / " +
+        $"{snapshot.FrustumCulled:N0}";
+
     internal static string Peak(
         float value,
         uint windowFrames,

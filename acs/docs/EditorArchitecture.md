@@ -85,7 +85,7 @@ product-version label. The current required host set is:
 - incremental startup;
 - result-bearing resize.
 
-Profiler v3, the independent volumetric-cloud workload v1 snapshot, unified
+Profiler v4, the independent volumetric-cloud workload v1 snapshot, unified
 scene documents, high-quality material previews, Substrate graphs, and
 interactive 3D water are advertised independently.
 An older DLL without the query export, a missing required capability, a bad
@@ -219,6 +219,84 @@ Compatibility remains explicit:
 `CanonicalSceneAdapter` validates the supported bootstrap subset and rewrites
 portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
+
+### Editor camera and authored game cameras
+
+The Scene View navigation camera is editor preference/state. It is never
+serialized as a game camera, never becomes a `CAM3D` record implicitly, and
+gameplay camera updates do not overwrite it. Play and Stop own simulation
+lifetime and restoration. Switching between Scene and Game tabs changes only
+which camera is presented: Play continues, the Scene View remains navigable,
+and the Game View routes gameplay input only while user logic is active.
+Focus loss or a view switch releases every forwarded key and mouse button so
+input cannot remain latched.
+
+Game cameras are explicit Camera components on ordinary 3D nodes. The node
+hierarchy supplies their live world position and orientation; the component
+supplies a stable camera ID, projection, priority, active preference, field of
+view or orthographic height, and near/far clip planes. More than one camera is
+supported. Among effectively enabled camera nodes, selection is deterministic:
+active-preferred first, priority descending, stable ID ascending, then node ID
+ascending. Multiple active-preferred records therefore produce a warning but
+not an order-dependent result. A scene without `CAM3D` remains compatible and
+uses a deterministic scene-bounds fallback that is independent of the current
+Editor camera.
+
+The Details Components stack can add or remove Camera, edit its validated
+projection settings, designate it active, and align its transform to the
+current Scene View. The Outliner identifies camera nodes and marks the
+resolved active camera. Camera frusta are editor visualization, not scene
+radiance: they are drawn only in Scene View and never in Game View. Their
+toolbar control is exposed only when the negotiated runtime advertises
+`camera-authoring-v1`, and its initial state is read from the runtime.
+
+`Float Preview` transfers the existing native renderer child window into one
+owned WPF Camera View; it does not create a second editor host, renderer, or
+engine. Camera selection in that window uses a stable-ID-resolved,
+non-persistent preview override. Re-docking and closing clear that override,
+so floating preview never changes authored `CAM3D Active` state, scene dirty
+state, or undo history. Only one live Camera View is supported until the
+renderer ABI provides shared render targets for independent consumers.
+
+The Camera View opens without activation, follows owner minimize/close
+lifetime, snaps in physical pixels with per-monitor DPI, and clamps restored
+placement to the nearest monitor work area after display-topology changes.
+Only window geometry and the last stable camera ID are persisted; scene and
+active-camera state are deliberately excluded.
+
+### Dockable tool panels
+
+Floating and re-docking are editor-shell services, not Camera-only behavior.
+The initial explicit registry contains `hierarchy` (Scene Outliner),
+`inspector` (Details), and `bottom` (Console, Build, Assets, and Profiler).
+Unknown IDs are rejected rather than being silently assigned a layout slot;
+future panels must be added deliberately with a stable ID and accessible name.
+Camera View remains a specialized consumer because it transfers the native
+render child and carries a transient camera-preview override, while ordinary
+tool panels transfer one managed visual between their original dock slot and
+one owned floating window.
+
+Each registered panel has one committed visual owner. A failed float operation
+rolls back to `Docked`; a failed re-dock remains truthfully `Floating`, so the
+panel cannot disappear or be duplicated. `Hidden` is a main-window-owned
+state: hiding a floating panel safely re-docks it first. Owner shutdown closes
+floating tools through the same re-dock path. The explicit Dock action and
+stable accessible window names keep the operation available without relying
+on pointer-only title-bar gestures.
+
+Floating tool windows snap to the owner and current monitor work-area edges
+using a 12-DIP threshold converted with the floating window's per-monitor DPI.
+Restoration permits negative desktop coordinates, clamps a reachable title
+region to the nearest work area after monitor-topology changes, and rejects
+non-finite geometry, unknown IDs, duplicate panel records, and unsupported
+versions. The layout is user-local UI state; it never mutates Scene, Project,
+undo, dirty, or gameplay-camera state.
+
+Layout reset is transactional across the registered tool panels. It captures
+each panel's initial `Docked`, `Floating`, or `Hidden` state before changing
+any host, commits the default layout only after all three re-dock operations
+succeed, and restores the complete starting state if an intermediate transfer
+fails. A failed rollback is reported and the persisted layout is not deleted.
 
 ### Save and recovery
 
@@ -516,16 +594,25 @@ Native metrics include:
 - current, average, and rolling-window peak values;
 - draw, dispatch, triangle, and resource counts;
 - cloud CPU/GPU cost, trace resolution, render scale, and march/light steps;
-- viewport dimensions and active feature flags.
+- viewport dimensions and active feature flags;
+- exact main-view frustum-tested, visible, and culled node counts, plus the
+  resolved game-camera node when an authored camera drives Game View.
 
-Profiler v3 remains a packed 208-byte version-3 contract. Exact volumetric
-cloud accounting is an optional, separate packed 168-byte version-1 contract
-(`cloud-workload-v1`), so adding it does not reinterpret or resize an existing
-Profiler snapshot. The managed host calls its export only when the capability
-was advertised. The query distinguishes an available attempt, runtime
-unavailability, and an ABI error; an unattached/warming renderer, inactive
-cloud pass, or uninitialized cloud renderer is shown as unavailable rather
-than as a zero-cost frame.
+Profiler v4 is a packed 224-byte version-4 contract advertised through the
+`profiler-v4` capability. Version 3 remains a known historical capability but
+is not advertised by a provider that exposes only the v4 layout. Exact
+volumetric-cloud accounting remains an optional, separate packed 168-byte
+version-1 contract (`cloud-workload-v1`), so it is negotiated and queried
+independently. The managed host calls an optional export only when its
+capability was advertised. The cloud query distinguishes an available attempt,
+runtime unavailability, and an ABI error; an unattached/warming renderer,
+inactive cloud pass, or uninitialized cloud renderer is shown as unavailable
+rather than as a zero-cost frame.
+
+Frustum-culling counts describe the decision actually reused by the main-view
+draw paths. The UI reports culling disabled when the aggregate compatibility
+fallback cannot honor per-node decisions; it never presents visibility tests
+as saved draw work unless those nodes were excluded from rendering.
 
 For an available attempt the Cloud panel displays the exact steady,
 one-time-bake, shadow-cache, and total compute-dispatch counts; the composite
@@ -688,6 +775,7 @@ execution authority merely by matching a name pattern.
 |---|---|
 | process and self-test dispatch | `editor/AcsEditor/App.xaml.cs` |
 | workspace shell | `editor/AcsEditor/MainWindow*.cs`, `MainWindow.xaml` |
+| tool-panel docking | `DockableToolWindow.cs`, `ToolPanelDockingContract.cs`, `ToolPanelDockingSelfTest.cs` |
 | rendered viewport | `editor/AcsEditor/EngineViewport.cs`, `EngineInterop.cs` |
 | native bridge | `src/editor_abi/EditorAbi.cpp` |
 | renderer/RHI | `src/render/Renderer.*`, `src/render/Dx12`, `src/render/Diligent` |

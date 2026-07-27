@@ -87,6 +87,7 @@
                 <MenuItem Header="3D Cube"   Click="OnAdd3DCube"/>
                 <MenuItem Header="3D Sphere" Click="OnAdd3DSphere"/>
                 <MenuItem Header="3D Plane"  Click="OnAdd3DPlane"/>
+                <MenuItem Header="Camera" Click="OnAdd3DCamera"/>
                 <MenuItem Header="2D Polygon (z=0)" Click="OnAdd2DPolygon"/>
                 <MenuItem Header="Sprite… (z=0 画像)" Click="OnAddSprite"/>
                 <MenuItem Header="3D Mesh… (.gltf/.obj)" Click="OnImport3DMesh"/>
@@ -223,6 +224,11 @@
                     <TextBlock Text="SCENE OUTLINER" Style="{StaticResource PanelHeader}"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,4,2">
                         <TextBlock x:Name="HierarchyCountText" Text="0" Style="{StaticResource StateLabel}" Margin="0,0,5,0"/>
+                        <Button x:Name="HierarchyFloatButton" Content="Float"
+                                Click="OnToggleHierarchyFloat" Style="{StaticResource PanelToolButton}"
+                                MinWidth="46" Margin="0,0,4,0"
+                                AutomationProperties.Name="Float Scene Outliner"
+                                ToolTip="Open Scene Outliner in an independent window"/>
                         <Button Content="+ ADD" Click="OnCreateEmpty" Style="{StaticResource PanelToolButton}"
                                 MinWidth="50" ToolTip="Add an empty actor to the current scene"/>
                     </StackPanel>
@@ -315,6 +321,14 @@
                             <Separator/>
                             <Button Content="Focus  F" Click="OnFocus" Style="{StaticResource ToolbarButton}"/>
                             <Button Content="Frame All" Click="OnResetView" Style="{StaticResource ToolbarButton}"/>
+                            <CheckBox x:Name="CameraFrustumsCheck"
+                                      Content="Camera Frustums"
+                                      IsEnabled="False"
+                                      Visibility="Collapsed"
+                                      Click="OnCameraFrustumsToggle"
+                                      VerticalAlignment="Center"
+                                      Margin="7,0,5,0"
+                                      ToolTip="Show the selected authored Camera frustum in Scene View"/>
                             <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
                                 <MenuItem Header="Align" Padding="7,3" ToolTip="Align and distribute selected objects">
                                     <MenuItem Header="Align Left" Click="OnAlignLeft"/>
@@ -380,8 +394,20 @@
                             <ToggleButton x:Name="TabProfiler" Content="Profiler"
                                           Style="{StaticResource ViewportTab}" Click="OnBottomTab" Tag="profiler"/>
                         </StackPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                                    VerticalAlignment="Center" Margin="6,0,8,0">
+                            <Button x:Name="BottomFloatButton" Content="Float"
+                                    Style="{StaticResource PanelToolButton}" MinWidth="46"
+                                    Click="OnToggleBottomFloat"
+                                    AutomationProperties.Name="Float bottom tool panel"
+                                    ToolTip="Open the bottom tools in an independent window"/>
+                            <Button x:Name="BottomDockToggleBtn" Content="Hide"
+                                    Style="{StaticResource PanelToolButton}"
+                                    Margin="6,0,0,0" Click="OnToggleBottomDock"
+                                    ToolTip="Hide bottom panel (Ctrl+J)"/>
+                        </StackPanel>
                         <!-- 右: ログツールバー (Console タブのときだけ表示) -->
-                        <StackPanel x:Name="LogToolbar" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <StackPanel x:Name="LogToolbar" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                             <TextBox x:Name="LogSearch" Width="150" Height="22" Padding="6,2" Margin="0,0,8,0"
                                      VerticalContentAlignment="Center" TextChanged="OnLogFilterChanged"
                                      ToolTip="ログを文字列で絞り込み"/>
@@ -391,8 +417,6 @@
                             <ToggleButton x:Name="SortNewest" Content="Newest last" Padding="7,3" Margin="6,0,0,0" Click="OnLogSortToggle"
                                           ToolTip="新しい順 / 古い順を切替"/>
                             <Button Content="Clear" Padding="8,3" Margin="6,0,0,0" Click="OnClearLog"/>
-                            <Button x:Name="BottomDockToggleBtn" Content="Hide" Style="{StaticResource PanelToolButton}"
-                                    Margin="6,0,0,0" Click="OnToggleBottomDock" ToolTip="Hide bottom panel (Ctrl+J)"/>
                         </StackPanel>
                     </DockPanel>
                     <ListBox x:Name="ConsoleList" Grid.Row="1" Background="{StaticResource Panel2}"
@@ -450,8 +474,16 @@
             <DockPanel x:Name="InspectorPanel" Grid.Column="4" Background="{StaticResource Panel}">
                 <Grid DockPanel.Dock="Top" Background="{StaticResource HeaderBg}">
                     <TextBlock Text="DETAILS" Style="{StaticResource PanelHeader}"/>
-                    <TextBlock Text="Selection" HorizontalAlignment="Right" VerticalAlignment="Center"
-                               Margin="0,0,10,0" Style="{StaticResource StateLabel}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                VerticalAlignment="Center" Margin="0,2,4,2">
+                        <TextBlock Text="Selection" VerticalAlignment="Center"
+                                   Margin="0,0,8,0" Style="{StaticResource StateLabel}"/>
+                        <Button x:Name="InspectorFloatButton" Content="Float"
+                                Click="OnToggleInspectorFloat" Style="{StaticResource PanelToolButton}"
+                                MinWidth="46"
+                                AutomationProperties.Name="Float Details"
+                                ToolTip="Open Details in an independent window"/>
+                    </StackPanel>
                 </Grid>
                 <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource Hairline}"/>
                 <Grid DockPanel.Dock="Top" Margin="7,7,7,6">

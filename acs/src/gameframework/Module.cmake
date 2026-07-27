@@ -250,6 +250,7 @@ set(_acsgen_gameframework_headers
     Scene.h
     Scene2D.h
     Scene3D.h
+    CameraComponent3D.h
     Scene3DSerialize.h
     SceneCommandQueue.h
     SceneEventBus.h

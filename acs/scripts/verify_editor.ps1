@@ -733,6 +733,7 @@ $fastEditorTests = @(
     "--document-host-selftest",
     "--material-preview-selftest",
     "--asset-browser-selftest",
+    "--camera-authoring-selftest",
     "--profiler-selftest",
     "--operation-diagnostics-selftest",
     "--package-responsiveness-selftest"
@@ -751,6 +752,7 @@ $allEditorTests = @(
     "--asset-browser-selftest",
     "--thumbnail-ddc-selftest",
     "--workspace-selftest",
+    "--camera-authoring-selftest",
     "--profiler-selftest",
     "--operation-diagnostics-selftest",
     "--package-responsiveness-selftest",

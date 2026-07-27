@@ -71,6 +71,8 @@ public static class CanonicalSceneAdapter
     private const int MaxLineChars = 4095;
     private const int MaxNodes = 65536;
     private const int MaxDirectives = 262144;
+    private const int MaxCameras = 256;
+    private const int MaxCameraIdBytes = 64;
 
     public static CanonicalSceneAdapterInspection InspectFile(string path)
     {
@@ -354,6 +356,9 @@ public static class CanonicalSceneAdapter
         var componentCounts = new Dictionary<int, int>();
         var meshes = new HashSet<int>();
         var materials = new HashSet<int>();
+        var cameraNodes = new HashSet<int>();
+        var cameraIds = new HashSet<string>(StringComparer.Ordinal);
+        int activeCameraCount = 0;
         string[] lines = PrepareLines(text, diagnostics);
 
         if (lines.Length == 0 ||
@@ -404,6 +409,9 @@ public static class CanonicalSceneAdapter
                 case "CPROP3D":
                     InspectComponentProperty(line, lineNumber);
                     break;
+                case "CAM3D":
+                    InspectCamera(line, lineNumber);
+                    break;
                 case "FLG3D":
                     InspectFlags(line, lineNumber);
                     break;
@@ -439,6 +447,14 @@ public static class CanonicalSceneAdapter
                 CanonicalSceneAdapterSeverity.Warning,
                 "SCENE3D_EMPTY_DOCUMENT",
                 "The empty editor scene will load as one synthetic runtime root."));
+        }
+        if (activeCameraCount > 1)
+        {
+            diagnostics.Add(new(
+                CanonicalSceneAdapterSeverity.Warning,
+                "SCENE3D_CAMERA_MULTIPLE_ACTIVE",
+                "More than one camera is active-preferred; runtime resolves deterministically " +
+                "by priority, stable camera id, then node id."));
         }
         return new(
             new(BootstrapPath, BootstrapContract, LegacyScene3DFormat, "perspective"),
@@ -628,6 +644,55 @@ public static class CanonicalSceneAdapter
             }
         }
 
+        void InspectCamera(string line, int lineNumber)
+        {
+            string[] tokens = Tokens(line);
+            if (tokens.Length != 10 ||
+                !TryInt(tokens[1], out int id) ||
+                !nodes.ContainsKey(id) ||
+                !IsCanonicalCameraId(tokens[2]) ||
+                !TryInt(tokens[3], out int projection) ||
+                projection is < 0 or > 1 ||
+                !TryInt(tokens[4], out int priority) ||
+                priority is < -1_000_000 or > 1_000_000 ||
+                !TryInt(tokens[5], out int active) ||
+                active is < 0 or > 1 ||
+                !TryFinite(tokens[6], out float fov) ||
+                fov is < 1.0f or > 179.0f ||
+                !TryFinite(tokens[7], out float orthoHeight) ||
+                orthoHeight is < 0.001f or > 1_000_000.0f ||
+                !TryFinite(tokens[8], out float nearPlane) ||
+                nearPlane is < 0.0001f or > 1_000_000.0f ||
+                !TryFinite(tokens[9], out float farPlane) ||
+                farPlane <= nearPlane ||
+                farPlane > 1_000_000_000.0f)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_CAMERA_INVALID",
+                    "CAM3D requires an existing node, canonical stable id, projection 0/1, " +
+                    "bounded priority, active 0/1, FOV, orthographic height, and valid near/far planes.",
+                    lineNumber));
+                return;
+            }
+            if (cameraNodes.Count >= MaxCameras)
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_CAMERA_LIMIT",
+                    $"The scene exceeds the {MaxCameras}-camera safety limit.",
+                    lineNumber));
+                return;
+            }
+            if (!cameraNodes.Add(id) || !cameraIds.Add(tokens[2]))
+            {
+                diagnostics.Add(Error(
+                    "SCENE3D_CAMERA_DUPLICATE",
+                    "Each node and stable camera id may have at most one CAM3D record.",
+                    lineNumber));
+                return;
+            }
+            if (active != 0) ++activeCameraCount;
+        }
+
         void InspectFlags(string line, int lineNumber)
         {
             string[] tokens = Tokens(line);
@@ -794,6 +859,22 @@ public static class CanonicalSceneAdapter
             CultureInfo.InvariantCulture,
             out value) &&
         float.IsFinite(value);
+
+    private static bool IsCanonicalCameraId(string value)
+    {
+        if (value.Length is < 1 or > MaxCameraIdBytes)
+            return false;
+        for (int index = 0; index < value.Length; ++index)
+        {
+            char character = value[index];
+            bool alphaNumeric =
+                character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';
+            if (!alphaNumeric &&
+                (index == 0 || character is not ('_' or '.' or '-')))
+                return false;
+        }
+        return true;
+    }
 
     private static bool AllFinite(
         IReadOnlyList<string> tokens,

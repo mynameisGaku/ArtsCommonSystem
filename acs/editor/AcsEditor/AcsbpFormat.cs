@@ -39,7 +39,7 @@ internal static class AcsbpFormat
     private static readonly HashSet<string> Scene3DDirectives = new(
         [
             "N3D", "MSH3D", "SPR3D", "PLY3D", "CMP3D", "CPROP3D",
-            "FLG3D", "MAT3D", "PFAB3D", "EMPTY3D", "SEL3D",
+            "CAM3D", "FLG3D", "MAT3D", "PFAB3D", "EMPTY3D", "SEL3D",
         ],
         StringComparer.Ordinal);
 

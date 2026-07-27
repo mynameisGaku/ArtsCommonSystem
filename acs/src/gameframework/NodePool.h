@@ -102,6 +102,13 @@ public:
     /** ムーブ代入も禁止。 */
     FNodePool& operator=(FNodePool&&)      = delete;
 
+    /** Exchange complete registry state without allocation. */
+    void Swap(FNodePool& other) noexcept {
+        acs::Swap(m_Slots, other.m_Slots);
+        acs::Swap(m_FreeIndices, other.m_FreeIndices);
+        acs::Swap(m_ActiveCount, other.m_ActiveCount);
+    }
+
     /**
      * 初期容量を予約する (再 alloc 回避用)。
      *

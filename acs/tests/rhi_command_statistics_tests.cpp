@@ -23,6 +23,8 @@ public:
 
     void BeginRenderToSwapchain(
         IRhiSwapchain&, u32, const FClearColor&, IRhiTexture*, f32) noexcept override {}
+    void BeginRenderToSwapchainLoad(
+        IRhiSwapchain&, u32) noexcept override {}
     void EndRenderToSwapchain(IRhiSwapchain&, u32) noexcept override {}
     void BeginShadowPass(IRhiTexture&, f32) noexcept override {}
     void EndShadowPass(IRhiTexture&) noexcept override {}

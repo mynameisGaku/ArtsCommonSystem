@@ -714,6 +714,7 @@ public partial class MainWindow
             _sceneMutationRevision.NotifyMutation();
             _sceneMutationRevision.AcknowledgeDocument();
             SetSceneDirty(true);
+            NotifyCameraViewSceneChanged();
         }
     }
 
