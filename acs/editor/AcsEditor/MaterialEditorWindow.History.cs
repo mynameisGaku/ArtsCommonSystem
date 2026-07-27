@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
@@ -201,6 +202,7 @@ public partial class MaterialEditorWindow
             _historyTransactionBefore = CaptureGraphHistorySnapshot();
             _historyTransactionLabel = label;
             _historyTransactionCoalesceKey = coalesceKey;
+            BeginHostedGraphTransaction(label, coalesceKey);
         }
         return new GraphHistoryScope(this);
     }
@@ -213,22 +215,29 @@ public partial class MaterialEditorWindow
         if (--_historyTransactionDepth != 0)
             return;
 
-        MaterialGraphSnapshot? before = _historyTransactionBefore;
-        _historyTransactionBefore = null;
-        if (before == null)
-            return;
-        MaterialGraphSnapshot after = CaptureGraphHistorySnapshot();
-        bool recorded = _graphHistory.Record(
-            _historyTransactionLabel,
-            _historyTransactionCoalesceKey,
-            before,
-            after,
-            DateTime.UtcNow);
-        _historyTransactionLabel = "";
-        _historyTransactionCoalesceKey = null;
-        UpdateGraphDirtyFromHistory(after);
-        if (recorded)
-            UpdateGraphHistoryButtons();
+        try
+        {
+            MaterialGraphSnapshot? before = _historyTransactionBefore;
+            _historyTransactionBefore = null;
+            if (before == null)
+                return;
+            MaterialGraphSnapshot after = CaptureGraphHistorySnapshot();
+            bool recorded = _graphHistory.Record(
+                _historyTransactionLabel,
+                _historyTransactionCoalesceKey,
+                before,
+                after,
+                DateTime.UtcNow);
+            _historyTransactionLabel = "";
+            _historyTransactionCoalesceKey = null;
+            UpdateGraphDirtyFromHistory(after);
+            if (recorded)
+                UpdateGraphHistoryButtons();
+        }
+        finally
+        {
+            CompleteHostedGraphTransaction();
+        }
     }
 
     private void BeginGraphDragHistory(string label)
@@ -857,6 +866,25 @@ public partial class MaterialEditorWindow
         Check(
             !AssetHistoryStateEquals(authored, baseline),
             "authored properties differ from the saved dirty-state checkpoint");
+
+        string baselineFingerprint = JsonSerializer.Serialize(
+            CreateSemanticGraphSnapshot(baseline));
+        string layoutFingerprint = JsonSerializer.Serialize(
+            CreateSemanticGraphSnapshot(layoutOnly));
+        string authoredFingerprint = JsonSerializer.Serialize(
+            CreateSemanticGraphSnapshot(authored));
+        Check(
+            baselineFingerprint == layoutFingerprint &&
+            baselineFingerprint != authoredFingerprint,
+            "hosted material fingerprint excludes layout but includes authored graph state");
+
+        string hostedPayload = JsonSerializer.Serialize(baseline);
+        MaterialGraphSnapshot? hostedRoundTrip =
+            JsonSerializer.Deserialize<MaterialGraphSnapshot>(hostedPayload);
+        Check(
+            hostedRoundTrip != null &&
+            FullHistoryStateEquals(hostedRoundTrip, baseline),
+            "hosted material payload round-trips full graph and presentation state");
 
         return (passed, failed);
     }

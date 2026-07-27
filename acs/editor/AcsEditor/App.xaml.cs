@@ -211,6 +211,7 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0] == "--document-host-selftest")
         {
             int failures = EditorDocumentHostSelfTest.Run(Console.Error);
+            failures += MaterialDocumentHostSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }

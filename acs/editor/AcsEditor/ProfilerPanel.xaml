@@ -250,15 +250,51 @@
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Text="CLOUD RAY MARCH" Foreground="{StaticResource TextDim}" FontSize="10"/>
-                        <TextBlock x:Name="CloudStateValue" Grid.Column="1" FontFamily="Consolas"/>
-                        <TextBlock Grid.Row="1" Text="Viewport / march"/>
+                        <TextBlock Text="CLOUD EXACT WORKLOAD" Foreground="{StaticResource TextDim}" FontSize="10"/>
+                        <TextBlock x:Name="CloudStateValue" Grid.Column="1" FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="1" Text="Output / trace"/>
                         <TextBlock x:Name="CloudResolutionValue" Grid.Row="1" Grid.Column="1" FontFamily="Consolas"/>
                         <TextBlock Grid.Row="2" Text="Trace dimension scale"/>
                         <TextBlock x:Name="CloudScaleValue" Grid.Row="2" Grid.Column="1" FontFamily="Consolas"/>
                         <TextBlock Grid.Row="3" Text="View / light steps"/>
                         <TextBlock x:Name="CloudStepsValue" Grid.Row="3" Grid.Column="1" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="4" Text="Compute dispatches"
+                                   ToolTip="Exact dispatches submitted by the cloud renderer, split into steady trace/resolve, one-time texture bakes, and shadow-cache work. Composite is a draw, not a dispatch."/>
+                        <TextBlock x:Name="CloudDispatchValue" Grid.Row="4" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="5" Text="Total invocations"
+                                   ToolTip="Logical invocations exclude workgroup padding. Launched threads include padded workgroup lanes."/>
+                        <TextBlock x:Name="CloudTotalInvocationsValue" Grid.Row="5" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="6" Text="Trace invocations"/>
+                        <TextBlock x:Name="CloudTraceInvocationsValue" Grid.Row="6" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="7" Text="Resolve invocations"/>
+                        <TextBlock x:Name="CloudResolveInvocationsValue" Grid.Row="7" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="8" Text="One-time bake"
+                                   ToolTip="Perlin-Worley shape, weather, detail, and curl texture generation. A steady warmed frame should show zero."/>
+                        <TextBlock x:Name="CloudBakeValue" Grid.Row="8" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="9" Text="Shadow-cache work"/>
+                        <TextBlock x:Name="CloudShadowInvocationsValue" Grid.Row="9" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="10" Text="Temporal history"/>
+                        <TextBlock x:Name="CloudHistoryValue" Grid.Row="10" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock Grid.Row="11" Text="Sample ceilings"
+                                   ToolTip="Conservative shader-loop ceilings, not measured samples. Empty-space skipping and transmittance exits reduce actual work; GPU timestamps remain authoritative for elapsed cost."/>
+                        <TextBlock x:Name="CloudSampleCeilingsValue" Grid.Row="11" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"/>
                     </Grid>
                 </StackPanel>
             </ScrollViewer>

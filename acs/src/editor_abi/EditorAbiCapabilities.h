@@ -23,6 +23,7 @@ enum class ECapability : std::uint64_t {
     SubstrateGraph        = 1ull << 5u,
     InteractiveWater3D    = 1ull << 6u,
     ResizeResultContract  = 1ull << 7u,
+    VolumetricCloudWorkloadV1 = 1ull << 8u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -39,7 +40,8 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::MaterialPreviewQuality) |
     CapabilityBit(ECapability::SubstrateGraph) |
     CapabilityBit(ECapability::InteractiveWater3D) |
-    CapabilityBit(ECapability::ResizeResultContract);
+    CapabilityBit(ECapability::ResizeResultContract) |
+    CapabilityBit(ECapability::VolumetricCloudWorkloadV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |

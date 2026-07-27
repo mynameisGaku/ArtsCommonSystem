@@ -1666,7 +1666,7 @@ public partial class MaterialEditorWindow
     }
 
     internal bool SaveExpressionGraphForTest() =>
-        SaveRuntimeGraph(showDiagnostics: true) &&
+        SaveRuntimeGraphThroughDocumentHost(showDiagnostics: true) &&
         CompileGraph(userInitiated: true);
 
     internal void DeleteExpressionForTest(int index)

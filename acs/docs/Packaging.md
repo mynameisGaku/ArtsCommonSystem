@@ -3,12 +3,12 @@
 The Editor's **Build → Package Project…** command is the first shipping-oriented
 vertical slice. It performs:
 
-1. project and asset-reference validation;
+1. project, canonical Scene Asset ID, and reachable asset-reference validation;
 2. a standalone Windows x64 Release build;
 3. PE runtime dependency resolution;
-4. path-safe Cook of supported `Assets/` inputs into the existing `.acpak` v1
-   format, with staged-only conversion of absolute scene/material references
-   to portable virtual paths;
+4. deterministic dependency-closure Cook rooted at the canonical Scene Asset ID
+   into the existing `.acpak` v1 format, with staged-only conversion of
+   scene/material references to portable virtual paths;
 5. deterministic `acs_assetpack pack` output followed by native
    `acs_assetpack verify` of every entry and CRC;
 6. path-safe staging of the exact game executable, required non-system DLLs,
@@ -22,14 +22,53 @@ vertical slice. It performs:
 PDBs are opt-in. Editor-only `*_reflect.dll` files are always excluded.
 `Assets/` and `Config/` reject symlinks, junctions, and other reparse points.
 References outside `Assets/`, missing runtime dependencies, traversal paths,
-unsupported asset extensions, external glTF URIs, conflicting
-`Game.DefaultScene` / project `initialScene`, and output folders inside an
-input tree fail validation. Asset database implementation details
+unsupported **reachable** asset extensions, reachable external glTF URIs,
+conflicting `Game.DefaultScene` / project `initialScene`, and output folders
+inside an input tree fail validation. Asset database implementation details
 (`*.acsmeta`, `.acsdb/**`) and `*.tmp-*` artifacts are not Cook inputs.
 The pass-through Cook allowlist includes ACS scenes/materials/prefabs/
 Blueprints, common image/audio/mesh/font formats, text/config formats, and
-compiled shader blobs (`.cso`, `.dxil`, `.spv`). Unknown extensions remain an
-error instead of being silently omitted.
+compiled shader blobs (`.cso`, `.dxil`, `.spv`). An unknown extension is an
+error when it is in the required closure; a valid indexed asset that is not
+reachable from the initial Scene is intentionally omitted.
+
+## Cook closure, snapshot, and publication boundary
+
+Cook never determines reachability by filename guessing. It refreshes a
+content-verified, read-only Asset DB snapshot, resolves the canonical Scene
+GUID, and walks normalized dependency GUIDs in ordinal order. Source formats
+whose references can be inspected (Scene, Material, Prefab, Blueprint, glTF,
+OBJ, and MTL) are scanned again and compared with their authoritative
+`*.acsmeta` dependency list. Blueprint is the compatibility exception:
+source-authored parent/component edges are added to the closure while existing
+importer metadata is retained as a safe superset, because older sidecars did
+not mirror every `PARENT` edge. Missing GUIDs, cycles, path escape/reparse
+paths, and source/metadata divergence emit stable diagnostic codes and stop
+the Cook.
+The `.acsdb/index.v1.json` file is only an acceleration cache: a stale or
+invalid cache is discarded with `ASSET_INDEX_CACHE_IGNORED`; authoritative
+sidecars are re-read instead of consuming stale cached dependencies.
+Immediately before atomic ZIP publication, Package reacquires the project
+asset-mutation lease, rebuilds the required closure, and compares its logical
+graph hash with the Cooked manifest. A required asset changed during the
+long-running Cook/archive phase therefore fails as
+`PROJECT_CHANGED_DURING_PACKAGE`. Content or import-metadata changes to a valid
+indexed asset that remains proven-unreachable do not perturb the graph hash;
+project-wide metadata-authority, path, and reparse-point safety checks still
+apply to the complete input tree.
+Each required Cook payload is read once into a content-hash-verified byte
+snapshot. Canonical Scene bootstrap inspection and reference rewriting consume
+that same captured root snapshot; they never reopen the authored Scene and
+cannot mix two transient versions into one package. The final graph rebuild
+detects ordinary external edits that complete before the corresponding
+revalidation read. The mutation lease is cooperative between ACS processes,
+not a filesystem compare-and-swap primitive: a hostile same-user process can
+still replace a Windows path after its last validation read. Publication does
+not claim to atomically freeze an externally modified authoring tree.
+Dependency scanners likewise parse an in-memory source snapshot only after its
+size and SHA-256 match the `AssetRecord` used by the graph. The later Cook copy
+independently enforces that same hash, so scanner and payload cannot silently
+select different source revisions.
 
 ## Package profiles
 
@@ -74,9 +113,14 @@ inputs, traversal protection, and the 3D fail-closed boundary.
 
 ## Canonical scene bootstrap and fail-closed boundary
 
-The project manifest's `canonicalSceneAssetId` identifies the root scene.
-Legacy `initialScene` must resolve to that same asset. During Cook the root is
-always written as `main.acscene`, while the package manifest records:
+The project manifest's non-empty `canonicalSceneAssetId` identifies the root
+scene. Package and CLI validation do not silently fall back to the legacy path:
+missing and malformed IDs fail as `CANONICAL_SCENE_ASSET_ID_REQUIRED` and
+`CANONICAL_SCENE_ASSET_ID_INVALID`. Opening a legacy project in the Editor
+migrates the ID from the unique authoritative metadata record before Package is
+allowed. Legacy `initialScene` remains a compatibility locator and must resolve
+to that same asset. During Cook the root is always written as `main.acscene`,
+while the package manifest records:
 
 - `sceneBootstrap.contract = acs.scene.bootstrap.v1`;
 - `sceneBootstrap.sourceFormat = legacy-acscene-v1` or `legacy-acs3d-v2`; and

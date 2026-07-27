@@ -109,6 +109,7 @@ public sealed class EngineViewport : HwndHost
 
     private IntPtr _hwnd;
     private IntPtr _engine;
+    private EditorAbiCapability _abiCapabilities;
     private bool _attached;
     private uint _w, _h;
     private uint _pendW, _pendH;   // attach 前の «サイズ安定待ち» 用 (起動直後のリサイズ連発を回避)
@@ -339,6 +340,11 @@ public sealed class EngineViewport : HwndHost
     /// <summary>エンジンハンドル (シーン API 呼び出し用、未生成時 Zero)。</summary>
     public IntPtr Engine => _destroying ? IntPtr.Zero : _engine;
 
+    internal EditorAbiCapability AbiCapabilities =>
+        _destroying
+            ? EditorAbiCapability.None
+            : _abiCapabilities;
+
     /// <summary>ポリゴン描画モード中か (左クリックで点を置く)。MainWindow が制御。</summary>
     public bool PolyMode
     {
@@ -395,6 +401,7 @@ public sealed class EngineViewport : HwndHost
         ResetRenderBurst();
         AttachFailed = false;
         AttachmentFailureDetail = null;
+        _abiCapabilities = EditorAbiCapability.None;
         _dormantRenderTimer?.Stop();
 
         // 子ウィンドウ (予約クラス "STATIC")。DX12 スワップチェインの提示先。
@@ -403,6 +410,7 @@ public sealed class EngineViewport : HwndHost
             0, 0, 1, 1, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
 
         EditorAbiSnapshot abi = EngineInterop.AbiSnapshot();
+        _abiCapabilities = abi.Capabilities;
         if (!abi.Compatible)
         {
             AttachFailed = true;
@@ -549,6 +557,7 @@ public sealed class EngineViewport : HwndHost
         }
         _origProc = IntPtr.Zero;
         _engine = IntPtr.Zero;
+        _abiCapabilities = EditorAbiCapability.None;
         _hwnd = IntPtr.Zero;
         _attached = false;
         _windowInteractionPaused = false;

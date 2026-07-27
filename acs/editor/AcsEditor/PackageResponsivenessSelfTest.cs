@@ -74,6 +74,8 @@ internal static class PackageResponsivenessSelfTest
         VerifyBlueprintCookRewrite();
         VerifyBlueprintCookCacheVersion();
         VerifyBlueprintParentPathPolicy();
+        VerifyCanonicalSceneSnapshotIsolation();
+        VerifyCanonicalCookClosureContract();
         VerifyBlueprintInheritanceClosure();
         await VerifyProcessOutputBoundAsync();
         await VerifyProcessCancellationAsync();
@@ -578,6 +580,385 @@ internal static class PackageResponsivenessSelfTest
                     malformedBytes.SequenceEqual(malformedSnapshot),
                     label + " without mutating the source payload");
             }
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static void VerifyCanonicalCookClosureContract()
+    {
+        string root = FixtureRoot("canonical-cook-closure");
+        string assets = Path.Combine(root, "Assets");
+        string materials = Path.Combine(assets, "Materials");
+        string textures = Path.Combine(assets, "Textures");
+        string scene = Path.Combine(assets, "main.acscene");
+        string material = Path.Combine(materials, "Water.acsmat");
+        string texture = Path.Combine(textures, "required.png");
+        string unused = Path.Combine(assets, "unused.mystery");
+        Directory.CreateDirectory(materials);
+        Directory.CreateDirectory(textures);
+        File.WriteAllText(
+            scene,
+            "ACSCENE v1\n1\nMAT 1 Assets/Materials/Water.acsmat\n",
+            new UTF8Encoding(false));
+        File.WriteAllText(
+            material,
+            "ACSMAT 1\nalbedo Assets/Textures/required.png\n",
+            new UTF8Encoding(false));
+        File.WriteAllBytes(texture, [1, 2, 3, 4]);
+        File.WriteAllText(unused, "not reachable", new UTF8Encoding(false));
+
+        try
+        {
+            var database = new AssetDatabase(root, assets);
+            database.Refresh(verifyContent: true);
+            AssetRecord sceneRecord = database.Snapshot().Single(item =>
+                item.RelativePath == "main.acscene");
+            AssetRecord materialRecord = database.Snapshot().Single(item =>
+                item.RelativePath == "Materials/Water.acsmat");
+            AssetRecord textureRecord = database.Snapshot().Single(item =>
+                item.RelativePath == "Textures/required.png");
+            database.UpdateImportMetadata(
+                sceneRecord.AssetId,
+                sceneRecord.Metadata.Source,
+                sceneRecord.Metadata.Importer,
+                sceneRecord.Metadata.ImporterVersion,
+                [materialRecord.AssetId],
+                sceneRecord.Metadata.ImportSettings);
+            database.UpdateImportMetadata(
+                materialRecord.AssetId,
+                materialRecord.Metadata.Source,
+                materialRecord.Metadata.Importer,
+                materialRecord.Metadata.ImporterVersion,
+                [textureRecord.AssetId],
+                materialRecord.Metadata.ImportSettings);
+            string projectFile = Path.Combine(root, "Fixture.acsproject");
+            File.WriteAllText(
+                projectFile,
+                $$"""
+                {
+                  "version": 1,
+                  "name": "Fixture",
+                  "engineVersion": "self-test",
+                  "initialScene": "Assets/main.acscene",
+                  "canonicalSceneAssetId": "{{sceneRecord.AssetId}}"
+                }
+                """,
+                new UTF8Encoding(false));
+            var packageProject = new PackageProjectInfo(
+                "Fixture",
+                1,
+                "self-test",
+                projectFile,
+                "Assets/main.acscene",
+                sceneRecord.AssetId);
+
+            var planner = new AssetCookPlanner(root, assets);
+            AssetCookPlan first = planner.BuildByAssetId(sceneRecord.AssetId);
+            AssetCookPlan second =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            string[] expected =
+            [
+                "Materials/Water.acsmat",
+                "Textures/required.png",
+                "main.acscene",
+            ];
+            Check(
+                !first.HasErrors &&
+                !second.HasErrors &&
+                first.Assets.Select(static item => item.RelativePath)
+                    .SequenceEqual(expected, StringComparer.Ordinal) &&
+                second.Assets.Select(static item => item.RelativePath)
+                    .SequenceEqual(expected, StringComparer.Ordinal) &&
+                string.Equals(first.GraphHash, second.GraphHash, StringComparison.Ordinal),
+                "canonical Scene Asset ID produces a stable required-only Cook closure");
+            PackageCore.ValidateProjectSceneStateForPublish(
+                packageProject,
+                sceneRecord.AssetId,
+                cookedAssetGraphHash: first.GraphHash);
+            Pass("unchanged required Cook graph passes the final publication gate");
+
+            File.WriteAllText(unused, "changed but still unreachable", new UTF8Encoding(false));
+            AssetCookPlan unusedChanged =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                !unusedChanged.HasErrors &&
+                string.Equals(
+                    first.GraphHash,
+                    unusedChanged.GraphHash,
+                    StringComparison.Ordinal) &&
+                unusedChanged.Assets.All(item =>
+                    !item.RelativePath.Equals(
+                        "unused.mystery",
+                        StringComparison.OrdinalIgnoreCase)),
+                "unreachable Asset changes do not enter or perturb the Cook graph");
+            PackageCore.ValidateProjectSceneStateForPublish(
+                packageProject,
+                sceneRecord.AssetId,
+                cookedAssetGraphHash: first.GraphHash);
+            Pass("unreachable Asset changes do not block package publication");
+
+            database.UpdateImportMetadata(
+                textureRecord.AssetId,
+                textureRecord.Metadata.Source,
+                textureRecord.Metadata.Importer,
+                textureRecord.Metadata.ImporterVersion,
+                textureRecord.Metadata.Dependencies,
+                textureRecord.Metadata.ImportSettings.Concat(
+                [
+                    new KeyValuePair<string, string>(
+                        "directSidecarRevision",
+                        "changed"),
+                ]));
+            Check(
+                ProjectGraphDriftIsRejected(
+                    packageProject,
+                    sceneRecord.AssetId,
+                    first.GraphHash),
+                "required Asset sidecar drift blocks final package publication");
+            database.UpdateImportMetadata(
+                textureRecord.AssetId,
+                textureRecord.Metadata.Source,
+                textureRecord.Metadata.Importer,
+                textureRecord.Metadata.ImporterVersion,
+                textureRecord.Metadata.Dependencies,
+                textureRecord.Metadata.ImportSettings);
+
+            string movedTexture = Path.Combine(textures, "required-moved.png");
+            string textureMetadata = texture + AssetDatabase.MetadataSuffix;
+            string movedTextureMetadata =
+                movedTexture + AssetDatabase.MetadataSuffix;
+            try
+            {
+                File.Move(texture, movedTexture);
+                File.Move(textureMetadata, movedTextureMetadata);
+                Check(
+                    ProjectGraphDriftIsRejected(
+                        packageProject,
+                        sceneRecord.AssetId,
+                        first.GraphHash),
+                    "required Asset path drift blocks final package publication");
+            }
+            finally
+            {
+                if (File.Exists(movedTextureMetadata) &&
+                    !File.Exists(textureMetadata))
+                {
+                    File.Move(movedTextureMetadata, textureMetadata);
+                }
+                if (File.Exists(movedTexture) && !File.Exists(texture))
+                    File.Move(movedTexture, texture);
+            }
+
+            File.WriteAllBytes(texture, [1, 2, 3, 4, 5]);
+            AssetCookPlan requiredChanged =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                !requiredChanged.HasErrors &&
+                !string.Equals(
+                    first.GraphHash,
+                    requiredChanged.GraphHash,
+                    StringComparison.Ordinal),
+                "required Asset content changes invalidate the logical Cook graph hash");
+            Check(
+                ProjectGraphDriftIsRejected(
+                    packageProject,
+                    sceneRecord.AssetId,
+                    first.GraphHash),
+                "required Asset graph drift blocks final package publication");
+
+            string missingAssetId = Guid.NewGuid().ToString("N");
+            database.UpdateImportMetadata(
+                materialRecord.AssetId,
+                materialRecord.Metadata.Source,
+                materialRecord.Metadata.Importer,
+                materialRecord.Metadata.ImporterVersion,
+                [missingAssetId],
+                materialRecord.Metadata.ImportSettings);
+            AssetCookPlan missing =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                missing.HasErrors &&
+                missing.Diagnostics.Any(diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_MISSING" &&
+                    diagnostic.AssetId == missingAssetId),
+                "missing required dependency GUID fails closed with a structured diagnostic");
+
+            database.UpdateImportMetadata(
+                materialRecord.AssetId,
+                materialRecord.Metadata.Source,
+                materialRecord.Metadata.Importer,
+                materialRecord.Metadata.ImporterVersion,
+                [textureRecord.AssetId],
+                materialRecord.Metadata.ImportSettings);
+            database.UpdateImportMetadata(
+                textureRecord.AssetId,
+                textureRecord.Metadata.Source,
+                textureRecord.Metadata.Importer,
+                textureRecord.Metadata.ImporterVersion,
+                [sceneRecord.AssetId],
+                textureRecord.Metadata.ImportSettings);
+            AssetCookPlan cyclic =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                cyclic.HasErrors &&
+                cyclic.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_CYCLE"),
+                "reachable dependency cycle fails closed with a structured diagnostic");
+
+            database.UpdateImportMetadata(
+                textureRecord.AssetId,
+                textureRecord.Metadata.Source,
+                textureRecord.Metadata.Importer,
+                textureRecord.Metadata.ImporterVersion,
+                [],
+                textureRecord.Metadata.ImportSettings);
+            File.WriteAllText(
+                material,
+                "ACSMAT 1\nalbedo ../../outside.png\n",
+                new UTF8Encoding(false));
+            database.UpdateImportMetadata(
+                materialRecord.AssetId,
+                materialRecord.Metadata.Source,
+                materialRecord.Metadata.Importer,
+                materialRecord.Metadata.ImporterVersion,
+                [],
+                materialRecord.Metadata.ImportSettings);
+            AssetCookPlan escaped =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                escaped.HasErrors &&
+                escaped.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_REFERENCE_ESCAPE"),
+                "reachable path escape fails closed with a structured diagnostic");
+
+            File.WriteAllText(
+                material,
+                "ACSMAT 1\nalbedo\n",
+                new UTF8Encoding(false));
+            AssetCookPlan malformed =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                malformed.HasErrors &&
+                malformed.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_DEPENDENCY_SCAN_FAILED"),
+                "malformed reference directives cannot silently remove required dependencies");
+
+            File.WriteAllText(
+                material,
+                "ACSMAT 1\nalbedo Assets/Textures/required.png\n",
+                new UTF8Encoding(false));
+            AssetCookPlan stale =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                stale.HasErrors &&
+                stale.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_METADATA_STALE"),
+                "source/dependency metadata divergence fails closed as stale Asset DB state");
+
+            database.UpdateImportMetadata(
+                materialRecord.AssetId,
+                materialRecord.Metadata.Source,
+                materialRecord.Metadata.Importer,
+                materialRecord.Metadata.ImporterVersion,
+                [textureRecord.AssetId],
+                materialRecord.Metadata.ImportSettings);
+            string indexPath = Path.Combine(
+                assets,
+                AssetDatabase.InternalDirectoryName,
+                "index.v1.json");
+            File.WriteAllText(indexPath, "{", new UTF8Encoding(false));
+            AssetCookPlan ignoredCache =
+                new AssetCookPlanner(root, assets).BuildByAssetId(sceneRecord.AssetId);
+            Check(
+                !ignoredCache.HasErrors &&
+                ignoredCache.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "ASSET_INDEX_CACHE_IGNORED") &&
+                ignoredCache.Assets.Select(static item => item.RelativePath)
+                    .SequenceEqual(expected, StringComparer.Ordinal),
+                "stale acceleration cache is discarded in favor of authoritative sidecars");
+
+            AssetCookPlan missingId =
+                new AssetCookPlanner(root, assets).BuildByAssetId("");
+            AssetCookPlan invalidId =
+                new AssetCookPlanner(root, assets).BuildByAssetId("not-a-guid");
+            AssetCookPlan wrongKind =
+                new AssetCookPlanner(root, assets).BuildByAssetId(textureRecord.AssetId);
+            Check(
+                missingId.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "CANONICAL_SCENE_ASSET_ID_REQUIRED") &&
+                invalidId.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "CANONICAL_SCENE_ASSET_ID_INVALID") &&
+                wrongKind.Diagnostics.Any(static diagnostic =>
+                    diagnostic.Code == "CANONICAL_SCENE_KIND_INVALID"),
+                "canonical Cook root rejects missing, malformed, and non-scene Asset IDs");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
+    private static bool ProjectGraphDriftIsRejected(
+        PackageProjectInfo project,
+        string canonicalSceneAssetId,
+        string cookedAssetGraphHash)
+    {
+        try
+        {
+            PackageCore.ValidateProjectSceneStateForPublish(
+                project,
+                canonicalSceneAssetId,
+                cookedAssetGraphHash: cookedAssetGraphHash);
+            return false;
+        }
+        catch (PackageValidationException error)
+        {
+            return error.Issues.Any(static issue =>
+                issue.Code == "PROJECT_CHANGED_DURING_PACKAGE");
+        }
+    }
+
+    private static void VerifyCanonicalSceneSnapshotIsolation()
+    {
+        string root = FixtureRoot("canonical-scene-snapshot");
+        string assets = Path.Combine(root, "Assets");
+        string scene = Path.Combine(assets, "main.acscene");
+        Directory.CreateDirectory(assets);
+        byte[] captured =
+            new UTF8Encoding(false).GetBytes("ACSCENE v1\n0\n");
+        File.WriteAllBytes(scene, captured);
+        var database = new AssetDatabase(root, assets);
+        database.Refresh(verifyContent: true);
+        AssetRecord capturedRecord = database.Snapshot().Single(item =>
+            item.RelativePath == "main.acscene");
+        byte[] pathRevision = captured.ToArray();
+        pathRevision[0] = 0;
+        File.WriteAllBytes(scene, pathRevision);
+
+        try
+        {
+            CanonicalSceneAdapterInspection pathInspection =
+                CanonicalSceneAdapter.InspectFile(scene);
+            CanonicalSceneAdapterInspection snapshotInspection =
+                PackageCore.InspectCanonicalSceneSnapshotForSelfTest(
+                    captured,
+                    ".acscene",
+                    scene);
+            Check(
+                pathInspection.HasErrors &&
+                !snapshotInspection.HasErrors &&
+                snapshotInspection.Envelope.sourceFormat ==
+                    CanonicalSceneAdapter.LegacyScene2DFormat,
+                "canonical Scene bootstrap inspection uses the verified Cook bytes, " +
+                "not a second path read");
+            CheckThrows<InvalidDataException>(
+                () => new AssetCookPlanner(root, assets)
+                    .ReadVerifiedScanSnapshotForSelfTest(capturedRecord),
+                "dependency scanning rejects path bytes that differ from the " +
+                "content-hash snapshot");
         }
         finally
         {

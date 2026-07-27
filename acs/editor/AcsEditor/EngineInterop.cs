@@ -162,6 +162,12 @@ internal static class EngineInterop
     private static extern void acs_editor_profiler_reset_peaks(
         IntPtr handle);
 
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int acs_editor_cloud_workload_get(
+        IntPtr handle,
+        ref EditorCloudWorkloadSnapshot snapshot,
+        uint snapshotSize);
+
     internal static bool TryGetProfilerSnapshot(
         IntPtr handle,
         out EditorProfilerSnapshot snapshot)
@@ -206,6 +212,45 @@ internal static class EngineInterop
         }
         catch (DllNotFoundException)
         {
+        }
+    }
+
+    internal static EditorCloudWorkloadQueryStatus QueryCloudWorkloadSnapshot(
+        IntPtr handle,
+        EditorAbiCapability capabilities,
+        out EditorCloudWorkloadSnapshot snapshot)
+    {
+        snapshot = new EditorCloudWorkloadSnapshot
+        {
+            Version = EditorCloudWorkloadContract.Version,
+            StructSize = EditorCloudWorkloadContract.SnapshotSize,
+        };
+        if (!EditorCloudWorkloadContract.IsSupported(capabilities))
+            return EditorCloudWorkloadQueryStatus.Unsupported;
+        if (handle == IntPtr.Zero)
+            return EditorCloudWorkloadQueryStatus.RuntimeUnavailable;
+
+        try
+        {
+            int result = acs_editor_cloud_workload_get(
+                handle,
+                ref snapshot,
+                EditorCloudWorkloadContract.SnapshotSize);
+            return EditorCloudWorkloadContract.ClassifyNativeResult(
+                result,
+                snapshot);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return EditorCloudWorkloadQueryStatus.ContractError;
+        }
+        catch (DllNotFoundException)
+        {
+            return EditorCloudWorkloadQueryStatus.ContractError;
+        }
+        catch (BadImageFormatException)
+        {
+            return EditorCloudWorkloadQueryStatus.ContractError;
         }
     }
 

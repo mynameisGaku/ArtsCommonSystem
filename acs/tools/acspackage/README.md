@@ -1,10 +1,11 @@
 # ACS Package CLI
 
 `acspackage` is the non-UI backend for the Editor's **Package Project** flow.
-It validates portable asset references, builds a Windows x64 Release target,
-resolves non-system PE runtime DLLs, runs the path-safe deterministic Cook,
-creates and natively verifies the existing `.acpak` v1 format, stages the
-game, writes a pack/file SHA-256 manifest, and creates a deterministic ZIP.
+It validates the canonical Scene identity and portable reachable references,
+builds a Windows x64 Release target, resolves non-system PE runtime DLLs, runs
+the path-safe deterministic dependency-closure Cook, creates and natively
+verifies the existing `.acpak` v1 format, stages the game, writes a pack/file
+SHA-256 manifest, and creates a deterministic ZIP.
 
 ```powershell
 dotnet run --project tools/acspackage -- package `
@@ -91,11 +92,35 @@ Development also retains loose Cooked assets for inspection. PDBs and
 Editor-only `*_reflect.dll` files are excluded by default, and Shipping
 rejects PDB inclusion. `Assets/` and `Config/` reject reparse points, and
 referenced files must live under `Assets/`. Absolute Editor asset paths are
-rewritten only in the isolated Cook copy. Unknown extensions, external glTF
-URIs, and scene configuration mismatches fail closed.
+rewritten only in the isolated Cook copy. Unknown extensions and external
+glTF URIs fail closed when reachable; valid indexed assets outside the
+canonical Scene dependency closure are omitted without affecting the graph
+hash. Scene configuration mismatches always fail closed.
 
-The canonical root scene is selected by its persistent Asset ID and Cooked to
-the single bootstrap path `main.acscene`. The manifest's
+The canonical root scene is selected only by its non-empty persistent Asset
+ID and Cooked to the single bootstrap path `main.acscene`. The CLI never falls
+back to `initialScene` when that ID is missing or malformed. The legacy path
+must resolve to the same record, otherwise validation fails. Each reachable
+GUID is closed in ordinal order, and missing IDs, dependency cycles, path
+escape/reparse paths, source/metadata dependency drift, and required
+unsupported formats produce stable error codes. The `.acsdb` index is treated
+as a disposable cache; authoritative `*.acsmeta` sidecars and verified source
+content drive the plan. Blueprint parent/component edges discovered in source
+are retained as compatibility additions because legacy metadata did not mirror
+every `PARENT` edge. The publication gate rebuilds this closure while
+holding the project mutation lease and rejects a changed required graph as
+`PROJECT_CHANGED_DURING_PACKAGE`; content/import-metadata changes to a valid
+indexed asset that remains unreachable leave the graph hash unchanged, while
+complete-tree metadata-authority, path, and reparse-point safety checks still
+apply.
+
+The mutation lease coordinates ACS processes; it is not a filesystem-wide
+compare-and-swap or input-tree freeze. A non-cooperating same-user process can
+still replace a Windows path after its final validation read. See
+[`Packaging.md`](../../docs/Packaging.md#cook-closure-snapshot-and-publication-boundary)
+for the precise publication boundary and threat model.
+
+The manifest's
 `sceneBootstrap.sourceFormat` records `legacy-acscene-v1` or
 `legacy-acs3d-v2`; `adapterProjectionHint` is an import hint only, because
 projection is selected per camera. The runtime header-dispatches to the 2D

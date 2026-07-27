@@ -77,6 +77,8 @@ internal sealed class SceneMutationRevisionGate
 public partial class MainWindow
 {
     private readonly EditorDocumentHost _documentHost = new();
+    private readonly Dictionary<MaterialEditorWindow, EditorDocument>
+        _hostedMaterialDocuments = new();
     private readonly SceneMutationRevisionGate _sceneMutationRevision = new();
     private readonly string _standaloneDocumentSessionId = Guid.NewGuid().ToString("N");
     private readonly DispatcherTimer _documentHistoryTimer = new()
@@ -127,11 +129,306 @@ public partial class MainWindow
         _documentHost.DocumentStateChanged += OnHostedDocumentStateChanged;
         _documentHost.Activate(scene.Id, synchronizeOutgoing: false);
         _documentHostInitialized = true;
+        MaterialDocumentHostRegistration.RequireEveryExistingDocumentHosted(
+            _materialEditorWindows.ToArray(),
+            TryRegisterHostedMaterialDocument,
+            RollbackDocumentHostInitialization);
         _sceneMutationRevision.AcknowledgeDocument();
 
         _documentHistoryTimer.Tick += OnDocumentHistoryTick;
         _documentHistoryTimer.Start();
         Closed += (_, _) => _documentHistoryTimer.Stop();
+    }
+
+    private void RollbackDocumentHostInitialization()
+    {
+        var cleanupErrors = new List<Exception>();
+        foreach ((MaterialEditorWindow materialWindow, EditorDocument document) in
+                 _hostedMaterialDocuments.ToArray())
+        {
+            try
+            {
+                materialWindow.DetachHostedDocument(document);
+            }
+            catch (Exception error)
+            {
+                cleanupErrors.Add(error);
+            }
+        }
+        _hostedMaterialDocuments.Clear();
+        _documentHost.DocumentStateChanged -= OnHostedDocumentStateChanged;
+        try
+        {
+            if (!_documentHost.Clear(discardUnsavedChanges: true))
+            {
+                cleanupErrors.Add(new InvalidOperationException(
+                    "Document Host refused initialization rollback."));
+            }
+        }
+        catch (Exception error)
+        {
+            cleanupErrors.Add(error);
+        }
+        finally
+        {
+            _documentHostInitialized = false;
+            _hostSavedSubsystem2D = null;
+            _hostSavedSubsystem3D = null;
+        }
+
+        if (cleanupErrors.Count != 0)
+        {
+            throw new AggregateException(
+                "Document Host initialization rollback was incomplete.",
+                cleanupErrors);
+        }
+    }
+
+    private bool TryRegisterHostedMaterialDocument(
+        MaterialEditorWindow materialWindow)
+    {
+        ArgumentNullException.ThrowIfNull(materialWindow);
+        if (!_documentHostInitialized)
+            return false;
+        if (_hostedMaterialDocuments.TryGetValue(
+                materialWindow,
+                out EditorDocument? existing))
+        {
+            string? currentPath = materialWindow.CurrentAssetPath;
+            if (!string.IsNullOrWhiteSpace(currentPath))
+            {
+                existing.UpdatePresentation(
+                    Path.GetFileName(currentPath),
+                    currentPath);
+            }
+            return true;
+        }
+
+        string? path = materialWindow.CurrentAssetPath;
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        try
+        {
+            EditorDocumentId id = MaterialDocumentHostRegistration.CreateId(
+                path,
+                materialWindow.CurrentAssetId);
+            if (_documentHost.TryGet(id, out _))
+            {
+                Log(
+                    "Material document registration rejected a duplicate identity: " +
+                    id,
+                    "Document",
+                    LogLevel.Error);
+                return false;
+            }
+
+            EditorDocumentState initialState =
+                materialWindow.CaptureHostedMaterialState();
+            EditorDocument document = MaterialDocumentHostRegistration.Create(
+                path,
+                materialWindow.CurrentAssetId,
+                Path.GetFileName(path),
+                materialWindow.CaptureHostedMaterialState,
+                materialWindow.RestoreHostedMaterialState,
+                materialWindow.SaveHostedMaterialAsync,
+                initiallySaved: !materialWindow.HasUnsavedGraphChanges,
+                initialState: initialState);
+            _documentHost.Register(document);
+            try
+            {
+                materialWindow.AttachHostedDocument(document);
+                _hostedMaterialDocuments.Add(materialWindow, document);
+            }
+            catch
+            {
+                materialWindow.DetachHostedDocument(document);
+                _documentHost.Unregister(
+                    document.Id,
+                    discardUnsavedChanges: true);
+                throw;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log(
+                "Material document could not join Document Host: " +
+                ex.Message,
+                "Document",
+                LogLevel.Error);
+            return false;
+        }
+    }
+
+    private void UnregisterHostedMaterialDocument(
+        MaterialEditorWindow materialWindow)
+    {
+        if (!_hostedMaterialDocuments.Remove(
+                materialWindow,
+                out EditorDocument? document))
+        {
+            return;
+        }
+        materialWindow.DetachHostedDocument(document);
+        if (!_documentHost.Unregister(
+                document.Id,
+                discardUnsavedChanges: true))
+        {
+            Log(
+                "Material document could not be removed from Document Host: " +
+                document.Id,
+                "Document",
+                LogLevel.Error);
+        }
+    }
+
+    private void SuspendHostedMaterialDocument(
+        MaterialEditorWindow materialWindow,
+        AssetDocumentMutationState mutation)
+    {
+        if (!_hostedMaterialDocuments.TryGetValue(
+                materialWindow,
+                out EditorDocument? document))
+        {
+            return;
+        }
+        try
+        {
+            document.Suspend(synchronize: true);
+            mutation.SuspendedMaterialDocuments.Add(document);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Material document suspension failed for " +
+                document.DisplayName + ".",
+                ex);
+        }
+    }
+
+    private void ResumeHostedMaterialDocument(
+        MaterialEditorWindow materialWindow,
+        AssetDocumentMutationState mutation)
+    {
+        if (!_hostedMaterialDocuments.TryGetValue(
+                materialWindow,
+                out EditorDocument? document) ||
+            !mutation.SuspendedMaterialDocuments.Remove(document))
+        {
+            return;
+        }
+        document.Resume(acceptCurrentWithoutTransaction: true);
+        RefreshHostedMaterialIdentity(materialWindow);
+    }
+
+    private void RefreshHostedMaterialPresentation(
+        MaterialEditorWindow materialWindow)
+    {
+        if (!_hostedMaterialDocuments.TryGetValue(
+                materialWindow,
+                out EditorDocument? document) ||
+            materialWindow.CurrentAssetPath is not string path)
+        {
+            return;
+        }
+        document.UpdatePresentation(Path.GetFileName(path), path);
+    }
+
+    private void RefreshHostedMaterialIdentity(
+        MaterialEditorWindow materialWindow)
+    {
+        if (!_hostedMaterialDocuments.TryGetValue(
+                materialWindow,
+                out EditorDocument? oldDocument) ||
+            materialWindow.CurrentAssetPath is not string path)
+        {
+            return;
+        }
+        EditorDocumentId expected =
+            MaterialDocumentHostRegistration.CreateId(
+                path,
+                materialWindow.CurrentAssetId);
+        if (oldDocument.Id == expected)
+        {
+            oldDocument.UpdatePresentation(Path.GetFileName(path), path);
+            return;
+        }
+
+        bool initiallySaved = !oldDocument.IsDirty;
+        EditorDocumentState state =
+            materialWindow.CaptureHostedMaterialState();
+        materialWindow.DetachHostedDocument(oldDocument);
+        if (!_documentHost.Unregister(
+                oldDocument.Id,
+                discardUnsavedChanges: true))
+        {
+            materialWindow.AttachHostedDocument(oldDocument);
+            throw new InvalidOperationException(
+                "The old loose-file material identity could not be released.");
+        }
+        _hostedMaterialDocuments.Remove(materialWindow);
+
+        EditorDocument replacement = MaterialDocumentHostRegistration.Create(
+            path,
+            materialWindow.CurrentAssetId,
+            Path.GetFileName(path),
+            materialWindow.CaptureHostedMaterialState,
+            materialWindow.RestoreHostedMaterialState,
+            materialWindow.SaveHostedMaterialAsync,
+            initiallySaved,
+            state);
+        bool replacementRegistered = false;
+        bool replacementAttached = false;
+        try
+        {
+            _documentHost.Register(replacement);
+            replacementRegistered = true;
+            materialWindow.AttachHostedDocument(replacement);
+            replacementAttached = true;
+            _hostedMaterialDocuments.Add(materialWindow, replacement);
+        }
+        catch (Exception replacementError)
+        {
+            if (replacementAttached)
+                materialWindow.DetachHostedDocument(replacement);
+            if (replacementRegistered)
+            {
+                _documentHost.Unregister(
+                    replacement.Id,
+                    discardUnsavedChanges: true);
+            }
+
+            try
+            {
+                oldDocument.UpdatePresentation(
+                    Path.GetFileName(path),
+                    path);
+                _documentHost.Register(oldDocument);
+                materialWindow.AttachHostedDocument(oldDocument);
+                _hostedMaterialDocuments.Add(
+                    materialWindow,
+                    oldDocument);
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "Material identity rebind failed and the old hosted " +
+                    "document could not be restored.",
+                    replacementError,
+                    rollbackError);
+            }
+            throw;
+        }
+    }
+
+    private void ApproveHostedMaterialWindowsForOwnerClose(
+        bool discardUnsavedChanges)
+    {
+        foreach (MaterialEditorWindow materialWindow in
+                 _hostedMaterialDocuments.Keys.ToArray())
+        {
+            materialWindow.ApproveHostedOwnerClose(discardUnsavedChanges);
+        }
     }
 
     private EditorDocument EnsureSceneDocumentRegistered(

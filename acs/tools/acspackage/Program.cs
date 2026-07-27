@@ -2775,6 +2775,25 @@ internal static class Program
                     issue.Code == "CANONICAL_SCENE_PATH_MISMATCH"),
                 "canonical scene Asset ID/path divergence must fail closed");
 
+            IReadOnlyList<PackageIssue> missingCanonicalIdIssues =
+                PackageCore.Validate(
+                    project with { CanonicalSceneAssetId = "" },
+                    optionsA,
+                    executable,
+                    [runtime]);
+            IReadOnlyList<PackageIssue> invalidCanonicalIdIssues =
+                PackageCore.Validate(
+                    project with { CanonicalSceneAssetId = "not-a-guid" },
+                    optionsA,
+                    executable,
+                    [runtime]);
+            Assert(
+                missingCanonicalIdIssues.Any(issue =>
+                    issue.Code == "CANONICAL_SCENE_ASSET_ID_REQUIRED") &&
+                invalidCanonicalIdIssues.Any(issue =>
+                    issue.Code == "CANONICAL_SCENE_ASSET_ID_INVALID"),
+                "CLI package preflight must not fall back to the legacy initialScene path");
+
             var nonAssetProject = project with { InitialScene = "Config/main.acscene" };
             IReadOnlyList<PackageIssue> nonAssetIssues =
                 PackageCore.Validate(nonAssetProject, optionsA, executable, [runtime]);
@@ -2969,25 +2988,98 @@ internal static class Program
 
             string unsupported = Path.Combine(assets, "payload.unsupported");
             File.WriteAllText(unsupported, "not cookable");
-            IReadOnlyList<PackageIssue> unsupportedIssues =
+            assetDatabase.Refresh(verifyContent: true);
+            AssetRecord unsupportedAsset = assetDatabase.Snapshot().Single(item =>
+                item.RelativePath == "payload.unsupported");
+            IReadOnlyList<PackageIssue> unreachableUnsupportedIssues =
                 PackageCore.Validate(project, optionsA, executable, [runtime]);
             Assert(
-                unsupportedIssues.Any(issue =>
+                !unreachableUnsupportedIssues.Any(issue =>
                     issue.Code == "ASSET_TYPE_UNSUPPORTED"),
-                "unsupported Cook input must fail closed");
+                "unreachable unsupported Asset must not enter closure-driven Cook");
+            File.WriteAllText(
+                scene,
+                $"ACSCENE v1\n1\nSPRT 1 {albedo}\nMAT 1 {material}\n" +
+                "SPRT 2 Assets/payload.unsupported\n",
+                new UTF8Encoding(false));
+            assetDatabase.Refresh(verifyContent: true);
+            assetDatabase.UpdateImportMetadata(
+                sceneAsset.AssetId,
+                sceneAsset.Metadata.Source,
+                "legacy-acscene",
+                1,
+                [albedoAsset.AssetId, materialAsset.AssetId, unsupportedAsset.AssetId],
+                sceneAsset.Metadata.ImportSettings);
+            IReadOnlyList<PackageIssue> requiredUnsupportedIssues =
+                PackageCore.Validate(project, optionsA, executable, [runtime]);
+            Assert(
+                requiredUnsupportedIssues.Any(issue =>
+                    issue.Code == "ASSET_TYPE_UNSUPPORTED"),
+                "required unsupported Cook input must fail closed");
+            File.WriteAllText(
+                scene,
+                $"ACSCENE v1\n1\nSPRT 1 {albedo}\nMAT 1 {material}\n",
+                new UTF8Encoding(false));
+            assetDatabase.Refresh(verifyContent: true);
+            assetDatabase.UpdateImportMetadata(
+                sceneAsset.AssetId,
+                sceneAsset.Metadata.Source,
+                "legacy-acscene",
+                1,
+                [albedoAsset.AssetId, materialAsset.AssetId],
+                sceneAsset.Metadata.ImportSettings);
             File.Delete(unsupported);
+            File.Delete(unsupported + AssetDatabase.MetadataSuffix);
+            assetDatabase.Refresh(verifyContent: true);
 
             string externalGltf = Path.Combine(assets, "external.gltf");
             File.WriteAllText(
                 externalGltf,
                 "{\"asset\":{\"version\":\"2.0\"},\"buffers\":[{\"uri\":\"C:/outside.bin\",\"byteLength\":4}]}");
-            IReadOnlyList<PackageIssue> gltfIssues =
+            assetDatabase.Refresh(verifyContent: true);
+            AssetRecord externalGltfAsset = assetDatabase.Snapshot().Single(item =>
+                item.RelativePath == "external.gltf");
+            IReadOnlyList<PackageIssue> unreachableGltfIssues =
                 PackageCore.Validate(project, optionsA, executable, [runtime]);
             Assert(
-                gltfIssues.Any(issue =>
-                    issue.Code == "GLTF_EXTERNAL_URI_UNSUPPORTED"),
-                "external glTF URI must fail closed");
+                !unreachableGltfIssues.Any(issue =>
+                    issue.Code is "ASSET_REFERENCE_INVALID" or
+                        "GLTF_EXTERNAL_URI_UNSUPPORTED"),
+                "unreachable invalid glTF must not enter closure-driven Cook");
+            File.WriteAllText(
+                scene,
+                $"ACSCENE v1\n1\nSPRT 1 {albedo}\nMAT 1 {material}\n" +
+                "SPRT 2 Assets/external.gltf\n",
+                new UTF8Encoding(false));
+            assetDatabase.Refresh(verifyContent: true);
+            assetDatabase.UpdateImportMetadata(
+                sceneAsset.AssetId,
+                sceneAsset.Metadata.Source,
+                "legacy-acscene",
+                1,
+                [albedoAsset.AssetId, materialAsset.AssetId, externalGltfAsset.AssetId],
+                sceneAsset.Metadata.ImportSettings);
+            IReadOnlyList<PackageIssue> requiredGltfIssues =
+                PackageCore.Validate(project, optionsA, executable, [runtime]);
+            Assert(
+                requiredGltfIssues.Any(issue =>
+                    issue.Code == "ASSET_REFERENCE_INVALID"),
+                "required glTF external URI must fail closed in dependency discovery");
+            File.WriteAllText(
+                scene,
+                $"ACSCENE v1\n1\nSPRT 1 {albedo}\nMAT 1 {material}\n",
+                new UTF8Encoding(false));
+            assetDatabase.Refresh(verifyContent: true);
+            assetDatabase.UpdateImportMetadata(
+                sceneAsset.AssetId,
+                sceneAsset.Metadata.Source,
+                "legacy-acscene",
+                1,
+                [albedoAsset.AssetId, materialAsset.AssetId],
+                sceneAsset.Metadata.ImportSettings);
             File.Delete(externalGltf);
+            File.Delete(externalGltf + AssetDatabase.MetadataSuffix);
+            assetDatabase.Refresh(verifyContent: true);
 
             await TestInspectionAdversarialGuardsAsync(
                 testRoot,

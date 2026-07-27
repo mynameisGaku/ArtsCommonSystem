@@ -128,21 +128,6 @@ public static class PackageCore
         @"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private static readonly HashSet<string> CookableExtensions = new(
-        [
-            ".acscene", ".acsprefab", ".acsmat", ".acsbp", ".acs3d",
-            ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".dds", ".ktx",
-            ".ktx2", ".hdr", ".exr", ".webp", ".gif",
-            ".wav", ".ogg", ".mp3", ".flac",
-            ".fbx", ".gltf", ".glb", ".obj", ".mdl", ".mtl",
-            ".ttf", ".otf",
-            ".txt", ".json", ".csv", ".xml", ".yaml", ".yml", ".toml",
-            ".ini", ".md", ".log",
-            ".lua", ".hlsl", ".glsl", ".vert", ".frag",
-            ".cso", ".dxil", ".spv", ".bin", ".dat",
-        ],
-        StringComparer.OrdinalIgnoreCase);
-
     private sealed record ManifestFile(string path, long size, string sha256);
 
     private sealed record ManifestAssetPack(
@@ -229,7 +214,6 @@ public static class PackageCore
         string executable;
         string staging;
         string derivedDataCache;
-        var assetFiles = new List<string>();
 
         try
         {
@@ -345,11 +329,14 @@ public static class PackageCore
             try
             {
                 RejectExistingReparsePointsInPath(assets, "Assets");
-                assetFiles = EnumerateFilesSafe(
-                    assets,
-                    issues,
-                    excludeAssetMetadata: true,
-                    cancellationToken: cancellationToken).ToList();
+                foreach (string _ in EnumerateFilesSafe(
+                             assets,
+                             issues,
+                             excludeAssetMetadata: true,
+                             cancellationToken: cancellationToken))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
             }
             catch (Exception error)
             {
@@ -358,21 +345,6 @@ public static class PackageCore
                     "INPUT_TREE_UNSAFE",
                     $"Assets の走査に失敗しました: {error.Message}",
                     assets));
-            }
-
-            foreach (string asset in assetFiles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                string extension = Path.GetExtension(asset);
-                if (string.IsNullOrEmpty(extension) ||
-                    !CookableExtensions.Contains(extension))
-                {
-                    issues.Add(new(
-                        PackageIssueSeverity.Error,
-                        "ASSET_TYPE_UNSUPPORTED",
-                        "Cook対象として未対応のアセット形式です。対応形式へimport/変換するかAssets外へ移動してください。",
-                        asset));
-                }
             }
 
         }
@@ -481,7 +453,6 @@ public static class PackageCore
                     project,
                     root,
                     assets,
-                    initialScene,
                     cancellationToken);
                 issues.AddRange(cookPlan.Diagnostics.Select(MapCookDiagnostic));
                 if (cookPlan.Root != null &&
@@ -643,48 +614,6 @@ public static class PackageCore
                 root));
         }
 
-        if (File.Exists(initialScene) && !HasReparsePointBetween(root, initialScene))
-            ValidateReferenceFile(
-                initialScene,
-                assets,
-                root,
-                SceneReference,
-                issues,
-                cancellationToken);
-
-        if (Directory.Exists(assets))
-        {
-            foreach (string material in assetFiles
-                         .Where(path => string.Equals(
-                             Path.GetExtension(path),
-                             ".acsmat",
-                             StringComparison.OrdinalIgnoreCase)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                ValidateReferenceFile(
-                    material,
-                    assets,
-                    root,
-                    MaterialReference,
-                    issues,
-                    cancellationToken);
-            }
-
-            foreach (string gltf in assetFiles
-                         .Where(path => string.Equals(
-                             Path.GetExtension(path),
-                             ".gltf",
-                             StringComparison.OrdinalIgnoreCase)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                ValidateGltfReferences(
-                    gltf,
-                    assets,
-                    issues,
-                    cancellationToken);
-            }
-        }
-
         var dependencyNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (string dependency in runtimeDependencies ?? Array.Empty<string>())
         {
@@ -771,15 +700,12 @@ public static class PackageCore
         PackageProjectInfo project,
         string projectRoot,
         string assetsRoot,
-        string legacyInitialScene,
         CancellationToken cancellationToken = default)
     {
         var planner = new AssetCookPlanner(projectRoot, assetsRoot);
-        return string.IsNullOrWhiteSpace(project.CanonicalSceneAssetId)
-            ? planner.Build(legacyInitialScene, cancellationToken)
-            : planner.BuildByAssetId(
-                project.CanonicalSceneAssetId,
-                cancellationToken);
+        return planner.BuildByAssetId(
+            project.CanonicalSceneAssetId,
+            cancellationToken);
     }
 
     private static PackageIssue MapSceneAdapterDiagnostic(
@@ -1036,7 +962,8 @@ public static class PackageCore
                     project,
                     cooked.CanonicalSceneAssetId,
                     configSnapshot,
-                    cancellationToken);
+                    cancellationToken,
+                    cooked.AssetGraphHash);
                 cancellationToken.ThrowIfCancellationRequested();
                 File.Move(temporaryZip, finalZip, overwrite: true);
             }
@@ -1408,7 +1335,8 @@ public static class PackageCore
         PackageProjectInfo snapshot,
         string cookedCanonicalSceneAssetId,
         PackageDirectorySnapshot? configSnapshot = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string cookedAssetGraphHash = "")
     {
         try
         {
@@ -1448,6 +1376,36 @@ public static class PackageCore
             {
                 throw new InvalidDataException(
                     "The initial scene identity no longer matches the cooked package.");
+            }
+            if (!string.IsNullOrWhiteSpace(cookedAssetGraphHash))
+            {
+                AssetCookPlan currentPlan = BuildCookPlan(
+                    snapshot,
+                    snapshot.RootDirectory,
+                    snapshot.AssetsDirectory,
+                    cancellationToken);
+                if (currentPlan.HasErrors)
+                {
+                    throw new InvalidDataException(
+                        "The required asset graph no longer passes Cook validation: " +
+                        string.Join(
+                            ", ",
+                            currentPlan.Diagnostics
+                                .Where(static diagnostic =>
+                                    diagnostic.Severity ==
+                                    AssetCookDiagnosticSeverity.Error)
+                                .Select(static diagnostic => diagnostic.Code)
+                                .Distinct(StringComparer.Ordinal)
+                                .OrderBy(static code => code, StringComparer.Ordinal)));
+                }
+                if (!string.Equals(
+                        currentPlan.GraphHash,
+                        cookedAssetGraphHash,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "The required asset graph changed after Cook completed.");
+                }
             }
             if (configSnapshot != null)
             {
@@ -1570,150 +1528,6 @@ public static class PackageCore
                name.Contains(".tmp-", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void ValidateReferenceFile(
-        string file,
-        string assetsRoot,
-        string projectRoot,
-        Regex expression,
-        List<PackageIssue> issues,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            foreach (string line in File.ReadLines(file, Encoding.UTF8))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                Match match = expression.Match(line);
-                if (!match.Success)
-                    continue;
-
-                string reference = match.Groups["path"].Value.Trim();
-                if (!TryResolveAssetReference(
-                        reference,
-                        assetsRoot,
-                        projectRoot,
-                        out string resolved,
-                        out string relative,
-                        out string error))
-                {
-                    issues.Add(new(
-                        PackageIssueSeverity.Error,
-                        "ASSET_REFERENCE_INVALID",
-                        error,
-                        $"{file}: {reference}"));
-                    continue;
-                }
-
-                if (relative.Any(value => value > 127))
-                {
-                    issues.Add(new(
-                        PackageIssueSeverity.Error,
-                        "ASSET_PATH_NON_ASCII",
-                        "現在のstandaloneローダーは非ASCIIアセットパスを安全に開けません。ASCII名へ変更してください。",
-                        resolved));
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception error)
-        {
-            issues.Add(new(
-                PackageIssueSeverity.Error,
-                "REFERENCE_SCAN_FAILED",
-                $"参照アセットの検証に失敗しました: {error.Message}",
-                file));
-        }
-    }
-
-    private static void ValidateGltfReferences(
-        string file,
-        string assetsRoot,
-        List<PackageIssue> issues,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            using JsonDocument document = JsonDocument.Parse(
-                File.ReadAllBytes(file));
-            cancellationToken.ThrowIfCancellationRequested();
-            ValidateGltfUriArray(document.RootElement, "buffers");
-            ValidateGltfUriArray(document.RootElement, "images");
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (JsonException error)
-        {
-            issues.Add(new(
-                PackageIssueSeverity.Error,
-                "GLTF_INVALID",
-                $"glTF JSONを解析できません: {error.Message}",
-                file));
-        }
-        catch (Exception error)
-        {
-            issues.Add(new(
-                PackageIssueSeverity.Error,
-                "GLTF_REFERENCE_SCAN_FAILED",
-                $"glTF外部参照の検証に失敗しました: {error.Message}",
-                file));
-        }
-
-        void ValidateGltfUriArray(JsonElement root, string property)
-        {
-            if (!root.TryGetProperty(property, out JsonElement values) ||
-                values.ValueKind != JsonValueKind.Array)
-            {
-                return;
-            }
-
-            foreach (JsonElement value in values.EnumerateArray())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!value.TryGetProperty("uri", out JsonElement uriElement) ||
-                    uriElement.ValueKind != JsonValueKind.String)
-                {
-                    continue;
-                }
-
-                string uri = uriElement.GetString() ?? "";
-                if (uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (string.IsNullOrWhiteSpace(uri) ||
-                    uri.Contains('#') || uri.Contains('?') ||
-                    Uri.TryCreate(uri, UriKind.Absolute, out _))
-                {
-                    issues.Add(new(
-                        PackageIssueSeverity.Error,
-                        "GLTF_EXTERNAL_URI_UNSUPPORTED",
-                        "glTFの外部URIはAssets内の相対ファイルだけを指定できます。",
-                        $"{file}: {uri}"));
-                    continue;
-                }
-
-                string decoded = Uri.UnescapeDataString(uri)
-                    .Replace('/', Path.DirectorySeparatorChar);
-                string resolved = Path.GetFullPath(Path.Combine(
-                    Path.GetDirectoryName(file)!, decoded));
-                if (!IsWithin(assetsRoot, resolved) ||
-                    !File.Exists(resolved) ||
-                    HasReparsePointBetween(assetsRoot, resolved))
-                {
-                    issues.Add(new(
-                        PackageIssueSeverity.Error,
-                        "GLTF_EXTERNAL_URI_INVALID",
-                        "glTFの外部参照は存在するAssets内の通常ファイルでなければなりません。",
-                        $"{file}: {uri}"));
-                }
-            }
-        }
-    }
-
     private static async Task<CookResult> CookAssetPackAsync(
         PackageProjectInfo project,
         PackageOptions options,
@@ -1740,7 +1554,6 @@ public static class PackageCore
                 project,
                 projectRoot,
                 assetsRoot,
-                initialScene,
                 cancellationToken);
             if (cookPlan.HasErrors)
             {
@@ -1764,15 +1577,7 @@ public static class PackageCore
                         $"{rootAsset.RelativePath} != {project.InitialScene}"),
                 ]);
             }
-            CanonicalSceneAdapterInspection sceneInspection =
-                CanonicalSceneAdapter.InspectFile(rootAsset.FullPath);
-            if (sceneInspection.HasErrors)
-            {
-                throw new PackageValidationException(
-                    sceneInspection.Diagnostics
-                        .Select(MapSceneAdapterDiagnostic)
-                        .ToArray());
-            }
+            CanonicalSceneAdapterInspection? sceneInspection = null;
             var cache = new DerivedDataCache(
                 projectRoot,
                 Path.Combine(project.TempDirectory, "DerivedDataCache", "Cook"));
@@ -1806,6 +1611,20 @@ public static class PackageCore
                     asset,
                     assetsRoot,
                     cancellationToken);
+                if (isRoot)
+                {
+                    sceneInspection = InspectCanonicalSceneSnapshot(
+                        verifiedSource,
+                        Path.GetExtension(asset.RelativePath),
+                        asset.FullPath);
+                    if (sceneInspection.HasErrors)
+                    {
+                        throw new PackageValidationException(
+                            sceneInspection.Diagnostics
+                                .Select(MapSceneAdapterDiagnostic)
+                                .ToArray());
+                    }
+                }
                 DerivedDataCacheResult derived = cache.GetOrCreate(
                     asset,
                     AssetCookerVersion,
@@ -1901,7 +1720,9 @@ public static class PackageCore
                 rootAsset.Metadata.Importer,
                 rootAsset.Metadata.ImporterVersion,
                 cookPlan.GraphHash,
-                sceneInspection.Envelope);
+                (sceneInspection ??
+                    throw new InvalidDataException(
+                        "Cook did not capture the canonical scene snapshot.")).Envelope);
         }
         finally
         {
@@ -2270,6 +2091,25 @@ public static class PackageCore
         }
         return source;
     }
+
+    private static CanonicalSceneAdapterInspection InspectCanonicalSceneSnapshot(
+        byte[] verifiedSource,
+        string sourceExtension,
+        string sourcePath) =>
+        CanonicalSceneAdapter.InspectBytes(
+            verifiedSource,
+            sourceExtension,
+            sourcePath);
+
+    internal static CanonicalSceneAdapterInspection
+        InspectCanonicalSceneSnapshotForSelfTest(
+            byte[] verifiedSource,
+            string sourceExtension,
+            string sourcePath) =>
+        InspectCanonicalSceneSnapshot(
+            verifiedSource,
+            sourceExtension,
+            sourcePath);
 
     private static byte[] CookAssetPayload(
         AssetRecord asset,

@@ -480,8 +480,19 @@ public partial class MaterialEditorWindow
         }
     }
 
-    private bool SaveRuntimeGraph(bool showDiagnostics)
+    private bool WriteRuntimeGraph(bool showDiagnostics)
     {
+        if (_historyTransactionDepth != 0 || _graphDragHistory != null)
+        {
+            if (showDiagnostics)
+            {
+                SetDiagnostics(new[]
+                {
+                    "ERROR  Complete the active material graph transaction before saving."
+                });
+            }
+            return false;
+        }
         if (!CanAccessAssetPath)
         {
             if (showDiagnostics)
@@ -514,11 +525,6 @@ public partial class MaterialEditorWindow
             }
             _substrateEnabled = 1;
             SaveGraphLayout();
-            MarkGraphHistorySaved();
-            GraphAssetStateText.Text = "ACSMAT Substrate DAG - saved";
-            StatusText.Text = "Saved";
-            StatusText.Foreground = (Brush)FindResource("OkFg");
-            PreviewStateText.Text = "Preview: last applied asset";
             return true;
         }
         catch (EntryPointNotFoundException)
@@ -526,6 +532,15 @@ public partial class MaterialEditorWindow
             if (showDiagnostics) SetDiagnostics(new[] { "ERROR  The loaded editor DLL does not expose the Substrate graph ABI." });
             return false;
         }
+    }
+
+    private void CompleteLocalGraphSaveCheckpoint()
+    {
+        MarkGraphHistorySaved();
+        GraphAssetStateText.Text = "ACSMAT Substrate DAG - saved";
+        StatusText.Text = "Saved";
+        StatusText.Foreground = (Brush)FindResource("OkFg");
+        PreviewStateText.Text = "Preview: last applied asset";
     }
 
     private void PackGraph(out int[] types, out int[] inputsA, out int[] inputsB,
@@ -775,6 +790,7 @@ public partial class MaterialEditorWindow
     private void MarkGraphDirty()
     {
         _graphDirty = true;
+        NotifyHostedGraphPotentialChange();
         GraphAssetStateText.Text = "ACSMAT Substrate DAG - unsaved";
         PreviewStateText.Text = "Preview: last applied asset";
         StatusText.Text = "Modified";
@@ -2165,12 +2181,12 @@ public partial class MaterialEditorWindow
     {
         if (_kind == 0) SavePbrAndReload();
         else SaveAndReload();
-        SaveRuntimeGraph(showDiagnostics: true);
+        SaveRuntimeGraphThroughDocumentHost(showDiagnostics: true);
     }
 
     private void OnApplyClicked(object sender, RoutedEventArgs e)
     {
-        if (!SaveRuntimeGraph(showDiagnostics: true)) return;
+        if (!SaveRuntimeGraphThroughDocumentHost(showDiagnostics: true)) return;
         if (!CompileGraph(userInitiated: true)) return;
         ReloadMaterialInViewport();
         RefreshPreview();
@@ -2188,6 +2204,15 @@ public partial class MaterialEditorWindow
         // nor block shutdown on an off-screen modal prompt.
         if (_suppressClosePromptForAutomation)
             return;
+        if (_hostedOwnerCloseApproved)
+        {
+            // The owner already ran the common Save/Discard/Cancel contract.
+            // Discard must not publish a layout sidecar derived from topology
+            // that intentionally remains unsaved.
+            if (!_hostedOwnerCloseDiscardsChanges)
+                SaveGraphLayout();
+            return;
+        }
         if (_graphDirty)
         {
             MessageBoxResult result = MessageBox.Show(
@@ -2204,7 +2229,7 @@ public partial class MaterialEditorWindow
             }
             if (result == MessageBoxResult.Yes)
             {
-                if (!SaveRuntimeGraph(showDiagnostics: true))
+                if (!SaveRuntimeGraphThroughDocumentHost(showDiagnostics: true))
                 {
                     e.Cancel = true;
                     CancelCloseAttempt();

@@ -14,10 +14,17 @@ public partial class ProfilerPanel : UserControl
     private bool _interopUnavailable;
     private bool _hasLatestSnapshot;
     private EditorProfilerSnapshot _latestSnapshot;
+    private EditorCloudWorkloadQueryStatus _latestCloudWorkloadStatus =
+        EditorCloudWorkloadQueryStatus.Unsupported;
+    private EditorCloudWorkloadSnapshot _latestCloudWorkload;
     private double _lastPresentationMilliseconds;
     private double _maximumPresentationMilliseconds;
 
     internal Func<IntPtr>? EngineProvider { get; set; }
+    internal Func<EditorAbiCapability>? AbiCapabilitiesProvider {
+        get;
+        set;
+    }
     internal Func<EditorLogPumpSnapshot>? LogPumpProvider { get; set; }
     internal Func<ViewportNativeRenderDiagnostic>? NativeRenderProvider {
         get;
@@ -52,6 +59,10 @@ public partial class ProfilerPanel : UserControl
     {
         _history.Reset();
         _hasLatestSnapshot = false;
+        _latestCloudWorkloadStatus =
+            EditorCloudWorkloadQueryStatus.Unsupported;
+        _latestCloudWorkload = default;
+        UpdateCloudValues(default);
         HistoryGraph.SetHistory(_history.Points);
         HistoryGraph.SetPeaks(-1, -1);
         HistoryGraph.ResetRenderDiagnostics();
@@ -99,6 +110,17 @@ public partial class ProfilerPanel : UserControl
         IntPtr engine = EngineProvider?.Invoke() ?? IntPtr.Zero;
         if (engine == IntPtr.Zero)
         {
+            _latestCloudWorkloadStatus =
+                EngineInterop.QueryCloudWorkloadSnapshot(
+                    IntPtr.Zero,
+                    AbiCapabilitiesProvider?.Invoke() ??
+                        EditorAbiCapability.None,
+                    out _latestCloudWorkload);
+            if (IsVisible)
+                UpdateCloudValues(
+                    _hasLatestSnapshot
+                        ? _latestSnapshot
+                        : default);
             AvailabilityText.Text = "Waiting for renderer…";
             return;
         }
@@ -113,6 +135,12 @@ public partial class ProfilerPanel : UserControl
 
         AvailabilityText.Text = "";
         TimingSourceText.Text = EditorProfilerFormatting.TimingSource(snapshot);
+        _latestCloudWorkloadStatus =
+            EngineInterop.QueryCloudWorkloadSnapshot(
+                engine,
+                AbiCapabilitiesProvider?.Invoke() ??
+                    EditorAbiCapability.None,
+                out _latestCloudWorkload);
         if (_history.Add(snapshot))
         {
             _latestSnapshot = snapshot;
@@ -200,16 +228,63 @@ public partial class ProfilerPanel : UserControl
         FogGpuValue.ToolTip = gpuWindowTooltip;
         PostGpuValue.ToolTip = gpuWindowTooltip;
 
-        bool clouds = (snapshot.Flags & EditorProfilerContract.FlagClouds) != 0;
-        CloudStateValue.Text = clouds ? "ACTIVE" : "OFF";
-        CloudResolutionValue.Text =
-            $"{snapshot.ViewportWidth}×{snapshot.ViewportHeight} / " +
-            $"{snapshot.CloudWidth}×{snapshot.CloudHeight}";
-        CloudScaleValue.Text = $"{snapshot.CloudRenderScale:0.00}×";
-        CloudStepsValue.Text =
-            $"{snapshot.CloudMarchSteps} / {snapshot.CloudLightSteps}";
+        UpdateCloudValues(snapshot);
 
         SummaryChanged?.Invoke(EditorProfilerFormatting.CompactSummary(average));
+    }
+
+    private void UpdateCloudValues(in EditorProfilerSnapshot profiler)
+    {
+        EditorCloudWorkloadSnapshot workload = _latestCloudWorkload;
+        EditorCloudWorkloadQueryStatus status =
+            _latestCloudWorkloadStatus;
+        bool available =
+            status == EditorCloudWorkloadQueryStatus.Available;
+
+        CloudStateValue.Text =
+            EditorCloudWorkloadFormatting.State(status, workload);
+        CloudResolutionValue.Text = available
+            ? $"{workload.OutputWidth}x{workload.OutputHeight} / " +
+              $"{workload.TraceWidth}x{workload.TraceHeight}"
+            : $"{profiler.ViewportWidth}x{profiler.ViewportHeight} / " +
+              $"{profiler.CloudWidth}x{profiler.CloudHeight}";
+        CloudScaleValue.Text = $"{profiler.CloudRenderScale:0.00}x";
+        CloudStepsValue.Text =
+            $"{profiler.CloudMarchSteps} / {profiler.CloudLightSteps}";
+        CloudDispatchValue.Text = available
+            ? EditorCloudWorkloadFormatting.Dispatches(workload)
+            : "N/A";
+        CloudTotalInvocationsValue.Text = available
+            ? EditorCloudWorkloadFormatting.Invocations(
+                workload.TotalLogicalInvocations,
+                workload.TotalLaunchedThreads)
+            : "N/A";
+        CloudTraceInvocationsValue.Text = available
+            ? EditorCloudWorkloadFormatting.Invocations(
+                workload.TraceLogicalInvocations,
+                workload.TraceLaunchedThreads)
+            : "N/A";
+        CloudResolveInvocationsValue.Text = available
+            ? EditorCloudWorkloadFormatting.Invocations(
+                workload.ResolveLogicalInvocations,
+                workload.ResolveLaunchedThreads)
+            : "N/A";
+        CloudBakeValue.Text = available
+            ? EditorCloudWorkloadFormatting.OneTimeBake(workload)
+            : "N/A";
+        CloudShadowInvocationsValue.Text = available
+            ? $"{workload.ShadowCacheDispatches:N0} dispatch; " +
+              EditorCloudWorkloadFormatting.Invocations(
+                  workload.ShadowCacheLogicalInvocations,
+                  workload.ShadowCacheLaunchedThreads)
+            : "N/A";
+        CloudHistoryValue.Text = available
+            ? EditorCloudWorkloadFormatting.History(workload)
+            : "N/A";
+        CloudSampleCeilingsValue.Text = available
+            ? $"{workload.MaximumViewSamples:N0} view / " +
+              $"{workload.MaximumLightSamples:N0} light"
+            : "N/A";
     }
 
     private void UpdateEditorUiMetrics()

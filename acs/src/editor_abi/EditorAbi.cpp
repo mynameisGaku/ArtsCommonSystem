@@ -74,6 +74,7 @@
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
 #include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
+#include "editor_abi/EditorCloudWorkload.h"  // optional exact cloud-work snapshot ABI
 #include "editor_abi/EditorFrameContract.h"  // busy/fatal/presented frame contract
 #include "editor_abi/EditorAbiCapabilities.h" // versioned host capability negotiation
 #include "editor_abi/EditorRenderPolicy.h"   // producer/consumer gates for cached render data
@@ -375,6 +376,8 @@ struct FEditorHost {
     f32          frame_dt      = 1.0f / 60.0f;  // 実測 render dt。フレームレート非依存の motion blur shutter に使用。
     editor_profiler::FAccumulator profiler_work{};
     editor_profiler::FSnapshot    profiler_snapshot{};
+    editor_cloud_workload::FSnapshot cloud_workload_snapshot{};
+    bool                          cloud_workload_available = false;
     editor_profiler::FRollingPeak profiler_cpu_peak{};
     editor_profiler::FRollingPeak profiler_gpu_peak{};
     editor_profiler::FRollingGpuQueryWindow profiler_gpu_queries{};
@@ -9238,6 +9241,8 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->height   = height;
     host->profiler_work = {};
     host->profiler_snapshot = {};
+    host->cloud_workload_snapshot = {};
+    host->cloud_workload_available = false;
     host->profiler_cpu_peak.Reset();
     host->profiler_gpu_peak.Reset();
     host->profiler_gpu_queries.Reset();
@@ -9352,6 +9357,98 @@ static void BeginProfilerFrame(
     }
     host.profiler_last_frame_begin = frameBegin;
     host.profiler_has_previous_frame = true;
+}
+
+static void PublishCloudWorkloadSnapshot(
+    FEditorHost& host, u64 profilerFrameIndex) noexcept {
+    static_assert(
+        static_cast<u32>(EVolumetricCloudFrameSkipReason::None) ==
+            static_cast<u32>(editor_cloud_workload::ESkipReason::None) &&
+        static_cast<u32>(
+            EVolumetricCloudFrameSkipReason::ResourcesNotReady) ==
+            static_cast<u32>(
+                editor_cloud_workload::ESkipReason::ResourcesNotReady) &&
+        static_cast<u32>(
+            EVolumetricCloudFrameSkipReason::InvalidCamera) ==
+            static_cast<u32>(
+                editor_cloud_workload::ESkipReason::InvalidCamera) &&
+        static_cast<u32>(
+            EVolumetricCloudFrameSkipReason::InvalidProjection) ==
+            static_cast<u32>(
+                editor_cloud_workload::ESkipReason::InvalidProjection),
+        "cloud renderer skip reasons must match the published ABI");
+    host.cloud_workload_snapshot = {};
+    host.cloud_workload_available = false;
+    if (!host.attached || !host.startup_ready || !host.vclouds_ready ||
+        !host.profiler_work.clouds_active) {
+        return;
+    }
+
+    const FVolumetricCloudFrameWorkload& workload =
+        host.vclouds3d.LastFrameWorkload();
+    if (!workload.attempted) return;
+
+    editor_cloud_workload::FSnapshot& snapshot =
+        host.cloud_workload_snapshot;
+    snapshot.profiler_frame_index = profilerFrameIndex;
+    snapshot.submission_index = workload.submission_index;
+    snapshot.trace_width = workload.trace_width;
+    snapshot.trace_height = workload.trace_height;
+    snapshot.output_width = workload.output_width;
+    snapshot.output_height = workload.output_height;
+    snapshot.steady_dispatches = workload.steady_dispatches;
+    snapshot.one_time_bake_dispatches =
+        workload.one_time_bake_dispatches;
+    snapshot.shadow_cache_dispatches =
+        workload.shadow_cache_dispatches;
+    snapshot.total_compute_dispatches =
+        workload.total_compute_dispatches;
+    snapshot.composite_draws = workload.composite_draws;
+    snapshot.trace_logical_invocations =
+        workload.trace_logical_invocations;
+    snapshot.trace_launched_threads =
+        workload.trace_launched_threads;
+    snapshot.resolve_logical_invocations =
+        workload.resolve_logical_invocations;
+    snapshot.resolve_launched_threads =
+        workload.resolve_launched_threads;
+    snapshot.one_time_bake_logical_invocations =
+        workload.one_time_bake_logical_invocations;
+    snapshot.one_time_bake_launched_threads =
+        workload.one_time_bake_launched_threads;
+    snapshot.shadow_cache_logical_invocations =
+        workload.shadow_cache_logical_invocations;
+    snapshot.shadow_cache_launched_threads =
+        workload.shadow_cache_launched_threads;
+    snapshot.total_logical_invocations =
+        workload.total_logical_invocations;
+    snapshot.total_launched_threads =
+        workload.total_launched_threads;
+    snapshot.maximum_view_samples = workload.maximum_view_samples;
+    snapshot.maximum_light_samples = workload.maximum_light_samples;
+    snapshot.skip_reason = static_cast<u32>(workload.skip_reason);
+    if (workload.attempted) {
+        snapshot.flags |= editor_cloud_workload::Attempted;
+    }
+    if (workload.submitted) {
+        snapshot.flags |= editor_cloud_workload::Submitted;
+    }
+    if (workload.history_was_available) {
+        snapshot.flags |= editor_cloud_workload::HistoryWasAvailable;
+    }
+    if (workload.history_reused) {
+        snapshot.flags |= editor_cloud_workload::HistoryReused;
+    }
+    if (workload.history_invalidated) {
+        snapshot.flags |= editor_cloud_workload::HistoryInvalidated;
+    }
+    if (workload.temporal_super_resolution) {
+        snapshot.flags |=
+            editor_cloud_workload::TemporalSuperResolution;
+    }
+    host.cloud_workload_available =
+        workload.skip_reason !=
+            EVolumetricCloudFrameSkipReason::ResourcesNotReady;
 }
 
 static void PublishProfilerFrame(
@@ -9520,6 +9617,7 @@ static void PublishProfilerFrame(
         snapshot.cloud_light_steps = 8u;
         snapshot.cloud_render_scale = trace.effective_dimension_scale;
     }
+    PublishCloudWorkloadSnapshot(host, snapshot.frame_index);
 }
 
 static void CommitEditorFrameDelta(
@@ -9761,6 +9859,37 @@ ACS_EDITOR_API int acs_editor_profiler_get(
         &host->profiler_snapshot,
         editor_profiler::kSnapshotSize);
     return 1;
+}
+
+/**
+ * Optional exact cloud-workload snapshot.
+ *
+ * Returns 1 for a published RenderCompute attempt, 0 while the renderer/cloud
+ * runtime is not ready or inactive, and -1 for an invalid ABI call. The
+ * unavailable snapshot is still initialized so a negotiated caller can
+ * distinguish runtime state from stale payload.
+ */
+ACS_EDITOR_API int acs_editor_cloud_workload_get(
+    void* handle,
+    editor_cloud_workload::FSnapshot* outSnapshot,
+    uint32_t outSize) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr || outSnapshot == nullptr ||
+        outSize < editor_cloud_workload::kSnapshotSize ||
+        outSnapshot->version !=
+            editor_cloud_workload::kSnapshotVersion ||
+        outSnapshot->struct_size <
+            editor_cloud_workload::kSnapshotSize) {
+        return -1;
+    }
+
+    const editor_cloud_workload::FSnapshot& snapshot =
+        host->cloud_workload_snapshot;
+    std::memcpy(
+        outSnapshot,
+        &snapshot,
+        editor_cloud_workload::kSnapshotSize);
+    return host->cloud_workload_available ? 1 : 0;
 }
 
 ACS_EDITOR_API void acs_editor_profiler_reset_peaks(void* handle) {

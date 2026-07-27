@@ -669,18 +669,20 @@ public partial class MainWindow
         };
         create.Click += (_, __) =>
         {
-            if (!TryCreateMaterialAsset(out string path)) return;
+            if (!TryCreateMaterialAsset(
+                    out string path,
+                    out string assetId)) return;
             if (EngineInterop.acs_editor_node3d_set_material(Engine, id, path) == 0)
             {
                 Log($"3D ノード {id} へ新規マテリアルを割り当てられませんでした。");
-                OpenMaterialEditor(path);
+                OpenMaterialEditor(path, assetId);
                 return;
             }
 
             RecordSceneDocumentChange("Assign Material");
             Log($"3D ノード {id} に新規マテリアル {AssetRel(path)} を割当.");
             Populate3DInspector(id);
-            OpenMaterialEditor(path);
+            OpenMaterialEditor(path, assetId);
         };
         clear.Click += (_, __) =>
         {

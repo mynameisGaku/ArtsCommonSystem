@@ -199,6 +199,20 @@ public partial class AssetBrowserPanel : UserControl
 
     public bool IsOperationInProgress => _assetOperationInProgress;
 
+    internal bool TryResolveAssetId(string path, out string assetId)
+    {
+        AssetDatabase? database = _assetDatabase;
+        if (database != null &&
+            database.TryGetByPath(path, out AssetRecord? record) &&
+            record != null)
+        {
+            assetId = record.AssetId;
+            return true;
+        }
+        assetId = "";
+        return false;
+    }
+
     public AssetBrowserPanel()
     {
         InitializeComponent();

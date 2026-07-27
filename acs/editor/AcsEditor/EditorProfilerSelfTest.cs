@@ -23,12 +23,246 @@ internal static class EditorProfilerSelfTest
             }
         }
 
+        bool RejectsCloudSnapshot(
+            EditorCloudWorkloadSnapshot snapshot,
+            int nativeResult = 1) =>
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                nativeResult,
+                snapshot) ==
+            EditorCloudWorkloadQueryStatus.ContractError;
+
         Check(Marshal.SizeOf<EditorProfilerSnapshot>() == 208,
             "managed profiler snapshot keeps the version-3 ABI size");
         Check(EditorProfilerContract.Version == 3,
             "profiler contract requests the version-3 rolling-query ABI");
         Check(EditorProfilerContract.SnapshotSize == 208,
             "profiler contract reports the packed snapshot size");
+        Check(Marshal.SizeOf<EditorCloudWorkloadSnapshot>() == 168 &&
+              EditorCloudWorkloadContract.Version == 1 &&
+              EditorCloudWorkloadContract.SnapshotSize == 168,
+            "cloud workload v1 uses an independent fixed 168-byte ABI");
+        Check(EditorProfilerContract.Version == 3 &&
+              EditorProfilerContract.SnapshotSize == 208,
+            "adding cloud workload diagnostics does not revise profiler v3");
+
+        var workload = new EditorCloudWorkloadSnapshot
+        {
+            Version = EditorCloudWorkloadContract.Version,
+            StructSize = EditorCloudWorkloadContract.SnapshotSize,
+            Flags =
+                EditorCloudWorkloadContract.FlagAttempted |
+                EditorCloudWorkloadContract.FlagSubmitted |
+                EditorCloudWorkloadContract.FlagHistoryWasAvailable |
+                EditorCloudWorkloadContract.FlagHistoryReused |
+                EditorCloudWorkloadContract.FlagTemporalSuperResolution,
+            SkipReason = EditorCloudWorkloadContract.SkipNone,
+            ProfilerFrameIndex = 42,
+            SubmissionIndex = 7,
+            TraceWidth = 40,
+            TraceHeight = 24,
+            OutputWidth = 160,
+            OutputHeight = 96,
+            SteadyDispatches = 2,
+            OneTimeBakeDispatches = 4,
+            ShadowCacheDispatches = 0,
+            TotalComputeDispatches = 6,
+            CompositeDraws = 1,
+            TraceLogicalInvocations = 960,
+            TraceLaunchedThreads = 960,
+            ResolveLogicalInvocations = 15_360,
+            ResolveLaunchedThreads = 15_360,
+            OneTimeBakeLogicalInvocations = 2_637_824,
+            OneTimeBakeLaunchedThreads = 2_637_824,
+            TotalLogicalInvocations = 2_654_144,
+            TotalLaunchedThreads = 2_654_144,
+            MaximumViewSamples = 184_320,
+            MaximumLightSamples = 1_474_560,
+        };
+        Check(
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                1,
+                workload) ==
+                EditorCloudWorkloadQueryStatus.Available &&
+            EditorCloudWorkloadFormatting.State(
+                EditorCloudWorkloadQueryStatus.Available,
+                workload) ==
+                "SUBMITTED - frame 42 - cloud #7" &&
+            EditorCloudWorkloadFormatting.Dispatches(workload) ==
+                "6 = 2 steady + 4 bake + 0 shadow; 1 composite draw" &&
+            EditorCloudWorkloadFormatting.Invocations(
+                workload.TotalLogicalInvocations,
+                workload.TotalLaunchedThreads) ==
+                "2,654,144 logical / 2,654,144 launched" &&
+            EditorCloudWorkloadFormatting.OneTimeBake(workload) ==
+                "4 dispatch; 2,637,824 logical / 2,637,824 launched" &&
+            EditorCloudWorkloadFormatting.History(workload) ==
+                "REUSED - TSR 4x4",
+            "cloud profiler presents exact dispatch, invocation, bake, and history accounting");
+
+        var skippedWorkload = new EditorCloudWorkloadSnapshot
+        {
+            Version = EditorCloudWorkloadContract.Version,
+            StructSize = EditorCloudWorkloadContract.SnapshotSize,
+            Flags = EditorCloudWorkloadContract.FlagAttempted,
+            SkipReason =
+                EditorCloudWorkloadContract.SkipInvalidCamera,
+        };
+        var unavailableWorkload = new EditorCloudWorkloadSnapshot
+        {
+            Version = EditorCloudWorkloadContract.Version,
+            StructSize = EditorCloudWorkloadContract.SnapshotSize,
+        };
+        var resourceUnavailableWorkload =
+            new EditorCloudWorkloadSnapshot
+            {
+                Version = EditorCloudWorkloadContract.Version,
+                StructSize =
+                    EditorCloudWorkloadContract.SnapshotSize,
+                Flags =
+                    EditorCloudWorkloadContract.FlagAttempted,
+                SkipReason =
+                    EditorCloudWorkloadContract
+                        .SkipResourcesNotReady,
+            };
+        var resourceUnavailableWithHistory =
+            resourceUnavailableWorkload;
+        resourceUnavailableWithHistory.Flags |=
+            EditorCloudWorkloadContract.FlagHistoryWasAvailable;
+        var invalidCameraWithHistory = skippedWorkload;
+        invalidCameraWithHistory.Flags |=
+            EditorCloudWorkloadContract.FlagHistoryWasAvailable |
+            EditorCloudWorkloadContract.FlagHistoryInvalidated;
+        Check(
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                1,
+                skippedWorkload) ==
+                EditorCloudWorkloadQueryStatus.Available &&
+            EditorCloudWorkloadFormatting.State(
+                EditorCloudWorkloadQueryStatus.Available,
+                skippedWorkload) ==
+                "SKIPPED - invalid camera" &&
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                0,
+                unavailableWorkload) ==
+                EditorCloudWorkloadQueryStatus.RuntimeUnavailable &&
+            EditorCloudWorkloadFormatting.State(
+                EditorCloudWorkloadQueryStatus.RuntimeUnavailable,
+                unavailableWorkload) ==
+                "UNAVAILABLE - renderer/cloud not ready" &&
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                0,
+                resourceUnavailableWorkload) ==
+                EditorCloudWorkloadQueryStatus.RuntimeUnavailable &&
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                0,
+                resourceUnavailableWithHistory) ==
+                EditorCloudWorkloadQueryStatus.RuntimeUnavailable &&
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                1,
+                invalidCameraWithHistory) ==
+                EditorCloudWorkloadQueryStatus.Available &&
+            EditorCloudWorkloadFormatting.State(
+                EditorCloudWorkloadQueryStatus.RuntimeUnavailable,
+                resourceUnavailableWorkload) ==
+                "UNAVAILABLE - cloud resources not ready" &&
+            EditorCloudWorkloadContract.ClassifyNativeResult(
+                -1,
+                unavailableWorkload) ==
+                EditorCloudWorkloadQueryStatus.ContractError &&
+            EditorCloudWorkloadContract.IsSupported(
+                EditorAbiCapability.VolumetricCloudWorkloadV1) &&
+            !EditorCloudWorkloadContract.IsSupported(
+                EditorAbiCapability.ProfilerV3),
+            "cloud workload negotiation distinguishes optional, unavailable, skipped, and ABI-error states");
+
+        var unknownFlags = workload;
+        unknownFlags.Flags |= 1u << 31;
+        var nonzeroReserved = workload;
+        nonzeroReserved.Reserved0 = 1;
+        Check(
+            RejectsCloudSnapshot(unknownFlags) &&
+            RejectsCloudSnapshot(nonzeroReserved),
+            "cloud workload v1 rejects unknown flags and nonzero reserved fields");
+
+        var unknownSkipReason = skippedWorkload;
+        unknownSkipReason.SkipReason = 99;
+        var submittedWithSkipReason = workload;
+        submittedWithSkipReason.SkipReason =
+            EditorCloudWorkloadContract.SkipInvalidCamera;
+        var skippedWithoutReason = skippedWorkload;
+        skippedWithoutReason.SkipReason =
+            EditorCloudWorkloadContract.SkipNone;
+        Check(
+            RejectsCloudSnapshot(unknownSkipReason) &&
+            RejectsCloudSnapshot(submittedWithSkipReason) &&
+            RejectsCloudSnapshot(skippedWithoutReason) &&
+            RejectsCloudSnapshot(
+                resourceUnavailableWorkload,
+                nativeResult: 1),
+            "cloud workload v1 rejects unknown or native-result-inconsistent skip states");
+
+        var incorrectDispatchTotal = workload;
+        incorrectDispatchTotal.TotalComputeDispatches--;
+        var dispatchedComponentWithoutDispatch = workload;
+        dispatchedComponentWithoutDispatch.OneTimeBakeDispatches = 0;
+        dispatchedComponentWithoutDispatch.TotalComputeDispatches = 2;
+        var incorrectLogicalTotal = workload;
+        incorrectLogicalTotal.TotalLogicalInvocations--;
+        var incorrectSampleCeiling = workload;
+        incorrectSampleCeiling.MaximumLightSamples--;
+        Check(
+            RejectsCloudSnapshot(incorrectDispatchTotal) &&
+            RejectsCloudSnapshot(dispatchedComponentWithoutDispatch) &&
+            RejectsCloudSnapshot(incorrectLogicalTotal) &&
+            RejectsCloudSnapshot(incorrectSampleCeiling),
+            "cloud workload v1 rejects dispatch, invocation-total, and sample-ceiling mismatches");
+
+        var launchedBelowLogical = workload;
+        launchedBelowLogical.TraceLaunchedThreads =
+            launchedBelowLogical.TraceLogicalInvocations - 1;
+        launchedBelowLogical.TotalLaunchedThreads--;
+        Check(
+            RejectsCloudSnapshot(launchedBelowLogical),
+            "cloud workload v1 rejects launched-thread counts below logical work");
+
+        var zeroSubmittedDimension = workload;
+        zeroSubmittedDimension.TraceWidth = 0;
+        Check(
+            RejectsCloudSnapshot(zeroSubmittedDimension),
+            "cloud workload v1 rejects submitted work with a zero trace or output dimension");
+
+        var reusedWithoutHistory = workload;
+        reusedWithoutHistory.Flags &=
+            ~EditorCloudWorkloadContract.FlagHistoryWasAvailable;
+        var reusedAndInvalidated = workload;
+        reusedAndInvalidated.Flags |=
+            EditorCloudWorkloadContract.FlagHistoryInvalidated;
+        var missingRequiredTsrState = workload;
+        missingRequiredTsrState.Flags &=
+            ~EditorCloudWorkloadContract.FlagTemporalSuperResolution;
+        var skippedWithTsr = skippedWorkload;
+        skippedWithTsr.Flags |=
+            EditorCloudWorkloadContract.FlagTemporalSuperResolution;
+        Check(
+            RejectsCloudSnapshot(reusedWithoutHistory) &&
+            RejectsCloudSnapshot(reusedAndInvalidated) &&
+            RejectsCloudSnapshot(missingRequiredTsrState) &&
+            RejectsCloudSnapshot(skippedWithTsr),
+            "cloud workload v1 rejects impossible history and temporal-super-resolution states");
+
+        var staleDormantPayload = unavailableWorkload;
+        staleDormantPayload.TotalComputeDispatches = 1;
+        var malformedResourcesNotReady =
+            resourceUnavailableWorkload;
+        malformedResourcesNotReady.TraceWidth = 1;
+        Check(
+            RejectsCloudSnapshot(
+                staleDormantPayload,
+                nativeResult: 0) &&
+            RejectsCloudSnapshot(
+                malformedResourcesNotReady,
+                nativeResult: 0),
+            "cloud workload v1 unavailable states reject stale work while preserving clean dormant snapshots");
 
         var history = new EditorProfilerHistory(3);
         for (ulong frame = 1; frame <= 4; frame++)

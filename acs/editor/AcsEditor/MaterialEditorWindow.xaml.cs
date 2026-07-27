@@ -36,20 +36,27 @@ public partial class MaterialEditorWindow : Window
     private bool _assetPathMutationSuspended;
 
     public MaterialEditorWindow(IntPtr engine, string acsmatPath)
-        : this(() => engine, acsmatPath)
+        : this(() => engine, acsmatPath, assetId: null)
     {
     }
 
-    internal MaterialEditorWindow(EngineViewport viewport, string acsmatPath)
-        : this(() => viewport.Engine, acsmatPath)
+    internal MaterialEditorWindow(
+        EngineViewport viewport,
+        string acsmatPath,
+        string? assetId = null)
+        : this(() => viewport.Engine, acsmatPath, assetId)
     {
     }
 
-    private MaterialEditorWindow(Func<IntPtr> engineProvider, string acsmatPath)
+    private MaterialEditorWindow(
+        Func<IntPtr> engineProvider,
+        string acsmatPath,
+        string? assetId)
     {
         InitializeComponent();
         _engineProvider = engineProvider;
         _path = acsmatPath;
+        SetAssetIdentity(assetId);
         FileLabel.Text = Path.GetFileName(acsmatPath);
         _previewTimer.Interval = TimeSpan.FromMilliseconds(180);
         _previewTimer.Tick += OnPreviewTimerTick;
@@ -70,6 +77,7 @@ public partial class MaterialEditorWindow : Window
     internal bool SuspendForAssetPathMutation()
     {
         if (!CanAccessAssetPath || !IsEnabled) return false;
+        EndGraphDragHistory();
         _assetPathMutationSuspended = true;
         _previewTimer.Stop();
         _previewPipeline.CancelPending();
@@ -178,6 +186,7 @@ public partial class MaterialEditorWindow : Window
     {
         _closeInProgress = true;
         _lifetimeEnded = true;
+        CompleteHostedGraphTransaction();
         _previewTimer.Stop();
         if (!_previewPipelineDisposed)
         {
@@ -190,6 +199,9 @@ public partial class MaterialEditorWindow : Window
             _previewTimerSubscribed = false;
         }
     }
+
+    internal void AbortBeforeShow() =>
+        EndMaterialEditorLifetime();
 
     // ファイルから読み込んで UI に反映 (両種別ぶん読む)。
     private void Load()

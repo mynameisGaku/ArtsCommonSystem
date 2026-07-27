@@ -65,6 +65,7 @@ public partial class MainWindow : Window
         internal AssetPathMutationStartingEventArgs Operation { get; }
         internal BlueprintWindow? SuspendedBlueprintWindow { get; set; }
         internal List<MaterialEditorWindow> SuspendedMaterialWindows { get; } = new();
+        internal List<EditorDocument> SuspendedMaterialDocuments { get; } = new();
         internal SceneAssetPathMutationGuard? SceneMutation { get; set; }
         internal EditorDocument? SuspendedSceneDocument { get; set; }
         internal Task SceneAutosaveDrainTask { get; set; } = Task.CompletedTask;
@@ -506,7 +507,18 @@ public partial class MainWindow : Window
             foreach (MaterialEditorWindow materialWindow in affectedMaterials)
             {
                 if (materialWindow.SuspendForAssetPathMutation())
+                {
+                    try
+                    {
+                        SuspendHostedMaterialDocument(materialWindow, state);
+                    }
+                    catch
+                    {
+                        materialWindow.ResumeAfterAssetPathMutation();
+                        throw;
+                    }
                     state.SuspendedMaterialWindows.Add(materialWindow);
+                }
             }
         }
         catch (Exception error)
@@ -688,6 +700,7 @@ public partial class MainWindow : Window
                 if (!materialWindow.ApplyAssetPathsChanged(e))
                     throw new InvalidOperationException(
                         "The affected Material did not accept its new asset path.");
+                RefreshHostedMaterialPresentation(materialWindow);
                 updatedEditors++;
             }
             catch (Exception error)
@@ -877,10 +890,28 @@ public partial class MainWindow : Window
                     try { materialWindow.ResumeAfterAssetPathMutation(); }
                     catch (Exception error)
                     {
-                        Log(
-                            "Material editor resume failed: " + error.Message,
-                            "Asset",
-                            LogLevel.Error);
+                        try
+                        {
+                            Log(
+                                "Material editor window resume failed: " +
+                                error.Message,
+                                "Asset",
+                                LogLevel.Error);
+                        }
+                        catch { }
+                    }
+                    try { ResumeHostedMaterialDocument(materialWindow, state); }
+                    catch (Exception error)
+                    {
+                        try
+                        {
+                            Log(
+                                "Hosted material document resume failed: " +
+                                error.Message,
+                                "Asset",
+                                LogLevel.Error);
+                        }
+                        catch { }
                     }
                 }
             }
@@ -942,7 +973,7 @@ public partial class MainWindow : Window
         }
         if (e.Kind == "material")
         {
-            OpenMaterialEditor(e.FullPath);
+            OpenMaterialEditor(e.FullPath, e.AssetId);
             return;
         }
         if (Engine == IntPtr.Zero || IsSceneEditingBlocked) return;
@@ -1205,6 +1236,9 @@ public partial class MainWindow : Window
         ViewportHost.Child = _viewport;
         SynchronizeWindowInteractionWithViewport();
         ProfilerView.EngineProvider = () => Engine;
+        ProfilerView.AbiCapabilitiesProvider =
+            () => _viewport?.AbiCapabilities ??
+                  EditorAbiCapability.None;
         ProfilerView.LogPumpProvider = GetEditorLogPumpSnapshot;
         ProfilerView.NativeRenderProvider =
             () => _viewport?.GetNativeRenderDiagnostic() ?? default;
@@ -3791,7 +3825,7 @@ public partial class MainWindow : Window
 
     private void OnNewMaterial(object sender, RoutedEventArgs e)
     {
-        if (!TryCreateMaterialAsset(out string path)) return;
+        if (!TryCreateMaterialAsset(out string path, out string assetId)) return;
         // 選択ノードがあれば即割当。
         if (_selectedId >= 0)
         {
@@ -3807,16 +3841,19 @@ public partial class MainWindow : Window
                 Log($"New material was created but could not be assigned to node {id}.");
             }
         }
-        OpenMaterialEditor(path);
+        OpenMaterialEditor(path, assetId);
     }
 
     /// <summary>
     /// Creates a project material without overwriting an existing asset. Assignment is kept at
     /// the Inspector call site because 2D and 3D nodes use different native compatibility APIs.
     /// </summary>
-    private bool TryCreateMaterialAsset(out string path)
+    private bool TryCreateMaterialAsset(
+        out string path,
+        out string assetId)
     {
         path = "";
+        assetId = "";
         if (Engine == IntPtr.Zero) return false;
         if (_project == null)
         {
@@ -3826,6 +3863,7 @@ public partial class MainWindow : Window
 
         try
         {
+            string createdAssetId = "";
             void RefreshAuthoritativeDatabase(string materialPath)
             {
                 var database = new AssetDatabase(
@@ -3846,6 +3884,12 @@ public partial class MainWindow : Window
                             ? "The created material could not be indexed authoritatively."
                             : "The failed material remained in the authoritative asset index.");
                 }
+                createdAssetId = exists
+                    ? MaterialDocumentHostRegistration.NormalizeAssetIdOrNull(
+                          record!.AssetId) ??
+                      throw new IOException(
+                          "The created material metadata has an invalid Asset ID.")
+                    : "";
             }
 
             path = MaterialAssetWorkflow.CreateProjectMaterial(
@@ -3855,6 +3899,10 @@ public partial class MainWindow : Window
                         materialPath,
                         materialName) != 0,
                 RefreshAuthoritativeDatabase);
+            assetId = createdAssetId;
+            if (assetId.Length == 0)
+                throw new IOException(
+                    "The created material has no authoritative Asset ID.");
             // The authoritative refresh above is part of the mutation transaction. This second
             // refresh only updates the already-hosted Asset View presentation asynchronously.
             AssetBrowser.Refresh();
@@ -3864,6 +3912,7 @@ public partial class MainWindow : Window
         {
             Log("マテリアルの保存先を作成できません: " + error.Message);
             path = "";
+            assetId = "";
             return false;
         }
 
@@ -3892,7 +3941,9 @@ public partial class MainWindow : Window
         Log("Material cleared (→ 効果なし).");
     }
 
-    private void OpenMaterialEditor(string acsmatPath)
+    private void OpenMaterialEditor(
+        string acsmatPath,
+        string? assetId = null)
     {
         foreach (AssetDocumentMutationState mutation in _assetDocumentMutations.Values)
         {
@@ -3900,21 +3951,128 @@ public partial class MainWindow : Window
             Log("Material Editor cannot open this asset while its path is changing. Retry when the Asset View operation finishes.");
             return;
         }
+
+        string? normalizedAssetId;
+        try
+        {
+            normalizedAssetId =
+                MaterialDocumentHostRegistration.ResolveAssetIdForOpen(
+                    _project,
+                    acsmatPath,
+                    assetId);
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or
+                IOException or
+                UnauthorizedAccessException or
+                InvalidDataException or
+                NotSupportedException)
+        {
+            Log(
+                "Material Editor could not establish authoritative asset identity: " +
+                ex.Message,
+                "Document",
+                LogLevel.Error);
+            return;
+        }
+        foreach (MaterialEditorWindow open in _materialEditorWindows.ToArray())
+        {
+            bool sameAsset =
+                normalizedAssetId != null &&
+                string.Equals(
+                    open.CurrentAssetId,
+                    normalizedAssetId,
+                    StringComparison.Ordinal);
+            bool samePath =
+                open.CurrentAssetPath is string openPath &&
+                MaterialDocumentHostRegistration.PathsEqual(
+                    openPath,
+                    acsmatPath);
+            if (!sameAsset && !samePath)
+                continue;
+            if (samePath &&
+                normalizedAssetId != null &&
+                open.CurrentAssetId == null)
+            {
+                try
+                {
+                    open.SetAssetIdentity(normalizedAssetId);
+                    if (_documentHostInitialized)
+                    {
+                        if (_hostedMaterialDocuments.ContainsKey(open))
+                        {
+                            RefreshHostedMaterialIdentity(open);
+                        }
+                        else if (!TryRegisterHostedMaterialDocument(open))
+                        {
+                            throw new InvalidOperationException(
+                                "The promoted material identity could not join Document Host.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    open.SetAssetIdentity(null);
+                    Log(
+                        "Material Editor could not promote its path identity to the " +
+                        "authoritative Asset ID: " + ex.Message,
+                        "Document",
+                        LogLevel.Error);
+                    return;
+                }
+            }
+            else if (samePath &&
+                     normalizedAssetId != null &&
+                     open.CurrentAssetId != null &&
+                     !sameAsset)
+            {
+                Log(
+                    "Material Editor rejected an Asset ID change for an already-open path.",
+                    "Document",
+                    LogLevel.Error);
+                return;
+            }
+            if (open.WindowState == WindowState.Minimized)
+                open.WindowState = WindowState.Normal;
+            open.Activate();
+            return;
+        }
+
         // Resolve the engine through the viewport on every use. Holding the raw
         // pointer here would outlive the viewport during owner-window teardown.
         var win = _viewport != null
-            ? new MaterialEditorWindow(_viewport, acsmatPath)
+            ? new MaterialEditorWindow(_viewport, acsmatPath, normalizedAssetId)
             : new MaterialEditorWindow(IntPtr.Zero, acsmatPath);
+        if (_viewport == null)
+            win.SetAssetIdentity(normalizedAssetId);
         win.Owner = this;
-        win.Closed += (_, _) => _materialEditorWindows.Remove(win);
+        win.Closed += (_, _) =>
+        {
+            UnregisterHostedMaterialDocument(win);
+            _materialEditorWindows.Remove(win);
+        };
         _materialEditorWindows.Add(win);
+        if (_documentHostInitialized &&
+            !TryRegisterHostedMaterialDocument(win))
+        {
+            _materialEditorWindows.Remove(win);
+            win.AbortBeforeShow();
+            Log(
+                "Material Editor was not opened because Document Host " +
+                "registration failed.",
+                "Document",
+                LogLevel.Error);
+            return;
+        }
         try
         {
             win.Show();   // 非モーダル: viewport を見ながら調整できる
         }
         catch
         {
+            UnregisterHostedMaterialDocument(win);
             _materialEditorWindows.Remove(win);
+            win.AbortBeforeShow();
             throw;
         }
     }

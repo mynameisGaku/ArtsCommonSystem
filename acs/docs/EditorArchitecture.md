@@ -82,8 +82,9 @@ product-version label. The current required host set is:
 - incremental startup;
 - result-bearing resize.
 
-Profiler v3, unified scene documents, high-quality material previews,
-Substrate graphs, and interactive 3D water are advertised independently.
+Profiler v3, the independent volumetric-cloud workload v1 snapshot, unified
+scene documents, high-quality material previews, Substrate graphs, and
+interactive 3D water are advertised independently.
 An older DLL without the query export, a missing required capability, a bad
 binary architecture, or a rejected query leaves the viewport disabled and
 publishes a stable startup diagnostic instead of calling further entry
@@ -173,6 +174,24 @@ leave the operation or recovery journal fail-closed; the editor does not claim
 filesystem compare-and-swap semantics that Windows path replacement cannot
 provide.
 
+Legacy manifests with an empty `canonicalSceneAssetId` are upgraded during
+project open, after import/reimport and interrupted scene-move recovery have
+settled under that same lease. The editor performs one content-verified Asset
+Database refresh, requires the normalized startup path and non-zero GUID to
+resolve to the same unique scene record, then atomically rewrites only the
+identity field while preserving unknown manifest properties. The authoritative
+`.acsmeta` sidecar is durable before manifest publication, so an interruption
+is idempotently retried. Projects that already carry an Asset ID skip this
+migration scan; full dependency/content validation remains a Cook boundary.
+For the migration itself, the refreshed Scene and its adjacent `.acsmeta` are
+captured as bounded ordinary-file byte snapshots. The Scene bytes must retain
+the refreshed content hash, and the canonical GUID and `scene` kind are read
+from the captured sidecar and matched back to the unique database record.
+Both snapshots are compared again immediately before manifest publication.
+This detects non-cooperating edits completed before the final comparison; like
+the other project transactions, it does not claim filesystem compare-and-swap
+against a hostile path replacement after that last read.
+
 Editor-only preferences such as recent projects and workspace layouts are not
 project source assets. Verification runs isolate `APPDATA` and
 `LOCALAPPDATA`, so they never update a developer's normal preferences.
@@ -201,17 +220,30 @@ external resources fail closed rather than being silently dropped.
 ### Save and recovery
 
 `EditorDocumentHost` supplies common identity, dirty, save, and transaction
-state. The Scene adapter is connected to this host today. Material, Blueprint,
-Prefab, and Settings adapters are migration targets for the same stable
-`(kind, ID)` contract; the heterogeneous-document self-tests exercise those
-boundaries without claiming that every editor window is wired yet. Duplicate
-IDs fail closed. Registry snapshots and Save All use explicit save priority
-followed by ordinal kind/ID ordering, so results do not depend on hash-table or
-window activation order. Dirty documents are captured and saved sequentially
-through asynchronous contracts. A failed or unsupported writer is diagnosed
-per document while independent later writers still run; cancellation stops
-before the next writer. A batch is not successful while any registered
-document remains dirty, including a document edited during its own
+state. The Scene adapter and the authored Substrate graph in each open Material
+Editor are connected to this host today. Blueprint, Prefab, and Settings
+adapters are migration targets for the same stable `(kind, ID)` contract.
+Material documents prefer the adjacent Asset Database GUID, so rename/move
+does not replace their identity; a loose material uses a canonical absolute
+path and is rebound after a successful path mutation. A supplied malformed
+Asset ID is rejected instead of silently changing identity domains. Project
+materials read and validate their authoritative sidecar before window/host
+registration, so an Inspector open does not wait for the Asset View's
+asynchronous index and never silently falls back to path identity. New Material
+creation passes the GUID from its authoritative refresh directly to the editor
+window.
+After the common host is initialized, a registration failure aborts opening
+the window rather than leaving an unhosted editor that can bypass Save All.
+Delayed host initialization also requires every already-open Material Editor
+to register; one failure rolls back the complete host initialization and keeps
+editor startup fail-closed.
+Duplicate IDs fail closed. Registry snapshots and Save All use explicit save
+priority followed by ordinal kind/ID ordering, so results do not depend on
+hash-table or window activation order. Dirty documents are captured and saved
+sequentially through asynchronous contracts. A failed or unsupported writer is
+diagnosed per document while independent later writers still run;
+cancellation stops before the next writer. A batch is not successful while any
+registered document remains dirty, including a document edited during its own
 asynchronous save. Suspended documents, open transactions, and capture
 failures are explicit per-document batch failures even when their last cached
 fingerprint was clean.
@@ -224,6 +256,23 @@ is suspended, has an open transaction, or its capture contract fails, Save
 blocks before invoking any writer. Normal unregister/registry clear refuses
 dirty, suspended, or open-transaction documents unless its caller explicitly
 chooses discard.
+
+Material graph gestures bridge their existing semantic history scope into the
+host transaction state. Save All therefore refuses to call the native writer
+while a graph gesture is open, and asset rename/move suspends both the window
+and hosted document. The material save callback validates and commits the
+combined closure/expression graph through the existing native writer and only
+publishes its saved fingerprint after success. Main-window close uses the
+common Save/Discard/Cancel result, while closing a Material Editor by itself
+retains its local confirmation. Layout-only graph changes are intentionally
+excluded from the source fingerprint but the sidecar is still written on every
+non-Discard close.
+
+This vertical slice does not claim that all legacy material controls are
+transactional: the legacy PBR/effect panels still use their existing immediate
+native writers. Common material autosave/recovery, cross-window Undo routing,
+and Blueprint/Prefab/Settings registration remain follow-up work.
+
 Recovery state is composed as the complete 2D/3D compatibility envelope,
 replacing only the recovered source subsystem and preserving the other graph.
 It is applied through an atomic document boundary: the restored live canonical
@@ -324,6 +373,24 @@ Native metrics include:
 - draw, dispatch, triangle, and resource counts;
 - cloud CPU/GPU cost, trace resolution, render scale, and march/light steps;
 - viewport dimensions and active feature flags.
+
+Profiler v3 remains a packed 208-byte version-3 contract. Exact volumetric
+cloud accounting is an optional, separate packed 168-byte version-1 contract
+(`cloud-workload-v1`), so adding it does not reinterpret or resize an existing
+Profiler snapshot. The managed host calls its export only when the capability
+was advertised. The query distinguishes an available attempt, runtime
+unavailability, and an ABI error; an unattached/warming renderer, inactive
+cloud pass, or uninitialized cloud renderer is shown as unavailable rather
+than as a zero-cost frame.
+
+For an available attempt the Cloud panel displays the exact steady,
+one-time-bake, shadow-cache, and total compute-dispatch counts; the composite
+draw count; logical invocations and padded launched-thread counts for trace,
+resolve, bake, shadow, and totals; temporal-history state; and conservative
+view/light sample ceilings. A skipped attempt retains its explicit native
+reason. The ceilings are not measured samples; GPU timestamps remain the
+authoritative elapsed-cost metric. This diagnostic surface does not change
+cloud resolution, quality, or march counts.
 
 Managed metrics include:
 
@@ -480,9 +547,9 @@ execution authority merely by matching a name pattern.
 | rendered viewport | `editor/AcsEditor/EngineViewport.cs`, `EngineInterop.cs` |
 | native bridge | `src/editor_abi/EditorAbi.cpp` |
 | renderer/RHI | `src/render/Renderer.*`, `src/render/Dx12`, `src/render/Diligent` |
-| document/save/autosave | `EditorDocumentHost.cs`, `SceneSaveAllPlanner.cs`, `SceneAutosaveStore.cs` |
+| document/save/autosave | `EditorDocumentHost.cs`, `MainWindow.Documents.cs`, `MaterialDocumentHostRegistration.cs`, `SceneSaveAllPlanner.cs`, `SceneAutosaveStore.cs` |
 | scene compatibility | `SceneDocumentMode.cs`, `SceneWorldDocumentEnvelope.cs`, `CanonicalSceneAdapter.cs` |
 | Asset View | `AssetBrowserPanel*`, `AssetDatabase.cs`, asset workflow classes |
-| profiler | `ProfilerPanel*`, `EditorProfilerModel.cs`, native profiler snapshot |
+| profiler | `ProfilerPanel*`, `EditorProfilerModel.cs`, `EditorCloudWorkload.cs`, native profiler/workload snapshots |
 | package | `PackagingService.cs`, `PackageCore.cs`, `tools/acspackage` |
 | aggregate verification | `scripts/verify_editor.ps1` |

@@ -2,6 +2,7 @@
 // Editor ABI DLL の生成・破棄契約を、GPU 接続なしで実 DLL 境界から検証する。
 #include "editor_abi/EditorProfiler.h"
 #include "editor_abi/EditorAbiCapabilities.h"
+#include "editor_abi/EditorCloudWorkload.h"
 
 #include <windows.h>
 #include <cmath>
@@ -81,6 +82,9 @@ extern "C" __declspec(dllimport) void acs_editor_camera_frame_all(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_profiler_get(
     void* handle, acs::editor_profiler::FSnapshot* out_snapshot,
     unsigned out_size);
+extern "C" __declspec(dllimport) int acs_editor_cloud_workload_get(
+    void* handle, acs::editor_cloud_workload::FSnapshot* out_snapshot,
+    unsigned out_size);
 extern "C" __declspec(dllimport) void acs_editor_profiler_reset_peaks(
     void* handle);
 extern "C" __declspec(dllimport) int acs_editor_startup_status(
@@ -111,6 +115,13 @@ bool RunAbiCapabilityContract() noexcept
     static_assert(
         (kCapabilities & kRequiredManagedHostCapabilities) ==
         kRequiredManagedHostCapabilities);
+    static_assert(
+        (kCapabilities &
+         CapabilityBit(ECapability::VolumetricCloudWorkloadV1)) != 0u);
+    static_assert(
+        (kRequiredManagedHostCapabilities &
+         CapabilityBit(ECapability::VolumetricCloudWorkloadV1)) == 0u,
+        "cloud workload diagnostics must remain optional");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -399,6 +410,79 @@ bool RunProfilerSnapshotContract() noexcept
            rejects_buffer_size && forward_prefix && rejects_null &&
            rolling_peak && peak_reset && query_validity_and_identity &&
            query_window && query_reset;
+}
+
+/**
+ * The optional cloud-workload contract is unavailable before renderer startup,
+ * rejects incompatible callers, and never changes profiler v3.
+ */
+bool RunCloudWorkloadSnapshotContract() noexcept
+{
+    using namespace acs::editor_cloud_workload;
+    static_assert(kSnapshotVersion == 1u);
+    static_assert(kSnapshotSize == 168u);
+    static_assert(sizeof(FSnapshot) == 168u);
+    static_assert(acs::editor_profiler::kSnapshotVersion == 3u);
+    static_assert(acs::editor_profiler::kSnapshotSize == 208u);
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+
+    FSnapshot snapshot{};
+    const bool unavailable_before_attach =
+        acs_editor_cloud_workload_get(
+            host, &snapshot,
+            static_cast<unsigned>(sizeof(snapshot))) == 0 &&
+        snapshot.version == kSnapshotVersion &&
+        snapshot.struct_size == kSnapshotSize &&
+        snapshot.flags == 0u &&
+        snapshot.skip_reason == static_cast<acs::u32>(ESkipReason::None) &&
+        snapshot.profiler_frame_index == 0u &&
+        snapshot.submission_index == 0u &&
+        snapshot.total_compute_dispatches == 0u &&
+        snapshot.total_logical_invocations == 0u &&
+        snapshot.total_launched_threads == 0u;
+
+    snapshot.version = kSnapshotVersion + 1u;
+    const bool rejects_version =
+        acs_editor_cloud_workload_get(
+            host, &snapshot,
+            static_cast<unsigned>(sizeof(snapshot))) < 0;
+    snapshot.version = kSnapshotVersion;
+    snapshot.struct_size = kSnapshotSize - 1u;
+    const bool rejects_struct_size =
+        acs_editor_cloud_workload_get(
+            host, &snapshot,
+            static_cast<unsigned>(sizeof(snapshot))) < 0;
+    snapshot.struct_size = kSnapshotSize;
+    const bool rejects_buffer_size =
+        acs_editor_cloud_workload_get(
+            host, &snapshot, kSnapshotSize - 1u) < 0;
+
+    struct FExtendedSnapshot {
+        FSnapshot base{};
+        unsigned extension_sentinel = 0xC10D5A5Au;
+    } extended;
+    extended.base.struct_size = sizeof(extended);
+    const bool forward_prefix =
+        acs_editor_cloud_workload_get(
+            host, &extended.base,
+            static_cast<unsigned>(sizeof(extended))) == 0 &&
+        extended.base.version == kSnapshotVersion &&
+        extended.base.struct_size == kSnapshotSize &&
+        extended.extension_sentinel == 0xC10D5A5Au;
+
+    const bool rejects_null =
+        acs_editor_cloud_workload_get(
+            host, nullptr, kSnapshotSize) < 0 &&
+        acs_editor_cloud_workload_get(
+            nullptr, &extended.base,
+            static_cast<unsigned>(sizeof(extended))) < 0;
+
+    acs_editor_destroy(host);
+    return unavailable_before_attach && rejects_version &&
+           rejects_struct_size && rejects_buffer_size &&
+           forward_prefix && rejects_null;
 }
 
 /** Exact zero scale is made invertible before normal-matrix consumers see the transform. */
@@ -849,6 +933,7 @@ int main()
     if (!RunStartupStatusContract()) return 13;
     if (!RunDestroyDuringAsyncWarmup()) return 14;
     if (!RunProfilerSnapshotContract()) return 12;
+    if (!RunCloudWorkloadSnapshotContract()) return 19;
     if (!RunZeroScaleSafety()) return 8;
     if (!RunScene3DSerializationGrowth()) return 9;
     if (!RunSceneDocumentStrictPreflight()) return 17;

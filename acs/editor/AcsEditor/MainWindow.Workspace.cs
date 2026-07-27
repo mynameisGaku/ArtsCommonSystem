@@ -291,6 +291,8 @@ public partial class MainWindow
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
             await StopAndDiscardSessionRecoveriesAsync();
+            ApproveHostedMaterialWindowsForOwnerClose(
+                discardUnsavedChanges: false);
             return true;
         }
 
@@ -325,6 +327,8 @@ public partial class MainWindow
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
             await StopAndDiscardSessionRecoveriesAsync();
+            ApproveHostedMaterialWindowsForOwnerClose(
+                discardUnsavedChanges: true);
             return true;
         }
 
@@ -348,6 +352,8 @@ public partial class MainWindow
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
             await StopAndDiscardSessionRecoveriesAsync();
+            ApproveHostedMaterialWindowsForOwnerClose(
+                discardUnsavedChanges: false);
             return true;
         }
 

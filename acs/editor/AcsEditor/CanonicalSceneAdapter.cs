@@ -99,41 +99,7 @@ public static class CanonicalSceneAdapter
                 return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
             }
 
-            byte[] bytes = File.ReadAllBytes(path);
-            if (Array.IndexOf(bytes, (byte)0) >= 0)
-            {
-                diagnostics.Add(Error(
-                    "SCENE_ADAPTER_EMBEDDED_NUL",
-                    "The scene contains an embedded NUL byte.",
-                    path: path));
-                return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
-            }
-
-            string text;
-            try
-            {
-                text = new UTF8Encoding(
-                    encoderShouldEmitUTF8Identifier: false,
-                    throwOnInvalidBytes: true).GetString(bytes);
-            }
-            catch (DecoderFallbackException error)
-            {
-                diagnostics.Add(Error(
-                    "SCENE_ADAPTER_UTF8_INVALID",
-                    $"The scene is not valid UTF-8: {error.Message}",
-                    path: path));
-                return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
-            }
-
-            CanonicalSceneAdapterInspection inspected = InspectText(text, extension);
-            return inspected with
-            {
-                Diagnostics = inspected.Diagnostics
-                    .Select(item => string.IsNullOrEmpty(item.Path)
-                        ? item with { Path = path }
-                        : item)
-                    .ToArray(),
-            };
+            return InspectBytes(File.ReadAllBytes(path), extension, path);
         }
         catch (Exception error) when (
             error is IOException or UnauthorizedAccessException or ArgumentException)
@@ -144,6 +110,65 @@ public static class CanonicalSceneAdapter
                 path: path));
             return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
         }
+    }
+
+    /// <summary>
+    /// Inspects one already-captured scene snapshot. Package Cook uses this overload so
+    /// bootstrap validation and the cooked root payload are derived from exactly the same bytes.
+    /// </summary>
+    public static CanonicalSceneAdapterInspection InspectBytes(
+        byte[] bytes,
+        string sourceExtension,
+        string sourcePath = "")
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        sourceExtension ??= "";
+        sourcePath ??= "";
+        var diagnostics = new List<CanonicalSceneAdapterDiagnostic>();
+        CanonicalSceneBootstrapEnvelope fallback = EnvelopeForExtension(sourceExtension);
+
+        if (bytes.LongLength > MaxInputBytes)
+        {
+            diagnostics.Add(Error(
+                "SCENE_ADAPTER_INPUT_LIMIT",
+                $"The scene exceeds the {MaxInputBytes}-byte bootstrap safety limit.",
+                path: sourcePath));
+            return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
+        }
+        if (Array.IndexOf(bytes, (byte)0) >= 0)
+        {
+            diagnostics.Add(Error(
+                "SCENE_ADAPTER_EMBEDDED_NUL",
+                "The scene contains an embedded NUL byte.",
+                path: sourcePath));
+            return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
+        }
+
+        string text;
+        try
+        {
+            text = new UTF8Encoding(
+                encoderShouldEmitUTF8Identifier: false,
+                throwOnInvalidBytes: true).GetString(bytes);
+        }
+        catch (DecoderFallbackException error)
+        {
+            diagnostics.Add(Error(
+                "SCENE_ADAPTER_UTF8_INVALID",
+                $"The scene is not valid UTF-8: {error.Message}",
+                path: sourcePath));
+            return new(fallback, Array.Empty<CanonicalSceneReference>(), diagnostics);
+        }
+
+        CanonicalSceneAdapterInspection inspected = InspectText(text, sourceExtension);
+        return inspected with
+        {
+            Diagnostics = inspected.Diagnostics
+                .Select(item => string.IsNullOrEmpty(item.Path)
+                    ? item with { Path = sourcePath }
+                    : item)
+                .ToArray(),
+        };
     }
 
     public static CanonicalSceneAdapterInspection InspectText(

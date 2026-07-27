@@ -19,6 +19,7 @@ internal enum EditorAbiCapability : ulong
     SubstrateGraph         = 1UL << 5,
     InteractiveWater3D     = 1UL << 6,
     ResizeResultContract   = 1UL << 7,
+    VolumetricCloudWorkloadV1 = 1UL << 8,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -94,6 +95,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.SubstrateGraph,
             EditorAbiCapability.InteractiveWater3D,
             EditorAbiCapability.ResizeResultContract,
+            EditorAbiCapability.VolumetricCloudWorkloadV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -104,7 +106,8 @@ internal static class EditorAbiContract
         EditorAbiCapability.MaterialPreviewQuality |
         EditorAbiCapability.SubstrateGraph |
         EditorAbiCapability.InteractiveWater3D |
-        EditorAbiCapability.ResizeResultContract;
+        EditorAbiCapability.ResizeResultContract |
+        EditorAbiCapability.VolumetricCloudWorkloadV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -175,6 +178,8 @@ internal static class EditorAbiContract
                 "interactive-water-3d",
             EditorAbiCapability.ResizeResultContract =>
                 "resize-result-v1",
+            EditorAbiCapability.VolumetricCloudWorkloadV1 =>
+                "cloud-workload-v1",
             _ => "unknown",
         };
 }

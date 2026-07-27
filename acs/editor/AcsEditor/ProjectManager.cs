@@ -180,6 +180,8 @@ public static partial class ProjectManager
                     "The project has an unresolved initial-scene move and remains fail-closed: " +
                     sceneRecovery.Message);
             }
+
+            _ = BackfillCanonicalSceneAssetId(project, assetDatabase);
         }
         project = ReadManifest(acsprojectPath);
         AddRecent(project.ProjectFilePath);

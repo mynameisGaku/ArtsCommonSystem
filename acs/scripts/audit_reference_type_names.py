@@ -107,20 +107,55 @@ def declaration_name(tokens: Sequence[object], index: int) -> tuple[str | None, 
         if tokens[cursor].text in {"class", "struct"}:
             cursor += 1
 
-    if cursor < len(tokens) and tokens[cursor].text == "alignas":
-        cursor += 1
-        if cursor >= len(tokens) or tokens[cursor].text != "(":
-            return None, cursor
-        depth = 0
-        while cursor < len(tokens):
-            if tokens[cursor].text == "(":
-                depth += 1
-            elif tokens[cursor].text == ")":
-                depth -= 1
-                if depth == 0:
-                    cursor += 1
-                    break
+    while cursor < len(tokens):
+        if tokens[cursor].text == "alignas":
             cursor += 1
+            if cursor >= len(tokens) or tokens[cursor].text != "(":
+                return None, cursor
+            depth = 0
+            while cursor < len(tokens):
+                if tokens[cursor].text == "(":
+                    depth += 1
+                elif tokens[cursor].text == ")":
+                    depth -= 1
+                    if depth == 0:
+                        cursor += 1
+                        break
+                cursor += 1
+            continue
+
+        if (
+            tokens[cursor].text == "["
+            and cursor + 1 < len(tokens)
+            and tokens[cursor + 1].text == "["
+        ):
+            cursor += 2
+            depth = 1
+            while cursor < len(tokens):
+                if (
+                    tokens[cursor].text == "["
+                    and cursor + 1 < len(tokens)
+                    and tokens[cursor + 1].text == "["
+                ):
+                    depth += 1
+                    cursor += 2
+                    continue
+                if (
+                    tokens[cursor].text == "]"
+                    and cursor + 1 < len(tokens)
+                    and tokens[cursor + 1].text == "]"
+                ):
+                    depth -= 1
+                    cursor += 2
+                    if depth == 0:
+                        break
+                    continue
+                cursor += 1
+            if depth != 0:
+                return None, cursor
+            continue
+
+        break
 
     if cursor >= len(tokens):
         return None, cursor
@@ -253,6 +288,7 @@ def run_self_test() -> int:
             "class FWorld {};\n"
             "struct FCpuFeatures {};\n"
             "enum class EMode { A };\n"
+            "template<typename T> class [[nodiscard]] TResult {};\n"
             "using CompletionCallback = void (*)();\n",
             encoding="utf-8",
         )
@@ -266,6 +302,12 @@ def run_self_test() -> int:
         )
 
         declared = collect_declared_types(source_root)
+        if "TResult" not in declared:
+            print(
+                "reference audit did not recognize an attributed class declaration",
+                file=sys.stderr,
+            )
+            return 1
         entries = collect_reference_entries(data_root)
         violations = audit(declared, entries)
         actual = {(item.old_name, item.suggested_name) for item in violations}

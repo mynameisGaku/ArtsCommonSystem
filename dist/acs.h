@@ -7539,7 +7539,7 @@ private:
 //       //   FParticleSystem  — 簡易 GPU パーティクル
 //       //   FShadowMap       — depth-only パス
 //       //   FPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
-//       rdr.EndFrame();
+//       if (!rdr.EndFrame()) break;
 //   }
 //   rdr.Shutdown();
 //
@@ -8860,6 +8860,18 @@ public:
     {
         return false;
     }
+
+    /**
+     * Return whether the backend can accept more rendering work.
+     *
+     * Backends override this for device-removal/loss detection. The default
+     * preserves compatibility for implementations without an explicit health
+     * query.
+     */
+    virtual bool IsOperational() const noexcept
+    {
+        return true;
+    }
 };
 
 /**
@@ -8984,13 +8996,21 @@ public:
      */
     virtual u32 AcquireNextImage() noexcept = 0;
 
-    /** 描画済みバックバッファを画面に反映する（描画後に呼ぶ）。 */
-    virtual void Present() noexcept = 0;
+    /**
+     * 描画済みバックバッファを画面に反映する（描画後に呼ぶ）。
+     *
+     * @return OS/backend が提示を受理し、デバイスが継続可能なとき true。
+     *         device removal や backend の提示失敗は false。
+     */
+    virtual bool Present() noexcept = 0;
 
     /**
      * ウィンドウサイズ変更時にバックバッファを作り直す。
      *
      * @details
+     * 呼び出し側は Resize の前に GPU idle を保証する。backend 実装は
+     * 重複する WaitIdle を行わず、バッファ再作成だけを担当する。
+     *
      * false が返った場合はバッファ再取得に失敗してバックバッファ未取得状態のため、
      * 呼び出し側は本フレームの描画をスキップし次フレームで再試行すること
      * （null バックバッファ参照を避ける）。
@@ -9308,8 +9328,37 @@ public:
     /** 記録を終了する (GPU 投入準備完了)。 */
     virtual void End() noexcept = 0;
 
-    /** GPU に投入して完了を待つ (簡易実装、本来は GPU フェンスで非同期化)。 */
-    virtual void Submit() noexcept = 0;
+    /**
+     * GPU に投入して完了を待つ (簡易実装、本来は GPU フェンスで非同期化)。
+     *
+     * @return キュー投入と、その完了を証明する fence の発行に成功したとき true。
+     *         false の場合は Present やフレーム統計の公開を行ってはならない。
+     */
+    virtual bool Submit() noexcept = 0;
+
+    /**
+     * Return whether the current frame slot can be reset without a CPU fence
+     * wait. Backends without an explicit frame-slot fence keep the legacy
+     * always-ready behavior.
+     */
+    virtual bool CanBeginWithoutGpuWait() const noexcept { return true; }
+
+    /**
+     * Begin recording only when the current frame slot is immediately
+     * reusable. The default preserves the existing backend contract; explicit
+     * fence-ring backends override this to fail closed before allocator reset.
+     */
+    virtual bool TryBeginWithoutGpuWait() noexcept {
+        Begin();
+        return true;
+    }
+
+    /**
+     * Submit without waiting for the next frame slot on the calling thread.
+     * The default remains the normal Submit path. Backends that expose an
+     * asynchronous fence ring override it for latency-sensitive editor hosts.
+     */
+    virtual bool SubmitWithoutGpuWait() noexcept { return Submit(); }
 
     /**
      * Start asynchronous GPU timestamp collection for one rendered frame.
@@ -9744,8 +9793,31 @@ public:
      */
     void BeginFrame(const FClearColor& clear) noexcept;
 
-    /** フレームを終了する (コマンドを GPU に投入し Present)。 */
-    void EndFrame() noexcept;
+    /**
+     * Return false instead of waiting when the backend's current frame slot is
+     * still owned by the GPU. Recording and RHI ownership stay on the caller's
+     * existing render thread.
+     */
+    bool TryBeginFrameWithoutGpuWait(const FClearColor& clear) noexcept;
+
+    /** Query the same frame-slot gate without mutating renderer state. */
+    bool CanBeginFrameWithoutGpuWait() const noexcept;
+
+    /** Return false once the backend reports device removal/loss. */
+    bool IsOperational() const noexcept;
+
+    /**
+     * フレームを終了する (コマンドを GPU に投入し Present)。
+     *
+     * @return Submit と Present の両方が成功したとき true。
+     */
+    bool EndFrame() noexcept;
+
+    /**
+     * Submit and present without waiting for the following frame slot. The
+     * next TryBeginFrameWithoutGpuWait call reports backpressure instead.
+     */
+    bool EndFrameWithoutGpuWait() noexcept;
 
     /**
      * ウィンドウサイズ変更時に呼ぶ (スワップチェーン・深度を再作成)。
@@ -9753,7 +9825,7 @@ public:
      * @param width 新しいウィンドウ幅。
      * @param height 新しいウィンドウ高さ。
      */
-    void OnResize(u32 width, u32 height) noexcept;
+    bool OnResize(u32 width, u32 height) noexcept;
 
     /**
      * RHI デバイスを返す。
@@ -9806,6 +9878,9 @@ public:
     EFormat          DepthFormat() const noexcept { return m_DepthFormat; }
 
 private:
+    bool BeginFrameInternal(
+        const FClearColor& clear, bool avoid_gpu_wait) noexcept;
+    bool EndFrameInternal(bool avoid_gpu_wait) noexcept;
     /**
      * 深度バッファを指定サイズで作り直す。
      *
@@ -10590,7 +10665,8 @@ public:
      * 再度 Run する場合は前回のレンダラを先に閉じるため、派生側の前回 GPU 所有物は
      * OnShutdown で解放しておくこと。
      * @param configuration ウィンドウ・ロガー・レンダラ等の起動オプション。
-     * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5。
+     * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5、
+     *         実行中の resize/submit/present 失敗で 6。
      */
     int Run(const FAppConfig& configuration) noexcept;
 
@@ -10850,6 +10926,14 @@ private:
 
     /** メインループ継続フラグ (Quit で false)。 */
     bool m_bRunning = true;
+
+    /**
+     * WindowResize callback で検出した描画系失敗。
+     *
+     * Resize は失敗時にバックバッファ未取得状態になり得るため、イベント処理から
+     * 戻った同じ iteration で BeginFrame へ進まず、安全に終了する。
+     */
+    bool m_RendererFailurePending = false;
 
     /** Run の再入を防ぐ。 */
     bool m_RunActive = false;
@@ -21670,6 +21754,179 @@ private:
 };
 
 } // namespace acs
+
+// ===================== editor_abi/EditorAbiCapabilities.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+#include <cstdint>
+
+namespace acs::editor_abi {
+
+/**
+ * Version of the additive editor-host ABI contract.
+ *
+ * A provider at version N supports every query contract from 1 through N.
+ * Individual optional surfaces are negotiated through ECapability instead of
+ * being inferred from a product-version string.
+ */
+inline constexpr std::uint32_t kContractVersion = 1u;
+
+enum class ECapability : std::uint64_t {
+    FrameResultContract   = 1ull << 0u,
+    IncrementalStartup    = 1ull << 1u,
+    ProfilerV3            = 1ull << 2u,
+    UnifiedSceneDocument  = 1ull << 3u,
+    MaterialPreviewQuality = 1ull << 4u,
+    SubstrateGraph        = 1ull << 5u,
+    InteractiveWater3D    = 1ull << 6u,
+    ResizeResultContract  = 1ull << 7u,
+    VolumetricCloudWorkloadV1 = 1ull << 8u,
+};
+
+[[nodiscard]] constexpr std::uint64_t CapabilityBit(
+    ECapability capability) noexcept
+{
+    return static_cast<std::uint64_t>(capability);
+}
+
+inline constexpr std::uint64_t kCapabilities =
+    CapabilityBit(ECapability::FrameResultContract) |
+    CapabilityBit(ECapability::IncrementalStartup) |
+    CapabilityBit(ECapability::ProfilerV3) |
+    CapabilityBit(ECapability::UnifiedSceneDocument) |
+    CapabilityBit(ECapability::MaterialPreviewQuality) |
+    CapabilityBit(ECapability::SubstrateGraph) |
+    CapabilityBit(ECapability::InteractiveWater3D) |
+    CapabilityBit(ECapability::ResizeResultContract) |
+    CapabilityBit(ECapability::VolumetricCloudWorkloadV1);
+
+inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
+    CapabilityBit(ECapability::FrameResultContract) |
+    CapabilityBit(ECapability::IncrementalStartup) |
+    CapabilityBit(ECapability::ResizeResultContract);
+
+[[nodiscard]] constexpr bool IsCompatible(
+    std::uint32_t requested_version,
+    std::uint64_t required_capabilities,
+    std::uint32_t provided_version = kContractVersion,
+    std::uint64_t provided_capabilities = kCapabilities) noexcept
+{
+    return requested_version != 0u &&
+           requested_version <= provided_version &&
+           (provided_capabilities & required_capabilities) ==
+               required_capabilities;
+}
+
+} // namespace acs::editor_abi
+
+// ===================== editor_abi/EditorCloudWorkload.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <cstddef>
+
+namespace acs::editor_cloud_workload {
+
+/**
+ * Additive, optional snapshot contract for the exact work submitted by the
+ * volumetric-cloud renderer. This is deliberately separate from profiler v3.
+ */
+inline constexpr u32 kSnapshotVersion = 1u;
+inline constexpr u32 kSnapshotSize = 168u;
+
+enum ESnapshotFlags : u32 {
+    Attempted               = 1u << 0u,
+    Submitted               = 1u << 1u,
+    HistoryWasAvailable     = 1u << 2u,
+    HistoryReused           = 1u << 3u,
+    HistoryInvalidated      = 1u << 4u,
+    TemporalSuperResolution = 1u << 5u,
+};
+
+enum class ESkipReason : u32 {
+    None = 0u,
+    ResourcesNotReady = 1u,
+    InvalidCamera = 2u,
+    InvalidProjection = 3u,
+};
+
+#pragma pack(push, 4)
+struct FSnapshot {
+    u32 version = kSnapshotVersion;
+    u32 struct_size = kSnapshotSize;
+    u32 flags = 0u;
+    u32 skip_reason = static_cast<u32>(ESkipReason::None);
+
+    u64 profiler_frame_index = 0u;
+    u64 submission_index = 0u;
+
+    u32 trace_width = 0u;
+    u32 trace_height = 0u;
+    u32 output_width = 0u;
+    u32 output_height = 0u;
+
+    u32 steady_dispatches = 0u;
+    u32 one_time_bake_dispatches = 0u;
+    u32 shadow_cache_dispatches = 0u;
+    u32 total_compute_dispatches = 0u;
+    u32 composite_draws = 0u;
+    u32 reserved0 = 0u;
+
+    u64 trace_logical_invocations = 0u;
+    u64 trace_launched_threads = 0u;
+    u64 resolve_logical_invocations = 0u;
+    u64 resolve_launched_threads = 0u;
+    u64 one_time_bake_logical_invocations = 0u;
+    u64 one_time_bake_launched_threads = 0u;
+    u64 shadow_cache_logical_invocations = 0u;
+    u64 shadow_cache_launched_threads = 0u;
+    u64 total_logical_invocations = 0u;
+    u64 total_launched_threads = 0u;
+    u64 maximum_view_samples = 0u;
+    u64 maximum_light_samples = 0u;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(FSnapshot) == kSnapshotSize,
+              "Cloud workload ABI must match EditorCloudWorkloadSnapshot");
+static_assert(offsetof(FSnapshot, profiler_frame_index) == 16u);
+static_assert(offsetof(FSnapshot, trace_width) == 32u);
+static_assert(offsetof(FSnapshot, trace_logical_invocations) == 72u);
+static_assert(offsetof(FSnapshot, maximum_light_samples) == 160u);
+
+} // namespace acs::editor_cloud_workload
+
+// ===================== editor_abi/EditorFrameContract.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::editor_frame {
+
+enum class EResult : i32 {
+    Fatal = -1,
+    Busy = 0,
+    Presented = 1,
+};
+
+constexpr i32 ToAbi(EResult result) noexcept {
+    return static_cast<i32>(result);
+}
+
+constexpr EResult Classify(i32 abi_result) noexcept {
+    return abi_result < 0
+        ? EResult::Fatal
+        : (abi_result == 0 ? EResult::Busy : EResult::Presented);
+}
+
+/**
+ * Profiler publication and frame-time consumption are presentation facts.
+ * A GPU-busy attempt or a failed submit/present must not advance either.
+ */
+constexpr bool ShouldPublishProfiler(i32 abi_result) noexcept {
+    return Classify(abi_result) == EResult::Presented;
+}
+
+} // namespace acs::editor_frame
 
 // ===================== editor_abi/EditorProfiler.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -48757,6 +49014,8 @@ inline constexpr f32 kVolumetricCloudMaxDistance = 250000.0f;
  * image recovers native detail without increasing the quarter-size workload.
  */
 inline constexpr u32 kVolumetricCloudUltraTraceDivisor = 4u;
+inline constexpr u32 kVolumetricCloudMaxViewMarchSamples = 192u;
+inline constexpr u32 kVolumetricCloudMaxLightMarchSamples = 8u;
 
 /** Sanitized current-trace dimensions selected for a full-resolution output. */
 struct FVolumetricCloudTraceResolution {
@@ -48776,6 +49035,82 @@ struct FVolumetricCloudTraceResolution {
  */
 FVolumetricCloudTraceResolution ResolveVolumetricCloudTraceResolution(
     u32 full_width, u32 full_height, f32 requested_render_scale) noexcept;
+
+/**
+ * Inputs used to account for the exact compute work submitted by one cloud
+ * frame. These booleans describe dispatches, not authoring quality levels.
+ */
+struct FVolumetricCloudFrameWorkloadPlan {
+    u32 trace_width = 0u;
+    u32 trace_height = 0u;
+    u32 output_width = 0u;
+    u32 output_height = 0u;
+    bool bake_shape_noise = false;
+    bool bake_weather = false;
+    bool bake_detail_noise = false;
+    bool bake_curl_noise = false;
+    bool rebuild_shadow_cache = false;
+};
+
+enum class EVolumetricCloudFrameSkipReason : u32 {
+    None = 0u,
+    ResourcesNotReady = 1u,
+    InvalidCamera = 2u,
+    InvalidProjection = 3u,
+};
+
+/**
+ * Allocation-free diagnostic for the most recent RenderCompute attempt.
+ *
+ * Logical invocations exclude workgroup padding; launched threads include it.
+ * maximum_*_samples are conservative shader-loop ceilings rather than measured
+ * samples because empty-space skipping and transmittance exits are data
+ * dependent. GPU timestamps remain authoritative for elapsed cost.
+ */
+struct FVolumetricCloudFrameWorkload {
+    u64 submission_index = 0u;
+    u32 trace_width = 0u;
+    u32 trace_height = 0u;
+    u32 output_width = 0u;
+    u32 output_height = 0u;
+
+    u32 steady_dispatches = 0u;
+    u32 one_time_bake_dispatches = 0u;
+    u32 shadow_cache_dispatches = 0u;
+    u32 total_compute_dispatches = 0u;
+    u32 composite_draws = 0u;
+
+    u64 trace_logical_invocations = 0u;
+    u64 trace_launched_threads = 0u;
+    u64 resolve_logical_invocations = 0u;
+    u64 resolve_launched_threads = 0u;
+    u64 one_time_bake_logical_invocations = 0u;
+    u64 one_time_bake_launched_threads = 0u;
+    u64 shadow_cache_logical_invocations = 0u;
+    u64 shadow_cache_launched_threads = 0u;
+    u64 total_logical_invocations = 0u;
+    u64 total_launched_threads = 0u;
+    u64 maximum_view_samples = 0u;
+    u64 maximum_light_samples = 0u;
+
+    EVolumetricCloudFrameSkipReason skip_reason =
+        EVolumetricCloudFrameSkipReason::None;
+    bool attempted = false;
+    bool submitted = false;
+    bool history_was_available = false;
+    bool history_reused = false;
+    bool history_invalidated = false;
+    bool temporal_super_resolution = false;
+};
+
+/**
+ * Deterministically account for a cloud frame without recording GPU work.
+ *
+ * All additions and products saturate at u64 max so malformed diagnostic input
+ * cannot wrap into a deceptively small workload.
+ */
+FVolumetricCloudFrameWorkload PlanVolumetricCloudFrameWorkload(
+    const FVolumetricCloudFrameWorkloadPlan& plan) noexcept;
 
 /**
  * Resolve centered analytic coverage for the planet/cloud horizon.
@@ -48852,7 +49187,7 @@ struct FVolumetricCloudMarchPlan {
     f32 fine_step = 1.0f;
     f32 coarse_step = 4.0f;
     f32 visibility = 0.0f;
-    u32 max_samples = 192;
+    u32 max_samples = kVolumetricCloudMaxViewMarchSamples;
     bool hit = false;
 };
 
@@ -48983,6 +49318,11 @@ public:
     /** Whether the current material-space cache key has valid GPU contents. */
     bool ShadowCacheValid() const noexcept { return m_ShadowCacheValid; }
 
+    /** Exact submitted-work accounting for the latest compute/composite frame. */
+    const FVolumetricCloudFrameWorkload& LastFrameWorkload() const noexcept {
+        return m_LastFrameWorkload;
+    }
+
     /** Full-resolution resolved cloud distance/confidence for later fog passes. */
     IRhiTexture* ResolvedDepth() const noexcept {
         return m_HistoryValid ? m_HistoryDepth[m_ResolvedIndex].Get() : nullptr;
@@ -49091,6 +49431,8 @@ private:
     bool                     m_HistoryValid = false;
     u32                      m_W = 0, m_H = 0;         // scaled ray-march の寸法
     u32                      m_FullW = 0, m_FullH = 0; // 再構成先の寸法
+    u64                      m_WorkloadSubmissionIndex = 0u;
+    FVolumetricCloudFrameWorkload m_LastFrameWorkload{};
 };
 
 } // namespace acs
@@ -86289,7 +86631,7 @@ private:
 //       ImGui::Text("Hello, world!");
 //       ImGui::End();
 //       imgui.Render();           // 描画コマンドをコマンドリストに発行
-//       renderer.EndFrame();
+//       if (!renderer.EndFrame()) break;
 //   }
 //   imgui.Shutdown();
 

@@ -576,6 +576,7 @@ internal static class SceneSaveSelfTest
             Check(RejectsMode(scenePath, assets, SceneDocumentMode.ThreeD),
                 "3D project scene contract rejects .acscene");
 
+            CheckCanonicalSceneIdentityMigration(root, Check);
             CheckInitialSceneReferenceFollow(root, Check);
             CheckInterruptedInitialSceneRecovery(root, Check);
             CheckCombinedAssetAndSceneRecovery(root, Check);
@@ -615,6 +616,13 @@ internal static class SceneSaveSelfTest
         public void Dispose() => throw new InvalidOperationException(message);
     }
 
+    private sealed record CanonicalMigrationFixture(
+        Project Project,
+        AssetDatabase Database,
+        string ScenePath,
+        string MetadataPath,
+        string ManifestPath);
+
     private static bool RejectsMode(
         string path,
         string assets,
@@ -630,6 +638,350 @@ internal static class SceneSaveSelfTest
             return true;
         }
     }
+
+    private static void CheckCanonicalSceneIdentityMigration(
+        string root,
+        Action<bool, string> check)
+    {
+        string projectRoot = Path.Combine(root, "CanonicalSceneIdentityProject");
+        string assets = Path.Combine(projectRoot, "Assets");
+        Directory.CreateDirectory(assets);
+        string scenePath = Path.Combine(assets, "main.acs3d");
+        File.WriteAllText(scenePath, "legacy-scene");
+
+        string manifestPath = Path.Combine(
+            projectRoot,
+            "CanonicalSceneIdentity.acsproject");
+        string legacyManifest =
+            """
+            {
+              "version": 1,
+              "name": "CanonicalSceneIdentity",
+              "engineVersion": "self-test",
+              "template": "3d",
+              "initialScene": "Assets/main.acs3d",
+              "CanonicalSceneAssetId": "",
+              "futureProperty": { "preserve": true }
+            }
+            """;
+        File.WriteAllBytes(
+            manifestPath,
+            Encoding.UTF8.GetPreamble()
+                .Concat(Encoding.UTF8.GetBytes(legacyManifest))
+                .ToArray());
+
+        Project project = ProjectManager.ReadManifest(manifestPath);
+        AssetDatabase database = AssetDatabase.ForProject(project);
+        bool migrated;
+        using (AssetMutationLock.AcquireForRecovery(
+                   assets,
+                   "Self-test canonical scene identity migration"))
+        {
+            migrated = ProjectManager.BackfillCanonicalSceneAssetId(
+                project,
+                database);
+        }
+
+        byte[] migratedBytes = File.ReadAllBytes(manifestPath);
+        Project persisted = ProjectManager.ReadManifest(manifestPath);
+        JsonObject migratedJson =
+            JsonNode.Parse(migratedBytes)!.AsObject();
+        string canonicalProperty = migratedJson
+            .Select(static property => property.Key)
+            .Single(name => string.Equals(
+                name,
+                "canonicalSceneAssetId",
+                StringComparison.OrdinalIgnoreCase));
+        check(
+            migrated &&
+            project.CanonicalSceneAssetId.Length == 32 &&
+            persisted.CanonicalSceneAssetId == project.CanonicalSceneAssetId &&
+            migratedJson[canonicalProperty]?.GetValue<string>() ==
+                project.CanonicalSceneAssetId &&
+            File.Exists(scenePath + AssetDatabase.MetadataSuffix),
+            "legacy startup scene receives one durable Asset ID before manifest publication");
+        check(
+            migratedJson["futureProperty"]?["preserve"]?.GetValue<bool>() == true &&
+            !migratedBytes.AsSpan().StartsWith(
+                new byte[] { 0xEF, 0xBB, 0xBF }),
+            "canonical scene migration preserves unknown manifest data and removes legacy BOM");
+
+        byte[] beforeRetry = File.ReadAllBytes(manifestPath);
+        bool retried;
+        using (AssetMutationLock.AcquireForRecovery(
+                   assets,
+                   "Self-test canonical scene identity retry"))
+        {
+            retried = ProjectManager.BackfillCanonicalSceneAssetId(
+                project,
+                database);
+        }
+        check(
+            !retried &&
+            File.ReadAllBytes(manifestPath).SequenceEqual(beforeRetry) &&
+            !Directory.EnumerateFiles(projectRoot)
+                .Any(static path => path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)),
+            "canonical scene migration is idempotent and leaves no publication temporary");
+
+        // Model a stale Project object racing a different manifest identity. The authoritative
+        // sidecar must win by rejection, never by silently rewriting either identity.
+        JsonObject mismatchedJson = JsonNode.Parse(beforeRetry)!.AsObject();
+        mismatchedJson[canonicalProperty] = "22222222222222222222222222222222";
+        File.WriteAllText(
+            manifestPath,
+            mismatchedJson.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true,
+            }));
+        project.CanonicalSceneAssetId = "";
+        byte[] mismatchBefore = File.ReadAllBytes(manifestPath);
+        bool mismatchRejected = false;
+        using (AssetMutationLock.AcquireForRecovery(
+                   assets,
+                   "Self-test canonical scene identity mismatch"))
+        {
+            try
+            {
+                _ = ProjectManager.BackfillCanonicalSceneAssetId(
+                    project,
+                    database);
+            }
+            catch (InvalidDataException)
+            {
+                mismatchRejected = true;
+            }
+        }
+        check(
+            mismatchRejected &&
+            File.ReadAllBytes(manifestPath).SequenceEqual(mismatchBefore),
+            "canonical scene identity mismatch fails closed without mutating the manifest");
+
+        string missingRoot = Path.Combine(root, "MissingCanonicalSceneProject");
+        string missingAssets = Path.Combine(missingRoot, "Assets");
+        Directory.CreateDirectory(missingAssets);
+        string missingManifestPath = Path.Combine(missingRoot, "Missing.acsproject");
+        File.WriteAllText(
+            missingManifestPath,
+            """
+            {
+              "version": 1,
+              "name": "Missing",
+              "engineVersion": "self-test",
+              "template": "3d",
+              "initialScene": "Assets/missing.acs3d",
+              "canonicalSceneAssetId": ""
+            }
+            """);
+        Project missingProject = ProjectManager.ReadManifest(missingManifestPath);
+        AssetDatabase missingDatabase = AssetDatabase.ForProject(missingProject);
+        byte[] missingBefore = File.ReadAllBytes(missingManifestPath);
+        bool missingRejected = false;
+        using (AssetMutationLock.AcquireForRecovery(
+                   missingAssets,
+                   "Self-test missing canonical scene"))
+        {
+            try
+            {
+                _ = ProjectManager.BackfillCanonicalSceneAssetId(
+                    missingProject,
+                    missingDatabase);
+            }
+            catch (InvalidDataException)
+            {
+                missingRejected = true;
+            }
+        }
+        check(
+            missingRejected &&
+            File.ReadAllBytes(missingManifestPath).SequenceEqual(missingBefore),
+            "missing startup scene cannot be assigned a guessed canonical identity");
+
+        CheckCanonicalMigrationInputDrift(
+            root,
+            "SceneDrift",
+            CanonicalSceneIdentityMigrationPoint.BeforeManifestPublish,
+            static (scene, _) =>
+                File.WriteAllText(scene, "externally-mutated-scene"),
+            "canonical migration rejects initial Scene drift before manifest publication",
+            check);
+        CheckCanonicalMigrationInputDrift(
+            root,
+            "SidecarDrift",
+            CanonicalSceneIdentityMigrationPoint.BeforeManifestPublish,
+            static (_, metadata) =>
+                File.AppendAllText(metadata, Environment.NewLine),
+            "canonical migration rejects sidecar drift before manifest publication",
+            check);
+        CheckCanonicalMigrationInputDrift(
+            root,
+            "CapturedSidecarGuid",
+            CanonicalSceneIdentityMigrationPoint.AfterAuthoritativeRefresh,
+            static (_, metadata) =>
+            {
+                JsonObject sidecar =
+                    JsonNode.Parse(File.ReadAllBytes(metadata))!.AsObject();
+                sidecar["id"] = "33333333333333333333333333333333";
+                File.WriteAllText(
+                    metadata,
+                    sidecar.ToJsonString(new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                    }));
+            },
+            "canonical migration derives GUID from the captured sidecar and " +
+            "rejects refreshed-record drift",
+            check);
+        CheckCanonicalMigrationPublishRetry(root, check);
+    }
+
+    private static void CheckCanonicalMigrationInputDrift(
+        string root,
+        string name,
+        CanonicalSceneIdentityMigrationPoint mutationPoint,
+        Action<string, string> mutate,
+        string label,
+        Action<bool, string> check)
+    {
+        CanonicalMigrationFixture fixture =
+            CreateCanonicalMigrationFixture(root, name);
+        byte[] manifestBefore = File.ReadAllBytes(fixture.ManifestPath);
+        bool rejected = false;
+        using (AssetMutationLock.AcquireForRecovery(
+                   fixture.Project.AssetsDir,
+                   "Self-test canonical migration input drift"))
+        {
+            try
+            {
+                _ = ProjectManager.BackfillCanonicalSceneAssetId(
+                    fixture.Project,
+                    fixture.Database,
+                    point =>
+                    {
+                        if (point == mutationPoint)
+                        {
+                            mutate(
+                                fixture.ScenePath,
+                                fixture.MetadataPath);
+                        }
+                    });
+            }
+            catch (Exception error) when (
+                error is IOException or InvalidDataException)
+            {
+                rejected = true;
+            }
+        }
+
+        check(
+            rejected &&
+            fixture.Project.CanonicalSceneAssetId.Length == 0 &&
+            File.ReadAllBytes(fixture.ManifestPath)
+                .SequenceEqual(manifestBefore) &&
+            !HasCanonicalMigrationTemporary(fixture.Project.RootDir),
+            label);
+    }
+
+    private static void CheckCanonicalMigrationPublishRetry(
+        string root,
+        Action<bool, string> check)
+    {
+        CanonicalMigrationFixture fixture =
+            CreateCanonicalMigrationFixture(root, "PublishRetry");
+        bool interrupted = false;
+        using (AssetMutationLock.AcquireForRecovery(
+                   fixture.Project.AssetsDir,
+                   "Self-test canonical migration publish interruption"))
+        {
+            try
+            {
+                _ = ProjectManager.BackfillCanonicalSceneAssetId(
+                    fixture.Project,
+                    fixture.Database,
+                    point =>
+                    {
+                        if (point ==
+                            CanonicalSceneIdentityMigrationPoint
+                                .AfterManifestPublish)
+                        {
+                            throw new IOException(
+                                "injected post-publication interruption");
+                        }
+                    });
+            }
+            catch (IOException error)
+            {
+                interrupted = error.Message ==
+                    "injected post-publication interruption";
+            }
+        }
+
+        Project published =
+            ProjectManager.ReadManifest(fixture.ManifestPath);
+        byte[] publishedBytes =
+            File.ReadAllBytes(fixture.ManifestPath);
+        bool retried;
+        using (AssetMutationLock.AcquireForRecovery(
+                   fixture.Project.AssetsDir,
+                   "Self-test canonical migration retry"))
+        {
+            retried = ProjectManager.BackfillCanonicalSceneAssetId(
+                fixture.Project,
+                fixture.Database);
+        }
+
+        check(
+            interrupted &&
+            published.CanonicalSceneAssetId.Length == 32 &&
+            !retried &&
+            fixture.Project.CanonicalSceneAssetId ==
+                published.CanonicalSceneAssetId &&
+            File.ReadAllBytes(fixture.ManifestPath)
+                .SequenceEqual(publishedBytes) &&
+            !HasCanonicalMigrationTemporary(fixture.Project.RootDir),
+            "canonical migration retry after manifest publication is idempotent");
+    }
+
+    private static CanonicalMigrationFixture CreateCanonicalMigrationFixture(
+        string root,
+        string name)
+    {
+        string projectRoot = Path.Combine(
+            root,
+            "CanonicalMigration" + name);
+        string assets = Path.Combine(projectRoot, "Assets");
+        Directory.CreateDirectory(assets);
+        string scene = Path.Combine(assets, "main.acs3d");
+        File.WriteAllText(scene, "snapshot-scene-" + name);
+        string manifest = Path.Combine(
+            projectRoot,
+            name + ".acsproject");
+        File.WriteAllText(
+            manifest,
+            $$"""
+            {
+              "version": 1,
+              "name": "{{name}}",
+              "engineVersion": "self-test",
+              "template": "3d",
+              "initialScene": "Assets/main.acs3d",
+              "canonicalSceneAssetId": ""
+            }
+            """);
+        Project project = ProjectManager.ReadManifest(manifest);
+        return new(
+            project,
+            AssetDatabase.ForProject(project),
+            scene,
+            scene + AssetDatabase.MetadataSuffix,
+            manifest);
+    }
+
+    private static bool HasCanonicalMigrationTemporary(string projectRoot) =>
+        Directory.EnumerateFiles(
+                projectRoot,
+                "*.scene-ref-*.tmp",
+                SearchOption.TopDirectoryOnly)
+            .Any();
 
     private static void CheckInitialSceneReferenceFollow(
         string root,

@@ -47,6 +47,20 @@ public sealed class AssetCookPlanner
     private const int MaxGraphAssets = 65536;
     private const long MaxScannedTextBytes = 64L * 1024 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly HashSet<string> CookableExtensions = new(
+        [
+            ".acscene", ".acsprefab", ".acsmat", ".acsbp", ".acs3d",
+            ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".dds", ".ktx",
+            ".ktx2", ".hdr", ".exr", ".webp", ".gif",
+            ".wav", ".ogg", ".mp3", ".flac",
+            ".fbx", ".gltf", ".glb", ".obj", ".mdl", ".mtl",
+            ".ttf", ".otf",
+            ".txt", ".json", ".csv", ".xml", ".yaml", ".yml", ".toml",
+            ".ini", ".md", ".log",
+            ".lua", ".hlsl", ".glsl", ".vert", ".frag",
+            ".cso", ".dxil", ".spv", ".bin", ".dat",
+        ],
+        StringComparer.OrdinalIgnoreCase);
 
     private static readonly Regex SceneReference = new(
         @"^(?:(?:SPRT|MAT|PFAB)\s+-?\d+\s+)(?<path>.+?)\s*$",
@@ -108,16 +122,39 @@ public sealed class AssetCookPlanner
         CancellationToken cancellationToken = default)
     {
         var diagnostics = new List<AssetCookDiagnostic>();
+        string normalizedAssetId = canonicalSceneAssetId?.Trim() ?? "";
+        if (normalizedAssetId.Length == 0)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "CANONICAL_SCENE_ASSET_ID_REQUIRED",
+                "Packaging requires canonicalSceneAssetId. Open and save the project in the " +
+                "Editor to migrate the legacy InitialScene path before retrying."));
+            return FinalizePlan(null, Array.Empty<AssetRecord>(), diagnostics);
+        }
+        if (!Guid.TryParseExact(normalizedAssetId, "N", out Guid parsedAssetId) ||
+            parsedAssetId == Guid.Empty)
+        {
+            diagnostics.Add(new(
+                AssetCookDiagnosticSeverity.Error,
+                "CANONICAL_SCENE_ASSET_ID_INVALID",
+                "canonicalSceneAssetId must be a non-zero 32-digit GUID.",
+                "",
+                normalizedAssetId));
+            return FinalizePlan(null, Array.Empty<AssetRecord>(), diagnostics);
+        }
+        normalizedAssetId = parsedAssetId.ToString("N");
+
         RefreshStrict(diagnostics, cancellationToken);
         AssetRecord? root = null;
-        if (!_database.TryGetByAssetId(canonicalSceneAssetId, out root) || root == null)
+        if (!_database.TryGetByAssetId(normalizedAssetId, out root) || root == null)
         {
             diagnostics.Add(new(
                 AssetCookDiagnosticSeverity.Error,
                 "CANONICAL_SCENE_ASSET_MISSING",
                 "Canonical scene Asset ID does not resolve to one valid authoritative asset metadata record.",
                 "",
-                canonicalSceneAssetId?.Trim() ?? ""));
+                normalizedAssetId));
             return FinalizePlan(root, Array.Empty<AssetRecord>(), diagnostics);
         }
         return BuildFromCanonicalRoot(root, diagnostics, cancellationToken);
@@ -181,6 +218,28 @@ public sealed class AssetCookPlanner
                     "",
                     assetId));
                 continue;
+            }
+
+            string extension = Path.GetExtension(asset.RelativePath);
+            if (extension.Length == 0 || !CookableExtensions.Contains(extension))
+            {
+                diagnostics.Add(new(
+                    AssetCookDiagnosticSeverity.Error,
+                    "ASSET_TYPE_UNSUPPORTED",
+                    "A required asset uses an unsupported Cook input format. Import or convert " +
+                    "the dependency to a supported format.",
+                    asset.RelativePath,
+                    asset.AssetId));
+            }
+            if (asset.RelativePath.Any(static value => value > 127))
+            {
+                diagnostics.Add(new(
+                    AssetCookDiagnosticSeverity.Error,
+                    "ASSET_PATH_NON_ASCII",
+                    "The current standalone runtime cannot safely open non-ASCII asset paths. " +
+                    "Rename this required asset to an ASCII path.",
+                    asset.RelativePath,
+                    asset.AssetId));
             }
 
             IReadOnlyList<string> effectiveDependencies =
@@ -320,22 +379,34 @@ public sealed class AssetCookPlanner
     {
         var ids = new SortedSet<string>(StringComparer.Ordinal);
         string extension = Path.GetExtension(asset.RelativePath);
+        byte[] sourceSnapshot =
+            ReadVerifiedScanSnapshot(asset, cancellationToken);
         if (string.Equals(extension, ".gltf", StringComparison.OrdinalIgnoreCase))
         {
-            ScanGltf(asset, ids, diagnostics, cancellationToken);
+            ScanGltf(
+                asset,
+                sourceSnapshot,
+                ids,
+                diagnostics,
+                cancellationToken);
             return Array.AsReadOnly(ids.ToArray());
         }
         if (string.Equals(extension, ".acsbp", StringComparison.OrdinalIgnoreCase))
         {
-            ScanBlueprint(asset, ids, diagnostics, cancellationToken);
+            ScanBlueprint(
+                asset,
+                sourceSnapshot,
+                ids,
+                diagnostics,
+                cancellationToken);
             return Array.AsReadOnly(ids.ToArray());
         }
 
-        EnsureScannableTextFile(asset.FullPath);
+        string sourceText = DecodeScannableText(sourceSnapshot);
         Regex expression = extension.ToLowerInvariant() switch
         {
             ".acscene" => SceneReference,
-            ".acsprefab" => SelectPrefabReferenceExpression(asset.FullPath),
+            ".acsprefab" => SelectPrefabReferenceExpression(sourceText),
             ".acs3d" => Scene3DReference,
             ".acsmat" => MaterialReference,
             ".obj" => ObjReference,
@@ -343,12 +414,24 @@ public sealed class AssetCookPlanner
             _ => throw new InvalidDataException(
                 $"No deterministic dependency scanner is registered for '{extension}'."),
         };
-        foreach (string line in File.ReadLines(asset.FullPath, StrictUtf8))
+        using var reader = new StringReader(sourceText);
+        while (reader.ReadLine() is { } line)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Match match = expression.Match(line);
             if (!match.Success)
+            {
+                string directive = FirstToken(line.TrimStart());
+                if (IsReferenceDirective(
+                        extension,
+                        expression,
+                        directive))
+                {
+                    throw new InvalidDataException(
+                        $"Dependency directive is malformed: {directive}");
+                }
                 continue;
+            }
             string reference = match.Groups["path"].Value.Trim();
             if (string.Equals(
                     match.Groups["verb"].Value,
@@ -368,14 +451,54 @@ public sealed class AssetCookPlanner
         return Array.AsReadOnly(ids.ToArray());
     }
 
+    private static bool IsReferenceDirective(
+        string extension,
+        Regex expression,
+        string directive)
+    {
+        if (directive.Length == 0)
+            return false;
+        if (extension.Equals(".acscene", StringComparison.OrdinalIgnoreCase) ||
+            (extension.Equals(".acsprefab", StringComparison.OrdinalIgnoreCase) &&
+             ReferenceEquals(expression, SceneReference)))
+        {
+            return directive is "SPRT" or "MAT" or "PFAB";
+        }
+        if (extension.Equals(".acs3d", StringComparison.OrdinalIgnoreCase) ||
+            (extension.Equals(".acsprefab", StringComparison.OrdinalIgnoreCase) &&
+             ReferenceEquals(expression, Scene3DReference)))
+        {
+            return directive is "MSH3D" or "SPR3D" or "MAT3D" or "PFAB3D";
+        }
+        if (extension.Equals(".acsmat", StringComparison.OrdinalIgnoreCase))
+        {
+            return directive is "albedo" or "normal" ||
+                   directive.StartsWith(
+                       "substrateExprTexture",
+                       StringComparison.Ordinal) &&
+                   directive["substrateExprTexture".Length..]
+                       .All(static value => char.IsAsciiDigit(value));
+        }
+        if (extension.Equals(".obj", StringComparison.OrdinalIgnoreCase))
+            return directive.Equals("mtllib", StringComparison.OrdinalIgnoreCase);
+        if (extension.Equals(".mtl", StringComparison.OrdinalIgnoreCase))
+        {
+            return directive.StartsWith("map_", StringComparison.OrdinalIgnoreCase) ||
+                   directive.Equals("bump", StringComparison.OrdinalIgnoreCase) ||
+                   directive.Equals("disp", StringComparison.OrdinalIgnoreCase) ||
+                   directive.Equals("decal", StringComparison.OrdinalIgnoreCase);
+        }
+        return false;
+    }
+
     private void ScanBlueprint(
         AssetRecord asset,
+        byte[] sourceSnapshot,
         SortedSet<string> ids,
         List<AssetCookDiagnostic> diagnostics,
         CancellationToken cancellationToken)
     {
-        EnsureScannableTextFile(asset.FullPath);
-        string text = File.ReadAllText(asset.FullPath, StrictUtf8);
+        string text = DecodeScannableText(sourceSnapshot);
         AcsbpCookDocument document = AcsbpFormat.ParseForCook(text);
 
         int parentCount = 0;
@@ -448,12 +571,9 @@ public sealed class AssetCookPlanner
         }
     }
 
-    private static Regex SelectPrefabReferenceExpression(string path)
+    private static Regex SelectPrefabReferenceExpression(string sourceText)
     {
-        using var reader = new StreamReader(
-            path,
-            StrictUtf8,
-            detectEncodingFromByteOrderMarks: true);
+        using var reader = new StringReader(sourceText);
         return reader.ReadLine() switch
         {
             "ACS3D v2" => Scene3DReference,
@@ -465,18 +585,12 @@ public sealed class AssetCookPlanner
 
     private void ScanGltf(
         AssetRecord asset,
+        byte[] sourceSnapshot,
         SortedSet<string> ids,
         List<AssetCookDiagnostic> diagnostics,
         CancellationToken cancellationToken)
     {
-        EnsureScannableTextFile(asset.FullPath);
-        using FileStream stream = new(
-            asset.FullPath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            64 * 1024,
-            FileOptions.SequentialScan);
+        using var stream = new MemoryStream(sourceSnapshot, writable: false);
         using JsonDocument document = JsonDocument.Parse(stream, new JsonDocumentOptions
         {
             AllowTrailingCommas = false,
@@ -811,6 +925,64 @@ public sealed class AssetCookPlanner
         if (info.Length > MaxScannedTextBytes)
             throw new InvalidDataException(
                 $"Dependency-scanned text asset exceeds {MaxScannedTextBytes} bytes.");
+    }
+
+    private byte[] ReadVerifiedScanSnapshot(
+        AssetRecord asset,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureScannableTextFile(asset.FullPath);
+        EnsureOrdinaryAssetPath(asset.FullPath);
+        using var stream = new FileStream(
+            asset.FullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            128 * 1024,
+            FileOptions.SequentialScan);
+        if (stream.Length != asset.SizeBytes ||
+            stream.Length > MaxScannedTextBytes)
+        {
+            throw new InvalidDataException(
+                $"Dependency source changed after the Cook snapshot: {asset.RelativePath}");
+        }
+
+        var source = new byte[checked((int)stream.Length)];
+        int offset = 0;
+        while (offset != source.Length)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int read = stream.Read(source, offset, source.Length - offset);
+            if (read == 0)
+            {
+                throw new EndOfStreamException(
+                    $"Dependency source ended during snapshot read: {asset.RelativePath}");
+            }
+            offset += read;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        string hash = Convert.ToHexString(SHA256.HashData(source))
+            .ToLowerInvariant();
+        if (!string.Equals(hash, asset.ContentHash, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Dependency source changed after the Cook snapshot: {asset.RelativePath}");
+        }
+        return source;
+    }
+
+    internal byte[] ReadVerifiedScanSnapshotForSelfTest(
+        AssetRecord asset,
+        CancellationToken cancellationToken = default) =>
+        ReadVerifiedScanSnapshot(asset, cancellationToken);
+
+    private static string DecodeScannableText(byte[] source)
+    {
+        string text = StrictUtf8.GetString(source);
+        return text.Length > 0 && text[0] == '\uFEFF'
+            ? text[1..]
+            : text;
     }
 
     private AssetCookDiagnostic MapDatabaseWarning(string warning)

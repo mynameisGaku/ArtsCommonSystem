@@ -151,6 +151,76 @@ public sealed class AssetDatabase
         }
     }
 
+    /// <summary>
+    /// Resolves one existing project asset directly from its authoritative sidecar without
+    /// depending on the asynchronously populated acceleration index. This is intentionally a
+    /// focused read: it never creates metadata or rewrites <c>.acsdb</c>.
+    /// </summary>
+    internal string ResolveAuthoritativeAssetId(
+        string path,
+        string expectedKind)
+    {
+        if (string.IsNullOrWhiteSpace(expectedKind))
+            throw new ArgumentException(
+                "Expected asset kind is required.",
+                nameof(expectedKind));
+        lock (_gate)
+        {
+            string relative = NormalizeAssetRelativePath(path);
+            string fullPath = ResolveAssetPath(relative);
+            EnsureSafeOrdinaryFile(fullPath, allowMetadata: false);
+            string classifiedKind =
+                ClassifyExtension(Path.GetExtension(relative));
+            if (!string.Equals(
+                    classifiedKind,
+                    expectedKind,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Asset '{relative}' is '{classifiedKind}', not '{expectedKind}'.");
+            }
+
+            string metadataPath = MetadataPath(fullPath);
+            EnsureSafeOrdinaryFile(metadataPath, allowMetadata: true);
+            AssetMetadata metadata = ValidateAndNormalizeMetadata(
+                ReadMetadata(metadataPath),
+                relative);
+            if (!string.Equals(
+                    metadata.Kind,
+                    expectedKind,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Metadata for '{relative}' is '{metadata.Kind}', not '{expectedKind}'.");
+            }
+            return metadata.AssetId;
+        }
+    }
+
+    internal bool ContainsAssetPath(string path)
+    {
+        lock (_gate)
+        {
+            try
+            {
+                _ = NormalizeAssetRelativePath(path);
+                return true;
+            }
+            catch (InvalidDataException)
+            {
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+    }
+
     public IReadOnlyList<AssetRecord> Query(
         string? text = null,
         string? kind = null,
