@@ -3880,13 +3880,15 @@ public:
         ACS_CHECKF(TryPushBack(v), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
-    /** コピー追加を試み、失敗時は配列を変更しない。 */
+    /**
+     * コピー追加を試み、失敗時は配列を変更しない。
+     *
+     * @details 容量成長時も、追加元が同じ配列内の要素なら旧領域を保持したまま
+     * 新しい末尾を先に構築するため、自己参照を安全に扱える。
+     */
     bool TryPushBack(const T& Value) noexcept
     {
-        if (!EnsureCapacityForOneMore()) return false;
-        ::new (&m_Data[m_Size]) T(Value);
-        ++m_Size;
-        return true;
+        return TryEmplaceBack(Value) != nullptr;
     }
 
     /**
@@ -3899,13 +3901,15 @@ public:
         ACS_CHECKF(TryPushBack(Move(v)), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
-    /** ムーブ追加を試み、失敗時は配列と引数を変更しない。 */
+    /**
+     * ムーブ追加を試み、失敗時は配列と引数を変更しない。
+     *
+     * @details 容量成長時に追加元が同じ配列内の要素でも、旧要素から新しい末尾へ
+     * 先にムーブしてから既存要素を移送する。
+     */
     bool TryPushBack(T&& Value) noexcept
     {
-        if (!EnsureCapacityForOneMore()) return false;
-        ::new (&m_Data[m_Size]) T(Move(Value));
-        ++m_Size;
-        return true;
+        return TryEmplaceBack(Move(Value)) != nullptr;
     }
 
     /**
@@ -3923,13 +3927,27 @@ public:
         return *Element;
     }
 
-    /** 末尾へのその場構築を試み、失敗時は nullptr を返す。 */
+    /**
+     * 末尾へのその場構築を試み、失敗時は nullptr を返す。
+     *
+     * @details 容量内なら直接構築する。容量成長時は新領域を確保した後、旧領域が
+     * 生存している間に新しい末尾を構築してから既存要素を移送する。これにより、
+     * コンストラクタが同じ配列内の要素やその一部から値を読み取る間は参照を
+     * 無効化しない。
+     */
     template<typename... Args>
     T* TryEmplaceBack(Args&&... Arguments) noexcept
     {
-        if (!EnsureCapacityForOneMore()) return nullptr;
-        ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
-        return &m_Data[m_Size++];
+        if (m_Size < m_Capacity) {
+            ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
+            return &m_Data[m_Size++];
+        }
+        if (m_Size == ~usize(0)) return nullptr;
+
+        usize NewCapacity = 0u;
+        if (!TryCalculateNextGrowth(m_Size + 1u, NewCapacity)) return nullptr;
+        return TryGrowAndEmplaceBack(
+            NewCapacity, Forward<Args>(Arguments)...);
     }
 
     /**
@@ -4117,14 +4135,55 @@ private:
         return Capacity >= Required;
     }
 
-    /** 末尾 1 要素分の容量を、失敗時に状態を変えず確保する。 */
-    bool EnsureCapacityForOneMore() noexcept
+    /**
+     * 新領域へ末尾を構築してから既存要素を移送し、成長を確定する。
+     *
+     * @details 確保が成功するまでは引数にも配列にも触れない。末尾の構築時点では
+     * 旧領域が生存しているため、コンストラクタは旧要素やそのメンバから値を
+     * 読み取れる。非自己参照の場合も追加の退避や探索を行わない。
+     *
+     * @tparam Args T のコンストラクタ引数型。
+     * @param NewCapacity 確保する新しい容量。
+     * @param Arguments T のコンストラクタへ転送する引数。
+     * @return 構築した末尾要素。容量オーバーフローまたは確保失敗なら nullptr。
+     */
+    template<typename... Args>
+    T* TryGrowAndEmplaceBack(
+        usize NewCapacity,
+        Args&&... Arguments) noexcept
     {
-        if (m_Size < m_Capacity) return true;
-        if (m_Size == ~usize(0)) return false;
+        if (NewCapacity <= m_Size ||
+            NewCapacity > (~usize(0)) / sizeof(T)) {
+            return nullptr;
+        }
 
-        usize NewCapacity = 0u;
-        return TryCalculateNextGrowth(m_Size + 1u, NewCapacity) && Grow(NewCapacity);
+        T* const NewData = static_cast<T*>(
+            m_Alloc->Alloc(
+                sizeof(T) * NewCapacity,
+                alignof(T),
+                FSourceLoc::Current()));
+        if (!NewData) return nullptr;
+
+        // 引数が旧領域を参照できるうちに、追加要素を先に完成させる。
+        ::new (&NewData[m_Size]) T(Forward<Args>(Arguments)...);
+
+        if (m_Data) {
+            if constexpr (IsTriviallyCopyableV<T>) {
+                MemCopy(NewData, m_Data, sizeof(T) * m_Size);
+            } else {
+                for (usize i = 0; i < m_Size; ++i) {
+                    ::new (&NewData[i]) T(Move(m_Data[i]));
+                    if constexpr (!IsTriviallyDestructibleV<T>) {
+                        m_Data[i].~T();
+                    }
+                }
+            }
+            m_Alloc->Free(m_Data);
+        }
+
+        m_Data = NewData;
+        m_Capacity = NewCapacity;
+        return &m_Data[m_Size++];
     }
 
     /**
@@ -21792,6 +21851,8 @@ enum class ECapability : std::uint64_t {
     VolumetricCloudWorkloadV1 = 1ull << 8u,
     ProfilerV4            = 1ull << 9u,
     CameraAuthoringV1     = 1ull << 10u,
+    CameraViewRequestsV1  = 1ull << 11u,
+    ProfilerV5            = 1ull << 12u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -21804,7 +21865,9 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
     CapabilityBit(ECapability::IncrementalStartup) |
     CapabilityBit(ECapability::ProfilerV4) |
+    CapabilityBit(ECapability::ProfilerV5) |
     CapabilityBit(ECapability::CameraAuthoringV1) |
+    CapabilityBit(ECapability::CameraViewRequestsV1) |
     CapabilityBit(ECapability::UnifiedSceneDocument) |
     CapabilityBit(ECapability::MaterialPreviewQuality) |
     CapabilityBit(ECapability::SubstrateGraph) |
@@ -21830,6 +21893,485 @@ inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
 }
 
 } // namespace acs::editor_abi
+
+// ===================== editor_abi/EditorCameraViewRequests.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+#include <cstdint>
+#include <cstring>
+
+namespace acs::editor_camera_view {
+
+inline constexpr std::uint32_t kSnapshotVersion = 1u;
+inline constexpr std::uint32_t kMaximumRequests = 8u;
+inline constexpr std::uint32_t kMaximumDimension = 8192u;
+inline constexpr std::uint64_t kMaximumPixels = 33'554'432ull;
+inline constexpr std::uint32_t kStableCameraIdBytes = 64u;
+
+enum class ETargetKind : std::uint32_t {
+    None = 0u,
+    SharedSwapchain = 1u,
+    DedicatedOffscreen = 2u,
+};
+
+enum ESnapshotFlags : std::uint32_t {
+    SnapshotActive = 1u << 0u,
+    SnapshotPresenter = 1u << 1u,
+    SnapshotCameraStale = 1u << 2u,
+    SnapshotTargetRecreatePending = 1u << 3u,
+    SnapshotHistoryResetPending = 1u << 4u,
+};
+
+#pragma pack(push, 4)
+/**
+ * Latest metadata for one bounded Camera View render request.
+ *
+ * CameraViewRequestsV1 deliberately does not promise a dedicated render
+ * target. `target_kind == SharedSwapchain` means this request currently owns
+ * the editor's one presentation surface. A future async offscreen capability
+ * may publish DedicatedOffscreen without changing request identity.
+ */
+struct FSnapshot {
+    std::uint32_t version = kSnapshotVersion;
+    std::uint32_t struct_size = sizeof(FSnapshot);
+    std::uint64_t request_id = 0u;
+    std::uint64_t latest_frame_serial = 0u;
+    std::int32_t camera_node_id = -1;
+    std::uint32_t width = 0u;
+    std::uint32_t height = 0u;
+    std::uint32_t presented_width = 0u;
+    std::uint32_t presented_height = 0u;
+    std::uint32_t target_generation = 0u;
+    std::uint32_t history_generation = 0u;
+    std::uint32_t flags = 0u;
+    std::uint32_t target_kind =
+        static_cast<std::uint32_t>(ETargetKind::None);
+};
+#pragma pack(pop)
+
+static_assert(sizeof(FSnapshot) == 60u);
+
+[[nodiscard]] constexpr bool IsValidExtent(
+    std::uint32_t width, std::uint32_t height) noexcept {
+    return width > 0u && height > 0u &&
+           width <= kMaximumDimension &&
+           height <= kMaximumDimension &&
+           static_cast<std::uint64_t>(width) *
+                   static_cast<std::uint64_t>(height) <=
+               kMaximumPixels;
+}
+
+/**
+ * Fixed-capacity, allocation-free request registry owned by one FEditorHost.
+ *
+ * IDs contain a slot generation, so a stale managed lease cannot mutate a
+ * newly-created request after close/reopen (ABA). Exactly one request may bind
+ * the existing swapchain. Other requests retain independent camera, extent,
+ * target-generation and history-generation metadata for a later bounded
+ * offscreen scheduler.
+ */
+class FRegistry {
+public:
+    [[nodiscard]] bool Create(
+        std::int32_t camera_node_id,
+        const char* stable_camera_id,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint64_t& output_request_id) noexcept {
+        output_request_id = 0u;
+        char stable_id_copy[kStableCameraIdBytes + 1u]{};
+        if (camera_node_id < 0 ||
+            !CopyStableCameraId(
+                stable_id_copy, stable_camera_id) ||
+            !IsValidExtent(width, height)) {
+            return false;
+        }
+
+        for (std::uint32_t slot = 0u; slot < kMaximumRequests; ++slot) {
+            FRecord& record = m_Records[slot];
+            if (record.active) continue;
+            record.generation = NextGeneration(record.generation);
+            record.active = true;
+            record.camera_stale = false;
+            record.camera_node_id = camera_node_id;
+            std::memcpy(
+                record.stable_camera_id,
+                stable_id_copy,
+                sizeof(stable_id_copy));
+            record.width = width;
+            record.height = height;
+            record.target_generation = 1u;
+            record.history_generation = 1u;
+            record.latest_frame_serial = 0u;
+            record.presented_width = 0u;
+            record.presented_height = 0u;
+            record.target_recreate_pending = true;
+            record.history_reset_pending = true;
+            output_request_id = EncodeId(slot, record.generation);
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool Update(
+        std::uint64_t request_id,
+        std::int32_t camera_node_id,
+        const char* stable_camera_id,
+        std::uint32_t width,
+        std::uint32_t height) noexcept {
+        FRecord* record = Find(request_id);
+        char stable_id_copy[kStableCameraIdBytes + 1u]{};
+        if (record == nullptr || camera_node_id < 0 ||
+            !CopyStableCameraId(
+                stable_id_copy, stable_camera_id) ||
+            !IsValidExtent(width, height)) {
+            return false;
+        }
+
+        const bool camera_changed =
+            record->camera_stale ||
+            record->camera_node_id != camera_node_id ||
+            std::strcmp(
+                record->stable_camera_id,
+                stable_id_copy) != 0;
+        const bool extent_changed =
+            record->width != width || record->height != height;
+        if (camera_changed) {
+            record->camera_node_id = camera_node_id;
+            std::memcpy(
+                record->stable_camera_id,
+                stable_id_copy,
+                sizeof(stable_id_copy));
+            record->camera_stale = false;
+            record->history_generation =
+                NextGeneration(record->history_generation);
+            record->history_reset_pending = true;
+            record->latest_frame_serial = 0u;
+            record->presented_width = 0u;
+            record->presented_height = 0u;
+        }
+        if (extent_changed) {
+            record->width = width;
+            record->height = height;
+            record->target_generation =
+                NextGeneration(record->target_generation);
+            record->history_generation =
+                NextGeneration(record->history_generation);
+            record->target_recreate_pending = true;
+            record->history_reset_pending = true;
+            record->latest_frame_serial = 0u;
+            record->presented_width = 0u;
+            record->presented_height = 0u;
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool Destroy(std::uint64_t request_id) noexcept {
+        FRecord* record = Find(request_id);
+        if (record == nullptr) return false;
+        if (m_PresenterRequestId == request_id)
+            m_PresenterRequestId = 0u;
+        record->active = false;
+        record->camera_stale = false;
+        record->camera_node_id = -1;
+        record->stable_camera_id[0] = '\0';
+        record->width = 0u;
+        record->height = 0u;
+        record->target_recreate_pending = false;
+        record->history_reset_pending = false;
+        record->latest_frame_serial = 0u;
+        record->presented_width = 0u;
+        record->presented_height = 0u;
+        return true;
+    }
+
+    [[nodiscard]] bool BindPresenter(
+        std::uint64_t request_id) noexcept {
+        FRecord* next = Find(request_id);
+        if (next == nullptr || next->camera_stale) return false;
+        if (m_PresenterRequestId == request_id) return true;
+        // Presenter transfer is a two-phase managed transaction: first return
+        // the HWND and explicitly unbind the old request, then bind the new
+        // owner. Silently stealing here could leave native camera identity and
+        // Win32 surface ownership describing different windows.
+        if (m_PresenterRequestId != 0u) return false;
+        m_PresenterRequestId = request_id;
+        next->target_generation =
+            NextGeneration(next->target_generation);
+        next->history_generation =
+            NextGeneration(next->history_generation);
+        next->target_recreate_pending = true;
+        next->history_reset_pending = true;
+        next->latest_frame_serial = 0u;
+        next->presented_width = 0u;
+        next->presented_height = 0u;
+        return true;
+    }
+
+    [[nodiscard]] bool UnbindPresenter(
+        std::uint64_t request_id) noexcept {
+        if (request_id == 0u ||
+            m_PresenterRequestId != request_id ||
+            Find(request_id) == nullptr) {
+            return false;
+        }
+        if (FRecord* record = Find(request_id)) {
+            record->target_generation =
+                NextGeneration(record->target_generation);
+            record->history_generation =
+                NextGeneration(record->history_generation);
+            record->target_recreate_pending = true;
+            record->history_reset_pending = true;
+            record->latest_frame_serial = 0u;
+            record->presented_width = 0u;
+            record->presented_height = 0u;
+        }
+        m_PresenterRequestId = 0u;
+        return true;
+    }
+
+    void MarkPresenterCameraStale() noexcept {
+        MarkCameraStale(m_PresenterRequestId);
+    }
+
+    void MarkAllCamerasStale() noexcept {
+        m_PresenterRequestId = 0u;
+        for (FRecord& record : m_Records) {
+            if (!record.active) continue;
+            record.camera_stale = true;
+            record.history_generation =
+                NextGeneration(record.history_generation);
+            record.history_reset_pending = true;
+            record.latest_frame_serial = 0u;
+            record.presented_width = 0u;
+            record.presented_height = 0u;
+        }
+    }
+
+    void MarkCameraStale(std::uint64_t request_id) noexcept {
+        FRecord* record = Find(request_id);
+        if (record == nullptr) {
+            if (m_PresenterRequestId == request_id)
+                m_PresenterRequestId = 0u;
+            return;
+        }
+        record->camera_stale = true;
+        record->history_generation =
+            NextGeneration(record->history_generation);
+        record->history_reset_pending = true;
+        record->latest_frame_serial = 0u;
+        record->presented_width = 0u;
+        record->presented_height = 0u;
+        if (m_PresenterRequestId == request_id)
+            m_PresenterRequestId = 0u;
+    }
+
+    void MarkPresenterRendered(
+        std::uint64_t frame_serial,
+        std::uint32_t presented_width,
+        std::uint32_t presented_height) noexcept {
+        FRecord* record = Find(m_PresenterRequestId);
+        if (record == nullptr || record->camera_stale) return;
+        record->latest_frame_serial = frame_serial;
+        record->presented_width = presented_width;
+        record->presented_height = presented_height;
+        const bool requested_extent_presented =
+            record->width == presented_width &&
+            record->height == presented_height;
+        record->target_recreate_pending =
+            !requested_extent_presented;
+        record->history_reset_pending =
+            !requested_extent_presented;
+    }
+
+    [[nodiscard]] bool Snapshot(
+        std::uint64_t request_id,
+        FSnapshot& output) const noexcept {
+        const FRecord* record = Find(request_id);
+        output = FSnapshot{};
+        if (record == nullptr) return false;
+        output.request_id = request_id;
+        output.latest_frame_serial = record->latest_frame_serial;
+        output.camera_node_id = record->camera_node_id;
+        output.width = record->width;
+        output.height = record->height;
+        output.presented_width = record->presented_width;
+        output.presented_height = record->presented_height;
+        output.target_generation = record->target_generation;
+        output.history_generation = record->history_generation;
+        output.flags = SnapshotActive;
+        if (request_id == m_PresenterRequestId) {
+            output.flags |= SnapshotPresenter;
+            output.target_kind =
+                static_cast<std::uint32_t>(
+                    ETargetKind::SharedSwapchain);
+        }
+        if (record->camera_stale)
+            output.flags |= SnapshotCameraStale;
+        if (record->target_recreate_pending)
+            output.flags |= SnapshotTargetRecreatePending;
+        if (record->history_reset_pending)
+            output.flags |= SnapshotHistoryResetPending;
+        return true;
+    }
+
+    [[nodiscard]] bool PresenterIdentity(
+        std::uint64_t& output_request_id,
+        std::int32_t& output_camera_node_id,
+        const char*& output_stable_camera_id,
+        std::uint32_t& output_history_generation) const noexcept {
+        output_request_id = 0u;
+        output_camera_node_id = -1;
+        output_stable_camera_id = nullptr;
+        output_history_generation = 0u;
+        const FRecord* record = Find(m_PresenterRequestId);
+        if (record == nullptr || record->camera_stale) return false;
+        output_request_id = m_PresenterRequestId;
+        output_camera_node_id = record->camera_node_id;
+        output_stable_camera_id = record->stable_camera_id;
+        output_history_generation = record->history_generation;
+        return true;
+    }
+
+    [[nodiscard]] bool RequestIdentity(
+        std::uint64_t request_id,
+        std::int32_t& output_camera_node_id,
+        const char*& output_stable_camera_id) const noexcept {
+        output_camera_node_id = -1;
+        output_stable_camera_id = nullptr;
+        const FRecord* record = Find(request_id);
+        if (record == nullptr || record->camera_stale) return false;
+        output_camera_node_id = record->camera_node_id;
+        output_stable_camera_id = record->stable_camera_id;
+        return true;
+    }
+
+    void Clear() noexcept {
+        m_PresenterRequestId = 0u;
+        for (FRecord& record : m_Records) {
+            record.active = false;
+            record.camera_stale = false;
+            record.camera_node_id = -1;
+            record.stable_camera_id[0] = '\0';
+            record.width = 0u;
+            record.height = 0u;
+            record.target_recreate_pending = false;
+            record.history_reset_pending = false;
+            record.latest_frame_serial = 0u;
+            record.presented_width = 0u;
+            record.presented_height = 0u;
+        }
+    }
+
+    [[nodiscard]] std::uint64_t PresenterRequestId() const noexcept {
+        return Find(m_PresenterRequestId) != nullptr
+            ? m_PresenterRequestId : 0u;
+    }
+
+private:
+    struct FRecord {
+        std::uint32_t generation = 0u;
+        bool active = false;
+        bool camera_stale = false;
+        std::int32_t camera_node_id = -1;
+        char stable_camera_id[kStableCameraIdBytes + 1u]{};
+        std::uint32_t width = 0u;
+        std::uint32_t height = 0u;
+        std::uint32_t target_generation = 0u;
+        std::uint32_t history_generation = 0u;
+        std::uint64_t latest_frame_serial = 0u;
+        std::uint32_t presented_width = 0u;
+        std::uint32_t presented_height = 0u;
+        bool target_recreate_pending = false;
+        bool history_reset_pending = false;
+    };
+
+    [[nodiscard]] static constexpr std::uint32_t NextGeneration(
+        std::uint32_t generation) noexcept {
+        ++generation;
+        return generation == 0u ? 1u : generation;
+    }
+
+    [[nodiscard]] static constexpr std::uint64_t EncodeId(
+        std::uint32_t slot, std::uint32_t generation) noexcept {
+        return (static_cast<std::uint64_t>(generation) << 32u) |
+               static_cast<std::uint64_t>(slot + 1u);
+    }
+
+    [[nodiscard]] static bool DecodeId(
+        std::uint64_t request_id,
+        std::uint32_t& output_slot,
+        std::uint32_t& output_generation) noexcept {
+        const std::uint32_t slot_code =
+            static_cast<std::uint32_t>(request_id & 0xffffffffull);
+        output_generation =
+            static_cast<std::uint32_t>(request_id >> 32u);
+        if (slot_code == 0u ||
+            slot_code > kMaximumRequests ||
+            output_generation == 0u) {
+            output_slot = 0u;
+            output_generation = 0u;
+            return false;
+        }
+        output_slot = slot_code - 1u;
+        return true;
+    }
+
+    [[nodiscard]] FRecord* Find(
+        std::uint64_t request_id) noexcept {
+        std::uint32_t slot = 0u;
+        std::uint32_t generation = 0u;
+        if (!DecodeId(request_id, slot, generation)) return nullptr;
+        FRecord& record = m_Records[slot];
+        return record.active && record.generation == generation
+            ? &record : nullptr;
+    }
+
+    [[nodiscard]] const FRecord* Find(
+        std::uint64_t request_id) const noexcept {
+        std::uint32_t slot = 0u;
+        std::uint32_t generation = 0u;
+        if (!DecodeId(request_id, slot, generation)) return nullptr;
+        const FRecord& record = m_Records[slot];
+        return record.active && record.generation == generation
+            ? &record : nullptr;
+    }
+
+    /**
+     * Validate and optionally copy a canonical camera ID without unbounded
+     * strlen. Passing destination=nullptr performs validation only.
+     */
+    [[nodiscard]] static bool CopyStableCameraId(
+        char* destination, const char* source) noexcept {
+        if (source == nullptr || source[0] == '\0') return false;
+        std::uint32_t length = 0u;
+        for (; length <= kStableCameraIdBytes; ++length) {
+            const char value = source[length];
+            if (value == '\0') break;
+            const bool alpha =
+                (value >= 'A' && value <= 'Z') ||
+                (value >= 'a' && value <= 'z');
+            const bool digit = value >= '0' && value <= '9';
+            if (!alpha && !digit &&
+                (length == 0u ||
+                 (value != '_' && value != '.' && value != '-'))) {
+                return false;
+            }
+        }
+        if (length == 0u || length > kStableCameraIdBytes)
+            return false;
+        if (destination != nullptr) {
+            std::memcpy(destination, source, length);
+            destination[length] = '\0';
+        }
+        return true;
+    }
+
+    FRecord m_Records[kMaximumRequests]{};
+    std::uint64_t m_PresenterRequestId = 0u;
+};
+
+} // namespace acs::editor_camera_view
 
 // ===================== editor_abi/EditorCloudWorkload.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -22026,7 +22568,8 @@ struct FNodeDecision {
 
 inline FNodeDecision EvaluateSphere(
     const FPlane (&planes)[6], FVec3 center,
-    f32 local_radius, FVec3 world_scale) noexcept {
+    f32 local_radius, FVec3 world_scale,
+    f32 world_radius_padding = 0.0f) noexcept {
     FNodeDecision decision{};
     if (!std::isfinite(center.x) ||
         !std::isfinite(center.y) ||
@@ -22035,7 +22578,9 @@ inline FNodeDecision EvaluateSphere(
         local_radius < 0.0f ||
         !std::isfinite(world_scale.x) ||
         !std::isfinite(world_scale.y) ||
-        !std::isfinite(world_scale.z)) {
+        !std::isfinite(world_scale.z) ||
+        !std::isfinite(world_radius_padding) ||
+        world_radius_padding < 0.0f) {
         return decision;
     }
     const f32 maximum_scale = std::max(
@@ -22044,7 +22589,8 @@ inline FNodeDecision EvaluateSphere(
             std::fabs(world_scale.y),
             std::fabs(world_scale.z)));
     decision.world_radius =
-        local_radius * maximum_scale;
+        local_radius * maximum_scale +
+        world_radius_padding;
     if (!std::isfinite(decision.world_radius))
         return decision;
     decision.valid = true;
@@ -22090,6 +22636,205 @@ inline bool ShouldSubmitOpaque(
     return !culling_enabled || visible;
 }
 
+/**
+ * Allocation-free view over the exact main-view visibility mask.
+ *
+ * A missing or short mask is deliberately fail-open. DrawScene3D builds the
+ * mask before opening its first main-view geometry pass, but this additional
+ * boundary keeps a stale/incomplete diagnostic buffer from dropping geometry.
+ */
+struct FSubmissionMaskView {
+    bool enabled = false;
+    const u8* visibility = nullptr;
+    u32 visibility_count = 0u;
+
+    bool ShouldSubmit(u32 node_index) const noexcept {
+        if (!enabled || visibility == nullptr ||
+            node_index >= visibility_count) {
+            return true;
+        }
+        return visibility[node_index] != 0u;
+    }
+};
+
+/**
+ * Scene-geometry pass identity used by the production submission policy.
+ *
+ * Main-view visibility is camera-relative. It is therefore valid only for
+ * passes which render or query the active camera's image. Shadow casters use
+ * light-space coverage and VXGI voxelization uses the complete world-space
+ * scene, so masking either with the camera frustum would remove valid lighting.
+ */
+enum class ESceneGeometryPass : u8 {
+    NormalDepthPrepass = 0u,
+    MotionVectors,
+    PbrOpaqueCount,
+    PbrOpaqueDraw,
+    InteractiveWaterDraw,
+    RefractionPreflight,
+    RefractionDraw,
+    ShadowCaster,
+    VxgiVoxelization,
+    Count
+};
+
+/** Command form emitted by a pass after its eligibility query. */
+enum class ESubmissionCommandForm : u8 {
+    None = 0u,
+    Draw,
+    DrawIndexed,
+    Dispatch
+};
+
+struct FSceneGeometryPassPolicy {
+    bool uses_main_view_mask = false;
+    ESubmissionCommandForm command_form =
+        ESubmissionCommandForm::None;
+};
+
+constexpr FSceneGeometryPassPolicy SceneGeometryPassPolicy(
+    ESceneGeometryPass pass) noexcept {
+    switch (pass) {
+    case ESceneGeometryPass::NormalDepthPrepass:
+        return {true, ESubmissionCommandForm::Draw};
+    case ESceneGeometryPass::MotionVectors:
+    case ESceneGeometryPass::PbrOpaqueDraw:
+    case ESceneGeometryPass::InteractiveWaterDraw:
+    case ESceneGeometryPass::RefractionDraw:
+        return {true, ESubmissionCommandForm::DrawIndexed};
+    case ESceneGeometryPass::PbrOpaqueCount:
+    case ESceneGeometryPass::RefractionPreflight:
+        return {true, ESubmissionCommandForm::None};
+    case ESceneGeometryPass::ShadowCaster:
+        return {false, ESubmissionCommandForm::Draw};
+    case ESceneGeometryPass::VxgiVoxelization:
+        return {false, ESubmissionCommandForm::Dispatch};
+    case ESceneGeometryPass::Count:
+        break;
+    }
+    return {};
+}
+
+/**
+ * Apply the production pass policy to the one shared main-view mask.
+ *
+ * Returning a disabled view is deliberately fail-open, which lets unmasked
+ * light/world-space passes traverse the complete scene without owning a second
+ * visibility buffer.
+ */
+inline FSubmissionMaskView SubmissionMaskForPass(
+    ESceneGeometryPass pass,
+    const FSubmissionMaskView& main_view_mask) noexcept {
+    return SceneGeometryPassPolicy(pass).uses_main_view_mask
+        ? main_view_mask : FSubmissionMaskView{};
+}
+
+/**
+ * The aggregate dynamic VB is the exact full scene. When culling is disabled
+ * or the already-published frame decision culled no nodes, preserve the
+ * original one-Draw path instead of expanding it into one command per node.
+ */
+inline bool ShouldUseAggregateVertexDraw(
+    const FSubmissionMaskView& mask,
+    u32 explicitly_culled_count) noexcept {
+    return !mask.enabled || explicitly_culled_count == 0u;
+}
+
+/**
+ * Visit exactly the nodes submitted by camera-visible geometry passes.
+ *
+ * This is the production traversal used by normal/depth, motion-vector,
+ * opaque PBR and refraction recording. Keeping the loop here gives tests a
+ * real command-recording seam without constructing a GPU-backed editor host.
+ */
+template <typename FSubmit>
+inline u32 ForEachSubmittedNode(
+    const FSubmissionMaskView& mask, u32 node_count,
+    FSubmit&& submit) noexcept(noexcept(submit(u32{}))) {
+    u32 submitted = 0u;
+    for (u32 node_index = 0u;
+         node_index < node_count; ++node_index) {
+        if (!mask.ShouldSubmit(node_index)) continue;
+        submit(node_index);
+        ++submitted;
+    }
+    return submitted;
+}
+
+/**
+ * Coalesce adjacent vertex spans from submitted nodes.
+ *
+ * BuildSceneMeshVerts appends node geometry into one dynamic vertex buffer.
+ * A culled node creates a gap, while consecutive visible nodes can safely
+ * share one non-indexed Draw. Empty nodes do not split an otherwise contiguous
+ * range. The return value is the number of emitted ranges/Draw calls.
+ */
+template <typename FVertexOffset, typename FVertexCount, typename FSubmitRange>
+inline u32 ForEachSubmittedVertexRange(
+    const FSubmissionMaskView& mask, u32 node_count,
+    FVertexOffset&& vertex_offset,
+    FVertexCount&& vertex_count,
+    FSubmitRange&& submit_range) noexcept(
+        noexcept(vertex_offset(u32{})) &&
+        noexcept(vertex_count(u32{})) &&
+        noexcept(submit_range(u32{}, u32{}))) {
+    u32 emitted_ranges = 0u;
+    u32 range_offset = 0u;
+    u32 range_count = 0u;
+    bool has_range = false;
+
+    const auto flush = [&]() noexcept(
+        noexcept(submit_range(u32{}, u32{}))) {
+        if (!has_range) return;
+        submit_range(range_offset, range_count);
+        ++emitted_ranges;
+        has_range = false;
+        range_offset = 0u;
+        range_count = 0u;
+    };
+
+    for (u32 node_index = 0u;
+         node_index < node_count; ++node_index) {
+        if (!mask.ShouldSubmit(node_index)) continue;
+        const u32 offset = vertex_offset(node_index);
+        const u32 count = vertex_count(node_index);
+        if (count == 0u) continue;
+
+        const bool range_end_valid =
+            has_range &&
+            range_count <= ~u32{0} - range_offset;
+        const u32 range_end =
+            range_end_valid ? range_offset + range_count : 0u;
+        const bool adjacent =
+            range_end_valid &&
+            offset == range_end &&
+            count <= ~u32{0} - range_end;
+        if (!adjacent) {
+            flush();
+            range_offset = offset;
+            range_count = count;
+            has_range = true;
+        } else {
+            range_count += count;
+        }
+    }
+    flush();
+    return emitted_ranges;
+}
+
+/** Return true when any submitted node satisfies the supplied predicate. */
+template <typename FPredicate>
+inline bool AnySubmittedNode(
+    const FSubmissionMaskView& mask, u32 node_count,
+    FPredicate&& predicate) noexcept(noexcept(predicate(u32{}))) {
+    for (u32 node_index = 0u;
+         node_index < node_count; ++node_index) {
+        if (!mask.ShouldSubmit(node_index)) continue;
+        if (predicate(node_index)) return true;
+    }
+    return false;
+}
+
 } // namespace acs::editor_frustum_culling
 
 // ===================== editor_abi/EditorProfiler.h =====================
@@ -22101,8 +22846,13 @@ inline bool ShouldSubmitOpaque(
 
 namespace acs::editor_profiler {
 
-constexpr u32 kSnapshotVersion = 4u;
-constexpr u32 kSnapshotSize = 224u;
+// Version 5 appends native active-render/presentation timings. Version 4 is
+// kept as a readable prefix so older editor binaries can continue polling the
+// same DLL without being forced to consume fields they do not know about.
+constexpr u32 kLegacySnapshotVersion = 4u;
+constexpr u32 kLegacySnapshotSize = 224u;
+constexpr u32 kSnapshotVersion = 5u;
+constexpr u32 kSnapshotSize = 256u;
 constexpr u32 kPeakWindowFrames = 120u;
 // Roughly 1.5 seconds at the editor's typical 80 Hz render rate. A 30-query
 // window proved too short to distinguish shader changes from scheduler noise.
@@ -22123,6 +22873,7 @@ enum ESnapshotFlags : u32 {
     FrustumCullingEnabled = 1u << 6,
     GameView = 1u << 7,
     RuntimeSceneCamera = 1u << 8,
+    ScenePresentationSuppressed = 1u << 9,
 };
 
 #pragma pack(push, 4)
@@ -22192,6 +22943,17 @@ struct FSnapshot {
     u32 frustum_visible = 0u;
     u32 frustum_culled = 0u;
     i32 active_camera_node_id = -1;
+
+    // CPU residency after the cooperative GPU-ready preflight. Active render
+    // excludes submit/Present; present_cpu_ms contains that terminal interval.
+    // Peaks and the presented count are reset at an explicit capture boundary,
+    // so startup warm-up cannot contaminate a benchmark capture.
+    f32 native_render_active_cpu_ms = 0.0f;
+    f32 native_present_cpu_ms = 0.0f;
+    f32 native_render_active_cpu_peak_ms = 0.0f;
+    f32 native_present_cpu_peak_ms = 0.0f;
+    u64 presented_frame_count_since_reset = 0u;
+    u64 profiler_reset_serial = 0u;
 };
 #pragma pack(pop)
 
@@ -22444,6 +23206,45 @@ constexpr bool ShouldUseAnalyticLocalFog(
 }
 
 } // namespace acs::editor_render_policy
+
+// ===================== editor_abi/EditorSubsurfaceVisibility.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::editor_subsurface_visibility {
+
+/**
+ * Separates scene-wide SSSS warm-up from this frame's main-view workload.
+ *
+ * A material outside the camera still requests shader compilation so entering
+ * the view never causes a cold visual transition. Full-resolution MRT and
+ * diffusion work, however, is needed only when at least one SSSS material is
+ * submitted by the main-view opaque pass.
+ */
+struct FPresence {
+    bool scene_has_material = false;
+    bool main_view_has_material = false;
+
+    void Observe(
+        u32 node_index,
+        bool has_opaque_subsurface_material,
+        bool eligible_for_main_view_draw,
+        const editor_frustum_culling::FSubmissionMaskView&
+            main_view_mask) noexcept {
+        if (!has_opaque_subsurface_material) return;
+        scene_has_material = true;
+        if (eligible_for_main_view_draw &&
+            main_view_mask.ShouldSubmit(node_index)) {
+            main_view_has_material = true;
+        }
+    }
+
+    bool Complete() const noexcept {
+        return scene_has_material && main_view_has_material;
+    }
+};
+
+} // namespace acs::editor_subsurface_visibility
 
 // ===================== event/MessagePipe.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -48446,8 +49247,10 @@ struct FPostProcessParams {
     /**
      * tonemap 直前に additive 合成する SSR 出力テクスチャ (FSsr::OutputTexture())。
      *
-     * @details null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で
-     * 適用済みのため二重適用はされない。
+     * @details null で SSR 無し。入力は scene-linear HDR とする。
+     * auto exposure の完了値と manual exposure / EV compensation は
+     * main HDR と同じく各 1 回だけ適用される。intensity は SSR shader 側で
+     * 適用済みのため二重適用はされない。null 時は追加の exposure sample も発行しない。
      */
     IRhiTexture* ssr_texture = nullptr;
 
@@ -48656,6 +49459,25 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /**
+     * Keep allocated TAA targets but reject the previous logical camera's
+     * output. The next enabled resolve starts from current color.
+     */
+    void InvalidateTaaHistory() noexcept {
+        m_TaaFrame = 0u;
+        m_TaaOutputValid = false;
+    }
+
+    /**
+     * Keep exposure resources but reject adaptation from the previous logical
+     * scene or camera. The next enabled auto-exposure frame meters current HDR
+     * and takes its target exposure without blending stale eye adaptation.
+     */
+    void InvalidateExposureHistory() noexcept {
+        m_AutoFrame = 0u;
+        m_ExposureOutputValid = false;
+    }
 
     /**
      * ウィンドウサイズ変更時に HDR RT 等を再作成する。
@@ -49463,6 +50285,61 @@ f32 ResolveVolumetricCloudHorizonCoverage(
     f32 elevation_delta_x, f32 elevation_delta_y) noexcept;
 
 /**
+ * Per-frame camera/planet terms shared by every cloud trace/resolve pixel.
+ *
+ * local_up is the normalized camera vector from the rebased planet centre.
+ * ground_cutoff is the signed ray-elevation tangent of the physical ground
+ * sphere. Values below -1 disable the cutoff when the camera is in/above the
+ * authored cloud layer or when hostile input cannot be represented safely.
+ */
+struct FVolumetricCloudGroundHorizon {
+    FVec3 local_up{0.0f, 1.0f, 0.0f};
+    f32 ground_cutoff = -2.0f;
+};
+
+/**
+ * Hoist camera-invariant ground-horizon geometry out of per-pixel shaders.
+ *
+ * The equations deliberately mirror cloudAltitude/groundCutoff in kCloudCS.
+ * Ordinary finite inputs therefore preserve the analytic two-axis horizon
+ * coverage while avoiding identical divisions, normalization and square root
+ * work in every trace and full-resolution resolve invocation.
+ */
+FVolumetricCloudGroundHorizon ResolveVolumetricCloudGroundHorizon(
+    FVec3 camera_position, const FVolumetricCloudLayer& layer,
+    FVec3 world_origin) noexcept;
+
+/**
+ * Density-domain terms that are constant for a complete cloud frame.
+ *
+ * Keeping these values in CloudCB prevents every view and light-cone sample
+ * from rebuilding the identical world wind, shape frequency, and layer-height
+ * reciprocal. The density coordinates remain absolute world-space values.
+ */
+struct FVolumetricCloudDensityFrameTerms {
+    FVec2 wind_world{};
+    f32 shape_scale = 0.00012f;
+    f32 inverse_layer_height = 1.0f;
+};
+
+FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
+    const FVolumetricCloudLayer& layer, f32 wind_offset) noexcept;
+
+/**
+ * Normalized sun direction and its continuous Duff/Frisvad tangent basis.
+ *
+ * The basis is frame-invariant and is shared by every cloud view/light probe.
+ */
+struct FVolumetricCloudLightBasis {
+    FVec3 direction{0.0f, 1.0f, 0.0f};
+    FVec3 tangent{1.0f, 0.0f, 0.0f};
+    FVec3 bitangent{0.0f, 0.0f, -1.0f};
+};
+
+FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
+    FVec3 sun_direction) noexcept;
+
+/**
  * Experimental hybrid shallow sun optical-depth cache.
  *
  * The current two-volume implementation costs more GPU time than the exact
@@ -49642,6 +50519,12 @@ public:
 
     /** Current sanitized world-space cloud altitude band. */
     const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
+
+    /**
+     * Keep allocated cloud targets but reject the previous view's temporal
+     * reconstruction history on the next render.
+     */
+    void InvalidateHistory() noexcept { m_HistoryValid = false; }
 
     /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
     u64 ShadowCacheDispatchCount() const noexcept {
@@ -50253,6 +51136,18 @@ public:
     u32 ActiveRippleCountForSurface(u64 surface_id) const noexcept;
 
     /**
+     * Conservative world-space vertex-displacement radius for one surface.
+     *
+     * @details This exactly upper-bounds the four analytic ambient-wave
+     * amplitudes plus every currently uploaded ripple amplitude for surface_id.
+     * It is intended for frustum-bound inflation, so a crest cannot pop at the
+     * edge of the camera after the undisplaced base mesh has been culled.
+     */
+    f32 ConservativeDisplacementBoundForSurface(
+        u64 surface_id,
+        const FWaterSurface3DParams& params) const noexcept;
+
+    /**
      * Normalized amplitude applied to a disturbance at the supplied age.
      *
      * @details Exponential physical damping is combined with a C2-continuous
@@ -50351,6 +51246,10 @@ public:
      * @param hardware_depth_bound Selects the depth-test/write PSO. The caller
      *        is responsible for binding a DSV whose viewport and projection
      *        match scene_depth.
+     * @param authored_normal_map Optional mesh-UV tangent-space normal map.
+     *        It is slope-composed with the persistent analytic wave normal and
+     *        the generated world-space detail normal; it never replaces either.
+     * @param authored_normal_strength Non-negative authored-map slope scale.
      */
     void DrawMesh(IRhiCommandList& command_list, const FGpuMesh& mesh,
                   const FMat4& model,
@@ -50358,7 +51257,9 @@ public:
                   IRhiTexture* scene_depth = nullptr,
                   IRhiTexture* screen_reflection = nullptr,
                   u64 surface_id = 0u,
-                  bool hardware_depth_bound = false) noexcept;
+                  bool hardware_depth_bound = false,
+                  IRhiTexture* authored_normal_map = nullptr,
+                  f32 authored_normal_strength = 1.0f) noexcept;
 
     IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
     IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
@@ -50398,6 +51299,16 @@ private:
     u32 AvailableEventSlots(
         u64 surface_id, bool wake) const noexcept;
 
+    /**
+     * Removes the event referenced by one dense-list position in O(1).
+     *
+     * The storage slot remains stable for the event's lifetime. Only the dense
+     * iteration list is swap-compacted, so inserting a new pointer sample can
+     * never overwrite or refresh an earlier visible disturbance.
+     */
+    void DeactivateEventAtActivePosition(
+        u32 active_position) noexcept;
+
     IRhiDevice* m_Device = nullptr;
     TUniquePtr<IRhiShader> m_Vs;
     TUniquePtr<IRhiShader> m_Ps;
@@ -50415,6 +51326,8 @@ private:
 
     FWaterSurface3DParams m_Params{};
     FRipple m_Ripples[kMaxStoredRipples]{};
+    u32 m_ActiveRippleStorageIndices[kMaxStoredRipples]{};
+    u32 m_ActiveRippleCount = 0u;
 
     FMat4 m_ViewProjection{};
     FMat4 m_InverseViewProjection{};
@@ -97789,6 +98702,15 @@ public:
     void Shutdown() noexcept;
 
     /**
+     * Keep allocated targets but make the next render a cold temporal start.
+     * Call this when a shared render surface changes logical camera owner.
+     */
+    void InvalidateHistory() noexcept {
+        m_TemporalFrame = 0u;
+        m_OutputValid = false;
+    }
+
+    /**
      * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
      *
      * @param width 新しい出力幅。
@@ -97834,6 +98756,9 @@ public:
     IRhiTexture* OutputTexture() const noexcept {
         return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
     }
+
+    /** True only after raw, bilateral and temporal output were all recorded. */
+    bool HasValidOutput() const noexcept { return m_OutputValid; }
 
     /**
      * raw (blur/temporal 前) の RT を返す (デバッグ用途向け)。
@@ -97906,6 +98831,9 @@ private:
 
     /** temporal accumulation のフレームカウンタ (history の ping-pong に使う)。 */
     u32                     m_TemporalFrame = 0;
+
+    /** Prevents callers from publishing an unwritten or invalidated history. */
+    bool                    m_OutputValid = false;
 };
 
 } // namespace acs
@@ -97978,6 +98906,15 @@ public:
     void Shutdown() noexcept;
 
     /**
+     * Keep allocated targets but make the next render a cold temporal start.
+     * Call this when a shared render surface changes logical camera owner.
+     */
+    void InvalidateHistory() noexcept {
+        m_TemporalFrame = 0u;
+        m_OutputValid = false;
+    }
+
+    /**
      * 解像度変更時に出力 RT と history を作り直す (ウィンドウリサイズで呼ぶ)。
      *
      * @details サイズが変わると history は再利用できないため temporal 累積をリセットする。
@@ -98027,6 +98964,9 @@ public:
     IRhiTexture* OutputTexture() const noexcept {
         return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
     }
+
+    /** True only after the complete raw + temporal pair was recorded. */
+    bool HasValidOutput() const noexcept { return m_OutputValid; }
 
     /**
      * temporal 前の raw SSR テクスチャ (jitter 付き march 結果) を返す。
@@ -98099,7 +99039,57 @@ private:
 
     /** temporal フレームカウンタ (history ping-pong と jitter に使う)。 */
     u32                     m_TemporalFrame = 0;
+
+    /** Prevents callers from publishing an unwritten or invalidated history. */
+    bool                    m_OutputValid = false;
 };
+
+} // namespace acs
+
+// ===================== render/TemporalHistory.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * Per-frame inputs shared by temporal reconstruction passes.
+ *
+ * Frame zero is the first frame after initialization, resize, camera change,
+ * or an explicit history invalidation. It must never reproject or blend an
+ * older camera's samples, even when the caller still has a previous matrix or
+ * motion texture available.
+ */
+struct FTemporalHistoryFramePolicy {
+    FMat4 previous_view_projection{};
+    f32 current_frame_weight = 1.0f;
+    bool motion_vectors_enabled = false;
+};
+
+/**
+ * Select safe temporal inputs without owning any history resources.
+ *
+ * Cold-start frames use the current view-projection as "previous", accept the
+ * current sample at full weight, and disable motion-vector sampling. Warm
+ * frames preserve all caller-supplied values verbatim.
+ */
+inline FTemporalHistoryFramePolicy ResolveTemporalHistoryFrame(
+    u32 temporal_frame,
+    const FMat4& current_view_projection,
+    const FMat4& supplied_previous_view_projection,
+    f32 configured_current_frame_weight,
+    bool motion_vectors_available) noexcept {
+    if (temporal_frame == 0u) {
+        return FTemporalHistoryFramePolicy{
+            current_view_projection,
+            1.0f,
+            false};
+    }
+    return FTemporalHistoryFramePolicy{
+        supplied_previous_view_projection,
+        configured_current_frame_weight,
+        motion_vectors_available};
+}
 
 } // namespace acs
 

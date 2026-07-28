@@ -22,6 +22,8 @@ internal enum EditorAbiCapability : ulong
     VolumetricCloudWorkloadV1 = 1UL << 8,
     ProfilerV4             = 1UL << 9,
     CameraAuthoringV1      = 1UL << 10,
+    CameraViewRequestsV1   = 1UL << 11,
+    ProfilerV5             = 1UL << 12,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -93,6 +95,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.IncrementalStartup,
             EditorAbiCapability.ProfilerV3,
             EditorAbiCapability.ProfilerV4,
+            EditorAbiCapability.ProfilerV5,
             EditorAbiCapability.UnifiedSceneDocument,
             EditorAbiCapability.MaterialPreviewQuality,
             EditorAbiCapability.SubstrateGraph,
@@ -100,6 +103,7 @@ internal static class EditorAbiContract
             EditorAbiCapability.ResizeResultContract,
             EditorAbiCapability.VolumetricCloudWorkloadV1,
             EditorAbiCapability.CameraAuthoringV1,
+            EditorAbiCapability.CameraViewRequestsV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -107,13 +111,15 @@ internal static class EditorAbiContract
         EditorAbiCapability.IncrementalStartup |
         EditorAbiCapability.ProfilerV3 |
         EditorAbiCapability.ProfilerV4 |
+        EditorAbiCapability.ProfilerV5 |
         EditorAbiCapability.UnifiedSceneDocument |
         EditorAbiCapability.MaterialPreviewQuality |
         EditorAbiCapability.SubstrateGraph |
         EditorAbiCapability.InteractiveWater3D |
         EditorAbiCapability.ResizeResultContract |
         EditorAbiCapability.VolumetricCloudWorkloadV1 |
-        EditorAbiCapability.CameraAuthoringV1;
+        EditorAbiCapability.CameraAuthoringV1 |
+        EditorAbiCapability.CameraViewRequestsV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -176,6 +182,8 @@ internal static class EditorAbiContract
                 "profiler-v3",
             EditorAbiCapability.ProfilerV4 =>
                 "profiler-v4",
+            EditorAbiCapability.ProfilerV5 =>
+                "profiler-v5",
             EditorAbiCapability.UnifiedSceneDocument =>
                 "unified-scene-document",
             EditorAbiCapability.MaterialPreviewQuality =>
@@ -190,6 +198,8 @@ internal static class EditorAbiContract
                 "cloud-workload-v1",
             EditorAbiCapability.CameraAuthoringV1 =>
                 "camera-authoring-v1",
+            EditorAbiCapability.CameraViewRequestsV1 =>
+                "camera-view-requests-v1",
             _ => "unknown",
         };
 }

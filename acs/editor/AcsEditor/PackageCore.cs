@@ -76,7 +76,8 @@ public sealed record PackageResult(
     string AssetPackSha256 = "",
     int CookedAssetCount = 0,
     PackageProfile Profile = PackageProfile.Shipping,
-    bool ArchiveVerified = false);
+    bool ArchiveVerified = false,
+    PackageProductMetadata? ProductMetadata = null);
 
 public sealed record PackageVerificationResult(
     string ZipPath,
@@ -86,7 +87,8 @@ public sealed record PackageVerificationResult(
     long UncompressedBytes,
     string AssetPackSha256,
     int CookedAssetCount,
-    PackageProfile Profile);
+    PackageProfile Profile,
+    PackageProductMetadata? ProductMetadata = null);
 
 public sealed class PackageValidationException : InvalidOperationException
 {
@@ -177,6 +179,7 @@ public static class PackageCore
         int canonicalSceneImporterVersion,
         string assetGraphHash,
         CanonicalSceneBootstrapEnvelope sceneBootstrap,
+        PackageProductMetadata? productMetadata,
         ManifestAssetPack assetPack,
         IReadOnlyList<ManifestFile> files);
 
@@ -360,10 +363,59 @@ public static class PackageCore
 
         }
 
+        PackageProductMetadata sourceProductMetadata =
+            PackageProductMetadata.Empty;
+        bool sourceProductMetadataValid = true;
+        bool sourceProductMetadataFileExists = false;
         if (Directory.Exists(config))
+        {
             ValidateTree(config, "Config", issues, cancellationToken);
+            sourceProductMetadataFileExists = File.Exists(Path.Combine(
+                config,
+                PackageProductMetadataContract.FileName));
+            try
+            {
+                sourceProductMetadata =
+                    PackageProductMetadataContract.LoadOptional(config);
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or
+                    InvalidDataException or JsonException or DecoderFallbackException)
+            {
+                sourceProductMetadataValid = false;
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "PACKAGE_METADATA_INVALID",
+                    error.Message,
+                    Path.Combine(
+                        config,
+                        PackageProductMetadataContract.FileName)));
+            }
+        }
         else
             issues.Add(new(PackageIssueSeverity.Info, "CONFIG_EMPTY", "Config フォルダはありません。既定設定でパッケージします。"));
+
+        if (sourceProductMetadataValid && sourceProductMetadata.IsEmpty)
+        {
+            issues.Add(new(
+                options.Profile == PackageProfile.Shipping
+                    ? PackageIssueSeverity.Warning
+                    : PackageIssueSeverity.Info,
+                sourceProductMetadataFileExists
+                    ? "PACKAGE_METADATA_EMPTY"
+                    : "PACKAGE_METADATA_MISSING",
+                sourceProductMetadataFileExists
+                    ? "Config/PackageMetadata.json contains no distribution metadata."
+                    : "Config/PackageMetadata.json is not configured; publisher, description, " +
+                      "copyright, and support URL will be empty in the package manifest."));
+        }
+        else if (sourceProductMetadataValid)
+        {
+            issues.Add(new(
+                PackageIssueSeverity.Info,
+                "PACKAGE_METADATA",
+                $"Distribution metadata publisher: {sourceProductMetadata.Publisher}."));
+        }
 
         string settingsIni = Path.Combine(config, "ProjectSettings.ini");
         if (File.Exists(settingsIni) &&
@@ -544,6 +596,31 @@ public static class PackageCore
                 "EXECUTABLE_NAME",
                 "実行ファイル名がプロジェクト名から期待される名前と異なります。",
                 executable));
+
+        if (File.Exists(executable) && !IsReparsePoint(executable))
+        {
+            try
+            {
+                PackageExecutableInspection inspection =
+                    PackageExecutableContract.InspectFile(executable);
+                issues.Add(new(
+                    PackageIssueSeverity.Info,
+                    "EXECUTABLE_PE32PLUS_X64",
+                    $"Windows x64 PE preflight passed: {inspection.SectionCount} sections, " +
+                    $"subsystem {inspection.Subsystem}.",
+                    executable));
+            }
+            catch (Exception error) when (
+                error is IOException or UnauthorizedAccessException or
+                    InvalidDataException)
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "EXECUTABLE_INVALID",
+                    error.Message,
+                    executable));
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(options.AssetPackToolPath))
         {
@@ -834,6 +911,9 @@ public static class PackageCore
                 Path.Combine(packageRoot, "Config"),
                 project,
                 cancellationToken);
+            PackageProductMetadata productMetadata =
+                PackageProductMetadataContract.LoadOptional(
+                    Path.Combine(packageRoot, "Config"));
 
             CookResult cooked = await CookAssetPackAsync(
                 project,
@@ -885,6 +965,7 @@ public static class PackageCore
                 canonicalSceneImporterVersion: cooked.CanonicalSceneImporterVersion,
                 assetGraphHash: cooked.AssetGraphHash,
                 sceneBootstrap: cooked.SceneBootstrap,
+                productMetadata: productMetadata,
                 assetPack: new(
                     path: "game.acpak",
                     size: new FileInfo(cooked.PackPath).Length,
@@ -941,7 +1022,8 @@ public static class PackageCore
                 !string.Equals(
                     verification.AssetPackSha256,
                     cooked.Sha256,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal) ||
+                verification.ProductMetadata != productMetadata)
             {
                 throw new InvalidDataException(
                     "The completed archive does not match the package that was staged.");
@@ -992,7 +1074,8 @@ public static class PackageCore
                 cooked.Sha256,
                 cooked.SourceFileCount,
                 options.Profile,
-                ArchiveVerified: true);
+                ArchiveVerified: true,
+                ProductMetadata: productMetadata);
         }
         finally
         {
@@ -1218,6 +1301,8 @@ public static class PackageCore
             throw new InvalidDataException(
                 "Package manifest scene bootstrap metadata is invalid.");
         }
+        if (manifest.productMetadata is not null)
+            PackageProductMetadataContract.Validate(manifest.productMetadata);
         if (manifest.files is null ||
             manifest.files.Count != archive.Entries.Count - 1)
         {
@@ -1304,6 +1389,14 @@ public static class PackageCore
             throw new InvalidDataException(
                 "Package manifest executable is missing from the payload.");
         }
+        ZipArchiveEntry executableEntry =
+            entriesByPath[packageId + "/" + manifest.executable];
+        await using (Stream executableStream = executableEntry.Open())
+        {
+            _ = PackageExecutableContract.Inspect(
+                executableStream,
+                executableEntry.Length);
+        }
 
         ManifestAssetPack assetPack = manifest.assetPack ??
             throw new InvalidDataException("Package manifest asset pack metadata is missing.");
@@ -1338,7 +1431,8 @@ public static class PackageCore
             verifiedBytes,
             assetPack.sha256,
             assetPack.sourceFileCount,
-            profile);
+            profile,
+            manifest.productMetadata);
     }
 
     /// <summary>

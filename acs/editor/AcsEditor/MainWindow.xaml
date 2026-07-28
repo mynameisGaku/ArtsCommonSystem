@@ -129,11 +129,53 @@
                               IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
                     <MenuItem x:Name="MenuShowInspector" Header="Inspector" Tag="inspector"
                               IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
-                    <MenuItem x:Name="MenuShowBottom" Header="Console / Assets" Tag="bottom"
+                    <MenuItem x:Name="MenuShowBottom" Header="Bottom Dock" Tag="bottom"
                               IsCheckable="True" IsChecked="True" InputGestureText="Ctrl+J"
+                              ToolTip="Collapse or restore the bottom dock without changing individual tool states"
                               Click="OnTogglePanelVisibility"/>
-                    <MenuItem x:Name="MenuShowProfiler" Header="Profiler" IsCheckable="True"
-                              Click="OnShowProfiler" ToolTip="Open the renderer profiler in the bottom dock"/>
+                    <Separator/>
+                    <MenuItem x:Name="MenuShowConsole" Header="Console" Tag="console"
+                              IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
+                    <MenuItem x:Name="MenuShowBuildPanel" Header="Build" Tag="build"
+                              IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
+                    <MenuItem x:Name="MenuShowAssets" Header="Assets" Tag="assets"
+                              IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"/>
+                    <MenuItem x:Name="MenuShowProfiler" Header="Profiler" Tag="profiler"
+                              IsCheckable="True" IsChecked="True" Click="OnTogglePanelVisibility"
+                              ToolTip="Show, hide, or restore the renderer profiler"/>
+                    <Separator/>
+                    <MenuItem Header="Show Tool" SubmenuOpened="OnToolPanelActionSubmenuOpened">
+                        <MenuItem Header="Scene Outliner" Tag="view.panel.hierarchy.show" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Details" Tag="view.panel.inspector.show" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Console" Tag="view.panel.console.show" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Build" Tag="view.panel.build.show" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Assets" Tag="view.panel.assets.show" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Profiler" Tag="view.panel.profiler.show" Click="OnExecuteToolPanelUserAction"/>
+                    </MenuItem>
+                    <MenuItem Header="Hide Tool" SubmenuOpened="OnToolPanelActionSubmenuOpened">
+                        <MenuItem Header="Scene Outliner" Tag="view.panel.hierarchy.hide" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Details" Tag="view.panel.inspector.hide" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Console" Tag="view.panel.console.hide" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Build" Tag="view.panel.build.hide" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Assets" Tag="view.panel.assets.hide" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Profiler" Tag="view.panel.profiler.hide" Click="OnExecuteToolPanelUserAction"/>
+                    </MenuItem>
+                    <MenuItem Header="Float Tool" SubmenuOpened="OnToolPanelActionSubmenuOpened">
+                        <MenuItem Header="Scene Outliner" Tag="view.panel.hierarchy.float" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Details" Tag="view.panel.inspector.float" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Console" Tag="view.panel.console.float" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Build" Tag="view.panel.build.float" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Assets" Tag="view.panel.assets.float" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Profiler" Tag="view.panel.profiler.float" Click="OnExecuteToolPanelUserAction"/>
+                    </MenuItem>
+                    <MenuItem Header="Re-dock Tool" SubmenuOpened="OnToolPanelActionSubmenuOpened">
+                        <MenuItem Header="Scene Outliner" Tag="view.panel.hierarchy.redock" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Details" Tag="view.panel.inspector.redock" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Console" Tag="view.panel.console.redock" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Build" Tag="view.panel.build.redock" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Assets" Tag="view.panel.assets.redock" Click="OnExecuteToolPanelUserAction"/>
+                        <MenuItem Header="Profiler" Tag="view.panel.profiler.redock" Click="OnExecuteToolPanelUserAction"/>
+                    </MenuItem>
                     <Separator/>
                     <MenuItem Header="Reset Layout" Click="OnResetEditorLayout"/>
                 </MenuItem>
@@ -399,15 +441,23 @@
                             <Button x:Name="BottomFloatButton" Content="Float"
                                     Style="{StaticResource PanelToolButton}" MinWidth="46"
                                     Click="OnToggleBottomFloat"
-                                    AutomationProperties.Name="Float bottom tool panel"
-                                    ToolTip="Open the bottom tools in an independent window"/>
+                                    AutomationProperties.Name="Float selected bottom tool"
+                                    ToolTip="Open the selected tool in an independent window"/>
                             <Button x:Name="BottomDockToggleBtn" Content="Hide"
                                     Style="{StaticResource PanelToolButton}"
                                     Margin="6,0,0,0" Click="OnToggleBottomDock"
-                                    ToolTip="Hide bottom panel (Ctrl+J)"/>
+                                    ToolTip="Hide the selected tool"/>
                         </StackPanel>
                         <!-- 右: ログツールバー (Console タブのときだけ表示) -->
-                        <StackPanel x:Name="LogToolbar" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    </DockPanel>
+                    <Grid x:Name="ConsoleToolPanel" Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel x:Name="LogToolbar" Grid.Row="0" Orientation="Horizontal"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Margin="4,3,8,3">
                             <TextBox x:Name="LogSearch" Width="150" Height="22" Padding="6,2" Margin="0,0,8,0"
                                      VerticalContentAlignment="Center" TextChanged="OnLogFilterChanged"
                                      ToolTip="ログを文字列で絞り込み"/>
@@ -418,7 +468,6 @@
                                           ToolTip="新しい順 / 古い順を切替"/>
                             <Button Content="Clear" Padding="8,3" Margin="6,0,0,0" Click="OnClearLog"/>
                         </StackPanel>
-                    </DockPanel>
                     <ListBox x:Name="ConsoleList" Grid.Row="1" Background="{StaticResource Panel2}"
                              BorderThickness="0" FontSize="12" Margin="4"
                              SelectionMode="Extended" KeyDown="OnConsoleKeyDown"
@@ -443,26 +492,33 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <ListBox x:Name="BuildList" Grid.Row="1" Background="{StaticResource Panel2}" Foreground="#FFB7BEC8"
-                             BorderThickness="0" FontFamily="Consolas" FontSize="12" Margin="4" Visibility="Collapsed"
-                             SelectionMode="Extended" KeyDown="OnBuildKeyDown"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                        <ListBox.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="コピー (選択行)" Click="OnCopyBuild" InputGestureText="Ctrl+C"/>
-                                <MenuItem Header="すべてコピー"   Click="OnCopyAllBuild"/>
-                                <Separator/>
-                                <MenuItem Header="クリア"         Click="OnClearBuild"/>
-                            </ContextMenu>
-                        </ListBox.ContextMenu>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Text}" Foreground="{Binding Brush}" FontFamily="Consolas"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <local:AssetBrowserPanel x:Name="AssetBrowser" Grid.Row="1" Visibility="Collapsed"/>
-                    <local:ProfilerPanel x:Name="ProfilerView" Grid.Row="1" Visibility="Collapsed"/>
+                    </Grid>
+                    <Grid x:Name="BuildToolPanel" Grid.Row="1" Visibility="Collapsed">
+                        <ListBox x:Name="BuildList" Background="{StaticResource Panel2}" Foreground="#FFB7BEC8"
+                                 BorderThickness="0" FontFamily="Consolas" FontSize="12" Margin="4"
+                                 SelectionMode="Extended" KeyDown="OnBuildKeyDown"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <ListBox.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="コピー (選択行)" Click="OnCopyBuild" InputGestureText="Ctrl+C"/>
+                                    <MenuItem Header="すべてコピー" Click="OnCopyAllBuild"/>
+                                    <Separator/>
+                                    <MenuItem Header="クリア" Click="OnClearBuild"/>
+                                </ContextMenu>
+                            </ListBox.ContextMenu>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Text}" Foreground="{Binding Brush}" FontFamily="Consolas"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                    <Grid x:Name="AssetsToolPanel" Grid.Row="1" Visibility="Collapsed">
+                        <local:AssetBrowserPanel x:Name="AssetBrowser"/>
+                    </Grid>
+                    <Grid x:Name="ProfilerToolPanel" Grid.Row="1" Visibility="Collapsed">
+                        <local:ProfilerPanel x:Name="ProfilerView"/>
+                    </Grid>
                 </Grid>
             </Grid>
 

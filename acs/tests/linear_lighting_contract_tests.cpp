@@ -422,6 +422,65 @@ ACS_TEST(LinearLightingContract,
 }
 
 ACS_TEST(LinearLightingContract,
+         IblHelpersUseInitializedSingleExitControlFlow) {
+    const std::string source = ReadRenderSource("Ibl.cpp");
+    const std::string capture =
+        ExtractRawShader(source, "const char* kEnvCaptureHLSL");
+    const std::string irradiance =
+        ExtractRawShader(source, "const char* kIrradianceHLSL");
+    const std::string prefilter =
+        ExtractRawShader(source, "const char* kPrefilterHLSL");
+    const std::string equirect =
+        ExtractRawShader(source, "const char* kEquirectToCubeHLSL");
+    EXPECT_TRUE(!source.empty());
+
+    for (const std::string* shader :
+         {&capture, &irradiance, &prefilter, &equirect}) {
+        EXPECT_TRUE(!shader->empty());
+        EXPECT_EQ(
+            CountOccurrences(
+                *shader,
+                "float3 direction = float3(-m.x, -m.y, -1.0);"),
+            static_cast<std::size_t>(1u));
+        EXPECT_EQ(
+            CountOccurrences(*shader, "return direction;"),
+            static_cast<std::size_t>(1u));
+    }
+
+    const std::string irradiance_sample = ExtractSection(
+        irradiance,
+        "float3 SampleIndirectEnvironment(float3 direction)",
+        "float3 IntegrateDiffuse(float3 N)");
+    const std::string prefilter_sample = ExtractSection(
+        prefilter,
+        "float3 SampleIndirectEnvironment(float3 direction)",
+        "float3 ImportanceSampleGGX(");
+    for (const std::string* sample :
+         {&irradiance_sample, &prefilter_sample}) {
+        EXPECT_TRUE(!sample->empty());
+        EXPECT_TRUE(Contains(
+            *sample,
+            "float3 radiance = float3(0.0, 0.0, 0.0);"));
+        EXPECT_TRUE(Contains(*sample, "radiance = 0.25 * ("));
+        EXPECT_TRUE(Contains(
+            *sample,
+            "} else {\n"
+            "        radiance = env.SampleLevel("
+            "env_sampler, direction, 0).rgb;\n"
+            "    }"));
+        EXPECT_EQ(
+            CountOccurrences(
+                *sample,
+                "env.SampleLevel(env_sampler, direction, 0).rgb"),
+            static_cast<std::size_t>(1u));
+        EXPECT_EQ(
+            CountOccurrences(*sample, "return "),
+            static_cast<std::size_t>(1u));
+        EXPECT_TRUE(Contains(*sample, "return radiance;"));
+    }
+}
+
+ACS_TEST(LinearLightingContract,
          IblPrefilterAllocatesSamplesByGgxLobeWidth) {
     const std::string source = ReadRenderSource("Ibl.cpp");
     const std::string prefilter =

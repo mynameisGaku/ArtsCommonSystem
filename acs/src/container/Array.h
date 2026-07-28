@@ -307,13 +307,15 @@ public:
         ACS_CHECKF(TryPushBack(v), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
-    /** コピー追加を試み、失敗時は配列を変更しない。 */
+    /**
+     * コピー追加を試み、失敗時は配列を変更しない。
+     *
+     * @details 容量成長時も、追加元が同じ配列内の要素なら旧領域を保持したまま
+     * 新しい末尾を先に構築するため、自己参照を安全に扱える。
+     */
     bool TryPushBack(const T& Value) noexcept
     {
-        if (!EnsureCapacityForOneMore()) return false;
-        ::new (&m_Data[m_Size]) T(Value);
-        ++m_Size;
-        return true;
+        return TryEmplaceBack(Value) != nullptr;
     }
 
     /**
@@ -326,13 +328,15 @@ public:
         ACS_CHECKF(TryPushBack(Move(v)), "TArray::PushBack failed (size=%zu, T=%zu)", m_Size, sizeof(T));
     }
 
-    /** ムーブ追加を試み、失敗時は配列と引数を変更しない。 */
+    /**
+     * ムーブ追加を試み、失敗時は配列と引数を変更しない。
+     *
+     * @details 容量成長時に追加元が同じ配列内の要素でも、旧要素から新しい末尾へ
+     * 先にムーブしてから既存要素を移送する。
+     */
     bool TryPushBack(T&& Value) noexcept
     {
-        if (!EnsureCapacityForOneMore()) return false;
-        ::new (&m_Data[m_Size]) T(Move(Value));
-        ++m_Size;
-        return true;
+        return TryEmplaceBack(Move(Value)) != nullptr;
     }
 
     /**
@@ -350,13 +354,27 @@ public:
         return *Element;
     }
 
-    /** 末尾へのその場構築を試み、失敗時は nullptr を返す。 */
+    /**
+     * 末尾へのその場構築を試み、失敗時は nullptr を返す。
+     *
+     * @details 容量内なら直接構築する。容量成長時は新領域を確保した後、旧領域が
+     * 生存している間に新しい末尾を構築してから既存要素を移送する。これにより、
+     * コンストラクタが同じ配列内の要素やその一部から値を読み取る間は参照を
+     * 無効化しない。
+     */
     template<typename... Args>
     T* TryEmplaceBack(Args&&... Arguments) noexcept
     {
-        if (!EnsureCapacityForOneMore()) return nullptr;
-        ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
-        return &m_Data[m_Size++];
+        if (m_Size < m_Capacity) {
+            ::new (&m_Data[m_Size]) T(Forward<Args>(Arguments)...);
+            return &m_Data[m_Size++];
+        }
+        if (m_Size == ~usize(0)) return nullptr;
+
+        usize NewCapacity = 0u;
+        if (!TryCalculateNextGrowth(m_Size + 1u, NewCapacity)) return nullptr;
+        return TryGrowAndEmplaceBack(
+            NewCapacity, Forward<Args>(Arguments)...);
     }
 
     /**
@@ -544,14 +562,55 @@ private:
         return Capacity >= Required;
     }
 
-    /** 末尾 1 要素分の容量を、失敗時に状態を変えず確保する。 */
-    bool EnsureCapacityForOneMore() noexcept
+    /**
+     * 新領域へ末尾を構築してから既存要素を移送し、成長を確定する。
+     *
+     * @details 確保が成功するまでは引数にも配列にも触れない。末尾の構築時点では
+     * 旧領域が生存しているため、コンストラクタは旧要素やそのメンバから値を
+     * 読み取れる。非自己参照の場合も追加の退避や探索を行わない。
+     *
+     * @tparam Args T のコンストラクタ引数型。
+     * @param NewCapacity 確保する新しい容量。
+     * @param Arguments T のコンストラクタへ転送する引数。
+     * @return 構築した末尾要素。容量オーバーフローまたは確保失敗なら nullptr。
+     */
+    template<typename... Args>
+    T* TryGrowAndEmplaceBack(
+        usize NewCapacity,
+        Args&&... Arguments) noexcept
     {
-        if (m_Size < m_Capacity) return true;
-        if (m_Size == ~usize(0)) return false;
+        if (NewCapacity <= m_Size ||
+            NewCapacity > (~usize(0)) / sizeof(T)) {
+            return nullptr;
+        }
 
-        usize NewCapacity = 0u;
-        return TryCalculateNextGrowth(m_Size + 1u, NewCapacity) && Grow(NewCapacity);
+        T* const NewData = static_cast<T*>(
+            m_Alloc->Alloc(
+                sizeof(T) * NewCapacity,
+                alignof(T),
+                FSourceLoc::Current()));
+        if (!NewData) return nullptr;
+
+        // 引数が旧領域を参照できるうちに、追加要素を先に完成させる。
+        ::new (&NewData[m_Size]) T(Forward<Args>(Arguments)...);
+
+        if (m_Data) {
+            if constexpr (IsTriviallyCopyableV<T>) {
+                MemCopy(NewData, m_Data, sizeof(T) * m_Size);
+            } else {
+                for (usize i = 0; i < m_Size; ++i) {
+                    ::new (&NewData[i]) T(Move(m_Data[i]));
+                    if constexpr (!IsTriviallyDestructibleV<T>) {
+                        m_Data[i].~T();
+                    }
+                }
+            }
+            m_Alloc->Free(m_Data);
+        }
+
+        m_Data = NewData;
+        m_Capacity = NewCapacity;
+        return &m_Data[m_Size++];
     }
 
     /**

@@ -94,8 +94,10 @@ struct FPostProcessParams {
     /**
      * tonemap 直前に additive 合成する SSR 出力テクスチャ (FSsr::OutputTexture())。
      *
-     * @details null で SSR 無し。Bloom と並んで mix される。intensity は SSR shader 側で
-     * 適用済みのため二重適用はされない。
+     * @details null で SSR 無し。入力は scene-linear HDR とする。
+     * auto exposure の完了値と manual exposure / EV compensation は
+     * main HDR と同じく各 1 回だけ適用される。intensity は SSR shader 側で
+     * 適用済みのため二重適用はされない。null 時は追加の exposure sample も発行しない。
      */
     IRhiTexture* ssr_texture = nullptr;
 
@@ -304,6 +306,25 @@ public:
 
     /** 確保した GPU リソースを解放する。 */
     void Shutdown() noexcept;
+
+    /**
+     * Keep allocated TAA targets but reject the previous logical camera's
+     * output. The next enabled resolve starts from current color.
+     */
+    void InvalidateTaaHistory() noexcept {
+        m_TaaFrame = 0u;
+        m_TaaOutputValid = false;
+    }
+
+    /**
+     * Keep exposure resources but reject adaptation from the previous logical
+     * scene or camera. The next enabled auto-exposure frame meters current HDR
+     * and takes its target exposure without blending stale eye adaptation.
+     */
+    void InvalidateExposureHistory() noexcept {
+        m_AutoFrame = 0u;
+        m_ExposureOutputValid = false;
+    }
 
     /**
      * ウィンドウサイズ変更時に HDR RT 等を再作成する。

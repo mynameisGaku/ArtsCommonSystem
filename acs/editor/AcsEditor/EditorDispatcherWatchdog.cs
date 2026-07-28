@@ -210,9 +210,14 @@ internal sealed class EditorDispatcherWatchdog : IDisposable
     {
         lock (_stateLock)
         {
+            _lastHeartbeatTimestamp = _timestampProvider();
+            _heartbeatCount = 0;
             _lastDispatcherGapTicks = 0;
             _maximumDispatcherGapTicks = 0;
             _longestStallTicks = 0;
+            _stallCount = 0;
+            _stallActive = 0;
+            _activeStallPhase = "none";
         }
     }
 

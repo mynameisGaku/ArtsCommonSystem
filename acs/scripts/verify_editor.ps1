@@ -17,7 +17,8 @@ SKIP, and FAIL or SKIP produces exit code 1.
 fast    - isolated Editor build plus a short, high-signal managed smoke set.
 managed - isolated Editor build, every registered managed self-test, Blueprint
           self-test, and the package CLI self-test.
-full    - managed mode plus an isolated native configure/build/CTest run.
+full    - managed mode plus the cloud profiler harness self-test and an
+          isolated native configure/build/CTest run.
 
 .PARAMETER DryRun
 Validates the entry point and prints the complete command plan without
@@ -623,11 +624,18 @@ $packageProject = Join-Path $acsRoot "tools\acspackage\AcsPackage.csproj"
 $editorSourceDirectory = Split-Path -Parent $editorProject
 $packageSourceDirectory = Split-Path -Parent $packageProject
 $nativeSource = Join-Path $acsRoot "engine"
+$cloudProfilerScript =
+    Join-Path $scriptDirectory "profile_cloud_quality.ps1"
 
-foreach ($requiredPath in @(
-        $editorProject,
-        $packageProject,
-        (Join-Path $nativeSource "CMakeLists.txt"))) {
+$requiredPaths = @(
+    $editorProject,
+    $packageProject,
+    (Join-Path $nativeSource "CMakeLists.txt")
+)
+if ($Mode -eq "full") {
+    $requiredPaths += $cloudProfilerScript
+}
+foreach ($requiredPath in $requiredPaths) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         Write-Error "Required verification input is missing: $requiredPath"
         exit 2
@@ -723,9 +731,12 @@ $sourceSnapshotReady = Initialize-VerificationSourceSnapshot `
 $dotnet = Resolve-VerificationTool -Name "dotnet" -Group "preflight"
 $cmake = $null
 $ctest = $null
+$powerShell = $null
 if ($Mode -eq "full") {
     $cmake = Resolve-VerificationTool -Name "cmake" -Group "preflight"
     $ctest = Resolve-VerificationTool -Name "ctest" -Group "preflight"
+    $powerShell =
+        Resolve-VerificationTool -Name "powershell.exe" -Group "preflight"
 }
 
 $fastEditorTests = @(
@@ -736,7 +747,9 @@ $fastEditorTests = @(
     "--camera-authoring-selftest",
     "--profiler-selftest",
     "--operation-diagnostics-selftest",
-    "--package-responsiveness-selftest"
+    "--project-launcher-responsiveness-selftest",
+    "--package-responsiveness-selftest",
+    "--package-metadata-editor-selftest"
 )
 $allEditorTests = @(
     "--abi-contract-selftest",
@@ -750,12 +763,15 @@ $allEditorTests = @(
     "--asset-creation-selftest",
     "--asset-import-selftest",
     "--asset-browser-selftest",
+    "--asset-package-readiness-selftest",
     "--thumbnail-ddc-selftest",
     "--workspace-selftest",
     "--camera-authoring-selftest",
     "--profiler-selftest",
     "--operation-diagnostics-selftest",
+    "--project-launcher-responsiveness-selftest",
     "--package-responsiveness-selftest",
+    "--package-metadata-editor-selftest",
     "--editor-reliability-selftest",
     "--bptest"
 )
@@ -899,16 +915,66 @@ if ($Mode -ne "fast") {
             -Environment $processEnvironment `
             -LogDirectory $logs `
             -TimeoutSeconds 600)
+
+        if ($Mode -eq "full") {
+            $distributionArtifacts =
+                Join-Path $isolatedTemp "distribution-e2e"
+            [void](Invoke-VerificationStep `
+                -Group "package" `
+                -Name "distribution E2E" `
+                -FilePath $dotnet `
+                -Arguments @(
+                    $packageAssembly,
+                    "distribution-e2e",
+                    "--artifacts",
+                    $distributionArtifacts
+                ) `
+                -WorkingDirectory $acsRoot `
+                -Environment $processEnvironment `
+                -LogDirectory $logs `
+                -TimeoutSeconds 600)
+        }
     }
     else {
         Add-SkippedVerificationStep `
             -Group "package" `
             -Name "deterministic package smoke" `
             -Reason "The isolated package CLI build is unavailable."
+        if ($Mode -eq "full") {
+            Add-SkippedVerificationStep `
+                -Group "package" `
+                -Name "distribution E2E" `
+                -Reason "The isolated package CLI build is unavailable."
+        }
     }
 }
 
 if ($Mode -eq "full") {
+    if ($null -ne $powerShell) {
+        [void](Invoke-VerificationStep `
+            -Group "rendering" `
+            -Name "cloud profiler harness self-test" `
+            -FilePath $powerShell `
+            -Arguments @(
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-File", $cloudProfilerScript,
+                "-SelfTest"
+            ) `
+            -WorkingDirectory $acsRoot `
+            -Environment $processEnvironment `
+            -LogDirectory $logs `
+            -TimeoutSeconds 120)
+    }
+    else {
+        Add-SkippedVerificationStep `
+            -Group "rendering" `
+            -Name "cloud profiler harness self-test" `
+            -Reason "powershell.exe is unavailable."
+    }
+
     $nativeConfigured = $false
     if ($null -ne $cmake) {
         $nativeConfigureArguments = @(

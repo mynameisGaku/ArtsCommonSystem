@@ -361,7 +361,15 @@ ACS_TEST(PbrExpressionContract,
         CountOccurrences(source, "float3 SampleIndirectEnvironment("),
         static_cast<std::size_t>(2));
     EXPECT_EQ(
-        CountOccurrences(source, "return 0.25 * ("),
+        CountOccurrences(source, "radiance = 0.25 * ("),
+        static_cast<std::size_t>(2));
+    EXPECT_EQ(
+        CountOccurrences(source, "return radiance;"),
+        static_cast<std::size_t>(2));
+    EXPECT_EQ(
+        CountOccurrences(
+            source,
+            "env.SampleLevel(env_sampler, direction, 0).rgb"),
         static_cast<std::size_t>(2));
     EXPECT_EQ(
         CountOccurrences(source, "ring_center + tangent_offset"),

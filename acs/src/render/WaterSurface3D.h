@@ -282,6 +282,18 @@ public:
     u32 ActiveRippleCountForSurface(u64 surface_id) const noexcept;
 
     /**
+     * Conservative world-space vertex-displacement radius for one surface.
+     *
+     * @details This exactly upper-bounds the four analytic ambient-wave
+     * amplitudes plus every currently uploaded ripple amplitude for surface_id.
+     * It is intended for frustum-bound inflation, so a crest cannot pop at the
+     * edge of the camera after the undisplaced base mesh has been culled.
+     */
+    f32 ConservativeDisplacementBoundForSurface(
+        u64 surface_id,
+        const FWaterSurface3DParams& params) const noexcept;
+
+    /**
      * Normalized amplitude applied to a disturbance at the supplied age.
      *
      * @details Exponential physical damping is combined with a C2-continuous
@@ -380,6 +392,10 @@ public:
      * @param hardware_depth_bound Selects the depth-test/write PSO. The caller
      *        is responsible for binding a DSV whose viewport and projection
      *        match scene_depth.
+     * @param authored_normal_map Optional mesh-UV tangent-space normal map.
+     *        It is slope-composed with the persistent analytic wave normal and
+     *        the generated world-space detail normal; it never replaces either.
+     * @param authored_normal_strength Non-negative authored-map slope scale.
      */
     void DrawMesh(IRhiCommandList& command_list, const FGpuMesh& mesh,
                   const FMat4& model,
@@ -387,7 +403,9 @@ public:
                   IRhiTexture* scene_depth = nullptr,
                   IRhiTexture* screen_reflection = nullptr,
                   u64 surface_id = 0u,
-                  bool hardware_depth_bound = false) noexcept;
+                  bool hardware_depth_bound = false,
+                  IRhiTexture* authored_normal_map = nullptr,
+                  f32 authored_normal_strength = 1.0f) noexcept;
 
     IRhiPipeline* Pipeline() const noexcept { return m_Pipeline.Get(); }
     IRhiTexture* NormalTexture() const noexcept { return m_NormalMap.Get(); }
@@ -427,6 +445,16 @@ private:
     u32 AvailableEventSlots(
         u64 surface_id, bool wake) const noexcept;
 
+    /**
+     * Removes the event referenced by one dense-list position in O(1).
+     *
+     * The storage slot remains stable for the event's lifetime. Only the dense
+     * iteration list is swap-compacted, so inserting a new pointer sample can
+     * never overwrite or refresh an earlier visible disturbance.
+     */
+    void DeactivateEventAtActivePosition(
+        u32 active_position) noexcept;
+
     IRhiDevice* m_Device = nullptr;
     TUniquePtr<IRhiShader> m_Vs;
     TUniquePtr<IRhiShader> m_Ps;
@@ -444,6 +472,8 @@ private:
 
     FWaterSurface3DParams m_Params{};
     FRipple m_Ripples[kMaxStoredRipples]{};
+    u32 m_ActiveRippleStorageIndices[kMaxStoredRipples]{};
+    u32 m_ActiveRippleCount = 0u;
 
     FMat4 m_ViewProjection{};
     FMat4 m_InverseViewProjection{};

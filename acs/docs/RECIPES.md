@@ -497,6 +497,14 @@ if (motion_gbuffer_valid) {
 - `BeginFrame` の pool は必要数まで増え、フレーム間で保持される
 - `UINT32_MAX` は内部の無効 cursor sentinel なので予約数に使えない
 - `Begin` / `DrawMesh` の `false` を無視して出力を公開してはいけない
+- カメラ所有者・Perspective/Ortho・2D/3D表示・Play復帰・resize・scene 置換などの
+  不連続では TAA / SSR / SSGI と volumetric cloud の履歴を一括破棄する。SSR /
+  SSGI は無効化中または G-buffer 不成立時にも履歴を破棄し、描画フレームを挟まず
+  OFF→ON に戻された品質設定も設定反映時に cold-start させる
+- TAA / SSR / SSGI の 3 pass は共通の `TemporalHistory` policy により、
+  invalidate 後の frame 0 を current VP・current weight 1.0・motion mode 無効で
+  cold-start し、frame 1 以降だけ caller の previous VP・weight・motion availability
+  を使う
 
 ---
 

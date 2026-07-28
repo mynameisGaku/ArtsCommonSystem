@@ -18,6 +18,19 @@ internal sealed record ToolPanelDockingDescriptor(
     string PanelId,
     string AccessibleName);
 
+internal enum ToolPanelUserAction
+{
+    Show,
+    Hide,
+    Float,
+    Redock,
+}
+
+internal sealed record ToolPanelUserActionDescriptor(
+    ToolPanelUserAction Action,
+    string CommandSuffix,
+    string Verb);
+
 /// <summary>
 /// Explicit registry for editor tool panels that may leave the main window.
 /// Adding a new panel is an intentional contract change; unknown IDs fail closed.
@@ -26,17 +39,54 @@ internal static class ToolPanelDockingContract
 {
     internal const string HierarchyPanelId = "hierarchy";
     internal const string InspectorPanelId = "inspector";
-    internal const string BottomPanelId = "bottom";
+    internal const string ConsolePanelId = "console";
+    internal const string BuildPanelId = "build";
+    internal const string AssetsPanelId = "assets";
+    internal const string ProfilerPanelId = "profiler";
 
-    private static readonly ToolPanelDockingDescriptor[] Registered =
-    {
-        new(HierarchyPanelId, "Scene Outliner"),
-        new(InspectorPanelId, "Details"),
-        new(BottomPanelId, "Console, Build, Assets, and Profiler"),
-    };
+    private static readonly IReadOnlyList<ToolPanelDockingDescriptor>
+        Registered = Array.AsReadOnly(
+            new ToolPanelDockingDescriptor[]
+            {
+                new(HierarchyPanelId, "Scene Outliner"),
+                new(InspectorPanelId, "Details"),
+                new(ConsolePanelId, "Console"),
+                new(BuildPanelId, "Build"),
+                new(AssetsPanelId, "Assets"),
+                new(ProfilerPanelId, "Profiler"),
+            });
+
+    private static readonly IReadOnlyList<string> BottomTools =
+        Array.AsReadOnly(
+            new string[]
+            {
+                ConsolePanelId,
+                BuildPanelId,
+                AssetsPanelId,
+                ProfilerPanelId,
+            });
+
+    private static readonly IReadOnlyList<ToolPanelUserActionDescriptor>
+        UserActions = Array.AsReadOnly(
+            new ToolPanelUserActionDescriptor[]
+            {
+                new(ToolPanelUserAction.Show, "show", "Show"),
+                new(ToolPanelUserAction.Hide, "hide", "Hide"),
+                new(ToolPanelUserAction.Float, "float", "Float"),
+                new(ToolPanelUserAction.Redock, "redock", "Re-dock"),
+            });
 
     internal static IReadOnlyList<ToolPanelDockingDescriptor> RegisteredPanels =>
         Registered;
+
+    internal static IReadOnlyList<string> BottomToolPanelIds => BottomTools;
+
+    internal static IReadOnlyList<ToolPanelUserActionDescriptor>
+        RegisteredUserActions => UserActions;
+
+    internal static bool IsBottomToolPanelId(string? panelId) =>
+        panelId != null &&
+        BottomTools.Contains(panelId, StringComparer.Ordinal);
 
     internal static bool IsKnownPanelId(string? panelId) =>
         panelId != null &&
@@ -78,6 +128,74 @@ internal static class ToolPanelDockingContract
         descriptor = Registered.FirstOrDefault(panel =>
             string.Equals(panel.PanelId, panelId, StringComparison.Ordinal))!;
         return descriptor != null;
+    }
+
+    internal static bool CanExecuteUserAction(
+        ToolPanelDockState state,
+        ToolPanelUserAction action)
+    {
+        if (!Enum.IsDefined(state) || !Enum.IsDefined(action))
+            return false;
+        return action switch
+        {
+            ToolPanelUserAction.Show =>
+                state == ToolPanelDockState.Hidden,
+            ToolPanelUserAction.Hide =>
+                state is ToolPanelDockState.Docked or
+                    ToolPanelDockState.Floating,
+            ToolPanelUserAction.Float =>
+                state is ToolPanelDockState.Docked or
+                    ToolPanelDockState.Hidden,
+            ToolPanelUserAction.Redock =>
+                state == ToolPanelDockState.Floating,
+            _ => false,
+        };
+    }
+
+    internal static string PaletteCommandId(
+        string panelId,
+        ToolPanelUserAction action)
+    {
+        if (!IsKnownPanelId(panelId))
+            throw new ArgumentOutOfRangeException(nameof(panelId));
+        ToolPanelUserActionDescriptor descriptor =
+            UserActions.FirstOrDefault(candidate =>
+                candidate.Action == action) ??
+            throw new ArgumentOutOfRangeException(nameof(action));
+        return $"view.panel.{panelId}.{descriptor.CommandSuffix}";
+    }
+
+    internal static bool TryParseMenuActionTag(
+        string? tag,
+        out string panelId,
+        out ToolPanelUserAction action)
+    {
+        panelId = string.Empty;
+        action = default;
+        const string Prefix = "view.panel.";
+        if (tag == null ||
+            !tag.StartsWith(Prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string payload = tag[Prefix.Length..];
+        int separator = payload.LastIndexOf('.');
+        if (separator <= 0 || separator == payload.Length - 1)
+            return false;
+        string candidatePanelId = payload[..separator];
+        string suffix = payload[(separator + 1)..];
+        ToolPanelUserActionDescriptor? descriptor =
+            UserActions.FirstOrDefault(candidate =>
+                string.Equals(
+                    candidate.CommandSuffix,
+                    suffix,
+                    StringComparison.Ordinal));
+        if (!IsKnownPanelId(candidatePanelId) || descriptor == null)
+            return false;
+        panelId = candidatePanelId;
+        action = descriptor.Action;
+        return true;
     }
 
     internal static Rect NormalizePlacementRect(
@@ -156,6 +274,77 @@ internal static class ToolPanelWindowPolicy
         redockSucceeded;
 }
 
+internal static class BottomToolDockSelectionPolicy
+{
+    /// <summary>
+    /// Keeps the requested workspace tab when it is docked, otherwise chooses
+    /// the first docked tool in contract order. When every tool is floating or
+    /// hidden, the requested stable ID is retained for the next restore.
+    /// </summary>
+    internal static string ResolveActivePanelId(
+        string? requestedPanelId,
+        IReadOnlyCollection<string> dockedPanelIds)
+    {
+        ArgumentNullException.ThrowIfNull(dockedPanelIds);
+        string requested =
+            ToolPanelDockingContract.IsBottomToolPanelId(requestedPanelId)
+                ? requestedPanelId!
+                : ToolPanelDockingContract.ConsolePanelId;
+        if (dockedPanelIds.Contains(requested, StringComparer.Ordinal))
+            return requested;
+        return ToolPanelDockingContract.BottomToolPanelIds.FirstOrDefault(
+                   panelId =>
+                       dockedPanelIds.Contains(
+                           panelId,
+                           StringComparer.Ordinal)) ??
+               requested;
+    }
+}
+
+/// <summary>
+/// Presentation-only visibility for the aggregate bottom dock. Collapsing the
+/// dock must not rewrite the Docked/Floating/Hidden state of any child tool.
+/// </summary>
+internal sealed class BottomToolDockVisibilityState
+{
+    internal bool IsSuppressed { get; private set; }
+
+    internal bool IsVisible(int dockedToolCount) =>
+        !IsSuppressed && dockedToolCount > 0;
+
+    internal void SetVisible(bool visible) =>
+        IsSuppressed = !visible;
+}
+
+internal static class ToolPanelWorkspaceMutationPolicy
+{
+    internal static bool ShouldMarkCustomized(
+        bool restoreCompleted,
+        bool persistenceSuppressed) =>
+        restoreCompleted && !persistenceSuppressed;
+
+    internal static bool ShouldMarkPublishedTransition(
+        bool committedTransition,
+        bool userMutationInProgress,
+        bool restoreCompleted,
+        bool persistenceSuppressed) =>
+        committedTransition &&
+        !userMutationInProgress &&
+        ShouldMarkCustomized(restoreCompleted, persistenceSuppressed);
+
+    internal static bool ApplyUserMutation(
+        Func<bool> applyMutation,
+        Action markCustomized)
+    {
+        ArgumentNullException.ThrowIfNull(applyMutation);
+        ArgumentNullException.ThrowIfNull(markCustomized);
+        if (!applyMutation())
+            return false;
+        markCustomized();
+        return true;
+    }
+}
+
 internal static class ToolPanelResetTransactionPolicy
 {
     internal static bool CanCommitDefaults(
@@ -192,6 +381,59 @@ internal static class ToolPanelResetTransactionPolicy
         Enum.IsDefined(initialState) &&
         Enum.IsDefined(actualState) &&
         initialState == actualState;
+}
+
+internal static class ToolPanelOwnerCloseTransactionPolicy
+{
+    internal const double PlacementToleranceDip = 0.75;
+
+    internal static bool HasRestoredState(
+        DockableToolHostSnapshot requested,
+        ToolPanelDockState actualState) =>
+        ToolPanelDockingContract.IsKnownPanelId(requested.PanelId) &&
+        Enum.IsDefined(requested.State) &&
+        requested.State == actualState;
+
+    internal static bool HasRestoredSnapshot(
+        DockableToolHostSnapshot requested,
+        DockableToolHostSnapshot actual) =>
+        string.Equals(
+            requested.PanelId,
+            actual.PanelId,
+            StringComparison.Ordinal) &&
+        HasRestoredState(requested, actual.State) &&
+        PlacementMatches(requested.Placement, actual.Placement);
+
+    private static bool PlacementMatches(Rect requested, Rect actual) =>
+        IsFinite(requested) &&
+        IsFinite(actual) &&
+        Math.Abs(requested.Left - actual.Left) <= PlacementToleranceDip &&
+        Math.Abs(requested.Top - actual.Top) <= PlacementToleranceDip &&
+        Math.Abs(requested.Width - actual.Width) <= PlacementToleranceDip &&
+        Math.Abs(requested.Height - actual.Height) <= PlacementToleranceDip;
+
+    private static bool IsFinite(Rect value) =>
+        double.IsFinite(value.Left) &&
+        double.IsFinite(value.Top) &&
+        double.IsFinite(value.Width) &&
+        double.IsFinite(value.Height) &&
+        value.Width > 0.0 &&
+        value.Height > 0.0;
+
+    internal static bool MustRollbackPending(
+        bool hasPendingSnapshot,
+        bool closeAlreadyCancelled,
+        bool auxiliaryCloseSucceeded) =>
+        hasPendingSnapshot &&
+        (closeAlreadyCancelled || !auxiliaryCloseSucceeded);
+
+    internal static bool MayCommitPending(
+        bool hasPendingSnapshot,
+        bool closeAlreadyCancelled,
+        bool auxiliaryCloseSucceeded) =>
+        hasPendingSnapshot &&
+        !closeAlreadyCancelled &&
+        auxiliaryCloseSucceeded;
 }
 
 internal readonly record struct ToolWindowPixelBounds(
@@ -356,7 +598,7 @@ internal readonly record struct ToolWindowDipBounds(
 
 internal sealed class ToolPanelPlacementState
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
     public string PanelId { get; set; } = "";

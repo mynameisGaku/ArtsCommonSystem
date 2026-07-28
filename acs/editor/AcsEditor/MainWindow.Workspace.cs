@@ -23,6 +23,7 @@ public partial class MainWindow
         Interval = TimeSpan.FromMilliseconds(750)
     };
     private string? _savedSceneSnapshot;
+    private ulong _sceneCleanBaselineGeneration;
     private bool _sceneDirty;
     private bool _snapshotCaptureFailed;
     private double _hierarchyWidth = 260;
@@ -32,8 +33,16 @@ public partial class MainWindow
     private float _snapRotate = 15.0f;
     private float _snapScale = 0.25f;
     private bool _closeApproved;
+    private bool _auxiliaryCloseApproved;
+    private bool _finalCloseApproved;
     private bool _closePreparationRunning;
+    private bool _closeFinalizationRunning;
     private bool _closePreparationInputBlocked;
+    private readonly ModelessOwnerCloseInputTransaction<MaterialEditorWindow>
+        _materialEditorOwnerCloseInput =
+            new(
+                window => window.IsEnabled,
+                (window, enabled) => window.IsEnabled = enabled);
     private bool _replacementAutosaveSuppressed;
     private bool _replacementSuppressedMode3D;
 
@@ -92,6 +101,15 @@ public partial class MainWindow
         if (!_sceneMutationRevision.WorkspaceCaptureRequired) return;
         // Runtime simulation is intentionally non-destructive and is restored on Stop.
         if (EngineInterop.acs_editor_play_state(Engine) != 0 || PreviewBtn.IsChecked == true) return;
+        // The canonical history capture contains this same normalized active
+        // subsystem. Let the 350 ms document boundary publish both consumers
+        // instead of racing it with a second serializer from this 750 ms timer.
+        if (SceneCanonicalCapturePublicationPolicy.ShouldDeferWorkspaceCapture(
+                _documentHostInitialized,
+                _sceneMutationRevision.DocumentCaptureRequired))
+        {
+            return;
+        }
         RefreshDirtyStateFromNativeScene();
     }
 
@@ -154,20 +172,82 @@ public partial class MainWindow
         return false;
     }
 
+    private void SetActiveSavedSceneSnapshot(string? snapshot)
+    {
+        _savedSceneSnapshot = snapshot;
+        _sceneCleanBaselineGeneration =
+            _sceneCleanBaselineGeneration == ulong.MaxValue
+                ? 1
+                : _sceneCleanBaselineGeneration + 1;
+    }
+
+    private SceneCanonicalCapturePublicationKey
+        CurrentCanonicalCapturePublicationKey() =>
+        new(
+            SceneDocumentId(),
+            _sceneMutationRevision.Current,
+            _sceneCleanBaselineGeneration,
+            _view3d);
+
+    /// <summary>
+    /// Reuses the immutable canonical snapshot already captured for Undo.
+    /// Native serializers stay on their owning Dispatcher thread, but an edit
+    /// no longer serializes the active scene a second time for dirty status.
+    /// </summary>
+    private bool TryPublishDirtyStateFromCanonicalCapture(
+        EditorDocument document,
+        SceneCanonicalCapturePublicationKey capturedKey)
+    {
+        if (_savedSceneSnapshot == null ||
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                capturedKey,
+                CurrentCanonicalCapturePublicationKey(),
+                _sceneMutationRevision.WorkspaceCaptureRequired,
+                ReferenceEquals(_documentHost.ActiveDocument, document),
+                _sceneHistorySimulationSuspended ||
+                Engine == IntPtr.Zero ||
+                EngineInterop.acs_editor_play_state(Engine) != 0 ||
+                PreviewBtn.IsChecked == true))
+        {
+            return false;
+        }
+
+        try
+        {
+            string activeSnapshot =
+                SceneWorldDocumentEnvelope.SelectSubsystem(
+                document.ObservedState.ContentFingerprint,
+                capturedKey.Use3D);
+            SetSceneDirty(!string.Equals(
+                activeSnapshot,
+                _savedSceneSnapshot,
+                StringComparison.Ordinal));
+            _sceneMutationRevision.AcknowledgeWorkspace();
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            // The normal workspace timer retains its verified native capture
+            // fallback if a malformed document state is ever observed.
+            return false;
+        }
+    }
+
     private void MarkSceneClean(string? serializedScene = null)
     {
         if (serializedScene == null)
         {
             if (!TryCaptureEditableSceneSnapshot(out string snapshot))
             {
-                _savedSceneSnapshot = null;
+                SetActiveSavedSceneSnapshot(null);
                 return;
             }
-            _savedSceneSnapshot = snapshot;
+            SetActiveSavedSceneSnapshot(snapshot);
         }
         else
         {
-            _savedSceneSnapshot = NormalizeSceneSnapshot(serializedScene);
+            SetActiveSavedSceneSnapshot(
+                NormalizeSceneSnapshot(serializedScene));
             _snapshotCaptureFailed = false;
         }
         SetSceneDirty(false);
@@ -219,7 +299,22 @@ public partial class MainWindow
 
     private async void OnEditorClosing(object? sender, CancelEventArgs e)
     {
-        if (_closeApproved) return;
+        if (_finalCloseApproved)
+            return;
+        if (_closeApproved)
+        {
+            // The document-approved attempt must reach the auxiliary handlers
+            // once. After their commit, keep every re-entrant close cancelled
+            // until autosave workers are joined and recoveries are discarded.
+            if (EditorCloseFinalizationPolicy.ShouldCancelAtEditorGate(
+                    documentsApproved: true,
+                    _auxiliaryCloseApproved,
+                    _finalCloseApproved))
+            {
+                e.Cancel = true;
+            }
+            return;
+        }
         e.Cancel = true;
         if (_closePreparationRunning) return;
         _closePreparationRunning = true;
@@ -236,15 +331,121 @@ public partial class MainWindow
         {
             _closePreparationRunning = false;
             if (!shouldClose)
-            {
-                AssetBrowser.ResumeOperations();
-                SetClosePreparationInputBlocked(blocked: false);
-            }
+                CancelApprovedEditorClose();
         }
 
         if (!shouldClose) return;
         _closeApproved = true;
         _ = Dispatcher.BeginInvoke(new Action(Close));
+    }
+
+    /// <summary>
+    /// Returns an approved-but-cancelled close attempt to the ordinary editor
+    /// state. Auxiliary-window close handlers call this after any re-dock
+    /// failure, including failures that occur after document approval.
+    /// </summary>
+    private void CancelApprovedEditorClose()
+    {
+        _closeApproved = false;
+        _auxiliaryCloseApproved = false;
+        _finalCloseApproved = false;
+        try
+        {
+            AssetBrowser.ResumeOperations();
+        }
+        catch (Exception error)
+        {
+            Log(
+                "Asset operations could not resume after close cancellation: " +
+                error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+
+        try
+        {
+            SetClosePreparationInputBlocked(blocked: false);
+        }
+        catch (Exception error)
+        {
+            Log(
+                "Editor input could not resume after close cancellation: " +
+                error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+
+        try
+        {
+            RevokeHostedMaterialWindowsForOwnerClose();
+        }
+        catch (Exception error)
+        {
+            Log(
+                "Material close approval could not be revoked after close " +
+                "cancellation: " + error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Begins the only destructive close phase after every auxiliary surface
+    /// has returned successfully. The current Closing event is cancelled while
+    /// autosave workers are joined; a final close attempt bypasses all
+    /// auxiliary handlers after cleanup completes.
+    /// </summary>
+    private void FinalizeApprovedEditorCloseAfterAuxiliaryCommit(
+        CancelEventArgs e)
+    {
+        e.Cancel = true;
+        _auxiliaryCloseApproved = true;
+        if (_closeFinalizationRunning)
+            return;
+        _closeFinalizationRunning = true;
+        _ = FinalizeApprovedEditorCloseAsync();
+    }
+
+    private async Task FinalizeApprovedEditorCloseAsync()
+    {
+        try
+        {
+            await StopAndDiscardSessionRecoveriesAsync();
+        }
+        catch (Exception error)
+        {
+            // StopAndDiscardSessionRecoveriesAsync already contains its own
+            // recovery-cleanup boundary. If an unexpected outer failure still
+            // escapes after the auxiliary commit, continuing shutdown is safer
+            // than leaving a partially stopped autosave session open.
+            Log(
+                "Final editor recovery cleanup failed: " + error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+
+        try
+        {
+            await SaveEditorLayoutAsync();
+        }
+        catch (Exception error)
+        {
+            // SaveEditorLayoutAsync owns its ordinary I/O boundary. Keep an
+            // outer fail-safe so no future persistence regression can strand
+            // an already-approved close.
+            Log(
+                "Final editor layout persistence failed: " + error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+        finally
+        {
+            _closeFinalizationRunning = false;
+            _finalCloseApproved = true;
+        }
+
+        if (IsLoaded)
+            _ = Dispatcher.BeginInvoke(new Action(Close));
     }
 
     private async Task<bool> PrepareEditorCloseAsync()
@@ -290,7 +491,6 @@ public partial class MainWindow
             SetClosePreparationInputBlocked(blocked: true);
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
-            await StopAndDiscardSessionRecoveriesAsync();
             ApproveHostedMaterialWindowsForOwnerClose(
                 discardUnsavedChanges: false);
             return true;
@@ -326,7 +526,6 @@ public partial class MainWindow
             }
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
-            await StopAndDiscardSessionRecoveriesAsync();
             ApproveHostedMaterialWindowsForOwnerClose(
                 discardUnsavedChanges: true);
             return true;
@@ -351,7 +550,6 @@ public partial class MainWindow
             }
             if (!await DrainStandaloneGameForEditorCloseAsync())
                 return false;
-            await StopAndDiscardSessionRecoveriesAsync();
             ApproveHostedMaterialWindowsForOwnerClose(
                 discardUnsavedChanges: false);
             return true;
@@ -367,14 +565,25 @@ public partial class MainWindow
         }
         if (!await DrainStandaloneGameForEditorCloseAsync())
             return false;
-        await StopAndDiscardSessionRecoveriesAsync();
         return true;
     }
 
     private void SetClosePreparationInputBlocked(bool blocked)
     {
         _closePreparationInputBlocked = blocked;
-        UpdateEditorInputEnabled();
+        try
+        {
+            MaterialEditorWindow[] materialWindows =
+                _materialEditorWindows.ToArray();
+            if (blocked)
+                _materialEditorOwnerCloseInput.Block(materialWindows);
+            else
+                _materialEditorOwnerCloseInput.Restore(materialWindows);
+        }
+        finally
+        {
+            UpdateEditorInputEnabled();
+        }
     }
 
     private bool IsSceneEditingBlocked => _sceneEditingBlock?.IsBlocked == true;
@@ -501,26 +710,57 @@ public partial class MainWindow
         if (sender is not MenuItem item || item.Tag is not string panel) return;
         switch (panel)
         {
-            case "hierarchy": SetHierarchyVisible(item.IsChecked); break;
-            case "inspector": SetInspectorVisible(item.IsChecked); break;
-            case "bottom": SetBottomDockVisible(item.IsChecked); break;
+            case "hierarchy":
+                _ = SetHierarchyVisibleFromUser(item.IsChecked);
+                return;
+            case "inspector":
+                _ = SetInspectorVisibleFromUser(item.IsChecked);
+                return;
+            case "bottom":
+                SetBottomDockVisible(item.IsChecked);
+                MarkToolPanelWorkspaceCustomizedIfAllowed();
+                return;
+            case ToolPanelDockingContract.ConsolePanelId:
+            case ToolPanelDockingContract.BuildPanelId:
+            case ToolPanelDockingContract.AssetsPanelId:
+            case ToolPanelDockingContract.ProfilerPanelId:
+                _ = ExecuteToolPanelUserAction(
+                    panel,
+                    item.IsChecked
+                        ? ToolPanelUserAction.Show
+                        : ToolPanelUserAction.Hide);
+                return;
         }
-        MarkWorkspaceCustomized();
     }
+
+    private bool SetHierarchyVisibleFromUser(bool visible) =>
+        ExecuteToolPanelUserAction(
+            ToolPanelDockingContract.HierarchyPanelId,
+            visible
+                ? ToolPanelUserAction.Show
+                : ToolPanelUserAction.Hide);
+
+    private bool SetInspectorVisibleFromUser(bool visible) =>
+        ExecuteToolPanelUserAction(
+            ToolPanelDockingContract.InspectorPanelId,
+            visible
+                ? ToolPanelUserAction.Show
+                : ToolPanelUserAction.Hide);
 
     private void OnToggleBottomDock(object sender, RoutedEventArgs e)
     {
-        SetBottomDockVisible(
-            _bottomToolHost?.State == ToolPanelDockState.Hidden);
-        MarkWorkspaceCustomized();
+        _ = ExecuteToolPanelUserAction(
+            _activeBottomToolId,
+            ToolPanelUserAction.Hide);
     }
 
-    private void SetHierarchyVisible(bool visible)
+    private bool SetHierarchyVisible(bool visible)
     {
-        if (_hierarchyToolHost?.IsFloating == true)
+        DockableToolHost? host = GetToolPanelHost(
+            ToolPanelDockingContract.HierarchyPanelId);
+        if (host?.IsFloating == true)
         {
-            _ = _hierarchyToolHost.HandleVisibilityRequest(visible);
-            return;
+            return host.HandleVisibilityRequest(visible);
         }
         ApplyHierarchyDockVisibility(visible);
         UpdateToolPanelPresentation(
@@ -531,6 +771,7 @@ public partial class MainWindow
         PersistDockedToolPanelState(
             ToolPanelDockingContract.HierarchyPanelId,
             visible);
+        return true;
     }
 
     private void ApplyHierarchyDockVisibility(bool visible)
@@ -541,12 +782,13 @@ public partial class MainWindow
         HierarchySplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void SetInspectorVisible(bool visible)
+    private bool SetInspectorVisible(bool visible)
     {
-        if (_inspectorToolHost?.IsFloating == true)
+        DockableToolHost? host = GetToolPanelHost(
+            ToolPanelDockingContract.InspectorPanelId);
+        if (host?.IsFloating == true)
         {
-            _ = _inspectorToolHost.HandleVisibilityRequest(visible);
-            return;
+            return host.HandleVisibilityRequest(visible);
         }
         ApplyInspectorDockVisibility(visible);
         UpdateToolPanelPresentation(
@@ -557,6 +799,7 @@ public partial class MainWindow
         PersistDockedToolPanelState(
             ToolPanelDockingContract.InspectorPanelId,
             visible);
+        return true;
     }
 
     private void ApplyInspectorDockVisibility(bool visible)
@@ -569,20 +812,18 @@ public partial class MainWindow
 
     private void SetBottomDockVisible(bool visible)
     {
-        if (_bottomToolHost?.IsFloating == true)
-        {
-            _ = _bottomToolHost.HandleVisibilityRequest(visible);
-            return;
-        }
-        ApplyBottomDockVisibility(visible);
-        UpdateToolPanelPresentation(
-            ToolPanelDockingContract.BottomPanelId,
-            visible
-                ? ToolPanelDockState.Docked
-                : ToolPanelDockState.Hidden);
-        PersistDockedToolPanelState(
-            ToolPanelDockingContract.BottomPanelId,
-            visible);
+        // Ctrl+J and the View menu collapse only the aggregate presentation.
+        // Individual Docked/Floating/Hidden states and the selected tab remain
+        // authoritative and therefore round-trip without persistence writes.
+        _bottomDockVisibility.SetVisible(visible);
+        RefreshBottomToolDock();
+    }
+
+    private void ToggleBottomDockPresentationFromUser()
+    {
+        SetBottomDockVisible(
+            BottomDockPanel.Visibility != Visibility.Visible);
+        MarkToolPanelWorkspaceCustomizedIfAllowed();
     }
 
     private void ApplyBottomDockVisibility(bool visible)
@@ -621,5 +862,103 @@ public partial class MainWindow
         PlayStatusText.Text = state switch { 1 => "PLAYING", 2 => "PAUSED", _ => "EDIT" };
         PlayStatusText.Foreground = (Brush)FindResource(state == 0 ? "TextDim" : "LiveFg");
         ApplySceneViewModePresentation();
+    }
+}
+
+internal static class EditorCloseFinalizationPolicy
+{
+    internal static bool ShouldCancelAtEditorGate(
+        bool documentsApproved,
+        bool auxiliarySurfacesApproved,
+        bool finalizationCompleted) =>
+        documentsApproved &&
+        auxiliarySurfacesApproved &&
+        !finalizationCompleted;
+
+    internal static bool ShouldBypassAuxiliaryHandlers(
+        bool auxiliarySurfacesApproved) =>
+        auxiliarySurfacesApproved;
+}
+
+/// <summary>
+/// Captures modeless child-window input exactly once for one owner-close
+/// attempt. Re-entrant preparation keeps every captured window disabled;
+/// cancellation restores each live window to its original state.
+/// </summary>
+internal sealed class ModelessOwnerCloseInputTransaction<T>
+    where T : class
+{
+    private readonly Func<T, bool> _readEnabled;
+    private readonly Action<T, bool> _writeEnabled;
+    private Dictionary<T, bool>? _originalStates;
+
+    internal ModelessOwnerCloseInputTransaction(
+        Func<T, bool> readEnabled,
+        Action<T, bool> writeEnabled)
+    {
+        _readEnabled =
+            readEnabled ?? throw new ArgumentNullException(nameof(readEnabled));
+        _writeEnabled =
+            writeEnabled ?? throw new ArgumentNullException(nameof(writeEnabled));
+    }
+
+    internal bool IsBlocked => _originalStates != null;
+    internal int CapturedCount => _originalStates?.Count ?? 0;
+
+    internal void Block(IEnumerable<T> windows)
+    {
+        ArgumentNullException.ThrowIfNull(windows);
+        _originalStates ??= new Dictionary<T, bool>();
+        List<Exception>? errors = null;
+        foreach (T window in windows.Distinct())
+        {
+            try
+            {
+                if (!_originalStates.ContainsKey(window))
+                    _originalStates.Add(window, _readEnabled(window));
+                _writeEnabled(window, false);
+            }
+            catch (Exception error)
+            {
+                (errors ??= new List<Exception>()).Add(error);
+            }
+        }
+        if (errors != null)
+        {
+            throw new AggregateException(
+                "One or more modeless windows could not be disabled.",
+                errors);
+        }
+    }
+
+    internal void Restore(IEnumerable<T> liveWindows)
+    {
+        ArgumentNullException.ThrowIfNull(liveWindows);
+        Dictionary<T, bool>? originalStates = _originalStates;
+        if (originalStates == null)
+            return;
+        _originalStates = null;
+
+        var live = new HashSet<T>(liveWindows);
+        List<Exception>? errors = null;
+        foreach ((T window, bool wasEnabled) in originalStates)
+        {
+            if (!live.Contains(window))
+                continue;
+            try
+            {
+                _writeEnabled(window, wasEnabled);
+            }
+            catch (Exception error)
+            {
+                (errors ??= new List<Exception>()).Add(error);
+            }
+        }
+        if (errors != null)
+        {
+            throw new AggregateException(
+                "One or more modeless windows could not restore input.",
+                errors);
+        }
     }
 }

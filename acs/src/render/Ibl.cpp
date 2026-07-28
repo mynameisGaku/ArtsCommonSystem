@@ -168,12 +168,13 @@ VSOut VSMain(uint id : SV_VertexID) {
 // uv.y=0 が face row 0 (= 後で TextureCube.Sample が返す top) になる前提。
 float3 CubeFaceDir(float2 uv01, int face) {
     float2 m = uv01 * 2.0 - 1.0;
-    if (face == 0) return float3( 1.0, -m.y, -m.x);    // +X
-    if (face == 1) return float3(-1.0, -m.y,  m.x);    // -X
-    if (face == 2) return float3( m.x,  1.0,  m.y);    // +Y
-    if (face == 3) return float3( m.x, -1.0, -m.y);    // -Y
-    if (face == 4) return float3( m.x, -m.y,  1.0);    // +Z
-    return                 float3(-m.x, -m.y, -1.0);   // -Z
+    float3 direction = float3(-m.x, -m.y, -1.0);       // -Z
+    if      (face == 0) direction = float3( 1.0, -m.y, -m.x); // +X
+    else if (face == 1) direction = float3(-1.0, -m.y,  m.x); // -X
+    else if (face == 2) direction = float3( m.x,  1.0,  m.y); // +Y
+    else if (face == 3) direction = float3( m.x, -1.0, -m.y); // -Y
+    else if (face == 4) direction = float3( m.x, -m.y,  1.0); // +Z
+    return direction;
 }
 
 float3 ProcSky(float3 dir) {
@@ -330,12 +331,13 @@ VSOut VSMain(uint id : SV_VertexID) {
 
 float3 CubeFaceDir(float2 uv01, int face) {
     float2 m = uv01 * 2.0 - 1.0;
-    if (face == 0) return float3( 1.0, -m.y, -m.x);
-    if (face == 1) return float3(-1.0, -m.y,  m.x);
-    if (face == 2) return float3( m.x,  1.0,  m.y);
-    if (face == 3) return float3( m.x, -1.0, -m.y);
-    if (face == 4) return float3( m.x, -m.y,  1.0);
-    return                 float3(-m.x, -m.y, -1.0);
+    float3 direction = float3(-m.x, -m.y, -1.0);
+    if      (face == 0) direction = float3( 1.0, -m.y, -m.x);
+    else if (face == 1) direction = float3(-1.0, -m.y,  m.x);
+    else if (face == 2) direction = float3( m.x,  1.0,  m.y);
+    else if (face == 3) direction = float3( m.x, -1.0, -m.y);
+    else if (face == 4) direction = float3( m.x, -m.y,  1.0);
+    return direction;
 }
 
 static const float PI       = 3.14159265358979;
@@ -345,6 +347,7 @@ static const uint  kNumPhi   = 64u;
 static const uint  kNumTheta = 16u;
 
 float3 SampleIndirectEnvironment(float3 direction) {
+    float3 radiance = float3(0.0, 0.0, 0.0);
     if (direct_light_exclusion.w <= 1.0 &&
         dot(direction, direct_light_exclusion.xyz) >=
             direct_light_exclusion.w) {
@@ -366,7 +369,7 @@ float3 SampleIndirectEnvironment(float3 direction) {
         float3 ring_center = light_direction * ring_cos;
         float3 tangent_offset = tangent * ring_sin;
         float3 bitangent_offset = bitangent * ring_sin;
-        return 0.25 * (
+        radiance = 0.25 * (
             env.SampleLevel(env_sampler,
                             ring_center + tangent_offset, 0).rgb +
             env.SampleLevel(env_sampler,
@@ -375,8 +378,10 @@ float3 SampleIndirectEnvironment(float3 direction) {
                             ring_center + bitangent_offset, 0).rgb +
             env.SampleLevel(env_sampler,
                             ring_center - bitangent_offset, 0).rgb);
+    } else {
+        radiance = env.SampleLevel(env_sampler, direction, 0).rgb;
     }
-    return env.SampleLevel(env_sampler, direction, 0).rgb;
+    return radiance;
 }
 
 float3 IntegrateDiffuse(float3 N) {
@@ -458,12 +463,13 @@ VSOut VSMain(uint id : SV_VertexID) {
 
 float3 CubeFaceDir(float2 uv01, int face) {
     float2 m = uv01 * 2.0 - 1.0;
-    if (face == 0) return float3( 1.0, -m.y, -m.x);
-    if (face == 1) return float3(-1.0, -m.y,  m.x);
-    if (face == 2) return float3( m.x,  1.0,  m.y);
-    if (face == 3) return float3( m.x, -1.0, -m.y);
-    if (face == 4) return float3( m.x, -m.y,  1.0);
-    return                 float3(-m.x, -m.y, -1.0);
+    float3 direction = float3(-m.x, -m.y, -1.0);
+    if      (face == 0) direction = float3( 1.0, -m.y, -m.x);
+    else if (face == 1) direction = float3(-1.0, -m.y,  m.x);
+    else if (face == 2) direction = float3( m.x,  1.0,  m.y);
+    else if (face == 3) direction = float3( m.x, -1.0, -m.y);
+    else if (face == 4) direction = float3( m.x, -m.y,  1.0);
+    return direction;
 }
 
 static const float PI = 3.14159265358979;
@@ -481,6 +487,7 @@ float2 Hammersley(uint i, uint n) {
 }
 
 float3 SampleIndirectEnvironment(float3 direction) {
+    float3 radiance = float3(0.0, 0.0, 0.0);
     if (direct_light_exclusion.w <= 1.0 &&
         dot(direction, direct_light_exclusion.xyz) >=
             direct_light_exclusion.w) {
@@ -501,7 +508,7 @@ float3 SampleIndirectEnvironment(float3 direction) {
         float3 ring_center = light_direction * ring_cos;
         float3 tangent_offset = tangent * ring_sin;
         float3 bitangent_offset = bitangent * ring_sin;
-        return 0.25 * (
+        radiance = 0.25 * (
             env.SampleLevel(env_sampler,
                             ring_center + tangent_offset, 0).rgb +
             env.SampleLevel(env_sampler,
@@ -510,8 +517,10 @@ float3 SampleIndirectEnvironment(float3 direction) {
                             ring_center + bitangent_offset, 0).rgb +
             env.SampleLevel(env_sampler,
                             ring_center - bitangent_offset, 0).rgb);
+    } else {
+        radiance = env.SampleLevel(env_sampler, direction, 0).rgb;
     }
-    return env.SampleLevel(env_sampler, direction, 0).rgb;
+    return radiance;
 }
 
 float3 ImportanceSampleGGX(float2 xi, float3 N, float roughness) {
@@ -605,12 +614,13 @@ VSOut VSMain(uint id : SV_VertexID) {
 
 float3 CubeFaceDir(float2 uv01, int face) {
     float2 m = uv01 * 2.0 - 1.0;
-    if (face == 0) return float3( 1.0, -m.y, -m.x);
-    if (face == 1) return float3(-1.0, -m.y,  m.x);
-    if (face == 2) return float3( m.x,  1.0,  m.y);
-    if (face == 3) return float3( m.x, -1.0, -m.y);
-    if (face == 4) return float3( m.x, -m.y,  1.0);
-    return                 float3(-m.x, -m.y, -1.0);
+    float3 direction = float3(-m.x, -m.y, -1.0);
+    if      (face == 0) direction = float3( 1.0, -m.y, -m.x);
+    else if (face == 1) direction = float3(-1.0, -m.y,  m.x);
+    else if (face == 2) direction = float3( m.x,  1.0,  m.y);
+    else if (face == 3) direction = float3( m.x, -1.0, -m.y);
+    else if (face == 4) direction = float3( m.x, -m.y,  1.0);
+    return direction;
 }
 
 static const float PI     = 3.14159265358979;

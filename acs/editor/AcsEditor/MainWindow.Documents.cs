@@ -69,6 +69,37 @@ internal sealed class SceneMutationRevisionGate
         startingRevision == completedRevision;
 }
 
+internal readonly record struct SceneCanonicalCapturePublicationKey(
+    EditorDocumentId DocumentId,
+    ulong MutationRevision,
+    ulong CleanBaselineGeneration,
+    bool Use3D);
+
+/// <summary>
+/// A canonical scene capture may serve both Undo and workspace dirty state
+/// only while every identity/generation input remains current. This keeps the
+/// optimization fail-closed if a scene replacement, save, view switch, or
+/// newer mutation occurs between capture and publication.
+/// </summary>
+internal static class SceneCanonicalCapturePublicationPolicy
+{
+    internal static bool ShouldDeferWorkspaceCapture(
+        bool documentHostInitialized,
+        bool documentCaptureRequired) =>
+        documentHostInitialized && documentCaptureRequired;
+
+    internal static bool ShouldPublish(
+        SceneCanonicalCapturePublicationKey captured,
+        SceneCanonicalCapturePublicationKey current,
+        bool workspaceCaptureRequired,
+        bool activeDocumentMatches,
+        bool simulationActive) =>
+        workspaceCaptureRequired &&
+        activeDocumentMatches &&
+        !simulationActive &&
+        captured == current;
+}
+
 /// <summary>
 /// Common document-host adapter for one scene document. The native 2D and 3D serializers are
 /// compatibility payloads inside the same world envelope; viewport presets never select a
@@ -445,6 +476,15 @@ public partial class MainWindow
         }
     }
 
+    private void RevokeHostedMaterialWindowsForOwnerClose()
+    {
+        foreach (MaterialEditorWindow materialWindow in
+                 _hostedMaterialDocuments.Keys.ToArray())
+        {
+            materialWindow.RevokeHostedOwnerCloseApproval();
+        }
+    }
+
     private EditorDocument EnsureSceneDocumentRegistered(
         bool use3D,
         EditorDocumentState? initialState = null)
@@ -518,8 +558,14 @@ public partial class MainWindow
         if (loaded == 0)
         {
             // Best-effort rollback keeps a failed managed transaction from leaving half a world.
-            EngineInterop.acs_editor_scene_document_load_text(
+            int rollbackLoaded = EngineInterop.acs_editor_scene_document_load_text(
                 Engine, rollback2D, rollback3D);
+            if (rollbackLoaded != 0)
+            {
+                // The rollback is itself a full native document replacement and
+                // therefore invalidates every retained Camera View request.
+                NotifyCameraViewSceneChanged();
+            }
             throw new InvalidDataException(
                 "The canonical scene transaction snapshot was rejected.");
         }
@@ -531,6 +577,10 @@ public partial class MainWindow
         // the successful restore itself is the document capture for this revision.
         _sceneMutationRevision.AcknowledgeDocument();
         RememberActiveSceneDocumentState();
+        // EditorDocument suppresses Synchronize while it is restoring Undo/Redo
+        // or recovery state, so the ordinary mutation notification cannot
+        // re-resolve a retained Camera View after this full native replacement.
+        NotifyCameraViewSceneChanged();
     }
 
     private async ValueTask<EditorDocumentSaveResult> SaveCanonicalSceneDocumentThroughHostAsync(
@@ -712,8 +762,15 @@ public partial class MainWindow
         if (changed)
         {
             _sceneMutationRevision.NotifyMutation();
+            SceneCanonicalCapturePublicationKey captureKey =
+                CurrentCanonicalCapturePublicationKey();
             _sceneMutationRevision.AcknowledgeDocument();
-            SetSceneDirty(true);
+            if (!TryPublishDirtyStateFromCanonicalCapture(
+                    active,
+                    captureKey))
+            {
+                SetSceneDirty(true);
+            }
             NotifyCameraViewSceneChanged();
         }
     }
@@ -849,8 +906,13 @@ public partial class MainWindow
             mergeWindow: _pendingSceneHistoryMergeKey == null
                 ? TimeSpan.Zero
                 : TimeSpan.FromSeconds(1));
+        SceneCanonicalCapturePublicationKey captureKey =
+            CurrentCanonicalCapturePublicationKey();
         ResetPendingSceneHistoryMetadata();
         _sceneMutationRevision.AcknowledgeDocument();
+        _ = TryPublishDirtyStateFromCanonicalCapture(
+            active,
+            captureKey);
     }
 
     private bool CanUseSceneDocumentHistory()
@@ -992,8 +1054,15 @@ public partial class MainWindow
         // The inner scope has already captured the final state. Advance once more because a long
         // drag may have had its initial revision inspected by the workspace timer mid-gesture.
         _sceneMutationRevision.NotifyMutation();
+        SceneCanonicalCapturePublicationKey captureKey =
+            CurrentCanonicalCapturePublicationKey();
         _sceneMutationRevision.AcknowledgeDocument();
-        SetSceneDirty(true);
+        if (!TryPublishDirtyStateFromCanonicalCapture(
+                document,
+                captureKey))
+        {
+            SetSceneDirty(true);
+        }
     }
 
     private sealed class SceneDocumentTransactionScope : IDisposable

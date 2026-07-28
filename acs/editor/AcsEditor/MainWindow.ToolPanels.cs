@@ -19,12 +19,25 @@ namespace AcsEditor;
 /// </summary>
 public partial class MainWindow
 {
-    private DockableToolHost? _hierarchyToolHost;
-    private DockableToolHost? _inspectorToolHost;
-    private DockableToolHost? _bottomToolHost;
+    private readonly Dictionary<string, DockableToolHost> _toolPanelHosts =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, FrameworkElement> _bottomToolContents =
+        new(StringComparer.Ordinal);
+    private readonly HashSet<string> _bottomDockedToolIds =
+        new(StringComparer.Ordinal);
+    private readonly BottomToolDockVisibilityState _bottomDockVisibility =
+        new();
+    private string _activeBottomToolId =
+        ToolPanelDockingContract.ConsolePanelId;
     private ToolPanelPlacementStore? _toolPanelPlacementStore;
     private bool _toolPanelsRestoreCompleted;
     private bool _suppressToolPanelPersistence;
+    private int _toolPanelUserMutationDepth;
+    private ToolPanelOwnerCloseSnapshot? _pendingToolPanelOwnerClose;
+
+    private sealed record ToolPanelOwnerCloseSnapshot(
+        DockableToolHostSnapshot[] Panels,
+        string ActiveBottomToolId);
 
     private void InitializeDockableToolPanels()
     {
@@ -33,43 +46,90 @@ public partial class MainWindow
             message => Log(message, "Editor", LogLevel.Warn));
         _toolPanelPlacementStore.Load();
 
-        _hierarchyToolHost = CreateToolPanelHost(
+        _toolPanelHosts.Clear();
+        _bottomToolContents.Clear();
+        _bottomDockedToolIds.Clear();
+
+        RegisterToolPanelHost(
             ToolPanelDockingContract.HierarchyPanelId,
             "Scene Outliner",
             HierarchyPanel,
             () => HierarchyPanel.Visibility == Visibility.Visible,
             ApplyHierarchyDockVisibility);
-        _inspectorToolHost = CreateToolPanelHost(
+        RegisterToolPanelHost(
             ToolPanelDockingContract.InspectorPanelId,
             "Details",
             InspectorPanel,
             () => InspectorPanel.Visibility == Visibility.Visible,
             ApplyInspectorDockVisibility);
-        _bottomToolHost = CreateToolPanelHost(
-            ToolPanelDockingContract.BottomPanelId,
-            "Console / Build / Assets / Profiler",
-            BottomDockPanel,
-            () => BottomDockPanel.Visibility == Visibility.Visible,
-            ApplyBottomDockVisibility);
 
-        UpdateToolPanelPresentation(
-            ToolPanelDockingContract.HierarchyPanelId,
-            _hierarchyToolHost.State);
-        UpdateToolPanelPresentation(
-            ToolPanelDockingContract.InspectorPanelId,
-            _inspectorToolHost.State);
-        UpdateToolPanelPresentation(
-            ToolPanelDockingContract.BottomPanelId,
-            _bottomToolHost.State);
+        RegisterBottomToolPanel(
+            ToolPanelDockingContract.ConsolePanelId,
+            "Console",
+            ConsoleToolPanel);
+        RegisterBottomToolPanel(
+            ToolPanelDockingContract.BuildPanelId,
+            "Build",
+            BuildToolPanel);
+        RegisterBottomToolPanel(
+            ToolPanelDockingContract.AssetsPanelId,
+            "Assets",
+            AssetsToolPanel);
+        RegisterBottomToolPanel(
+            ToolPanelDockingContract.ProfilerPanelId,
+            "Profiler",
+            ProfilerToolPanel);
+
+        if (_toolPanelHosts.Count !=
+            ToolPanelDockingContract.RegisteredPanels.Count)
+        {
+            throw new InvalidOperationException(
+                "Every registered tool panel must have exactly one visual host.");
+        }
+
+        foreach (ToolPanelDockingDescriptor descriptor in
+                 ToolPanelDockingContract.RegisteredPanels)
+        {
+            UpdateToolPanelPresentation(
+                descriptor.PanelId,
+                _toolPanelHosts[descriptor.PanelId].State);
+        }
+        RefreshBottomToolDock();
     }
 
-    private DockableToolHost CreateToolPanelHost(
+    private void RegisterBottomToolPanel(
+        string panelId,
+        string title,
+        FrameworkElement content)
+    {
+        if (!ToolPanelDockingContract.IsBottomToolPanelId(panelId) ||
+            !_bottomToolContents.TryAdd(panelId, content))
+        {
+            throw new InvalidOperationException(
+                $"Bottom tool panel '{panelId}' is not registered exactly once.");
+        }
+        _bottomDockedToolIds.Add(panelId);
+        RegisterToolPanelHost(
+            panelId,
+            title,
+            content,
+            () => _bottomDockedToolIds.Contains(panelId),
+            visible => ApplyBottomToolDockVisibility(panelId, visible));
+    }
+
+    private void RegisterToolPanelHost(
         string panelId,
         string title,
         FrameworkElement content,
         Func<bool> dockVisibility,
-        Action<bool> applyDockVisibility) =>
-        new(
+        Action<bool> applyDockVisibility)
+    {
+        if (_toolPanelHosts.ContainsKey(panelId))
+        {
+            throw new InvalidOperationException(
+                $"Tool panel '{panelId}' was registered more than once.");
+        }
+        var host = new DockableToolHost(
             this,
             panelId,
             title,
@@ -77,11 +137,25 @@ public partial class MainWindow
             SceneWorkspace,
             dockVisibility,
             applyDockVisibility,
-            state => UpdateToolPanelPresentation(panelId, state),
+            (state, committedTransition) =>
+            {
+                UpdateToolPanelPresentation(panelId, state);
+                if (ToolPanelWorkspaceMutationPolicy
+                    .ShouldMarkPublishedTransition(
+                        committedTransition,
+                        _toolPanelUserMutationDepth > 0,
+                        _toolPanelsRestoreCompleted,
+                        _suppressToolPanelPersistence))
+                {
+                    MarkWorkspaceCustomized();
+                }
+            },
             () => LoadToolPanelBounds(panelId),
             (bounds, floating) =>
                 SaveToolPanelPlacement(panelId, bounds, floating),
             message => Log(message, "Editor", LogLevel.Warn));
+        _toolPanelHosts.Add(panelId, host);
+    }
 
     private IReadOnlyList<ToolPanelPlacementState>
         CreateDefaultToolPanelPlacements()
@@ -102,12 +176,33 @@ public partial class MainWindow
                     480.0,
                     680.0)),
             CreateToolPanelPlacement(
-                ToolPanelDockingContract.BottomPanelId,
+                ToolPanelDockingContract.ConsolePanelId,
                 new Rect(
                     workArea.Left + 180.0,
                     workArea.Top + 180.0,
+                    920.0,
+                    440.0)),
+            CreateToolPanelPlacement(
+                ToolPanelDockingContract.BuildPanelId,
+                new Rect(
+                    workArea.Left + 220.0,
+                    workArea.Top + 210.0,
+                    860.0,
+                    420.0)),
+            CreateToolPanelPlacement(
+                ToolPanelDockingContract.AssetsPanelId,
+                new Rect(
+                    workArea.Left + 160.0,
+                    workArea.Top + 140.0,
+                    1120.0,
+                    680.0)),
+            CreateToolPanelPlacement(
+                ToolPanelDockingContract.ProfilerPanelId,
+                new Rect(
+                    workArea.Left + 260.0,
+                    workArea.Top + 120.0,
                     960.0,
-                    460.0)),
+                    680.0)),
         };
     }
 
@@ -132,6 +227,35 @@ public partial class MainWindow
             return;
         }
 
+        if (ToolPanelStartupRestorePolicy.ShouldSeedCurrentLayout(
+                _toolPanelPlacementStore.LoadedPersistedSnapshot))
+        {
+            string activeBottomToolId = _activeBottomToolId;
+            try
+            {
+                DockableToolHostSnapshot[] current =
+                    ToolPanelDockingContract.RegisteredPanels
+                        .Select(descriptor =>
+                            _toolPanelHosts[descriptor.PanelId]
+                                .CaptureSnapshot())
+                        .ToArray();
+                _toolPanelPlacementStore.Restore(current);
+                _toolPanelPlacementStore.Save();
+            }
+            catch (Exception error)
+            {
+                Log(
+                    "The current editor layout could not seed tool-panel " +
+                    "placement storage: " + error.Message,
+                    "Editor",
+                    LogLevel.Warn);
+            }
+            _activeBottomToolId = activeBottomToolId;
+            _toolPanelsRestoreCompleted = true;
+            return;
+        }
+
+        string requestedBottomToolId = _activeBottomToolId;
         foreach (ToolPanelDockingDescriptor descriptor in
                  ToolPanelDockingContract.RegisteredPanels)
         {
@@ -170,6 +294,11 @@ public partial class MainWindow
                     break;
             }
         }
+        _activeBottomToolId =
+            BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                requestedBottomToolId,
+                _bottomDockedToolIds);
+        RefreshBottomToolDock();
         _toolPanelsRestoreCompleted = true;
     }
 
@@ -193,16 +322,7 @@ public partial class MainWindow
     {
         if (_toolPanelPlacementStore == null)
             return;
-        bool dockVisible = panelId switch
-        {
-            ToolPanelDockingContract.HierarchyPanelId =>
-                HierarchyPanel.Visibility == Visibility.Visible,
-            ToolPanelDockingContract.InspectorPanelId =>
-                InspectorPanel.Visibility == Visibility.Visible,
-            ToolPanelDockingContract.BottomPanelId =>
-                BottomDockPanel.Visibility == Visibility.Visible,
-            _ => false,
-        };
+        bool dockVisible = IsToolPanelDockVisible(panelId);
         _toolPanelPlacementStore.Update(
             panelId,
             bounds,
@@ -210,6 +330,18 @@ public partial class MainWindow
         if (!_suppressToolPanelPersistence)
             _toolPanelPlacementStore.Save();
     }
+
+    private bool IsToolPanelDockVisible(string panelId) =>
+        panelId switch
+        {
+            ToolPanelDockingContract.HierarchyPanelId =>
+                HierarchyPanel.Visibility == Visibility.Visible,
+            ToolPanelDockingContract.InspectorPanelId =>
+                InspectorPanel.Visibility == Visibility.Visible,
+            _ when ToolPanelDockingContract.IsBottomToolPanelId(panelId) =>
+                _bottomDockedToolIds.Contains(panelId),
+            _ => false,
+        };
 
     private void PersistDockedToolPanelState(
         string panelId,
@@ -239,31 +371,161 @@ public partial class MainWindow
     private void OnToggleHierarchyFloat(
         object sender,
         RoutedEventArgs e) =>
-        ToggleToolPanelFloating(_hierarchyToolHost);
+        ToggleToolPanelFloatingFromUser(
+            ToolPanelDockingContract.HierarchyPanelId);
 
     private void OnToggleInspectorFloat(
         object sender,
         RoutedEventArgs e) =>
-        ToggleToolPanelFloating(_inspectorToolHost);
+        ToggleToolPanelFloatingFromUser(
+            ToolPanelDockingContract.InspectorPanelId);
 
     private void OnToggleBottomFloat(
         object sender,
         RoutedEventArgs e) =>
-        ToggleToolPanelFloating(_bottomToolHost);
+        ToggleToolPanelFloatingFromUser(_activeBottomToolId);
 
-    private void ToggleToolPanelFloating(DockableToolHost? host)
+    private void ToggleToolPanelFloatingFromUser(string panelId)
     {
+        DockableToolHost? host = GetToolPanelHost(panelId);
         if (host == null)
             return;
-        if (!host.TryToggleFloating())
+        ToolPanelUserAction action = host.IsFloating
+            ? ToolPanelUserAction.Redock
+            : ToolPanelUserAction.Float;
+        _ = ExecuteToolPanelUserAction(panelId, action);
+    }
+
+    private void OnExecuteToolPanelUserAction(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is not MenuItem item ||
+            item.Tag is not string tag ||
+            !ToolPanelDockingContract.TryParseMenuActionTag(
+                tag,
+                out string panelId,
+                out ToolPanelUserAction action))
         {
             Log(
-                $"{host.PanelId} could not change its dock state safely.",
+                "The requested tool-panel menu action was invalid.",
                 "Editor",
                 LogLevel.Warn);
             return;
         }
-        MarkWorkspaceCustomized();
+        _ = ExecuteToolPanelUserAction(panelId, action);
+    }
+
+    private void OnToolPanelActionSubmenuOpened(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is not MenuItem submenu)
+            return;
+        foreach (MenuItem item in submenu.Items.OfType<MenuItem>())
+        {
+            item.IsEnabled =
+                item.Tag is string tag &&
+                ToolPanelDockingContract.TryParseMenuActionTag(
+                    tag,
+                    out string panelId,
+                    out ToolPanelUserAction action) &&
+                CanExecuteToolPanelUserAction(panelId, action);
+        }
+    }
+
+    private bool CanExecuteToolPanelUserAction(
+        string panelId,
+        ToolPanelUserAction action) =>
+        GetToolPanelHost(panelId) is DockableToolHost host &&
+        ToolPanelDockingContract.CanExecuteUserAction(host.State, action);
+
+    private bool ExecuteToolPanelUserAction(
+        string panelId,
+        ToolPanelUserAction action) =>
+        ExecuteToolPanelUserMutation(
+            () => TryExecuteToolPanelAction(panelId, action));
+
+    private bool ExecuteToolPanelUserMutation(Func<bool> mutation)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
+        _toolPanelUserMutationDepth++;
+        try
+        {
+            return ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                mutation,
+                MarkToolPanelWorkspaceCustomizedIfAllowed);
+        }
+        finally
+        {
+            _toolPanelUserMutationDepth--;
+        }
+    }
+
+    private void MarkToolPanelWorkspaceCustomizedIfAllowed()
+    {
+        if (ToolPanelWorkspaceMutationPolicy.ShouldMarkCustomized(
+                _toolPanelsRestoreCompleted,
+                _suppressToolPanelPersistence))
+        {
+            MarkWorkspaceCustomized();
+        }
+    }
+
+    private bool TryExecuteToolPanelAction(
+        string panelId,
+        ToolPanelUserAction action)
+    {
+        DockableToolHost? host = ToolPanelDockingContract.IsKnownPanelId(panelId)
+            ? GetToolPanelHost(panelId)
+            : null;
+        if (host == null ||
+            !ToolPanelDockingContract.CanExecuteUserAction(host.State, action))
+        {
+            if (host != null)
+                UpdateToolPanelPresentation(panelId, host.State);
+            Log(
+                $"{panelId} cannot execute the {action} tool-panel action " +
+                "from its current state.",
+                "Editor",
+                LogLevel.Warn);
+            return false;
+        }
+
+        ToolPanelDockState requestedState = action switch
+        {
+            ToolPanelUserAction.Show => ToolPanelDockState.Docked,
+            ToolPanelUserAction.Hide => ToolPanelDockState.Hidden,
+            ToolPanelUserAction.Float => ToolPanelDockState.Floating,
+            ToolPanelUserAction.Redock => ToolPanelDockState.Docked,
+            _ => throw new ArgumentOutOfRangeException(nameof(action)),
+        };
+        if (!host.TryRestoreState(requestedState))
+        {
+            UpdateToolPanelPresentation(panelId, host.State);
+            Log(
+                $"{panelId} could not complete the {action} tool-panel " +
+                "action safely.",
+                "Editor",
+                LogLevel.Warn);
+            return false;
+        }
+
+        if (ToolPanelDockingContract.IsBottomToolPanelId(panelId) &&
+            action is ToolPanelUserAction.Show or
+                ToolPanelUserAction.Redock)
+        {
+            _bottomDockVisibility.SetVisible(visible: true);
+            _activeBottomToolId = panelId;
+            RefreshBottomToolDock();
+        }
+        if (host.State != ToolPanelDockState.Floating)
+        {
+            PersistDockedToolPanelState(
+                panelId,
+                visible: host.State == ToolPanelDockState.Docked);
+        }
+        return true;
     }
 
     private void UpdateToolPanelPresentation(
@@ -297,33 +559,29 @@ public partial class MainWindow
                     InspectorFloatButton,
                     floating ? "Dock Details" : "Float Details");
                 break;
-            case ToolPanelDockingContract.BottomPanelId:
-                MenuShowBottom.IsChecked = visible;
-                BottomFloatButton.Content = action;
-                BottomFloatButton.ToolTip = floating
-                    ? "Return the bottom tools to the main editor window"
-                    : "Open the bottom tools in an independent window";
-                AutomationProperties.SetName(
-                    BottomFloatButton,
-                    floating
-                        ? "Dock bottom tool panel"
-                        : "Float bottom tool panel");
-                BottomDockToggleBtn.Content = visible ? "Hide" : "Show";
+            case ToolPanelDockingContract.ConsolePanelId:
+                MenuShowConsole.IsChecked = visible;
+                break;
+            case ToolPanelDockingContract.BuildPanelId:
+                MenuShowBuildPanel.IsChecked = visible;
+                break;
+            case ToolPanelDockingContract.AssetsPanelId:
+                MenuShowAssets.IsChecked = visible;
+                break;
+            case ToolPanelDockingContract.ProfilerPanelId:
+                MenuShowProfiler.IsChecked = visible;
                 break;
         }
+        if (ToolPanelDockingContract.IsBottomToolPanelId(panelId))
+            RefreshBottomToolDock();
     }
 
     private DockableToolHost? GetToolPanelHost(string panelId) =>
-        panelId switch
-        {
-            ToolPanelDockingContract.HierarchyPanelId =>
-                _hierarchyToolHost,
-            ToolPanelDockingContract.InspectorPanelId =>
-                _inspectorToolHost,
-            ToolPanelDockingContract.BottomPanelId =>
-                _bottomToolHost,
-            _ => null,
-        };
+        _toolPanelHosts.TryGetValue(
+            panelId,
+            out DockableToolHost? host)
+            ? host
+            : null;
 
     private void ApplyToolPanelDockVisibility(
         string panelId,
@@ -337,17 +595,180 @@ public partial class MainWindow
             case ToolPanelDockingContract.InspectorPanelId:
                 ApplyInspectorDockVisibility(visible);
                 break;
-            case ToolPanelDockingContract.BottomPanelId:
-                ApplyBottomDockVisibility(visible);
+            default:
+                if (ToolPanelDockingContract.IsBottomToolPanelId(panelId))
+                    ApplyBottomToolDockVisibility(panelId, visible);
                 break;
         }
     }
 
+    private void ApplyBottomToolDockVisibility(
+        string panelId,
+        bool visible)
+    {
+        if (!ToolPanelDockingContract.IsBottomToolPanelId(panelId))
+            throw new ArgumentOutOfRangeException(nameof(panelId));
+
+        if (visible)
+        {
+            _bottomDockedToolIds.Add(panelId);
+            _activeBottomToolId = panelId;
+        }
+        else
+        {
+            _bottomDockedToolIds.Remove(panelId);
+            if (string.Equals(
+                    _activeBottomToolId,
+                    panelId,
+                    StringComparison.Ordinal))
+            {
+                _activeBottomToolId =
+                    BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                        _activeBottomToolId,
+                        _bottomDockedToolIds);
+            }
+        }
+        RefreshBottomToolDock();
+    }
+
+    private void RefreshBottomToolDock()
+    {
+        if (_bottomToolContents.Count == 0)
+            return;
+
+        _activeBottomToolId =
+            BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                _activeBottomToolId,
+                _bottomDockedToolIds);
+
+        bool hasDockedTools = _bottomDockedToolIds.Count > 0;
+        bool bottomDockVisible =
+            _bottomDockVisibility.IsVisible(_bottomDockedToolIds.Count);
+        ApplyBottomDockVisibility(bottomDockVisible);
+        foreach ((string panelId, FrameworkElement content) in
+                 _bottomToolContents)
+        {
+            DockableToolHost? host = GetToolPanelHost(panelId);
+            bool activeDocked =
+                _bottomDockedToolIds.Contains(panelId) &&
+                string.Equals(
+                    _activeBottomToolId,
+                    panelId,
+                    StringComparison.Ordinal);
+            content.Visibility =
+                host?.IsFloating == true || activeDocked
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+
+        TabConsole.IsChecked =
+            _activeBottomToolId == ToolPanelDockingContract.ConsolePanelId &&
+            _bottomDockedToolIds.Contains(
+                ToolPanelDockingContract.ConsolePanelId);
+        TabBuild.IsChecked =
+            _activeBottomToolId == ToolPanelDockingContract.BuildPanelId &&
+            _bottomDockedToolIds.Contains(
+                ToolPanelDockingContract.BuildPanelId);
+        TabAssets.IsChecked =
+            _activeBottomToolId == ToolPanelDockingContract.AssetsPanelId &&
+            _bottomDockedToolIds.Contains(
+                ToolPanelDockingContract.AssetsPanelId);
+        TabProfiler.IsChecked =
+            _activeBottomToolId == ToolPanelDockingContract.ProfilerPanelId &&
+            _bottomDockedToolIds.Contains(
+                ToolPanelDockingContract.ProfilerPanelId);
+        UpdateBottomToolTabPresentation(
+            TabConsole,
+            ToolPanelDockingContract.ConsolePanelId,
+            "Console");
+        UpdateBottomToolTabPresentation(
+            TabBuild,
+            ToolPanelDockingContract.BuildPanelId,
+            "Build");
+        UpdateBottomToolTabPresentation(
+            TabAssets,
+            ToolPanelDockingContract.AssetsPanelId,
+            "Assets");
+        UpdateBottomToolTabPresentation(
+            TabProfiler,
+            ToolPanelDockingContract.ProfilerPanelId,
+            "Profiler");
+
+        MenuShowBottom.IsChecked = bottomDockVisible;
+        BottomFloatButton.IsEnabled = hasDockedTools;
+        BottomDockToggleBtn.IsEnabled = hasDockedTools;
+        if (hasDockedTools)
+        {
+            ToolPanelDockingDescriptor descriptor =
+                ToolPanelDockingContract.RegisteredPanels.First(
+                    candidate => candidate.PanelId == _activeBottomToolId);
+            BottomFloatButton.Content = "Float";
+            BottomFloatButton.ToolTip =
+                $"Open {descriptor.AccessibleName} in an independent window";
+            BottomDockToggleBtn.Content = "Hide";
+            BottomDockToggleBtn.ToolTip =
+                $"Hide {descriptor.AccessibleName}";
+            AutomationProperties.SetName(
+                BottomFloatButton,
+                $"Float {descriptor.AccessibleName}");
+            AutomationProperties.SetName(
+                BottomDockToggleBtn,
+                $"Hide {descriptor.AccessibleName}");
+        }
+    }
+
+    private void UpdateBottomToolTabPresentation(
+        System.Windows.Controls.Primitives.ToggleButton tab,
+        string panelId,
+        string title)
+    {
+        ToolPanelDockState state =
+            GetToolPanelHost(panelId)?.State ??
+            ToolPanelDockState.Hidden;
+        tab.Opacity = state switch
+        {
+            ToolPanelDockState.Floating => 0.78,
+            ToolPanelDockState.Hidden => 0.62,
+            _ => 1.0,
+        };
+        tab.ToolTip = state switch
+        {
+            ToolPanelDockState.Floating =>
+                $"{title} is floating; click to re-dock it",
+            ToolPanelDockState.Hidden =>
+                $"{title} is hidden; click to restore it",
+            _ => $"Show {title}",
+        };
+        AutomationProperties.SetName(
+            tab,
+            state switch
+            {
+                ToolPanelDockState.Floating => $"Re-dock {title}",
+                ToolPanelDockState.Hidden => $"Restore {title}",
+                _ => $"Show {title}",
+            });
+    }
+
+    private bool ActivateBottomTool(string panelId)
+    {
+        if (!ToolPanelDockingContract.IsBottomToolPanelId(panelId) ||
+            GetToolPanelHost(panelId) is not DockableToolHost host)
+        {
+            return false;
+        }
+        if (!host.TryRestoreState(ToolPanelDockState.Docked))
+            return false;
+        _bottomDockVisibility.SetVisible(visible: true);
+        _activeBottomToolId = panelId;
+        RefreshBottomToolDock();
+        PersistDockedToolPanelState(panelId, visible: true);
+        return true;
+    }
+
     private bool ResetDockableToolPanels()
     {
-        if (_hierarchyToolHost == null ||
-            _inspectorToolHost == null ||
-            _bottomToolHost == null ||
+        if (_toolPanelHosts.Count !=
+                ToolPanelDockingContract.RegisteredPanels.Count ||
             _toolPanelPlacementStore == null)
         {
             Log(
@@ -359,11 +780,11 @@ public partial class MainWindow
         }
 
         DockableToolHost[] hosts =
-        {
-            _hierarchyToolHost,
-            _inspectorToolHost,
-            _bottomToolHost,
-        };
+            ToolPanelDockingContract.RegisteredPanels
+                .Select(descriptor =>
+                    _toolPanelHosts[descriptor.PanelId])
+                .ToArray();
+        string initialBottomToolId = _activeBottomToolId;
         DockableToolHostSnapshot[] initial;
         try
         {
@@ -401,7 +822,12 @@ public partial class MainWindow
                     resetResults) &&
                 _toolPanelPlacementStore.ResetAndDelete();
             if (commit)
+            {
+                _activeBottomToolId =
+                    ToolPanelDockingContract.ConsolePanelId;
+                RefreshBottomToolDock();
                 return true;
+            }
 
             _toolPanelPlacementStore.Restore(initial);
             for (int index = hosts.Length - 1; index >= 0; index--)
@@ -417,6 +843,8 @@ public partial class MainWindow
                         hosts[index].State);
                 exactRollback &= restored && truthful;
             }
+            _activeBottomToolId = initialBottomToolId;
+            RefreshBottomToolDock();
 
             DockableToolHostSnapshot[] actual = hosts
                 .Select(host => host.CaptureSnapshot())
@@ -426,6 +854,8 @@ public partial class MainWindow
         catch (Exception error)
         {
             exactRollback = false;
+            _activeBottomToolId = initialBottomToolId;
+            RefreshBottomToolDock();
             Log(
                 "Tool panel reset rollback encountered an error: " +
                 error.Message,
@@ -469,34 +899,294 @@ public partial class MainWindow
         object? sender,
         CancelEventArgs e)
     {
-        if (e.Cancel)
-            return;
-        DockableToolHost[] floating = new[]
-            {
-                _hierarchyToolHost,
-                _inspectorToolHost,
-                _bottomToolHost,
-            }
-            .OfType<DockableToolHost>()
-            .Where(host => host.IsFloating)
-            .ToArray();
-
-        foreach (DockableToolHost host in floating)
+        if (EditorCloseFinalizationPolicy.ShouldBypassAuxiliaryHandlers(
+                _auxiliaryCloseApproved))
         {
-            if (host.CloseForOwner())
-                continue;
-            e.Cancel = true;
-            foreach (DockableToolHost previous in floating)
+            return;
+        }
+
+        if (e.Cancel)
+        {
+            if (_pendingToolPanelOwnerClose != null)
             {
-                if (!previous.IsFloating)
-                    _ = previous.TryFloat();
+                _ = RollbackDockableToolPanelsOwnerClose();
+                CancelApprovedEditorClose();
             }
+            return;
+        }
+
+        if (_pendingToolPanelOwnerClose != null)
+        {
+            e.Cancel = true;
+            _ = RollbackDockableToolPanelsOwnerClose();
+            CancelApprovedEditorClose();
             Log(
-                "Editor close was deferred because a floating tool panel " +
-                "could not be safely re-docked.",
+                "Editor close was cancelled because an earlier tool-panel " +
+                "close transaction was still pending.",
                 "Editor",
                 LogLevel.Error);
             return;
+        }
+
+        DockableToolHost[] hosts;
+        DockableToolHostSnapshot[] snapshots;
+        try
+        {
+            hosts = ToolPanelDockingContract.RegisteredPanels
+                .Select(descriptor => _toolPanelHosts[descriptor.PanelId])
+                .ToArray();
+            snapshots = hosts
+                .Select(host => host.CaptureSnapshot())
+                .ToArray();
+        }
+        catch (Exception error)
+        {
+            e.Cancel = true;
+            CancelApprovedEditorClose();
+            Log(
+                "Editor close was cancelled because the complete tool-panel " +
+                "layout could not be captured: " + error.Message,
+                "Editor",
+                LogLevel.Error);
+            return;
+        }
+
+        _pendingToolPanelOwnerClose = new ToolPanelOwnerCloseSnapshot(
+            snapshots,
+            _activeBottomToolId);
+        bool previousSuppression = _suppressToolPanelPersistence;
+        _suppressToolPanelPersistence = true;
+        bool redocked = true;
+        try
+        {
+            foreach (DockableToolHost host in hosts)
+            {
+                if (host.CloseForOwner())
+                    continue;
+                redocked = false;
+                break;
+            }
+        }
+        catch (Exception error)
+        {
+            redocked = false;
+            Log(
+                "A tool-panel owner-close operation failed: " + error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+        finally
+        {
+            _suppressToolPanelPersistence = previousSuppression;
+        }
+
+        if (redocked)
+            return;
+
+        e.Cancel = true;
+        bool exactRollback = RollbackDockableToolPanelsOwnerClose();
+        CancelApprovedEditorClose();
+        Log(
+            exactRollback
+                ? "Editor close was cancelled because a floating tool panel " +
+                  "could not be safely re-docked; the previous layout was restored."
+                : "Editor close was cancelled because a floating tool panel " +
+                  "could not be safely re-docked; the actual recovered layout " +
+                  "was persisted.",
+            "Editor",
+            exactRollback ? LogLevel.Warn : LogLevel.Error);
+    }
+
+    private bool RollbackDockableToolPanelsOwnerClose()
+    {
+        ToolPanelOwnerCloseSnapshot? transaction =
+            _pendingToolPanelOwnerClose;
+        if (transaction == null)
+            return true;
+        _pendingToolPanelOwnerClose = null;
+
+        DockableToolHost[] hosts = ToolPanelDockingContract.RegisteredPanels
+            .Select(descriptor => _toolPanelHosts[descriptor.PanelId])
+            .ToArray();
+        bool previousSuppression = _suppressToolPanelPersistence;
+        _suppressToolPanelPersistence = true;
+        bool exactRollback = true;
+        try
+        {
+            try
+            {
+                _toolPanelPlacementStore?.Restore(transaction.Panels);
+            }
+            catch (Exception error)
+            {
+                exactRollback = false;
+                Log(
+                    "The captured tool-panel placements could not be staged " +
+                    "for rollback: " + error.Message,
+                    "Editor",
+                    LogLevel.Error);
+            }
+
+            for (int index = hosts.Length - 1; index >= 0; index--)
+            {
+                DockableToolHostSnapshot requested =
+                    transaction.Panels[index];
+                try
+                {
+                    bool restored =
+                        hosts[index].TryRestoreState(requested.State);
+                    exactRollback &=
+                        restored &&
+                        ToolPanelOwnerCloseTransactionPolicy.HasRestoredState(
+                            requested,
+                            hosts[index].State);
+                }
+                catch (Exception error)
+                {
+                    exactRollback = false;
+                    Log(
+                        $"{requested.PanelId} could not restore its captured " +
+                        "owner-close state: " + error.Message,
+                        "Editor",
+                        LogLevel.Error);
+                }
+            }
+            try
+            {
+                _activeBottomToolId = transaction.ActiveBottomToolId;
+                RefreshBottomToolDock();
+            }
+            catch (Exception error)
+            {
+                exactRollback = false;
+                Log(
+                    "Bottom-tool presentation could not refresh after close " +
+                    "rollback: " + error.Message,
+                    "Editor",
+                    LogLevel.Error);
+            }
+            _activeBottomToolId = transaction.ActiveBottomToolId;
+        }
+        catch (Exception error)
+        {
+            exactRollback = false;
+            Log(
+                "Tool-panel close rollback encountered an error: " +
+                error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+        finally
+        {
+            _suppressToolPanelPersistence = previousSuppression;
+        }
+
+        PersistActualToolPanelOwnerCloseState(
+            hosts,
+            transaction,
+            ref exactRollback);
+        return exactRollback;
+    }
+
+    private void CommitDockableToolPanelsOwnerClose()
+    {
+        ToolPanelOwnerCloseSnapshot? transaction =
+            _pendingToolPanelOwnerClose;
+        if (transaction == null)
+            return;
+        _pendingToolPanelOwnerClose = null;
+
+        // Re-docking is only a shutdown transfer. Preserve the user's floating
+        // placements and selected bottom tab for the next editor session.
+        try
+        {
+            _toolPanelPlacementStore?.Restore(transaction.Panels);
+            _toolPanelPlacementStore?.Save();
+        }
+        catch (Exception error)
+        {
+            Log(
+                "Tool-panel layout could not be committed for editor close: " +
+                error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+        _activeBottomToolId = transaction.ActiveBottomToolId;
+        try
+        {
+            RefreshBottomToolDock();
+        }
+        catch (Exception error)
+        {
+            Log(
+                "Bottom-tool presentation could not refresh during editor " +
+                "close: " + error.Message,
+                "Editor",
+                LogLevel.Error);
+        }
+        _activeBottomToolId = transaction.ActiveBottomToolId;
+    }
+
+    private void PersistActualToolPanelOwnerCloseState(
+        IReadOnlyList<DockableToolHost> hosts,
+        ToolPanelOwnerCloseSnapshot transaction,
+        ref bool exactRollback)
+    {
+        if (_toolPanelPlacementStore == null)
+            return;
+        var actual = new DockableToolHostSnapshot[hosts.Count];
+        for (int index = 0; index < hosts.Count; index++)
+        {
+            try
+            {
+                actual[index] = hosts[index].CaptureSnapshot();
+                exactRollback &=
+                    ToolPanelOwnerCloseTransactionPolicy.HasRestoredSnapshot(
+                        transaction.Panels[index],
+                        actual[index]);
+            }
+            catch (Exception error)
+            {
+                exactRollback = false;
+                ToolPanelDockState actualState =
+                    transaction.Panels[index].State;
+                try
+                {
+                    actualState = hosts[index].State;
+                }
+                catch (Exception stateError)
+                {
+                    Log(
+                        $"{hosts[index].PanelId} state could not be read " +
+                        "after close rollback: " + stateError.Message,
+                        "Editor",
+                        LogLevel.Error);
+                }
+                actual[index] = new DockableToolHostSnapshot(
+                    hosts[index].PanelId,
+                    actualState,
+                    transaction.Panels[index].Placement);
+                Log(
+                    $"{hosts[index].PanelId} placement could not be captured " +
+                    "after close rollback: " + error.Message,
+                    "Editor",
+                    LogLevel.Error);
+            }
+        }
+
+        try
+        {
+            _toolPanelPlacementStore.Restore(actual);
+            _toolPanelPlacementStore.Save();
+        }
+        catch (Exception error)
+        {
+            exactRollback = false;
+            Log(
+                "The recovered tool-panel layout could not be persisted: " +
+                error.Message,
+                "Editor",
+                LogLevel.Error);
         }
     }
 }
@@ -507,11 +1197,13 @@ public partial class MainWindow
 /// </summary>
 internal sealed class ToolPanelPlacementStore
 {
-    private const int StoreVersion = 1;
+    private const int StoreVersion = 2;
     private const int MaximumBytes = 16 * 1024;
     private readonly Dictionary<string, ToolPanelPlacementState> _defaults;
     private readonly Dictionary<string, ToolPanelPlacementState> _states;
     private readonly Action<string> _logWarning;
+
+    internal bool LoadedPersistedSnapshot { get; private set; }
 
     private sealed class Snapshot
     {
@@ -553,6 +1245,8 @@ internal sealed class ToolPanelPlacementStore
 
     internal void Load()
     {
+        LoadedPersistedSnapshot = false;
+        RestoreDefaults();
         if (!File.Exists(StorePath))
             return;
         try
@@ -636,13 +1330,14 @@ internal sealed class ToolPanelPlacementStore
             {
                 _states.Add(panelId, state);
             }
+            LoadedPersistedSnapshot = true;
         }
         catch (Exception error)
         {
             RestoreDefaults();
             _logWarning(
-                "Floating tool layout could not be restored; defaults were " +
-                "used: " + error.Message);
+                "Floating tool layout could not be restored; the current " +
+                "editor layout will be retained: " + error.Message);
         }
     }
 
@@ -835,4 +1530,11 @@ internal sealed class ToolPanelPlacementStore
             Width = state.Width,
             Height = state.Height,
         };
+}
+
+internal static class ToolPanelStartupRestorePolicy
+{
+    internal static bool ShouldSeedCurrentLayout(
+        bool loadedPersistedSnapshot) =>
+        !loadedPersistedSnapshot;
 }

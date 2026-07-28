@@ -60,6 +60,37 @@ std::string ReadHelloWater3DSource(const char* file_name) {
     return source;
 }
 
+std::string ReadWaterRepositorySource(const char* relative_path) {
+    std::string path = __FILE__;
+    const std::size_t separator = path.find_last_of("\\/");
+    if (separator == std::string::npos) return {};
+    path.resize(separator);
+    path += "/../";
+    path += relative_path;
+    std::FILE* file = nullptr;
+#if defined(_MSC_VER)
+    if (fopen_s(&file, path.c_str(), "rb") != 0) return {};
+#else
+    file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) return {};
+#endif
+    if (std::fseek(file, 0, SEEK_END) != 0) {
+        std::fclose(file);
+        return {};
+    }
+    const long size = std::ftell(file);
+    if (size < 0 || std::fseek(file, 0, SEEK_SET) != 0) {
+        std::fclose(file);
+        return {};
+    }
+    std::string source(static_cast<std::size_t>(size), '\0');
+    const std::size_t read = source.empty()
+        ? 0u : std::fread(source.data(), 1u, source.size(), file);
+    std::fclose(file);
+    if (read != source.size()) return {};
+    return source;
+}
+
 } // namespace
 
 ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
@@ -87,6 +118,46 @@ ACS_TEST(Water3DRippleLifetime, ReservedPoolsNeverOverwriteEachOther) {
         FVec3{200.0f, 0.0f, 0.0f},
         FVec3{4.0f, 0.0f, 1.0f}, 0.20f, 0.18f));
     EXPECT_EQ(water.ActiveRippleCount(), FWaterSurface3D::kMaxRipples);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         ConservativeDisplacementBoundTracksTheSubmittedSurface) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams params{};
+    params.wave_amplitude = 2.0f;
+    params.ripple_lifetime = 2.0f;
+    params.ripple_damping = 0.0f;
+    water.SetParams(params);
+
+    EXPECT_TRUE(water.AddDisturbanceForSurface(
+        42u, FVec3{0.0f, 0.0f, 0.0f}, 0.2f, 0.30f));
+    EXPECT_TRUE(water.AddDisturbanceForSurface(
+        42u, FVec3{1.0f, 0.0f, 0.0f}, 0.2f, -0.20f));
+    EXPECT_TRUE(water.AddDisturbanceForSurface(
+        7u, FVec3{2.0f, 0.0f, 0.0f}, 0.2f, 8.0f));
+
+    // The VS ambient weights sum to 1.02. Only the two ripples submitted for
+    // surface 42 may inflate its bound; another surface cannot disable useful
+    // culling here.
+    EXPECT_NEAR(
+        water.ConservativeDisplacementBoundForSurface(
+            42u, params),
+        2.0f * 1.02f + 0.30f + 0.20f, 1e-5f);
+    EXPECT_NEAR(
+        water.ConservativeDisplacementBoundForSurface(
+            99u, params),
+        2.0f * 1.02f, 1e-5f);
+
+    water.Update(1.5f);
+    const f32 amplitude_scale =
+        FWaterSurface3D::EvaluateRippleAmplitudeScale(
+            1.5f, 2.0f, 0.0f);
+    EXPECT_NEAR(
+        water.ConservativeDisplacementBoundForSurface(
+            42u, params),
+        2.0f * 1.02f +
+            (0.30f + 0.20f) * amplitude_scale,
+        1e-5f);
 }
 
 ACS_TEST(Water3DRippleLifetime,
@@ -582,6 +653,164 @@ ACS_TEST(Water3DRippleLifetime, SixtyFourSurfacesOwnIndependentEventPools) {
     EXPECT_EQ(
         water.ActiveRippleCountForSurface(1u),
         FWaterSurface3D::kMaxRipples);
+}
+
+ACS_TEST(Water3DRippleLifetime,
+         DenseActiveIterationDoesNotSkipSwapCompactedEvents) {
+    FWaterSurface3D water;
+    FWaterSurface3DParams short_params{};
+    short_params.ripple_lifetime = 0.5f;
+    short_params.ripple_damping = 0.0f;
+    water.SetParams(short_params);
+    EXPECT_TRUE(water.AddDisturbanceForSurface(
+        1u, FVec3{0.0f, 0.0f, 0.0f}, 0.2f, 0.3f));
+
+    FWaterSurface3DParams long_params = short_params;
+    long_params.ripple_lifetime = 2.0f;
+    water.SetParams(long_params);
+    EXPECT_TRUE(water.AddDisturbanceForSurface(
+        2u, FVec3{1.0f, 0.0f, 0.0f}, 0.2f, 0.3f));
+    EXPECT_TRUE(water.AddWakeForSurface(
+        2u, FVec3{2.0f, 1.0f, 3.0f},
+        FVec3{1.0f, 2.0f, 3.0f}, 0.2f, 0.2f));
+
+    // Retiring position zero swap-compacts one of surface 2's events into the
+    // current iteration position. Both surviving events must still be visited
+    // and retain their independent two-second lifetime.
+    water.Update(0.6f);
+    EXPECT_EQ(water.ActiveRippleCount(), 2u);
+    EXPECT_EQ(water.ActiveRippleCountForSurface(1u), 0u);
+    EXPECT_EQ(water.ActiveRippleCountForSurface(2u), 2u);
+    water.ClearDisturbancesForSurface(2u);
+    EXPECT_EQ(water.ActiveRippleCount(), 0u);
+
+    // The optimized idle path still advances analytic animation exactly.
+    const f32 before = water.Time();
+    water.Update(0.25f);
+    EXPECT_NEAR(water.Time(), before + 0.25f, 1e-6f);
+}
+
+ACS_TEST(Water3DShaderContract,
+         AnalyticGeneratedAndAuthoredNormalsUseOnePhysicalSlope) {
+    const std::string source =
+        ReadWaterRepositorySource("src/render/WaterSurface3D.cpp");
+    EXPECT_TRUE(!source.empty());
+    if (source.empty()) return;
+
+    EXPECT_TRUE(source.find(
+        "Texture2D authored_normal : register(t1);") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "float3 EvaluateAuthoredNormal(float2 mesh_uv)") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "tangent * (micro_slope.x * normal_strength)") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "bitangent * (micro_slope.y * normal_strength)") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "float3 PerturbWaterNormal(") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "float2 duv_dx = ddx(mesh_uv);") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "input.uv, authored_tangent_normal") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "EvaluateAmbientWaves(surface_position") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "EvaluateRipples(surface_position") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "world.xyz += base_normal * (ambient_height + ripple_height);") !=
+        std::string::npos);
+}
+
+ACS_TEST(Water3DShaderContract,
+         RippleFoamSharesTheContinuousDisplacementEnvelope) {
+    const std::string source =
+        ReadWaterRepositorySource("src/render/WaterSurface3D.cpp");
+    EXPECT_TRUE(!source.empty());
+    if (source.empty()) return;
+
+    EXPECT_TRUE(source.find(
+        "1.0 - exp(-max(input.ripple_energy, 0.0) * 5.4)") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "smoothstep(0.075, 0.28, input.ripple_energy)") ==
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "gradient += derivative * world_gradient;") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "energy += max(wave, 0.0)") !=
+        std::string::npos);
+}
+
+ACS_TEST(Water3DShaderContract,
+         StrictBackendBindsEveryDeclaredWaterTexture) {
+    const std::string source =
+        ReadWaterRepositorySource("src/render/WaterSurface3D.cpp");
+    EXPECT_TRUE(!source.empty());
+    if (source.empty()) return;
+
+    EXPECT_TRUE(source.find(
+        "pipeline_description.texture_slots = 6;") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "pipeline_description.static_sampler_count = 6;") !=
+        std::string::npos);
+    EXPECT_TRUE(source.find(
+        "command_list.SetTexture(0, *m_NormalMap);") !=
+        std::string::npos);
+    for (u32 slot = 1u; slot < 6u; ++slot) {
+        const std::string binding =
+            "command_list.SetTexture(\n        " +
+            std::to_string(slot) + ",";
+        EXPECT_TRUE(source.find(binding) != std::string::npos);
+    }
+}
+
+ACS_TEST(Water3DEditorContract,
+         CulledOrAbsentWaterAvoidsAllFullscreenPassWork) {
+    const std::string source =
+        ReadWaterRepositorySource("src/editor_abi/EditorAbi.cpp");
+    EXPECT_TRUE(!source.empty());
+    if (source.empty()) return;
+
+    const std::size_t function_begin =
+        source.find("void DrawInteractiveWater3DPass(");
+    const std::size_t function_end =
+        source.find("int ParentId3D(", function_begin);
+    EXPECT_TRUE(function_begin != std::string::npos);
+    EXPECT_TRUE(function_end != std::string::npos);
+    if (function_begin == std::string::npos ||
+        function_end == std::string::npos) {
+        return;
+    }
+    const std::string body = source.substr(
+        function_begin, function_end - function_begin);
+    const std::size_t eligibility =
+        body.find("if (!submission_mask.ShouldSubmit(i)) continue;");
+    const std::size_t zero_work_gate =
+        body.find("if (!any_water || !host.refr_bg");
+    const std::size_t first_fullscreen =
+        body.find("command_list.BeginRenderToTexture(");
+    EXPECT_TRUE(eligibility != std::string::npos);
+    EXPECT_TRUE(zero_work_gate != std::string::npos);
+    EXPECT_TRUE(first_fullscreen != std::string::npos);
+    EXPECT_TRUE(eligibility < zero_work_gate);
+    EXPECT_TRUE(zero_work_gate < first_fullscreen);
+    EXPECT_TRUE(body.find(
+        "record->material_normal_tex.Get()") !=
+        std::string::npos);
+    EXPECT_TRUE(body.find(
+        "true, authored_normal_map,\n"
+        "            authored_normal_strength);") !=
+        std::string::npos);
 }
 
 ACS_TEST(Water3DMeshContract, AcceptsFiniteLocalXzSurface) {

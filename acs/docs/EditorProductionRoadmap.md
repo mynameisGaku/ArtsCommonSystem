@@ -1,5 +1,32 @@
 # ACS Editor Production Roadmap
 
+## Scene/world transition status (authoritative clarification)
+
+- Accepted target: one scene/world document identity. Perspective,
+  Orthographic, and the 2D authoring workspace are presentation/tool presets,
+  not alternate project scene identities.
+- Current implementation: new 2D/3D projects share `Assets/main.acs3d`, while
+  native `FScene2D`/`FScene3D`, their serializers, physics, and renderers remain
+  separate compatibility subsystems. `SceneWorldDocumentEnvelope` supplies an
+  atomic Editor transaction; it is not yet a canonical mixed-world serializer.
+- Existing `.acscene` content remains an explicit Orthographic-only legacy
+  adapter. View switching does not convert it, and ACS does not yet ship an
+  automatic `.acscene` converter.
+- Startup without a publishable source uses a blank unpublished ACS3D world in
+  Perspective, keeps the native host suppressed/hidden, and never presents a
+  legacy/default 2D frame.
+- Scene View owns the editor navigation camera. Game View and Play resolve
+  authored game cameras independently; camera ordering is deterministic.
+- Camera View V1 supports eight logical leases but one physical shared
+  swapchain presenter. Simultaneous live outputs, dedicated offscreen targets,
+  and asynchronous readback remain future work.
+
+Required migration gates are: an explicit non-destructive converter with
+preflight and loss reporting; stable asset-identity policy; atomic
+failure/rollback; a canonical root that can contain dedicated 2D and 3D
+domains; golden semantic round-trip/recovery tests; first-present pixel/CRC
+coverage; and Play/standalone/package parity before legacy adapter retirement.
+
 更新日: 2026-07-27
 
 ## 目的
@@ -32,14 +59,14 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | Details / Components | Transform、コンポーネント追加削除、反射プロパティ、CallInEditor あり | 複数選択編集、mixed value、reset/copy/paste/diff、配列・構造体編集 | P1 |
 | Asset Browser | Import、監視、current/subfolder/all-assets 検索、永続 thumbnail DDC、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | tag filter、追加 importer の設定 UI、import derived-data DDC | P0 |
 | Undo / Redo | Scene、Blueprint、Material graph に個別 snapshot 履歴。Scene 自動保存・復旧、Material graph と Project Settings の共通 host transaction 参加あり | cross-document command routing、Asset の履歴、履歴表示 | P0 |
-| Play / Preview | Play/Pause/Step/Stop、状態復元、Game View、Hot Reload、対応済み `.acs3d` runtime bootstrap あり | runtime adapter の全3D directive parity、Possess/Eject/Simulate、Play 設定、複数クライアント | P0/P1 |
+| Play / Preview | Play/Pause/Step/Stop、状態復元、独立したScene/Game camera、複数authored Camera、frustum表示、単一shared-swapchain Camera View、対応済み `.acs3d` runtime bootstrap あり | runtime adapter の全3D directive parity、dedicated offscreen Camera View/同時live PIP、Possess/Eject/Simulate、Play 設定、複数クライアント | P0/P1 |
 | Build / Package | Windows x64、Development/Test/Shipping、canonical Scene Asset ID起点のdependency-closure Cook、`.acpak`/ZIP、native verify、manifest、3D fail-closed あり | 製品 metadata、署名、installer、自動 smoke、他 platform | P0 |
 | Project Settings | schema 駆動 UI、検索、検証、未知キー保持、Document Host の dirty/Undo/Save All/close、非同期 atomic 保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
 | Material Editor | typed node graph、semantic Undo/Redo、Document Host dirty/Save All/close、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | legacy property writer の transaction 化、native API を live window へ接続する fenced GPU readback、instance/function、shader cache | P0/P1 |
-| Profiler / Diagnostics | Profiler v4 の CPU/GPU/pass/実フラスタムカリング計測、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
+| Profiler / Diagnostics | Profiler v5 の CPU/GPU/pass/実フラスタムカリング計測、capture reset serial/presented-frame境界、normal/depth・motion・opaque PBR・interactive water・refraction共通submission traversal、aggregate fast pathと可視range結合、Shadow/VXGIの非camera-mask契約、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
 | Prefab / Blueprint | 保存、配置、Apply/Revert、graph undo あり | property override、nested prefab、variant、conflict/diff、安定 ID | P2 |
 | Navigation | 2D grid A* と Tilemap bridge あり | 3D navmesh、bake UI、agent/area/link、debug/cook | P2 |
-| Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化、Outliner/Details/下部ツールのfloat・再dock・DPI対応snapあり | tab tear-off、multi-document、shortcut editor、複数workspaceの完全統合 | P1 |
+| Editor UX | メニュー、toolbar、panel toggle、主要 shortcut、command palette、per-user layout 永続化、6 stable-ID toolの個別float/hide/restore、複数同時float、DPI対応snapあり | document/tool tab tear-off、任意dock tree、multi-document、shortcut editor、複数workspaceの完全統合 | P1 |
 | Release operations | Windows x64 deterministic ZIP、runtime 依存解決、Cook/`.acpak` native verify、manifest hash あり | metadata、署名、installer、patch、store upload、他platform | P0/P3 |
 
 ステータスを要約すると、現在は「対応済みの Scene/Asset 範囲を決定的かつ fail-closed に Windows x64 へ出荷できる開発用エディタ」であり、Editor の全 authoring 機能、製品 metadata、署名、installer、継続 smoke を備えた統合環境にはまだ達していない。
@@ -67,7 +94,8 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 - 新規 3D プロジェクトを作成し、Cube と Light を追加して Save、Editor 再起動、Play、Standalone、Package 後の起動で同じ hierarchy、component、transform を確認できる。
 - Build 対象 Scene に未保存変更があれば Save All または明示的な中止を選べる。
 - source 側の固定 filename に依存せず、Project manifest の Asset ID から既定 Scene を解決し、Cook 後だけを契約済みの `main.acscene` bootstrap path に正規化する。
-- 旧 2D Scene の migration test と、新 2D/3D Scene の round-trip test が CI で通る。
+- 旧 2D Scene の migration test と、新しい 2d/3d template が共有する
+  ACS3D Scene document の round-trip test が CI で通る。
 - 対応していない Scene 種別は Build を失敗させ、対象 Asset、期待形式、修正手順を Build Results に表示する。
 
 ## 現状監査
@@ -79,13 +107,14 @@ WPF Shell は `.NET 10 / Windows / win-x64` で、Editor ABI は Raw DX12 構成
 - `editor/AcsEditor/AcsEditor.csproj`
 - `engine/CMakeLists.txt:152-164`
 
-managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に集中しているが、接続前の数値 contract と capability negotiation は実装済みである。managed host は versioned `acs_editor_abi_query` へ必須 bit を渡し、provider version、既知/未知 capability、構造体 version/size を検証する。Profiler v4 と packed 168-byte の `cloud-workload-v1` は独立した optional capability であり、後者を追加しても既存 Profiler snapshot を再解釈しない。
+managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に集中しているが、接続前の数値 contract と capability negotiation は実装済みである。managed host は versioned `acs_editor_abi_query` へ必須 bit を渡し、provider version、既知/未知 capability、構造体 version/size を検証する。packed 256-byte の Profiler v5（先頭 224-byte は v4 compatibility prefix）、packed 168-byte の `cloud-workload-v1`、packed 60-byte の `camera-view-requests-v1` snapshot は独立した optional capability であり、一方を追加しても既存 snapshot を再解釈しない。
 
 - `editor/AcsEditor/EngineInterop.cs`
 - `editor/AcsEditor/EditorAbiContract.cs`
 - `editor/AcsEditor/EditorCloudWorkload.cs`
 - `src/editor_abi/EditorAbiCapabilities.h`
 - `src/editor_abi/EditorCloudWorkload.h`
+- `src/editor_abi/EditorCameraViewRequests.h`
 - `src/editor_abi/EditorAbi.cpp`
 
 旧 DLL、version mismatch、必須 capability 不足、bad image は native host 作成前に fail-closed となる。残る課題は、service ごとの typed error payload と operation ID、汎用 async job/cancellation ABI、renderer backend 抽象化、optional service 単位の UI disable である。
@@ -100,6 +129,12 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 - picking、orbit、pan、zoom、gizmo、box selection。
 - move/rotate/scale snap、focus、frame、align、distribute。
 - Scene dirty 判定、New/Open/Close 時の保存確認。
+- Scene View cameraとauthored Game Cameraの分離、複数Camera component、
+  deterministic active camera、Scene Viewだけのfrustum表示。
+- 最大8件のlogical Camera View request。opaque ABA-safe ID、stable camera
+  identity、requested/presented extent、target/history generationを追跡し、
+  Scene置換時はstale化して再検証する。現在のlive presenterは既存
+  shared swapchainを排他的に使う1件だけである。
 
 主な証跡:
 
@@ -116,6 +151,8 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 - multi-scene/subscene、level streaming、world partition の編集 UI。
 - recent scene、broken-reference recovery。
 - selection set、folder/collection、Outliner column/filter、lock/isolate。
+- dedicated offscreen target、async readback、viewごとのpost-effect history、
+  複数同時live Camera View/PIP。
 
 ### 3. Details と Component 編集
 
@@ -183,7 +220,7 @@ Scene は native snapshot を最大 128 件保持し、drag 中の連続操作�
 - `editor/AcsEditor/MainWindow.xaml.cs:3108-3124`
 - `editor/AcsEditor/BlueprintEditor.xaml.cs:3383-3416`
 
-Scene は dirty 状態に連動する世代管理付き自動保存、checksum 検証、起動時 recovery dialog と、2D/3D の初期化済み dirty 文書を mode switch なしで原子的に保存する Save All を持つ。共通の deterministic/async Document Host と Scene adapter は実装済みで、Scene の dirty、Save、Close を host 経由で扱える。Material Editor の authored Substrate graph も stable Asset ID、dirty、Save All、共通 close confirmation、graph gesture transaction まで host に参加した。Project Settings も settings file identity、unknown key 保持、dirty、transaction、非同期 atomic Save All、共通 close と fail-closed restore latch まで host に参加した。legacy material property writer、Material autosave/recovery、Blueprint/Prefab adapter、multi-document tab UI、cross-document command routing はまだ移行作業として残る。
+Scene は dirty 状態に連動する世代管理付き自動保存、checksum 検証、起動時 recovery dialog と、ACS3D / legacy `.acscene` adapter の初期化済み dirty 文書を view mode switch なしで原子的に保存する Save All を持つ。共通の deterministic/async Document Host と Scene adapter は実装済みで、Scene の dirty、Save、Close を host 経由で扱える。Material Editor の authored Substrate graph も stable Asset ID、dirty、Save All、共通 close confirmation、graph gesture transaction まで host に参加した。Project Settings も settings file identity、unknown key 保持、dirty、transaction、非同期 atomic Save All、共通 close と fail-closed restore latch まで host に参加した。legacy material property writer、Material autosave/recovery、Blueprint/Prefab adapter、multi-document tab UI、cross-document command routing はまだ移行作業として残る。
 
 - `editor/AcsEditor/MainWindow.Autosave.cs`
 - `editor/AcsEditor/SceneAutosaveStore.cs`
@@ -409,10 +446,19 @@ flowchart TD
 
 - 実装済み: 数値 contract version、feature bit、required/optional capability query、構造体 version/size 検証。
 - 実装済み: legacy/future/missing capability の fail-closed smoke test と起動診断。
-- 実装済み: Profiler v4 から独立した `cloud-workload-v1` snapshot。dispatch、logical/launched invocation、history、sample ceiling、skip reason を exact native workload から表示する。
+- 実装済み: Profiler v5 から独立した `cloud-workload-v1` snapshot。dispatch、logical/launched invocation、history、sample ceiling、skip reason を exact native workload から表示する。
+- 実装済み: optional `camera-view-requests-v1`。1 hostにつき最大8件の
+  logical request、slot generationを含むopaque ID、stable camera identityを
+  registryで保持する。60-byte v1 snapshotはcamera node、requested/presented
+  extent、target/history generation、latest frame metadataを公開し、Scene置換
+  によるstale化とbind前の再検証を固定した。
+  shared-swapchain presenterは排他的な1件で、別requestからの暗黙stealを拒否する。
 - 実装済み: managed version-1 operation diagnostic。非zero operation GUID、service、severity、stable `ACS.*` code、message、optional Asset/path、連番、bounded aggregate、success/failure/cancel の単一 terminal を持ち、Build と Package で legacy log と並走する。
 - 残り: native typed error payload、native async job API/cancellation、managed の残り service への適用。
 - 残り: managed 側の Scene、Asset、Preview、Build service interface と optional service 単位の UI disable。
+- 残り: Camera View用のdedicated offscreen target、fence付き非同期
+  readback/presentation、viewごとのpost-effect history、複数同時live PIP。
+  `camera-view-requests-v1` はこれらをadvertiseしない。
 
 依存: P0-A と並行可能。新 Scene API の境界を先に定義する。
 
@@ -420,6 +466,8 @@ flowchart TD
 
 - 実装済み: Editor と ABI の version 不一致で crash せず、native host を作らず理由を表示する。
 - 実装済み: optional feature を product label や symbol の推測ではなく capability で判定する。
+- 実装済み: stale Camera View leaseのABA、Scene置換、presenter排他、
+  current Sceneに対するstable-ID再検証をnative lifecycle testで固定する。
 - 実装済み: managed Build/Package diagnostic を Build log の operation ID、Asset、path に紐づける。
 - 残り: native error も同じ operation に紐づけ、service 単位で利用不可 UI を disable する。
 
@@ -503,8 +551,16 @@ flowchart TD
 
 成果物:
 
-- Outliner、Details、下部ツールのdocking、multi-monitor、named workspaceは実装済み。document/tool tab tear-offは残り。
-- layout と panel size の per-user 永続化。
+- 実装済み: `hierarchy`、`inspector`、`console`、`build`、`assets`、
+  `profiler` の6 stable-ID registry。各toolを個別にfloat/hide/restoreでき、
+  複数toolを同時にfloatできる。dockedな下部toolが1件以上なら1 active tabを
+  共有する。`Ctrl+J` / View menuはaggregate presentationだけを折り畳み、
+  子toolの配置状態とactive tabを変更しない。dock内Hideは選択toolだけを隠す。
+- 実装済み: schema-v2のper-user placement、multi-monitor/DPI snap、
+  monitor topology変更時のclamp、全6 panelとactive bottom tabを対象にする
+  transactional reset。
+- 実装済み: named workspaceとpanel sizeのper-user永続化。
+- 残り: document/tool tab tear-off、任意dock tree、tab groupの分割・移動。
 - multi-document tab、Recent、Favorites。
 - command registry、command palette、shortcut editor。
 - Output Log、Message Log、Build Results、Task Progress の統一。
@@ -536,6 +592,19 @@ flowchart TD
 
 ### P1-C: Viewport、Preview、Play Workflow
 
+実装済み camera/view vertical slice:
+
+- Scene View cameraとauthored Game Cameraを分離し、複数Camera component、
+  deterministic active camera、Scene Viewだけのfrustum表示を持つ。
+- Camera Viewはnative child HWNDを1つのowned WPF windowへ移し、camera選択を
+  Scene dirty、Undo、authored Activeから分離する。
+- `camera-view-requests-v1` は最大8 logical requestのidentity/extent/generation
+  lifecycleを提供する。managed Camera Viewは最大8 tabの追加、即時切替、閉じる、
+  stable-ID再解決を実装し、各tabのrequested extentとhistory generationを分離する。
+  Scene置換後は一意なstable IDだけを新nodeへ追従させ、曖昧な重複はfail closedとする。
+  ただしlive描画は1つのshared-swapchain presenterだけで、logical request数を
+  同時live view数として扱わない。
+
 実装済み live preview vertical slice:
 
 - 単一 mesh/background の CPU-safe material preview と 192/256/384 px 出力解像度 selector。
@@ -550,9 +619,12 @@ flowchart TD
 
 - fly navigation、camera speed、bookmark、local/world/pivot mode。
 - render mode、debug overlay、resolution scale、performance stats。
+- Camera Viewのdedicated offscreen target、専用queue/fenceまたは同等の
+  ownership、async readback/presentation、viewごとのTAA/cloud/depth/post
+  history、複数同時live PIP。別capabilityを定義するまで未対応として扱う。
 - native GPU preview の fenced async readback と compiled shader cache。
 - Asset View preview への共通 async/cancellable/cache service 適用。
-- Selected Viewport/New Window/Standalone/Simulate。
+- Selected Viewport/New Window/Standalone/Simulate のPlay mode matrix。
 - Possess/Eject、spawn location、Play setting。
 
 依存: P0-A/B/C、preview cache は P0-D。
@@ -694,7 +766,7 @@ live CPU-safe generation を dispatcher 外の latest-wins job にした。入�
 
 ### 4. Workspace layout の per-user 永続化（初期実装済み）
 
-panel show/hide/reset、window bounds、row/column size、visibility を versioned user-local JSON として保存する。破損値と monitor topology 変更は安全な既定値へ fallback し、Project file には混ぜない。Outliner、Details、Console/Build/Assets/Profilerを含む下部ツールは明示registryのstable IDでfloat・再dockでき、owner/monitor端へ12 DIPのDPI対応snapを行う。unknown/duplicate ID、非finite配置、unsupported versionはfail closedにし、detach失敗はDockedへrollback、redock失敗はFloatingを維持する。document tab tear-offと任意dock treeは次段階とする。
+panel show/hide/reset、window bounds、row/column size、visibility を versioned user-local JSON として保存する。破損値と monitor topology 変更は安全な既定値へ fallback し、Project file には混ぜない。明示registryは `hierarchy`、`inspector`、`console`、`build`、`assets`、`profiler` の6 stable IDで、各toolを個別にfloat・hide・restoreでき、複数toolを同時にfloatできる。dockedなConsole/Build/Assets/Profilerが1件以上なら1 active tabを共有する。`Ctrl+J` / View menuのaggregate suppressionは子toolの状態とactive tabを保持し、dock内Hideだけが選択toolをHiddenへ移す。placement schemaはv2で、owner/monitor端へ12 DIPのDPI対応snapを行う。unknown/duplicate ID、非finite配置、unsupported versionはfail closedにし、detach失敗はDockedへrollback、redock失敗はFloatingを維持する。document/tool tab tear-offと任意dock treeは次段階とする。
 
 検証:
 
@@ -702,11 +774,12 @@ panel show/hide/reset、window bounds、row/column size、visibility を version
 - 破損 JSON は既定 layout に fallback し、Project を壊さない。
 - 負座標monitor、切断monitor、DPI変更後もfloating panelのタイトル領域を最近傍work areaへ復元する。
 - float/re-dock失敗時にvisualが複製・消失せず、Scene dirty/Undo/Project設定を変更しない。
-- layout reset途中の失敗は全panelを開始時のDocked/Floating/Hiddenへ戻し、全成功時だけdefault配置をcommitする。
+- schema-v2 snapshotは6 IDの欠落・重複・未知IDを一部適用せず拒否する。
+- layout reset途中の失敗は全6 panelを開始時のDocked/Floating/Hiddenとactive bottom tabへ戻し、全成功時だけdefault配置をcommitする。
 
 ### 5. Save All、dirty indicator、close confirmation の統一（Scene と Material graph 統合済み）
 
-deterministic/async Document Host と Scene adapter は実装済みで、2D/3D Scene は mode switch なしの Save All、原子的 source write、dirty indicator、close confirmation、自動保存・復旧を持つ。Material graph もstable Asset ID、dirty、Save All、owner close、gesture transaction、path-mutation suspension/rebindに参加した。Project Settings もstable file identity、unknown key保持、dirty/transaction、非同期atomic Save All、owner close、fail-closed restore latchに参加した。次にMaterial legacy property、Blueprint/Prefab adapterとmulti-document tabをhostへ移行し、共通command routingとautosave/recoveryを全documentへ拡張する。
+deterministic/async Document Host と Scene adapter は実装済みで、単一 Scene document は ACS3D / legacy `.acscene` のどちらの adapter でも、view mode switch なしの Save All、原子的 source write、dirty indicator、close confirmation、自動保存・復旧を持つ。Material graph もstable Asset ID、dirty、Save All、owner close、gesture transaction、path-mutation suspension/rebindに参加した。Project Settings もstable file identity、unknown key保持、dirty/transaction、非同期atomic Save All、owner close、fail-closed restore latchに参加した。次にMaterial legacy property、Blueprint/Prefab adapterとmulti-document tabをhostへ移行し、共通command routingとautosave/recoveryを全documentへ拡張する。
 
 検証:
 
@@ -731,11 +804,32 @@ incremental-startup、resize-result 契約を検証する。旧 DLL、version �
 capability 不足、bad image は native host を作る前に fail closed とし、
 About/起動診断へ backend、provider version、既知/未知 bit、欠落理由を表示する。
 native lifecycle test と headless managed self-test で current/future/legacy/missing
-capability を固定した。Profiler v4 は 224-byte version-4 とし、実際のmain-view
+capability を固定した。Profiler v5 は 256-byte version-5 とし、先頭
+224-byte のversion-4 prefix要求も受理する後方互換contractとしている。実際のmain-view
 frustum tested/visible/culled数と解決済みgame-camera nodeを追加した。volumetric
 cloud の exact workload は独立した 168-byte `cloud-workload-v1` optional contract
 として追加した。Cloud panel は dispatch、logical/launched invocation、history、
 sample ceiling、skip reason を表示するが、品質設定や march count は変更しない。
+Camera View requestは独立した `camera-view-requests-v1` optional contractで、
+最大8 logical request、ABA-safe ID、registry内のstable camera identity、
+Scene replacement時のstale化と再検証を固定した。60-byte snapshotはcamera
+node、requested/presented extent、target/history generationを公開する。
+managed側はNew、current Open、Undo/Redo/recovery、成功rollbackの公開境界で
+stable IDを1回だけ再解決し、superseded/unpublished loadでは更新しない。
+presenterは既存shared swapchainの排他的な1件だけで、
+DedicatedOffscreen、async readback、per-view history、複数同時live PIPはこの
+capabilityに含めずadvertiseしない。
+main-view cullingはnormal/depth、motion、opaque PBR、interactive water、
+refractionで同じproduction submission traversalを使う。normal/depthは
+rejectなしならaggregate 1 drawを維持し、部分cull時だけ隣接visible rangeを
+結合する。Shadowはlight-space、VXGIはworld-spaceなのでcamera maskから明示的に
+除外する。perspective/orthographic plane contract、Profiler default値、
+fake-RHI command記録、range overflow、利用可能なDX12 adapter上の実
+`DrawScene3D` publicationをnative testで検証する。
+TAA/SSR/SSGIは共通`TemporalHistory` policyでframe 0をcurrent-onlyにし、
+Scene・logical camera owner・projection・view mode・Play復帰・明示camera cut・
+品質toggleを不連続点として一括invalidateする。SSR/SSGIの無効化または
+G-buffer prerequisite欠落も次回をcold-startさせる。
 managed Build/Package は version-1 typed diagnostic、operation ID、bounded
 aggregation、cancellation terminal を持つ。次段階は native typed error payload、
 optional service 単位の UI disable、async job/cancellation ABI である。
@@ -744,11 +838,11 @@ optional service 単位の UI disable、async job/cancellation ABI である。
 
 1. 完了: 3D Build/Run/Package guard と snap 同期修正で、現状の誤動作を停止。
 2. 完了: P0-A の Scene manifest/schema/loader を ADR 0001 と `SceneContractFixtureSelfTest` で固定。
-3. 進行中: P0-B は ABI version/capability negotiation、`cloud-workload-v1`、managed Build/Package operation diagnostic を実装済み。native typed error、service 単位の disable、native job cancellation を追加する。
+3. 進行中: P0-B は ABI version/capability negotiation、`cloud-workload-v1`、`camera-view-requests-v1`、managed Build/Package operation diagnostic を実装済み。native typed error、service 単位の disable、native job cancellation、Camera Viewのdedicated offscreen/async presentation capabilityを追加する。
 4. 進行中: P0-C は deterministic/async Document Host、Scene adapter、Scene Save All/autosave/recovery、Material graph adapter/transaction、Project Settings adapter/transaction/非同期保存を実装済み。Project Settings の startup snapshot/parse は worker 化され、generation/cancel/late-result gate、project root→Config→file containment、Build/Run/Standalone/Package durability gate まで実装済み。Material legacy property、Blueprint、Prefab、multi-document tabを追加する。
 5. 進行中: P0-D は GUID/metadata/dependency index/Reference Viewer、reimport、safe rename/move/delete、global search、Cook DDC、Asset Browser thumbnail DDC を実装済み。importer ごとの設定 UI、tag/dynamic collection、import derived-data DDC、10 万 Asset 規模の継続検証を追加する。
 6. 進行中: P0-E はcanonical Scene Asset ID起点のrequired-only dependency closure、deterministic Cook/pack/native verify/Shipping runtime smokeまで実装済み。製品 metadata、署名、installer、自動 smoke の CI 統合を追加する。
-7. その後に docking、Content Browser、Details、Viewport、Prefab、Navigation を依存順に拡張する。
+7. その後に残るdocument/tool tab tear-offと任意dock tree、Content Browser、Details、Viewport、Prefab、Navigationを依存順に拡張する。
 
 live Material Preview は debounce、dispatcher 外の cancellable latest-wins generation、in-flight coalescing、8 entry LRU cache、last-good image、192/256/384 px 出力まで完了した。HDR/ACES、SSAA、mesh/background は native preview API のみで、live window への接続には専用 queue/fence と async readback が残る。
 

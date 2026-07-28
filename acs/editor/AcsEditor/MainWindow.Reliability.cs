@@ -16,6 +16,14 @@ using System.Windows.Threading;
 
 namespace AcsEditor;
 
+internal static class EditorCloseDiagnosticPolicy
+{
+    internal static bool MayAwaitPersistence(
+        bool dispatcherThread,
+        bool windowClosed) =>
+        !dispatcherThread && !windowClosed;
+}
+
 public partial class MainWindow
 {
     [DllImport("user32.dll")]
@@ -33,6 +41,10 @@ public partial class MainWindow
     private static readonly Queue<InteractionDiagnosticWorkItem>
         InteractionLogQueue = new();
     private static bool _interactionLogPumpRunning;
+    // Hold the worker for its complete lifetime. DrainInteractionDiagnosticQueue
+    // contains its own terminal exception boundary, so this task can never
+    // become an unobserved fault during process shutdown.
+    private static Task _interactionLogPumpLifetime = Task.CompletedTask;
     private static readonly string InteractionDiagnosticSessionFileName =
         "interaction-health-" +
         DateTimeOffset.UtcNow.ToString(
@@ -48,6 +60,8 @@ public partial class MainWindow
     private const long InteractionDiagnosticLogMaximumBytes =
         2L * 1024L * 1024L;
     internal const DispatcherPriority InteractionHeartbeatPriority =
+        DispatcherPriority.Input;
+    internal const DispatcherPriority InteractionHealthPriority =
         DispatcherPriority.Input;
 
     private DispatcherTimer? _interactionHealthTimer;
@@ -67,6 +81,7 @@ public partial class MainWindow
     private double _interactionSoakMaxDispatcherGapMilliseconds;
     private double _interactionSoakMaxProfilerGapMilliseconds;
     private bool _interactionSoakRecoveryPromptObserved;
+    private bool _profilerCaptureRequiresView3D;
     private readonly HashSet<string> _interactionSoakFaultCodes =
         new(StringComparer.Ordinal);
 
@@ -76,7 +91,8 @@ public partial class MainWindow
         Action<int> Complete,
         DateTimeOffset RequestedUtc,
         long RequestedTimestamp,
-        bool RequireRecoveryPrompt);
+        bool RequireRecoveryPrompt,
+        string? ProfilerCapturePath);
 
     private sealed record InteractionDiagnosticWorkItem(
         string Line,
@@ -104,7 +120,13 @@ public partial class MainWindow
         bool RecoveryPromptObserved,
         string StartupState,
         IReadOnlyList<string> FaultCodes,
-        string InteractionLogPath);
+        string InteractionLogPath,
+        string? ProfilerCapturePath,
+        string? ProfilerCaptureError,
+        EditorProfilerCaptureSummary? ProfilerSummary);
+
+    internal void RequireView3DForProfilerCapture() =>
+        _profilerCaptureRequiresView3D = true;
 
     private void InitializeInteractionHealthDiagnostics()
     {
@@ -122,17 +144,14 @@ public partial class MainWindow
             _dispatcherHeartbeatTimer = null;
             _dispatcherWatchdog?.Dispose();
             _dispatcherWatchdog = null;
-            Task<bool> closeDiagnostic = QueueInteractionDiagnostic(
-                "code=EDITOR_CLOSED",
-                awaitWrite: true);
-            try
-            {
-                _ = closeDiagnostic.Wait(TimeSpan.FromMilliseconds(500));
-            }
-            catch
-            {
-                // Process shutdown must continue even if diagnostics fail.
-            }
+            // Shutdown must never block the Dispatcher for diagnostic I/O.
+            // The bounded background writer owns the queued string; process
+            // exit is allowed to omit this best-effort final line.
+            Debug.Assert(
+                !EditorCloseDiagnosticPolicy.MayAwaitPersistence(
+                    dispatcherThread: true,
+                    windowClosed: true));
+            _ = QueueInteractionDiagnostic("code=EDITOR_CLOSED");
         };
     }
 
@@ -140,7 +159,8 @@ public partial class MainWindow
         TimeSpan duration,
         string? reportPath,
         Action<int> complete,
-        bool requireRecoveryPrompt = false)
+        bool requireRecoveryPrompt = false,
+        string? profilerCapturePath = null)
     {
         ArgumentNullException.ThrowIfNull(complete);
         if (!double.IsFinite(duration.TotalSeconds) ||
@@ -157,13 +177,25 @@ public partial class MainWindow
                 Path.GetTempPath(),
                 $"acs-editor-interaction-soak-{Environment.ProcessId}.json")
             : Path.GetFullPath(reportPath);
+        string? captureOutput = null;
+        if (profilerCapturePath != null &&
+            !EditorProfilerCaptureFile.TryNormalizeAutomationDestination(
+                profilerCapturePath,
+                out captureOutput,
+                out string? captureError))
+        {
+            throw new ArgumentException(
+                captureError,
+                nameof(profilerCapturePath));
+        }
         _interactionSoak = new(
             duration,
             output,
             complete,
             DateTimeOffset.UtcNow,
             Stopwatch.GetTimestamp(),
-            requireRecoveryPrompt);
+            requireRecoveryPrompt,
+            captureOutput);
     }
 
     private void OnInteractionDiagnosticsLoaded(object sender, RoutedEventArgs e)
@@ -180,7 +212,7 @@ public partial class MainWindow
         _interactionHealthTimer = new DispatcherTimer(
             TimeSpan.FromMilliseconds(
                 EditorInteractionSoakPolicy.TimerIntervalMilliseconds),
-            DispatcherPriority.Background,
+            InteractionHealthPriority,
             OnInteractionHealthTick,
             Dispatcher);
         _interactionHealthTimer.Start();
@@ -276,6 +308,13 @@ public partial class MainWindow
         {
             if (_engineStartupState == EditorEngineStartupState.Ready)
             {
+                if (soak.ProfilerCapturePath != null)
+                {
+                    // Establish the capture boundary only after startup is
+                    // ready. Native rolling peaks, scheduler/Dispatcher peaks,
+                    // and both bounded histories must exclude warm-up.
+                    ProfilerView.BeginAutomationCapture();
+                }
                 _interactionSoakStartedUtc = now;
                 _interactionSoakStartedTimestamp = nowTimestamp;
                 _lastInteractionSoakTickTimestamp = nowTimestamp;
@@ -323,9 +362,22 @@ public partial class MainWindow
             CompleteInteractionSoak(now);
     }
 
-    private void OnDispatcherHeartbeatTick(object? sender, EventArgs e) =>
+    private void OnDispatcherHeartbeatTick(object? sender, EventArgs e)
+    {
+        // Do not make capture recovery depend on another child-HWND pointer
+        // message. A lost button-up can otherwise leave the native viewport
+        // owning capture while WPF timers/profiling continue normally.
+        bool recoveredCapture =
+            _viewport?.MaintainPointerCapture(_interactionWindowClosing) ??
+            false;
+        if (recoveredCapture)
+        {
+            _ = QueueInteractionDiagnostic(
+                "code=STALE_VIEWPORT_CAPTURE_RECOVERED");
+        }
         _dispatcherWatchdog?.Beat(
             "input heartbeat / " + _engineStartupState);
+    }
 
     private void OnDispatcherWatchdogTransition(
         EditorDispatcherWatchdogTransition transition)
@@ -366,6 +418,65 @@ public partial class MainWindow
             !_interactionSoakRecoveryPromptObserved)
         {
             _interactionSoakFaultCodes.Add("RECOVERY_PROMPT_NOT_OBSERVED");
+        }
+
+        EditorProfilerCaptureSummary? profilerSummary = null;
+        string? profilerCapturePath = soak.ProfilerCapturePath;
+        string? profilerCaptureError = null;
+        if (soak.ProfilerCapturePath != null)
+        {
+            try
+            {
+                EditorProfilerCaptureSnapshot capture =
+                    ProfilerView.CreateAutomationCaptureSnapshot();
+                profilerSummary =
+                    EditorProfilerCaptureFile.Summarize(capture);
+                string csv = EditorProfilerCaptureFile.SerializeCsv(
+                    capture,
+                    ProfilerView.AutomationCaptureTargetFps,
+                    profilerSummary);
+                if (!EditorProfilerCaptureFile.TryWriteAtomic(
+                        soak.ProfilerCapturePath,
+                        csv,
+                        out string publishedCapturePath,
+                        out profilerCaptureError))
+                {
+                    _interactionSoakFaultCodes.Add(
+                        "PROFILER_CAPTURE_WRITE_FAILED");
+                }
+                else
+                {
+                    profilerCapturePath = publishedCapturePath;
+                }
+                if (profilerSummary.SampleCount == 0)
+                {
+                    _interactionSoakFaultCodes.Add(
+                        "PROFILER_CAPTURE_NO_SAMPLES");
+                }
+                if (profilerSummary.GpuQueryMilliseconds.SampleCount == 0)
+                {
+                    _interactionSoakFaultCodes.Add(
+                        "PROFILER_CAPTURE_NO_GPU_SAMPLES");
+                }
+                if (!profilerSummary.LatestGpuQueryWindow.Available)
+                {
+                    _interactionSoakFaultCodes.Add(
+                        "PROFILER_CAPTURE_NO_GPU_PASS_WINDOW");
+                }
+                if (_profilerCaptureRequiresView3D)
+                {
+                    _interactionSoakFaultCodes.UnionWith(
+                        EditorProfilerCaptureValidation
+                            .Expected3DRenderFaults(profilerSummary));
+                }
+            }
+            catch (Exception error)
+            {
+                profilerCaptureError =
+                    error.GetType().Name + ": " + error.Message;
+                _interactionSoakFaultCodes.Add(
+                    "PROFILER_CAPTURE_FAILED");
+            }
         }
 
         int expectedDispatcherTicks =
@@ -414,7 +525,10 @@ public partial class MainWindow
             _interactionSoakRecoveryPromptObserved,
             _engineStartupState.ToString(),
             _interactionSoakFaultCodes.OrderBy(code => code).ToArray(),
-            InteractionDiagnosticLogPath());
+            InteractionDiagnosticLogPath(),
+            profilerCapturePath,
+            profilerCaptureError,
+            profilerSummary);
 
         try
         {
@@ -510,30 +624,70 @@ public partial class MainWindow
                 new InteractionDiagnosticWorkItem(line, completion));
             startPump = !_interactionLogPumpRunning;
             if (startPump)
+            {
                 _interactionLogPumpRunning = true;
+                _interactionLogPumpLifetime =
+                    Task.Run(DrainInteractionDiagnosticQueue);
+            }
         }
-        if (startPump)
-            _ = Task.Run(DrainInteractionDiagnosticQueue);
         return completion?.Task ?? Task.FromResult(true);
+    }
+
+    internal static Task InteractionDiagnosticPumpLifetimeForSelfTest()
+    {
+        lock (InteractionLogLock)
+            return _interactionLogPumpLifetime;
     }
 
     private static void DrainInteractionDiagnosticQueue()
     {
-        while (true)
+        InteractionDiagnosticWorkItem? activeItem = null;
+        try
         {
-            InteractionDiagnosticWorkItem item;
+            while (true)
+            {
+                lock (InteractionLogLock)
+                {
+                    if (InteractionLogQueue.Count == 0)
+                    {
+                        _interactionLogPumpRunning = false;
+                        return;
+                    }
+                    activeItem = InteractionLogQueue.Dequeue();
+                }
+
+                bool persisted =
+                    TryWriteInteractionDiagnostic(activeItem.Line);
+                activeItem.Completion?.TrySetResult(persisted);
+                activeItem = null;
+            }
+        }
+        catch (Exception error)
+        {
+            // A bug outside the normal I/O boundary must still complete every
+            // waiter and leave the process able to start a later pump. Never
+            // allow a fire-and-forget Task fault to escape unobserved.
+            activeItem?.Completion?.TrySetResult(false);
             lock (InteractionLogLock)
             {
-                if (InteractionLogQueue.Count == 0)
+                while (InteractionLogQueue.Count != 0)
                 {
-                    _interactionLogPumpRunning = false;
-                    return;
+                    InteractionLogQueue.Dequeue()
+                        .Completion?.TrySetResult(false);
                 }
-                item = InteractionLogQueue.Dequeue();
+                _interactionLogPumpRunning = false;
             }
-
-            bool persisted = TryWriteInteractionDiagnostic(item.Line);
-            item.Completion?.TrySetResult(persisted);
+            try
+            {
+                Trace.WriteLine(
+                    "Interaction diagnostic worker failed: " +
+                    error.GetType().Name +
+                    ": " +
+                    error.Message);
+            }
+            catch
+            {
+            }
         }
     }
 

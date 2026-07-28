@@ -5,7 +5,8 @@ vertical slice. It performs:
 
 1. project, canonical Scene Asset ID, and reachable asset-reference validation;
 2. a standalone Windows x64 Release build;
-3. PE runtime dependency resolution;
+3. bounded, side-effect-free PE32+ AMD64 launchability preflight, followed by
+   PE runtime dependency resolution;
 4. deterministic dependency-closure Cook rooted at the canonical Scene Asset ID
    into the existing `.acpak` v1 format, with staged-only conversion of
    scene/material references to portable virtual paths;
@@ -16,8 +17,10 @@ vertical slice. It performs:
 7. a manifest containing the Cooked pack path, SHA-256, format version,
    compression policy, source entry count, content-derived build ID, canonical
    scene Asset ID/importer/graph hash, and a reversible scene bootstrap
-   envelope; and
-8. a deterministic ZIP with stable entry order and timestamps.
+   envelope, plus validated distribution metadata; and
+8. a deterministic ZIP with stable entry order and timestamps, followed by a
+   complete manifest/path/size/SHA-256 and executable-header verification
+   before atomic publication.
 
 PDBs are opt-in. Editor-only `*_reflect.dll` files are always excluded.
 `Assets/` and `Config/` reject symlinks, junctions, and other reparse points.
@@ -31,6 +34,62 @@ Blueprints, common image/audio/mesh/font formats, text/config formats, and
 compiled shader blobs (`.cso`, `.dxil`, `.spv`). An unknown extension is an
 error when it is in the required closure; a valid indexed asset that is not
 reachable from the initial Scene is intentionally omitted.
+
+The executable preflight reads at most the bounded DOS/PE header region and
+never starts project-controlled code. It requires an executable, non-DLL
+PE32+ AMD64 image with a non-zero entry point, a bounded section table, and a
+Windows GUI or console subsystem. Every section range must be structurally
+consistent, and the entry point must resolve inside an executable code
+section's raw or virtual range. A text file, malformed section layout, invalid
+entry point, or foreign-architecture binary renamed to `.exe` fails as
+`EXECUTABLE_INVALID` both before staging and when a completed archive is
+independently verified.
+
+On Windows, runtime dependency resolution pins CMake's script-mode scanner to
+the `windows+pe`/`dumpbin` backend. `dumpbin.exe` is resolved from `PATH`, the
+active `VCToolsInstallDir`, or an installed Visual Studio x64 toolchain. This
+avoids host introspection selecting an unavailable `objdump`; absence of a
+supported PE scanner remains a fail-closed packaging error.
+
+## Product metadata
+
+Optional distribution metadata lives at `Config/PackageMetadata.json` and is
+captured by the same immutable Config snapshot used for Package. A Shipping
+preflight without the file emits `PACKAGE_METADATA_MISSING` as a warning for
+backward compatibility. If the file exists, malformed or ambiguous input
+fails as `PACKAGE_METADATA_INVALID`; it is never silently repaired.
+
+```json
+{
+  "schemaVersion": 1,
+  "publisher": "Example Studio",
+  "description": "Example Game",
+  "copyright": "Copyright Example Studio",
+  "supportUrl": "https://support.example.com/game"
+}
+```
+
+The parser accepts only those five fields, rejects duplicate or unknown JSON
+properties, bounds the file and each string, rejects hidden control
+characters, and requires a canonical absolute HTTPS support URL. The validated
+object is embedded as `productMetadata` in `package-manifest.json`; CLI
+`verify`, `inspect`, and `diff` preserve and compare it. Older schema-v3
+archives without `productMetadata` remain verifiable.
+
+The Editor exposes this document under `Project Settings > Distribution`.
+Edits are staged with inline validation from the same package contract, then
+published with explicit Apply or discarded with Revert. Strict load failures
+are shown without overwriting the source. Applying four empty fields returns
+the project to the unconfigured state by removing the optional file. See
+[Package metadata in Project Settings](ProjectSettingsPackageMetadata.md) for
+the complete durability and UI contract.
+
+Before opening the Package dialog, Asset View exposes
+**Asset Actions > Package Readiness…**. It runs this same canonical Cook
+closure asynchronously, shows missing/unsupported/stale/reparse diagnostics
+with locate and Reference Viewer repair routes, and can atomically export a
+schema-versioned JSON report. See
+[Asset Package Readiness](AssetPackageReadiness.md).
 
 ## Cook closure, snapshot, and publication boundary
 
@@ -108,8 +167,39 @@ dotnet run --project tools/acspackage -- validate `
 `--skip-build` packages an existing Release executable. `--self-test`
 exercises byte-identical Cook/ZIP output, the native pack verifier, manifest
 pack hashes, all profiles, canonical identity/bootstrap metadata, 2D and
-supported 3D reference rewriting, metadata exclusions, unsupported/external
-inputs, traversal protection, and the 3D fail-closed boundary.
+supported 3D reference rewriting, product metadata, PE32+ AMD64 preflight,
+metadata exclusions, unsupported/external inputs, traversal protection, and
+the 3D fail-closed boundary.
+
+## Distribution E2E audit
+
+Run the retained, end-to-end distribution audit with:
+
+```powershell
+dotnet run --project tools/acspackage -- distribution-e2e
+```
+
+The command creates a new real 3D project only under the operating-system TEMP
+directory. It invokes the production `package` CLI twice, requires
+byte-identical Shipping ZIPs, then exercises standalone `verify`,
+`inspect --json`, and identical `diff --json`. The inspection result must
+preserve the fixture's four product-metadata fields exactly, and the executable
+inside the ZIP is independently checked against the PE32+ AMD64 contract.
+
+The audit then mutates `Config/ProjectSettings.ini` in a copied ZIP without
+updating the manifest. `verify` and `inspect` must return invalid-archive
+failures and write `verified: false` JSON; `diff` must refuse the comparison
+with exit code `3` and `compared: false`. A schema-versioned summary records
+all command exit codes, archive SHA-256 values, metadata, and PE fields.
+Both valid archives, the tampered archive, and every JSON report remain under
+`%TEMP%\acs-distribution-e2e-*`.
+
+`--artifacts <new-temp-directory>` chooses the retained directory, but it must
+be a new ordinary path strictly below TEMP. Existing paths, paths outside TEMP,
+and reparse-point ancestors are rejected. `verify_editor.ps1 -Mode full`
+executes the same gate inside its isolated verification session. The script
+normally deletes that session after completion; use `-KeepArtifacts` when its
+E2E files must be retained for inspection.
 
 ## Canonical scene bootstrap and fail-closed boundary
 
@@ -140,10 +230,11 @@ ships a scene with silently missing runtime behavior.
 ## Distribution roadmap
 
 Portable ZIP generation does not perform executable signing or publish to an
-external service. The project model also still needs durable product metadata:
+external service. The Config snapshot and package manifest now carry
+publisher, copyright, description, and HTTPS support URL. Remaining
+distribution work includes:
 
 - semantic product version (currently entered in the Package dialog);
-- publisher, copyright, description, and support URL;
 - application icon and Windows version resources;
 - package identifier and additional platform distribution profiles;
 - signing certificate selection backed by an OS credential store;

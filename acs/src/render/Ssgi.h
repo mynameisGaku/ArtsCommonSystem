@@ -93,6 +93,15 @@ public:
     void Shutdown() noexcept;
 
     /**
+     * Keep allocated targets but make the next render a cold temporal start.
+     * Call this when a shared render surface changes logical camera owner.
+     */
+    void InvalidateHistory() noexcept {
+        m_TemporalFrame = 0u;
+        m_OutputValid = false;
+    }
+
+    /**
      * 解像度変更時に内部 RT を作り直す (ウィンドウリサイズで呼ぶ)。
      *
      * @param width 新しい出力幅。
@@ -138,6 +147,9 @@ public:
     IRhiTexture* OutputTexture() const noexcept {
         return m_History[m_TemporalFrame == 0u ? 0u : ((m_TemporalFrame - 1u) & 1u)].Get();
     }
+
+    /** True only after raw, bilateral and temporal output were all recorded. */
+    bool HasValidOutput() const noexcept { return m_OutputValid; }
 
     /**
      * raw (blur/temporal 前) の RT を返す (デバッグ用途向け)。
@@ -210,6 +222,9 @@ private:
 
     /** temporal accumulation のフレームカウンタ (history の ping-pong に使う)。 */
     u32                     m_TemporalFrame = 0;
+
+    /** Prevents callers from publishing an unwritten or invalidated history. */
+    bool                    m_OutputValid = false;
 };
 
 } // namespace acs

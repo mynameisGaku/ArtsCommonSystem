@@ -95,6 +95,120 @@ private:
     u64 m_FailingRequest = 0;
 };
 
+/**
+ * 解放要求を受けた領域を poison してテスト終了まで保持する backing。
+ *
+ * @details grow 後に旧領域の参照を読んでしまう回帰を、偶然メモリが残ることに
+ * 依存せず検出する。コンテナからの Free は記録するが、実 backing への返却は
+ * この allocator の破棄時まで遅延する。
+ */
+class FQuarantiningAllocator final : public FAllocator {
+public:
+    ~FQuarantiningAllocator() noexcept override
+    {
+        for (usize Index = 0u; Index < m_AllocationCount; ++Index) {
+            m_Backing.Free(m_Allocations[Index].Pointer);
+        }
+    }
+
+    void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
+    {
+        if (m_AllocationCount >= kMaximumAllocations) return nullptr;
+        void* const Pointer = m_Backing.Alloc(Size, Alignment, Location);
+        if (!Pointer) return nullptr;
+
+        m_Allocations[m_AllocationCount++] = {
+            Pointer,
+            Size,
+            false
+        };
+        ++m_LiveContainerAllocations;
+        return Pointer;
+    }
+
+    void Free(void* Pointer) noexcept override
+    {
+        if (!Pointer) return;
+        for (usize Index = 0u; Index < m_AllocationCount; ++Index) {
+            FAllocation& Allocation = m_Allocations[Index];
+            if (Allocation.Pointer != Pointer || Allocation.bReleased) continue;
+
+            MemSet(Allocation.Pointer, 0xA5, Allocation.Size);
+            Allocation.bReleased = true;
+            --m_LiveContainerAllocations;
+            return;
+        }
+    }
+
+    usize LiveContainerAllocations() const noexcept
+    {
+        return m_LiveContainerAllocations;
+    }
+
+private:
+    struct FAllocation {
+        void* Pointer = nullptr;
+        usize Size = 0u;
+        bool bReleased = false;
+    };
+
+    static constexpr usize kMaximumAllocations = 8u;
+    FSystemAllocator m_Backing;
+    FAllocation m_Allocations[kMaximumAllocations]{};
+    usize m_AllocationCount = 0u;
+    usize m_LiveContainerAllocations = 0u;
+};
+
+struct FArrayValueCounters {
+    usize ValueConstructions = 0u;
+    usize CopyConstructions = 0u;
+    usize MoveConstructions = 0u;
+    usize Destructions = 0u;
+    usize LiveValues = 0u;
+};
+
+/** 非 trivial な値型。grow の構築順序と失敗時 rollback を観測する。 */
+struct FArrayTrackedValue {
+    static constexpr int kMovedFromValue = -777777;
+
+    explicit FArrayTrackedValue(
+        FArrayValueCounters& InCounters,
+        int InValue) noexcept
+        : Counters(&InCounters),
+          Value(InValue)
+    {
+        ++Counters->ValueConstructions;
+        ++Counters->LiveValues;
+    }
+
+    FArrayTrackedValue(const FArrayTrackedValue& Other) noexcept
+        : Counters(Other.Counters),
+          Value(Other.Value)
+    {
+        ++Counters->CopyConstructions;
+        ++Counters->LiveValues;
+    }
+
+    FArrayTrackedValue(FArrayTrackedValue&& Other) noexcept
+        : Counters(Other.Counters),
+          Value(Other.Value)
+    {
+        Other.Value = kMovedFromValue;
+        ++Counters->MoveConstructions;
+        ++Counters->LiveValues;
+    }
+
+    ~FArrayTrackedValue() noexcept
+    {
+        ++Counters->Destructions;
+        --Counters->LiveValues;
+        Value = kMovedFromValue;
+    }
+
+    FArrayValueCounters* Counters = nullptr;
+    int Value = 0;
+};
+
 } // namespace
 
 ACS_TEST(Container, ArrayPushAndIndex) {
@@ -150,6 +264,119 @@ ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
     EXPECT_FALSE(OverflowArray.TryResize(~usize(0)));
     EXPECT_EQ(OverflowArray.Size(), static_cast<usize>(0));
     EXPECT_EQ(OverflowArray.Capacity(), static_cast<usize>(0));
+}
+
+ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstruction)
+{
+    FQuarantiningAllocator Allocator;
+
+    {
+        FArrayValueCounters Counters;
+        TArray<FArrayTrackedValue> Array(Allocator);
+        EXPECT_TRUE(Array.TryReserve(1u));
+        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 41) != nullptr);
+        FArrayTrackedValue* const OldData = Array.Data();
+
+        EXPECT_TRUE(Array.TryPushBack(Array[0]));
+        EXPECT_NE(Array.Data(), OldData);
+        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_EQ(Array[0].Value, 41);
+        EXPECT_EQ(Array[1].Value, 41);
+        EXPECT_EQ(Counters.CopyConstructions, static_cast<usize>(1));
+        EXPECT_EQ(Counters.MoveConstructions, static_cast<usize>(1));
+        EXPECT_EQ(Counters.LiveValues, static_cast<usize>(2));
+    }
+    EXPECT_EQ(
+        Allocator.LiveContainerAllocations(),
+        static_cast<usize>(0));
+
+    {
+        FArrayValueCounters Counters;
+        TArray<FArrayTrackedValue> Array(Allocator);
+        EXPECT_TRUE(Array.TryReserve(1u));
+        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 73) != nullptr);
+
+        EXPECT_TRUE(
+            Array.TryEmplaceBack(Counters, Array[0].Value) != nullptr);
+        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_EQ(Array[0].Value, 73);
+        EXPECT_EQ(Array[1].Value, 73);
+        EXPECT_EQ(Counters.ValueConstructions, static_cast<usize>(2));
+        EXPECT_EQ(Counters.MoveConstructions, static_cast<usize>(1));
+        EXPECT_EQ(Counters.LiveValues, static_cast<usize>(2));
+    }
+    EXPECT_EQ(
+        Allocator.LiveContainerAllocations(),
+        static_cast<usize>(0));
+
+    {
+        FArrayValueCounters Counters;
+        TArray<FArrayTrackedValue> Array(Allocator);
+        EXPECT_TRUE(Array.TryReserve(1u));
+        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 95) != nullptr);
+
+        EXPECT_TRUE(Array.TryPushBack(Move(Array[0])));
+        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_EQ(Array[0].Value, FArrayTrackedValue::kMovedFromValue);
+        EXPECT_EQ(Array[1].Value, 95);
+        EXPECT_EQ(Counters.MoveConstructions, static_cast<usize>(2));
+        EXPECT_EQ(Counters.LiveValues, static_cast<usize>(2));
+    }
+    EXPECT_EQ(
+        Allocator.LiveContainerAllocations(),
+        static_cast<usize>(0));
+}
+
+ACS_TEST(Container, ArraySelfReferentialGrowthRollsBackOnAllocationFailure)
+{
+    FSystemAllocator Backing;
+    FSwitchableFailAllocator Allocator(Backing);
+    FArrayValueCounters Counters;
+
+    {
+        TArray<FArrayTrackedValue> Array(Allocator);
+        EXPECT_TRUE(Array.TryReserve(1u));
+        EXPECT_TRUE(Array.TryEmplaceBack(Counters, 127) != nullptr);
+
+        FArrayTrackedValue* const DataBefore = Array.Data();
+        const usize SizeBefore = Array.Size();
+        const usize CapacityBefore = Array.Capacity();
+        const usize ValueConstructionsBefore = Counters.ValueConstructions;
+        const usize CopyConstructionsBefore = Counters.CopyConstructions;
+        const usize MoveConstructionsBefore = Counters.MoveConstructions;
+
+        // ACS は例外を無効化しているため、grow の例外経路は明示的な
+        // allocation failure。確保失敗時は constructor を一度も呼ばない。
+        Allocator.SetFailing(true);
+        EXPECT_FALSE(Array.TryPushBack(Array[0]));
+        EXPECT_FALSE(Array.TryPushBack(Move(Array[0])));
+        EXPECT_TRUE(
+            Array.TryEmplaceBack(Counters, Array[0].Value) == nullptr);
+
+        EXPECT_TRUE(Array.Data() == DataBefore);
+        EXPECT_EQ(Array.Size(), SizeBefore);
+        EXPECT_EQ(Array.Capacity(), CapacityBefore);
+        EXPECT_EQ(Array[0].Value, 127);
+        EXPECT_EQ(
+            Counters.ValueConstructions,
+            ValueConstructionsBefore);
+        EXPECT_EQ(
+            Counters.CopyConstructions,
+            CopyConstructionsBefore);
+        EXPECT_EQ(
+            Counters.MoveConstructions,
+            MoveConstructionsBefore);
+        EXPECT_EQ(Counters.LiveValues, static_cast<usize>(1));
+
+        Allocator.SetFailing(false);
+        EXPECT_TRUE(Array.TryPushBack(Array[0]));
+        EXPECT_EQ(Array.Size(), static_cast<usize>(2));
+        EXPECT_EQ(Array[0].Value, 127);
+        EXPECT_EQ(Array[1].Value, 127);
+    }
+
+    EXPECT_EQ(Counters.LiveValues, static_cast<usize>(0));
+    EXPECT_EQ(Backing.BytesAllocated(), static_cast<u64>(0));
 }
 
 ACS_TEST(Container, HashMapTryInsertPreservesStateOnOutOfMemory)

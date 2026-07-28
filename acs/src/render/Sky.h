@@ -479,6 +479,61 @@ f32 ResolveVolumetricCloudHorizonCoverage(
     f32 elevation_delta_x, f32 elevation_delta_y) noexcept;
 
 /**
+ * Per-frame camera/planet terms shared by every cloud trace/resolve pixel.
+ *
+ * local_up is the normalized camera vector from the rebased planet centre.
+ * ground_cutoff is the signed ray-elevation tangent of the physical ground
+ * sphere. Values below -1 disable the cutoff when the camera is in/above the
+ * authored cloud layer or when hostile input cannot be represented safely.
+ */
+struct FVolumetricCloudGroundHorizon {
+    FVec3 local_up{0.0f, 1.0f, 0.0f};
+    f32 ground_cutoff = -2.0f;
+};
+
+/**
+ * Hoist camera-invariant ground-horizon geometry out of per-pixel shaders.
+ *
+ * The equations deliberately mirror cloudAltitude/groundCutoff in kCloudCS.
+ * Ordinary finite inputs therefore preserve the analytic two-axis horizon
+ * coverage while avoiding identical divisions, normalization and square root
+ * work in every trace and full-resolution resolve invocation.
+ */
+FVolumetricCloudGroundHorizon ResolveVolumetricCloudGroundHorizon(
+    FVec3 camera_position, const FVolumetricCloudLayer& layer,
+    FVec3 world_origin) noexcept;
+
+/**
+ * Density-domain terms that are constant for a complete cloud frame.
+ *
+ * Keeping these values in CloudCB prevents every view and light-cone sample
+ * from rebuilding the identical world wind, shape frequency, and layer-height
+ * reciprocal. The density coordinates remain absolute world-space values.
+ */
+struct FVolumetricCloudDensityFrameTerms {
+    FVec2 wind_world{};
+    f32 shape_scale = 0.00012f;
+    f32 inverse_layer_height = 1.0f;
+};
+
+FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
+    const FVolumetricCloudLayer& layer, f32 wind_offset) noexcept;
+
+/**
+ * Normalized sun direction and its continuous Duff/Frisvad tangent basis.
+ *
+ * The basis is frame-invariant and is shared by every cloud view/light probe.
+ */
+struct FVolumetricCloudLightBasis {
+    FVec3 direction{0.0f, 1.0f, 0.0f};
+    FVec3 tangent{1.0f, 0.0f, 0.0f};
+    FVec3 bitangent{0.0f, 0.0f, -1.0f};
+};
+
+FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
+    FVec3 sun_direction) noexcept;
+
+/**
  * Experimental hybrid shallow sun optical-depth cache.
  *
  * The current two-volume implementation costs more GPU time than the exact
@@ -658,6 +713,12 @@ public:
 
     /** Current sanitized world-space cloud altitude band. */
     const FVolumetricCloudLayer& Layer() const noexcept { return m_Layer; }
+
+    /**
+     * Keep allocated cloud targets but reject the previous view's temporal
+     * reconstruction history on the next render.
+     */
+    void InvalidateHistory() noexcept { m_HistoryValid = false; }
 
     /** Logical sun-depth rebuilds; the raw/finalize dispatch pair counts once. */
     u64 ShadowCacheDispatchCount() const noexcept {

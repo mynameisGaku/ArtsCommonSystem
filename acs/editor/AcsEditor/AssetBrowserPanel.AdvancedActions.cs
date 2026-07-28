@@ -29,6 +29,7 @@ public partial class AssetBrowserPanel
                      _assetDatabase != null &&
                      _project != null;
         bool hasTrash = ready && HasTrashEntriesFast();
+        ActionPackageReadiness.IsEnabled = ready;
         ActionFixRedirectors.IsEnabled = ready;
         ActionUndoDelete.IsEnabled = hasTrash;
         ActionEmptyTrash.IsEnabled = hasTrash;

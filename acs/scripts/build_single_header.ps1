@@ -120,6 +120,59 @@ function Publish-FileAtomically([string]$TemporaryPath, [string]$DestinationPath
     }
 }
 
+function Get-DistributionFileManifest([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    Assert-NoReparseAncestor $normalizedRoot
+    if (-not (Test-Path -LiteralPath $normalizedRoot -PathType Container)) {
+        throw "配布 manifest の root が通常 directory ではありません: $normalizedRoot"
+    }
+
+    $rootPrefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+    $manifest = @{}
+    foreach ($file in Get-ChildItem -LiteralPath $normalizedRoot -Recurse -File -Force) {
+        Assert-NoReparseAncestor $file.FullName
+        if (-not $file.FullName.StartsWith(
+                $rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "配布 manifest の file が root の外です: $($file.FullName)"
+        }
+        $relativePath = $file.FullName.Substring($rootPrefix.Length)
+        if ($manifest.ContainsKey($relativePath)) {
+            throw "配布 manifest に重複する file path があります: $relativePath"
+        }
+        $manifest[$relativePath] = [pscustomobject]@{
+            Length = $file.Length
+            Sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        }
+    }
+    return $manifest
+}
+
+function Assert-MirroredDistribution([string]$Source, [string]$Destination) {
+    $sourceManifest = Get-DistributionFileManifest $Source
+    $destinationManifest = Get-DistributionFileManifest $Destination
+    if ($sourceManifest.Count -ne $destinationManifest.Count) {
+        throw ("deploy 後の file 数が一致しません: source={0}, destination={1}" -f
+            $sourceManifest.Count, $destinationManifest.Count)
+    }
+
+    foreach ($relativePath in $sourceManifest.Keys) {
+        if (-not $destinationManifest.ContainsKey($relativePath)) {
+            throw "deploy 後の file が不足しています: $relativePath"
+        }
+        $sourceEntry = $sourceManifest[$relativePath]
+        $destinationEntry = $destinationManifest[$relativePath]
+        if ($sourceEntry.Length -ne $destinationEntry.Length) {
+            throw "deploy 後の file size が一致しません: $relativePath"
+        }
+        if (-not [string]::Equals(
+                $sourceEntry.Sha256,
+                $destinationEntry.Sha256,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "deploy 後の SHA-256 が一致しません: $relativePath"
+        }
+    }
+}
+
 function Assert-ExpectedFailure([scriptblock]$Action, [string]$Name) {
     $failedAsExpected = $false
     try {
@@ -187,6 +240,32 @@ function Invoke-PipelineSelfTest {
             (Test-Path -LiteralPath $newTemporary)) {
             throw "self-test の新規 library 公開に失敗しました"
         }
+
+        $mirrorSource = Join-Path $testDirectory 'mirror-source'
+        $mirrorDestination = Join-Path $testDirectory 'mirror-destination'
+        New-Item -ItemType Directory -Force -Path $mirrorSource | Out-Null
+        New-Item -ItemType Directory -Force -Path $mirrorDestination | Out-Null
+        [System.IO.File]::WriteAllText(
+            (Join-Path $mirrorSource 'same-size.bin'), 'ABCD')
+        [System.IO.File]::WriteAllText(
+            (Join-Path $mirrorDestination 'same-size.bin'), 'ABCD')
+        Assert-MirroredDistribution $mirrorSource $mirrorDestination
+
+        # robocopy can skip a corrupt file when size and timestamp happen to
+        # match.  The post-deploy manifest must still reject its byte drift.
+        [System.IO.File]::WriteAllText(
+            (Join-Path $mirrorDestination 'same-size.bin'), 'WXYZ')
+        Assert-ExpectedFailure {
+            Assert-MirroredDistribution $mirrorSource $mirrorDestination
+        } 'same-size deploy content drift'
+
+        [System.IO.File]::WriteAllText(
+            (Join-Path $mirrorDestination 'same-size.bin'), 'ABCD')
+        [System.IO.File]::WriteAllText(
+            (Join-Path $mirrorDestination 'extra.bin'), 'extra')
+        Assert-ExpectedFailure {
+            Assert-MirroredDistribution $mirrorSource $mirrorDestination
+        } 'extra deploy file'
     } finally {
         Remove-Item -LiteralPath $testDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -363,6 +442,7 @@ if ($Deploy) {
     # robocopy の exit code は 0..7 が成功、8 以上が実エラー。
     if ($LASTEXITCODE -ge 8) { throw "robocopy に失敗しました ($LASTEXITCODE)" }
     $global:LASTEXITCODE = 0
-    Write-Host "    配置完了"
+    Assert-MirroredDistribution $dist $Deploy
+    Write-Host "    配置完了 (file 集合・size・SHA-256 一致)"
 }
 Write-Host "完了"

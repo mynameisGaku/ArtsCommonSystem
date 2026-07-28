@@ -102,13 +102,16 @@ float Max3(float3 value) {
 
 float3 ResolveProfileRadii(float4 material) {
     float3 authored = max(material.rgb, 0.0.xxx);
-    if (Max3(authored) > 1e-7) return authored;
-
-    // Compatibility for custom producers written against the old scalar
-    // contract. The engine PBR MRT always supplies authored RGB world radii.
-    return max(
-        diffusion.x * max(profile.xyz, 0.05.xxx),
-        1e-6.xxx);
+    float3 resolved_radii = authored;
+    if (Max3(authored) <= 1e-7) {
+        // Compatibility for custom producers written against the old scalar
+        // contract. The engine PBR MRT always supplies authored RGB world
+        // radii.
+        resolved_radii = max(
+            diffusion.x * max(profile.xyz, 0.05.xxx),
+            1e-6.xxx);
+    }
+    return resolved_radii;
 }
 
 float3 ProfileWeight(float world_offset, float3 radii) {
@@ -127,8 +130,10 @@ float ProfileSimilarity(float3 center_radii, float3 sample_radii) {
     float3 relative_delta =
         abs(sample_radii - center_radii) / denominator;
     float maximum_delta = Max3(relative_delta);
-    if (maximum_delta > 0.25) return 0.0;
-    return exp2(-64.0 * maximum_delta * maximum_delta);
+    float similarity = 0.0;
+    if (maximum_delta <= 0.25)
+        similarity = exp2(-64.0 * maximum_delta * maximum_delta);
+    return similarity;
 }
 
 float4 BlurDiffuse(float2 center_uv) {
@@ -136,111 +141,134 @@ float4 BlurDiffuse(float2 center_uv) {
     float4 center_diffuse =
         diffuse_input.SampleLevel(diffuse_input_sampler, center_uv, 0);
     center_diffuse.rgb = SafeHdr(center_diffuse.rgb);
+    float4 blur_result = center_diffuse;
 
     float center_depth =
         scene_depth.SampleLevel(scene_depth_sampler, center_uv, 0).r;
     float4 center_material =
         material_data.SampleLevel(material_data_sampler, center_uv, 0);
     float coverage = saturate(center_material.a);
-    if (center_depth >= 0.9999 || coverage <= 1e-4 ||
-        diffusion.y <= 1e-4) {
-        return center_diffuse;
-    }
-    float3 center_radii = ResolveProfileRadii(center_material);
-    float maximum_world_radius = Max3(center_radii);
-    if (maximum_world_radius <= 1e-7) return center_diffuse;
+    bool center_eligible =
+        center_depth < 0.9999 &&
+        coverage > 1e-4 &&
+        diffusion.y > 1e-4;
+    if (center_eligible) {
+        float3 center_radii = ResolveProfileRadii(center_material);
+        float maximum_world_radius = Max3(center_radii);
+        if (maximum_world_radius > 1e-7) {
+            float3 center_normal = LoadNormal(center_uv);
+            if (dot(center_normal, center_normal) >= 0.5) {
+                float3 center_position =
+                    ReconstructWorldPosition(center_uv, center_depth);
+                float2 axis_texel = pass_data.xy * pass_data.zw;
+                float3 adjacent_position = ReconstructWorldPosition(
+                    ClampUv(center_uv + axis_texel), center_depth);
+                float world_per_pixel =
+                    max(length(adjacent_position - center_position), 1e-6);
 
-    float3 center_normal = LoadNormal(center_uv);
-    if (dot(center_normal, center_normal) < 0.5) return center_diffuse;
+                float pixel_radius = clamp(
+                    maximum_world_radius / world_per_pixel,
+                    0.0, max(profile.w, 1.0));
+                if (pixel_radius >= 0.25) {
+                    float3 accumulated = center_diffuse.rgb;
+                    float3 normalization = 1.0;
 
-    float3 center_position =
-        ReconstructWorldPosition(center_uv, center_depth);
-    float2 axis_texel = pass_data.xy * pass_data.zw;
-    float3 adjacent_position = ReconstructWorldPosition(
-        ClampUv(center_uv + axis_texel), center_depth);
-    float world_per_pixel =
-        max(length(adjacent_position - center_position), 1e-6);
+                    static const float kOffsets[6] = {
+                        0.12, 0.25, 0.40, 0.58, 0.78, 1.00
+                    };
 
-    float pixel_radius = clamp(
-        maximum_world_radius / world_per_pixel,
-        0.0, max(profile.w, 1.0));
-    if (pixel_radius < 0.25) return center_diffuse;
+                    [unroll]
+                    for (int tap = 0; tap < 6; ++tap) {
+                        float normalized_offset = kOffsets[tap];
+                        float sample_world_offset =
+                            maximum_world_radius * normalized_offset;
 
-    float3 accumulated = center_diffuse.rgb;
-    float3 normalization = 1.0;
+                        [unroll]
+                        for (int side = 0; side < 2; ++side) {
+                            float sign_value = side == 0 ? -1.0 : 1.0;
+                            float2 sample_uv = ClampUv(
+                                center_uv + axis_texel *
+                                (pixel_radius * normalized_offset *
+                                 sign_value));
+                            float sample_depth =
+                                scene_depth.SampleLevel(
+                                    scene_depth_sampler, sample_uv, 0).r;
+                            if (sample_depth >= 0.9999) continue;
 
-    static const float kOffsets[6] = {
-        0.12, 0.25, 0.40, 0.58, 0.78, 1.00
-    };
+                            float4 sample_material =
+                                material_data.SampleLevel(
+                                    material_data_sampler, sample_uv, 0);
+                            float sample_coverage =
+                                saturate(sample_material.a);
+                            if (sample_coverage <= 1e-4) continue;
 
-    [unroll]
-    for (int tap = 0; tap < 6; ++tap) {
-        float normalized_offset = kOffsets[tap];
-        float sample_world_offset =
-            maximum_world_radius * normalized_offset;
+                            float3 sample_radii =
+                                ResolveProfileRadii(sample_material);
+                            float profile_similarity =
+                                ProfileSimilarity(
+                                    center_radii, sample_radii);
+                            if (profile_similarity <= 1e-4) continue;
 
-        [unroll]
-        for (int side = 0; side < 2; ++side) {
-            float sign_value = side == 0 ? -1.0 : 1.0;
-            float2 sample_uv = ClampUv(
-                center_uv + axis_texel *
-                (pixel_radius * normalized_offset * sign_value));
-            float sample_depth =
-                scene_depth.SampleLevel(scene_depth_sampler, sample_uv, 0).r;
-            if (sample_depth >= 0.9999) continue;
+                            float3 sample_normal = LoadNormal(sample_uv);
+                            if (dot(sample_normal, sample_normal) < 0.5)
+                                continue;
+                            float normal_weight = pow(
+                                saturate(dot(center_normal, sample_normal)),
+                                max(diffusion.w, 1.0));
 
-            float4 sample_material =
-                material_data.SampleLevel(material_data_sampler, sample_uv, 0);
-            float sample_coverage = saturate(sample_material.a);
-            if (sample_coverage <= 1e-4) continue;
+                            float3 sample_position =
+                                ReconstructWorldPosition(
+                                    sample_uv, sample_depth);
+                            float3 separation =
+                                sample_position - center_position;
+                            float plane_delta = max(
+                                abs(dot(separation, center_normal)),
+                                abs(dot(separation, sample_normal)));
+                            float depth_tolerance =
+                                max(diffusion.z,
+                                    max(maximum_world_radius * 0.08,
+                                        1e-6));
+                            float depth_ratio =
+                                plane_delta / depth_tolerance;
+                            float depth_weight = exp2(
+                                -depth_ratio * depth_ratio);
 
-            float3 sample_radii =
-                ResolveProfileRadii(sample_material);
-            float profile_similarity =
-                ProfileSimilarity(center_radii, sample_radii);
-            if (profile_similarity <= 1e-4) continue;
+                            float bilateral_weight =
+                                sample_coverage * profile_similarity *
+                                normal_weight * depth_weight;
+                            // Use the centre/sample mean profile so
+                            // neighbouring authored values remain reciprocal
+                            // while preserving hard material boundaries
+                            // through ProfileSimilarity.
+                            float3 pair_radii = max(
+                                (center_radii + sample_radii) * 0.5,
+                                1e-6.xxx);
+                            float3 radial_weight =
+                                ProfileWeight(
+                                    sample_world_offset, pair_radii);
+                            float3 weight =
+                                radial_weight * bilateral_weight;
+                            float3 sample_diffuse = SafeHdr(
+                                diffuse_input.SampleLevel(
+                                    diffuse_input_sampler,
+                                    sample_uv, 0).rgb);
+                            accumulated += sample_diffuse * weight;
+                            normalization += weight;
+                        }
+                    }
 
-            float3 sample_normal = LoadNormal(sample_uv);
-            if (dot(sample_normal, sample_normal) < 0.5) continue;
-            float normal_weight = pow(
-                saturate(dot(center_normal, sample_normal)),
-                max(diffusion.w, 1.0));
-
-            float3 sample_position =
-                ReconstructWorldPosition(sample_uv, sample_depth);
-            float3 separation = sample_position - center_position;
-            float plane_delta = max(
-                abs(dot(separation, center_normal)),
-                abs(dot(separation, sample_normal)));
-            float depth_tolerance =
-                max(diffusion.z,
-                    max(maximum_world_radius * 0.08, 1e-6));
-            float depth_ratio = plane_delta / depth_tolerance;
-            float depth_weight = exp2(-depth_ratio * depth_ratio);
-
-            float bilateral_weight =
-                sample_coverage * profile_similarity *
-                normal_weight * depth_weight;
-            // Use the centre/sample mean profile so neighbouring authored
-            // values remain reciprocal while still preserving hard material
-            // boundaries through ProfileSimilarity.
-            float3 pair_radii =
-                max((center_radii + sample_radii) * 0.5, 1e-6.xxx);
-            float3 radial_weight =
-                ProfileWeight(sample_world_offset, pair_radii);
-            float3 weight = radial_weight * bilateral_weight;
-            float3 sample_diffuse = SafeHdr(
-                diffuse_input.SampleLevel(
-                    diffuse_input_sampler, sample_uv, 0).rgb);
-            accumulated += sample_diffuse * weight;
-            normalization += weight;
+                    // Per-channel normalization is the energy-stability
+                    // contract: a constant diffuse field remains exactly
+                    // constant for every profile/radius.
+                    float3 result =
+                        accumulated / max(normalization, 1e-5);
+                    blur_result =
+                        float4(SafeHdr(result), center_diffuse.a);
+                }
+            }
         }
     }
-
-    // Per-channel normalization is the energy-stability contract: a constant
-    // diffuse field remains exactly constant for every profile/radius.
-    float3 result = accumulated / max(normalization, 1e-5);
-    return float4(SafeHdr(result), center_diffuse.a);
+    return blur_result;
 }
 
 float4 PSBlur(VSOut input) : SV_TARGET {

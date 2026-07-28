@@ -284,7 +284,6 @@ public partial class MainWindow : Window
             _sceneLoadGeneration.Invalidate();
             _engineStartupInternalAccess = false;
             _engineStartupState = EditorEngineStartupState.Closed;
-            SaveEditorLayout();
             _sceneStateTimer.Stop();
             StopAutosave();
             StopSourceWatch();
@@ -292,10 +291,13 @@ public partial class MainWindow : Window
         };
         Closing += OnEditorClosing;
         // Registered after the asynchronous close gate. The first close attempt
-        // is cancelled while documents drain; only the approved second attempt
-        // returns the live Camera View surface to this window.
-        Closing += OnCameraViewOwnerClosing;
+        // is cancelled while documents drain. The approved second attempt
+        // returns auxiliary surfaces, then remains cancelled while recovery
+        // workers stop; the final attempt bypasses these handlers. Tool panels
+        // run first so a tool re-dock failure cannot occur after the Camera View
+        // has already been closed.
         Closing += OnDockableToolPanelsOwnerClosing;
+        Closing += OnCameraViewOwnerClosing;
     }
 
     /// <summary>プロジェクトを開いた状態で起動する。初期シーンは attach 後にロードする。</summary>
@@ -333,39 +335,54 @@ public partial class MainWindow : Window
     private void OnBottomTab(object sender, RoutedEventArgs e)
     {
         string tab = (sender as System.Windows.Controls.Primitives.ToggleButton)?.Tag as string ?? "console";
-        ShowBottomTab(tab);
-        MarkWorkspaceCustomized();
+        _ = ExecuteToolPanelUserMutation(() =>
+        {
+            bool activated = TryShowBottomTool(tab, redockFloating: true);
+            if (!activated)
+            {
+                Log(
+                    $"Bottom tool '{tab}' could not be activated safely.",
+                    "Editor",
+                    LogLevel.Warn);
+            }
+            return activated;
+        });
     }
 
     private void ShowBottomTab(string tab)
     {
+        if (!TryShowBottomTool(tab, redockFloating: false))
+        {
+            Log(
+                $"Bottom tool '{tab}' could not be activated safely.",
+                "Editor",
+                LogLevel.Warn);
+        }
+    }
+
+    private bool TryShowBottomTool(
+        string tab,
+        bool redockFloating)
+    {
         // The profiler has a graph, headline counters and pass details. Give it
         // enough room to be useful on first open while preserving any larger
         // height the user already chose with the splitter.
-        if (tab == "profiler")
+        string panelId = EditorWorkspaceStore.NormalizeBottomTab(tab);
+        if (panelId == ToolPanelDockingContract.ProfilerPanelId)
             _bottomDockHeight = Math.Max(_bottomDockHeight, 300);
-        SetBottomDockVisible(true);
-        TabConsole.IsChecked = tab == "console";
-        TabBuild.IsChecked   = tab == "build";
-        TabAssets.IsChecked  = tab == "assets";
-        TabProfiler.IsChecked = tab == "profiler";
-        ConsoleList.Visibility  = tab == "console" ? Visibility.Visible : Visibility.Collapsed;
-        BuildList.Visibility    = tab == "build"   ? Visibility.Visible : Visibility.Collapsed;
-        AssetBrowser.Visibility = tab == "assets"  ? Visibility.Visible : Visibility.Collapsed;
-        ProfilerView.Visibility = tab == "profiler" ? Visibility.Visible : Visibility.Collapsed;
-        MenuShowProfiler.IsChecked = tab == "profiler";
-
+        DockableToolHost? host = GetToolPanelHost(panelId);
+        if (host == null)
+            return false;
+        if (host.IsFloating && !redockFloating)
+        {
+            UpdateToolPanelPresentation(
+                panelId,
+                ToolPanelDockState.Floating);
+            return true;
+        }
         // Panel height stays user-controlled; switching to Assets must not race the hosted
         // swap-chain by forcing a resize from inside a selection event.
-    }
-
-    private void OnShowProfiler(object sender, RoutedEventArgs e)
-    {
-        if (MenuShowProfiler.IsChecked)
-            ShowBottomTab("profiler");
-        else if (TabProfiler.IsChecked == true)
-            SetBottomDockVisible(false);
-        MarkWorkspaceCustomized();
+        return ActivateBottomTool(panelId);
     }
 
     // アセットがダブルクリック/ドラッグで起動された: 画像は選択ノードのスプライトに割り当てる。
@@ -2014,6 +2031,7 @@ public partial class MainWindow : Window
         var win = new ProjectSettingsWindow(
             this,
             Engine,
+            _project.RootDir,
             TryApplyProjectSettingsMutation);
         win.ShowDialog();
         SynchronizeSnapSettingsFromProject();
@@ -3365,11 +3383,12 @@ public partial class MainWindow : Window
             OnNewScene(this, new RoutedEventArgs());
             e.Handled = true;
         }
-        // Ctrl+J = bottom dock toggle (common IDE convention).
+        // Ctrl+J = presentation-only bottom dock collapse/restore. Individual
+        // tool Docked/Floating/Hidden states remain unchanged.
         else if (e.Key == Key.J && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
                  && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
         {
-            SetBottomDockVisible(BottomDockPanel.Visibility != Visibility.Visible);
+            ToggleBottomDockPresentationFromUser();
             e.Handled = true;
         }
         // Ctrl+X = カット (テキスト編集中は除く)。Copy は CommandBinding だが Cut は Click ハンドラのため手動配線。
@@ -5574,6 +5593,11 @@ public partial class MainWindow : Window
             // New replaces the singular managed world. Both native compatibility payloads are
             // cleared so a later save/undo cannot resurrect hidden content from another source.
             EngineInterop.acs_editor_scene_document_new(Engine);
+            // The native replacement invalidates retained Camera View requests.
+            // Queue the stable-id re-resolution immediately; dispatcher
+            // coalescing keeps the later document-change notification from
+            // producing a second refresh.
+            NotifyCameraViewSceneChanged();
             _scene2DPath = null;
             _scene3DDocumentPath = null;
             _scene2DInitialized =
@@ -5805,7 +5829,18 @@ public partial class MainWindow : Window
         finally
         {
             _sceneOpenTransactionInProgress = false;
-            CompleteSceneLoad(sceneLoad, publishScene);
+            CompleteSceneLoad(
+                sceneLoad,
+                publishScene,
+                publishedCurrentScene =>
+                {
+                    if (CameraViewScenePublicationPolicy.ShouldRefresh(
+                            publishedCurrentScene,
+                            nativeLoadAttempted))
+                    {
+                        NotifyCameraViewSceneChanged();
+                    }
+                });
             CompleteSceneReplacementAutosave();
         }
 

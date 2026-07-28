@@ -8,8 +8,13 @@
 
 namespace acs::editor_profiler {
 
-constexpr u32 kSnapshotVersion = 4u;
-constexpr u32 kSnapshotSize = 224u;
+// Version 5 appends native active-render/presentation timings. Version 4 is
+// kept as a readable prefix so older editor binaries can continue polling the
+// same DLL without being forced to consume fields they do not know about.
+constexpr u32 kLegacySnapshotVersion = 4u;
+constexpr u32 kLegacySnapshotSize = 224u;
+constexpr u32 kSnapshotVersion = 5u;
+constexpr u32 kSnapshotSize = 256u;
 constexpr u32 kPeakWindowFrames = 120u;
 // Roughly 1.5 seconds at the editor's typical 80 Hz render rate. A 30-query
 // window proved too short to distinguish shader changes from scheduler noise.
@@ -30,6 +35,7 @@ enum ESnapshotFlags : u32 {
     FrustumCullingEnabled = 1u << 6,
     GameView = 1u << 7,
     RuntimeSceneCamera = 1u << 8,
+    ScenePresentationSuppressed = 1u << 9,
 };
 
 #pragma pack(push, 4)
@@ -99,6 +105,17 @@ struct FSnapshot {
     u32 frustum_visible = 0u;
     u32 frustum_culled = 0u;
     i32 active_camera_node_id = -1;
+
+    // CPU residency after the cooperative GPU-ready preflight. Active render
+    // excludes submit/Present; present_cpu_ms contains that terminal interval.
+    // Peaks and the presented count are reset at an explicit capture boundary,
+    // so startup warm-up cannot contaminate a benchmark capture.
+    f32 native_render_active_cpu_ms = 0.0f;
+    f32 native_present_cpu_ms = 0.0f;
+    f32 native_render_active_cpu_peak_ms = 0.0f;
+    f32 native_present_cpu_peak_ms = 0.0f;
+    u64 presented_frame_count_since_reset = 0u;
+    u64 profiler_reset_serial = 0u;
 };
 #pragma pack(pop)
 

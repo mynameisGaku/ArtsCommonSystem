@@ -31,6 +31,34 @@ internal static class SceneWorldDocumentEnvelope
         out string subsystem2D,
         out string subsystem3D)
     {
+        (int body, int subsystem2DLength, int subsystem3DLength) =
+            ParseLayout(payload);
+        subsystem2D = payload.Substring(body, subsystem2DLength);
+        subsystem3D = payload.Substring(
+            body + subsystem2DLength,
+            subsystem3DLength);
+    }
+
+    /// <summary>
+    /// Reads only the active compatibility subsystem. Dirty-state reuse does
+    /// not need to allocate a second large string for the inactive scene.
+    /// </summary>
+    internal static string SelectSubsystem(
+        string payload,
+        bool use3D)
+    {
+        (int body, int subsystem2DLength, int subsystem3DLength) =
+            ParseLayout(payload);
+        return use3D
+            ? payload.Substring(
+                body + subsystem2DLength,
+                subsystem3DLength)
+            : payload.Substring(body, subsystem2DLength);
+    }
+
+    private static (int Body, int Subsystem2DLength, int Subsystem3DLength)
+        ParseLayout(string payload)
+    {
         if (payload == null || !payload.StartsWith(Magic, StringComparison.Ordinal))
             throw new InvalidDataException("Invalid canonical scene transaction header.");
         int firstEnd = payload.IndexOf('\n', Magic.Length);
@@ -54,7 +82,6 @@ internal static class SceneWorldDocumentEnvelope
         }
 
         int body = secondEnd + 1;
-        subsystem2D = payload.Substring(body, subsystem2DLength);
-        subsystem3D = payload.Substring(body + subsystem2DLength, subsystem3DLength);
+        return (body, subsystem2DLength, subsystem3DLength);
     }
 }

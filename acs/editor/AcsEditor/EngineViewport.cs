@@ -1,5 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -19,11 +21,44 @@ internal readonly record struct ViewportNativeRenderDiagnostic(
     long GpuBackpressureYieldCount,
     double LastNativeCallMilliseconds,
     double MaximumNativeCallMilliseconds,
-    string LastNativeCallKind);
+    string LastNativeCallKind,
+    long GpuBackpressureInputRetryCount = 0,
+    long GpuBackpressureBackgroundFallbackCount = 0,
+    long GpuReadyAfterRetryCount = 0,
+    long RenderFairnessYieldCount = 0,
+    double LastGpuBackpressureEpochMilliseconds = 0,
+    double MaximumGpuBackpressureEpochMilliseconds = 0,
+    int PeakPresentedRenderBurstFrames = 0,
+    double PeakRenderBurstActiveCpuMilliseconds = 0,
+    long RenderInputContinuationYieldCount = 0,
+    long RenderMaintenanceYieldCount = 0,
+    double LastRenderContinuationQueueWaitMilliseconds = 0,
+    double MaximumRenderContinuationQueueWaitMilliseconds = 0,
+    double LastRenderMaintenanceQueueWaitMilliseconds = 0,
+    double MaximumRenderMaintenanceQueueWaitMilliseconds = 0);
+
+internal readonly record struct ViewportRenderBurstState(
+    int PresentedFrames,
+    double ActiveCpuMilliseconds);
 
 internal readonly record struct ViewportResizeResultPolicy(
     bool CommitDimensions,
     bool ContinueToRender);
+
+internal enum ViewportGpuBackpressureResumeMode
+{
+    InputPriorityRetry = 0,
+    CooperativeYield = 1,
+    // Source-compatible name for older fixtures; the two-tier scheduler may
+    // now resume this epoch at Input priority when maintenance is not due.
+    BackgroundFairness = CooperativeYield,
+}
+
+internal enum ViewportRenderYieldMode
+{
+    InputContinuation = 0,
+    BackgroundMaintenance = 1,
+}
 
 /// <summary>
 /// エンジンの DX12 描画をホストするネイティブ・ビューポート。
@@ -62,6 +97,7 @@ public sealed class EngineViewport : HwndHost
     [DllImport("user32.dll")] private static extern IntPtr GetCapture();
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern uint GetQueueStatus(uint flags);
     [DllImport("user32.dll")] private static extern short GetKeyState(int nVirtKey);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int nVirtKey);
     [DllImport("user32.dll")] private static extern uint GetDoubleClickTime();
@@ -114,6 +150,15 @@ public sealed class EngineViewport : HwndHost
     private const int HTCLIENT = 1;
     private const long MK_LBUTTON = 0x0001;
     private const uint TME_LEAVE = 0x00000002;
+    private const uint QS_KEY = 0x0001;
+    private const uint QS_MOUSEMOVE = 0x0002;
+    private const uint QS_MOUSEBUTTON = 0x0004;
+    private const uint QS_RAWINPUT = 0x0400;
+    private const uint QS_TOUCH = 0x0800;
+    private const uint QS_POINTER = 0x1000;
+    private const uint QS_INTERACTIVE_INPUT =
+        QS_KEY | QS_MOUSEMOVE | QS_MOUSEBUTTON |
+        QS_RAWINPUT | QS_TOUCH | QS_POINTER;
 
     private const int WS_CHILD = 0x40000000;
     private const int WS_VISIBLE = 0x10000000;
@@ -129,6 +174,8 @@ public sealed class EngineViewport : HwndHost
     private uint _externalSurfaceWidth;
     private uint _externalSurfaceHeight;
     private IntPtr _engine;
+    private CancellationTokenSource? _nativeBootstrapCancellation;
+    private EditorNativeHostLifetimeLease? _nativeHostLifetimeLease;
     private EditorAbiCapability _abiCapabilities;
     private bool _attached;
     private uint _w, _h;
@@ -150,12 +197,29 @@ public sealed class EngineViewport : HwndHost
     private bool _renderPumpSuspended;
     private bool _windowInteractionPaused;
     private bool _renderFairnessYieldQueued;
+    private bool _renderMaintenanceYieldQueued;
     private bool _hiddenStartupRenderingAllowed;
-    private int _renderBurstFrames;
-    private long _renderBurstStartedAtTimestamp;
+    private ViewportRenderBurstState _renderBurstState;
+    private int _gpuBackpressureInputRetryCount;
+    private long _gpuBackpressureStartedAtTimestamp;
+    private long _lastRenderMaintenanceCompletedAtTimestamp;
     private long _nativeCallCount;
     private long _slowNativeCallCount;
     private long _gpuBackpressureYieldCount;
+    private long _gpuBackpressureInputRetryTotal;
+    private long _gpuBackpressureBackgroundFallbackCount;
+    private long _gpuReadyAfterRetryCount;
+    private long _renderFairnessYieldCount;
+    private double _lastGpuBackpressureEpochMilliseconds;
+    private double _maximumGpuBackpressureEpochMilliseconds;
+    private int _peakPresentedRenderBurstFrames;
+    private double _peakRenderBurstActiveCpuMilliseconds;
+    private long _renderInputContinuationYieldCount;
+    private long _renderMaintenanceYieldCount;
+    private double _lastRenderContinuationQueueWaitMilliseconds;
+    private double _maximumRenderContinuationQueueWaitMilliseconds;
+    private double _lastRenderMaintenanceQueueWaitMilliseconds;
+    private double _maximumRenderMaintenanceQueueWaitMilliseconds;
     private double _lastNativeCallMilliseconds;
     private double _maximumNativeCallMilliseconds;
     private string _lastNativeCallKind = string.Empty;
@@ -164,19 +228,36 @@ public sealed class EngineViewport : HwndHost
     // that event is deliberately synchronized to WPF/DWM composition and
     // therefore caps the engine to the monitor cadence (or a divisor of it).
     // A single private Win32 message is kept in flight. Direct messages run in
-    // bounded bursts so WPF's Dispatcher is guaranteed a Background turn for
-    // startup, timers, commands and asset work without paying a Dispatcher hop
-    // for every native frame.
-    internal const int MaxDirectRenderBurstFrames = 8;
-    internal const double MaxDirectRenderBurstMilliseconds = 8.0;
+    // bounded bursts. Real keyboard/pointer input ends a burst early, and every
+    // burst deadline ends through an Input-priority Dispatcher checkpoint even
+    // during unattended runs. That checkpoint is mandatory: an indefinitely
+    // reposted private message can starve Dispatcher timers despite keeping the
+    // Win32 queue active. A lower-frequency Background drain owns continuation
+    // during startup and at its wall-clock deadline so timer promotion and
+    // lower-priority editor finalization cannot starve behind the Input
+    // checkpoints. Cooperative GPU-busy retries use the same bounded policy.
+    internal const int MaxDirectRenderBurstFrames = 64;
+    internal const double MaxDirectRenderBurstMilliseconds = 64.0;
+    internal const int MaxGpuBackpressureInputRetries = 256;
+    internal const double MaxGpuBackpressureInputRetryMilliseconds = 8.0;
+    internal const double MaxRenderMaintenanceIntervalMilliseconds = 500.0;
     internal const double PointerCaptureRecoveryGraceMilliseconds = 100.0;
     internal const double SlowNativeCallThresholdMilliseconds = 50.0;
     internal const double MaximumNativeDeltaSeconds = 0.1;
     internal const int PointerButtonLeftMask = 1 << 0;
     internal const int PointerButtonRightMask = 1 << 1;
     internal const int PointerButtonMiddleMask = 1 << 2;
-    internal const DispatcherPriority RenderFairnessPriority =
+    internal const DispatcherPriority RenderContinuationPriority =
+        DispatcherPriority.Input;
+    internal const DispatcherPriority RenderMaintenancePriority =
         DispatcherPriority.Background;
+    // Kept as a source-compatible name for older fixtures and diagnostics.
+    internal const DispatcherPriority RenderFairnessPriority =
+        RenderMaintenancePriority;
+    // Compatibility alias: GPU retries now post directly unless real input is
+    // pending, in which case they share the input-continuation priority.
+    internal const DispatcherPriority GpuBackpressureRetryPriority =
+        RenderContinuationPriority;
     internal const DispatcherPriority DormantWakePriority =
         DispatcherPriority.Background;
 
@@ -232,6 +313,32 @@ public sealed class EngineViewport : HwndHost
     internal static bool ShouldAttemptAttach(bool attached, bool attachFailed) =>
         !attached && !attachFailed;
 
+    internal static bool ShouldBeginNativeBootstrapForHostGeneration(
+        bool attachFailed,
+        bool startupFailureSuspended) =>
+        !attachFailed && !startupFailureSuspended;
+
+    internal static bool CanExplicitlyRetryAttach(
+        bool destroying,
+        bool attached,
+        bool attachFailed,
+        bool startupFailureSuspended,
+        bool hwndReady) =>
+        !destroying &&
+        !attached &&
+        hwndReady &&
+        (attachFailed || startupFailureSuspended);
+
+    internal static bool ShouldContinueRenderingAfterAttachCallback(
+        bool destroying,
+        bool renderPumpSuspended,
+        bool hiddenStartupRenderingAllowedBeforeCallback,
+        bool hiddenStartupRenderingAllowedAfterCallback) =>
+        !destroying &&
+        !renderPumpSuspended &&
+        (!hiddenStartupRenderingAllowedBeforeCallback ||
+         hiddenStartupRenderingAllowedAfterCallback);
+
     internal static bool IsAnyRenderPumpSuspensionActive(
         bool startupFailureSuspended,
         bool windowInteractionPaused) =>
@@ -240,12 +347,126 @@ public sealed class EngineViewport : HwndHost
     internal static bool ShouldYieldRenderBurst(
         int completedFrames,
         double elapsedMilliseconds) =>
+        completedFrames < 0 ||
+        !double.IsFinite(elapsedMilliseconds) ||
+        elapsedMilliseconds < 0.0 ||
         completedFrames >= MaxDirectRenderBurstFrames ||
         elapsedMilliseconds >= MaxDirectRenderBurstMilliseconds;
+
+    internal static bool ShouldYieldRenderBurst(
+        in ViewportRenderBurstState state) =>
+        ShouldYieldRenderBurst(
+            state.PresentedFrames,
+            state.ActiveCpuMilliseconds);
+
+    internal static bool RequiresRenderDispatcherCheckpoint(
+        in ViewportRenderBurstState state) =>
+        ShouldYieldRenderBurst(state);
+
+    internal static ViewportRenderBurstState AccountRenderBurstAttempt(
+        in ViewportRenderBurstState state,
+        bool presented,
+        bool gpuBackpressure,
+        double activeCpuMilliseconds)
+    {
+        // A cooperative busy result performs no scene/simulation work. Its
+        // asynchronous wait belongs to the bounded retry epoch and must never
+        // consume the direct-render CPU residency budget.
+        if (gpuBackpressure)
+            return state;
+
+        if (state.PresentedFrames < 0 ||
+            !double.IsFinite(state.ActiveCpuMilliseconds) ||
+            state.ActiveCpuMilliseconds < 0.0 ||
+            !double.IsFinite(activeCpuMilliseconds) ||
+            activeCpuMilliseconds < 0.0)
+        {
+            // Invalid accounting fails closed into the next fairness boundary.
+            return new(
+                MaxDirectRenderBurstFrames,
+                MaxDirectRenderBurstMilliseconds);
+        }
+
+        int presentedFrames = state.PresentedFrames;
+        if (presented)
+        {
+            presentedFrames = state.PresentedFrames == int.MaxValue
+                ? MaxDirectRenderBurstFrames
+                : state.PresentedFrames + 1;
+        }
+        double accumulatedCpuMilliseconds =
+            state.ActiveCpuMilliseconds + activeCpuMilliseconds;
+        if (!double.IsFinite(accumulatedCpuMilliseconds))
+            accumulatedCpuMilliseconds = MaxDirectRenderBurstMilliseconds;
+        return new(
+            presentedFrames,
+            accumulatedCpuMilliseconds);
+    }
 
     internal static bool ShouldYieldForGpuBackpressure(
         int nativeRenderResult) =>
         nativeRenderResult == 0;
+
+    internal static ViewportGpuBackpressureResumeMode
+        SelectGpuBackpressureResume(
+            int inputPriorityRetries,
+            double elapsedMilliseconds)
+    {
+        if (inputPriorityRetries < 0 ||
+            !double.IsFinite(elapsedMilliseconds) ||
+            elapsedMilliseconds < 0.0)
+        {
+            return ViewportGpuBackpressureResumeMode.CooperativeYield;
+        }
+
+        return inputPriorityRetries < MaxGpuBackpressureInputRetries &&
+               elapsedMilliseconds <
+                   MaxGpuBackpressureInputRetryMilliseconds
+            ? ViewportGpuBackpressureResumeMode.InputPriorityRetry
+            : ViewportGpuBackpressureResumeMode.CooperativeYield;
+    }
+
+    internal static ViewportRenderYieldMode SelectRenderYieldMode(
+        bool startupMaintenanceRequired,
+        double millisecondsSinceMaintenance)
+    {
+        // Startup publishes its own Background-priority completion stages.
+        // Invalid accounting also fails closed into Background so a damaged
+        // clock cannot permanently starve editor maintenance.
+        if (startupMaintenanceRequired ||
+            !double.IsFinite(millisecondsSinceMaintenance) ||
+            millisecondsSinceMaintenance < 0.0 ||
+            millisecondsSinceMaintenance >=
+                MaxRenderMaintenanceIntervalMilliseconds)
+        {
+            return ViewportRenderYieldMode.BackgroundMaintenance;
+        }
+
+        // No Background drain is due yet, so the private HWND
+        // continuation remains eligible.
+        return ViewportRenderYieldMode.InputContinuation;
+    }
+
+    internal static bool ShouldYieldToQueuedInput(uint queueStatus)
+    {
+        uint currentQueueKinds = queueStatus >> 16;
+        return (currentQueueKinds & QS_INTERACTIVE_INPUT) != 0;
+    }
+
+    internal static bool IsRenderPumpContinuationBlocked(
+        bool inputContinuationQueued,
+        bool maintenanceQueued,
+        bool frameActive)
+    {
+        // Both Dispatcher checkpoints own the next frame. In particular,
+        // allowing CompositionTarget.Rendering to bypass a queued Background
+        // drain recreates the private-message starvation it is meant to stop.
+        return inputContinuationQueued || maintenanceQueued || frameActive;
+    }
+
+    private static bool HasPendingInteractiveInput() =>
+        !App.IsNonInteractiveLaunch &&
+        ShouldYieldToQueuedInput(GetQueueStatus(QS_INTERACTIVE_INPUT));
 
     internal static double CommitRenderTimestamp(
         double previousTimestamp,
@@ -302,8 +523,14 @@ public sealed class EngineViewport : HwndHost
         int activeButtonMask,
         int physicallyDownButtonMask,
         int currentMessage,
-        double mismatchAgeMilliseconds) =>
+        double mismatchAgeMilliseconds,
+        bool destroying = false,
+        bool ownerClosing = false,
+        bool generationMatches = true) =>
         viewportOwnsCapture &&
+        !destroying &&
+        !ownerClosing &&
+        generationMatches &&
         !windowInteractionPaused &&
         !finalizingButtonUp &&
         activeButtonMask != 0 &&
@@ -390,6 +617,95 @@ public sealed class EngineViewport : HwndHost
             ? EditorAbiCapability.None
             : _abiCapabilities;
 
+    internal bool SupportsCameraViewRequests =>
+        !_destroying &&
+        _engine != IntPtr.Zero &&
+        _abiCapabilities.HasFlag(
+            EditorAbiCapability.CameraViewRequestsV1);
+
+    internal bool TryCreateCameraViewRequest(
+        int nodeId,
+        string stableCameraId,
+        uint width,
+        uint height,
+        out ulong requestId)
+    {
+        Dispatcher.VerifyAccess();
+        requestId = 0;
+        return SupportsCameraViewRequests &&
+               EngineInterop.TryCreateCameraViewRequest(
+                   _engine,
+                   nodeId,
+                   stableCameraId,
+                   width,
+                   height,
+                   out requestId);
+    }
+
+    internal bool TryUpdateCameraViewRequest(
+        ulong requestId,
+        int nodeId,
+        string stableCameraId,
+        uint width,
+        uint height)
+    {
+        Dispatcher.VerifyAccess();
+        return SupportsCameraViewRequests &&
+               EngineInterop.TryUpdateCameraViewRequest(
+                   _engine,
+                   requestId,
+                   nodeId,
+                   stableCameraId,
+                   width,
+                   height);
+    }
+
+    internal bool TryBindCameraViewPresenter(ulong requestId)
+    {
+        Dispatcher.VerifyAccess();
+        return SupportsCameraViewRequests &&
+               EngineInterop.TryBindCameraViewPresenter(
+                   _engine,
+                   requestId);
+    }
+
+    internal bool TryGetCameraViewRequest(
+        ulong requestId,
+        out CameraViewRequestSnapshot snapshot)
+    {
+        Dispatcher.VerifyAccess();
+        snapshot = default;
+        return SupportsCameraViewRequests &&
+               EngineInterop.TryGetCameraViewRequest(
+                   _engine,
+                   requestId,
+                   out snapshot);
+    }
+
+    internal bool TryUnbindCameraViewPresenter(ulong requestId)
+    {
+        Dispatcher.VerifyAccess();
+        return SupportsCameraViewRequests &&
+               EngineInterop.TryUnbindCameraViewPresenter(
+                   _engine,
+                   requestId);
+    }
+
+    internal bool ReleaseCameraViewRequest(ulong requestId)
+    {
+        Dispatcher.VerifyAccess();
+        if (requestId == 0)
+            return true;
+        if (!SupportsCameraViewRequests)
+            return _destroying || _engine == IntPtr.Zero;
+        _ = EngineInterop.TryUnbindCameraViewPresenter(
+            _engine,
+            requestId);
+        return EngineInterop.TryDestroyCameraViewRequest(
+            _engine,
+            requestId);
+    }
+
     /// <summary>ポリゴン描画モード中か (左クリックで点を置く)。MainWindow が制御。</summary>
     public bool PolyMode
     {
@@ -420,6 +736,17 @@ public sealed class EngineViewport : HwndHost
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
         Dispatcher.VerifyAccess();
+        System.Diagnostics.Debug.Assert(
+            _engine == IntPtr.Zero && _nativeHostLifetimeLease == null,
+            "A new HwndHost generation cannot replace a live native host.");
+        // WPF may rebuild the native child on the same managed HwndHost. The
+        // owner's pre-Build hidden-startup allowance and any failure latch
+        // therefore outlive the HWND; only RetryAttach may clear a failure.
+        bool beginNativeBootstrap =
+            ShouldBeginNativeBootstrapForHostGeneration(
+                AttachFailed,
+                _renderPumpSuspended);
+        _nativeBootstrapCancellation?.Cancel();
         _destroying = false;
         _destroyDeferred = false;
         _frameActive = false;
@@ -429,23 +756,41 @@ public sealed class EngineViewport : HwndHost
         _renderPumpGeneration++;
         _renderPumpToken++;
         _renderPumpQueuedAt = 0;
-        _renderPumpSuspended = false;
         _windowInteractionPaused = false;
         _awaitingStableResizeAfterWindowInteraction = false;
         _resizePendW = 0;
         _resizePendH = 0;
         _renderFairnessYieldQueued = false;
+        _renderMaintenanceYieldQueued = false;
+        _lastRenderMaintenanceCompletedAtTimestamp = 0;
         _trackingMouseLeave = false;
         _pointerButtonMismatchStartedAtTimestamp = 0;
         _nativeCallCount = 0;
         _slowNativeCallCount = 0;
         _gpuBackpressureYieldCount = 0;
+        _gpuBackpressureInputRetryTotal = 0;
+        _gpuBackpressureBackgroundFallbackCount = 0;
+        _gpuReadyAfterRetryCount = 0;
+        _renderFairnessYieldCount = 0;
+        _renderInputContinuationYieldCount = 0;
+        _renderMaintenanceYieldCount = 0;
+        _lastRenderContinuationQueueWaitMilliseconds = 0.0;
+        _maximumRenderContinuationQueueWaitMilliseconds = 0.0;
+        _lastRenderMaintenanceQueueWaitMilliseconds = 0.0;
+        _maximumRenderMaintenanceQueueWaitMilliseconds = 0.0;
+        _lastGpuBackpressureEpochMilliseconds = 0.0;
+        _maximumGpuBackpressureEpochMilliseconds = 0.0;
+        _peakPresentedRenderBurstFrames = 0;
+        _peakRenderBurstActiveCpuMilliseconds = 0.0;
         _lastNativeCallMilliseconds = 0.0;
         _maximumNativeCallMilliseconds = 0.0;
         _lastNativeCallKind = string.Empty;
         ResetRenderBurst();
-        AttachFailed = false;
-        AttachmentFailureDetail = null;
+        ResetGpuBackpressureRetryBurst();
+        if (beginNativeBootstrap)
+        {
+            AttachmentFailureDetail = null;
+        }
         _abiCapabilities = EditorAbiCapability.None;
         _dormantRenderTimer?.Stop();
 
@@ -458,67 +803,11 @@ public sealed class EngineViewport : HwndHost
         _externalSurfaceWidth = 0;
         _externalSurfaceHeight = 0;
 
-        EditorAbiSnapshot abi = EngineInterop.AbiSnapshot();
-        _abiCapabilities = abi.Capabilities;
-        if (!abi.Compatible)
-        {
-            AttachFailed = true;
-            AttachmentFailureDetail =
-                "Native editor ABI is incompatible. " + abi.ToDisplayText();
-        }
-        else
-        {
-            IntPtr createdEngine = IntPtr.Zero;
-            try
-            {
-                createdEngine = EngineInterop.acs_editor_create();
-                if (createdEngine != IntPtr.Zero)
-                {
-                    // Do not publish a usable host until every v1 bootstrap
-                    // entry point has succeeded. A stale/partial DLL must not
-                    // leave a native host alive behind a failed HwndHost.
-                    EngineInterop.acs_editor_set_scene_presentation_suppressed(
-                        createdEngine,
-                        1);
-                }
-                _engine = createdEngine;
-            }
-            catch (Exception error) when (
-                error is DllNotFoundException or
-                         EntryPointNotFoundException or
-                         BadImageFormatException)
-            {
-                string cleanupDiagnostic = "";
-                if (createdEngine != IntPtr.Zero)
-                {
-                    try
-                    {
-                        EngineInterop.acs_editor_destroy(createdEngine);
-                    }
-                    catch (Exception cleanupError) when (
-                        cleanupError is DllNotFoundException or
-                                        EntryPointNotFoundException or
-                                        BadImageFormatException)
-                    {
-                        cleanupDiagnostic =
-                            " Native host cleanup also failed: " +
-                            cleanupError.Message;
-                    }
-                }
-                _engine = IntPtr.Zero;
-                AttachFailed = true;
-                AttachmentFailureDetail =
-                    "Native editor host bootstrap failed closed: " +
-                    error.Message +
-                    cleanupDiagnostic;
-            }
-        }
-        if (_engine == IntPtr.Zero)
-        {
-            AttachFailed = true;
-            AttachmentFailureDetail ??=
-                "Native editor host creation returned a null handle.";
-        }
+        // Loading the editor ABI and creating its global logger, allocator and
+        // worker pool may be cold-start expensive. The native host is not yet
+        // attached to this HWND, so create it on a worker and publish it only
+        // through the current HwndHost generation.
+        _engine = IntPtr.Zero;
 
         // STATIC のウィンドウプロシージャを差し替えてマウス入力 (pick / pan / zoom) を拾う。
         _wndProc = ViewportWndProc;
@@ -530,27 +819,100 @@ public sealed class EngineViewport : HwndHost
         // engine frames. Keeping this wake source makes initial attach robust
         // while the HwndHost is transitioning into the visible tree.
         CompositionTarget.Rendering += OnCompositionWake;
-        // BuildWindowCore can run before WPF publishes IsVisible/ActualWidth.
-        // The first private message is therefore posted only at Loaded
-        // priority. Posting during BuildWindowCore can succeed before WPF has
-        // finished parenting the HWND and leave a permanently latched message.
-        int loadGeneration = _renderPumpGeneration;
-        _ = Dispatcher.BeginInvoke(
-            DispatcherPriority.Loaded,
-            new Action(() =>
-            {
-                if (loadGeneration != _renderPumpGeneration)
-                    return;
-                if (AttachFailed)
-                {
-                    SuspendRenderPumpForStartupFailure();
-                    AttachmentFailed?.Invoke();
-                }
-                else
-                    QueueRenderPump();
-            }));
+        if (beginNativeBootstrap)
+        {
+            int loadGeneration = _renderPumpGeneration;
+            BeginNativeBootstrap(loadGeneration);
+        }
         return new HandleRef(this, _hwnd);
     }
+
+    private void BeginNativeBootstrap(int generation)
+    {
+        Dispatcher.VerifyAccess();
+        _nativeBootstrapCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _nativeBootstrapCancellation = cancellation;
+        _ = CompleteNativeBootstrapAsync(
+            generation,
+            cancellation);
+    }
+
+    private async Task CompleteNativeBootstrapAsync(
+        int generation,
+        CancellationTokenSource cancellation)
+    {
+        EditorNativeBootstrapResult result =
+            await EditorNativeBootstrap.StartAsync(cancellation.Token)
+                .ConfigureAwait(false);
+        bool adopted = false;
+        try
+        {
+            await Dispatcher.InvokeAsync(
+                () =>
+                {
+                    if (cancellation.IsCancellationRequested ||
+                        generation != _renderPumpGeneration ||
+                        _destroying ||
+                        _hwnd == IntPtr.Zero)
+                    {
+                        return;
+                    }
+
+                    ReleaseNativeBootstrapCancellation(cancellation);
+
+                    _abiCapabilities = result.Abi.Capabilities;
+                    if (result.Cancelled)
+                        return;
+                    if (result.Engine == IntPtr.Zero)
+                    {
+                        AttachFailed = true;
+                        AttachmentFailureDetail =
+                            result.FailureDetail ??
+                            "Native editor host creation returned a null handle.";
+                        SuspendRenderPumpForStartupFailure();
+                        AttachmentFailed?.Invoke();
+                        return;
+                    }
+
+                    _engine = result.Engine;
+                    _nativeHostLifetimeLease = result.LifetimeLease;
+                    adopted = true;
+
+                    // BuildWindowCore can run before WPF publishes
+                    // IsVisible/ActualWidth. Queueing at Loaded priority after
+                    // publication avoids a permanently latched private pump
+                    // message while preserving the prior attach ordering.
+                    QueueRenderPump();
+                },
+                DispatcherPriority.Loaded);
+        }
+        catch (TaskCanceledException)
+        {
+            // Dispatcher shutdown won the publication race.
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher teardown can reject a late generation.
+        }
+        finally
+        {
+            if (!adopted && result.Engine != IntPtr.Zero)
+            {
+                await EditorNativeBootstrap.DestroyUnpublishedAsync(result)
+                    .ConfigureAwait(false);
+            }
+            ReleaseNativeBootstrapCancellation(cancellation);
+            cancellation.Dispose();
+        }
+    }
+
+    private void ReleaseNativeBootstrapCancellation(
+        CancellationTokenSource cancellation) =>
+        Interlocked.CompareExchange(
+            ref _nativeBootstrapCancellation,
+            null,
+            cancellation);
 
     internal void ResumeRenderingAfterSceneLoad()
     {
@@ -760,6 +1122,7 @@ public sealed class EngineViewport : HwndHost
         }
 
         _destroyDeferred = false;
+        _nativeBootstrapCancellation?.Cancel();
         IntPtr hwnd = _hwnd;
         IntPtr engine = _engine;
 
@@ -794,7 +1157,16 @@ public sealed class EngineViewport : HwndHost
         _trackingMouseLeave = false;
         _pointerButtonMismatchStartedAtTimestamp = 0;
 
-        if (engine != IntPtr.Zero) EngineInterop.acs_editor_destroy(engine);
+        try
+        {
+            if (engine != IntPtr.Zero)
+                EngineInterop.acs_editor_destroy(engine);
+        }
+        finally
+        {
+            _nativeHostLifetimeLease?.Release();
+            _nativeHostLifetimeLease = null;
+        }
         if (hwnd != IntPtr.Zero) DestroyWindow(hwnd);
         _wndProc = null;
     }
@@ -834,6 +1206,9 @@ public sealed class EngineViewport : HwndHost
             return;
 
         _hiddenStartupRenderingAllowed = allowed;
+        _lastRenderMaintenanceCompletedAtTimestamp = allowed
+            ? 0
+            : System.Diagnostics.Stopwatch.GetTimestamp();
         if (allowed)
         {
             RequestRedraw();
@@ -876,13 +1251,17 @@ public sealed class EngineViewport : HwndHost
 
         // CompositionTarget.Rendering is a wake signal only. Posting the one
         // private token never runs native work at compositor priority.
-        QueueRenderPump();
+        ContinueRenderPumpInputAware();
     }
 
     private void QueueRenderPump()
     {
         Dispatcher.VerifyAccess();
-        if (_renderPumpQueued || _renderFairnessYieldQueued || _frameActive ||
+        if (_renderPumpQueued ||
+            IsRenderPumpContinuationBlocked(
+                _renderFairnessYieldQueued,
+                _renderMaintenanceYieldQueued,
+                _frameActive) ||
             _destroying ||
             Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
@@ -892,6 +1271,7 @@ public sealed class EngineViewport : HwndHost
         if (!IsContinuousRenderEligible())
         {
             ResetRenderBurst();
+            ResetGpuBackpressureRetryBurst();
             ArmDormantRenderTimer();
             return;
         }
@@ -911,7 +1291,41 @@ public sealed class EngineViewport : HwndHost
         }
     }
 
-    private void ScheduleNextRenderPumpAfterFrame()
+    private void ScheduleNextRenderPumpAfterFrame(
+        bool presented,
+        double activeCpuMilliseconds)
+    {
+        Dispatcher.VerifyAccess();
+        if (_frameActive || _destroying || RenderPumpSuspended ||
+            Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        _renderBurstState = AccountRenderBurstAttempt(
+            _renderBurstState,
+            presented,
+            gpuBackpressure: false,
+            activeCpuMilliseconds);
+        _peakPresentedRenderBurstFrames = Math.Max(
+            _peakPresentedRenderBurstFrames,
+            _renderBurstState.PresentedFrames);
+        _peakRenderBurstActiveCpuMilliseconds = Math.Max(
+            _peakRenderBurstActiveCpuMilliseconds,
+            _renderBurstState.ActiveCpuMilliseconds);
+
+        if (RequiresRenderDispatcherCheckpoint(_renderBurstState))
+        {
+            ResetRenderBurst();
+            if (!QueueRenderMaintenanceIfDue())
+                QueueRenderInputContinuation();
+            return;
+        }
+
+        QueueRenderPump();
+    }
+
+    private void ScheduleNextRenderPumpAfterGpuBackpressure()
     {
         Dispatcher.VerifyAccess();
         if (_frameActive || _destroying || RenderPumpSuspended ||
@@ -921,50 +1335,206 @@ public sealed class EngineViewport : HwndHost
         }
 
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (_renderBurstStartedAtTimestamp == 0)
-            _renderBurstStartedAtTimestamp = now;
-        _renderBurstFrames++;
+        if (_gpuBackpressureStartedAtTimestamp == 0)
+            _gpuBackpressureStartedAtTimestamp = now;
         double elapsedMilliseconds =
-            (now - _renderBurstStartedAtTimestamp) * 1000.0 /
+            (now - _gpuBackpressureStartedAtTimestamp) * 1000.0 /
             System.Diagnostics.Stopwatch.Frequency;
-
-        if (ShouldYieldRenderBurst(_renderBurstFrames, elapsedMilliseconds))
+        ViewportGpuBackpressureResumeMode resumeMode =
+            SelectGpuBackpressureResume(
+                _gpuBackpressureInputRetryCount,
+                elapsedMilliseconds);
+        if (resumeMode ==
+            ViewportGpuBackpressureResumeMode.CooperativeYield)
         {
-            QueueRenderFairnessYield();
+            ObserveGpuBackpressureEpoch(
+                now,
+                readyAfterRetry: false);
+            ResetGpuBackpressureRetryBurst();
+            if (QueueRenderMaintenanceIfDue())
+            {
+                _gpuBackpressureBackgroundFallbackCount++;
+                return;
+            }
+            // The bounded GPU-busy epoch is also a mandatory Dispatcher
+            // checkpoint. In particular, unattended rendering must not reset
+            // the epoch and immediately start another private-message chain.
+            QueueRenderInputContinuation();
             return;
         }
 
+        _gpuBackpressureInputRetryCount++;
+        _gpuBackpressureInputRetryTotal++;
+        if (QueueRenderMaintenanceIfDue())
+            return;
+        ContinueRenderPumpInputAware();
+    }
+
+    private void ContinueRenderPumpInputAware()
+    {
+        Dispatcher.VerifyAccess();
+        if (HasPendingInteractiveInput() &&
+            QueueRenderInputContinuation())
+        {
+            return;
+        }
         QueueRenderPump();
     }
 
-    private void QueueRenderFairnessYield()
+    private bool QueueRenderInputContinuation()
     {
         Dispatcher.VerifyAccess();
-        if (_renderFairnessYieldQueued || _destroying || RenderPumpSuspended ||
+        if (_renderFairnessYieldQueued || _destroying ||
+            RenderPumpSuspended ||
             Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
-            return;
+            return false;
         }
 
+        long queuedAtTimestamp =
+            System.Diagnostics.Stopwatch.GetTimestamp();
         _renderFairnessYieldQueued = true;
+        _renderFairnessYieldCount++;
+        _renderInputContinuationYieldCount++;
         int generation = _renderPumpGeneration;
         _ = Dispatcher.BeginInvoke(
-            RenderFairnessPriority,
+            RenderContinuationPriority,
             new Action(() =>
             {
                 if (generation != _renderPumpGeneration)
                     return;
 
+                long resumedAtTimestamp =
+                    System.Diagnostics.Stopwatch.GetTimestamp();
+                double queueWaitMilliseconds =
+                    (resumedAtTimestamp - queuedAtTimestamp) *
+                    1000.0 /
+                    System.Diagnostics.Stopwatch.Frequency;
+                if (!double.IsFinite(queueWaitMilliseconds) ||
+                    queueWaitMilliseconds < 0.0)
+                {
+                    queueWaitMilliseconds = 0.0;
+                }
+                _lastRenderContinuationQueueWaitMilliseconds =
+                    queueWaitMilliseconds;
+                _maximumRenderContinuationQueueWaitMilliseconds =
+                    Math.Max(
+                        _maximumRenderContinuationQueueWaitMilliseconds,
+                        queueWaitMilliseconds);
                 _renderFairnessYieldQueued = false;
-                ResetRenderBurst();
                 QueueRenderPump();
             }));
+        return true;
+    }
+
+    private bool QueueRenderMaintenanceIfDue()
+    {
+        Dispatcher.VerifyAccess();
+        if (_renderMaintenanceYieldQueued || _destroying ||
+            RenderPumpSuspended ||
+            Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return false;
+        }
+
+        long queuedAtTimestamp =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        double millisecondsSinceMaintenance =
+            _lastRenderMaintenanceCompletedAtTimestamp == 0
+                ? double.PositiveInfinity
+                : (queuedAtTimestamp -
+                   _lastRenderMaintenanceCompletedAtTimestamp) *
+                  1000.0 /
+                  System.Diagnostics.Stopwatch.Frequency;
+        ViewportRenderYieldMode yieldMode = SelectRenderYieldMode(
+            _hiddenStartupRenderingAllowed,
+            millisecondsSinceMaintenance);
+        if (yieldMode != ViewportRenderYieldMode.BackgroundMaintenance)
+            return false;
+
+        // This lower-frequency checkpoint is queued behind existing Background
+        // work. It deliberately owns the next frame: without occasionally
+        // draining below Input priority, startup finalization and Dispatcher
+        // timer promotion can remain starved even though Input checkpoints run.
+        _renderMaintenanceYieldQueued = true;
+        _renderFairnessYieldCount++;
+        _renderMaintenanceYieldCount++;
+        int generation = _renderPumpGeneration;
+        _ = Dispatcher.BeginInvoke(
+            RenderMaintenancePriority,
+            new Action(() =>
+            {
+                if (generation != _renderPumpGeneration)
+                    return;
+
+                long resumedAtTimestamp =
+                    System.Diagnostics.Stopwatch.GetTimestamp();
+                double queueWaitMilliseconds =
+                    (resumedAtTimestamp - queuedAtTimestamp) *
+                    1000.0 /
+                    System.Diagnostics.Stopwatch.Frequency;
+                if (!double.IsFinite(queueWaitMilliseconds) ||
+                    queueWaitMilliseconds < 0.0)
+                {
+                    queueWaitMilliseconds = 0.0;
+                }
+                _lastRenderMaintenanceQueueWaitMilliseconds =
+                    queueWaitMilliseconds;
+                _maximumRenderMaintenanceQueueWaitMilliseconds =
+                    Math.Max(
+                        _maximumRenderMaintenanceQueueWaitMilliseconds,
+                        queueWaitMilliseconds);
+                _lastRenderMaintenanceCompletedAtTimestamp =
+                    resumedAtTimestamp;
+                _renderMaintenanceYieldQueued = false;
+                QueueRenderPump();
+            }));
+        return true;
     }
 
     private void ResetRenderBurst()
     {
-        _renderBurstFrames = 0;
-        _renderBurstStartedAtTimestamp = 0;
+        _renderBurstState = default;
+    }
+
+    private void ResetGpuBackpressureRetryBurst()
+    {
+        _gpuBackpressureInputRetryCount = 0;
+        _gpuBackpressureStartedAtTimestamp = 0;
+    }
+
+    private void CompleteGpuBackpressureEpoch(bool readyAfterRetry)
+    {
+        if (_gpuBackpressureStartedAtTimestamp != 0)
+        {
+            ObserveGpuBackpressureEpoch(
+                System.Diagnostics.Stopwatch.GetTimestamp(),
+                readyAfterRetry);
+        }
+        ResetGpuBackpressureRetryBurst();
+    }
+
+    private void ObserveGpuBackpressureEpoch(
+        long completedAtTimestamp,
+        bool readyAfterRetry)
+    {
+        if (_gpuBackpressureStartedAtTimestamp == 0)
+            return;
+
+        double elapsedMilliseconds =
+            (completedAtTimestamp - _gpuBackpressureStartedAtTimestamp) *
+            1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        if (!double.IsFinite(elapsedMilliseconds) ||
+            elapsedMilliseconds < 0.0)
+        {
+            elapsedMilliseconds = 0.0;
+        }
+        _lastGpuBackpressureEpochMilliseconds = elapsedMilliseconds;
+        _maximumGpuBackpressureEpochMilliseconds = Math.Max(
+            _maximumGpuBackpressureEpochMilliseconds,
+            elapsedMilliseconds);
+        if (readyAfterRetry && _gpuBackpressureInputRetryCount > 0)
+            _gpuReadyAfterRetryCount++;
     }
 
     private void ArmDormantRenderTimer()
@@ -1024,7 +1594,9 @@ public sealed class EngineViewport : HwndHost
         _renderPumpQueued = false;
         _renderPumpQueuedAt = 0;
         _renderFairnessYieldQueued = false;
+        _renderMaintenanceYieldQueued = false;
         ResetRenderBurst();
+        ResetGpuBackpressureRetryBurst();
         _dormantRenderTimer?.Stop();
     }
 
@@ -1189,8 +1761,26 @@ public sealed class EngineViewport : HwndHost
             mismatchAgeMilliseconds);
     }
 
-    private void RecoverStalePointerCaptureIfNeeded(int currentMessage)
+    /// <summary>
+    /// Periodic recovery path for a capture whose final child-HWND message was
+    /// lost. The interaction heartbeat invokes this even while no pointer
+    /// message is arriving, which is the exact case where the WndProc-only
+    /// recovery path could leave the editor title bar unreachable.
+    /// </summary>
+    internal bool MaintainPointerCapture(bool ownerClosing)
     {
+        Dispatcher.VerifyAccess();
+        return RecoverStalePointerCaptureIfNeeded(
+            currentMessage: 0,
+            ownerClosing: ownerClosing);
+    }
+
+    private bool RecoverStalePointerCaptureIfNeeded(
+        int currentMessage,
+        bool ownerClosing = false)
+    {
+        int generation = _renderPumpGeneration;
+        IntPtr hwnd = _hwnd;
         int activeButtonMask = ActivePointerButtonMask(
             _gizmoDragging,
             _giz3dDragging,
@@ -1201,14 +1791,15 @@ public sealed class EngineViewport : HwndHost
         // The matching button-up is the commit path for gizmos and marquee
         // selection. It must run before any recovery decision, even when the
         // physical button is already up and a render token was queued first.
-        if (_hwnd == IntPtr.Zero || activeButtonMask == 0 ||
+        if (_destroying || ownerClosing || hwnd == IntPtr.Zero ||
+            activeButtonMask == 0 ||
             IsInitiatingPointerButtonUpMessage(currentMessage, activeButtonMask))
         {
             _pointerButtonMismatchStartedAtTimestamp = 0;
-            return;
+            return false;
         }
 
-        bool ownsCapture = GetCapture() == _hwnd;
+        bool ownsCapture = GetCapture() == hwnd;
         int physicallyDownButtonMask = PhysicalPointerButtonMask(activeButtonMask);
         bool mismatch = ownsCapture &&
             !_windowInteractionPaused &&
@@ -1217,14 +1808,14 @@ public sealed class EngineViewport : HwndHost
         if (!mismatch)
         {
             _pointerButtonMismatchStartedAtTimestamp = 0;
-            return;
+            return false;
         }
 
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (_pointerButtonMismatchStartedAtTimestamp <= 0)
         {
             _pointerButtonMismatchStartedAtTimestamp = Math.Max(1L, now);
-            return;
+            return false;
         }
 
         double mismatchAgeMilliseconds =
@@ -1237,14 +1828,29 @@ public sealed class EngineViewport : HwndHost
                 activeButtonMask,
                 physicallyDownButtonMask,
                 currentMessage,
-                mismatchAgeMilliseconds))
+                mismatchAgeMilliseconds,
+                _destroying,
+                ownerClosing,
+                generation == _renderPumpGeneration))
         {
-            return;
+            return false;
         }
 
+        // Revalidate the captured HWND/generation immediately before release.
+        // ReleaseCapture synchronously re-enters WM_CAPTURECHANGED, so no
+        // stale generation may be allowed to tear down a newer gesture.
+        if (_destroying ||
+            ownerClosing ||
+            generation != _renderPumpGeneration ||
+            hwnd == IntPtr.Zero ||
+            hwnd != _hwnd ||
+            GetCapture() != hwnd)
+        {
+            return false;
+        }
         _pointerButtonMismatchStartedAtTimestamp = 0;
         _finalizing = false;
-        ReleaseCapture();
+        return ReleaseCapture();
     }
 
     /// <summary>
@@ -1254,8 +1860,12 @@ public sealed class EngineViewport : HwndHost
     internal bool RetryAttach()
     {
         Dispatcher.VerifyAccess();
-        if (_destroying || _attached || !AttachFailed ||
-            _engine == IntPtr.Zero || _hwnd == IntPtr.Zero)
+        if (!CanExplicitlyRetryAttach(
+                _destroying,
+                _attached,
+                AttachFailed,
+                _renderPumpSuspended,
+                _hwnd != IntPtr.Zero))
         {
             return false;
         }
@@ -1269,6 +1879,11 @@ public sealed class EngineViewport : HwndHost
         _resizePendH = 0;
         _awaitingStableResizeAfterWindowInteraction = false;
         _redrawPending = true;
+        if (_engine == IntPtr.Zero)
+        {
+            BeginNativeBootstrap(_renderPumpGeneration);
+            return true;
+        }
         QueueRenderPump();
         return true;
     }
@@ -1319,22 +1934,30 @@ public sealed class EngineViewport : HwndHost
                     return IntPtr.Zero;
                 }
 
-                if (_renderBurstFrames == 0 || _renderBurstStartedAtTimestamp == 0)
-                    _renderBurstStartedAtTimestamp =
-                        System.Diagnostics.Stopwatch.GetTimestamp();
-                bool gpuBackpressure = RenderOneFrame();
-                // Keep exactly one Win32 token in flight, but end every bounded
-                // burst with a real Dispatcher.Background turn. This avoids
-                // both the old per-frame Dispatcher cap and Win32-pump
-                // starvation of startup/timers/commands.
+                long renderAttemptStartedAt =
+                    System.Diagnostics.Stopwatch.GetTimestamp();
+                bool gpuBackpressure =
+                    RenderOneFrame(out bool presented);
+                double renderAttemptActiveCpuMilliseconds =
+                    (System.Diagnostics.Stopwatch.GetTimestamp() -
+                     renderAttemptStartedAt) *
+                    1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                // Keep exactly one Win32 token in flight. Successful frames
+                // and GPU-busy retries may continue directly only inside their
+                // bounded epochs. Every deadline inserts a Dispatcher
+                // checkpoint; real queued input can request one earlier.
                 if (gpuBackpressure)
                 {
                     _gpuBackpressureYieldCount++;
-                    QueueRenderFairnessYield();
+                    ScheduleNextRenderPumpAfterGpuBackpressure();
                 }
                 else
                 {
-                    ScheduleNextRenderPumpAfterFrame();
+                    CompleteGpuBackpressureEpoch(
+                        readyAfterRetry: presented);
+                    ScheduleNextRenderPumpAfterFrame(
+                        presented,
+                        renderAttemptActiveCpuMilliseconds);
                 }
                 return IntPtr.Zero;
             }
@@ -1637,8 +2260,9 @@ public sealed class EngineViewport : HwndHost
             EngineInterop.acs_editor_logic_input_mouse_button(_engine, button, down);
     }
 
-    private bool RenderOneFrame()
+    private bool RenderOneFrame(out bool presented)
     {
+        presented = false;
         Dispatcher.VerifyAccess();
         if (_destroying || _engine == IntPtr.Zero || _hwnd == IntPtr.Zero)
             return false;
@@ -1696,8 +2320,20 @@ public sealed class EngineViewport : HwndHost
                 _awaitingStableResizeAfterWindowInteraction = false;
                 _resizePendW = 0;
                 _resizePendH = 0;
+                bool hiddenStartupRenderingAllowedBeforeCallback =
+                    _hiddenStartupRenderingAllowed;
                 Attached?.Invoke();
-                if (_destroying) return false;
+                // OnEngineAttached pauses hidden submissions while project
+                // settings are read. Do not let this already-active call
+                // advance native startup once under the pre-settings defaults.
+                if (!ShouldContinueRenderingAfterAttachCallback(
+                        _destroying,
+                        RenderPumpSuspended,
+                        hiddenStartupRenderingAllowedBeforeCallback,
+                        _hiddenStartupRenderingAllowed))
+                {
+                    return false;
+                }
             }
             else
             {
@@ -1795,6 +2431,7 @@ public sealed class EngineViewport : HwndHost
             _lastSec,
             now,
             renderResult);
+        presented = renderResult > 0;
         return ShouldYieldForGpuBackpressure(renderResult);
         }
         finally
@@ -1833,7 +2470,21 @@ public sealed class EngineViewport : HwndHost
             _gpuBackpressureYieldCount,
             _lastNativeCallMilliseconds,
             _maximumNativeCallMilliseconds,
-            _lastNativeCallKind);
+            _lastNativeCallKind,
+            _gpuBackpressureInputRetryTotal,
+            _gpuBackpressureBackgroundFallbackCount,
+            _gpuReadyAfterRetryCount,
+            _renderFairnessYieldCount,
+            _lastGpuBackpressureEpochMilliseconds,
+            _maximumGpuBackpressureEpochMilliseconds,
+            _peakPresentedRenderBurstFrames,
+            _peakRenderBurstActiveCpuMilliseconds,
+            _renderInputContinuationYieldCount,
+            _renderMaintenanceYieldCount,
+            _lastRenderContinuationQueueWaitMilliseconds,
+            _maximumRenderContinuationQueueWaitMilliseconds,
+            _lastRenderMaintenanceQueueWaitMilliseconds,
+            _maximumRenderMaintenanceQueueWaitMilliseconds);
 
     internal void ResetNativeRenderDiagnostics()
     {
@@ -1841,6 +2492,20 @@ public sealed class EngineViewport : HwndHost
         _nativeCallCount = 0;
         _slowNativeCallCount = 0;
         _gpuBackpressureYieldCount = 0;
+        _gpuBackpressureInputRetryTotal = 0;
+        _gpuBackpressureBackgroundFallbackCount = 0;
+        _gpuReadyAfterRetryCount = 0;
+        _renderFairnessYieldCount = 0;
+        _lastGpuBackpressureEpochMilliseconds = 0.0;
+        _maximumGpuBackpressureEpochMilliseconds = 0.0;
+        _peakPresentedRenderBurstFrames = 0;
+        _peakRenderBurstActiveCpuMilliseconds = 0.0;
+        _renderInputContinuationYieldCount = 0;
+        _renderMaintenanceYieldCount = 0;
+        _lastRenderContinuationQueueWaitMilliseconds = 0.0;
+        _maximumRenderContinuationQueueWaitMilliseconds = 0.0;
+        _lastRenderMaintenanceQueueWaitMilliseconds = 0.0;
+        _maximumRenderMaintenanceQueueWaitMilliseconds = 0.0;
         _lastNativeCallMilliseconds = 0.0;
         _maximumNativeCallMilliseconds = 0.0;
         _lastNativeCallKind = string.Empty;

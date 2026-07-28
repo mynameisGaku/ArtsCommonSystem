@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -70,6 +71,8 @@ internal static class PackageResponsivenessSelfTest
         await VerifyLatestOnlyValidationAsync();
         await VerifyPackageDurabilityBoundaryAsync();
         await VerifyConfigSnapshotAsync();
+        VerifyProductMetadataContract();
+        VerifyExecutableStructuralContract();
         await VerifyArchiveIntegrityAsync();
         VerifyPrefabCookRewrite();
         VerifyBlueprintCookRewrite();
@@ -129,6 +132,22 @@ internal static class PackageResponsivenessSelfTest
 
     private static async Task VerifyArchiveIntegrityAsync()
     {
+        using (FileStream positioned = new(
+                   Environment.ProcessPath ??
+                   throw new InvalidOperationException(
+                       "Self-test process path is unavailable."),
+                   FileMode.Open,
+                   FileAccess.Read,
+                   FileShare.Read))
+        {
+            positioned.Position = 1;
+            CheckThrows<InvalidDataException>(
+                () => PackageExecutableContract.Inspect(
+                    positioned,
+                    positioned.Length),
+                "package executable inspection rejects a non-zero stream position");
+        }
+
         string root = FixtureRoot("archive-verifier");
         Directory.CreateDirectory(root);
         try
@@ -141,8 +160,25 @@ internal static class PackageResponsivenessSelfTest
                 verified.FileCount == 2 &&
                 verified.UncompressedBytes > 0 &&
                 verified.Profile == PackageProfile.Shipping &&
-                verified.AssetPackSha256.Length == 64,
-                "package archive verifier accepts a complete manifest and payload");
+                verified.AssetPackSha256.Length == 64 &&
+                verified.ProductMetadata?.Publisher == "ACS Self-Test",
+                "package archive verifier accepts PE32+ x64 and product metadata");
+
+            string invalidExecutable = CreateVerifierPackage(
+                root,
+                "invalid-executable",
+                invalidExecutable: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(invalidExecutable),
+                "package archive verifier rejects a hash-valid non-PE executable");
+
+            string nullMetadata = CreateVerifierPackage(
+                root,
+                "null-metadata",
+                nullMetadataPublisher: true);
+            await CheckThrowsAsync<InvalidDataException>(
+                () => PackageCore.VerifyPackageArchiveAsync(nullMetadata),
+                "package archive verifier rejects null product metadata fields");
 
             string corrupt = CreateVerifierPackage(
                 root,
@@ -190,17 +226,221 @@ internal static class PackageResponsivenessSelfTest
         }
     }
 
+    private static void VerifyExecutableStructuralContract()
+    {
+        string processPath =
+            Environment.ProcessPath ??
+            throw new InvalidOperationException(
+                "Self-test process path is unavailable.");
+        byte[] validImage = File.ReadAllBytes(processPath);
+        PackageExecutableInspection valid =
+            InspectExecutableBytes(validImage);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(
+            validImage.AsSpan(0x3c, sizeof(int)));
+        int coffOffset = checked(peOffset + 4);
+        int optionalOffset = checked(coffOffset + 20);
+        ushort optionalSize = BinaryPrimitives.ReadUInt16LittleEndian(
+            validImage.AsSpan(coffOffset + 16, sizeof(ushort)));
+        int sectionTableOffset = checked(optionalOffset + optionalSize);
+
+        byte[] outsideImageEntry = (byte[])validImage.Clone();
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            outsideImageEntry.AsSpan(optionalOffset + 16, sizeof(uint)),
+            valid.ImageSize);
+        CheckThrows<InvalidDataException>(
+            () => InspectExecutableBytes(outsideImageEntry),
+            "package executable inspection rejects an out-of-image entry point");
+
+        int entrySectionOffset = FindEntryPointSectionOffset(
+            validImage,
+            sectionTableOffset,
+            valid.SectionCount,
+            valid.EntryPointRva);
+        Check(
+            entrySectionOffset >= 0,
+            "self-test executable entry point resolves to a PE section");
+        if (entrySectionOffset < 0)
+            return;
+
+        byte[] nonExecutableEntry = (byte[])validImage.Clone();
+        uint characteristics = BinaryPrimitives.ReadUInt32LittleEndian(
+            nonExecutableEntry.AsSpan(
+                entrySectionOffset + 36,
+                sizeof(uint)));
+        characteristics &= ~(0x00000020u | 0x20000000u);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            nonExecutableEntry.AsSpan(
+                entrySectionOffset + 36,
+                sizeof(uint)),
+            characteristics);
+        CheckThrows<InvalidDataException>(
+            () => InspectExecutableBytes(nonExecutableEntry),
+            "package executable inspection rejects an entry point in a non-executable section");
+
+        byte[] unbackedEntry = (byte[])validImage.Clone();
+        uint entrySectionRva = BinaryPrimitives.ReadUInt32LittleEndian(
+            unbackedEntry.AsSpan(
+                entrySectionOffset + 12,
+                sizeof(uint)));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            unbackedEntry.AsSpan(
+                entrySectionOffset + 16,
+                sizeof(uint)),
+            valid.EntryPointRva - entrySectionRva);
+        CheckThrows<InvalidDataException>(
+            () => InspectExecutableBytes(unbackedEntry),
+            "package executable inspection rejects an entry point not backed by section bytes");
+
+        byte[] escapedRawSection = (byte[])validImage.Clone();
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            escapedRawSection.AsSpan(
+                entrySectionOffset + 20,
+                sizeof(uint)),
+            checked((uint)escapedRawSection.Length - 1u));
+        CheckThrows<InvalidDataException>(
+            () => InspectExecutableBytes(escapedRawSection),
+            "package executable inspection rejects a section raw range outside the file");
+    }
+
+    private static PackageExecutableInspection InspectExecutableBytes(
+        byte[] image)
+    {
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        return PackageExecutableContract.Inspect(
+            stream,
+            image.LongLength);
+    }
+
+    private static int FindEntryPointSectionOffset(
+        byte[] image,
+        int sectionTableOffset,
+        ushort sectionCount,
+        uint entryPointRva)
+    {
+        const int sectionHeaderSize = 40;
+        for (int index = 0; index < sectionCount; index++)
+        {
+            int offset = checked(
+                sectionTableOffset + index * sectionHeaderSize);
+            ReadOnlySpan<byte> section =
+                image.AsSpan(offset, sectionHeaderSize);
+            uint virtualSize =
+                BinaryPrimitives.ReadUInt32LittleEndian(section[8..]);
+            uint virtualAddress =
+                BinaryPrimitives.ReadUInt32LittleEndian(section[12..]);
+            uint rawSize =
+                BinaryPrimitives.ReadUInt32LittleEndian(section[16..]);
+            ulong mappedSize = Math.Max((ulong)virtualSize, rawSize);
+            if (entryPointRva >= virtualAddress &&
+                (ulong)entryPointRva <
+                    (ulong)virtualAddress + mappedSize)
+            {
+                return offset;
+            }
+        }
+        return -1;
+    }
+
+    private static void VerifyProductMetadataContract()
+    {
+        string root = FixtureRoot("package-product-metadata");
+        Directory.CreateDirectory(root);
+        try
+        {
+            string metadataPath = Path.Combine(
+                root,
+                PackageProductMetadataContract.FileName);
+            File.WriteAllText(
+                metadataPath,
+                """
+                {
+                  "schemaVersion": 1,
+                  "publisher": "ACS Studio",
+                  "description": "Deterministic package metadata.",
+                  "copyright": "Copyright ACS Studio",
+                  "supportUrl": "https://example.invalid/support"
+                }
+                """,
+                new UTF8Encoding(false));
+            PackageProductMetadata valid =
+                PackageProductMetadataContract.LoadOptional(root);
+            Check(
+                valid.Publisher == "ACS Studio" &&
+                valid.SupportUrl == "https://example.invalid/support",
+                "package product metadata accepts bounded canonical fields");
+
+            File.WriteAllText(
+                metadataPath,
+                """
+                {
+                  "schemaVersion": 1,
+                  "publisher": "first",
+                  "publisher": "second"
+                }
+                """,
+                new UTF8Encoding(false));
+            CheckThrows<InvalidDataException>(
+                () => PackageProductMetadataContract.LoadOptional(root),
+                "package product metadata rejects duplicate JSON properties");
+
+            File.WriteAllText(
+                metadataPath,
+                """
+                {
+                  "schemaVersion": 1,
+                  "supportUrl": "http://example.invalid/support"
+                }
+                """,
+                new UTF8Encoding(false));
+            CheckThrows<InvalidDataException>(
+                () => PackageProductMetadataContract.LoadOptional(root),
+                "package product metadata requires a canonical HTTPS support URL");
+
+            File.WriteAllText(
+                metadataPath,
+                """
+                {
+                  "schemaVersion": 1,
+                  "supportUrl": "https://user:secret@example.invalid/support"
+                }
+                """,
+                new UTF8Encoding(false));
+            CheckThrows<InvalidDataException>(
+                () => PackageProductMetadataContract.LoadOptional(root),
+                "package product metadata rejects support URL credentials");
+
+            File.Delete(metadataPath);
+            Check(
+                PackageProductMetadataContract.LoadOptional(root).IsEmpty,
+                "missing package metadata preserves legacy package compatibility");
+        }
+        finally
+        {
+            TryDeleteFixture(root);
+        }
+    }
+
     private static string CreateVerifierPackage(
         string directory,
         string suffix,
         bool corruptExecutable = false,
+        bool invalidExecutable = false,
+        bool nullMetadataPublisher = false,
         bool addUnlistedPayload = false,
         bool addTraversalEntry = false,
         bool addCaseCollision = false,
         bool addExternalAttributes = false)
     {
         const string packageId = "Verifier-1.2.3-win64";
-        byte[] executable = Encoding.ASCII.GetBytes("MZ ACS verifier fixture");
+        byte[] executable = invalidExecutable
+            ? Encoding.ASCII.GetBytes("MZ not a PE image")
+            : File.ReadAllBytes(
+                Environment.ProcessPath ??
+                throw new InvalidOperationException(
+                    "Self-test process path is unavailable."));
         byte[] assetPack = Encoding.ASCII.GetBytes("ACPAK verifier fixture");
         var declaredPayloads = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
@@ -240,6 +480,14 @@ internal static class PackageResponsivenessSelfTest
                 contract = CanonicalSceneAdapter.BootstrapContract,
                 sourceFormat = CanonicalSceneAdapter.LegacyScene3DFormat,
                 adapterProjectionHint = "perspective",
+            },
+            productMetadata = new
+            {
+                schemaVersion = 1,
+                publisher = nullMetadataPublisher ? null : "ACS Self-Test",
+                description = "Package verifier fixture.",
+                copyright = "",
+                supportUrl = "https://example.invalid/acs",
             },
             assetPack = new
             {

@@ -246,6 +246,11 @@
                         ToolTip="参照修復とTrash操作" Click="OnOpenAssetActions">
                     <Button.ContextMenu>
                         <ContextMenu Opened="OnAssetActionsOpened">
+                            <MenuItem x:Name="ActionPackageReadiness"
+                                      Header="Package Readiness…"
+                                      ToolTip="Audit the canonical Cook closure and export a machine-readable report"
+                                      Click="OnPackageReadiness"/>
+                            <Separator/>
                             <MenuItem x:Name="ActionFixRedirectors"
                                       Header="Clean Redirector Registry…"
                                       ToolTip="無効・重複・実アセットに隠れたRedirector登録を整理"

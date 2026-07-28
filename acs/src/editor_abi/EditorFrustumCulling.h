@@ -87,7 +87,8 @@ struct FNodeDecision {
 
 inline FNodeDecision EvaluateSphere(
     const FPlane (&planes)[6], FVec3 center,
-    f32 local_radius, FVec3 world_scale) noexcept {
+    f32 local_radius, FVec3 world_scale,
+    f32 world_radius_padding = 0.0f) noexcept {
     FNodeDecision decision{};
     if (!std::isfinite(center.x) ||
         !std::isfinite(center.y) ||
@@ -96,7 +97,9 @@ inline FNodeDecision EvaluateSphere(
         local_radius < 0.0f ||
         !std::isfinite(world_scale.x) ||
         !std::isfinite(world_scale.y) ||
-        !std::isfinite(world_scale.z)) {
+        !std::isfinite(world_scale.z) ||
+        !std::isfinite(world_radius_padding) ||
+        world_radius_padding < 0.0f) {
         return decision;
     }
     const f32 maximum_scale = std::max(
@@ -105,7 +108,8 @@ inline FNodeDecision EvaluateSphere(
             std::fabs(world_scale.y),
             std::fabs(world_scale.z)));
     decision.world_radius =
-        local_radius * maximum_scale;
+        local_radius * maximum_scale +
+        world_radius_padding;
     if (!std::isfinite(decision.world_radius))
         return decision;
     decision.valid = true;
@@ -149,6 +153,205 @@ struct FFrameDecision {
 inline bool ShouldSubmitOpaque(
     bool culling_enabled, bool visible) noexcept {
     return !culling_enabled || visible;
+}
+
+/**
+ * Allocation-free view over the exact main-view visibility mask.
+ *
+ * A missing or short mask is deliberately fail-open. DrawScene3D builds the
+ * mask before opening its first main-view geometry pass, but this additional
+ * boundary keeps a stale/incomplete diagnostic buffer from dropping geometry.
+ */
+struct FSubmissionMaskView {
+    bool enabled = false;
+    const u8* visibility = nullptr;
+    u32 visibility_count = 0u;
+
+    bool ShouldSubmit(u32 node_index) const noexcept {
+        if (!enabled || visibility == nullptr ||
+            node_index >= visibility_count) {
+            return true;
+        }
+        return visibility[node_index] != 0u;
+    }
+};
+
+/**
+ * Scene-geometry pass identity used by the production submission policy.
+ *
+ * Main-view visibility is camera-relative. It is therefore valid only for
+ * passes which render or query the active camera's image. Shadow casters use
+ * light-space coverage and VXGI voxelization uses the complete world-space
+ * scene, so masking either with the camera frustum would remove valid lighting.
+ */
+enum class ESceneGeometryPass : u8 {
+    NormalDepthPrepass = 0u,
+    MotionVectors,
+    PbrOpaqueCount,
+    PbrOpaqueDraw,
+    InteractiveWaterDraw,
+    RefractionPreflight,
+    RefractionDraw,
+    ShadowCaster,
+    VxgiVoxelization,
+    Count
+};
+
+/** Command form emitted by a pass after its eligibility query. */
+enum class ESubmissionCommandForm : u8 {
+    None = 0u,
+    Draw,
+    DrawIndexed,
+    Dispatch
+};
+
+struct FSceneGeometryPassPolicy {
+    bool uses_main_view_mask = false;
+    ESubmissionCommandForm command_form =
+        ESubmissionCommandForm::None;
+};
+
+constexpr FSceneGeometryPassPolicy SceneGeometryPassPolicy(
+    ESceneGeometryPass pass) noexcept {
+    switch (pass) {
+    case ESceneGeometryPass::NormalDepthPrepass:
+        return {true, ESubmissionCommandForm::Draw};
+    case ESceneGeometryPass::MotionVectors:
+    case ESceneGeometryPass::PbrOpaqueDraw:
+    case ESceneGeometryPass::InteractiveWaterDraw:
+    case ESceneGeometryPass::RefractionDraw:
+        return {true, ESubmissionCommandForm::DrawIndexed};
+    case ESceneGeometryPass::PbrOpaqueCount:
+    case ESceneGeometryPass::RefractionPreflight:
+        return {true, ESubmissionCommandForm::None};
+    case ESceneGeometryPass::ShadowCaster:
+        return {false, ESubmissionCommandForm::Draw};
+    case ESceneGeometryPass::VxgiVoxelization:
+        return {false, ESubmissionCommandForm::Dispatch};
+    case ESceneGeometryPass::Count:
+        break;
+    }
+    return {};
+}
+
+/**
+ * Apply the production pass policy to the one shared main-view mask.
+ *
+ * Returning a disabled view is deliberately fail-open, which lets unmasked
+ * light/world-space passes traverse the complete scene without owning a second
+ * visibility buffer.
+ */
+inline FSubmissionMaskView SubmissionMaskForPass(
+    ESceneGeometryPass pass,
+    const FSubmissionMaskView& main_view_mask) noexcept {
+    return SceneGeometryPassPolicy(pass).uses_main_view_mask
+        ? main_view_mask : FSubmissionMaskView{};
+}
+
+/**
+ * The aggregate dynamic VB is the exact full scene. When culling is disabled
+ * or the already-published frame decision culled no nodes, preserve the
+ * original one-Draw path instead of expanding it into one command per node.
+ */
+inline bool ShouldUseAggregateVertexDraw(
+    const FSubmissionMaskView& mask,
+    u32 explicitly_culled_count) noexcept {
+    return !mask.enabled || explicitly_culled_count == 0u;
+}
+
+/**
+ * Visit exactly the nodes submitted by camera-visible geometry passes.
+ *
+ * This is the production traversal used by normal/depth, motion-vector,
+ * opaque PBR and refraction recording. Keeping the loop here gives tests a
+ * real command-recording seam without constructing a GPU-backed editor host.
+ */
+template <typename FSubmit>
+inline u32 ForEachSubmittedNode(
+    const FSubmissionMaskView& mask, u32 node_count,
+    FSubmit&& submit) noexcept(noexcept(submit(u32{}))) {
+    u32 submitted = 0u;
+    for (u32 node_index = 0u;
+         node_index < node_count; ++node_index) {
+        if (!mask.ShouldSubmit(node_index)) continue;
+        submit(node_index);
+        ++submitted;
+    }
+    return submitted;
+}
+
+/**
+ * Coalesce adjacent vertex spans from submitted nodes.
+ *
+ * BuildSceneMeshVerts appends node geometry into one dynamic vertex buffer.
+ * A culled node creates a gap, while consecutive visible nodes can safely
+ * share one non-indexed Draw. Empty nodes do not split an otherwise contiguous
+ * range. The return value is the number of emitted ranges/Draw calls.
+ */
+template <typename FVertexOffset, typename FVertexCount, typename FSubmitRange>
+inline u32 ForEachSubmittedVertexRange(
+    const FSubmissionMaskView& mask, u32 node_count,
+    FVertexOffset&& vertex_offset,
+    FVertexCount&& vertex_count,
+    FSubmitRange&& submit_range) noexcept(
+        noexcept(vertex_offset(u32{})) &&
+        noexcept(vertex_count(u32{})) &&
+        noexcept(submit_range(u32{}, u32{}))) {
+    u32 emitted_ranges = 0u;
+    u32 range_offset = 0u;
+    u32 range_count = 0u;
+    bool has_range = false;
+
+    const auto flush = [&]() noexcept(
+        noexcept(submit_range(u32{}, u32{}))) {
+        if (!has_range) return;
+        submit_range(range_offset, range_count);
+        ++emitted_ranges;
+        has_range = false;
+        range_offset = 0u;
+        range_count = 0u;
+    };
+
+    for (u32 node_index = 0u;
+         node_index < node_count; ++node_index) {
+        if (!mask.ShouldSubmit(node_index)) continue;
+        const u32 offset = vertex_offset(node_index);
+        const u32 count = vertex_count(node_index);
+        if (count == 0u) continue;
+
+        const bool range_end_valid =
+            has_range &&
+            range_count <= ~u32{0} - range_offset;
+        const u32 range_end =
+            range_end_valid ? range_offset + range_count : 0u;
+        const bool adjacent =
+            range_end_valid &&
+            offset == range_end &&
+            count <= ~u32{0} - range_end;
+        if (!adjacent) {
+            flush();
+            range_offset = offset;
+            range_count = count;
+            has_range = true;
+        } else {
+            range_count += count;
+        }
+    }
+    flush();
+    return emitted_ranges;
+}
+
+/** Return true when any submitted node satisfies the supplied predicate. */
+template <typename FPredicate>
+inline bool AnySubmittedNode(
+    const FSubmissionMaskView& mask, u32 node_count,
+    FPredicate&& predicate) noexcept(noexcept(predicate(u32{}))) {
+    for (u32 node_index = 0u;
+         node_index < node_count; ++node_index) {
+        if (!mask.ShouldSubmit(node_index)) continue;
+        if (predicate(node_index)) return true;
+    }
+    return false;
 }
 
 } // namespace acs::editor_frustum_culling

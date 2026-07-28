@@ -4,6 +4,7 @@
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 #include "math/Vec.h"
+#include "render/TemporalHistory.h"
 
 #if !WITH_RENDER_DILIGENT
 #include "render/Dx12/Dx12Shader.h"
@@ -92,10 +93,16 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // The destination is half resolution. Prefilter its corresponding 2x2
     // source footprint so sub-pixel highlights do not blink during camera motion.
     float2 texel = float2(params1.y, params1.z);
-    float3 c0 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5, -0.5), 0).rgb);
-    float3 c1 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5, -0.5), 0).rgb);
-    float3 c2 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5,  0.5), 0).rgb);
-    float3 c3 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5,  0.5), 0).rgb);
+    // `src` already includes adapted exposure when auto exposure is enabled,
+    // while params0.w is the common manual exposure / EV compensation. Apply
+    // that manual term before thresholding so bloom and the tonemapped scene
+    // respond to the same final exposure. The neutral value remains exactly
+    // one and the sanitized CPU contract bounds the multiplier.
+    float manual_exposure = params0.w;
+    float3 c0 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5, -0.5), 0).rgb) * manual_exposure;
+    float3 c1 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5, -0.5), 0).rgb) * manual_exposure;
+    float3 c2 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2(-0.5,  0.5), 0).rgb) * manual_exposure;
+    float3 c3 = SafeHdr(src.SampleLevel(src_sampler, v.uv + texel * float2( 0.5,  0.5), 0).rgb) * manual_exposure;
     // Karis weighting prevents an isolated firefly from dominating the footprint.
     float w0 = rcp(1.0 + max(c0.r, max(c0.g, c0.b)));
     float w1 = rcp(1.0 + max(c1.r, max(c1.g, c1.b)));
@@ -455,7 +462,7 @@ cbuffer Post : register(b0) {
     float4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
     float4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind (0=ACES, 1=AgX, 2=Reinhard ext)
     float4 params2;   // x=vignette_intensity, y=vignette_radius, z=chromatic_aberration, w=grain_intensity
-    float4 params3;   // x=grain_time, y=ssr_intensity, zw=pad
+    float4 params3;   // x=grain_time, y=ssr_intensity, z=bloom_scatter, w=SSR adapted-exposure mode
     float4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     float4 cg_lift;   // xyz=lift (shadow offset)
     float4 cg_gain;   // xyz=gain (highlight multiplier)
@@ -465,9 +472,11 @@ cbuffer Post : register(b0) {
 Texture2D    hdr   : register(t0);
 Texture2D    bloom : register(t1);
 Texture2D    ssr   : register(t2);
+Texture2D    adapted_exposure : register(t3);
 SamplerState hdr_sampler   : register(s0);
 SamplerState bloom_sampler : register(s1);
 SamplerState ssr_sampler   : register(s2);
+SamplerState adapted_exposure_sampler : register(s3);
 
 struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
@@ -654,8 +663,24 @@ float4 PSMain(VSOut v) : SV_TARGET {
     hdr_col = SafeHdr(hdr_col);
     float3 bloom_col = SafeHdr(
         bloom.Sample(bloom_sampler, v.uv).rgb) * params0.y;
+    // SSR is authored in the same scene-linear domain as hdr. SceneInput()
+    // already contains adapted exposure, so apply that 1x1 value to the
+    // separately supplied SSR exactly once, then apply the common manual
+    // exposure/EV compensation exactly once. The mode is enabled only when a
+    // valid SSR texture and a completed auto-exposure result both exist.
+    float ssr_exposure = params0.w;
+    [branch]
+    if (params3.w >= 0.5) {
+        float adapted = adapted_exposure.SampleLevel(
+            adapted_exposure_sampler, float2(0.5, 0.5), 0).r;
+        adapted = abs(adapted) <= 65504.0
+            ? max(adapted, 0.0)
+            : 1.0;
+        ssr_exposure *= adapted;
+    }
     float3 ssr_col = SafeHdr(
-        ssr.Sample(ssr_sampler, v.uv).rgb) * params3.y;
+        ssr.Sample(ssr_sampler, v.uv).rgb) *
+        (params3.y * ssr_exposure);
     // Tone-map arithmetic is FP32, so values above FP16's storage limit are
     // valid here. Saturate only the final finite radiance entering the fit.
     float3 mixed = min(SafeHdr(hdr_col + bloom_col + ssr_col), 65504.0);
@@ -818,7 +843,7 @@ struct FPostCbLayout {
     FVec4 params0;   // x=threshold, y=intensity, z=radius, w=exposure
     FVec4 params1;   // x=gamma, y=texel_w, z=texel_h, w=tonemap_kind
     FVec4 params2;   // x=vignette_intensity, y=vignette_radius, z=ca, w=grain
-    FVec4 params3;   // x=grain_time, y=ssr_intensity, z=bloom_scatter
+    FVec4 params3;   // x=grain_time, y=ssr_intensity, z=bloom_scatter, w=SSR adapted-exposure mode
     FVec4 cg0;       // x=saturation, y=contrast, z=temperature, w=tint
     FVec4 cg_lift;   // xyz=lift
     FVec4 cg_gain;   // xyz=gain
@@ -1479,13 +1504,14 @@ TResult<void> FPostProcess::CreatePipelines(
         pd.ps = shaders.tonemap_pixel.Get();
         pd.rt_format = m_ColorFormat;
         pd.cbuffer_slots = 1;
-        pd.texture_slots = 3;       // t0=hdr, t1=bloom, t2=ssr
+        pd.texture_slots = 4;       // t0=hdr, t1=bloom, t2=ssr, t3=adapted exposure
         pd.cbuffer_names[0] = "Post";
         pd.texture_names[0] = "hdr";
         pd.texture_names[1] = "bloom";
         pd.texture_names[2] = "ssr";
-        pd.static_sampler_count = 3;
-        for (u32 i = 0; i < 3; ++i) {
+        pd.texture_names[3] = "adapted_exposure";
+        pd.static_sampler_count = 4;
+        for (u32 i = 0; i < 4; ++i) {
             pd.static_samplers[i].filter    = ESamplerFilter::Linear;
             pd.static_samplers[i].address_u = ESamplerAddress::Clamp;
             pd.static_samplers[i].address_v = ESamplerAddress::Clamp;
@@ -1705,7 +1731,9 @@ void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
     l.params1 = FVec4{ p.gamma, texel_w, texel_h, static_cast<f32>(p.tonemap_kind) };
     l.params2 = FVec4{ p.vignette_intensity, p.vignette_radius,
                       p.chromatic_aberration, p.grain_intensity };
-    l.params3 = FVec4{ p.grain_time, p.ssr_intensity, p.bloom_scatter, 0 };
+    l.params3 = FVec4{
+        p.grain_time, p.ssr_intensity, p.bloom_scatter,
+        p.auto_exposure_enabled ? 1.0f : 0.0f};
     l.cg0     = FVec4{ p.cg_saturation, p.cg_contrast, p.cg_temperature, p.cg_tint };
     l.cg_lift = FVec4{ p.cg_lift.x, p.cg_lift.y, p.cg_lift.z, 0 };
     l.cg_gain = FVec4{ p.cg_gain.x, p.cg_gain.y, p.cg_gain.z, 0 };
@@ -1842,18 +1870,31 @@ bool FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     // exposure scales and produces brightness ghosting.
     IRhiTexture* scene = m_HdrRt.Get();
     if (!scene) return false;
+    const auto temporal = ResolveTemporalHistoryFrame(
+        m_TaaFrame,
+        p.taa_view_proj_no_jitter,
+        p.taa_prev_view_proj_no_jitter,
+        p.taa_blend_factor,
+        p.taa_motion_texture != nullptr);
     const bool first_frame = (m_TaaFrame == 0);
     IRhiTexture* hist_input = first_frame ? scene : hist_rt;
 
     IRhiBuffer* post_cb = AcquirePostCb();
     if (!post_cb) return false;
-    UpdatePostCB(post_cb, p, 1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
+    FPostProcessParams temporal_params = p;
+    temporal_params.taa_blend_factor =
+        temporal.current_frame_weight;
+    temporal_params.taa_motion_texture =
+        temporal.motion_vectors_enabled ? p.taa_motion_texture : nullptr;
+    UpdatePostCB(
+        post_cb, temporal_params,
+        1.0f / cur_rt->Width(), 1.0f / cur_rt->Height());
 
     // TaaReproj CB を埋める。`taa_view_proj_no_jitter` が単位行列の
     // ままなら inv は単位、prev も単位で motion=0 になる (= 静的 reprojection 動作)。
     FTaaReprojCBLayout r{};
     r.inv_view_proj  = Inverse(p.taa_view_proj_no_jitter);
-    r.prev_view_proj = p.taa_prev_view_proj_no_jitter;
+    r.prev_view_proj = temporal.previous_view_projection;
     r.camera_position = FVec4{
         p.taa_camera_position.x, p.taa_camera_position.y,
         p.taa_camera_position.z, 1.0f};
@@ -1862,7 +1903,7 @@ bool FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     // t2 slot: motion texture が指定されていればそれを bind、
     // なければ depth (指定があれば実 depth、なければ 1x1 全 255 で sky 扱い)。
     // shader 側は taa_params.z で解釈を切り替えるので PSO の slot 数は不変。
-    IRhiTexture* slot2_tex = p.taa_motion_texture
+    IRhiTexture* slot2_tex = temporal.motion_vectors_enabled
                            ? p.taa_motion_texture
                            : (p.taa_depth_texture ? p.taa_depth_texture
                                                   : m_TaaDepthFb.Get());
@@ -1872,16 +1913,22 @@ bool FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     IRhiTexture* reactive_depth = p.taa_depth_texture
                                 ? p.taa_depth_texture
                                 : m_TaaDepthFb.Get();
+    // The TAA PSO declares all five SRVs on every mode. Strict backends do not
+    // permit an unbound descriptor merely because the shader branch is
+    // disabled, so validate the fallback set before opening the pass and bind
+    // every declared slot unconditionally.
+    if (!slot2_tex || !reactive_tex || !reactive_depth)
+        return false;
 
     cmd.BeginRenderToTexture(*cur_rt, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeTaaResolve);
     cmd.SetConstantBuffer(0, *post_cb);
-    if (m_CbTaaReproj) cmd.SetConstantBuffer(1, *m_CbTaaReproj);
+    cmd.SetConstantBuffer(1, *m_CbTaaReproj);
     cmd.SetTexture(0, *scene);                     // current scene-linear HDR
     cmd.SetTexture(1, *hist_input);                // history (or current on frame 0)
-    if (slot2_tex) cmd.SetTexture(2, *slot2_tex);  // depth または motion vector
-    if (reactive_tex) cmd.SetTexture(3, *reactive_tex);
-    if (reactive_depth) cmd.SetTexture(4, *reactive_depth);
+    cmd.SetTexture(2, *slot2_tex);                 // depth または motion vector
+    cmd.SetTexture(3, *reactive_tex);
+    cmd.SetTexture(4, *reactive_depth);
     cmd.Draw(3, 0);
     cmd.EndRenderToTexture(*cur_rt);
     return true;
@@ -1890,29 +1937,52 @@ bool FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
 bool FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                                 const FPostProcessParams& p) noexcept {
     if (!m_PipeTonemap || sc.Width() == 0 || sc.Height() == 0) return false;
+    const bool scene_auto_exposed =
+        p.auto_exposure_enabled &&
+        m_ExposureOutputValid &&
+        m_ExposedRt;
+    const bool expose_ssr =
+        p.ssr_texture != nullptr &&
+        scene_auto_exposed &&
+        m_Exposure[m_AutoFrame % 2];
+    FPostProcessParams tonemap_params = p;
+    // Inside the tonemap CB this bit describes only whether the separately
+    // supplied scene-linear SSR needs the completed adapted exposure.
+    tonemap_params.auto_exposure_enabled = expose_ssr;
     IRhiBuffer* post_cb = AcquirePostCb();
     if (!post_cb) return false;
-    UpdatePostCB(post_cb, p, 1.0f / sc.Width(), 1.0f / sc.Height());
+    UpdatePostCB(
+        post_cb, tonemap_params,
+        1.0f / sc.Width(), 1.0f / sc.Height());
 
     IRhiTexture* tonemap_src = SceneInput(p);
     if (!tonemap_src) return false;
+    IRhiTexture* bloom_input =
+        m_BloomOutputValid && m_BloomMips[0]
+            ? m_BloomMips[0].Get() : m_BlackFb.Get();
+    IRhiTexture* ssr_input =
+        p.ssr_texture ? p.ssr_texture : m_BlackFb.Get();
+    IRhiTexture* adapted_exposure_input =
+        expose_ssr
+            ? m_Exposure[m_AutoFrame % 2].Get()
+            : m_BlackFb.Get();
+    // Every declared SRV is mandatory on strict backends. A successfully
+    // initialized post stack owns m_BlackFb, but fail before beginning the
+    // swapchain pass if that invariant is ever broken.
+    if (!bloom_input || !ssr_input || !adapted_exposure_input)
+        return false;
 
     cmd.BeginRenderToSwapchain(sc, buf_idx, FClearColor{0,0,0,1}, nullptr, 1.0f);
     cmd.SetPipeline(*m_PipeTonemap);
     cmd.SetConstantBuffer(0, *post_cb);
     cmd.SetTexture(0, *tonemap_src);
-    if (m_BloomOutputValid && m_BloomMips[0]) {
-        cmd.SetTexture(1, *m_BloomMips[0]);
-    } else if (m_BlackFb) {
-        cmd.SetTexture(1, *m_BlackFb);
-    }
+    cmd.SetTexture(1, *bloom_input);
     // 未指定 slot には必ず黒を bind。旧実装の最深 bloom mip 代用は広域 bloom を
     // SSR として二重加算し、bloom off 時には前フレーム内容も残していた。
-    if (p.ssr_texture) {
-        cmd.SetTexture(2, *p.ssr_texture);
-    } else if (m_BlackFb) {
-        cmd.SetTexture(2, *m_BlackFb);
-    }
+    cmd.SetTexture(2, *ssr_input);
+    // The mode bit keeps the fallback neutral; no t3 sample is issued on the
+    // disabled shader branch even though the strict binding is present.
+    cmd.SetTexture(3, *adapted_exposure_input);
     cmd.Draw(3, 0);
     cmd.EndRenderToSwapchain(sc, buf_idx);
     return true;

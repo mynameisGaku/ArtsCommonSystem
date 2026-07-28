@@ -26,6 +26,522 @@ internal static class EditorReliabilitySelfTest
             if (!condition) failures++;
         }
 
+        var monitorFixture = new[]
+        {
+            new EditorMonitorWorkArea(
+                @"\\.\DISPLAY2", 1920, 0, 3840, 1040, IsPrimary: false),
+            new EditorMonitorWorkArea(
+                @"\\.\DISPLAY1", 0, 0, 1920, 1040, IsPrimary: true),
+            new EditorMonitorWorkArea(
+                @"\\.\DISPLAY3", -1280, 0, 0, 984, IsPrimary: false)
+        };
+        bool parsedSecondary = EditorStartupMonitorPlacement.TryParse(
+            new[] { "--unattended", "--SECONDARY-MONITOR" },
+            out EditorStartupMonitorSelector? secondarySelector,
+            out _);
+        bool resolvedSecondary =
+            secondarySelector is { } secondary &&
+            EditorStartupMonitorPlacement.TryResolve(
+                monitorFixture,
+                secondary,
+                out EditorMonitorWorkArea secondaryTarget,
+                out _) &&
+            secondaryTarget.DeviceName == @"\\.\DISPLAY2";
+        bool parsedIndexed = EditorStartupMonitorPlacement.TryParse(
+            new[] { "--monitor", "2" },
+            out EditorStartupMonitorSelector? indexedSelector,
+            out _);
+        bool resolvedIndexed =
+            indexedSelector is { } indexed &&
+            EditorStartupMonitorPlacement.TryResolve(
+                monitorFixture,
+                indexed,
+                out EditorMonitorWorkArea indexedTarget,
+                out _) &&
+            indexedTarget.DeviceName == @"\\.\DISPLAY3";
+        bool rejectedConflict =
+            !EditorStartupMonitorPlacement.TryParse(
+                new[] { "--secondary-monitor", "--monitor", "0" },
+                out _,
+                out string? conflictError) &&
+            conflictError is { Length: > 0 };
+        bool noMonitorRequest = EditorStartupMonitorPlacement.TryParse(
+            new[] { "--no-activate" },
+            out EditorStartupMonitorSelector? noSelector,
+            out _) &&
+            noSelector == null;
+        Check(
+            parsedSecondary &&
+            resolvedSecondary &&
+            parsedIndexed &&
+            resolvedIndexed &&
+            rejectedConflict &&
+            noMonitorRequest,
+            "startup monitor selection is deterministic, validates conflicts, and leaves ordinary saved layouts untouched");
+
+        string startupSnapshotRoot = Path.Combine(
+            Path.GetTempPath(),
+            "acs-editor-startup-snapshot-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(startupSnapshotRoot);
+        try
+        {
+            string validSnapshot = Path.Combine(
+                startupSnapshotRoot,
+                "valid.json");
+            await File.WriteAllTextAsync(
+                validSnapshot,
+                "\uFEFF{\"version\":1}",
+                new System.Text.UTF8Encoding(
+                    encoderShouldEmitUTF8Identifier: false));
+            EditorStartupTextSnapshot valid =
+                await EditorStartupFileSnapshot.ReadAsync(
+                    validSnapshot,
+                    maximumBytes: 64);
+
+            string invalidUtf8 = Path.Combine(
+                startupSnapshotRoot,
+                "invalid.json");
+            await File.WriteAllBytesAsync(
+                invalidUtf8,
+                new byte[] { 0x7B, 0xC3, 0x28, 0x7D });
+            EditorStartupTextSnapshot invalid =
+                await EditorStartupFileSnapshot.ReadAsync(
+                    invalidUtf8,
+                    maximumBytes: 64);
+
+            string oversized = Path.Combine(
+                startupSnapshotRoot,
+                "oversized.json");
+            await File.WriteAllBytesAsync(
+                oversized,
+                Enumerable.Repeat((byte)'x', 65).ToArray());
+            EditorStartupTextSnapshot tooLarge =
+                await EditorStartupFileSnapshot.ReadAsync(
+                    oversized,
+                    maximumBytes: 64);
+
+            Check(
+                valid.Source == "{\"version\":1}" &&
+                !valid.Missing &&
+                valid.Warning == null &&
+                invalid.Source == null &&
+                invalid.Warning is { Length: > 0 } &&
+                tooLarge.Source == null &&
+                tooLarge.Warning is { Length: > 0 } &&
+                EditorStartupFileSnapshot.IsOrdinaryFile(
+                    FileAttributes.Normal) &&
+                !EditorStartupFileSnapshot.IsOrdinaryFile(
+                    FileAttributes.ReparsePoint) &&
+                !EditorStartupFileSnapshot.IsOrdinaryFile(
+                    FileAttributes.Directory),
+                "startup layout snapshot is bounded, strict UTF-8, BOM-safe, and rejects reparse/non-file inputs");
+        }
+        finally
+        {
+            try { Directory.Delete(startupSnapshotRoot, recursive: true); }
+            catch { }
+        }
+
+        string layoutStoreRoot = Path.Combine(
+            Path.GetTempPath(),
+            "acs-editor-layout-store-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(layoutStoreRoot);
+        try
+        {
+            string layoutTarget = Path.Combine(
+                layoutStoreRoot,
+                "EditorLayout.v1.json");
+            await File.WriteAllTextAsync(layoutTarget, "old");
+            int layoutCallerThread = Environment.CurrentManagedThreadId;
+            int layoutWriterThread = layoutCallerThread;
+            await Task.Run(
+                () =>
+                {
+                    layoutWriterThread = Environment.CurrentManagedThreadId;
+                    EditorLayoutFileStore.WriteAtomically(
+                        layoutTarget,
+                        "{\"version\":1}");
+                });
+            byte[] committedLayout =
+                await File.ReadAllBytesAsync(layoutTarget);
+
+            bool injectedFailureObserved = false;
+            try
+            {
+                await Task.Run(
+                    () => EditorLayoutFileStore.WriteAtomically(
+                        layoutTarget,
+                        "{\"version\":2}",
+                        _ => throw new IOException(
+                            "injected pre-commit failure")));
+            }
+            catch (IOException)
+            {
+                injectedFailureObserved = true;
+            }
+
+            string retainedLayout =
+                await File.ReadAllTextAsync(layoutTarget);
+            Check(
+                layoutWriterThread != layoutCallerThread &&
+                committedLayout.Length > 0 &&
+                !(committedLayout.Length >= 3 &&
+                  committedLayout[0] == 0xEF &&
+                  committedLayout[1] == 0xBB &&
+                  committedLayout[2] == 0xBF) &&
+                injectedFailureObserved &&
+                retainedLayout == "{\"version\":1}" &&
+                Directory.GetFiles(
+                    layoutStoreRoot,
+                    "*.tmp",
+                    SearchOption.TopDirectoryOnly).Length == 0,
+                "close layout persistence runs off the Dispatcher, commits UTF-8 atomically, preserves the prior file on failure, and removes temps");
+        }
+        finally
+        {
+            try { Directory.Delete(layoutStoreRoot, recursive: true); }
+            catch { }
+        }
+
+        int uiThreadId = Environment.CurrentManagedThreadId;
+        int bootstrapThreadId = uiThreadId;
+        int createCalls = 0;
+        int suppressCalls = 0;
+        int destroyCalls = 0;
+        using var bootstrapStarted = new ManualResetEventSlim();
+        using var releaseBootstrap = new ManualResetEventSlim();
+        using var bootstrapCancellation = new CancellationTokenSource();
+        EditorAbiSnapshot compatibleAbi = new(
+            QueryAvailable: true,
+            Compatible: true,
+            ProviderVersion: EditorAbiContract.RequestedVersion,
+            Capabilities: EditorAbiContract.RequiredCapabilities,
+            MissingRequired: EditorAbiCapability.None,
+            UnknownCapabilityBits: 0,
+            ProductVersion: "self-test",
+            RenderBackend: "self-test",
+            Diagnostic: "");
+        Task<EditorNativeBootstrapResult> bootstrap =
+            EditorNativeBootstrap.RunAsync(
+                () => compatibleAbi,
+                () =>
+                {
+                    bootstrapThreadId = Environment.CurrentManagedThreadId;
+                    Interlocked.Increment(ref createCalls);
+                    bootstrapStarted.Set();
+                    releaseBootstrap.Wait();
+                    return (IntPtr)0x1234;
+                },
+                _ => Interlocked.Increment(ref suppressCalls),
+                _ => Interlocked.Increment(ref destroyCalls),
+                bootstrapCancellation.Token);
+        bool workerEntered = bootstrapStarted.Wait(TimeSpan.FromSeconds(2));
+        bool dispatcherWasNotBlocked = workerEntered && !bootstrap.IsCompleted;
+        bootstrapCancellation.Cancel();
+        releaseBootstrap.Set();
+        EditorNativeBootstrapResult cancelledBootstrap = await bootstrap;
+        Check(
+            dispatcherWasNotBlocked &&
+            bootstrapThreadId != uiThreadId &&
+            createCalls == 1 &&
+            suppressCalls == 1 &&
+            destroyCalls == 1 &&
+            cancelledBootstrap.Cancelled &&
+            cancelledBootstrap.Engine == IntPtr.Zero,
+            "native editor host bootstrap runs off the Dispatcher and cancellation destroys its unpublished handle");
+
+        using var firstCreateEntered = new ManualResetEventSlim();
+        using var releaseFirstCreate = new ManualResetEventSlim();
+        using var secondCreateEntered = new ManualResetEventSlim();
+        int activeNativeCreates = 0;
+        int overlappingNativeCreates = 0;
+        Task<EditorNativeBootstrapResult> firstGeneration =
+            EditorNativeBootstrap.RunAsync(
+                () => compatibleAbi,
+                () =>
+                {
+                    if (Interlocked.Increment(ref activeNativeCreates) > 1)
+                        Interlocked.Exchange(ref overlappingNativeCreates, 1);
+                    firstCreateEntered.Set();
+                    releaseFirstCreate.Wait();
+                    Interlocked.Decrement(ref activeNativeCreates);
+                    return (IntPtr)0x2001;
+                },
+                _ => { },
+                _ => { },
+                CancellationToken.None);
+        bool firstGenerationStarted =
+            firstCreateEntered.Wait(TimeSpan.FromSeconds(2));
+        Task<EditorNativeBootstrapResult> secondGeneration =
+            EditorNativeBootstrap.RunAsync(
+                () => compatibleAbi,
+                () =>
+                {
+                    if (Interlocked.Increment(ref activeNativeCreates) > 1)
+                        Interlocked.Exchange(ref overlappingNativeCreates, 1);
+                    secondCreateEntered.Set();
+                    Interlocked.Decrement(ref activeNativeCreates);
+                    return (IntPtr)0x2002;
+                },
+                _ => { },
+                _ => { },
+                CancellationToken.None);
+        bool secondGenerationWaited =
+            !secondCreateEntered.Wait(TimeSpan.FromMilliseconds(100));
+        releaseFirstCreate.Set();
+        EditorNativeBootstrapResult firstResult =
+            await firstGeneration;
+        bool secondStillWaitedForFirstLifetime =
+            !secondCreateEntered.Wait(TimeSpan.FromMilliseconds(100));
+
+        using var waitingGenerationCancellation =
+            new CancellationTokenSource();
+        int cancelledWaitingCreateCalls = 0;
+        Task<EditorNativeBootstrapResult> cancelledWaitingGeneration =
+            EditorNativeBootstrap.RunAsync(
+                () => compatibleAbi,
+                () =>
+                {
+                    Interlocked.Increment(
+                        ref cancelledWaitingCreateCalls);
+                    return (IntPtr)0x2003;
+                },
+                _ => { },
+                _ => { },
+                waitingGenerationCancellation.Token);
+        waitingGenerationCancellation.Cancel();
+        bool cancelledWaiterCompletedBeforeLifetimeRelease =
+            await Task.WhenAny(
+                cancelledWaitingGeneration,
+                Task.Delay(TimeSpan.FromSeconds(1))) ==
+            cancelledWaitingGeneration;
+        EditorNativeBootstrapResult cancelledWaitingResult =
+            cancelledWaiterCompletedBeforeLifetimeRelease
+                ? await cancelledWaitingGeneration
+                : default;
+
+        await EditorNativeBootstrap.DestroyUnpublishedAsync(
+            firstResult,
+            _ => { });
+        EditorNativeBootstrapResult secondResult =
+            await secondGeneration;
+        await EditorNativeBootstrap.DestroyUnpublishedAsync(
+            secondResult,
+            _ => { });
+        if (!cancelledWaiterCompletedBeforeLifetimeRelease)
+            cancelledWaitingResult = await cancelledWaitingGeneration;
+        Check(
+            firstGenerationStarted &&
+            secondGenerationWaited &&
+            secondStillWaitedForFirstLifetime &&
+            cancelledWaiterCompletedBeforeLifetimeRelease &&
+            cancelledWaitingResult.Cancelled &&
+            cancelledWaitingResult.Engine == IntPtr.Zero &&
+            cancelledWaitingCreateCalls == 0 &&
+            overlappingNativeCreates == 0 &&
+            firstResult.Engine == (IntPtr)0x2001 &&
+            secondResult.Engine == (IntPtr)0x2002,
+            "overlapping HwndHost generations serialize the complete process-global native host lifetime while a cancelled waiter exits promptly");
+
+        int incompatibleCreateCalls = 0;
+        EditorAbiSnapshot incompatibleAbi = compatibleAbi with
+        {
+            Compatible = false,
+            Diagnostic = "missing capability",
+        };
+        EditorNativeBootstrapResult incompatibleBootstrap =
+            await EditorNativeBootstrap.RunAsync(
+                () => incompatibleAbi,
+                () =>
+                {
+                    incompatibleCreateCalls++;
+                    return (IntPtr)0x5678;
+                },
+                _ => { },
+                _ => { },
+                CancellationToken.None);
+        Check(
+            incompatibleCreateCalls == 0 &&
+            incompatibleBootstrap.Engine == IntPtr.Zero &&
+            !incompatibleBootstrap.Cancelled &&
+            incompatibleBootstrap.FailureDetail is { Length: > 0 },
+            "an incompatible native ABI fails closed before host creation");
+
+        // DestroyWindowCore intentionally leaves the failure/allowance contract
+        // on the managed HwndHost. A replacement HWND must remain inert until
+        // the owner explicitly retries, while a fresh or successfully retried
+        // generation may bootstrap normally.
+        bool failedGenerationAttachFailed = true;
+        bool failedGenerationSuspended = true;
+        bool failedGenerationHiddenAllowance = false;
+        Check(
+            !EngineViewport.ShouldBeginNativeBootstrapForHostGeneration(
+                failedGenerationAttachFailed,
+                failedGenerationSuspended) &&
+            !failedGenerationHiddenAllowance &&
+            EngineViewport.CanExplicitlyRetryAttach(
+                destroying: false,
+                attached: false,
+                attachFailed: failedGenerationAttachFailed,
+                startupFailureSuspended: failedGenerationSuspended,
+                hwndReady: true) &&
+            !EngineViewport.CanExplicitlyRetryAttach(
+                destroying: false,
+                attached: false,
+                attachFailed: failedGenerationAttachFailed,
+                startupFailureSuspended: failedGenerationSuspended,
+                hwndReady: false) &&
+            EngineViewport.ShouldBeginNativeBootstrapForHostGeneration(
+                attachFailed: false,
+                startupFailureSuspended: false),
+            "a failed HwndHost generation stays fail-closed after rebuild and only an explicit ready-HWND retry reopens bootstrap");
+
+        Check(
+            MainWindow.ShouldPublishStartupLayout(
+                requestedVersion: 4,
+                currentVersion: 4,
+                cancelled: false,
+                dispatcherShuttingDown: false) &&
+            !MainWindow.ShouldPublishStartupLayout(
+                requestedVersion: 4,
+                currentVersion: 5,
+                cancelled: false,
+                dispatcherShuttingDown: false) &&
+            !MainWindow.ShouldPublishStartupLayout(
+                requestedVersion: 4,
+                currentVersion: 4,
+                cancelled: true,
+                dispatcherShuttingDown: false) &&
+            MainWindow.ShouldPublishLayoutSave(
+                requestedGeneration: 9,
+                currentGeneration: 9) &&
+            !MainWindow.ShouldPublishLayoutSave(
+                requestedGeneration: 8,
+                currentGeneration: 9),
+            "late startup layouts and superseded background saves cannot overwrite newer live layout state");
+        Check(
+            MainWindow.ShouldDeferWorkspaceInitialization(
+                startupRestorePending: true,
+                storeAlreadyPublished: false) &&
+            !MainWindow.ShouldDeferWorkspaceInitialization(
+                startupRestorePending: true,
+                storeAlreadyPublished: true) &&
+            !MainWindow.ShouldDeferWorkspaceInitialization(
+                startupRestorePending: false,
+                storeAlreadyPublished: false),
+            "workspace commands never perform a duplicate persisted-catalogue read while startup loading is pending");
+
+        var canonicalDocumentId =
+            new EditorDocumentId("scene", "canonical-reuse-self-test");
+        var canonicalKey = new SceneCanonicalCapturePublicationKey(
+            canonicalDocumentId,
+            MutationRevision: 7,
+            CleanBaselineGeneration: 3,
+            Use3D: true);
+        Check(
+            SceneCanonicalCapturePublicationPolicy.ShouldDeferWorkspaceCapture(
+                documentHostInitialized: true,
+                documentCaptureRequired: true) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldDeferWorkspaceCapture(
+                documentHostInitialized: false,
+                documentCaptureRequired: true) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldDeferWorkspaceCapture(
+                documentHostInitialized: true,
+                documentCaptureRequired: false) &&
+            SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey,
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: true,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey with
+                {
+                    DocumentId =
+                        new EditorDocumentId("scene", "another-scene"),
+                },
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: true,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey with { MutationRevision = 8 },
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: true,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey with { CleanBaselineGeneration = 4 },
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: true,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey with { Use3D = false },
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: true,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey,
+                workspaceCaptureRequired: false,
+                activeDocumentMatches: true,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey,
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: false,
+                simulationActive: false) &&
+            !SceneCanonicalCapturePublicationPolicy.ShouldPublish(
+                canonicalKey,
+                canonicalKey,
+                workspaceCaptureRequired: true,
+                activeDocumentMatches: true,
+                simulationActive: true),
+            "Undo capture reuse fails closed across scene, mutation, baseline, view, active-document, and simulation boundaries");
+
+        int canonicalCaptureCalls = 0;
+        EditorDocumentState currentCanonicalState = new(
+            SceneWorldDocumentEnvelope.Pack("2D-new", "3D-new"),
+            SceneWorldDocumentEnvelope.Pack("2D-new", "3D-new"));
+        var canonicalDocument = new EditorDocument(
+            canonicalDocumentId,
+            "canonical",
+            sourcePath: null,
+            capture: () =>
+            {
+                canonicalCaptureCalls++;
+                return currentCanonicalState;
+            },
+            restore: _ => { },
+            initialState: new EditorDocumentState(
+                SceneWorldDocumentEnvelope.Pack("2D-old", "3D-old"),
+                SceneWorldDocumentEnvelope.Pack("2D-old", "3D-old")));
+        canonicalDocument.NotifyPotentialChange();
+        bool canonicalChanged = canonicalDocument.Synchronize("edit");
+        EditorDocumentState observedCanonical = canonicalDocument.ObservedState;
+        SceneWorldDocumentEnvelope.Unpack(
+            observedCanonical.ContentFingerprint,
+            out string observed2D,
+            out string observed3D);
+        Check(
+            canonicalChanged &&
+            canonicalCaptureCalls == 1 &&
+            observed2D == "2D-new" &&
+            observed3D == "3D-new" &&
+            SceneWorldDocumentEnvelope.SelectSubsystem(
+                observedCanonical.ContentFingerprint,
+                use3D: false) == "2D-new" &&
+            SceneWorldDocumentEnvelope.SelectSubsystem(
+                observedCanonical.ContentFingerprint,
+                use3D: true) == "3D-new" &&
+            ReferenceEquals(
+                observedCanonical,
+                canonicalDocument.ObservedState),
+            "workspace dirty state can read the immutable Undo capture without invoking a second serializer");
+
         var boundedLogs = new BoundedLogCollection(capacity: 5);
         int collectionResets = 0;
         boundedLogs.CollectionChanged += (_, args) =>
@@ -188,8 +704,10 @@ internal static class EditorReliabilitySelfTest
               sparseHeartbeat.Contains("DISPATCHER_TICK_DENSITY_LOW") &&
               sparseHeartbeat.Contains("PROFILER_TICK_DENSITY_LOW") &&
               MainWindow.InteractionHeartbeatPriority ==
+                  DispatcherPriority.Input &&
+              MainWindow.InteractionHealthPriority ==
                   DispatcherPriority.Input,
-            "soak policy rejects heartbeat stalls and measures responsiveness at input priority");
+            "soak policy rejects heartbeat stalls and runs heartbeat plus health sampling at render-checkpoint FIFO Input priority");
 
         long watchdogClock = 0;
         using (var watchdog = new EditorDispatcherWatchdog(
@@ -234,8 +752,13 @@ internal static class EditorReliabilitySelfTest
                 recovered.Phase == "ready" &&
                 reset.MaximumDispatcherGapMilliseconds == 0 &&
                 reset.LongestStallMilliseconds == 0 &&
-                reset.StallCount == 1,
-                "independent dispatcher watchdog records one blocked interval, recovery, phase, and resettable peaks");
+                reset.LastDispatcherGapMilliseconds == 0 &&
+                reset.HeartbeatAgeMilliseconds == 0 &&
+                reset.HeartbeatCount == 0 &&
+                reset.StallCount == 0 &&
+                !reset.StallActive &&
+                reset.ActiveStallMilliseconds == 0,
+                "independent dispatcher watchdog records one blocked interval and rebases heartbeat, stall state, counts, and peaks at capture reset");
         }
         long delayedPollClock = 0;
         var delayedPollTransitions =
@@ -297,6 +820,19 @@ internal static class EditorReliabilitySelfTest
                 "owned title\r\nFORGED\u202E\uD800") ==
                 "owned title__FORGED__",
             "interaction diagnostics reject line injection, key separators, format controls, and surrogate fragments");
+        Check(
+            !EditorCloseDiagnosticPolicy.MayAwaitPersistence(
+                dispatcherThread: true,
+                windowClosed: false) &&
+            !EditorCloseDiagnosticPolicy.MayAwaitPersistence(
+                dispatcherThread: false,
+                windowClosed: true) &&
+            EditorCloseDiagnosticPolicy.MayAwaitPersistence(
+                dispatcherThread: false,
+                windowClosed: false) &&
+            !MainWindow.InteractionDiagnosticPumpLifetimeForSelfTest()
+                .IsFaulted,
+            "closed-window diagnostics are best-effort, never make the Dispatcher wait, and retain a non-faulted worker lifetime");
 
         string validReport = JsonSerializer.Serialize(new
         {

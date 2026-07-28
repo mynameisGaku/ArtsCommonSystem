@@ -32,9 +32,11 @@ internal static class EditorAbiContractSelfTest
         EditorAbiCapability complete =
             EditorAbiContract.RequiredCapabilities |
             EditorAbiCapability.ProfilerV4 |
+            EditorAbiCapability.ProfilerV5 |
             EditorAbiCapability.UnifiedSceneDocument |
             EditorAbiCapability.VolumetricCloudWorkloadV1 |
-            EditorAbiCapability.CameraAuthoringV1;
+            EditorAbiCapability.CameraAuthoringV1 |
+            EditorAbiCapability.CameraViewRequestsV1;
         EditorAbiSnapshot compatible = EditorAbiContract.Evaluate(
             queryAvailable: true,
             queryResult: 1,
@@ -48,15 +50,23 @@ internal static class EditorAbiContractSelfTest
                   "profiler-v4",
                   StringComparison.Ordinal) &&
               compatible.ToDisplayText().Contains(
+                  "profiler-v5",
+                  StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
                   "cloud-workload-v1",
                   StringComparison.Ordinal) &&
               compatible.ToDisplayText().Contains(
                   "camera-authoring-v1",
                   StringComparison.Ordinal) &&
+              compatible.ToDisplayText().Contains(
+                  "camera-view-requests-v1",
+                  StringComparison.Ordinal) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.VolumetricCloudWorkloadV1) &&
               !EditorAbiContract.RequiredCapabilities.HasFlag(
                   EditorAbiCapability.CameraAuthoringV1) &&
+              !EditorAbiContract.RequiredCapabilities.HasFlag(
+                  EditorAbiCapability.CameraViewRequestsV1) &&
               !compatible.Capabilities.HasFlag(
                   EditorAbiCapability.ProfilerV3),
             "diagnostics list negotiated optional capabilities");

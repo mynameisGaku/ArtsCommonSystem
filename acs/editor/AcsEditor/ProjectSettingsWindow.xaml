@@ -10,7 +10,9 @@
         FontFamily="Segoe UI" FontSize="12"
         UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Display"
-        PreviewKeyDown="OnWindowPreviewKeyDown">
+        PreviewKeyDown="OnWindowPreviewKeyDown"
+        Closing="OnProjectSettingsWindowClosing"
+        Closed="OnProjectSettingsWindowClosed">
 
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="34"
@@ -249,16 +251,196 @@
                         </Grid>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="Rows"/>
-                    </ScrollViewer>
+                    <Grid Grid.Row="1">
+                        <ScrollViewer x:Name="SettingsRowsScroll"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="Rows"/>
+                        </ScrollViewer>
+
+                        <ScrollViewer x:Name="PackageMetadataScroll"
+                                      Visibility="Collapsed"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="18,16,18,20">
+                                <Border x:Name="PackageMetadataStateBorder"
+                                        Background="{StaticResource AccentDim}"
+                                        BorderBrush="{StaticResource Accent}"
+                                        BorderThickness="1"
+                                        Padding="12,10"
+                                        Margin="0,0,0,16">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock x:Name="PackageMetadataStateTitle"
+                                                       Text="Loading package metadata…"
+                                                       FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="PackageMetadataStateText"
+                                                       Text="Reading Config/PackageMetadata.json with package preflight rules."
+                                                       Style="{StaticResource MutedText}"
+                                                       Margin="0,3,0,0"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <Button x:Name="PackageMetadataRetryButton"
+                                                Grid.Column="1"
+                                                Content="Retry load"
+                                                MinWidth="82"
+                                                Height="28"
+                                                Margin="12,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Visibility="Collapsed"
+                                                Click="OnRetryPackageMetadataLoad"/>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel x:Name="PackageMetadataFieldsPanel"
+                                            IsEnabled="False">
+                                    <Grid Margin="0,0,0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Publisher"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                        <TextBlock x:Name="PublisherCountText"
+                                                   Grid.Column="1"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                    </Grid>
+                                    <TextBox x:Name="PublisherBox"
+                                             Height="30"
+                                             TextChanged="OnPackageMetadataFieldChanged"
+                                             AutomationProperties.Name="Package publisher"/>
+                                    <TextBlock x:Name="PublisherValidationText"
+                                               Foreground="{StaticResource WarnFg}"
+                                               FontSize="10.5"
+                                               Margin="1,4,0,12"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed"/>
+
+                                    <Grid Margin="0,0,0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Description"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                        <TextBlock x:Name="DescriptionCountText"
+                                                   Grid.Column="1"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                    </Grid>
+                                    <TextBox x:Name="DescriptionBox"
+                                             MinHeight="76"
+                                             MaxHeight="132"
+                                             AcceptsReturn="True"
+                                             TextWrapping="Wrap"
+                                             VerticalScrollBarVisibility="Auto"
+                                             TextChanged="OnPackageMetadataFieldChanged"
+                                             AutomationProperties.Name="Package description"/>
+                                    <TextBlock x:Name="DescriptionValidationText"
+                                               Foreground="{StaticResource WarnFg}"
+                                               FontSize="10.5"
+                                               Margin="1,4,0,12"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed"/>
+
+                                    <Grid Margin="0,0,0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Copyright"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                        <TextBlock x:Name="CopyrightCountText"
+                                                   Grid.Column="1"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                    </Grid>
+                                    <TextBox x:Name="CopyrightBox"
+                                             Height="30"
+                                             TextChanged="OnPackageMetadataFieldChanged"
+                                             AutomationProperties.Name="Package copyright"/>
+                                    <TextBlock x:Name="CopyrightValidationText"
+                                               Foreground="{StaticResource WarnFg}"
+                                               FontSize="10.5"
+                                               Margin="1,4,0,12"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed"/>
+
+                                    <Grid Margin="0,0,0,5">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Support URL (HTTPS)"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                        <TextBlock x:Name="SupportUrlCountText"
+                                                   Grid.Column="1"
+                                                   Style="{StaticResource FieldCaption}"/>
+                                    </Grid>
+                                    <TextBox x:Name="SupportUrlBox"
+                                             Height="30"
+                                             TextChanged="OnPackageMetadataFieldChanged"
+                                             AutomationProperties.Name="Package support URL"/>
+                                    <TextBlock x:Name="SupportUrlValidationText"
+                                               Foreground="{StaticResource WarnFg}"
+                                               FontSize="10.5"
+                                               Margin="1,4,0,0"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed"/>
+
+                                    <TextBlock x:Name="PackageMetadataGlobalValidationText"
+                                               Foreground="{StaticResource WarnFg}"
+                                               FontSize="10.5"
+                                               Margin="1,8,0,0"
+                                               TextWrapping="Wrap"
+                                               Visibility="Collapsed"/>
+
+                                    <Border BorderBrush="{StaticResource Hairline}"
+                                            BorderThickness="0,1,0,0"
+                                            Margin="0,16,0,0"
+                                            Padding="0,14,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Clearing every field and applying removes the optional metadata file."
+                                                       Style="{StaticResource MutedText}"
+                                                       VerticalAlignment="Center"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,0,16,0"/>
+                                            <Button x:Name="PackageMetadataRevertButton"
+                                                    Grid.Column="1"
+                                                    Content="Revert"
+                                                    MinWidth="76"
+                                                    Height="30"
+                                                    Margin="0,0,8,0"
+                                                    IsEnabled="False"
+                                                    Click="OnRevertPackageMetadata"/>
+                                            <Button x:Name="PackageMetadataApplyButton"
+                                                    Grid.Column="2"
+                                                    Content="Apply"
+                                                    MinWidth="82"
+                                                    Height="30"
+                                                    Background="{StaticResource AccentDim}"
+                                                    BorderBrush="{StaticResource Accent}"
+                                                    IsEnabled="False"
+                                                    Click="OnApplyPackageMetadata"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
                 </Grid>
             </Border>
 
             <!-- Deliberately separate project-defined keys from built-in settings. -->
-            <Border Grid.Row="1"
+            <Border x:Name="CustomSettingPanel"
+                    Grid.Row="1"
                     Grid.Column="1"
                     Margin="0,10,0,0"
                     Background="{StaticResource Panel}"

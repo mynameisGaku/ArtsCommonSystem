@@ -520,11 +520,12 @@ internal sealed class DockableToolHost
     private readonly int _dockIndex;
     private readonly Func<bool> _dockVisibility;
     private readonly Action<bool> _applyDockVisibility;
-    private readonly Action<ToolPanelDockState> _stateChanged;
+    private readonly Action<ToolPanelDockState, bool> _stateChanged;
     private readonly Func<Rect> _loadPlacement;
     private readonly Action<Rect, bool> _savePlacement;
     private readonly Action<string> _logWarning;
     private DockableToolWindow? _window;
+    private ToolPanelDockState _lastPublishedState;
     private bool _dockVisibilityAfterRedock = true;
     private bool _preserveFloatingRestore;
 
@@ -536,7 +537,7 @@ internal sealed class DockableToolHost
         FrameworkElement enabledSource,
         Func<bool> dockVisibility,
         Action<bool> applyDockVisibility,
-        Action<ToolPanelDockState> stateChanged,
+        Action<ToolPanelDockState, bool> stateChanged,
         Func<Rect> loadPlacement,
         Action<Rect, bool> savePlacement,
         Action<string> logWarning)
@@ -573,6 +574,9 @@ internal sealed class DockableToolHost
         if (_dockIndex < 0)
             throw new InvalidOperationException(
                 $"{panelId} was not found in its dock parent.");
+        _lastPublishedState = ToolPanelDockingContract.ResolveState(
+            floating: false,
+            dockVisible: _dockVisibility());
     }
 
     internal string PanelId => _panelId;
@@ -589,11 +593,6 @@ internal sealed class DockableToolHost
             _panelId,
             State,
             _window?.CaptureNormalBounds() ?? _loadPlacement());
-
-    internal bool TryToggleFloating() =>
-        _window == null
-            ? TryFloat()
-            : RequestRedock(visibleAfterDock: true);
 
     internal bool TryFloat()
     {
@@ -641,7 +640,7 @@ internal sealed class DockableToolHost
         catch (Exception error)
         {
             RollBackUnshownFloat(window, wasVisible, error);
-            return false;
+            return _window?.IsVisible == true;
         }
 
         try
@@ -653,7 +652,7 @@ internal sealed class DockableToolHost
             if (!window.IsVisible)
             {
                 RollBackUnshownFloat(window, wasVisible, error);
-                return false;
+                return _window?.IsVisible == true;
             }
 
             PublishState(ToolPanelDockState.Floating);
@@ -1029,9 +1028,11 @@ internal sealed class DockableToolHost
 
     private void PublishState(ToolPanelDockState state)
     {
+        bool committedTransition = _lastPublishedState != state;
+        _lastPublishedState = state;
         try
         {
-            _stateChanged(state);
+            _stateChanged(state, committedTransition);
         }
         catch (Exception error)
         {

@@ -2,10 +2,12 @@
 
 `acspackage` is the non-UI backend for the Editor's **Package Project** flow.
 It validates the canonical Scene identity and portable reachable references,
-builds a Windows x64 Release target, resolves non-system PE runtime DLLs, runs
+builds a Windows x64 Release target, verifies its bounded PE32+ AMD64 loader
+contract, resolves non-system PE runtime DLLs, runs
 the path-safe deterministic dependency-closure Cook, creates and natively
 verifies the existing `.acpak` v1 format, stages the game, writes a pack/file
-SHA-256 manifest, and creates a deterministic ZIP.
+SHA-256 manifest with optional distribution metadata, and creates a
+deterministic ZIP.
 
 ```powershell
 dotnet run --project tools/acspackage -- package `
@@ -27,11 +29,14 @@ dotnet run --project tools/acspackage -- diff `
   Build/Packages/Game-1.0.1-win64.zip `
   --json Build/Reports/Game-1.0.0-to-1.0.1.json
 
+dotnet run --project tools/acspackage -- distribution-e2e
+
 dotnet run --project tools/acspackage -- --self-test
 ```
 
 `verify` validates the archive root, manifest identity, declared file set,
-uncompressed sizes, and every payload SHA-256 without extracting the ZIP.
+uncompressed sizes, every payload SHA-256, and the packaged executable's
+PE32+ AMD64 headers without extracting or executing the ZIP.
 The manifest is read into a bounded buffer of at most 4 MiB and must end at
 its declared decompressed length before JSON deserialization. Payload hashing
 reads exactly the declared length and probes at most one additional byte, so
@@ -44,7 +49,8 @@ summary for CI while errors remain visible.
 
 `--report` atomically creates a schema-versioned JSON result containing the
 package/build IDs, profile, file and Cooked-asset counts, byte total, and
-asset-pack digest. A failed archive verification produces `verified: false`
+asset-pack digest, plus validated product metadata when present. A failed
+archive verification produces `verified: false`
 with an error code when the new report can be safely created. Reports never
 overwrite an existing path, never replace the package ZIP, reject reparse
 ancestors, and publish from a private sibling temporary file only after a
@@ -97,6 +103,31 @@ glTF URIs fail closed when reachable; valid indexed assets outside the
 canonical Scene dependency closure are omitted without affecting the graph
 hash. Scene configuration mismatches always fail closed.
 
+`Config/PackageMetadata.json` optionally supplies schema-v1 `publisher`,
+`description`, `copyright`, and a canonical HTTPS `supportUrl`. The strict
+bounded parser rejects duplicate/unknown properties and invalid strings. The
+validated object joins the immutable Config snapshot, is embedded as
+`productMetadata`, and is preserved by `verify`/`inspect`/`diff`. Shipping
+without it remains compatible but reports `PACKAGE_METADATA_MISSING`.
+
+`distribution-e2e` is the retained distribution audit. It creates a fresh
+3D fixture project strictly under the operating-system TEMP directory, invokes
+the real `package` command twice, and proves byte-identical Shipping archives.
+It then runs `verify`, `inspect --json`, and identical `diff --json`, checks the
+exact embedded product metadata, and independently inspects the packaged
+`Game.exe` as PE32+ AMD64. Finally it changes a Config payload without changing
+the manifest and requires `verify`/`inspect` to fail and `diff` to return its
+invalid-archive exit code. The summary, both valid ZIPs, the tampered ZIP, and
+all success/failure JSON documents remain in
+`%TEMP%\acs-distribution-e2e-*`. An explicit
+`--artifacts <new-temp-directory>` is accepted only for a new,
+non-reparse-point directory strictly inside TEMP; existing and non-TEMP paths
+are rejected.
+
+`verify_editor.ps1 -Mode full` runs the same audit in its isolated TEMP
+session. That session is normally removed after the gate; pass
+`-KeepArtifacts` to retain its distribution E2E output.
+
 The canonical root scene is selected only by its non-empty persistent Asset
 ID and Cooked to the single bootstrap path `main.acscene`. The CLI never falls
 back to `initialScene` when that ID is missing or malformed. The legacy path
@@ -130,5 +161,5 @@ The reversible 3D subset supports `N3D`, `MSH3D`, `MAT3D`, `FLG3D`,
 `EMPTY3D`, `CMP3D`, `CPROP3D`, and `SEL3D`. Editor-only `SPR3D`, `PLY3D`,
 `PFAB3D`, unknown directives, invalid reflected components, and standalone
 glTF files with external non-data URIs fail closed with explicit diagnostics.
-Executable signing, publisher/icon metadata, installer generation, and store
-upload are not part of this local packaging step.
+Executable signing, application icon/version resources, installer generation,
+and store upload are not part of this local packaging step.

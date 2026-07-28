@@ -315,6 +315,10 @@ internal sealed class EditorDocument
     internal bool IsSuspended => _suspendDepth > 0;
     internal bool IsInTransaction => _transactionDepth > 0;
     internal bool IsRestoring => _restoring;
+    // Immutable snapshot most recently captured at a document boundary. This
+    // is intentionally a read-only reference: presentation consumers may
+    // reuse it, but only Synchronize/transaction/restore paths may replace it.
+    internal EditorDocumentState ObservedState => _observed;
     internal int UndoCount => _cursor;
     internal int RedoCount => _history.Count - _cursor;
     internal EditorDocumentTransactionInfo? NextUndo =>

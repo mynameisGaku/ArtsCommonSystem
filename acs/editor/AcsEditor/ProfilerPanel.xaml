@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:AcsEditor"
              Background="{StaticResource Panel2}"
+             Foreground="{StaticResource Text}"
              Loaded="OnLoaded" Unloaded="OnUnloaded"
              IsVisibleChanged="OnIsVisibleChanged">
     <UserControl.Resources>
@@ -29,6 +30,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36"/>
+            <RowDefinition Height="34"/>
             <RowDefinition Height="68"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
@@ -47,6 +49,10 @@
                                   Checked="OnPauseChanged" Unchecked="OnPauseChanged"/>
                     <Button Content="Reset" Padding="9,3" Margin="0,0,10,0"
                             Click="OnReset"/>
+                    <Button x:Name="ExportButton" Content="Export CSV"
+                            Padding="9,3" Margin="0,0,10,0"
+                            Click="OnExportCsv"
+                            ToolTip="Export the current bounded history without stopping capture."/>
                     <CheckBox x:Name="ShowCpuCheck" Content="CPU frame"
                               IsChecked="True" Margin="0,0,9,0"
                               VerticalAlignment="Center" Click="OnDisplayChanged"/>
@@ -75,12 +81,75 @@
             </Grid>
         </Border>
 
-        <UniformGrid Grid.Row="1" Columns="7" Margin="6,5,1,4">
+        <Border Grid.Row="1" Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Edge}" BorderThickness="0,0,0,1">
+            <Grid Margin="8,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="22"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="22"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="22"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="TARGET" Foreground="{StaticResource TextDim}"
+                           FontSize="10" VerticalAlignment="Center"/>
+                <ComboBox x:Name="TargetFpsCombo" Grid.Column="1"
+                          Width="78" Margin="7,0,0,0"
+                          SelectedIndex="4"
+                          SelectionChanged="OnTargetFpsChanged"
+                          ToolTip="Frame-rate target used only for analysis; it never changes renderer quality or cadence.">
+                    <ComboBoxItem Content="60 FPS" Tag="60"/>
+                    <ComboBoxItem Content="120 FPS" Tag="120"/>
+                    <ComboBoxItem Content="144 FPS" Tag="144"/>
+                    <ComboBoxItem Content="240 FPS" Tag="240"/>
+                    <ComboBoxItem Content="300 FPS" Tag="300"/>
+                    <ComboBoxItem Content="360 FPS" Tag="360"/>
+                </ComboBox>
+                <TextBlock Grid.Column="3" Text="BUDGET"
+                           Foreground="{StaticResource TextDim}" FontSize="10"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="FrameBudgetValue" Grid.Column="4"
+                           Margin="7,0,0,0" Text="3.33 ms"
+                           FontFamily="Consolas" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="6" Text="CPU P95"
+                           Foreground="{StaticResource TextDim}" FontSize="10"
+                           VerticalAlignment="Center"
+                           ToolTip="Nearest-rank p95 over recent profiler samples; not every rendered frame."/>
+                <TextBlock x:Name="CpuP95Value" Grid.Column="7"
+                           Margin="7,0,0,0" Text="N/A"
+                           FontFamily="Consolas" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="9" Text="GPU P95"
+                           Foreground="{StaticResource TextDim}" FontSize="10"
+                           VerticalAlignment="Center"
+                           ToolTip="Nearest-rank p95 over unique completed GPU timestamp samples; asynchronous latency is reported separately."/>
+                <TextBlock x:Name="GpuP95Value" Grid.Column="10"
+                           Margin="7,0,0,0" Text="N/A"
+                           FontFamily="Consolas" VerticalAlignment="Center"/>
+                <TextBlock x:Name="BudgetStateValue" Grid.Column="12"
+                           Text="WAITING" Foreground="{StaticResource TextDim}"
+                           FontSize="10.5" FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <UniformGrid Grid.Row="2" Columns="7" Margin="6,5,1,4">
             <Border Style="{StaticResource ProfilerCard}">
                 <StackPanel>
                     <TextBlock Text="Editor FPS (avg)" Style="{StaticResource ProfilerMetricLabel}"
-                               ToolTip="Uncapped native viewport submissions. This measures editor cadence, not GPU throughput."/>
+                               ToolTip="Observed wall-clock cadence from monotonic sample time and native presented-frame deltas. Includes editor scheduling and presentation stalls."/>
                     <TextBlock x:Name="FpsValue" Text="--" Style="{StaticResource ProfilerMetricValue}"/>
+                    <TextBlock x:Name="NativeFpsValue" Text="native --"
+                               Foreground="{StaticResource TextDim}" FontFamily="Consolas"
+                               FontSize="9.5"
+                               ToolTip="Native smoothed interval inside direct render bursts. Diagnostic only; it can exceed the wall-clock editor cadence."/>
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource ProfilerCard}">
@@ -130,11 +199,11 @@
             </Border>
         </UniformGrid>
 
-        <Grid Grid.Row="2" Margin="6,0,6,6">
+        <Grid Grid.Row="3" Margin="6,0,6,6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="360"/>
+                <ColumnDefinition Width="390"/>
             </Grid.ColumnDefinitions>
             <Border BorderBrush="{StaticResource Edge}" BorderThickness="1">
                 <local:ProfilerHistoryGraph x:Name="HistoryGraph"/>
@@ -147,8 +216,8 @@
                           ToolTip="CPU RECORD measures command recording inside each named region. GPU AVG / PEAK uses the latest 30 unique valid timestamp-query frames and reports asynchronous latency separately. CPU frame includes all remaining editor and render work. Atmosphere includes sky, IBL and atmosphere/fog-volume construction; Fog is the local-fog composite.">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="128"/>
-                            <ColumnDefinition Width="88"/>
+                            <ColumnDefinition Width="116"/>
+                            <ColumnDefinition Width="110"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="22"/>
@@ -220,6 +289,14 @@
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
                             <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
+                            <RowDefinition Height="22"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="EDITOR UI / LOG PUMP"
                                    Foreground="{StaticResource TextDim}" FontSize="10"
@@ -242,20 +319,51 @@
                                    ToolTip="GPU yields are frame-slot backpressure events returned without waiting on the WPF Dispatcher. Slow calls exceeded 50 ms."/>
                         <TextBlock x:Name="NativeBackpressureValue" Grid.Row="5" Grid.Column="1"
                                    Text="0 / 0" FontFamily="Consolas"/>
-                        <TextBlock Grid.Row="6" Text="Dispatcher gap last / peak"/>
-                        <TextBlock x:Name="DispatcherGapValue" Grid.Row="6" Grid.Column="1"
-                                   Text="0.0 / 0.0 ms" FontFamily="Consolas"/>
-                        <TextBlock Grid.Row="7" Text="UI stalls / longest"
-                                   ToolTip="A stall is declared after two seconds without a Dispatcher heartbeat. ACTIVE means the watchdog currently observes a blocked UI thread."/>
-                        <TextBlock x:Name="DispatcherStallValue" Grid.Row="7" Grid.Column="1"
-                                   Text="0 / 0.0 ms" FontFamily="Consolas"/>
-                        <TextBlock Grid.Row="8" Text="Profiler tick CPU last / peak"
-                                   ToolTip="Managed Dispatcher callback cost. The displayed sample includes native snapshot polling and detail publication, but not the two counter TextBlock writes that publish the result."/>
-                        <TextBlock x:Name="ProfilerUiValue" Grid.Row="8" Grid.Column="1"
+                        <TextBlock Grid.Row="6" Text="GPU retries / fallback"
+                                   ToolTip="GPU-busy retries continue through the private HWND pump only inside the bounded epoch. Its deadline requires an Input checkpoint or a due Background drain."/>
+                        <TextBlock x:Name="NativeRetryValue" Grid.Row="6" Grid.Column="1"
+                                   Text="0 / 0" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="7" Text="Ready retry / fairness"
+                                   ToolTip="Ready retries completed inside the bounded GPU-busy epoch. Fairness counts mandatory or input-triggered FIFO Input checkpoints plus periodic Background drains."/>
+                        <TextBlock x:Name="NativeFairnessValue" Grid.Row="7" Grid.Column="1"
+                                   Text="0 / 0" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="8" Text="Busy epoch last / peak"/>
+                        <TextBlock x:Name="NativeBusyEpochValue" Grid.Row="8" Grid.Column="1"
                                    Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
-                        <TextBlock Grid.Row="9" Text="Graph OnRender CPU last / peak"
+                        <TextBlock Grid.Row="9" Text="Burst peak frames / active"
+                                   ToolTip="Peak Presented frames and render-attempt wall-clock residency between fairness turns. Cooperative GPU-busy retry time is excluded; active time is not OS thread CPU usage."/>
+                        <TextBlock x:Name="NativeBurstValue" Grid.Row="9" Grid.Column="1"
+                                   Text="0 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="10" Text="Input / maintenance yields"
+                                   ToolTip="Input continuations are mandatory burst checkpoints or earlier keyboard/pointer yields. Periodic Background drains own one continuation so startup, timers, and lower-priority work cannot starve."/>
+                        <TextBlock x:Name="NativeYieldClassValue" Grid.Row="10" Grid.Column="1"
+                                   Text="0 / 0" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="11" Text="Input queue wait last / peak"
+                                   ToolTip="Wall-clock delay before a mandatory or keyboard/pointer-triggered Input-priority render checkpoint executes."/>
+                        <TextBlock x:Name="NativeContinuationWaitValue" Grid.Row="11" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="12" Text="Maintenance wait last / peak"
+                                   ToolTip="Wall-clock delay before the periodic Background drain executes. The next native frame waits for this drain, so the value is real render downtime."/>
+                        <TextBlock x:Name="NativeMaintenanceWaitValue" Grid.Row="12" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="13" Text="Native active / Present"
+                                   ToolTip="GPU-ready native renderer CPU residency before submit, followed by submit/Present CPU time. GPU-busy retries and Dispatcher queue wait are excluded."/>
+                        <TextBlock x:Name="NativeStageValue" Grid.Row="13" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="14" Text="Dispatcher gap last / peak"/>
+                        <TextBlock x:Name="DispatcherGapValue" Grid.Row="14" Grid.Column="1"
+                                   Text="0.0 / 0.0 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="15" Text="UI stalls / longest"
+                                   ToolTip="A stall is declared after two seconds without a Dispatcher heartbeat. ACTIVE means the watchdog currently observes a blocked UI thread."/>
+                        <TextBlock x:Name="DispatcherStallValue" Grid.Row="15" Grid.Column="1"
+                                   Text="0 / 0.0 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="16" Text="Profiler tick CPU last / peak"
+                                   ToolTip="Managed Dispatcher callback cost. The displayed sample includes native snapshot polling and detail publication, but not the two counter TextBlock writes that publish the result."/>
+                        <TextBlock x:Name="ProfilerUiValue" Grid.Row="16" Grid.Column="1"
+                                   Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
+                        <TextBlock Grid.Row="17" Text="Graph OnRender CPU last / peak"
                                    ToolTip="CPU time used to generate WPF drawing commands in OnRender. This is not compositor or GPU presentation time."/>
-                        <TextBlock x:Name="ProfilerGraphValue" Grid.Row="9" Grid.Column="1"
+                        <TextBlock x:Name="ProfilerGraphValue" Grid.Row="17" Grid.Column="1"
                                    Text="0.00 / 0.00 ms" FontFamily="Consolas"/>
                     </Grid>
 

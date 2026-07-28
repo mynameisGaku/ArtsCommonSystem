@@ -108,6 +108,22 @@ are merged into `acs.lib`; the Diligent implementation remains in the adjacent
 static libraries listed above. Backend implementation headers do not leak into
 `acs.h`.
 
+### Checked container and storage contracts
+
+`TArray` provides `TryReserve`, `TryResize`, `TryPushBack`, and
+`TryEmplaceBack`; `FString` provides `TryReserve` and `TryAppend`. These
+operations return `false` or `nullptr` without changing the existing value when
+allocation fails. Growing `TArray` while the appended value or constructor
+arguments refer to an element in that same array is supported: the new element
+is constructed while the old storage is still alive, then the existing
+elements are transferred and the growth is committed.
+
+Use `ReleaseStorage` when a long-lived array or string must return retained
+capacity. `FStorage` accepts an explicit `FAllocator`, provides the atomic
+`TrySetString` entry point, and releases entry capacity in `Clear`.
+`FAllocator::AllocationCount` and `LifetimeGeneration` expose allocation
+liveness and allocator-lifetime identity to diagnostics and ownership guards.
+
 ### Optional integrations
 
 Steamworks, ONNX (ML), OpenXR and Lua scripting are present as **interfaces** in
@@ -145,7 +161,11 @@ config, then requires and copies the adjacent Diligent/xxHash libraries.
 The merge uses a unique response file and a same-directory temporary library,
 publishing `acs.lib` only after `lib.exe` succeeds and the output is non-empty.
 `-Deploy` rejects drive roots, reparse points, and any destination overlapping
-the source/build/dist trees before invoking `robocopy /MIR`.
+the source/build/dist trees before invoking `robocopy /MIR`. After the copy it
+fails closed unless the destination has the exact same relative file set,
+sizes, and SHA-256 hashes as `dist/`; a successful `配置完了` therefore means
+the consumer directory is a complete byte-for-byte mirror rather than a
+partially updated mix of SDK generations.
 
 With `ACS_BUILD_TESTS=ON`, a top-level ACS CMake configure that has this sibling
 `dist` directory also registers drift, convention-audit and `/Zs` consumer

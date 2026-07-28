@@ -3,6 +3,7 @@
 #include "render/Ssr.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
+#include "render/TemporalHistory.h"
 
 namespace acs {
 
@@ -18,7 +19,7 @@ cbuffer SsrCB : register(b0) {
     float4   eye;             // xyz = world pos
     float4   params;          // x=intensity, y=max_ray_dist, z=frame_jitter, w=thickness_world
     float4x4 prev_view_proj;  // raw march では未使用 (CB layout 整合のため宣言)
-    float4   temporal_params; // x=1/width, y=1/height, z=blend
+    float4   temporal_params; // x=1/width, y=1/height, z=current weight, w=motion mode
     // Hi-Z: x=enabled, y=mip_count, zw=physical level-0 dimensions
     float4   hiz_params;
 };
@@ -368,26 +369,45 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 TResult<void> FSsr::Init(IRhiDevice& device, EFormat hdr_format, u32 width, u32 height) noexcept {
-    m_Device = &device;
-    m_HdrFormat = hdr_format;
-    m_Width = width;
-    m_Height = height;
+    // Build a complete replacement off to the side. Re-initialization failure
+    // must not leave a mixture of old history and new pipelines published.
+    FSsr candidate;
+    candidate.m_Device = &device;
+    candidate.m_HdrFormat = hdr_format;
+    candidate.m_Width = width;
+    candidate.m_Height = height;
 
-    if (auto r = CreateOutputRT(device, width, height); r.IsErr()) return r;
-    if (auto r = CreatePipeline(device); r.IsErr()) return r;
+    if (auto r = candidate.CreateOutputRT(device, width, height);
+        r.IsErr()) return r;
+    if (auto r = candidate.CreatePipeline(device); r.IsErr()) return r;
 
     FBufferDesc cbd{};
     cbd.size = CBSize<FSsrCbLayout>();
     cbd.usage = EBufferUsage::Uniform;
     cbd.cpu_writable = true;
     if (auto r = CreateRhiBuffer(device, cbd); r.IsErr()) return Err<void>(r.Error());
-    else m_Cb = Move(r.Value());
+    else candidate.m_Cb = Move(r.Value());
 
+    Shutdown();
+    m_Device = candidate.m_Device;
+    m_Width = candidate.m_Width;
+    m_Height = candidate.m_Height;
+    m_HdrFormat = candidate.m_HdrFormat;
+    m_Output = Move(candidate.m_Output);
+    for (u32 i = 0u; i < 2u; ++i)
+        m_History[i] = Move(candidate.m_History[i]);
+    m_Vs = Move(candidate.m_Vs);
+    m_Ps = Move(candidate.m_Ps);
+    m_TemporalPs = Move(candidate.m_TemporalPs);
+    m_Pipeline = Move(candidate.m_Pipeline);
+    m_TemporalPipeline = Move(candidate.m_TemporalPipeline);
+    m_Cb = Move(candidate.m_Cb);
+    m_TemporalFrame = 0u;
+    m_OutputValid = false;
     return Ok();
 }
 
 TResult<void> FSsr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
-    m_Output.Reset();
     FTextureDesc td{};
     td.width  = width;
     td.height = height;
@@ -395,15 +415,21 @@ TResult<void> FSsr::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) no
     td.is_render_target = true;
     auto r = CreateRhiTexture(device, td);
     if (r.IsErr()) return Err<void>(r.Error());
-    m_Output = Move(r.Value());
+    TUniquePtr<IRhiTexture> output = Move(r.Value());
 
     // temporal accumulation の history ping-pong
-    for (u32 i = 0; i < 2; ++i) {
-        m_History[i].Reset();
+    TUniquePtr<IRhiTexture> history[2];
+    for (u32 i = 0u; i < 2u; ++i) {
         auto hr = CreateRhiTexture(device, td);
         if (hr.IsErr()) return Err<void>(hr.Error());
-        m_History[i] = Move(hr.Value());
+        history[i] = Move(hr.Value());
     }
+
+    // Commit only after all three same-generation targets exist. Failed
+    // resize keeps the complete previous output/history set untouched.
+    m_Output = Move(output);
+    for (u32 i = 0u; i < 2u; ++i)
+        m_History[i] = Move(history[i]);
     return Ok();
 }
 
@@ -515,16 +541,24 @@ void FSsr::Shutdown() noexcept {
     for (auto& h : m_History) h.Reset();
     m_Output.Reset();
     m_TemporalFrame = 0;
+    m_OutputValid = false;
+    m_Width = 0u;
+    m_Height = 0u;
     m_Device = nullptr;
 }
 
 TResult<void> FSsr::Resize(u32 width, u32 height) noexcept {
     if (!m_Device) return ACS_ERR(Render, 320, "FSsr::Resize before Init");
     if (width == m_Width && height == m_Height) return Ok();
+    if (auto result = CreateOutputRT(*m_Device, width, height);
+        result.IsErr()) {
+        return result;
+    }
     m_Width = width;
     m_Height = height;
-    m_TemporalFrame = 0;     // history は size 違いで使えないので reset
-    return CreateOutputRT(*m_Device, width, height);
+    m_TemporalFrame = 0u;     // history は size 違いで使えないので reset
+    m_OutputValid = false;
+    return Ok();
 }
 
 void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
@@ -537,6 +571,7 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture* hiz_even,
                   IRhiTexture* hiz_odd,
                   u32 hiz_mip_count) noexcept {
+    m_OutputValid = false;
     if (!m_Output || !m_History[0] || !m_History[1] ||
         !m_Pipeline || !m_TemporalPipeline || !m_Cb) return;
 
@@ -558,16 +593,22 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     const f32 hiz_w = hiz_even ? static_cast<f32>(hiz_even->Width()) : 0.0f;
     const f32 hiz_h = hiz_even ? static_cast<f32>(hiz_even->Height()) : 0.0f;
 
+    const auto temporal = ResolveTemporalHistoryFrame(
+        m_TemporalFrame,
+        view_proj,
+        prev_view_proj,
+        0.1f,
+        motion_texture != nullptr);
     FSsrCbLayout data{};
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
     data.eye            = FVec4{eye.x, eye.y, eye.z, 1};
     data.params         = FVec4{intensity, /*max_dist=*/12.0f, jitter, /*thickness_world=*/0.3f};
-    data.prev_view_proj = prev_view_proj;
+    data.prev_view_proj = temporal.previous_view_projection;
     data.temporal_params = FVec4{ 1.0f / static_cast<f32>(m_Width),
                                  1.0f / static_cast<f32>(m_Height),
-                                 /*blend=*/0.1f,
-                                 /*motion_mode=*/motion_texture ? 1.0f : 0.0f };
+                                 temporal.current_frame_weight,
+                                 temporal.motion_vectors_enabled ? 1.0f : 0.0f };
     data.hiz_params     = FVec4{hiz_enabled, static_cast<f32>(usable_hiz_mips),
                                 hiz_w, hiz_h};
     m_Cb->Update(&data, sizeof(data));
@@ -599,11 +640,14 @@ void FSsr::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetTexture(1, *hist_in);        // history (or raw on frame 0)
     // motion texture (あれば) で動く mesh の反射 ghost を消す。
     // shader が temporal_params.w で解釈を切替えるので PSO の slot 数は不変。
-    cl.SetTexture(2, motion_texture ? *motion_texture : scene_depth);
+    cl.SetTexture(
+        2,
+        temporal.motion_vectors_enabled ? *motion_texture : scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*m_History[cur]);
 
     ++m_TemporalFrame;
+    m_OutputValid = true;
 }
 
 } // namespace acs

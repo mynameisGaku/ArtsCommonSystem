@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace AcsEditor;
@@ -17,7 +18,14 @@ internal readonly record struct EditorProfilerPoint(
     float AtmosphereCpuMs,
     float CloudCpuMs,
     float FogCpuMs,
-    float PostCpuMs);
+    float PostCpuMs,
+    float NativeRenderActiveCpuMs,
+    float NativePresentCpuMs,
+    float NativeRenderActiveCpuPeakMs,
+    float NativePresentCpuPeakMs,
+    ulong PresentedFrameCountSinceReset,
+    ulong ProfilerResetSerial,
+    long SampleTimestamp);
 
 internal readonly record struct EditorProfilerAverage(
     float Fps,
@@ -50,6 +58,140 @@ internal static class EditorProfilerPresentationPolicy
                 : HiddenSampleIntervalMilliseconds);
 }
 
+internal static class EditorProfilerCaptureBoundaryPolicy
+{
+    internal static bool TryArm(
+        bool hadPreviousSnapshot,
+        ulong previousResetSerial,
+        bool hasResetSnapshot,
+        in EditorProfilerSnapshot resetSnapshot,
+        out ulong requiredResetSerial)
+    {
+        requiredResetSerial = 0;
+        if (!hasResetSnapshot ||
+            resetSnapshot.Version != EditorProfilerContract.Version ||
+            resetSnapshot.StructSize <
+                EditorProfilerContract.SnapshotSize ||
+            resetSnapshot.ProfilerResetSerial == 0 ||
+            resetSnapshot.PresentedFrameCountSinceReset != 0 ||
+            (hadPreviousSnapshot &&
+             resetSnapshot.ProfilerResetSerial == previousResetSerial))
+        {
+            return false;
+        }
+
+        requiredResetSerial = resetSnapshot.ProfilerResetSerial;
+        return true;
+    }
+
+    internal static bool Accepts(
+        in EditorProfilerSnapshot snapshot,
+        ulong requiredResetSerial) =>
+        requiredResetSerial > 0 &&
+        snapshot.Version == EditorProfilerContract.Version &&
+        snapshot.StructSize >= EditorProfilerContract.SnapshotSize &&
+        snapshot.ProfilerResetSerial == requiredResetSerial &&
+        snapshot.PresentedFrameCountSinceReset > 0;
+}
+
+internal static class EditorProfilerCadence
+{
+    internal const double MinimumObservedSpanMilliseconds = 50.0;
+
+    internal static double[] FrameIntervalsMilliseconds(
+        IReadOnlyList<EditorProfilerPoint> points,
+        int startIndex = 0,
+        int count = -1)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (points.Count < 2)
+            return [];
+
+        int start = Math.Clamp(startIndex, 0, points.Count);
+        int available = points.Count - start;
+        int length = count < 0
+            ? available
+            : Math.Clamp(count, 0, available);
+        if (length < 2)
+            return [];
+
+        var intervals = new List<double>(length - 1);
+        int end = start + length;
+        for (int index = start + 1; index < end; index++)
+        {
+            EditorProfilerPoint previous = points[index - 1];
+            EditorProfilerPoint current = points[index];
+            if (previous.SampleTimestamp <= 0 ||
+                current.SampleTimestamp <= previous.SampleTimestamp ||
+                current.FrameIndex <= previous.FrameIndex)
+            {
+                continue;
+            }
+
+            double elapsedMilliseconds =
+                (current.SampleTimestamp - previous.SampleTimestamp) *
+                1000.0 / Stopwatch.Frequency;
+            ulong frameDelta =
+                current.FrameIndex - previous.FrameIndex;
+            double perFrameMilliseconds =
+                elapsedMilliseconds / frameDelta;
+            if (double.IsFinite(perFrameMilliseconds) &&
+                perFrameMilliseconds > 0)
+            {
+                intervals.Add(perFrameMilliseconds);
+            }
+        }
+        return intervals.ToArray();
+    }
+
+    internal static float FramesPerSecond(
+        IReadOnlyList<EditorProfilerPoint> points,
+        int startIndex = 0,
+        int count = -1)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (points.Count < 2)
+            return -1.0f;
+
+        int start = Math.Clamp(startIndex, 0, points.Count);
+        int available = points.Count - start;
+        int length = count < 0
+            ? available
+            : Math.Clamp(count, 0, available);
+        if (length < 2)
+            return -1.0f;
+
+        double elapsedMilliseconds = 0;
+        ulong frameCount = 0;
+        int end = start + length;
+        for (int index = start + 1; index < end; index++)
+        {
+            EditorProfilerPoint previous = points[index - 1];
+            EditorProfilerPoint current = points[index];
+            if (previous.SampleTimestamp <= 0 ||
+                current.SampleTimestamp <= previous.SampleTimestamp ||
+                current.FrameIndex <= previous.FrameIndex)
+            {
+                continue;
+            }
+            elapsedMilliseconds +=
+                (current.SampleTimestamp - previous.SampleTimestamp) *
+                1000.0 / Stopwatch.Frequency;
+            frameCount += current.FrameIndex - previous.FrameIndex;
+        }
+        if (elapsedMilliseconds < MinimumObservedSpanMilliseconds ||
+            frameCount == 0)
+        {
+            return -1.0f;
+        }
+
+        double fps = frameCount * 1000.0 / elapsedMilliseconds;
+        return double.IsFinite(fps) && fps >= 0 && fps <= float.MaxValue
+            ? (float)fps
+            : -1.0f;
+    }
+}
+
 /// <summary>
 /// Fixed-capacity sampled history. The native renderer remains per-frame while
 /// the WPF panel samples at 10 Hz, keeping UI overhead independent of frame rate.
@@ -71,7 +213,16 @@ internal sealed class EditorProfilerHistory
     internal bool IsPaused { get; set; }
     internal IReadOnlyList<EditorProfilerPoint> Points => _points;
 
-    internal bool Add(in EditorProfilerSnapshot snapshot)
+    internal bool Add(in EditorProfilerSnapshot snapshot) =>
+        Add(snapshot, Stopwatch.GetTimestamp());
+
+    /// <summary>
+    /// Deterministic timestamp overload used by cadence regression tests. The
+    /// production sampler always calls the monotonic-clock overload above.
+    /// </summary>
+    internal bool Add(
+        in EditorProfilerSnapshot snapshot,
+        long sampleTimestamp)
     {
         if (IsPaused || snapshot.FrameIndex == _lastFrameIndex)
             return false;
@@ -79,12 +230,20 @@ internal sealed class EditorProfilerHistory
         _lastFrameIndex = snapshot.FrameIndex;
         if (_points.Count == _capacity)
             _points.RemoveAt(0);
+        bool gpuTimestampValid =
+            snapshot.TimingSource ==
+                EditorProfilerContract.TimingGpuTimestamp &&
+            (snapshot.Flags &
+                EditorProfilerContract.FlagGpuTimingsValid) != 0;
         _points.Add(new EditorProfilerPoint(
             snapshot.FrameIndex,
             FiniteNonNegative(snapshot.Fps),
             FiniteNonNegative(snapshot.CpuFrameMs),
             FiniteNonNegative(snapshot.CpuSubmitMs),
-            FiniteOrUnavailable(snapshot.GpuFrameMs),
+            gpuTimestampValid
+                ? FiniteOrUnavailable(snapshot.GpuFrameMs)
+                : -1,
+            gpuTimestampValid &&
             snapshot.GpuQueryWindowCount > 0
                 ? FiniteOrUnavailable(snapshot.GpuFrameAverageMs)
                 : -1,
@@ -92,7 +251,15 @@ internal sealed class EditorProfilerHistory
             FiniteNonNegative(snapshot.AtmosphereCpuMs),
             FiniteNonNegative(snapshot.CloudCpuMs),
             FiniteNonNegative(snapshot.FogCpuMs),
-            FiniteNonNegative(snapshot.PostCpuMs)));
+            FiniteNonNegative(snapshot.PostCpuMs),
+            FiniteNonNegative(snapshot.NativeRenderActiveCpuMs),
+            FiniteNonNegative(snapshot.NativePresentCpuMs),
+            FiniteNonNegative(
+                snapshot.NativeRenderActiveCpuPeakMs),
+            FiniteNonNegative(snapshot.NativePresentCpuPeakMs),
+            snapshot.PresentedFrameCountSinceReset,
+            snapshot.ProfilerResetSerial,
+            sampleTimestamp));
         return true;
     }
 
@@ -132,8 +299,14 @@ internal sealed class EditorProfilerHistory
             break;
         }
 
+        float observedFps = EditorProfilerCadence.FramesPerSecond(
+            _points,
+            first,
+            count);
         return new EditorProfilerAverage(
-            (float)(fps / count),
+            observedFps >= 0
+                ? observedFps
+                : (float)(fps / count),
             (float)(cpu / count),
             (float)(submit / count),
             gpu);

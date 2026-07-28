@@ -29,6 +29,34 @@ internal sealed record CameraViewChoice(
          IsAuthoredActive ? "  ·  Active" : "");
 }
 
+internal sealed record CameraViewSlotView(
+    ulong SlotId,
+    ulong NativeRequestId,
+    int NodeId,
+    string NodeName,
+    string StableCameraId,
+    bool IsCameraAvailable,
+    bool IsEnabled,
+    bool IsSelected,
+    bool IsPresenter,
+    uint RequestedWidth,
+    uint RequestedHeight,
+    uint TargetGeneration,
+    uint HistoryGeneration)
+{
+    public string Header =>
+        NodeName +
+        (IsCameraAvailable
+            ? ""
+            : IsEnabled ? " (Stale)" : " (Unavailable)");
+
+    public string Diagnostic =>
+        $"{RequestedWidth}x{RequestedHeight}" +
+        (NativeRequestId == 0
+            ? " · legacy override"
+            : $" · target {TargetGeneration}, history {HistoryGeneration}");
+}
+
 /// <summary>
 /// Owns chrome for the one live native Camera/Game View. The renderer child is
 /// reparented into this HWND; this class never creates another EngineViewport.
@@ -97,17 +125,24 @@ internal sealed class CameraViewportWindow : Window
 
     private readonly EngineViewport _viewport;
     private readonly Func<IReadOnlyList<CameraViewChoice>> _cameraProvider;
-    private readonly Func<string, bool> _previewCamera;
+    private readonly Func<IReadOnlyList<CameraViewSlotView>> _slotProvider;
+    private readonly Func<int, string, bool> _pinCamera;
+    private readonly Func<ulong, bool> _activateSlot;
+    private readonly Func<ulong, bool> _closeSlot;
+    private readonly Func<bool> _refreshSlotsFromScene;
     private readonly Func<int?> _previewNodeProvider;
     private readonly Action _clearPreview;
+    private readonly Func<uint, uint, bool> _resizeRequest;
     private readonly Action<string> _logWarning;
     private readonly ComboBox _cameraSelector;
+    private readonly TabControl _slotTabs;
     private readonly TextBlock _status;
     private readonly FrameworkElement _toolbar;
     private readonly DispatcherTimer _healthTimer;
     private HwndSource? _source;
     private IntPtr _windowHandle;
     private bool _updatingSelector;
+    private bool _updatingTabs;
     private bool _surfaceAttached;
     private bool _suppressPlacementSave;
     private string _stableCameraId;
@@ -118,25 +153,40 @@ internal sealed class CameraViewportWindow : Window
         string stableCameraId,
         CameraViewPlacementState placement,
         Func<IReadOnlyList<CameraViewChoice>> cameraProvider,
-        Func<string, bool> previewCamera,
+        Func<IReadOnlyList<CameraViewSlotView>> slotProvider,
+        Func<int, string, bool> pinCamera,
+        Func<ulong, bool> activateSlot,
+        Func<ulong, bool> closeSlot,
+        Func<bool> refreshSlotsFromScene,
         Func<int?> previewNodeProvider,
         Action clearPreview,
+        Func<uint, uint, bool> resizeRequest,
         Action<string> logWarning)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(viewport);
         ArgumentNullException.ThrowIfNull(placement);
         ArgumentNullException.ThrowIfNull(cameraProvider);
-        ArgumentNullException.ThrowIfNull(previewCamera);
+        ArgumentNullException.ThrowIfNull(slotProvider);
+        ArgumentNullException.ThrowIfNull(pinCamera);
+        ArgumentNullException.ThrowIfNull(activateSlot);
+        ArgumentNullException.ThrowIfNull(closeSlot);
+        ArgumentNullException.ThrowIfNull(refreshSlotsFromScene);
         ArgumentNullException.ThrowIfNull(previewNodeProvider);
         ArgumentNullException.ThrowIfNull(clearPreview);
+        ArgumentNullException.ThrowIfNull(resizeRequest);
         ArgumentNullException.ThrowIfNull(logWarning);
 
         _viewport = viewport;
         _cameraProvider = cameraProvider;
-        _previewCamera = previewCamera;
+        _slotProvider = slotProvider;
+        _pinCamera = pinCamera;
+        _activateSlot = activateSlot;
+        _closeSlot = closeSlot;
+        _refreshSlotsFromScene = refreshSlotsFromScene;
         _previewNodeProvider = previewNodeProvider;
         _clearPreview = clearPreview;
+        _resizeRequest = resizeRequest;
         _logWarning = logWarning;
         _stableCameraId = stableCameraId;
 
@@ -158,25 +208,48 @@ internal sealed class CameraViewportWindow : Window
 
         _cameraSelector = new ComboBox
         {
-            Width = 310.0,
+            Width = 300.0,
             Height = 27.0,
-            Margin = new Thickness(10.0, 7.0, 8.0, 7.0),
+            Margin = new Thickness(6.0, 5.0, 8.0, 6.0),
             DisplayMemberPath = nameof(CameraViewChoice.DisplayName),
             VerticalContentAlignment = VerticalAlignment.Center,
             ToolTip =
-                "The floating live view is pinned by stable camera ID. " +
-                "Changing this selection uses a non-persistent preview override " +
-                "and never edits the authored Active flag.",
+                "Add or focus a logical Camera View slot. Up to eight native " +
+                "request leases can be retained, while exactly one shared " +
+                "presenter remains live.",
         };
         _cameraSelector.SelectionChanged += OnCameraSelectionChanged;
         _cameraSelector.DropDownOpened += OnCameraDropDownOpened;
+
+        _slotTabs = new TabControl
+        {
+            Height = 34.0,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0.0),
+            Padding = new Thickness(0.0),
+            ToolTip =
+                "Logical camera leases retain independent requested extent " +
+                "and temporal-history generations. Selecting a tab transfers " +
+                "the one shared presenter.",
+        };
+        _slotTabs.SelectionChanged += OnCameraSlotSelectionChanged;
+        var slotScroller = new ScrollViewer
+        {
+            Content = _slotTabs,
+            Margin = new Thickness(8.0, 4.0, 8.0, 0.0),
+            HorizontalScrollBarVisibility =
+                ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility =
+                ScrollBarVisibility.Disabled,
+            CanContentScroll = true,
+        };
 
         var dockButton = new Button
         {
             Content = "Re-dock",
             MinWidth = 78.0,
             Height = 27.0,
-            Margin = new Thickness(0.0, 7.0, 8.0, 7.0),
+            Margin = new Thickness(0.0, 5.0, 8.0, 6.0),
             Padding = new Thickness(10.0, 2.0, 10.0, 2.0),
             ToolTip = "Return the same live renderer surface to the main editor.",
         };
@@ -184,24 +257,55 @@ internal sealed class CameraViewportWindow : Window
 
         _status = new TextBlock
         {
-            Margin = new Thickness(6.0, 0.0, 10.0, 0.0),
+            Margin = new Thickness(8.0, 0.0, 10.0, 1.0),
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = new SolidColorBrush(Color.FromRgb(143, 166, 187)),
             Text = "Preparing live camera surface…",
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
 
-        var toolbar = new DockPanel
+        var addCameraLabel = new TextBlock
         {
-            Height = 42.0,
-            Background = new SolidColorBrush(Color.FromRgb(28, 34, 42)),
+            Text = "Add camera",
+            Margin = new Thickness(10.0, 0.0, 0.0, 1.0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = new SolidColorBrush(Color.FromRgb(183, 197, 211)),
+            FontWeight = FontWeights.SemiBold,
+        };
+        var addCameraPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+        };
+        addCameraPanel.Children.Add(addCameraLabel);
+        addCameraPanel.Children.Add(_cameraSelector);
+
+        var actionRow = new DockPanel
+        {
             LastChildFill = true,
         };
-        DockPanel.SetDock(_cameraSelector, Dock.Left);
-        toolbar.Children.Add(_cameraSelector);
+        DockPanel.SetDock(addCameraPanel, Dock.Left);
+        actionRow.Children.Add(addCameraPanel);
         DockPanel.SetDock(dockButton, Dock.Right);
-        toolbar.Children.Add(dockButton);
-        toolbar.Children.Add(_status);
+        actionRow.Children.Add(dockButton);
+        actionRow.Children.Add(_status);
+
+        var toolbar = new Grid
+        {
+            Height = 76.0,
+            Background = new SolidColorBrush(Color.FromRgb(28, 34, 42)),
+        };
+        toolbar.RowDefinitions.Add(new RowDefinition
+        {
+            Height = new GridLength(38.0),
+        });
+        toolbar.RowDefinitions.Add(new RowDefinition
+        {
+            Height = new GridLength(38.0),
+        });
+        Grid.SetRow(slotScroller, 0);
+        Grid.SetRow(actionRow, 1);
+        toolbar.Children.Add(slotScroller);
+        toolbar.Children.Add(actionRow);
         _toolbar = toolbar;
 
         var surfacePlaceholder = new Border
@@ -253,14 +357,17 @@ internal sealed class CameraViewportWindow : Window
 
     internal event EventHandler? LiveSurfaceAttachFailed;
 
-    internal bool PinCamera(string stableCameraId)
+    internal bool PinCamera(
+        int cameraNodeId,
+        string stableCameraId)
     {
-        if (!CameraAuthoringContract.IsValidStableCameraId(stableCameraId))
+        if (cameraNodeId < 0 ||
+            !CameraAuthoringContract.IsValidStableCameraId(stableCameraId))
             return false;
-        if (!_previewCamera(stableCameraId))
+        if (!_pinCamera(cameraNodeId, stableCameraId))
             return false;
         _stableCameraId = stableCameraId;
-        RefreshCameraChoices(keepPinnedCameraActive: false);
+        RefreshCameraUi();
         return true;
     }
 
@@ -268,7 +375,12 @@ internal sealed class CameraViewportWindow : Window
     {
         if (!IsLoaded)
             return;
-        RefreshCameraChoices(keepPinnedCameraActive: true);
+        if (!_refreshSlotsFromScene())
+        {
+            _status.Text =
+                "Camera slots could not be rebound after scene replacement.";
+        }
+        RefreshCameraUi();
     }
 
     internal bool CloseForOwner()
@@ -305,7 +417,7 @@ internal sealed class CameraViewportWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        RefreshCameraChoices(keepPinnedCameraActive: false);
+        RefreshCameraUi();
         _ = Dispatcher.BeginInvoke(
             DispatcherPriority.Loaded,
             new Action(() =>
@@ -322,7 +434,7 @@ internal sealed class CameraViewportWindow : Window
                     Close();
                     return;
                 }
-                _status.Text = "Live · pinned by stable camera ID";
+                UpdateLiveStatus();
                 LiveSurfaceAttached?.Invoke(this, EventArgs.Empty);
                 _healthTimer.Start();
             }));
@@ -346,30 +458,85 @@ internal sealed class CameraViewportWindow : Window
         if (!choice.IsEnabled)
         {
             _status.Text = "Disabled cameras cannot drive Game View.";
-            RefreshCameraChoices(keepPinnedCameraActive: false);
+            RefreshCameraUi();
             return;
         }
-        if (!_previewCamera(choice.StableCameraId))
+        if (!_pinCamera(choice.NodeId, choice.StableCameraId))
         {
-            _status.Text = "Camera changed or is no longer available.";
-            RefreshCameraChoices(keepPinnedCameraActive: false);
+            _status.Text =
+                "Camera changed, is unavailable, or the logical slot limit was reached.";
+            RefreshCameraUi();
             return;
         }
 
         _stableCameraId = choice.StableCameraId;
-        Title = $"Camera View — {choice.NodeName}";
-        _status.Text = "Live · pinned by stable camera ID";
+        RefreshCameraUi();
     }
 
     private void OnCameraDropDownOpened(object? sender, EventArgs e) =>
-        RefreshCameraChoices(keepPinnedCameraActive: false);
+        RefreshCameraUi();
 
-    private void RefreshCameraChoices(bool keepPinnedCameraActive)
+    private void OnCameraSlotSelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_updatingTabs ||
+            _slotTabs.SelectedItem is not TabItem tab ||
+            tab.Tag is not ulong slotId)
+        {
+            return;
+        }
+        CameraViewSlotView? slot = _slotProvider().FirstOrDefault(
+            candidate => candidate.SlotId == slotId);
+        if (slot == null || !slot.IsCameraAvailable)
+        {
+            _status.Text =
+                "This logical camera slot is stale or unavailable.";
+            RefreshCameraUi();
+            return;
+        }
+        if (!_activateSlot(slotId))
+        {
+            _status.Text =
+                "The shared presenter could not switch to this camera slot.";
+            RefreshCameraUi();
+            return;
+        }
+        _stableCameraId = slot.StableCameraId;
+        RefreshCameraUi();
+    }
+
+    private void OnCameraSlotClose(
+        object sender,
+        RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button { Tag: ulong slotId })
+            return;
+        if (!_closeSlot(slotId))
+        {
+            _status.Text =
+                "The logical camera slot could not be released safely.";
+            RefreshCameraUi();
+            return;
+        }
+        IReadOnlyList<CameraViewSlotView> remaining = _slotProvider();
+        if (remaining.Count == 0)
+        {
+            Close();
+            return;
+        }
+        RefreshCameraUi();
+    }
+
+    private void RefreshCameraUi()
     {
         IReadOnlyList<CameraViewChoice> choices;
+        IReadOnlyList<CameraViewSlotView> slots;
         try
         {
             choices = _cameraProvider();
+            slots = _slotProvider();
         }
         catch (Exception error)
         {
@@ -378,59 +545,146 @@ internal sealed class CameraViewportWindow : Window
             return;
         }
 
-        CameraViewChoice? selected = choices.FirstOrDefault(
-            camera => string.Equals(
-                camera.StableCameraId,
-                _stableCameraId,
-                StringComparison.Ordinal));
         _updatingSelector = true;
         try
         {
             _cameraSelector.ItemsSource = choices;
-            _cameraSelector.SelectedItem = selected;
+            _cameraSelector.SelectedItem = null;
+            _cameraSelector.IsEnabled =
+                choices.Any(static camera => camera.IsEnabled);
         }
         finally
         {
             _updatingSelector = false;
         }
 
+        _updatingTabs = true;
+        try
+        {
+            _slotTabs.Items.Clear();
+            TabItem? selectedTab = null;
+            foreach (CameraViewSlotView slot in slots)
+            {
+                var label = new TextBlock
+                {
+                    Text = slot.Header,
+                    MaxWidth = 180.0,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                var close = new Button
+                {
+                    Content = "×",
+                    Tag = slot.SlotId,
+                    Width = 20.0,
+                    Height = 20.0,
+                    Padding = new Thickness(0.0),
+                    Margin = new Thickness(7.0, 0.0, 0.0, 0.0),
+                    ToolTip = "Close this logical camera slot.",
+                    Focusable = false,
+                };
+                close.Click += OnCameraSlotClose;
+                var header = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                };
+                header.Children.Add(label);
+                header.Children.Add(close);
+                var tab = new TabItem
+                {
+                    Tag = slot.SlotId,
+                    Header = header,
+                    ToolTip =
+                        $"{slot.StableCameraId}\n{slot.Diagnostic}\n" +
+                        "One shared presenter; no dedicated offscreen target.",
+                    Padding = new Thickness(9.0, 3.0, 5.0, 3.0),
+                    MinWidth = 92.0,
+                };
+                _slotTabs.Items.Add(tab);
+                if (slot.IsSelected)
+                    selectedTab = tab;
+            }
+            _slotTabs.SelectedItem = selectedTab;
+        }
+        finally
+        {
+            _updatingTabs = false;
+        }
+
+        CameraViewSlotView? selected =
+            slots.FirstOrDefault(static slot => slot.IsSelected);
         if (selected == null)
         {
-            _clearPreview();
+            Title = "Camera View";
             _status.Text =
                 choices.Count == 0
                     ? "No authored cameras in this scene."
-                    : "Pinned camera is unavailable.";
+                    : "No logical camera slot is selected.";
             return;
         }
-
+        _stableCameraId = selected.StableCameraId;
         Title = $"Camera View — {selected.NodeName}";
-        if (!selected.IsEnabled)
+        UpdateLiveStatus(slots, selected);
+    }
+
+    private void UpdateLiveStatus()
+    {
+        IReadOnlyList<CameraViewSlotView> slots = _slotProvider();
+        CameraViewSlotView? selected =
+            slots.FirstOrDefault(static slot => slot.IsSelected);
+        UpdateLiveStatus(slots, selected);
+    }
+
+    private void UpdateLiveStatus(
+        IReadOnlyList<CameraViewSlotView> slots,
+        CameraViewSlotView? selected)
+    {
+        if (selected == null)
         {
-            _clearPreview();
-            _status.Text = "Pinned camera is disabled.";
+            _status.Text = "No logical camera slot is selected.";
             return;
         }
-        if (keepPinnedCameraActive &&
-            !selected.IsPreview &&
-            !_previewCamera(selected.StableCameraId))
+        if (!selected.IsCameraAvailable)
         {
-            _status.Text = "Pinned camera could not be restored.";
+            _status.Text =
+                "Selected slot is unavailable; its stable identity is retained.";
+            return;
         }
+        if (!selected.IsPresenter)
+        {
+            _status.Text =
+                "Selected slot is waiting for the one shared presenter.";
+            return;
+        }
+        int capacity = slots.Any(
+            static slot => slot.NativeRequestId != 0)
+                ? CameraViewSlotPolicy.MaximumLogicalSlots
+                : 1;
+        _status.Text =
+            $"Live · presenter 1/1 · slots {slots.Count}/" +
+            $"{capacity} · " +
+            selected.Diagnostic;
     }
 
     private void ValidatePreviewHealth()
     {
-        if (_cameraSelector.SelectedItem is not CameraViewChoice selected)
+        IReadOnlyList<CameraViewSlotView> slots = _slotProvider();
+        CameraViewSlotView? selected =
+            slots.FirstOrDefault(static slot => slot.IsSelected);
+        if (selected == null)
             return;
         int? previewNode = _previewNodeProvider();
-        if (previewNode == selected.NodeId)
+        if (selected.IsPresenter &&
+            selected.IsCameraAvailable &&
+            previewNode == selected.NodeId)
         {
-            _status.Text = "Live · pinned by stable camera ID";
+            UpdateLiveStatus(slots, selected);
             return;
         }
         _status.Text =
-            "Preview override is unavailable; open the selector to refresh.";
+            selected.IsCameraAvailable
+                ? "Shared presenter health check failed; switch tabs to retry."
+                : "Selected slot is unavailable; stable identity is retained.";
     }
 
     private bool TryUpdateSurfaceBounds(bool attachIfNeeded)
@@ -448,6 +702,13 @@ internal sealed class CameraViewportWindow : Window
                 Math.Max(1.0, _toolbar.ActualHeight) * dpi / 96.0)));
         int width = Math.Max(1, client.Right - client.Left);
         int height = Math.Max(1, client.Bottom - client.Top - toolbarPixels);
+        if (!_resizeRequest(
+                checked((uint)width),
+                checked((uint)height)))
+        {
+            _status.Text = "Camera render request rejected this extent.";
+            return false;
+        }
         var bounds = new Int32Rect(0, toolbarPixels, width, height);
 
         bool succeeded = !_surfaceAttached && attachIfNeeded
@@ -655,6 +916,16 @@ internal sealed class CameraViewportWindow : Window
         _windowHandle = IntPtr.Zero;
         _cameraSelector.SelectionChanged -= OnCameraSelectionChanged;
         _cameraSelector.DropDownOpened -= OnCameraDropDownOpened;
+        _slotTabs.SelectionChanged -= OnCameraSlotSelectionChanged;
+        foreach (TabItem tab in _slotTabs.Items.OfType<TabItem>())
+        {
+            if (tab.Header is StackPanel header)
+            {
+                foreach (Button close in header.Children.OfType<Button>())
+                    close.Click -= OnCameraSlotClose;
+            }
+        }
+        _slotTabs.Items.Clear();
         SourceInitialized -= OnSourceInitialized;
         Loaded -= OnLoaded;
         SizeChanged -= OnWindowSizeChanged;

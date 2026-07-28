@@ -181,6 +181,46 @@ public partial class App : Application
             Shutdown(failures);
             return;
         }
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--package-metadata-editor-selftest")
+        {
+            Shutdown(PackageMetadataEditorSelfTest.Run(Console.Error));
+            return;
+        }
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--asset-package-readiness-selftest")
+        {
+            Shutdown(AssetPackageReadinessSelfTest.Run(Console.Error));
+            return;
+        }
+        if (e.Args.Length >= 2 &&
+            e.Args[0] == "--asset-package-readiness-visual-fixture")
+        {
+            Shutdown(AssetPackageReadinessVisualFixture.Run(
+                e.Args[1],
+                Console.Error));
+            return;
+        }
+        if (e.Args.Length >= 2 &&
+            e.Args[0] == "--package-metadata-editor-visual-fixture")
+        {
+            Shutdown(PackageMetadataEditorVisualFixture.Run(
+                e.Args[1],
+                Console.Error));
+            return;
+        }
+
+        // CLI: --project-launcher-responsiveness-selftest -> dispatcher-free
+        // recent-project probes, serialized open/create, and stale publication
+        // rejection after launcher lifetime changes.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--project-launcher-responsiveness-selftest")
+        {
+            int failures =
+                ProjectLauncherResponsivenessSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
 
         // CLI: --operation-diagnostics-selftest -> managed Build/Package
         // operation identity, typed diagnostics, aggregation and cancellation.
@@ -296,6 +336,7 @@ public partial class App : Application
             failures += AssetImageWorkerSelfTest.Run(Console.Error);
             failures += ThumbnailDerivedDataCacheSelfTest.Run(Console.Error);
             failures += AssetBrowserUiSelfTest.Run(Console.Error);
+            failures += AssetPackageReadinessSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }
@@ -425,6 +466,15 @@ public partial class App : Application
                     }
                     Shutdown(exitCode);
                 }));
+            return;
+        }
+
+        // CLI: --profilershot <out.png> -> render populated profiler state for visual QA.
+        if (e.Args.Length >= 2 && e.Args[0] == "--profilershot")
+        {
+            ProfilerVisualFixture.Capture(
+                e.Args[1],
+                exitCode => Shutdown(exitCode));
             return;
         }
 
@@ -806,6 +856,15 @@ public partial class App : Application
         Project? chosen = null;
         bool unattended = ShouldRunUnattended(e.Args);
         bool avoidInitialActivation = ShouldAvoidInitialActivation(e.Args);
+        if (!EditorStartupMonitorPlacement.TryParse(
+                e.Args,
+                out EditorStartupMonitorSelector? startupMonitor,
+                out string? startupMonitorError))
+        {
+            Console.Error.WriteLine(startupMonitorError);
+            Shutdown(2);
+            return;
+        }
         bool showProfiler = e.Args.Contains(
             "--show-profiler", StringComparer.OrdinalIgnoreCase);
         int interactionSoakArgument = Array.FindIndex(
@@ -816,6 +875,7 @@ public partial class App : Application
                 StringComparison.OrdinalIgnoreCase));
         TimeSpan? interactionSoakDuration = null;
         string? interactionSoakReport = null;
+        string? profilerCapturePath = null;
         bool interactionSoakRequiresRecovery = false;
         if (interactionSoakArgument >= 0)
         {
@@ -881,6 +941,52 @@ public partial class App : Application
                 interactionSoakReport = e.Args[reportArgument + 1];
             }
         }
+        int profilerCaptureArgument = Array.FindIndex(
+            e.Args,
+            argument => string.Equals(
+                argument,
+                "--profiler-capture",
+                StringComparison.OrdinalIgnoreCase));
+        if (profilerCaptureArgument >= 0)
+        {
+            if (interactionSoakDuration == null)
+            {
+                Console.Error.WriteLine(
+                    "--profiler-capture requires --interaction-soak.");
+                Shutdown(2);
+                return;
+            }
+            if (e.Args.Count(argument => string.Equals(
+                    argument,
+                    "--profiler-capture",
+                    StringComparison.OrdinalIgnoreCase)) != 1)
+            {
+                Console.Error.WriteLine(
+                    "--profiler-capture may be specified only once.");
+                Shutdown(2);
+                return;
+            }
+            if (profilerCaptureArgument + 1 >= e.Args.Length ||
+                e.Args[profilerCaptureArgument + 1].StartsWith(
+                    "--",
+                    StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine(
+                    "--profiler-capture requires an explicit TEMP CSV path.");
+                Shutdown(2);
+                return;
+            }
+            if (!EditorProfilerCaptureFile.TryNormalizeAutomationDestination(
+                    e.Args[profilerCaptureArgument + 1],
+                    out profilerCapturePath,
+                    out string? profilerCaptureError))
+            {
+                Console.Error.WriteLine(profilerCaptureError);
+                Shutdown(2);
+                return;
+            }
+            showProfiler = true;
+        }
         IsNonInteractiveLaunch = unattended;
         IsInitialActivationSuppressed =
             ShouldDeferInteractivePromptsUntilActivation(e.Args);
@@ -906,6 +1012,20 @@ public partial class App : Application
             var launcher = new ProjectLauncher();
             launcher.ShowActivated = !avoidInitialActivation;
             launcher.IsHitTestVisible = !unattended;
+            if (startupMonitor is { } launcherMonitor)
+            {
+                launcher.WindowStartupLocation = WindowStartupLocation.Manual;
+                launcher.SourceInitialized += (_, _) =>
+                {
+                    if (!EditorStartupMonitorPlacement.TryApply(
+                            launcher,
+                            launcherMonitor,
+                            out string? placementError))
+                    {
+                        Console.Error.WriteLine(placementError);
+                    }
+                };
+            }
             if (unattended)
                 launcher.SourceInitialized += (_, _) =>
                     SetNoActivateStyle(launcher, enabled: true);
@@ -916,6 +1036,20 @@ public partial class App : Application
         if (chosen != null)
         {
             var win = new MainWindow(chosen);
+            if (startupMonitor is { } editorMonitor)
+            {
+                win.SuppressSavedWindowPlacementForStartupMonitor();
+                win.SourceInitialized += (_, _) =>
+                {
+                    if (!EditorStartupMonitorPlacement.TryApply(
+                            win,
+                            editorMonitor,
+                            out string? placementError))
+                    {
+                        Console.Error.WriteLine(placementError);
+                    }
+                };
+            }
             if (showProfiler)
                 win.ShowProfilerAtStartup();
             if (e.Args.Contains("--hide-grid", StringComparer.OrdinalIgnoreCase))
@@ -926,7 +1060,8 @@ public partial class App : Application
                     soakDuration,
                     interactionSoakReport,
                     exitCode => Shutdown(exitCode),
-                    interactionSoakRequiresRecovery);
+                    interactionSoakRequiresRecovery,
+                    profilerCapturePath);
             }
             // Visual validation and secondary-monitor launches may need the
             // editor to become visible without interrupting the foreground
@@ -971,6 +1106,7 @@ public partial class App : Application
                         win.SetStartupCamera3D(
                             values[0], values[1], values[2],
                             values[3], values[4], values[5]);
+                        win.RequireView3DForProfilerCapture();
                     }
                     else
                     {

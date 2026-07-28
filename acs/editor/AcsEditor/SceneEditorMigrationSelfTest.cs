@@ -105,6 +105,8 @@ internal static class SceneEditorMigrationSelfTest
             Path.Combine(sourceRoot, "MainWindow.Autosave.cs"));
         string view3DSource = File.ReadAllText(
             Path.Combine(sourceRoot, "MainWindow.View3D.cs"));
+        string cameraViewsSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "MainWindow.CameraViews.cs"));
         string switchBody = ExtractMethodBody(sceneModeSource, "SwitchSceneViewMode(");
         string initializeBody =
             ExtractMethodBody(sceneModeSource, "InitializeProjectSceneDocument(");
@@ -164,6 +166,18 @@ internal static class SceneEditorMigrationSelfTest
             ExtractMethodBody(
                 autosaveSource,
                 "ComposeSceneRecoveryState(");
+        string openCameraViewBody =
+            ExtractMethodBody(
+                cameraViewsSource,
+                "private void OpenCameraView(");
+        string createInitialCameraViewLeaseBody =
+            ExtractMethodBody(
+                cameraViewsSource,
+                "private bool TryCreateInitialCameraViewLease(");
+        string cameraLiveSurfaceAttachedBody =
+            ExtractMethodBody(
+                cameraViewsSource,
+                "private void OnCameraLiveSurfaceAttached(");
 
         int publishedCompletionCalls = 0;
         int unavailableCompletionCalls = 0;
@@ -235,6 +249,17 @@ internal static class SceneEditorMigrationSelfTest
                 "private bool _view3d = true;",
                 StringComparison.Ordinal),
             "unpublished editor bootstrap state is one 3D world in Perspective view");
+        Check(
+            initializeBody.Contains(
+                "EditorSceneStartupPolicy.Resolve(",
+                StringComparison.Ordinal) &&
+            initializeBody.Contains(
+                "bool initialIs3D = startupPlan.Uses3D;",
+                StringComparison.Ordinal) &&
+            !initializeBody.Contains(
+                "scenePath != null && Is3DScenePath(scenePath)",
+                StringComparison.Ordinal),
+            "missing startup source follows the explicit blank ACS3D plan instead of the legacy 2D adapter");
 
         int parseResult = openBody.IndexOf(
             "if (ok != 0)",
@@ -242,7 +267,7 @@ internal static class SceneEditorMigrationSelfTest
         string beforeSuccessfulParse =
             parseResult > 0 ? openBody[..parseResult] : openBody;
         int completeLoad = openBody.IndexOf(
-            "CompleteSceneLoad(sceneLoad, publishScene)",
+            "CompleteSceneLoad(",
             StringComparison.Ordinal);
         int deferredRecovery = openBody.LastIndexOf(
             "await ApplyRecoveryCandidateAsync(recoveryToApply)",
@@ -294,6 +319,23 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             manualOpenIsTransactional,
             "manual Open rolls back both native graphs, managed metadata and history atomically");
+        Check(
+            openBody.Contains(
+                "CameraViewScenePublicationPolicy.ShouldRefresh(",
+                StringComparison.Ordinal) &&
+            CountMatches(
+                openBody,
+                @"NotifyCameraViewSceneChanged\s*\(") == 1 &&
+            CountMatches(
+                newSceneBody,
+                @"NotifyCameraViewSceneChanged\s*\(") == 1 &&
+            CountMatches(
+                restoreDocumentBody,
+                @"NotifyCameraViewSceneChanged\s*\(") == 2 &&
+            restoreDocumentBody.Contains(
+                "if (rollbackLoaded != 0)",
+                StringComparison.Ordinal),
+            "Camera View re-resolves exactly once after each published full-document replacement or successful rollback");
         bool fullDocumentRetirementIsCombined =
             CountMatches(
                 auditedManagedCs,
@@ -432,17 +474,41 @@ internal static class SceneEditorMigrationSelfTest
 
         string viewportSource = File.ReadAllText(
             Path.Combine(sourceRoot, "EngineViewport.cs"));
+        string buildWindowCoreBody =
+            ExtractMethodBody(
+                viewportSource,
+                "protected override HandleRef BuildWindowCore(");
+        string renderOneFrameBody =
+            ExtractMethodBody(
+                viewportSource,
+                "private bool RenderOneFrame(");
+        string viewportRetryAttachBody =
+            ExtractMethodBody(
+                viewportSource,
+                "internal bool RetryAttach(");
+        string nativeBootstrapSource = File.ReadAllText(
+            Path.Combine(sourceRoot, "EditorNativeBootstrap.cs"));
         string mainWindowXaml = File.ReadAllText(
             Path.Combine(sourceRoot, "MainWindow.xaml"));
-        int createCall = viewportSource.IndexOf(
-            "EngineInterop.acs_editor_create()",
+        int createCall = nativeBootstrapSource.IndexOf(
+            "EngineInterop.acs_editor_create,",
             StringComparison.Ordinal);
         Match suppressMatch = Regex.Match(
-            viewportSource,
+            nativeBootstrapSource,
             @"acs_editor_set_scene_presentation_suppressed\s*\(\s*" +
-            @"createdEngine\s*,\s*1\s*\)",
+            @"engine\s*,\s*1\s*\)",
             RegexOptions.CultureInvariant);
         int suppressCall = suppressMatch.Success ? suppressMatch.Index : -1;
+        int bootstrapStart = viewportSource.IndexOf(
+            "EditorNativeBootstrap.StartAsync(",
+            StringComparison.Ordinal);
+        int nativeHostPublish = viewportSource.IndexOf(
+            "_engine = result.Engine",
+            StringComparison.Ordinal);
+        int pumpAfterPublish = viewportSource.IndexOf(
+            "QueueRenderPump();",
+            nativeHostPublish,
+            StringComparison.Ordinal);
         int attachCall = viewportSource.IndexOf(
             "EngineInterop.acs_editor_attach(",
             StringComparison.Ordinal);
@@ -452,9 +518,15 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             createCall >= 0 &&
             suppressCall > createCall &&
-            attachCall > suppressCall &&
-            renderCall > suppressCall,
-            "viewport suppresses native presentation before its render pump starts");
+            bootstrapStart >= 0 &&
+            nativeHostPublish > bootstrapStart &&
+            pumpAfterPublish > nativeHostPublish &&
+            attachCall > nativeHostPublish &&
+            renderCall > nativeHostPublish &&
+            nativeBootstrapSource.Contains(
+                "return Task.Run(",
+                StringComparison.Ordinal),
+            "viewport creates and suppresses an unpublished native host off-dispatcher before its render pump starts");
         int initialHide = onLoadedBody.IndexOf(
             "ViewportHost.Visibility = Visibility.Hidden",
             StringComparison.Ordinal);
@@ -472,6 +544,41 @@ internal static class SceneEditorMigrationSelfTest
             StringComparison.Ordinal);
         int viewDescriptorPublish = completeLoadBody.IndexOf(
             "ApplySceneViewModePresentation()",
+            StringComparison.Ordinal);
+        int attachedCallback = renderOneFrameBody.IndexOf(
+            "Attached?.Invoke()",
+            StringComparison.Ordinal);
+        int postAttachContinuationGate = renderOneFrameBody.IndexOf(
+            "ShouldContinueRenderingAfterAttachCallback(",
+            attachedCallback >= 0 ? attachedCallback : 0,
+            StringComparison.Ordinal);
+        int postAttachStop = renderOneFrameBody.IndexOf(
+            "return false;",
+            postAttachContinuationGate >= 0
+                ? postAttachContinuationGate
+                : 0,
+            StringComparison.Ordinal);
+        int postAttachNativeFrame = renderOneFrameBody.IndexOf(
+            "EngineInterop.TryRenderEditorFrame(",
+            postAttachStop >= 0 ? postAttachStop : 0,
+            StringComparison.Ordinal);
+        int generationBootstrapPolicy = buildWindowCoreBody.IndexOf(
+            "ShouldBeginNativeBootstrapForHostGeneration(",
+            StringComparison.Ordinal);
+        int guardedNativeBootstrap = buildWindowCoreBody.IndexOf(
+            "BeginNativeBootstrap(",
+            generationBootstrapPolicy >= 0
+                ? generationBootstrapPolicy
+                : 0,
+            StringComparison.Ordinal);
+        int explicitRetryPolicy = viewportRetryAttachBody.IndexOf(
+            "CanExplicitlyRetryAttach(",
+            StringComparison.Ordinal);
+        int explicitRetryFailureClear = viewportRetryAttachBody.IndexOf(
+            "AttachFailed = false",
+            StringComparison.Ordinal);
+        int explicitRetrySuspensionClear = viewportRetryAttachBody.IndexOf(
+            "_renderPumpSuspended = false",
             StringComparison.Ordinal);
         Check(
             Regex.IsMatch(
@@ -546,13 +653,32 @@ internal static class SceneEditorMigrationSelfTest
             viewportSource.Contains(
                 "_hiddenStartupRenderingAllowed",
                 StringComparison.Ordinal) &&
-            !ExtractMethodBody(
-                    viewportSource,
-                    "protected override HandleRef BuildWindowCore(")
-                .Contains(
-                    "_hiddenStartupRenderingAllowed = false",
-                    StringComparison.Ordinal),
+            !buildWindowCoreBody.Contains(
+                "_hiddenStartupRenderingAllowed = false",
+                StringComparison.Ordinal),
             "hidden rendering attaches safely, pauses for worker Settings load, then warm-up is bounded by ready/failure");
+        Check(
+            attachedCallback >= 0 &&
+            postAttachContinuationGate > attachedCallback &&
+            postAttachStop > postAttachContinuationGate &&
+            postAttachNativeFrame > postAttachStop,
+            "an Attached callback that pauses hidden rendering exits its current frame before native startup advances");
+        Check(
+            generationBootstrapPolicy >= 0 &&
+            guardedNativeBootstrap > generationBootstrapPolicy &&
+            CountMatches(
+                buildWindowCoreBody,
+                @"if\s*\(\s*beginNativeBootstrap\s*\)") == 2 &&
+            !buildWindowCoreBody.Contains(
+                "AttachFailed = false",
+                StringComparison.Ordinal) &&
+            !buildWindowCoreBody.Contains(
+                "_renderPumpSuspended = false",
+                StringComparison.Ordinal) &&
+            explicitRetryPolicy >= 0 &&
+            explicitRetryFailureClear > explicitRetryPolicy &&
+            explicitRetrySuspensionClear > explicitRetryPolicy,
+            "failed HwndHost generations preserve their latch across rebuild and only explicit retry clears it");
 
         string engineInteropSource = File.ReadAllText(
             Path.Combine(sourceRoot, "EngineInterop.cs"));
@@ -628,6 +754,65 @@ internal static class SceneEditorMigrationSelfTest
         Check(
             viewSwitchIsProjectionOnly,
             "view preset switching cannot select, load, or rename a source adapter");
+
+        string viewSwitchPlanBody =
+            ExtractMethodBody(
+                shellSource,
+                "internal static EditorViewSwitchPlan Plan(");
+        bool sceneGameViewIsCameraAndPlayIndependent =
+            viewSwitchPlanBody.Contains(
+                "StartPlay: false",
+                StringComparison.Ordinal) &&
+            viewSwitchPlanBody.Contains(
+                "StopPlay: false",
+                StringComparison.Ordinal) &&
+            viewSwitchPlanBody.Contains(
+                "MutateEditorNavigationCamera: false",
+                StringComparison.Ordinal) &&
+            setGameViewBody.Contains(
+                "EditorViewSwitchPolicy.Plan(",
+                StringComparison.Ordinal) &&
+            setGameViewBody.Contains(
+                "EngineInterop.acs_editor_set_game_view(",
+                StringComparison.Ordinal) &&
+            !setGameViewBody.Contains(
+                "StartPlayMode(",
+                StringComparison.Ordinal) &&
+            !setGameViewBody.Contains(
+                "StopPlayMode(",
+                StringComparison.Ordinal) &&
+            !setGameViewBody.Contains(
+                "acs_editor_camera3d_set(",
+                StringComparison.Ordinal);
+        Check(
+            sceneGameViewIsCameraAndPlayIndependent,
+            "Scene/Game presentation preserves editor camera state and never starts or stops Play");
+        int createUnboundCameraLease = openCameraViewBody.IndexOf(
+            "TryCreateInitialCameraViewLease(",
+            StringComparison.Ordinal);
+        int showCameraWindow = openCameraViewBody.IndexOf(
+            "window.Show()",
+            StringComparison.Ordinal);
+        int verifyCameraSurfaceOwner =
+            cameraLiveSurfaceAttachedBody.IndexOf(
+                "CameraViewPresenterPublicationPolicy.CanBindPresenter(",
+                StringComparison.Ordinal);
+        int bindCameraPresenter = cameraLiveSurfaceAttachedBody.IndexOf(
+            "TryActivateCameraViewSlot(",
+            StringComparison.Ordinal);
+        int enterCameraGameView = cameraLiveSurfaceAttachedBody.IndexOf(
+            "SetGameView(true)",
+            StringComparison.Ordinal);
+        Check(
+            createInitialCameraViewLeaseBody.Contains(
+                "activateImmediately: false",
+                StringComparison.Ordinal) &&
+            createUnboundCameraLease >= 0 &&
+            showCameraWindow > createUnboundCameraLease &&
+            verifyCameraSurfaceOwner >= 0 &&
+            bindCameraPresenter > verifyCameraSurfaceOwner &&
+            enterCameraGameView > bindCameraPresenter,
+            "Camera View binds its preview only after the floating window owns the shared surface");
 
         string removedHydrationHelper =
             "InitializeLegacy" + "SourceAdapterIfNeeded";

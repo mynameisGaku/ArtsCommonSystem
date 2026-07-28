@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -30,15 +31,271 @@ internal static class ToolPanelDockingSelfTest
 
         ToolPanelDockingDescriptor[] registered =
             ToolPanelDockingContract.RegisteredPanels.ToArray();
+        ToolPanelUserActionDescriptor[] registeredActions =
+            ToolPanelDockingContract.RegisteredUserActions.ToArray();
         Check(
             registered.Select(panel => panel.PanelId).SequenceEqual(
                 new[]
                 {
                     ToolPanelDockingContract.HierarchyPanelId,
                     ToolPanelDockingContract.InspectorPanelId,
-                    ToolPanelDockingContract.BottomPanelId,
+                    ToolPanelDockingContract.ConsolePanelId,
+                    ToolPanelDockingContract.BuildPanelId,
+                    ToolPanelDockingContract.AssetsPanelId,
+                    ToolPanelDockingContract.ProfilerPanelId,
                 }),
             "tool-panel docking uses an explicit stable-ID registry");
+        string[] registeredCommandIds = registered
+            .SelectMany(panel => registeredActions.Select(action =>
+                ToolPanelDockingContract.PaletteCommandId(
+                    panel.PanelId,
+                    action.Action)))
+            .ToArray();
+        Check(
+            registeredActions.Select(action => action.Action).SequenceEqual(
+                new[]
+                {
+                    ToolPanelUserAction.Show,
+                    ToolPanelUserAction.Hide,
+                    ToolPanelUserAction.Float,
+                    ToolPanelUserAction.Redock,
+                }) &&
+            registeredCommandIds.Length ==
+                registered.Length * registeredActions.Length &&
+            registeredCommandIds.Distinct(StringComparer.Ordinal).Count() ==
+                registeredCommandIds.Length &&
+            registeredCommandIds.All(commandId =>
+                ToolPanelDockingContract.TryParseMenuActionTag(
+                    commandId,
+                    out string panelId,
+                    out ToolPanelUserAction action) &&
+                ToolPanelDockingContract.PaletteCommandId(
+                    panelId,
+                    action) == commandId),
+            "every stable-ID tool exposes unique Show, Hide, Float, and Re-dock commands");
+        Check(
+            ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Hidden,
+                ToolPanelUserAction.Show) &&
+            ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Hidden,
+                ToolPanelUserAction.Float) &&
+            !ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Hidden,
+                ToolPanelUserAction.Hide) &&
+            !ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Hidden,
+                ToolPanelUserAction.Redock) &&
+            ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Docked,
+                ToolPanelUserAction.Hide) &&
+            ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Docked,
+                ToolPanelUserAction.Float) &&
+            !ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Docked,
+                ToolPanelUserAction.Show) &&
+            !ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Docked,
+                ToolPanelUserAction.Redock) &&
+            ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Floating,
+                ToolPanelUserAction.Hide) &&
+            ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Floating,
+                ToolPanelUserAction.Redock) &&
+            !ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Floating,
+                ToolPanelUserAction.Show) &&
+            !ToolPanelDockingContract.CanExecuteUserAction(
+                ToolPanelDockState.Floating,
+                ToolPanelUserAction.Float),
+            "tool actions fail closed unless their source state can commit the requested transition");
+        Check(
+            ToolPanelDockingContract.BottomToolPanelIds.SequenceEqual(
+                new[]
+                {
+                    ToolPanelDockingContract.ConsolePanelId,
+                    ToolPanelDockingContract.BuildPanelId,
+                    ToolPanelDockingContract.AssetsPanelId,
+                    ToolPanelDockingContract.ProfilerPanelId,
+                }) &&
+            ToolPanelDockingContract.BottomToolPanelIds.All(
+                ToolPanelDockingContract.IsBottomToolPanelId) &&
+            !ToolPanelDockingContract.IsBottomToolPanelId(
+                ToolPanelDockingContract.HierarchyPanelId),
+            "bottom tools keep individual stable IDs in deterministic tab order");
+        Check(
+            BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                ToolPanelDockingContract.AssetsPanelId,
+                new[] { "console", "assets", "profiler" }) == "assets" &&
+            BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                ToolPanelDockingContract.AssetsPanelId,
+                new[] { "profiler", "build" }) == "build" &&
+            BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                ToolPanelDockingContract.ProfilerPanelId,
+                Array.Empty<string>()) == "profiler" &&
+            BottomToolDockSelectionPolicy.ResolveActivePanelId(
+                "unknown",
+                Array.Empty<string>()) == "console",
+            "bottom tab selection survives independent float, hide, and empty-dock states");
+        var bottomDockVisibility = new BottomToolDockVisibilityState();
+        string[] dockedBeforeAggregateHide =
+        {
+            ToolPanelDockingContract.ConsolePanelId,
+            ToolPanelDockingContract.AssetsPanelId,
+        };
+        string activeBeforeAggregateHide =
+            ToolPanelDockingContract.AssetsPanelId;
+        bottomDockVisibility.SetVisible(visible: false);
+        Check(
+            bottomDockVisibility.IsSuppressed &&
+            !bottomDockVisibility.IsVisible(
+                dockedBeforeAggregateHide.Length) &&
+            dockedBeforeAggregateHide.SequenceEqual(
+                new[]
+                {
+                    ToolPanelDockingContract.ConsolePanelId,
+                    ToolPanelDockingContract.AssetsPanelId,
+                }) &&
+            activeBeforeAggregateHide ==
+                ToolPanelDockingContract.AssetsPanelId,
+            "aggregate bottom-dock hide preserves child states and active tab");
+        bottomDockVisibility.SetVisible(visible: true);
+        Check(
+            !bottomDockVisibility.IsSuppressed &&
+            bottomDockVisibility.IsVisible(
+                dockedBeforeAggregateHide.Length) &&
+            !bottomDockVisibility.IsVisible(dockedToolCount: 0) &&
+            dockedBeforeAggregateHide.SequenceEqual(
+                new[]
+                {
+                    ToolPanelDockingContract.ConsolePanelId,
+                    ToolPanelDockingContract.AssetsPanelId,
+                }) &&
+            activeBeforeAggregateHide ==
+                ToolPanelDockingContract.AssetsPanelId,
+            "aggregate bottom-dock restore is presentation-only and reversible");
+        Check(
+            !ToolPanelWorkspaceMutationPolicy.ShouldMarkCustomized(
+                restoreCompleted: false,
+                persistenceSuppressed: false) &&
+            !ToolPanelWorkspaceMutationPolicy.ShouldMarkCustomized(
+                restoreCompleted: true,
+                persistenceSuppressed: true) &&
+            ToolPanelWorkspaceMutationPolicy.ShouldMarkCustomized(
+                restoreCompleted: true,
+                persistenceSuppressed: false),
+            "user tool-state mutations mark named workspaces only after restore");
+        Check(
+            !ToolPanelWorkspaceMutationPolicy.ShouldMarkPublishedTransition(
+                committedTransition: false,
+                userMutationInProgress: false,
+                restoreCompleted: true,
+                persistenceSuppressed: false) &&
+            !ToolPanelWorkspaceMutationPolicy.ShouldMarkPublishedTransition(
+                committedTransition: true,
+                userMutationInProgress: true,
+                restoreCompleted: true,
+                persistenceSuppressed: false) &&
+            !ToolPanelWorkspaceMutationPolicy.ShouldMarkPublishedTransition(
+                committedTransition: true,
+                userMutationInProgress: false,
+                restoreCompleted: false,
+                persistenceSuppressed: false) &&
+            !ToolPanelWorkspaceMutationPolicy.ShouldMarkPublishedTransition(
+                committedTransition: true,
+                userMutationInProgress: false,
+                restoreCompleted: true,
+                persistenceSuppressed: true) &&
+            ToolPanelWorkspaceMutationPolicy.ShouldMarkPublishedTransition(
+                committedTransition: true,
+                userMutationInProgress: false,
+                restoreCompleted: true,
+                persistenceSuppressed: false),
+            "only an external committed transition may customize a restored workspace");
+        var workspaceMutationOrder = new List<string>();
+        bool committedMutation =
+            ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                () =>
+                {
+                    workspaceMutationOrder.Add("visibility");
+                    return true;
+                },
+                () => workspaceMutationOrder.Add("custom"));
+        int rejectedMutationMarks = 0;
+        bool rejectedMutation =
+            ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                () => false,
+                () => rejectedMutationMarks++);
+        int exceptionalMutationMarks = 0;
+        try
+        {
+            ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                () => throw new InvalidOperationException("mutation failed"),
+                () => exceptionalMutationMarks++);
+        }
+        catch (InvalidOperationException)
+        {
+            // A failed visibility mutation must not relabel the workspace.
+        }
+        Check(
+            committedMutation &&
+            !rejectedMutation &&
+            workspaceMutationOrder.SequenceEqual(
+                new[] { "visibility", "custom" }) &&
+            rejectedMutationMarks == 0 &&
+            exceptionalMutationMarks == 0,
+            "user mutation helpers mark Custom only after a true committed result");
+        int successfulStateMarks = 0;
+        bool dockedSuccess =
+            ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                () => ToolPanelDockingContract.CanExecuteUserAction(
+                    ToolPanelDockState.Docked,
+                    ToolPanelUserAction.Hide),
+                () => successfulStateMarks++);
+        bool floatingSuccess =
+            ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                () => ToolPanelDockingContract.CanExecuteUserAction(
+                    ToolPanelDockState.Floating,
+                    ToolPanelUserAction.Redock),
+                () => successfulStateMarks++);
+        int failedFloatingMarks = 0;
+        bool failedFloatingTransition =
+            ToolPanelWorkspaceMutationPolicy.ApplyUserMutation(
+                () => false,
+                () => failedFloatingMarks++);
+        Check(
+            dockedSuccess &&
+            floatingSuccess &&
+            !failedFloatingTransition &&
+            successfulStateMarks == 2 &&
+            failedFloatingMarks == 0,
+            "docked and floating successes customize once while failed re-dock does not");
+        Check(
+            !ToolPanelDockingContract.TryParseMenuActionTag(
+                "view.panel.hierarchy.teleport",
+                out _,
+                out _) &&
+            !ToolPanelDockingContract.TryParseMenuActionTag(
+                "view.panel.unknown.show",
+                out _,
+                out _) &&
+            !ToolPanelDockingContract.TryParseMenuActionTag(
+                "VIEW.PANEL.HIERARCHY.SHOW",
+                out _,
+                out _) &&
+            !ToolPanelDockingContract.TryParseMenuActionTag(
+                null,
+                out _,
+                out _),
+            "tool action tags reject unknown IDs, verbs, casing, and null");
+        Check(
+            ToolPanelStartupRestorePolicy.ShouldSeedCurrentLayout(
+                loadedPersistedSnapshot: false) &&
+            !ToolPanelStartupRestorePolicy.ShouldSeedCurrentLayout(
+                loadedPersistedSnapshot: true),
+            "startup seeds the restored legacy layout unless a complete v2 snapshot loaded");
         Check(
             registered.All(panel =>
                 !string.IsNullOrWhiteSpace(panel.AccessibleName) &&
@@ -48,6 +305,10 @@ internal static class ToolPanelDockingSelfTest
             "registered tool panels expose distinct accessible names");
         Check(
             ToolPanelDockingContract.IsKnownPanelId("hierarchy") &&
+            ToolPanelDockingContract.IsKnownPanelId("console") &&
+            ToolPanelDockingContract.IsKnownPanelId("build") &&
+            ToolPanelDockingContract.IsKnownPanelId("assets") &&
+            ToolPanelDockingContract.IsKnownPanelId("profiler") &&
             !ToolPanelDockingContract.IsKnownPanelId("Hierarchy") &&
             !ToolPanelDockingContract.IsKnownPanelId(" hierarchy") &&
             !ToolPanelDockingContract.IsKnownPanelId("camera") &&
@@ -128,11 +389,13 @@ internal static class ToolPanelDockingSelfTest
             "floating tools do not steal focus or topmost and block unsafe owner close");
         Check(
             ToolPanelResetTransactionPolicy.CanCommitDefaults(
-                new[] { true, true, true }) &&
+                Enumerable.Repeat(true, registered.Length).ToArray()) &&
             !ToolPanelResetTransactionPolicy.CanCommitDefaults(
-                new[] { true, false, true }) &&
+                Enumerable.Range(0, registered.Length)
+                    .Select(index => index != registered.Length / 2)
+                    .ToArray()) &&
             !ToolPanelResetTransactionPolicy.CanCommitDefaults(
-                new[] { true, true }) &&
+                Enumerable.Repeat(true, registered.Length - 1).ToArray()) &&
             !ToolPanelResetTransactionPolicy.CanCommitDefaults(
                 Array.Empty<bool>()),
             "layout reset commits defaults only after every registered panel succeeds");
@@ -158,6 +421,137 @@ internal static class ToolPanelDockingSelfTest
                 ToolPanelDockState.Floating,
                 ToolPanelDockState.Docked),
             "reset rollback completion is validated rather than assumed");
+        var ownerCloseSnapshot = new DockableToolHostSnapshot(
+            ToolPanelDockingContract.AssetsPanelId,
+            ToolPanelDockState.Floating,
+            new System.Windows.Rect(80.0, 60.0, 900.0, 600.0));
+        Check(
+            ToolPanelOwnerCloseTransactionPolicy.HasRestoredState(
+                ownerCloseSnapshot,
+                ToolPanelDockState.Floating) &&
+            !ToolPanelOwnerCloseTransactionPolicy.HasRestoredState(
+                ownerCloseSnapshot,
+                ToolPanelDockState.Docked),
+            "owner-close rollback validates each requested panel state");
+        Check(
+            ToolPanelOwnerCloseTransactionPolicy.HasRestoredSnapshot(
+                ownerCloseSnapshot,
+                ownerCloseSnapshot with
+                {
+                    Placement = new System.Windows.Rect(
+                        80.5,
+                        59.5,
+                        900.5,
+                        599.5),
+                }) &&
+            !ToolPanelOwnerCloseTransactionPolicy.HasRestoredSnapshot(
+                ownerCloseSnapshot,
+                ownerCloseSnapshot with
+                {
+                    Placement = new System.Windows.Rect(
+                        81.0,
+                        60.0,
+                        900.0,
+                        600.0),
+                }),
+            "owner-close rollback validates placement with bounded DIP rounding tolerance");
+        Check(
+            ToolPanelOwnerCloseTransactionPolicy.MustRollbackPending(
+                hasPendingSnapshot: true,
+                closeAlreadyCancelled: true,
+                auxiliaryCloseSucceeded: true) &&
+            ToolPanelOwnerCloseTransactionPolicy.MustRollbackPending(
+                hasPendingSnapshot: true,
+                closeAlreadyCancelled: false,
+                auxiliaryCloseSucceeded: false) &&
+            !ToolPanelOwnerCloseTransactionPolicy.MustRollbackPending(
+                hasPendingSnapshot: false,
+                closeAlreadyCancelled: true,
+                auxiliaryCloseSucceeded: false),
+            "pending owner-close layout rolls back on cancellation or auxiliary failure");
+        Check(
+            ToolPanelOwnerCloseTransactionPolicy.MayCommitPending(
+                hasPendingSnapshot: true,
+                closeAlreadyCancelled: false,
+                auxiliaryCloseSucceeded: true) &&
+            !ToolPanelOwnerCloseTransactionPolicy.MayCommitPending(
+                hasPendingSnapshot: true,
+                closeAlreadyCancelled: true,
+                auxiliaryCloseSucceeded: true) &&
+            !ToolPanelOwnerCloseTransactionPolicy.MayCommitPending(
+                hasPendingSnapshot: true,
+                closeAlreadyCancelled: false,
+                auxiliaryCloseSucceeded: false),
+            "pending owner-close layout commits only after the final auxiliary surface");
+        Check(
+            !EditorCloseFinalizationPolicy.ShouldCancelAtEditorGate(
+                documentsApproved: true,
+                auxiliarySurfacesApproved: false,
+                finalizationCompleted: false) &&
+            EditorCloseFinalizationPolicy.ShouldCancelAtEditorGate(
+                documentsApproved: true,
+                auxiliarySurfacesApproved: true,
+                finalizationCompleted: false) &&
+            !EditorCloseFinalizationPolicy.ShouldCancelAtEditorGate(
+                documentsApproved: true,
+                auxiliarySurfacesApproved: true,
+                finalizationCompleted: true) &&
+            !EditorCloseFinalizationPolicy.ShouldCancelAtEditorGate(
+                documentsApproved: false,
+                auxiliarySurfacesApproved: true,
+                finalizationCompleted: false),
+            "editor close reaches auxiliary handlers once and waits for final cleanup");
+        Check(
+            EditorCloseFinalizationPolicy.ShouldBypassAuxiliaryHandlers(
+                auxiliarySurfacesApproved: true) &&
+            !EditorCloseFinalizationPolicy.ShouldBypassAuxiliaryHandlers(
+                auxiliarySurfacesApproved: false),
+            "final close bypasses temporary auxiliary re-dock handlers");
+
+        var enabledMaterial = new InputProbe(isEnabled: true);
+        var disabledMaterial = new InputProbe(isEnabled: false);
+        var lateMaterial = new InputProbe(isEnabled: true);
+        var closedMaterial = new InputProbe(isEnabled: true);
+        var materialInput =
+            new ModelessOwnerCloseInputTransaction<InputProbe>(
+                probe => probe.IsEnabled,
+                (probe, enabled) => probe.SetEnabled(enabled));
+        materialInput.Block(
+            new[]
+            {
+                enabledMaterial,
+                disabledMaterial,
+                closedMaterial,
+            });
+        enabledMaterial.IsEnabled = true;
+        materialInput.Block(
+            new[]
+            {
+                enabledMaterial,
+                disabledMaterial,
+                lateMaterial,
+                closedMaterial,
+            });
+        Check(
+            materialInput.IsBlocked &&
+            materialInput.CapturedCount == 4 &&
+            !enabledMaterial.IsEnabled &&
+            !disabledMaterial.IsEnabled &&
+            !lateMaterial.IsEnabled &&
+            !closedMaterial.IsEnabled,
+            "owner-close preparation and finalization keep every modeless material inert");
+        int closedWritesBeforeRestore = closedMaterial.WriteCount;
+        materialInput.Restore(
+            new[] { enabledMaterial, disabledMaterial, lateMaterial });
+        Check(
+            !materialInput.IsBlocked &&
+            materialInput.CapturedCount == 0 &&
+            enabledMaterial.IsEnabled &&
+            !disabledMaterial.IsEnabled &&
+            lateMaterial.IsEnabled &&
+            !closedMaterial.IsEnabled &&
+            closedMaterial.WriteCount == closedWritesBeforeRestore,
+            "owner-close cancellation restores only live modeless materials to prior input state");
 
         Check(
             ToolPanelSnapPolicy.ThresholdPixels(96) == 12 &&
@@ -264,7 +658,7 @@ internal static class ToolPanelDockingSelfTest
         bool normalizedOk = ToolPanelPlacementPolicy.TryNormalizeForRestore(
             new ToolPanelPlacementState
             {
-                PanelId = "bottom",
+                PanelId = "profiler",
                 State = ToolPanelDockState.Floating,
                 Left = double.NaN,
                 Top = 5000,
@@ -276,7 +670,7 @@ internal static class ToolPanelDockingSelfTest
             out ToolPanelPlacementState normalized);
         Check(
             normalizedOk &&
-            normalized.PanelId == "bottom" &&
+            normalized.PanelId == "profiler" &&
             normalized.State == ToolPanelDockState.Floating &&
             normalized.Left == fallback.Left &&
             normalized.Top == fallback.Top &&
@@ -309,7 +703,10 @@ internal static class ToolPanelDockingSelfTest
                 {
                     new() { PanelId = "hierarchy" },
                     new() { PanelId = "inspector" },
-                    new() { PanelId = "bottom" },
+                    new() { PanelId = "console" },
+                    new() { PanelId = "build" },
+                    new() { PanelId = "assets" },
+                    new() { PanelId = "profiler" },
                 }) &&
             !ToolPanelPlacementPolicy.HasUniqueKnownPanelIds(
                 new ToolPanelPlacementState?[]
@@ -328,5 +725,18 @@ internal static class ToolPanelDockingSelfTest
         output.WriteLine(
             $"Tool-panel docking self-test: {passes} PASS / {failures} failures");
         return failures;
+    }
+
+    private sealed class InputProbe
+    {
+        internal InputProbe(bool isEnabled) => IsEnabled = isEnabled;
+        internal bool IsEnabled { get; set; }
+        internal int WriteCount { get; private set; }
+
+        internal void SetEnabled(bool enabled)
+        {
+            IsEnabled = enabled;
+            WriteCount++;
+        }
     }
 }

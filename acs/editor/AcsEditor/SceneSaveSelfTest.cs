@@ -1200,8 +1200,24 @@ internal static class SceneSaveSelfTest
         {
             mismatchVetoed = true;
         }
-        check(mismatchVetoed,
-            "preflight vetoes an existing manifest and Game.DefaultScene mismatch");
+        bool openMismatchFailedClosed = false;
+        try
+        {
+            _ = ProjectManager.Open(manifestPath);
+        }
+        catch (InvalidDataException error)
+        {
+            openMismatchFailedClosed =
+                error.Message.Contains(
+                    "startup-scene references are inconsistent",
+                    StringComparison.OrdinalIgnoreCase) &&
+                error.Message.Contains(
+                    "Game.DefaultScene",
+                    StringComparison.Ordinal);
+        }
+        check(
+            mismatchVetoed && openMismatchFailedClosed,
+            "preflight and project open fail closed on a manifest and Game.DefaultScene mismatch");
         File.WriteAllText(settingsPath, coherentSettings);
 
         File.Delete(settingsPath);

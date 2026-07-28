@@ -18,6 +18,7 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
     private static readonly Pen GpuPen = FrozenPen("#FFF3B65B", 1.6);
     private static readonly Pen CpuPeakPen = FrozenDashedPen("#9961C7F2");
     private static readonly Pen GpuPeakPen = FrozenDashedPen("#99F3B65B");
+    private static readonly Pen BudgetPen = FrozenDashedPen("#B3E16A6A");
     private static readonly Pen OpaquePen = FrozenPen("#FF97D67C", 1.0);
     private static readonly Pen AtmospherePen = FrozenPen("#FF8BA7FF", 1.0);
     private static readonly Pen CloudPen = FrozenPen("#FFF08CC0", 1.0);
@@ -28,6 +29,7 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
         Array.Empty<EditorProfilerPoint>();
     private float _cpuPeakMs = -1;
     private float _gpuPeakMs = -1;
+    private double _targetBudgetMilliseconds = 1000.0 / 300.0;
     private double _lastRenderMilliseconds;
     private double _maximumRenderMilliseconds;
 
@@ -36,6 +38,20 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
     internal bool ShowPasses { get; set; } = true;
     internal double LastRenderMilliseconds => _lastRenderMilliseconds;
     internal double MaximumRenderMilliseconds => _maximumRenderMilliseconds;
+    internal double TargetBudgetMilliseconds
+    {
+        get => _targetBudgetMilliseconds;
+        set
+        {
+            double next = double.IsFinite(value) && value > 0
+                ? value
+                : 1000.0 / 300.0;
+            if (Math.Abs(next - _targetBudgetMilliseconds) < 0.0001)
+                return;
+            _targetBudgetMilliseconds = next;
+            InvalidateVisual();
+        }
+    }
 
     internal void SetHistory(IReadOnlyList<EditorProfilerPoint> points)
     {
@@ -92,7 +108,10 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
             Math.Max(1, bounds.Width - labelWidth - padding),
             Math.Max(1, bounds.Height - padding * 2));
 
-        double maxMs = 33.34;
+        // Scale around the selected frame budget instead of assuming a
+        // 30-FPS graph. At a 300-FPS target, a fixed 33/50 ms axis compresses
+        // every useful 2-5 ms sample into an unreadable line at the bottom.
+        double maxMs = Math.Max(5.0, _targetBudgetMilliseconds * 1.35);
         foreach (EditorProfilerPoint point in _points)
         {
             maxMs = Math.Max(maxMs, point.CpuFrameMs);
@@ -106,6 +125,7 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
         maxMs = NiceMaximum(Math.Min(250, maxMs * 1.15));
 
         DrawGrid(drawingContext, plot, maxMs);
+        DrawBudget(drawingContext, plot, maxMs);
         if (ShowCpu && _cpuPeakMs >= 0)
             DrawPeak(drawingContext, plot, maxMs, _cpuPeakMs,
                 CpuPeakPen, "CPU peak", -12);
@@ -154,6 +174,33 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
             new Point(Math.Max(plot.Left + 4, plot.Right - 94),
                       Math.Clamp(y + labelOffset, plot.Top, plot.Bottom - 12)),
             pen.Brush);
+    }
+
+    private void DrawBudget(
+        DrawingContext dc,
+        Rect plot,
+        double maxMs)
+    {
+        if (!double.IsFinite(_targetBudgetMilliseconds) ||
+            _targetBudgetMilliseconds <= 0 ||
+            _targetBudgetMilliseconds > maxMs)
+        {
+            return;
+        }
+
+        double y = plot.Bottom -
+            plot.Height * (_targetBudgetMilliseconds / maxMs);
+        dc.DrawLine(
+            BudgetPen,
+            new Point(plot.Left, y),
+            new Point(plot.Right, y));
+        DrawText(
+            dc,
+            $"budget {_targetBudgetMilliseconds:0.00}",
+            new Point(
+                Math.Max(plot.Left + 4, plot.Right - 94),
+                Math.Clamp(y - 12, plot.Top, plot.Bottom - 12)),
+            BudgetPen.Brush);
     }
 
     private void DrawGrid(DrawingContext dc, Rect plot, double maxMs)
@@ -243,7 +290,11 @@ internal sealed class ProfilerHistoryGraph : FrameworkElement
 
     private static double NiceMaximum(double value)
     {
+        if (value <= 5) return 5;
+        if (value <= 8.34) return 8.34;
+        if (value <= 10) return 10;
         if (value <= 16.67) return 16.67;
+        if (value <= 20) return 20;
         if (value <= 33.34) return 33.34;
         if (value <= 50) return 50;
         if (value <= 100) return 100;

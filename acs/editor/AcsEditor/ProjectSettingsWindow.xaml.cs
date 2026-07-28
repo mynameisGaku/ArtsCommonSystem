@@ -30,11 +30,16 @@ public partial class ProjectSettingsWindow : Window
         bool Builtin,
         string Desc);
 
-    private sealed record CategoryItem(string Name, int Count, bool IsAll = false);
+    private sealed record CategoryItem(
+        string Name,
+        int Count,
+        bool IsAll = false,
+        bool IsPackageMetadata = false);
 
     public ProjectSettingsWindow(
         Window owner,
         IntPtr engine,
+        string projectRoot,
         Func<string, string?, Func<bool>, bool> applyMutation)
     {
         InitializeComponent();
@@ -47,6 +52,7 @@ public partial class ProjectSettingsWindow : Window
         Reload(keepSelection: false);
         UpdateSearchChrome();
         UpdateAddButton();
+        InitializePackageMetadata(projectRoot);
     }
 
     /// <summary>Reloads the complete setting catalog from the editor ABI.</summary>
@@ -91,7 +97,25 @@ public partial class ProjectSettingsWindow : Window
             .Select(group => new CategoryItem(group.Key, group.Count()))
             .ToList();
 
-        categories.Insert(0, new CategoryItem("All settings", searchMatches.Count, IsAll: true));
+        bool packageMetadataMatches =
+            PackageMetadataMatchesSearch(SearchBox.Text);
+        if (packageMetadataMatches)
+        {
+            categories.Insert(
+                0,
+                new CategoryItem(
+                    PackageMetadataCategoryName,
+                    4,
+                    IsPackageMetadata: true));
+        }
+        categories.Insert(
+            0,
+            new CategoryItem(
+                "All settings",
+                AggregateProjectSettingsCount(
+                    searchMatches.Count,
+                    packageMetadataMatches),
+                IsAll: true));
         CatList.ItemsSource = categories;
         CategoryCountText.Text = categories.Count == 1
             ? "0"
@@ -129,9 +153,15 @@ public partial class ProjectSettingsWindow : Window
             return;
 
         _selectedCat = selected.IsAll ? "" : selected.Name;
+        if (selected.IsPackageMetadata)
+        {
+            ShowPackageMetadataEditor();
+            return;
+        }
         if (!selected.IsAll && NewCat != null && !NewCat.IsKeyboardFocusWithin)
             NewCat.Text = selected.Name;
 
+        ShowSettingsRows();
         BuildRows();
     }
 

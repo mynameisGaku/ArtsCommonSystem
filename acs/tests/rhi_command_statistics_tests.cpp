@@ -3,6 +3,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "asset/MeshAsset.h"
+#include "editor_abi/EditorFrustumCulling.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiDevice.h"
 #include "render/MotionVector.h"
@@ -77,12 +78,28 @@ public:
     }
     void SetTexture(u32, IRhiTexture&) noexcept override {}
 
-    void Draw(u32 vertex_count, u32 = 0u) noexcept override {
+    void Draw(
+        u32 vertex_count, u32 first_vertex = 0u) noexcept override {
+        if (vertex_count != 0u &&
+            draw_record_count <
+                static_cast<u32>(sizeof(draw_counts) /
+                                 sizeof(draw_counts[0]))) {
+            draw_counts[draw_record_count] = vertex_count;
+            draw_first_vertices[draw_record_count] = first_vertex;
+            ++draw_record_count;
+        }
         RecordDraw(vertex_count);
     }
 
     void DrawIndexed(
         u32 index_count, u32 = 0u, i32 = 0) noexcept override {
+        if (index_count != 0u &&
+            indexed_draw_record_count <
+                static_cast<u32>(sizeof(indexed_draw_counts) /
+                                 sizeof(indexed_draw_counts[0]))) {
+            indexed_draw_counts[indexed_draw_record_count++] =
+                index_count;
+        }
         RecordDraw(index_count);
     }
 
@@ -108,6 +125,11 @@ public:
     u32 set_vertex_buffer_count = 0u;
     u32 set_index_buffer_count = 0u;
     u32 set_constant_buffer_count = 0u;
+    u32 draw_record_count = 0u;
+    u32 draw_counts[64]{};
+    u32 draw_first_vertices[64]{};
+    u32 indexed_draw_record_count = 0u;
+    u32 indexed_draw_counts[64]{};
 };
 
 ACS_TEST(Render,
@@ -222,6 +244,250 @@ ACS_TEST(Render, RhiCommandStatisticsCountAndReset)
     EXPECT_EQ(reset.draw_calls, 0u);
     EXPECT_EQ(reset.dispatch_calls, 0u);
     EXPECT_EQ(reset.triangles, 0u);
+}
+
+ACS_TEST(Render, EditorSceneGeometryPassPolicyMatchesProductionCommands)
+{
+    using namespace editor_frustum_culling;
+
+    struct FExpectedPolicy {
+        bool masked;
+        ESubmissionCommandForm command;
+    };
+    constexpr FExpectedPolicy expected[] = {
+        {true, ESubmissionCommandForm::Draw},
+        {true, ESubmissionCommandForm::DrawIndexed},
+        {true, ESubmissionCommandForm::None},
+        {true, ESubmissionCommandForm::DrawIndexed},
+        {true, ESubmissionCommandForm::DrawIndexed},
+        {true, ESubmissionCommandForm::None},
+        {true, ESubmissionCommandForm::DrawIndexed},
+        {false, ESubmissionCommandForm::Draw},
+        {false, ESubmissionCommandForm::Dispatch},
+    };
+    static_assert(
+        static_cast<u32>(ESceneGeometryPass::Count) ==
+        static_cast<u32>(sizeof(expected) / sizeof(expected[0])));
+
+    const u8 visibility[] = {1u, 0u, 1u, 1u};
+    const FSubmissionMaskView main_view_mask{
+        true, visibility,
+        static_cast<u32>(sizeof(visibility) / sizeof(visibility[0]))};
+    for (u32 pass_index = 0u;
+         pass_index < static_cast<u32>(ESceneGeometryPass::Count);
+         ++pass_index) {
+        const ESceneGeometryPass pass =
+            static_cast<ESceneGeometryPass>(pass_index);
+        const FSceneGeometryPassPolicy policy =
+            SceneGeometryPassPolicy(pass);
+        EXPECT_EQ(policy.uses_main_view_mask, expected[pass_index].masked);
+        EXPECT_EQ(
+            static_cast<u32>(policy.command_form),
+            static_cast<u32>(expected[pass_index].command));
+        const FSubmissionMaskView pass_mask =
+            SubmissionMaskForPass(pass, main_view_mask);
+        EXPECT_EQ(pass_mask.ShouldSubmit(1u), !expected[pass_index].masked);
+    }
+}
+
+ACS_TEST(Render, EditorMainViewCullingRecordsTruthfulCommandsForEveryPass)
+{
+    using namespace editor_frustum_culling;
+
+    const u8 visibility[] = {1u, 0u, 1u, 1u};
+    const u32 vertex_offsets[] = {0u, 3u, 6u, 9u};
+    const u32 vertex_counts[] = {3u, 3u, 3u, 3u};
+    const FSubmissionMaskView main_view_mask{
+        true, visibility,
+        static_cast<u32>(sizeof(visibility) / sizeof(visibility[0]))};
+    FStatisticsCommandList command_list;
+
+    // The normal/depth prepass is the one production non-indexed camera pass.
+    // Visible nodes 2 and 3 are adjacent in the aggregate VB and coalesce.
+    const FSubmissionMaskView normal_mask = SubmissionMaskForPass(
+        ESceneGeometryPass::NormalDepthPrepass, main_view_mask);
+    const u32 normal_ranges = ForEachSubmittedVertexRange(
+        normal_mask, 4u,
+        [&](u32 index) noexcept { return vertex_offsets[index]; },
+        [&](u32 index) noexcept { return vertex_counts[index]; },
+        [&](u32 offset, u32 count) noexcept {
+            command_list.Draw(count, offset);
+        });
+    EXPECT_EQ(normal_ranges, 2u);
+    EXPECT_EQ(command_list.draw_record_count, 2u);
+    EXPECT_EQ(command_list.draw_counts[0], 3u);
+    EXPECT_EQ(command_list.draw_first_vertices[0], 0u);
+    EXPECT_EQ(command_list.draw_counts[1], 6u);
+    EXPECT_EQ(command_list.draw_first_vertices[1], 6u);
+
+    constexpr ESceneGeometryPass indexed_passes[] = {
+        ESceneGeometryPass::MotionVectors,
+        ESceneGeometryPass::PbrOpaqueDraw,
+        ESceneGeometryPass::InteractiveWaterDraw,
+        ESceneGeometryPass::RefractionDraw,
+    };
+    for (ESceneGeometryPass pass : indexed_passes) {
+        const u32 submitted = ForEachSubmittedNode(
+            SubmissionMaskForPass(pass, main_view_mask), 4u,
+            [&](u32 node_index) noexcept {
+                // A unique count identifies the submitted node.
+                command_list.DrawIndexed((node_index + 1u) * 3u);
+            });
+        EXPECT_EQ(submitted, 3u);
+    }
+    EXPECT_EQ(command_list.indexed_draw_record_count, 12u);
+    for (u32 record = 0u; record < 12u; record += 3u) {
+        EXPECT_EQ(command_list.indexed_draw_counts[record], 3u);
+        EXPECT_EQ(command_list.indexed_draw_counts[record + 1u], 9u);
+        EXPECT_EQ(command_list.indexed_draw_counts[record + 2u], 12u);
+    }
+
+    // Count/preflight are mask-aware eligibility queries and emit no command.
+    const u32 draws_before_queries =
+        command_list.Statistics().draw_calls;
+    EXPECT_EQ(
+        ForEachSubmittedNode(
+            SubmissionMaskForPass(
+                ESceneGeometryPass::PbrOpaqueCount, main_view_mask),
+            4u, [](u32) noexcept {}),
+        3u);
+    EXPECT_FALSE(AnySubmittedNode(
+        SubmissionMaskForPass(
+            ESceneGeometryPass::RefractionPreflight, main_view_mask),
+        4u, [](u32 node_index) noexcept { return node_index == 1u; }));
+    EXPECT_TRUE(AnySubmittedNode(
+        SubmissionMaskForPass(
+            ESceneGeometryPass::RefractionPreflight, main_view_mask),
+        4u, [](u32 node_index) noexcept { return node_index == 2u; }));
+    EXPECT_EQ(
+        command_list.Statistics().draw_calls,
+        draws_before_queries);
+
+    // Shadow uses one aggregate non-indexed light-space draw; the hidden
+    // camera node remains eligible. VXGI similarly sees the whole world and
+    // records compute dispatches, never camera-filtered per-node draws.
+    const FSubmissionMaskView shadow_mask = SubmissionMaskForPass(
+        ESceneGeometryPass::ShadowCaster, main_view_mask);
+    const FSubmissionMaskView vxgi_mask = SubmissionMaskForPass(
+        ESceneGeometryPass::VxgiVoxelization, main_view_mask);
+    EXPECT_TRUE(shadow_mask.ShouldSubmit(1u));
+    EXPECT_TRUE(vxgi_mask.ShouldSubmit(1u));
+    command_list.Draw(12u, 0u);
+    command_list.Dispatch(1u, 1u, 1u);
+
+    EXPECT_EQ(command_list.draw_record_count, 3u);
+    EXPECT_EQ(command_list.draw_counts[2], 12u);
+    EXPECT_EQ(command_list.draw_first_vertices[2], 0u);
+    EXPECT_EQ(command_list.Statistics().draw_calls, 15u);
+    EXPECT_EQ(command_list.Statistics().dispatch_calls, 1u);
+    EXPECT_EQ(command_list.Statistics().triangles, 39u);
+}
+
+ACS_TEST(Render, EditorNormalPrepassPreservesAggregateFastPath)
+{
+    using namespace editor_frustum_culling;
+
+    const u8 all_visible[] = {1u, 1u, 1u, 1u};
+    const FSubmissionMaskView enabled_mask{
+        true, all_visible,
+        static_cast<u32>(sizeof(all_visible) / sizeof(all_visible[0]))};
+    EXPECT_TRUE(ShouldUseAggregateVertexDraw(enabled_mask, 0u));
+    EXPECT_FALSE(ShouldUseAggregateVertexDraw(enabled_mask, 1u));
+    EXPECT_TRUE(ShouldUseAggregateVertexDraw(
+        FSubmissionMaskView{false, all_visible, 4u}, 4u));
+
+    FStatisticsCommandList command_list;
+    if (ShouldUseAggregateVertexDraw(enabled_mask, 0u))
+        command_list.Draw(12u, 0u);
+    EXPECT_EQ(command_list.draw_record_count, 1u);
+    EXPECT_EQ(command_list.draw_counts[0], 12u);
+    EXPECT_EQ(command_list.draw_first_vertices[0], 0u);
+}
+
+ACS_TEST(Render, EditorVisibleVertexRangesCoalesceWithoutOverflow)
+{
+    using namespace editor_frustum_culling;
+
+    const u8 visibility[] = {1u, 1u, 0u, 1u, 1u};
+    const u32 offsets[] = {0u, 3u, 6u, 9u, 12u};
+    const u32 counts[] = {3u, 3u, 3u, 3u, 3u};
+    const FSubmissionMaskView mask{
+        true, visibility,
+        static_cast<u32>(sizeof(visibility) / sizeof(visibility[0]))};
+    u32 emitted_offsets[4]{};
+    u32 emitted_counts[4]{};
+    u32 recorded = 0u;
+    EXPECT_EQ(
+        ForEachSubmittedVertexRange(
+            mask, 5u,
+            [&](u32 index) noexcept { return offsets[index]; },
+            [&](u32 index) noexcept { return counts[index]; },
+            [&](u32 offset, u32 count) noexcept {
+                emitted_offsets[recorded] = offset;
+                emitted_counts[recorded] = count;
+                ++recorded;
+            }),
+        2u);
+    EXPECT_EQ(recorded, 2u);
+    EXPECT_EQ(emitted_offsets[0], 0u);
+    EXPECT_EQ(emitted_counts[0], 6u);
+    EXPECT_EQ(emitted_offsets[1], 9u);
+    EXPECT_EQ(emitted_counts[1], 6u);
+
+    // Hostile metadata must not wrap range_end and accidentally merge spans.
+    const u32 hostile_offsets[] = {~u32{0} - 2u, ~u32{0}, 0u};
+    const u32 hostile_counts[] = {2u, 1u, 3u};
+    recorded = 0u;
+    EXPECT_EQ(
+        ForEachSubmittedVertexRange(
+            FSubmissionMaskView{}, 3u,
+            [&](u32 index) noexcept { return hostile_offsets[index]; },
+            [&](u32 index) noexcept { return hostile_counts[index]; },
+            [&](u32 offset, u32 count) noexcept {
+                emitted_offsets[recorded] = offset;
+                emitted_counts[recorded] = count;
+                ++recorded;
+            }),
+        3u);
+    EXPECT_EQ(recorded, 3u);
+    EXPECT_EQ(emitted_offsets[0], ~u32{0} - 2u);
+    EXPECT_EQ(emitted_counts[0], 2u);
+    EXPECT_EQ(emitted_offsets[1], ~u32{0});
+    EXPECT_EQ(emitted_counts[1], 1u);
+    EXPECT_EQ(emitted_offsets[2], 0u);
+    EXPECT_EQ(emitted_counts[2], 3u);
+}
+
+ACS_TEST(Render, EditorMainViewCullingSubmissionMaskFailsOpen)
+{
+    using namespace editor_frustum_culling;
+
+    const u8 hidden[] = {0u, 0u, 0u};
+    u32 submitted = 0u;
+    EXPECT_EQ(
+        ForEachSubmittedNode(
+            FSubmissionMaskView{false, hidden, 3u}, 3u,
+            [&](u32) noexcept { ++submitted; }),
+        3u);
+    EXPECT_EQ(submitted, 3u);
+
+    submitted = 0u;
+    EXPECT_EQ(
+        ForEachSubmittedNode(
+            FSubmissionMaskView{true, nullptr, 3u}, 3u,
+            [&](u32) noexcept { ++submitted; }),
+        3u);
+    EXPECT_EQ(submitted, 3u);
+
+    // An undersized buffer may cull only an in-range explicit decision.
+    // Missing decisions stay visible rather than disappearing.
+    submitted = 0u;
+    EXPECT_EQ(
+        ForEachSubmittedNode(
+            FSubmissionMaskView{true, hidden, 1u}, 3u,
+            [&](u32) noexcept { ++submitted; }),
+        2u);
+    EXPECT_EQ(submitted, 2u);
 }
 
 ACS_TEST(Render, RhiGpuTimingDefaultsAndScopeBalance)

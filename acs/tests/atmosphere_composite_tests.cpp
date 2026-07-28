@@ -67,6 +67,21 @@ bool Contains(const std::string& text, const char* token) {
     return text.find(token) != std::string::npos;
 }
 
+std::size_t CountOccurrences(
+        const std::string& text, const char* token) {
+    const std::size_t tokenLength =
+        std::char_traits<char>::length(token);
+    if (tokenLength == 0u) return 0u;
+
+    std::size_t count = 0u;
+    std::size_t position = 0u;
+    while ((position = text.find(token, position)) != std::string::npos) {
+        ++count;
+        position += tokenLength;
+    }
+    return count;
+}
+
 } // namespace
 
 ACS_TEST(Atmosphere, CompositeSeparatesLongRangeAtmosphereFromLocalFog) {
@@ -176,6 +191,36 @@ ACS_TEST(Atmosphere,
     EXPECT_TRUE(Contains(
         source,
         "cl.SetComputePipeline(*m_LocalFogPipe);"));
+}
+
+ACS_TEST(Atmosphere,
+         LutShadersUseFxcSafeIntersectionsAndUnsignedSampleGrid) {
+    const std::string source = ReadAtmosphereSource();
+    EXPECT_TRUE(!source.empty());
+
+    // Legacy FXC does not reliably propagate values through early returns in
+    // inlined helpers.  Each intersection now starts from the miss sentinel,
+    // writes the hit path, and publishes through exactly one return.
+    EXPECT_TRUE(Contains(
+        source,
+        "if(disc>=0.0){ result=-b+sqrt(disc); } return result;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "if(disc>=0.0){ result=-b-sqrt(disc); } return result;"));
+    EXPECT_TRUE(Contains(
+        source,
+        "if(disc>=0.0){ float t=-b-sqrt(disc); "
+        "if(t>0.0){ result=t; } } return result;"));
+    EXPECT_EQ(
+        CountOccurrences(source, "float result=-1.0;"),
+        static_cast<std::size_t>(3u));
+
+    // The 8x8 solid-angle grid and ordering are unchanged; unsigned integer
+    // math maps directly to the non-negative dispatch/sample domain.
+    EXPECT_TRUE(Contains(source, "const uint SQ=8u;"));
+    EXPECT_TRUE(Contains(
+        source, "[loop] for(uint s=0u;s<64u;s++)"));
+    EXPECT_FALSE(Contains(source, "const int SQ=8;"));
 }
 
 ACS_TEST(Atmosphere,
@@ -812,7 +857,8 @@ ACS_TEST(Atmosphere,
         "        host.sky_zenith, host.sky_horizon, host.sky_ground);"));
     EXPECT_TRUE(Contains(
         water_pass,
-        "true);"));
+        "true, authored_normal_map,\n"
+        "            authored_normal_strength);"));
     EXPECT_TRUE(Contains(
         water_pass,
         "opaque PBR fallback remains active"));

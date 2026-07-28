@@ -30,7 +30,8 @@
                                    Foreground="{DynamicResource TextDim}" Margin="0,2,0,0"/>
                     </StackPanel>
                 </StackPanel>
-                <Button Grid.Column="1" Content="Open Existing…" Click="OnOpenExisting"
+                <Button x:Name="OpenExistingBtn" Grid.Column="1"
+                        Content="Open Existing…" Click="OnOpenExisting"
                         Style="{DynamicResource ToolbarButton}" MinWidth="126"/>
             </Grid>
         </Border>
@@ -150,7 +151,8 @@
             <Grid Margin="12,0">
                 <TextBlock x:Name="StatusText" VerticalAlignment="Center"
                            Style="{DynamicResource StateLabel}" TextTrimming="CharacterEllipsis"/>
-                <Button Content="Close" HorizontalAlignment="Right" Click="OnCancel"
+                <Button x:Name="CloseBtn" Content="Close"
+                        HorizontalAlignment="Right" Click="OnCancel"
                         Background="Transparent" BorderThickness="0" Padding="10,2"/>
             </Grid>
         </Border>

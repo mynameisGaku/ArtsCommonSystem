@@ -184,6 +184,22 @@ public static partial class ProjectManager
             _ = BackfillCanonicalSceneAssetId(project, assetDatabase);
         }
         project = ReadManifest(acsprojectPath);
+        try
+        {
+            // The manifest and ProjectSettings.ini jointly form the persistent
+            // startup-scene record. Never publish a Project whose two references
+            // disagree: MainWindow would otherwise load Game.DefaultScene and can
+            // briefly present a stale scene before the intended document opens.
+            ValidateInitialSceneReferenceFollow(project);
+        }
+        catch (InvalidDataException error)
+        {
+            throw new InvalidDataException(
+                "The project startup-scene references are inconsistent. " +
+                "The .acsproject initialScene and Game.DefaultScene values must identify " +
+                "the same scene asset. " + error.Message,
+                error);
+        }
         AddRecent(project.ProjectFilePath);
         return project;
     }
@@ -445,18 +461,54 @@ public static partial class ProjectManager
     // ===== 最近使ったプロジェクト (%APPDATA%/AcsEditor/recents.txt、新しい順) =====
     private static string RecentsFile =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AcsEditor", "recents.txt");
+    internal const int MaxRecentProjectListBytes = 512 * 1024;
 
     public static List<string> GetRecents()
+    {
+        return GetRecentPathsSnapshot()
+            .Where(File.Exists)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Reads the bounded recent-path file without probing each destination.
+    /// The launcher performs availability checks on its filesystem worker so
+    /// an offline UNC entry cannot block WPF's Dispatcher.
+    /// </summary>
+    internal static List<string> GetRecentPathsSnapshot()
     {
         try
         {
             if (!File.Exists(RecentsFile)) return new List<string>();
-            return File.ReadAllLines(RecentsFile)
-                       .Where(l => !string.IsNullOrWhiteSpace(l) && File.Exists(l))
-                       .Distinct(StringComparer.OrdinalIgnoreCase)
-                       .Take(10).ToList();
+            ReferenceFileSnapshot snapshot = CaptureRequiredOrdinaryFile(
+                RecentsFile,
+                MaxRecentProjectListBytes,
+                "recent project list",
+                requireWritable: false);
+            return ParseRecentPathsSnapshot(snapshot.Bytes);
         }
         catch { return new List<string>(); }
+    }
+
+    internal static List<string> ParseRecentPathsSnapshot(
+        ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length > MaxRecentProjectListBytes)
+        {
+            throw new InvalidDataException(
+                $"recent project list exceeds {MaxRecentProjectListBytes} bytes.");
+        }
+        string source = StrictUtf8NoBom.GetString(bytes);
+        if (source.Length != 0 && source[0] == '\uFEFF')
+            source = source[1..];
+        return source
+            .Split(
+                ["\r\n", "\n", "\r"],
+                StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .ToList();
     }
 
     public static void AddRecent(string projectFilePath)

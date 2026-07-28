@@ -57,6 +57,7 @@ add_executable(acs_unit_tests
     gpu_live_object_diagnostics_tests.cpp
     vertexscatter_tests.cpp
     post_effect_quality_tests.cpp
+    post_effect_workload_tests.cpp
     node3d_tests.cpp
     legacy_scene3d_water_runtime_tests.cpp
     subsystem_tests.cpp

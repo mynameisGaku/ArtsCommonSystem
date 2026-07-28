@@ -189,7 +189,7 @@ public partial class MainWindow
         _scene3DSavedSnapshot = snapshot.Scene3DSavedSnapshot;
         _scene2DDirty = snapshot.Scene2DDirty;
         _scene3DDirty = snapshot.Scene3DDirty;
-        _savedSceneSnapshot = snapshot.SavedSceneSnapshot;
+        SetActiveSavedSceneSnapshot(snapshot.SavedSceneSnapshot);
         _sceneDirty = snapshot.SceneDirty;
         _snapshotCaptureFailed = snapshot.SnapshotCaptureFailed;
         _hostSavedSubsystem2D = snapshot.HostSavedSubsystem2D;
@@ -247,9 +247,6 @@ public partial class MainWindow
         }
         return true;
     }
-
-    private static bool Is3DScenePath(string? path) =>
-        string.Equals(Path.GetExtension(path), ".acs3d", StringComparison.OrdinalIgnoreCase);
 
     private static SceneDocumentMode LegacySceneModeFromPath(string path)
     {
@@ -329,13 +326,13 @@ public partial class MainWindow
         if (_view3d)
         {
             _currentScenePath = _scene3DDocumentPath;
-            _savedSceneSnapshot = _scene3DSavedSnapshot;
+            SetActiveSavedSceneSnapshot(_scene3DSavedSnapshot);
             _sceneDirty = _scene3DDirty;
         }
         else
         {
             _currentScenePath = _scene2DPath;
-            _savedSceneSnapshot = _scene2DSavedSnapshot;
+            SetActiveSavedSceneSnapshot(_scene2DSavedSnapshot);
             _sceneDirty = _scene2DDirty;
         }
         SetSceneDirty(_sceneDirty);
@@ -417,9 +414,13 @@ public partial class MainWindow
         _sceneLoadGeneration.IsCurrent(load.Ticket) &&
         ReferenceEquals(_sceneLoadCancellation, load.Cancellation);
 
-    private void CompleteSceneLoad(ActiveSceneLoad load, bool publishScene)
+    private void CompleteSceneLoad(
+        ActiveSceneLoad load,
+        bool publishScene,
+        Action<bool>? completion = null)
     {
         Dispatcher.VerifyAccess();
+        bool publishedCurrentScene = false;
         SceneLoadCompletionGuard.Run(
             () =>
             {
@@ -446,6 +447,7 @@ public partial class MainWindow
                         }
                         ViewportHost.Visibility = Visibility.Visible;
                         ViewportLoadingOverlay.Visibility = Visibility.Collapsed;
+                        publishedCurrentScene = true;
                         _ = Dispatcher.BeginInvoke(
                             DispatcherPriority.Loaded,
                             new Action(
@@ -463,6 +465,7 @@ public partial class MainWindow
             },
             load,
             UpdateEditorInputEnabled);
+        completion?.Invoke(publishedCurrentScene);
     }
 
     private void InvalidateSceneLoad(string detail)
@@ -561,12 +564,13 @@ public partial class MainWindow
                 () => scenePath = ResolveConfiguredProjectScenePath());
         }
 
-        bool initialIs3D = scenePath != null && Is3DScenePath(scenePath);
-        EditorSceneViewMode initialProjectView =
-            EditorSceneViewModePolicy.InitialForProject(
+        EditorSceneStartupPlan startupPlan =
+            EditorSceneStartupPolicy.Resolve(
                 scenePath,
                 _project?.Template);
-        string initialSourceFormat = initialIs3D ? ".acs3d" : ".acscene";
+        bool initialIs3D = startupPlan.Uses3D;
+        EditorSceneViewMode initialProjectView = startupPlan.ViewMode;
+        string initialSourceFormat = startupPlan.SourceExtension;
         ActiveSceneLoad load = BeginSceneLoad(
             scenePath == null
                 ? "Preparing an empty scene"
@@ -593,9 +597,7 @@ public partial class MainWindow
             bool loaded = false;
             RunWithStartupEngineAccess(() =>
             {
-                _legacySceneSourceMode = initialIs3D
-                    ? SceneDocumentMode.ThreeD
-                    : SceneDocumentMode.TwoD;
+                _legacySceneSourceMode = startupPlan.SourceMode;
                 _view3d = initialIs3D;
                 if (exists)
                 {
@@ -685,9 +687,7 @@ public partial class MainWindow
 
             RunWithStartupEngineAccess(() =>
             {
-                _legacySceneSourceMode = initialIs3D
-                    ? SceneDocumentMode.ThreeD
-                    : SceneDocumentMode.TwoD;
+                _legacySceneSourceMode = startupPlan.SourceMode;
                 _view3d = initialIs3D;
                 EstablishEmptySceneDocument(
                     initialIs3D,

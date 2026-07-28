@@ -24,6 +24,61 @@ internal readonly record struct EditorSceneViewDescriptor(
     string Description);
 
 /// <summary>
+/// Initial source-adapter and view selection for one unpublished editor document.
+/// A missing source is a new canonical 3D world, not an implicit legacy adapter.
+/// </summary>
+internal readonly record struct EditorSceneStartupPlan(
+    SceneDocumentMode SourceMode,
+    EditorSceneViewMode ViewMode,
+    string SourceExtension)
+{
+    internal bool Uses3D => SourceMode == SceneDocumentMode.ThreeD;
+}
+
+internal static class EditorSceneStartupPolicy
+{
+    internal static EditorSceneStartupPlan Resolve(
+        string? scenePath,
+        string? projectTemplate)
+    {
+        if (string.IsNullOrWhiteSpace(scenePath))
+        {
+            return new EditorSceneStartupPlan(
+                SceneDocumentMode.ThreeD,
+                EditorSceneViewMode.Perspective,
+                ".acs3d");
+        }
+
+        string extension = Path.GetExtension(scenePath);
+        if (string.Equals(
+                extension,
+                ".acs3d",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new EditorSceneStartupPlan(
+                SceneDocumentMode.ThreeD,
+                EditorSceneViewModePolicy.InitialForProject(
+                    scenePath,
+                    projectTemplate),
+                ".acs3d");
+        }
+        if (string.Equals(
+                extension,
+                ".acscene",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new EditorSceneStartupPlan(
+                SceneDocumentMode.TwoD,
+                EditorSceneViewMode.Orthographic,
+                ".acscene");
+        }
+
+        throw new InvalidDataException(
+            "Initial scene sources must use the .acs3d or .acscene extension.");
+    }
+}
+
+/// <summary>
 /// Pure state transition used by the WPF shell and headless self-test. SourceMode identifies the
 /// loaded compatibility payload and cannot be changed by TryChangeView.
 /// </summary>

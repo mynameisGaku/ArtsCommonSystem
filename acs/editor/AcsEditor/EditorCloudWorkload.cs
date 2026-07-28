@@ -257,6 +257,22 @@ internal static class EditorCloudWorkloadContract
             : EditorCloudWorkloadQueryStatus.Available;
     }
 
+    internal static bool BelongsToProfilerFrame(
+        EditorCloudWorkloadQueryStatus status,
+        in EditorCloudWorkloadSnapshot snapshot,
+        ulong profilerFrameIndex) =>
+        status switch
+        {
+            EditorCloudWorkloadQueryStatus.Unsupported => true,
+            EditorCloudWorkloadQueryStatus.RuntimeUnavailable =>
+                snapshot.ProfilerFrameIndex == 0 ||
+                snapshot.ProfilerFrameIndex == profilerFrameIndex,
+            EditorCloudWorkloadQueryStatus.Available =>
+                profilerFrameIndex > 0 &&
+                snapshot.ProfilerFrameIndex == profilerFrameIndex,
+            _ => false,
+        };
+
     private static bool HasFlag(uint flags, uint flag) =>
         (flags & flag) != 0u;
 

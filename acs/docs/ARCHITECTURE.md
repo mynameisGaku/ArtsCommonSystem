@@ -148,3 +148,35 @@ empty-space skipping、透過率 early exit、画面内容による分岐後の�
 この診断は描画解像度、march 数、lighting 数、temporal reconstruction を変更せず、
 計測のために画質を下げません。算術は `u64` 飽和で、異常な診断入力が小さい値へ
 wrap することも防ぎます。
+
+地面接線の `local_up` と角度 cutoff は camera/world-origin/cloud-layer ごとの
+frame 不変値として CPU で一度だけ計算し、`CloudCB` の c20 から trace/resolve の
+両方へ渡します。式は従来の HLSL `cloudAltitude` と同型で、接線近傍の二軸
+neighbor-ray coverage はそのまま残します。full-resolution resolve は temporal
+reprojection で既に求めた center ray の elevation も再利用し、未計算の経路だけ
+unproject します。この最適化は dispatch 数、trace 解像度、march/light step 数を
+変えないため、効果量は profiler の cloud GPU timestamp で実測してください。
+
+密な上向き視点では、同じ world wind、shape frequency、layer-height reciprocal が
+view sample と最大 8 個の light-cone probe で再評価されていました。これらは
+`CloudCB` c21 へ frame ごとに一度だけ格納し、density/weather/curl/detail の
+world-space 座標は変更せずに再利用します。正規化済み sun と連続
+Duff/Frisvad basis も c22-c23 へ CPU で構築し、各 trace invocation の重複
+normalize/basis 構築を除きます。旧式と hoist 後の高さ率、基底、cone direction は
+代表値・layer 境界・天頂/地平/下半球方向で数値比較し、HLSL の実コンパイルも
+ユニットテストに含めます。
+
+`CloudMacroSample` は base-shape reject に使った `heightThreshold` も保持します。
+従来は同じ profile/coverage 式を直後の shape/density 評価でも再計算しており、
+密度のある view sample と各 light probe で二重でした。view ray は保守的な
+occupancy coverage と authored density coverage の2値を同じ profile から一度ずつ
+作り、light probe は1値だけを作って後段へ渡します。macro struct のfloat数、
+noise fetch、light-cone sample位置、early-exit条件は変わりません。
+
+エディタ側は volumetric cloud の `EnsureSize` が成功した frame だけ
+`cloudsActive` を立て、その値で `FSky` の旧 48x3 cloud march を無効にするため、
+modern path と fallback は二重実行されません。full-resolution resolve の
+empty-sky short path は履歴の 5x5 footprint で silhouette/horizon を保護しており、
+単一 low texel だけの早期判定へ縮めると過去のジャギーを再導入するため維持します。
+この第2段の最適化でも 192 view steps、8 light probes、Ultra 4x4 phase、
+trace/output dispatch と履歴規則は不変です。

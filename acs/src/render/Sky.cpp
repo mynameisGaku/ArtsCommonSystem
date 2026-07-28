@@ -8,6 +8,7 @@
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 
+#include <cstddef>
 #include <cmath>
 #include <cstring>
 
@@ -753,6 +754,16 @@ cbuffer CloudCB : register(b0) {
     float4 worldOrigin;// xyz=discrete curved-shell tangent origin
     float4 shadowGrid; // xy=material-space min XZ, zw=inverse horizontal extents
     float4 shadowState;// x=valid, y=max tau disagreement, z=1/width/depth, w=1/height
+    float4 groundHorizon;// xyz=camera local up, w=ground tangent elevation; <-1 disables
+    float4 cloudFrameTerms;// xy=world wind, z=shape scale, w=1/(top-base)
+    float4 cloudLightTangent;// xyz=CPU-hoisted Duff/Frisvad tangent
+    float4 cloudLightBitangent;// xyz=CPU-hoisted Duff/Frisvad bitangent
+    float4 cloudCoverage;// xy=weather thresholds, zw=height targets
+    // xy=inverse weather transition widths, z=view fine step, w=light step
+    float4 cloudCoverageReciprocals;
+    // CPU-hoisted camera/layer terms for the two curved-shell quadratics.
+    float4 cloudShellRayOrigin;// xyz=camera from planet centre, w=inner c
+    float4 cloudShellTerms;// x=outer c
 };
 RWTexture2D<float4> cloudOut : register(u0);
 RWTexture2D<float2> cloudDepthOut : register(u1); // x=不透明度加重ヒット距離, y=アルファ信頼度
@@ -774,30 +785,30 @@ float remapc(float v,float a,float b,float c,float d){ return c + saturate((v-a)
 float hash13(float3 p){ p=frac(p*0.1031); p+=dot(p,p.zyx+31.32); return frac((p.x+p.y)*p.z); }
 float hg(float c,float g){ float g2=g*g; return (1.0-g2)/(12.566370*pow(max(1.0+g2-2.0*g*c,1e-3),1.5)); }
 
-// Duff/Frisvad-style ONB with Y as the pole axis. Unlike selecting world-up
-// until abs(sun.y)==0.99 and then switching to world-X, it is continuous over
-// the complete upper (or lower) hemisphere and has no near-zenith jump.
-void cloudLightBasis(
-    float3 sun,out float3 lightTangent,out float3 lightBitangent){
-    float signY=sun.y>=0.0?1.0:-1.0;
-    float a=-1.0/(signY+sun.y);
-    float b=sun.x*sun.z*a;
-    lightTangent=float3(
-        1.0+signY*sun.x*sun.x*a,
-        -signY*sun.x,
-        signY*b);
-    lightBitangent=cross(sun,lightTangent);
-}
-// The Frisvad basis above is orthonormal, so |sun + tangentOffset*a| is
+// The CPU-hoisted Duff/Frisvad basis is orthonormal, so
+// |sun + tangentOffset*a| is
 // analytically sqrt(1+a*a). Avoiding a three-component dot in normalize()
 // preserves the exact cone sample direction with less work in every dense
 // light probe.
 float3 cloudConeDirection(
     float3 sun,float3 lightTangent,float3 lightBitangent,
-    float coneSin,float coneCos,float coneAngle){
+    float coneSin,float coneCos,float2 coneGeometry){
     float3 lateral=coneCos*lightTangent+coneSin*lightBitangent;
-    return (sun+lateral*coneAngle)*rsqrt(1.0+coneAngle*coneAngle);
+    return (sun+lateral*coneGeometry.x)*coneGeometry.y;
 }
+// x is the unchanged 0.01*(l+1) cone angle; y is its analytically exact
+// 1/sqrt(1+x*x) normalization rounded once to float. The eight sample
+// directions are fixed by policy, so an indexed constant removes one runtime
+// rsqrt from every dense light probe without moving or deleting a probe.
+static const float2 CLOUD_CONE_GEOMETRY[8]={
+    float2(0.01,0.999950004),
+    float2(0.02,0.999800060),
+    float2(0.03,0.999550304),
+    float2(0.04,0.999200959),
+    float2(0.05,0.998752339),
+    float2(0.06,0.998204845),
+    float2(0.07,0.997558967),
+    float2(0.08,0.996815279)};
 
 static const float CLOUD_PLANET_RADIUS=6360000.0;
 // The experimental far-tail cache is deliberately compiled out of the main
@@ -805,9 +816,6 @@ static const float CLOUD_PLANET_RADIUS=6360000.0;
 // profiling.  A runtime-false branch still made FXC retain the cache sampler,
 // confidence path and blend temporaries in every dense view sample.
 static const bool CLOUD_MAIN_SHADOW_CACHE_ENABLED=false;
-float3 cloudPlanetCenter(){
-    return worldOrigin.xyz+float3(0.0,-CLOUD_PLANET_RADIUS,0.0);
-}
 // All marched points are within MAX_DISTANCE (250 km) of the rebased tangent
 // origin, so xz^2/(R+y)^2 stays below 0.0016.  The fourth-order expansion of
 // sqrt((R+y)^2+xz^2)-R removes a per-density-sample square root while retaining
@@ -816,21 +824,20 @@ float cloudAltitude(float3 p){
     float3 local=p-worldOrigin.xyz;
     float radialY=max(CLOUD_PLANET_RADIUS+local.y,1.0);
     float radialXz2=dot(local.xz,local.xz);
-    float q=radialXz2/radialY;
-    return local.y+q*(0.5-q/(8.0*radialY));
+    float inverseRadialY=1.0/radialY;
+    float q=radialXz2*inverseRadialY;
+    return local.y+q*(0.5-q*inverseRadialY*0.125);
 }
-float heightFraction(float3 p){ return saturate((cloudAltitude(p)-layer.x)/max(layer.y-layer.x,1e-4)); }
+float heightFraction(float3 p){
+    return saturate((cloudAltitude(p)-layer.x)*cloudFrameTerms.w);
+}
 
 // Solve against a shell altitude without subtracting two ~R^2 values. The
 // factorized c term and q-form roots remain stable at an Earth-sized radius.
-bool sphereRoots(float3 localOrigin,float3 rd,float altitude,
-                 out float nearT,out float farT){
+bool sphereRootsFromTerms(float b,float c,
+                          out float nearT,out float farT){
     nearT=0.0;
     farT=0.0;
-    float b=dot(localOrigin,rd)+CLOUD_PLANET_RADIUS*rd.y;
-    float c=dot(localOrigin.xz,localOrigin.xz)
-           +(localOrigin.y-altitude)
-            *(2.0*CLOUD_PLANET_RADIUS+localOrigin.y+altitude);
     float disc=b*b-c;
     bool hit=disc>=0.0;
     if(hit){
@@ -847,32 +854,26 @@ bool sphereRoots(float3 localOrigin,float3 rd,float altitude,
 // Return only the nearest continuous part of the shell.  Ignoring a possible
 // far-side re-entry avoids integrating through the planet and gives stable
 // depth/reprojection semantics for cameras below, inside, or above the layer.
-bool intersectCloudShell(float3 rayOrigin,float3 rayDir,out float t0,out float t1){
+bool intersectCloudShell(float3 rayDir,out float t0,out float t1){
     t0=0.0;
     t1=0.0;
-    float3 localOrigin=rayOrigin-worldOrigin.xyz;
-    float innerC=dot(localOrigin.xz,localOrigin.xz)
-                +(localOrigin.y-layer.x)
-                 *(2.0*CLOUD_PLANET_RADIUS+localOrigin.y+layer.x);
-    float outerC=dot(localOrigin.xz,localOrigin.xz)
-                +(localOrigin.y-layer.y)
-                 *(2.0*CLOUD_PLANET_RADIUS+localOrigin.y+layer.y);
+    float innerC=cloudShellRayOrigin.w;
+    float outerC=cloudShellTerms.x;
+    float b=dot(cloudShellRayOrigin.xyz,rayDir);
     float outerNear=0.0,outerFar=0.0;
-    bool hitsOuter=sphereRoots(
-        localOrigin,rayDir,layer.y,outerNear,outerFar);
+    bool hitsOuter=sphereRootsFromTerms(
+        b,outerC,outerNear,outerFar);
     if(hitsOuter && outerFar>0.0){
         float innerNear=0.0,innerFar=0.0;
-        bool hitsInner=sphereRoots(
-            localOrigin,rayDir,layer.x,innerNear,innerFar);
+        bool hitsInner=sphereRootsFromTerms(
+            b,innerC,innerNear,innerFar);
         if(innerC<0.0){
             if(hitsInner && innerFar>0.0){
                 t0=max(innerFar,0.0);
                 t1=outerFar;
             }
         } else if(outerC<=0.0){
-            float centreDot=dot(localOrigin,rayDir)
-                           +CLOUD_PLANET_RADIUS*rayDir.y;
-            bool headingInward=centreDot<0.0;
+            bool headingInward=b<0.0;
             t1=(headingInward && hitsInner && innerNear>0.0)?innerNear:outerFar;
         } else if(outerNear>0.0){
             t0=outerNear;
@@ -881,47 +882,67 @@ bool intersectCloudShell(float3 rayOrigin,float3 rayDir,out float t0,out float t
     }
     return t1>t0;
 }
+// Cloud type and precipitation are constant across the short eight-probe
+// light cone. Keep the two type smoothsteps explicit so the main view sample
+// can evaluate them once and reuse the exact weights at every light probe.
+float2 cloudProfileTypeWeights(float cloudType){
+    return float2(
+        smoothstep(0.18,0.52,cloudType),
+        smoothstep(0.50,0.84,cloudType));
+}
 // 柔らかく密な底面と風でずれた上面により、切断された水平 shelf を避ける。
 // The caller caches normalized height because detail erosion needs it too.
-float cloudProfile(float h,float cloudType,float precipitation){
-    float stratus=smoothstep(0.0,0.055,h)
-                 *(1.0-smoothstep(0.30,0.56,h));
-    float stratocumulus=smoothstep(0.0,0.09,h)
-                      *(1.0-smoothstep(0.54,0.84,h))
-                      *lerp(0.78,1.0,smoothstep(0.12,0.45,h));
-    float cumulus=smoothstep(0.0,0.13,h)
-                 *(1.0-smoothstep(0.76,1.0,h))
-                 *lerp(0.64,1.0,smoothstep(0.16,0.62,h));
-    float profile=lerp(stratus,stratocumulus,
-                       smoothstep(0.18,0.52,cloudType));
-    profile=lerp(profile,cumulus,smoothstep(0.50,0.84,cloudType));
-    float storm=smoothstep(0.0,0.10,h)
-               *(1.0-smoothstep(0.88,1.0,h));
+float cloudProfileFromTypeWeights(
+    float h,float2 typeWeights,float precipitation){
+    float4 rise=smoothstep(
+        float4(0.0,0.0,0.0,0.0),
+        float4(0.055,0.09,0.13,0.10),h.xxxx);
+    float4 fall=1.0-smoothstep(
+        float4(0.30,0.54,0.76,0.88),
+        float4(0.56,0.84,1.0,1.0),h.xxxx);
+    float2 middle=smoothstep(
+        float2(0.12,0.16),float2(0.45,0.62),h.xx);
+    float stratus=rise.x*fall.x;
+    float stratocumulus=rise.y*fall.y
+                      *lerp(0.78,1.0,middle.x);
+    float cumulus=rise.z*fall.z
+                 *lerp(0.64,1.0,middle.y);
+    float profile=lerp(stratus,stratocumulus,typeWeights.x);
+    profile=lerp(profile,cumulus,typeWeights.y);
+    float storm=rise.w*fall.w;
     return saturate(lerp(profile,storm,precipitation*0.72));
+}
+float cloudProfile(float h,float cloudType,float precipitation){
+    return cloudProfileFromTypeWeights(
+        h,cloudProfileTypeWeights(cloudType),precipitation);
 }
 // bake 済み volume は tile あたり 4..32 cells を既に含む。world frequency を下げ、
 // 小さな blob の反復ではなく連続した cloud bank を作る。
 float cloudShapeScale(){
-    // The baked volume already contains four to forty-eight cells per tile.
-    // Treat the authored value as a world-frequency control, not another raw
-    // cell multiplier.  Capping the effective frequency keeps legacy 0.1
-    // projects from collapsing into camera-ray-sized repeating blobs.
-    return clamp(layer.z*0.006,0.00012,0.00045);
+    // CPU mirrors clamp(layer.z*0.006,0.00012,0.00045) once per frame.
+    return cloudFrameTerms.z;
 }
-float2 cloudWindWorld(){ return params.z*float2(0.9284767,0.3713907); }
+float2 cloudWindWorld(){
+    // CPU mirrors params.z*float2(0.9284767,0.3713907) once per frame.
+    return cloudFrameTerms.xy;
+}
 float4 cloudWeatherData(float3 p){
     float2 xz=p.xz-cloudWindWorld();
-    float2 rotatedA=float2(xz.x*0.8660254-xz.y*0.5,
-                           xz.x*0.5+xz.y*0.8660254);
-    float2 rotatedB=float2(xz.x*0.9563048+xz.y*0.2923717,
-                          -xz.x*0.2923717+xz.y*0.9563048);
+    // Pack the two independent 2D rotations so FXC emits one vector multiply
+    // and one vector MAD instead of four scalar dot-product paths.
+    float4 rotated=
+        xz.x*float4(0.8660254,0.5,0.9563048,-0.2923717)
+       +xz.y*float4(-0.5,0.8660254,0.2923717,0.9563048);
+    float4 weatherUv=
+        rotated/float4(65536.0,65536.0,9127.0,9127.0)
+       +float4(0.173,0.417,0.619,0.281);
     // A flight-scale synoptic domain plus a rotated regional domain keep the
     // coverage coherent without turning one viewport into a uniform cloud
     // sheet. Their incommensurate spans do not expose a short repeating tile.
     float4 a=weatherMap.SampleLevel(
-        weatherMap_sampler,rotatedA/65536.0+float2(0.173,0.417),0);
+        weatherMap_sampler,weatherUv.xy,0);
     float4 b=weatherMap.SampleLevel(
-        weatherMap_sampler,rotatedB/9127.0+float2(0.619,0.281),0);
+        weatherMap_sampler,weatherUv.zw,0);
     float4 weather=lerp(a,b,0.45);
     weather.r=saturate((weather.r-0.045)*1.095);
     // The generated type channel occupies a compressed middle band. Expand
@@ -939,12 +960,17 @@ float3 rotateNoise(float3 q){
 }
 float2 cloudCurlOffset(float3 p){
     float2 xz=p.xz-cloudWindWorld();
-    float2 aUv=float2(xz.x*0.9063078-xz.y*0.4226183,
-                      xz.x*0.4226183+xz.y*0.9063078)/1536.0
-              +float2(0.137,0.619);
-    float2 bUv=float2(-xz.y,xz.x)/947.0+float2(0.743,0.281);
-    float2 a=curlNoise.SampleLevel(curlNoise_sampler,aUv,0).rg;
-    float2 b=curlNoise.SampleLevel(curlNoise_sampler,bUv,0).rg;
+    // Pack both curl domains for the same reason as the weather rotations.
+    float4 rotated=
+        xz.x*float4(0.9063078,0.4226183,0.0,1.0)
+       +xz.y*float4(-0.4226183,0.9063078,-1.0,0.0);
+    float4 curlUv=
+        rotated/float4(1536.0,1536.0,947.0,947.0)
+       +float4(0.137,0.619,0.743,0.281);
+    float2 a=curlNoise.SampleLevel(
+        curlNoise_sampler,curlUv.xy,0).rg;
+    float2 b=curlNoise.SampleLevel(
+        curlNoise_sampler,curlUv.zw,0).rg;
     return a*0.68+b.yx*0.32;
 }
 float3 cloudUVW(
@@ -952,7 +978,9 @@ float3 cloudUVW(
     float shapeScale=cloudShapeScale();
     float2 xz=p.xz-cloudWindWorld();
     float warpAngle=weather.g*6.2831853+weather.a*2.17;
-    float2 weatherWarp=float2(cos(warpAngle),sin(warpAngle))
+    float warpSin,warpCos;
+    sincos(warpAngle,warpSin,warpCos);
+    float2 weatherWarp=float2(warpCos,warpSin)
                       *(weather.a-0.5)*190.0;
     float2 curlWarp=cachedCurl*22.0;
     // XZ follows physical world scale.  Y uses normalized altitude so lowering
@@ -965,26 +993,46 @@ float3 cloudUVW(
                   (xz.y+weatherWarp.y+curlWarp.y)*shapeScale);
 }
 float cloudThr(float coverage){ return lerp(0.72,0.50,saturate(coverage)); }
+float cloudHeightThresholdTarget(float coverage){
+    return cloudThr(min(coverage,0.72));
+}
+float cloudHeightThresholdFromTarget(
+    float thresholdTarget,float profileShape){
+    return lerp(0.78,thresholdTarget,profileShape);
+}
 float cloudHeightThreshold(float coverage,float profileShape){
-    return lerp(
-        0.78,cloudThr(min(coverage,0.72)),profileShape);
+    return cloudHeightThresholdFromTarget(
+        cloudHeightThresholdTarget(coverage),profileShape);
 }
 float basePerlinWorley(float2 ns){
     // R は bake pass で Perlin-Worley dilation 済み。
     return saturate(ns.r-(1.0-ns.g)*0.12);
 }
-float cloudWeatherMask(float4 weather,float coverage){
-    float threshold=lerp(0.90,0.35,saturate(coverage));
+float cloudWeatherThreshold(float coverage){
+    return lerp(0.90,0.35,saturate(coverage));
+}
+float cloudWeatherMaskFromThreshold(float4 weather,float threshold){
     return smoothstep(threshold,min(threshold+0.14,0.98),weather.r);
 }
-float cloudBaseShape(float3 uvw,float rejectionThreshold){
+float cloudWeatherMaskFromTerms(
+    float4 weather,float threshold,float inverseTransitionWidth){
+    float t=saturate((weather.r-threshold)*inverseTransitionWidth);
+    return t*t*(3.0-2.0*t);
+}
+float cloudWeatherMask(float4 weather,float coverage){
+    return cloudWeatherMaskFromThreshold(
+        weather,cloudWeatherThreshold(coverage));
+}
+void cloudBaseShape(
+    float3 uvw,float rejectionThreshold,out float shapeResult){
+    shapeResult=0.0;
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
     float shape=basePerlinWorley(a)*0.45;
     // Every lobe is saturated to [0,1]. If the accumulated value plus the
     // exact maximum of all unvisited lobes cannot cross the density threshold,
     // later volume fetches are provably invisible. The small guard keeps the
     // rejection conservative under floating-point contraction.
-    [branch] if(shape+0.55<rejectionThreshold-1e-5) return 0.0;
+    [branch] if(shape+0.55<rejectionThreshold-1e-5) return;
     // Preserve the flight-scale bank while adding an incommensurate
     // mid-frequency lobe. The former 0.613 multiplier made both lobes larger
     // than the complete upward editor view after switching to metre units.
@@ -992,7 +1040,7 @@ float cloudBaseShape(float3 uvw,float rejectionThreshold){
                +float3(0.371,0.119,0.733);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
     shape+=basePerlinWorley(b)*0.27;
-    [branch] if(shape+0.28<rejectionThreshold-1e-5) return 0.0;
+    [branch] if(shape+0.28<rejectionThreshold-1e-5) return;
     float3 uvwC=float3(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
@@ -1000,7 +1048,7 @@ float cloudBaseShape(float3 uvw,float rejectionThreshold){
         +float3(0.817,0.293,0.157);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
     shape+=basePerlinWorley(c)*0.17;
-    [branch] if(shape+0.11<rejectionThreshold-1e-5) return 0.0;
+    [branch] if(shape+0.11<rejectionThreshold-1e-5) return;
     // A fourth, irrationally scaled world-space domain removes the last
     // conspicuous common landmark shared by the three lower-frequency lobes.
     // All domains remain anchored to the absolute world point; this is
@@ -1011,56 +1059,62 @@ float cloudBaseShape(float3 uvw,float rejectionThreshold){
         dot(uvw,float3(-0.267,0.355,0.896)))*4.73
         +float3(0.263,0.887,0.491);
     float2 d=shapeNoise.SampleLevel(shapeNoise_sampler,uvwD,0);
-    return saturate(shape+basePerlinWorley(d)*0.11);
+    shapeResult=saturate(shape+basePerlinWorley(d)*0.11);
 }
 // Light-cone integration already evaluates this field at eight decorrelated
 // world positions. Keep its macro approximation at three lobes so the fourth
 // silhouette de-tiling fetch is paid only by the view ray, where it is visible.
-float cloudBaseShapeLighting(float3 uvw,float rejectionThreshold){
+void cloudBaseShapeLighting(
+    float3 uvw,float rejectionThreshold,out float shapeResult){
+    shapeResult=0.0;
     float2 a=shapeNoise.SampleLevel(shapeNoise_sampler,uvw,0);
     float shape=basePerlinWorley(a)*0.51;
-    [branch] if(shape+0.49<rejectionThreshold-1e-5) return 0.0;
+    [branch] if(shape+0.49<rejectionThreshold-1e-5) return;
     float3 uvwB=rotateNoise(uvw)*1.83
                +float3(0.371,0.119,0.733);
     float2 b=shapeNoise.SampleLevel(shapeNoise_sampler,uvwB,0);
     shape+=basePerlinWorley(b)*0.30;
-    [branch] if(shape+0.19<rejectionThreshold-1e-5) return 0.0;
+    [branch] if(shape+0.19<rejectionThreshold-1e-5) return;
     float3 uvwC=float3(
         dot(uvw,float3(0.707,0.183,-0.683)),
         dot(uvw,float3(-0.354,0.930,-0.098)),
         dot(uvw,float3(0.612,0.319,0.724)))*3.17
         +float3(0.817,0.293,0.157);
     float2 c=shapeNoise.SampleLevel(shapeNoise_sampler,uvwC,0);
-    return saturate(shape+basePerlinWorley(c)*0.19);
+    shapeResult=saturate(shape+basePerlinWorley(c)*0.19);
 }
 
 // View marching used to evaluate weather, curl and all base-shape lobes once
 // for occupancy, then repeat the exact same work for detailed density. Keep
 // the macro result local to one ray sample so detail erosion adds only its
-// independent high-frequency fetches.
+// independent high-frequency fetches. heightThreshold is also the exact value
+// used to reject the base fetch, so shape/density consumption never rebuilds
+// the same profile/coverage expression inside each light probe.
 struct CloudMacroSample {
     float4 weather;
     float2 curl;
     float baseNoise;
     float weatherMask;
     float profileWeight;
-    float profileShape;
+    float heightThreshold;
     float height;
 };
 CloudMacroSample sampleCloudMacro(
-    float3 p,float weatherCoverage,out float3 sampleUvw){
+    float3 p,float4 coverageTerms,
+    out float3 sampleUvw,out float densityHeightThreshold){
     CloudMacroSample macro;
     sampleUvw=float3(0,0,0);
+    densityHeightThreshold=0.78;
     macro.weather=float4(0,0,0,0);
     macro.curl=float2(0,0);
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
     macro.profileWeight=0.0;
-    macro.profileShape=0.0;
+    macro.heightThreshold=0.78;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
-    macro.weatherMask=cloudWeatherMask(
-        macro.weather,weatherCoverage);
+    macro.weatherMask=cloudWeatherMaskFromTerms(
+        macro.weather,coverageTerms.x,cloudCoverageReciprocals.x);
     if(macro.weatherMask>0.001){
         macro.height=heightFraction(p);
         float sampledProfile=cloudProfile(
@@ -1068,14 +1122,16 @@ CloudMacroSample sampleCloudMacro(
         macro.profileWeight=smoothstep(
             0.02,0.32,sampledProfile);
         if(macro.profileWeight>0.0){
-            macro.profileShape=pow(macro.profileWeight,0.65);
+            float profileShape=pow(macro.profileWeight,0.65);
+            macro.heightThreshold=cloudHeightThresholdFromTarget(
+                coverageTerms.z,profileShape);
+            densityHeightThreshold=cloudHeightThresholdFromTarget(
+                coverageTerms.w,profileShape);
             macro.curl=cloudCurlOffset(p);
             sampleUvw=cloudUVW(
                 p,macro.weather,macro.curl,macro.height);
-            float rejectionThreshold=cloudHeightThreshold(
-                weatherCoverage,macro.profileShape);
-            macro.baseNoise=cloudBaseShape(
-                sampleUvw,rejectionThreshold);
+            cloudBaseShape(
+                sampleUvw,macro.heightThreshold,macro.baseNoise);
         }
     }
     return macro;
@@ -1088,7 +1144,7 @@ CloudMacroSample sampleCloudMacroLighting(
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
     macro.profileWeight=0.0;
-    macro.profileShape=0.0;
+    macro.heightThreshold=0.78;
     macro.height=0.0;
     macro.weather=cloudWeatherData(p);
     macro.weatherMask=cloudWeatherMask(
@@ -1100,14 +1156,14 @@ CloudMacroSample sampleCloudMacroLighting(
         macro.profileWeight=smoothstep(
             0.02,0.32,sampledProfile);
         if(macro.profileWeight>0.0){
-            macro.profileShape=pow(macro.profileWeight,0.65);
+            float profileShape=pow(macro.profileWeight,0.65);
+            macro.heightThreshold=cloudHeightThreshold(
+                weatherCoverage,profileShape);
             macro.curl=cloudCurlOffset(p);
-            float rejectionThreshold=cloudHeightThreshold(
-                weatherCoverage,macro.profileShape);
-            macro.baseNoise=cloudBaseShapeLighting(
+            cloudBaseShapeLighting(
                 cloudUVW(
                     p,macro.weather,macro.curl,macro.height),
-                rejectionThreshold);
+                macro.heightThreshold,macro.baseNoise);
         }
     }
     return macro;
@@ -1119,62 +1175,98 @@ CloudMacroSample sampleCloudMacroLighting(
 // while this helper preserves the exact height profile and three-lobe shape
 // lookup at every probe.
 CloudMacroSample sampleCloudMacroLightingFromSlowFields(
-    float3 p,float slowWeatherMask,float weatherCoverage,
-    float4 slowWeather,float2 slowCurl,
+    float3 p,float slowWeatherMask,float heightThresholdTarget,
+    float2 slowProfileTypeWeights,float slowPrecipitation,float2 slowCurl,
     float3 referenceP,float3 referenceUvw,float referenceHeight,
     float shapeScale){
     CloudMacroSample macro;
-    macro.weather=slowWeather;
+    macro.weather=float4(0.0,0.0,slowPrecipitation,0.0);
     macro.curl=slowCurl;
     macro.baseNoise=0.0;
     macro.weatherMask=0.0;
     macro.profileWeight=0.0;
-    macro.profileShape=0.0;
+    macro.heightThreshold=0.78;
     macro.height=0.0;
     // The weather field and authored coverage are identical for every probe
     // in this short cone. Reuse the already evaluated conservative mask
     // exactly; recomputing its smoothstep eight times only extends register
     // lifetime and ALU cost in the densest upward views.
     macro.weatherMask=slowWeatherMask;
-    if(macro.weatherMask>0.001){
-        macro.height=heightFraction(p);
-        float sampledProfile=cloudProfile(
-            macro.height,macro.weather.g,macro.weather.b);
-        macro.profileWeight=smoothstep(
-            0.02,0.32,sampledProfile);
-        if(macro.profileWeight>0.0){
-            macro.profileShape=pow(macro.profileWeight,0.65);
-            // Weather and curl are shared with the view sample, so their UV
-            // transform is affine across the short light cone.  Reconstruct
-            // the exact probe domain from the already evaluated view UVW
-            // instead of repeating its wind/warp sincos work.
-            float3 lightingUvw=referenceUvw+float3(
-                (p.x-referenceP.x)*shapeScale,
-                (macro.height-referenceHeight)*0.78,
-                (p.z-referenceP.z)*shapeScale);
-            float rejectionThreshold=cloudHeightThreshold(
-                weatherCoverage,macro.profileShape);
-            macro.baseNoise=cloudBaseShapeLighting(
-                lightingUvw,rejectionThreshold);
-        }
+    // The helper is reachable only after the view density exceeded 0.0015.
+    // cloudDensityFromMacro returns zero whenever slowWeatherMask<=0.001, so
+    // that parent branch proves this mask positive for all eight probes.
+    macro.height=heightFraction(p);
+    float sampledProfile=cloudProfileFromTypeWeights(
+        macro.height,slowProfileTypeWeights,slowPrecipitation);
+    macro.profileWeight=smoothstep(
+        0.02,0.32,sampledProfile);
+    if(macro.profileWeight>0.0){
+        float profileShape=pow(macro.profileWeight,0.65);
+        macro.heightThreshold=cloudHeightThresholdFromTarget(
+            heightThresholdTarget,profileShape);
+        // Weather and curl are shared with the view sample, so their UV
+        // transform is affine across the short light cone.  Reconstruct
+        // the exact probe domain from the already evaluated view UVW
+        // instead of repeating its wind/warp sincos work.
+        float3 lightingUvw=referenceUvw+float3(
+            (p.x-referenceP.x)*shapeScale,
+            (macro.height-referenceHeight)*0.78,
+            (p.z-referenceP.z)*shapeScale);
+        cloudBaseShapeLighting(
+            lightingUvw,macro.heightThreshold,macro.baseNoise);
     }
     return macro;
 }
-float cloudShapeFromMacro(CloudMacroSample macro,float coverage){
+// The five far-light probes need only the macro extinction term. Returning
+// that scalar directly ends the lifetime of near-probe-only curl, weather and
+// detail fields before the far loop while preserving every probe position,
+// height/profile equation and shape-volume fetch.
+float sampleCloudLightingShapeFromSlowFields(
+    float3 p,float slowWeatherMask,float heightThresholdTarget,
+    float2 slowProfileTypeWeights,float slowPrecipitation,
+    float3 referenceP,float3 referenceUvw,float referenceHeight,
+    float shapeScale){
+    float shapeResult=0.0;
+    float sampleHeight=heightFraction(p);
+    float sampledProfile=cloudProfileFromTypeWeights(
+        sampleHeight,slowProfileTypeWeights,slowPrecipitation);
+    float profileWeight=smoothstep(0.02,0.32,sampledProfile);
+    if(profileWeight>0.0){
+        float profileShape=pow(profileWeight,0.65);
+        float heightThreshold=cloudHeightThresholdFromTarget(
+            heightThresholdTarget,profileShape);
+        float3 lightingUvw=referenceUvw+float3(
+            (p.x-referenceP.x)*shapeScale,
+            (sampleHeight-referenceHeight)*0.78,
+            (p.z-referenceP.z)*shapeScale);
+        float baseNoise=0.0;
+        cloudBaseShapeLighting(
+            lightingUvw,heightThreshold,baseNoise);
+        shapeResult=remapc(
+            baseNoise,heightThreshold,
+            min(heightThreshold+0.22,0.98),0.0,1.0)
+            *slowWeatherMask*profileWeight;
+    }
+    return shapeResult;
+}
+float cloudShapeFromPositiveWeatherMacro(CloudMacroSample macro){
+    float shapeResult=0.0;
+    if(macro.profileWeight>0.0){
+        // Use the Nubis/Horizon-style height gradient primarily as a shape
+        // threshold, then close only its extreme tail with profileWeight.
+        // Applying the raw profile after thresholding creates horizontal
+        // density shelves at every layer boundary.
+        shapeResult=remapc(
+            macro.baseNoise,macro.heightThreshold,
+            min(macro.heightThreshold+0.22,0.98),0.0,1.0)
+                   *macro.weatherMask*macro.profileWeight;
+    }
+    return shapeResult;
+}
+float cloudShapeFromMacro(CloudMacroSample macro){
     float shapeResult=0.0;
     if(macro.weatherMask>0.001){
-        if(macro.profileWeight>0.0){
-            // Use the Nubis/Horizon-style height gradient primarily as a shape
-            // threshold, then close only its extreme tail with profileWeight.
-            // Applying the raw profile after thresholding creates horizontal
-            // density shelves at every layer boundary.
-            float heightThreshold=cloudHeightThreshold(
-                coverage,macro.profileShape);
-            shapeResult=remapc(
-                macro.baseNoise,heightThreshold,
-                min(heightThreshold+0.22,0.98),0.0,1.0)
-                       *macro.weatherMask*macro.profileWeight;
-        }
+        shapeResult=cloudShapeFromPositiveWeatherMacro(macro);
     }
     return shapeResult;
 }
@@ -1182,57 +1274,78 @@ float cloudShapeFromMacro(CloudMacroSample macro,float coverage){
 float cloudShape(float3 p, float coverage){
     float shapeResult=0.0;
     CloudMacroSample macro=sampleCloudMacroLighting(p,coverage);
-    shapeResult=cloudShapeFromMacro(macro,coverage);
+    shapeResult=cloudShapeFromMacro(macro);
     return shapeResult;
 }
+// rotateNoise is linear, while both detail domains use the same horizontal
+// point and differ only in horizontal/vertical scale. Split those common
+// contributions once instead of executing two complete matrix-vector products
+// for every detailed view and near-light sample.
+void cloudDetailDomains(
+    float2 detailXz,float worldY,
+    out float3 detailDomainA,out float3 detailDomainB){
+    float3 horizontal=float3(
+        detailXz.y*0.600,
+        -detailXz.x*0.707+detailXz.y*0.566,
+         detailXz.x*0.707+detailXz.y*0.566);
+    float3 vertical=worldY*float3(0.800,-0.424,-0.424);
+    detailDomainA=horizontal*0.0011+vertical*0.0018;
+    detailDomainB=horizontal*0.0023+vertical*0.0030;
+}
 // 詳細表示用 density: macro weather + 高さ依存の edge erosion。
+float cloudDensityFromPositiveWeatherMacro(
+    float3 p,CloudMacroSample macro,float heightThreshold,
+    float weatherMask,float detailWeight){
+    float densityResult=0.0;
+    if(macro.profileWeight>0.0){
+        float baseDensity=remapc(
+            macro.baseNoise,heightThreshold,
+            min(heightThreshold+0.22,0.98),0.0,1.0);
+        if(baseDensity>0.001){
+            // Detail has its own metre-based domain. Reusing the macro UV
+            // left the dominant erosion cells 0.5--0.7 km wide.
+            float2 detailXz=p.xz-cloudWindWorld()
+                          +macro.curl*35.0;
+            float3 detailDomainA,detailDomainB;
+            cloudDetailDomains(
+                detailXz,p.y,detailDomainA,detailDomainB);
+            float2 ndA=detailNoise.SampleLevel(
+                detailNoise_sampler,
+                detailDomainA+float3(0.19,0.67,0.41),0);
+            float2 ndB=detailNoise.SampleLevel(
+                detailNoise_sampler,
+                detailDomainB+float3(0.73,0.23,0.59),0);
+            float detailNear=ndA.g*0.62+ndB.g*0.38;
+            float detailFar=ndA.r*0.62+ndB.r*0.38;
+            float detail=lerp(detailFar,detailNear,saturate(detailWeight));
+            float h=macro.height;
+            float erosion=lerp(0.10,0.24,smoothstep(0.18,0.92,h));
+            // Erode the normalized low-frequency shape before applying the
+            // height profile and the soft weather mask. Eroding their already
+            // attenuated product makes every transition-zone sample smaller
+            // than the detail cutoff and silently turns a valid cloud bank
+            // into zero density.
+            float eroded=
+                remapc(baseDensity,detail*erosion,1.0,0.0,1.0);
+            // The generated volume currently has one mip. Fade sub-voxel
+            // erosion at distance instead of letting it alias into temporal
+            // or radial streaks.
+            float d=eroded;
+            densityResult=saturate(
+                d*weatherMask*macro.profileWeight
+                *lerp(1.10,0.92,h)
+                *lerp(1.0,1.28,macro.weather.b));
+        }
+    }
+    return densityResult;
+}
 float cloudDensityFromMacro(
-    float3 p,CloudMacroSample macro,float coverage,
+    float3 p,CloudMacroSample macro,float heightThreshold,
     float weatherMask,float detailWeight){
     float densityResult=0.0;
     if(weatherMask>0.001){
-        if(macro.profileWeight>0.0){
-            float heightThreshold=cloudHeightThreshold(
-                coverage,macro.profileShape);
-            float baseDensity=remapc(
-                macro.baseNoise,heightThreshold,
-                min(heightThreshold+0.22,0.98),0.0,1.0);
-            if(baseDensity>0.001){
-                // Detail has its own metre-based domain. Reusing the macro UV
-                // left the dominant erosion cells 0.5--0.7 km wide.
-                float2 detailXz=p.xz-cloudWindWorld()
-                              +macro.curl*35.0;
-                float3 detailPosA=float3(
-                    detailXz.x*0.0011,p.y*0.0018,detailXz.y*0.0011);
-                float3 detailPosB=float3(
-                    detailXz.x*0.0023,p.y*0.0030,detailXz.y*0.0023);
-                float2 ndA=detailNoise.SampleLevel(
-                    detailNoise_sampler,
-                    rotateNoise(detailPosA)+float3(0.19,0.67,0.41),0);
-                float2 ndB=detailNoise.SampleLevel(
-                    detailNoise_sampler,
-                    rotateNoise(detailPosB)+float3(0.73,0.23,0.59),0);
-                float detailNear=ndA.g*0.62+ndB.g*0.38;
-                float detailFar=ndA.r*0.62+ndB.r*0.38;
-                float detail=lerp(detailFar,detailNear,saturate(detailWeight));
-                float h=macro.height;
-                float erosion=lerp(0.10,0.24,smoothstep(0.18,0.92,h));
-                // Erode the normalized low-frequency shape before applying the
-                // height profile and the soft weather mask.  Eroding their
-                // already attenuated product makes every transition-zone
-                // sample smaller than the detail cutoff and silently turns a
-                // valid cloud bank into zero density.
-                float eroded=
-                    remapc(baseDensity,detail*erosion,1.0,0.0,1.0);
-                // The generated volume currently has one mip.  Fade sub-voxel erosion at
-                // distance instead of letting it alias into temporal/radial streaks.
-                float d=eroded;
-                densityResult=saturate(
-                    d*weatherMask*macro.profileWeight
-                    *lerp(1.10,0.92,h)
-                    *lerp(1.0,1.28,macro.weather.b));
-            }
-        }
+        densityResult=cloudDensityFromPositiveWeatherMacro(
+            p,macro,heightThreshold,weatherMask,detailWeight);
     }
     return densityResult;
 }
@@ -1240,7 +1353,8 @@ float cloudDensity(float3 p, float coverage, float detailWeight){
     float densityResult=0.0;
     CloudMacroSample macro=sampleCloudMacroLighting(p,coverage);
     densityResult=cloudDensityFromMacro(
-        p,macro,coverage,macro.weatherMask,detailWeight);
+        p,macro,macro.heightThreshold,
+        macro.weatherMask,detailWeight);
     return densityResult;
 }
 
@@ -1276,18 +1390,18 @@ float traceCloudShadowPattern(
     lightStep*=1.65;
     float lightDepth=0.0;
     [loop] for(int l=3;l<8;l++){
-        float coneAngle=0.010*float(l+1);
+        float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
         float conePhi=6.2831853*frac(
             patternJitter+float(l)*0.61803398875);
         float coneSin,coneCos;
         sincos(conePhi,coneSin,coneCos);
         float3 coneDir=cloudConeDirection(
             sun,lightTangent,lightBitangent,
-            coneSin,coneCos,coneAngle);
+            coneSin,coneCos,coneGeometry);
         lp+=coneDir*lightStep;
         CloudMacroSample lightMacro=
             sampleCloudMacroLighting(lp,coverage);
-        float lightDensity=cloudShapeFromMacro(lightMacro,coverage);
+        float lightDensity=cloudShapeFromMacro(lightMacro);
         lightDepth+=lightDensity*lightStep*layer.w;
         lightStep*=1.65;
     }
@@ -1350,9 +1464,9 @@ void CSCloudShadow(uint3 tid : SV_DispatchThreadID){
     if(any(tid>=uint3(width,height,depth))) return;
     float3 uvw=(float3(tid)+0.5)/float3(width,height,depth);
     float3 p=cloudShadowWorldPosition(uvw);
-    float3 sun=normalize(sunDir.xyz);
-    float3 lightTangent,lightBitangent;
-    cloudLightBasis(sun,lightTangent,lightBitangent);
+    float3 sun=sunDir.xyz;
+    float3 lightTangent=cloudLightTangent.xyz;
+    float3 lightBitangent=cloudLightBitangent.xyz;
     float coverage=saturate(params.x);
     float depthA=traceCloudShadowPattern(
         p,0.211324865,coverage,sun,lightTangent,lightBitangent);
@@ -1457,9 +1571,8 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     float4 clip=float4(uv.x*2-1, -(uv.y*2-1), 1, 1);
     float4 wp=mul(clip, invViewProj); wp/=wp.w;
     float3 dir=normalize(wp.xyz - camPos.xyz);
-    float3 localUp=normalize(camPos.xyz-cloudPlanetCenter());
+    float3 localUp=groundHorizon.xyz;
     float signedElevation=dot(dir,localUp);
-    float cameraAltitude=cloudAltitude(camPos.xyz);
     // The planet/ground occlusion boundary has no rasterizer coverage because
     // clouds are traced in compute. A hard angular compare therefore exposes
     // one quarter-resolution occupancy decision as a white, stair-stepped row
@@ -1467,16 +1580,12 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // pixel footprint around the same physical cutoff; this is analytic edge
     // coverage, not a post blur, and remains stable across TSR phases.
     float groundHorizonCoverage=1.0;
-    if(cameraAltitude<layer.x) {
-        // Tangent elevation of the physical ground sphere as seen from the
-        // current observer. At editor ground level this is exactly zero and
-        // therefore agrees with the lower-sky hemisphere boundary; at flight
-        // altitude it correctly permits distant clouds below local horizontal.
-        float observerAltitude=max(cameraAltitude,0.0);
-        float groundRadiusRatio=CLOUD_PLANET_RADIUS/
-            (CLOUD_PLANET_RADIUS+observerAltitude);
-        float groundCutoff=-sqrt(saturate(
-            1.0-groundRadiusRatio*groundRadiusRatio));
+    float groundCutoff=groundHorizon.w;
+    if(groundCutoff>=-1.0) {
+        // The camera-local up vector and physical ground tangent are invariant
+        // for the complete frame. CPU-side evaluation mirrors cloudAltitude
+        // exactly and avoids repeating its divisions/normalization/sqrt in
+        // every trace invocation.
         if(signedElevation<groundCutoff-0.02) {
             groundHorizonCoverage=0.0;
         } else if(signedElevation<groundCutoff+0.02) {
@@ -1519,7 +1628,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     }
     float coverage=saturate(params.x), density=max(params.y,0.05);
     float t0=0.0,t1=0.0;
-    if(!intersectCloudShell(camPos.xyz,dir,t0,t1)){
+    if(!intersectCloudShell(dir,t0,t1)){
         cloudOut[pixelQ]=float4(0,0,0,0);
         cloudDepthOut[pixelQ]=float2(250001.0,0.0);
         return;
@@ -1546,7 +1655,7 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
     // produced the view-centred starburst visible in the editor.
     const int MAX_STEPS=192;
     float span=t1-t0;
-    float baseFineStep=clamp(0.035/max(layer.z,0.001),0.5,2.0);
+    float baseFineStep=cloudCoverageReciprocals.z;
     // A dense oblique ray must still reach the far end of the shell. Keep
     // vertical/near rays at authored detail resolution, then widen the step
     // only enough to reserve sixteen probes for coarse-to-fine transitions.
@@ -1570,14 +1679,14 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         (jitterSequence*17u)%127u);
     float pixelJitter=CloudJitter01(jitterPixel);
     float jit=frac(pixelJitter+float(jitterSequence)*0.754877666);
-    float3 sun=normalize(sunDir.xyz);
+    float3 sun=sunDir.xyz;
     float cosA=clamp(dot(dir,sun),-1.0,1.0);
     float phase=12.566370*(hg(cosA,0.60)*0.85+hg(cosA,-0.20)*0.15);
     phase=clamp(phase,0.25,2.4);
-    float3 lightTangent,lightBitangent;
-    cloudLightBasis(sun,lightTangent,lightBitangent);
-    float baseLightStep=0.012/max(layer.w,1e-4);
-    float occupancyCoverage=saturate(coverage+0.08);
+    float3 lightTangent=cloudLightTangent.xyz;
+    float3 lightBitangent=cloudLightBitangent.xyz;
+    float baseLightStep=cloudCoverageReciprocals.w;
+    float4 coverageTerms=cloudCoverage;
     float transmit=1.0; float3 scatter=float3(0,0,0);
     float depthMoment=0.0;
     float t=t0+jit*coarseStep;
@@ -1588,9 +1697,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         // camPos.y here used to drag the cloud layer with editor camera pans.
         float3 p=camPos.xyz+dir*t;
         float3 viewMacroUvw;
+        float densityHeightThreshold;
         CloudMacroSample macro=sampleCloudMacro(
-            p,occupancyCoverage,viewMacroUvw);
-        float shape=cloudShapeFromMacro(macro,occupancyCoverage);
+            p,coverageTerms,
+            viewMacroUvw,densityHeightThreshold);
+        float shape=cloudShapeFromMacro(macro);
         if(shape<=0.006){
             if(nearDensity && t<refineUntil) {
                 t+=fineStep;
@@ -1619,9 +1730,11 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
         float detailEnd=80000.0;
         float detailWeight=lerp(
             0.90,0.30,smoothstep(detailStart,detailEnd,t));
-        float viewWeatherMask=cloudWeatherMask(macro.weather,coverage);
+        float viewWeatherMask=cloudWeatherMaskFromTerms(
+            macro.weather,coverageTerms.y,cloudCoverageReciprocals.y);
         float dens=cloudDensityFromMacro(
-            p,macro,coverage,viewWeatherMask,detailWeight)*density;
+            p,macro,densityHeightThreshold,
+            viewWeatherMask,detailWeight)*density;
         if(dens>0.0015){
             // 指数的に間隔を広げる sample で layer 全体を覆い、2 番目の Beer term で
             // 高次 scattering を近似する。
@@ -1637,7 +1750,9 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // Low-frequency weather/curl are coherent across this short light
             // cone and are shared from the view sample. Density profile, macro
             // shape and all near-field detail remain per-probe.
-            float4 sharedLightWeather=macro.weather;
+            float2 sharedLightProfileTypeWeights=
+                cloudProfileTypeWeights(macro.weather.g);
+            float sharedLightPrecipitation=macro.weather.b;
             float2 sharedLightCurl=macro.curl;
             float sharedShapeScale=cloudShapeScale();
             // All eight cone phases differ by one constant golden-angle
@@ -1653,18 +1768,19 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             // dynamic l>=3 branch while materially reducing dense-ray register
             // pressure and branch bookkeeping.
             [loop] for(int l=0;l<3;l++){
-                float coneAngle=0.010*float(l+1);
+                float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
                 float3 coneDir=cloudConeDirection(
                     sun,lightTangent,lightBitangent,
-                    coneSin,coneCos,coneAngle);
+                    coneSin,coneCos,coneGeometry);
                 lp+=coneDir*lightStep;
                 CloudMacroSample lightMacro=
                     sampleCloudMacroLightingFromSlowFields(
-                        lp,viewWeatherMask,coverage,
-                        sharedLightWeather,sharedLightCurl,
+                        lp,viewWeatherMask,coverageTerms.w,
+                        sharedLightProfileTypeWeights,
+                        sharedLightPrecipitation,sharedLightCurl,
                         p,viewMacroUvw,macro.height,sharedShapeScale);
-                float lightDensity=cloudDensityFromMacro(
-                    lp,lightMacro,coverage,
+                float lightDensity=cloudDensityFromPositiveWeatherMacro(
+                    lp,lightMacro,lightMacro.heightThreshold,
                     lightMacro.weatherMask,0.65);
                 if(l==0) nearLightDensity=lightDensity;
                 lightDepth+=lightDensity*lightStep*layer.w;
@@ -1703,18 +1819,17 @@ void CSCloud(uint3 tid : SV_DispatchThreadID){
             }
             if(!lightTerminated && !cachedFarTail){
                 [loop] for(int l=3;l<8;l++){
-                    float coneAngle=0.010*float(l+1);
+                    float2 coneGeometry=CLOUD_CONE_GEOMETRY[l];
                     float3 coneDir=cloudConeDirection(
                         sun,lightTangent,lightBitangent,
-                        coneSin,coneCos,coneAngle);
+                        coneSin,coneCos,coneGeometry);
                     lp+=coneDir*lightStep;
-                    CloudMacroSample lightMacro=
-                        sampleCloudMacroLightingFromSlowFields(
-                            lp,viewWeatherMask,coverage,
-                            sharedLightWeather,sharedLightCurl,
+                    float lightDensity=
+                        sampleCloudLightingShapeFromSlowFields(
+                            lp,viewWeatherMask,coverageTerms.w,
+                            sharedLightProfileTypeWeights,
+                            sharedLightPrecipitation,
                             p,viewMacroUvw,macro.height,sharedShapeScale);
-                    float lightDensity=cloudShapeFromMacro(
-                        lightMacro,coverage);
                     lightDepth+=lightDensity*lightStep*layer.w;
                     if(lightDepth*density*4.2>18.0) break;
                     float previousConeCos=coneCos;
@@ -1808,6 +1923,7 @@ cbuffer CloudCB : register(b0) {
     float4 worldOrigin;// xyz=rebased shell origin, w=history camera stationary
     float4 shadowGrid;
     float4 shadowState;
+    float4 groundHorizon;// xyz=camera local up, w=ground tangent elevation; <-1 disables
 };
 Texture2D<float4> cloudLow     : register(t0);
 Texture2D<float2> cloudDepth   : register(t1);
@@ -1895,6 +2011,8 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     bool stableHistoryResolved=false;
     float4 resolved=float4(0,0,0,0);
     float2 resolvedDepth=float2(250001.0,0.0);
+    float currentViewElevation=0.0;
+    bool currentViewElevationReady=false;
 
     // The steady-state TSR resolve does not need a nine-tap spatial fallback
     // for the interior of a stable cloud. Reproject those pixels first, while
@@ -1945,6 +2063,11 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
                 ?rcp(stableFarP.w):0.0;
             float3 stableRay=normalize(
                 stableFarP.xyz*stableInvW-camPos.xyz);
+            if(groundHorizon.w>=-1.0) {
+                currentViewElevation=dot(
+                    stableRay,groundHorizon.xyz);
+                currentViewElevationReady=true;
+            }
             float3 stableWorldP=
                 camPos.xyz+stableRay*sameScreenDepth.x;
             float stableWindDelta=params.z-temporal.y;
@@ -2083,6 +2206,10 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
         float4 farP=mul(clip,invViewProj);
         float invW=(abs(farP.w)>1e-6)?rcp(farP.w):0.0;
         float3 ray=normalize(farP.xyz*invW-camPos.xyz);
+        if(groundHorizon.w>=-1.0) {
+            currentViewElevation=dot(ray,groundHorizon.xyz);
+            currentViewElevationReady=true;
+        }
         float3 worldP=camPos.xyz+ray*reprojectionDepth;
 
         // Reproject the same advected density feature.  Camera translation is
@@ -2174,77 +2301,66 @@ void CSResolve(uint3 tid : SV_DispatchThreadID) {
     float outA=saturate(resolved.a);
     bool possibleGroundEdge=outA>1e-5 ||
         (refC.a>0.003 && refD.x<=250000.0);
-    if(possibleGroundEdge) {
+    if(possibleGroundEdge && groundHorizon.w>=-1.0) {
         // Enforce the analytic planet/ground horizon at the exact output pixel.
         // Quarter-resolution current taps may straddle this boundary, so doing
         // the final conservative coverage here prevents bilateral reconstruction
         // from reintroducing a one-pixel white fringe into the ground hemisphere.
-        float3 cameraLocal=camPos.xyz-worldOrigin.xyz;
-        float cameraRadialY=max(
-            CLOUD_PLANET_RADIUS+cameraLocal.y,1.0);
-        float cameraQ=dot(cameraLocal.xz,cameraLocal.xz)/cameraRadialY;
-        float outputCameraAltitude=cameraLocal.y+
-            cameraQ*(0.5-cameraQ/(8.0*cameraRadialY));
-        if(outputCameraAltitude<layer.x) {
-            float3 outputUp=normalize(
-                camPos.xyz-(worldOrigin.xyz+
-                    float3(0.0,-CLOUD_PLANET_RADIUS,0.0)));
+        float3 outputUp=groundHorizon.xyz;
+        float outputGroundCutoff=groundHorizon.w;
+        float outputElevation=currentViewElevation;
+        if(!currentViewElevationReady) {
             float4 outputClip=float4(
                 uv.x*2.0-1.0,-(uv.y*2.0-1.0),1.0,1.0);
             float4 outputFarP=mul(outputClip,invViewProj);
             outputFarP/=outputFarP.w;
             float3 outputRay=normalize(outputFarP.xyz-camPos.xyz);
-            float outputElevation=dot(outputRay,outputUp);
-            float observerAltitude=max(outputCameraAltitude,0.0);
-            float radiusRatio=CLOUD_PLANET_RADIUS/
-                (CLOUD_PLANET_RADIUS+observerAltitude);
-            float outputGroundCutoff=-sqrt(saturate(
-                1.0-radiusRatio*radiusRatio));
-            float outputGroundCoverage=1.0;
-            if(outputElevation<outputGroundCutoff-0.02) {
-                outputGroundCoverage=0.0;
-            } else if(outputElevation<outputGroundCutoff+0.02) {
-                // Use the exact two-axis output-pixel footprint. Centering the
-                // implicit-edge filter around the physical tangent removes the
-                // old one-sided staircase without borrowing radiance from a
-                // different history/depth sample.
-                float2 outputCenter=float2(tid.xy)+0.5;
-                float outputXOffset=tid.x+1u<fullW?1.0:-1.0;
-                float outputYOffset=tid.y+1u<fullH?1.0:-1.0;
-                float2 outputXUv=(
-                    outputCenter+float2(outputXOffset,0.0))/dims.zw;
-                float2 outputYUv=(
-                    outputCenter+float2(0.0,outputYOffset))/dims.zw;
-                float4 outputXClip=float4(
-                    outputXUv.x*2.0-1.0,
-                    -(outputXUv.y*2.0-1.0),1.0,1.0);
-                float4 outputYClip=float4(
-                    outputYUv.x*2.0-1.0,
-                    -(outputYUv.y*2.0-1.0),1.0,1.0);
-                float4 outputXFarP=mul(outputXClip,invViewProj);
-                float4 outputYFarP=mul(outputYClip,invViewProj);
-                outputXFarP/=outputXFarP.w;
-                outputYFarP/=outputYFarP.w;
-                float outputXElevation=dot(
-                    normalize(outputXFarP.xyz-camPos.xyz),outputUp);
-                float outputYElevation=dot(
-                    normalize(outputYFarP.xyz-camPos.xyz),outputUp);
-                float outputCoverageHalfWidth=max(
-                    0.5*(abs(outputXElevation-outputElevation)+
-                         abs(outputYElevation-outputElevation)),1e-6);
-                outputGroundCoverage=smoothstep(
-                    outputGroundCutoff-outputCoverageHalfWidth,
-                    outputGroundCutoff+outputCoverageHalfWidth,
-                    outputElevation);
-            }
-            resolved.rgb*=outputGroundCoverage;
-            outA*=outputGroundCoverage;
-            resolvedDepth.y=outA;
-            if(outA<=0.001) {
-                resolved.rgb=0.0;
-                outA=0.0;
-                resolvedDepth=float2(250001.0,0.0);
-            }
+            outputElevation=dot(outputRay,outputUp);
+        }
+        float outputGroundCoverage=1.0;
+        if(outputElevation<outputGroundCutoff-0.02) {
+            outputGroundCoverage=0.0;
+        } else if(outputElevation<outputGroundCutoff+0.02) {
+            // Use the exact two-axis output-pixel footprint. Centering the
+            // implicit-edge filter around the physical tangent removes the
+            // old one-sided staircase without borrowing radiance from a
+            // different history/depth sample.
+            float2 outputCenter=float2(tid.xy)+0.5;
+            float outputXOffset=tid.x+1u<fullW?1.0:-1.0;
+            float outputYOffset=tid.y+1u<fullH?1.0:-1.0;
+            float2 outputXUv=(
+                outputCenter+float2(outputXOffset,0.0))/dims.zw;
+            float2 outputYUv=(
+                outputCenter+float2(0.0,outputYOffset))/dims.zw;
+            float4 outputXClip=float4(
+                outputXUv.x*2.0-1.0,
+                -(outputXUv.y*2.0-1.0),1.0,1.0);
+            float4 outputYClip=float4(
+                outputYUv.x*2.0-1.0,
+                -(outputYUv.y*2.0-1.0),1.0,1.0);
+            float4 outputXFarP=mul(outputXClip,invViewProj);
+            float4 outputYFarP=mul(outputYClip,invViewProj);
+            outputXFarP/=outputXFarP.w;
+            outputYFarP/=outputYFarP.w;
+            float outputXElevation=dot(
+                normalize(outputXFarP.xyz-camPos.xyz),outputUp);
+            float outputYElevation=dot(
+                normalize(outputYFarP.xyz-camPos.xyz),outputUp);
+            float outputCoverageHalfWidth=max(
+                0.5*(abs(outputXElevation-outputElevation)+
+                     abs(outputYElevation-outputElevation)),1e-6);
+            outputGroundCoverage=smoothstep(
+                outputGroundCutoff-outputCoverageHalfWidth,
+                outputGroundCutoff+outputCoverageHalfWidth,
+                outputElevation);
+        }
+        resolved.rgb*=outputGroundCoverage;
+        outA*=outputGroundCoverage;
+        resolvedDepth.y=outA;
+        if(outA<=0.001) {
+            resolved.rgb=0.0;
+            outA=0.0;
+            resolvedDepth=float2(250001.0,0.0);
         }
     }
     historyColorOut[tid.xy]=float4(
@@ -2402,8 +2518,44 @@ struct FCloudCb {
     FVec4 worldOrigin;
     FVec4 shadowGrid;
     FVec4 shadowState;
+    FVec4 groundHorizon;
+    FVec4 cloudFrameTerms;
+    FVec4 cloudLightTangent;
+    FVec4 cloudLightBitangent;
+    FVec4 cloudCoverage;
+    FVec4 cloudCoverageReciprocals;
+    FVec4 cloudShellRayOrigin;
+    FVec4 cloudShellTerms;
 };
-static_assert(sizeof(FCloudCb) == 320, "CloudCB must match the HLSL layout");
+static_assert(sizeof(FCloudCb) == 448, "CloudCB must match the HLSL layout");
+static_assert(
+    offsetof(FCloudCb, groundHorizon) == 320u,
+    "CloudCB ground horizon must remain at HLSL register c20");
+static_assert(
+    offsetof(FCloudCb, groundHorizon) % 16u == 0u,
+    "CloudCB fields must remain on float4 register boundaries");
+static_assert(
+    offsetof(FCloudCb, cloudFrameTerms) == 336u,
+    "CloudCB density frame terms must remain at HLSL register c21");
+static_assert(
+    offsetof(FCloudCb, cloudLightTangent) == 352u &&
+        offsetof(FCloudCb, cloudLightBitangent) == 368u,
+    "CloudCB light basis must remain at HLSL registers c22-c23");
+static_assert(
+    offsetof(FCloudCb, cloudCoverage) == 384u,
+    "CloudCB coverage terms must remain at HLSL register c24");
+static_assert(
+    offsetof(FCloudCb, cloudCoverageReciprocals) == 400u,
+    "CloudCB coverage reciprocals must remain at HLSL register c25");
+static_assert(
+    offsetof(FCloudCb, cloudShellRayOrigin) == 416u,
+    "CloudCB shell ray origin must remain at HLSL register c26");
+static_assert(
+    offsetof(FCloudCb, cloudShellTerms) == 432u,
+    "CloudCB shell terms must remain at HLSL register c27");
+static_assert(
+    CBSize<FCloudCb>() == 512u,
+    "CloudCB allocation must preserve DX12's 256-byte alignment");
 
 struct FCloudAtmosphereCb {
     FVec4 atmosphereParams;
@@ -2698,10 +2850,109 @@ f32 ResolveVolumetricCloudHorizonCoverage(
     return t * t * (3.0f - 2.0f * t);
 }
 
+FVolumetricCloudGroundHorizon ResolveVolumetricCloudGroundHorizon(
+    FVec3 camera_position, const FVolumetricCloudLayer& layer,
+    FVec3 world_origin) noexcept {
+    FVolumetricCloudGroundHorizon out{};
+    if (!IsFiniteCloudVector(camera_position) ||
+        !IsFiniteCloudVector(world_origin) ||
+        !std::isfinite(layer.base_height)) {
+        return out;
+    }
+
+    const FVec3 cameraLocal{
+        camera_position.x - world_origin.x,
+        camera_position.y - world_origin.y,
+        camera_position.z - world_origin.z};
+    const FVec3 fromPlanetCenter{
+        cameraLocal.x,
+        cameraLocal.y + kVolumetricCloudPlanetRadius,
+        cameraLocal.z};
+    const f32 upLengthSquared =
+        fromPlanetCenter.x * fromPlanetCenter.x +
+        fromPlanetCenter.y * fromPlanetCenter.y +
+        fromPlanetCenter.z * fromPlanetCenter.z;
+    if (!std::isfinite(upLengthSquared) ||
+        upLengthSquared <= 1.0e-12f) {
+        return out;
+    }
+    out.local_up = NormalizeSafe(fromPlanetCenter);
+
+    const f32 unboundedRadialY =
+        kVolumetricCloudPlanetRadius + cameraLocal.y;
+    const f32 radialY =
+        unboundedRadialY > 1.0f ? unboundedRadialY : 1.0f;
+    const f32 radialXz2 =
+        cameraLocal.x * cameraLocal.x +
+        cameraLocal.z * cameraLocal.z;
+    const f32 q = radialXz2 / radialY;
+    const f32 cameraAltitude =
+        cameraLocal.y + q * (0.5f - q / (8.0f * radialY));
+    if (!std::isfinite(cameraAltitude) ||
+        cameraAltitude >= layer.base_height) {
+        return out;
+    }
+
+    const f32 observerAltitude =
+        cameraAltitude > 0.0f ? cameraAltitude : 0.0f;
+    const f32 denominator =
+        kVolumetricCloudPlanetRadius + observerAltitude;
+    const f32 radiusRatio =
+        kVolumetricCloudPlanetRadius / denominator;
+    f32 tangentSquared = 1.0f - radiusRatio * radiusRatio;
+    if (tangentSquared < 0.0f) tangentSquared = 0.0f;
+    if (tangentSquared > 1.0f) tangentSquared = 1.0f;
+    const f32 cutoff = -Sqrt(tangentSquared);
+    if (std::isfinite(cutoff)) out.ground_cutoff = cutoff;
+    return out;
+}
+
 FVec2 VolumetricCloudWindOffsetXZ(f32 wind_offset) noexcept {
     if (!std::isfinite(wind_offset)) wind_offset = 0.0f;
     return FVec2{wind_offset * 0.9284767f,
                  wind_offset * 0.3713907f};
+}
+
+FVolumetricCloudDensityFrameTerms ResolveVolumetricCloudDensityFrameTerms(
+    const FVolumetricCloudLayer& layer, f32 wind_offset) noexcept {
+    FVolumetricCloudDensityFrameTerms out{};
+    out.wind_world = VolumetricCloudWindOffsetXZ(wind_offset);
+
+    f32 authoredScale = layer.horizontal_noise_scale;
+    if (!std::isfinite(authoredScale)) authoredScale = 0.02f;
+    f32 shapeScale = authoredScale * 0.006f;
+    if (shapeScale < 0.00012f) shapeScale = 0.00012f;
+    if (shapeScale > 0.00045f) shapeScale = 0.00045f;
+    out.shape_scale = shapeScale;
+
+    f32 layerHeight = layer.top_height - layer.base_height;
+    if (!std::isfinite(layerHeight) || layerHeight < 1.0e-4f) {
+        layerHeight = 1.0e-4f;
+    }
+    out.inverse_layer_height = 1.0f / layerHeight;
+    return out;
+}
+
+FVolumetricCloudLightBasis ResolveVolumetricCloudLightBasis(
+    FVec3 sun_direction) noexcept {
+    FVolumetricCloudLightBasis out{};
+    out.direction = NormalizeSafe(sun_direction);
+
+    const f32 signY = out.direction.y >= 0.0f ? 1.0f : -1.0f;
+    const f32 a = -1.0f / (signY + out.direction.y);
+    const f32 b = out.direction.x * out.direction.z * a;
+    out.tangent = FVec3{
+        1.0f + signY * out.direction.x * out.direction.x * a,
+        -signY * out.direction.x,
+        signY * b};
+    out.bitangent = FVec3{
+        out.direction.y * out.tangent.z -
+            out.direction.z * out.tangent.y,
+        out.direction.z * out.tangent.x -
+            out.direction.x * out.tangent.z,
+        out.direction.x * out.tangent.y -
+            out.direction.y * out.tangent.x};
+    return out;
 }
 
 FVec2 VolumetricCloudMaterialXZ(FVec3 world_position,
@@ -3703,7 +3954,9 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
             historyWasAvailable;
         return;
     }
-    const FVec3 safeSun = NormalizeSafe(sun_dir);
+    const FVolumetricCloudLightBasis lightBasis =
+        ResolveVolumetricCloudLightBasis(sun_dir);
+    const FVec3 safeSun = lightBasis.direction;
     const f32 fallbackCoverage =
         m_HistoryValid && std::isfinite(m_PrevCoverage)
             ? m_PrevCoverage : 0.5f;
@@ -3746,6 +3999,8 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     const f32 windOffset = safeTime * safeWind * 2.5f;
 
     const FVec2 windWorld = VolumetricCloudWindOffsetXZ(windOffset);
+    const FVolumetricCloudDensityFrameTerms densityFrameTerms =
+        ResolveVolumetricCloudDensityFrameTerms(m_Layer, windOffset);
     const FVec2 cameraQ = VolumetricCloudMaterialXZ(cam_pos, windOffset);
     bool shadowRecentered = false;
     if (!m_ShadowGridInitialized) {
@@ -3945,8 +4200,9 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
                                    kVolumetricCloudUltraTraceDivisor)
                              : 0.0f };
     const f32 layerThickness = m_Layer.top_height - m_Layer.base_height;
+    const f32 layerCanonicalScale = 1.6f / layerThickness;
     cb.layer = FVec4{m_Layer.base_height, m_Layer.top_height,
-                     m_Layer.horizontal_noise_scale, 1.6f / layerThickness};
+                     m_Layer.horizontal_noise_scale, layerCanonicalScale};
     const bool temporalHistoryStationary = historyValid &&
         cameraDeltaSquared <= 0.0025f && matrixDelta <= 0.002f;
     cb.worldOrigin = FVec4{
@@ -3961,6 +4217,87 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
         0.10f,
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheWidth),
         1.0f / static_cast<f32>(kVolumetricCloudShadowCacheHeight)};
+    const FVolumetricCloudGroundHorizon groundHorizon =
+        ResolveVolumetricCloudGroundHorizon(
+            cam_pos, m_Layer, worldOrigin);
+    cb.groundHorizon = FVec4{
+        groundHorizon.local_up.x,
+        groundHorizon.local_up.y,
+        groundHorizon.local_up.z,
+        groundHorizon.ground_cutoff};
+    cb.cloudFrameTerms = FVec4{
+        densityFrameTerms.wind_world.x,
+        densityFrameTerms.wind_world.y,
+        densityFrameTerms.shape_scale,
+        densityFrameTerms.inverse_layer_height};
+    cb.cloudLightTangent = FVec4{
+        lightBasis.tangent.x,
+        lightBasis.tangent.y,
+        lightBasis.tangent.z,
+        0.0f};
+    cb.cloudLightBitangent = FVec4{
+        lightBasis.bitangent.x,
+        lightBasis.bitangent.y,
+        lightBasis.bitangent.z,
+        0.0f};
+    const f32 occupancyCoverage =
+        safeCoverage + 0.08f < 1.0f ? safeCoverage + 0.08f : 1.0f;
+    const f32 occupancyHeightCoverage =
+        occupancyCoverage < 0.72f ? occupancyCoverage : 0.72f;
+    const f32 densityHeightCoverage =
+        safeCoverage < 0.72f ? safeCoverage : 0.72f;
+    cb.cloudCoverage = FVec4{
+        0.90f - 0.55f * occupancyCoverage,
+        0.90f - 0.55f * safeCoverage,
+        0.72f - 0.22f * occupancyHeightCoverage,
+        0.72f - 0.22f * densityHeightCoverage};
+    const f32 occupancyWeatherUpper =
+        cb.cloudCoverage.x + 0.14f < 0.98f
+            ? cb.cloudCoverage.x + 0.14f : 0.98f;
+    const f32 densityWeatherUpper =
+        cb.cloudCoverage.y + 0.14f < 0.98f
+            ? cb.cloudCoverage.y + 0.14f : 0.98f;
+    const f32 unclampedFineStep =
+        0.035f /
+        (m_Layer.horizontal_noise_scale > 0.001f
+             ? m_Layer.horizontal_noise_scale : 0.001f);
+    const f32 fineStep =
+        unclampedFineStep < 0.5f ? 0.5f
+        : (unclampedFineStep > 2.0f ? 2.0f : unclampedFineStep);
+    const f32 lightStep =
+        0.012f /
+        (layerCanonicalScale > 0.0001f
+             ? layerCanonicalScale : 0.0001f);
+    cb.cloudCoverageReciprocals = FVec4{
+        1.0f / (occupancyWeatherUpper - cb.cloudCoverage.x),
+        1.0f / (densityWeatherUpper - cb.cloudCoverage.y),
+        fineStep,
+        lightStep};
+    // Camera, rebase origin and layer are invariant for the complete trace
+    // dispatch. Build the two factorized shell quadratics once on the CPU
+    // instead of reconstructing both c terms and the same ray-origin b term
+    // in every quarter-resolution invocation.
+    const FVec3 shellLocalOrigin{
+        cam_pos.x - worldOrigin.x,
+        cam_pos.y - worldOrigin.y,
+        cam_pos.z - worldOrigin.z};
+    const f32 shellRadialXzSquared =
+        shellLocalOrigin.x * shellLocalOrigin.x +
+        shellLocalOrigin.z * shellLocalOrigin.z;
+    const auto shellC =
+        [shellLocalOrigin, shellRadialXzSquared](f32 altitude) noexcept {
+            return shellRadialXzSquared +
+                (shellLocalOrigin.y - altitude) *
+                (2.0f * kVolumetricCloudPlanetRadius +
+                 shellLocalOrigin.y + altitude);
+        };
+    cb.cloudShellRayOrigin = FVec4{
+        shellLocalOrigin.x,
+        shellLocalOrigin.y + kVolumetricCloudPlanetRadius,
+        shellLocalOrigin.z,
+        shellC(m_Layer.base_height)};
+    cb.cloudShellTerms = FVec4{
+        shellC(m_Layer.top_height), 0.0f, 0.0f, 0.0f};
     m_Cb->Update(&cb, sizeof(cb));
     // Phase 4.5: 初回に Perlin-Worley shape noise (128^3) を焼く (1 回のみ、以降 SRV で sample)。
     if (bakeShapeNoiseThisFrame) {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Editor ABI DLL の生成・破棄契約を、GPU 接続なしで実 DLL 境界から検証する。
 #include "editor_abi/EditorProfiler.h"
+#include "editor_abi/EditorCameraViewRequests.h"
 #include "editor_abi/EditorFrustumCulling.h"
 #include "editor_abi/EditorAbiCapabilities.h"
 #include "editor_abi/EditorCloudWorkload.h"
@@ -120,6 +121,30 @@ extern "C" __declspec(dllimport) void acs_editor_game_camera_preview_clear(
     void* handle);
 extern "C" __declspec(dllimport) int acs_editor_game_camera_preview_get(
     void* handle, int* node_id);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_view_request_create(
+    void* handle, int node_id, const char* stable_camera_id,
+    std::uint32_t width, std::uint32_t height,
+    std::uint64_t* out_request_id);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_view_request_update(
+    void* handle, std::uint64_t request_id,
+    int node_id, const char* stable_camera_id,
+    std::uint32_t width, std::uint32_t height);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_view_request_bind_presenter(
+    void* handle, std::uint64_t request_id);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_view_request_unbind_presenter(
+    void* handle, std::uint64_t request_id);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_view_request_destroy(
+    void* handle, std::uint64_t request_id);
+extern "C" __declspec(dllimport) int
+acs_editor_camera_view_request_get(
+    void* handle, std::uint64_t request_id,
+    acs::editor_camera_view::FSnapshot* out_snapshot,
+    std::uint32_t snapshot_size);
 extern "C" __declspec(dllimport) int acs_editor_camera3d_count(
     void* handle);
 extern "C" __declspec(dllimport) int acs_editor_camera3d_node_id_at(
@@ -141,6 +166,9 @@ extern "C" __declspec(dllimport) int acs_editor_startup_status(
     void* handle, unsigned* completed, unsigned* total);
 extern "C" __declspec(dllimport) void acs_editor_set_scene_presentation_suppressed(
     void* handle, int suppressed);
+extern "C" __declspec(dllimport) int acs_editor_settings_set(
+    void* handle, const char* category,
+    const char* key, const char* value);
 extern "C" __declspec(dllimport) int acs_editor_attach(
     void* handle, void* hwnd, unsigned width, unsigned height);
 extern "C" __declspec(dllimport) void acs_editor_render(
@@ -169,9 +197,16 @@ bool RunAbiCapabilityContract() noexcept
         (kCapabilities &
          CapabilityBit(ECapability::VolumetricCloudWorkloadV1)) != 0u);
     static_assert(
+        (kCapabilities &
+         CapabilityBit(ECapability::CameraViewRequestsV1)) != 0u);
+    static_assert(
         (kRequiredManagedHostCapabilities &
          CapabilityBit(ECapability::VolumetricCloudWorkloadV1)) == 0u,
         "cloud workload diagnostics must remain optional");
+    static_assert(
+        (kRequiredManagedHostCapabilities &
+         CapabilityBit(ECapability::CameraViewRequestsV1)) == 0u,
+        "multi-view request scheduling must remain optional");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -309,11 +344,16 @@ bool RunProfilerSnapshotContract() noexcept
 {
     using namespace acs::editor_profiler;
     static_assert(sizeof(FSnapshot) == kSnapshotSize);
-    static_assert(kSnapshotVersion == 4u);
-    static_assert(kSnapshotSize == 224u);
+    static_assert(kSnapshotVersion == 5u);
+    static_assert(kSnapshotSize == 256u);
+    static_assert(kLegacySnapshotVersion == 4u);
+    static_assert(kLegacySnapshotSize == 224u);
     static_assert(
         SceneMeshCacheRebuilt == (1u << 5u),
         "mesh-cache rebuild profiling must not change the snapshot ABI");
+    static_assert(
+        ScenePresentationSuppressed == (1u << 9u),
+        "presentation suppression must reuse the profiler v4 flags field");
 
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
@@ -351,8 +391,20 @@ bool RunProfilerSnapshotContract() noexcept
         snapshot.cloud_gpu_window_peak_ms < 0.0f &&
         snapshot.fog_gpu_window_peak_ms < 0.0f &&
         snapshot.post_gpu_window_peak_ms < 0.0f &&
+        snapshot.frustum_tested == 0u &&
+        snapshot.frustum_visible == 0u &&
+        snapshot.frustum_culled == 0u &&
+        snapshot.active_camera_node_id == -1 &&
+        snapshot.native_render_active_cpu_ms == 0.0f &&
+        snapshot.native_present_cpu_ms == 0.0f &&
+        snapshot.native_render_active_cpu_peak_ms == 0.0f &&
+        snapshot.native_present_cpu_peak_ms == 0.0f &&
+        snapshot.presented_frame_count_since_reset == 0u &&
+        snapshot.profiler_reset_serial == 0u &&
         (snapshot.flags &
-         (GpuTimingsValid | SceneMeshCacheRebuilt)) == 0u;
+         (GpuTimingsValid | SceneMeshCacheRebuilt |
+          FrustumCullingEnabled | RuntimeSceneCamera |
+          ScenePresentationSuppressed)) == 0u;
 
     snapshot.version = kSnapshotVersion + 1u;
     const bool rejects_version =
@@ -367,6 +419,43 @@ bool RunProfilerSnapshotContract() noexcept
     const bool rejects_buffer_size =
         acs_editor_profiler_get(host, &snapshot, kSnapshotSize - 1u) == 0;
 
+    SYSTEM_INFO system_info{};
+    ::GetSystemInfo(&system_info);
+    const SIZE_T page_size =
+        static_cast<SIZE_T>(system_info.dwPageSize);
+    void* const guard_region = page_size > sizeof(acs::u32)
+        ? ::VirtualAlloc(
+              nullptr,
+              page_size * 2u,
+              MEM_RESERVE | MEM_COMMIT,
+              PAGE_READWRITE)
+        : nullptr;
+    bool rejects_four_byte_guard = false;
+    if (guard_region != nullptr) {
+        DWORD previous_protection = 0;
+        auto* const inaccessible_page =
+            static_cast<unsigned char*>(guard_region) + page_size;
+        if (::VirtualProtect(
+                inaccessible_page,
+                page_size,
+                PAGE_NOACCESS,
+                &previous_protection)) {
+            auto* const version_only =
+                inaccessible_page - sizeof(acs::u32);
+            const acs::u32 requested_version = kSnapshotVersion;
+            std::memcpy(
+                version_only,
+                &requested_version,
+                sizeof(requested_version));
+            rejects_four_byte_guard =
+                acs_editor_profiler_get(
+                    host,
+                    reinterpret_cast<FSnapshot*>(version_only),
+                    sizeof(requested_version)) == 0;
+        }
+        ::VirtualFree(guard_region, 0u, MEM_RELEASE);
+    }
+
     struct FExtendedSnapshot {
         FSnapshot base{};
         unsigned extension_sentinel = 0xA5A55A5Au;
@@ -378,6 +467,57 @@ bool RunProfilerSnapshotContract() noexcept
             static_cast<unsigned>(sizeof(extended))) != 0 &&
         extended.base.struct_size == kSnapshotSize &&
         extended.extension_sentinel == 0xA5A55A5Au;
+
+    struct FLegacySnapshot {
+        acs::u32 version = kLegacySnapshotVersion;
+        acs::u32 struct_size = kLegacySnapshotSize;
+        unsigned char remaining[kLegacySnapshotSize - 8u]{};
+    } legacy;
+    static_assert(sizeof(FLegacySnapshot) == kLegacySnapshotSize);
+    const bool legacy_prefix =
+        acs_editor_profiler_get(
+            host,
+            reinterpret_cast<FSnapshot*>(&legacy),
+            static_cast<unsigned>(sizeof(legacy))) != 0 &&
+        legacy.version == kLegacySnapshotVersion &&
+        legacy.struct_size == kLegacySnapshotSize;
+
+    acs_editor_profiler_reset_peaks(host);
+    FSnapshot reset_snapshot{};
+    const bool capture_boundary_reset =
+        acs_editor_profiler_get(
+            host,
+            &reset_snapshot,
+            static_cast<unsigned>(sizeof(reset_snapshot))) != 0 &&
+        reset_snapshot.profiler_reset_serial == 1u &&
+        reset_snapshot.presented_frame_count_since_reset == 0u &&
+        reset_snapshot.fps == 0.0f &&
+        reset_snapshot.cpu_frame_ms == 0.0f &&
+        reset_snapshot.cpu_submit_ms == 0.0f &&
+        reset_snapshot.gpu_frame_ms < 0.0f &&
+        reset_snapshot.opaque_cpu_ms == 0.0f &&
+        reset_snapshot.atmosphere_cpu_ms == 0.0f &&
+        reset_snapshot.cloud_cpu_ms == 0.0f &&
+        reset_snapshot.fog_cpu_ms == 0.0f &&
+        reset_snapshot.post_cpu_ms == 0.0f &&
+        reset_snapshot.opaque_gpu_ms < 0.0f &&
+        reset_snapshot.atmosphere_gpu_ms < 0.0f &&
+        reset_snapshot.cloud_gpu_ms < 0.0f &&
+        reset_snapshot.fog_gpu_ms < 0.0f &&
+        reset_snapshot.post_gpu_ms < 0.0f &&
+        reset_snapshot.gpu_frame_index == 0u &&
+        (reset_snapshot.flags & GpuTimingsValid) == 0u &&
+        reset_snapshot.native_render_active_cpu_peak_ms == 0.0f &&
+        reset_snapshot.native_present_cpu_peak_ms == 0.0f;
+    acs::editor_cloud_workload::FSnapshot reset_cloud{};
+    const bool capture_boundary_cloud_reset =
+        acs_editor_cloud_workload_get(
+            host,
+            &reset_cloud,
+            static_cast<unsigned>(sizeof(reset_cloud))) == 0 &&
+        reset_cloud.profiler_frame_index == 0u &&
+        reset_cloud.flags == 0u &&
+        reset_cloud.total_compute_dispatches == 0u;
 
     const bool rejects_null =
         acs_editor_profiler_get(host, nullptr, kSnapshotSize) == 0 &&
@@ -457,14 +597,17 @@ bool RunProfilerSnapshotContract() noexcept
 
     acs_editor_destroy(host);
     return default_snapshot && rejects_version && rejects_struct_size &&
-           rejects_buffer_size && forward_prefix && rejects_null &&
+           rejects_buffer_size && rejects_four_byte_guard &&
+           forward_prefix && legacy_prefix &&
+           capture_boundary_reset && capture_boundary_cloud_reset &&
+           rejects_null &&
            rolling_peak && peak_reset && query_validity_and_identity &&
            query_window && query_reset;
 }
 
 /**
  * The optional cloud-workload contract is unavailable before renderer startup,
- * rejects incompatible callers, and never changes profiler v4.
+ * rejects incompatible callers, and remains independent from profiler v5.
  */
 bool RunCloudWorkloadSnapshotContract() noexcept
 {
@@ -472,8 +615,8 @@ bool RunCloudWorkloadSnapshotContract() noexcept
     static_assert(kSnapshotVersion == 1u);
     static_assert(kSnapshotSize == 168u);
     static_assert(sizeof(FSnapshot) == 168u);
-    static_assert(acs::editor_profiler::kSnapshotVersion == 4u);
-    static_assert(acs::editor_profiler::kSnapshotSize == 224u);
+    static_assert(acs::editor_profiler::kSnapshotVersion == 5u);
+    static_assert(acs::editor_profiler::kSnapshotSize == 256u);
 
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
@@ -1275,6 +1418,209 @@ bool RunGameCameraResolutionAndPreview() noexcept
            enumeration && frustum_toggle && explicitly_cleared;
 }
 
+/** Logical Camera View requests stay bounded, isolated and non-persistent. */
+bool RunCameraViewRequestContract() noexcept
+{
+    using namespace acs::editor_camera_view;
+    static_assert(sizeof(FSnapshot) == 60u);
+    static_assert(kMaximumRequests == 8u);
+
+    FRegistry registry;
+    std::uint64_t logical_a = 0u;
+    std::uint64_t logical_b = 0u;
+    const bool registry_created =
+        registry.Create(10, "camera.logical-a", 1280, 720, logical_a) &&
+        registry.Create(20, "camera.logical-b", 640, 360, logical_b) &&
+        logical_a != 0u && logical_b != 0u && logical_a != logical_b;
+    FSnapshot logical_snapshot{};
+    const bool exclusive_presenter =
+        registry_created &&
+        registry.BindPresenter(logical_a) &&
+        !registry.BindPresenter(logical_b) &&
+        registry.Snapshot(logical_a, logical_snapshot) &&
+        (logical_snapshot.flags & SnapshotPresenter) != 0u &&
+        logical_snapshot.target_kind ==
+            static_cast<std::uint32_t>(ETargetKind::SharedSwapchain);
+    registry.MarkPresenterRendered(77u, 1280u, 720u);
+    const bool latest_metadata =
+        registry.Snapshot(logical_a, logical_snapshot) &&
+        logical_snapshot.latest_frame_serial == 77u &&
+        logical_snapshot.presented_width == 1280u &&
+        logical_snapshot.presented_height == 720u &&
+        (logical_snapshot.flags &
+         (SnapshotTargetRecreatePending |
+          SnapshotHistoryResetPending)) == 0u;
+    const std::uint32_t history_before_stale =
+        logical_snapshot.history_generation;
+    registry.MarkAllCamerasStale();
+    const bool stale_isolated =
+        registry.Snapshot(logical_a, logical_snapshot) &&
+        (logical_snapshot.flags & SnapshotCameraStale) != 0u &&
+        (logical_snapshot.flags & SnapshotPresenter) == 0u &&
+        registry.PresenterRequestId() == 0u &&
+        registry.Update(
+            logical_a, 10, "camera.logical-a", 1280, 720) &&
+        registry.Snapshot(logical_a, logical_snapshot) &&
+        (logical_snapshot.flags & SnapshotCameraStale) == 0u &&
+        logical_snapshot.history_generation >
+            history_before_stale;
+    const std::uint64_t stale_logical_a = logical_a;
+    const bool aba_safe =
+        registry.Destroy(logical_a) &&
+        registry.Create(30, "camera.logical-c", 320, 180, logical_a) &&
+        logical_a != stale_logical_a &&
+        !registry.Destroy(stale_logical_a);
+    FRegistry bounded_registry;
+    std::uint64_t bounded_ids[kMaximumRequests]{};
+    bool bounded_capacity = true;
+    for (std::uint32_t index = 0u;
+         index < kMaximumRequests; ++index) {
+        char stable_id[32]{};
+        std::snprintf(
+            stable_id, sizeof(stable_id),
+            "camera.bounded-%u", index);
+        bounded_capacity =
+            bounded_capacity &&
+            bounded_registry.Create(
+                static_cast<std::int32_t>(index),
+                stable_id, 320, 180,
+                bounded_ids[index]);
+    }
+    std::uint64_t over_capacity = 99u;
+    bounded_capacity =
+        bounded_capacity &&
+        !bounded_registry.Create(
+            99, "camera.over-capacity",
+            320, 180, over_capacity) &&
+        over_capacity == 0u;
+
+    void* host = acs_editor_create();
+    if (host == nullptr) return false;
+    const int camera_a =
+        acs_editor_add_camera3d(
+            host, "RequestCameraA", "camera.request-a");
+    const int camera_b =
+        acs_editor_add_camera3d(
+            host, "RequestCameraB", "camera.request-b");
+    char before[32768]{};
+    char after[32768]{};
+    const int before_written =
+        acs_editor_scene3d_serialize(
+            host, before, static_cast<int>(sizeof(before)));
+
+    std::uint64_t request_a = 0u;
+    std::uint64_t request_b = 0u;
+    std::uint64_t rejected = 55u;
+    const bool created =
+        camera_a >= 0 && camera_b >= 0 &&
+        acs_editor_camera_view_request_create(
+            host, camera_a, "camera.request-a",
+            1280, 720, &request_a) != 0 &&
+        acs_editor_camera_view_request_create(
+            host, camera_b, "camera.request-b",
+            640, 360, &request_b) != 0 &&
+        request_a != 0u && request_b != 0u &&
+        acs_editor_camera_view_request_create(
+            host, camera_a, "camera.request-a",
+            8192, 8192, &rejected) == 0 &&
+        rejected == 0u;
+
+    FSnapshot snapshot_a{};
+    const bool bound_exclusively =
+        created &&
+        acs_editor_camera_view_request_bind_presenter(
+            host, request_a) != 0 &&
+        acs_editor_camera_view_request_bind_presenter(
+            host, request_b) == 0 &&
+        acs_editor_game_camera_preview_set(host, camera_b) == 0 &&
+        acs_editor_camera_view_request_get(
+            host, request_a, &snapshot_a,
+            static_cast<std::uint32_t>(sizeof(snapshot_a))) != 0 &&
+        snapshot_a.request_id == request_a &&
+        snapshot_a.camera_node_id == camera_a &&
+        snapshot_a.target_kind ==
+            static_cast<std::uint32_t>(
+                ETargetKind::SharedSwapchain) &&
+        (snapshot_a.flags & SnapshotPresenter) != 0u;
+
+    const std::uint32_t history_before_update =
+        snapshot_a.history_generation;
+    const bool updated_independently =
+        acs_editor_camera_view_request_update(
+            host, request_a, camera_b, "camera.request-b",
+            1920, 1080) != 0 &&
+        acs_editor_camera_view_request_get(
+            host, request_a, &snapshot_a,
+            static_cast<std::uint32_t>(sizeof(snapshot_a))) != 0 &&
+        snapshot_a.camera_node_id == camera_b &&
+        snapshot_a.width == 1920u &&
+        snapshot_a.height == 1080u &&
+        snapshot_a.history_generation > history_before_update &&
+        (snapshot_a.flags & SnapshotHistoryResetPending) != 0u;
+
+    FSnapshot snapshot_b{};
+    acs_editor_node3d_set_enabled(host, camera_b, 0);
+    const bool stale_identity_fails_closed =
+        acs_editor_camera_view_request_unbind_presenter(
+            host, request_a) != 0 &&
+        acs_editor_camera_view_request_bind_presenter(
+            host, request_b) == 0 &&
+        acs_editor_camera_view_request_get(
+            host, request_b, &snapshot_b,
+            static_cast<std::uint32_t>(sizeof(snapshot_b))) != 0 &&
+        (snapshot_b.flags & SnapshotCameraStale) != 0u &&
+        (snapshot_b.flags & SnapshotPresenter) == 0u;
+    acs_editor_node3d_set_enabled(host, camera_b, 1);
+    const bool revalidated =
+        acs_editor_camera_view_request_update(
+            host, request_b, camera_b, "camera.request-b",
+            640, 360) != 0 &&
+        acs_editor_camera_view_request_bind_presenter(
+            host, request_b) != 0;
+
+    const bool scene_replacement_stales_all =
+        before_written > 0 &&
+        acs_editor_scene3d_load_text(host, before) != 0 &&
+        acs_editor_camera_view_request_get(
+            host, request_a, &snapshot_a,
+            static_cast<std::uint32_t>(sizeof(snapshot_a))) != 0 &&
+        acs_editor_camera_view_request_get(
+            host, request_b, &snapshot_b,
+            static_cast<std::uint32_t>(sizeof(snapshot_b))) != 0 &&
+        (snapshot_a.flags & SnapshotCameraStale) != 0u &&
+        (snapshot_b.flags & SnapshotCameraStale) != 0u &&
+        (snapshot_b.flags & SnapshotPresenter) == 0u &&
+        acs_editor_camera_view_request_update(
+            host, request_b, camera_b, "camera.request-b",
+            640, 360) != 0;
+
+    const int after_written =
+        acs_editor_scene3d_serialize(
+            host, after, static_cast<int>(sizeof(after)));
+    const bool non_persistent =
+        before_written > 0 &&
+        after_written == before_written &&
+        std::strcmp(before, after) == 0;
+    const bool destroyed =
+        acs_editor_camera_view_request_destroy(
+            host, request_a) != 0 &&
+        acs_editor_camera_view_request_destroy(
+            host, request_b) != 0 &&
+        acs_editor_camera_view_request_get(
+            host, request_a, &snapshot_a,
+            static_cast<std::uint32_t>(sizeof(snapshot_a))) == 0;
+
+    acs_editor_destroy(host);
+    return registry_created && exclusive_presenter &&
+           latest_metadata && stale_isolated && aba_safe &&
+           bounded_capacity &&
+           created && bound_exclusively &&
+           updated_independently &&
+           stale_identity_fails_closed && revalidated &&
+           scene_replacement_stales_all &&
+           non_persistent && destroyed;
+}
+
 /** Row-vector D3D planes, conservative scale and fail-open draw policy stay exact. */
 bool RunFrustumCullingContract() noexcept
 {
@@ -1319,11 +1665,18 @@ bool RunFrustumCullingContract() noexcept
     const FNodeDecision nonuniform = EvaluateSphere(
         planes, acs::FVec3{8.0f, 0.0f, 5.0f},
         1.0f, acs::FVec3{1.0f, 3.0f, 2.0f});
+    const FNodeDecision displaced_surface = EvaluateSphere(
+        planes, acs::FVec3{8.0f, 0.0f, 5.0f},
+        1.0f, acs::FVec3{1.0f, 1.0f, 1.0f},
+        4.0f);
     const bool scale_contract =
         uniform.valid && !uniform.visible &&
         uniform.world_radius == 1.0f &&
         nonuniform.valid && nonuniform.visible &&
-        nonuniform.world_radius == 3.0f;
+        nonuniform.world_radius == 3.0f &&
+        displaced_surface.valid &&
+        displaced_surface.visible &&
+        displaced_surface.world_radius == 5.0f;
 
     const float nan = std::numeric_limits<float>::quiet_NaN();
     const FNodeDecision invalid = EvaluateSphere(
@@ -1351,8 +1704,290 @@ bool RunFrustumCullingContract() noexcept
         !ShouldSubmitOpaque(
             culled_frame.enabled,
             beyond_right.visible);
+
+    const acs::FMat4 orthographic =
+        acs::FMat4::OrthoLH(8.0f, 6.0f, 1.0f, 10.0f);
+    FPlane orthographic_planes[6]{};
+    const bool orthographic_planes_valid =
+        ExtractPlanes(view * orthographic, orthographic_planes);
+    const FNodeDecision orthographic_inside = EvaluateSphere(
+        orthographic_planes, acs::FVec3{3.5f, 2.5f, 5.0f},
+        0.25f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision orthographic_outside_x = EvaluateSphere(
+        orthographic_planes, acs::FVec3{4.5f, 0.0f, 5.0f},
+        0.1f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const FNodeDecision orthographic_outside_y = EvaluateSphere(
+        orthographic_planes, acs::FVec3{0.0f, 3.5f, 5.0f},
+        0.1f, acs::FVec3{1.0f, 1.0f, 1.0f});
+    const bool orthographic_contract =
+        orthographic_planes_valid &&
+        orthographic_inside.valid &&
+        orthographic_inside.visible &&
+        orthographic_outside_x.valid &&
+        !orthographic_outside_x.visible &&
+        orthographic_outside_y.valid &&
+        !orthographic_outside_y.visible;
+
+    const acs::u8 visibility[] = {1u, 0u, 1u};
+    const FSubmissionMaskView enabled_mask{
+        true, visibility,
+        static_cast<acs::u32>(
+            sizeof(visibility) / sizeof(visibility[0]))};
+    acs::u32 submitted_indices = 0u;
+    const acs::u32 submitted_count = ForEachSubmittedNode(
+        enabled_mask, 3u,
+        [&](acs::u32 index) noexcept {
+            submitted_indices |= 1u << index;
+        });
+    const bool production_submission_contract =
+        submitted_count == 2u &&
+        submitted_indices == ((1u << 0u) | (1u << 2u)) &&
+        !AnySubmittedNode(
+            enabled_mask, 3u,
+            [](acs::u32 index) noexcept { return index == 1u; }) &&
+        AnySubmittedNode(
+            enabled_mask, 3u,
+            [](acs::u32 index) noexcept { return index == 2u; });
+
     return plane_contract && scale_contract &&
-           fail_open && culled_skips_opaque;
+           fail_open && culled_skips_opaque &&
+           orthographic_contract &&
+           production_submission_contract;
+}
+
+/**
+ * Exercise the real DrawScene3D publication path when a DX12 adapter is
+ * available. Headless/no-adapter environments still run the pure and fake-RHI
+ * contracts above.
+ */
+bool RunRenderedFrustumProfilerContract() noexcept
+{
+    using namespace acs::editor_profiler;
+    HWND const window = ::CreateWindowExW(
+        0, L"STATIC", L"ACS editor ABI culling integration test",
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 256, 256,
+        nullptr, nullptr, ::GetModuleHandleW(nullptr), nullptr);
+    if (window == nullptr) return true;
+
+    void* const host = acs_editor_create();
+    if (host == nullptr) {
+        ::DestroyWindow(window);
+        return false;
+    }
+    if (acs_editor_attach(host, window, 256u, 256u) == 0) {
+        acs_editor_destroy(host);
+        ::DestroyWindow(window);
+        return true;
+    }
+
+    // Keep the integration frame deterministic and inexpensive. Lowest still
+    // initializes and exercises the complete opaque PBR camera path.
+    const bool quality_applied =
+        acs_editor_settings_set(
+            host, "Rendering", "QualityLevel", "Lowest") != 0;
+    unsigned completed = 0u;
+    unsigned total = 0u;
+    int startup_state =
+        acs_editor_startup_status(host, &completed, &total);
+    const ULONGLONG startup_deadline =
+        ::GetTickCount64() + 30000u;
+    while (startup_state == 0 &&
+           ::GetTickCount64() < startup_deadline) {
+        const unsigned previous_completed = completed;
+        acs_editor_render(host, 1.0f / 60.0f);
+        startup_state =
+            acs_editor_startup_status(host, &completed, &total);
+        if (startup_state == 0 &&
+            completed == previous_completed) {
+            ::Sleep(1u);
+        }
+    }
+
+    bool ok = quality_applied && startup_state > 0 &&
+              completed == total && total > 1u;
+    if (ok) {
+        // Startup completed while the host was still in its first 2D view.
+        // Mark the 3D graph explicitly empty so set_view3d cannot seed the
+        // three editor sample meshes into this authored-camera fixture.
+        acs_editor_scene3d_new(host);
+    }
+    const int inside = ok
+        ? acs_editor_add_node3d(host, 0, "CullingInside")
+        : -1;
+    const int outside = ok
+        ? acs_editor_add_node3d(host, 0, "CullingOutside")
+        : -1;
+    const int water_inside = ok
+        ? acs_editor_add_node3d(host, 2, "WaterCullingInside")
+        : -1;
+    const int water_outside = ok
+        ? acs_editor_add_node3d(host, 2, "WaterCullingOutside")
+        : -1;
+    const int camera = ok
+        ? acs_editor_add_camera3d(
+              host, "CullingCamera", "camera.culling.integration")
+        : -1;
+    ok = ok && inside >= 0 && outside >= 0 &&
+         water_inside >= 0 && water_outside >= 0 && camera >= 0 &&
+         acs_editor_node3d_add_component(
+             host, water_inside,
+             "AWaterSurface3DComponent") != 0 &&
+         acs_editor_node3d_add_component(
+             host, water_outside,
+             "AWaterSurface3DComponent") != 0 &&
+         acs_editor_node3d_set_transform(
+             host, inside,
+             0.0f, 0.0f, 5.0f,
+             0.0f, 0.0f, 0.0f,
+             1.0f, 1.0f, 1.0f) != 0 &&
+         acs_editor_node3d_set_transform(
+             host, outside,
+             20.0f, 0.0f, 5.0f,
+             0.0f, 0.0f, 0.0f,
+             1.0f, 1.0f, 1.0f) != 0 &&
+         acs_editor_node3d_set_transform(
+             host, water_inside,
+             0.0f, 0.0f, 5.0f,
+             0.0f, 0.0f, 0.0f,
+             1.0f, 1.0f, 1.0f) != 0 &&
+         acs_editor_node3d_set_transform(
+             host, water_outside,
+             20.0f, 0.0f, 5.0f,
+             0.0f, 0.0f, 0.0f,
+             1.0f, 1.0f, 1.0f) != 0 &&
+         acs_editor_node3d_set_transform(
+             host, camera,
+             0.0f, 0.0f, 0.0f,
+             0.0f, 0.0f, 0.0f,
+             1.0f, 1.0f, 1.0f) != 0 &&
+         acs_editor_node3d_camera_set(
+             host, camera, "camera.culling.integration",
+             0, 100, 1, 90.0f, 8.0f, 1.0f, 10.0f) != 0;
+
+    acs_editor_set_view3d(host, 1);
+    acs_editor_set_game_view(host, 1);
+    FSnapshot perspective{};
+    bool perspective_published = false;
+    for (unsigned frame = 0u;
+         frame < 8u && ok && !perspective_published; ++frame) {
+        acs_editor_render(host, 1.0f / 60.0f);
+        perspective = FSnapshot{};
+        perspective_published =
+            acs_editor_profiler_get(
+                host, &perspective,
+                static_cast<unsigned>(sizeof(perspective))) != 0 &&
+            (perspective.flags & FrustumCullingEnabled) != 0u;
+    }
+    const bool perspective_counts =
+        perspective_published &&
+        (perspective.flags &
+         (View3D | GameView | RuntimeSceneCamera)) ==
+            (View3D | GameView | RuntimeSceneCamera) &&
+        perspective.frustum_tested == 4u &&
+        perspective.frustum_visible == 2u &&
+        perspective.frustum_culled == 2u &&
+        perspective.active_camera_node_id == camera;
+
+    ok = ok && acs_editor_node3d_camera_set(
+        host, camera, "camera.culling.integration",
+        1, 100, 1, 90.0f, 8.0f, 1.0f, 10.0f) != 0;
+    FSnapshot orthographic{};
+    bool orthographic_published = false;
+    for (unsigned frame = 0u;
+         frame < 8u && ok && !orthographic_published; ++frame) {
+        acs_editor_render(host, 1.0f / 60.0f);
+        orthographic = FSnapshot{};
+        orthographic_published =
+            acs_editor_profiler_get(
+                host, &orthographic,
+                static_cast<unsigned>(sizeof(orthographic))) != 0 &&
+            (orthographic.flags & FrustumCullingEnabled) != 0u;
+    }
+    int projection = -1;
+    int source = -1;
+    float position[3]{};
+    float forward[3]{};
+    float up[3]{};
+    float parameters[4]{};
+    const bool orthographic_counts =
+        orthographic_published &&
+        orthographic.frustum_tested == 4u &&
+        orthographic.frustum_visible == 2u &&
+        orthographic.frustum_culled == 2u &&
+        orthographic.active_camera_node_id == camera &&
+        acs_editor_game_camera3d_get(
+            host, 1.0f, &projection, &source,
+            position, forward, up, parameters) != 0 &&
+        projection == 1 && source == camera &&
+        parameters[1] == 8.0f &&
+        parameters[2] == 1.0f &&
+        parameters[3] == 10.0f;
+
+    // A published frame that exits before DrawScene3D must not leak the last
+    // successful frame's camera or culling counters into profiler consumers.
+    acs_editor_set_scene_presentation_suppressed(host, 1);
+    acs_editor_render(host, 1.0f / 60.0f);
+    FSnapshot suppressed{};
+    const bool early_frame_zeroed =
+        acs_editor_profiler_get(
+            host, &suppressed,
+            static_cast<unsigned>(sizeof(suppressed))) != 0 &&
+        suppressed.frame_index > orthographic.frame_index &&
+        (suppressed.flags & ScenePresentationSuppressed) != 0u &&
+        (suppressed.flags &
+         (FrustumCullingEnabled | RuntimeSceneCamera)) == 0u &&
+        suppressed.frustum_tested == 0u &&
+        suppressed.frustum_visible == 0u &&
+        suppressed.frustum_culled == 0u &&
+        suppressed.active_camera_node_id == -1;
+    acs_editor_set_scene_presentation_suppressed(host, 0);
+    acs_editor_render(host, 1.0f / 60.0f);
+    FSnapshot resumed{};
+    const bool resumed_frame_published =
+        acs_editor_profiler_get(
+            host, &resumed,
+            static_cast<unsigned>(sizeof(resumed))) != 0 &&
+        resumed.frame_index > suppressed.frame_index &&
+        (resumed.flags & ScenePresentationSuppressed) == 0u;
+
+    const bool result =
+        ok && perspective_counts && orthographic_counts &&
+        early_frame_zeroed && resumed_frame_published;
+    if (!result) {
+        std::printf(
+            "Rendered frustum profiler contract failed: "
+            "startup=%d progress=%u/%u persp=%d [%u,%u,%u flags=%u cam=%d] "
+            "ortho=%d [%u,%u,%u flags=%u cam=%d projection=%d source=%d] "
+            "early_zero=%d [%u,%u,%u flags=%u cam=%d] "
+            "resumed=%d [frame=%llu flags=%u]\n",
+            startup_state, completed, total,
+            perspective_published ? 1 : 0,
+            perspective.frustum_tested,
+            perspective.frustum_visible,
+            perspective.frustum_culled,
+            perspective.flags,
+            perspective.active_camera_node_id,
+            orthographic_published ? 1 : 0,
+            orthographic.frustum_tested,
+            orthographic.frustum_visible,
+            orthographic.frustum_culled,
+            orthographic.flags,
+            orthographic.active_camera_node_id,
+            projection, source,
+            early_frame_zeroed ? 1 : 0,
+            suppressed.frustum_tested,
+            suppressed.frustum_visible,
+            suppressed.frustum_culled,
+            suppressed.flags,
+            suppressed.active_camera_node_id,
+            resumed_frame_published ? 1 : 0,
+            static_cast<unsigned long long>(resumed.frame_index),
+            resumed.flags);
+    }
+    acs_editor_destroy(host);
+    ::DestroyWindow(window);
+    return result;
 }
 
 } // namespace
@@ -1378,7 +2013,9 @@ int main()
     if (!RunPlayCameraIsolation()) return 20;
     if (!RunDeterministicGameCamera2D()) return 21;
     if (!RunGameCameraResolutionAndPreview()) return 22;
+    if (!RunCameraViewRequestContract()) return 25;
     if (!RunFrustumCullingContract()) return 23;
+    if (!RunRenderedFrustumProfilerContract()) return 24;
     const DWORD baseline_handles = ProcessHandleCount();
     if (baseline_handles == 0) return 2;
 

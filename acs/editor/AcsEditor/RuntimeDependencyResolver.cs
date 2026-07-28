@@ -56,6 +56,24 @@ public static class RuntimeDependencyResolver
             source.AppendLine("if(POLICY CMP0207)");
             source.AppendLine("  cmake_policy(SET CMP0207 NEW)");
             source.AppendLine("endif()");
+            if (OperatingSystem.IsWindows())
+            {
+                string dumpbin = FindDumpbin()
+                    ?? throw new FileNotFoundException(
+                        "Windows runtime dependency scanning requires the Visual Studio x64 " +
+                        "dumpbin.exe tool, but no supported installation was found.");
+                // Script mode has no configured generator/toolchain from which
+                // CMake can infer a PE scanner. Pin both the target format and
+                // the inspected-binary tool instead of allowing host
+                // introspection to select an unavailable objdump executable.
+                source.AppendLine(
+                    "set(CMAKE_GET_RUNTIME_DEPENDENCIES_PLATFORM \"windows+pe\")");
+                source.AppendLine(
+                    "set(CMAKE_GET_RUNTIME_DEPENDENCIES_TOOL \"dumpbin\")");
+                source.Append("set(CMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND ")
+                    .Append(CMakeLiteral(dumpbin))
+                    .AppendLine(")");
+            }
             source.AppendLine("file(GET_RUNTIME_DEPENDENCIES");
             source.Append("  EXECUTABLES ").AppendLine(CMakeLiteral(executable));
             source.AppendLine("  RESOLVED_DEPENDENCIES_VAR ACS_RESOLVED");
@@ -253,6 +271,98 @@ public static class RuntimeDependencyResolver
         return candidates
             .OrderByDescending(path => path, StringComparer.Ordinal)
             .FirstOrDefault();
+    }
+
+    private static string? FindDumpbin()
+    {
+        string? fromPath = FindExecutableOnPath("dumpbin.exe");
+        if (fromPath != null)
+            return fromPath;
+
+        string? toolsRoot =
+            Environment.GetEnvironmentVariable("VCToolsInstallDir");
+        if (!string.IsNullOrWhiteSpace(toolsRoot))
+        {
+            foreach (string host in new[] { "Hostx64", "HostX64", "Hostx86", "HostX86" })
+            {
+                string candidate = Path.Combine(
+                    toolsRoot,
+                    "bin",
+                    host,
+                    "x64",
+                    "dumpbin.exe");
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+            }
+        }
+
+        var roots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        }.Where(path => !string.IsNullOrWhiteSpace(path))
+         .Select(path => Path.Combine(path, "Microsoft Visual Studio"))
+         .Where(Directory.Exists)
+         .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        var candidates = new List<string>();
+        foreach (string visualStudioRoot in roots)
+        {
+            try
+            {
+                foreach (string generation in Directory.EnumerateDirectories(visualStudioRoot))
+                foreach (string edition in Directory.EnumerateDirectories(generation))
+                {
+                    string msvcRoot = Path.Combine(
+                        edition,
+                        "VC",
+                        "Tools",
+                        "MSVC");
+                    if (!Directory.Exists(msvcRoot))
+                        continue;
+                    foreach (string version in Directory.EnumerateDirectories(msvcRoot))
+                    foreach (string host in new[] { "Hostx64", "HostX64", "Hostx86", "HostX86" })
+                    {
+                        string candidate = Path.Combine(
+                            version,
+                            "bin",
+                            host,
+                            "x64",
+                            "dumpbin.exe");
+                        if (File.Exists(candidate))
+                            candidates.Add(Path.GetFullPath(candidate));
+                    }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        return candidates
+            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private static string? FindExecutableOnPath(string fileName)
+    {
+        string? path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        foreach (string segment in path.Split(
+                     Path.PathSeparator,
+                     StringSplitOptions.RemoveEmptyEntries |
+                     StringSplitOptions.TrimEntries))
+        {
+            try
+            {
+                string candidate = Path.Combine(segment, fileName);
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+            }
+            catch (ArgumentException) { }
+            catch (NotSupportedException) { }
+        }
+        return null;
     }
 
     private static void TryDelete(string path)

@@ -23,7 +23,9 @@
     <Compile Include="..\..\editor\AcsEditor\EditorCloudWorkload.cs" Link="EditorCloudWorkload.cs"/>
     <Compile Include="..\..\editor\AcsEditor\EngineInterop.cs" Link="EngineInterop.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageCore.cs" Link="PackageCore.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\PackageExecutableContract.cs" Link="PackageExecutableContract.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageProcessRunner.cs" Link="PackageProcessRunner.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\PackageProductMetadata.cs" Link="PackageProductMetadata.cs"/>
     <Compile Include="..\..\editor\AcsEditor\Project.cs" Link="Project.cs"/>
     <Compile Include="..\..\editor\AcsEditor\ProjectManager.cs" Link="ProjectManager.cs"/>
     <Compile Include="..\..\editor\AcsEditor\ProjectManager.CanonicalSceneIdentity.cs" Link="ProjectManager.CanonicalSceneIdentity.cs"/>

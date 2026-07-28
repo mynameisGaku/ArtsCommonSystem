@@ -104,6 +104,7 @@ public partial class MainWindow
             if (!_windowMoveSizeActive)
             {
                 _windowMoveSizeActive = true;
+                ObservePendingLayoutWindowMove();
                 _viewport?.PauseRenderPumpForWindowInteraction();
             }
         }

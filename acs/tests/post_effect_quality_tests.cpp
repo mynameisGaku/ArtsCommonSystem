@@ -24,6 +24,7 @@
 #include "render/SkinnedShader.h"
 #include "render/StandardShader.h"
 #include "render/SubsurfaceScattering.h"
+#include "render/TemporalHistory.h"
 #include "render/WaterSurface3D.h"
 
 #include <atomic>
@@ -186,16 +187,319 @@ ACS_TEST(PostEffects,
     const std::string set_projection = ExtractFunction(
         editor,
         "ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on)");
-    EXPECT_TRUE(clear_scene.find("h.mv_computed = false;") !=
-                std::string::npos);
+    const std::string set_game_view = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_set_game_view(void* handle, int on)");
+    const std::string restore_play = ExtractFunction(
+        editor,
+        "static void RestorePlayEditorCamera(FEditorHost& h) noexcept");
+    const std::string apply_settings = ExtractFunction(
+        editor,
+        "static void ApplySettings(FEditorHost& h) noexcept");
+    const std::string invalidate_temporal = ExtractFunction(
+        editor,
+        "void InvalidateTemporalRenderHistories(FEditorHost& h) noexcept");
+    EXPECT_TRUE(!invalidate_temporal.empty());
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.mv_computed = false;") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.taa_frame = 0u;") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.post3d.InvalidateTaaHistory();") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.post3d.InvalidateExposureHistory();") !=
+        std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.ssr3d.InvalidateHistory();") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.ssgi3d.InvalidateHistory();") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.vclouds3d.InvalidateHistory();") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.ssr_computed = false;") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.ssgi_computed = false;") != std::string::npos);
+    EXPECT_TRUE(invalidate_temporal.find(
+        "h.temporal_camera_pose_valid = false;") !=
+        std::string::npos);
+
+    EXPECT_TRUE(clear_scene.find(
+        "InvalidateTemporalRenderHistories(h);") != std::string::npos);
     EXPECT_TRUE(set_view.find(
         "host->view3d != view3d") != std::string::npos);
     EXPECT_TRUE(set_view.find(
-        "host->mv_computed = false;") != std::string::npos);
+        "InvalidateTemporalRenderHistories(*host);") != std::string::npos);
     EXPECT_TRUE(set_projection.find(
         "host->ortho3d != ortho3d") != std::string::npos);
     EXPECT_TRUE(set_projection.find(
-        "host->mv_computed = false;") != std::string::npos);
+        "InvalidateTemporalRenderHistories(*host);") != std::string::npos);
+    EXPECT_TRUE(set_game_view.find(
+        "host->game_view != gameView") != std::string::npos);
+    EXPECT_TRUE(set_game_view.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(restore_play.find(
+        "InvalidateTemporalRenderHistories(h);") != std::string::npos);
+    EXPECT_TRUE(apply_settings.find(
+        "taa_was_requested != h.q_taa_on") != std::string::npos);
+    EXPECT_TRUE(apply_settings.find(
+        "ssr_was_requested != h.q_ssr_on") != std::string::npos);
+    EXPECT_TRUE(apply_settings.find(
+        "ssgi_was_requested != h.q_ssgi_on") != std::string::npos);
+    EXPECT_TRUE(apply_settings.find(
+        "auto_exposure_was_requested != h.q_auto_exposure") !=
+        std::string::npos);
+    EXPECT_TRUE(apply_settings.find(
+        "InvalidateTemporalRenderHistories(h);") != std::string::npos);
+
+    const std::size_t settings_capture =
+        apply_settings.find("const bool taa_was_requested");
+    const std::size_t settings_ssr_capture =
+        apply_settings.find("const bool ssr_was_requested");
+    const std::size_t settings_ssgi_capture =
+        apply_settings.find("const bool ssgi_was_requested");
+    const std::size_t settings_exposure_capture =
+        apply_settings.find("const bool auto_exposure_was_requested");
+    const std::size_t settings_preset =
+        apply_settings.find("ApplyQualityPreset(");
+    const std::size_t settings_taa_override =
+        apply_settings.find("h.q_taa_on = (taa > 0.0f)");
+    const std::size_t settings_ssr_override =
+        apply_settings.find("h.q_ssr_on = (ri > 0.0f)");
+    const std::size_t settings_ssgi_override =
+        apply_settings.find("h.q_ssgi_on = (gi > 0.0f)");
+    const std::size_t settings_exposure_override =
+        apply_settings.find("h.q_auto_exposure =");
+    const std::size_t settings_transition =
+        apply_settings.find("taa_was_requested != h.q_taa_on");
+    const std::size_t settings_invalidation =
+        apply_settings.find(
+            "InvalidateTemporalRenderHistories(h);",
+            settings_transition);
+    EXPECT_TRUE(settings_capture != std::string::npos);
+    EXPECT_TRUE(settings_ssr_capture != std::string::npos);
+    EXPECT_TRUE(settings_ssgi_capture != std::string::npos);
+    EXPECT_TRUE(settings_exposure_capture != std::string::npos);
+    EXPECT_TRUE(settings_preset != std::string::npos);
+    EXPECT_TRUE(settings_taa_override != std::string::npos);
+    EXPECT_TRUE(settings_ssr_override != std::string::npos);
+    EXPECT_TRUE(settings_ssgi_override != std::string::npos);
+    EXPECT_TRUE(settings_exposure_override != std::string::npos);
+    EXPECT_TRUE(settings_transition != std::string::npos);
+    EXPECT_TRUE(settings_invalidation != std::string::npos);
+    EXPECT_TRUE(settings_capture < settings_preset);
+    EXPECT_TRUE(settings_ssr_capture < settings_preset);
+    EXPECT_TRUE(settings_ssgi_capture < settings_preset);
+    EXPECT_TRUE(settings_exposure_capture < settings_preset);
+    EXPECT_TRUE(settings_taa_override < settings_transition);
+    EXPECT_TRUE(settings_ssr_override < settings_transition);
+    EXPECT_TRUE(settings_ssgi_override < settings_transition);
+    EXPECT_TRUE(settings_exposure_override < settings_transition);
+    EXPECT_TRUE(settings_transition < settings_invalidation);
+
+    // Switching the physical presenter between logical cameras invalidates
+    // both the effect-internal histories and the host's published-output
+    // flags. The opaque pass runs before the current frame's SSR/SSGI
+    // dispatches, so leaving either flag set would expose one frame from the
+    // previous camera.
+    const std::size_t projection_change_detection = draw.find(
+        "const bool render_projection_changed =");
+    const std::size_t camera_history_reset = draw.find(
+        "if (render_camera_changed || camera_view_history_reset ||");
+    EXPECT_TRUE(projection_change_detection != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.last_render_camera_orthographic != renderOrtho") !=
+        std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "const bool render_camera_cut =") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "VolumetricCloudViewCutDetected(") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "render_projection_changed || render_camera_cut") !=
+        std::string::npos);
+    EXPECT_TRUE(camera_history_reset != std::string::npos);
+    EXPECT_TRUE(projection_change_detection < camera_history_reset);
+    if (camera_history_reset != std::string::npos) {
+        const std::string reset_block =
+            draw.substr(camera_history_reset, 900u);
+        EXPECT_TRUE(reset_block.find(
+            "render_projection_changed") != std::string::npos);
+        EXPECT_TRUE(reset_block.find(
+            "InvalidateTemporalRenderHistories(h);") !=
+                std::string::npos);
+    }
+    EXPECT_TRUE(CountOccurrences(
+        draw, "h.ssr3d.InvalidateHistory();") >= 1u);
+    EXPECT_TRUE(CountOccurrences(
+        draw, "h.ssgi3d.InvalidateHistory();") >= 1u);
+    const std::size_t ssr_render_gate = draw.find(
+        "if (h.q_ssr_on && h.ssr_ready && gbufReady)");
+    const std::size_t ssr_skipped_invalidate = draw.find(
+        "h.ssr3d.InvalidateHistory();", ssr_render_gate);
+    const std::size_t ssgi_render_gate = draw.find(
+        "if (h.q_ssgi_on && h.ssgi_ready && gbufReady)");
+    const std::size_t ssgi_skipped_invalidate = draw.find(
+        "h.ssgi3d.InvalidateHistory();", ssgi_render_gate);
+    EXPECT_TRUE(ssr_render_gate != std::string::npos);
+    EXPECT_TRUE(ssr_skipped_invalidate != std::string::npos);
+    EXPECT_TRUE(ssgi_render_gate != std::string::npos);
+    EXPECT_TRUE(ssgi_skipped_invalidate != std::string::npos);
+    EXPECT_TRUE(ssr_render_gate < ssr_skipped_invalidate);
+    EXPECT_TRUE(ssr_skipped_invalidate < ssgi_render_gate);
+    EXPECT_TRUE(ssgi_render_gate < ssgi_skipped_invalidate);
+    const std::size_t camera_reset_call = draw.find(
+        "InvalidateTemporalRenderHistories(h);", camera_history_reset);
+    const std::size_t publish_ssr = draw.find("h.pbr3d.SetSsr(");
+    const std::size_t publish_ssgi = draw.find("h.pbr3d.SetSsgi(");
+    EXPECT_TRUE(camera_reset_call != std::string::npos);
+    EXPECT_TRUE(publish_ssr != std::string::npos);
+    EXPECT_TRUE(publish_ssgi != std::string::npos);
+    EXPECT_TRUE(camera_reset_call < publish_ssr);
+    EXPECT_TRUE(camera_reset_call < publish_ssgi);
+    EXPECT_TRUE(draw.find(
+        "h.prev_temporal_camera_eye = eye;") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.temporal_camera_pose_valid = true;") != std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.ssr_computed = h.ssr3d.HasValidOutput();") !=
+        std::string::npos);
+    EXPECT_TRUE(draw.find(
+        "h.ssgi_computed = h.ssgi3d.HasValidOutput();") !=
+        std::string::npos);
+
+    const std::string camera_reset = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_camera_reset(void* handle)");
+    const std::string camera3d_set = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API int acs_editor_camera3d_set(");
+    const std::string camera3d_reset = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_cam3d_reset(void* handle)");
+    const std::string camera_focus = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_camera_focus(void* handle)");
+    const std::string camera_frame_all = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle)");
+    const std::string camera_pan = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_camera_pan(void* handle");
+    const std::string camera_move = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_camera_move(void* handle");
+    const std::string camera_zoom = ExtractFunction(
+        editor,
+        "ACS_EDITOR_API void acs_editor_camera_zoom(void* handle");
+    const std::string current_render_camera =
+        ExtractFunction(
+            editor,
+            "bool IsCurrentTemporalRenderCamera3D(");
+    const std::string transform_affects_camera =
+        ExtractFunction(
+            editor,
+            "bool TransformAffectsCurrentTemporalRenderCamera3D(");
+    const std::string authored_camera_set =
+        ExtractFunction(
+            editor,
+            "ACS_EDITOR_API int acs_editor_node3d_camera_set(");
+    const std::string authored_camera_clear =
+        ExtractFunction(
+            editor,
+            "ACS_EDITOR_API int acs_editor_node3d_camera_clear(");
+    const std::string node_transform_set =
+        ExtractFunction(
+            editor,
+            "ACS_EDITOR_API int acs_editor_node3d_set_transform(");
+    const std::string align_camera_to_view =
+        ExtractFunction(
+            editor,
+            "bool AlignSceneCameraNodeToView(");
+    const std::string gizmo3d_drag =
+        ExtractFunction(
+            editor,
+            "ACS_EDITOR_API void acs_editor_gizmo3d_drag(");
+    const std::string reparent3d =
+        ExtractFunction(
+            editor,
+            "ACS_EDITOR_API int acs_editor_reparent3d(");
+    EXPECT_TRUE(camera_reset.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(camera3d_set.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(camera3d_reset.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(camera_focus.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(camera_frame_all.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(camera_pan.find(
+        "InvalidateTemporalRenderHistories") == std::string::npos);
+    EXPECT_TRUE(camera_move.find(
+        "InvalidateTemporalRenderHistories") == std::string::npos);
+    EXPECT_TRUE(camera_zoom.find(
+        "InvalidateTemporalRenderHistories") == std::string::npos);
+
+    // Authored projection/clip/pose changes are discontinuities even when the
+    // same camera id and perspective/ortho mode remain selected. The physical
+    // owner's last rendered id covers active, legacy preview, and request
+    // presenter resolution without resetting histories for unrelated cameras
+    // or normal mesh edits. Parent transforms are included because they alter
+    // the authored camera's world pose.
+    EXPECT_TRUE(current_render_camera.find(
+        "host.game_view") != std::string::npos);
+    EXPECT_TRUE(current_render_camera.find(
+        "host.last_render_camera_node_id") !=
+        std::string::npos);
+    EXPECT_TRUE(transform_affects_camera.find(
+        "FindNode3DNode(host, host.last_render_camera_node_id)") !=
+        std::string::npos);
+    EXPECT_TRUE(transform_affects_camera.find(
+        "cursor = cursor->Parent()") != std::string::npos);
+    EXPECT_TRUE(authored_camera_set.find(
+        "const bool was_temporal_owner") != std::string::npos);
+    EXPECT_TRUE(authored_camera_set.find(
+        "const bool is_temporal_owner") != std::string::npos);
+    EXPECT_TRUE(authored_camera_set.find(
+        "was_temporal_owner || is_temporal_owner") !=
+        std::string::npos);
+    EXPECT_TRUE(authored_camera_set.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(authored_camera_clear.find(
+        "const bool was_temporal_owner") != std::string::npos);
+    EXPECT_TRUE(authored_camera_clear.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(node_transform_set.find(
+        "TransformAffectsCurrentTemporalRenderCamera3D(") !=
+        std::string::npos);
+    EXPECT_TRUE(node_transform_set.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(align_camera_to_view.find(
+        "TransformAffectsCurrentTemporalRenderCamera3D(") !=
+        std::string::npos);
+    EXPECT_TRUE(align_camera_to_view.find(
+        "InvalidateTemporalRenderHistories(host);") !=
+        std::string::npos);
+    EXPECT_TRUE(gizmo3d_drag.find(
+        "TransformAffectsCurrentTemporalRenderCamera3D(") !=
+        std::string::npos);
+    EXPECT_TRUE(gizmo3d_drag.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
+    EXPECT_TRUE(reparent3d.find(
+        "TransformAffectsCurrentTemporalRenderCamera3D(") !=
+        std::string::npos);
+    EXPECT_TRUE(reparent3d.find(
+        "InvalidateTemporalRenderHistories(*host);") !=
+        std::string::npos);
 }
 
 ACS_TEST(PostEffects,
@@ -335,6 +639,79 @@ ACS_TEST(PostEffects, FixedTapGatherShadersKeepRolledQualityLoops)
                 std::string::npos);
 }
 
+ACS_TEST(PostEffects,
+         EditorFallbackShadersUseFxcSafeControlFlowAndExplicitLod)
+{
+    const std::string source =
+        ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
+    const std::string mesh =
+        ExtractRawShader(source, "kMesh3DHLSL");
+    const std::string dof =
+        ExtractRawShader(source, "kDof3DHLSL");
+    const std::string motion =
+        ExtractRawShader(source, "kMotionBlur3DHLSL");
+
+    EXPECT_TRUE(!mesh.empty());
+    EXPECT_TRUE(!dof.empty());
+    EXPECT_TRUE(!motion.empty());
+    if (mesh.empty() || dof.empty() || motion.empty()) return;
+
+    const std::string sky =
+        ExtractFunction(mesh, "float3 SkyCol(float3 d)");
+    const std::string shadow =
+        ExtractFunction(
+            mesh, "float ShadowFactor(float3 wpos, float ndl)");
+    EXPECT_TRUE(!sky.empty());
+    EXPECT_TRUE(!shadow.empty());
+    EXPECT_EQ(
+        CountOccurrences(sky, "return "),
+        static_cast<std::size_t>(1u));
+    EXPECT_EQ(
+        CountOccurrences(shadow, "return "),
+        static_cast<std::size_t>(1u));
+    EXPECT_TRUE(
+        sky.find("float3 sky_color = lerp(") != std::string::npos);
+    EXPECT_TRUE(
+        shadow.find("float shadow_factor = 1.0;") !=
+        std::string::npos);
+    EXPECT_TRUE(
+        shadow.find("bool projection_valid = abs(lp.w) > 1.0e-5;") !=
+        std::string::npos);
+
+    // Diligent combined samplers pair by <texture>_sampler.  Using the
+    // matching name avoids an unbound sampler without changing the PCF taps.
+    EXPECT_TRUE(
+        mesh.find("SamplerState shadow_map_sampler") !=
+        std::string::npos);
+    EXPECT_TRUE(mesh.find("shadow_samp") == std::string::npos);
+
+    // Screen-space gathers intentionally read the full-resolution level.
+    // Explicit LOD removes undefined implicit derivatives inside rolled loops
+    // while preserving every tap, coordinate and accumulation order.
+    EXPECT_EQ(
+        CountOccurrences(dof, ".Sample("),
+        static_cast<std::size_t>(0u));
+    EXPECT_EQ(
+        CountOccurrences(motion, ".Sample("),
+        static_cast<std::size_t>(0u));
+    EXPECT_TRUE(
+        dof.find("depthTex.SampleLevel(depthTex_sampler, uv, 0.0)") !=
+        std::string::npos);
+    EXPECT_TRUE(
+        dof.find("sceneTex.SampleLevel(\n"
+                 "                sceneTex_sampler, sampleUv, 0.0)") !=
+        std::string::npos);
+    EXPECT_TRUE(
+        motion.find(
+            "motionTex.SampleLevel(\n"
+            "            motionTex_sampler, sampleUv, 0.0)") !=
+        std::string::npos);
+    EXPECT_TRUE(
+        motion.find("sceneTex.SampleLevel(\n"
+                    "            sceneTex_sampler, sampleUv, 0.0)") !=
+        std::string::npos);
+}
+
 ACS_TEST(PostEffects, AuthoringParamsRejectNonFiniteAndInvalidRanges)
 {
     FPostProcessParams params{};
@@ -419,6 +796,11 @@ ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
     EXPECT_TRUE(water.find(
         "tangent * (micro_slope.x * normal_strength)") !=
                 std::string::npos);
+    EXPECT_TRUE(water.find(
+        "bitangent * (micro_slope.y * normal_strength)") !=
+                std::string::npos);
+    EXPECT_TRUE(water.find("float3 PerturbWaterNormal(") !=
+                std::string::npos);
     EXPECT_TRUE(water_source.find(
         "BuildWaterSurfaceFrame(model)") != std::string::npos);
     EXPECT_TRUE(water_source.find(
@@ -456,6 +838,86 @@ ACS_TEST(PostEffects, WaterAndBloomShadersKeepPhysicalSafetyContracts)
                 std::string::npos);
     EXPECT_TRUE(water_source.find(
         "m_ShadowPcfRadius = ClampFinite(pcf_radius, 0.0f, 0.0f, 8.0f);") !=
+                std::string::npos);
+}
+
+ACS_TEST(PostEffects,
+         WaterAndSubsurfaceShadersUseFxcSafeSingleExitHelpers)
+{
+    const std::string water_source =
+        ReadWorkspaceSource("src/render/WaterSurface3D.cpp");
+    const std::string subsurface_source =
+        ReadWorkspaceSource("src/render/SubsurfaceScattering.cpp");
+    const std::string water =
+        ExtractRawShader(water_source, "const char* kWaterSurface3DHlsl");
+    const std::string subsurface = ExtractRawShader(
+        subsurface_source, "const char* kSubsurfaceScatteringHlsl");
+    EXPECT_TRUE(!water.empty());
+    EXPECT_TRUE(!subsurface.empty());
+    if (water.empty() || subsurface.empty()) return;
+
+    const std::string authored_normal =
+        ExtractFunction(water, "float3 EvaluateAuthoredNormal(");
+    const std::string perturbed_normal =
+        ExtractFunction(water, "float3 PerturbWaterNormal(");
+    const std::string projected_direction =
+        ExtractFunction(
+            water, "float2 ProjectWorldDirectionToScreenPixels(");
+    const std::string profile_radii =
+        ExtractFunction(subsurface, "float3 ResolveProfileRadii(");
+    const std::string profile_similarity =
+        ExtractFunction(subsurface, "float ProfileSimilarity(");
+    const std::string blur_diffuse =
+        ExtractFunction(subsurface, "float4 BlurDiffuse(");
+
+    for (const std::string* helper :
+         {&authored_normal, &perturbed_normal, &projected_direction,
+          &profile_radii, &profile_similarity, &blur_diffuse}) {
+        EXPECT_TRUE(!helper->empty());
+        EXPECT_EQ(
+            CountOccurrences(*helper, "return "),
+            static_cast<std::size_t>(1u));
+    }
+
+    EXPECT_TRUE(authored_normal.find(
+        "float3 authored_result = float3(0.0, 0.0, 1.0);") !=
+                std::string::npos);
+    EXPECT_TRUE(perturbed_normal.find(
+        "float3 perturbed_result = world_normal;") !=
+                std::string::npos);
+    EXPECT_TRUE(projected_direction.find(
+        "float2 projected_result = float2(0.0, 0.0);") !=
+                std::string::npos);
+    EXPECT_TRUE(profile_radii.find(
+        "float3 resolved_radii = authored;") != std::string::npos);
+    EXPECT_TRUE(profile_similarity.find(
+        "float similarity = 0.0;") != std::string::npos);
+    EXPECT_TRUE(blur_diffuse.find(
+        "float4 blur_result = center_diffuse;") != std::string::npos);
+
+    // Warning cleanup must not trade away water texture filtering or the
+    // separable SSS profile quality. Keep every authored-normal sample and
+    // every bilateral tap with explicit full-resolution LOD in the gather.
+    EXPECT_EQ(
+        CountOccurrences(authored_normal, "authored_normal.Sample("),
+        static_cast<std::size_t>(1u));
+    EXPECT_TRUE(blur_diffuse.find("static const float kOffsets[6]") !=
+                std::string::npos);
+    EXPECT_TRUE(blur_diffuse.find(
+        "for (int tap = 0; tap < 6; ++tap)") != std::string::npos);
+    EXPECT_TRUE(blur_diffuse.find(
+        "for (int side = 0; side < 2; ++side)") !=
+                std::string::npos);
+    EXPECT_EQ(
+        CountOccurrences(blur_diffuse, "[unroll]"),
+        static_cast<std::size_t>(2u));
+    EXPECT_TRUE(blur_diffuse.find("ProfileWeight(") !=
+                std::string::npos);
+    EXPECT_TRUE(blur_diffuse.find(
+        "accumulated / max(normalization, 1e-5)") !=
+                std::string::npos);
+    EXPECT_TRUE(blur_diffuse.find(".Sample(") == std::string::npos);
+    EXPECT_TRUE(blur_diffuse.find(".SampleLevel(") !=
                 std::string::npos);
 }
 
@@ -530,14 +992,22 @@ ACS_TEST(PostEffects, EditorFrustumCullingMasksEveryPerNodeGeometryPass)
     const std::string source =
         ReadWorkspaceSource("src/editor_abi/EditorAbi.cpp");
     const std::string draw = ReadDrawScene3DSource();
+    const std::string build_verts = ExtractFunction(
+        source, "void BuildSceneMeshVerts");
     const std::string build_visibility = ExtractFunction(
         source, "void BuildSceneMeshVisibility");
     const std::string count_pbr = ExtractFunction(
         source, "FPbrFrameDrawCounts CountPbrFrameDraws");
+    const std::string draw_water = ExtractFunction(
+        source, "void DrawInteractiveWater3DPass");
     EXPECT_TRUE(!draw.empty());
+    EXPECT_TRUE(!build_verts.empty());
     EXPECT_TRUE(!build_visibility.empty());
     EXPECT_TRUE(!count_pbr.empty());
-    if (draw.empty() || build_visibility.empty() || count_pbr.empty())
+    EXPECT_TRUE(!draw_water.empty());
+    if (draw.empty() || build_verts.empty() ||
+        build_visibility.empty() || count_pbr.empty() ||
+        draw_water.empty())
         return;
 
     const std::size_t visibility =
@@ -548,21 +1018,78 @@ ACS_TEST(PostEffects, EditorFrustumCullingMasksEveryPerNodeGeometryPass)
     EXPECT_TRUE(pbr_reserve != std::string::npos);
     EXPECT_TRUE(visibility < pbr_reserve);
 
-    // Normal/depth, motion history, opaque PBR and refraction all submit
-    // individual geometry through the same conservative frame mask.
+    // Normal/depth records coalesced non-indexed ranges. Motion history,
+    // opaque PBR, interactive water and refraction record indexed nodes. All
+    // of them resolve the same main-view mask through an explicit production
+    // pass identity.
     EXPECT_TRUE(CountOccurrences(
-        draw, "SceneMeshNodeVisible(h,") >= std::size_t{6});
+        draw,
+        "editor_frustum_culling::ForEachSubmittedNode(") >=
+        std::size_t{3});
+    EXPECT_TRUE(draw.find(
+        "editor_frustum_culling::ForEachSubmittedVertexRange(") !=
+        std::string::npos);
     EXPECT_TRUE(count_pbr.find(
-        "if (!SceneMeshNodeVisible(host, index)) continue;") !=
+        "editor_frustum_culling::ForEachSubmittedNode(") !=
         std::string::npos);
     EXPECT_TRUE(draw.find(
-        "if (!SceneMeshNodeVisible(h, i)) continue;\n"
-        "            ssss_mrt_draws_valid =") !=
+        "editor_frustum_culling::AnySubmittedNode(") !=
         std::string::npos);
-    EXPECT_TRUE(draw.find(
-        "if (!SceneMeshNodeVisible(h, i)) continue;\n"
-        "                        game::ANode* nn = all3d[i];") !=
+    EXPECT_TRUE(CountOccurrences(
+        draw, "SceneMeshSubmissionMask(") >= std::size_t{6});
+    EXPECT_TRUE(draw.find("NormalDepthPrepass") != std::string::npos);
+    EXPECT_TRUE(CountOccurrences(
+        draw, "MotionVectors") >= std::size_t{2});
+    EXPECT_TRUE(draw.find("PbrOpaqueDraw") != std::string::npos);
+    EXPECT_TRUE(draw.find("InteractiveWaterDraw") != std::string::npos);
+    EXPECT_TRUE(draw.find("RefractionPreflight") != std::string::npos);
+    EXPECT_TRUE(draw.find("RefractionDraw") != std::string::npos);
+    EXPECT_TRUE(count_pbr.find("PbrOpaqueCount") != std::string::npos);
+    EXPECT_TRUE(CountOccurrences(
+        draw_water, "submission_mask.ShouldSubmit(i)") >=
+        std::size_t{3});
+
+    // Specialized water is not part of the aggregate opaque VB, but its
+    // actual indexed base mesh must still build a sphere and overwrite the
+    // default-visible slot. Otherwise every water node remains 1 forever and
+    // all water preflight/fallback/specialized loops silently bypass culling.
+    const std::size_t water_bounds_source =
+        build_verts.find("WaterCpuMeshForNode3D(h, nn)");
+    const std::size_t water_radius =
+        build_verts.find(
+            "h.scene_mesh_local_radius[i] =",
+            water_bounds_source);
+    const std::size_t water_aggregate_skip =
+        build_verts.find("if (interactive_water) continue;");
+    EXPECT_TRUE(water_bounds_source != std::string::npos);
+    EXPECT_TRUE(water_radius != std::string::npos);
+    EXPECT_TRUE(water_aggregate_skip != std::string::npos);
+    EXPECT_TRUE(water_bounds_source < water_radius);
+    EXPECT_TRUE(water_radius < water_aggregate_skip);
+
+    const std::size_t water_classification =
+        build_visibility.find("const bool interactive_water");
+    const std::size_t water_gpu_mesh =
+        build_visibility.find("? WaterGpuMeshForNode3D(host, node)");
+    const std::size_t water_displacement_bound =
+        build_visibility.find(
+            "ConservativeDisplacementBoundForSurface(");
+    const std::size_t sphere_evaluation =
+        build_visibility.find(
+            "editor_frustum_culling::EvaluateSphere(");
+    EXPECT_TRUE(build_visibility.find(
+        "if (interactive_water) continue;") == std::string::npos);
+    EXPECT_TRUE(build_visibility.find(
+        "mesh->RenderHandle() != nullptr ||\n"
+        "            IsRenderedByWater3D(host, node)") ==
         std::string::npos);
+    EXPECT_TRUE(water_classification != std::string::npos);
+    EXPECT_TRUE(water_gpu_mesh != std::string::npos);
+    EXPECT_TRUE(water_displacement_bound != std::string::npos);
+    EXPECT_TRUE(sphere_evaluation != std::string::npos);
+    EXPECT_TRUE(water_classification < water_gpu_mesh);
+    EXPECT_TRUE(water_gpu_mesh < water_displacement_bound);
+    EXPECT_TRUE(water_displacement_bound < sphere_evaluation);
 
     // A non-indexable aggregate fallback must disable diagnostics instead of
     // claiming that nodes were culled while still issuing one combined draw.
@@ -1646,9 +2173,27 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
     FSsgi ssgi;
     EXPECT_TRUE(ssgi.Init(device, 64, 64).IsOk());
+    EXPECT_TRUE(ssgi.OutputTexture() != nullptr);
+    EXPECT_FALSE(ssgi.HasValidOutput());
+    EXPECT_TRUE(ssgi.Resize(96, 48).IsOk());
+    EXPECT_TRUE(ssgi.OutputTexture() != nullptr);
+    if (ssgi.OutputTexture() != nullptr) {
+        EXPECT_EQ(ssgi.OutputTexture()->Width(), 96u);
+        EXPECT_EQ(ssgi.OutputTexture()->Height(), 48u);
+    }
+    EXPECT_FALSE(ssgi.HasValidOutput());
 
     FSsr ssr;
     EXPECT_TRUE(ssr.Init(device, EFormat::R16G16B16A16_Float, 64, 64).IsOk());
+    EXPECT_TRUE(ssr.OutputTexture() != nullptr);
+    EXPECT_FALSE(ssr.HasValidOutput());
+    EXPECT_TRUE(ssr.Resize(96, 48).IsOk());
+    EXPECT_TRUE(ssr.OutputTexture() != nullptr);
+    if (ssr.OutputTexture() != nullptr) {
+        EXPECT_EQ(ssr.OutputTexture()->Width(), 96u);
+        EXPECT_EQ(ssr.OutputTexture()->Height(), 48u);
+    }
+    EXPECT_FALSE(ssr.HasValidOutput());
 
     FHiZ hiz;
     EXPECT_TRUE(hiz.Init(device, 65, 33).IsOk());
@@ -2534,6 +3079,114 @@ ACS_TEST(PostEffects, TemporalHistoryRemainsSceneLinearAcrossEyeAdaptation)
         std::string::npos);
 }
 
+ACS_TEST(PostEffects, TemporalHistoryPolicyColdStartsAndPreservesWarmInputs)
+{
+    const FMat4 current = FMat4::Translation(FVec3{1.0f, 2.0f, 3.0f});
+    const FMat4 previous = FMat4::Translation(FVec3{-4.0f, 5.0f, 6.0f});
+
+    const auto cold = ResolveTemporalHistoryFrame(
+        0u, current, previous, 0.27f, true);
+    EXPECT_EQ(cold.current_frame_weight, 1.0f);
+    EXPECT_FALSE(cold.motion_vectors_enabled);
+    for (u32 row = 0; row < 4u; ++row) {
+        for (u32 column = 0; column < 4u; ++column) {
+            EXPECT_EQ(
+                cold.previous_view_projection.m[row][column],
+                current.m[row][column]);
+        }
+    }
+
+    const auto warm = ResolveTemporalHistoryFrame(
+        7u, current, previous, 0.1f, true);
+    EXPECT_EQ(warm.current_frame_weight, 0.1f);
+    EXPECT_TRUE(warm.motion_vectors_enabled);
+    for (u32 row = 0; row < 4u; ++row) {
+        for (u32 column = 0; column < 4u; ++column) {
+            EXPECT_EQ(
+                warm.previous_view_projection.m[row][column],
+                previous.m[row][column]);
+        }
+    }
+
+    const auto warm_without_motion = ResolveTemporalHistoryFrame(
+        1u, current, previous, 0.35f, false);
+    EXPECT_EQ(warm_without_motion.current_frame_weight, 0.35f);
+    EXPECT_FALSE(warm_without_motion.motion_vectors_enabled);
+}
+
+ACS_TEST(PostEffects, TemporalPassesShareColdStartPolicy)
+{
+    const std::string post =
+        ReadWorkspaceSource("src/render/PostProcess.cpp");
+    const std::string ssr =
+        ReadWorkspaceSource("src/render/Ssr.cpp");
+    const std::string ssgi =
+        ReadWorkspaceSource("src/render/Ssgi.cpp");
+    EXPECT_TRUE(!post.empty());
+    EXPECT_TRUE(!ssr.empty());
+    EXPECT_TRUE(!ssgi.empty());
+    if (post.empty() || ssr.empty() || ssgi.empty()) return;
+
+    const std::string taa_resolve =
+        ExtractFunction(post, "bool FPostProcess::Pass_TaaResolve");
+    const std::string ssr_render =
+        ExtractFunction(ssr, "void FSsr::Render");
+    const std::string ssgi_render =
+        ExtractFunction(ssgi, "void FSsgi::Render");
+    const std::string ssgi_temporal =
+        ExtractRawShader(ssgi, "const char* kSsgiTemporalHLSL");
+    EXPECT_TRUE(!taa_resolve.empty());
+    EXPECT_TRUE(!ssr_render.empty());
+    EXPECT_TRUE(!ssgi_render.empty());
+    EXPECT_TRUE(!ssgi_temporal.empty());
+    if (taa_resolve.empty() || ssr_render.empty() ||
+        ssgi_render.empty() || ssgi_temporal.empty()) {
+        return;
+    }
+
+    EXPECT_TRUE(taa_resolve.find(
+        "ResolveTemporalHistoryFrame(") != std::string::npos);
+    EXPECT_TRUE(taa_resolve.find(
+        "temporal_params.taa_blend_factor =") != std::string::npos);
+    EXPECT_TRUE(taa_resolve.find(
+        "temporal.current_frame_weight") != std::string::npos);
+    EXPECT_TRUE(taa_resolve.find(
+        "temporal_params.taa_motion_texture =") != std::string::npos);
+    EXPECT_TRUE(taa_resolve.find(
+        "r.prev_view_proj = temporal.previous_view_projection;") !=
+                std::string::npos);
+    EXPECT_TRUE(taa_resolve.find(
+        "IRhiTexture* slot2_tex = temporal.motion_vectors_enabled") !=
+                std::string::npos);
+
+    EXPECT_TRUE(ssr_render.find(
+        "ResolveTemporalHistoryFrame(") != std::string::npos);
+    EXPECT_TRUE(ssr_render.find(
+        "data.prev_view_proj = temporal.previous_view_projection;") !=
+                std::string::npos);
+    EXPECT_TRUE(ssr_render.find(
+        "temporal.current_frame_weight") != std::string::npos);
+    EXPECT_TRUE(ssr_render.find(
+        "temporal.motion_vectors_enabled ? 1.0f : 0.0f") !=
+                std::string::npos);
+
+    EXPECT_TRUE(ssgi_render.find(
+        "ResolveTemporalHistoryFrame(") != std::string::npos);
+    EXPECT_TRUE(ssgi_render.find(
+        "data.prev_view_proj = temporal.previous_view_projection;") !=
+                std::string::npos);
+    EXPECT_TRUE(ssgi_render.find(
+        "temporal.current_frame_weight") != std::string::npos);
+    EXPECT_TRUE(ssgi_render.find(
+        "temporal.motion_vectors_enabled ? 1.0f : 0.0f") !=
+                std::string::npos);
+    EXPECT_TRUE(ssgi_temporal.find(
+        "float current_weight = saturate(temporal_params.z);") !=
+                std::string::npos);
+    EXPECT_TRUE(ssgi_temporal.find(
+        "float current_weight = 0.10;") == std::string::npos);
+}
+
 ACS_TEST(PostEffects, IncompletePassesCannotPublishStaleTemporalOrBloomTargets)
 {
     const std::string post =
@@ -2598,7 +3251,15 @@ ACS_TEST(PostEffects, IncompletePassesCannotPublishStaleTemporalOrBloomTargets)
         "p.taa_enabled && m_TaaOutputValid") !=
                 std::string::npos);
     EXPECT_TRUE(tonemap.find(
-        "if (m_BloomOutputValid && m_BloomMips[0])") !=
+        "IRhiTexture* bloom_input =") != std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "m_BloomOutputValid && m_BloomMips[0]") !=
+                std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "? m_BloomMips[0].Get() : m_BlackFb.Get();") !=
+                std::string::npos);
+    EXPECT_TRUE(tonemap.find(
+        "cmd.SetTexture(1, *bloom_input);") !=
                 std::string::npos);
 
     // A missing reduction level is a failed frame, never permission to adapt

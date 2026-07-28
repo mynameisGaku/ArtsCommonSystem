@@ -459,7 +459,7 @@ constexpr u32 kApZRes  = kSkyAtmosphereFroxelZResolution;
 "}\n" \
 "float RayleighPhase(float c){ return 3.0/(16.0*PI)*(1.0+c*c); }\n" \
 "float HgPhase(float c,float g){ float g2=g*g; float d=1.0+g2-2.0*g*c; return (1.0-g2)/(4.0*PI*max(pow(max(d,1e-4),1.5),1e-6)); }\n" \
-"float RaySphere(float3 ro,float3 rd,float r){ float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc<0)return -1.0; return -b+sqrt(disc); }\n" \
+"float RaySphere(float3 ro,float3 rd,float r){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-r*r; float disc=b*b-c; if(disc>=0.0){ result=-b+sqrt(disc); } return result; }\n" \
 "float2 TransParamsToUv(float r,float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=sqrt(max(r*r-kBottom*kBottom,0.0)); float disc=r*r*(mu*mu-1.0)+kTop*kTop; float d=max(0.0,-r*mu+sqrt(max(disc,0.0))); float dMin=kTop-r; float dMax=rho+H; float xMu=(dMax>dMin)?(d-dMin)/(dMax-dMin):0.0; float xR=(H>0.0)?rho/H:0.0; return float2(xMu,xR); }\n" \
 "void TransUvToParams(float2 uv,out float r,out float mu){ float H=sqrt(max(kTop*kTop-kBottom*kBottom,0.0)); float rho=H*uv.y; r=sqrt(max(rho*rho+kBottom*kBottom,0.0)); float dMin=kTop-r; float dMax=rho+H; float d=dMin+uv.x*(dMax-dMin); mu=(d<=0.0)?1.0:(H*H-rho*rho-d*d)/(2.0*r*d); mu=clamp(mu,-1.0,1.0); }\n"
 
@@ -496,7 +496,7 @@ ATMO_COMMON_HLSL
 "  float3 b=lerp(transLut.Load(int3(p0.x,p1.y,0)).rgb,transLut.Load(int3(p1.x,p1.y,0)).rgb,f.x);\n"
 "  return lerp(a,b,f.y);\n"
 "}\n"
-"float RaySphereNear(float3 ro,float3 rd,float rad){ float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c; if(disc<0.0)return -1.0; return -b-sqrt(disc); }\n"
+"float RaySphereNear(float3 ro,float3 rd,float rad){ float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c; if(disc>=0.0){ result=-b-sqrt(disc); } return result; }\n"
 "[numthreads(8,8,1)]\n"
 "void CSMulti(uint3 id : SV_DispatchThreadID){\n"
 "  const uint W=32,H=32; if(id.x>=W||id.y>=H) return;\n"
@@ -506,8 +506,8 @@ ATMO_COMMON_HLSL
 "  float3 P0=float3(0.0,r,0.0);\n"
 "  float3 sun=float3(sqrt(saturate(1.0-cosSun*cosSun)), cosSun, 0.0);\n"
 "  float3 Lsum=float3(0,0,0); float3 MSsum=float3(0,0,0);\n"
-"  const int SQ=8;\n"
-"  [loop] for(int s=0;s<64;s++){\n"
+"  const uint SQ=8u;\n"
+"  [loop] for(uint s=0u;s<64u;s++){\n"
   "    float u=(float(s%SQ)+0.5)/float(SQ); float v=(float(s/SQ)+0.5)/float(SQ);\n"
   "    float azimuth=2.0*PI*u; float cosPolar=1.0-2.0*v;\n"
   "    float sinPolar=sqrt(saturate(1.0-cosPolar*cosPolar));\n"
@@ -560,8 +560,8 @@ ATMO_COMMON_HLSL
 "  return lerp(a,b,f.y);\n"
 "}\n"
 "float RaySphereNearGround(float3 ro,float3 rd,float rad){\n"
-"  float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c;\n"
-"  if(disc<0.0) return -1.0; float t=-b-sqrt(disc); return t>0.0?t:-1.0;\n"
+"  float result=-1.0; float b=dot(ro,rd); float c=dot(ro,ro)-rad*rad; float disc=b*b-c;\n"
+"  if(disc>=0.0){ float t=-b-sqrt(disc); if(t>0.0){ result=t; } } return result;\n"
 "}\n"
 "[numthreads(8,8,1)]\n"
 "void CSBake(uint3 id : SV_DispatchThreadID){\n"

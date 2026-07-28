@@ -12,7 +12,7 @@ using AcsEditor.Packaging;
 
 namespace AcsPackage;
 
-internal static class Program
+internal static partial class Program
 {
     private const int InspectArchiveEntryLimit = 100_000;
     private const int InspectManifestLimitBytes = 4 * 1024 * 1024;
@@ -78,6 +78,7 @@ internal static class Program
         string assetPackSha256,
         int cookedAssetCount,
         string profile,
+        PackageProductMetadata? productMetadata,
         string? errorCode,
         string? errorMessage);
 
@@ -111,6 +112,7 @@ internal static class Program
         int canonicalSceneImporterVersion,
         string assetGraphHash,
         CanonicalSceneBootstrapEnvelope? sceneBootstrap,
+        PackageProductMetadata? productMetadata,
         InspectedManifestAssetPack? assetPack,
         IReadOnlyList<InspectedManifestFile> files);
 
@@ -141,6 +143,7 @@ internal static class Program
         int canonicalSceneImporterVersion,
         string assetGraphHash,
         CanonicalSceneBootstrapEnvelope? sceneBootstrap,
+        PackageProductMetadata? productMetadata,
         InspectedManifestAssetPack? assetPack,
         int fileCount,
         long uncompressedBytes,
@@ -193,6 +196,8 @@ internal static class Program
         Console.OutputEncoding = Encoding.UTF8;
         if (args.Length == 1 && args[0] == "--self-test")
             return await RunSelfTestAsync();
+        if (args.Length >= 1 && args[0] == "distribution-e2e")
+            return await RunDistributionE2eCommandAsync(args);
         if (args.Length >= 2 && args[0] == "deps")
         {
             string executable = Path.GetFullPath(args[1]);
@@ -500,6 +505,16 @@ internal static class Program
             Console.WriteLine(FormatTerminalText(
                 $"Product: {inspection.productName} " +
                 inspection.productVersion));
+            if (inspection.productMetadata is { IsEmpty: false } metadata)
+            {
+                Console.WriteLine(FormatTerminalText(
+                    $"Publisher: {metadata.Publisher}"));
+                if (metadata.SupportUrl.Length > 0)
+                {
+                    Console.WriteLine(FormatTerminalText(
+                        $"Support: {metadata.SupportUrl}"));
+                }
+            }
             Console.WriteLine(FormatTerminalText(
                 $"Engine: {inspection.engineVersion}, profile: " +
                 inspection.profile));
@@ -1234,7 +1249,8 @@ internal static class Program
                 verification.AssetPackSha256,
                 StringComparison.Ordinal) ||
             manifest.assetPack.sourceFileCount !=
-                verification.CookedAssetCount)
+                verification.CookedAssetCount ||
+            manifest.productMetadata != verification.ProductMetadata)
         {
             throw new InvalidDataException(
                 "Verified package result and inspected manifest disagree.");
@@ -1263,6 +1279,7 @@ internal static class Program
                 manifest.canonicalSceneImporterVersion,
             assetGraphHash: manifest.assetGraphHash,
             sceneBootstrap: manifest.sceneBootstrap,
+            productMetadata: manifest.productMetadata,
             assetPack: manifest.assetPack,
             fileCount: verification.FileCount,
             uncompressedBytes: verification.UncompressedBytes,
@@ -1296,6 +1313,7 @@ internal static class Program
             canonicalSceneImporterVersion: 0,
             assetGraphHash: "",
             sceneBootstrap: null,
+            productMetadata: null,
             assetPack: null,
             fileCount: 0,
             uncompressedBytes: 0,
@@ -1375,6 +1393,22 @@ internal static class Program
             "sceneBootstrap.adapterProjectionHint",
             left.sceneBootstrap?.adapterProjectionHint ?? "",
             right.sceneBootstrap?.adapterProjectionHint ?? "");
+        Compare(
+            "productMetadata.publisher",
+            left.productMetadata?.Publisher ?? "",
+            right.productMetadata?.Publisher ?? "");
+        Compare(
+            "productMetadata.description",
+            left.productMetadata?.Description ?? "",
+            right.productMetadata?.Description ?? "");
+        Compare(
+            "productMetadata.copyright",
+            left.productMetadata?.Copyright ?? "",
+            right.productMetadata?.Copyright ?? "");
+        Compare(
+            "productMetadata.supportUrl",
+            left.productMetadata?.SupportUrl ?? "",
+            right.productMetadata?.SupportUrl ?? "");
         Compare(
             "assetPack.path",
             left.assetPack?.path ?? "",
@@ -1574,6 +1608,7 @@ internal static class Program
             assetPackSha256: verification.AssetPackSha256,
             cookedAssetCount: verification.CookedAssetCount,
             profile: verification.Profile.ToString(),
+            productMetadata: verification.ProductMetadata,
             errorCode: null,
             errorMessage: null);
 
@@ -1592,6 +1627,7 @@ internal static class Program
             assetPackSha256: "",
             cookedAssetCount: 0,
             profile: "",
+            productMetadata: null,
             errorCode: VerificationErrorCode(error),
             errorMessage: error.Message);
 
@@ -2072,6 +2108,7 @@ internal static class Program
               acspackage inspect <package.zip> [--json <new-file.json>] [--quiet]
               acspackage diff <left.zip> <right.zip> [--json <new-file.json>] [--quiet]
               acspackage deps <game.exe> [additional-search-dir ...]
+              acspackage distribution-e2e [--artifacts <new-temp-directory>]
               acspackage --self-test
 
             Project/package options:
@@ -2089,6 +2126,10 @@ internal static class Program
             Inspect/diff options:
               --json <new-file>        Atomically create a machine-readable JSON result
               --quiet                  Suppress progress and human-readable summary
+
+            Distribution E2E:
+              --artifacts <new-dir>     Retain the full audit under a new directory inside TEMP
+                                        (default: a unique acs-distribution-e2e-* directory)
             """);
     }
 
@@ -2207,6 +2248,20 @@ internal static class Program
                 [albedoAsset.AssetId, normalAsset.AssetId],
                 materialAsset.Metadata.ImportSettings);
             File.WriteAllText(Path.Combine(config, "ProjectSettings.ini"), "[Game]\nQuality=High\n");
+            File.WriteAllText(
+                Path.Combine(
+                    config,
+                    PackageProductMetadataContract.FileName),
+                """
+                {
+                  "schemaVersion": 1,
+                  "publisher": "ACS Package Self-Test",
+                  "description": "Deterministic package fixture.",
+                  "copyright": "",
+                  "supportUrl": "https://example.invalid/acs-package"
+                }
+                """,
+                new UTF8Encoding(false));
 
             string projectFile = Path.Combine(projectRoot, "Game.acsproject");
             File.WriteAllText(
@@ -2224,7 +2279,11 @@ internal static class Program
 
             string executable = Path.Combine(binaries, "Game.exe");
             string runtime = Path.Combine(binaries, "Runtime.dll");
-            File.WriteAllBytes(executable, Encoding.ASCII.GetBytes("dummy executable"));
+            File.Copy(
+                Environment.ProcessPath ??
+                throw new InvalidOperationException(
+                    "Self-test process path is unavailable."),
+                executable);
             File.WriteAllBytes(runtime, Encoding.ASCII.GetBytes("dummy runtime"));
             File.WriteAllText(Path.Combine(binaries, "Game.pdb"), "debug only");
             File.WriteAllText(Path.Combine(binaries, "Game_reflect.dll"), "editor only");
@@ -2254,8 +2313,11 @@ internal static class Program
                 secondProgress);
 
             Assert(
-                first.ArchiveVerified && second.ArchiveVerified,
-                "completed packages must pass full archive verification before publication");
+                first.ArchiveVerified &&
+                second.ArchiveVerified &&
+                first.ProductMetadata?.Publisher == "ACS Package Self-Test" &&
+                first.ProductMetadata == second.ProductMetadata,
+                "completed packages must verify PE32+ x64 and preserve deterministic metadata");
             string verificationReport = Path.Combine(
                 testRoot,
                 "package-verification.json");
@@ -2285,6 +2347,9 @@ internal static class Program
                         first.BuildId &&
                     report.GetProperty("profile").GetString() ==
                         first.Profile.ToString() &&
+                    report.GetProperty("productMetadata")
+                        .GetProperty("publisher").GetString() ==
+                        "ACS Package Self-Test" &&
                     report.GetProperty("errorCode").ValueKind ==
                         JsonValueKind.Null,
                     "standalone verification report must preserve verified package identity");
@@ -2633,6 +2698,17 @@ internal static class Program
                 sceneBootstrap.GetProperty("adapterProjectionHint").GetString() ==
                     "orthographic",
                 "reversible legacy scene bootstrap envelope missing from manifest");
+            JsonElement productMetadata =
+                manifest.RootElement.GetProperty("productMetadata");
+            Assert(
+                productMetadata.GetProperty("schemaVersion").GetInt32() == 1 &&
+                productMetadata.GetProperty("publisher").GetString() ==
+                    "ACS Package Self-Test" &&
+                productMetadata.GetProperty("supportUrl").GetString() ==
+                    "https://example.invalid/acs-package" &&
+                !productMetadata.TryGetProperty("isEmpty", out _) &&
+                !productMetadata.TryGetProperty("IsEmpty", out _),
+                "bounded distribution metadata missing from manifest");
             JsonElement manifestPack =
                 manifest.RootElement.GetProperty("assetPack");
             string expectedPackHash = Convert.ToHexString(
@@ -2679,6 +2755,20 @@ internal static class Program
             Assert(
                 missingSymbolIssues.Any(issue => issue.Code == "DEBUG_SYMBOLS_MISSING"),
                 "missing opt-in PDB must produce an explicit warning");
+
+            string invalidExecutable = Path.Combine(binaries, "Invalid.exe");
+            File.WriteAllText(invalidExecutable, "MZ but not a PE image");
+            IReadOnlyList<PackageIssue> invalidExecutableIssues =
+                PackageCore.Validate(
+                    project,
+                    optionsA,
+                    invalidExecutable,
+                    [runtime]);
+            Assert(
+                invalidExecutableIssues.Any(issue =>
+                    issue.Code == "EXECUTABLE_INVALID" &&
+                    issue.Severity == PackageIssueSeverity.Error),
+                "source package preflight must fail closed on a non-PE executable");
 
             var developmentOptions = new PackageOptions(
                 Path.Combine(testRoot, "OutputDevelopment"),
@@ -3095,7 +3185,7 @@ internal static class Program
             Console.WriteLine(
                 "SELF-TEST PASS: canonical Asset-ID dependency closure, DDC miss/hit reuse, " +
                 "deterministic Cook/acpak+ZIP, native and archive SHA-256 verify, " +
-                "canonical/bootstrap manifest, " +
+                "canonical/bootstrap/product manifest, PE32+ AMD64 preflight, " +
                 "2D+supported 3D package smoke, metadata/source exclusions, path rewrite, and " +
                 "identity-mismatch/traversal/reparse/runtime-adapter guards, plus standalone " +
                 "verification/inspection reports, adversarial ZIP/JSON/terminal and " +

@@ -6,6 +6,7 @@
 #endif
 #include "foundation/Move.h"
 #include "foundation/Log.h"
+#include "render/TemporalHistory.h"
 
 namespace acs {
 
@@ -20,7 +21,7 @@ cbuffer SsgiCB : register(b0) {
     float4   eye;       // xyz = world pos
     float4   params;    // x=intensity, y=max_distance, z=texel_w, w=texel_h
     float4x4 prev_view_proj;   // raw pass では未使用、CB レイアウト整合のため宣言
-    float4   temporal_params;  // y=frame jitter
+    float4   temporal_params;  // x=motion mode, y=frame jitter, z=current weight
 };
 
 Texture2D    scene_color    : register(t0);
@@ -268,7 +269,7 @@ cbuffer SsgiCB : register(b0) {
     float4   eye;
     float4   params;          // z=texel_w, w=texel_h
     float4x4 prev_view_proj;   // reprojection 用
-    float4   temporal_params;  // x=motion_texture_mode
+    float4   temporal_params;  // x=motion mode, y=frame jitter, z=current weight
 };
 
 Texture2D    current_gi  : register(t0);   // blur 済み SSGI (今フレーム)
@@ -360,7 +361,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float relative_delta = abs(cur_luma - hist_luma)
                          / max(max(cur_luma, hist_luma), 0.03);
     float motion_px = length((huv - v.uv) / max(tx, float2(1e-6, 1e-6)));
-    float current_weight = 0.10;
+    float current_weight = saturate(temporal_params.z);
     current_weight = max(current_weight, saturate(relative_delta) * 0.8);
     current_weight = max(current_weight, saturate(motion_px / 16.0) * 0.4);
     if (offscreen) current_weight = 1.0;
@@ -374,7 +375,7 @@ struct FSsgiCbLayout {
     FVec4 eye;
     FVec4 params;
     FMat4 prev_view_proj;
-    FVec4 temporal_params;      // x=motion_texture_mode (0/1)
+    FVec4 temporal_params;      // x=motion mode, y=jitter, z=current weight
 };
 
 template<typename T>
@@ -566,6 +567,7 @@ TResult<void> FSsgi::InitWithCompiledShaders(
     m_TemporalPipeline = Move(candidate.m_TemporalPipeline);
     m_Cb = Move(candidate.m_Cb);
     m_TemporalFrame = 0;
+    m_OutputValid = false;
 
     return Ok();
 }
@@ -713,6 +715,7 @@ void FSsgi::Shutdown() noexcept {
     m_BlurOutput.Reset();
     m_Output.Reset();
     m_TemporalFrame = 0;
+    m_OutputValid = false;
     m_Width = 0;
     m_Height = 0;
     m_Device = nullptr;
@@ -725,6 +728,7 @@ TResult<void> FSsgi::Resize(u32 width, u32 height) noexcept {
     m_Width  = width;
     m_Height = height;
     m_TemporalFrame = 0;     // history は size 違いで使えないので reset
+    m_OutputValid = false;
     return Ok();
 }
 
@@ -736,8 +740,15 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   const FMat4& prev_view_proj,
                   FVec3 eye, f32 intensity, f32 max_distance,
                   IRhiTexture* motion_texture) noexcept {
+    m_OutputValid = false;
     if (!m_Output || !m_BlurOutput || !m_History[0] || !m_History[1] ||
         !m_Pipeline || !m_BlurPipeline || !m_TemporalPipeline || !m_Cb) return;
+    const auto temporal = ResolveTemporalHistoryFrame(
+        m_TemporalFrame,
+        view_proj,
+        prev_view_proj,
+        0.1f,
+        motion_texture != nullptr);
     FSsgiCbLayout data{};
     data.view_proj      = view_proj;
     data.inv_view_proj  = inv_view_proj;
@@ -745,13 +756,16 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     data.params         = FVec4{intensity, max_distance,
                                1.0f / static_cast<f32>(m_Width),
                                1.0f / static_cast<f32>(m_Height)};
-    data.prev_view_proj = prev_view_proj;
+    data.prev_view_proj = temporal.previous_view_projection;
     // motion texture が指定されていれば temporal pass を motion mode に。
     // A 64-phase coprime sequence rotates raw GI sampling between frames.
     const f32 frame_jitter =
         static_cast<f32>((m_TemporalFrame * 23u) & 63u) * (1.0f / 64.0f);
-    data.temporal_params =
-        FVec4{ motion_texture ? 1.0f : 0.0f, frame_jitter, 0, 0 };
+    data.temporal_params = FVec4{
+        temporal.motion_vectors_enabled ? 1.0f : 0.0f,
+        frame_jitter,
+        temporal.current_frame_weight,
+        0.0f};
     m_Cb->Update(&data, sizeof(data));
 
     // Pass 1: SSGI raw → m_Output
@@ -789,11 +803,14 @@ void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
     cl.SetTexture(1, *hist_in);        // history (or blur on frame 0)
     // t2 は motion texture (あれば) または scene_depth。
     // shader 側が temporal_params.x で解釈を切替えるので PSO の slot 数は不変。
-    cl.SetTexture(2, motion_texture ? *motion_texture : scene_depth);
+    cl.SetTexture(
+        2,
+        temporal.motion_vectors_enabled ? *motion_texture : scene_depth);
     cl.Draw(3);
     cl.EndRenderToTexture(*m_History[cur]);
 
     ++m_TemporalFrame;
+    m_OutputValid = true;
 }
 
 } // namespace acs

@@ -17,10 +17,25 @@ public partial class MainWindow
     private EditorWorkspaceStore WorkspaceStore =>
         _workspaceStore ??= new EditorWorkspaceStore();
 
-    private void InitializeWorkspaceProfiles()
+    private bool InitializeWorkspaceProfiles()
     {
         if (_workspaceStore != null)
-            return;
+            return true;
+        // The startup worker already owns the only persisted catalogue read.
+        // A fast menu/shortcut must not start a second synchronous read on the
+        // Dispatcher while that worker is still probing redirected storage.
+        if (ShouldDeferWorkspaceInitialization(
+                _layoutRestorePending,
+                _workspaceStore != null))
+        {
+            if (WorkspaceStateText != null)
+            {
+                WorkspaceStateText.Text = "WORKSPACE: LOADING";
+                WorkspaceStateText.ToolTip =
+                    "Saved workspace profiles are loading without blocking editor input.";
+            }
+            return false;
+        }
         _workspaceStore = new EditorWorkspaceStore();
         _activeWorkspaceName = _workspaceStore.LastActiveName;
         UpdateWorkspaceStatus();
@@ -32,7 +47,13 @@ public partial class MainWindow
                 "Editor",
                 LogLevel.Warn);
         }
+        return true;
     }
+
+    internal static bool ShouldDeferWorkspaceInitialization(
+        bool startupRestorePending,
+        bool storeAlreadyPublished) =>
+        startupRestorePending && !storeAlreadyPublished;
 
     private EditorWorkspaceLayout CaptureWorkspaceLayout()
     {
@@ -53,15 +74,9 @@ public partial class MainWindow
     }
 
     private string CurrentBottomTab()
-    {
-        if (TabBuild.IsChecked == true)
-            return "build";
-        if (TabAssets.IsChecked == true)
-            return "assets";
-        if (TabProfiler.IsChecked == true)
-            return "profiler";
-        return "console";
-    }
+        => BottomToolDockSelectionPolicy.ResolveActivePanelId(
+            _activeBottomToolId,
+            Array.Empty<string>());
 
     private void ApplyWorkspace(EditorWorkspaceProfile profile)
     {
@@ -80,7 +95,7 @@ public partial class MainWindow
             _activeWorkspaceName = profile.Name;
             WorkspaceStore.MarkActive(profile.Name);
             UpdateWorkspaceStatus();
-            SaveEditorLayout();
+            _ = SaveEditorLayoutAsync();
             Log($"Workspace activated: {profile.Name}", "Editor", LogLevel.Info);
         }
         finally
@@ -108,8 +123,16 @@ public partial class MainWindow
 
     private void OnWorkspaceMenuOpened(object sender, RoutedEventArgs e)
     {
-        InitializeWorkspaceProfiles();
         WorkspaceMenu.Items.Clear();
+        if (!InitializeWorkspaceProfiles())
+        {
+            WorkspaceMenu.Items.Add(new MenuItem
+            {
+                Header = "Loading saved workspaces…",
+                IsEnabled = false,
+            });
+            return;
+        }
         foreach (EditorWorkspaceProfile profile in WorkspaceStore.GetProfiles())
         {
             var item = new MenuItem
@@ -145,7 +168,8 @@ public partial class MainWindow
 
     private void ActivateWorkspaceByName(string name)
     {
-        InitializeWorkspaceProfiles();
+        if (!InitializeWorkspaceProfiles())
+            return;
         if (!WorkspaceStore.TryGetProfile(name, out EditorWorkspaceProfile profile))
         {
             Log($"Workspace no longer exists: {name}", "Editor", LogLevel.Warn);
@@ -156,7 +180,8 @@ public partial class MainWindow
 
     private void OnManageWorkspaces(object sender, RoutedEventArgs e)
     {
-        InitializeWorkspaceProfiles();
+        if (!InitializeWorkspaceProfiles())
+            return;
         var dialog = new WorkspaceManagerWindow(WorkspaceStore, CaptureWorkspaceLayout())
         {
             Owner = this,
@@ -172,7 +197,8 @@ public partial class MainWindow
 
     private void RestoreWorkspaceIdentity(string? workspaceName)
     {
-        InitializeWorkspaceProfiles();
+        if (!InitializeWorkspaceProfiles())
+            return;
         string desired = string.IsNullOrWhiteSpace(workspaceName)
             ? WorkspaceStore.LastActiveName
             : workspaceName;

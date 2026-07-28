@@ -293,7 +293,14 @@ public partial class MainWindow
                     refreshHierarchy: true)));
         }
 
-        if (showAll || DetailsMatches("align", "pilot", "preview", "active"))
+        if (showAll ||
+            DetailsMatches(
+                "align",
+                "snap",
+                "scene view",
+                "pilot",
+                "preview",
+                "active"))
             body.Children.Add(BuildCameraActionRow(state.NodeId));
 
         return ComponentCard(
@@ -468,6 +475,16 @@ public partial class MainWindow
     private FrameworkElement BuildCameraActionRow(int nodeId)
     {
         var row = new WrapPanel { Margin = new Thickness(0, 7, 0, 1) };
+        var snapView = new Button
+        {
+            Content = "Snap View",
+            Padding = new Thickness(8, 2, 8, 2),
+            Margin = new Thickness(0, 0, 5, 0),
+            ToolTip =
+                "Move the editor Scene View to this Camera's resolved world " +
+                "pose once. Authored Camera state and scene history are not changed.",
+        };
+        snapView.Click += (_, _) => SnapSceneViewToCamera(nodeId);
         var align = new Button
         {
             Content = "Align to View",
@@ -520,6 +537,7 @@ public partial class MainWindow
                 "editing its Active flag. The renderer is transferred, not duplicated.",
         };
         cameraView.Click += (_, _) => OpenCameraView(nodeId);
+        row.Children.Add(snapView);
         row.Children.Add(align);
         row.Children.Add(active);
         row.Children.Add(cameraView);

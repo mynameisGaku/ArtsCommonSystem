@@ -74,7 +74,9 @@
 #include "asset/AssetId.h"                  // kInvalidAssetId
 #include "platform/FileSystem.h"            // FileSystem::ReadAllBytes
 #include "editor_abi/EditorProfiler.h"       // renderer profiler snapshot ABI
+#include "editor_abi/EditorCameraViewRequests.h"
 #include "editor_abi/EditorFrustumCulling.h"
+#include "editor_abi/EditorSubsurfaceVisibility.h"
 #include "editor_abi/EditorCloudWorkload.h"  // optional exact cloud-work snapshot ABI
 #include "editor_abi/EditorFrameContract.h"  // busy/fatal/presented frame contract
 #include "editor_abi/EditorAbiCapabilities.h" // versioned host capability negotiation
@@ -109,6 +111,9 @@ extern "C" __declspec(dllimport) void* __stdcall GetProcAddress(void* module, co
 namespace {
 
 constexpr unsigned kCpUtf8 = 65001u;
+static_assert(
+    editor_camera_view::kStableCameraIdBytes ==
+    game::kScene3DSerializeMaxCameraIdBytes);
 constexpr f32 kCamera3DPitchLimit = 1.5533f;  // 89 degrees: avoid the orbit-camera pole.
 constexpr f32 kCamera3DMinDistance = 1.0f;
 constexpr f32 kCamera3DMaxDistance = 200.0f;
@@ -391,8 +396,12 @@ struct FEditorHost {
     bool                          cloud_workload_available = false;
     editor_profiler::FRollingPeak profiler_cpu_peak{};
     editor_profiler::FRollingPeak profiler_gpu_peak{};
+    editor_profiler::FRollingPeak profiler_active_cpu_peak{};
+    editor_profiler::FRollingPeak profiler_present_cpu_peak{};
     editor_profiler::FRollingGpuQueryWindow profiler_gpu_queries{};
     u64                           profiler_last_gpu_peak_frame = 0u;
+    u64                           profiler_presented_since_reset = 0u;
+    u64                           profiler_reset_serial = 0u;
     f32                           profiler_smoothed_fps = 0.0f;
     editor_profiler::FTimePoint   profiler_last_frame_begin{};
     bool                          profiler_has_previous_frame = false;
@@ -630,6 +639,8 @@ struct FEditorHost {
     bool                     gray_ready = false;
     FMat4                    prev_vp = FMat4::Identity();  // 前フレーム view_proj (SSR/SSGI temporal reproject 共用、jitter 込み)
     FMat4                    prev_vp_nojit = FMat4::Identity();  // 前フレーム view_proj (jitter 無し、TAA history reproject 用)
+    FVec3                    prev_temporal_camera_eye{};
+    bool                     temporal_camera_pose_valid = false;
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
     // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
     acs::FImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
@@ -686,7 +697,17 @@ struct FEditorHost {
     u64 vxgi_tri_uploaded_revision = 0u;
     bool scene_mesh_cache_valid = false;
     int last_render_camera_node_id = -2; // -2=Scene View, -1=game fallback
+    bool last_render_camera_projection_valid = false;
+    bool last_render_camera_orthographic = false;
     int game_camera_preview_node_id = -1; // non-persistent Camera View override
+    // Bounded logical Camera View requests are separate from the one physical
+    // swapchain. Only the explicitly bound presenter may drive that surface;
+    // all other requests retain independent identity/extent/generation state
+    // for the future async offscreen scheduler.
+    editor_camera_view::FRegistry camera_view_requests;
+    u64 camera_view_frame_serial = 0u;
+    u64 last_render_camera_view_request_id = 0u;
+    u32 last_render_camera_view_history_generation = 0u;
     bool show_camera_frustum = true;
     int          sel3d         = -1;      // primary (active) 3D ノード id。常に sel3d_multi の一員、空なら -1。
     TArray<int>  sel3d_multi;             // 3D 選択集合 (multi-select。空 ⇔ sel3d==-1)
@@ -801,6 +822,28 @@ struct FEditorHost {
     bool marquee_active = false;
     f32  marquee_x0 = 0.0f, marquee_y0 = 0.0f, marquee_x1 = 0.0f, marquee_y1 = 0.0f;
 };
+
+/**
+ * Drop every history whose samples are tied to the current scene, projection,
+ * or logical camera owner.
+ *
+ * Host publication flags are part of the contract: the opaque pass consumes
+ * last frame's SSR/SSGI before those effects render the current frame, so
+ * clearing only the effect-internal frame counters would still expose one
+ * stale frame.
+ */
+void InvalidateTemporalRenderHistories(FEditorHost& h) noexcept {
+    h.mv_computed = false;
+    h.taa_frame = 0u;
+    h.post3d.InvalidateTaaHistory();
+    h.post3d.InvalidateExposureHistory();
+    h.ssr3d.InvalidateHistory();
+    h.ssgi3d.InvalidateHistory();
+    h.vclouds3d.InvalidateHistory();
+    h.ssr_computed = false;
+    h.ssgi_computed = false;
+    h.temporal_camera_pose_valid = false;
+}
 
 /** editor_id からノードを引く (無ければ nullptr)。 */
 AEditorNode* FindNode(FEditorHost& h, int id) noexcept {
@@ -1235,7 +1278,7 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.water_pointer_valid = false;
     h.water_pointer_node = -1;
     h.water_pointer_emit_time = -1.0f;
-    h.mv_computed = false;
+    InvalidateTemporalRenderHistories(h);
     h.scene3d.Clear();
     // RenderHandle pointers inside the retired nodes point into this array.
     // Both must be destroyed only after the outer owner-thread WaitIdle.
@@ -1263,6 +1306,12 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.scene_mesh_cache_valid = false;
     h.last_render_camera_node_id = -2;
     h.game_camera_preview_node_id = -1;
+    // Preserve managed request leases across an atomic scene replacement, but
+    // never let an old node id present the replacement graph. The managed
+    // stable-id refresh may update and rebind the same opaque request later.
+    h.camera_view_requests.MarkAllCamerasStale();
+    h.last_render_camera_view_request_id = 0u;
+    h.last_render_camera_view_history_generation = 0u;
 }
 
 void ClearScene3D(FEditorHost& h) noexcept {
@@ -3021,7 +3070,7 @@ cbuffer Frame : register(b0) {
     float4x4 light_vp;     // 光源の view-projection (シャドウマップ空間へ)
 };
 Texture2D    shadow_map   : register(t0);
-SamplerState shadow_samp  : register(s0);
+SamplerState shadow_map_sampler : register(s0);
 struct VSIn  { float3 pos : POSITION; float3 nrm : NORMAL; float3 col : COLOR; float2 mat : TEXCOORD; };
 struct VSOut { float4 pos : SV_POSITION; float3 wpos : TEXCOORD0; float3 nrm : NORMAL; float3 col : COLOR; float2 mat : TEXCOORD1; };
 VSOut VSMain(VSIn v) {
@@ -3036,8 +3085,13 @@ VSOut VSMain(VSIn v) {
 static const float PI = 3.14159265359;
 float3 SkyCol(float3 d) {   // 空の放射輝度 (スカイと同じグラデーション)。IBL の環境光源に使う。
     float t = d.y;
-    if (t >= 0.0) return lerp(sky_horizon.rgb, sky_zenith.rgb, pow(saturate(t), 0.55));
-    return lerp(sky_horizon.rgb, sky_ground.rgb, saturate(-t * 1.6));
+    float3 sky_color = lerp(
+        sky_horizon.rgb, sky_ground.rgb, saturate(-t * 1.6));
+    if (t >= 0.0) {
+        sky_color = lerp(
+            sky_horizon.rgb, sky_zenith.rgb, pow(saturate(t), 0.55));
+    }
+    return sky_color;
 }
 float3 ACESFilm(float3 x) { return saturate((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)); } // フィルミック
 float3 FresnelSchlick(float cosT, float3 F0) { return F0 + (1.0 - F0) * pow(saturate(1.0 - cosT), 5.0); }
@@ -3057,18 +3111,33 @@ float GeomSmith(float ndv, float ndl, float rough) {
 }
 float ShadowFactor(float3 wpos, float ndl) {   // 1=lit, 0=影。3x3 PCF。
     float4 lp = mul(float4(wpos, 1.0), light_vp);
-    float3 ndc = lp.xyz / lp.w;
-    if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) return 1.0;
-    float2 uv = float2(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
-    float  bias = max(0.0012 * (1.0 - ndl), 0.0004);   // 法線依存バイアス (シャドウアクネ回避)
-    float  ts = 1.0 / 2048.0;
-    float lit = 0.0;
-    [unroll] for (int y = -1; y <= 1; ++y)
-    [unroll] for (int x = -1; x <= 1; ++x) {
-        float sd = shadow_map.SampleLevel(shadow_samp, uv + float2(x, y) * ts, 0).r;
-        lit += (sd + bias >= ndc.z) ? 1.0 : 0.0;
+    float3 ndc = float3(0.0, 0.0, 0.0);
+    float shadow_factor = 1.0;
+    bool projection_valid = abs(lp.w) > 1.0e-5;
+    if (projection_valid) {
+        ndc = lp.xyz / lp.w;
     }
-    return lit / 9.0;
+    bool inside_shadow =
+        projection_valid &&
+        ndc.x >= -1.0 && ndc.x <= 1.0 &&
+        ndc.y >= -1.0 && ndc.y <= 1.0 &&
+        ndc.z >= 0.0 && ndc.z <= 1.0;
+    if (inside_shadow) {
+        float2 uv = float2(
+            ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+        float bias = max(
+            0.0012 * (1.0 - ndl), 0.0004);   // 法線依存バイアス (シャドウアクネ回避)
+        float ts = 1.0 / 2048.0;
+        float lit = 0.0;
+        [unroll] for (int y = -1; y <= 1; ++y)
+        [unroll] for (int x = -1; x <= 1; ++x) {
+            float sd = shadow_map.SampleLevel(
+                shadow_map_sampler, uv + float2(x, y) * ts, 0).r;
+            lit += (sd + bias >= ndc.z) ? 1.0 : 0.0;
+        }
+        shadow_factor = lit / 9.0;
+    }
+    return shadow_factor;
 }
 float4 PSMain(VSOut v) : SV_TARGET {
     float3 N = normalize(v.nrm);
@@ -3177,7 +3246,7 @@ float Linearize(float ndc, float nearZ, float farZ, float ortho) {
     return lerp(perspectiveZ, orthoZ, saturate(ortho));
 }
 float ViewZAt(float2 uv, float nearZ, float farZ) {
-    float ndc = depthTex.Sample(depthTex_sampler, uv).r;
+    float ndc = depthTex.SampleLevel(depthTex_sampler, uv, 0.0).r;
     return Linearize(ndc, nearZ, farZ, dofp2.w);
 }
 float SignedCoC(float viewZ) {
@@ -3191,7 +3260,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
     float centerZ = ViewZAt(v.uv, nearZ, farZ);
     float centerCoC = SignedCoC(centerZ);
     float radiusPx = abs(centerCoC) * max(dofp.z, 0.0);
-    float3 center = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
+    float3 center =
+        sceneTex.SampleLevel(sceneTex_sampler, v.uv, 0.0).rgb;
     if (radiusPx < 0.5) return float4(center, 1.0);
 
     // Vogel disk は «画素» で円形に作り、最後に texel size で UV へ変換する。
@@ -3223,7 +3293,8 @@ float4 PSMain(VSOut v) : SV_TARGET {
         float depthWeight = exp2(-abs(sampleZ - centerZ) / depthTolerance * 2.0);
         float w = sameLayer * coverage * depthWeight;
         if (w > 1e-4) {
-            sum += sceneTex.Sample(sceneTex_sampler, sampleUv).rgb * w;
+            sum += sceneTex.SampleLevel(
+                sceneTex_sampler, sampleUv, 0.0).rgb * w;
             wsum += w;
         }
     }
@@ -3316,7 +3387,8 @@ float Linearize(float ndc) {
     return lerp(perspectiveZ, lerp(mbp2.x, mbp2.y, ndc), saturate(mbp2.w));
 }
 float ViewZAt(float2 uv) {
-    return Linearize(depthTex.Sample(depthTex_sampler, uv).r);
+    return Linearize(
+        depthTex.SampleLevel(depthTex_sampler, uv, 0.0).r);
 }
 float InsideViewport(float2 uv) {
     return step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
@@ -3328,25 +3400,32 @@ float2 ClampVelocity(float2 vel) {
     return velPx * mbp.yz;
 }
 float4 PSMain(VSOut v) : SV_TARGET {
-    float3 center = sceneTex.Sample(sceneTex_sampler, v.uv).rgb;
+    float3 center =
+        sceneTex.SampleLevel(sceneTex_sampler, v.uv, 0.0).rgb;
     float centerZ = ViewZAt(v.uv);
     float depthTolerance = max(0.025, centerZ * mbp2.z);
 
     // 近傍で同一深度面に属する最大 velocity を選び、細い動体の内部 hole だけを埋める。
     // 深度が違う前景/背景の velocity は採用しないので輪郭を跨ぐ streak を作らない。
-    float2 vel = motionTex.Sample(motionTex_sampler, v.uv).xy;
+    float2 vel =
+        motionTex.SampleLevel(motionTex_sampler, v.uv, 0.0).xy;
     float bestSpeed = length(vel / mbp.yz);
     float2 suv = v.uv + float2(mbp.y, 0.0);
-    float sz = ViewZAt(suv); float2 sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    float sz = ViewZAt(suv);
+    float2 sv = motionTex.SampleLevel(
+        motionTex_sampler, suv, 0.0).xy;
     float ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; bestSpeed = ss; }
     suv = v.uv - float2(mbp.y, 0.0);
-    sz = ViewZAt(suv); sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    sz = ViewZAt(suv);
+    sv = motionTex.SampleLevel(motionTex_sampler, suv, 0.0).xy;
     ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; bestSpeed = ss; }
     suv = v.uv + float2(0.0, mbp.z);
-    sz = ViewZAt(suv); sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    sz = ViewZAt(suv);
+    sv = motionTex.SampleLevel(motionTex_sampler, suv, 0.0).xy;
     ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; bestSpeed = ss; }
     suv = v.uv - float2(0.0, mbp.z);
-    sz = ViewZAt(suv); sv = motionTex.Sample(motionTex_sampler, suv).xy;
+    sz = ViewZAt(suv);
+    sv = motionTex.SampleLevel(motionTex_sampler, suv, 0.0).xy;
     ss = length(sv / mbp.yz); if (abs(sz - centerZ) <= depthTolerance && ss > bestSpeed) { vel = sv; }
 
     vel = ClampVelocity(vel * mbp.x);
@@ -3366,12 +3445,14 @@ float4 PSMain(VSOut v) : SV_TARGET {
         if (InsideViewport(sampleUv) < 0.5) continue;
         float sampleZ = ViewZAt(sampleUv);
         float depthWeight = exp2(-abs(sampleZ - centerZ) / depthTolerance * 3.0);
-        float2 sampleVelPx = motionTex.Sample(motionTex_sampler, sampleUv).xy / mbp.yz;
+        float2 sampleVelPx = motionTex.SampleLevel(
+            motionTex_sampler, sampleUv, 0.0).xy / mbp.yz;
         float velocityWeight = exp2(-length(sampleVelPx - velPx / max(mbp.x, 1e-3)) /
                                     max(3.0, speedPx * 0.75));
         float tapWeight = 1.0 - abs(t) * 1.35;
         float w = max(tapWeight, 0.08) * depthWeight * velocityWeight;
-        col += sceneTex.Sample(sceneTex_sampler, sampleUv).rgb * w;
+        col += sceneTex.SampleLevel(
+            sceneTex_sampler, sampleUv, 0.0).rgb * w;
         wsum += w;
     }
     return float4(col / wsum, 1.0);
@@ -5995,6 +6076,16 @@ FGpuMesh* WaterGpuMeshForNode3D(
     return nullptr;
 }
 
+const FMeshAsset* WaterCpuMeshForNode3D(
+    FEditorHost& host, game::ANode* node) noexcept {
+    FGpuMesh* const gpu_mesh =
+        WaterGpuMeshForNode3D(host, node);
+    if (gpu_mesh == nullptr) return nullptr;
+    if (gpu_mesh == &host.gm_water_plane)
+        return host.cpu_water_plane.Get();
+    return NMesh(node);
+}
+
 bool Water3DPassAvailable(const FEditorHost& host) noexcept {
     IRhiTexture* scene_depth = host.renderer.DepthBuffer();
     IRhiTexture* depth_copy = host.water3d_depth_copy.Get();
@@ -6081,6 +6172,38 @@ bool IsCanonicalSceneCameraId(const char* stable_id) noexcept {
         }
     }
     return length > 0u;
+}
+
+bool CopyCanonicalSceneCameraId(
+    const char* source, char* destination,
+    u32 destination_capacity) noexcept {
+    if (source == nullptr || destination == nullptr ||
+        destination_capacity <
+            game::kScene3DSerializeMaxCameraIdBytes + 1u) {
+        return false;
+    }
+    u32 length = 0u;
+    for (; length <= game::kScene3DSerializeMaxCameraIdBytes; ++length) {
+        const char value = source[length];
+        if (value == '\0') break;
+        const bool alpha =
+            (value >= 'A' && value <= 'Z') ||
+            (value >= 'a' && value <= 'z');
+        const bool digit = value >= '0' && value <= '9';
+        if (!alpha && !digit &&
+            (length == 0u ||
+             (value != '_' && value != '.' && value != '-'))) {
+            return false;
+        }
+        destination[length] = value;
+    }
+    if (length == 0u ||
+        length > game::kScene3DSerializeMaxCameraIdBytes) {
+        destination[0] = '\0';
+        return false;
+    }
+    destination[length] = '\0';
+    return true;
 }
 
 bool IsSceneCameraConfigValid(
@@ -6226,17 +6349,42 @@ bool ResolvePreviewCamera3DFromNodes(
     const TArray<game::ANode*>& nodes,
     FResolvedSceneCamera3D& output) noexcept {
     output = FResolvedSceneCamera3D{};
-    if (host.game_camera_preview_node_id < 0)
-        return false;
+    u64 request_id = 0u;
+    int preview_node_id = -1;
+    const char* expected_stable_id = nullptr;
+    u32 request_history_generation = 0u;
+    const bool request_presenter =
+        host.camera_view_requests.PresenterIdentity(
+            request_id,
+            preview_node_id,
+            expected_stable_id,
+            request_history_generation);
+    (void)request_id;
+    (void)request_history_generation;
+    if (!request_presenter)
+        preview_node_id = host.game_camera_preview_node_id;
+    if (preview_node_id < 0) return false;
+
+    auto invalidate_preview = [&]() noexcept {
+        if (request_presenter)
+            host.camera_view_requests.MarkPresenterCameraStale();
+        else
+            host.game_camera_preview_node_id = -1;
+    };
     for (u32 index = 0u; index < nodes.Size(); ++index) {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         if (record == nullptr ||
-            record->id != host.game_camera_preview_node_id)
+            record->id != preview_node_id)
             continue;
         if (!record->has_scene_camera ||
+            (request_presenter &&
+             (expected_stable_id == nullptr ||
+              std::strcmp(
+                  record->scene_camera_id,
+                  expected_stable_id) != 0)) ||
             !IsEditorCameraNodeEffectivelyEnabled(*node)) {
-            host.game_camera_preview_node_id = -1;
+            invalidate_preview();
             return false;
         }
         output.node = node;
@@ -6249,7 +6397,7 @@ bool ResolvePreviewCamera3DFromNodes(
         }
         break;
     }
-    host.game_camera_preview_node_id = -1;
+    invalidate_preview();
     output = FResolvedSceneCamera3D{};
     return false;
 }
@@ -6516,6 +6664,42 @@ FRenderCamera3D ResolveRenderCamera3D(
     return editor_camera;
 }
 
+bool IsCurrentTemporalRenderCamera3D(
+    FEditorHost& host, const game::ANode* node) noexcept {
+    if (!host.game_view || node == nullptr ||
+        host.last_render_camera_node_id < 0) {
+        return false;
+    }
+    const AEditor3DRecordComponent* record = Rec3D(node);
+    return record != nullptr && record->has_scene_camera &&
+           record->id == host.last_render_camera_node_id;
+}
+
+bool TransformAffectsCurrentTemporalRenderCamera3D(
+    FEditorHost& host, const game::ANode* mutated_node) noexcept {
+    if (!host.game_view || mutated_node == nullptr ||
+        host.last_render_camera_node_id < 0) {
+        return false;
+    }
+    const game::ANode* camera_node =
+        FindNode3DNode(host, host.last_render_camera_node_id);
+    if (camera_node == nullptr) return false;
+    const AEditor3DRecordComponent* camera_record =
+        Rec3D(camera_node);
+    if (camera_record == nullptr || !camera_record->has_scene_camera) {
+        return false;
+    }
+    // A local transform edit changes the physical camera only when it targets
+    // the rendered camera itself or one of its transform ancestors. Runtime
+    // camera motion and unrelated mesh edits never pass through this editor
+    // mutation helper, so their temporal histories remain warm.
+    for (const game::ANode* cursor = camera_node;
+         cursor != nullptr; cursor = cursor->Parent()) {
+        if (cursor == mutated_node) return true;
+    }
+    return false;
+}
+
 bool AlignSceneCameraNodeToView(
     FEditorHost& host, game::ANode& node) noexcept {
     const FCamera scene_view = EditorCam3D(host, 1.0f);
@@ -6567,10 +6751,15 @@ bool AlignSceneCameraNodeToView(
     }
     AEditor3DRecordComponent* record = Rec3D(&node);
     if (record == nullptr) return false;
+    const bool resets_temporal_history =
+        TransformAffectsCurrentTemporalRenderCamera3D(
+            host, &node);
     PushUndo(host);
     node.Local().position = local_position;
     node.Local().rotation = local_rotation;
     record->euler = euler;
+    if (resets_temporal_history)
+        InvalidateTemporalRenderHistories(host);
     return true;
 }
 
@@ -7029,6 +7218,7 @@ void DrawInteractiveWater3DPass(
     IRhiCommandList& command_list,
     IRhiTexture& hdr_target,
     const TArray<game::ANode*>& nodes,
+    editor_frustum_culling::FSubmissionMaskView submission_mask,
     const FMat4& view_projection,
     FVec3 camera_position,
     FVec3 sun_color,
@@ -7041,6 +7231,7 @@ void DrawInteractiveWater3DPass(
     u32 height) noexcept {
     bool any_water = false;
     for (u32 i = 0u; i < nodes.Size(); ++i) {
+        if (!submission_mask.ShouldSubmit(i)) continue;
         if (IsRenderedByWater3D(host, nodes[i])) {
             any_water = true;
             break;
@@ -7094,6 +7285,7 @@ void DrawInteractiveWater3DPass(
         host.pbr3d.SetSubsurface(FVec3::Zero(), 0.0f);
         host.pbr3d.SetEmissive(FVec3::Zero(), 0.0f);
         for (u32 i = 0u; i < nodes.Size(); ++i) {
+            if (!submission_mask.ShouldSubmit(i)) continue;
             game::ANode* node = nodes[i];
             if (!IsRenderedByWater3D(host, node)) continue;
             AEditor3DRecordComponent* record = Rec3D(node);
@@ -7134,11 +7326,24 @@ void DrawInteractiveWater3DPass(
         host.ssr_computed
             ? host.ssr3d.OutputTexture() : nullptr;
     for (u32 i = 0u; i < nodes.Size(); ++i) {
+        if (!submission_mask.ShouldSubmit(i)) continue;
         game::ANode* node = nodes[i];
         if (!IsRenderedByWater3D(host, node)) continue;
         AEditor3DRecordComponent* record = Rec3D(node);
         FGpuMesh* mesh = WaterGpuMeshForNode3D(host, node);
         if (!record || !mesh) continue;
+        IRhiTexture* authored_normal_map = nullptr;
+        f32 authored_normal_strength = 1.0f;
+        game::AMeshComponent3D* mesh_component = Mesh3D(node);
+        if (mesh_component != nullptr &&
+            mesh_component->Material().kind ==
+                game::EMaterialKind::Lit) {
+            LoadNode3DMaterialTextures(host, node);
+            authored_normal_map =
+                record->material_normal_tex.Get();
+            authored_normal_strength =
+                mesh_component->Material().pbr.normalStrength;
+        }
         host.water3d.SetParams(
             WaterSurface3DParamsFor(record));
         host.water3d.DrawMesh(
@@ -7147,7 +7352,8 @@ void DrawInteractiveWater3DPass(
             reflection,
             static_cast<u64>(
                 static_cast<u32>(record->id)),
-            true);
+            true, authored_normal_map,
+            authored_normal_strength);
     }
     command_list.EndRenderToTexture(hdr_target);
 }
@@ -7593,6 +7799,16 @@ void CSMain(uint3 tid : SV_DispatchThreadID){
 )";
 
 // 三角形を SB へ詰めて clear→voxelize。volume を返す (PBR の SetVxgi へ)。失敗時 nullptr。
+static_assert(
+    !editor_frustum_culling::SceneGeometryPassPolicy(
+        editor_frustum_culling::ESceneGeometryPass::VxgiVoxelization)
+         .uses_main_view_mask,
+    "VXGI is world-space and must not use the active camera visibility mask");
+static_assert(
+    editor_frustum_culling::SceneGeometryPassPolicy(
+        editor_frustum_culling::ESceneGeometryPass::VxgiVoxelization)
+        .command_form ==
+        editor_frustum_culling::ESubmissionCommandForm::Dispatch);
 IRhiTexture* VxgiVoxelize(
     FEditorHost& h, IRhiCommandList* cl,
     const TArray<FM3DVtx>& dv,
@@ -7819,10 +8035,15 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
         { AEditor3DRecordComponent* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
         if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
-        if (IsRenderedByWater3D(h, nn)) continue;
+        const bool interactive_water =
+            IsRenderedByWater3D(h, nn);
         const int prim = NPrim(nn);
-        const FMeshAsset* cm = (prim == 3) ? NMesh(nn) : (prim == 1) ? h.cpu_sphere.Get()
-                             : (prim == 2) ? h.cpu_plane.Get() : h.cpu_cube.Get();
+        const FMeshAsset* cm = interactive_water
+            ? WaterCpuMeshForNode3D(h, nn)
+            : (prim == 3) ? NMesh(nn)
+            : (prim == 1) ? h.cpu_sphere.Get()
+            : (prim == 2) ? h.cpu_plane.Get()
+                          : h.cpu_cube.Get();
         if (cm == nullptr || cm->Vertices().IsEmpty()) continue;
         FVec3 local_minimum{
             std::numeric_limits<f32>::max(),
@@ -7868,6 +8089,11 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         h.scene_mesh_local_center[i] = local_center;
         h.scene_mesh_local_radius[i] =
             std::sqrt(local_radius_squared);
+        // Interactive water owns a separate indexed draw path, but it still
+        // needs the exact submitted base-mesh bounds for the shared main-view
+        // visibility mask and profiler. Do not duplicate it in the aggregate
+        // opaque vertex buffer.
+        if (interactive_water) continue;
         const FVec4 col = NColor(nn);
         game::AMeshComponent3D* mc = Mesh3D(nn);
         if (mc != nullptr && !mc->MaterialLoaded() && mc->HasMaterial()) LoadNode3DMaterial(nn);   // 遅延ロード (2D 鏡映)
@@ -7894,14 +8120,16 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
     }
 }
 
-bool SceneMeshNodeVisible(
-    const FEditorHost& host, u32 node_index) noexcept {
-    const bool visible =
-        node_index >= host.scene_mesh_visible.Size() ||
-        host.scene_mesh_visible[node_index] != 0u;
-    return editor_frustum_culling::ShouldSubmitOpaque(
+editor_frustum_culling::FSubmissionMaskView SceneMeshSubmissionMask(
+    const FEditorHost& host,
+    editor_frustum_culling::ESceneGeometryPass pass) noexcept {
+    const editor_frustum_culling::FSubmissionMaskView main_view_mask{
         host.profiler_work.frustum_culling_enabled,
-        visible);
+        host.scene_mesh_visible.IsEmpty()
+            ? nullptr : host.scene_mesh_visible.Data(),
+        static_cast<u32>(host.scene_mesh_visible.Size())};
+    return editor_frustum_culling::SubmissionMaskForPass(
+        pass, main_view_mask);
 }
 
 void BuildSceneMeshVisibility(
@@ -7934,11 +8162,14 @@ void BuildSceneMeshVisibility(
         game::AMeshComponent3D* mesh = Mesh3D(node);
         if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
             (record != nullptr && record->is_empty) ||
-            mesh->RenderHandle() != nullptr ||
-            IsRenderedByWater3D(host, node)) {
+            mesh->RenderHandle() != nullptr) {
             continue;
         }
-        FGpuMesh* gpu_mesh = GpuMeshForNode3D(host, node);
+        const bool interactive_water =
+            IsRenderedByWater3D(host, node);
+        FGpuMesh* gpu_mesh = interactive_water
+            ? WaterGpuMeshForNode3D(host, node)
+            : GpuMeshForNode3D(host, node);
         if (gpu_mesh == nullptr || !gpu_mesh->vertex_buffer ||
             !gpu_mesh->index_buffer) {
             continue;
@@ -7947,11 +8178,19 @@ void BuildSceneMeshVisibility(
         const FVec3 center = TransformPoint(
             host.scene_mesh_local_center[index],
             world.ToMat4());
+        const f32 world_radius_padding =
+            interactive_water && record != nullptr
+            ? host.water3d.ConservativeDisplacementBoundForSurface(
+                  static_cast<u64>(
+                      static_cast<u32>(record->id)),
+                  WaterSurface3DParamsFor(record))
+            : 0.0f;
         const editor_frustum_culling::FNodeDecision decision =
             editor_frustum_culling::EvaluateSphere(
                 planes, center,
                 host.scene_mesh_local_radius[index],
-                world.scale);
+                world.scale,
+                world_radius_padding);
         frame.Apply(decision);
         if (!frame.enabled) {
             // A partial mask would make the diagnostic counts misleading.
@@ -8106,6 +8345,17 @@ struct FShadowOut {
     f32   csmSplits[acs::FShadowMap::kMaxCascades] = {};
 };
 
+static_assert(
+    !editor_frustum_culling::SceneGeometryPassPolicy(
+        editor_frustum_culling::ESceneGeometryPass::ShadowCaster)
+         .uses_main_view_mask,
+    "shadow casters are light-space and must not use the camera mask");
+static_assert(
+    editor_frustum_culling::SceneGeometryPassPolicy(
+        editor_frustum_culling::ESceneGeometryPass::ShadowCaster)
+        .command_form ==
+        editor_frustum_culling::ESubmissionCommandForm::Draw);
+
 // シャドウパス: 光源 (太陽) 視点で深度を焼く → 本体パスで PCF 比較してキャスト影を落とす。
 // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ。
 FShadowOut Pass_Shadows(FEditorHost& h, IRhiCommandList* cl, u32 dvCount,
@@ -8247,10 +8497,16 @@ void AdvanceRuntimeSsgi(FEditorHost& h, u32 width, u32 height) noexcept {
     }
 }
 
-bool SceneHasOpaqueSsssMaterial(
+editor_subsurface_visibility::FPresence
+InspectOpaqueSsssMaterials(
     FEditorHost& host,
     const TArray<game::ANode*>& nodes) noexcept {
     constexpr f32 kSsssEpsilon = 1.0e-4f;
+    editor_subsurface_visibility::FPresence presence{};
+    const editor_frustum_culling::FSubmissionMaskView
+        main_view_mask = SceneMeshSubmissionMask(
+            host,
+            editor_frustum_culling::ESceneGeometryPass::PbrOpaqueCount);
     for (u32 node_index = 0u; node_index < nodes.Size(); ++node_index) {
         game::ANode* node = nodes[node_index];
         AEditor3DRecordComponent* record = Rec3D(node);
@@ -8270,38 +8526,53 @@ bool SceneHasOpaqueSsssMaterial(
             material.pbr.transmission > kSsssEpsilon) {
             continue;
         }
-        if (material.pbr.subsurface > kSsssEpsilon) return true;
+        bool has_subsurface =
+            material.pbr.subsurface > kSsssEpsilon;
 
         const FSubstrateMaterial& substrate = material.substrate;
-        if (!substrate.enabled) continue;
-        const u32 node_count =
-            substrate.node_count < kSubstrateMaxNodes
-                ? substrate.node_count : kSubstrateMaxNodes;
-        for (u32 slab_index = 0u;
-             slab_index < node_count; ++slab_index) {
-            const FSubstrateNode& substrate_node =
-                substrate.nodes[slab_index];
-            if (substrate_node.type != ESubstrateNodeType::Slab) continue;
-            const FSubstrateSlab& slab = substrate_node.slab;
-            const f32 max_mfp =
-                std::max(slab.mean_free_path_cm.x,
-                    std::max(slab.mean_free_path_cm.y,
-                             slab.mean_free_path_cm.z));
-            // Stable slab scalar targets: 16..18=MFP RGB, 26=thickness.
-            const bool dynamic_mfp =
-                substrate_node.expressions.roots[16] >= 0 ||
-                substrate_node.expressions.roots[17] >= 0 ||
-                substrate_node.expressions.roots[18] >= 0;
-            const bool dynamic_thickness =
-                substrate_node.expressions.roots[26] >= 0;
-            if ((max_mfp > kSsssEpsilon || dynamic_mfp) &&
-                (slab.thickness_cm > kSsssEpsilon ||
-                 dynamic_thickness)) {
-                return true;
+        if (!has_subsurface && substrate.enabled) {
+            const u32 node_count =
+                substrate.node_count < kSubstrateMaxNodes
+                    ? substrate.node_count : kSubstrateMaxNodes;
+            for (u32 slab_index = 0u;
+                 slab_index < node_count; ++slab_index) {
+                const FSubstrateNode& substrate_node =
+                    substrate.nodes[slab_index];
+                if (substrate_node.type != ESubstrateNodeType::Slab)
+                    continue;
+                const FSubstrateSlab& slab = substrate_node.slab;
+                const f32 max_mfp =
+                    std::max(slab.mean_free_path_cm.x,
+                        std::max(slab.mean_free_path_cm.y,
+                                 slab.mean_free_path_cm.z));
+                // Stable slab scalar targets:
+                // 16..18=MFP RGB, 26=thickness.
+                const bool dynamic_mfp =
+                    substrate_node.expressions.roots[16] >= 0 ||
+                    substrate_node.expressions.roots[17] >= 0 ||
+                    substrate_node.expressions.roots[18] >= 0;
+                const bool dynamic_thickness =
+                    substrate_node.expressions.roots[26] >= 0;
+                if ((max_mfp > kSsssEpsilon || dynamic_mfp) &&
+                    (slab.thickness_cm > kSsssEpsilon ||
+                     dynamic_thickness)) {
+                    has_subsurface = true;
+                    break;
+                }
             }
         }
+        FGpuMesh* gpu_mesh =
+            has_subsurface ? GpuMeshForNode3D(host, node) : nullptr;
+        const bool eligible_for_main_view_draw =
+            gpu_mesh != nullptr &&
+            gpu_mesh->vertex_buffer.Get() != nullptr &&
+            gpu_mesh->index_buffer.Get() != nullptr;
+        presence.Observe(
+            node_index, has_subsurface,
+            eligible_for_main_view_draw, main_view_mask);
+        if (presence.Complete()) return presence;
     }
-    return false;
+    return presence;
 }
 
 struct FPbrFrameDrawCounts {
@@ -8321,33 +8592,37 @@ FPbrFrameDrawCounts CountPbrFrameDraws(
     FEditorHost& host,
     const TArray<game::ANode*>& nodes) noexcept {
     FPbrFrameDrawCounts counts{};
-    for (u32 index = 0u; index < nodes.Size(); ++index) {
-        if (!SceneMeshNodeVisible(host, index)) continue;
+    editor_frustum_culling::ForEachSubmittedNode(
+        SceneMeshSubmissionMask(
+            host,
+            editor_frustum_culling::ESceneGeometryPass::PbrOpaqueCount),
+        nodes.Size(),
+        [&](u32 index) noexcept {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
         if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
             (record != nullptr && record->is_empty) ||
             mesh->RenderHandle() != nullptr) {
-            continue;
+            return;
         }
         if (IsRenderedByWater3D(host, node)) {
             if (WaterGpuMeshForNode3D(host, node) != nullptr &&
                 counts.water_fallback != ~u32{0}) {
                 ++counts.water_fallback;
             }
-            continue;
+            return;
         }
         FGpuMesh* gpu_mesh = GpuMeshForNode3D(host, node);
         if (gpu_mesh == nullptr || !gpu_mesh->vertex_buffer ||
             !gpu_mesh->index_buffer) {
-            continue;
+            return;
         }
         if (!mesh->MaterialLoaded() && mesh->HasMaterial())
             LoadNode3DMaterial(node);
-        if (mesh->Material().pbr.transmission > 0.0f) continue;
+        if (mesh->Material().pbr.transmission > 0.0f) return;
         if (counts.opaque != ~u32{0}) ++counts.opaque;
-    }
+    });
     return counts;
 }
 
@@ -8752,12 +9027,12 @@ bool EnsureSsssFrameResources(
 
 void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     if (!Ensure3D(h)) {
-        h.mv_computed = false;
+        InvalidateTemporalRenderHistories(h);
         return;
     }
     IRhiCommandList* cl = h.renderer.CommandList();
     if (cl == nullptr) {
-        h.mv_computed = false;
+        InvalidateTemporalRenderHistories(h);
         return;
     }
 
@@ -8783,16 +9058,55 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     const f32 aspect = (scH > 0) ? static_cast<f32>(scW) / static_cast<f32>(scH) : 1.0f;
     const FRenderCamera3D renderCamera =
         ResolveRenderCamera3D(h, aspect, all3d);
+    u64 camera_view_request_id = 0u;
+    int camera_view_node_id = -1;
+    const char* camera_view_stable_id = nullptr;
+    u32 camera_view_history_generation = 0u;
+    const bool rendering_camera_view_request =
+        h.game_view &&
+        h.camera_view_requests.PresenterIdentity(
+            camera_view_request_id,
+            camera_view_node_id,
+            camera_view_stable_id,
+            camera_view_history_generation) &&
+        camera_view_node_id == renderCamera.node_id;
+    (void)camera_view_stable_id;
+    const u64 current_camera_view_request_id =
+        rendering_camera_view_request
+            ? camera_view_request_id : 0u;
+    const bool camera_view_history_reset =
+        h.last_render_camera_view_request_id !=
+            current_camera_view_request_id ||
+        (rendering_camera_view_request &&
+         h.last_render_camera_view_history_generation !=
+             camera_view_history_generation);
     const FCamera& cam = renderCamera.camera;
     const FVec3 eye = renderCamera.eye;
     const bool renderOrtho = renderCamera.orthographic;
     h.profiler_work.render_orthographic = renderOrtho;
     h.profiler_work.render_camera_resolved = true;
     const FMat4 vp_nojit = cam.ViewProjection();
-    if (h.last_render_camera_node_id != renderCamera.node_id) {
+    const bool render_projection_changed =
+        h.last_render_camera_projection_valid &&
+        h.last_render_camera_orthographic != renderOrtho;
+    h.last_render_camera_projection_valid = true;
+    h.last_render_camera_orthographic = renderOrtho;
+    const bool render_camera_changed =
+        h.last_render_camera_node_id != renderCamera.node_id;
+    if (render_camera_changed)
         h.last_render_camera_node_id = renderCamera.node_id;
-        h.mv_computed = false;
-        h.taa_frame = 0u;
+    const bool render_camera_cut =
+        h.temporal_camera_pose_valid &&
+        VolumetricCloudViewCutDetected(
+            Inverse(h.prev_vp_nojit), h.prev_temporal_camera_eye,
+            Inverse(vp_nojit), eye);
+    if (render_camera_changed || camera_view_history_reset ||
+        render_projection_changed || render_camera_cut) {
+        // The physical swapchain is shared, but temporal state must never
+        // bleed across logical camera owners. Motion and every screen-space
+        // history start cold. Abrupt same-owner teleports, orientation/FOV
+        // cuts, and returning the surface to Scene View are covered too.
+        InvalidateTemporalRenderHistories(h);
     }
     h.profiler_work.runtime_scene_camera =
         h.game_view && renderCamera.authored;
@@ -8816,18 +9130,26 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     }
     BuildSceneMeshVisibility(h, all3d, vp_nojit);
 
-    const bool scene_has_ssss =
-        SceneHasOpaqueSsssMaterial(h, all3d);
+    const editor_subsurface_visibility::FPresence ssss_presence =
+        InspectOpaqueSsssMaterials(h, all3d);
+    const bool scene_has_ssss = ssss_presence.scene_has_material;
     const bool ssss_runtime_ready = AdvanceRuntimeSsss(
         h, scW, scH,
         scene_has_ssss && dvCount > 0u &&
         h.pbr3d_ready &&
         h.pbr3d.HasSubsurfaceMrtPipeline());
-    const bool ssss_frame_resources =
+    // Keep shaders and all full-resolution targets warm scene-wide so an SSSS
+    // object entering the camera never falls back for allocation frames.
+    // The recurring 4-MRT + two-pass workload is gated independently by the
+    // exact main-view mask built above.
+    const bool ssss_resources_ready =
         ssss_runtime_ready &&
         h.post3d_ready && h.blit_ready &&
         h.ssao_pipe_ready &&
         EnsureSsssFrameResources(h, scW, scH);
+    const bool ssss_frame_resources =
+        ssss_presence.main_view_has_material &&
+        ssss_resources_ready;
     const FPbrFrameDrawCounts pbr_draw_counts =
         CountPbrFrameDraws(h, all3d);
     // One reset for the complete command-list frame. The reserve includes the
@@ -8853,7 +9175,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         h.profiler_work.frustum_tested = 0u;
         h.profiler_work.frustum_visible = 0u;
         h.profiler_work.frustum_culled = 0u;
-        h.mv_computed = false;
+        InvalidateTemporalRenderHistories(h);
         return;
     }
 
@@ -9088,20 +9410,28 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 cl->SetPipeline(*h.normal_pipe);
                 cl->SetConstantBuffer(0, *h.normal_cb);
                 cl->SetVertexBuffer(*h.m3d_dyn_vb, sizeof(FM3DVtx));
-                if (h.profiler_work.frustum_culling_enabled) {
-                    for (u32 node_index = 0u;
-                         node_index < all3d.Size(); ++node_index) {
-                        if (!SceneMeshNodeVisible(h, node_index))
-                            continue;
-                        const u32 vertex_count =
-                            h.scene_mesh_vertex_count[node_index];
-                        if (vertex_count == 0u) continue;
-                        cl->Draw(
-                            vertex_count,
-                            h.scene_mesh_vertex_offset[node_index]);
-                    }
-                } else {
+                const editor_frustum_culling::FSubmissionMaskView
+                    normal_submission_mask = SceneMeshSubmissionMask(
+                        h,
+                        editor_frustum_culling::ESceneGeometryPass::
+                            NormalDepthPrepass);
+                if (editor_frustum_culling::ShouldUseAggregateVertexDraw(
+                        normal_submission_mask,
+                        h.profiler_work.frustum_culled)) {
                     cl->Draw(dvCount, 0);
+                } else {
+                    editor_frustum_culling::ForEachSubmittedVertexRange(
+                        normal_submission_mask, all3d.Size(),
+                        [&](u32 node_index) noexcept {
+                            return h.scene_mesh_vertex_offset[node_index];
+                        },
+                        [&](u32 node_index) noexcept {
+                            return h.scene_mesh_vertex_count[node_index];
+                        },
+                        [&](u32 vertex_offset,
+                            u32 vertex_count) noexcept {
+                            cl->Draw(vertex_count, vertex_offset);
+                        });
                 }
                 cl->EndRenderToTexture(*h.normal_rt);
                 gbufReady = true;
@@ -9213,8 +9543,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     u32 motionEligibleCount = 0;
     const bool canDrawMotion = wantsMotion && h.mv_ready && h.pbr3d_ready;
     if (canDrawMotion) {
+        const editor_frustum_culling::FSubmissionMaskView submission_mask =
+            SceneMeshSubmissionMask(
+                h,
+                editor_frustum_culling::ESceneGeometryPass::MotionVectors);
         for (u32 i = 0; i < all3d.Size(); ++i) {
-            if (!SceneMeshNodeVisible(h, i)) {
+            if (!submission_mask.ShouldSubmit(i)) {
                 if (AEditor3DRecordComponent* record =
                         Rec3D(all3d[i])) {
                     record->prev_world_valid = false;
@@ -9237,11 +9571,15 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         if (h.mv3d.BeginFrame(motionEligibleCount) &&
             h.mv3d.Begin(*cl, vp_nojit, previousVp)) {
             bool motionComplete = true;
-            for (u32 i = 0; i < all3d.Size(); ++i) {
-                if (!SceneMeshNodeVisible(h, i)) continue;
+            editor_frustum_culling::ForEachSubmittedNode(
+                SceneMeshSubmissionMask(
+                    h,
+                    editor_frustum_culling::ESceneGeometryPass::MotionVectors),
+                all3d.Size(),
+                [&](u32 i) noexcept {
                 game::ANode* nn = all3d[i];
                 FGpuMesh* gm = motionMeshForNode(nn);
-                if (gm == nullptr) continue;
+                if (gm == nullptr) return;
 
                 AEditor3DRecordComponent* er = Rec3D(nn);
                 const FMat4 world = nn->World().ToMat4();
@@ -9259,7 +9597,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 } else if (er != nullptr) {
                     er->prev_world_valid = false;
                 }
-            }
+            });
             h.mv3d.End(*cl);
             h.mv_computed =
                 motionComplete &&
@@ -9537,13 +9875,17 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // camera-volume は全 opaque/transmission/sky/cloud を含む fullscreen pass で一度だけ適用する。
         // compute 不可時の解析 fog だけは上の SetFog で PBR surface に残す。
         h.pbr3d.SetAerialPerspective(nullptr, kFogVolumeMaxDist);
-        for (u32 i = 0; i < all3d.Size(); ++i) {
-            if (!SceneMeshNodeVisible(h, i)) continue;
-            ssss_mrt_draws_valid =
-                DrawEditorPbrNode(
-                    h, *cl, all3d[i], ssss_mrt_bound) &&
-                ssss_mrt_draws_valid;
-        }
+        editor_frustum_culling::ForEachSubmittedNode(
+            SceneMeshSubmissionMask(
+                h,
+                editor_frustum_culling::ESceneGeometryPass::PbrOpaqueDraw),
+            all3d.Size(),
+            [&](u32 i) noexcept {
+                ssss_mrt_draws_valid =
+                    DrawEditorPbrNode(
+                        h, *cl, all3d[i], ssss_mrt_bound) &&
+                    ssss_mrt_draws_valid;
+            });
     } else {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
         draw_aggregate_mesh_fallback();
     }
@@ -9559,6 +9901,13 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     // resulting complete HDR scene is copied back before grid, sprites,
     // water, transmission, clouds and atmosphere, so those layers stay sharp.
     if (ssss_mrt_bound) {
+        // SSSS is part of opaque lighting even though its fullscreen resolve
+        // follows the mesh scope. A second same-category segment is accumulated
+        // by both profiler backends, and exists only when work is recorded.
+        editor_profiler::FCpuScope ssssOpaqueScope(
+            h.profiler_work.opaque_cpu_ms);
+        FScopedRhiGpuTiming ssssOpaqueGpuScope(
+            cl, ERhiGpuTimingPass::Opaque);
         cl->EndRenderToTextureMrt(ssss_targets, 4u);
         if (!ssss_mrt_draws_valid) {
             // MRT auxiliary data is unusable, and the failed object may not
@@ -9710,6 +10059,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // 結果は ssr3d 内部 RT に残り、«次フレーム» の SetSsr が roughness ブレンドで使う (前フレーム反射方式)。
         h.ssr_computed = false;
         if (h.q_ssr_on && h.ssr_ready && gbufReady) {
+            editor_profiler::FCpuScope ssrPostScope(
+                h.profiler_work.post_cpu_ms);
+            FScopedRhiGpuTiming ssrPostGpuScope(
+                cl, ERhiGpuTimingPass::Post);
             IRhiTexture* hizEven = nullptr;
             IRhiTexture* hizOdd = nullptr;
             u32 hizMips = 0;
@@ -9723,16 +10076,24 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                            vp, Inverse(vp), h.prev_vp, eye, h.q_ssr_intensity,
                            h.mv_computed ? h.mv3d.OutputTexture() : nullptr,
                            hizEven, hizOdd, hizMips);   // full Hi-Z + motion で long-ray cost / ghost を抑制
-            h.ssr_computed = true;
+            h.ssr_computed = h.ssr3d.HasValidOutput();
+        } else {
+            h.ssr3d.InvalidateHistory();
         }
         // SSGI: 同じ lit scene color + 深度 + 法線から 1 バウンス間接光を焼く (raw→blur→temporal)。
         // 結果は ssgi3d 内部 RT に残り «次フレーム» の SetSsgi が ambient に加算 (前フレーム間接光方式)。
         h.ssgi_computed = false;
         if (h.q_ssgi_on && h.ssgi_ready && gbufReady) {
+            editor_profiler::FCpuScope ssgiPostScope(
+                h.profiler_work.post_cpu_ms);
+            FScopedRhiGpuTiming ssgiPostGpuScope(
+                cl, ERhiGpuTimingPass::Post);
             h.ssgi3d.Render(*h.renderer.Device(), *cl, *hdrRt, *h.renderer.DepthBuffer(), *h.normal_rt,
                             vp, Inverse(vp), h.prev_vp, eye, h.q_ssgi_intensity, h.q_ssgi_max_dist,
                             h.mv_computed ? h.mv3d.OutputTexture() : nullptr);   // motion で動く物の間接光 ghost を除去
-            h.ssgi_computed = true;
+            h.ssgi_computed = h.ssgi3d.HasValidOutput();
+        } else {
+            h.ssgi3d.InvalidateHistory();
         }
 
         // --- モーションブラー: motion (UV 空間) に沿って scene を多タップ平均 (静止物はぼけず、動き/カメラ移動でぼける) ---
@@ -9778,7 +10139,12 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // volumetric clouds, and local fog then terminate against the displaced
         // surface, while later DoF/TAA consume the same updated depth.
         DrawInteractiveWater3DPass(
-            h, *cl, *hdrRt, all3d, vp, eye, sunCol,
+            h, *cl, *hdrRt, all3d,
+            SceneMeshSubmissionMask(
+                h,
+                editor_frustum_culling::ESceneGeometryPass::
+                    InteractiveWaterDraw),
+            vp, eye, sunCol,
             sh.shadowOn, h.shadow.DepthTexture(), sh.lightVp,
             h.q_shadow_bias, h.q_shadow_filter, scW, scH);
 
@@ -9835,18 +10201,20 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         //     opaque + AP + cloud HDR を refr_bg へ blit → hdrRt を clear せず load 再オープン (opaque+depth 保持) →
         //     FRefractionShader で描画。env cubemap で Fresnel 反射 (要 Diligent IBL)。
         if (h.refr_ready && h.blit_ready && h.ibl_ready && h.ibl3d.EnvCubemap() != nullptr) {
-            bool anyRefr = false;
-            for (u32 i = 0; i < all3d.Size(); ++i) {
-                if (!SceneMeshNodeVisible(h, i)) continue;
-                if (!IsEffectivelyVisibleAndEnabled(all3d[i])) continue;
+            const bool anyRefr =
+                editor_frustum_culling::AnySubmittedNode(
+                    SceneMeshSubmissionMask(
+                        h,
+                        editor_frustum_culling::ESceneGeometryPass::
+                            RefractionPreflight),
+                    all3d.Size(),
+                    [&](u32 i) noexcept {
+                if (!IsEffectivelyVisibleAndEnabled(all3d[i])) return false;
                 game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
-                if (!IsRenderedByWater3D(h, all3d[i]) &&
-                    mc != nullptr && mc->MaterialLoaded() &&
-                    mc->Material().pbr.transmission > 0.0f) {
-                    anyRefr = true;
-                    break;
-                }
-            }
+                return !IsRenderedByWater3D(h, all3d[i]) &&
+                       mc != nullptr && mc->MaterialLoaded() &&
+                       mc->Material().pbr.transmission > 0.0f;
+            });
             IRhiDevice* rdev = h.renderer.Device();
             if (anyRefr && rdev != nullptr) {
                 if (h.refr_bg_w != scW || h.refr_bg_h != scH) {   // refr_bg を画面サイズに遅延確保 (HDR)
@@ -9866,16 +10234,28 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                     { FViewport rvp{}; rvp.width = static_cast<f32>(scW); rvp.height = static_cast<f32>(scH); cl->SetViewport(rvp);
                       FScissorRect rsr{}; rsr.right = static_cast<i32>(scW); rsr.bottom = static_cast<i32>(scH); cl->SetScissor(rsr); }
                     h.refr3d.SetFrame(vp, eye, scW, scH); // opaque と同じ vp/viewport で整合
-                    for (u32 i = 0; i < all3d.Size(); ++i) {
-                        if (!SceneMeshNodeVisible(h, i)) continue;
+                    editor_frustum_culling::ForEachSubmittedNode(
+                        SceneMeshSubmissionMask(
+                            h,
+                            editor_frustum_culling::ESceneGeometryPass::
+                                RefractionDraw),
+                        all3d.Size(),
+                        [&](u32 i) noexcept {
                         game::ANode* nn = all3d[i];
-                        if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
+                        if (!IsEffectivelyVisibleAndEnabled(nn)) return;
                         game::AMeshComponent3D* mc = Mesh3D(nn);
-                        if (mc == nullptr || mc->RenderHandle() != nullptr) continue;
-                        if (IsRenderedByWater3D(h, nn)) continue;
-                        if (!mc->MaterialLoaded() || mc->Material().pbr.transmission <= 0.0f) continue;
+                        if (mc == nullptr || mc->RenderHandle() != nullptr) return;
+                        if (IsRenderedByWater3D(h, nn)) return;
+                        if (!mc->MaterialLoaded() ||
+                            mc->Material().pbr.transmission <= 0.0f) {
+                            return;
+                        }
                         FGpuMesh* gm = GpuMeshForNode3D(h, nn);
-                        if (gm == nullptr || gm->vertex_buffer.Get() == nullptr || gm->index_buffer.Get() == nullptr) continue;
+                        if (gm == nullptr ||
+                            gm->vertex_buffer.Get() == nullptr ||
+                            gm->index_buffer.Get() == nullptr) {
+                            return;
+                        }
                         const game::FPbrParams2D& p = mc->Material().pbr;
                         const FVec3 tint{ p.baseColor.x, p.baseColor.y, p.baseColor.z };
                         // thickness は «屈折先までの world 距離» = レンズ歪みの強さ。固定 0.5 だと小さく
@@ -9884,7 +10264,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         const f32 thick = ((ws.x + ws.y + ws.z) / 3.0f) * 1.4f;
                         h.refr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), *h.refr_bg, *h.ibl3d.EnvCubemap(),
                                           p.ior, thick, tint, p.roughness, 0.0f);
-                    }
+                    });
                     cl->EndRenderToTexture(*hdrRt);
                 }
             }
@@ -10011,7 +10391,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         // の vp/prev で行う (camera motion 由来。depth から history を offset sample)。motion_texture は未使用。
         if (taaOn) {
             pp.taa_enabled = true;
-            pp.taa_blend_factor = 0.1f;                              // 10% current + 90% history
+            pp.taa_blend_factor =
+                camera_view_history_reset
+                    ? 1.0f   // initialize this request from current color
+                    : 0.1f;  // 10% current + 90% history
             pp.taa_depth_texture = h.renderer.DepthBuffer();
             pp.taa_view_proj_no_jitter      = vp_nojit;
             pp.taa_prev_view_proj_no_jitter = h.prev_vp_nojit;
@@ -10044,7 +10427,25 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
     }
     h.prev_vp = vp;               // SSR/SSGI temporal reproject 用 (jitter 込み)
     h.prev_vp_nojit = vp_nojit;   // TAA history reproject 用 (jitter 無し)
+    h.prev_temporal_camera_eye = eye;
+    h.temporal_camera_pose_valid = true;
     if (taaOn) ++h.taa_frame;     // ジッタ列を進める (TAA 無効時は固定)
+    if (rendering_camera_view_request) {
+        ++h.camera_view_frame_serial;
+        if (h.camera_view_frame_serial == 0u)
+            ++h.camera_view_frame_serial;
+        h.camera_view_requests.MarkPresenterRendered(
+            h.camera_view_frame_serial,
+            scW,
+            scH);
+        h.last_render_camera_view_request_id =
+            camera_view_request_id;
+        h.last_render_camera_view_history_generation =
+            camera_view_history_generation;
+    } else {
+        h.last_render_camera_view_request_id = 0u;
+        h.last_render_camera_view_history_generation = 0u;
+    }
 }
 
 } // namespace
@@ -10185,8 +10586,12 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->cloud_workload_available = false;
     host->profiler_cpu_peak.Reset();
     host->profiler_gpu_peak.Reset();
+    host->profiler_active_cpu_peak.Reset();
+    host->profiler_present_cpu_peak.Reset();
     host->profiler_gpu_queries.Reset();
     host->profiler_last_gpu_peak_frame = 0u;
+    host->profiler_presented_since_reset = 0u;
+    host->profiler_reset_serial = 0u;
     host->profiler_snapshot.viewport_width = width;
     host->profiler_snapshot.viewport_height = height;
     host->water3d_background_failed = false;
@@ -10394,13 +10799,18 @@ static void PublishCloudWorkloadSnapshot(
 static void PublishProfilerFrame(
     FEditorHost& host,
     editor_profiler::FTimePoint frameBegin,
-    f32 submitMs) noexcept {
+    f32 submitMs,
+    f32 nativeRenderActiveMs) noexcept {
     editor_profiler::FSnapshot& snapshot = host.profiler_snapshot;
     snapshot.version = editor_profiler::kSnapshotVersion;
     snapshot.struct_size = editor_profiler::kSnapshotSize;
     snapshot.timing_source = static_cast<u32>(
         editor_profiler::ETimingSource::CpuRecordSubmit);
     snapshot.flags = 0u;
+    if (host.scene_presentation_suppressed) {
+        snapshot.flags |=
+            editor_profiler::ESnapshotFlags::ScenePresentationSuppressed;
+    }
     if (host.view3d) {
         snapshot.flags |= editor_profiler::ESnapshotFlags::View3D;
     }
@@ -10469,6 +10879,23 @@ static void PublishProfilerFrame(
         editor_profiler::ElapsedMilliseconds(frameBegin);
     snapshot.cpu_submit_ms =
         std::isfinite(submitMs) && submitMs >= 0.0f ? submitMs : 0.0f;
+    snapshot.native_render_active_cpu_ms =
+        std::isfinite(nativeRenderActiveMs) &&
+        nativeRenderActiveMs >= 0.0f
+            ? nativeRenderActiveMs
+            : 0.0f;
+    snapshot.native_present_cpu_ms = snapshot.cpu_submit_ms;
+    host.profiler_active_cpu_peak.Add(
+        snapshot.native_render_active_cpu_ms);
+    host.profiler_present_cpu_peak.Add(
+        snapshot.native_present_cpu_ms);
+    snapshot.native_render_active_cpu_peak_ms =
+        host.profiler_active_cpu_peak.Peak();
+    snapshot.native_present_cpu_peak_ms =
+        host.profiler_present_cpu_peak.Peak();
+    snapshot.presented_frame_count_since_reset =
+        ++host.profiler_presented_since_reset;
+    snapshot.profiler_reset_serial = host.profiler_reset_serial;
 
     snapshot.opaque_cpu_ms = host.profiler_work.opaque_cpu_ms;
     snapshot.atmosphere_cpu_ms =
@@ -10637,6 +11064,8 @@ static int RenderEditorFrame(
         !host->renderer.CanBeginFrameWithoutGpuWait()) {
         return editor_frame::ToAbi(editor_frame::EResult::Busy);
     }
+    const editor_profiler::FTimePoint nativeRenderActiveBegin =
+        editor_profiler::FClock::now();
     {
         // Reuse the host-owned DFS scratch retained by DrawScene3D. Clearing a
         // TArray preserves capacity, eliminating the per-frame heap churn that
@@ -10660,12 +11089,16 @@ static int RenderEditorFrame(
         // expose the previous/default scene while managed file I/O is in flight.
         const editor_profiler::FTimePoint submitBegin =
             editor_profiler::FClock::now();
+        const f32 nativeRenderActiveMs =
+            editor_profiler::ElapsedMilliseconds(
+                nativeRenderActiveBegin);
         const int present_result = PresentNeutralEditorFrame(
             *host, true, avoid_gpu_wait);
         if (present_result <= 0) return present_result;
         PublishProfilerFrame(
             *host, profilerFrameBegin,
-            editor_profiler::ElapsedMilliseconds(submitBegin));
+            editor_profiler::ElapsedMilliseconds(submitBegin),
+            nativeRenderActiveMs);
         CommitEditorFrameDelta(*host, safe_dt);
         return editor_frame::ToAbi(editor_frame::EResult::Presented);
     }
@@ -10730,13 +11163,17 @@ static int RenderEditorFrame(
         if (cl != nullptr) cl->EndGpuTimingFrame();
         const editor_profiler::FTimePoint submitBegin =
             editor_profiler::FClock::now();
+        const f32 nativeRenderActiveMs =
+            editor_profiler::ElapsedMilliseconds(
+                nativeRenderActiveBegin);
         const int present_result =
             SubmitAndPresentEditorFrame(*host, avoid_gpu_wait);
         if (!editor_frame::ShouldPublishProfiler(present_result))
             return present_result;
         PublishProfilerFrame(
             *host, profilerFrameBegin,
-            editor_profiler::ElapsedMilliseconds(submitBegin));
+            editor_profiler::ElapsedMilliseconds(submitBegin),
+            nativeRenderActiveMs);
         return editor_frame::ToAbi(editor_frame::EResult::Presented);
     }
 
@@ -10814,13 +11251,17 @@ static int RenderEditorFrame(
     }
     const editor_profiler::FTimePoint submitBegin =
         editor_profiler::FClock::now();
+    const f32 nativeRenderActiveMs =
+        editor_profiler::ElapsedMilliseconds(
+            nativeRenderActiveBegin);
     const int present_result =
         SubmitAndPresentEditorFrame(*host, avoid_gpu_wait);
     if (!editor_frame::ShouldPublishProfiler(present_result))
         return present_result;
     PublishProfilerFrame(
         *host, profilerFrameBegin,
-        editor_profiler::ElapsedMilliseconds(submitBegin));
+        editor_profiler::ElapsedMilliseconds(submitBegin),
+        nativeRenderActiveMs);
     return editor_frame::ToAbi(editor_frame::EResult::Presented);
 }
 
@@ -10843,12 +11284,39 @@ ACS_EDITOR_API int acs_editor_profiler_get(
     uint32_t outSize) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || outSnapshot == nullptr ||
-        outSize < editor_profiler::kSnapshotSize ||
-        outSnapshot->version != editor_profiler::kSnapshotVersion ||
-        outSnapshot->struct_size < editor_profiler::kSnapshotSize) {
+        outSize < sizeof(u32) * 2u) {
         return 0;
     }
 
+    u32 requestedHeader[2]{};
+    std::memcpy(
+        requestedHeader,
+        outSnapshot,
+        sizeof(requestedHeader));
+    const u32 requestedVersion = requestedHeader[0];
+    const u32 requestedSize = requestedHeader[1];
+    if (requestedVersion ==
+            editor_profiler::kLegacySnapshotVersion) {
+        if (outSize < editor_profiler::kLegacySnapshotSize ||
+            requestedSize <
+                editor_profiler::kLegacySnapshotSize) {
+            return 0;
+        }
+        std::memcpy(
+            outSnapshot,
+            &host->profiler_snapshot,
+            editor_profiler::kLegacySnapshotSize);
+        outSnapshot->version =
+            editor_profiler::kLegacySnapshotVersion;
+        outSnapshot->struct_size =
+            editor_profiler::kLegacySnapshotSize;
+        return 1;
+    }
+    if (requestedVersion != editor_profiler::kSnapshotVersion ||
+        outSize < editor_profiler::kSnapshotSize ||
+        requestedSize < editor_profiler::kSnapshotSize) {
+        return 0;
+    }
     std::memcpy(
         outSnapshot,
         &host->profiler_snapshot,
@@ -10890,12 +11358,44 @@ ACS_EDITOR_API int acs_editor_cloud_workload_get(
 ACS_EDITOR_API void acs_editor_profiler_reset_peaks(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
+    const u64 lastGpuFrameIndex =
+        host->profiler_snapshot.gpu_frame_index;
     host->profiler_cpu_peak.Reset();
     host->profiler_gpu_peak.Reset();
+    host->profiler_active_cpu_peak.Reset();
+    host->profiler_present_cpu_peak.Reset();
     host->profiler_gpu_queries.Reset(
-        host->profiler_snapshot.gpu_frame_index);
+        lastGpuFrameIndex);
     host->profiler_last_gpu_peak_frame =
-        host->profiler_snapshot.gpu_frame_index;
+        lastGpuFrameIndex;
+    host->profiler_presented_since_reset = 0u;
+    ++host->profiler_reset_serial;
+    host->profiler_work = {};
+    host->profiler_smoothed_fps = 0.0f;
+    host->profiler_last_frame_begin = {};
+    host->profiler_has_previous_frame = false;
+    host->cloud_workload_snapshot = {};
+    host->cloud_workload_available = false;
+    host->profiler_snapshot.timing_source = static_cast<u32>(
+        editor_profiler::ETimingSource::CpuRecordSubmit);
+    host->profiler_snapshot.flags &=
+        ~static_cast<u32>(editor_profiler::GpuTimingsValid);
+    host->profiler_snapshot.fps = 0.0f;
+    host->profiler_snapshot.cpu_frame_ms = 0.0f;
+    host->profiler_snapshot.cpu_submit_ms = 0.0f;
+    host->profiler_snapshot.gpu_frame_ms = -1.0f;
+    host->profiler_snapshot.opaque_cpu_ms = 0.0f;
+    host->profiler_snapshot.atmosphere_cpu_ms = 0.0f;
+    host->profiler_snapshot.cloud_cpu_ms = 0.0f;
+    host->profiler_snapshot.fog_cpu_ms = 0.0f;
+    host->profiler_snapshot.post_cpu_ms = 0.0f;
+    host->profiler_snapshot.opaque_gpu_ms = -1.0f;
+    host->profiler_snapshot.atmosphere_gpu_ms = -1.0f;
+    host->profiler_snapshot.cloud_gpu_ms = -1.0f;
+    host->profiler_snapshot.fog_gpu_ms = -1.0f;
+    host->profiler_snapshot.post_gpu_ms = -1.0f;
+    host->profiler_snapshot.gpu_frame_index = 0u;
+    host->profiler_snapshot.gpu_latency_frames = 0u;
     host->profiler_snapshot.cpu_frame_peak_ms = 0.0f;
     host->profiler_snapshot.gpu_frame_peak_ms = -1.0f;
     host->profiler_snapshot.gpu_query_window_count = 0u;
@@ -10912,6 +11412,13 @@ ACS_EDITOR_API void acs_editor_profiler_reset_peaks(void* handle) {
     host->profiler_snapshot.cloud_gpu_window_peak_ms = -1.0f;
     host->profiler_snapshot.fog_gpu_window_peak_ms = -1.0f;
     host->profiler_snapshot.post_gpu_window_peak_ms = -1.0f;
+    host->profiler_snapshot.native_render_active_cpu_ms = 0.0f;
+    host->profiler_snapshot.native_present_cpu_ms = 0.0f;
+    host->profiler_snapshot.native_render_active_cpu_peak_ms = 0.0f;
+    host->profiler_snapshot.native_present_cpu_peak_ms = 0.0f;
+    host->profiler_snapshot.presented_frame_count_since_reset = 0u;
+    host->profiler_snapshot.profiler_reset_serial =
+        host->profiler_reset_serial;
 }
 
 ACS_EDITOR_API int acs_editor_resize(void* handle, uint32_t width, uint32_t height) {
@@ -11116,7 +11623,10 @@ ACS_EDITOR_API void acs_editor_sky_colors(void* handle, float* out9) {
 }
 
 static void ApplySettings(FEditorHost& h) noexcept {
+    const bool taa_was_requested = h.q_taa_on;
+    const bool ssr_was_requested = h.q_ssr_on;
     const bool ssgi_was_requested = h.q_ssgi_on;
+    const bool auto_exposure_was_requested = h.q_auto_exposure;
     ApplyQualityPreset(h, h.settings.GetString("Rendering", "QualityLevel", "High"));   // 先に品質プリセットを展開
     // 個別キーはプリセットより «優先» (上書き)。露出はプリセット非依存なので常に設定値、
     // bloom/影バイアスは -1 でプリセット追従・>=0 で上書き (ProjectSettings の設計コメント通り)。
@@ -11197,6 +11707,15 @@ static void ApplySettings(FEditorHost& h) noexcept {
     h.snap_move    = h.settings.GetFloat("Editor", "SnapMove", 10.0f);
     h.snap_rotate  = h.settings.GetFloat("Editor", "SnapRotateDeg", 15.0f) * 3.1415926535f / 180.0f;
     h.snap_scale   = h.settings.GetFloat("Editor", "SnapScale", 0.25f);
+    if (taa_was_requested != h.q_taa_on ||
+        ssr_was_requested != h.q_ssr_on ||
+        ssgi_was_requested != h.q_ssgi_on ||
+        auto_exposure_was_requested != h.q_auto_exposure) {
+        // Settings may be toggled off and back on between presented frames.
+        // Reset at mutation time so no skipped draw is required to make the
+        // next enabled frame cold.
+        InvalidateTemporalRenderHistories(h);
+    }
     if (!ssgi_was_requested && h.q_ssgi_on && !h.ssgi_ready &&
         h.startup_worker_kind != 2u) {
         h.ssgi_init_tried = false;
@@ -13541,7 +14060,7 @@ static void RestorePlayEditorCamera(FEditorHost& h) noexcept {
     h.cam3d_dist = h.play_cam3d_dist;
     h.cam3d_target = h.play_cam3d_target;
     h.play_camera_snapshot_valid = false;
-    h.mv_computed = false;
+    InvalidateTemporalRenderHistories(h);
 }
 
 /** 再生を開始する (現在状態をスナップショットし、物理ワールドを構築)。成功 1 / 既に再生中 0。 */
@@ -14246,7 +14765,10 @@ ACS_EDITOR_API void acs_editor_set_game_view(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     const bool gameView = on != 0;
-    if (host->game_view != gameView) ResetLogicInput(*host);
+    if (host->game_view != gameView) {
+        ResetLogicInput(*host);
+        InvalidateTemporalRenderHistories(*host);
+    }
     host->game_view = gameView;
 }
 
@@ -14531,6 +15053,7 @@ ACS_EDITOR_API void acs_editor_camera_reset(void* handle) {
         host->cam3d_pitch = host->ortho3d ? 0.0f : 0.55f;
         host->cam3d_dist  = 14.0f;
         host->cam3d_target = FVec3{ 0.0f, 1.0f, 0.0f };
+        InvalidateTemporalRenderHistories(*host);
         return;
     }
     host->cam_pan_x = 0.0f; host->cam_pan_y = 0.0f; host->cam_zoom = 1.0f;
@@ -14585,6 +15108,7 @@ ACS_EDITOR_API int acs_editor_camera3d_set(
     host->cam3d_pitch = pitch;
     host->cam3d_dist = distance;
     host->cam3d_target = FVec3{ target_x, target_y, target_z };
+    InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
@@ -14655,7 +15179,160 @@ ACS_EDITOR_API int acs_editor_game_camera3d_get(
 }
 
 /**
- * Set a non-persistent Camera View preview override.
+ * Create one bounded logical Camera View request.
+ *
+ * The request owns camera identity, requested extent and temporal/target
+ * generations, but no second swapchain. CameraViewRequestsV1 exposes this
+ * distinction so managed code never infers a dedicated live renderer from a
+ * successfully allocated request.
+ */
+ACS_EDITOR_API int acs_editor_camera_view_request_create(
+        void* handle, int node_id, const char* stable_camera_id,
+        std::uint32_t width, std::uint32_t height,
+        std::uint64_t* out_request_id) {
+    if (out_request_id != nullptr) *out_request_id = 0u;
+    char stable_id_copy[
+        game::kScene3DSerializeMaxCameraIdBytes + 1u]{};
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* node =
+        host != nullptr ? FindNode3DNode(*host, node_id) : nullptr;
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (host == nullptr || out_request_id == nullptr ||
+        node == nullptr || record == nullptr ||
+        !record->has_scene_camera ||
+        !IsEditorCameraNodeEffectivelyEnabled(*node) ||
+        !CopyCanonicalSceneCameraId(
+            stable_camera_id,
+            stable_id_copy,
+            sizeof(stable_id_copy)) ||
+        std::strcmp(
+            record->scene_camera_id,
+            stable_id_copy) != 0) {
+        return 0;
+    }
+    return host->camera_view_requests.Create(
+               node_id, stable_id_copy, width, height,
+               *out_request_id)
+        ? 1 : 0;
+}
+
+/** Update camera identity/extent without changing authored camera state. */
+ACS_EDITOR_API int acs_editor_camera_view_request_update(
+        void* handle, std::uint64_t request_id,
+        int node_id, const char* stable_camera_id,
+        std::uint32_t width, std::uint32_t height) {
+    char stable_id_copy[
+        game::kScene3DSerializeMaxCameraIdBytes + 1u]{};
+    auto* host = static_cast<FEditorHost*>(handle);
+    game::ANode* node =
+        host != nullptr ? FindNode3DNode(*host, node_id) : nullptr;
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (host == nullptr || node == nullptr || record == nullptr ||
+        !record->has_scene_camera ||
+        !IsEditorCameraNodeEffectivelyEnabled(*node) ||
+        !CopyCanonicalSceneCameraId(
+            stable_camera_id,
+            stable_id_copy,
+            sizeof(stable_id_copy)) ||
+        std::strcmp(
+            record->scene_camera_id,
+            stable_id_copy) != 0) {
+        return 0;
+    }
+    return host->camera_view_requests.Update(
+               request_id, node_id, stable_id_copy, width, height)
+        ? 1 : 0;
+}
+
+/**
+ * Bind the one physical presenter.
+ *
+ * This fails when a different request is already bound. Callers must first
+ * complete HWND return and explicitly unbind the previous request.
+ */
+ACS_EDITOR_API int acs_editor_camera_view_request_bind_presenter(
+        void* handle, std::uint64_t request_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (host == nullptr) return 0;
+    int node_id = -1;
+    const char* stable_camera_id = nullptr;
+    if (!host->camera_view_requests.RequestIdentity(
+            request_id, node_id, stable_camera_id)) {
+        return 0;
+    }
+    game::ANode* node = FindNode3DNode(*host, node_id);
+    AEditor3DRecordComponent* record = Rec3D(node);
+    if (node == nullptr || record == nullptr ||
+        !record->has_scene_camera ||
+        !IsEditorCameraNodeEffectivelyEnabled(*node) ||
+        stable_camera_id == nullptr ||
+        std::strcmp(
+            record->scene_camera_id,
+            stable_camera_id) != 0) {
+        host->camera_view_requests.MarkCameraStale(request_id);
+        return 0;
+    }
+    return host->camera_view_requests.BindPresenter(request_id)
+        ? 1 : 0;
+}
+
+ACS_EDITOR_API int acs_editor_camera_view_request_unbind_presenter(
+        void* handle, std::uint64_t request_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    return host != nullptr &&
+           host->camera_view_requests.UnbindPresenter(request_id)
+        ? 1 : 0;
+}
+
+ACS_EDITOR_API int acs_editor_camera_view_request_destroy(
+        void* handle, std::uint64_t request_id) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    return host != nullptr &&
+           host->camera_view_requests.Destroy(request_id)
+        ? 1 : 0;
+}
+
+/**
+ * Read latest request metadata. Deleted/disabled/replaced cameras are marked
+ * stale and unbound before the snapshot is returned.
+ */
+ACS_EDITOR_API int acs_editor_camera_view_request_get(
+        void* handle, std::uint64_t request_id,
+        editor_camera_view::FSnapshot* out_snapshot,
+        std::uint32_t snapshot_size) {
+    auto* host = static_cast<FEditorHost*>(handle);
+    if (out_snapshot != nullptr &&
+        snapshot_size >= sizeof(editor_camera_view::FSnapshot)) {
+        *out_snapshot = editor_camera_view::FSnapshot{};
+    }
+    if (host == nullptr || out_snapshot == nullptr ||
+        snapshot_size < sizeof(editor_camera_view::FSnapshot)) {
+        return 0;
+    }
+
+    int node_id = -1;
+    const char* stable_camera_id = nullptr;
+    if (host->camera_view_requests.RequestIdentity(
+            request_id, node_id, stable_camera_id)) {
+        game::ANode* node = FindNode3DNode(*host, node_id);
+        AEditor3DRecordComponent* record = Rec3D(node);
+        if (node == nullptr || record == nullptr ||
+            !record->has_scene_camera ||
+            !IsEditorCameraNodeEffectivelyEnabled(*node) ||
+            stable_camera_id == nullptr ||
+            std::strcmp(
+                record->scene_camera_id,
+                stable_camera_id) != 0) {
+            host->camera_view_requests.MarkCameraStale(request_id);
+        }
+    }
+    return host->camera_view_requests.Snapshot(
+               request_id, *out_snapshot)
+        ? 1 : 0;
+}
+
+/**
+ * Set a legacy non-persistent Camera View preview override.
  *
  * This never changes the authored active flag, scene dirty state, or undo
  * history. Inactive camera components may be previewed; disabled/hidden nodes
@@ -14670,7 +15347,8 @@ ACS_EDITOR_API int acs_editor_game_camera_preview_set(
     AEditor3DRecordComponent* record = Rec3D(node);
     if (host == nullptr || node == nullptr ||
         record == nullptr || !record->has_scene_camera ||
-        !IsEditorCameraNodeEffectivelyEnabled(*node)) {
+        !IsEditorCameraNodeEffectivelyEnabled(*node) ||
+        host->camera_view_requests.PresenterRequestId() != 0u) {
         return 0;
     }
     host->game_camera_preview_node_id = node_id;
@@ -14765,7 +15443,8 @@ ACS_EDITOR_API void acs_editor_set_view3d(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     const bool view3d = on != 0;
-    if (host->view3d != view3d) host->mv_computed = false;
+    if (host->view3d != view3d)
+        InvalidateTemporalRenderHistories(*host);
     host->view3d = view3d;
     if (host->view3d) Seed3DScene(*host);
 }
@@ -14796,7 +15475,8 @@ ACS_EDITOR_API void acs_editor_set_ortho3d(void* handle, int on) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr) return;
     const bool ortho3d = on != 0;
-    if (host->ortho3d != ortho3d) host->mv_computed = false;
+    if (host->ortho3d != ortho3d)
+        InvalidateTemporalRenderHistories(*host);
     host->ortho3d = ortho3d;
     if (host->ortho3d) {                                 // 正射 = 2D 前面ビュー: XY 平面を正面から直視
         host->cam3d_yaw = 0.0f; host->cam3d_pitch = 0.0f;
@@ -14816,6 +15496,7 @@ ACS_EDITOR_API void acs_editor_cam3d_reset(void* handle) {
     if (host == nullptr) return;
     host->cam3d_yaw = 0.78f; host->cam3d_pitch = 0.55f; host->cam3d_dist = 14.0f;
     host->cam3d_target = FVec3{ 0, 1.0f, 0 };
+    InvalidateTemporalRenderHistories(*host);
 }
 
 /** 3D ノードを追加する (prim: 0=Cube 1=Sphere 2=Plane)。新ノード id を返す (失敗 -1)。 */
@@ -14955,6 +15636,8 @@ ACS_EDITOR_API int acs_editor_node3d_camera_set(
         if (camera_count >= game::kScene3DSerializeMaxCameraCount) return 0;
     }
 
+    const bool was_temporal_owner =
+        IsCurrentTemporalRenderCamera3D(*host, node);
     PushUndo(*host);
     if (active != 0) {
         TArray<game::ANode*> nodes;
@@ -14976,20 +15659,29 @@ ACS_EDITOR_API int acs_editor_node3d_camera_set(
     record->scene_camera_ortho_height = ortho_height;
     record->scene_camera_near = near_plane;
     record->scene_camera_far = far_plane;
+    const bool is_temporal_owner =
+        IsCurrentTemporalRenderCamera3D(*host, node);
+    if (was_temporal_owner || is_temporal_owner)
+        InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
 ACS_EDITOR_API int acs_editor_node3d_camera_clear(
     void* handle, int node_id) {
     auto* host = static_cast<FEditorHost*>(handle);
-    AEditor3DRecordComponent* record =
-        host != nullptr ? Rec3D(FindNode3DNode(*host, node_id)) : nullptr;
+    game::ANode* node =
+        host != nullptr ? FindNode3DNode(*host, node_id) : nullptr;
+    AEditor3DRecordComponent* record = Rec3D(node);
     if (host == nullptr || record == nullptr || !record->has_scene_camera)
         return 0;
+    const bool was_temporal_owner =
+        IsCurrentTemporalRenderCamera3D(*host, node);
     PushUndo(*host);
     record->has_scene_camera = false;
     record->scene_camera_id[0] = '\0';
     record->scene_camera_active = false;
+    if (was_temporal_owner)
+        InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
@@ -15376,8 +16068,13 @@ ACS_EDITOR_API int acs_editor_reparent3d(void* handle, int child_id, int parent_
     if (child == nullptr) return 0;
     game::ANode* parent = (parent_id < 0) ? &host->scene3d.Root() : FindNode3DNode(*host, parent_id);
     if (parent == nullptr) return 0;
+    const bool resets_temporal_history =
+        TransformAffectsCurrentTemporalRenderCamera3D(
+            *host, child);
     child->Reparent(*parent);                 // cycle/自己は engine 側で弾く
     host->scene3d.Update(0.0f);               // 構造変更を即時解決
+    if (resets_temporal_history)
+        InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
@@ -15539,11 +16236,16 @@ ACS_EDITOR_API int acs_editor_node3d_set_transform(void* handle, int id,
     sx = invertibleScale(sx);
     sy = invertibleScale(sy);
     sz = invertibleScale(sz);
+    const bool resets_temporal_history =
+        TransformAffectsCurrentTemporalRenderCamera3D(
+            *host, n);
     n->Local().position = FVec3{ px, py, pz };
     n->Local().scale    = FVec3{ sx, sy, sz };
     const FVec3 e{ rx, ry, rz };
     n->Local().SetEulerDeg(e);                       // quat に焼く (描画/合成用)
     AEditor3DRecordComponent* r = Rec3D(n); if (r != nullptr) r->euler = e;   // authored 値も保持
+    if (resets_temporal_history)
+        InvalidateTemporalRenderHistories(*host);
     return 1;
 }
 
@@ -15654,9 +16356,14 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
     PushUndo(*host);
     const f32 cx = (minx + maxx) * 0.5f, cy = (miny + maxy) * 0.5f;
     int applied = 0;
+    bool resets_temporal_history = false;
     for (u32 i = 0; i < host->sel3d_multi.Size(); ++i) {
         game::ANode* n = FindNode3DNode(*host, host->sel3d_multi[i]);
         if (n == nullptr) continue;
+        resets_temporal_history =
+            resets_temporal_history ||
+            TransformAffectsCurrentTemporalRenderCamera3D(
+                *host, n);
         FVec3 p = n->Local().position;
         switch (mode) {
             case 0: p.x = minx; break; case 1: p.x = maxx; break;     // left / right
@@ -15666,6 +16373,8 @@ ACS_EDITOR_API int acs_editor_align3d_selection(void* handle, int mode) {
         }
         n->Local().position = p; ++applied;
     }
+    if (resets_temporal_history)
+        InvalidateTemporalRenderHistories(*host);
     return applied;
 }
 
@@ -15692,13 +16401,20 @@ ACS_EDITOR_API int acs_editor_distribute3d_selection(void* handle, int axis) {
     }
     PushUndo(*host);
     const f32 step = (pos[n - 1] - pos[0]) / static_cast<f32>(n - 1);
+    bool resets_temporal_history = false;
     for (u32 i = 1; i + 1 < n; ++i) {                          // 両端固定・中間を均等配置
         game::ANode* node = FindNode3DNode(*host, ids[i]);
         if (node == nullptr) continue;
+        resets_temporal_history =
+            resets_temporal_history ||
+            TransformAffectsCurrentTemporalRenderCamera3D(
+                *host, node);
         const f32 target = pos[0] + step * static_cast<f32>(i);
         if (axis == 0) node->Local().position.x = target;
         else           node->Local().position.y = target;
     }
+    if (resets_temporal_history)
+        InvalidateTemporalRenderHistories(*host);
     return static_cast<int>(n);
 }
 
@@ -16874,6 +17590,9 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
     game::ANode* n = FindNode3DNode(*host, host->sel3d);
     IRhiSwapchain* sc = host->renderer.Swapchain();
     if (n == nullptr || sc == nullptr) return;
+    const bool resets_temporal_history =
+        TransformAffectsCurrentTemporalRenderCamera3D(
+            *host, n);
     const f32 W = static_cast<f32>(sc->Width()), H = static_cast<f32>(sc->Height());
     const int hnd = host->giz3d_handle;
 
@@ -16892,6 +17611,8 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
         if (host->snap_enabled) { auto& p = n->Local().position;             // グリッドスナップ
             p.x = SnapTo(p.x, host->snap_move); p.y = SnapTo(p.y, host->snap_move); p.z = SnapTo(p.z, host->snap_move); }
         if (host->ortho3d) n->Local().position.z = host->giz3d_start_pos.z;   // 2D (正射): z を固定し XY 平面で編集
+        if (resets_temporal_history)
+            InvalidateTemporalRenderHistories(*host);
         return;
     }
 
@@ -16927,6 +17648,8 @@ ACS_EDITOR_API void acs_editor_gizmo3d_drag(void* handle, float sx, float sy) {
             p.x = SnapTo(p.x, host->snap_move); p.y = SnapTo(p.y, host->snap_move); p.z = SnapTo(p.z, host->snap_move); }
         if (host->ortho3d) n->Local().position.z = host->giz3d_start_pos.z;   // 2D (正射): z を固定
     }
+    if (resets_temporal_history)
+        InvalidateTemporalRenderHistories(*host);
 }
 
 /** 3D ギズモのドラッグ終了。 */
@@ -17092,7 +17815,10 @@ ACS_EDITOR_API void acs_editor_camera_focus(void* handle) {
     if (host == nullptr) return;
     if (host->view3d) {                                  // 3D: 選択ノードへ注視点を寄せる (ギズモと同じ Local 位置基準)
         game::ANode* n = FindNode3DNode(*host, host->sel3d);
-        if (n != nullptr) host->cam3d_target = n->Local().position;
+        if (n != nullptr) {
+            host->cam3d_target = n->Local().position;
+            InvalidateTemporalRenderHistories(*host);
+        }
         return;
     }
     if (host->selected < 0) return;
@@ -17205,6 +17931,7 @@ ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
         }
         if (distance > kCamera3DMaxDistance) distance = kCamera3DMaxDistance;
         host->cam3d_dist = distance;
+        InvalidateTemporalRenderHistories(*host);
         return;
     }
     if (host->nodes.Size() == 0) return;

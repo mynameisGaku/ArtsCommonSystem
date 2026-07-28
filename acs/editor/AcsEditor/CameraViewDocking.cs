@@ -1,12 +1,283 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
 
 namespace AcsEditor;
+
+internal readonly record struct CameraViewBackendPlan(
+    bool CanOpen,
+    bool UsesRequestContract,
+    bool UsesLegacyGlobalOverride,
+    int MaximumLivePresenters,
+    bool HasDedicatedOffscreenTargets);
+
+/// <summary>
+/// Negotiates the staged Camera View backend without inferring render surfaces
+/// from request allocation. CameraViewRequestsV1 isolates logical identity,
+/// extent and generations; this version still exposes exactly one physical
+/// shared-swapchain presenter and no synchronous-readback fallback.
+/// </summary>
+internal static class CameraViewBackendPolicy
+{
+    internal static CameraViewBackendPlan Resolve(
+        bool cameraAuthoringCapability,
+        bool cameraViewRequestsCapability) =>
+        !cameraAuthoringCapability
+            ? default
+            : cameraViewRequestsCapability
+                ? new CameraViewBackendPlan(
+                    CanOpen: true,
+                    UsesRequestContract: true,
+                    UsesLegacyGlobalOverride: false,
+                    MaximumLivePresenters: 1,
+                    HasDedicatedOffscreenTargets: false)
+                : new CameraViewBackendPlan(
+                    CanOpen: true,
+                    UsesRequestContract: false,
+                    UsesLegacyGlobalOverride: true,
+                    MaximumLivePresenters: 1,
+                    HasDedicatedOffscreenTargets: false);
+}
+
+/// <summary>
+/// A Camera View may choose a preview camera only after its window owns the
+/// one physical render surface. Binding earlier would temporarily redirect
+/// the main Game View, including while Play is running.
+/// </summary>
+internal static class CameraViewPresenterPublicationPolicy
+{
+    internal static bool CanBindPresenter(bool liveSurfaceAttached) =>
+        liveSurfaceAttached;
+}
+
+internal readonly record struct CameraViewSlotIdentity(
+    ulong SlotId,
+    string StableCameraId,
+    bool IsCameraAvailable);
+
+internal enum CameraViewSlotAddAction
+{
+    Reject,
+    Add,
+    SelectExisting,
+}
+
+internal readonly record struct CameraViewSlotAddPlan(
+    CameraViewSlotAddAction Action,
+    ulong ExistingSlotId,
+    int Capacity);
+
+internal readonly record struct CameraViewSlotClosePlan(
+    bool CanClose,
+    bool ClosesSelectedSlot,
+    ulong NextSelectedSlotId,
+    bool CloseWindow);
+
+internal readonly record struct CameraViewPresenterTransferPlan(
+    bool CanApply,
+    bool UnbindCurrentPresenter,
+    bool BindTargetPresenter,
+    bool MutatesAuthoredCamera,
+    bool RecordsSceneHistory);
+
+internal readonly record struct CameraViewExtentUpdatePlan(
+    bool CanApply,
+    ulong TargetSlotId,
+    bool MutatesOnlyTargetRequest,
+    bool ResetsOnlyTargetHistory);
+
+/// <summary>
+/// Pure bounded lifecycle policy for the tabs hosted by the one physical
+/// Camera View window. CameraViewRequestsV1 contributes up to eight logical
+/// leases, but never more than one presenter. The legacy override remains a
+/// truthful single-slot fallback.
+/// </summary>
+internal static class CameraViewSlotPolicy
+{
+    internal const int MaximumLogicalSlots = 8;
+    internal const int MaximumLivePresenters = 1;
+
+    internal static int Capacity(bool usesRequestContract) =>
+        usesRequestContract ? MaximumLogicalSlots : 1;
+
+    internal static CameraViewSlotAddPlan PlanAdd(
+        IReadOnlyList<CameraViewSlotIdentity> slots,
+        int cameraNodeId,
+        string stableCameraId,
+        bool usesRequestContract)
+    {
+        ArgumentNullException.ThrowIfNull(slots);
+        int capacity = Capacity(usesRequestContract);
+        if (cameraNodeId < 0 ||
+            !CameraAuthoringContract.IsValidStableCameraId(stableCameraId))
+        {
+            return new CameraViewSlotAddPlan(
+                CameraViewSlotAddAction.Reject,
+                ExistingSlotId: 0,
+                capacity);
+        }
+
+        for (int index = 0; index < slots.Count; ++index)
+        {
+            CameraViewSlotIdentity slot = slots[index];
+            if (string.Equals(
+                    slot.StableCameraId,
+                    stableCameraId,
+                    StringComparison.Ordinal))
+            {
+                return new CameraViewSlotAddPlan(
+                    CameraViewSlotAddAction.SelectExisting,
+                    slot.SlotId,
+                    capacity);
+            }
+        }
+        return slots.Count < capacity
+            ? new CameraViewSlotAddPlan(
+                CameraViewSlotAddAction.Add,
+                ExistingSlotId: 0,
+                capacity)
+            : new CameraViewSlotAddPlan(
+                CameraViewSlotAddAction.Reject,
+                ExistingSlotId: 0,
+                capacity);
+    }
+
+    internal static CameraViewSlotClosePlan PlanClose(
+        IReadOnlyList<ulong> orderedSlotIds,
+        ulong selectedSlotId,
+        ulong closingSlotId)
+    {
+        ArgumentNullException.ThrowIfNull(orderedSlotIds);
+        int closingIndex = -1;
+        for (int index = 0; index < orderedSlotIds.Count; ++index)
+        {
+            if (orderedSlotIds[index] == closingSlotId)
+            {
+                closingIndex = index;
+                break;
+            }
+        }
+        if (closingIndex < 0 || closingSlotId == 0)
+            return default;
+
+        bool closesSelected = selectedSlotId == closingSlotId;
+        if (orderedSlotIds.Count == 1)
+        {
+            return new CameraViewSlotClosePlan(
+                CanClose: true,
+                ClosesSelectedSlot: closesSelected,
+                NextSelectedSlotId: 0,
+                CloseWindow: true);
+        }
+        if (!closesSelected)
+        {
+            return new CameraViewSlotClosePlan(
+                CanClose: true,
+                ClosesSelectedSlot: false,
+                NextSelectedSlotId: selectedSlotId,
+                CloseWindow: false);
+        }
+
+        int nextIndex =
+            closingIndex + 1 < orderedSlotIds.Count
+                ? closingIndex + 1
+                : closingIndex - 1;
+        return new CameraViewSlotClosePlan(
+            CanClose: true,
+            ClosesSelectedSlot: true,
+            NextSelectedSlotId: orderedSlotIds[nextIndex],
+            CloseWindow: false);
+    }
+
+    internal static CameraViewPresenterTransferPlan PlanTransfer(
+        ulong currentPresenterSlotId,
+        ulong targetSlotId)
+    {
+        if (targetSlotId == 0)
+            return default;
+        bool alreadyPresented =
+            currentPresenterSlotId == targetSlotId;
+        return new CameraViewPresenterTransferPlan(
+            CanApply: true,
+            UnbindCurrentPresenter:
+                currentPresenterSlotId != 0 && !alreadyPresented,
+            BindTargetPresenter: !alreadyPresented,
+            MutatesAuthoredCamera: false,
+            RecordsSceneHistory: false);
+    }
+
+    internal static ulong SelectAfterSceneRefresh(
+        IReadOnlyList<CameraViewSlotIdentity> orderedSlots,
+        ulong selectedSlotId)
+    {
+        ArgumentNullException.ThrowIfNull(orderedSlots);
+        ulong firstAvailable = 0;
+        for (int index = 0; index < orderedSlots.Count; ++index)
+        {
+            CameraViewSlotIdentity slot = orderedSlots[index];
+            if (!slot.IsCameraAvailable)
+                continue;
+            firstAvailable = firstAvailable == 0
+                ? slot.SlotId
+                : firstAvailable;
+            if (slot.SlotId == selectedSlotId)
+                return selectedSlotId;
+        }
+        return firstAvailable;
+    }
+
+    internal static CameraViewChoice? ResolveStableCamera(
+        IReadOnlyList<CameraViewChoice> cameras,
+        string stableCameraId,
+        int previousNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(cameras);
+        if (!CameraAuthoringContract.IsValidStableCameraId(
+                stableCameraId))
+        {
+            return null;
+        }
+
+        CameraViewChoice? stableMatch = null;
+        int stableMatchCount = 0;
+        for (int index = 0; index < cameras.Count; ++index)
+        {
+            CameraViewChoice camera = cameras[index];
+            if (!string.Equals(
+                    camera.StableCameraId,
+                    stableCameraId,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (camera.NodeId == previousNodeId)
+                return camera;
+            stableMatch = camera;
+            stableMatchCount++;
+        }
+        // A published scene replacement may assign a new transient node ID.
+        // Stable identity is authoritative only when it resolves uniquely.
+        return stableMatchCount == 1 ? stableMatch : null;
+    }
+
+    internal static CameraViewExtentUpdatePlan PlanExtentUpdate(
+        ulong selectedSlotId,
+        uint width,
+        uint height) =>
+        selectedSlotId != 0 &&
+        CameraViewRequestContract.IsValidExtent(width, height)
+            ? new CameraViewExtentUpdatePlan(
+                CanApply: true,
+                TargetSlotId: selectedSlotId,
+                MutatesOnlyTargetRequest: true,
+                ResetsOnlyTargetHistory: true)
+            : default;
+}
 
 internal readonly record struct CameraViewPreviewPlan(
     bool CanApply,
@@ -95,6 +366,76 @@ internal static class CameraViewOpenRecoveryPolicy
             RestoreViewPresentation: true,
             RestoreViewportOverlay: true);
     }
+}
+
+internal enum CameraViewOpenLifecycleState
+{
+    None,
+    Pending,
+    Committed,
+    RollbackRequired,
+}
+
+internal enum CameraViewOpenLifecycleEvent
+{
+    Begin,
+    LiveSurfaceAttached,
+    OpenFailed,
+    WindowClosed,
+    RollbackCompleted,
+}
+
+/// <summary>
+/// Pure lifecycle for the asynchronous portion of Camera View open. The
+/// pre-open snapshot stays pending until the live surface actually attaches;
+/// merely returning from Window.Show is not a commit.
+/// </summary>
+internal static class CameraViewOpenLifecycle
+{
+    internal static CameraViewOpenLifecycleState Transition(
+        CameraViewOpenLifecycleState state,
+        CameraViewOpenLifecycleEvent lifecycleEvent) =>
+        (state, lifecycleEvent) switch
+        {
+            (CameraViewOpenLifecycleState.None,
+                CameraViewOpenLifecycleEvent.Begin) =>
+                CameraViewOpenLifecycleState.Pending,
+            (CameraViewOpenLifecycleState.Pending,
+                CameraViewOpenLifecycleEvent.LiveSurfaceAttached) =>
+                CameraViewOpenLifecycleState.Committed,
+            (CameraViewOpenLifecycleState.Pending,
+                CameraViewOpenLifecycleEvent.OpenFailed) =>
+                CameraViewOpenLifecycleState.RollbackRequired,
+            (CameraViewOpenLifecycleState.RollbackRequired,
+                CameraViewOpenLifecycleEvent.OpenFailed) =>
+                CameraViewOpenLifecycleState.RollbackRequired,
+            (CameraViewOpenLifecycleState.Pending,
+                CameraViewOpenLifecycleEvent.WindowClosed) =>
+                CameraViewOpenLifecycleState.RollbackRequired,
+            (CameraViewOpenLifecycleState.RollbackRequired,
+                CameraViewOpenLifecycleEvent.WindowClosed) =>
+                CameraViewOpenLifecycleState.RollbackRequired,
+            (CameraViewOpenLifecycleState.Committed,
+                CameraViewOpenLifecycleEvent.WindowClosed) =>
+                CameraViewOpenLifecycleState.None,
+            (CameraViewOpenLifecycleState.RollbackRequired,
+                CameraViewOpenLifecycleEvent.RollbackCompleted) =>
+                CameraViewOpenLifecycleState.None,
+            _ => state,
+        };
+}
+
+/// <summary>
+/// A native scene-document load invalidates every Camera View identity. Refresh
+/// only after that replacement (or its successful canonical rollback) is the
+/// scene generation actually published by the asynchronous load gate.
+/// </summary>
+internal static class CameraViewScenePublicationPolicy
+{
+    internal static bool ShouldRefresh(
+        bool publishedCurrentScene,
+        bool nativeReplacementAttempted) =>
+        publishedCurrentScene && nativeReplacementAttempted;
 }
 
 internal readonly record struct CameraViewPixelBounds(

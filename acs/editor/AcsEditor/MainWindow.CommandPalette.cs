@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 
@@ -169,7 +170,7 @@ public partial class MainWindow
             () => OnPackageProject(this, new RoutedEventArgs()), SceneProjectReady,
             "shipping zip distribute");
         Add("build.results", "Show Build Results", "Build",
-            "Open the bottom dock on the Build tab.", "",
+            "Show Build Results in its current dock or floating window.", "",
             () => ShowBottomTab("build"), EngineReady, "errors diagnostics output");
 
         Add("tools.blueprints", "Open Blueprint Editor", "Tools",
@@ -180,20 +181,61 @@ public partial class MainWindow
             () => OnProjectSettings(this, new RoutedEventArgs()), EngineReady, "preferences config");
 
         Add("view.assets", "Show Asset Browser", "View",
-            "Open the bottom dock on the Assets tab.", "",
+            "Show Assets in its current dock or floating window.", "",
             () => ShowBottomTab("assets"), EngineReady, "content browser files");
         Add("view.console", "Show Output Log", "View",
-            "Open the bottom dock on the Console tab.", "Ctrl+J",
+            "Show Console in its current dock or floating window.", "",
             () => ShowBottomTab("console"), EngineReady, "log output");
+        Add("view.profiler", "Show Profiler", "View",
+            "Show Profiler in its current dock or floating window.", "",
+            () => ShowBottomTab("profiler"), EngineReady,
+            "performance frame gpu cpu diagnostics");
+        foreach (ToolPanelDockingDescriptor panel in
+                 ToolPanelDockingContract.RegisteredPanels)
+        {
+            foreach (ToolPanelUserActionDescriptor action in
+                     ToolPanelDockingContract.RegisteredUserActions)
+            {
+                string panelId = panel.PanelId;
+                string accessibleName = panel.AccessibleName;
+                ToolPanelUserAction requestedAction = action.Action;
+                Add(
+                    ToolPanelDockingContract.PaletteCommandId(
+                        panelId,
+                        requestedAction),
+                    $"{action.Verb} {accessibleName}",
+                    "View / Panels",
+                    $"{action.Verb} the {accessibleName} tool panel without " +
+                    "changing the scene document, selection, or undo history.",
+                    "",
+                    () => ExecuteToolPanelUserAction(
+                        panelId,
+                        requestedAction),
+                    () => EngineReady() &&
+                          CanExecuteToolPanelUserAction(
+                              panelId,
+                              requestedAction),
+                    panelId,
+                    accessibleName,
+                    action.CommandSuffix,
+                    "dock window tool panel");
+            }
+        }
         Add("view.toggle-hierarchy", "Toggle Hierarchy", "View",
             "Show or hide the scene hierarchy panel.", "",
-            () => SetHierarchyVisible(HierarchyPanel.Visibility != Visibility.Visible), EngineReady, "outliner");
+            () => SetHierarchyVisibleFromUser(
+                HierarchyPanel.Visibility != Visibility.Visible),
+            EngineReady,
+            "outliner");
         Add("view.toggle-inspector", "Toggle Inspector", "View",
             "Show or hide the details and components panel.", "",
-            () => SetInspectorVisible(InspectorPanel.Visibility != Visibility.Visible), EngineReady, "details components");
+            () => SetInspectorVisibleFromUser(
+                InspectorPanel.Visibility != Visibility.Visible),
+            EngineReady,
+            "details components");
         Add("view.toggle-bottom", "Toggle Bottom Dock", "View",
-            "Show or hide Console, Build Results and Assets.", "Ctrl+J",
-            () => SetBottomDockVisible(BottomDockPanel.Visibility != Visibility.Visible), EngineReady, "panel");
+            "Collapse or restore the bottom dock without changing individual tool states.", "Ctrl+J",
+            ToggleBottomDockPresentationFromUser, EngineReady, "panel");
         Add("view.toggle-grid", "Toggle Viewport Grid", "View",
             "Show or hide the 3D reference grid.", "",
             () =>
@@ -208,25 +250,40 @@ public partial class MainWindow
             "Capture, duplicate, rename, delete or activate named editor layouts.",
             "Ctrl+Alt+W",
             () => OnManageWorkspaces(this, new RoutedEventArgs()),
-            null,
+            () => !ShouldDeferWorkspaceInitialization(
+                _layoutRestorePending,
+                _workspaceStore != null),
             "layout profile panes");
 
-        InitializeWorkspaceProfiles();
-        int workspaceIndex = 0;
-        foreach (EditorWorkspaceProfile profile in WorkspaceStore.GetProfiles())
+        if (InitializeWorkspaceProfiles())
         {
-            string workspaceName = profile.Name;
-            Add(
-                $"view.workspace.{workspaceIndex++}",
-                $"Activate Workspace: {workspaceName}",
-                "View",
-                "Apply panel visibility and sizes without changing the scene, selection or camera.",
-                "",
-                () => ActivateWorkspaceByName(workspaceName),
-                null,
-                "layout profile panes");
+            int workspaceIndex = 0;
+            foreach (EditorWorkspaceProfile profile in
+                     WorkspaceStore.GetProfiles())
+            {
+                string workspaceName = profile.Name;
+                Add(
+                    $"view.workspace.{workspaceIndex++}",
+                    $"Activate Workspace: {workspaceName}",
+                    "View",
+                    "Apply panel visibility and sizes without changing the scene, selection or camera.",
+                    "",
+                    () => ActivateWorkspaceByName(workspaceName),
+                    null,
+                    "layout profile panes");
+            }
         }
 
+        string? duplicateCommandId = commands
+            .GroupBy(command => command.Id, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1)
+            ?.Key;
+        if (duplicateCommandId != null)
+        {
+            throw new InvalidOperationException(
+                $"Command palette ID '{duplicateCommandId}' is registered " +
+                "more than once.");
+        }
         return commands;
     }
 

@@ -48,6 +48,7 @@ struct FWaterFrameCb {
     FVec4 wave_params;
     FVec4 flow_params;
     FVec4 surface_misc;
+    FVec4 author_normal_params;
     FVec4 shadow_params;
     FVec4 environment_zenith;
     FVec4 environment_horizon;
@@ -88,6 +89,7 @@ cbuffer WaterFrame : register(b0) {
     float4 wave_params;          // x=amplitude, y=scale, z=speed, w=normal tiling
     float4 flow_params;          // xy=flow direction, z=ripple wavelength, w=ripple count
     float4 surface_misc;         // x=optical depth, y=scene color, z=depth, w=reflection
+    float4 author_normal_params; // x=enabled, y=slope strength
     float4 shadow_params;        // x=enabled, y=bias, z=texel size, w=PCF radius
     float4 environment_zenith;   // rgb=actual sky radiance toward world +Y
     float4 environment_horizon;  // rgb=actual sky radiance at the horizon
@@ -108,14 +110,16 @@ cbuffer WaterObject : register(b1) {
 
 Texture2D water_normal : register(t0);
 SamplerState water_normal_sampler : register(s0);
-Texture2D scene_color : register(t1);
-SamplerState scene_color_sampler : register(s1);
-Texture2D scene_depth : register(t2);
-SamplerState scene_depth_sampler : register(s2);
-Texture2D screen_reflection : register(t3);
-SamplerState screen_reflection_sampler : register(s3);
-Texture2D shadow_map : register(t4);
-SamplerState shadow_map_sampler : register(s4);
+Texture2D authored_normal : register(t1);
+SamplerState authored_normal_sampler : register(s1);
+Texture2D scene_color : register(t2);
+SamplerState scene_color_sampler : register(s2);
+Texture2D scene_depth : register(t3);
+SamplerState scene_depth_sampler : register(s3);
+Texture2D screen_reflection : register(t4);
+SamplerState screen_reflection_sampler : register(s4);
+Texture2D shadow_map : register(t5);
+SamplerState shadow_map_sampler : register(s5);
 
 struct VSIn {
     float3 position : POSITION;
@@ -346,6 +350,74 @@ void EvaluateNormalMap(float2 world_xz, float time,
         + (c.a - 0.5) * (0.18 * detail_c));
 }
 
+float3 EvaluateAuthoredNormal(float2 mesh_uv) {
+    float3 authored_result = float3(0.0, 0.0, 1.0);
+    if (author_normal_params.x >= 0.5) {
+        float3 sampled = authored_normal.Sample(
+            authored_normal_sampler, mesh_uv).xyz * 2.0 - 1.0;
+        float sampled_length = length(sampled);
+        if (sampled_length > 1e-5) {
+            sampled /= sampled_length;
+            // Strength scales slope, not an already normalized direction.
+            // This preserves a positive tangent-space hemisphere at high
+            // strengths.
+            float2 slope = sampled.xy / max(abs(sampled.z), 0.20);
+            slope *= max(author_normal_params.y, 0.0);
+            authored_result = normalize(float3(slope, 1.0));
+        }
+    }
+    return authored_result;
+}
+
+float3 PerturbWaterNormal(
+    float3 world_position, float3 world_normal, float2 mesh_uv,
+    float3 tangent_normal,
+    float3 fallback_tangent, float3 fallback_bitangent) {
+    // Schueler derivative TBN: authored UV rotation and scale remain correct
+    // without requiring vertex tangents in the compact water mesh layout.
+    float3 dp_dx = ddx(world_position);
+    float3 dp_dy = ddy(world_position);
+    float2 duv_dx = ddx(mesh_uv);
+    float2 duv_dy = ddy(mesh_uv);
+    float3 dp_dy_perp = cross(dp_dy, world_normal);
+    float3 dp_dx_perp = cross(world_normal, dp_dx);
+    float3 uv_tangent =
+        dp_dy_perp * duv_dx.x + dp_dx_perp * duv_dy.x;
+    float3 uv_bitangent =
+        dp_dy_perp * duv_dx.y + dp_dx_perp * duv_dy.y;
+    float frame_extent = max(
+        dot(uv_tangent, uv_tangent),
+        dot(uv_bitangent, uv_bitangent));
+    float3 perturbed_result = world_normal;
+    if (frame_extent <= 1e-10) {
+        // Degenerate/custom UVs still receive the authored normal in the
+        // validated local-XZ surface frame, never a NaN or black pixel.
+        float3 safe_tangent =
+            fallback_tangent
+            - world_normal
+              * dot(fallback_tangent, world_normal);
+        float safe_tangent_length = length(safe_tangent);
+        safe_tangent = safe_tangent_length > 1e-5
+            ? safe_tangent / safe_tangent_length
+            : normalize(cross(world_normal, fallback_bitangent));
+        float3 safe_bitangent =
+            normalize(cross(safe_tangent, world_normal));
+        if (dot(safe_bitangent, fallback_bitangent) < 0.0)
+            safe_bitangent = -safe_bitangent;
+        perturbed_result = normalize(
+            safe_tangent * tangent_normal.x
+            + safe_bitangent * tangent_normal.y
+            + world_normal * tangent_normal.z);
+    } else {
+        float inverse_extent = rsqrt(frame_extent);
+        perturbed_result = normalize(
+            uv_tangent * (tangent_normal.x * inverse_extent)
+            + uv_bitangent * (tangent_normal.y * inverse_extent)
+            + world_normal * tangent_normal.z);
+    }
+    return perturbed_result;
+}
+
 float DistributionGGX(float no_h, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;
@@ -400,26 +472,26 @@ float3 ReconstructWorldPosition(float2 uv, float depth) {
 
 float2 ProjectWorldDirectionToScreenPixels(float3 world_position,
                                            float3 world_direction) {
+    float2 projected_result = float2(0.0, 0.0);
     float direction_length = length(world_direction);
-    if (direction_length <= 1e-5) return 0.0;
-
-    float3 direction = world_direction / direction_length;
-    float4 origin_clip =
-        mul(float4(world_position, 1.0), view_projection);
-    float4 tip_clip =
-        mul(float4(world_position + direction, 1.0), view_projection);
-    if (abs(origin_clip.w) <= 1e-5 || abs(tip_clip.w) <= 1e-5)
-        return 0.0;
-
-    float2 origin_ndc = origin_clip.xy / origin_clip.w;
-    float2 tip_ndc = tip_clip.xy / tip_clip.w;
-    float2 screen_delta =
-        (tip_ndc - origin_ndc) * float2(0.5, -0.5);
-    float2 pixel_delta = screen_delta * screen_params.zw;
-    float pixel_length = length(pixel_delta);
-    return pixel_length > 1e-4
-        ? pixel_delta / pixel_length
-        : float2(0.0, 0.0);
+    if (direction_length > 1e-5) {
+        float3 direction = world_direction / direction_length;
+        float4 origin_clip =
+            mul(float4(world_position, 1.0), view_projection);
+        float4 tip_clip =
+            mul(float4(world_position + direction, 1.0), view_projection);
+        if (abs(origin_clip.w) > 1e-5 && abs(tip_clip.w) > 1e-5) {
+            float2 origin_ndc = origin_clip.xy / origin_clip.w;
+            float2 tip_ndc = tip_clip.xy / tip_clip.w;
+            float2 screen_delta =
+                (tip_ndc - origin_ndc) * float2(0.5, -0.5);
+            float2 pixel_delta = screen_delta * screen_params.zw;
+            float pixel_length = length(pixel_delta);
+            if (pixel_length > 1e-4)
+                projected_result = pixel_delta / pixel_length;
+        }
+    }
+    return projected_result;
 }
 
 float ComputeSunShadow(float3 world_position, float no_l) {
@@ -496,10 +568,13 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float normal_height;
     EvaluateNormalMap(input.surface_position, camera_time.w,
                       micro_slope, normal_height);
+    float3 authored_tangent_normal =
+        EvaluateAuthoredNormal(input.uv);
 
     float normal_strength = max(deep_normal.w, 0.0);
-    // The VS carries the mesh normal plus analytic macro slopes. Add decoded
-    // texture slopes in the same transformed surface frame. This uses the
+    // The VS carries the mesh normal plus analytic macro slopes. Generated
+    // world detail is added in the transformed surface frame; the authored
+    // mesh-UV normal is then composed through a derivative TBN. This uses the
     // authored vertex normals instead of replacing every mesh normal with +Y.
     float3 tangent = normalize(input.surface_tangent);
     float3 bitangent = normalize(input.surface_bitangent);
@@ -508,10 +583,16 @@ float4 PSMain(VSOut input) : SV_TARGET {
     float3 geometric_surface_normal = normalize(input.world_normal);
     if (dot(geometric_surface_normal, view_direction) < 0.0)
         geometric_surface_normal = -geometric_surface_normal;
-    float3 normal = normalize(
+    float3 generated_detail_normal = normalize(
         geometric_surface_normal
-        - tangent * (micro_slope.x * normal_strength)
-        - bitangent * (micro_slope.y * normal_strength));
+        + tangent * (micro_slope.x * normal_strength)
+        + bitangent * (micro_slope.y * normal_strength));
+    float3 normal = author_normal_params.x >= 0.5
+        ? PerturbWaterNormal(
+              input.world_position, generated_detail_normal,
+              input.uv, authored_tangent_normal,
+              tangent, bitangent)
+        : generated_detail_normal;
     if (dot(normal, view_direction) < 0.0) normal = -normal;
 
     float3 light_direction = normalize(sun_direction.xyz);
@@ -645,7 +726,12 @@ float4 PSMain(VSOut input) : SV_TARGET {
         specular * sun_color.rgb * no_l * sun_visibility, 8.0);
 
     // Contact foam follows persistent ripple fronts; high macro crests add sparse caps.
-    float ripple_foam = smoothstep(0.075, 0.28, input.ripple_energy);
+    // A saturating optical response keeps foam visible, however faintly,
+    // until the same C2 disturbance envelope reaches zero. The former
+    // smoothstep threshold made foam pop off while displacement and its
+    // analytic normal still had a finite contribution.
+    float ripple_foam =
+        1.0 - exp(-max(input.ripple_energy, 0.0) * 5.4);
     float crest = smoothstep(wave_params.x * 0.68,
                              max(wave_params.x * 1.22, 0.01),
                              input.wave_height);
@@ -1253,28 +1339,32 @@ TResult<void> FWaterSurface3D::BeginInitWithCompiledShaders(
     pipeline_description.cbuffer_slots = 2;
     pipeline_description.cbuffer_names[0] = "WaterFrame";
     pipeline_description.cbuffer_names[1] = "WaterObject";
-    pipeline_description.texture_slots = 5;
+    pipeline_description.texture_slots = 6;
     pipeline_description.texture_names[0] = "water_normal";
-    pipeline_description.texture_names[1] = "scene_color";
-    pipeline_description.texture_names[2] = "scene_depth";
-    pipeline_description.texture_names[3] = "screen_reflection";
-    pipeline_description.texture_names[4] = "shadow_map";
-    pipeline_description.static_sampler_count = 5;
+    pipeline_description.texture_names[1] = "authored_normal";
+    pipeline_description.texture_names[2] = "scene_color";
+    pipeline_description.texture_names[3] = "scene_depth";
+    pipeline_description.texture_names[4] = "screen_reflection";
+    pipeline_description.texture_names[5] = "shadow_map";
+    pipeline_description.static_sampler_count = 6;
     pipeline_description.static_samplers[0].filter = ESamplerFilter::Linear;
     pipeline_description.static_samplers[0].address_u = ESamplerAddress::Wrap;
     pipeline_description.static_samplers[0].address_v = ESamplerAddress::Wrap;
     pipeline_description.static_samplers[1].filter = ESamplerFilter::Linear;
-    pipeline_description.static_samplers[1].address_u = ESamplerAddress::Clamp;
-    pipeline_description.static_samplers[1].address_v = ESamplerAddress::Clamp;
-    pipeline_description.static_samplers[2].filter = ESamplerFilter::Point;
+    pipeline_description.static_samplers[1].address_u = ESamplerAddress::Wrap;
+    pipeline_description.static_samplers[1].address_v = ESamplerAddress::Wrap;
+    pipeline_description.static_samplers[2].filter = ESamplerFilter::Linear;
     pipeline_description.static_samplers[2].address_u = ESamplerAddress::Clamp;
     pipeline_description.static_samplers[2].address_v = ESamplerAddress::Clamp;
-    pipeline_description.static_samplers[3].filter = ESamplerFilter::Linear;
+    pipeline_description.static_samplers[3].filter = ESamplerFilter::Point;
     pipeline_description.static_samplers[3].address_u = ESamplerAddress::Clamp;
     pipeline_description.static_samplers[3].address_v = ESamplerAddress::Clamp;
-    pipeline_description.static_samplers[4].filter = ESamplerFilter::Point;
+    pipeline_description.static_samplers[4].filter = ESamplerFilter::Linear;
     pipeline_description.static_samplers[4].address_u = ESamplerAddress::Clamp;
     pipeline_description.static_samplers[4].address_v = ESamplerAddress::Clamp;
+    pipeline_description.static_samplers[5].filter = ESamplerFilter::Point;
+    pipeline_description.static_samplers[5].address_u = ESamplerAddress::Clamp;
+    pipeline_description.static_samplers[5].address_v = ESamplerAddress::Clamp;
 
     auto pipeline_result = CreateRhiPipeline(device, pipeline_description);
     if (pipeline_result.IsErr()) {
@@ -1405,9 +1495,15 @@ void FWaterSurface3D::Update(f32 dt) noexcept {
     // finite hitch delta; never expose FLT_MAX to sin/cos for even one frame.
     m_Time = static_cast<f32>(std::fmod(next_time, 65536.0));
 
-    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
-        FRipple& ripple = m_Ripples[i];
-        if (!ripple.active) continue;
+    // Idle water advances its phase clock in O(1). This matters in editor
+    // scenes where a prepared water renderer is currently off-screen or has
+    // no interactions; scanning all 4096 reserved ownership slots would be
+    // pure CPU workload and would not improve the visible result.
+    u32 active_position = 0u;
+    while (active_position < m_ActiveRippleCount) {
+        const u32 storage_index =
+            m_ActiveRippleStorageIndices[active_position];
+        FRipple& ripple = m_Ripples[storage_index];
         const f64 next_age =
             static_cast<f64>(ripple.age) + static_cast<f64>(dt);
         if (next_age >= static_cast<f64>(ripple.lifetime)) {
@@ -1416,20 +1512,24 @@ void FWaterSurface3D::Update(f32 dt) noexcept {
             // without removing a finite displacement/normal/foam contribution.
             ripple.age = ripple.lifetime;
             ripple.amplitude = 0.0f;
-            ripple.active = false;
+            DeactivateEventAtActivePosition(active_position);
             continue;
         }
         ripple.age = static_cast<f32>(next_age);
         if (ripple.age >= ripple.lifetime) {
             ripple.age = ripple.lifetime;
             ripple.amplitude = 0.0f;
-            ripple.active = false;
+            DeactivateEventAtActivePosition(active_position);
             continue;
         }
         const f32 amplitude_scale = EvaluateRippleAmplitudeScale(
             ripple.age, ripple.lifetime, ripple.damping);
         ripple.amplitude = ripple.initial_amplitude * amplitude_scale;
-        if (amplitude_scale <= 0.0f) ripple.active = false;
+        if (amplitude_scale <= 0.0f) {
+            DeactivateEventAtActivePosition(active_position);
+            continue;
+        }
+        ++active_position;
     }
 }
 
@@ -1462,6 +1562,19 @@ f32 FWaterSurface3D::EvaluateRippleAmplitudeScale(
     const f64 scale = physical_damping * lifetime_envelope;
     return std::isfinite(scale) && scale > 0.0
         ? static_cast<f32>(scale) : 0.0f;
+}
+
+void FWaterSurface3D::DeactivateEventAtActivePosition(
+    u32 active_position) noexcept {
+    if (active_position >= m_ActiveRippleCount) return;
+    const u32 storage_index =
+        m_ActiveRippleStorageIndices[active_position];
+    m_Ripples[storage_index] = FRipple{};
+
+    --m_ActiveRippleCount;
+    m_ActiveRippleStorageIndices[active_position] =
+        m_ActiveRippleStorageIndices[m_ActiveRippleCount];
+    m_ActiveRippleStorageIndices[m_ActiveRippleCount] = 0u;
 }
 
 bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
@@ -1499,16 +1612,14 @@ bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
     const u32 per_surface_limit =
         wake ? kWakeRippleSlots : kImpactRippleSlots;
     u32 matching_kind_count = 0u;
-    u32 free_slot = kMaxStoredRipples;
     bool surface_is_active = false;
     u64 active_surfaces[kMaxTrackedSurfaces]{};
     u32 active_surface_count = 0u;
-    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
-        const FRipple& ripple = m_Ripples[i];
-        if (!ripple.active) {
-            if (free_slot == kMaxStoredRipples) free_slot = i;
-            continue;
-        }
+    for (u32 active_position = 0u;
+         active_position < m_ActiveRippleCount;
+         ++active_position) {
+        const FRipple& ripple = m_Ripples[
+            m_ActiveRippleStorageIndices[active_position]];
         if (ripple.surface_id == surface_id) {
             surface_is_active = true;
             if (ripple.wake == wake) ++matching_kind_count;
@@ -1522,6 +1633,15 @@ bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
         }
         if (!known_surface && active_surface_count < kMaxTrackedSurfaces) {
             active_surfaces[active_surface_count++] = ripple.surface_id;
+        }
+    }
+    u32 free_slot = kMaxStoredRipples;
+    if (m_ActiveRippleCount < kMaxStoredRipples) {
+        for (u32 i = 0u; i < kMaxStoredRipples; ++i) {
+            if (!m_Ripples[i].active) {
+                free_slot = i;
+                break;
+            }
         }
     }
     if (matching_kind_count >= per_surface_limit ||
@@ -1547,6 +1667,7 @@ bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
     ripple.surface_id = surface_id;
     ripple.wake = wake;
     ripple.active = true;
+    m_ActiveRippleStorageIndices[m_ActiveRippleCount++] = free_slot;
     return true;
 }
 
@@ -1555,17 +1676,15 @@ u32 FWaterSurface3D::AvailableEventSlots(
     const u32 per_surface_limit =
         wake ? kWakeRippleSlots : kImpactRippleSlots;
     u32 matching_kind_count = 0u;
-    u32 free_slot_count = 0u;
     bool surface_is_active = false;
     u64 active_surfaces[kMaxTrackedSurfaces]{};
     u32 active_surface_count = 0u;
 
-    for (u32 i = 0u; i < kMaxStoredRipples; ++i) {
-        const FRipple& ripple = m_Ripples[i];
-        if (!ripple.active) {
-            ++free_slot_count;
-            continue;
-        }
+    for (u32 active_position = 0u;
+         active_position < m_ActiveRippleCount;
+         ++active_position) {
+        const FRipple& ripple = m_Ripples[
+            m_ActiveRippleStorageIndices[active_position]];
         if (ripple.surface_id == surface_id) {
             surface_is_active = true;
             if (ripple.wake == wake) ++matching_kind_count;
@@ -1585,6 +1704,8 @@ u32 FWaterSurface3D::AvailableEventSlots(
         }
     }
 
+    const u32 free_slot_count =
+        kMaxStoredRipples - m_ActiveRippleCount;
     if (matching_kind_count >= per_surface_limit ||
         free_slot_count == 0u ||
         (!surface_is_active &&
@@ -1747,37 +1868,79 @@ u32 FWaterSurface3D::AddWakeSegmentForSurface(
 void FWaterSurface3D::ClearDisturbances() noexcept {
     for (u32 i = 0; i < kMaxStoredRipples; ++i) {
         m_Ripples[i] = FRipple{};
+        m_ActiveRippleStorageIndices[i] = 0u;
     }
+    m_ActiveRippleCount = 0u;
 }
 
 void FWaterSurface3D::ClearDisturbancesForSurface(
     u64 surface_id) noexcept {
-    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
-        if (m_Ripples[i].active &&
-            m_Ripples[i].surface_id == surface_id) {
-            m_Ripples[i] = FRipple{};
+    u32 active_position = 0u;
+    while (active_position < m_ActiveRippleCount) {
+        const FRipple& ripple = m_Ripples[
+            m_ActiveRippleStorageIndices[active_position]];
+        if (ripple.surface_id == surface_id) {
+            DeactivateEventAtActivePosition(active_position);
+            continue;
         }
+        ++active_position;
     }
 }
 
 u32 FWaterSurface3D::ActiveRippleCount() const noexcept {
-    u32 count = 0;
-    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
-        if (m_Ripples[i].active) ++count;
-    }
-    return count;
+    return m_ActiveRippleCount;
 }
 
 u32 FWaterSurface3D::ActiveRippleCountForSurface(
     u64 surface_id) const noexcept {
     u32 count = 0u;
-    for (u32 i = 0; i < kMaxStoredRipples; ++i) {
-        if (m_Ripples[i].active &&
-            m_Ripples[i].surface_id == surface_id) {
+    for (u32 active_position = 0u;
+         active_position < m_ActiveRippleCount;
+         ++active_position) {
+        const FRipple& ripple = m_Ripples[
+            m_ActiveRippleStorageIndices[active_position]];
+        if (ripple.surface_id == surface_id) {
             ++count;
         }
     }
     return count;
+}
+
+f32 FWaterSurface3D::ConservativeDisplacementBoundForSurface(
+    u64 surface_id,
+    const FWaterSurface3DParams& params) const noexcept {
+    // EvaluateAmbientWaves uses these four normalized layer weights. Since
+    // abs(sin) <= 1, their sum is the exact phase-independent height bound.
+    constexpr f64 kAmbientAmplitudeWeightSum =
+        0.52 + 0.27 + 0.145 + 0.085;
+    const FWaterSurface3DParams safe = SanitizeParams(params);
+    f64 bound =
+        kAmbientAmplitudeWeightSum *
+        static_cast<f64>(safe.wave_amplitude);
+
+    // DrawMesh uploads at most kMaxRipples for this surface from the same dense
+    // active list. Each packet envelope and wake mask is at most one, so the
+    // sum of absolute current amplitudes is conservative without imposing a
+    // scene-wide fixed inflation.
+    u32 uploaded = 0u;
+    for (u32 active_position = 0u;
+         active_position < m_ActiveRippleCount &&
+         uploaded < kMaxRipples;
+         ++active_position) {
+        const FRipple& ripple = m_Ripples[
+            m_ActiveRippleStorageIndices[active_position]];
+        if (ripple.surface_id != surface_id)
+            continue;
+        if (!std::isfinite(ripple.amplitude))
+            return std::numeric_limits<f32>::quiet_NaN();
+        bound += std::abs(static_cast<f64>(ripple.amplitude));
+        ++uploaded;
+    }
+    return std::isfinite(bound) &&
+           bound <= static_cast<f64>(
+               std::numeric_limits<f32>::max())
+        ? static_cast<f32>(bound)
+        : std::numeric_limits<f32>::quiet_NaN();
 }
 
 void FWaterSurface3D::SetFrame(const FMat4& view_projection,
@@ -1834,7 +1997,9 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                IRhiTexture* scene_depth,
                                IRhiTexture* screen_reflection,
                                u64 surface_id,
-                               bool hardware_depth_bound) noexcept {
+                               bool hardware_depth_bound,
+                               IRhiTexture* authored_normal_map,
+                               f32 authored_normal_strength) noexcept {
     if (m_InitializationPending ||
         !m_Pipeline || !m_ManualDepthPipeline || !IsFinite(model)
         || !mesh.vertex_buffer || !mesh.index_buffer
@@ -1898,10 +2063,13 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
     const FWaterSurfaceFrame surface =
         BuildWaterSurfaceFrame(model);
     u32 ripple_count = 0;
-    for (u32 i = 0; i < kMaxStoredRipples &&
-                    ripple_count < kMaxRipples; ++i) {
-        const FRipple& ripple = m_Ripples[i];
-        if (!ripple.active || ripple.surface_id != surface_id) continue;
+    for (u32 active_position = 0u;
+         active_position < m_ActiveRippleCount &&
+         ripple_count < kMaxRipples;
+         ++active_position) {
+        const FRipple& ripple = m_Ripples[
+            m_ActiveRippleStorageIndices[active_position]];
+        if (ripple.surface_id != surface_id) continue;
         const f32 remaining =
             1.0f - ripple.age / (ripple.lifetime > 0.0f
                                     ? ripple.lifetime : 1.0f);
@@ -1940,6 +2108,12 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
               scene_color ? 1.0f : 0.0f,
               scene_depth ? 1.0f : 0.0f,
               screen_reflection ? 1.0f : 0.0f};
+    frame.author_normal_params =
+        FVec4{
+            authored_normal_map ? 1.0f : 0.0f,
+            ClampFinite(
+                authored_normal_strength, 1.0f, 0.0f, 8.0f),
+            0.0f, 0.0f};
     const f32 shadow_texel_size =
         m_ShadowMap && m_ShadowMap->Width() > 0
         ? 1.0f / static_cast<f32>(m_ShadowMap->Width())
@@ -1981,14 +2155,17 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
     command_list.SetConstantBuffer(1, *object_buffer);
     command_list.SetTexture(0, *m_NormalMap);
     command_list.SetTexture(
-        1, scene_color ? *scene_color : *m_SceneFallback);
+        1, authored_normal_map
+            ? *authored_normal_map : *m_NormalMap);
     command_list.SetTexture(
-        2, scene_depth ? *scene_depth : *m_SceneFallback);
+        2, scene_color ? *scene_color : *m_SceneFallback);
     command_list.SetTexture(
-        3, screen_reflection
+        3, scene_depth ? *scene_depth : *m_SceneFallback);
+    command_list.SetTexture(
+        4, screen_reflection
             ? *screen_reflection : *m_SceneFallback);
     command_list.SetTexture(
-        4, m_ShadowMap ? *m_ShadowMap : *m_SceneFallback);
+        5, m_ShadowMap ? *m_ShadowMap : *m_SceneFallback);
     command_list.SetVertexBuffer(*mesh.vertex_buffer, mesh.vertex_stride);
     command_list.SetIndexBuffer(*mesh.index_buffer);
     command_list.DrawIndexed(mesh.index_count);

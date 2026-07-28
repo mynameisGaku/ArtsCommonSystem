@@ -1,0 +1,435 @@
+<Window x:Class="AcsEditor.AssetPackageReadinessWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Package Readiness"
+        Width="1080" Height="720" MinWidth="820" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="CanResize"
+        Background="{StaticResource Win}" Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI" FontSize="11.5"
+        UseLayoutRounding="True"
+        Loaded="OnLoaded" Closing="OnClosing"
+        PreviewKeyDown="OnPreviewKeyDown">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="34"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="ReadinessReady" Color="#FF69C78D"/>
+        <SolidColorBrush x:Key="ReadinessWarning" Color="#FFE1B764"/>
+        <SolidColorBrush x:Key="ReadinessError" Color="#FFE27676"/>
+
+        <Style x:Key="ReadinessCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style x:Key="ReadinessHeader" TargetType="DataGridColumnHeader">
+            <Setter Property="Height" Value="31"/>
+            <Setter Property="Background" Value="{StaticResource HeaderBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="FontSize" Value="9.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="ReadinessCell" TargetType="DataGridCell">
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="7,5"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridCell">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ReadinessRow" TargetType="DataGridRow">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource CtrlHover}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentDim}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ReadinessTabItem" TargetType="TabItem">
+            <Setter Property="Background" Value="{StaticResource Panel}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="0,0,2,0"/>
+            <Setter Property="MinHeight" Value="27"/>
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Grid SnapsToDevicePixels="True">
+                            <Border x:Name="TabChrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                            <Border x:Name="SelectionAccent"
+                                    Height="2"
+                                    Margin="1,0"
+                                    VerticalAlignment="Bottom"
+                                    Background="Transparent"
+                                    IsHitTestVisible="False"/>
+                            <Border x:Name="FocusRing"
+                                    Margin="2"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="1"
+                                    IsHitTestVisible="False"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background"
+                                        Value="{StaticResource CtrlHover}"/>
+                                <Setter Property="Foreground"
+                                        Value="{StaticResource Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Panel.ZIndex" Value="2"/>
+                                <Setter Property="Background"
+                                        Value="{StaticResource AccentDim}"/>
+                                <Setter Property="Foreground"
+                                        Value="{StaticResource Text}"/>
+                                <Setter Property="BorderBrush"
+                                        Value="{StaticResource Accent}"/>
+                                <Setter TargetName="SelectionAccent"
+                                        Property="Background"
+                                        Value="{StaticResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin"
+                                     Value="True">
+                                <Setter TargetName="FocusRing"
+                                        Property="BorderBrush"
+                                        Value="{StaticResource Accent}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.46"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ReadinessGrid" TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource Panel2}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="GridLinesVisibility" Value="None"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="CanUserDeleteRows" Value="False"/>
+            <Setter Property="CanUserResizeRows" Value="False"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="SelectionUnit" Value="FullRow"/>
+            <Setter Property="ColumnHeaderStyle" Value="{StaticResource ReadinessHeader}"/>
+            <Setter Property="CellStyle" Value="{StaticResource ReadinessCell}"/>
+            <Setter Property="RowStyle" Value="{StaticResource ReadinessRow}"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        </Style>
+
+        <Style x:Key="ReadinessClosureCell"
+               TargetType="DataGridCell"
+               BasedOn="{StaticResource ReadinessCell}">
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background"
+                            Value="{StaticResource AccentDim}"/>
+                    <Setter Property="BorderBrush"
+                            Value="{StaticResource Accent}"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                </Trigger>
+                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                    <Setter Property="BorderBrush"
+                            Value="{StaticResource Accent}"/>
+                    <Setter Property="BorderThickness" Value="1"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Grid DockPanel.Dock="Top" Height="34" Background="{StaticResource Win}"
+              MouseLeftButtonDown="OnTitleBarMouseDown">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Margin="10,0,0,0"
+                        VerticalAlignment="Center">
+                <Border Width="3" Height="18" Background="{StaticResource Accent}"
+                        Margin="0,0,8,0"/>
+                <TextBlock Text="ASSET PACKAGE READINESS"
+                           Foreground="{StaticResource TextDim}"
+                           FontWeight="SemiBold"/>
+                <TextBlock Text="  /  COOK CLOSURE"
+                           Foreground="{StaticResource InfoFg}"
+                           FontSize="9.5" FontWeight="SemiBold"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Style="{StaticResource CaptionButton}" Content="&#x2012;"
+                        Click="OnMinimize"/>
+                <Button Style="{StaticResource CaptionButton}" Content="&#x25A1;"
+                        Click="OnMaximizeRestore"/>
+                <Button Style="{StaticResource CloseCaptionButton}" Content="&#x2715;"
+                        Click="OnClose"/>
+            </StackPanel>
+        </Grid>
+
+        <Border DockPanel.Dock="Top" Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,1"
+                Padding="14,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock x:Name="ProjectNameText" FontSize="16"
+                               FontWeight="SemiBold"/>
+                    <TextBlock x:Name="RootSceneText"
+                               Foreground="{StaticResource TextDim}"
+                               FontFamily="Consolas" FontSize="10.5"
+                               Margin="0,3,0,0"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Button x:Name="RunButton" Content="Run Again" Height="28"
+                            Padding="12,2" Click="OnRunAgain"/>
+                    <Button x:Name="SaveButton" Content="Save JSON…" Height="28"
+                            Padding="12,2" Margin="6,0,0,0"
+                            IsEnabled="False" Click="OnSaveJson"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Height="28"
+                            Padding="12,2" Margin="6,0,0,0"
+                            IsEnabled="False" Click="OnCancel"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Style="{StaticResource ReadinessCard}"
+                    Padding="13,10" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="HealthBadge" BorderThickness="1"
+                            Background="#172F8051" BorderBrush="{StaticResource ReadinessReady}"
+                            Padding="9,4" Margin="0,0,14,0">
+                        <TextBlock x:Name="HealthText" Text="WAITING"
+                                   Foreground="{StaticResource TextDim}"
+                                   FontSize="10" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock x:Name="SummaryText" Grid.Column="1"
+                               VerticalAlignment="Center"
+                               Foreground="{StaticResource Text}"/>
+                    <StackPanel Grid.Column="2" Margin="18,0,0,0">
+                        <TextBlock Text="REQUIRED" Foreground="{StaticResource TextDim}"
+                                   FontSize="9"/>
+                        <TextBlock x:Name="RequiredCountText" Text="—"
+                                   FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Margin="18,0,0,0">
+                        <TextBlock Text="ERRORS" Foreground="{StaticResource TextDim}"
+                                   FontSize="9"/>
+                        <TextBlock x:Name="ErrorCountText" Text="—"
+                                   Foreground="{StaticResource ReadinessError}"
+                                   FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="4" Margin="18,0,0,0">
+                        <TextBlock Text="WARNINGS" Foreground="{StaticResource TextDim}"
+                                   FontSize="9"/>
+                        <TextBlock x:Name="WarningCountText" Text="—"
+                                   Foreground="{StaticResource ReadinessWarning}"
+                                   FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <ProgressBar x:Name="Progress" Grid.Row="1" Height="2"
+                         IsIndeterminate="True" Visibility="Collapsed"
+                         Foreground="{StaticResource Accent}" Margin="0,0,0,8"/>
+
+            <TabControl x:Name="ReadinessTabs" Grid.Row="2"
+                        Background="{StaticResource Panel2}"
+                        ItemContainerStyle="{StaticResource ReadinessTabItem}">
+                <TabItem Header="DIAGNOSTICS">
+                    <DataGrid x:Name="DiagnosticsGrid"
+                              Style="{StaticResource ReadinessGrid}"
+                              MouseDoubleClick="OnDiagnosticDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="LEVEL" Width="70">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding SeverityLabel}"
+                                                   FontWeight="SemiBold" FontSize="9.5">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground"
+                                                            Value="{StaticResource TextDim}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SeverityLabel}"
+                                                                     Value="ERROR">
+                                                            <Setter Property="Foreground"
+                                                                    Value="{StaticResource ReadinessError}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding SeverityLabel}"
+                                                                     Value="WARNING">
+                                                            <Setter Property="Foreground"
+                                                                    Value="{StaticResource ReadinessWarning}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="CODE" Binding="{Binding Code}" Width="185"/>
+                            <DataGridTextColumn Header="ASSET" Binding="{Binding AssetPath}" Width="200"/>
+                            <DataGridTemplateColumn Header="DIAGNOSTIC" Width="290">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Message}"
+                                                   TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="RESOLUTION" Width="280">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Resolution}"
+                                                   TextWrapping="Wrap"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </TabItem>
+                <TabItem Header="COOK CLOSURE">
+                    <DataGrid x:Name="AssetsGrid"
+                              Style="{StaticResource ReadinessGrid}"
+                              CellStyle="{StaticResource ReadinessClosureCell}"
+                              SelectionUnit="Cell"
+                              ClipboardCopyMode="ExcludeHeader">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="TYPE" Binding="{Binding Kind}" Width="90"/>
+                            <DataGridTextColumn Header="ASSET PATH" Binding="{Binding Path}" Width="300"/>
+                            <DataGridTextColumn Header="SIZE" Binding="{Binding SizeBytes}" Width="92"/>
+                            <DataGridTextColumn Header="ASSET ID" Binding="{Binding AssetId}" Width="220"/>
+                            <DataGridTemplateColumn Width="*"
+                                                    MinWidth="320"
+                                                    ClipboardContentBinding="{Binding ContentHash}">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="CONTENT SHA-256"
+                                                       VerticalAlignment="Center"/>
+                                            <Border Margin="8,0,0,0"
+                                                    Padding="4,1"
+                                                    Background="{StaticResource AccentDim}"
+                                                    BorderBrush="{StaticResource Accent}"
+                                                    BorderThickness="1"
+                                                    ToolTip="Select a hash cell and press Ctrl+C to copy the full SHA-256.">
+                                                <TextBlock Text="CTRL+C"
+                                                           Foreground="{StaticResource Accent}"
+                                                           FontFamily="Consolas"
+                                                           FontSize="8.5"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding ContentHash}"
+                                                   ToolTip="{Binding ContentHash}"
+                                                   ToolTipService.ShowDuration="60000"
+                                                   FontFamily="Consolas"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="NoWrap"
+                                                   AutomationProperties.Name="{Binding ContentHash}"
+                                                   AutomationProperties.HelpText="Full SHA-256. Select this cell and press Ctrl+C to copy."/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </TabItem>
+            </TabControl>
+
+            <Grid Grid.Row="3" Margin="0,9,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText" Foreground="{StaticResource TextDim}"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <Button x:Name="ReferenceButton" Grid.Column="1"
+                        Content="Reference Viewer" Padding="11,3"
+                        IsEnabled="False" Click="OnOpenReferenceViewer"/>
+                <Button x:Name="LocateButton" Grid.Column="2"
+                        Content="Locate in Asset View" Padding="11,3"
+                        Margin="6,0,0,0" IsEnabled="False"
+                        Click="OnLocate"/>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

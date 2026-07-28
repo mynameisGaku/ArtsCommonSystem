@@ -3,6 +3,140 @@ using System.Runtime.InteropServices;
 
 namespace AcsEditor;
 
+[Flags]
+internal enum CameraViewRequestFlags : uint
+{
+    None = 0,
+    Active = 1u << 0,
+    Presenter = 1u << 1,
+    CameraStale = 1u << 2,
+    TargetRecreatePending = 1u << 3,
+    HistoryResetPending = 1u << 4,
+}
+
+internal enum CameraViewTargetKind : uint
+{
+    None = 0,
+    SharedSwapchain = 1,
+    DedicatedOffscreen = 2,
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+internal struct CameraViewRequestSnapshot
+{
+    public uint Version;
+    public uint StructSize;
+    public ulong RequestId;
+    public ulong LatestFrameSerial;
+    public int CameraNodeId;
+    public uint Width;
+    public uint Height;
+    public uint PresentedWidth;
+    public uint PresentedHeight;
+    public uint TargetGeneration;
+    public uint HistoryGeneration;
+    public CameraViewRequestFlags Flags;
+    public CameraViewTargetKind TargetKind;
+}
+
+internal static class CameraViewRequestContract
+{
+    internal const uint Version = 1;
+    internal const uint MaximumDimension = 8192;
+    internal const ulong MaximumPixels = 33_554_432;
+    private const CameraViewRequestFlags KnownFlags =
+        CameraViewRequestFlags.Active |
+        CameraViewRequestFlags.Presenter |
+        CameraViewRequestFlags.CameraStale |
+        CameraViewRequestFlags.TargetRecreatePending |
+        CameraViewRequestFlags.HistoryResetPending;
+
+    internal static uint SnapshotSize =>
+        checked((uint)Marshal.SizeOf<CameraViewRequestSnapshot>());
+
+    internal static bool IsValidExtent(uint width, uint height) =>
+        width is > 0 and <= MaximumDimension &&
+        height is > 0 and <= MaximumDimension &&
+        (ulong)width * height <= MaximumPixels;
+
+    internal static bool IsValidSnapshot(
+        in CameraViewRequestSnapshot snapshot,
+        ulong expectedRequestId)
+    {
+        if (expectedRequestId == 0 ||
+            snapshot.Version != Version ||
+            snapshot.StructSize < SnapshotSize ||
+            snapshot.RequestId != expectedRequestId ||
+            snapshot.CameraNodeId < 0 ||
+            !IsValidExtent(snapshot.Width, snapshot.Height) ||
+            snapshot.TargetGeneration == 0 ||
+            snapshot.HistoryGeneration == 0 ||
+            (snapshot.Flags & CameraViewRequestFlags.Active) == 0 ||
+            (snapshot.Flags & ~KnownFlags) != 0)
+        {
+            return false;
+        }
+
+        bool isPresenter =
+            (snapshot.Flags & CameraViewRequestFlags.Presenter) != 0;
+        bool isStale =
+            (snapshot.Flags & CameraViewRequestFlags.CameraStale) != 0;
+        if (isPresenter && isStale)
+            return false;
+
+        if ((isPresenter &&
+             snapshot.TargetKind != CameraViewTargetKind.SharedSwapchain) ||
+            (!isPresenter &&
+             snapshot.TargetKind != CameraViewTargetKind.None))
+        {
+            return false;
+        }
+
+        bool hasNoPresentedExtent =
+            snapshot.PresentedWidth == 0 &&
+            snapshot.PresentedHeight == 0;
+        bool hasValidPresentedExtent =
+            IsValidExtent(
+                snapshot.PresentedWidth,
+                snapshot.PresentedHeight);
+        if ((!hasNoPresentedExtent && !hasValidPresentedExtent) ||
+            (!isPresenter && !hasNoPresentedExtent) ||
+            (hasNoPresentedExtent && snapshot.LatestFrameSerial != 0) ||
+            (hasValidPresentedExtent && snapshot.LatestFrameSerial == 0))
+        {
+            return false;
+        }
+
+        bool targetRecreatePending =
+            (snapshot.Flags &
+             CameraViewRequestFlags.TargetRecreatePending) != 0;
+        bool historyResetPending =
+            (snapshot.Flags &
+             CameraViewRequestFlags.HistoryResetPending) != 0;
+        if (hasNoPresentedExtent)
+        {
+            // Create/bind/resize need a target refresh; a camera-only update
+            // does not. Both legitimately have no published frame, but every
+            // such state must cold-start temporal history.
+            if (!historyResetPending)
+                return false;
+        }
+        else
+        {
+            bool presentedExtentDiffers =
+                snapshot.PresentedWidth != snapshot.Width ||
+                snapshot.PresentedHeight != snapshot.Height;
+            if (targetRecreatePending != presentedExtentDiffers ||
+                historyResetPending != presentedExtentDiffers)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
 internal struct EditorProfilerSnapshot
 {
@@ -65,11 +199,20 @@ internal struct EditorProfilerSnapshot
     public uint FrustumVisible;
     public uint FrustumCulled;
     public int ActiveCameraNodeId;
+
+    public float NativeRenderActiveCpuMs;
+    public float NativePresentCpuMs;
+    public float NativeRenderActiveCpuPeakMs;
+    public float NativePresentCpuPeakMs;
+    public ulong PresentedFrameCountSinceReset;
+    public ulong ProfilerResetSerial;
 }
 
 internal static class EditorProfilerContract
 {
-    internal const uint Version = 4;
+    internal const uint LegacyVersion = 4;
+    internal const uint LegacySnapshotSize = 224;
+    internal const uint Version = 5;
     internal const uint TimingCpuRecordSubmit = 1;
     internal const uint TimingGpuTimestamp = 2;
 
@@ -82,6 +225,7 @@ internal static class EditorProfilerContract
     internal const uint FlagFrustumCullingEnabled = 1u << 6;
     internal const uint FlagGameView = 1u << 7;
     internal const uint FlagRuntimeSceneCamera = 1u << 8;
+    internal const uint FlagScenePresentationSuppressed = 1u << 9;
 
     internal static uint SnapshotSize =>
         checked((uint)Marshal.SizeOf<EditorProfilerSnapshot>());
@@ -924,6 +1068,225 @@ internal static class EngineInterop
         [Out] float[] forward3,
         [Out] float[] up3,
         [Out] float[] projection4);
+
+    [DllImport(
+        Dll,
+        EntryPoint = "acs_editor_camera_view_request_create",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern int camera_view_request_create(
+        IntPtr handle,
+        int nodeId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string stableCameraId,
+        uint width,
+        uint height,
+        out ulong requestId);
+
+    [DllImport(
+        Dll,
+        EntryPoint = "acs_editor_camera_view_request_update",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern int camera_view_request_update(
+        IntPtr handle,
+        ulong requestId,
+        int nodeId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string stableCameraId,
+        uint width,
+        uint height);
+
+    [DllImport(
+        Dll,
+        EntryPoint = "acs_editor_camera_view_request_bind_presenter",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern int camera_view_request_bind_presenter(
+        IntPtr handle,
+        ulong requestId);
+
+    [DllImport(
+        Dll,
+        EntryPoint = "acs_editor_camera_view_request_unbind_presenter",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern int camera_view_request_unbind_presenter(
+        IntPtr handle,
+        ulong requestId);
+
+    [DllImport(
+        Dll,
+        EntryPoint = "acs_editor_camera_view_request_destroy",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern int camera_view_request_destroy(
+        IntPtr handle,
+        ulong requestId);
+
+    [DllImport(
+        Dll,
+        EntryPoint = "acs_editor_camera_view_request_get",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern int camera_view_request_get(
+        IntPtr handle,
+        ulong requestId,
+        ref CameraViewRequestSnapshot snapshot,
+        uint snapshotSize);
+
+    internal static bool TryCreateCameraViewRequest(
+        IntPtr handle,
+        int nodeId,
+        string stableCameraId,
+        uint width,
+        uint height,
+        out ulong requestId)
+    {
+        requestId = 0;
+        if (handle == IntPtr.Zero ||
+            !CameraViewRequestContract.IsValidExtent(width, height))
+        {
+            return false;
+        }
+        try
+        {
+            return camera_view_request_create(
+                       handle,
+                       nodeId,
+                       stableCameraId,
+                       width,
+                       height,
+                       out requestId) != 0 &&
+                   requestId != 0;
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or
+                     EntryPointNotFoundException or
+                     BadImageFormatException)
+        {
+            requestId = 0;
+            return false;
+        }
+    }
+
+    internal static bool TryUpdateCameraViewRequest(
+        IntPtr handle,
+        ulong requestId,
+        int nodeId,
+        string stableCameraId,
+        uint width,
+        uint height)
+    {
+        if (handle == IntPtr.Zero ||
+            requestId == 0 ||
+            !CameraViewRequestContract.IsValidExtent(width, height))
+        {
+            return false;
+        }
+        try
+        {
+            return camera_view_request_update(
+                       handle,
+                       requestId,
+                       nodeId,
+                       stableCameraId,
+                       width,
+                       height) != 0;
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or
+                     EntryPointNotFoundException or
+                     BadImageFormatException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryBindCameraViewPresenter(
+        IntPtr handle,
+        ulong requestId)
+    {
+        try
+        {
+            return handle != IntPtr.Zero &&
+                   requestId != 0 &&
+                   camera_view_request_bind_presenter(
+                       handle,
+                       requestId) != 0;
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or
+                     EntryPointNotFoundException or
+                     BadImageFormatException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryUnbindCameraViewPresenter(
+        IntPtr handle,
+        ulong requestId)
+    {
+        try
+        {
+            return handle != IntPtr.Zero &&
+                   requestId != 0 &&
+                   camera_view_request_unbind_presenter(
+                       handle,
+                       requestId) != 0;
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or
+                     EntryPointNotFoundException or
+                     BadImageFormatException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryDestroyCameraViewRequest(
+        IntPtr handle,
+        ulong requestId)
+    {
+        try
+        {
+            return handle != IntPtr.Zero &&
+                   requestId != 0 &&
+                   camera_view_request_destroy(handle, requestId) != 0;
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or
+                     EntryPointNotFoundException or
+                     BadImageFormatException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryGetCameraViewRequest(
+        IntPtr handle,
+        ulong requestId,
+        out CameraViewRequestSnapshot snapshot)
+    {
+        snapshot = new CameraViewRequestSnapshot
+        {
+            Version = CameraViewRequestContract.Version,
+            StructSize = CameraViewRequestContract.SnapshotSize,
+        };
+        if (handle == IntPtr.Zero || requestId == 0)
+            return false;
+        try
+        {
+            return camera_view_request_get(
+                       handle,
+                       requestId,
+                       ref snapshot,
+                       CameraViewRequestContract.SnapshotSize) != 0 &&
+                   CameraViewRequestContract.IsValidSnapshot(
+                       in snapshot,
+                       requestId);
+        }
+        catch (Exception error) when (
+            error is DllNotFoundException or
+                     EntryPointNotFoundException or
+                     BadImageFormatException)
+        {
+            return false;
+        }
+    }
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_game_camera_preview_set(

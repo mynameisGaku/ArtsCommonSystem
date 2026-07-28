@@ -61,6 +61,43 @@ internal static class SceneContractFixtureSelfTest
                 orthographic.InitialScene,
                 orthographic.Template) == EditorSceneViewMode.Orthographic,
             "2D is an Orthographic view preset, not a second document kind");
+
+        EditorSceneStartupPlan noProjectStartup =
+            EditorSceneStartupPolicy.Resolve(null, null);
+        EditorSceneStartupPlan blankStartup =
+            EditorSceneStartupPolicy.Resolve("   ", "blank");
+        EditorSceneStartupPlan twoDProjectStartup =
+            EditorSceneStartupPolicy.Resolve(
+                "Assets/main.acs3d",
+                "2d");
+        EditorSceneStartupPlan legacyStartup =
+            EditorSceneStartupPolicy.Resolve(
+                "Assets/legacy.acscene",
+                "3d");
+        Check(
+            noProjectStartup is
+            {
+                SourceMode: SceneDocumentMode.ThreeD,
+                ViewMode: EditorSceneViewMode.Perspective,
+                SourceExtension: ".acs3d",
+                Uses3D: true,
+            } &&
+            blankStartup == noProjectStartup &&
+            twoDProjectStartup is
+            {
+                SourceMode: SceneDocumentMode.ThreeD,
+                ViewMode: EditorSceneViewMode.Orthographic,
+                Uses3D: true,
+            } &&
+            legacyStartup is
+            {
+                SourceMode: SceneDocumentMode.TwoD,
+                ViewMode: EditorSceneViewMode.Orthographic,
+                SourceExtension: ".acscene",
+                Uses3D: false,
+            },
+            "startup without a source is blank ACS3D/Perspective while legacy ACSCENE remains an explicit adapter");
+
         Check(
             perspective.SceneText.StartsWith(
                 "ACS3D v2\n",
@@ -108,8 +145,13 @@ internal static class SceneContractFixtureSelfTest
         Check(
             !cameraInspection.HasErrors &&
             cameraInspection.Diagnostics.Any(static diagnostic =>
-                diagnostic.Code == "SCENE3D_CAMERA_MULTIPLE_ACTIVE"),
-            "CAM3D accepts multiple cameras and reports deterministic active selection");
+                diagnostic.Code == "SCENE3D_CAMERA_MULTIPLE_ACTIVE" &&
+                diagnostic.Severity ==
+                    CanonicalSceneAdapterSeverity.Warning &&
+                diagnostic.Message.Contains(
+                    "priority, stable camera id, then node id",
+                    StringComparison.Ordinal)),
+            "CAM3D accepts multiple cameras and specifies deterministic active-camera ordering");
 
         const string duplicateCameraScene =
             "ACS3D v2\n" +
@@ -174,8 +216,53 @@ internal static class SceneContractFixtureSelfTest
             out string unpacked3D);
         Check(
             unpacked2D == subsystem2D &&
-            unpacked3D == subsystem3D,
-            "transaction envelope round-trips both compatibility payloads exactly");
+            unpacked3D == subsystem3D &&
+            SceneWorldDocumentEnvelope.SelectSubsystem(
+                packed,
+                use3D: false) == subsystem2D &&
+            SceneWorldDocumentEnvelope.SelectSubsystem(
+                packed,
+                use3D: true) == subsystem3D,
+            "transaction envelope round-trips and selects both compatibility payloads exactly");
+
+        var canonicalView = new EditorSceneViewState(
+            SceneDocumentMode.ThreeD,
+            EditorSceneViewMode.Perspective);
+        bool canonicalOrthoAccepted = canonicalView.TryChangeView(
+            EditorSceneViewMode.Orthographic,
+            out EditorSceneViewState canonicalOrtho);
+        var legacyView = new EditorSceneViewState(
+            SceneDocumentMode.TwoD,
+            EditorSceneViewMode.Orthographic);
+        bool legacyPerspectiveRejected = !legacyView.TryChangeView(
+            EditorSceneViewMode.Perspective,
+            out EditorSceneViewState unchangedLegacy);
+        Check(
+            canonicalOrthoAccepted &&
+            canonicalOrtho.SourceMode == SceneDocumentMode.ThreeD &&
+            canonicalOrtho.ActivePayloadKey == "acs3d" &&
+            legacyPerspectiveRejected &&
+            unchangedLegacy == legacyView &&
+            unchangedLegacy.ActivePayloadKey == "acscene",
+            "view changes preserve the canonical or legacy source adapter without hidden migration");
+
+        bool everySceneGameViewTransitionIsPresentationOnly = true;
+        foreach (bool gameView in new[] { false, true })
+        {
+            foreach (int playState in new[] { 0, 1, 2 })
+            {
+                EditorViewSwitchPlan plan =
+                    EditorViewSwitchPolicy.Plan(gameView, playState);
+                everySceneGameViewTransitionIsPresentationOnly &=
+                    !plan.StartPlay &&
+                    !plan.StopPlay &&
+                    !plan.MutateEditorNavigationCamera;
+            }
+        }
+        Check(
+            everySceneGameViewTransitionIsPresentationOnly,
+            "Scene/Game presentation never owns Play lifetime or the editor navigation camera");
+
         Check(
             RejectEnvelope("ACS_EDITOR_WORLD 2\n0\n0\n") &&
             RejectEnvelope("ACS_EDITOR_WORLD 1\n1\n0\n") &&

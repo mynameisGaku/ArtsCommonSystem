@@ -203,6 +203,12 @@ public partial class MaterialEditorWindow
         _hostedOwnerCloseDiscardsChanges = discardUnsavedChanges;
     }
 
+    internal void RevokeHostedOwnerCloseApproval()
+    {
+        _hostedOwnerCloseApproved = false;
+        _hostedOwnerCloseDiscardsChanges = false;
+    }
+
     private void BeginHostedGraphTransaction(
         string label,
         string? coalesceKey)

@@ -85,9 +85,13 @@ product-version label. The current required host set is:
 - incremental startup;
 - result-bearing resize.
 
-Profiler v4, the independent volumetric-cloud workload v1 snapshot, unified
-scene documents, high-quality material previews, Substrate graphs, and
-interactive 3D water are advertised independently.
+Profiler v5 (with its version-4 compatibility prefix), the independent
+volumetric-cloud workload v1 snapshot, unified scene documents, high-quality
+material previews, Substrate graphs, interactive 3D water, camera authoring,
+and Camera View requests are advertised independently.
+The renderer-facing quality and interaction contracts are detailed in
+[Interactive 3D Water](InteractiveWater3D.md) and
+[Render Effects Quality](RenderEffectsQuality.md).
 An older DLL without the query export, a missing required capability, a bad
 binary architecture, or a rejected query leaves the viewport disabled and
 publishes a stable startup diagnostic instead of calling further entry
@@ -118,6 +122,34 @@ Profiler snapshots and the managed timestamp advance only after result `1`.
 Busy attempts and fatal submit/present failures never publish a completed
 frame. Excess time is consumed in bounded later deltas instead of being
 discarded.
+
+Successful frames run in input-aware bursts of at most 64 frames or 64
+milliseconds.
+At every burst boundary, the next frame must pass through one FIFO
+`DispatcherPriority.Input` checkpoint before another private render message
+can be posted. Current keyboard/pointer input forces that checkpoint before the
+deadline. The checkpoint is also mandatory in unattended mode: continuously
+reposting a private child-HWND message can otherwise keep the Win32 queue busy
+while starving Dispatcher timers indefinitely.
+
+The profiler sampler, interaction-health timer, and Dispatcher heartbeat share
+the checkpoint's FIFO Input priority. Therefore their due work must make
+progress between bounded render bursts without outranking real input at the
+same priority. Input checkpoints alone do not guarantee that WPF promotes due
+timers or completes lower-priority startup work: their callback can post the
+next private message before the queue drains below Input. A Background drain
+therefore owns continuation during hidden renderer startup and on a 500 ms
+wall-clock cadence. Its measured queue wait is an explicit rendering gap and
+exposes excess lower-priority backlog rather than hiding it.
+
+A `0` backpressure result may retry through the private HWND pump only inside
+its bounded epoch. At 256 attempts or eight milliseconds it must pass through
+the same Dispatcher checkpoint before starting another epoch, including in
+unattended mode. Busy attempts do not advance simulation time.
+Renderer/editor startup keeps its explicit staged Background operations; the
+startup drain guarantees that those stages can complete. Invalid maintenance
+counters or timestamps select a fail-closed Background drain; shutdown and
+HwndHost generation changes invalidate queued callbacks.
 
 The frame lifecycle is result-bearing end to end:
 
@@ -176,6 +208,12 @@ Non-cooperating external file writers are detected by snapshot validation and
 leave the operation or recovery journal fail-closed; the editor does not claim
 filesystem compare-and-swap semantics that Windows path replacement cannot
 provide.
+
+After startup recovery completes, `ProjectManager.Open` re-reads both durable
+records and refuses to publish the Project when `.acsproject.initialScene` and
+`Game.DefaultScene` identify different paths. This final coherence gate prevents
+the window layer from silently loading a stale settings override or presenting
+an unrelated legacy scene while the intended startup document is still opening.
 
 Legacy manifests with an empty `canonicalSceneAssetId` are upgraded during
 project open, after import/reimport and interrupted scene-move recovery have
@@ -250,31 +288,100 @@ radiance: they are drawn only in Scene View and never in Game View. Their
 toolbar control is exposed only when the negotiated runtime advertises
 `camera-authoring-v1`, and its initial state is read from the runtime.
 
+`Snap View` is the inverse one-shot navigation workflow: it resolves the
+selected Camera's parent-aware world pose through the transient game-camera
+resolver, restores the previous preview override in a `finally` boundary, and
+then converts the result into the Scene View orbit representation. It changes
+only editor navigation and projection; Camera components, `Active`, scene
+dirty state, and undo history remain untouched. The operation is fail-closed
+during Play/Preview or while Camera View owns a render-surface request, and it
+rolls the editor projection and pose back if native application fails.
+Non-finite/clipping-invalid samples, stale node identity, unrepresentable roll,
+and orbit-pole poses are rejected instead of silently showing a different
+view. Scene View has a fixed perspective FOV and bounded orthographic range,
+so the command reports when it preserves pose/projection but must approximate
+authored framing.
+
 `Float Preview` transfers the existing native renderer child window into one
 owned WPF Camera View; it does not create a second editor host, renderer, or
-engine. Camera selection in that window uses a stable-ID-resolved,
-non-persistent preview override. Re-docking and closing clear that override,
-so floating preview never changes authored `CAM3D Active` state, scene dirty
-state, or undo history. Only one live Camera View is supported until the
-renderer ABI provides shared render targets for independent consumers.
+engine. Camera selection in that window is non-persistent, so floating
+preview never changes authored `CAM3D Active` state, scene dirty state, or
+undo history.
+
+Owner shutdown returns floating WPF tools and Camera View through one
+all-or-nothing auxiliary-surface transaction. Camera return is the commit
+boundary: failure restores the captured six-tool layout, cancels the approved
+close, revokes hosted material close approvals, resumes asset operations, and
+re-enables editor input. The successful shutdown path persists the user's
+pre-shutdown floating placements and active bottom tab, not the temporary
+re-docked shutdown geometry. Only after every auxiliary surface commits does
+the editor join autosave workers and attempt to discard session recoveries.
+Cleanup failures are diagnosed, but once autosave has begun its irreversible
+stop the editor does not try to resume a partially stopped session; it proceeds
+to the final close, which bypasses the temporary re-dock handlers. A failed
+auxiliary return occurs before that boundary and therefore leaves autosave and
+recovery fully usable.
+
+When the provider advertises `camera-view-requests-v1`, the managed window
+owns a bounded set of native request leases instead of mutating one
+process-global preview override. The Camera View tab strip can add, focus, and
+close up to eight logical camera slots inside the same detached window. One
+native host accepts at most eight logical requests.
+Their opaque IDs encode both slot and generation, preventing a stale
+close/reopen lease from mutating a reused slot. The registry binds each request
+to a camera node plus stable camera identity. Its packed 60-byte v1 snapshot
+publishes that node, requested and presented extents, latest presented frame
+metadata, and independent target and history generations. Changing the camera
+or extent advances the appropriate generation and requires temporal history to
+be reset. Replacing the Scene marks every surviving request's camera stale and
+releases the presenter; create, update, snapshot, and bind paths revalidate the
+node/stable-ID pair against the current Scene before the request can present
+again.
+The managed publication boundary queues one coalesced stable-ID refresh after
+New, the current successful Open, canonical Undo/Redo or recovery restore, and
+a successful canonical rollback. Superseded, unpublished, and pre-replacement
+failures do not refresh against a graph that was never published.
+Every surviving tab is then re-resolved by stable camera ID. A changed
+transient node ID is accepted only for one unambiguous stable-ID match;
+malformed duplicate matches fail closed. Missing/disabled tabs retain their
+logical identity so a later Undo or replacement can restore them. If the
+selected tab is unavailable, the first available retained tab becomes the
+presenter.
+
+Exactly one request may bind the existing shared swapchain. Binding refuses
+to steal it from another request; managed tab transfer explicitly unbinds the
+old logical owner before binding the new one while the same detached HWND
+remains the physical surface owner. Other logical requests retain only
+identity, requested extent, and generation metadata. A resize updates only
+the selected request, and switching later reconciles only that target with the
+current window extent, so inactive target/history generations stay isolated.
+`camera-view-requests-v1` does not advertise a dedicated offscreen target,
+asynchronous readback, per-view GPU post-effect history, or simultaneous live
+Camera View/PIP rendering. Those require a separate capability and
+render-resource implementation.
 
 The Camera View opens without activation, follows owner minimize/close
 lifetime, snaps in physical pixels with per-monitor DPI, and clamps restored
 placement to the nearest monitor work area after display-topology changes.
 Only window geometry and the last stable camera ID are persisted; scene and
-active-camera state are deliberately excluded.
+active-camera state are deliberately excluded. Adding, switching, refreshing,
+and closing logical slots are presentation operations: none writes authored
+`Active`, marks the Scene dirty, or records Scene Undo.
 
 ### Dockable tool panels
 
 Floating and re-docking are editor-shell services, not Camera-only behavior.
-The initial explicit registry contains `hierarchy` (Scene Outliner),
-`inspector` (Details), and `bottom` (Console, Build, Assets, and Profiler).
+[The tool-panel docking contract](EditorToolPanelDocking.md) documents the
+stable IDs, persistence schema, transaction boundaries, and verification
+entry points.
+The explicit registry contains six stable IDs: `hierarchy` (Scene Outliner),
+`inspector` (Details), `console`, `build`, `assets`, and `profiler`.
 Unknown IDs are rejected rather than being silently assigned a layout slot;
 future panels must be added deliberately with a stable ID and accessible name.
 Camera View remains a specialized consumer because it transfers the native
-render child and carries a transient camera-preview override, while ordinary
-tool panels transfer one managed visual between their original dock slot and
-one owned floating window.
+render child and carries a transient request lease or legacy preview override,
+while ordinary tool panels transfer one managed visual between their original
+dock slot and one owned floating window.
 
 Each registered panel has one committed visual owner. A failed float operation
 rolls back to `Docked`; a failed re-dock remains truthfully `Floating`, so the
@@ -284,19 +391,31 @@ floating tools through the same re-dock path. The explicit Dock action and
 stable accessible window names keep the operation available without relying
 on pointer-only title-bar gestures.
 
+Console, Build, Assets, and Profiler share one bottom tab slot while docked;
+when at least one bottom tool is docked, exactly one is active at a time. Each
+of the four can be floated, hidden, restored, and persisted independently, and
+several tools may be floating simultaneously. Activating a floating or hidden
+bottom tool restores it through the same ownership transition rather than
+creating a second visual. `Ctrl+J` and **View > Bottom Dock** only suppress or
+restore the aggregate dock presentation. They preserve every child tool's
+`Docked`, `Floating`, or `Hidden` state and the active tab; the dock-local
+**Hide** action instead hides only the selected tool.
+
 Floating tool windows snap to the owner and current monitor work-area edges
 using a 12-DIP threshold converted with the floating window's per-monitor DPI.
 Restoration permits negative desktop coordinates, clamps a reachable title
 region to the nearest work area after monitor-topology changes, and rejects
 non-finite geometry, unknown IDs, duplicate panel records, and unsupported
-versions. The layout is user-local UI state; it never mutates Scene, Project,
-undo, dirty, or gameplay-camera state.
+versions. The six-panel placement snapshot uses schema version 2. The layout
+is user-local UI state; it never mutates Scene, Project, undo, dirty, or
+gameplay-camera state.
 
 Layout reset is transactional across the registered tool panels. It captures
-each panel's initial `Docked`, `Floating`, or `Hidden` state before changing
-any host, commits the default layout only after all three re-dock operations
-succeed, and restores the complete starting state if an intermediate transfer
-fails. A failed rollback is reported and the persisted layout is not deleted.
+all six panels' initial `Docked`, `Floating`, or `Hidden` states and the active
+bottom tab before changing any host. It commits the default layout only after
+every re-dock succeeds and restores the complete starting state if an
+intermediate transfer fails. A failed rollback is reported and the persisted
+layout is not deleted.
 
 ### Save and recovery
 
@@ -582,6 +701,23 @@ jobs and native typed errors remain separate follow-up work.
 ordering and eviction, observer isolation, overflow truncation, and
 cancellation-safe terminal publication.
 
+## Temporal rendering continuity
+
+TAA, SSR, and SSGI use the shared `TemporalHistory.h` cold-start policy. Frame
+zero always uses the current view-projection matrix, current-frame weight
+`1.0`, and no motion-vector reprojection. Warm frames alone may consume the
+caller's previous matrix, blend weight, and available motion texture.
+
+The Editor invalidates motion, TAA, SSR, SSGI, and volumetric-cloud history as
+one operation when the Scene is replaced, the logical camera/request owner or
+Perspective/Orthographic projection changes, 2D/3D view mode changes, Play
+restores the Editor camera, or an explicit reset/focus/frame camera cut occurs.
+TAA/SSR/SSGI setting transitions are invalidated when settings are applied,
+including an off/on pair between presented frames. A skipped SSR or SSGI pass
+also invalidates its private history when the effect is disabled, unready, or
+missing its G-buffer prerequisite. Interactive pan/orbit/zoom remains
+continuous and keeps temporal accumulation.
+
 ## Profiler
 
 `ProfilerPanel` samples a versioned native snapshot and combines it with
@@ -589,7 +725,8 @@ managed Editor diagnostics.
 
 Native metrics include:
 
-- submitted frame index, frame delta, FPS, CPU frame and submit time;
+- submitted frame index, frame delta, FPS, CPU frame, GPU-ready native
+  active-render time, and submit/Present time;
 - asynchronous GPU frame timings and per-pass timings;
 - current, average, and rolling-window peak values;
 - draw, dispatch, triangle, and resource counts;
@@ -598,9 +735,16 @@ Native metrics include:
 - exact main-view frustum-tested, visible, and culled node counts, plus the
   resolved game-camera node when an authored camera drives Game View.
 
-Profiler v4 is a packed 224-byte version-4 contract advertised through the
-`profiler-v4` capability. Version 3 remains a known historical capability but
-is not advertised by a provider that exposes only the v4 layout. Exact
+Profiler v5 is a packed 256-byte version-5 contract advertised through the
+`profiler-v5` capability. Its first 224 bytes remain the version-4 layout:
+native providers accept an explicit v4 request and return only that prefix, so
+an older host can poll a newer DLL safely. Versions 3 and 4 remain known
+historical capabilities. A request smaller than the two-word negotiation
+header is rejected before either word is read. At an explicit capture reset,
+the provider invalidates current CPU/GPU timing payloads, GPU validity,
+smoothed FPS, and cloud workload, advances the reset serial, and publishes zero
+presented frames. Managed capture accepts no sample until a later presented
+frame carries that exact serial. Exact
 volumetric-cloud accounting remains an optional, separate packed 168-byte
 version-1 contract (`cloud-workload-v1`), so it is negotiated and queried
 independently. The managed host calls an optional export only when its
@@ -613,6 +757,19 @@ Frustum-culling counts describe the decision actually reused by the main-view
 draw paths. The UI reports culling disabled when the aggregate compatibility
 fallback cannot honor per-node decisions; it never presents visibility tests
 as saved draw work unless those nodes were excluded from rendering.
+
+The production submission-mask traversal is shared by the normal/depth
+G-buffer pass, motion-vector pass, opaque PBR count and draw paths,
+interactive-water specialized/fallback draws, and refraction preflight and
+draw paths. The normal/depth pass preserves one aggregate draw when culling is
+disabled or rejects nothing; a partial rejection coalesces adjacent visible
+vertex ranges. Shadow casters deliberately use light-space coverage and VXGI
+uses the complete world-space scene, so neither consumes the active camera
+mask. A disabled, missing, or shorter-than-node mask fails open for decisions
+it cannot safely represent. Native coverage fixes perspective and orthographic
+plane extraction, default profiler publication, the shared traversal's
+recorded command forms through a fake RHI, range coalescing and overflow, and
+the real `DrawScene3D` profiler path when a DX12 adapter is available.
 
 For an available attempt the Cloud panel displays the exact steady,
 one-time-bake, shadow-cache, and total compute-dispatch counts; the composite
@@ -633,6 +790,14 @@ Managed metrics include:
   generation CPU cost (not compositor/GPU time).
 
 The history records each native frame index once and can be paused or reset.
+Capture rows retain the native active/Present peaks, reset serial, and
+presented-frame count. Validation requires one reset generation across every
+row, a monotonically increasing presented count, and each row's rolling peak
+to cover only that row's current value. Summary peaks are the maximum rolling
+peak observed among retained rows, not the latest rolling value, because an
+old maximum may leave the native 120-frame window during a capture. Validation
+also rejects a cloud-workload profiler frame outside the accepted first/last
+frame range.
 The visible dock samples at 10 Hz. A collapsed dock keeps the status summary
 current at 2 Hz without updating the detailed metric grid or invalidating the
 graph, so profiling does not become a significant hidden UI workload.
@@ -645,6 +810,16 @@ Unavailable or warming-up data is shown as such; it is not replaced with a
 CPU estimate. This profiler is an Editor performance overview, not a GPU
 capture debugger, allocation tracker, or platform telemetry service.
 
+The frame-budget strip defaults to 300 FPS (3.33 ms) and can analyze other
+targets without changing render quality or cadence. CPU and individual
+completed-GPU-query p95 values retain their bounded 10 Hz sample counts and
+exact budget-violation rates, so a missing GPU timestamp remains `N/A` instead
+of looking artificially fast. `Export CSV` snapshots the current history,
+writes it asynchronously to a unique sibling temporary file, and atomically
+moves it over the user-selected destination. See
+[`EditorPerformanceProfiler.md`](EditorPerformanceProfiler.md) for
+interpretation and capture guidance.
+
 ### UI-stall evidence
 
 `EditorDispatcherWatchdog` is driven by a ThreadPool timer, independent of the
@@ -656,16 +831,28 @@ writes `DISPATCHER_STALL`; the first later heartbeat writes
 `DISPATCHER_RECOVERED` with the measured duration and phase. This distinction
 is important because a `DispatcherTimer` cannot produce evidence while the
 Dispatcher itself is blocked.
+An explicit profiler capture reset rebases the watchdog's heartbeat origin,
+heartbeat/stall counts, active-stall state, and extrema so startup evidence
+cannot leak into the capture interval.
 
 Each Editor process writes a session-scoped
 `%LOCALAPPDATA%\ACS\Editor\Diagnostics\interaction-health-<UTC>-<PID>.log`.
 A single FIFO worker preserves transition order, rotates the current session
 at 2 MiB to `.previous`, and performs console/file I/O away from the UI thread.
-Reliability-soak completion awaits its final diagnostic asynchronously; normal
-window close performs one bounded 500 ms drain after stopping the watchdog.
+Reliability-soak completion awaits its final diagnostic asynchronously. Normal
+window close queues only a best-effort terminal line and never waits on the WPF
+Dispatcher; the retained worker task has a terminal exception boundary, and
+process exit is allowed to omit that final diagnostic.
 Lines are bounded and control-, bidi-, and line-injection safe; the phase token
 additionally removes key/value separators. The watchdog diagnoses a stall; it
 does not abort a native call or attempt unsafe UI-thread recovery.
+
+Cold ABI/subsystem creation and user-local layout/workspace reads are also
+kept off the Dispatcher. Native host publication is generation-gated and
+cleans up every unpublished handle; delayed layout results cannot overwrite
+mouse-, keyboard-, or caption-move changes made after the read began. The
+contracts, failure boundaries, and focused checks are documented in
+[`EditorStartupResponsiveness.md`](EditorStartupResponsiveness.md).
 
 ## Build, package, and distribution
 
@@ -709,6 +896,10 @@ cross-platform package.
   thread. Cooperative frame-slot backpressure does not bound those calls.
 - GPU profiler data is asynchronous and may be unavailable on a backend or
   during warm-up.
+- Camera View requests currently share one swapchain presenter. Dedicated
+  offscreen targets, asynchronous readback, independent per-view post-effect
+  histories, and multiple simultaneous live PIPs are not implemented or
+  advertised.
 - Asset collections and browser layout are Editor conveniences; authoritative
   asset identity lives in `.acsmeta`.
 - The project mutation lease coordinates ACS processes. It is not an
@@ -746,15 +937,29 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\verify_editor.ps1 -Mode managed
 
 # Managed verification plus isolated native configure/build/CTest.
+# Run this command from a Visual Studio x64 Native Tools prompt (or after
+# calling that installation's vcvars64.bat) so CMake can resolve cl/nmake.
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\verify_editor.ps1 -Mode full
 ```
+
+`fast` and `managed` need the .NET SDK only. `full` additionally requires an
+x64 MSVC developer environment; the verifier does not guess a Visual Studio
+installation or mutate the caller's toolchain environment. If `cl`/`nmake`
+are absent, native configure fails explicitly while the independent managed
+steps still report their results.
 
 | Mode | Verification surface |
 |---|---|
 | `fast` | isolated Editor Release build; ABI negotiation, document host (including Project Settings), Material Preview, Asset Browser (including thumbnail DDC), profiler, managed operation diagnostics, and package-responsiveness self-tests |
 | `managed` | isolated Editor build; every public self-test switch registered in `App.xaml.cs`; Blueprint self-test; isolated `acspackage --self-test` |
 | `full` | managed mode; isolated native CMake build with samples/tools disabled; complete CTest registration |
+
+Native unit coverage anchors the temporal contract in
+`src/render/TemporalHistory.h` and
+`tests/post_effect_quality_tests.cpp`, and the camera-mask command policy in
+`src/editor_abi/EditorFrustumCulling.h` and
+`tests/rhi_command_statistics_tests.cpp`.
 
 The runner is intentionally not fail-fast. Independent suites continue after
 a failure; dependent steps are marked `SKIP`. Any `FAIL` or `SKIP` produces
@@ -777,7 +982,7 @@ execution authority merely by matching a name pattern.
 | workspace shell | `editor/AcsEditor/MainWindow*.cs`, `MainWindow.xaml` |
 | tool-panel docking | `DockableToolWindow.cs`, `ToolPanelDockingContract.cs`, `ToolPanelDockingSelfTest.cs` |
 | rendered viewport | `editor/AcsEditor/EngineViewport.cs`, `EngineInterop.cs` |
-| native bridge | `src/editor_abi/EditorAbi.cpp` |
+| native bridge | `src/editor_abi/EditorAbi.cpp`, `EditorCameraViewRequests.h`, `EditorFrustumCulling.h` |
 | renderer/RHI | `src/render/Renderer.*`, `src/render/Dx12`, `src/render/Diligent` |
 | document/save/autosave | `EditorDocumentHost.cs`, `MainWindow.Documents.cs`, `MaterialDocumentHostRegistration.cs`, `SceneSaveAllPlanner.cs`, `SceneAutosaveStore.cs` |
 | scene compatibility | `SceneDocumentMode.cs`, `SceneWorldDocumentEnvelope.cs`, `CanonicalSceneAdapter.cs` |

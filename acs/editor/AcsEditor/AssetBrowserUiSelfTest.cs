@@ -452,8 +452,10 @@ internal static class AssetBrowserUiSelfTest
                 "tile thumbnail size updates the presentation dependency property");
 
             Check(panel.AssetActionsButton.ContextMenu != null &&
-                  panel.ViewOptionsButton.ContextMenu != null,
-                "Asset Actions and View Options menus are available from the toolbar");
+                  panel.ViewOptionsButton.ContextMenu != null &&
+                  panel.ActionPackageReadiness.Header?.ToString() ==
+                      "Package Readiness…",
+                "Asset Actions exposes Package Readiness and View Options from the toolbar");
             string[] newAssetTemplates = panel.NewAssetButton.ContextMenu?.Items
                 .OfType<MenuItem>()
                 .Select(static item => item.Tag as string)
