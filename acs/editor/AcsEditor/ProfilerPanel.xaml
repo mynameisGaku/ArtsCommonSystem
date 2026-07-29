@@ -47,7 +47,9 @@
                     <ToggleButton x:Name="PauseButton" Content="Pause"
                                   Padding="9,3" Margin="0,0,5,0"
                                   Checked="OnPauseChanged" Unchecked="OnPauseChanged"/>
-                    <Button Content="Reset" Padding="9,3" Margin="0,0,10,0"
+                    <Button x:Name="ResetButton" Content="Reset"
+                            Padding="9,3" Margin="0,0,10,0"
+                            ToolTipService.ShowOnDisabled="True"
                             Click="OnReset"/>
                     <Button x:Name="ExportButton" Content="Export CSV"
                             Padding="9,3" Margin="0,0,10,0"
@@ -71,7 +73,8 @@
                 </StackPanel>
                 <TextBlock x:Name="AvailabilityText" Grid.Column="1"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Foreground="{StaticResource TextDim}" FontSize="11"/>
+                           Foreground="{StaticResource TextDim}" FontSize="11"
+                           Margin="8,0" TextTrimming="CharacterEllipsis"/>
                 <Border Grid.Column="2" Background="{StaticResource Panel2}"
                         BorderBrush="{StaticResource Edge}" BorderThickness="1"
                         Padding="8,3">
@@ -370,8 +373,8 @@
                     <Border Height="1" Background="{StaticResource Edge}" Margin="0,8"/>
                     <Grid x:Name="CloudMetrics">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="22"/>
@@ -388,7 +391,9 @@
                             <RowDefinition Height="22"/>
                         </Grid.RowDefinitions>
                         <TextBlock Text="CLOUD EXACT WORKLOAD" Foreground="{StaticResource TextDim}" FontSize="10"/>
-                        <TextBlock x:Name="CloudStateValue" Grid.Column="1" FontFamily="Consolas" FontSize="10"/>
+                        <TextBlock x:Name="CloudStateValue" Grid.Column="1"
+                                   FontFamily="Consolas" FontSize="10"
+                                   TextTrimming="CharacterEllipsis"/>
                         <TextBlock Grid.Row="1" Text="Output / trace"/>
                         <TextBlock x:Name="CloudResolutionValue" Grid.Row="1" Grid.Column="1" FontFamily="Consolas"/>
                         <TextBlock Grid.Row="2" Text="Trace dimension scale"/>

@@ -194,6 +194,11 @@ internal static partial class Program
     public static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
+        if (args.Length >= 1 &&
+            args[0] == "--launch-smoke-self-test-child")
+        {
+            return await RunLaunchSmokeSelfTestChildAsync(args);
+        }
         if (args.Length == 1 && args[0] == "--self-test")
             return await RunSelfTestAsync();
         if (args.Length >= 1 && args[0] == "distribution-e2e")
@@ -219,6 +224,8 @@ internal static partial class Program
             return await RunInspectCommandWithDiagnosticsAsync(args);
         if (args.Length >= 1 && args[0] == "diff")
             return await RunDiffCommandWithDiagnosticsAsync(args);
+        if (args.Length >= 1 && args[0] == "smoke")
+            return await RunSmokeCommandWithDiagnosticsAsync(args);
         if (args.Length < 2 || args[0] is not ("validate" or "package"))
         {
             PrintUsage();
@@ -317,7 +324,33 @@ internal static partial class Program
             Console.WriteLine($"Files: {result.FileCount}, bytes: {result.UncompressedBytes}");
             Console.WriteLine(
                 $"Archive verification: {(result.ArchiveVerified ? "PASS" : "NOT RUN")}");
-            return 0;
+            using var smokeCancellation = new CancellationTokenSource();
+            ConsoleCancelEventHandler smokeCancelHandler = (_, eventArgs) =>
+            {
+                eventArgs.Cancel = true;
+                smokeCancellation.Cancel();
+            };
+            Console.CancelKeyPress += smokeCancelHandler;
+            try
+            {
+                PackageLaunchSmokeResult launch =
+                    await RunPublishedPackageSmokeAsync(
+                        result.ZipPath,
+                        quiet: false,
+                        smokeCancellation.Token);
+                return launch.Report.Passed ? 0 : 1;
+            }
+            finally
+            {
+                Console.CancelKeyPress -= smokeCancelHandler;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.Error.WriteLine(
+                "ERROR: Package launch smoke was cancelled; its process tree " +
+                "was terminated and a cancellation report was written.");
+            return 130;
         }
         catch (PackageValidationException error)
         {
@@ -2107,6 +2140,7 @@ internal static partial class Program
               acspackage verify <package.zip> [--report <new-report.json>] [--quiet]
               acspackage inspect <package.zip> [--json <new-file.json>] [--quiet]
               acspackage diff <left.zip> <right.zip> [--json <new-file.json>] [--quiet]
+              acspackage smoke <package.zip> [--report <report.json>] [--quiet]
               acspackage deps <game.exe> [additional-search-dir ...]
               acspackage distribution-e2e [--artifacts <new-temp-directory>]
               acspackage --self-test
@@ -2125,6 +2159,13 @@ internal static partial class Program
 
             Inspect/diff options:
               --json <new-file>        Atomically create a machine-readable JSON result
+              --quiet                  Suppress progress and human-readable summary
+
+            Smoke options:
+              --report <file>           Atomic package/launch report
+              --timeout-seconds <1..300>
+                                        Startup deadline (default: 45)
+              --max-extract-mib <mib>   Private extraction bound (default: 16384)
               --quiet                  Suppress progress and human-readable summary
 
             Distribution E2E:
@@ -2306,6 +2347,16 @@ internal static partial class Program
                 Path.Combine(executableMetadataRoot, "metadata-b.exe");
             File.Copy(executable, metadataCopyA);
             File.Copy(executable, metadataCopyB);
+            int volatileDebugEntryCount = PackageExecutableMetadataContract
+                .SetVolatilePeHeaderFieldsForSelfTest(
+                    metadataCopyB,
+                    timeDateStamp: 0xa1b2c3d4u,
+                    checksum: 0x11223344u,
+                    debugTimeDateStamp: 0x55667788u);
+            Assert(
+                volatileDebugEntryCount > 0,
+                "the executable metadata fixture must expose at least one " +
+                "IMAGE_DEBUG_DIRECTORY entry");
             PackageExecutableInspection metadataInspectionA =
                 PackageExecutableMetadataContract.ApplyFile(
                     metadataCopyA,
@@ -2322,8 +2373,9 @@ internal static partial class Program
                     expectedExecutableMetadata &&
                 metadataInspectionB.ProductMetadata ==
                     expectedExecutableMetadata,
-                "independently patched executable copies must be byte-identical " +
-                "and preserve exact product metadata");
+                "independently patched executable copies with distinct COFF, checksum, " +
+                "and IMAGE_DEBUG_DIRECTORY timestamps must be byte-identical and " +
+                "preserve exact product metadata");
             FileVersionInfo shellVersionInfo =
                 FileVersionInfo.GetVersionInfo(metadataCopyA);
             Assert(
@@ -2633,6 +2685,9 @@ internal static partial class Program
                 first.ProductMetadata?.Publisher == "ACS Package Self-Test" &&
                 first.ProductMetadata == second.ProductMetadata,
                 "completed packages must verify PE32+ x64 and preserve deterministic metadata");
+            await RunPackageLaunchSmokeContractSelfTestAsync(
+                first.ZipPath,
+                testRoot);
             string verificationReport = Path.Combine(
                 testRoot,
                 "package-verification.json");
@@ -3556,7 +3611,9 @@ internal static partial class Program
                 "canonical/bootstrap/product manifest, PE32+ AMD64 preflight, " +
                 "byte-identical VERSIONINFO publication, manifest-to-PE metadata " +
                 "round-trip, compatible/generated asInvoker manifests, " +
-                "2D+supported 3D package smoke, metadata/source exclusions, path rewrite, and " +
+                "2D+supported 3D package smoke, authenticated hidden first-frame " +
+                "launch/timeout/cancel reports with pre-instruction Job containment, " +
+                "metadata/source exclusions, path rewrite, and " +
                 "metadata/version/resource/identity-mismatch, malformed-manifest, " +
                 "traversal/reparse/runtime-adapter guards, plus standalone " +
                 "verification/inspection reports, adversarial ZIP/JSON/terminal and " +

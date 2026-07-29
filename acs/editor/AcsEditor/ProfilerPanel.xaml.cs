@@ -37,6 +37,14 @@ public partial class ProfilerPanel : UserControl
     private bool _captureBoundaryRequired;
     private bool _captureBoundaryArmed;
     private ulong _captureResetSerial;
+    private EditorOptionalServiceUiState _profilerServiceState =
+        EditorOptionalServiceUiState.Legacy(
+            EditorOptionalService.Profiler,
+            hostAvailable: false);
+    private EditorOptionalServiceUiState _cloudServiceState =
+        EditorOptionalServiceUiState.Legacy(
+            EditorOptionalService.VolumetricCloudWorkload,
+            hostAvailable: false);
 
     internal Func<IntPtr>? EngineProvider { get; set; }
     internal Func<EditorAbiCapability>? AbiCapabilitiesProvider {
@@ -50,6 +58,10 @@ public partial class ProfilerPanel : UserControl
     }
     internal Func<EditorDispatcherWatchdogSnapshot>?
         DispatcherWatchdogProvider { get; set; }
+    internal Func<
+        EditorOptionalService,
+        EditorOptionalServiceUiState>?
+        OptionalServiceUiStateProvider { get; set; }
     internal Action? ResetEditorPeaks { get; set; }
     internal event Action<string>? SummaryChanged;
 
@@ -250,10 +262,11 @@ public partial class ProfilerPanel : UserControl
         if (EditorProfilerPresentationPolicy.ShouldPresentManagedDiagnostics(
                 IsVisible))
             UpdateEditorUiMetrics();
+        IntPtr engine = EngineProvider?.Invoke() ?? IntPtr.Zero;
+        RefreshOptionalServiceStates(engine);
         if (_history.IsPaused || _interopUnavailable)
             return;
 
-        IntPtr engine = EngineProvider?.Invoke() ?? IntPtr.Zero;
         if (engine == IntPtr.Zero)
         {
             _latestCloudWorkloadStatus =
@@ -268,6 +281,17 @@ public partial class ProfilerPanel : UserControl
                         ? _latestSnapshot
                         : default);
             AvailabilityText.Text = "Waiting for renderer…";
+            return;
+        }
+
+        if (!_profilerServiceState.CanInvoke)
+        {
+            AvailabilityText.Text =
+                _profilerServiceState.StatusText;
+            AvailabilityText.ToolTip =
+                _profilerServiceState.ToolTip;
+            TimingSourceText.Text = "No timing source";
+            RefreshCloudSnapshot(engine, profilerFrameIndex: null);
             return;
         }
 
@@ -297,20 +321,7 @@ public partial class ProfilerPanel : UserControl
         long sampleTimestamp =
             System.Diagnostics.Stopwatch.GetTimestamp();
         AddRuntimeSample(snapshot.FrameIndex, sampleTimestamp);
-        _latestCloudWorkloadStatus =
-            EngineInterop.QueryCloudWorkloadSnapshot(
-                engine,
-                AbiCapabilitiesProvider?.Invoke() ??
-                    EditorAbiCapability.None,
-                out _latestCloudWorkload);
-        if (!EditorCloudWorkloadContract.BelongsToProfilerFrame(
-                _latestCloudWorkloadStatus,
-                _latestCloudWorkload,
-                snapshot.FrameIndex))
-        {
-            _latestCloudWorkloadStatus =
-                EditorCloudWorkloadQueryStatus.ContractError;
-        }
+        RefreshCloudSnapshot(engine, snapshot.FrameIndex);
         if (_history.Add(snapshot, sampleTimestamp))
         {
             _latestSnapshot = snapshot;
@@ -523,9 +534,20 @@ public partial class ProfilerPanel : UserControl
             _latestCloudWorkloadStatus;
         bool available =
             status == EditorCloudWorkloadQueryStatus.Available;
+        bool showServiceStatus =
+            _cloudServiceState.Source !=
+                EditorOptionalServiceUiSource.LegacyCompatibility &&
+            (_cloudServiceState.State !=
+                EditorOptionalServiceState.Enabled ||
+             !_cloudServiceState.CanInvoke);
 
         CloudStateValue.Text =
-            EditorCloudWorkloadFormatting.State(status, workload);
+            showServiceStatus
+                ? _cloudServiceState.StatusText
+                : EditorCloudWorkloadFormatting.State(
+                    status,
+                    workload);
+        CloudStateValue.ToolTip = _cloudServiceState.ToolTip;
         CloudResolutionValue.Text = available
             ? $"{workload.OutputWidth}x{workload.OutputHeight} / " +
               $"{workload.TraceWidth}x{workload.TraceHeight}"
@@ -658,6 +680,16 @@ public partial class ProfilerPanel : UserControl
 
     private void OnReset(object sender, RoutedEventArgs e)
     {
+        RefreshOptionalServiceStates(
+            EngineProvider?.Invoke() ?? IntPtr.Zero);
+        if (!_profilerServiceState.CanInvoke)
+        {
+            AvailabilityText.Text =
+                _profilerServiceState.StatusText;
+            AvailabilityText.ToolTip =
+                _profilerServiceState.ToolTip;
+            return;
+        }
         ResetAtCaptureBoundary();
     }
 
@@ -824,5 +856,97 @@ public partial class ProfilerPanel : UserControl
         CloudMetrics.Visibility = ShowCloudCheck.IsChecked == true
             ? Visibility.Visible : Visibility.Collapsed;
         HistoryGraph.InvalidateVisual();
+    }
+
+    private void RefreshOptionalServiceStates(IntPtr engine)
+    {
+        _profilerServiceState = ResolveOptionalServiceState(
+            EditorOptionalService.Profiler,
+            engine);
+        _cloudServiceState = ResolveOptionalServiceState(
+            EditorOptionalService.VolumetricCloudWorkload,
+            engine);
+
+        EditorOptionalServiceActionPolicy.ProfilerControlPlan controlPlan =
+            EditorOptionalServiceActionPolicy.PlanProfilerControls(
+                _profilerServiceState,
+                _cloudServiceState);
+        ResetButton.IsEnabled = controlPlan.ResetEnabled;
+        ResetButton.ToolTip = _profilerServiceState.ToolTip;
+        PauseButton.IsEnabled = controlPlan.PauseEnabled;
+        AvailabilityText.ToolTip =
+            _profilerServiceState.ToolTip;
+        ShowCloudCheck.IsEnabled = controlPlan.CloudFilterEnabled;
+        ShowCloudCheck.ToolTip = _cloudServiceState.ToolTip;
+        CloudMetrics.Opacity =
+            _cloudServiceState.CanInvoke ? 1.0 : 0.58;
+        CloudMetrics.ToolTip = _cloudServiceState.ToolTip;
+
+        if (!_profilerServiceState.CanInvoke &&
+            !_history.IsPaused)
+        {
+            AvailabilityText.Text =
+                _profilerServiceState.StatusText;
+            AvailabilityText.ToolTip =
+                _profilerServiceState.ToolTip;
+        }
+    }
+
+    private EditorOptionalServiceUiState ResolveOptionalServiceState(
+        EditorOptionalService service,
+        IntPtr engine)
+    {
+        Func<
+            EditorOptionalService,
+            EditorOptionalServiceUiState>? provider =
+            OptionalServiceUiStateProvider;
+        return provider != null
+            ? provider(service)
+            : EditorOptionalServiceUiState.Legacy(
+                service,
+                engine != IntPtr.Zero);
+    }
+
+    private void RefreshCloudSnapshot(
+        IntPtr engine,
+        ulong? profilerFrameIndex)
+    {
+        if (!_cloudServiceState.CanInvoke)
+        {
+            _latestCloudWorkloadStatus =
+                EditorCloudWorkloadQueryStatus.RuntimeUnavailable;
+            _latestCloudWorkload = default;
+            if (IsVisible)
+            {
+                UpdateCloudValues(
+                    _hasLatestSnapshot
+                        ? _latestSnapshot
+                        : default);
+            }
+            return;
+        }
+
+        _latestCloudWorkloadStatus =
+            EngineInterop.QueryCloudWorkloadSnapshot(
+                engine,
+                AbiCapabilitiesProvider?.Invoke() ??
+                    EditorAbiCapability.None,
+                out _latestCloudWorkload);
+        if (profilerFrameIndex.HasValue &&
+            !EditorCloudWorkloadContract.BelongsToProfilerFrame(
+                _latestCloudWorkloadStatus,
+                _latestCloudWorkload,
+                profilerFrameIndex.Value))
+        {
+            _latestCloudWorkloadStatus =
+                EditorCloudWorkloadQueryStatus.ContractError;
+        }
+        if (IsVisible)
+        {
+            UpdateCloudValues(
+                _hasLatestSnapshot
+                    ? _latestSnapshot
+                    : default);
+        }
     }
 }

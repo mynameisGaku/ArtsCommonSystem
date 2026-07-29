@@ -741,11 +741,13 @@ if ($Mode -eq "full") {
 
 $fastEditorTests = @(
     "--abi-contract-selftest",
+    "--optional-service-ui-selftest",
     "--document-host-selftest",
     "--material-preview-selftest",
     "--asset-browser-selftest",
     "--camera-authoring-selftest",
     "--inspector-multi-edit-selftest",
+    "--inspector-reflected-multi-edit-selftest",
     "--profiler-selftest",
     "--operation-diagnostics-selftest",
     "--project-launcher-responsiveness-selftest",
@@ -754,6 +756,7 @@ $fastEditorTests = @(
 )
 $allEditorTests = @(
     "--abi-contract-selftest",
+    "--optional-service-ui-selftest",
     "--autosave-selftest",
     "--scene-save-selftest",
     "--document-host-selftest",
@@ -769,6 +772,7 @@ $allEditorTests = @(
     "--workspace-selftest",
     "--camera-authoring-selftest",
     "--inspector-multi-edit-selftest",
+    "--inspector-reflected-multi-edit-selftest",
     "--profiler-selftest",
     "--operation-diagnostics-selftest",
     "--project-launcher-responsiveness-selftest",

@@ -130,6 +130,24 @@ headers, stale-handle and query/destroy races, unique host generations, and
 startup-pending service state are fixed by `ACS.EditorAbiLifecycle` and
 `--abi-contract-selftest`.
 
+The managed `EditorOptionalServiceUiSession` is the publication boundary
+between that query contract and WPF controls. It binds accepted results to both
+the current `EngineViewport` generation and the native host generation, keeps a
+monotonic diagnostic generation per service, and rejects a result if the
+managed identity changes during the query. When diagnostics v2 is not
+advertised, the editor preserves the previous capability-optional behavior.
+When it is advertised, malformed, stale, pending, disabled, or failed results
+fail closed for only the affected native service. Profiler Reset and Camera
+View request controls show the native message, stable code, typed error, and
+generations in their status/tooltip. Pause, capture export, the local Cloud
+workload visibility filter, Camera View Re-dock/close, and unrelated editor
+actions remain available.
+Missing `camera-view-requests-v1` retains the explicitly supported single
+legacy preview while disabling only multi-slot request mutation. The pure
+headless `--optional-service-ui-selftest` fixes compatibility fallback,
+per-service gating, exact reason presentation, host replacement, late result,
+and diagnostic-generation regression behavior.
+
 Startup is incremental:
 
 1. Create the child HWND and native host.
@@ -298,12 +316,21 @@ mixed component preserves each node's authored value. Enabled uses the same
 contract through a three-state header control. Mesh Renderer remains an
 ordinary native component card after Transform.
 
+Common reflected component properties are also multi-editable when every
+selected node contains exactly one component of the same type and the property
+schemas match exactly. Bool uses a tri-state value; integer, unsigned, enum,
+object-reference, float, and vector values preserve per-component mixed state.
+Sparse vector edits write only entered axes. Reset is exposed only when the
+native schema supplies a validated default. Duplicate component types, schema
+drift, unsupported strings, non-finite or inexact numeric input, and stale
+selection fail before mutation.
+
 Every batch captures all targets before writing, verifies native readback, and
 restores the failing target plus prior writes in reverse order when any write
 fails. One batch is enclosed by one canonical Scene document transaction, so
 Undo/Redo observes a single edit rather than one entry per node. See
 `docs/DetailsMultiEdit.md` for UI behavior, rollback boundaries, and the
-headless verification switch.
+headless verification switches.
 
 ### Editor camera and authored game cameras
 
@@ -654,6 +681,18 @@ cache identity. The last accepted profile is strict, bounded Editor state under
 profile so large directory imports do not open one modal per file. See
 `docs/AssetImporterSettings.md` for validation and transaction details.
 
+The first processed-import worker is source-preserving: it reads and validates
+the complete staged source bytes before any payload or `.acsmeta` publication.
+Its artifact key is path independent and combines source content with the
+canonical importer recipe. Strict, bounded, hash-verified envelopes are
+published atomically under
+`Temp/DerivedDataCache/AssetImports/v1`; a malformed, truncated, mismatched, or
+stale entry is ignored and rebuilt. Manual Import and Reimport use the same
+worker and cache path, so metadata and payload identity cannot diverge between
+the two flows. Native texture/mesh/audio transcoding and richer per-stage
+progress are intentionally later processors; v1 does not claim that copied
+source bytes are GPU-ready derived formats.
+
 Image and Material tiles retain the bounded decoded-image LRU for the current
 session and add a project-local persistent thumbnail DDC under
 `Temp/DerivedDataCache/AssetBrowserThumbnails`. Its key is derived from the
@@ -814,6 +853,14 @@ runtime unavailability, and an ABI error; an unattached/warming renderer,
 inactive cloud pass, or uninitialized cloud renderer is shown as unavailable
 rather than as a zero-cost frame.
 
+Before either snapshot call, the panel consumes its independent optional
+service diagnostic. A pending/failed Profiler disables native Reset but not
+local Pause or export of already retained history. A pending/failed Cloud
+service suppresses only its native snapshot query; the local visibility filter
+and remaining Profiler controls stay live. `Inactive` remains callable and
+reports the exact scene-feature reason rather than being treated as a contract
+failure.
+
 Frustum-culling counts describe the decision actually reused by the main-view
 draw paths. The UI reports culling disabled when the aggregate compatibility
 fallback cannot honor per-node decisions; it never presents visibility tests
@@ -928,7 +975,28 @@ Current Windows x64 packaging performs:
 4. `.acpak` creation and native verification;
 5. non-system runtime DLL resolution;
 6. manifest generation with payload hashes and content build identity;
-7. deterministic ZIP publication through atomic replacement.
+7. deterministic PE product metadata/application-manifest publication and
+   ZIP publication through atomic replacement;
+8. complete verification of a fixed private ZIP copy, bounded private
+   extraction, and a hidden authenticated first-frame runtime launch; and
+9. atomic package-report publication with stable gate diagnostics.
+
+`PackageLaunchSmoke` never executes the ZIP or the original Release output.
+It verifies the copied archive before extraction, takes executable identity
+only from that verified manifest, launches without shell/focus/visible window,
+and requires one nonce-authenticated readiness marker after a successful
+submit/present plus exit code zero. Its 45-second default deadline and external
+cancellation both terminate the process tree and drain bounded output before
+cleanup. Successful report JSON deliberately excludes observational values
+(wall time, measured duration, nonce, TEMP path, output) so repeated runs of
+the same package and limits are byte-identical. Package and smoke durations
+remain UI-only Build Results telemetry.
+The private ZIP is pinned without write/delete sharing across hash, verify,
+and extraction; the extracted executable is re-hashed to its manifest and
+similarly pinned across PE inspection and process creation. The child
+environment is rebuilt from an explicit Windows/runtime allowlist. Credential,
+CI, signing, cloud, and inherited tool/PATH state never crosses into packaged
+project code; writable profile and TEMP roots are isolated below smoke staging.
 
 Profiles are `Development`, `Test`, and `Shipping`. Test and Shipping use the
 verified compressed pack without redundant loose source assets. Development

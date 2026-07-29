@@ -1703,6 +1703,18 @@ internal static class AssetImportWorkflow
                 AssetImporterRecipeContract.Create(
                     assetKind,
                     importerSettings);
+            AssetImportDerivedDataResult processed =
+                AssetImportDerivedDataPipeline.GetOrCreate(
+                    database.ProjectRoot,
+                    stagedPayload,
+                    assetKind,
+                    Path.GetExtension(relativeDestination),
+                    recipe.Importer,
+                    recipe.ImporterVersion,
+                    recipe.Settings,
+                    snapshot.ContentHash,
+                    snapshot.Length,
+                    cancellationToken);
             var sourceSettings = new[]
             {
                 KeyValuePair.Create(
@@ -1718,6 +1730,9 @@ internal static class AssetImportWorkflow
             KeyValuePair<string, string>[] importSettings =
                 recipe.Settings
                     .Concat(sourceSettings)
+                    .Concat(
+                        AssetImportDerivedDataPipeline.MetadataSettings(
+                            processed))
                     .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
                     .ToArray();
             (AssetMetadata _, byte[] metadataBytes) =

@@ -18864,6 +18864,42 @@ ACS_EDITOR_API int acs_editor_component_prop_flags_at(const char* type_name, int
     return static_cast<int>(d->fields[static_cast<u32>(index)].flags);
 }
 
+/**
+ * 型名と index で、反射スキーマが公開する既定値を返す。
+ *
+ * Reset-to-default は現在値から推測してはならないため、managed Details は
+ * このスキーマ値だけを使用する。範囲外、未登録型、非有限な壊れたスキーマは
+ * 0 を返し、出力を変更しない。
+ */
+ACS_EDITOR_API int acs_editor_component_prop_default_at(
+    const char* type_name,
+    int index,
+    float* x,
+    float* y,
+    float* z,
+    float* w)
+{
+    if (type_name == nullptr || index < 0) return 0;
+    game::AcsRegisterEngineTypes();
+    const game::FTypeDesc* const descriptor =
+        game::FTypeRegistry::Get().FindByName(type_name);
+    if (descriptor == nullptr ||
+        index >= static_cast<int>(CompPropCount(descriptor))) {
+        return 0;
+    }
+
+    const f32* const defaults =
+        descriptor->fields[static_cast<u32>(index)].defaults;
+    for (u32 component = 0u; component < 4u; ++component) {
+        if (!std::isfinite(defaults[component])) return 0;
+    }
+    if (x != nullptr) *x = defaults[0];
+    if (y != nullptr) *y = defaults[1];
+    if (z != nullptr) *z = defaults[2];
+    if (w != nullptr) *w = defaults[3];
+    return 1;
+}
+
 /** 型名と index で、編集プロパティのカテゴリ名を返す (UPROPERTY(Category="…")。未指定は "")。 */
 ACS_EDITOR_API const char* acs_editor_component_prop_category_at(const char* type_name, int index) {
     if (type_name == nullptr || index < 0) return "";

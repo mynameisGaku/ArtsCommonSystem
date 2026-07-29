@@ -1050,6 +1050,31 @@ public static partial class ProjectManager
         catch { return false; }   // 書けなくてもビルドは試みる
     }
 
+    /// <summary>
+    /// Emits the stock standalone runtime only for the retained TEMP-only
+    /// distribution audit. Ordinary projects own Source/Game.cpp and this
+    /// helper must never be used as a repair or migration path.
+    /// </summary>
+    internal static void WriteGeneratedRuntimeSourceForDistributionAudit(
+        Project project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        string source = Path.Combine(project.RootDir, "Source");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(
+            Path.Combine(source, "Game.cpp"),
+            SceneLoaderSource,
+            Utf8NoBom);
+        File.WriteAllText(
+            Path.Combine(source, "CMakeLists.txt"),
+            CMakeTemplate(SanitizeIdent(project.Name), project.RootDir),
+            Utf8NoBom);
+        File.WriteAllText(
+            Path.Combine(source, ApiHeaderName(project.Name)),
+            ApiHeaderContent(SanitizeIdent(project.Name)),
+            Utf8NoBom);
+    }
+
     // エンジンが ACS_EXTERNAL_PROJECT_DIR=<Source> 経由で add_subdirectory する前提。
     // サンプルと同じく add_executable + ACS::GameFramework だけで済む。出力はプロジェクトの Binaries へ。
     private static string CMakeTemplate(string ident, string rootDir)

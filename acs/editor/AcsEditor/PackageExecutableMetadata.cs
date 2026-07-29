@@ -130,6 +130,7 @@ public static class PackageExecutableMetadataContract
                 _ = EndUpdateResource(update, discard: true);
         }
 
+        NormalizeDeterministicPeHeader(fullPath);
         _ = EnsureOrdinaryFile(fullPath);
         PackageExecutableInspection published =
             PackageExecutableContract.InspectFile(fullPath);
@@ -246,6 +247,20 @@ public static class PackageExecutableMetadataContract
             bytes);
     }
 
+    internal static int SetVolatilePeHeaderFieldsForSelfTest(
+        string path,
+        uint timeDateStamp,
+        uint checksum,
+        uint debugTimeDateStamp)
+    {
+        string fullPath = EnsureOrdinaryFile(path);
+        return WriteVolatilePeHeaderFields(
+            fullPath,
+            timeDateStamp,
+            checksum,
+            debugTimeDateStamp);
+    }
+
     internal static void ReplaceApplicationManifestForSelfTest(
         string path,
         byte[] bytes)
@@ -295,6 +310,413 @@ public static class PackageExecutableMetadataContract
             if (updateOpen)
                 _ = EndUpdateResource(update, discard: true);
         }
+    }
+
+    private static void NormalizeDeterministicPeHeader(string path) =>
+        _ = WriteVolatilePeHeaderFields(
+            path,
+            timeDateStamp: 0,
+            checksum: 0,
+            debugTimeDateStamp: 0);
+
+    private static int WriteVolatilePeHeaderFields(
+        string path,
+        uint timeDateStamp,
+        uint checksum,
+        uint debugTimeDateStamp)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None,
+            4096,
+            FileOptions.WriteThrough);
+        if (stream.Length < 0x40)
+            throw new InvalidDataException("Packaged executable DOS header is truncated.");
+
+        Span<byte> dosHeader = stackalloc byte[0x40];
+        stream.ReadExactly(dosHeader);
+        if (dosHeader[0] != (byte)'M' ||
+            dosHeader[1] != (byte)'Z')
+        {
+            throw new InvalidDataException(
+                "Packaged executable DOS signature is invalid.");
+        }
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(
+            dosHeader.Slice(0x3c, sizeof(int)));
+        const int coffHeaderBytes = 20;
+        const int checksumOffsetInOptionalHeader = 64;
+        const int checksumFieldBytes = sizeof(uint);
+        long minimumEnd =
+            (long)peOffset +
+            4 +
+            coffHeaderBytes +
+            checksumOffsetInOptionalHeader +
+            checksumFieldBytes;
+        if (peOffset < 0x40 ||
+            minimumEnd > stream.Length)
+        {
+            throw new InvalidDataException(
+                "Packaged executable PE header range is invalid.");
+        }
+
+        stream.Position = peOffset;
+        Span<byte> peAndCoff = stackalloc byte[4 + coffHeaderBytes];
+        stream.ReadExactly(peAndCoff);
+        if (!peAndCoff[..4].SequenceEqual("PE\0\0"u8))
+            throw new InvalidDataException("Packaged executable PE signature is invalid.");
+
+        ushort optionalHeaderBytes =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                peAndCoff.Slice(4 + 16, sizeof(ushort)));
+        if (optionalHeaderBytes <
+                checksumOffsetInOptionalHeader + checksumFieldBytes ||
+            (long)peOffset + 4 + coffHeaderBytes + optionalHeaderBytes >
+                stream.Length)
+        {
+            throw new InvalidDataException(
+                "Packaged executable optional header range is invalid.");
+        }
+
+        long optionalHeaderOffset = (long)peOffset + 4 + coffHeaderBytes;
+        byte[] optionalHeader = new byte[optionalHeaderBytes];
+        stream.Position = optionalHeaderOffset;
+        stream.ReadExactly(optionalHeader);
+        ushort magic =
+            BinaryPrimitives.ReadUInt16LittleEndian(optionalHeader);
+        if (magic is not (0x010b or 0x020b))
+        {
+            throw new InvalidDataException(
+                "Packaged executable optional header format is unsupported.");
+        }
+
+        NormalizeResourceDirectoryTimestamps(
+            stream,
+            peAndCoff,
+            optionalHeader,
+            optionalHeaderOffset + optionalHeaderBytes,
+            magic);
+        int debugDirectoryEntries =
+            WriteDebugDirectoryTimestamps(
+                stream,
+                peAndCoff,
+                optionalHeader,
+                optionalHeaderOffset + optionalHeaderBytes,
+                magic,
+                debugTimeDateStamp);
+
+        Span<byte> value = stackalloc byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(value, timeDateStamp);
+        stream.Position = (long)peOffset + 4 + 4;
+        stream.Write(value);
+        BinaryPrimitives.WriteUInt32LittleEndian(value, checksum);
+        stream.Position =
+            optionalHeaderOffset + checksumOffsetInOptionalHeader;
+        stream.Write(value);
+        stream.Flush(flushToDisk: true);
+        return debugDirectoryEntries;
+    }
+
+    private static void NormalizeResourceDirectoryTimestamps(
+        FileStream stream,
+        ReadOnlySpan<byte> peAndCoff,
+        ReadOnlySpan<byte> optionalHeader,
+        long sectionTableOffset,
+        ushort optionalMagic)
+    {
+        const int sectionHeaderBytes = 40;
+        const int resourceDirectoryIndex = 2;
+        const int dataDirectoryEntryBytes = 8;
+        const int maximumResourceDirectoryBytes = 64 * 1024 * 1024;
+        const int maximumDirectoryVisits = 4096;
+        const int maximumDirectoryEntries = 16 * 1024;
+
+        ushort sectionCount =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                peAndCoff.Slice(4 + 2, sizeof(ushort)));
+        if (sectionCount is 0 or > 96 ||
+            sectionTableOffset +
+                checked((long)sectionCount * sectionHeaderBytes) >
+            stream.Length)
+        {
+            throw new InvalidDataException(
+                "Packaged executable section table is invalid.");
+        }
+
+        int countOffset = optionalMagic == 0x020b ? 108 : 92;
+        int directoryOffset = optionalMagic == 0x020b ? 112 : 96;
+        if (optionalHeader.Length < directoryOffset)
+        {
+            throw new InvalidDataException(
+                "Packaged executable data-directory header is truncated.");
+        }
+        uint directoryCount =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                optionalHeader.Slice(countOffset, sizeof(uint)));
+        int availableDirectories =
+            (optionalHeader.Length - directoryOffset) /
+            dataDirectoryEntryBytes;
+        if (directoryCount > availableDirectories)
+        {
+            throw new InvalidDataException(
+                "Packaged executable data-directory count is invalid.");
+        }
+        if (directoryCount <= resourceDirectoryIndex)
+            return;
+
+        int resourceEntry =
+            directoryOffset +
+            resourceDirectoryIndex * dataDirectoryEntryBytes;
+        uint resourceRva =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                optionalHeader.Slice(resourceEntry, sizeof(uint)));
+        uint resourceSize =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                optionalHeader.Slice(
+                    resourceEntry + sizeof(uint),
+                    sizeof(uint)));
+        if (resourceRva == 0 && resourceSize == 0)
+            return;
+        if (resourceRva == 0 ||
+            resourceSize is 0 or > maximumResourceDirectoryBytes)
+        {
+            throw new InvalidDataException(
+                "Packaged executable resource directory is invalid.");
+        }
+
+        byte[] sectionTable =
+            new byte[checked(sectionCount * sectionHeaderBytes)];
+        stream.Position = sectionTableOffset;
+        stream.ReadExactly(sectionTable);
+        long rawStart = -1;
+        for (int index = 0; index < sectionCount; ++index)
+        {
+            ReadOnlySpan<byte> section = sectionTable.AsSpan(
+                index * sectionHeaderBytes,
+                sectionHeaderBytes);
+            uint virtualSize =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(8, 4));
+            uint virtualAddress =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(12, 4));
+            uint rawSize =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(16, 4));
+            uint rawOffset =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(20, 4));
+            ulong mappedSize = Math.Max((ulong)virtualSize, rawSize);
+            if (resourceRva < virtualAddress ||
+                (ulong)resourceRva >=
+                    (ulong)virtualAddress + mappedSize)
+            {
+                continue;
+            }
+            if (rawStart >= 0)
+            {
+                throw new InvalidDataException(
+                    "Packaged executable resource directory maps ambiguously.");
+            }
+            ulong delta = resourceRva - virtualAddress;
+            ulong rawEnd =
+                (ulong)rawOffset + delta + resourceSize;
+            if (delta > rawSize ||
+                rawEnd > (ulong)rawOffset + rawSize ||
+                rawEnd > (ulong)stream.Length)
+            {
+                throw new InvalidDataException(
+                    "Packaged executable resource directory range is invalid.");
+            }
+            rawStart = checked((long)((ulong)rawOffset + delta));
+        }
+        if (rawStart < 0)
+        {
+            throw new InvalidDataException(
+                "Packaged executable resource directory is unmapped.");
+        }
+
+        byte[] resource = new byte[checked((int)resourceSize)];
+        stream.Position = rawStart;
+        stream.ReadExactly(resource);
+        var pending = new Stack<int>();
+        var visited = new HashSet<int>();
+        pending.Push(0);
+        int totalEntries = 0;
+        while (pending.Count > 0)
+        {
+            int offset = pending.Pop();
+            if (!visited.Add(offset) ||
+                visited.Count > maximumDirectoryVisits ||
+                offset < 0 ||
+                offset > resource.Length - 16)
+            {
+                throw new InvalidDataException(
+                    "Packaged executable resource directory graph is invalid.");
+            }
+
+            resource.AsSpan(offset + 4, sizeof(uint)).Clear();
+            int entryCount =
+                BinaryPrimitives.ReadUInt16LittleEndian(
+                    resource.AsSpan(offset + 12, sizeof(ushort))) +
+                BinaryPrimitives.ReadUInt16LittleEndian(
+                    resource.AsSpan(offset + 14, sizeof(ushort)));
+            totalEntries = checked(totalEntries + entryCount);
+            long entriesEnd =
+                (long)offset + 16L + (long)entryCount * 8L;
+            if (totalEntries > maximumDirectoryEntries ||
+                entriesEnd > resource.Length)
+            {
+                throw new InvalidDataException(
+                    "Packaged executable resource directory entries are invalid.");
+            }
+            for (int entry = 0; entry < entryCount; ++entry)
+            {
+                uint target =
+                    BinaryPrimitives.ReadUInt32LittleEndian(
+                        resource.AsSpan(
+                            offset + 16 + entry * 8 + 4,
+                            sizeof(uint)));
+                if ((target & 0x80000000u) != 0)
+                    pending.Push(checked((int)(target & 0x7fffffffu)));
+            }
+        }
+
+        stream.Position = rawStart;
+        stream.Write(resource);
+    }
+
+    private static int WriteDebugDirectoryTimestamps(
+        FileStream stream,
+        ReadOnlySpan<byte> peAndCoff,
+        ReadOnlySpan<byte> optionalHeader,
+        long sectionTableOffset,
+        ushort optionalMagic,
+        uint timeDateStamp)
+    {
+        const int sectionHeaderBytes = 40;
+        const int debugDirectoryIndex = 6;
+        const int dataDirectoryEntryBytes = 8;
+        const int debugDirectoryEntryBytes = 28;
+        const int timestampOffset = 4;
+        const int maximumDebugDirectoryEntries = 64 * 1024;
+
+        ushort sectionCount =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                peAndCoff.Slice(4 + 2, sizeof(ushort)));
+        if (sectionCount is 0 or > 96 ||
+            sectionTableOffset +
+                checked((long)sectionCount * sectionHeaderBytes) >
+            stream.Length)
+        {
+            throw new InvalidDataException(
+                "Packaged executable section table is invalid.");
+        }
+
+        int countOffset = optionalMagic == 0x020b ? 108 : 92;
+        int directoryOffset = optionalMagic == 0x020b ? 112 : 96;
+        if (optionalHeader.Length < directoryOffset)
+        {
+            throw new InvalidDataException(
+                "Packaged executable data-directory header is truncated.");
+        }
+        uint directoryCount =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                optionalHeader.Slice(countOffset, sizeof(uint)));
+        int availableDirectories =
+            (optionalHeader.Length - directoryOffset) /
+            dataDirectoryEntryBytes;
+        if (directoryCount > availableDirectories)
+        {
+            throw new InvalidDataException(
+                "Packaged executable data-directory count is invalid.");
+        }
+        if (directoryCount <= debugDirectoryIndex)
+            return 0;
+
+        int debugEntry =
+            directoryOffset +
+            debugDirectoryIndex * dataDirectoryEntryBytes;
+        uint debugRva =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                optionalHeader.Slice(debugEntry, sizeof(uint)));
+        uint debugSize =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                optionalHeader.Slice(
+                    debugEntry + sizeof(uint),
+                    sizeof(uint)));
+        if (debugRva == 0 && debugSize == 0)
+            return 0;
+        if (debugRva == 0 ||
+            debugSize == 0 ||
+            debugSize % debugDirectoryEntryBytes != 0)
+        {
+            throw new InvalidDataException(
+                "Packaged executable debug directory is invalid.");
+        }
+        uint debugEntryCount = debugSize / debugDirectoryEntryBytes;
+        if (debugEntryCount > maximumDebugDirectoryEntries)
+        {
+            throw new InvalidDataException(
+                "Packaged executable debug directory exceeds supported bounds.");
+        }
+
+        byte[] sectionTable =
+            new byte[checked(sectionCount * sectionHeaderBytes)];
+        stream.Position = sectionTableOffset;
+        stream.ReadExactly(sectionTable);
+        long rawStart = -1;
+        for (int index = 0; index < sectionCount; ++index)
+        {
+            ReadOnlySpan<byte> section = sectionTable.AsSpan(
+                index * sectionHeaderBytes,
+                sectionHeaderBytes);
+            uint virtualSize =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(8, 4));
+            uint virtualAddress =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(12, 4));
+            uint rawSize =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(16, 4));
+            uint rawOffset =
+                BinaryPrimitives.ReadUInt32LittleEndian(section.Slice(20, 4));
+            ulong mappedSize = Math.Max((ulong)virtualSize, rawSize);
+            if (debugRva < virtualAddress ||
+                (ulong)debugRva >=
+                    (ulong)virtualAddress + mappedSize)
+            {
+                continue;
+            }
+            if (rawStart >= 0)
+            {
+                throw new InvalidDataException(
+                    "Packaged executable debug directory maps ambiguously.");
+            }
+            ulong delta = debugRva - virtualAddress;
+            ulong rawEnd = (ulong)rawOffset + delta + debugSize;
+            if (delta > rawSize ||
+                rawEnd > (ulong)rawOffset + rawSize ||
+                rawEnd > (ulong)stream.Length)
+            {
+                throw new InvalidDataException(
+                    "Packaged executable debug directory range is invalid.");
+            }
+            rawStart = checked((long)((ulong)rawOffset + delta));
+        }
+        if (rawStart < 0)
+        {
+            throw new InvalidDataException(
+                "Packaged executable debug directory is unmapped.");
+        }
+
+        Span<byte> value = stackalloc byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(value, timeDateStamp);
+        for (uint index = 0; index < debugEntryCount; ++index)
+        {
+            stream.Position =
+                rawStart +
+                checked((long)index * debugDirectoryEntryBytes) +
+                timestampOffset;
+            stream.Write(value);
+        }
+        return checked((int)debugEntryCount);
     }
 
     private static byte[] BuildVersionInfo(

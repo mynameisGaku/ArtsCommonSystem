@@ -1289,6 +1289,12 @@ public partial class MainWindow : Window
         ProfilerView.AbiCapabilitiesProvider =
             () => _viewport?.AbiCapabilities ??
                   EditorAbiCapability.None;
+        ProfilerView.OptionalServiceUiStateProvider =
+            service =>
+                _viewport?.GetOptionalServiceUiState(service) ??
+                EditorOptionalServiceUiState.Legacy(
+                    service,
+                    hostAvailable: false);
         ProfilerView.LogPumpProvider = GetEditorLogPumpSnapshot;
         ProfilerView.NativeRenderProvider =
             () => _viewport?.GetNativeRenderDiagnostic() ?? default;

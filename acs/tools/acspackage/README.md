@@ -8,7 +8,8 @@ the path-safe deterministic dependency-closure Cook, creates and natively
 verifies the existing `.acpak` v1 format, stages the game, writes a pack/file
 SHA-256 manifest with optional distribution metadata, publishes matching
 canonical PE `VERSIONINFO` plus a compatible/generated application manifest
-to the private staged EXE, and creates a deterministic ZIP.
+to the private staged EXE, creates a deterministic ZIP, then verifies a hidden
+first-frame runtime launch and writes a structured package report.
 
 ```powershell
 dotnet run --project tools/acspackage -- package `
@@ -29,6 +30,11 @@ dotnet run --project tools/acspackage -- diff `
   Build/Packages/Game-1.0.0-win64.zip `
   Build/Packages/Game-1.0.1-win64.zip `
   --json Build/Reports/Game-1.0.0-to-1.0.1.json
+
+dotnet run --project tools/acspackage -- smoke `
+  Build/Packages/Game-1.0.0-win64.zip `
+  --report Build/Reports/Game-1.0.0-package.json `
+  --timeout-seconds 45
 
 dotnet run --project tools/acspackage -- distribution-e2e
 
@@ -98,6 +104,51 @@ line to 512 characters. JSON preserves the raw semantic strings; the serializer
 performs its normal JSON escaping. `--quiet` suppresses progress and
 human-readable summaries while preserving exit codes and JSON output. Neither
 command extracts or executes package content.
+
+`package` and Editor Package automatically run the `smoke` contract after the
+ZIP has passed complete verification. `smoke` first copies the ordinary ZIP to
+a unique private TEMP directory, hashes and verifies that fixed copy, and
+extracts it with path/reparse/collision checks and a 16 GiB default bound. It
+starts only the verified manifest executable with shell execution disabled,
+redirected bounded output, `CreateNoWindow`, and a hidden real ACS window.
+The original ZIP and Release executable are never mutated.
+
+The runtime accepts only a random 64-character lowercase-hex nonce from
+`ACS_PACKAGE_SMOKE_TOKEN`. After Scene startup and the first successful
+submit/present it emits exactly one authenticated readiness line and exits
+cleanly. Missing/duplicate readiness, non-zero exit, or a 45-second default
+deadline fails. Timeout, Ctrl+C cancellation, and editor shutdown terminate
+the complete process tree and drain output before private staging is removed.
+The timeout is configurable from 1 to 300 seconds; extraction has a 128 GiB
+hard ceiling. Hidden startup skips `ShowWindow`, does not activate the game,
+and suppresses machine-driven crash/error prompts.
+The launch root is created suspended, contained in a Windows kill-on-close Job
+Object before its first instruction, and then resumed. Remaining descendants
+are terminated after the root exits and before pipe draining, so a helper
+cannot escape the create/assign interval, outlive a successful smoke, or retain
+private staging.
+Before launch, non-write-sharing handles pin the private ZIP through
+verification/extraction and the manifest-hashed EXE through PE inspection and
+`CreateProcess`, closing the verify-to-launch replacement window. The child
+environment starts empty: user/CI/cloud/signing/tool credential variables and
+the inherited `PATH` are not forwarded. Windows paths and runtime identity are
+derived from runtime/OS APIs rather than caller variables; System32 `PATH`,
+TEMP, AppData, profile, and managed CLI state are rebased into private staging.
+
+`smoke` returns `0` only when archive verification, extraction, readiness,
+clean exit, and cleanup pass; `1` reports a validation/startup failure, `2`
+invalid usage, and `130` cancellation. It atomically writes
+`<package>.package-report.json` by default. Successful JSON contains stable
+archive/build/profile/executable identity, hashes, bounds, and per-gate checks,
+but no timestamp, nonce, TEMP path, captured logs, or observed duration, so
+identical inputs and limits produce byte-identical reports. Failure reports
+add stable codes and bounded nonce/TEMP-redacted output excerpts. Re-running
+replaces only an ordinary report file; it cannot alias the ZIP.
+Readiness is counted by a streaming finite-state recognizer independent of the
+8 MiB diagnostic capture, so late duplicate markers fail closed. A cleanup
+failure also makes the report and command fail. Ctrl+C during both standalone
+`smoke` and the automatic post-`package` smoke cancels the bounded runner,
+terminates its child tree, and writes the cancellation report.
 
 Profiles are `Development`, `Test`, and `Shipping`. Test/Shipping use a
 verified compressed `game.acpak` without redundant loose source assets;

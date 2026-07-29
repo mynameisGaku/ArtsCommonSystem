@@ -669,6 +669,14 @@ public sealed class AssetDatabase
             foreach (KeyValuePair<string, string> entry in
                 current.Metadata.ImportSettings)
             {
+                // Source fingerprints and processed-artifact diagnostics are
+                // derived state. Never carry stale or case-spoofed variants
+                // forward; the reimport transaction supplies one authoritative
+                // replacement set after validating the staged source.
+                if (IsDynamicImportSetting(entry.Key))
+                {
+                    continue;
+                }
                 settings.Add(entry.Key, entry.Value);
             }
             foreach (KeyValuePair<string, string> entry in sourceFingerprint)
@@ -1391,6 +1399,23 @@ public sealed class AssetDatabase
                 throw new InvalidDataException($"Duplicate import setting '{key}'.");
         }
         return new ReadOnlyDictionary<string, string>(result);
+    }
+
+    internal static bool IsDynamicImportSetting(string key)
+    {
+        string normalized = key?.Trim() ?? "";
+        return normalized.Equals(
+                   "sourceContentHash",
+                   StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals(
+                   "sourceLastWriteUtcTicks",
+                   StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals(
+                   "sourceSizeBytes",
+                   StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith(
+                   "processed",
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeMetadataText(string? value, string field, int maxLength)

@@ -88,7 +88,9 @@ public sealed record PackageVerificationResult(
     string AssetPackSha256,
     int CookedAssetCount,
     PackageProfile Profile,
-    PackageProductMetadata? ProductMetadata = null);
+    PackageProductMetadata? ProductMetadata = null,
+    string Executable = "",
+    string ExecutableSha256 = "");
 
 public sealed class PackageValidationException : InvalidOperationException
 {
@@ -1444,6 +1446,11 @@ public static class PackageCore
         }
         ZipArchiveEntry executableEntry =
             entriesByPath[packageId + "/" + manifest.executable];
+        ManifestFile executableFile = manifest.files.First(file =>
+            string.Equals(
+                file.path,
+                manifest.executable,
+                StringComparison.OrdinalIgnoreCase));
         await using (Stream executableStream = executableEntry.Open())
         {
             PackageExecutableInspection executableInspection =
@@ -1498,7 +1505,9 @@ public static class PackageCore
             assetPack.sha256,
             assetPack.sourceFileCount,
             profile,
-            manifest.productMetadata);
+            manifest.productMetadata,
+            manifest.executable,
+            executableFile.sha256);
     }
 
     /// <summary>

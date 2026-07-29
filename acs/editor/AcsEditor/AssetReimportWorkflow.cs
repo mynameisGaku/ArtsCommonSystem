@@ -194,17 +194,34 @@ internal static class AssetReimportWorkflow
                 source,
                 newAsset,
                 cancellationToken);
-            var fingerprint = new[]
-            {
-                KeyValuePair.Create("sourceContentHash", sourceSnapshot.Hash),
+            AssetImportDerivedDataResult processed =
+                AssetImportDerivedDataPipeline.GetOrCreate(
+                    database.ProjectRoot,
+                    newAsset,
+                    current.Kind,
+                    Path.GetExtension(current.RelativePath),
+                    current.Metadata.Importer,
+                    current.Metadata.ImporterVersion,
+                    current.Metadata.ImportSettings,
+                    sourceSnapshot.Hash,
+                    sourceSnapshot.Length,
+                    cancellationToken);
+            KeyValuePair<string, string>[] fingerprint =
+            [
+                KeyValuePair.Create(
+                    "sourceContentHash",
+                    sourceSnapshot.Hash),
                 KeyValuePair.Create(
                     "sourceLastWriteUtcTicks",
                     sourceSnapshot.LastWriteUtcTicks.ToString(
                         CultureInfo.InvariantCulture)),
                 KeyValuePair.Create(
                     "sourceSizeBytes",
-                    sourceSnapshot.Length.ToString(CultureInfo.InvariantCulture)),
-            };
+                    sourceSnapshot.Length.ToString(
+                        CultureInfo.InvariantCulture)),
+                .. AssetImportDerivedDataPipeline.MetadataSettings(
+                    processed),
+            ];
             (AssetRecord authoritative, AssetMetadata _, byte[] metadataBytes) =
                 database.CreateReimportMetadataPayload(
                     current.AssetId,

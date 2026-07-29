@@ -5,7 +5,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace AcsEditor;
 
@@ -200,6 +203,192 @@ internal static class AssetImporterSettingsSelfTest
 
             if (record != null)
             {
+                string processedKey =
+                    record.Metadata.ImportSettings["processedArtifactKey"];
+                string processedEntry =
+                    AssetImportDerivedDataPipeline.GetEntryPath(
+                        root,
+                        processedKey);
+                byte[] processedEntryBytes =
+                    File.Exists(processedEntry)
+                        ? File.ReadAllBytes(processedEntry)
+                        : [];
+                Check(
+                    processedKey.Length == 64 &&
+                    record.Metadata.ImportSettings[
+                        "processedArtifactSchema"] == "1" &&
+                    record.Metadata.ImportSettings[
+                        "processedProcessor"] == "texture.worker" &&
+                    record.Metadata.ImportSettings[
+                        "processedProcessorVersion"] == "1" &&
+                    record.Metadata.ImportSettings[
+                        "processedFormat"] == "png" &&
+                    processedEntryBytes.Length < 256 * 1024 &&
+                    !ContainsBytes(
+                        processedEntryBytes,
+                        Encoding.UTF8.GetBytes(root)),
+                    "import worker publishes a bounded content-addressed artifact before source publication");
+
+                Check(
+                    RejectsCancelledDerivedData(root, record),
+                    "processed import observes cancellation before cache reuse or publication");
+
+                AssetImportDerivedDataResult changedRecipe =
+                    AssetImportDerivedDataPipeline.GetOrCreate(
+                        root,
+                        record.FullPath,
+                        record.Kind,
+                        Path.GetExtension(record.RelativePath),
+                        record.Metadata.Importer,
+                        record.Metadata.ImporterVersion,
+                        textureChanged.Settings,
+                        record.ContentHash,
+                        record.SizeBytes);
+                var versionThreeSettings =
+                    new SortedDictionary<string, string>(
+                        textureA.Settings
+                            .Where(static pair =>
+                                pair.Key != "recipeHash")
+                            .ToDictionary(
+                                static pair => pair.Key,
+                                static pair => pair.Value,
+                                StringComparer.Ordinal),
+                        StringComparer.Ordinal);
+                versionThreeSettings["recipeHash"] =
+                    AssetImporterRecipeContract.ComputeRecipeHash(
+                        textureA.Importer,
+                        3,
+                        versionThreeSettings);
+                AssetImportDerivedDataResult changedVersion =
+                    AssetImportDerivedDataPipeline.GetOrCreate(
+                        root,
+                        record.FullPath,
+                        record.Kind,
+                        Path.GetExtension(record.RelativePath),
+                        record.Metadata.Importer,
+                        3,
+                        versionThreeSettings,
+                        record.ContentHash,
+                        record.SizeBytes);
+                Check(
+                    changedRecipe.Key != processedKey &&
+                    changedVersion.Key != processedKey &&
+                    changedVersion.Key != changedRecipe.Key,
+                    "processed identity changes with recipe settings and importer version");
+
+                var spoofedDynamicSettings =
+                    new Dictionary<string, string>(
+                        record.Metadata.ImportSettings,
+                        StringComparer.Ordinal)
+                    {
+                        ["ProcessedArtifactKey"] =
+                            new string('a', 64),
+                        ["processedFutureTelemetry"] = root,
+                    };
+                AssetImportDerivedDataResult ignoredSpoof =
+                    AssetImportDerivedDataPipeline.GetOrCreate(
+                        root,
+                        record.FullPath,
+                        record.Kind,
+                        Path.GetExtension(record.RelativePath),
+                        record.Metadata.Importer,
+                        record.Metadata.ImporterVersion,
+                        spoofedDynamicSettings,
+                        record.ContentHash,
+                        record.SizeBytes);
+                var pathBearingRecipe =
+                    new SortedDictionary<string, string>(
+                        textureA.Settings
+                            .Where(static pair =>
+                                pair.Key != "recipeHash")
+                            .ToDictionary(
+                                static pair => pair.Key,
+                                static pair => pair.Value,
+                                StringComparer.Ordinal),
+                        StringComparer.Ordinal)
+                    {
+                        ["privateToolHint"] = root,
+                    };
+                pathBearingRecipe["recipeHash"] =
+                    AssetImporterRecipeContract.ComputeRecipeHash(
+                        textureA.Importer,
+                        textureA.ImporterVersion,
+                        pathBearingRecipe);
+                AssetImportDerivedDataResult pathBearing =
+                    AssetImportDerivedDataPipeline.GetOrCreate(
+                        root,
+                        record.FullPath,
+                        record.Kind,
+                        Path.GetExtension(record.RelativePath),
+                        record.Metadata.Importer,
+                        record.Metadata.ImporterVersion,
+                        pathBearingRecipe,
+                        record.ContentHash,
+                        record.SizeBytes);
+                Check(
+                    ignoredSpoof.Key == processedKey &&
+                    !ContainsBytes(
+                        File.ReadAllBytes(processedEntry),
+                        Encoding.UTF8.GetBytes(root)) &&
+                    !ContainsBytes(
+                        File.ReadAllBytes(
+                            AssetImportDerivedDataPipeline.GetEntryPath(
+                                root,
+                                pathBearing.Key)),
+                        Encoding.UTF8.GetBytes(root)),
+                    "reserved metadata cannot spoof identity and recipe values do not leak project paths");
+
+                Check(
+                    RejectsDerivedDataBoundaryViolations(
+                        root,
+                        record),
+                    "processed import bounds source identity, cache keys, and recipe allocation");
+
+                Check(
+                    ConcurrentPublishSucceeds(
+                        root,
+                        record,
+                        processedEntry,
+                        processedKey),
+                    "concurrent publishers converge on one canonical atomic cache entry");
+
+                AssetImportOperationResult sameSourceImport =
+                    AssetImportWorkflow.ImportFiles(
+                        database,
+                        assets,
+                        [source],
+                        importerSettings: normalized);
+                string sameSourceDestination =
+                    sameSourceImport.Imported.Single().DestinationPath;
+                bool foundSameSource = database.TryGetByPath(
+                    sameSourceDestination,
+                    out AssetRecord? sameSourceRecord);
+                Check(
+                    foundSameSource &&
+                    sameSourceRecord?.Metadata.ImportSettings[
+                        "processedArtifactKey"] == processedKey,
+                    "processed import identity is destination-independent");
+
+                File.WriteAllBytes(
+                    processedEntry,
+                    Encoding.ASCII.GetBytes("corrupt import ddc"));
+                AssetImportOperationResult rebuiltImport =
+                    AssetImportWorkflow.ImportFiles(
+                        database,
+                        assets,
+                        [source],
+                        importerSettings: normalized);
+                bool foundRebuilt = database.TryGetByPath(
+                    rebuiltImport.Imported.Single().DestinationPath,
+                    out AssetRecord? rebuiltRecord);
+                Check(
+                    foundRebuilt &&
+                    rebuiltRecord?.Metadata.ImportSettings[
+                        "processedArtifactKey"] == processedKey &&
+                    new FileInfo(processedEntry).Length >
+                        Encoding.ASCII.GetByteCount("corrupt import ddc"),
+                    "corrupt processed import entries rebuild deterministically");
+
                 string cacheA =
                     DerivedDataCache.ComputeKey(
                         record,
@@ -224,6 +413,13 @@ internal static class AssetImporterSettingsSelfTest
                     cacheA != cacheB,
                     "importer recipe settings invalidate derived-data identity");
 
+                record = database.UpdateImportMetadata(
+                    record.AssetId,
+                    record.Metadata.Source,
+                    record.Metadata.Importer,
+                    record.Metadata.ImporterVersion,
+                    record.Metadata.Dependencies,
+                    spoofedDynamicSettings);
                 File.WriteAllBytes(
                     source,
                     [0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03, 0x04]);
@@ -231,6 +427,9 @@ internal static class AssetImporterSettingsSelfTest
                     AssetReimportWorkflow.Reimport(
                         database,
                         record.AssetId);
+                string reimportedProcessedKey =
+                    reimported.Asset.Metadata.ImportSettings[
+                        "processedArtifactKey"];
                 Check(
                     reimported.Asset.Metadata.Importer == "texture" &&
                     reimported.Asset.Metadata.ImporterVersion == 2 &&
@@ -239,17 +438,66 @@ internal static class AssetImporterSettingsSelfTest
                     reimported.Asset.Metadata.ImportSettings["colorSpace"] ==
                         "linear" &&
                     reimported.Asset.Metadata.ImportSettings["generateMipmaps"] ==
-                        "false",
-                    "reimport preserves the accepted canonical recipe");
+                        "false" &&
+                    !reimported.Asset.Metadata.ImportSettings.ContainsKey(
+                        "ProcessedArtifactKey") &&
+                    !reimported.Asset.Metadata.ImportSettings.ContainsKey(
+                        "processedFutureTelemetry") &&
+                    reimportedProcessedKey != processedKey &&
+                    File.Exists(
+                        AssetImportDerivedDataPipeline.GetEntryPath(
+                            root,
+                            reimportedProcessedKey)),
+                    "reimport preserves its recipe and advances processed identity with source content");
+
+                var tamperedSettings = new Dictionary<string, string>(
+                    reimported.Asset.Metadata.ImportSettings,
+                    StringComparer.Ordinal)
+                {
+                    ["colorSpace"] = "srgb",
+                };
+                Check(
+                    RejectsDerivedData(
+                        root,
+                        reimported.Asset,
+                        tamperedSettings),
+                    "processed import rejects recipe metadata tampering before cache publication");
             }
             else
             {
                 Check(
                     false,
+                    "import worker publishes a bounded content-addressed artifact before source publication");
+                Check(
+                    false,
+                    "processed import observes cancellation before cache reuse or publication");
+                Check(
+                    false,
+                    "processed identity changes with recipe settings and importer version");
+                Check(
+                    false,
+                    "reserved metadata cannot spoof identity and recipe values do not leak project paths");
+                Check(
+                    false,
+                    "processed import bounds source identity, cache keys, and recipe allocation");
+                Check(
+                    false,
+                    "concurrent publishers converge on one canonical atomic cache entry");
+                Check(
+                    false,
+                    "processed import identity is destination-independent");
+                Check(
+                    false,
+                    "corrupt processed import entries rebuild deterministically");
+                Check(
+                    false,
                     "importer recipe settings invalidate derived-data identity");
                 Check(
                     false,
-                    "reimport preserves the accepted canonical recipe");
+                    "reimport preserves its recipe and advances processed identity with source content");
+                Check(
+                    false,
+                    "processed import rejects recipe metadata tampering before cache publication");
             }
 
             string recursiveSource = Path.Combine(sourceDirectory, "Batch");
@@ -292,7 +540,13 @@ internal static class AssetImporterSettingsSelfTest
                 recursiveTexture.Metadata.ImportSettings["recipeHash"] ==
                     textureA.RecipeHash &&
                 recursiveMesh.Metadata.ImportSettings["recipeHash"] ==
-                    mesh.RecipeHash,
+                    mesh.RecipeHash &&
+                recursiveTexture.Metadata.ImportSettings[
+                    "processedProcessor"] == "texture.worker" &&
+                recursiveMesh.Metadata.ImportSettings[
+                    "processedProcessor"] == "mesh.worker" &&
+                recursiveMesh.Metadata.ImportSettings[
+                    "processedFormat"] == "obj",
                 "recursive import propagates one immutable recipe snapshot to every file");
 
             string? sourceRoot = FindManagedSourceRoot();
@@ -373,6 +627,227 @@ internal static class AssetImporterSettingsSelfTest
         {
             return true;
         }
+    }
+
+    private static bool RejectsDerivedData(
+        string projectRoot,
+        AssetRecord asset,
+        IReadOnlyDictionary<string, string> settings)
+    {
+        try
+        {
+            _ = AssetImportDerivedDataPipeline.GetOrCreate(
+                projectRoot,
+                asset.FullPath,
+                asset.Kind,
+                Path.GetExtension(asset.RelativePath),
+                asset.Metadata.Importer,
+                asset.Metadata.ImporterVersion,
+                settings,
+                asset.ContentHash,
+                asset.SizeBytes);
+            return false;
+        }
+        catch (InvalidDataException)
+        {
+            return true;
+        }
+    }
+
+    private static bool RejectsCancelledDerivedData(
+        string projectRoot,
+        AssetRecord asset)
+    {
+        try
+        {
+            _ = AssetImportDerivedDataPipeline.GetOrCreate(
+                projectRoot,
+                asset.FullPath,
+                asset.Kind,
+                Path.GetExtension(asset.RelativePath),
+                asset.Metadata.Importer,
+                asset.Metadata.ImporterVersion,
+                asset.Metadata.ImportSettings,
+                asset.ContentHash,
+                asset.SizeBytes,
+                new System.Threading.CancellationToken(canceled: true));
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+    }
+
+    private static bool RejectsDerivedDataBoundaryViolations(
+        string projectRoot,
+        AssetRecord asset)
+    {
+        bool wrongLength = Throws<IOException>(() =>
+            AssetImportDerivedDataPipeline.GetOrCreate(
+                projectRoot,
+                asset.FullPath,
+                asset.Kind,
+                Path.GetExtension(asset.RelativePath),
+                asset.Metadata.Importer,
+                asset.Metadata.ImporterVersion,
+                asset.Metadata.ImportSettings,
+                asset.ContentHash,
+                checked(asset.SizeBytes + 1)));
+        bool wrongHash = Throws<IOException>(() =>
+            AssetImportDerivedDataPipeline.GetOrCreate(
+                projectRoot,
+                asset.FullPath,
+                asset.Kind,
+                Path.GetExtension(asset.RelativePath),
+                asset.Metadata.Importer,
+                asset.Metadata.ImporterVersion,
+                asset.Metadata.ImportSettings,
+                new string('0', 64),
+                asset.SizeBytes));
+        bool invalidKey = Throws<InvalidDataException>(() =>
+            AssetImportDerivedDataPipeline.GetEntryPath(
+                projectRoot,
+                new string('g', 64)));
+        bool excessiveSettings = Throws<InvalidDataException>(() =>
+            AssetImportDerivedDataPipeline.GetOrCreate(
+                projectRoot,
+                asset.FullPath,
+                asset.Kind,
+                Path.GetExtension(asset.RelativePath),
+                asset.Metadata.Importer,
+                asset.Metadata.ImporterVersion,
+                Enumerable.Range(0, 129).Select(index =>
+                    KeyValuePair.Create(
+                        "setting" + index.ToString(
+                            CultureInfo.InvariantCulture),
+                        "value")),
+                asset.ContentHash,
+                asset.SizeBytes));
+
+        string outsideRoot =
+            projectRoot + "-outside-" + Guid.NewGuid().ToString("N");
+        bool escapedSource;
+        try
+        {
+            Directory.CreateDirectory(outsideRoot);
+            string escapedPath = Path.Combine(outsideRoot, "payload.bin");
+            File.WriteAllBytes(escapedPath, [1, 2, 3, 4]);
+            escapedSource = Throws<InvalidDataException>(() =>
+                AssetImportDerivedDataPipeline.GetOrCreate(
+                    projectRoot,
+                    escapedPath,
+                    asset.Kind,
+                    Path.GetExtension(asset.RelativePath),
+                    asset.Metadata.Importer,
+                    asset.Metadata.ImporterVersion,
+                    asset.Metadata.ImportSettings,
+                    Convert.ToHexString(
+                            SHA256.HashData([1, 2, 3, 4]))
+                        .ToLowerInvariant(),
+                    4));
+        }
+        finally
+        {
+            TryDeleteTempRoot(outsideRoot);
+        }
+
+        return wrongLength &&
+               wrongHash &&
+               invalidKey &&
+               excessiveSettings &&
+               escapedSource;
+    }
+
+    private static bool ConcurrentPublishSucceeds(
+        string projectRoot,
+        AssetRecord asset,
+        string entryPath,
+        string expectedKey)
+    {
+        try
+        {
+            File.Delete(entryPath);
+            using var start = new ManualResetEventSlim(false);
+            Task<AssetImportDerivedDataResult>[] publishers =
+                Enumerable.Range(0, 8)
+                    .Select(_ => Task.Run(() =>
+                    {
+                        start.Wait();
+                        return AssetImportDerivedDataPipeline.GetOrCreate(
+                            projectRoot,
+                            asset.FullPath,
+                            asset.Kind,
+                            Path.GetExtension(asset.RelativePath),
+                            asset.Metadata.Importer,
+                            asset.Metadata.ImporterVersion,
+                            asset.Metadata.ImportSettings,
+                            asset.ContentHash,
+                            asset.SizeBytes);
+                    }))
+                    .ToArray();
+            start.Set();
+            Task.WaitAll(publishers);
+
+            AssetImportDerivedDataResult readBack =
+                AssetImportDerivedDataPipeline.GetOrCreate(
+                    projectRoot,
+                    asset.FullPath,
+                    asset.Kind,
+                    Path.GetExtension(asset.RelativePath),
+                    asset.Metadata.Importer,
+                    asset.Metadata.ImporterVersion,
+                    asset.Metadata.ImportSettings,
+                    asset.ContentHash,
+                    asset.SizeBytes);
+            string parent = Path.GetDirectoryName(entryPath)!;
+            return publishers.All(task =>
+                       task.Result.Key == expectedKey) &&
+                   readBack.Key == expectedKey &&
+                   readBack.Status == AssetImportDerivedDataStatus.Hit &&
+                   File.Exists(entryPath) &&
+                   !Directory.EnumerateFiles(
+                           parent,
+                           Path.GetFileName(entryPath) + ".tmp-*",
+                           SearchOption.TopDirectoryOnly)
+                       .Any();
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine(
+                "Concurrent processed-import publication failed: " + error);
+            return false;
+        }
+    }
+
+    private static bool Throws<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+            return false;
+        }
+        catch (TException)
+        {
+            return true;
+        }
+    }
+
+    private static bool ContainsBytes(
+        ReadOnlySpan<byte> haystack,
+        ReadOnlySpan<byte> needle)
+    {
+        if (needle.Length == 0)
+            return true;
+        for (int index = 0;
+             index <= haystack.Length - needle.Length;
+             index++)
+        {
+            if (haystack.Slice(index, needle.Length).SequenceEqual(needle))
+                return true;
+        }
+        return false;
     }
 
     private static string? FindManagedSourceRoot()

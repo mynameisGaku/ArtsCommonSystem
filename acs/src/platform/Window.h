@@ -41,6 +41,16 @@ struct FWindowConfig {
 
     /** 垂直同期を希望するか (Swapchain 側へのヒント。FWindow 自体は参照しない)。 */
     bool           vsync_hint  = true;
+
+    /**
+     * Show the top-level window after creation.
+     *
+     * Hidden windows are used by authenticated, bounded package startup
+     * smoke tests. Skipping ShowWindow keeps the test from activating,
+     * focusing, or covering an interactive editor session while preserving
+     * a real HWND/swapchain startup path.
+     */
+    bool           visible     = true;
 };
 
 /**

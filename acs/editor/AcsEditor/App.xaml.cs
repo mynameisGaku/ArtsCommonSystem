@@ -241,6 +241,15 @@ public partial class App : Application
             return;
         }
 
+        // CLI: --optional-service-ui-selftest -> capability-optional UI
+        // gating, exact reasons, and managed/native generation safety.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--optional-service-ui-selftest")
+        {
+            Shutdown(EditorOptionalServiceUiSelfTest.Run(Console.Error));
+            return;
+        }
+
         // CLI: --autosave-selftest  → atomic recovery store / checksum / retention / safety harness.
         // This path creates no WPF window and is safe in build/CI environments.
         if (e.Args.Length >= 1 && e.Args[0] == "--autosave-selftest")
@@ -386,6 +395,18 @@ public partial class App : Application
         {
             int failures =
                 InspectorMultiEditSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --inspector-reflected-multi-edit-selftest -> reflected
+        // component-property intersection, mixed values and atomic rollback.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] ==
+                "--inspector-reflected-multi-edit-selftest")
+        {
+            int failures =
+                InspectorReflectedMultiEditSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }

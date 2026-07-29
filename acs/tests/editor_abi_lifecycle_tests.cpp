@@ -82,6 +82,9 @@ extern "C" __declspec(dllimport) int acs_editor_component_prop_count(
     const char* type_name);
 extern "C" __declspec(dllimport) int acs_editor_component_prop_flags_at(
     const char* type_name, int index);
+extern "C" __declspec(dllimport) int acs_editor_component_prop_default_at(
+    const char* type_name, int index,
+    float* x, float* y, float* z, float* w);
 extern "C" __declspec(dllimport) const char*
 acs_editor_component_prop_name_at(const char* type_name, int index);
 extern "C" __declspec(dllimport) int acs_editor_water3d_hit_test(
@@ -1278,6 +1281,10 @@ bool RunWater3DComponentRoundTrip() noexcept
     void* const host = acs_editor_create();
     if (host == nullptr) return false;
     const int id = acs_editor_add_node3d(host, 2, "WaterRoundTrip");
+    float default_x = -1.0f;
+    float default_y = -1.0f;
+    float default_z = -1.0f;
+    float default_w = -1.0f;
     bool ok =
         id >= 0 &&
         acs_editor_component_prop_count(kType) == 20 &&
@@ -1294,6 +1301,43 @@ bool RunWater3DComponentRoundTrip() noexcept
         (acs_editor_component_prop_flags_at(kType, 1) & (1u << 3u)) != 0 &&
         (acs_editor_component_prop_flags_at(kType, 2) & (1u << 3u)) == 0 &&
         (acs_editor_component_prop_flags_at(kType, 19) & (1u << 3u)) != 0 &&
+        acs_editor_component_prop_default_at(
+            kType, 4,
+            &default_x, &default_y, &default_z, &default_w) != 0 &&
+        std::abs(default_x - 0.105f) < 1.0e-6f &&
+        default_y == 0.0f &&
+        default_z == 0.0f &&
+        default_w == 0.0f &&
+        acs_editor_component_prop_default_at(
+            kType, 4, nullptr, nullptr, nullptr, nullptr) != 0 &&
+        acs_editor_component_prop_default_at(
+            kType, -1,
+            &default_x, &default_y, &default_z, &default_w) == 0 &&
+        std::abs(default_x - 0.105f) < 1.0e-6f &&
+        default_y == 0.0f &&
+        default_z == 0.0f &&
+        default_w == 0.0f &&
+        acs_editor_component_prop_default_at(
+            kType, 20,
+            &default_x, &default_y, &default_z, &default_w) == 0 &&
+        std::abs(default_x - 0.105f) < 1.0e-6f &&
+        default_y == 0.0f &&
+        default_z == 0.0f &&
+        default_w == 0.0f &&
+        acs_editor_component_prop_default_at(
+            nullptr, 4,
+            &default_x, &default_y, &default_z, &default_w) == 0 &&
+        std::abs(default_x - 0.105f) < 1.0e-6f &&
+        default_y == 0.0f &&
+        default_z == 0.0f &&
+        default_w == 0.0f &&
+        acs_editor_component_prop_default_at(
+            "NoSuchComponent", 4,
+            &default_x, &default_y, &default_z, &default_w) == 0 &&
+        std::abs(default_x - 0.105f) < 1.0e-6f &&
+        default_y == 0.0f &&
+        default_z == 0.0f &&
+        default_w == 0.0f &&
         acs_editor_node3d_add_component(host, id, kType) != 0;
     for (int property = 0; property < 20 && ok; ++property) {
         const float base = static_cast<float>(property + 1);

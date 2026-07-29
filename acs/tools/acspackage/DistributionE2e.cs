@@ -346,7 +346,6 @@ internal static partial class Program
             outputDirectory,
             "--engine-root",
             engineRoot,
-            "--skip-build",
         ];
 
     private static string ParseDistributionE2eArtifactRoot(string[] args)
@@ -412,13 +411,8 @@ internal static partial class Program
         string projectRoot = Path.Combine(artifactRoot, "Project");
         string assets = Path.Combine(projectRoot, "Assets");
         string config = Path.Combine(projectRoot, "Config");
-        string binaries = Path.Combine(
-            projectRoot,
-            "Binaries",
-            "Release");
         Directory.CreateDirectory(assets);
         Directory.CreateDirectory(config);
-        Directory.CreateDirectory(binaries);
 
         string scene = Path.Combine(assets, "main.acs3d");
         File.WriteAllText(
@@ -474,12 +468,17 @@ internal static partial class Program
             """,
             new UTF8Encoding(false));
 
-        string sourceExecutable = Environment.ProcessPath
-            ?? throw new InvalidOperationException(
-                "Distribution E2E process path is unavailable.");
-        string executable = Path.Combine(binaries, "Game.exe");
-        File.Copy(sourceExecutable, executable, overwrite: false);
-        _ = PackageExecutableContract.InspectFile(executable);
+        ProjectManager.WriteGeneratedRuntimeSourceForDistributionAudit(
+            new Project
+            {
+                Version = 1,
+                Name = "Game",
+                EngineVersion = "distribution-e2e",
+                Template = "3d",
+                InitialScene = "Assets/main.acs3d",
+                CanonicalSceneAssetId = sceneAsset.AssetId,
+                ProjectFilePath = projectFile,
+            });
         return projectFile;
     }
 

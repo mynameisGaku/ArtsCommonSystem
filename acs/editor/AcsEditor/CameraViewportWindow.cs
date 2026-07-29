@@ -133,6 +133,9 @@ internal sealed class CameraViewportWindow : Window
     private readonly Func<int?> _previewNodeProvider;
     private readonly Action _clearPreview;
     private readonly Func<uint, uint, bool> _resizeRequest;
+    private readonly bool _usesRequestContract;
+    private readonly Func<EditorOptionalServiceUiState>
+        _serviceStateProvider;
     private readonly Action<string> _logWarning;
     private readonly ComboBox _cameraSelector;
     private readonly TabControl _slotTabs;
@@ -161,6 +164,8 @@ internal sealed class CameraViewportWindow : Window
         Func<int?> previewNodeProvider,
         Action clearPreview,
         Func<uint, uint, bool> resizeRequest,
+        bool usesRequestContract,
+        Func<EditorOptionalServiceUiState> serviceStateProvider,
         Action<string> logWarning)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -175,6 +180,7 @@ internal sealed class CameraViewportWindow : Window
         ArgumentNullException.ThrowIfNull(previewNodeProvider);
         ArgumentNullException.ThrowIfNull(clearPreview);
         ArgumentNullException.ThrowIfNull(resizeRequest);
+        ArgumentNullException.ThrowIfNull(serviceStateProvider);
         ArgumentNullException.ThrowIfNull(logWarning);
 
         _viewport = viewport;
@@ -187,6 +193,8 @@ internal sealed class CameraViewportWindow : Window
         _previewNodeProvider = previewNodeProvider;
         _clearPreview = clearPreview;
         _resizeRequest = resizeRequest;
+        _usesRequestContract = usesRequestContract;
+        _serviceStateProvider = serviceStateProvider;
         _logWarning = logWarning;
         _stableCameraId = stableCameraId;
 
@@ -218,6 +226,7 @@ internal sealed class CameraViewportWindow : Window
                 "request leases can be retained, while exactly one shared " +
                 "presenter remains live.",
         };
+        ToolTipService.SetShowOnDisabled(_cameraSelector, true);
         _cameraSelector.SelectionChanged += OnCameraSelectionChanged;
         _cameraSelector.DropDownOpened += OnCameraDropDownOpened;
 
@@ -455,6 +464,16 @@ internal sealed class CameraViewportWindow : Window
         {
             return;
         }
+        EditorOptionalServiceUiState requestService =
+            _serviceStateProvider();
+        if (!EditorOptionalServiceActionPolicy.CanMutateCameraRequests(
+                requestService,
+                _usesRequestContract))
+        {
+            _status.Text = requestService.StatusText;
+            RefreshCameraUi();
+            return;
+        }
         if (!choice.IsEnabled)
         {
             _status.Text = "Disabled cameras cannot drive Game View.";
@@ -484,6 +503,16 @@ internal sealed class CameraViewportWindow : Window
             _slotTabs.SelectedItem is not TabItem tab ||
             tab.Tag is not ulong slotId)
         {
+            return;
+        }
+        EditorOptionalServiceUiState requestService =
+            _serviceStateProvider();
+        if (!EditorOptionalServiceActionPolicy.CanMutateCameraRequests(
+                requestService,
+                _usesRequestContract))
+        {
+            _status.Text = requestService.StatusText;
+            RefreshCameraUi();
             return;
         }
         CameraViewSlotView? slot = _slotProvider().FirstOrDefault(
@@ -531,6 +560,12 @@ internal sealed class CameraViewportWindow : Window
 
     private void RefreshCameraUi()
     {
+        EditorOptionalServiceUiState requestService =
+            _serviceStateProvider();
+        bool requestActionsEnabled =
+            EditorOptionalServiceActionPolicy.CanMutateCameraRequests(
+                requestService,
+                _usesRequestContract);
         IReadOnlyList<CameraViewChoice> choices;
         IReadOnlyList<CameraViewSlotView> slots;
         try
@@ -551,7 +586,22 @@ internal sealed class CameraViewportWindow : Window
             _cameraSelector.ItemsSource = choices;
             _cameraSelector.SelectedItem = null;
             _cameraSelector.IsEnabled =
+                requestActionsEnabled &&
                 choices.Any(static camera => camera.IsEnabled);
+            _cameraSelector.ToolTip =
+                requestActionsEnabled
+                    ? "Add or focus a logical Camera View slot. Up to eight " +
+                      "native request leases can be retained, while exactly " +
+                      "one shared presenter remains live.\n\n" +
+                      requestService.ToolTip
+                    : requestService.ToolTip;
+            _slotTabs.ToolTip =
+                requestActionsEnabled
+                    ? "Logical camera leases retain independent requested " +
+                      "extent and temporal-history generations. Selecting a " +
+                      "tab transfers the one shared presenter.\n\n" +
+                      requestService.ToolTip
+                    : requestService.ToolTip;
         }
         finally
         {
@@ -639,6 +689,14 @@ internal sealed class CameraViewportWindow : Window
         IReadOnlyList<CameraViewSlotView> slots,
         CameraViewSlotView? selected)
     {
+        EditorOptionalServiceUiState requestService =
+            _serviceStateProvider();
+        _status.ToolTip = requestService.ToolTip;
+        if (requestService.ShouldPresentUnavailableStatus)
+        {
+            _status.Text = requestService.StatusText;
+            return;
+        }
         if (selected == null)
         {
             _status.Text = "No logical camera slot is selected.";
@@ -664,10 +722,23 @@ internal sealed class CameraViewportWindow : Window
             $"Live · presenter 1/1 · slots {slots.Count}/" +
             $"{capacity} · " +
             selected.Diagnostic;
+        if (requestService.IsCapabilityNotAdvertised)
+        {
+            _status.Text +=
+                " · request service unavailable; legacy preview retained";
+        }
     }
 
     private void ValidatePreviewHealth()
     {
+        EditorOptionalServiceUiState requestService =
+            _serviceStateProvider();
+        if (requestService.ShouldPresentUnavailableStatus)
+        {
+            _status.Text = requestService.StatusText;
+            _status.ToolTip = requestService.ToolTip;
+            return;
+        }
         IReadOnlyList<CameraViewSlotView> slots = _slotProvider();
         CameraViewSlotView? selected =
             slots.FirstOrDefault(static slot => slot.IsSelected);

@@ -1661,6 +1661,15 @@ internal static class EngineInterop
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_component_prop_default_at(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName,
+        int index,
+        out float x,
+        out float y,
+        out float z,
+        out float w);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr acs_editor_component_prop_category_at(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string typeName, int index);
     /// <summary>編集プロパティのカテゴリ名 (UPROPERTY(Category=…)、未指定は "")。</summary>

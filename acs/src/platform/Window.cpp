@@ -326,7 +326,9 @@ TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     TResult<FWindow> result(OkInit, Move(w));
     // prop は result.Value() の実体を指している。ShowWindow が同期的に発する
     // WM_SIZE / WM_PAINT 等が正しい FWindow* へ届くよう、表示はムーブ確定後に行う。
-    ::ShowWindow(hwnd, SW_SHOW);
+    if (cfg.visible) {
+        ::ShowWindow(hwnd, SW_SHOW);
+    }
     ::UpdateWindow(hwnd);
     return result;
 }

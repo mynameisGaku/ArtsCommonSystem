@@ -236,7 +236,9 @@ protected:
      * @details
      * true を返すと基底は BeginFrame/OnRender/EndFrame を呼ばず、派生クラスが
      * コマンドリストとスワップチェインを直接制御する責任を負う。HDR + ポストプロセスの
-     * パイプラインを自前で組む場合 (HelloBloom 等) に使う。
+     * パイプラインを自前で組む場合 (HelloBloom 等) に使う。true は submit/present
+     * まで担当したフレームを表す。担当後に失敗した場合は Quit() を呼んでから true を
+     * 返すこと。false は標準描画へ委譲する。
      * @return フルカスタム描画を行ったなら true、標準描画に任せるなら false (既定)。
      */
     virtual bool OnCustomFrame() noexcept

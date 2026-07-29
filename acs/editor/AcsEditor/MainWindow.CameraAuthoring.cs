@@ -528,14 +528,37 @@ public partial class MainWindow
             Build3DHierarchy();
             Populate3DInspector(nodeId);
         };
+        EditorOptionalServiceUiState requestService =
+            GetCameraViewRequestServiceState();
+        bool canOpenCameraPreview =
+            EditorOptionalServiceActionPolicy.CanOpenCameraPreview(
+                requestService);
+        string cameraPreviewToolTip =
+            "Preview this Camera in the one live floating viewport without " +
+            "editing its Active flag. The renderer is transferred, not duplicated.";
+        if (requestService.UsesExactNativeDiagnostic ||
+            !requestService.CanInvoke)
+        {
+            cameraPreviewToolTip +=
+                "\n\nRequest service: " +
+                requestService.StatusText +
+                "\n" +
+                requestService.ToolTip;
+            if (requestService.IsCapabilityNotAdvertised)
+            {
+                cameraPreviewToolTip +=
+                    "\nA single legacy preview remains available; " +
+                    "multi-slot request controls are disabled.";
+            }
+        }
         var cameraView = new Button
         {
             Content = "Float Preview",
             Padding = new Thickness(8, 2, 8, 2),
-            ToolTip =
-                "Preview this Camera in the one live floating viewport without " +
-                "editing its Active flag. The renderer is transferred, not duplicated.",
+            IsEnabled = canOpenCameraPreview,
+            ToolTip = cameraPreviewToolTip,
         };
+        ToolTipService.SetShowOnDisabled(cameraView, true);
         cameraView.Click += (_, _) => OpenCameraView(nodeId);
         row.Children.Add(snapView);
         row.Children.Add(align);

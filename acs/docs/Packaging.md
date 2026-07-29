@@ -24,7 +24,9 @@ vertical slice. It performs:
    envelope, plus validated distribution metadata; and
 9. a deterministic ZIP with stable entry order and timestamps, followed by a
    complete manifest/path/size/SHA-256, executable-header, application-manifest,
-   and manifest-to-`VERSIONINFO` verification before atomic publication.
+   and manifest-to-`VERSIONINFO` verification before atomic publication; and
+10. a private-copy, bounded, hidden packaged-runtime launch through its first
+    successful frame, followed by an atomic structured package report.
 
 PDBs are opt-in. Editor-only `*_reflect.dll` files are always excluded.
 `Assets/` and `Config/` reject symlinks, junctions, and other reparse points.
@@ -64,6 +66,10 @@ XML, `highestAvailable`, or `requireAdministrator` fail preflight as
 manifest. If the executable has no process manifest, the Windows packaging
 host adds a deterministic AMD64 `asInvoker` identity to the private staged
 copy. No external `rc.exe` or `mt.exe` lookup is required.
+After the Windows resource update, packaging normalizes the COFF timestamp,
+every reachable resource-directory timestamp, every bounded and section-mapped
+`IMAGE_DEBUG_DIRECTORY` timestamp, and the PE checksum to zero before hashing,
+so volatile PE metadata cannot perturb identical packages.
 
 On Windows, runtime dependency resolution pins CMake's script-mode scanner to
 the `windows+pe`/`dumpbin` backend. `dumpbin.exe` is resolved from `PATH`, the
@@ -204,6 +210,10 @@ dotnet run --project tools/acspackage -- package `
 dotnet run --project tools/acspackage -- validate `
   C:\Games\MyGame\MyGame.acsproject `
   --version 1.0.0
+
+dotnet run --project tools/acspackage -- smoke `
+  C:\Games\MyGame\Build\Packages\MyGame-1.0.0-win64.zip `
+  --timeout-seconds 45
 ```
 
 `--include-symbols` adds only the game PDB in Development/Test.
@@ -214,8 +224,83 @@ supported 3D reference rewriting, product metadata, PE32+ AMD64 preflight,
 byte-identical independent `VERSIONINFO` updates, Windows version-API
 visibility, exact manifest-to-PE round trips, compatible/generated
 application manifests, duplicate resource/language rejection, metadata
-reparse protection, unsupported/external inputs, traversal protection, and
-the 3D fail-closed boundary.
+reparse protection, unsupported/external inputs, traversal protection, the
+3D fail-closed boundary, and adversarial launch readiness/timeout/cancellation
+contracts.
+
+## Package launch report and startup smoke
+
+Editor Package and the CLI `package` command now finish with the same
+`PackageLaunchSmoke` contract. The already-published ZIP is never executed or
+modified in place. The runner opens the ordinary source archive without write
+sharing, copies and hashes it into a unique private directory below operating
+system TEMP, runs the complete existing archive verifier on that private
+copy, and only then extracts it. Extraction uses `CreateNew`, rejects reparse
+points and path collisions, and is bounded to 16 GiB by default (hard maximum
+128 GiB). A non-write-sharing handle pins the private ZIP across hash,
+verification, and extraction. The extracted executable is independently
+hashed against its verified manifest record, PE-inspected through another
+non-write-sharing handle, and that handle remains open through process startup.
+The verified manifest remains authoritative for the package root and
+executable name.
+
+The child is started without a shell, console window, arguments, or user
+interaction. It receives one random 256-bit lowercase nonce only through
+`ACS_PACKAGE_SMOKE_TOKEN`. A valid token makes `FApplication` create its real
+HWND and swapchain without calling `ShowWindow`; it therefore cannot activate
+or cover the Editor. Windows critical-error and unhandled-fault UI is disabled
+for that machine-driven child. The normal input path is never focused or
+captured. The child does not inherit the Editor/terminal environment:
+CI variables, cloud tokens, signing credentials, tool authentication, and the
+user's `PATH` are absent. Windows directories and runtime identity are derived
+from runtime/OS APIs rather than caller variables; the child receives a
+System32-only `PATH`, while TEMP, profile, AppData, and managed-tool state are
+redirected into private staging.
+
+Readiness is stricter than "the process stayed alive": after renderer
+initialization, canonical Scene `OnStart`, and the first completed standard or
+contract-compliant custom submit/present, the runtime writes exactly one
+authenticated `ACS_PACKAGE_SMOKE_V1 READY <nonce>` line and requests a clean
+shutdown. A streaming finite-state recognizer counts markers independently of
+the bounded diagnostic capture, so a duplicate after more than 8 MiB of output
+still fails. A missing or duplicate marker, Scene/bootstrap failure,
+render/present failure, non-zero exit, or private-staging cleanup failure fails
+the smoke. The default deadline is 45 seconds; CLI may choose 1..300 seconds.
+Timeout and cancellation terminate the complete process tree, wait for exit,
+bound stdout/stderr capture to 8 MiB per stream, drain the pipes, and then
+remove private staging with bounded retries. No modal prompt or unattended
+process is intentionally left behind.
+On Windows the launched root is created with `CREATE_SUSPENDED`, assigned to a
+kill-on-close Job Object, and only then resumed. Package code therefore cannot
+create a helper in a create/assign race outside containment. After the root
+exits, the runner terminates any inherited descendants before draining output,
+so detached helpers cannot retain pipes or private staging.
+
+Each run atomically writes `<package-name>.package-report.json` beside the ZIP,
+or the explicit `smoke --report` path. It records:
+
+- archive SHA-256 plus manifest package/build/profile/executable identity;
+- payload and Cook/pack counts and hashes;
+- configured timeout, extraction, and output-capture limits;
+- archive-copy, verify, extract, hidden-launch, readiness, exit, and cleanup
+  checks; and
+- stable diagnostic codes with bounded, TEMP/nonce-redacted excerpts on
+  failure.
+
+A successful report intentionally excludes timestamps, random tokens, private
+paths, and observed timings. The same package and limits therefore produce
+byte-identical successful report JSON. The Editor still shows measured package
+and smoke durations in Build Results, where observational timing belongs.
+An existing ordinary report is atomically replaced; the ZIP is retained and
+reported as created-but-smoke-failed if runtime startup does not pass.
+Standalone reruns use:
+
+```powershell
+dotnet run --project tools/acspackage -- smoke <package.zip> `
+  --report <report.json> `
+  --timeout-seconds 45 `
+  --max-extract-mib 16384
+```
 
 ## Distribution E2E audit
 

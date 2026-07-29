@@ -49,6 +49,14 @@ public partial class MainWindow
 
     private bool HasCameraViewLease => _cameraViewLeases.Count != 0;
 
+    private EditorOptionalServiceUiState
+        GetCameraViewRequestServiceState() =>
+        _viewport?.GetOptionalServiceUiState(
+            EditorOptionalService.CameraViewRequests) ??
+        EditorOptionalServiceUiState.Legacy(
+            EditorOptionalService.CameraViewRequests,
+            hostAvailable: false);
+
     private void OpenCameraView(int nodeId)
     {
         if (Engine == IntPtr.Zero ||
@@ -66,6 +74,21 @@ public partial class MainWindow
                 "Disabled cameras cannot drive the live Camera View.",
                 "Camera",
                 LogLevel.Warn);
+            return;
+        }
+        EditorOptionalServiceUiState requestService =
+            GetCameraViewRequestServiceState();
+        if (!EditorOptionalServiceActionPolicy.CanOpenCameraPreview(
+                requestService))
+        {
+            Log(
+                "Camera View is unavailable: " +
+                requestService.StatusText +
+                $" ({requestService.StableCode}).",
+                "Camera",
+                requestService.IsRetryable
+                    ? LogLevel.Warn
+                    : LogLevel.Error);
             return;
         }
         if (_cameraViewportWindow == null &&
@@ -185,6 +208,8 @@ public partial class MainWindow
                 GetPreviewCameraNode,
                 ClearCameraViewPreviewOverride,
                 TryResizeCameraViewRequest,
+                _cameraViewUsesRequestContract,
+                GetCameraViewRequestServiceState,
                 detail => Log(detail, "Camera", LogLevel.Warn));
             SubscribeCameraViewportWindow(window);
             _cameraViewportWindow = window;

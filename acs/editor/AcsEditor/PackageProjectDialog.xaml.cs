@@ -564,6 +564,7 @@ public partial class PackageProjectDialog : Window
             }
 
             AppendLog("Package pipeline started.");
+            var packageTimer = Stopwatch.StartNew();
             PackageResult result = await PackagingService.PackageAsync(
                 project,
                 options,
@@ -573,11 +574,59 @@ public partial class PackageProjectDialog : Window
                 progress,
                 _cancellation.Token);
             _cancellation.Token.ThrowIfCancellationRequested();
+            packageTimer.Stop();
+            AppendLog(
+                $"Package archive phase: {packageTimer.Elapsed.TotalSeconds:F2}s");
+
+            StatusText.Text =
+                "Running hidden packaged-runtime launch smoke...";
+            PackageProgressBar.IsIndeterminate = true;
+            var smokeTimer = Stopwatch.StartNew();
+            PackageLaunchSmokeResult launch =
+                await PackageLaunchSmoke.RunAsync(
+                    result.ZipPath,
+                    PackageLaunchSmoke.DefaultReportPath(result.ZipPath),
+                    PackageLaunchSmokeOptions.Default,
+                    Log,
+                    _cancellation.Token);
+            smokeTimer.Stop();
+            AppendLog(
+                $"Launch smoke phase: {smokeTimer.Elapsed.TotalSeconds:F2}s");
+            AppendLog("Package report: " + launch.ReportPath);
+            foreach (PackageLaunchSmokeDiagnostic diagnostic in
+                     launch.Report.Diagnostics)
+            {
+                AppendLog(
+                    $"{diagnostic.Severity.ToUpperInvariant()} " +
+                    $"[{diagnostic.Code}] {diagnostic.Message}");
+            }
+            if (!launch.Report.Passed)
+            {
+                operation.Fail(
+                    EditorOperationCodes.PackageFailed,
+                    "Package archive was created and verified, but its bounded " +
+                    "runtime launch smoke failed.",
+                    assetId: project.CanonicalSceneAssetId,
+                    path: result.ZipPath);
+                if (IsCloseRequested ||
+                    Dispatcher.HasShutdownStarted ||
+                    Dispatcher.HasShutdownFinished)
+                {
+                    return;
+                }
+                _resultZip = result.ZipPath;
+                PackageSucceeded = false;
+                ResultPathText.Text =
+                    result.ZipPath +
+                    "\nArchive retained; launch smoke failed. See package report.";
+                StatusText.Text = "Package created / launch smoke failed";
+                OpenResultButton.IsEnabled = true;
+                return;
+            }
             operation.Succeed(
                 EditorOperationCodes.PackageSucceeded,
-                result.ArchiveVerified
-                    ? $"Package archive verified with {result.FileCount} payload files."
-                    : $"Package archive completed with {result.FileCount} payload files.",
+                $"Package archive and hidden runtime launch smoke passed with " +
+                $"{result.FileCount} payload files.",
                 assetId: project.CanonicalSceneAssetId,
                 path: result.ZipPath);
             if (IsCloseRequested ||
@@ -590,7 +639,7 @@ public partial class PackageProjectDialog : Window
             PackageSucceeded = true;
             ResultPathText.Text = result.ZipPath;
             StatusText.Text =
-                $"{(result.ArchiveVerified ? "Verified" : "Complete")}  /  " +
+                "Verified + Smoke PASS  /  " +
                 $"{result.FileCount} files  /  {FormatBytes(result.UncompressedBytes)}";
             AppendLog($"Build ID: {result.BuildId}");
             AppendLog(
@@ -602,6 +651,8 @@ public partial class PackageProjectDialog : Window
                     $"Archive verification: PASS  /  " +
                     $"{result.FileCount} payload SHA-256 hashes.");
             }
+            AppendLog(
+                "Launch smoke: PASS  /  hidden window, first frame, clean exit.");
             AppendLog($"Package complete: {result.ZipPath}");
             OpenResultButton.IsEnabled = true;
         }

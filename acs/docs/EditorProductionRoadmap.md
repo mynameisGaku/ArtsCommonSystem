@@ -56,11 +56,11 @@ ACS Editor には、シーンアウトライナー、詳細パネル、2D/3D ビ
 | 領域 | 現状 | プロダクション上の主要不足 | 優先度 |
 |---|---|---|---|
 | シーン / Outliner | 新規2D/3D共通の `.acs3d` world、Orthographic preset、legacy adapter、階層、検索、複数選択、DnD、Scene Save All、自動保存・復旧あり | runtime adapter の全 authoring directive 対応、3D sibling reorder、subscene | P0 |
-| Details / Components | Transform、コンポーネント追加削除、反射プロパティ、CallInEditor、3D複数選択のper-axis mixed value・atomic Transform/Enabled/Color編集・Transform resetあり | 反射propertyの複数編集、copy/paste/diff、配列・構造体編集、legacy 2D parity | P1 |
-| Asset Browser | Import、texture/mesh/audio設定UIとcanonical recipe identity、監視、current/subfolder/all-assets 検索、永続 thumbnail DDC、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | tag filter、native importer processor、import derived-data DDC | P0 |
+| Details / Components | Transform、コンポーネント追加削除、反射プロパティ、CallInEditor、3D複数選択のper-axis mixed value・atomic Transform/Enabled/Color編集・Transform reset、共通反射component propertyのmixed/sparse/atomic編集とschema default resetあり | copy/paste/diff、配列・構造体編集、component add/remove/reorderの複数編集、legacy 2D parity | P1 |
+| Asset Browser | Import、texture/mesh/audio設定UIとcanonical recipe identity、source-preserving worker、hash検証付きprocessed-import DDC、監視、current/subfolder/all-assets 検索、永続 thumbnail DDC、配置、Material 変換、永続 GUID/DB、依存・参照元、Reference Viewer あり | tag filter、native texture/mesh/audio transcoder、詳細progress | P0 |
 | Undo / Redo | Scene、Blueprint、Material graph に個別 snapshot 履歴。Scene 自動保存・復旧、Material graph と Project Settings の共通 host transaction 参加あり | cross-document command routing、Asset の履歴、履歴表示 | P0 |
 | Play / Preview | Play/Pause/Step/Stop、状態復元、独立したScene/Game camera、複数authored Camera、frustum表示、単一shared-swapchain Camera View、対応済み `.acs3d` runtime bootstrap あり | runtime adapter の全3D directive parity、dedicated offscreen Camera View/同時live PIP、Possess/Eject/Simulate、Play 設定、複数クライアント | P0/P1 |
-| Build / Package | Windows x64、Development/Test/Shipping、canonical Scene Asset ID起点のdependency-closure Cook、`.acpak`/ZIP、native verify、製品metadata付きPE VERSIONINFO、application manifest、3D fail-closed あり | icon/license/release channel、署名、installer、自動 smoke、他 platform | P0 |
+| Build / Package | Windows x64、Development/Test/Shipping、canonical Scene Asset ID起点のdependency-closure Cook、`.acpak`/ZIP、native verify、製品metadata付きPE VERSIONINFO、application manifest、3D fail-closed、private stagingでのhidden first-frame launch smoke、deterministic成功report あり | icon/license/release channel、署名、installer、継続smokeのCI運用、他 platform | P0 |
 | Project Settings | schema 駆動 UI、検索、検証、未知キー保持、Document Host の dirty/Undo/Save All/close、非同期 atomic 保存、snap 値同期あり | Editor/User 設定分離、Input/Packaging/Platform 等 | P0/P1 |
 | Material Editor | typed node graph、semantic Undo/Redo、Document Host dirty/Save All/close、compile diagnostics、CPU-safe async/cancellable preview、192/256/384 px 出力、同一入力 LRU cache、計測表示あり。native preview API に HDR/ACES、1x–4x SSAA、3種 mesh/background 契約あり | legacy property writer の transaction 化、native API を live window へ接続する fenced GPU readback、instance/function、shader cache | P0/P1 |
 | Profiler / Diagnostics | Profiler v5 の CPU/GPU/pass/実フラスタムカリング計測、capture reset serial/presented-frame境界、normal/depth・motion・opaque PBR・interactive water・refraction共通submission traversal、aggregate fast pathと可視range結合、Shadow/VXGIの非camera-mask契約、UI stall watchdog、独立した cloud-workload-v1 の dispatch/invocation/history/sample ceiling 表示あり | GPU capture、allocation tracker、platform telemetry、継続 performance budget | P1 |
@@ -118,7 +118,7 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 - `src/editor_abi/EditorServiceDiagnostics.h`
 - `src/editor_abi/EditorAbi.cpp`
 
-旧 DLL、version mismatch、必須 capability 不足、bad image は native host 作成前に fail-closed となる。optional service は enabled/disabled/pending/inactive/failed と exact reason、bounded UTF-8、typed error domain/code、host/diagnostic generation を query できる。残る課題は native error と managed operation ID の相関、汎用 async job/cancellation ABI、renderer backend 抽象化、診断を利用した optional service 単位の UI disable である。
+旧 DLL、version mismatch、必須 capability 不足、bad image は native host 作成前に fail-closed となる。optional service は enabled/disabled/pending/inactive/failed と exact reason、bounded UTF-8、typed error domain/code、host/diagnostic generation を query でき、Profiler、Cloud workload、Camera View request の UI は service 単位で利用可否を反映する。残る課題は native error と managed operation ID の相関、汎用 async job/cancellation ABI、renderer backend 抽象化、残る optional service への同じ UI 境界の適用である。
 
 ### 2. Scene、Outliner、Viewport
 
@@ -163,6 +163,7 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 - 2D/3D の component add/remove、反射 property editor、category、CallInEditor button。
 - Details 内検索。
 - 3D複数選択の共通Transform/Enabled/Mesh Renderer Color、成分単位のmixed value (`—`)、編集軸だけを対象にするatomic batch、失敗時全rollback、1操作1 Scene Undo/Redo、Transform reset。
+- 3D複数選択の共通反射component/property intersection、bool tri-state、integer/enum/object-reference/float/vectorのmixed value、vectorのsparse axis編集、schema default reset、全target preflight/readback/rollback、1操作1 Scene Undo/Redo。duplicate component type、schema drift、unsupported string、非finite/inexact値はmutation前にfail closed。
 
 主な証跡:
 
@@ -170,6 +171,8 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 - `editor/AcsEditor/MainWindow.View3D.cs`
 - `editor/AcsEditor/InspectorMultiEditContract.cs`
 - `editor/AcsEditor/InspectorMultiEditSelfTest.cs`
+- `editor/AcsEditor/InspectorReflectedMultiEditContract.cs`
+- `editor/AcsEditor/InspectorReflectedMultiEditSelfTest.cs`
 - `docs/DetailsMultiEdit.md`
 - `editor/AcsEditor/MainWindow.xaml.cs:2706-2995`
 
@@ -180,8 +183,8 @@ managed/native 接続は `EngineInterop.cs` の P/Invoke と `EditorAbi.cpp` に
 
 不足:
 
-- 反射propertyとlegacy 2D adapterの複数選択編集。
-- copy/paste property/component、component reorder、property単位のreset。
+- legacy 2D adapterの複数選択編集。
+- copy/paste property/component、component add/remove/reorderの複数選択編集。
 - prefab/source/default との差分表示。
 - array、map、nested struct、object reference、soft reference の一貫した editor。
 - property validation、asset picker の type filter、browse/use-selected。
@@ -209,10 +212,10 @@ runtime の `FAssetRegistry` は loader と path-hash cache であり、editor d
 
 不足:
 
-- importer ごとの native/worker processor と実 reimport pipeline。
+- importer ごとの native texture/mesh/audio transcoder と詳細progress。source-preserving workerとImport/Reimport共通pipelineは実装済み。
 - tag filter と検索条件を再利用できる dynamic collection。
 - 追加 asset type の作成を公開する場合の canonical serializer と schema migration。
-- importer ごとの derived-data DDC と cache observability。
+- processed-import DDCのhit/miss/再構築cache observability。
 
 Asset DB より先に自由な rename/move/delete を追加すると参照破壊を UI から簡単に起こせるため、順序を逆にしてはならない。
 
@@ -463,7 +466,7 @@ flowchart TD
 - 実装済み: managed version-1 operation diagnostic。非zero operation GUID、service、severity、stable `ACS.*` code、message、optional Asset/path、連番、bounded aggregate、success/failure/cancel の単一 terminal を持ち、Build と Package で legacy log と並走する。
 - 実装済み: optional `optional-service-diagnostics-v2`。192-byte v1 prefix と 256-byte v2 typed payload、service state/reason、bounded UTF-8、error domain/code、stable code、単調増加する host/diagnostic generation を持つ。malformed header は host を読む前に fail closed、managed は generation 不一致の late result と不正 UTF-8 を破棄する。
 - 残り: native error と managed operation ID の相関、native async job API/cancellation、managed の残り service への適用。
-- 残り: managed 側の Scene、Asset、Preview、Build service interface と optional service 単位の UI disable。
+- 残り: managed 側の Scene、Asset、Preview、Build service interface と、残る optional service への同じ単位の UI disable。
 - 残り: Camera View用のdedicated offscreen target、fence付き非同期
   readback/presentation、viewごとのpost-effect history、複数同時live PIP。
   `camera-view-requests-v1` はこれらをadvertiseしない。
@@ -478,7 +481,7 @@ flowchart TD
   current Sceneに対するstable-ID再検証をnative lifecycle testで固定する。
 - 実装済み: managed Build/Package diagnostic を Build log の operation ID、Asset、path に紐づける。
 - 実装済み: native optional-service error/state を versioned typed payload と generation で取得し、legacy prefix、malformed input、host再生成を lifecycle/self-test で固定する。
-- 残り: native error も同じ managed operation に紐づけ、取得済み reason で service 単位の利用不可 UI を disable する。
+- 残り: native error も同じ managed operation に紐づけ、残る optional service の取得済み reason を UI に接続する。
 
 ### P0-C: Document、Transaction、Autosave（共通 host 基盤、Scene、Material graph、Project Settings 統合済み）
 
@@ -515,7 +518,7 @@ flowchart TD
 - Import/Reimport の prepare/commit journal を Project 起動時に同一の変更リース内で復旧し、不完全なペイロードとサイドカーを Asset DB 走査前に確定する。
 - 画像 decode を UI モデルから独立したワーカーへ分離し、decode 済みの不変な結果だけをディスパッチャーへ戻す。
 - Asset Browser の image/material thumbnail は、content SHA-256、generator version、kind、requested edge を key にする永続 DDC を使う。schema-v2 envelope は key/length/payload hash に加え、固定 little-endian raw Pbgra32 header の version/format/dimension/stride/exact byte count を検証して atomic publish する。永続 bytes を in-process compressed-image codec に渡さず、旧 PNG schema と破損・stale entry は同品質で再生成する。managed disk budget は 256 MiB/4096 entries で、freshな別process tempをcleanupせず、世代 cancellation/latest-wins と path/reparse safety を維持する。
-- Asset View の手動 Import は texture/mesh/audio の設定 UI を publication 前に開き、strict/bounded な project-local profile を使う。importer/version/schema/normalized settings の destination-independent SHA-256 recipe と完全な設定辞書は既存 journal で `.acsmeta` へ原子的に公開され、DDC identity に参加する。folder drop は同じ immutable profile snapshot を再利用し、無効値やprofile保存失敗は source publication 前に fail closed となる。native processor とprocessed payload DDCは次段階とする。
+- Asset View の手動 Import は texture/mesh/audio の設定 UI を publication 前に開き、strict/bounded な project-local profile を使う。importer/version/schema/normalized settings の destination-independent SHA-256 recipe と完全な設定辞書は既存 journal で `.acsmeta` へ原子的に公開され、DDC identity に参加する。folder drop は同じ immutable profile snapshot を再利用し、無効値やprofile保存失敗は source publication 前に fail closed となる。source-preserving worker v1はstaged sourceの全bytesをpublication前に検証し、source contentとcanonical recipeからpath-independent artifact keyを作る。`Temp/DerivedDataCache/AssetImports/v1` のstrict/bounded/hash-verified envelopeをatomic publishし、破損entryは無視して再構築する。Import/Reimportは同じworker/DDC経路を使う。native texture/mesh/audio transcodingと詳細progressは次段階とする。
 
 依存: P0-A の Scene reference、P0-C の asset operation transaction と協調する。
 
@@ -542,11 +545,13 @@ flowchart TD
 - Editor と CI が共有する CLI/API。
 - Package の事前検証をデバウンス付きの非同期ワーカーで実行し、公開直前に変更リースを再取得して Initial Scene journal とアセット identity を再検証する。
 - `canonicalSceneAssetId` を唯一のrootにするrequired-only dependency closure。未使用AssetはCookの形式・参照検証とgraph hashから除外し、到達可能な欠損、循環、escape、stale metadata、未対応形式だけを明示的に拒否する。complete treeに対するmetadata authority、path、reparse-point safetyは維持する。空または不正なcanonical IDは旧pathへfallbackせず、Editorでのmigrationを案内してfail-closedにする。
+- 公開済みZIPを変更せずprivate TEMPへ固定copyし、同じarchive verifierを通した後だけ上限付きで展開する。64桁nonceで認証されたruntimeはwindowをshow/activateせず、Scene startupと最初のsubmit/present成功後にready handshakeしてclean exitする。45秒deadline、cancel/timeout時のprocess-tree kill、8 MiB/streamのcapture、bounded cleanupをEditor/CLIで共有する。
+- ZIP hash、package/build/profile/executable identity、各verify/extract/startup/exit/cleanup gate、stable diagnosticをschema-v1 package reportへatomic publishする。成功reportはtimestamp、nonce、TEMP path、観測時間を含まず同一入力・limitでbyte-identical。観測時間はEditor Build Resultsへ分離して表示する。
 
 残り成果物:
 
 - icon/license/release channel metadata、署名、installer。
-- package report と launch smoke test。
+- clean GPU workerでの継続smoke、複数adapter/GPUのmatrix、release artifact保管ポリシー。
 
 依存: P0-A と P0-D が必須。P0-B の async job/diagnostic を利用する。
 
@@ -556,7 +561,7 @@ flowchart TD
 - package に未使用 Asset が入らず、必要 Asset の欠落は cook 時に失敗する。
 - `acpak verify`、manifest hash 検証、別 staging directory からの executable 起動が成功する。
 - 同一 source/config/toolchain から生成した manifest と logical asset hash が一致する。
-- Build Results に configure、compile、cook、stage、pack、verify、smoke の所要時間と結果を表示する。
+- Build Results にpackage archive phaseとsmokeの所要時間、verify/readiness/exit結果、report pathを表示する。configure、compile、cook、stage、pack、verifyの個別timing分解は継続する。
 
 ### P1-A: UE 型 Workspace UX
 
@@ -843,18 +848,24 @@ Scene・logical camera owner・projection・view mode・Play復帰・明示camer
 G-buffer prerequisite欠落も次回をcold-startさせる。
 managed Build/Package は version-1 typed diagnostic、operation ID、bounded
 aggregation、cancellation terminal を持つ。native optional service は
-versioned typed error/state、legacy prefix、host generationを持つ。次段階は
-managed operation IDとの相関、optional service 単位の UI disable、
-async job/cancellation ABI である。
+versioned typed error/state、legacy prefix、host generationを持つ。managed
+EditorはProfiler、Cloud workload、Camera View requestごとにexact reasonを
+取得し、managed/native host generationとservice別diagnostic generationを
+照合してからUIへ公開する。診断capabilityが無いproviderは従来互換、広告済み
+診断のpending/failed/stale/contract errorは対象serviceだけをfail closedにする。
+Profiler ResetとCamera request mutationだけを個別disableし、Cloudのnative
+snapshot queryだけを抑止する。Pause/既存capture export/Cloudのローカル表示
+filter/Re-dock/closeとCameraの単一legacy previewは維持する。
+次段階はmanaged operation IDとの相関とasync job/cancellation ABIである。
 
 ## 推奨する直近の着手順
 
 1. 完了: 3D Build/Run/Package guard と snap 同期修正で、現状の誤動作を停止。
 2. 完了: P0-A の Scene manifest/schema/loader を ADR 0001 と `SceneContractFixtureSelfTest` で固定。
-3. 進行中: P0-B は ABI version/capability negotiation、`cloud-workload-v1`、`camera-view-requests-v1`、`optional-service-diagnostics-v2`、managed Build/Package operation diagnostic を実装済み。native/managed operation ID の相関、取得済み reason による service 単位の disable、native job cancellation、Camera Viewのdedicated offscreen/async presentation capabilityを追加する。
+3. 進行中: P0-B は ABI version/capability negotiation、`cloud-workload-v1`、`camera-view-requests-v1`、`optional-service-diagnostics-v2`、取得済みreasonによるProfiler/Cloud/Camera Viewのservice単位UI disable、managed Build/Package operation diagnostic を実装済み。native/managed operation ID の相関、native job cancellation、Camera Viewのdedicated offscreen/async presentation capabilityを追加する。
 4. 進行中: P0-C は deterministic/async Document Host、Scene adapter、Scene Save All/autosave/recovery、Material graph adapter/transaction、Project Settings adapter/transaction/非同期保存を実装済み。Project Settings の startup snapshot/parse は worker 化され、generation/cancel/late-result gate、project root→Config→file containment、Build/Run/Standalone/Package durability gate まで実装済み。Material legacy property、Blueprint、Prefab、multi-document tabを追加する。
-5. 進行中: P0-D は GUID/metadata/dependency index/Reference Viewer、reimport、safe rename/move/delete、global search、Cook DDC、Asset Browser thumbnail DDC、texture/mesh/audio importer設定UIとcanonical recipe cache identityを実装済み。native importer processor、tag/dynamic collection、processed import DDC、10 万 Asset 規模の継続検証を追加する。
-6. 進行中: P0-E はcanonical Scene Asset ID起点のrequired-only dependency closure、deterministic Cook/pack/native verify/Shipping runtime smoke、manifest-to-PE製品metadataとapplication manifest契約まで実装済み。icon/license/channel、resource更新後の署名、installer、自動 smoke の CI 統合を追加する。
+5. 進行中: P0-D は GUID/metadata/dependency index/Reference Viewer、reimport、safe rename/move/delete、global search、Cook DDC、Asset Browser thumbnail DDC、texture/mesh/audio importer設定UIとcanonical recipe cache identity、source-preserving worker、hash検証付きprocessed-import DDC、Import/Reimport parityを実装済み。native texture/mesh/audio transcoder、詳細progress、tag/dynamic collection、cache observability、10 万 Asset 規模の継続検証を追加する。
+6. 進行中: P0-E はcanonical Scene Asset ID起点のrequired-only dependency closure、deterministic Cook/pack/native verify、manifest-to-PE製品metadata/application manifest、private stagingのhidden first-frame runtime smoke、deterministic成功reportまで実装済み。icon/license/channel、resource更新後の署名、installer、継続smokeのCI/GPU matrixを追加する。
 7. その後に残るdocument/tool tab tear-offと任意dock tree、Content Browser、Details、Viewport、Prefab、Navigationを依存順に拡張する。
 
 live Material Preview は debounce、dispatcher 外の cancellable latest-wins generation、in-flight coalescing、8 entry LRU cache、last-good image、192/256/384 px 出力まで完了した。HDR/ACES、SSAA、mesh/background は native preview API のみで、live window への接続には専用 queue/fence と async readback が残る。

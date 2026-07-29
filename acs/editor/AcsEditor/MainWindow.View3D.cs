@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -559,8 +560,11 @@ public partial class MainWindow
         bool allRenderable = true;
         for (int index = 0; index < kinds.Count; ++index)
             allRenderable &= kinds[index] != 6;
-        if (!allRenderable ||
-            !DetailsMatches(
+
+        var panel = new StackPanel();
+        bool shownComponent = false;
+        if (allRenderable &&
+            DetailsMatches(
                 "component",
                 "native",
                 "mesh renderer",
@@ -571,99 +575,832 @@ public partial class MainWindow
                 "color",
                 "material"))
         {
-            return null;
-        }
-
-        var body = new StackPanel();
-        bool sameKind = true;
-        for (int index = 1; index < kinds.Count; ++index)
-            sameKind &= kinds[index] == kinds[0];
-        body.Children.Add(LabeledValue3D(
-            "Type",
-            sameKind
-                ? MeshRendererTypeName(kinds[0])
-                : InspectorMultiEditContract.MixedPlaceholder));
-
-        var colors = new List<float[]>(selected.Length);
-        bool capturedColors = true;
-        foreach (int nodeId in selected)
-        {
-            var color = new float[4];
-            capturedColors &=
-                EngineInterop.acs_editor_node3d_get_color(
-                    Engine,
-                    nodeId,
-                    color) != 0;
-            colors.Add(color);
-        }
-        if (capturedColors &&
-            DetailsMatches(
-                "component",
-                "native",
-                "mesh renderer",
-                "mesh",
-                "renderer",
-                "color",
-                "tint",
-                "opacity",
-                "alpha"))
-        {
-            body.Children.Add(MixedVectorRow(
-                "Color",
-                ResolveMixedComponents(colors, 0, 4),
-                patch => ApplyMultiColorPatch(
-                    selected,
-                    patch,
-                    "Edit Mesh Renderer Color",
-                    "inspector.multi.mesh-renderer.color")));
-        }
-
-        if (DetailsMatches(
-                "component",
-                "native",
-                "mesh renderer",
-                "mesh",
-                "renderer",
-                "material",
-                "shader",
-                "surface"))
-        {
-            string firstMaterial =
-                EngineInterop.NodeMaterial3D(Engine, selected[0]);
-            bool sameMaterial = true;
+            var body = new StackPanel();
+            bool sameKind = true;
             for (int index = 1; index < selected.Length; ++index)
+                sameKind &= kinds[index] == kinds[0];
+            body.Children.Add(LabeledValue3D(
+                "Type",
+                sameKind
+                    ? MeshRendererTypeName(kinds[0])
+                    : InspectorMultiEditContract.MixedPlaceholder));
+
+            var colors = new List<float[]>(selected.Length);
+            bool capturedColors = true;
+            foreach (int nodeId in selected)
             {
-                sameMaterial &= string.Equals(
-                    firstMaterial,
-                    EngineInterop.NodeMaterial3D(
+                var color = new float[4];
+                capturedColors &=
+                    EngineInterop.acs_editor_node3d_get_color(
                         Engine,
-                        selected[index]),
-                    StringComparison.OrdinalIgnoreCase);
+                        nodeId,
+                        color) != 0;
+                colors.Add(color);
+            }
+            if (capturedColors &&
+                DetailsMatches(
+                    "component",
+                    "native",
+                    "mesh renderer",
+                    "mesh",
+                    "renderer",
+                    "color",
+                    "tint",
+                    "opacity",
+                    "alpha"))
+            {
+                body.Children.Add(MixedVectorRow(
+                    "Color",
+                    ResolveMixedComponents(colors, 0, 4),
+                    patch => ApplyMultiColorPatch(
+                        selected,
+                        patch,
+                        "Edit Mesh Renderer Color",
+                        "inspector.multi.mesh-renderer.color")));
             }
 
-            string materialLabel = sameMaterial
-                ? string.IsNullOrWhiteSpace(firstMaterial)
-                    ? "(None)"
-                    : System.IO.Path.GetFileName(firstMaterial)
-                : InspectorMultiEditContract.MixedPlaceholder;
-            body.Children.Add(
-                LabeledValue3D("Material", materialLabel));
+            if (DetailsMatches(
+                    "component",
+                    "native",
+                    "mesh renderer",
+                    "mesh",
+                    "renderer",
+                    "material",
+                    "shader",
+                    "surface"))
+            {
+                string firstMaterial =
+                    EngineInterop.NodeMaterial3D(Engine, selected[0]);
+                bool sameMaterial = true;
+                for (int index = 1; index < selected.Length; ++index)
+                {
+                    sameMaterial &= string.Equals(
+                        firstMaterial,
+                        EngineInterop.NodeMaterial3D(
+                            Engine,
+                            selected[index]),
+                        StringComparison.OrdinalIgnoreCase);
+                }
+
+                string materialLabel = sameMaterial
+                    ? string.IsNullOrWhiteSpace(firstMaterial)
+                        ? "(None)"
+                        : System.IO.Path.GetFileName(firstMaterial)
+                    : InspectorMultiEditContract.MixedPlaceholder;
+                body.Children.Add(
+                    LabeledValue3D("Material", materialLabel));
+            }
+
+            // Keep the native renderer in the ordinary component stack, after Transform.
+            panel.Children.Add(
+                ComponentCard("Mesh Renderer", body, native: true));
+            shownComponent = true;
         }
 
-        var panel = new StackPanel();
-        // Keep the native renderer in the ordinary component stack, after Transform.
-        panel.Children.Add(
-            ComponentCard("Mesh Renderer", body, native: true));
+        if (TryCaptureCommonReflected3DComponents(
+                selected,
+                out IReadOnlyList<InspectorReflectedCommonComponent> reflected,
+                out string reflectedFailure))
+        {
+            foreach (InspectorReflectedCommonComponent component in reflected)
+            {
+                if (!DetailsComponentMatches(component.TypeName))
+                    continue;
+                FrameworkElement? card =
+                    BuildMultiReflected3DComponent(selected, component);
+                if (card is null)
+                    continue;
+                panel.Children.Add(card);
+                shownComponent = true;
+            }
+        }
+        else
+        {
+            Log(
+                "Details rejected reflected multi-edit schema: " +
+                reflectedFailure,
+                "Scene",
+                LogLevel.Warn);
+        }
+
+        if (!shownComponent)
+            return null;
+
         panel.Children.Add(new TextBlock
         {
             Text =
-                "Add/remove component and material assignment require a single selection.",
+                "Add/remove component, material assignment, and Call In Editor " +
+                "methods require a single selection.",
             Foreground = (Brush)FindResource("TextDim"),
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 5, 0, 2),
         });
         return panel;
+    }
+
+    private bool TryCaptureCommonReflected3DComponents(
+        int[] selected,
+        out IReadOnlyList<InspectorReflectedCommonComponent> common,
+        out string failure)
+    {
+        var nodes =
+            new List<InspectorReflectedNodeSnapshot>(selected.Length);
+        foreach (int nodeId in selected)
+        {
+            int componentCount =
+                EngineInterop.acs_editor_node3d_component_count(
+                    Engine,
+                    nodeId);
+            if (componentCount < 0 || componentCount > 64)
+            {
+                common =
+                    Array.Empty<InspectorReflectedCommonComponent>();
+                failure =
+                    $"Node {nodeId} returned an invalid reflected component count.";
+                return false;
+            }
+
+            var components =
+                new List<InspectorReflectedComponentSnapshot>(
+                    componentCount);
+            for (int slot = 0; slot < componentCount; ++slot)
+            {
+                string typeName =
+                    EngineInterop.Component3DName(
+                        Engine,
+                        nodeId,
+                        slot);
+                if (string.IsNullOrWhiteSpace(typeName))
+                {
+                    common =
+                        Array.Empty<InspectorReflectedCommonComponent>();
+                    failure =
+                        $"Node {nodeId} component slot {slot} has no type identity.";
+                    return false;
+                }
+
+                int propertyCount =
+                    EngineInterop.acs_editor_component_prop_count(
+                        typeName);
+                if (propertyCount < 0 || propertyCount > 1024)
+                {
+                    common =
+                        Array.Empty<InspectorReflectedCommonComponent>();
+                    failure =
+                        $"Component {typeName} returned an invalid property count.";
+                    return false;
+                }
+
+                var properties =
+                    new List<InspectorReflectedPropertySchema>(
+                        propertyCount);
+                for (int property = 0;
+                     property < propertyCount;
+                     ++property)
+                {
+                    if (!TryReadReflectedPropertySchema(
+                            typeName,
+                            property,
+                            out InspectorReflectedPropertySchema? schema,
+                            out failure))
+                    {
+                        common =
+                            Array.Empty<InspectorReflectedCommonComponent>();
+                        return false;
+                    }
+                    properties.Add(schema!);
+                }
+                components.Add(new(
+                    nodeId,
+                    slot,
+                    typeName,
+                    properties.AsReadOnly()));
+            }
+            nodes.Add(new(
+                nodeId,
+                components.AsReadOnly()));
+        }
+
+        return InspectorReflectedMultiEditContract.TryIntersect(
+            nodes,
+            out common,
+            out failure);
+    }
+
+    private static bool TryReadReflectedPropertySchema(
+        string typeName,
+        int property,
+        out InspectorReflectedPropertySchema? schema,
+        out string failure)
+    {
+        schema = null;
+        failure = "";
+        string name =
+            EngineInterop.ComponentPropName(typeName, property);
+        int kind =
+            EngineInterop.acs_editor_component_prop_kind_at(
+                typeName,
+                property);
+        int flags =
+            EngineInterop.acs_editor_component_prop_flags_at(
+                typeName,
+                property);
+        string category =
+            EngineInterop.ComponentPropCategory(typeName, property);
+        var defaults = new float[4];
+        bool hasDefault;
+        try
+        {
+            hasDefault =
+                EngineInterop.acs_editor_component_prop_default_at(
+                    typeName,
+                    property,
+                    out defaults[0],
+                    out defaults[1],
+                    out defaults[2],
+                    out defaults[3]) != 0;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Additive ABI compatibility: editing remains available against a
+            // provider predating reflected defaults, but Reset is omitted.
+            hasDefault = false;
+            Array.Clear(defaults);
+        }
+
+        if (InspectorReflectedPropertySchema.TryCreate(
+                name,
+                property,
+                kind,
+                flags,
+                category,
+                hasDefault,
+                defaults,
+                out schema,
+                out failure))
+        {
+            return true;
+        }
+        failure = $"{typeName}.{name}: {failure}";
+        return false;
+    }
+
+    private FrameworkElement? BuildMultiReflected3DComponent(
+        int[] selected,
+        InspectorReflectedCommonComponent component)
+    {
+        bool showAll = DetailsMatches(
+            "component",
+            "script",
+            component.TypeName,
+            Friendly(component.TypeName));
+        var body = new StackPanel();
+        string? lastCategory = null;
+        int shownProperties = 0;
+        foreach (InspectorReflectedCommonProperty property in
+                 component.Properties)
+        {
+            InspectorReflectedPropertySchema schema = property.Schema;
+            if (schema.IsHidden ||
+                (!showAll &&
+                 !DetailsMatches(schema.Name, schema.Category)))
+            {
+                continue;
+            }
+
+            if (!TryReadMultiReflectedPropertyValues(
+                    component.TypeName,
+                    property,
+                    out IReadOnlyList<IReadOnlyList<float>> values,
+                    out string failure))
+            {
+                Log(
+                    "Details could not capture reflected property values: " +
+                    failure,
+                    "Scene",
+                    LogLevel.Warn);
+                return null;
+            }
+
+            if (!string.IsNullOrEmpty(schema.Category) &&
+                !string.Equals(
+                    schema.Category,
+                    lastCategory,
+                    StringComparison.Ordinal))
+            {
+                body.Children.Add(new TextBlock
+                {
+                    Text = schema.Category,
+                    Foreground = (Brush)FindResource("TextDim"),
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(
+                        0,
+                        shownProperties == 0 ? 0 : 5,
+                        0,
+                        1),
+                });
+            }
+            lastCategory = schema.Category;
+
+            FrameworkElement? row =
+                BuildMultiReflectedPropertyRow(
+                    selected,
+                    component,
+                    property,
+                    values);
+            if (row is null)
+                continue;
+            body.Children.Add(row);
+            shownProperties++;
+        }
+
+        if (shownProperties == 0)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = _detailsFilter.Length == 0
+                    ? "No common visible properties."
+                    : "No common properties match this filter.",
+                Foreground = (Brush)FindResource("TextDim"),
+                FontSize = 11,
+                Margin = new Thickness(0, 1, 0, 1),
+            });
+        }
+        return ComponentCard(
+            component.TypeName,
+            body,
+            native: false);
+    }
+
+    private bool TryReadMultiReflectedPropertyValues(
+        string typeName,
+        InspectorReflectedCommonProperty property,
+        out IReadOnlyList<IReadOnlyList<float>> values,
+        out string failure)
+    {
+        var captured =
+            new List<IReadOnlyList<float>>(property.Targets.Count);
+        foreach (InspectorReflectedPropertyTarget target in
+                 property.Targets)
+        {
+            if (!string.Equals(
+                    EngineInterop.Component3DName(
+                        Engine,
+                        target.NodeId,
+                        target.Slot),
+                    typeName,
+                    StringComparison.Ordinal))
+            {
+                values = Array.Empty<IReadOnlyList<float>>();
+                failure =
+                    $"node {target.NodeId} component topology changed.";
+                return false;
+            }
+
+            var value = new float[4];
+            if (EngineInterop.acs_editor_node3d_component_prop_get(
+                    Engine,
+                    target.NodeId,
+                    target.Slot,
+                    target.PropertyIndex,
+                    out value[0],
+                    out value[1],
+                    out value[2],
+                    out value[3]) == 0 ||
+                value.Any(static component =>
+                    !float.IsFinite(component)))
+            {
+                values = Array.Empty<IReadOnlyList<float>>();
+                failure =
+                    $"node {target.NodeId} property read failed or was non-finite.";
+                return false;
+            }
+            captured.Add(value);
+        }
+
+        values = captured.AsReadOnly();
+        failure = "";
+        return true;
+    }
+
+    private FrameworkElement? BuildMultiReflectedPropertyRow(
+        int[] selected,
+        InspectorReflectedCommonComponent component,
+        InspectorReflectedCommonProperty property,
+        IReadOnlyList<IReadOnlyList<float>> values)
+    {
+        InspectorReflectedPropertySchema schema = property.Schema;
+        if (schema.IsHidden)
+            return null;
+
+        if (schema.Kind == InspectorReflectedPropertyKind.String)
+        {
+            FrameworkElement stringRow =
+                LabeledValue3D(
+                    schema.Name,
+                    InspectorMultiEditContract.MixedPlaceholder +
+                    " (string editing requires one selection)");
+            stringRow.IsEnabled = false;
+            return stringRow;
+        }
+
+        FrameworkElement editor;
+        if (schema.Kind == InspectorReflectedPropertyKind.Bool)
+        {
+            InspectorMixedBool mixed =
+                InspectorReflectedMultiEditContract.ResolveMixedBool(
+                    values);
+            var row = new DockPanel
+            {
+                Margin = new Thickness(0, 3, 0, 1),
+            };
+            var label = new TextBlock
+            {
+                Text = schema.Name,
+                Width = 78,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = (Brush)FindResource("TextDim"),
+                FontSize = 11,
+                FontFamily =
+                    new System.Windows.Media.FontFamily("Consolas"),
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            row.Children.Add(label);
+            var check = new CheckBox
+            {
+                IsThreeState = true,
+                IsChecked = mixed.IsMixed ? null : mixed.Value,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = mixed.IsMixed
+                    ? "Multiple values. Click to apply one value to every target."
+                    : "Apply this value to every selected target.",
+            };
+            check.Checked += (_, __) =>
+            {
+                if (_pop3d) return;
+                _ = ApplyMultiReflectedPropertyPatch(
+                    selected,
+                    component.TypeName,
+                    property,
+                    new float?[] { 1.0f, null, null, null },
+                    $"Edit {Friendly(component.TypeName)}.{schema.Name}");
+            };
+            check.Unchecked += (_, __) =>
+            {
+                if (_pop3d) return;
+                _ = ApplyMultiReflectedPropertyPatch(
+                    selected,
+                    component.TypeName,
+                    property,
+                    new float?[] { 0.0f, null, null, null },
+                    $"Edit {Friendly(component.TypeName)}.{schema.Name}");
+            };
+            row.Children.Add(check);
+            editor = row;
+        }
+        else if (schema.Kind ==
+                 InspectorReflectedPropertyKind.ObjectRef)
+        {
+            editor = BuildMultiReflectedObjectReferenceRow(
+                selected,
+                component,
+                property,
+                values);
+        }
+        else if ((schema.Kind is
+                      InspectorReflectedPropertyKind.Enum or
+                      InspectorReflectedPropertyKind.I32 or
+                      InspectorReflectedPropertyKind.U32) &&
+                 TryGetKnownReflectedChoices(
+                     schema.Name,
+                     out IReadOnlyList<string> choices))
+        {
+            editor = BuildMultiReflectedChoiceRow(
+                selected,
+                component,
+                property,
+                values,
+                choices);
+        }
+        else
+        {
+            InspectorMixedFloat[] mixed =
+                InspectorReflectedMultiEditContract
+                    .ResolveMixedComponents(
+                        schema,
+                        values);
+            editor = MixedVectorRow(
+                schema.Name,
+                mixed,
+                sparsePatch =>
+                {
+                    var fullPatch = new float?[4];
+                    for (int index = 0;
+                         index < sparsePatch.Length;
+                         ++index)
+                    {
+                        fullPatch[index] = sparsePatch[index];
+                    }
+                    return ApplyMultiReflectedPropertyPatch(
+                        selected,
+                        component.TypeName,
+                        property,
+                        fullPatch,
+                        $"Edit {Friendly(component.TypeName)}.{schema.Name}");
+                });
+        }
+
+        if (!schema.IsEditable)
+            editor.IsEnabled = false;
+        return WrapMultiReflectedReset(
+            selected,
+            component.TypeName,
+            property,
+            editor);
+    }
+
+    private FrameworkElement BuildMultiReflectedObjectReferenceRow(
+        int[] selected,
+        InspectorReflectedCommonComponent component,
+        InspectorReflectedCommonProperty property,
+        IReadOnlyList<IReadOnlyList<float>> values)
+    {
+        InspectorReflectedPropertySchema schema = property.Schema;
+        InspectorMixedFloat mixed =
+            InspectorReflectedMultiEditContract
+                .ResolveMixedComponents(schema, values)[0];
+        var row = new DockPanel
+        {
+            Margin = new Thickness(0, 3, 0, 1),
+        };
+        var label = new TextBlock
+        {
+            Text = schema.Name,
+            Width = 78,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim"),
+            FontSize = 11,
+            FontFamily =
+                new System.Windows.Media.FontFamily("Consolas"),
+        };
+        DockPanel.SetDock(label, Dock.Left);
+        row.Children.Add(label);
+
+        var combo = new ComboBox
+        {
+            MinWidth = 150,
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        int initialIndex = -1;
+        if (mixed.IsMixed)
+        {
+            combo.Items.Add(new ComboBoxItem
+            {
+                Content = InspectorMultiEditContract.MixedPlaceholder +
+                          " Multiple Values",
+                Tag = null,
+            });
+            initialIndex = 0;
+        }
+        combo.Items.Add(new ComboBoxItem
+        {
+            Content = "(None)",
+            Tag = -1,
+        });
+        int noneIndex = combo.Items.Count - 1;
+        var unsafeTargets = new HashSet<int>(selected);
+        int nodeCount =
+            Math.Clamp(
+                EngineInterop.acs_editor_node3d_count(Engine),
+                0,
+                100_000);
+        for (int index = 0; index < nodeCount; ++index)
+        {
+            int nodeId =
+                EngineInterop.acs_editor_node3d_id_at(Engine, index);
+            if (nodeId < 0 || unsafeTargets.Contains(nodeId))
+                continue;
+            combo.Items.Add(new ComboBoxItem
+            {
+                Content =
+                    $"{Node3DName(nodeId)} (id {nodeId})",
+                Tag = nodeId,
+            });
+        }
+
+        if (!mixed.IsMixed)
+        {
+            bool hasCurrent =
+                TryReadReflectedInteger(
+                    mixed.Value,
+                    out int current);
+            if (hasCurrent && current == -1)
+            {
+                initialIndex = noneIndex;
+            }
+            else if (hasCurrent)
+            {
+                for (int index = 0;
+                     index < combo.Items.Count;
+                     ++index)
+                {
+                    if (combo.Items[index] is ComboBoxItem item &&
+                        item.Tag is int candidate &&
+                        candidate == current)
+                    {
+                        initialIndex = index;
+                        break;
+                    }
+                }
+                if (initialIndex < 0)
+                {
+                    combo.Items.Insert(0, new ComboBoxItem
+                    {
+                        Content =
+                            $"Current id {current} (not batch-safe)",
+                        Tag = null,
+                        IsEnabled = false,
+                    });
+                    initialIndex = 0;
+                }
+            }
+            else
+            {
+                combo.Items.Insert(0, new ComboBoxItem
+                {
+                    Content =
+                        "Current reference is invalid (not batch-safe)",
+                    Tag = null,
+                    IsEnabled = false,
+                });
+                initialIndex = 0;
+            }
+        }
+        combo.SelectedIndex = initialIndex;
+        combo.SelectionChanged += (_, __) =>
+        {
+            if (_pop3d ||
+                combo.SelectedItem is not ComboBoxItem item ||
+                item.Tag is not int desired)
+            {
+                return;
+            }
+            _ = ApplyMultiReflectedPropertyPatch(
+                selected,
+                component.TypeName,
+                property,
+                new float?[] { desired, null, null, null },
+                $"Edit {Friendly(component.TypeName)}.{schema.Name}");
+        };
+        row.Children.Add(combo);
+        return row;
+    }
+
+    private FrameworkElement BuildMultiReflectedChoiceRow(
+        int[] selected,
+        InspectorReflectedCommonComponent component,
+        InspectorReflectedCommonProperty property,
+        IReadOnlyList<IReadOnlyList<float>> values,
+        IReadOnlyList<string> choices)
+    {
+        InspectorReflectedPropertySchema schema = property.Schema;
+        InspectorMixedFloat mixed =
+            InspectorReflectedMultiEditContract
+                .ResolveMixedComponents(schema, values)[0];
+        var row = new DockPanel
+        {
+            Margin = new Thickness(0, 3, 0, 1),
+        };
+        var label = new TextBlock
+        {
+            Text = schema.Name,
+            Width = 78,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim"),
+            FontSize = 11,
+            FontFamily =
+                new System.Windows.Media.FontFamily("Consolas"),
+        };
+        DockPanel.SetDock(label, Dock.Left);
+        row.Children.Add(label);
+
+        var combo = new ComboBox
+        {
+            MinWidth = 130,
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        int offset = 0;
+        if (mixed.IsMixed)
+        {
+            combo.Items.Add(
+                InspectorMultiEditContract.MixedPlaceholder +
+                " Multiple Values");
+            offset = 1;
+        }
+        foreach (string choice in choices)
+            combo.Items.Add(choice);
+        int selectedChoice =
+            !mixed.IsMixed &&
+            TryReadReflectedInteger(mixed.Value, out int value)
+                ? value
+                : -1;
+        combo.SelectedIndex =
+            mixed.IsMixed
+                ? 0
+                : selectedChoice >= 0 &&
+                  selectedChoice < choices.Count
+                    ? selectedChoice + offset
+                    : -1;
+        combo.SelectionChanged += (_, __) =>
+        {
+            if (_pop3d)
+                return;
+            int choice = combo.SelectedIndex - offset;
+            if (choice < 0 || choice >= choices.Count)
+                return;
+            _ = ApplyMultiReflectedPropertyPatch(
+                selected,
+                component.TypeName,
+                property,
+                new float?[] { choice, null, null, null },
+                $"Edit {Friendly(component.TypeName)}.{schema.Name}");
+        };
+        row.Children.Add(combo);
+        return row;
+    }
+
+    private static bool TryGetKnownReflectedChoices(
+        string propertyName,
+        out IReadOnlyList<string> choices)
+    {
+        choices = propertyName switch
+        {
+            "bodyType" => new[] { "Static", "Dynamic" },
+            "shape" =>
+                new[] { "Box", "Circle", "Triangle", "Polygon" },
+            _ => Array.Empty<string>(),
+        };
+        return choices.Count != 0;
+    }
+
+    private static bool TryReadReflectedInteger(
+        float value,
+        out int result)
+    {
+        result = 0;
+        if (!float.IsFinite(value) ||
+            value < -16_777_216f ||
+            value > 16_777_216f ||
+            value != MathF.Truncate(value))
+        {
+            return false;
+        }
+        result = (int)value;
+        return true;
+    }
+
+    private FrameworkElement WrapMultiReflectedReset(
+        int[] selected,
+        string typeName,
+        InspectorReflectedCommonProperty property,
+        FrameworkElement editor)
+    {
+        if (!property.Schema.CanReset)
+            return editor;
+
+        var root = new StackPanel();
+        root.Children.Add(editor);
+        var reset = new Button
+        {
+            Content = "↺ Reset to Default",
+            Padding = new Thickness(7, 2, 7, 2),
+            Margin = new Thickness(78, 2, 0, 2),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            ToolTip =
+                "Apply the reflected schema default to every selected target.",
+        };
+        reset.Click += (_, __) =>
+        {
+            if (!InspectorReflectedMultiEditContract
+                    .TryBuildDefaultPatch(
+                        property.Schema,
+                        out float?[] patch))
+            {
+                return;
+            }
+            _ = ApplyMultiReflectedPropertyPatch(
+                selected,
+                typeName,
+                property,
+                patch,
+                $"Reset {Friendly(typeName)}.{property.Schema.Name}");
+        };
+        root.Children.Add(reset);
+        return root;
     }
 
     private static string MeshRendererTypeName(int kind) => kind switch
@@ -991,6 +1728,183 @@ public partial class MainWindow
             selected.Length,
             result,
             failureDetail);
+    }
+
+    private bool ApplyMultiReflectedPropertyPatch(
+        int[] selected,
+        string typeName,
+        InspectorReflectedCommonProperty property,
+        IReadOnlyList<float?> patch,
+        string label)
+    {
+        if (patch.Count != 4 ||
+            !property.Schema.IsEditable ||
+            !patch.Any(static value => value.HasValue) ||
+            patch.Any(static value =>
+                value.HasValue &&
+                !float.IsFinite(value.Value)) ||
+            !InspectorMultiEditContract.SameSelection(
+                selected,
+                Selected3DNodeIds()) ||
+            !InspectorMultiEditContract.SameSelection(
+                selected,
+                property.Targets.Select(
+                        static target => target.NodeId)
+                    .ToArray()))
+        {
+            Log(
+                $"{label} was cancelled because its selection, schema, or value changed.",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+
+        Dictionary<int, InspectorReflectedPropertyTarget> targets;
+        try
+        {
+            targets = property.Targets.ToDictionary(
+                static target => target.NodeId);
+        }
+        catch (ArgumentException)
+        {
+            Log(
+                $"{label} was cancelled because reflected targets are ambiguous.",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+
+        string selectionIdentity =
+            InspectorMultiEditContract.SelectionIdentity(selected);
+        InspectorAtomicBatchResult result;
+        using (BeginSceneDocumentTransaction(
+                   label,
+                   $"inspector.multi.component.{typeName}." +
+                   $"{property.Schema.Name}.{selectionIdentity}",
+                   TimeSpan.Zero,
+                   selected[0]))
+        {
+            result = InspectorMultiEditContract.ApplyAtomically(
+                selected,
+                (int nodeId, out MultiArrayMutation mutation) =>
+                {
+                    if (!targets.TryGetValue(
+                            nodeId,
+                            out InspectorReflectedPropertyTarget target) ||
+                        !string.Equals(
+                            EngineInterop.Component3DName(
+                                Engine,
+                                nodeId,
+                                target.Slot),
+                            typeName,
+                            StringComparison.Ordinal) ||
+                        !TryReadReflectedPropertySchema(
+                            typeName,
+                            target.PropertyIndex,
+                            out InspectorReflectedPropertySchema? currentSchema,
+                            out _) ||
+                        currentSchema is null ||
+                        !property.Schema.IsCompatibleWith(currentSchema))
+                    {
+                        mutation = null!;
+                        return false;
+                    }
+
+                    var before = new float[4];
+                    if (EngineInterop
+                            .acs_editor_node3d_component_prop_get(
+                                Engine,
+                                nodeId,
+                                target.Slot,
+                                target.PropertyIndex,
+                                out before[0],
+                                out before[1],
+                                out before[2],
+                                out before[3]) == 0 ||
+                        before.Any(static value =>
+                            !float.IsFinite(value)) ||
+                        !InspectorReflectedMultiEditContract
+                            .TryBuildMutation(
+                                property.Schema,
+                                before,
+                                patch,
+                                out float[] after))
+                    {
+                        mutation = null!;
+                        return false;
+                    }
+
+                    mutation = new MultiArrayMutation(before, after);
+                    return true;
+                },
+                (nodeId, mutation) =>
+                    WriteAndVerifyReflectedProperty(
+                        typeName,
+                        targets[nodeId],
+                        mutation.After),
+                (nodeId, mutation) =>
+                    WriteAndVerifyReflectedProperty(
+                        typeName,
+                        targets[nodeId],
+                        mutation.Before));
+        }
+
+        bool succeeded =
+            ReportMultiBatchResult(
+                label,
+                selected.Length,
+                result);
+        if (succeeded &&
+            InspectorMultiEditContract.SameSelection(
+                selected,
+                Selected3DNodeIds()))
+        {
+            Populate3DInspector(selected[0]);
+        }
+        return succeeded;
+    }
+
+    private bool WriteAndVerifyReflectedProperty(
+        string typeName,
+        InspectorReflectedPropertyTarget target,
+        IReadOnlyList<float> value)
+    {
+        if (value.Count != 4 ||
+            value.Any(static component =>
+                !float.IsFinite(component)) ||
+            !string.Equals(
+                EngineInterop.Component3DName(
+                    Engine,
+                    target.NodeId,
+                    target.Slot),
+                typeName,
+                StringComparison.Ordinal) ||
+            EngineInterop.acs_editor_node3d_component_prop_set(
+                Engine,
+                target.NodeId,
+                target.Slot,
+                target.PropertyIndex,
+                value[0],
+                value[1],
+                value[2],
+                value[3]) == 0)
+        {
+            return false;
+        }
+
+        var current = new float[4];
+        return EngineInterop.acs_editor_node3d_component_prop_get(
+                   Engine,
+                   target.NodeId,
+                   target.Slot,
+                   target.PropertyIndex,
+                   out current[0],
+                   out current[1],
+                   out current[2],
+                   out current[3]) != 0 &&
+               InspectorReflectedMultiEditContract.ValuesEqual(
+                   current,
+                   value);
     }
 
     private bool ApplyMultiColorPatch(

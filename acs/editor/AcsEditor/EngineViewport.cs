@@ -177,6 +177,8 @@ public sealed class EngineViewport : HwndHost
     private CancellationTokenSource? _nativeBootstrapCancellation;
     private EditorNativeHostLifetimeLease? _nativeHostLifetimeLease;
     private EditorAbiCapability _abiCapabilities;
+    private readonly EditorOptionalServiceUiSession
+        _optionalServiceUiSession = new();
     private bool _attached;
     private uint _w, _h;
     private uint _pendW, _pendH;   // attach 前の «サイズ安定待ち» 用 (起動直後のリサイズ連発を回避)
@@ -622,6 +624,26 @@ public sealed class EngineViewport : HwndHost
         _engine != IntPtr.Zero &&
         _abiCapabilities.HasFlag(
             EditorAbiCapability.CameraViewRequestsV1);
+
+    internal EditorOptionalServiceUiState GetOptionalServiceUiState(
+        EditorOptionalService service)
+    {
+        Dispatcher.VerifyAccess();
+        IntPtr handle = Engine;
+        int managedGeneration = _renderPumpGeneration;
+        EditorAbiCapability capabilities = AbiCapabilities;
+        return _optionalServiceUiSession.Evaluate(
+            handle,
+            managedGeneration,
+            capabilities,
+            service,
+            EditorOptionalServiceDiagnosticsInterop.TryGet,
+            () =>
+                !_destroying &&
+                _engine == handle &&
+                _renderPumpGeneration == managedGeneration &&
+                _abiCapabilities == capabilities);
+    }
 
     internal bool TryCreateCameraViewRequest(
         int nodeId,

@@ -2970,6 +2970,16 @@ struct FWindowConfig {
 
     /** 垂直同期を希望するか (Swapchain 側へのヒント。FWindow 自体は参照しない)。 */
     bool           vsync_hint  = true;
+
+    /**
+     * Show the top-level window after creation.
+     *
+     * Hidden windows are used by authenticated, bounded package startup
+     * smoke tests. Skipping ShowWindow keeps the test from activating,
+     * focusing, or covering an interactive editor session while preserving
+     * a real HWND/swapchain startup path.
+     */
+    bool           visible     = true;
 };
 
 /**
@@ -10899,7 +10909,9 @@ protected:
      * @details
      * true を返すと基底は BeginFrame/OnRender/EndFrame を呼ばず、派生クラスが
      * コマンドリストとスワップチェインを直接制御する責任を負う。HDR + ポストプロセスの
-     * パイプラインを自前で組む場合 (HelloBloom 等) に使う。
+     * パイプラインを自前で組む場合 (HelloBloom 等) に使う。true は submit/present
+     * まで担当したフレームを表す。担当後に失敗した場合は Quit() を呼んでから true を
+     * 返すこと。false は標準描画へ委譲する。
      * @return フルカスタム描画を行ったなら true、標準描画に任せるなら false (既定)。
      */
     virtual bool OnCustomFrame() noexcept
@@ -11031,8 +11043,8 @@ private:
 
 
 // Win32 サブシステムでビルドされた exe (CMake の `add_executable(... WIN32 ...)`)
-// では `WinMain` がエントリポイント。コンソール subsystem では `main`。
-// 両方に対応するため両エントリを出して、内部で同じ関数に委譲する。
+// では `UNICODE` に応じた WinMain / wWinMain がエントリポイント。
+// コンソール subsystem では `main`。必要なエントリだけを出して同じ関数へ委譲する。
 #if defined(_WIN32)
 
 // ===================== foundation/Platform.h =====================
@@ -11084,13 +11096,29 @@ private:
     #endif
 #endif
 
+    // A Windows-subsystem image must expose exactly the character-width entry
+    // selected by its UNICODE contract. Defining both variants makes MSVC
+    // choose one with LNK4067 and introduces avoidable packaged-build noise.
+    // Console-subsystem targets continue to use the adjacent main entry.
+    #if defined(UNICODE)
+        #define ACS_DETAIL_DEFINE_WINDOWS_MAIN()                               \
+            int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {          \
+                return acs_run_main_impl();                                    \
+            }
+    #else
+        #define ACS_DETAIL_DEFINE_WINDOWS_MAIN()                               \
+            int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {            \
+                return acs_run_main_impl();                                    \
+            }
+    #endif
+
     /**
      * AppClass を既定 FAppConfig で起動するエントリポイントを自動生成する。
      *
      * @details
      * AppClass をスタックに構築し、`FAppConfig{}` を渡して Run() を呼ぶ実装関数を作り、
-     * main / WinMain / wWinMain の 3 エントリをすべて出してそこへ委譲する
-     * (コンソール・Win32 両サブシステム対応)。
+     * main と、UNICODE 契約に対応する WinMain または wWinMain を出して
+     * そこへ委譲する (コンソール・Win32 両サブシステム対応)。
      * @param AppClass FApplication を継承したアプリ型。
      */
     #define ACS_DEFINE_MAIN(AppClass)                                          \
@@ -11100,12 +11128,7 @@ private:
             return app.Run(cfg);                                               \
         }                                                                      \
         int main() { return acs_run_main_impl(); }                             \
-        int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {                 \
-            return acs_run_main_impl();                                        \
-        }                                                                      \
-        int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {               \
-            return acs_run_main_impl();                                        \
-        }
+        ACS_DETAIL_DEFINE_WINDOWS_MAIN()
 
     /**
      * cfg_factory が返す FAppConfig で AppClass を起動するエントリポイントを生成する。
@@ -11122,12 +11145,7 @@ private:
             return app.Run(cfg);                                               \
         }                                                                      \
         int main() { return acs_run_main_impl(); }                             \
-        int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {                 \
-            return acs_run_main_impl();                                        \
-        }                                                                      \
-        int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {               \
-            return acs_run_main_impl();                                        \
-        }
+        ACS_DETAIL_DEFINE_WINDOWS_MAIN()
 #else
     /**
      * AppClass を既定 FAppConfig で起動する main() を生成する (非 Windows)。
