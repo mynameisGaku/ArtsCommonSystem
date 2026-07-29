@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Robin Hood ハッシュマップ（密値配列 + 8 バイトインデックスバケット）
 #pragma once
 
 #include "foundation/Types.h"
@@ -141,19 +140,31 @@ public:
     }
 
     /**
-     * キー挿入 / 上書きを試み、拡張確保 (rehash / 値配列) に失敗したら map を変えず false を返す。
+     * キー挿入 / 上書きを試み、拡張確保に失敗したら新規要素を追加せず false を返す。
      *
-     * @details OOM 時は map の内容と容量を一切変更しない。失敗時、value はムーブ済みになり得る。
+     * @details OOM 時も既存要素と検索整合性は維持する。ただし rehash と値配列拡張は別確保のため、
+     * 先に成功した内部容量だけが増える場合がある。失敗時、value はムーブ済みになり得る。
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
      * @return 挿入 / 上書き成功なら true、サイズ overflow / OOM なら false。
      */
     bool TryInsert(const K& key, V value) noexcept {
-        // load factor 超過なら容量倍増 (rehash 失敗時は挿入せず false)。
-        if ((Size() + 1) * 100 > m_BucketCount * kLoadFactorPct) {
-            if (!TryRehash(NextCapacity())) return false;
+        // 更新を再配置判定より先に1回のハッシュ計算と探索で完了させ、
+        // 閾値付近の既存 key 更新では容量を増やさない。
+        /** 検索と新規挿入で再利用するハッシュ値。 */
+        const u64 Hash = H{}(key);
+        if (V* const Existing = FindByHashImpl(key, Hash)) {
+            *Existing = Move(value);
+            return true;
         }
-        return TryInsertImpl(key, Move(value));
+        if (NeedsGrowthForOneMore()) {
+            /** 追加要素を収容する次のバケット数。 */
+            usize NewCapacity = 0u;
+            if (!TryNextCapacity(NewCapacity) || !TryRehash(NewCapacity)) {
+                return false;
+            }
+        }
+        return TryInsertImpl(key, Move(value), Hash);
     }
 
     /**
@@ -164,22 +175,7 @@ public:
      * @return 見つかれば値へのポインタ、無ければ nullptr。
      */
     V* Find(const K& key) noexcept {
-        if (m_BucketCount == 0) return nullptr;
-        const u64 h = H{}(key);
-        u32 ideal = static_cast<u32>(h) & m_BucketMask;
-        const u32 fp = static_cast<u32>((h >> 56) | 0x01);  // fingerprint（0 を避ける）
-        u32 dist = 0;
-        while (true) {
-            const FBucket& b = m_Buckets[ideal];
-            if (b.dist_fp == 0) return nullptr;            // 空スロット → 未存在
-            if (b.Distance() < dist) return nullptr;       // Robin Hood: 自分より距離小 → 未存在
-            if (b.Fingerprint() == fp) {
-                // fingerprint 一致なら実キー比較
-                if (m_Values[b.value_idx].first == key) return &m_Values[b.value_idx].second;
-            }
-            ideal = (ideal + 1) & m_BucketMask;
-            ++dist;
-        }
+        return FindByHashImpl(key, H{}(key));
     }
 
     /**
@@ -189,7 +185,48 @@ public:
      * @return 見つかれば値への const ポインタ、無ければ nullptr。
      */
     const V* Find(const K& key) const noexcept {
-        return const_cast<THashMap*>(this)->Find(key);
+        return FindByHashImpl(key, H{}(key));
+    }
+
+    /**
+     * key 型とは異なる query 型で検索する。
+     *
+     * H が query を hash でき、K と query を == 比較できる場合に利用できる。
+     * FString key を FStringView で引く用途では一時 FString を生成しない。
+     * @param Query key と比較できる検索値。
+     * @return 一致した値。未登録時は nullptr。
+     */
+    template<typename Q>
+    V* FindAs(const Q& Query) noexcept
+    {
+        return FindByHashImpl(Query, H{}(Query));
+    }
+
+    /** Query を異種検索して読み取り専用値を返す。未登録時は nullptr。 */
+    template<typename Q>
+    const V* FindAs(const Q& Query) const noexcept
+    {
+        return FindByHashImpl(Query, H{}(Query));
+    }
+
+    /**
+     * 呼び出し側で計算済みの hash を使って異種検索する。
+     * Hash は H{}(Query) と同一アルゴリズムで求める必要がある。
+     * @param Query key と比較できる検索値。
+     * @param Hash Query の計算済みハッシュ値。
+     * @return 一致した値。未登録時は nullptr。
+     */
+    template<typename Q>
+    V* FindByHash(const Q& Query, u64 Hash) noexcept
+    {
+        return FindByHashImpl(Query, Hash);
+    }
+
+    /** 計算済み Hash で Query を検索して読み取り専用値を返す。 */
+    template<typename Q>
+    const V* FindByHash(const Q& Query, u64 Hash) const noexcept
+    {
+        return FindByHashImpl(Query, Hash);
     }
 
     /**
@@ -199,6 +236,13 @@ public:
      * @return 存在すれば true。
      */
     bool Contains(const K& key) const noexcept { return Find(key) != nullptr; }
+
+    /** Query が存在するかを一時 K 生成なしに調べる。 */
+    template<typename Q>
+    bool ContainsAs(const Q& Query) const noexcept
+    {
+        return FindAs(Query) != nullptr;
+    }
 
     /**
      * キーを削除する (後方シフトで詰めて tombstone を残さない)。
@@ -278,12 +322,22 @@ public:
      * 容量予約を試み、確保に失敗したら map を変えず false を返す。
      *
      * @param n 収めたいエントリ数。
-     * @return 予約済みまたは予約成功なら true、OOM なら false。
+     * @return 予約済みまたは予約成功なら true、範囲超過または確保失敗なら false。
      */
     bool TryReserve(usize n) noexcept {
-        const usize need = (n * 100 + kLoadFactorPct - 1) / kLoadFactorPct;
-        usize cap = 16;
-        while (cap < need) cap <<= 1;
+        if (static_cast<u64>(n) > 0xFFFFFFFFull) return false;
+        // ceil(n / 0.8) == n + ceil(n / 4)。乗算を避けて overflow を防ぐ。
+        /** n 要素を負荷率80%以下で保持する必要バケット数。 */
+        const u64 Need = static_cast<u64>(n) + (static_cast<u64>(n) + 3u) / 4u;
+
+        /** 2のべき乗へ切り上げる途中のバケット数。 */
+        u64 Capacity = 16u;
+        while (Capacity < Need) {
+            if (Capacity >= 0x100000000ull) return false;
+            Capacity <<= 1u;
+        }
+        /** TryRehash へ渡せる実行環境のバケット数。 */
+        const usize cap = static_cast<usize>(Capacity);
         if (cap <= m_BucketCount) return true;
         return TryRehash(cap);
     }
@@ -363,21 +417,72 @@ private:
         void SetDistance(u32 d) noexcept { dist_fp = (d << 8) | (dist_fp & 0xFFu); }
     };
 
-    /**
-     * rehash 時の次のバケット容量を返す (空なら 16、以降は倍増)。
-     *
-     * @return 次のバケット数。
-     */
-    usize NextCapacity() noexcept {
-        return m_BucketCount == 0 ? 16 : m_BucketCount * 2;
+    /** hash 済み query を Robin Hood の距離不変条件で検索する。 */
+    template<typename Q>
+    ACS_FORCEINLINE V* FindByHashImpl(const Q& Query, u64 Hash) noexcept
+    {
+        return const_cast<V*>(static_cast<const THashMap*>(this)->FindByHashImpl(Query, Hash));
+    }
+
+    /** hash 済み query を検索する const 版。 */
+    template<typename Q>
+    ACS_FORCEINLINE const V* FindByHashImpl(const Q& Query, u64 Hash) const noexcept
+    {
+        if (m_BucketCount == 0u) return nullptr;
+
+        /** 現在調べるバケット位置。 */
+        u32 BucketIndex = static_cast<u32>(Hash) & m_BucketMask;
+
+        /** 完全比較を行う候補を絞る8bit識別値。 */
+        const u32 Fingerprint = static_cast<u32>((Hash >> 56u) | 0x01u);
+
+        /** 本来のバケット位置から進んだ距離。 */
+        u32 Distance = 0u;
+        while (true) {
+            /** 現在調べるバケット。 */
+            const FBucket& Bucket = m_Buckets[BucketIndex];
+            if (Bucket.dist_fp == 0u || Bucket.Distance() < Distance) {
+                return nullptr;
+            }
+            if (Bucket.Fingerprint() == Fingerprint && m_Values[Bucket.value_idx].first == Query) {
+                return &m_Values[Bucket.value_idx].second;
+            }
+            BucketIndex = (BucketIndex + 1u) & m_BucketMask;
+            ++Distance;
+            if (Distance >= m_BucketCount) return nullptr;
+        }
+    }
+
+    /** 1 要素追加後に load factor 上限を超えるかを返す。 */
+    bool NeedsGrowthForOneMore() const noexcept
+    {
+        if (m_BucketCount == 0u) return true;
+        /** 現在のバケット数で許可する最大要素数。 */
+        const u64 Threshold = (static_cast<u64>(m_BucketCount) * static_cast<u64>(kLoadFactorPct)) / 100u;
+        return static_cast<u64>(Size()) + 1u > Threshold;
     }
 
     /**
-     * バケット配列を new_count で作り直し、全 value を再挿入する (値配列は維持)。
+     * rehash 用の次容量を overflow なしに求める。
      *
-     * @details new_count は 2 の冪である必要がある (ACS_ASSERT で検査)。
-     * @param new_count 新しいバケット数 (2 の冪)。
+     * @param OutCapacity 成功時の次バケット数。
+     * @return u32 mask で表現可能なら true。
      */
+    bool TryNextCapacity(usize& OutCapacity) const noexcept
+    {
+        if (m_BucketCount == 0u) {
+            OutCapacity = 16u;
+            return true;
+        }
+        /** 倍増後の候補バケット数。 */
+        const u64 Next = static_cast<u64>(m_BucketCount) * 2u;
+        if (Next > 0x100000000ull || Next > static_cast<u64>(~usize(0))) {
+            return false;
+        }
+        OutCapacity = static_cast<usize>(Next);
+        return true;
+    }
+
     /**
      * バケット配列を new_count で作り直し、全 value を再挿入する (値配列は維持)。確保に失敗
      * したら map を一切変更せず false を返す。
@@ -388,7 +493,9 @@ private:
      * @return 成功なら true、OOM なら false。
      */
     bool TryRehash(usize new_count) noexcept {
-        ACS_ASSERT((new_count & (new_count - 1)) == 0);
+        if (new_count == 0u || (new_count & (new_count - 1u)) != 0u || static_cast<u64>(new_count) > 0x100000000ull || new_count > (~usize(0)) / sizeof(FBucket)) {
+            return false;
+        }
 
         void* const mem = m_Alloc->Alloc(sizeof(FBucket) * new_count, alignof(FBucket), FSourceLoc::Current());
         if (!mem) return false;  // OOM: map を変更しない
@@ -446,30 +553,18 @@ private:
     /**
      * 挿入/上書きの本体 (rehash 判定後に呼ばれる)。
      *
-     * @details 既存キーがあれば値を上書きして戻る。新規なら値配列末尾へ追加してから
-     * Robin Hood 挿入する。u32 への index 切り詰めは ACS_ASSERT で検出する。
+     * @details 呼出側で未登録を確認済みの key を値配列末尾へ追加してから
+     * Robin Hood 挿入する。u32 への index 切り詰めは事前に拒否する。
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
+     * @param Hash 呼出側で一度だけ計算した key のハッシュ値。
      */
-    bool TryInsertImpl(const K& key, V&& value) noexcept {
-        const u64 h = H{}(key);
-        const u32 ideal = static_cast<u32>(h) & m_BucketMask;
-        const u32 fp = static_cast<u32>((h >> 56) | 0x01);
+    bool TryInsertImpl(const K& key, V&& value, u64 Hash) noexcept {
+        /** key が最初に入る候補バケット位置。 */
+        const u32 ideal = static_cast<u32>(Hash) & m_BucketMask;
 
-        // 既存キーチェック
-        u32 probe = ideal;
-        u32 dist = 0;
-        while (true) {
-            const FBucket& b = m_Buckets[probe];
-            if (b.dist_fp == 0) break;
-            if (b.Distance() < dist) break;
-            if (b.Fingerprint() == fp && m_Values[b.value_idx].first == key) {
-                m_Values[b.value_idx].second = Move(value);  // 上書き (確保なし・常に成功)
-                return true;
-            }
-            probe = (probe + 1) & m_BucketMask;
-            ++dist;
-        }
+        /** 完全比較を行う候補を絞る8bit識別値。 */
+        const u32 fp = static_cast<u32>((Hash >> 56u) | 0x01u);
 
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
         if (m_Values.Size() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止

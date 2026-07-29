@@ -10,6 +10,7 @@ acs_module(
         Cpu.cpp
         MathDispatch.cpp
     HEADERS
+        BatchTransformPolicy.h
         Camera.h
         CameraRig.h
         Collision2D.h

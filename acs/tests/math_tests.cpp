@@ -71,3 +71,36 @@ ACS_TEST(Math, MathDispatchPopulated) {
     EXPECT_TRUE(d.transform_points  != nullptr);
     EXPECT_TRUE(d.transform_vectors != nullptr);
 }
+
+/** 静的 batch policy と runtime dispatch の点・ベクトル結果を比較する。 */
+ACS_TEST(Math, StaticBatchPolicyMatchesRuntimeDispatch)
+{
+    // 比較する要素数。
+    constexpr usize kCount = 5u;
+    // 平行移動差を検出できる入力群。
+    const FVec3 Input[kCount] = {FVec3(-3.0f, 2.0f, 1.0f), FVec3(0.0f, 0.0f, 0.0f), FVec3(7.0f, -2.0f, 4.0f), FVec3(0.25f, 0.5f, 0.75f), FVec3(100.0f, -100.0f, 2.0f)};
+    // runtime 点変換の出力。
+    FVec3 RuntimePoints[kCount] = {};
+    // static 点変換の出力。
+    FVec3 StaticPoints[kCount] = {};
+    // runtime ベクトル変換の出力。
+    FVec3 RuntimeVectors[kCount] = {};
+    // static ベクトル変換の出力。
+    FVec3 StaticVectors[kCount] = {};
+    // 回転と平行移動を含む比較用行列。
+    const FMat4 Matrix = FMat4::RotationY(0.37f) * FMat4::Translation(FVec3(11.0f, -5.0f, 3.0f));
+
+    TransformPoints(Input, RuntimePoints, kCount, Matrix);
+    TransformVectors(Input, RuntimeVectors, kCount, Matrix);
+    TransformBatchStatic<EBatchTransformPolicy::Point>(Input, StaticPoints, Matrix);
+    TransformBatchStatic<EBatchTransformPolicy::Vector>(Input, StaticVectors, Matrix);
+
+    for (usize Index = 0u; Index < kCount; ++Index) {
+        EXPECT_NEAR(StaticPoints[Index].x, RuntimePoints[Index].x, 1e-6f);
+        EXPECT_NEAR(StaticPoints[Index].y, RuntimePoints[Index].y, 1e-6f);
+        EXPECT_NEAR(StaticPoints[Index].z, RuntimePoints[Index].z, 1e-6f);
+        EXPECT_NEAR(StaticVectors[Index].x, RuntimeVectors[Index].x, 1e-6f);
+        EXPECT_NEAR(StaticVectors[Index].y, RuntimeVectors[Index].y, 1e-6f);
+        EXPECT_NEAR(StaticVectors[Index].z, RuntimeVectors[Index].z, 1e-6f);
+    }
+}

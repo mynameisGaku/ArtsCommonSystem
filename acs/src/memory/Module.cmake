@@ -43,6 +43,7 @@ acs_module(
         SharedPtr.h
         SystemAllocator.h
         Tlsf.h
+        TypedPoolAllocator.h
         UniquePtr.h
         VirtualMemory.h
     PUBLIC_DEPS

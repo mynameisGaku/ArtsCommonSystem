@@ -23,9 +23,7 @@ namespace {
  * @param m 変換行列。
  */
 void TransformPointsScalar(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
-    for (usize i = 0; i < count; ++i) {
-        out[i] = TransformPoint(in[i], m);
-    }
+    TransformBatchStatic<EBatchTransformPolicy::Point>(in, out, count, m);
 }
 
 /**
@@ -37,9 +35,7 @@ void TransformPointsScalar(const FVec3* in, FVec3* out, usize count, const FMat4
  * @param m 変換行列。
  */
 void TransformVectorsScalar(const FVec3* in, FVec3* out, usize count, const FMat4& m) noexcept {
-    for (usize i = 0; i < count; ++i) {
-        out[i] = TransformVector(in[i], m);
-    }
+    TransformBatchStatic<EBatchTransformPolicy::Vector>(in, out, count, m);
 }
 
 /** ディスパッチテーブルの実体 (Init が結線する)。 */

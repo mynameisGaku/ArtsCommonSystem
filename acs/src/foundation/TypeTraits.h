@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 必要最小限の型特性のみ提供（<type_traits> 代替）
 #pragma once
 
 #include "foundation/Types.h"
@@ -211,6 +210,24 @@ template<typename T> inline constexpr bool IsPointerV = TIsPointer<RemoveCVT<T>>
 
 /** T がトリビアルコピー可能なら true (コンパイラ組み込み __is_trivially_copyable のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyCopyableV     = __is_trivially_copyable(T);
+
+/**
+ * T をバイトコピーで再配置し、移動元のデストラクタを呼ばずに元領域を
+ * 放棄できるかを表す。
+ *
+ * trivial-copy 可能な型は既定で安全とする。非 trivial 型を有効にする場合は
+ * namespace acs 内でこの trait を明示特殊化する。特殊化は、自己参照や自身の
+ * オブジェクト表現内を指すポインタなど、バイト移動で壊れる不変条件を型が
+ * 持たないことを保証する強い契約である。再配置後は移動元を二度と参照せず、
+ * 移動先だけを破棄する。
+ */
+template<typename T>
+struct TIsTriviallyRelocatable : TBoolConstant<IsTriviallyCopyableV<T>> {};
+
+/** TIsTriviallyRelocatable<T>::Value のコンパイル時短縮名。 */
+template<typename T>
+inline constexpr bool IsTriviallyRelocatableV =
+    TIsTriviallyRelocatable<RemoveCVT<T>>::Value;
 
 /** T がトリビアル破棄可能なら true (コンパイラ組み込み __is_trivially_destructible のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyDestructibleV = __is_trivially_destructible(T);

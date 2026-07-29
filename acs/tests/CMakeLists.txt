@@ -310,6 +310,23 @@ endif()
 add_test(NAME ACS.UnitTests COMMAND acs_unit_tests)
 set_tests_properties(ACS.UnitTests PROPERTIES TIMEOUT 120)
 
+# FoundationOptimizationWaveA 用 Release マイクロベンチマーク。実時間は
+# 診断用の参考値なので、意図的に CTest へは登録しない。
+add_executable(acs_foundation_optimization_bench
+    foundation_optimization_bench.cpp
+)
+set_target_properties(
+    acs_foundation_optimization_bench
+    PROPERTIES FOLDER "Engine/Benchmarks")
+acs_apply_compiler_options(acs_foundation_optimization_bench)
+target_link_libraries(acs_foundation_optimization_bench PRIVATE
+    ACS::Foundation
+    ACS::Threading
+    ACS::Memory
+    ACS::Container
+    ACS::Math
+)
+
 # Debug CRT 専用 probe は multi-config でも target を生成し、実行構成だけ Debug に限定する。
 if(MSVC
    AND NOT ACS_ENABLE_ADDRESS_SANITIZER

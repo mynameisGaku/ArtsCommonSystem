@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 可変長配列（std::vector 代替、アロケータ注入可能、ムーブ専用）
 #pragma once
 
 #include "foundation/Types.h"
@@ -145,8 +144,11 @@ public:
     bool TryResize(usize NewSize) noexcept
     {
         if (NewSize > m_Capacity) {
+            /** NewSize を収容する拡張後の容量。 */
             usize NewCapacity = 0u;
-            if (!TryCalculateNextGrowth(NewSize, NewCapacity) || !Grow(NewCapacity)) return false;
+            if (!TryCalculateNextGrowth(m_Capacity, NewSize, NewCapacity) || !Grow(NewCapacity)) {
+                return false;
+            }
         }
         if (NewSize > m_Size) {
             if constexpr (IsTriviallyConstructibleV<T>) {
@@ -315,6 +317,9 @@ public:
      */
     bool TryPushBack(const T& Value) noexcept
     {
+        if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
+            return TryPushBackTrivial(Value);
+        }
         return TryEmplaceBack(Value) != nullptr;
     }
 
@@ -336,6 +341,11 @@ public:
      */
     bool TryPushBack(T&& Value) noexcept
     {
+        if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
+            // move ではなく退避コピーする。確保失敗時は配列と右辺値引数の
+            // どちらも変更しない。
+            return TryPushBackTrivial(Value);
+        }
         return TryEmplaceBack(Move(Value)) != nullptr;
     }
 
@@ -371,10 +381,12 @@ public:
         }
         if (m_Size == ~usize(0)) return nullptr;
 
+        /** 追加要素を収容する拡張後の容量。 */
         usize NewCapacity = 0u;
-        if (!TryCalculateNextGrowth(m_Size + 1u, NewCapacity)) return nullptr;
-        return TryGrowAndEmplaceBack(
-            NewCapacity, Forward<Args>(Arguments)...);
+        if (!TryCalculateNextGrowth(m_Capacity, m_Size + 1u, NewCapacity)) {
+            return nullptr;
+        }
+        return TryGrowAndEmplaceBack(NewCapacity, Forward<Args>(Arguments)...);
     }
 
     /**
@@ -548,9 +560,9 @@ private:
      * @param required 最低限必要な要素数。
      * @return required 以上の新容量。
      */
-    static bool TryCalculateNextGrowth(usize Required, usize& Capacity) noexcept
+    static bool TryCalculateNextGrowth(usize CurrentCapacity, usize Required, usize& Capacity) noexcept
     {
-        Capacity = 8u;
+        Capacity = CurrentCapacity < 8u ? 8u : CurrentCapacity;
         while (Capacity < Required) {
             const usize Increment = Capacity / 2u + 1u;
             if (Capacity > (~usize(0)) - Increment) {
@@ -560,6 +572,32 @@ private:
             Capacity += Increment;
         }
         return Capacity >= Required;
+    }
+
+    /**
+     * 自己参照と失敗時 rollback を保ったまま trivial-copy 値を追加する。
+     * Realloc が配列領域を移動しても、退避コピーは有効なまま残る。
+     */
+    bool TryPushBackTrivial(const T& Value) noexcept
+    {
+        if (m_Size < m_Capacity) {
+            ::new (&m_Data[m_Size]) T(Value);
+            ++m_Size;
+            return true;
+        }
+        if (m_Size == ~usize(0)) return false;
+
+        /** 再確保で追加元が無効化されないよう保持する値。 */
+        T Staged(Value);
+
+        /** 追加要素を収容する拡張後の容量。 */
+        usize NewCapacity = 0u;
+        if (!TryCalculateNextGrowth(m_Capacity, m_Size + 1u, NewCapacity) || !Grow(NewCapacity)) {
+            return false;
+        }
+        ::new (&m_Data[m_Size]) T(Staged);
+        ++m_Size;
+        return true;
     }
 
     /**
@@ -595,7 +633,7 @@ private:
         ::new (&NewData[m_Size]) T(Forward<Args>(Arguments)...);
 
         if (m_Data) {
-            if constexpr (IsTriviallyCopyableV<T>) {
+            if constexpr (IsTriviallyRelocatableV<T>) {
                 MemCopy(NewData, m_Data, sizeof(T) * m_Size);
             } else {
                 for (usize i = 0; i < m_Size; ++i) {
@@ -629,11 +667,28 @@ private:
         }
         // sizeof(T) * new_capacity の乗算ラップを防ぐ（過小確保 → バッファ外書き込み防止）
         if (new_capacity > (~usize(0)) / sizeof(T)) return false;
-        T* new_data = static_cast<T*>(m_Alloc->Alloc(sizeof(T) * new_capacity, alignof(T), FSourceLoc::Current()));
+        /** 新しい確保領域のバイト数。 */
+        const usize NewBytes = sizeof(T) * new_capacity;
+        if constexpr (IsTriviallyRelocatableV<T>) {
+            // 旧確保領域の全体が使用中か、生存要素数まで縮小する場合だけ
+            // Realloc を使う。fallback 実装が未使用容量までコピーすることを
+            // 防ぐ。
+            if (m_Data != nullptr && (m_Size == m_Capacity || new_capacity <= m_Capacity)) {
+                /** 再配置後の領域。失敗時は旧領域を維持する。 */
+                T* const Relocated = static_cast<T*>(m_Alloc->Realloc(m_Data, sizeof(T) * m_Capacity, NewBytes, alignof(T), FSourceLoc::Current()));
+                if (!Relocated) return false;
+                m_Data = Relocated;
+                m_Capacity = new_capacity;
+                return true;
+            }
+        }
+
+        /** byte 再配置または要素移動の出力領域。 */
+        T* new_data = static_cast<T*>(m_Alloc->Alloc(NewBytes, alignof(T), FSourceLoc::Current()));
         if (!new_data) return false;
         if (m_Data) {
-            if constexpr (IsTriviallyCopyableV<T>) {
-                MemCopy(new_data, m_Data, sizeof(T) * m_Size);  // POD はバルクコピー
+            if constexpr (IsTriviallyRelocatableV<T>) {
+                MemCopy(new_data, m_Data, sizeof(T) * m_Size);
             } else {
                 for (usize i = 0; i < m_Size; ++i) {
                     ::new (&new_data[i]) T(Move(m_Data[i]));

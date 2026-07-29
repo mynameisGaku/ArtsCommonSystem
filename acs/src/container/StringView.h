@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Container — FStringView（std::string_view 代替、UTF-8 非所有ビュー）
-//
-// ポインタ + 長さで文字列を参照する軽量値型。所有権を持たないため、
-// 元の文字列のライフタイムに注意。
-//
-// UTF-8 を前提とする（バイト単位での比較／検索のみ提供、コードポイント
-// 操作は未対応）。
 #pragma once
 
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
 #include "foundation/Assert.h"
+#include "memory/Memory.h"
 
 namespace acs {
 
@@ -109,8 +103,26 @@ public:
      */
     bool Equals(FStringView other) const noexcept {
         if (m_Size != other.m_Size) return false;
-        for (usize i = 0; i < m_Size; ++i) if (m_Data[i] != other.m_Data[i]) return false;
-        return true;
+        return m_Size == 0u || MemCmp(m_Data, other.m_Data, m_Size) == 0;
+    }
+
+    /**
+     * バイト単位の辞書順で比較する。
+     *
+     * @return *this が小さければ負、同じなら 0、大きければ正。
+     */
+    int Compare(FStringView Other) const noexcept
+    {
+        /** 両方に存在する比較対象のバイト数。 */
+        const usize CommonSize = m_Size < Other.m_Size ? m_Size : Other.m_Size;
+        if (CommonSize != 0u) {
+            /** 共通範囲を辞書順比較した結果。 */
+            const int Difference = MemCmp(m_Data, Other.m_Data, CommonSize);
+            if (Difference != 0) return Difference;
+        }
+        if (m_Size < Other.m_Size) return -1;
+        if (m_Size > Other.m_Size) return 1;
+        return 0;
     }
 
     /**
@@ -121,8 +133,7 @@ public:
      */
     bool StartsWith(FStringView prefix) const noexcept {
         if (prefix.m_Size > m_Size) return false;
-        for (usize i = 0; i < prefix.m_Size; ++i) if (m_Data[i] != prefix.m_Data[i]) return false;
-        return true;
+        return prefix.m_Size == 0u || MemCmp(m_Data, prefix.m_Data, prefix.m_Size) == 0;
     }
 
     /**
@@ -133,9 +144,9 @@ public:
      */
     bool EndsWith(FStringView suffix) const noexcept {
         if (suffix.m_Size > m_Size) return false;
+        /** suffix と比較する自ビュー内の開始位置。 */
         const usize off = m_Size - suffix.m_Size;
-        for (usize i = 0; i < suffix.m_Size; ++i) if (m_Data[off + i] != suffix.m_Data[i]) return false;
-        return true;
+        return suffix.m_Size == 0u || MemCmp(m_Data + off, suffix.m_Data, suffix.m_Size) == 0;
     }
 
     /** Find / FindLast が「見つからない」を表す番兵値。 */
@@ -151,11 +162,19 @@ public:
     usize Find(FStringView needle, usize from = 0) const noexcept {
         if (needle.m_Size > m_Size) return kNpos;
         if (needle.m_Size == 0) return (from <= m_Size) ? from : kNpos;
-        const usize last_start = m_Size - needle.m_Size;   // 引き算形 (ラップしない)
+        /** needle 全体を比較できる最後の開始位置。 */
+        const usize last_start = m_Size - needle.m_Size;
+        if (from > last_start) return kNpos;
+        if (needle.m_Size == 1u) return Find(needle.m_Data[0], from);
+
+        /** 候補位置を早く除外する needle の先頭バイト。 */
+        const char First = needle.m_Data[0];
+
+        /** 現在比較する自ビュー内の開始位置。 */
         for (usize i = from; i <= last_start; ++i) {
-            usize k = 0;
-            while (k < needle.m_Size && m_Data[i + k] == needle.m_Data[k]) ++k;
-            if (k == needle.m_Size) return i;
+            if (m_Data[i] == First && MemCmp(m_Data + i + 1u, needle.m_Data + 1u, needle.m_Size - 1u) == 0) {
+                return i;
+            }
         }
         return kNpos;
     }

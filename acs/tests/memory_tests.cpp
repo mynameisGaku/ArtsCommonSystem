@@ -4,6 +4,7 @@
 #include "memory/SystemAllocator.h"
 #include "memory/LinearAllocator.h"
 #include "memory/PoolAllocator.h"
+#include "memory/TypedPoolAllocator.h"
 #include "memory/ArenaAllocator.h"
 #include "memory/UniquePtr.h"
 #include "memory/SharedPtr.h"
@@ -655,6 +656,161 @@ ACS_TEST(Memory, PoolAllocatorConcurrentAllocAndFreeRemainBalanced)
         if (Thread.Joinable()) Thread.Join();
     }
 
+    EXPECT_EQ(FailureCount.Load(EMemoryOrder::Acquire), 0u);
+    EXPECT_EQ(Pool.AllocationCount(), 0ull);
+}
+
+/** バッチ確保・返却のロック回数と無効入力拒否を検証する。 */
+ACS_TEST(Memory, PoolAllocatorBatchReducesLockingAndRejectsBadEntries)
+{
+    // 64 byte alignment の 8 ブロックプール。
+    FPoolAllocator Pool(48u, 8u, 64u);
+    // 枯渇後の未取得分も含む出力領域。
+    void* Allocations[10] = {};
+    // バッチ確保前のロック回数。
+    const u64 LockCountBefore = Pool.LockAcquisitionCount();
+    EXPECT_EQ(Pool.AllocBatch(Allocations, 10u), static_cast<usize>(8));
+    EXPECT_EQ(Pool.LockAcquisitionCount() - LockCountBefore, 1ull);
+    EXPECT_EQ(Pool.AllocationCount(), 8ull);
+
+    for (usize Index = 0u; Index < 8u; ++Index) {
+        EXPECT_TRUE(Allocations[Index] != nullptr);
+        EXPECT_TRUE((reinterpret_cast<uptr>(Allocations[Index]) & 63u) == 0u);
+        for (usize Previous = 0u; Previous < Index; ++Previous) {
+            EXPECT_NE(Allocations[Index], Allocations[Previous]);
+        }
+    }
+    EXPECT_TRUE(Allocations[8] == nullptr);
+    EXPECT_TRUE(Allocations[9] == nullptr);
+
+    // プール外ポインタ検証に使う byte。
+    u8 Foreign = 0u;
+    // 重複・途中・外部・nullptr と全有効ブロックを混ぜた返却列。
+    void* Returns[] = {Allocations[0], Allocations[0], static_cast<u8*>(Allocations[1]) + 1u, &Foreign, nullptr, Allocations[1], Allocations[2], Allocations[3], Allocations[4], Allocations[5], Allocations[6], Allocations[7]};
+    // バッチ返却前のロック回数。
+    const u64 LockCountBeforeFree = Pool.LockAcquisitionCount();
+    EXPECT_EQ(Pool.FreeBatch(Returns, sizeof(Returns) / sizeof(Returns[0])), static_cast<usize>(8));
+    EXPECT_EQ(Pool.LockAcquisitionCount() - LockCountBeforeFree, 1ull);
+    EXPECT_EQ(Pool.AllocationCount(), 0ull);
+}
+
+/** 型付きプールのコンパイル時 layout と重複破棄拒否を検証する。 */
+ACS_TEST(Memory, TypedPoolPolicyFixesLayoutAtCompileTime)
+{
+    /** 64 byte alignment と破棄計数を持つテスト値。 */
+    struct alignas(64) FTypedValue {
+        /** 値と破棄回数出力先を設定して構築する。 */
+        explicit FTypedValue(u32 InValue, u32& InDestructionCount) noexcept : DestructionCount(&InDestructionCount), Value(InValue)
+        {
+        }
+
+        /** 破棄回数を増やす。 */
+        ~FTypedValue() noexcept
+        {
+            ++*DestructionCount;
+        }
+
+        /** 破棄回数の出力先。 */
+        u32* DestructionCount = nullptr;
+
+        /** テスト用の保持値。 */
+        u32 Value = 0u;
+    };
+
+    // 2 要素固定の型付きプール。
+    using FTypedPool = TTypedPoolAllocator<FTypedValue, 2u>;
+    static_assert(FTypedPool::BlockCount() == 2u);
+    static_assert(FTypedPool::BlockSize() >= sizeof(FTypedValue));
+    static_assert((FTypedPool::BlockSize() & 63u) == 0u);
+
+    // 構築値の破棄回数。
+    u32 DestructionCount = 0u;
+    // layout を型から決定するプール。
+    FTypedPool Pool;
+    // 1 個目の構築値。
+    FTypedValue* const First = Pool.Create(17u, DestructionCount);
+    // 2 個目の構築値。
+    FTypedValue* const Second = Pool.Create(29u, DestructionCount);
+    EXPECT_TRUE(First != nullptr);
+    EXPECT_TRUE(Second != nullptr);
+    EXPECT_TRUE(Pool.Create(41u, DestructionCount) == nullptr);
+    EXPECT_TRUE((reinterpret_cast<uptr>(First) & 63u) == 0u);
+    EXPECT_EQ(First->Value, 17u);
+    EXPECT_EQ(Second->Value, 29u);
+
+    EXPECT_TRUE(Pool.Destroy(First));
+    EXPECT_FALSE(Pool.Destroy(First));
+    EXPECT_TRUE(Pool.Destroy(Second));
+    EXPECT_EQ(DestructionCount, 2u);
+    EXPECT_EQ(Pool.AllocationCount(), 0ull);
+}
+
+/** 複数スレッドのバッチ確保・返却が所有数を均衡させることを検証する。 */
+ACS_TEST(Memory, PoolAllocatorBatchConcurrencyRemainsBalanced)
+{
+    // 並列 worker 数。
+    constexpr usize kThreadCount = 4u;
+    // worker ごとの反復回数。
+    constexpr usize kIterations = 4000u;
+    // 1 回に取得するブロック数。
+    constexpr usize kBatchSize = 4u;
+    // 全 worker が共有するプール。
+    FPoolAllocator Pool(64u, 64u);
+    // spawn または返却失敗の件数。
+    TAtomic<u32> FailureCount{0u};
+
+    /** worker が参照する共有状態。 */
+    struct FContext {
+        /** 共有プール。 */
+        FPoolAllocator* Pool = nullptr;
+
+        /** 失敗件数の共有出力先。 */
+        TAtomic<u32>* FailureCount = nullptr;
+    };
+    // worker ごとの文脈。
+    FContext Contexts[kThreadCount] = {};
+    // join 対象の worker スレッド。
+    FThread Threads[kThreadCount];
+
+    // バッチ確保・書き込み・返却を反復する worker。
+    const auto Worker = [](void* UserData) {
+        // 現在 worker の共有状態。
+        auto* const Context = static_cast<FContext*>(UserData);
+        for (usize Iteration = 0u; Iteration < kIterations; ++Iteration) {
+            // 現在反復で取得するブロック群。
+            void* Batch[kBatchSize] = {};
+            // 現在取得できたブロック数。
+            usize Acquired = 0u;
+            while (Acquired != kBatchSize) {
+                Acquired = Context->Pool->AllocBatch(Batch, kBatchSize);
+                if (Acquired != kBatchSize) {
+                    Context->Pool->FreeBatch(Batch, Acquired);
+                    Yield();
+                }
+            }
+            for (void* Pointer : Batch) {
+                MemSet(Pointer, 0x5A, 64u);
+            }
+            if (Context->Pool->FreeBatch(Batch, kBatchSize) != kBatchSize) {
+                Context->FailureCount->FetchAdd(1u);
+            }
+        }
+    };
+
+    for (usize Index = 0u; Index < kThreadCount; ++Index) {
+        Contexts[Index] = {&Pool, &FailureCount};
+        // 現在 worker の spawn 結果。
+        auto ThreadResult = FThread::Spawn(Worker, &Contexts[Index]);
+        if (ThreadResult.IsErr()) {
+            FailureCount.FetchAdd(1u);
+            continue;
+        }
+        Threads[Index] = Move(ThreadResult.Value());
+    }
+
+    for (FThread& Thread : Threads) {
+        if (Thread.Joinable()) Thread.Join();
+    }
     EXPECT_EQ(FailureCount.Load(EMemoryOrder::Acquire), 0u);
     EXPECT_EQ(Pool.AllocationCount(), 0ull);
 }

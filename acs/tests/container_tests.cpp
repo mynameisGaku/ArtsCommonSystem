@@ -9,6 +9,8 @@
 #include "container/Hash.h"
 #include "container/HashBytesBatch.h"
 #include "container/InlineArray.h"
+#include "container/StableStringKey.h"
+#include "container/StringHasher.h"
 #include "foundation/Move.h"
 #include "memory/SystemAllocator.h"
 #include "platform/Storage.h"
@@ -256,7 +258,115 @@ struct FArrayTrackedValue {
     int Value = 0;
 };
 
+/** Alloc/Realloc/Free の経路と失敗時 rollback を観測する backing。 */
+class FCountingAllocator final : public FAllocator {
+public:
+    /** Realloc を意図的に失敗させるかを切り替える。 */
+    void SetFailRealloc(bool bFail) noexcept { m_bFailRealloc = bFail; }
+
+    /** 指定した通算 Alloc 呼び出しだけを失敗させる。0 は無効。 */
+    void SetFailAllocCall(u64 Call) noexcept { m_FailAllocCall = Call; }
+
+    /** Alloc 呼び出しを計数して backing へ転送する。 */
+    void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override
+    {
+        ++AllocCalls;
+        if (AllocCalls == m_FailAllocCall) return nullptr;
+        return Backing.Alloc(Size, Alignment, Location);
+    }
+
+    /** Realloc 呼び出しを計数し、失敗設定を反映して backing へ転送する。 */
+    void* Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment, FSourceLoc Location) noexcept override
+    {
+        ++ReallocCalls;
+        if (m_bFailRealloc) return nullptr;
+        return Backing.Realloc(Pointer, OldSize, NewSize, Alignment, Location);
+    }
+
+    /** Free 呼び出しを計数して backing へ転送する。 */
+    void Free(void* Pointer) noexcept override
+    {
+        if (Pointer != nullptr) ++FreeCalls;
+        Backing.Free(Pointer);
+    }
+
+    /** Alloc 呼び出し回数。 */
+    u64 AllocCalls = 0u;
+
+    /** Realloc 呼び出し回数。 */
+    u64 ReallocCalls = 0u;
+
+    /** 非 nullptr の Free 呼び出し回数。 */
+    u64 FreeCalls = 0u;
+
+private:
+    /** 実際の確保を担当する allocator。 */
+    FSystemAllocator Backing;
+
+    /** Realloc を失敗させる場合は true。 */
+    bool m_bFailRealloc = false;
+
+    /** 失敗させる通算 Alloc 呼び出し。0 は無効。 */
+    u64 m_FailAllocCall = 0u;
+};
+
+/** 非 trivial だが byte relocation 契約を満たすテスト値。 */
+struct FExplicitlyRelocatableValue {
+    /** 計数先と保持値を設定して構築する。 */
+    explicit FExplicitlyRelocatableValue(usize& InMoveCount, usize& InDestructionCount, i32 InValue) noexcept : MoveCount(&InMoveCount), DestructionCount(&InDestructionCount), Value(InValue)
+    {
+    }
+
+    /** コピー構築を禁止する。 */
+    FExplicitlyRelocatableValue(const FExplicitlyRelocatableValue&) = delete;
+
+    /** コピー代入を禁止する。 */
+    FExplicitlyRelocatableValue& operator=(const FExplicitlyRelocatableValue&) = delete;
+
+    /** 明示的なムーブ経路を計数して構築する。 */
+    FExplicitlyRelocatableValue(FExplicitlyRelocatableValue&& Other) noexcept : MoveCount(Other.MoveCount), DestructionCount(Other.DestructionCount), Value(Other.Value)
+    {
+        ++*MoveCount;
+        Other.Value = -1;
+    }
+
+    /** 破棄回数を計数する。 */
+    ~FExplicitlyRelocatableValue() noexcept
+    {
+        ++*DestructionCount;
+    }
+
+    /** ムーブ構築回数の出力先。 */
+    usize* MoveCount = nullptr;
+
+    /** 破棄回数の出力先。 */
+    usize* DestructionCount = nullptr;
+
+    /** テスト用の保持値。 */
+    i32 Value = 0;
+};
+
+/** 全キーを同じ bucket 列へ集め、hash 呼び出し回数も計測する。 */
+struct FConstantCountingHasher {
+    /** 固定 hash を返して呼び出し回数を増やす。 */
+    u64 operator()(u32 /*Key*/) const noexcept
+    {
+        ++CallCount;
+        return 0xA500000000000007ull;
+    }
+
+    /** 全インスタンスで共有する呼び出し回数。 */
+    inline static usize CallCount = 0u;
+};
+
 } // namespace
+
+namespace acs {
+
+template<>
+struct TIsTriviallyRelocatable<FExplicitlyRelocatableValue> : TTrueType {};
+
+} // namespace acs
 
 ACS_TEST(Container, ArrayPushAndIndex) {
     TArray<int> a;
@@ -870,4 +980,224 @@ ACS_TEST(Container, StringFindForwarders)
     EXPECT_TRUE(str.StartsWith(FStringView("assets/")));
     EXPECT_TRUE(str.EndsWith(FStringView(".png")));
     EXPECT_FALSE(str.EndsWith(FStringView(".jpg")));
+}
+
+ACS_TEST(Container, ArrayRelocatableTraitUsesReallocAndPreservesRollback)
+{
+    static_assert(IsTriviallyRelocatableV<u32>);
+    static_assert(!IsTriviallyRelocatableV<FArrayTrackedValue>);
+    static_assert(IsTriviallyRelocatableV<FExplicitlyRelocatableValue>);
+
+    // 確保経路を観測する allocator。
+    FCountingAllocator Counting;
+    // trivial relocation 経路を確認する配列。
+    TArray<u32> Values(Counting);
+    EXPECT_TRUE(Values.TryReserve(1u));
+    EXPECT_TRUE(Values.TryPushBack(41u));
+    // 最初の成長前に使われていた格納先。
+    u32* const BeforeGrowth = Values.Data();
+
+    EXPECT_TRUE(Values.TryPushBack(73u));
+    EXPECT_EQ(Counting.AllocCalls, 1ull);
+    EXPECT_EQ(Counting.ReallocCalls, 1ull);
+    EXPECT_EQ(Values[0], 41u);
+    EXPECT_EQ(Values[1], 73u);
+    EXPECT_TRUE(Values.Data() != nullptr);
+    (void)BeforeGrowth;
+
+    // 失敗前の格納先。
+    u32* const BeforeFailure = Values.Data();
+    // 失敗前の容量。
+    const usize CapacityBeforeFailure = Values.Capacity();
+    Counting.SetFailRealloc(true);
+    while (Values.Size() < Values.Capacity()) {
+        EXPECT_TRUE(Values.TryPushBack(static_cast<u32>(Values.Size())));
+    }
+    // 失敗前の要素数。
+    const usize SizeBeforeFailure = Values.Size();
+    // 失敗前の先頭値。
+    const u32 FirstBeforeFailure = Values[0];
+    EXPECT_FALSE(Values.TryPushBack(999u));
+    EXPECT_EQ(Values.Data(), BeforeFailure);
+    EXPECT_EQ(Values.Size(), SizeBeforeFailure);
+    EXPECT_EQ(Values.Capacity(), CapacityBeforeFailure);
+    EXPECT_EQ(Values[0], FirstBeforeFailure);
+
+    // 明示 relocation 型のムーブ回数。
+    usize MoveCount = 0u;
+    // 明示 relocation 型の破棄回数。
+    usize DestructionCount = 0u;
+    {
+        // byte relocation opt-in 型の配列。
+        TArray<FExplicitlyRelocatableValue> Relocatable;
+        EXPECT_TRUE(Relocatable.TryReserve(1u));
+        EXPECT_TRUE(Relocatable.TryEmplaceBack(MoveCount, DestructionCount, 17) != nullptr);
+        EXPECT_TRUE(Relocatable.TryEmplaceBack(MoveCount, DestructionCount, 29) != nullptr);
+        EXPECT_EQ(MoveCount, static_cast<usize>(0));
+        EXPECT_EQ(DestructionCount, static_cast<usize>(0));
+        EXPECT_EQ(Relocatable[0].Value, 17);
+        EXPECT_EQ(Relocatable[1].Value, 29);
+    }
+    EXPECT_EQ(MoveCount, static_cast<usize>(0));
+    EXPECT_EQ(DestructionCount, static_cast<usize>(2));
+}
+
+ACS_TEST(Container, HashMapCollisionUpdateAndStableLookupContracts)
+{
+    // map の確保回数を観測する allocator。
+    FCountingAllocator Counting;
+    // 全キーを同じ探索列へ集める map。
+    THashMap<u32, u32, FConstantCountingHasher> Colliding(Counting);
+    EXPECT_TRUE(Colliding.TryReserve(96u));
+    for (u32 Key = 0u; Key < 64u; ++Key) {
+        EXPECT_TRUE(Colliding.TryInsert(Key, Key * 3u));
+    }
+    for (u32 Key = 0u; Key < 64u; ++Key) {
+        // 衝突探索で見つけた値。
+        const u32* const Value = Colliding.Find(Key);
+        EXPECT_TRUE(Value != nullptr);
+        if (Value != nullptr) EXPECT_EQ(*Value, Key * 3u);
+    }
+
+    // 既存キー更新直前の確保回数。
+    const u64 AllocCallsBeforeUpdate = Counting.AllocCalls;
+    FConstantCountingHasher::CallCount = 0u;
+    EXPECT_TRUE(Colliding.TryInsert(31u, 999u));
+    EXPECT_EQ(FConstantCountingHasher::CallCount, static_cast<usize>(1));
+    EXPECT_EQ(Counting.AllocCalls, AllocCallsBeforeUpdate);
+    EXPECT_EQ(*Colliding.Find(31u), 999u);
+
+    // constexpr と runtime の短い ASCII 入力。
+    constexpr char ShortLiteral[] = "stable";
+    // 32 byte 超の constexpr 入力。
+    constexpr char LongLiteral[] = "0123456789abcdefghijklmnopqrstuvwxyz-constexpr";
+    // 埋め込み NUL を含む constexpr 入力。
+    constexpr char EmbeddedLiteral[] = {'a', '\0', 'b', '\0'};
+    static_assert(HashLiteral(ShortLiteral) == HashBytesConstexpr(ShortLiteral, sizeof(ShortLiteral) - 1u));
+    static_assert(HashLiteral(LongLiteral) == HashBytesConstexpr(LongLiteral, sizeof(LongLiteral) - 1u));
+    static_assert(HashLiteral(EmbeddedLiteral) == HashBytesConstexpr(EmbeddedLiteral, sizeof(EmbeddedLiteral) - 1u));
+    static_assert(HashBytesConstexpr(nullptr, 1u) == 0u);
+    EXPECT_EQ(HashLiteral(ShortLiteral), HashBytes(ShortLiteral, sizeof(ShortLiteral) - 1u));
+    EXPECT_EQ(HashLiteral(LongLiteral), HashBytes(LongLiteral, sizeof(LongLiteral) - 1u));
+    EXPECT_EQ(HashLiteral(EmbeddedLiteral), HashBytes(EmbeddedLiteral, sizeof(EmbeddedLiteral) - 1u));
+    EXPECT_EQ(HashBytesConstexpr(nullptr, 0u), HashBytes(nullptr, 0u));
+    EXPECT_EQ(HashBytes(nullptr, 1u), 0ull);
+
+    // heterogeneous 検索対象の文字列 map。
+    THashMap<FString, u32, FStringHasher> Strings;
+    // 通常 ASCII キー。
+    FString Stable("stable");
+    // 埋め込み NUL キー。
+    FString Embedded(FStringView(EmbeddedLiteral, sizeof(EmbeddedLiteral) - 1u));
+    EXPECT_TRUE(Strings.TryInsert(Stable, 7u));
+    EXPECT_TRUE(Strings.TryInsert(Embedded, 11u));
+    EXPECT_EQ(*Strings.FindAs(FStringView("stable")), 7u);
+    // 短い文字列のコンパイル時 hash key。
+    constexpr FStableStringKey StableKey = MakeStableStringKey("stable");
+    EXPECT_EQ(*Strings.FindByHash(StableKey.View, StableKey.Hash), 7u);
+    // 埋め込み NUL キーの事前計算 hash view。
+    const FStableStringKey EmbeddedKey{FStringView(EmbeddedLiteral, sizeof(EmbeddedLiteral) - 1u), HashLiteral(EmbeddedLiteral)};
+    EXPECT_EQ(*Strings.FindByHash(EmbeddedKey.View, EmbeddedKey.Hash), 11u);
+    EXPECT_TRUE(Strings.FindByHash(FStringView("stable"), HashLiteral("different")) == nullptr);
+
+    // stable key 自体を K にしても Find overload が衝突しないことを型生成で確認する。
+    static_assert(sizeof(THashMap<FStableStringKey, u32>) > 0u);
+}
+
+/** HashMap の段階的な拡張失敗後も既存内容と検索不変条件が保たれることを検証する。 */
+ACS_TEST(Container, HashMapGrowthFailurePreservesContentsAndSearchIntegrity)
+{
+    {
+        // 2 回目の Alloc、すなわち初回値配列確保だけを失敗させる allocator。
+        FCountingAllocator Allocator;
+        Allocator.SetFailAllocCall(2u);
+        // 初回 rehash 成功後の値配列 OOM を再現する map。
+        THashMap<u32, u32> Map(Allocator);
+
+        EXPECT_FALSE(Map.TryInsert(7u, 70u));
+        EXPECT_EQ(Map.Size(), static_cast<usize>(0));
+        EXPECT_TRUE(Map.Find(7u) == nullptr);
+        EXPECT_EQ(Allocator.AllocCalls, 2ull);
+
+        // 失敗前に確保済みの bucket 容量を再利用するため、retry は値配列の 1 確保だけになる。
+        const u64 CallsAfterFailure = Allocator.AllocCalls;
+        Allocator.SetFailAllocCall(0u);
+        EXPECT_TRUE(Map.TryInsert(7u, 70u));
+        EXPECT_EQ(Allocator.AllocCalls - CallsAfterFailure, 1ull);
+        EXPECT_EQ(Map.Size(), static_cast<usize>(1));
+        // retry 後に検索した値。
+        const u32* const RetriedValue = Map.Find(7u);
+        EXPECT_TRUE(RetriedValue != nullptr);
+        if (RetriedValue != nullptr) EXPECT_EQ(*RetriedValue, 70u);
+    }
+
+    {
+        // populated map の Realloc 失敗を注入する allocator。
+        FCountingAllocator Allocator;
+        // 値配列容量 8 を満たした状態から次の成長を試す map。
+        THashMap<u32, u32> Map(Allocator);
+        for (u32 Key = 0u; Key < 8u; ++Key) {
+            EXPECT_TRUE(Map.TryInsert(Key, Key + 100u));
+        }
+
+        Allocator.SetFailRealloc(true);
+        EXPECT_FALSE(Map.TryInsert(8u, 108u));
+        EXPECT_EQ(Map.Size(), static_cast<usize>(8));
+        EXPECT_TRUE(Map.Find(8u) == nullptr);
+        for (u32 Key = 0u; Key < 8u; ++Key) {
+            const u32* const Value = Map.Find(Key);
+            EXPECT_TRUE(Value != nullptr);
+            if (Value != nullptr) EXPECT_EQ(*Value, Key + 100u);
+        }
+
+        Allocator.SetFailRealloc(false);
+        EXPECT_TRUE(Map.TryInsert(8u, 108u));
+        // retry 後に追加できた値。
+        const u32* const AddedValue = Map.Find(8u);
+        EXPECT_TRUE(AddedValue != nullptr);
+        if (AddedValue != nullptr) EXPECT_EQ(*AddedValue, 108u);
+    }
+}
+
+ACS_TEST(Container, StringByteSearchAppendAndCompareContracts)
+{
+    // NUL と UTF-8 byte 列を含む検索対象。
+    constexpr char HaystackBytes[] = {'A', '\0', 'B', static_cast<char>(0xE3), static_cast<char>(0x81), static_cast<char>(0x82), 'Z'};
+    // 埋め込み NUL から始まる検索語。
+    constexpr char NeedleBytes[] = {'\0', 'B'};
+    // byte 長を保持する検索対象 view。
+    const FStringView Haystack(HaystackBytes, sizeof(HaystackBytes));
+    // byte 長を保持する検索語 view。
+    const FStringView Needle(NeedleBytes, sizeof(NeedleBytes));
+    EXPECT_EQ(Haystack.Find(Needle), static_cast<usize>(1));
+    EXPECT_TRUE(Haystack.Contains(Needle));
+    EXPECT_TRUE(Haystack.Compare(FStringView("A", 1u)) > 0);
+    EXPECT_TRUE(FStringView("abc", 3u).Compare(FStringView("abd", 3u)) < 0);
+
+    // 自己参照 append の対象文字列。
+    FString Self;
+    Self.Append("0123456789abcdefghijklmnopqrstuv");
+    // Self 内部を参照する追記元。
+    const FStringView Tail = Self.View().SubView(8u, 12u);
+    EXPECT_TRUE(Self.TryAppend(Tail));
+    EXPECT_TRUE(Self.EndsWith(FStringView("89abcdefghij", 12u)));
+
+    // 失敗注入 allocator の backing。
+    FSystemAllocator Backing;
+    // 次回確保を失敗させられる allocator。
+    FSwitchableFailAllocator Failing(Backing);
+    // 失敗時 rollback を確認する文字列。
+    FString Rollback(Failing);
+    Rollback.Append("0123456789abcdefghijklmnopqrstuv");
+    while (Rollback.Size() < Rollback.Capacity()) {
+        EXPECT_TRUE(Rollback.TryAppend('x'));
+    }
+    // 失敗前の文字列内容。
+    const FString BeforeFailure(Rollback);
+    // 失敗前の格納先。
+    const char* const DataBeforeFailure = Rollback.Data();
+    Failing.SetFailing(true);
+    EXPECT_FALSE(Rollback.TryAppend('y'));
+    EXPECT_EQ(Rollback.Data(), DataBeforeFailure);
+    EXPECT_TRUE(Rollback == BeforeFailure);
 }

@@ -4,6 +4,8 @@
 #include "foundation/Error.h"
 #include "memory/SystemAllocator.h"
 
+#include <cmath>
+
 #include <cstdlib>   // _strtod_l
 #include <cstdio>    // snprintf (エラーメッセージ整形)
 #include <clocale>   // _create_locale (ロケール非依存の数値変換)
@@ -196,7 +198,7 @@ FStringView FJsonValue::MemberKey(u32 i) const noexcept {
  * @return 追加した空要素への参照。
  */
 FJsonValue& FJsonValue::_PushArrayElem() noexcept {
-    m_Elems.PushBack(FJsonValue{});
+    m_Elems.PushBack(FJsonValue{*m_String.GetAllocator()});
     return m_Elems[m_Elems.Size() - 1];
 }
 
@@ -207,10 +209,23 @@ FJsonValue& FJsonValue::_PushArrayElem() noexcept {
  * @return 追加した value への参照。
  */
 FJsonValue& FJsonValue::_AddMember(FStringView key) noexcept {
-    FString k;
+    // 値と同じ allocator で所有キーを作る。
+    FString k(*m_String.GetAllocator());
     k.Append(key);
     m_Keys.PushBack(Move(k));
-    m_Elems.PushBack(FJsonValue{});
+    m_Elems.PushBack(FJsonValue{*m_String.GetAllocator()});
+    return m_Elems[m_Elems.Size() - 1];
+}
+
+/**
+ * Object に所有済み key を追加し、対応する value への参照を返す。
+ *
+ * @param key 所有権を移すメンバ key。
+ * @return 追加した value への参照。
+ */
+FJsonValue& FJsonValue::_AddMember(FString&& key) noexcept {
+    m_Keys.PushBack(Move(key));
+    m_Elems.PushBack(FJsonValue{*m_String.GetAllocator()});
     return m_Elems[m_Elems.Size() - 1];
 }
 
@@ -218,6 +233,119 @@ namespace {
 
 /** nesting の上限 (stack overflow / DoS 防御)。 */
 constexpr u32 kMaxDepth = 256;
+
+/** JSON の 1 byte 分類フラグ。 */
+enum EJsonCharClass : u8 {
+    /** JSON 空白文字。 */
+    kJsonWhitespace = 1u << 0u,
+    /** ASCII 数字。 */
+    kJsonDigit = 1u << 1u,
+    /** JSON 文字列では直接記述できない制御文字。 */
+    kJsonControl = 1u << 2u,
+    /** 文字列終端の二重引用符。 */
+    kJsonQuote = 1u << 3u,
+    /** escape 開始の逆斜線。 */
+    kJsonEscape = 1u << 4u
+};
+
+/**
+ * 1 byte の JSON 構文上の性質を分類する。
+ *
+ * @param Value 0 から 255 までの byte 値。
+ * @return EJsonCharClass の組み合わせ。
+ */
+constexpr u8 ClassifyJsonByte(usize Value) noexcept
+{
+    // 条件に一致した分類フラグを蓄積する。
+    u8 Result = 0u;
+    if (Value == 0x09u || Value == 0x0Au || Value == 0x0Du || Value == 0x20u) {
+        Result |= kJsonWhitespace;
+    }
+    if (Value >= static_cast<usize>('0') && Value <= static_cast<usize>('9')) {
+        Result |= kJsonDigit;
+    }
+    if (Value < 0x20u) Result |= kJsonControl;
+    if (Value == static_cast<usize>('"')) Result |= kJsonQuote;
+    if (Value == static_cast<usize>('\\')) Result |= kJsonEscape;
+    return Result;
+}
+
+/**
+ * ASCII byte を 16 進 1 桁へ変換する。
+ *
+ * @param Value 判定する byte 値。
+ * @return 0 から 15 の値。不正文字なら -1。
+ */
+constexpr i8 JsonHexNibble(usize Value) noexcept
+{
+    if (Value >= static_cast<usize>('0') && Value <= static_cast<usize>('9')) {
+        return static_cast<i8>(Value - static_cast<usize>('0'));
+    }
+    if (Value >= static_cast<usize>('a') && Value <= static_cast<usize>('f')) {
+        return static_cast<i8>(Value - static_cast<usize>('a') + 10u);
+    }
+    if (Value >= static_cast<usize>('A') && Value <= static_cast<usize>('F')) {
+        return static_cast<i8>(Value - static_cast<usize>('A') + 10u);
+    }
+    return static_cast<i8>(-1);
+}
+
+/** constexpr 配列生成用のインデックス列。 */
+template<usize... Indices>
+struct TJsonIndexSequence {};
+
+/** Count 個の昇順インデックス列を再帰生成する。 */
+template<usize Count, usize... Indices>
+struct TMakeJsonIndexSequence : TMakeJsonIndexSequence<Count - 1u, Count - 1u, Indices...> {};
+
+/** 再帰終端で完成したインデックス列を公開する。 */
+template<usize... Indices>
+struct TMakeJsonIndexSequence<0u, Indices...> {
+    /** 完成したインデックス列型。 */
+    using Type = TJsonIndexSequence<Indices...>;
+};
+
+/** インデックス列に対応する JSON 分類表。 */
+template<typename Sequence>
+struct TJsonCharacterTables;
+
+/**
+ * 256 byte の分類表と hex 変換表を constexpr 展開する。
+ * parser hot path では範囲比較の分岐列を 1 回の table lookup に置き換える。
+ */
+template<usize... Indices>
+struct TJsonCharacterTables<TJsonIndexSequence<Indices...>> {
+    /** byte ごとの構文分類表。 */
+    inline static constexpr u8 Classes[sizeof...(Indices)] = {ClassifyJsonByte(Indices)...};
+
+    /** byte ごとの 16 進変換表。 */
+    inline static constexpr i8 HexNibbles[sizeof...(Indices)] = {JsonHexNibble(Indices)...};
+};
+
+/** 全 256 byte を網羅する JSON 分類表。 */
+using FJsonCharacterTables = TJsonCharacterTables<typename TMakeJsonIndexSequence<256u>::Type>;
+
+/**
+ * char に対応する JSON 分類フラグを返す。
+ *
+ * @param Value 判定する byte。
+ * @return EJsonCharClass の組み合わせ。
+ */
+ACS_FORCEINLINE u8 JsonClass(char Value) noexcept
+{
+    return FJsonCharacterTables::Classes[static_cast<u8>(Value)];
+}
+
+/**
+ * char が ASCII 数字かを判定する。
+ *
+ * @param Value 判定する byte。
+ * @return 数字なら true。
+ */
+ACS_FORCEINLINE bool IsJsonDigit(char Value) noexcept
+{
+    return (JsonClass(Value) & kJsonDigit) != 0u;
+}
 
 /**
  * recursive-descent JSON パーサの状態 (カーソル + 行・列 + エラー)。
@@ -231,6 +359,9 @@ struct FParser {
 
     /** 入力末尾の次を指すポインタ。 */
     const char* end;
+
+    /** DOM と一時文字列の確保に使う allocator。 */
+    FAllocator* allocator;
 
     /** 現在行 (1 始まり、エラーメッセージ用)。 */
     u32 line = 1;
@@ -246,9 +377,9 @@ struct FParser {
      *
      * @param text 入力 JSON テキスト。
      * @param len text のバイト長。
+     * @param InAllocator DOM と一時文字列に使う allocator。
      */
-    explicit FParser(const char* text, usize len) noexcept
-        : p(text), end(text + len) {}
+    explicit FParser(const char* text, usize len, FAllocator& InAllocator) noexcept : p(text), end(text + len), allocator(&InAllocator) {}
 
     /**
      * 入力終端に達したかを返す。
@@ -283,16 +414,13 @@ struct FParser {
         err_sub = sub;
         // thread_local バッファへ (ParseJson の戻り FErrorCode が指すため、
         // Parser ローカルだと dangling する — review 指摘)。
-        std::snprintf(g_JsonErrBuf, sizeof(g_JsonErrBuf),
-                      "JSON %s (line %u, col %u)", msg, line, col);
+        std::snprintf(g_JsonErrBuf, sizeof(g_JsonErrBuf), "JSON %s (line %u, col %u)", msg, line, col);
     }
 
     /** 空白文字 (スペース/タブ/CR/LF) を読み飛ばす。 */
     void SkipWs() noexcept {
-        while (p < end) {
-            const char c = *p;
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') Advance();
-            else break;
+        while (p < end && (JsonClass(*p) & kJsonWhitespace) != 0u) {
+            Advance();
         }
     }
 
@@ -301,27 +429,29 @@ struct FParser {
      *
      * @param out 追記先の文字列。
      * @param cp Unicode コードポイント。
+     * @return 追記できたら true、容量不足なら false。
      */
-    static void AppendUtf8(FString& out, u32 cp) noexcept {
+    static bool AppendUtf8(FString& out, u32 cp) noexcept {
+        // UTF-8 の最大 4 byte を保持する一時領域。
         char b[4];
         if (cp <= 0x7F) {
             b[0] = static_cast<char>(cp);
-            out.Append(FStringView(b, 1));
+            return out.TryAppend(FStringView(b, 1));
         } else if (cp <= 0x7FF) {
             b[0] = static_cast<char>(0xC0 | (cp >> 6));
             b[1] = static_cast<char>(0x80 | (cp & 0x3F));
-            out.Append(FStringView(b, 2));
+            return out.TryAppend(FStringView(b, 2));
         } else if (cp <= 0xFFFF) {
             b[0] = static_cast<char>(0xE0 | (cp >> 12));
             b[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
             b[2] = static_cast<char>(0x80 | (cp & 0x3F));
-            out.Append(FStringView(b, 3));
+            return out.TryAppend(FStringView(b, 3));
         } else {
             b[0] = static_cast<char>(0xF0 | (cp >> 18));
             b[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
             b[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
             b[3] = static_cast<char>(0x80 | (cp & 0x3F));
-            out.Append(FStringView(b, 4));
+            return out.TryAppend(FStringView(b, 4));
         }
     }
 
@@ -333,15 +463,16 @@ struct FParser {
      */
     bool ReadHex4(u32& out) noexcept {
         out = 0;
+        // \u の固定 4 桁を順に取り込む。
         for (int i = 0; i < 4; ++i) {
             if (AtEnd()) { Fail(kSubJsonBadEscape, "truncated \\u"); return false; }
-            const char c = *p;
-            u32 d;
-            if (c >= '0' && c <= '9') d = static_cast<u32>(c - '0');
-            else if (c >= 'a' && c <= 'f') d = static_cast<u32>(c - 'a' + 10);
-            else if (c >= 'A' && c <= 'F') d = static_cast<u32>(c - 'A' + 10);
-            else { Fail(kSubJsonBadEscape, "bad \\u hex digit"); return false; }
-            out = (out << 4) | d;
+            // 現在文字の 16 進値。
+            const i8 Nibble = FJsonCharacterTables::HexNibbles[static_cast<u8>(*p)];
+            if (Nibble < 0) {
+                Fail(kSubJsonBadEscape, "bad \\u hex digit");
+                return false;
+            }
+            out = (out << 4u) | static_cast<u32>(Nibble);
             Advance();
         }
         return true;
@@ -359,52 +490,87 @@ struct FParser {
         out.Clear();
         while (true) {
             if (AtEnd()) { Fail(kSubJsonEof, "unterminated string"); return false; }
-            const char c = *p;
-            if (c == '"') { Advance(); return true; }
-            if (c == '\\') {
+            // 通常文字の連続区間は 1 回で追記し、1 byte ごとの確保判定を避ける。
+            const char* const runStart = p;
+            while (p < end) {
+                // 現在 byte の構文分類。
+                const u8 cls = JsonClass(*p);
+                if ((cls & (kJsonControl | kJsonQuote | kJsonEscape)) != 0u) break;
+                ++p;
+                ++col;
+            }
+            if (p != runStart && !out.TryAppend(FStringView(runStart, static_cast<usize>(p - runStart)))) {
+                Fail(kSubJsonSize, "string too large");
+                return false;
+            }
+            if (AtEnd()) { Fail(kSubJsonEof, "unterminated string"); return false; }
+
+            // 連続区間の直後にある特殊 byte の分類。
+            const u8 cls = JsonClass(*p);
+            if ((cls & kJsonQuote) != 0u) {
                 Advance();
-                if (AtEnd()) { Fail(kSubJsonEof, "unterminated escape"); return false; }
-                const char e = *p;
-                switch (e) {
-                    case '"':  out.Append('"');  Advance(); break;
-                    case '\\': out.Append('\\'); Advance(); break;
-                    case '/':  out.Append('/');  Advance(); break;
-                    case 'b':  out.Append('\b'); Advance(); break;
-                    case 'f':  out.Append('\f'); Advance(); break;
-                    case 'n':  out.Append('\n'); Advance(); break;
-                    case 'r':  out.Append('\r'); Advance(); break;
-                    case 't':  out.Append('\t'); Advance(); break;
-                    case 'u': {
-                        Advance();
-                        u32 cp;
-                        if (!ReadHex4(cp)) return false;
-                        // サロゲートペア (high: D800-DBFF + low: DC00-DFFF)
-                        if (cp >= 0xD800 && cp <= 0xDBFF) {
-                            if (p + 1 < end && p[0] == '\\' && p[1] == 'u') {
-                                Advance(); Advance();
-                                u32 lo;
-                                if (!ReadHex4(lo)) return false;
-                                if (lo >= 0xDC00 && lo <= 0xDFFF) {
-                                    cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                                } else {
-                                    Fail(kSubJsonBadEscape, "bad low surrogate"); return false;
-                                }
+                return true;
+            }
+            if ((cls & kJsonControl) != 0u) {
+                Fail(kSubJsonSyntax, "control char in string");
+                return false;
+            }
+
+            Advance();
+            if (AtEnd()) { Fail(kSubJsonEof, "unterminated escape"); return false; }
+            // 逆斜線に続く escape 識別子。
+            const char e = *p;
+            // 1 byte escape のデコード結果。
+            char decoded = '\0';
+            // \u 以外の 1 byte escape なら true。
+            bool hasDecodedByte = true;
+            switch (e) {
+                case '"':  decoded = '"';  break;
+                case '\\': decoded = '\\'; break;
+                case '/':  decoded = '/';  break;
+                case 'b':  decoded = '\b'; break;
+                case 'f':  decoded = '\f'; break;
+                case 'n':  decoded = '\n'; break;
+                case 'r':  decoded = '\r'; break;
+                case 't':  decoded = '\t'; break;
+                case 'u': {
+                    hasDecodedByte = false;
+                    Advance();
+                    // Unicode コードポイントの上位側。
+                    u32 cp;
+                    if (!ReadHex4(cp)) return false;
+                    // サロゲートペア (high: D800-DBFF + low: DC00-DFFF)
+                    if (cp >= 0xD800 && cp <= 0xDBFF) {
+                        if (p + 1 < end && p[0] == '\\' && p[1] == 'u') {
+                            Advance(); Advance();
+                            // サロゲートペアの下位側。
+                            u32 lo;
+                            if (!ReadHex4(lo)) return false;
+                            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
                             } else {
-                                Fail(kSubJsonBadEscape, "lone high surrogate"); return false;
+                                Fail(kSubJsonBadEscape, "bad low surrogate"); return false;
                             }
-                        } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-                            Fail(kSubJsonBadEscape, "lone low surrogate"); return false;
+                        } else {
+                            Fail(kSubJsonBadEscape, "lone high surrogate"); return false;
                         }
-                        AppendUtf8(out, cp);
-                        break;
+                    } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                        Fail(kSubJsonBadEscape, "lone low surrogate"); return false;
                     }
-                    default: Fail(kSubJsonBadEscape, "bad escape char"); return false;
+                    if (!AppendUtf8(out, cp)) {
+                        Fail(kSubJsonSize, "string too large");
+                        return false;
+                    }
+                    break;
                 }
-            } else if (static_cast<unsigned char>(c) < 0x20) {
-                Fail(kSubJsonSyntax, "control char in string"); return false;
-            } else {
-                out.Append(c);
+                default: Fail(kSubJsonBadEscape, "bad escape char"); return false;
+            }
+            if (hasDecodedByte) {
                 Advance();
+                if (!out.TryAppend(decoded)) {
+                    Fail(kSubJsonSize, "string too large");
+                    return false;
+                }
             }
         }
     }
@@ -418,35 +584,43 @@ struct FParser {
      * @return 変換できたら true、エラーなら false。
      */
     bool ParseNumber(f64& out) noexcept {
+        // 数値トークンの開始位置。
         const char* const start = p;
         if (Peek() == '-') Advance();
         if (Peek() == '0') { Advance(); }
-        else if (Peek() >= '1' && Peek() <= '9') { while (Peek() >= '0' && Peek() <= '9') Advance(); }
+        else if (Peek() >= '1' && Peek() <= '9') { while (IsJsonDigit(Peek())) Advance(); }
         else { Fail(kSubJsonBadNumber, "expected digit"); return false; }
         if (Peek() == '.') {
             Advance();
-            if (!(Peek() >= '0' && Peek() <= '9')) { Fail(kSubJsonBadNumber, "expected frac digit"); return false; }
-            while (Peek() >= '0' && Peek() <= '9') Advance();
+            if (!IsJsonDigit(Peek())) { Fail(kSubJsonBadNumber, "expected frac digit"); return false; }
+            while (IsJsonDigit(Peek())) Advance();
         }
         if (Peek() == 'e' || Peek() == 'E') {
             Advance();
             if (Peek() == '+' || Peek() == '-') Advance();
-            if (!(Peek() >= '0' && Peek() <= '9')) { Fail(kSubJsonBadNumber, "expected exp digit"); return false; }
-            while (Peek() >= '0' && Peek() <= '9') Advance();
+            if (!IsJsonDigit(Peek())) { Fail(kSubJsonBadNumber, "expected exp digit"); return false; }
+            while (IsJsonDigit(Peek())) Advance();
         }
         // [start, p) を NUL 終端バッファへ写して strtod。
+        // 数値トークンの byte 長。
         const usize n = static_cast<usize>(p - start);
         if (n == 0 || n >= 63) { Fail(kSubJsonBadNumber, "number too long"); return false; }
+        // strtod 用の NUL 終端一時領域。
         char buf[64];
         for (usize i = 0; i < n; ++i) buf[i] = start[i];
         buf[n] = '\0';
+        // strtod が返す変換終端。
         char* term = nullptr;
         // ロケール非依存変換 (',' 小数点ロケールでも "1.5" を正しく読む)。
         // _create_locale 失敗時 JsonCLocale() は NULL を返し得るので、その場合は
         // 通常 strtod へフォールバック (NULL locale を _strtod_l に渡すと UB)。
+        // JSON 小数点を固定する C ロケール。
         const _locale_t loc = JsonCLocale();
         out = loc ? ::_strtod_l(buf, &term, loc) : ::strtod(buf, &term);
-        if (term != buf + n) { Fail(kSubJsonBadNumber, "unparsable number"); return false; }
+        if (term != buf + n) {
+            Fail(kSubJsonBadNumber, "unparsable number");
+            return false;
+        }
         return true;
     }
 
@@ -463,15 +637,17 @@ struct FParser {
         if (depth > kMaxDepth) { Fail(kSubJsonDepth, "nesting too deep"); return false; }
         SkipWs();
         if (AtEnd()) { Fail(kSubJsonEof, "unexpected end of input"); return false; }
+        // 値種別を決める先頭文字。
         const char c = Peek();
         switch (c) {
             case '{': return ParseObject(out, depth);
             case '[': return ParseArray(out, depth);
             case '"': {
                 Advance();
-                FString s;
+                // パース対象と同じ allocator を使う一時文字列。
+                FString s(*allocator);
                 if (!ParseString(s)) return false;
-                out._SetString(s.View());
+                out._SetString(Move(s));
                 return true;
             }
             case 't':
@@ -484,7 +660,8 @@ struct FParser {
                 if (end - p >= 4 && p[1]=='u'&&p[2]=='l'&&p[3]=='l') { Advance();Advance();Advance();Advance(); out._SetNull(); return true; }
                 Fail(kSubJsonSyntax, "expected 'null'"); return false;
             default:
-                if (c == '-' || (c >= '0' && c <= '9')) {
+                if (c == '-' || IsJsonDigit(c)) {
+                    // 変換した JSON 数値。
                     f64 num;
                     if (!ParseNumber(num)) return false;
                     out._SetNumber(num);
@@ -508,9 +685,11 @@ struct FParser {
         SkipWs();
         if (Peek() == ']') { Advance(); return true; }
         while (true) {
+            // 末尾へ新規追加した配列要素。
             FJsonValue& elem = out._PushArrayElem();
             if (!ParseValue(elem, depth + 1)) return false;
             SkipWs();
+            // 要素後に続く区切り文字。
             const char c = Peek();
             if (c == ',') { Advance(); SkipWs(); continue; }
             if (c == ']') { Advance(); return true; }
@@ -535,14 +714,17 @@ struct FParser {
             SkipWs();
             if (Peek() != '"') { Fail(kSubJsonSyntax, "expected string key"); return false; }
             Advance();
-            FString key;
+            // パース対象と同じ allocator を使う所有キー。
+            FString key(*allocator);
             if (!ParseString(key)) return false;
             SkipWs();
             if (Peek() != ':') { Fail(kSubJsonSyntax, "expected ':'"); return false; }
             Advance();
-            FJsonValue& val = out._AddMember(key.View());
+            // キーに対応して新規追加した値。
+            FJsonValue& val = out._AddMember(Move(key));
             if (!ParseValue(val, depth + 1)) return false;
             SkipWs();
+            // メンバ後に続く区切り文字。
             const char c = Peek();
             if (c == ',') { Advance(); continue; }
             if (c == '}') { Advance(); return true; }
@@ -564,20 +746,212 @@ struct FParser {
  * @return 成功なら root 値、失敗なら line/col 付きエラー。
  */
 TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept {
+    return ParseJson(text, len, DefaultAllocator());
+}
+
+/**
+ * 指定 allocator で JSON テキストをパースして DOM を返す。
+ *
+ * @param text 入力 JSON テキスト。
+ * @param len text のバイト長。
+ * @param allocator DOM と一時文字列に使う allocator。
+ * @return 成功なら root 値、失敗なら line/col 付きエラー。
+ */
+TResult<FJsonValue> ParseJson(const char* text, usize len, FAllocator& allocator) noexcept {
     if (text == nullptr || len == 0) {
         return ACS_ERR(Generic, kSubJsonEof, "JSON: empty input");
     }
-    FParser ps(text, len);
-    FJsonValue root;
+    if (len > kMaxJsonInputBytes) {
+        return ACS_ERR(Generic, kSubJsonSize, "JSON: input exceeds size limit");
+    }
+
+    // 前回の失敗メッセージを次回の呼び出しへ持ち越さない。
+    g_JsonErrBuf[0] = '\0';
+    // 入力範囲とエラー位置を追跡するパーサ。
+    FParser ps(text, len, allocator);
+    // 呼出側 allocator を保持するルート値。
+    FJsonValue root(allocator);
     if (!ps.ParseValue(root, 0)) {
-        return ACS_ERR(Generic, ps.err_sub != 0 ? ps.err_sub : kSubJsonSyntax,
-                       g_JsonErrBuf[0] ? g_JsonErrBuf : "JSON parse error");
+        return ACS_ERR(Generic, ps.err_sub != 0 ? ps.err_sub : kSubJsonSyntax, g_JsonErrBuf[0] ? g_JsonErrBuf : "JSON parse error");
     }
     ps.SkipWs();
     if (!ps.AtEnd()) {
         return ACS_ERR(Generic, kSubJsonTrailing, "JSON: trailing content after root value");
     }
     return TResult<FJsonValue>(OkInit, Move(root));
+}
+
+namespace {
+
+/**
+ * JSON 出力へ byte 列を上限内で追記する。
+ *
+ * @param Output 追記先。
+ * @param Fragment 追記する byte 列。
+ * @param MaxBytes 許容する最大出力 byte 数。
+ * @return 追記できたら true、上限超過または容量不足なら false。
+ */
+bool TryAppendJsonFragment(FString& Output, FStringView Fragment, usize MaxBytes) noexcept
+{
+    if (Output.Size() > MaxBytes || Fragment.Size() > MaxBytes - Output.Size()) {
+        return false;
+    }
+    return Output.TryAppend(Fragment);
+}
+
+/**
+ * JSON 出力へ 1 byte を上限内で追記する。
+ *
+ * @param Output 追記先。
+ * @param Byte 追記する byte。
+ * @param MaxBytes 許容する最大出力 byte 数。
+ * @return 追記できたら true、上限超過または容量不足なら false。
+ */
+bool TryAppendJsonByte(FString& Output, char Byte, usize MaxBytes) noexcept
+{
+    return Output.Size() < MaxBytes && Output.TryAppend(Byte);
+}
+
+/**
+ * JSON 文字列を escape しながら出力する。
+ *
+ * 埋め込み NUL を含む制御文字は \u00XX とし、UTF-8 の非 ASCII byte は
+ * 入力 byte 列をそのまま保持する。
+ *
+ * @param Value 書き出す文字列。
+ * @param Output 追記先。
+ * @param MaxBytes 許容する最大出力 byte 数。
+ * @return 書き出せたら true、上限超過または容量不足なら false。
+ */
+bool TryWriteJsonString(FStringView Value, FString& Output, usize MaxBytes) noexcept
+{
+    if (!TryAppendJsonByte(Output, '"', MaxBytes)) return false;
+
+    // 未処理 byte の位置。
+    usize Cursor = 0u;
+    while (Cursor < Value.Size()) {
+        // escape 不要な連続区間の開始位置。
+        const usize RunStart = Cursor;
+        while (Cursor < Value.Size()) {
+            // 現在の符号なし byte 値。
+            const u8 Byte = static_cast<u8>(Value[Cursor]);
+            if (Byte < 0x20u || Byte == static_cast<u8>('"') || Byte == static_cast<u8>('\\')) {
+                break;
+            }
+            ++Cursor;
+        }
+        if (Cursor != RunStart && !TryAppendJsonFragment(Output, FStringView(Value.Data() + RunStart, Cursor - RunStart), MaxBytes)) {
+            return false;
+        }
+        if (Cursor == Value.Size()) break;
+
+        // escape 対象の符号なし byte 値。
+        const u8 Byte = static_cast<u8>(Value[Cursor++]);
+        // 短い escape 表現。該当しない制御文字なら nullptr。
+        const char* Escape = nullptr;
+        switch (Byte) {
+            case '"':  Escape = "\\\""; break;
+            case '\\': Escape = "\\\\"; break;
+            case '\b': Escape = "\\b";  break;
+            case '\f': Escape = "\\f";  break;
+            case '\n': Escape = "\\n";  break;
+            case '\r': Escape = "\\r";  break;
+            case '\t': Escape = "\\t";  break;
+            default: break;
+        }
+        if (Escape != nullptr) {
+            if (!TryAppendJsonFragment(Output, FStringView(Escape), MaxBytes)) {
+                return false;
+            }
+            continue;
+        }
+
+        // \u00XX の 16 進文字表。
+        static constexpr char Hex[] = "0123456789ABCDEF";
+        // 制御文字を表す固定長 escape。
+        const char Encoded[6] = {'\\', 'u', '0', '0', Hex[(Byte >> 4u) & 0x0Fu], Hex[Byte & 0x0Fu]};
+        if (!TryAppendJsonFragment(Output, FStringView(Encoded, sizeof(Encoded)), MaxBytes)) {
+            return false;
+        }
+    }
+    return TryAppendJsonByte(Output, '"', MaxBytes);
+}
+
+/**
+ * JSON DOM の 1 値を再帰的に書き出す。
+ *
+ * @param Value 書き出す値。
+ * @param Output 追記先。
+ * @param MaxDepth 許容する最大 nesting 深さ。
+ * @param MaxBytes 許容する最大出力 byte 数。
+ * @param Depth 現在の nesting 深さ。
+ * @return 書き出せたら true、上限超過・非有限数・容量不足なら false。
+ */
+bool TryWriteJsonValue(const FJsonValue& Value, FString& Output, u32 MaxDepth, usize MaxBytes, u32 Depth) noexcept
+{
+    if (Depth > MaxDepth || Depth > kMaxDepth) return false;
+
+    switch (Value.Type()) {
+        case EJsonType::Null:
+            return TryAppendJsonFragment(Output, FStringView("null"), MaxBytes);
+        case EJsonType::Bool:
+            return TryAppendJsonFragment(Output, Value.AsBool() ? FStringView("true") : FStringView("false"), MaxBytes);
+        case EJsonType::Number: {
+            // 書き出す倍精度値。
+            const f64 Number = Value.AsNumber();
+            if (!std::isfinite(Number)) return false;
+            // 最大精度の数値文字列を保持する一時領域。
+            char Buffer[32];
+            // JSON 小数点を固定する C ロケール。
+            const _locale_t Locale = JsonCLocale();
+            // 終端 NUL を除く整形 byte 数。
+            const int Count = Locale ? ::_snprintf_l(Buffer, sizeof(Buffer), "%.17g", Locale, Number) : std::snprintf(Buffer, sizeof(Buffer), "%.17g", Number);
+            if (Count <= 0 || static_cast<usize>(Count) >= sizeof(Buffer)) {
+                return false;
+            }
+            return TryAppendJsonFragment(Output, FStringView(Buffer, static_cast<usize>(Count)), MaxBytes);
+        }
+        case EJsonType::String:
+            return TryWriteJsonString(Value.AsString(), Output, MaxBytes);
+        case EJsonType::Array: {
+            if (!TryAppendJsonByte(Output, '[', MaxBytes)) return false;
+            // 配列の現在要素番号。
+            for (u32 Index = 0; Index < Value.Size(); ++Index) {
+                if (Index != 0u && !TryAppendJsonByte(Output, ',', MaxBytes)) {
+                    return false;
+                }
+                if (!TryWriteJsonValue(Value.At(Index), Output, MaxDepth, MaxBytes, Depth + 1u)) {
+                    return false;
+                }
+            }
+            return TryAppendJsonByte(Output, ']', MaxBytes);
+        }
+        case EJsonType::Object: {
+            if (!TryAppendJsonByte(Output, '{', MaxBytes)) return false;
+            // オブジェクトの現在メンバ番号。
+            for (u32 Index = 0; Index < Value.MemberCount(); ++Index) {
+                if (Index != 0u && !TryAppendJsonByte(Output, ',', MaxBytes)) {
+                    return false;
+                }
+                if (!TryWriteJsonString(Value.MemberKey(Index), Output, MaxBytes) || !TryAppendJsonByte(Output, ':', MaxBytes) || !TryWriteJsonValue(Value.At(Index), Output, MaxDepth, MaxBytes, Depth + 1u)) {
+                    return false;
+                }
+            }
+            return TryAppendJsonByte(Output, '}', MaxBytes);
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+bool TryWriteJson(const FJsonValue& Value, FString& Output, u32 MaxDepth, usize MaxBytes) noexcept
+{
+    // 失敗時に Output を変えないための staging 文字列。
+    FString Staged(*Output.GetAllocator());
+    if (!TryWriteJsonValue(Value, Staged, MaxDepth, MaxBytes, 0u)) return false;
+    Output = Move(Staged);
+    return true;
 }
 
 } // namespace acs

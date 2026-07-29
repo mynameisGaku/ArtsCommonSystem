@@ -39,7 +39,7 @@ ACS_FORCEINLINE u64 ReadU32(const byte* p) noexcept {
  * @details
  * 32B (4×8B) ストライプで 4 つのアキュムレータを並列に進め、最後にマージして残り
  * 8B/4B/1B を取り込み、アバランチ処理して品質を確保する。
- * @param data ハッシュ対象の先頭ポインタ。
+ * @param data ハッシュ対象の先頭ポインタ。nullptr かつ len>0 は 0 を返す。
  * @param len バイト長。
  * @param seed 初期シード。
  * @return 64bit ハッシュ値。
@@ -51,6 +51,15 @@ u64 HashBytes(const void* data, usize len, u64 seed) noexcept {
     constexpr u64 P3 = 0x165667B19E3779F9ull;
     constexpr u64 P4 = 0x85EBCA77C2B2AE63ull;
     constexpr u64 P5 = 0x27D4EB2F165667C5ull;
+
+    if (len == 0u) {
+        u64 h = seed + P5;
+        h ^= h >> 33; h *= P2;
+        h ^= h >> 29; h *= P3;
+        h ^= h >> 32;
+        return h;
+    }
+    if (data == nullptr) return 0u;
 
     const byte* p = static_cast<const byte*>(data);
     const byte* end = p + len;

@@ -1,15 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Container — ハッシュ関数群
-//
-// バイト列用の汎用ハッシュ + 整数 / ポインタ用の高速 finalizer。
-// THashMap や Set の既定ハッシュとして使用。
-//
-// 汎用バイトハッシュは xxhash-likes のシンプル版（速度・品質ともに上位）。
-// 整数 / ポインタは Murmur fmix64 系の 1 mul + 2 xor-shift で混ぜる。
-//
-// THashMap 側は「これらの結果は十分混ざっている」と仮定するため、再 mix を
-// しない。is_avalanching の前提を破ると分布が悪化するので、独自の THasher
-// 特殊化を追加する場合は注意すること。
 #pragma once
 
 #include "foundation/Types.h"
@@ -37,7 +26,7 @@ ACS_FORCEINLINE u64 HashMix64(u64 x) noexcept {
 /**
  * 任意バイト列の 64bit ハッシュを計算する (xxhash 風、SMHasher 上位品質)。
  *
- * @param data ハッシュ対象の先頭ポインタ。
+ * @param data ハッシュ対象の先頭ポインタ。nullptr は len==0 のみ正規入力。
  * @param len バイト長。
  * @param seed 初期シード (既定は FNV offset basis)。
  * @return 64bit ハッシュ値。

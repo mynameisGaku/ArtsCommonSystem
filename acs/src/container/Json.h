@@ -1,27 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Container — FJson (STL 不使用の JSON DOM パーサ)
-//
-// Aseprite / TexturePacker / Tiled 等が吐く JSON を読むための最小 DOM パーサ。
-// 設定ファイル・MOD データ・アセットメタデータにも使える汎用基盤。
-//
-//   auto r = acs::ParseJson(text, len);
-//   if (r.IsOk()) {
-//       const FJsonValue& root = r.Value();
-//       FStringView name = root.Get("meta").Get("image").AsString();
-//       u32 n = root.Get("frames").Size();
-//   }
-//
-// 設計:
-//   ・**再帰所有 DOM**: FJsonValue が配列/オブジェクトの子を TArray で所有する
-//     (std::vector 流の不完全型メンバ)。move-only。
-//   ・**STL 不使用**: 数値は f64、文字列は FString、配列/オブジェクトは TArray。
-//   ・**寛容な数値**: int / float / 指数 / 符号 を f64 で受け、AsInt() で切詰める。
-//   ・**文字列エスケープ**: \" \\ \/ \b \f \n \r \t \uXXXX (サロゲートペア対応) を
-//     UTF-8 にデコードする。
-//   ・**防御的**: nesting 深さ上限 (kMaxDepth) で stack overflow / DoS を防ぐ。
-//     不正入力は行・列付きエラーで返す (crash しない、全 noexcept)。
-//   ・アクセサは「型不一致なら default / 空 / 静的 Null を返す」非例外設計
-//     (root.Get("absent").Get("x").AsNumber(0) のような chain が安全)。
 #pragma once
 
 #include "foundation/Types.h"
@@ -32,9 +9,23 @@
 
 namespace acs {
 
-/** JSON 値の種別 (Null / Bool / Number / String / Array / Object)。 */
-enum class EJsonType : u8 { Null, Bool, Number, String, Array, Object };
+/** JSON 値の種別。 */
+enum class EJsonType : u8 {
+    /** 空値。 */
+    Null,
+    /** 真偽値。 */
+    Bool,
+    /** 倍精度数値。 */
+    Number,
+    /** UTF-8 文字列。 */
+    String,
+    /** 順序付き配列。 */
+    Array,
+    /** key/value オブジェクト。 */
+    Object
+};
 
+/** JSON 値ノードの前方宣言。 */
 class FJsonValue;
 
 /**
@@ -259,6 +250,17 @@ public:
      */
     void _SetString(FStringView s) noexcept { Reset(EJsonType::String); m_String.Clear(); m_String.Append(s); }
 
+    /**
+     * 所有文字列をコピーせず String 値へ移す。
+     *
+     * @param s 同じ allocator 系で生成済みの文字列。
+     */
+    void _SetString(FString&& s) noexcept
+    {
+        Reset(EJsonType::String);
+        m_String = Move(s);
+    }
+
     /** この値を空の Array にする (パーサ/テスト用ビルダ)。 */
     void _MakeArray()            noexcept { Reset(EJsonType::Array); }
 
@@ -279,6 +281,14 @@ public:
      * @return 追加した value への参照。
      */
     FJsonValue& _AddMember(FStringView key) noexcept;
+
+    /**
+     * Object へ所有済み key をコピーせず追加する。
+     *
+     * @param key 所有権を移す key。
+     * @return 追加した value への参照。
+     */
+    FJsonValue& _AddMember(FString&& key) noexcept;
 
 private:
     /**
@@ -317,12 +327,50 @@ private:
 TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept;
 
 /**
+ * 指定 allocator で JSON DOM を構築する。
+ *
+ * @param text 入力 JSON。
+ * @param len 入力バイト数。
+ * @param allocator DOM、key、文字列の全確保に使う allocator。
+ * @return 成功時は root、失敗時は構文・深さ・サイズ error。
+ */
+TResult<FJsonValue> ParseJson(const char* text, usize len, FAllocator& allocator) noexcept;
+
+/**
  * JSON テキスト (ビュー) をパースして DOM を返す。
  *
  * @param s 入力 JSON テキストのビュー。
  * @return 成功なら root 値、失敗なら line/col 付きエラー。
  */
 inline TResult<FJsonValue> ParseJson(FStringView s) noexcept { return ParseJson(s.Data(), s.Size()); }
+
+/**
+ * 指定 allocator で文字列ビューをパースする。
+ *
+ * @param s 入力 JSON テキストのビュー。
+ * @param allocator DOM、key、文字列の全確保に使う allocator。
+ * @return 成功時は root、失敗時は構文・深さ・サイズ error。
+ */
+inline TResult<FJsonValue> ParseJson(FStringView s, FAllocator& allocator) noexcept
+{
+    return ParseJson(s.Data(), s.Size(), allocator);
+}
+
+/** parser / writer が受け入れる既定の最大 JSON バイト数。 */
+inline constexpr usize kMaxJsonInputBytes = 64u * 1024u * 1024u;
+
+/**
+ * JSON DOM を UTF-8 JSON へ書き出す。
+ *
+ * 失敗時は Output を変更しない。文字列の埋め込み NUL と制御文字は
+ * JSON escape へ変換し、非有限 number・深さ・サイズ超過は false にする。
+ * @param Value 書き出す JSON DOM。
+ * @param Output 成功時だけ置き換える出力文字列。
+ * @param MaxDepth 許可する最大入れ子深さ。
+ * @param MaxBytes 許可する最大出力バイト数。
+ * @return 完全な JSON を書けた場合は true。
+ */
+bool TryWriteJson(const FJsonValue& Value, FString& Output, u32 MaxDepth = 256u, usize MaxBytes = kMaxJsonInputBytes) noexcept;
 
 /** JSON 構文エラー (予期しないトークン) の error subcode。 */
 inline constexpr u16 kSubJsonSyntax    = 1400;
@@ -341,5 +389,8 @@ inline constexpr u16 kSubJsonBadNumber = 1404;
 
 /** 不正なエスケープ / \u シーケンスの error subcode。 */
 inline constexpr u16 kSubJsonBadEscape = 1405;
+
+/** 入出力の設定上限を超えた場合の error subcode。 */
+inline constexpr u16 kSubJsonSize      = 1406;
 
 } // namespace acs

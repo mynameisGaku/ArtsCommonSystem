@@ -13,11 +13,14 @@ acs_module(
         String.cpp
     HEADERS
         Array.h
+        ConstexprHash.h
         Hash.h
         HashMap.h
         Json.h
         Span.h
+        StableStringKey.h
         String.h
+        StringHasher.h
         StringView.h
     PUBLIC_DEPS
         Foundation
