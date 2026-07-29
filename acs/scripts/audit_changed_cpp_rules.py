@@ -15,6 +15,7 @@ from typing import Iterable
 CPP_SUFFIXES = {".h", ".hpp", ".inl", ".cpp", ".cc", ".cxx"}
 JAPANESE_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 HUNK_PATTERN = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+GENERATED_ROOTS = {"dist"}
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,11 @@ def inspect_header_preambles(root: Path, headers: Iterable[Path]) -> list[Violat
     return violations
 
 
+def is_generated_path(path: Path) -> bool:
+    """生成物として専用監査へ委ねるパスならtrueを返す。"""
+    return bool(path.parts) and path.parts[0].lower() in GENERATED_ROOTS
+
+
 def self_test() -> int:
     """成功例と各違反例を区別できることを確認する。"""
     sample = "\n".join(
@@ -167,13 +173,15 @@ def self_test() -> int:
     )
     lines, headers = parse_added_lines(sample)
     violations = inspect_added_lines(lines)
-    return 0 if len(lines) == 8 and headers == {Path("src/FExample.h")} and len(violations) == 3 else 1
+    generated = is_generated_path(Path("dist/acs.h")) and not is_generated_path(Path("src/FExample.h"))
+    return 0 if len(lines) == 8 and headers == {Path("src/FExample.h")} and len(violations) == 3 and generated else 1
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--base-ref", default="origin/main")
+    parser.add_argument("--include-generated", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
@@ -194,6 +202,9 @@ def main() -> int:
         return completed.returncode or 1
 
     lines, headers = parse_added_lines(completed.stdout)
+    if not args.include_generated:
+        lines = [line for line in lines if not is_generated_path(line.path)]
+        headers = {header for header in headers if not is_generated_path(header)}
     violations = inspect_added_lines(lines)
     violations.extend(inspect_header_preambles(root, headers))
     if violations:

@@ -105,6 +105,15 @@ def write_report(path: Path, report: dict[str, object]) -> None:
     os.replace(temporary, path)
 
 
+def make_build_command(build_directory: Path, configuration: str, jobs: int, clean_first: bool) -> list[str]:
+    """構成と完全再ビルド方針からCMakeビルド命令を作る。"""
+    command = ["cmake", "--build", str(build_directory), "--config", configuration]
+    if clean_first:
+        command.append("--clean-first")
+    command.extend(["--parallel", str(jobs)])
+    return command
+
+
 def self_test() -> int:
     """集約器が成功・失敗を正しく判定し、出力を切り詰めることを確認する。"""
     passing = StepResult("ok", "pass", 0, 1, ["true"], "", "")
@@ -112,12 +121,14 @@ def self_test() -> int:
     pass_report = build_report("Release", [passing])
     fail_report = build_report("Release", [passing, failing])
     tail = output_tail("\n".join(str(index) for index in range(100)), 3)
+    clean_command = make_build_command(Path("build"), "Release", 4, True)
     valid = (
         pass_report["status"] == "pass"
         and pass_report["passed_steps"] == 1
         and fail_report["status"] == "fail"
         and fail_report["passed_steps"] == 1
         and tail == "97\n98\n99"
+        and "--clean-first" in clean_command
     )
     return 0 if valid else 1
 
@@ -133,6 +144,7 @@ def main() -> int:
     parser.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     parser.add_argument("--timeout-seconds", type=int, default=1800)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--clean-first", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
@@ -172,15 +184,7 @@ def main() -> int:
         steps.append(
             run_step(
                 "release_build",
-                [
-                    "cmake",
-                    "--build",
-                    str(build_directory),
-                    "--config",
-                    args.configuration,
-                    "--parallel",
-                    str(args.jobs),
-                ],
+                make_build_command(build_directory, args.configuration, args.jobs, args.clean_first),
                 build_directory,
                 args.timeout_seconds,
             )

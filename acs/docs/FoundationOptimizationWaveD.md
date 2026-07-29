@@ -101,8 +101,13 @@ ctest --test-dir acs/Intermediate/foundation-ipo -C Release `
 追加C++行の括弧・初期化子一行規約、日本語コメント、変更header冒頭の
 SPDX/include guard規約を検査する。既存コード全体を一括整形せず、今回の変更が
 新たな違反を増やさないことを機械的に確認できる。
+既定では複数headerを連結して生成する `dist/` を除外し、配布物は
+`ACS.DistributionConventions`、`ACS.DistributionHeaderSyntax`、配布drift検査へ
+委ねる。生成物自体を同じ規則で調査する場合だけ `--include-generated` を指定する。
 
 `run_foundation_end_to_end.py` は任意のC++差分規約監査、Releaseビルド、全CTest、
 決定的な基盤性能契約を順に実行し、終了コード・所要時間・失敗出力末尾を
 単一JSONへ原子的に保存する。
+公開型のlayout変更を含む統合では `--clean-first` を指定し、古いMSBuild中間物と
+新しいheaderが混在するABI不整合を排除する。
 最終統合時はこのJSONをT64/T80の再現可能な証跡として使用する。
