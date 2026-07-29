@@ -54,7 +54,6 @@
 
 // ===================== app/AppConfig.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// アプリケーション初期化オプション
 
 
 // ===================== foundation/Types.h =====================
@@ -141,7 +140,6 @@ static_assert(sizeof(usize) == sizeof(void*), "usize must match pointer size");
 
 // ===================== foundation/Log.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 非同期スレッドセーフ FLogger（Vyukov MPMC ring + writer thread）
 
 
 // ===================== foundation/Compiler.h =====================
@@ -282,330 +280,22 @@ static_assert(sizeof(usize) == sizeof(void*), "usize must match pointer size");
 #define ACS_STRINGIFY_INNER(x) #x
 #define ACS_STRINGIFY(x)       ACS_STRINGIFY_INNER(x)
 
-// ===================== foundation/SourceLoc.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// std::source_location 相当をコンパイラ組み込みで実装する
-
-
-namespace acs {
-
-/**
- * ソースコード上の発生位置 (ファイル・関数・行・列) を保持する値型。
- *
- * @details
- * std::source_location 相当をコンパイラ組み込み (__builtin_FILE 等) で実装する。
- * Current() をデフォルト引数として渡すと、呼び出し位置を自動でキャプチャできる。
- */
-class FSourceLoc {
-public:
-    /** 空の位置情報 (ファイル・関数は空文字列、行・列は 0) を構築する。 */
-    constexpr FSourceLoc() noexcept = default;
-
-    /**
-     * ソースファイルパスを返す。
-     *
-     * @return ファイルパス文字列 (未設定なら空文字列)。
-     */
-    constexpr const char* File()     const noexcept { return m_File; }
-
-    /**
-     * 関数名を返す。
-     *
-     * @return 関数名文字列 (未設定なら空文字列)。
-     */
-    constexpr const char* Function() const noexcept { return m_Func; }
-
-    /**
-     * 行番号を返す。
-     *
-     * @return 行番号 (未設定なら 0)。
-     */
-    constexpr u32         Line()     const noexcept { return m_Line; }
-
-    /**
-     * 列番号を返す。
-     *
-     * @return 列番号 (未設定または GCC では 0)。
-     */
-    constexpr u32         Column()   const noexcept { return m_Col;  }
-
-    /**
-     * 呼び出し位置をキャプチャした FSourceLoc を生成する。
-     *
-     * @details
-     * 各引数のデフォルト値がコンパイラ組み込みで埋まるため、引数を渡さずに呼ぶと
-     * 呼び出し箇所のファイル・関数・行・列が入る。col は GCC では __builtin_COLUMN が
-     * ないため常に 0。
-     * @param file ソースファイルパス (既定: 呼び出し箇所のファイル)。
-     * @param func 関数名 (既定: 呼び出し箇所の関数)。
-     * @param line 行番号 (既定: 呼び出し箇所の行)。
-     * @param col 列番号 (既定: 呼び出し箇所の列、GCC では 0)。
-     * @return 呼び出し位置を反映した FSourceLoc。
-     */
-    static consteval FSourceLoc Current(
-        const char* file = __builtin_FILE(),
-        const char* func = __builtin_FUNCTION(),
-        u32 line         = __builtin_LINE(),
-#if ACS_COMPILER_MSVC || ACS_COMPILER_CLANG
-        u32 col          = __builtin_COLUMN()
-#else
-        u32 col          = 0  // GCC は __builtin_COLUMN を持たない
-#endif
-    ) noexcept {
-        FSourceLoc s;
-        s.m_File = file;
-        s.m_Func = func;
-        s.m_Line = line;
-        s.m_Col  = col;
-        return s;
-    }
-
-    /**
-     * 外部ライブラリなどが渡すファイル・関数・行・列から位置情報を明示生成する。
-     *
-     * @details 文字列は FSourceLoc より長く生存する必要がある。デバッグ情報を持たない引数は空文字列または 0 でよい。
-     * @param file ソースファイルパス。
-     * @param function 関数名または外部ライブラリの割り当て説明。
-     * @param line 行番号。
-     * @param column 列番号。
-     * @return 指定値を保持する FSourceLoc。
-     */
-    static constexpr FSourceLoc Create(const char* file, const char* function, u32 line, u32 column = 0) noexcept
-    {
-        FSourceLoc location;
-        location.m_File = file ? file : "";
-        location.m_Func = function ? function : "";
-        location.m_Line = line;
-        location.m_Col = column;
-        return location;
-    }
-
-private:
-    /** ソースファイルパス (既定は空文字列)。 */
-    const char* m_File = "";
-
-    /** 関数名 (既定は空文字列)。 */
-    const char* m_Func = "";
-
-    /** 行番号 (既定は 0)。 */
-    u32         m_Line = 0;
-
-    /** 列番号 (既定は 0)。 */
-    u32         m_Col  = 0;
-};
-
-} // namespace acs
-
-namespace acs {
-
-/**
- * ログの重大度レベル (数値が小さいほど詳細)。
- *
- * @details min_severity と比較して出力可否を決める。Off は全出力を止める番兵。
- */
-enum class ELogSeverity : u8 {
-    /** 詳細トレース。 */
-    Trace = 0,
-
-    /** デバッグ情報。 */
-    Debug = 1,
-
-    /** 通常情報。 */
-    Info = 2,
-
-    /** 警告。 */
-    Warn = 3,
-
-    /** エラー。 */
-    Error = 4,
-
-    /** 致命エラー。 */
-    Fatal = 5,
-
-    /** 出力停止 (この値を最小レベルにすると何も出力しない)。 */
-    Off = 6,
-};
-
-/**
- * ログレベルを文字列化する (出力フォーマット用)。
- *
- * @param s 文字列化するレベル。
- * @return レベル名の文字列 (未知の値は "?")。
- */
-constexpr const char* ToString(ELogSeverity s) noexcept
-{
-    switch (s) {
-    case ELogSeverity::Trace:
-        return "TRACE";
-    case ELogSeverity::Debug:
-        return "DEBUG";
-    case ELogSeverity::Info:
-        return "INFO";
-    case ELogSeverity::Warn:
-        return "WARN";
-    case ELogSeverity::Error:
-        return "ERROR";
-    case ELogSeverity::Fatal:
-        return "FATAL";
-    case ELogSeverity::Off:
-        return "OFF";
-    }
-    return "?";
-}
-
-/**
- * FLogger の初期化設定。
- */
-struct FLogConfig {
-    /** ログファイルのパス (nullptr ならファイル出力を無効化)。 */
-    const wchar_t* file_path = nullptr;
-
-    /** 出力する最小レベル (これ未満は破棄)。 */
-    ELogSeverity min_severity = ELogSeverity::Info;
-
-    /** リングバッファ長 (16～65536 の 2 のべき乗へ切り上げ・範囲制限)。 */
-    u32 ring_capacity = 4096;
-
-    /** stdout へ出力するか。 */
-    bool console = true;
-
-    /** OutputDebugStringA へ出力するか。 */
-    bool debug_output = true;
-};
-
-/**
- * 非同期・スレッドセーフなグローバルロガー。
- *
- * @details
- * Vyukov 風 MPMC リングにレコードを積み、専用ライタースレッドが取り出して
- * コンソール / ファイル / デバッガに書き出す。全メンバが static のシングルトン。
- */
-class FLogger {
-public:
-    /**
-     * ロガーを初期化する (多重呼び出しは無視)。
-     *
-     * @param configuration リング容量・出力先・最小レベルなどの設定。
-     */
-    static void Init(const FLogConfig& configuration) noexcept;
-
-    /**
-     * ロガーの全資源が初期化済みで、Write を受け付ける状態かを返す。
-     *
-     * @return 初期化完了から Shutdown 開始までの間は true。それ以外は false。
-     */
-    static bool IsInitialized() noexcept;
-
-    /**
-     * ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。
-     * sink callback 内からの呼び出しは、writer 自身の join を避けるため無視される。
-     */
-    static void Shutdown() noexcept;
-
-    /**
-     * 呼び出し時点で受理済みのレコードが、追加シンクへの通知を含めてすべて書き出されるまで待つ
-     * (最大約 1 秒)。
-     * sink callback 内からの呼び出しは無視される。
-     */
-    static void Flush() noexcept;
-
-    /**
-     * 最小ログレベルを動的に変更する (スレッドセーフ)。
-     *
-     * @param severity 新しい最小レベル (これ未満は破棄される)。
-     */
-    static void SetMinSeverity(ELogSeverity severity) noexcept;
-
-    /**
-     * 追加のログシンク (コールバック) を設定する。各レコードを writer スレッドが
-     * コンソール/ファイルへ出した後に sink(severity, message) も呼ぶ。nullptr で解除。
-     *
-     * @details エディタがエンジンログを自前のコンソールへ取り込む等に使う。sink は
-     *          writer スレッドから呼ばれるため、実装側でスレッド安全にすること。
-     *          通常スレッドから呼んだ場合、交換前の sink callback が完了してから戻る。
-     *          sink callback 自身から呼んだ場合は現在実行中の自身を待たず、後続レコード用の
-     *          pointer だけを交換する。
-     *          ロガーの初期化前または終了後に呼んだ場合は無視される。
-     * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
-     */
-    static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
-
-    /**
-     * 指定レベルが現在の設定で出力対象かを返す。
-     *
-     * @param severity 判定するレベル。
-     * @return 初期化済みかつ severity が最小レベル以上なら true。
-     */
-    static bool Enabled(ELogSeverity severity) noexcept;
-
-    /**
-     * リング満杯で破棄されたレコードの累積総数を返す。
-     *
-     * @return 起動以降に drop したレコード数の累計。
-     */
-    static u64 DroppedCount() noexcept;
-
-    /**
-     * 1 レコードをリングに積む実書き込み関数 (printf 互換)。
-     *
-     * @details ホットパスの肥大化を避けるため NEVERINLINE。通常は ACS_LOG_* マクロ経由で呼ぶ。
-     * @param severity レコードの重大度。
-     * @param location 呼び出し位置。
-     * @param format printf 形式のメッセージ書式。
-     * @param ... format に対応する可変長引数。
-     */
-    ACS_NEVERINLINE static void Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept;
-};
-
-} // namespace acs
-
-// 内部マクロ: 指定レベルが有効ならログを出力
-#define ACS_LOG(sev, fmt, ...)                                                            \
-    do {                                                                                  \
-        if (::acs::FLogger::Enabled(sev))                                                 \
-            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(), fmt, ##__VA_ARGS__); \
-    } while (0)
-
-#define ACS_LOG_TRACE(fmt, ...) ACS_LOG(::acs::ELogSeverity::Trace, fmt, ##__VA_ARGS__)
-#define ACS_LOG_DEBUG(fmt, ...) ACS_LOG(::acs::ELogSeverity::Debug, fmt, ##__VA_ARGS__)
-#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info, fmt, ##__VA_ARGS__)
-#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn, fmt, ##__VA_ARGS__)
-#define ACS_LOG_ERROR(fmt, ...) ACS_LOG(::acs::ELogSeverity::Error, fmt, ##__VA_ARGS__)
-#define ACS_LOG_FATAL(fmt, ...) ACS_LOG(::acs::ELogSeverity::Fatal, fmt, ##__VA_ARGS__)
-
-// ===================== memory/MemorySystem.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// セグメント別メモリ管理ファサード（mimalloc / frame arena + 予算 + 診断）
-
-
-// ===================== foundation/Result.h =====================
+// ===================== foundation/Move.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Foundation — TResult<T, E> 型（例外なしエラー伝搬）
+// ACS Foundation — Move / Forward / Swap（<utility> 代替）
 // -----------------------------------------------------------------------------
-// std::expected / Rust TResult と同じ役割を持つ「成功値 or エラー値」型。
-// 例外を使わずにエラーを伝搬するのが ACS 全体の方針。
+// std::move / std::forward / std::swap を独自実装する。コンパイラ最適化で
+// 完全に消える inline 関数のみで構成。
 //
-// 特徴:
-//   - STL 不使用
-//   - トリビアル破棄可能型 (T / E) ではゼロコスト
-//   - ムーブ専用型 (TUniquePtr 等) でも動作
-//   - E のデフォルトは FErrorCode（任意の型でも可）
-//   - TResult<void, E> 特殊化を提供（成功 / エラーのみを返す関数用）
-//
-// 典型的な使用例:
-//   TResult<FFile, FErrorCode> r = OpenFile("foo");
-//   if (!r) {
-//       FLogger::Error("open failed: %s", r.Error().message);
-//       return;
-//   }
-//   FFile& f = r.Value();
+// 加えて、配置 new (placement new) のグローバル演算子を <new> を取り込まず
+// 自前宣言する。プレースメント new は言語機能の一部だが、形式的には <new> で
+// 宣言されるためここで先回りする。
 // =============================================================================
 
 
 // ===================== foundation/TypeTraits.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 必要最小限の型特性のみ提供（<type_traits> 代替）
 
 
 namespace acs {
@@ -816,6 +506,24 @@ template<typename T> inline constexpr bool IsPointerV = TIsPointer<RemoveCVT<T>>
 /** T がトリビアルコピー可能なら true (コンパイラ組み込み __is_trivially_copyable のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyCopyableV     = __is_trivially_copyable(T);
 
+/**
+ * T をバイトコピーで再配置し、移動元のデストラクタを呼ばずに元領域を
+ * 放棄できるかを表す。
+ *
+ * trivial-copy 可能な型は既定で安全とする。非 trivial 型を有効にする場合は
+ * namespace acs 内でこの trait を明示特殊化する。特殊化は、自己参照や自身の
+ * オブジェクト表現内を指すポインタなど、バイト移動で壊れる不変条件を型が
+ * 持たないことを保証する強い契約である。再配置後は移動元を二度と参照せず、
+ * 移動先だけを破棄する。
+ */
+template<typename T>
+struct TIsTriviallyRelocatable : TBoolConstant<IsTriviallyCopyableV<T>> {};
+
+/** TIsTriviallyRelocatable<T>::Value のコンパイル時短縮名。 */
+template<typename T>
+inline constexpr bool IsTriviallyRelocatableV =
+    TIsTriviallyRelocatable<RemoveCVT<T>>::Value;
+
 /** T がトリビアル破棄可能なら true (コンパイラ組み込み __is_trivially_destructible のラッパ)。 */
 template<typename T> inline constexpr bool IsTriviallyDestructibleV = __is_trivially_destructible(T);
 
@@ -874,20 +582,6 @@ template<typename A, typename B>         struct TConditional<false, A, B>{ using
 template<bool C, typename A, typename B> using  ConditionalT = typename TConditional<C,A,B>::Type;
 
 } // namespace acs
-
-// ===================== foundation/Move.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Foundation — Move / Forward / Swap（<utility> 代替）
-// -----------------------------------------------------------------------------
-// std::move / std::forward / std::swap を独自実装する。コンパイラ最適化で
-// 完全に消える inline 関数のみで構成。
-//
-// 加えて、配置 new (placement new) のグローバル演算子を <new> を取り込まず
-// 自前宣言する。プレースメント new は言語機能の一部だが、形式的には <new> で
-// 宣言されるためここで先回りする。
-// =============================================================================
-
 
 namespace acs {
 
@@ -1028,6 +722,492 @@ template<typename T> ACS_FORCEINLINE constexpr T Clamp(T v, T lo, T hi) noexcept
      */
     inline void  operator delete[](void*, void*) noexcept {}
 #endif
+
+// ===================== foundation/SourceLoc.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// std::source_location 相当をコンパイラ組み込みで実装する
+
+
+namespace acs {
+
+/**
+ * ソースコード上の発生位置 (ファイル・関数・行・列) を保持する値型。
+ *
+ * @details
+ * std::source_location 相当をコンパイラ組み込み (__builtin_FILE 等) で実装する。
+ * Current() をデフォルト引数として渡すと、呼び出し位置を自動でキャプチャできる。
+ */
+class FSourceLoc {
+public:
+    /** 空の位置情報 (ファイル・関数は空文字列、行・列は 0) を構築する。 */
+    constexpr FSourceLoc() noexcept = default;
+
+    /**
+     * ソースファイルパスを返す。
+     *
+     * @return ファイルパス文字列 (未設定なら空文字列)。
+     */
+    constexpr const char* File()     const noexcept { return m_File; }
+
+    /**
+     * 関数名を返す。
+     *
+     * @return 関数名文字列 (未設定なら空文字列)。
+     */
+    constexpr const char* Function() const noexcept { return m_Func; }
+
+    /**
+     * 行番号を返す。
+     *
+     * @return 行番号 (未設定なら 0)。
+     */
+    constexpr u32         Line()     const noexcept { return m_Line; }
+
+    /**
+     * 列番号を返す。
+     *
+     * @return 列番号 (未設定または GCC では 0)。
+     */
+    constexpr u32         Column()   const noexcept { return m_Col;  }
+
+    /**
+     * 呼び出し位置をキャプチャした FSourceLoc を生成する。
+     *
+     * @details
+     * 各引数のデフォルト値がコンパイラ組み込みで埋まるため、引数を渡さずに呼ぶと
+     * 呼び出し箇所のファイル・関数・行・列が入る。col は GCC では __builtin_COLUMN が
+     * ないため常に 0。
+     * @param file ソースファイルパス (既定: 呼び出し箇所のファイル)。
+     * @param func 関数名 (既定: 呼び出し箇所の関数)。
+     * @param line 行番号 (既定: 呼び出し箇所の行)。
+     * @param col 列番号 (既定: 呼び出し箇所の列、GCC では 0)。
+     * @return 呼び出し位置を反映した FSourceLoc。
+     */
+    static consteval FSourceLoc Current(
+        const char* file = __builtin_FILE(),
+        const char* func = __builtin_FUNCTION(),
+        u32 line         = __builtin_LINE(),
+#if ACS_COMPILER_MSVC || ACS_COMPILER_CLANG
+        u32 col          = __builtin_COLUMN()
+#else
+        u32 col          = 0  // GCC は __builtin_COLUMN を持たない
+#endif
+    ) noexcept {
+        FSourceLoc s;
+        s.m_File = file;
+        s.m_Func = func;
+        s.m_Line = line;
+        s.m_Col  = col;
+        return s;
+    }
+
+    /**
+     * 外部ライブラリなどが渡すファイル・関数・行・列から位置情報を明示生成する。
+     *
+     * @details 文字列は FSourceLoc より長く生存する必要がある。デバッグ情報を持たない引数は空文字列または 0 でよい。
+     * @param file ソースファイルパス。
+     * @param function 関数名または外部ライブラリの割り当て説明。
+     * @param line 行番号。
+     * @param column 列番号。
+     * @return 指定値を保持する FSourceLoc。
+     */
+    static constexpr FSourceLoc Create(const char* file, const char* function, u32 line, u32 column = 0) noexcept
+    {
+        FSourceLoc location;
+        location.m_File = file ? file : "";
+        location.m_Func = function ? function : "";
+        location.m_Line = line;
+        location.m_Col = column;
+        return location;
+    }
+
+private:
+    /** ソースファイルパス (既定は空文字列)。 */
+    const char* m_File = "";
+
+    /** 関数名 (既定は空文字列)。 */
+    const char* m_Func = "";
+
+    /** 行番号 (既定は 0)。 */
+    u32         m_Line = 0;
+
+    /** 列番号 (既定は 0)。 */
+    u32         m_Col  = 0;
+};
+
+} // namespace acs
+
+#ifndef ACS_COMPILED_LOG_MIN_SEVERITY
+    // 0=Trace ～ 6=Off。既定値は従来どおり全レベルをコンパイル対象にする。
+    #define ACS_COMPILED_LOG_MIN_SEVERITY 0
+#endif
+
+#if ACS_COMPILED_LOG_MIN_SEVERITY < 0 || ACS_COMPILED_LOG_MIN_SEVERITY > 6
+    #error "ACS_COMPILED_LOG_MIN_SEVERITY は 0～6 の範囲で指定してください"
+#endif
+
+namespace acs {
+
+/**
+ * ログの重大度レベル (数値が小さいほど詳細)。
+ *
+ * @details min_severity と比較して出力可否を決める。Off は全出力を止める番兵。
+ */
+enum class ELogSeverity : u8 {
+    /** 詳細トレース。 */
+    Trace = 0,
+
+    /** デバッグ情報。 */
+    Debug = 1,
+
+    /** 通常情報。 */
+    Info = 2,
+
+    /** 警告。 */
+    Warn = 3,
+
+    /** エラー。 */
+    Error = 4,
+
+    /** 致命エラー。 */
+    Fatal = 5,
+
+    /** 出力停止 (この値を最小レベルにすると何も出力しない)。 */
+    Off = 6,
+};
+
+namespace detail {
+
+/**
+ * 公開位置が読み取り位置と一致するかを返す。
+ *
+ * @param published_position プロデューサが公開したリング位置。
+ * @param dequeue_position コンシューマが次に読み取るリング位置。
+ * @return 空から非空への遷移なら true。
+ */
+constexpr bool ShouldSignalLogConsumer(u64 published_position, u64 dequeue_position) noexcept
+{
+    return published_position == dequeue_position;
+}
+
+/**
+ * 文字列リテラルに printf 書式開始文字が含まれるかを判定する。
+ *
+ * @tparam N 終端文字を含む文字配列長。
+ * @param message 判定する文字配列。
+ * @return パーセント記号を含む場合は true。
+ */
+template <usize N>
+constexpr bool ContainsLogFormatMarker(const char (&message)[N]) noexcept
+{
+    /** 終端文字を除いて確認する文字位置。 */
+    for (usize character_index = 0; character_index + 1 < N; ++character_index) {
+        if (message[character_index] == '%') return true;
+    }
+    return false;
+}
+
+/** ログ呼び出しが直接コピー経路か printf 整形経路かを表す。 */
+enum class ELogDispatchKind : u8 {
+    /** 整形せずに直接コピーする。 */
+    Literal,
+
+    /** printf 互換の書式処理を行う。 */
+    Formatted,
+};
+
+/**
+ * 文字列リテラルの内容から書き込み経路を分類する。
+ *
+ * @tparam N 終端文字を含む文字配列長。
+ * @param message 分類する文字配列。
+ * @return 直接コピーまたは書式処理の種別。
+ */
+template <usize N>
+constexpr ELogDispatchKind ClassifyLogDispatch(const char (&message)[N]) noexcept
+{
+    return ContainsLogFormatMarker(message) ? ELogDispatchKind::Formatted : ELogDispatchKind::Literal;
+}
+
+/**
+ * 転送参照から文字列リテラルの配列長を取り出す型特性。
+ *
+ * @tparam T 判定する書式引数型。
+ */
+template <typename T>
+struct TLogLiteralInfo {
+    /** 型が安全な文字列リテラルなら true。 */
+    static constexpr bool IsLiteral = false;
+
+    /** 終端文字を含む文字配列長。非リテラルは0。 */
+    static constexpr usize Extent = 0;
+};
+
+/**
+ * const文字配列を安全な文字列リテラルとして扱う特殊化。
+ *
+ * @tparam N 終端文字を含む文字配列長。
+ */
+template <usize N>
+struct TLogLiteralInfo<const char[N]> {
+    /** const文字配列なので常に true。 */
+    static constexpr bool IsLiteral = true;
+
+    /** 終端文字を含む文字配列長。 */
+    static constexpr usize Extent = N;
+};
+
+} // detail 名前空間
+
+/**
+ * ログレベルを文字列化する (出力フォーマット用)。
+ *
+ * @param s 文字列化するレベル。
+ * @return レベル名の文字列 (未知の値は "?")。
+ */
+constexpr const char* ToString(ELogSeverity s) noexcept
+{
+    switch (s) {
+    case ELogSeverity::Trace:
+        return "TRACE";
+    case ELogSeverity::Debug:
+        return "DEBUG";
+    case ELogSeverity::Info:
+        return "INFO";
+    case ELogSeverity::Warn:
+        return "WARN";
+    case ELogSeverity::Error:
+        return "ERROR";
+    case ELogSeverity::Fatal:
+        return "FATAL";
+    case ELogSeverity::Off:
+        return "OFF";
+    }
+    return "?";
+}
+
+/**
+ * FLogger の初期化設定。
+ */
+struct FLogConfig {
+    /** ログファイルのパス (nullptr ならファイル出力を無効化)。 */
+    const wchar_t* file_path = nullptr;
+
+    /** 出力する最小レベル (これ未満は破棄)。 */
+    ELogSeverity min_severity = ELogSeverity::Info;
+
+    /** リングバッファ長 (16～65536 の 2 のべき乗へ切り上げ・範囲制限)。 */
+    u32 ring_capacity = 4096;
+
+    /** stdout へ出力するか。 */
+    bool console = true;
+
+    /** OutputDebugStringA へ出力するか。 */
+    bool debug_output = true;
+};
+
+/**
+ * 非同期・スレッドセーフなグローバルロガー。
+ *
+ * @details
+ * Vyukov 風 MPMC リングにレコードを積み、専用ライタースレッドが取り出して
+ * コンソール / ファイル / デバッガに書き出す。全メンバが static のシングルトン。
+ */
+class FLogger {
+public:
+    /**
+     * ロガーを初期化する (多重呼び出しは無視)。
+     *
+     * @param configuration リング容量・出力先・最小レベルなどの設定。
+     */
+    static void Init(const FLogConfig& configuration) noexcept;
+
+    /**
+     * ロガーの全資源が初期化済みで、Write を受け付ける状態かを返す。
+     *
+     * @return 初期化完了から Shutdown 開始までの間は true。それ以外は false。
+     */
+    static bool IsInitialized() noexcept;
+
+    /**
+     * ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。
+     * sink callback 内からの呼び出しは、writer 自身の join を避けるため無視される。
+     */
+    static void Shutdown() noexcept;
+
+    /**
+     * 呼び出し時点で受理済みのレコードが、追加シンクへの通知を含めてすべて書き出されるまで待つ
+     * (最大約 1 秒)。
+     * sink callback 内からの呼び出しは無視される。
+     */
+    static void Flush() noexcept;
+
+    /**
+     * 最小ログレベルを動的に変更する (スレッドセーフ)。
+     *
+     * @param severity 新しい最小レベル (これ未満は破棄される)。
+     */
+    static void SetMinSeverity(ELogSeverity severity) noexcept;
+
+    /**
+     * 追加のログシンク (コールバック) を設定する。各レコードを writer スレッドが
+     * コンソール/ファイルへ出した後に sink(severity, message) も呼ぶ。nullptr で解除。
+     *
+     * @details エディタがエンジンログを自前のコンソールへ取り込む等に使う。sink は
+     *          writer スレッドから呼ばれるため、実装側でスレッド安全にすること。
+     *          通常スレッドから呼んだ場合、交換前の sink callback が完了してから戻る。
+     *          sink callback 自身から呼んだ場合は現在実行中の自身を待たず、後続レコード用の
+     *          pointer だけを交換する。
+     *          ロガーの初期化前または終了後に呼んだ場合は無視される。
+     * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
+     */
+    static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
+
+    /**
+     * 指定レベルが現在の設定で出力対象かを返す。
+     *
+     * @param severity 判定するレベル。
+     * @return 初期化済みかつ severity が最小レベル以上なら true。
+     */
+    static bool Enabled(ELogSeverity severity) noexcept;
+
+    /**
+     * リング満杯で破棄されたレコードの累積総数を返す。
+     *
+     * @return 起動以降に drop したレコード数の累計。
+     */
+    static u64 DroppedCount() noexcept;
+
+    /**
+     * 通常レコードの投入によってライタースレッドへ送った起床通知数を返す。
+     *
+     * @return 現在のロガー世代で送った通知の累積数。
+     */
+    static u64 WakeSignalCount() noexcept;
+
+    /**
+     * 指定レベルがコンパイル時の最小レベル以上かを返す。
+     *
+     * @tparam Severity 判定する固定重大度。
+     * @return コンパイル対象なら true。
+     */
+    template <ELogSeverity Severity>
+    static constexpr bool CompiledEnabled() noexcept
+    {
+        return static_cast<u8>(Severity) >= static_cast<u8>(ACS_COMPILED_LOG_MIN_SEVERITY);
+    }
+
+    /**
+     * 1 レコードをリングに積む実書き込み関数 (printf 互換)。
+     *
+     * @details ホットパスの肥大化を避けるため NEVERINLINE。通常は ACS_LOG_* マクロ経由で呼ぶ。
+     * @param severity レコードの重大度。
+     * @param location 呼び出し位置。
+     * @param format printf 形式のメッセージ書式。
+     * @param ... format に対応する可変長引数。
+     */
+    ACS_NEVERINLINE static void Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept;
+
+    /**
+     * 整形済みメッセージをリングへ直接積む。
+     *
+     * printf 置換が不要な文字列リテラル用。length は終端 NUL を含めない。
+     * ロガー未初期化、重大度の対象外、またはリング満杯なら出力しない。
+     *
+     * @param severity 出力する重大度。
+     * @param location 呼び出し元のソース位置。
+     * @param message 整形済みの文字列。nullptrは"(null)"として扱う。
+     * @param length messageの終端文字を含まない長さ。
+     */
+    ACS_NEVERINLINE static void WriteMessage(ELogSeverity severity, FSourceLoc location, const char* message, usize length) noexcept;
+
+    /**
+     * 書式指定子を含まない文字列リテラルを直接書き込みへ振り分ける。
+     *
+     * '%' を含む場合は従来の printf 互換経路へ戻し、"%%" の意味も維持する。
+     * 実際の失敗条件はWriteまたはWriteMessageと同じ。
+     *
+     * @tparam TFormat 書式引数の転送型。
+     * @tparam TArgs 可変長の置換引数型。
+     * @param severity 出力する重大度。
+     * @param location 呼び出し元のソース位置。
+     * @param format 文字列リテラルまたは printf 互換書式。
+     * @param args formatへ適用する置換引数。
+     */
+    template <typename TFormat, typename... TArgs>
+    ACS_FORCEINLINE static void WriteDispatch(ELogSeverity severity, FSourceLoc location, TFormat&& format, TArgs&&... args) noexcept
+    {
+        /** 転送された書式引数から参照を除いた型。 */
+        using FFormat = RemoveRefT<TFormat>;
+        /** 置換引数がなく、安全な文字配列を直接扱える場合は true。 */
+        constexpr bool use_literal_path = sizeof...(TArgs) == 0 && detail::TLogLiteralInfo<FFormat>::IsLiteral;
+        if constexpr (use_literal_path) {
+            if (detail::ClassifyLogDispatch(format) == detail::ELogDispatchKind::Literal) {
+                /** 終端文字を含む文字配列長。 */
+                constexpr usize extent = detail::TLogLiteralInfo<FFormat>::Extent;
+                WriteMessage(severity, location, format, extent > 0 ? extent - 1 : 0);
+                return;
+            }
+            Write(severity, location, format);
+        } else {
+            Write(severity, location, format, Forward<TArgs>(args)...);
+        }
+    }
+};
+
+} // acs 名前空間
+
+// 内部マクロ: 指定レベルが有効ならログを出力
+#define ACS_LOG(sev, fmt, ...)                                                                                          \
+    do {                                                                                                                \
+        if (::acs::FLogger::Enabled(sev))                                                                               \
+            ::acs::FLogger::WriteDispatch(sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);           \
+    } while (0)
+
+// 固定レベルは if constexpr で無効レベルの引数評価とコード生成を完全に除去する。
+#define ACS_LOG_STATIC(sev, fmt, ...)                                                \
+    do {                                                                            \
+        if constexpr (::acs::FLogger::CompiledEnabled<sev>()) {                     \
+            ACS_LOG(sev, fmt __VA_OPT__(,) __VA_ARGS__);                            \
+        }                                                                           \
+    } while (0)
+
+#define ACS_LOG_TRACE(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Trace, fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_DEBUG(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Debug, fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_INFO(fmt, ...)  ACS_LOG_STATIC(::acs::ELogSeverity::Info,  fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_WARN(fmt, ...)  ACS_LOG_STATIC(::acs::ELogSeverity::Warn,  fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_ERROR(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Error, fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_FATAL(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Fatal, fmt __VA_OPT__(,) __VA_ARGS__)
+
+// ===================== memory/MemorySystem.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// セグメント別メモリ管理ファサード（mimalloc / frame arena + 予算 + 診断）
+
+
+// ===================== foundation/Result.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// =============================================================================
+// ACS Foundation — TResult<T, E> 型（例外なしエラー伝搬）
+// -----------------------------------------------------------------------------
+// std::expected / Rust TResult と同じ役割を持つ「成功値 or エラー値」型。
+// 例外を使わずにエラーを伝搬するのが ACS 全体の方針。
+//
+// 特徴:
+//   - STL 不使用
+//   - トリビアル破棄可能型 (T / E) ではゼロコスト
+//   - ムーブ専用型 (TUniquePtr 等) でも動作
+//   - E のデフォルトは FErrorCode（任意の型でも可）
+//   - TResult<void, E> 特殊化を提供（成功 / エラーのみを返す関数用）
+//
+// 典型的な使用例:
+//   TResult<FFile, FErrorCode> r = OpenFile("foo");
+//   if (!r) {
+//       FLogger::Error("open failed: %s", r.Error().message);
+//       return;
+//   }
+//   FFile& f = r.Value();
+// =============================================================================
+
 
 // ===================== foundation/Error.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -2488,6 +2668,14 @@ struct FAppConfig {
     /** レンダラの GPU デバッグレイヤを有効にするか (Debug ビルド時に有効推奨)。 */
     bool           enable_gpu_debug = false;
 
+    /**
+     * ウィンドウ最小化中に待機する上限時間 (ミリ秒)。
+     *
+     * Win32 メッセージ到着時は即座に起床するため、復帰・入力遅延を増やさず
+     * バックグラウンド CPU 使用率を下げる。0 は継続ポーリングを明示的に維持する。
+     */
+    u32            minimized_wait_ms = 100;
+
     /** 背景クリア色の赤成分 (0..1)。 */
     f32            clear_r = 0.1f;
 
@@ -2501,7 +2689,7 @@ struct FAppConfig {
     f32            clear_a = 1.0f;
 };
 
-} // namespace acs
+} // acs 名前空間
 
 // ===================== app/Application.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -2528,21 +2716,6 @@ struct FAppConfig {
 
 // ===================== platform/Window.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Win32 ウィンドウ（イベント駆動、初学者向け簡易 API）
-//
-// 使い方:
-//   FWindowConfig cfg;
-//   cfg.title  = L"MyGame";
-//   cfg.width  = 1280;
-//   cfg.height = 720;
-//   auto wr = FWindow::Create(cfg);
-//   if (wr.IsErr()) return -1;
-//   FWindow& w = wr.Value();
-//
-//   while (!w.ShouldClose()) {
-//       w.PollEvents();
-//       // ゲーム処理
-//   }
 
 
 // ===================== platform/Event.h =====================
@@ -3049,6 +3222,16 @@ public:
     void PollEvents() noexcept;
 
     /**
+     * Win32 入力メッセージが届くか、指定した上限時間まで待機する。
+     *
+     * 最小化中・バックグラウンド中のループ向け。ここではメッセージを配送せず、
+     * 次回の PollEvents が通常どおり順序を保って配送する。
+     *
+     * @param timeout_ms 待機する上限時間。0なら待機しない。
+     */
+    void WaitForEvents(u32 timeout_ms) noexcept;
+
+    /**
      * 閉じる要求が来ているかを返す。
      *
      * @return × ボタン押下や Close 呼び出しで閉じる要求が立っていれば true。
@@ -3071,6 +3254,9 @@ public:
      * @return 現在の高さ (px)。
      */
     u32 Height() const noexcept { return m_Height; }
+
+    /** ネイティブウィンドウが最小化中なら true を返す。 */
+    bool IsMinimized() const noexcept { return m_Minimized; }
 
     /**
      * ネイティブの HWND を返す (Render モジュールが Swapchain 生成に使う)。
@@ -3124,8 +3310,14 @@ public:
      *
      * @param w 新しいクライアント領域の幅 (px)。
      * @param h 新しいクライアント領域の高さ (px)。
+     * @param minimized WM_SIZE が最小化を通知した場合は true。
      */
-    void UpdateSize_Internal(u32 w, u32 h) noexcept { m_Width = w; m_Height = h; }
+    void UpdateSize_Internal(u32 w, u32 h, bool minimized) noexcept
+    {
+        m_Width = w;
+        m_Height = h;
+        m_Minimized = minimized;
+    }
 
 private:
     /** ネイティブウィンドウハンドル (HWND を void* で保持。未生成なら nullptr)。 */
@@ -3139,6 +3331,9 @@ private:
 
     /** 閉じる要求フラグ (ShouldClose が返す値)。 */
     bool            m_ShouldClose  = false;
+
+    /** WM_SIZE から更新するネイティブウィンドウの最小化状態。 */
+    bool            m_Minimized    = false;
 
     /** イベント通知先コールバック (未登録なら nullptr)。 */
     EventCallback   m_Callback      = nullptr;
@@ -3156,7 +3351,7 @@ private:
     i32             m_SavedRect[4] {};
 };
 
-} // namespace acs
+} // acs 名前空間
 
 // ===================== platform/Time.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -3388,7 +3583,6 @@ ACS_FORCEINLINE void DeleteArray(FAllocator& a, T* arr, usize n) noexcept {
 
 // ===================== container/Array.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 可変長配列（std::vector 代替、アロケータ注入可能、ムーブ専用）
 
 
 // ===================== memory/Memory.h =====================
@@ -3728,8 +3922,11 @@ public:
     bool TryResize(usize NewSize) noexcept
     {
         if (NewSize > m_Capacity) {
+            /** NewSize を収容する拡張後の容量。 */
             usize NewCapacity = 0u;
-            if (!TryCalculateNextGrowth(NewSize, NewCapacity) || !Grow(NewCapacity)) return false;
+            if (!TryCalculateNextGrowth(m_Capacity, NewSize, NewCapacity) || !Grow(NewCapacity)) {
+                return false;
+            }
         }
         if (NewSize > m_Size) {
             if constexpr (IsTriviallyConstructibleV<T>) {
@@ -3898,6 +4095,9 @@ public:
      */
     bool TryPushBack(const T& Value) noexcept
     {
+        if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
+            return TryPushBackTrivial(Value);
+        }
         return TryEmplaceBack(Value) != nullptr;
     }
 
@@ -3919,6 +4119,11 @@ public:
      */
     bool TryPushBack(T&& Value) noexcept
     {
+        if constexpr (IsTriviallyCopyableV<T> && IsCopyConstructibleV<T>) {
+            // move ではなく退避コピーする。確保失敗時は配列と右辺値引数の
+            // どちらも変更しない。
+            return TryPushBackTrivial(Value);
+        }
         return TryEmplaceBack(Move(Value)) != nullptr;
     }
 
@@ -3954,10 +4159,12 @@ public:
         }
         if (m_Size == ~usize(0)) return nullptr;
 
+        /** 追加要素を収容する拡張後の容量。 */
         usize NewCapacity = 0u;
-        if (!TryCalculateNextGrowth(m_Size + 1u, NewCapacity)) return nullptr;
-        return TryGrowAndEmplaceBack(
-            NewCapacity, Forward<Args>(Arguments)...);
+        if (!TryCalculateNextGrowth(m_Capacity, m_Size + 1u, NewCapacity)) {
+            return nullptr;
+        }
+        return TryGrowAndEmplaceBack(NewCapacity, Forward<Args>(Arguments)...);
     }
 
     /**
@@ -4131,9 +4338,9 @@ private:
      * @param required 最低限必要な要素数。
      * @return required 以上の新容量。
      */
-    static bool TryCalculateNextGrowth(usize Required, usize& Capacity) noexcept
+    static bool TryCalculateNextGrowth(usize CurrentCapacity, usize Required, usize& Capacity) noexcept
     {
-        Capacity = 8u;
+        Capacity = CurrentCapacity < 8u ? 8u : CurrentCapacity;
         while (Capacity < Required) {
             const usize Increment = Capacity / 2u + 1u;
             if (Capacity > (~usize(0)) - Increment) {
@@ -4143,6 +4350,32 @@ private:
             Capacity += Increment;
         }
         return Capacity >= Required;
+    }
+
+    /**
+     * 自己参照と失敗時 rollback を保ったまま trivial-copy 値を追加する。
+     * Realloc が配列領域を移動しても、退避コピーは有効なまま残る。
+     */
+    bool TryPushBackTrivial(const T& Value) noexcept
+    {
+        if (m_Size < m_Capacity) {
+            ::new (&m_Data[m_Size]) T(Value);
+            ++m_Size;
+            return true;
+        }
+        if (m_Size == ~usize(0)) return false;
+
+        /** 再確保で追加元が無効化されないよう保持する値。 */
+        T Staged(Value);
+
+        /** 追加要素を収容する拡張後の容量。 */
+        usize NewCapacity = 0u;
+        if (!TryCalculateNextGrowth(m_Capacity, m_Size + 1u, NewCapacity) || !Grow(NewCapacity)) {
+            return false;
+        }
+        ::new (&m_Data[m_Size]) T(Staged);
+        ++m_Size;
+        return true;
     }
 
     /**
@@ -4178,7 +4411,7 @@ private:
         ::new (&NewData[m_Size]) T(Forward<Args>(Arguments)...);
 
         if (m_Data) {
-            if constexpr (IsTriviallyCopyableV<T>) {
+            if constexpr (IsTriviallyRelocatableV<T>) {
                 MemCopy(NewData, m_Data, sizeof(T) * m_Size);
             } else {
                 for (usize i = 0; i < m_Size; ++i) {
@@ -4212,11 +4445,28 @@ private:
         }
         // sizeof(T) * new_capacity の乗算ラップを防ぐ（過小確保 → バッファ外書き込み防止）
         if (new_capacity > (~usize(0)) / sizeof(T)) return false;
-        T* new_data = static_cast<T*>(m_Alloc->Alloc(sizeof(T) * new_capacity, alignof(T), FSourceLoc::Current()));
+        /** 新しい確保領域のバイト数。 */
+        const usize NewBytes = sizeof(T) * new_capacity;
+        if constexpr (IsTriviallyRelocatableV<T>) {
+            // 旧確保領域の全体が使用中か、生存要素数まで縮小する場合だけ
+            // Realloc を使う。fallback 実装が未使用容量までコピーすることを
+            // 防ぐ。
+            if (m_Data != nullptr && (m_Size == m_Capacity || new_capacity <= m_Capacity)) {
+                /** 再配置後の領域。失敗時は旧領域を維持する。 */
+                T* const Relocated = static_cast<T*>(m_Alloc->Realloc(m_Data, sizeof(T) * m_Capacity, NewBytes, alignof(T), FSourceLoc::Current()));
+                if (!Relocated) return false;
+                m_Data = Relocated;
+                m_Capacity = new_capacity;
+                return true;
+            }
+        }
+
+        /** byte 再配置または要素移動の出力領域。 */
+        T* new_data = static_cast<T*>(m_Alloc->Alloc(NewBytes, alignof(T), FSourceLoc::Current()));
         if (!new_data) return false;
         if (m_Data) {
-            if constexpr (IsTriviallyCopyableV<T>) {
-                MemCopy(new_data, m_Data, sizeof(T) * m_Size);  // POD はバルクコピー
+            if constexpr (IsTriviallyRelocatableV<T>) {
+                MemCopy(new_data, m_Data, sizeof(T) * m_Size);
             } else {
                 for (usize i = 0; i < m_Size; ++i) {
                     ::new (&new_data[i]) T(Move(m_Data[i]));
@@ -4252,33 +4502,14 @@ private:
 
 // ===================== container/HashMap.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Robin Hood ハッシュマップ（密値配列 + 8 バイトインデックスバケット）
 
 
 // ===================== container/Hash.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Container — ハッシュ関数群
-//
-// バイト列用の汎用ハッシュ + 整数 / ポインタ用の高速 finalizer。
-// THashMap や Set の既定ハッシュとして使用。
-//
-// 汎用バイトハッシュは xxhash-likes のシンプル版（速度・品質ともに上位）。
-// 整数 / ポインタは Murmur fmix64 系の 1 mul + 2 xor-shift で混ぜる。
-//
-// THashMap 側は「これらの結果は十分混ざっている」と仮定するため、再 mix を
-// しない。is_avalanching の前提を破ると分布が悪化するので、独自の THasher
-// 特殊化を追加する場合は注意すること。
 
 
 // ===================== container/StringView.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Container — FStringView（std::string_view 代替、UTF-8 非所有ビュー）
-//
-// ポインタ + 長さで文字列を参照する軽量値型。所有権を持たないため、
-// 元の文字列のライフタイムに注意。
-//
-// UTF-8 を前提とする（バイト単位での比較／検索のみ提供、コードポイント
-// 操作は未対応）。
 
 
 namespace acs {
@@ -4378,8 +4609,26 @@ public:
      */
     bool Equals(FStringView other) const noexcept {
         if (m_Size != other.m_Size) return false;
-        for (usize i = 0; i < m_Size; ++i) if (m_Data[i] != other.m_Data[i]) return false;
-        return true;
+        return m_Size == 0u || MemCmp(m_Data, other.m_Data, m_Size) == 0;
+    }
+
+    /**
+     * バイト単位の辞書順で比較する。
+     *
+     * @return *this が小さければ負、同じなら 0、大きければ正。
+     */
+    int Compare(FStringView Other) const noexcept
+    {
+        /** 両方に存在する比較対象のバイト数。 */
+        const usize CommonSize = m_Size < Other.m_Size ? m_Size : Other.m_Size;
+        if (CommonSize != 0u) {
+            /** 共通範囲を辞書順比較した結果。 */
+            const int Difference = MemCmp(m_Data, Other.m_Data, CommonSize);
+            if (Difference != 0) return Difference;
+        }
+        if (m_Size < Other.m_Size) return -1;
+        if (m_Size > Other.m_Size) return 1;
+        return 0;
     }
 
     /**
@@ -4390,8 +4639,7 @@ public:
      */
     bool StartsWith(FStringView prefix) const noexcept {
         if (prefix.m_Size > m_Size) return false;
-        for (usize i = 0; i < prefix.m_Size; ++i) if (m_Data[i] != prefix.m_Data[i]) return false;
-        return true;
+        return prefix.m_Size == 0u || MemCmp(m_Data, prefix.m_Data, prefix.m_Size) == 0;
     }
 
     /**
@@ -4402,9 +4650,9 @@ public:
      */
     bool EndsWith(FStringView suffix) const noexcept {
         if (suffix.m_Size > m_Size) return false;
+        /** suffix と比較する自ビュー内の開始位置。 */
         const usize off = m_Size - suffix.m_Size;
-        for (usize i = 0; i < suffix.m_Size; ++i) if (m_Data[off + i] != suffix.m_Data[i]) return false;
-        return true;
+        return suffix.m_Size == 0u || MemCmp(m_Data + off, suffix.m_Data, suffix.m_Size) == 0;
     }
 
     /** Find / FindLast が「見つからない」を表す番兵値。 */
@@ -4420,11 +4668,19 @@ public:
     usize Find(FStringView needle, usize from = 0) const noexcept {
         if (needle.m_Size > m_Size) return kNpos;
         if (needle.m_Size == 0) return (from <= m_Size) ? from : kNpos;
-        const usize last_start = m_Size - needle.m_Size;   // 引き算形 (ラップしない)
+        /** needle 全体を比較できる最後の開始位置。 */
+        const usize last_start = m_Size - needle.m_Size;
+        if (from > last_start) return kNpos;
+        if (needle.m_Size == 1u) return Find(needle.m_Data[0], from);
+
+        /** 候補位置を早く除外する needle の先頭バイト。 */
+        const char First = needle.m_Data[0];
+
+        /** 現在比較する自ビュー内の開始位置。 */
         for (usize i = from; i <= last_start; ++i) {
-            usize k = 0;
-            while (k < needle.m_Size && m_Data[i + k] == needle.m_Data[k]) ++k;
-            if (k == needle.m_Size) return i;
+            if (m_Data[i] == First && MemCmp(m_Data + i + 1u, needle.m_Data + 1u, needle.m_Size - 1u) == 0) {
+                return i;
+            }
         }
         return kNpos;
     }
@@ -4509,7 +4765,7 @@ ACS_FORCEINLINE u64 HashMix64(u64 x) noexcept {
 /**
  * 任意バイト列の 64bit ハッシュを計算する (xxhash 風、SMHasher 上位品質)。
  *
- * @param data ハッシュ対象の先頭ポインタ。
+ * @param data ハッシュ対象の先頭ポインタ。nullptr は len==0 のみ正規入力。
  * @param len バイト長。
  * @param seed 初期シード (既定は FNV offset basis)。
  * @return 64bit ハッシュ値。
@@ -4712,19 +4968,31 @@ public:
     }
 
     /**
-     * キー挿入 / 上書きを試み、拡張確保 (rehash / 値配列) に失敗したら map を変えず false を返す。
+     * キー挿入 / 上書きを試み、拡張確保に失敗したら新規要素を追加せず false を返す。
      *
-     * @details OOM 時は map の内容と容量を一切変更しない。失敗時、value はムーブ済みになり得る。
+     * @details OOM 時も既存要素と検索整合性は維持する。ただし rehash と値配列拡張は別確保のため、
+     * 先に成功した内部容量だけが増える場合がある。失敗時、value はムーブ済みになり得る。
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
      * @return 挿入 / 上書き成功なら true、サイズ overflow / OOM なら false。
      */
     bool TryInsert(const K& key, V value) noexcept {
-        // load factor 超過なら容量倍増 (rehash 失敗時は挿入せず false)。
-        if ((Size() + 1) * 100 > m_BucketCount * kLoadFactorPct) {
-            if (!TryRehash(NextCapacity())) return false;
+        // 更新を再配置判定より先に1回のハッシュ計算と探索で完了させ、
+        // 閾値付近の既存 key 更新では容量を増やさない。
+        /** 検索と新規挿入で再利用するハッシュ値。 */
+        const u64 Hash = H{}(key);
+        if (V* const Existing = FindByHashImpl(key, Hash)) {
+            *Existing = Move(value);
+            return true;
         }
-        return TryInsertImpl(key, Move(value));
+        if (NeedsGrowthForOneMore()) {
+            /** 追加要素を収容する次のバケット数。 */
+            usize NewCapacity = 0u;
+            if (!TryNextCapacity(NewCapacity) || !TryRehash(NewCapacity)) {
+                return false;
+            }
+        }
+        return TryInsertImpl(key, Move(value), Hash);
     }
 
     /**
@@ -4735,22 +5003,7 @@ public:
      * @return 見つかれば値へのポインタ、無ければ nullptr。
      */
     V* Find(const K& key) noexcept {
-        if (m_BucketCount == 0) return nullptr;
-        const u64 h = H{}(key);
-        u32 ideal = static_cast<u32>(h) & m_BucketMask;
-        const u32 fp = static_cast<u32>((h >> 56) | 0x01);  // fingerprint（0 を避ける）
-        u32 dist = 0;
-        while (true) {
-            const FBucket& b = m_Buckets[ideal];
-            if (b.dist_fp == 0) return nullptr;            // 空スロット → 未存在
-            if (b.Distance() < dist) return nullptr;       // Robin Hood: 自分より距離小 → 未存在
-            if (b.Fingerprint() == fp) {
-                // fingerprint 一致なら実キー比較
-                if (m_Values[b.value_idx].first == key) return &m_Values[b.value_idx].second;
-            }
-            ideal = (ideal + 1) & m_BucketMask;
-            ++dist;
-        }
+        return FindByHashImpl(key, H{}(key));
     }
 
     /**
@@ -4760,7 +5013,48 @@ public:
      * @return 見つかれば値への const ポインタ、無ければ nullptr。
      */
     const V* Find(const K& key) const noexcept {
-        return const_cast<THashMap*>(this)->Find(key);
+        return FindByHashImpl(key, H{}(key));
+    }
+
+    /**
+     * key 型とは異なる query 型で検索する。
+     *
+     * H が query を hash でき、K と query を == 比較できる場合に利用できる。
+     * FString key を FStringView で引く用途では一時 FString を生成しない。
+     * @param Query key と比較できる検索値。
+     * @return 一致した値。未登録時は nullptr。
+     */
+    template<typename Q>
+    V* FindAs(const Q& Query) noexcept
+    {
+        return FindByHashImpl(Query, H{}(Query));
+    }
+
+    /** Query を異種検索して読み取り専用値を返す。未登録時は nullptr。 */
+    template<typename Q>
+    const V* FindAs(const Q& Query) const noexcept
+    {
+        return FindByHashImpl(Query, H{}(Query));
+    }
+
+    /**
+     * 呼び出し側で計算済みの hash を使って異種検索する。
+     * Hash は H{}(Query) と同一アルゴリズムで求める必要がある。
+     * @param Query key と比較できる検索値。
+     * @param Hash Query の計算済みハッシュ値。
+     * @return 一致した値。未登録時は nullptr。
+     */
+    template<typename Q>
+    V* FindByHash(const Q& Query, u64 Hash) noexcept
+    {
+        return FindByHashImpl(Query, Hash);
+    }
+
+    /** 計算済み Hash で Query を検索して読み取り専用値を返す。 */
+    template<typename Q>
+    const V* FindByHash(const Q& Query, u64 Hash) const noexcept
+    {
+        return FindByHashImpl(Query, Hash);
     }
 
     /**
@@ -4770,6 +5064,13 @@ public:
      * @return 存在すれば true。
      */
     bool Contains(const K& key) const noexcept { return Find(key) != nullptr; }
+
+    /** Query が存在するかを一時 K 生成なしに調べる。 */
+    template<typename Q>
+    bool ContainsAs(const Q& Query) const noexcept
+    {
+        return FindAs(Query) != nullptr;
+    }
 
     /**
      * キーを削除する (後方シフトで詰めて tombstone を残さない)。
@@ -4849,12 +5150,22 @@ public:
      * 容量予約を試み、確保に失敗したら map を変えず false を返す。
      *
      * @param n 収めたいエントリ数。
-     * @return 予約済みまたは予約成功なら true、OOM なら false。
+     * @return 予約済みまたは予約成功なら true、範囲超過または確保失敗なら false。
      */
     bool TryReserve(usize n) noexcept {
-        const usize need = (n * 100 + kLoadFactorPct - 1) / kLoadFactorPct;
-        usize cap = 16;
-        while (cap < need) cap <<= 1;
+        if (static_cast<u64>(n) > 0xFFFFFFFFull) return false;
+        // ceil(n / 0.8) == n + ceil(n / 4)。乗算を避けて overflow を防ぐ。
+        /** n 要素を負荷率80%以下で保持する必要バケット数。 */
+        const u64 Need = static_cast<u64>(n) + (static_cast<u64>(n) + 3u) / 4u;
+
+        /** 2のべき乗へ切り上げる途中のバケット数。 */
+        u64 Capacity = 16u;
+        while (Capacity < Need) {
+            if (Capacity >= 0x100000000ull) return false;
+            Capacity <<= 1u;
+        }
+        /** TryRehash へ渡せる実行環境のバケット数。 */
+        const usize cap = static_cast<usize>(Capacity);
         if (cap <= m_BucketCount) return true;
         return TryRehash(cap);
     }
@@ -4934,21 +5245,72 @@ private:
         void SetDistance(u32 d) noexcept { dist_fp = (d << 8) | (dist_fp & 0xFFu); }
     };
 
-    /**
-     * rehash 時の次のバケット容量を返す (空なら 16、以降は倍増)。
-     *
-     * @return 次のバケット数。
-     */
-    usize NextCapacity() noexcept {
-        return m_BucketCount == 0 ? 16 : m_BucketCount * 2;
+    /** hash 済み query を Robin Hood の距離不変条件で検索する。 */
+    template<typename Q>
+    ACS_FORCEINLINE V* FindByHashImpl(const Q& Query, u64 Hash) noexcept
+    {
+        return const_cast<V*>(static_cast<const THashMap*>(this)->FindByHashImpl(Query, Hash));
+    }
+
+    /** hash 済み query を検索する const 版。 */
+    template<typename Q>
+    ACS_FORCEINLINE const V* FindByHashImpl(const Q& Query, u64 Hash) const noexcept
+    {
+        if (m_BucketCount == 0u) return nullptr;
+
+        /** 現在調べるバケット位置。 */
+        u32 BucketIndex = static_cast<u32>(Hash) & m_BucketMask;
+
+        /** 完全比較を行う候補を絞る8bit識別値。 */
+        const u32 Fingerprint = static_cast<u32>((Hash >> 56u) | 0x01u);
+
+        /** 本来のバケット位置から進んだ距離。 */
+        u32 Distance = 0u;
+        while (true) {
+            /** 現在調べるバケット。 */
+            const FBucket& Bucket = m_Buckets[BucketIndex];
+            if (Bucket.dist_fp == 0u || Bucket.Distance() < Distance) {
+                return nullptr;
+            }
+            if (Bucket.Fingerprint() == Fingerprint && m_Values[Bucket.value_idx].first == Query) {
+                return &m_Values[Bucket.value_idx].second;
+            }
+            BucketIndex = (BucketIndex + 1u) & m_BucketMask;
+            ++Distance;
+            if (Distance >= m_BucketCount) return nullptr;
+        }
+    }
+
+    /** 1 要素追加後に load factor 上限を超えるかを返す。 */
+    bool NeedsGrowthForOneMore() const noexcept
+    {
+        if (m_BucketCount == 0u) return true;
+        /** 現在のバケット数で許可する最大要素数。 */
+        const u64 Threshold = (static_cast<u64>(m_BucketCount) * static_cast<u64>(kLoadFactorPct)) / 100u;
+        return static_cast<u64>(Size()) + 1u > Threshold;
     }
 
     /**
-     * バケット配列を new_count で作り直し、全 value を再挿入する (値配列は維持)。
+     * rehash 用の次容量を overflow なしに求める。
      *
-     * @details new_count は 2 の冪である必要がある (ACS_ASSERT で検査)。
-     * @param new_count 新しいバケット数 (2 の冪)。
+     * @param OutCapacity 成功時の次バケット数。
+     * @return u32 mask で表現可能なら true。
      */
+    bool TryNextCapacity(usize& OutCapacity) const noexcept
+    {
+        if (m_BucketCount == 0u) {
+            OutCapacity = 16u;
+            return true;
+        }
+        /** 倍増後の候補バケット数。 */
+        const u64 Next = static_cast<u64>(m_BucketCount) * 2u;
+        if (Next > 0x100000000ull || Next > static_cast<u64>(~usize(0))) {
+            return false;
+        }
+        OutCapacity = static_cast<usize>(Next);
+        return true;
+    }
+
     /**
      * バケット配列を new_count で作り直し、全 value を再挿入する (値配列は維持)。確保に失敗
      * したら map を一切変更せず false を返す。
@@ -4959,7 +5321,9 @@ private:
      * @return 成功なら true、OOM なら false。
      */
     bool TryRehash(usize new_count) noexcept {
-        ACS_ASSERT((new_count & (new_count - 1)) == 0);
+        if (new_count == 0u || (new_count & (new_count - 1u)) != 0u || static_cast<u64>(new_count) > 0x100000000ull || new_count > (~usize(0)) / sizeof(FBucket)) {
+            return false;
+        }
 
         void* const mem = m_Alloc->Alloc(sizeof(FBucket) * new_count, alignof(FBucket), FSourceLoc::Current());
         if (!mem) return false;  // OOM: map を変更しない
@@ -5017,30 +5381,18 @@ private:
     /**
      * 挿入/上書きの本体 (rehash 判定後に呼ばれる)。
      *
-     * @details 既存キーがあれば値を上書きして戻る。新規なら値配列末尾へ追加してから
-     * Robin Hood 挿入する。u32 への index 切り詰めは ACS_ASSERT で検出する。
+     * @details 呼出側で未登録を確認済みの key を値配列末尾へ追加してから
+     * Robin Hood 挿入する。u32 への index 切り詰めは事前に拒否する。
      * @param key 挿入するキー。
      * @param value 挿入する値 (ムーブされる)。
+     * @param Hash 呼出側で一度だけ計算した key のハッシュ値。
      */
-    bool TryInsertImpl(const K& key, V&& value) noexcept {
-        const u64 h = H{}(key);
-        const u32 ideal = static_cast<u32>(h) & m_BucketMask;
-        const u32 fp = static_cast<u32>((h >> 56) | 0x01);
+    bool TryInsertImpl(const K& key, V&& value, u64 Hash) noexcept {
+        /** key が最初に入る候補バケット位置。 */
+        const u32 ideal = static_cast<u32>(Hash) & m_BucketMask;
 
-        // 既存キーチェック
-        u32 probe = ideal;
-        u32 dist = 0;
-        while (true) {
-            const FBucket& b = m_Buckets[probe];
-            if (b.dist_fp == 0) break;
-            if (b.Distance() < dist) break;
-            if (b.Fingerprint() == fp && m_Values[b.value_idx].first == key) {
-                m_Values[b.value_idx].second = Move(value);  // 上書き (確保なし・常に成功)
-                return true;
-            }
-            probe = (probe + 1) & m_BucketMask;
-            ++dist;
-        }
+        /** 完全比較を行う候補を絞る8bit識別値。 */
+        const u32 fp = static_cast<u32>((Hash >> 56u) | 0x01u);
 
         // 新規エントリ: 値配列末尾に追加 → Robin Hood 挿入
         if (m_Values.Size() >= 0xFFFFFFFFull) return false;  // u32 index 切り詰め防止
@@ -7245,8 +7597,58 @@ public:
 
 // ===================== threading/ThreadPool.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ワークスチール FThreadPool（Chase-Lev SPMC deque + help-stealing wait）
 
+
+// ===================== threading/ThreadPoolDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** ThreadPool の同期・割り当て hot path を観測する決定的な診断値。 */
+struct FThreadPoolDiagnostics {
+    /** 外部投入キュー lock の取得回数。 */
+    u64 submission_lock_acquisitions = 0;
+
+    /** 外部投入キューを drain するために lock を取得した回数。 */
+    u64 submission_drain_lock_acquisitions = 0;
+
+    /** 外部投入キュー lock を最初の TryLock で取れなかった回数。 */
+    u64 submission_lock_contentions = 0;
+
+    /** 外部投入キューから一括取得したタスク数。 */
+    u64 external_tasks_drained = 0;
+
+    /** park へ入った回数。 */
+    u64 worker_parks = 0;
+
+    /** 実際に待機者がいるときに発行した NotifyOne 回数。 */
+    u64 wake_one_calls = 0;
+
+    /** 終了処理で発行した NotifyAll 回数。 */
+    u64 wake_all_calls = 0;
+
+    /** 固定ノードプール枯渇後の HeapAlloc 回数。 */
+    u64 submission_heap_fallbacks = 0;
+
+    /** inline 領域へ格納した所有 callable の投入数。 */
+    u64 callable_inline_submissions = 0;
+
+    /** サイズ超過で heap へ格納した所有 callable の投入数。 */
+    u64 callable_heap_submissions = 0;
+
+    /** 所有 callable ノードプール枯渇後の HeapAlloc 回数。 */
+    u64 callable_node_heap_fallbacks = 0;
+
+    /** まだワーカーに取得されていない公開済みタスク数。 */
+    u32 queued_work = 0;
+};
+
+} // namespace acs
+
+#include <cstddef>
+#include <new>
+#include <type_traits>
 
 namespace acs {
 
@@ -7374,6 +7776,12 @@ public:
      */
     static u32          CurrentWorkerIndex() noexcept;
 
+    /** 現在の同期・割り当て診断値をスナップショットとして返す。 */
+    static FThreadPoolDiagnostics Diagnostics() noexcept;
+
+    /** 診断カウンタだけを 0 に戻す。投入済みタスクには影響しない。 */
+    static void ResetDiagnostics() noexcept;
+
     /** ワーカー以外のスレッドを表す番兵インデックス。 */
     static constexpr u32 kNotAWorker = 0xFFFFFFFFu;
 
@@ -7388,6 +7796,57 @@ public:
      * @return 成功なら空の TResult。未初期化・null fn・ノード確保失敗時はエラー。
      */
     static TResult<void> Submit(const FTask& t) noexcept;
+
+    /**
+     * 所有権付き callable を非同期タスクとして投入する。
+     *
+     * @details `void(u32 worker_index) noexcept` または `void() noexcept` として呼べ、
+     * noexcept 構築・破棄できる型だけを受け付ける。
+     * 小さい callable は固定ノード内へ直接構築し、サイズまたは alignment 超過時だけ
+     * callable 本体を heap へ置く。投入成功後の寿命と破棄は ThreadPool が管理する。
+     * @tparam Callable 呼び出し可能オブジェクト型。
+     * @param callable 所有権を ThreadPool へ渡す callable。
+     * @param counter 任意の完了カウンタ。
+     * @return 投入結果。
+     */
+    template<typename Callable>
+    static TResult<void> SubmitCallable(Callable&& callable, FCompletionCounter* counter = nullptr) noexcept
+    {
+        /** ノードへ保存する具象型。 */
+        using StoredCallable = std::decay_t<Callable>;
+        /** worker index 付き形式を選ぶか。 */
+        constexpr bool kUsesWorkerIndex = std::is_invocable_r_v<void, StoredCallable&, u32>;
+        static_assert(kUsesWorkerIndex || std::is_invocable_r_v<void, StoredCallable&>, "ThreadPool callable は void(u32) または void() として呼べる必要があります");
+        static_assert(std::is_nothrow_constructible_v<StoredCallable, Callable&&>, "ThreadPool callable は noexcept 構築できる必要があります");
+        static_assert(std::is_nothrow_destructible_v<StoredCallable>, "ThreadPool callable は noexcept 破棄できる必要があります");
+        static_assert(kUsesWorkerIndex ? std::is_nothrow_invocable_r_v<void, StoredCallable&, u32> : std::is_nothrow_invocable_r_v<void, StoredCallable&>, "ThreadPool callable の呼び出しは noexcept である必要があります");
+
+        /** callable の所有情報を保持するノード。 */
+        FCallableTaskStorage* const storage = AcquireCallableTaskStorage();
+        if (!storage) {
+            return ACS_ERR(Threading, 9, "FThreadPool callable storage is unavailable");
+        }
+
+        if constexpr (sizeof(StoredCallable) <= kInlineCallableBytes && alignof(StoredCallable) <= alignof(std::max_align_t)) {
+            /** 固定領域へ構築した callable。 */
+            auto* const object = ::new (static_cast<void*>(storage->inline_storage)) StoredCallable(Forward<Callable>(callable));
+            storage->object = object;
+            storage->destroy = &DestroyInlineCallable<StoredCallable>;
+            storage->heap_callable = false;
+        } else {
+            /** 個別確保した callable。 */
+            auto* const object = new (std::nothrow) StoredCallable(Forward<Callable>(callable));
+            if (!object) {
+                AbandonCallableTaskStorage(storage);
+                return ACS_ERR(Memory, 10, "FThreadPool callable allocation failed");
+            }
+            storage->object = object;
+            storage->destroy = &DestroyHeapCallable<StoredCallable>;
+            storage->heap_callable = true;
+        }
+        storage->invoke = &InvokeCallable<StoredCallable>;
+        return PublishCallableTaskStorage(storage, counter);
+    }
 
     /**
      * counter が 0 になるまで待機する (待機中もスティーリングに参加)。
@@ -7406,9 +7865,70 @@ public:
      * @param user body に渡すユーザーデータ。
      * @return 成功なら空の TResult。未初期化・null body・確保失敗時はエラー。
      */
-    static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain,
-                                    void (*body)(u32 i, u32 worker_index, void* user),
-                                    void* user) noexcept;
+    static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, void (*body)(u32 i, u32 worker_index, void* user), void* user) noexcept;
+
+private:
+    /** 固定ノード内へ直接置ける callable の最大 byte 数。 */
+    static constexpr usize kInlineCallableBytes = 64;
+
+    /** 所有 callable の実行・破棄・確保元情報を保持する内部ノード。 */
+    struct FCallableTaskStorage {
+        /** inline callable の固定領域。 */
+        alignas(std::max_align_t) u8 inline_storage[kInlineCallableBytes]{};
+
+        /** inline 領域または heap callable 本体。 */
+        void* object = nullptr;
+
+        /** callable を具象型で呼ぶ thunk。 */
+        void (*invoke)(void* object, u32 worker_index) noexcept = nullptr;
+
+        /** callable を具象型で破棄する thunk。 */
+        void (*destroy)(void* object) noexcept = nullptr;
+
+        /** 所有する PoolState。 */
+        void* owner = nullptr;
+
+        /** callable 本体が heap fallback なら true。 */
+        bool heap_callable = false;
+    };
+
+    /** callable ノードを確保し、構築完了まで PoolState の寿命を保持する。 */
+    static FCallableTaskStorage* AcquireCallableTaskStorage() noexcept;
+
+    /** 構築前に失敗した callable ノードを返却する。 */
+    static void AbandonCallableTaskStorage(FCallableTaskStorage* storage) noexcept;
+
+    /** 構築済み callable ノードを通常 Submit 経路へ公開する。 */
+    static TResult<void> PublishCallableTaskStorage(FCallableTaskStorage* storage, FCompletionCounter* counter) noexcept;
+
+    /** 実行中の callable ノードを呼び、破棄して確保元へ返す。 */
+    static void CallableTaskThunk(void* storage, u32 worker_index) noexcept;
+
+    /** 型付き callable を共通ノード ABI へ接続する。 */
+    template<typename Callable>
+    static void InvokeCallable(void* object, u32 worker_index) noexcept
+    {
+        /** 呼び出す具象 callable。 */
+        auto& callable = *static_cast<Callable*>(object);
+        if constexpr (std::is_invocable_r_v<void, Callable&, u32>)
+            callable(worker_index);
+        else
+            callable();
+    }
+
+    /** inline callable を具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyInlineCallable(void* object) noexcept
+    {
+        static_cast<Callable*>(object)->~Callable();
+    }
+
+    /** heap callable を具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyHeapCallable(void* object) noexcept
+    {
+        delete static_cast<Callable*>(object);
+    }
 };
 
 } // namespace acs
@@ -10082,31 +10602,46 @@ private:
 
 // ===================== event/Timer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FTimerManager — フレーム単位の遅延 / 周期タイマー
-//
-// 使い方:
-//   struct FMyState { FWorld* w; FEntityId e; };
-//   static void OnFire(void* user) {
-//       auto* s = static_cast<FMyState*>(user);
-//       // ...
-//   }
-//
-//   FTimerManager timers;
-//   FMyState st { &world, enemy };
-//   FTimerHandle h = timers.SetTimeout(2.5f, &OnFire, &st);
-//
-//   // フレームループで:
-//   timers.Tick(dt);
-//
-//   // 任意のキャンセル
-//   timers.Cancel(h);
-//
-// 設計:
-//   ・コールバックは関数ポインタ + void* user (STL 不依存方針に合わせる)
-//   ・FTimerHandle は世代付き (Cancel 後に再利用された ID で誤発火しない)
-//   ・SetInterval は self-rearm 方式 (発火後に次の period_seconds まで再カウント)
-//   ・全タイマは線形配列で持つ (1000 個程度なら Tick の O(N) は問題ない)
 
+
+// ===================== event/TimerDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** タイマ走査とキャンセル経路の決定的な診断値。 */
+struct FTimerDiagnostics {
+    /** 直近 Tick で実際に参照した active slot 数。 */
+    u64 active_slots_visited = 0;
+
+    /** 直近 Tick で読み出した 64-bit active word 数。 */
+    u64 active_words_loaded = 0;
+
+    /** Cancel が handle 特定のために参照した slot 数の累計。 */
+    u64 cancel_slot_probes = 0;
+};
+
+} // namespace acs
+
+// ===================== event/TimerSchedulePolicy.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** タイマ登録時にコンパイル時選択する発火方針。 */
+enum class ETimerSchedulePolicy : u8 {
+    /** 遅延後に 1 回だけ発火する。 */
+    Once,
+
+    /** 指定周期で繰り返し発火する。 */
+    Repeating,
+};
+
+} // namespace acs
+
+#include <type_traits>
 
 namespace acs {
 
@@ -10191,6 +10726,30 @@ public:
     FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept;
 
     /**
+     * 発火方針と型付きコールバックをコンパイル時に確定して登録する。
+     *
+     * @details Callback は `void(User*) noexcept` として呼べる必要がある。if constexpr で
+     * SetTimeout / SetInterval を選ぶため、登録の hot path に方針判定分岐を残さない。
+     * @tparam Policy 1 回限りまたは周期発火。
+     * @tparam Callback コンパイル時に確定する型付きコールバック。
+     * @tparam User user pointer の型。
+     * @param seconds 遅延または周期秒。
+     * @param user Callback へ渡す pointer。
+     * @return 登録したタイマのハンドル。
+     */
+    template<ETimerSchedulePolicy Policy, auto Callback, typename User>
+    FTimerHandle Schedule(f32 seconds, User* user) noexcept
+    {
+        static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), User*>, "型付きタイマコールバックは void(User*) noexcept として呼べる必要があります");
+        if constexpr (Policy == ETimerSchedulePolicy::Once) {
+            return SetTimeout(seconds, &TypedTimerThunk<User, Callback>, user);
+        } else {
+            static_assert(Policy == ETimerSchedulePolicy::Repeating, "未対応のタイマ発火方針です");
+            return SetInterval(seconds, &TypedTimerThunk<User, Callback>, user);
+        }
+    }
+
+    /**
      * 指定タイマをキャンセルする。
      *
      * @param h キャンセルするタイマハンドル。
@@ -10224,6 +10783,12 @@ public:
      */
     u32 ActiveCount() const noexcept;
 
+    /** 現在の決定的な走査診断値を返す。 */
+    FTimerDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
+
+    /** 走査診断値だけを 0 に戻す。タイマ状態は変更しない。 */
+    void ResetDiagnostics() noexcept { m_Diagnostics = {}; }
+
 private:
     /**
      * 1 タイマ slot (残時間・周期・コールバックを保持)。
@@ -10254,6 +10819,13 @@ private:
         void*           user        = nullptr;
     };
 
+    /** 型付きコールバックを既存 TimerCallback ABI へ接続するコンパイル時 thunk。 */
+    template<typename User, auto Callback>
+    static void TypedTimerThunk(void* user) noexcept
+    {
+        Callback(static_cast<User*>(user));
+    }
+
     /** 次の登録へ割り当てる、0 以外の世代番号を取得する。 */
     u32 AcquireGeneration() noexcept;
 
@@ -10263,8 +10835,20 @@ private:
     /** slot 配列と再利用配列の容量を解放し、保留中の Clear を完了する。 */
     void ReleaseClearedStorage() noexcept;
 
+    /** 新規 slot index を active bitset で表現できるようにする。 */
+    void EnsureActiveWord(u32 slot_index) noexcept;
+
+    /** slot の active bit を立てる。 */
+    void MarkActive(u32 slot_index) noexcept;
+
+    /** slot の active bit を下ろす。 */
+    void MarkInactive(u32 slot_index) noexcept;
+
     /** タイマ slot の配列。 */
     TArray<FSlot> m_Slots;
+
+    /** active slot だけを昇順に走査する 64-bit bitset。 */
+    TArray<u64> m_ActiveWords;
 
     /** 解放済みで再利用待ちの slot 添字。 */
     TArray<u32>  m_FreeIndices;
@@ -10280,43 +10864,21 @@ private:
 
     /** Tick 中の Clear により、配列容量の解放を最外周 Tick まで保留しているか。 */
     bool m_ClearPending = false;
+
+    /** 現在 active な slot 数。 */
+    u32 m_ActiveCount = 0;
+
+    /** 最適化経路の決定的な診断値。 */
+    FTimerDiagnostics m_Diagnostics;
 };
 
 } // namespace acs
 
 // ===================== event/MessageBroker.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FMessageBroker — 型ベースの pub/sub イベントバス
-//
-// **スレッド契約 (重要)**: FMessageBroker は **シングルスレッド前提** です。
-//   Subscribe / Publish / Unsubscribe を異なるスレッドから呼ぶと未定義動作。
-//   スレッド間通信が必要な場合は TMessagePipe<T> (event/MessagePipe.h) を使う。
-//   (型 ID 採番だけ TAtomic を使うのは複数スレッドで同じ型 E の id が一致するため)
-//
-// 使い方:
-//   struct FDamageEvent { FEntityId target; f32 amount; };
-//
-//   static void OnDamage(const void* payload, void* user) {
-//       const auto& e = *static_cast<const FDamageEvent*>(payload);
-//       auto* self = static_cast<FMyState*>(user);
-//       // ...
-//   }
-//
-//   FMessageBroker bus;
-//   FSubscriptionHandle h = bus.Subscribe<FDamageEvent>(&OnDamage, &my_state);
-//
-//   FDamageEvent e{ enemy, 25.0f };
-//   bus.Publish<FDamageEvent>(e);
-//
-//   bus.Unsubscribe(h);
-//
-// 設計:
-//   ・コールバックは関数ポインタ + payload (const void*) + user (void*)
-//   ・型 E ごとに ChannelId を割り当てる (EventTypeId<E>)
-//   ・Publish は同期実行 (即座にハンドラ呼ぶ)。非同期にしたければユーザー側で
-//     キューイング (TMessagePipe を使う)。
-//   ・Subscribe / Unsubscribe は Publish 中でも安全 (予約バッファに溜めて遅延適用)
 
+
+#include <type_traits>
 
 namespace acs {
 
@@ -10433,6 +10995,24 @@ public:
     }
 
     /**
+     * 型付きコールバックをコンパイル時に検証して購読する。
+     *
+     * @details Callback は `void(const E&, void*) noexcept` として呼べる必要がある。関数自体を
+     * 非型テンプレート引数にするため、slot には型タグや実行時 cast 用情報を保持せず、
+     * Publish の ABI は従来の MessageCallback のまま維持できる。
+     * @tparam E 購読するイベント型。
+     * @tparam Callback コンパイル時に確定する型付きコールバック。
+     * @param user Callback へ渡すユーザーデータ。
+     * @return 購読を指すハンドル。
+     */
+    template<typename E, auto Callback>
+    FSubscriptionHandle SubscribeTyped(void* user) noexcept
+    {
+        static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), const E&, void*>, "型付きイベントコールバックは void(const E&, void*) noexcept として呼べる必要があります");
+        return SubscribeRaw(GetEventTypeId<E>(), &TypedCallbackThunk<E, Callback>, user);
+    }
+
+    /**
      * 購読を解除する (Publish 中に呼んでも安全)。
      *
      * @details Publish 反復中の場合は slot 解放を遅延しつつ即座に「呼ばれない」状態にする。
@@ -10503,7 +11083,17 @@ private:
 
         /** publish_depth>0 の間に貯めた解除対象 slot 添字。 */
         TArray<u32>   pending_cancel;
+
+        /** 現在 active な購読 slot 数。 */
+        u32 active_count = 0;
     };
+
+    /** 型付きコールバックを既存 MessageCallback ABI へ接続するコンパイル時 thunk。 */
+    template<typename E, auto Callback>
+    static void TypedCallbackThunk(const void* payload, void* user) noexcept
+    {
+        Callback(*static_cast<const E*>(payload), user);
+    }
 
     /**
      * 型消去された購読登録の実体 (Subscribe から委譲)。
@@ -12719,7 +13309,6 @@ inline FMat4 ToMatrix(FQuat q) noexcept {
 
 // ===================== container/String.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// UTF-8 可変長文字列（SSO 22 バイト対応、std::string 代替）
 
 
 namespace acs {
@@ -16937,6 +17526,167 @@ private:
 
 } // namespace acs
 
+// ===================== container/ConstexprHash.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+namespace hash_detail {
+
+/** 64bit ハッシュの第1混合定数。 */
+inline constexpr u64 kPrime1 = 0x9E3779B185EBCA87ull;
+
+/** 64bit ハッシュの第2混合定数。 */
+inline constexpr u64 kPrime2 = 0xC2B2AE3D27D4EB4Full;
+
+/** 64bit ハッシュの第3混合定数。 */
+inline constexpr u64 kPrime3 = 0x165667B19E3779F9ull;
+
+/** 64bit ハッシュの第4混合定数。 */
+inline constexpr u64 kPrime4 = 0x85EBCA77C2B2AE63ull;
+
+/** 64bit ハッシュの第5混合定数。 */
+inline constexpr u64 kPrime5 = 0x27D4EB2F165667C5ull;
+
+/**
+ * 64bit 値を左へ循環移動する。
+ *
+ * @param Value 移動する値。
+ * @param Shift 1 から 63 までの移動 bit 数。
+ * @return 循環移動後の値。
+ */
+constexpr u64 RotateLeft(u64 Value, u32 Shift) noexcept
+{
+    return (Value << Shift) | (Value >> (64u - Shift));
+}
+
+/**
+ * リテラルの指定位置から little-endian 64bit 値を読む。
+ *
+ * @param Data 8 byte 以上を読める入力。
+ * @param Offset 読み取り開始位置。
+ * @return little-endian 64bit 値。
+ */
+constexpr u64 ReadU64Literal(const char* Data, usize Offset) noexcept
+{
+    // 読み取った little-endian 値。
+    u64 Value = 0u;
+    for (u32 Index = 0u; Index < 8u; ++Index) {
+        Value |= static_cast<u64>(static_cast<u8>(Data[Offset + Index])) << (Index * 8u);
+    }
+    return Value;
+}
+
+/**
+ * リテラルの指定位置から little-endian 32bit 値を読む。
+ *
+ * @param Data 4 byte 以上を読める入力。
+ * @param Offset 読み取り開始位置。
+ * @return little-endian 32bit 値。
+ */
+constexpr u64 ReadU32Literal(const char* Data, usize Offset) noexcept
+{
+    // 読み取った little-endian 値。
+    u64 Value = 0u;
+    for (u32 Index = 0u; Index < 4u; ++Index) {
+        Value |= static_cast<u64>(static_cast<u8>(Data[Offset + Index])) << (Index * 8u);
+    }
+    return Value;
+}
+
+} // namespace hash_detail
+
+/**
+ * HashBytes と同じアルゴリズムをコンパイル時評価可能な形で実行する。
+ *
+ * @param Data 入力 byte 列。nullptr かつ Length>0 は 0 を返す。
+ * @param Length 入力 byte 数。埋め込み NUL も通常の byte として数える。
+ * @param Seed 初期 seed。
+ * @return HashBytes と bit 一致する 64bit hash。
+ */
+constexpr u64 HashBytesConstexpr(const char* Data, usize Length, u64 Seed = 0xCBF29CE484222325ull) noexcept
+{
+    using namespace hash_detail;
+    if (Data == nullptr && Length != 0u) return 0u;
+
+    // 次に処理する入力 byte の位置。
+    usize Offset = 0u;
+    // 混合途中または完成済みの hash 値。
+    u64 Hash = 0u;
+
+    if (Length >= 32u) {
+        // 32 byte 区間の第1累積値。
+        u64 V1 = Seed + kPrime1 + kPrime2;
+        // 32 byte 区間の第2累積値。
+        u64 V2 = Seed + kPrime2;
+        // 32 byte 区間の第3累積値。
+        u64 V3 = Seed;
+        // 32 byte 区間の第4累積値。
+        u64 V4 = Seed - kPrime1;
+        do {
+            V1 += ReadU64Literal(Data, Offset) * kPrime2;
+            V1 = RotateLeft(V1, 31u) * kPrime1;
+            Offset += 8u;
+            V2 += ReadU64Literal(Data, Offset) * kPrime2;
+            V2 = RotateLeft(V2, 31u) * kPrime1;
+            Offset += 8u;
+            V3 += ReadU64Literal(Data, Offset) * kPrime2;
+            V3 = RotateLeft(V3, 31u) * kPrime1;
+            Offset += 8u;
+            V4 += ReadU64Literal(Data, Offset) * kPrime2;
+            V4 = RotateLeft(V4, 31u) * kPrime1;
+            Offset += 8u;
+        } while (Offset <= Length - 32u);
+        Hash = RotateLeft(V1, 1u) + RotateLeft(V2, 7u) + RotateLeft(V3, 12u) + RotateLeft(V4, 18u);
+    } else {
+        Hash = Seed + kPrime5;
+    }
+    Hash += static_cast<u64>(Length);
+
+    while (Offset + 8u <= Length) {
+        // 8 byte 端数を混合した一時値。
+        u64 Mixed = ReadU64Literal(Data, Offset) * kPrime2;
+        Mixed = RotateLeft(Mixed, 31u) * kPrime1;
+        Hash ^= Mixed;
+        Hash = RotateLeft(Hash, 27u) * kPrime1 + kPrime4;
+        Offset += 8u;
+    }
+    if (Offset + 4u <= Length) {
+        Hash ^= ReadU32Literal(Data, Offset) * kPrime1;
+        Hash = RotateLeft(Hash, 23u) * kPrime2 + kPrime3;
+        Offset += 4u;
+    }
+    while (Offset < Length) {
+        Hash ^= static_cast<u64>(static_cast<u8>(Data[Offset])) * kPrime5;
+        Hash = RotateLeft(Hash, 11u) * kPrime1;
+        ++Offset;
+    }
+    Hash ^= Hash >> 33u;
+    Hash *= kPrime2;
+    Hash ^= Hash >> 29u;
+    Hash *= kPrime3;
+    Hash ^= Hash >> 32u;
+    return Hash;
+}
+
+/**
+ * 終端 NUL を除いた文字列リテラルの hash をコンパイル時に求める。
+ *
+ * @tparam N 終端 NUL を含むリテラル配列長。
+ * @param Literal hash 化する文字列リテラル。内部 NUL も対象に含む。
+ * @param Seed 初期 seed。
+ * @return HashBytes と bit 一致する 64bit hash。
+ */
+template<usize N>
+constexpr u64 HashLiteral(const char (&Literal)[N], u64 Seed = 0xCBF29CE484222325ull) noexcept
+{
+    static_assert(N > 0u, "文字列リテラルは終端 NUL を必要とする");
+    return HashBytesConstexpr(Literal, N - 1u, Seed);
+}
+
+} // namespace acs
+
 // ===================== container/HashBytesBatch.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17143,36 +17893,27 @@ private:
 
 // ===================== container/Json.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Container — FJson (STL 不使用の JSON DOM パーサ)
-//
-// Aseprite / TexturePacker / Tiled 等が吐く JSON を読むための最小 DOM パーサ。
-// 設定ファイル・MOD データ・アセットメタデータにも使える汎用基盤。
-//
-//   auto r = acs::ParseJson(text, len);
-//   if (r.IsOk()) {
-//       const FJsonValue& root = r.Value();
-//       FStringView name = root.Get("meta").Get("image").AsString();
-//       u32 n = root.Get("frames").Size();
-//   }
-//
-// 設計:
-//   ・**再帰所有 DOM**: FJsonValue が配列/オブジェクトの子を TArray で所有する
-//     (std::vector 流の不完全型メンバ)。move-only。
-//   ・**STL 不使用**: 数値は f64、文字列は FString、配列/オブジェクトは TArray。
-//   ・**寛容な数値**: int / float / 指数 / 符号 を f64 で受け、AsInt() で切詰める。
-//   ・**文字列エスケープ**: \" \\ \/ \b \f \n \r \t \uXXXX (サロゲートペア対応) を
-//     UTF-8 にデコードする。
-//   ・**防御的**: nesting 深さ上限 (kMaxDepth) で stack overflow / DoS を防ぐ。
-//     不正入力は行・列付きエラーで返す (crash しない、全 noexcept)。
-//   ・アクセサは「型不一致なら default / 空 / 静的 Null を返す」非例外設計
-//     (root.Get("absent").Get("x").AsNumber(0) のような chain が安全)。
 
 
 namespace acs {
 
-/** JSON 値の種別 (Null / Bool / Number / String / Array / Object)。 */
-enum class EJsonType : u8 { Null, Bool, Number, String, Array, Object };
+/** JSON 値の種別。 */
+enum class EJsonType : u8 {
+    /** 空値。 */
+    Null,
+    /** 真偽値。 */
+    Bool,
+    /** 倍精度数値。 */
+    Number,
+    /** UTF-8 文字列。 */
+    String,
+    /** 順序付き配列。 */
+    Array,
+    /** key/value オブジェクト。 */
+    Object
+};
 
+/** JSON 値ノードの前方宣言。 */
 class FJsonValue;
 
 /**
@@ -17397,6 +18138,17 @@ public:
      */
     void _SetString(FStringView s) noexcept { Reset(EJsonType::String); m_String.Clear(); m_String.Append(s); }
 
+    /**
+     * 所有文字列をコピーせず String 値へ移す。
+     *
+     * @param s 同じ allocator 系で生成済みの文字列。
+     */
+    void _SetString(FString&& s) noexcept
+    {
+        Reset(EJsonType::String);
+        m_String = Move(s);
+    }
+
     /** この値を空の Array にする (パーサ/テスト用ビルダ)。 */
     void _MakeArray()            noexcept { Reset(EJsonType::Array); }
 
@@ -17417,6 +18169,14 @@ public:
      * @return 追加した value への参照。
      */
     FJsonValue& _AddMember(FStringView key) noexcept;
+
+    /**
+     * Object へ所有済み key をコピーせず追加する。
+     *
+     * @param key 所有権を移す key。
+     * @return 追加した value への参照。
+     */
+    FJsonValue& _AddMember(FString&& key) noexcept;
 
 private:
     /**
@@ -17455,12 +18215,50 @@ private:
 TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept;
 
 /**
+ * 指定 allocator で JSON DOM を構築する。
+ *
+ * @param text 入力 JSON。
+ * @param len 入力バイト数。
+ * @param allocator DOM、key、文字列の全確保に使う allocator。
+ * @return 成功時は root、失敗時は構文・深さ・サイズ error。
+ */
+TResult<FJsonValue> ParseJson(const char* text, usize len, FAllocator& allocator) noexcept;
+
+/**
  * JSON テキスト (ビュー) をパースして DOM を返す。
  *
  * @param s 入力 JSON テキストのビュー。
  * @return 成功なら root 値、失敗なら line/col 付きエラー。
  */
 inline TResult<FJsonValue> ParseJson(FStringView s) noexcept { return ParseJson(s.Data(), s.Size()); }
+
+/**
+ * 指定 allocator で文字列ビューをパースする。
+ *
+ * @param s 入力 JSON テキストのビュー。
+ * @param allocator DOM、key、文字列の全確保に使う allocator。
+ * @return 成功時は root、失敗時は構文・深さ・サイズ error。
+ */
+inline TResult<FJsonValue> ParseJson(FStringView s, FAllocator& allocator) noexcept
+{
+    return ParseJson(s.Data(), s.Size(), allocator);
+}
+
+/** parser / writer が受け入れる既定の最大 JSON バイト数。 */
+inline constexpr usize kMaxJsonInputBytes = 64u * 1024u * 1024u;
+
+/**
+ * JSON DOM を UTF-8 JSON へ書き出す。
+ *
+ * 失敗時は Output を変更しない。文字列の埋め込み NUL と制御文字は
+ * JSON escape へ変換し、非有限 number・深さ・サイズ超過は false にする。
+ * @param Value 書き出す JSON DOM。
+ * @param Output 成功時だけ置き換える出力文字列。
+ * @param MaxDepth 許可する最大入れ子深さ。
+ * @param MaxBytes 許可する最大出力バイト数。
+ * @return 完全な JSON を書けた場合は true。
+ */
+bool TryWriteJson(const FJsonValue& Value, FString& Output, u32 MaxDepth = 256u, usize MaxBytes = kMaxJsonInputBytes) noexcept;
 
 /** JSON 構文エラー (予期しないトークン) の error subcode。 */
 inline constexpr u16 kSubJsonSyntax    = 1400;
@@ -17479,6 +18277,81 @@ inline constexpr u16 kSubJsonBadNumber = 1404;
 
 /** 不正なエスケープ / \u シーケンスの error subcode。 */
 inline constexpr u16 kSubJsonBadEscape = 1405;
+
+/** 入出力の設定上限を超えた場合の error subcode。 */
+inline constexpr u16 kSubJsonSize      = 1406;
+
+} // namespace acs
+
+// ===================== container/StableStringKey.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * 文字列ビューと事前計算済みハッシュを保持する検索キー。
+ *
+ * THashMap::FindByHash(Key.View, Key.Hash) へ渡し、文字列の再 hash を避ける。
+ */
+struct FStableStringKey {
+    /** 比較対象の文字列ビュー。 */
+    FStringView View;
+
+    /** HashBytes と同じ手順で求めたハッシュ値。 */
+    u64 Hash = 0u;
+};
+
+/**
+ * 文字列リテラルから確保不要の検索キーを作る。
+ *
+ * @tparam N 終端 NUL を含むリテラル配列長。
+ * @param Literal 検索に使う文字列リテラル。
+ * @return リテラル view と HashLiteral の結果を保持するキー。
+ */
+template<usize N>
+constexpr FStableStringKey MakeStableStringKey(const char (&Literal)[N]) noexcept
+{
+    static_assert(N > 0u, "文字列リテラルは終端 NUL を必要とする");
+    return FStableStringKey{FStringView(Literal, N - 1u), HashLiteral(Literal)};
+}
+
+} // namespace acs
+
+// ===================== container/StringHasher.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * FString と FStringView を同じ byte hash へ写す異種検索用 hasher。
+ *
+ * THashMap の H 引数へ指定すると、FindAs(FStringView) で一時 FString を作らない。
+ */
+struct FStringHasher {
+    /**
+     * 所有文字列の全 byte を hash 化する。
+     *
+     * @param Value hash 化する所有文字列。
+     * @return HashBytes と同じ 64bit hash。
+     */
+    ACS_FORCEINLINE u64 operator()(const FString& Value) const noexcept
+    {
+        return HashBytes(Value.Data(), Value.Size());
+    }
+
+    /**
+     * 文字列 view の全 byte を hash 化する。
+     *
+     * @param Value hash 化する非所有 view。
+     * @return 所有文字列 overload と同じ 64bit hash。
+     */
+    ACS_FORCEINLINE u64 operator()(FStringView Value) const noexcept
+    {
+        return HashBytes(Value.Data(), Value.Size());
+    }
+};
 
 } // namespace acs
 
@@ -18840,28 +19713,43 @@ static_assert(
 
 // ===================== threading/JobGraph.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FJobGraph — 依存関係付き並列タスクスケジューラ
-//
-// 使い方:
-//   FJobGraph g;
-//   auto loadA  = g.Add(&LoadAssetA, &ctx);
-//   auto loadB  = g.Add(&LoadAssetB, &ctx);
-//   auto build  = g.Add(&BuildScene, &ctx);
-//   auto upload = g.Add(&UploadGpu,  &ctx);
-//
-//   build.DependOn(loadA);
-//   build.DependOn(loadB);
-//   upload.DependOn(build);
-//
-//   g.Submit();         // 投入 (依存 0 の job から走り出す)
-//   g.Wait();           // 全 job 完了まで block
-//
-// 実装:
-//   ・FThreadPool 上で動く。各 job は完了時に「dependents の deps_remaining を
-//     atomic decrement して 0 になったら FThreadPool::Submit」する fan-out 方式
-//   ・グラフは Submit 後に変更不可 (Add は Submit より前のみ)
-//   ・Reset() で再利用可能 (依存関係はそのまま、deps_remaining だけ復元)
 
+
+// ===================== threading/JobGraphDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** JobGraph の構築・再実行経路を観測する決定的な診断値。 */
+struct FJobGraphDiagnostics {
+    /** 依存 topology を構築した回数。 */
+    u64 topology_compilations = 0;
+
+    /** Submit で entry 探索のために全 job を走査した回数。 */
+    u64 submit_full_graph_scans = 0;
+
+    /** Reset が依存カウンタ復元のために参照した job 数。 */
+    u64 reset_job_visits = 0;
+
+    /** graph 内部の inline slot に置かれた job 数。 */
+    u32 inline_job_count = 0;
+
+    /** inline slot を超えて個別確保した job 数。 */
+    u32 heap_job_count = 0;
+
+    /** job 内部の inline 領域に置かれた所有 callable 数。 */
+    u32 inline_callable_count = 0;
+
+    /** サイズまたは alignment 超過で個別確保した callable 数。 */
+    u32 heap_callable_count = 0;
+};
+
+} // namespace acs
+
+#include <cstddef>
+#include <new>
+#include <type_traits>
 
 namespace acs {
 
@@ -18931,6 +19819,54 @@ public:
     FJobHandle Add(JobFn fn, void* user) noexcept;
 
     /**
+     * 所有権付き callable を job として追加する。
+     *
+     * @details `void(u32 worker_index) noexcept` または `void() noexcept` として呼べ、
+     * noexcept 構築・破棄できる型だけを受け付ける。
+     * 小さい callable は FJob 内へ直接構築し、サイズまたは alignment が上限を超える場合だけ
+     * heap へフォールバックする。どちらも graph 破棄時まで寿命が保証される。
+     * @tparam Callable 呼び出し可能オブジェクト型。
+     * @param callable graph が所有する callable。
+     * @return 追加した job のハンドル。確保失敗時は無効。
+     */
+    template<typename Callable>
+    FJobHandle AddCallable(Callable&& callable) noexcept
+    {
+        /** job が所有する具象 callable 型。 */
+        using StoredCallable = std::decay_t<Callable>;
+        /** worker index 付き形式を選ぶか。 */
+        constexpr bool kUsesWorkerIndex = std::is_invocable_r_v<void, StoredCallable&, u32>;
+        static_assert(kUsesWorkerIndex || std::is_invocable_r_v<void, StoredCallable&>, "JobGraph callable は void(u32) または void() として呼べる必要があります");
+        static_assert(std::is_nothrow_constructible_v<StoredCallable, Callable&&>, "JobGraph callable は noexcept 構築できる必要があります");
+        static_assert(std::is_nothrow_destructible_v<StoredCallable>, "JobGraph callable は noexcept 破棄できる必要があります");
+        static_assert(kUsesWorkerIndex ? std::is_nothrow_invocable_r_v<void, StoredCallable&, u32> : std::is_nothrow_invocable_r_v<void, StoredCallable&>, "JobGraph callable の呼び出しは noexcept である必要があります");
+
+        /** callable を所有する新規 job。 */
+        FJob* const job = AppendEmptyJob();
+        if (!job) return {};
+
+        if constexpr (sizeof(StoredCallable) <= kInlineCallableBytes && alignof(StoredCallable) <= alignof(std::max_align_t)) {
+            /** job の固定領域へ構築した callable。 */
+            auto* const stored = ::new (static_cast<void*>(job->callable_storage)) StoredCallable(Forward<Callable>(callable));
+            job->user = stored;
+            job->destroy_callable = &DestroyInlineCallable<StoredCallable>;
+            ++m_Diagnostics.inline_callable_count;
+        } else {
+            /** サイズ超過により個別確保した callable。 */
+            auto* const stored = new (std::nothrow) StoredCallable(Forward<Callable>(callable));
+            if (!stored) {
+                RemoveLastJob(job);
+                return {};
+            }
+            job->user = stored;
+            job->destroy_callable = &DestroyHeapCallable<StoredCallable>;
+            ++m_Diagnostics.heap_callable_count;
+        }
+        job->fn = &CallableThunk<StoredCallable>;
+        return FJobHandle{this, m_JobCount - 1};
+    }
+
+    /**
      * upstream → downstream の依存関係を追加する (Submit 前のみ有効)。
      *
      * @param upstream 先に完了する必要があるジョブ。
@@ -18958,7 +19894,10 @@ public:
      *
      * @return 登録済みジョブ数。
      */
-    u32 JobCount() const noexcept { return static_cast<u32>(m_Jobs.Size()); }
+    u32 JobCount() const noexcept { return m_JobCount; }
+
+    /** 現在の構築・再実行診断値を返す。 */
+    FJobGraphDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
 
 private:
     friend struct FJobHandle;
@@ -18990,16 +19929,97 @@ private:
 
         /** 所属するグラフ (JobThunk から参照する)。 */
         FJobGraph*      owner            = nullptr;
+
+        /** inline callable の固定領域。 */
+        alignas(std::max_align_t) u8 callable_storage[48]{};
+
+        /** 所有 callable を破棄する関数。raw Add では null。 */
+        void (*destroy_callable)(FJob* job) noexcept = nullptr;
     };
 
-    /** 登録済みジョブ群 (各要素は new で確保され、デストラクタで解放)。 */
-    TArray<FJob*>        m_Jobs;
+    /** job 内へ直接置ける callable の最大 byte 数。 */
+    static constexpr usize kInlineCallableBytes = 48;
+
+    /** graph 自体へ直接置ける job 数。 */
+    static constexpr u32 kInlineJobCapacity = 32;
+
+    /** 型付き callable を JobFn ABI へ接続するコンパイル時 thunk。 */
+    template<typename Callable>
+    static void CallableThunk(void* user, u32 worker_index) noexcept
+    {
+        /** 呼び出す具象 callable。 */
+        auto& callable = *static_cast<Callable*>(user);
+        if constexpr (std::is_invocable_r_v<void, Callable&, u32>) {
+            callable(worker_index);
+        } else {
+            callable();
+        }
+    }
+
+    /** inline callable を正しい具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyInlineCallable(FJob* job) noexcept
+    {
+        static_cast<Callable*>(static_cast<void*>(job->callable_storage))->~Callable();
+    }
+
+    /** heap fallback callable を正しい具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyHeapCallable(FJob* job) noexcept
+    {
+        delete static_cast<Callable*>(job->user);
+    }
+
+    /** 空の job を末尾へ追加し、確保失敗時は null を返す。 */
+    FJob* AppendEmptyJob() noexcept;
+
+    /** 直前に追加した job を公開前の失敗時に取り消す。 */
+    void RemoveLastJob(FJob* job) noexcept;
+
+    /** index の job を返す。 */
+    FJob* JobAt(u32 index) noexcept;
+
+    /** index の job を返す const 版。 */
+    const FJob* JobAt(u32 index) const noexcept;
+
+    /** job と所有 callable を正しい確保元へ返す。 */
+    void DestroyJob(FJob* job) noexcept;
+
+    /** 依存構造を検証し、entry index 群を初回だけ構築する。 */
+    TResult<void> CompileTopology() noexcept;
+
+    /** graph へ直接置く FJob の未初期化領域。 */
+    alignas(FJob) u8 m_InlineJobStorage[sizeof(FJob) * kInlineJobCapacity]{};
+
+    /** inline 上限を超えた job pointer。 */
+    TArray<FJob*> m_OverflowJobs;
+
+    /** 登録済み job 数。 */
+    u32 m_JobCount = 0;
+
+    /** 検証済みの依存 0 job index 群。 */
+    TArray<u32> m_EntryJobs;
+
+    /** Kahn 法で再利用する依存数 scratch。 */
+    TArray<u32> m_TopologyRemaining;
+
+    /** Kahn 法で再利用する queue scratch。 */
+    TArray<u32> m_TopologyQueue;
+
+    /** 現在の graph 形状を検証済みなら true。 */
+    bool m_TopologyCompiled = false;
+
+    /** 検証済み graph が循環を含むなら true。 */
+    bool m_TopologyHasCycle = false;
 
     /** 実行中ジョブ数の完了カウンタ (Submit/完了ごとに増減)。 */
     FCompletionCounter  m_Counter;
 
     /** Submit 済みフラグ (true 以降は Add/AddDependency 不可)。 */
     bool               m_bSubmitted       = false;
+
+    /** 構築・再実行経路の診断値。 */
+    FJobGraphDiagnostics m_Diagnostics;
 };
 
 } // namespace acs
@@ -23815,30 +24835,34 @@ struct FPresence {
 
 // ===================== event/MessagePipe.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TMessagePipe<T> — スレッド間 MPMC キュー (mutex + condvar 実装)
-//
-// 使い方:
-//   TMessagePipe<FDamageEvent> pipe;
-//
-//   // producer thread:
-//   pipe.Push(FDamageEvent{enemy, 25.0f});
-//
-//   // consumer thread (毎フレーム):
-//   FDamageEvent e;
-//   while (pipe.TryPop(e)) {
-//       ApplyDamage(e);
-//   }
-//
-//   // または block 待機 (consumer 専用スレッドなど):
-//   if (pipe.Pop(e)) { ApplyDamage(e); }
-//
-// 設計:
-//   ・mutex + condvar の素直な実装。性能要件が出てきたら lock-free MPSC に
-//     差し替える可能性あり。
-//   ・FMessageBroker (同期 pub/sub) と対照: あちらは publisher が直接 handler を
-//     呼び、こちらは値をキューに積んで別スレッドが取りに来る。
-//   ・破棄時に block 待ちが居たら Close() してから抜ける必要がある。
 
+
+// ===================== event/MessagePipePolicy.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * メッセージパイプの同期方式。
+ *
+ * @details Mpmc は複数 producer / consumer とブロッキング Pop を提供する。
+ * Spsc は producer と consumer が各 1 スレッドに固定される場合の固定容量リングである。
+ */
+enum class EMessagePipePolicy : u8 {
+    /** 複数 producer と複数 consumer を mutex で同期する。 */
+    Mpmc,
+
+    /** producer と consumer を各 1 スレッドへ固定する。 */
+    Spsc,
+};
+
+/** SPSC 固定容量として利用できる値かをコンパイル時に返す。 */
+template<usize Capacity>
+inline constexpr bool kIsValidMessagePipeCapacity =
+    Capacity >= 2 && (Capacity & (Capacity - 1)) == 0;
+
+} // namespace acs
 
 // ===================== threading/ScopedLock.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -24008,129 +25032,346 @@ private:
 
 } // namespace acs
 
+#include <type_traits>
+
 namespace acs {
 
 /**
- * スレッド間 MPMC キュー (mutex + condvar 実装)。
+ * 用途別に同期方式を選べるスレッド間 FIFO。
+ *
+ * @tparam T キューで受け渡す値型。
+ * @tparam Policy 同期方式。既定は従来互換の MPMC。
+ * @tparam Capacity SPSC の固定容量。MPMC では 0 のまま使う。
+ */
+template<typename T,
+         EMessagePipePolicy Policy = EMessagePipePolicy::Mpmc,
+         usize Capacity = 0>
+class TMessagePipe;
+
+/**
+ * mutex と条件変数を使う複数 producer / consumer 対応 FIFO。
  *
  * @details
- * 値をキューに積み、別スレッドが取りに来る方式。FMessageBroker (同期 pub/sub) と対照的に、
- * publisher は handler を直接呼ばず値を渡すだけ。TryPop は非ブロッキング、Pop は値が来るか
- * Close されるまで block する。先頭取り出しは O(N) シフトで実装する単純な配列キュー。
- * @tparam T キューで受け渡す値型 (ムーブで出し入れする)。
+ * 読み取り位置を保持するため、1 件取り出すたびの全要素シフトは行わない。消費済み領域が
+ * 十分大きくなった時だけまとめて詰め直すので、通常の Push/TryPop は償却 O(1) となる。
+ * max_depth を指定すると論理要素数を上限以内に保ち、過負荷時の無制限な増加を防げる。
  */
-template<typename T>
-class TMessagePipe {
-public:
-    /** 空のパイプを構築する。 */
-    TMessagePipe() noexcept = default;
+template<typename T, usize Capacity>
+class TMessagePipe<T, EMessagePipePolicy::Mpmc, Capacity> {
+    static_assert(Capacity == 0, "MPMC パイプの固定容量テンプレート引数は 0 にしてください");
 
-    /** Close() してから破棄する (block 待ち中の Pop を解放する)。 */
+public:
+    /**
+     * 空のパイプを構築する。
+     *
+     * @param max_depth 0 は無制限、それ以外は保持できる論理要素数の上限。
+     */
+    explicit TMessagePipe(usize max_depth = 0) noexcept
+        : m_MaxDepth(max_depth)
+    {
+    }
+
+    /** Close() してから破棄し、待機中の Pop を解放する。 */
     ~TMessagePipe() noexcept { Close(); }
 
-    /** コピー禁止 (mutex/condvar を抱えるため)。 */
+    /** コピー禁止。 */
     TMessagePipe(const TMessagePipe&) = delete;
 
-    /** コピー代入も禁止。 */
+    /** コピー代入禁止。 */
     TMessagePipe& operator=(const TMessagePipe&) = delete;
 
     /**
-     * 値を末尾に積み、待機中の consumer を 1 つ起こす。
+     * 値を FIFO の末尾に積む。
      *
-     * @param value 積む値 (ムーブで取り込む)。
-     * @return 追加できたら true、Close() 済みなら false。
+     * @return 追加できた場合は true。Close 済み、上限到達、確保失敗なら false。
      */
     bool Push(T value) noexcept {
+        bool notify = false;
         {
             FScopedLock lock(m_Mtx);
-            if (_closed) return false;
-            m_Q.PushBack(Move(value));
+            if (m_Closed || IsFullLocked()) return false;
+            CompactLocked(false);
+            if (!m_Queue.TryPushBack(Move(value))) return false;
+            notify = m_WaiterCount != 0;
         }
-        m_Cv.NotifyOne();
+        if (notify) m_Cv.NotifyOne();
         return true;
     }
 
     /**
-     * 値を 1 つ取り出す (非ブロッキング)。
+     * 複数の値を 1 回の lock 取得で FIFO へ積む。
      *
-     * @param out 取り出した値の書き戻し先。
-     * @return 取り出せたら true、キューが空なら false。
+     * @details values の各要素は追加できた分だけムーブされる。
+     * @param values 入力配列。count が 0 でなければ非 null が必要。
+     * @param count 入力要素数。
+     * @return 実際に追加した要素数。
+     */
+    usize PushBatch(T* values, usize count) noexcept {
+        if (!values && count != 0) return 0;
+        usize pushed = 0;
+        usize waiters = 0;
+        {
+            FScopedLock lock(m_Mtx);
+            if (m_Closed) return 0;
+            CompactLocked(false);
+            while (pushed < count && !IsFullLocked()) {
+                if (!m_Queue.TryPushBack(Move(values[pushed]))) break;
+                ++pushed;
+            }
+            waiters = m_WaiterCount;
+        }
+        if (pushed != 0 && waiters != 0) {
+            if (pushed == 1 || waiters == 1) m_Cv.NotifyOne();
+            else m_Cv.NotifyAll();
+        }
+        return pushed;
+    }
+
+    /**
+     * 値を 1 つ取り出す。
+     *
+     * @return 取り出せた場合は true、空なら false。
      */
     bool TryPop(T& out) noexcept {
         FScopedLock lock(m_Mtx);
-        if (m_Q.Size() == 0) return false;
-        out = Move(m_Q[0]);
-        // 簡易: 先頭削除は O(N) だが小規模ならコスト無視。
-        // 性能必要なら ring buffer 化する。
-        for (usize i = 1; i < m_Q.Size(); ++i) {
-            m_Q[i - 1] = Move(m_Q[i]);
-        }
-        m_Q.PopBack();
-        return true;
+        return PopOneLocked(out);
     }
 
     /**
-     * 値が来るまで block して 1 つ取り出す。
+     * 最大 capacity 件を 1 回の lock 取得で取り出す。
      *
-     * @details Close() 済みでキューが空のまま起こされた場合は false を返す。
-     * @param out 取り出した値の書き戻し先。
-     * @return 取り出せたら true、closed かつ空なら false。
+     * @param out 出力配列。capacity が 0 でなければ非 null が必要。
+     * @param capacity 出力できる最大要素数。
+     * @return 実際に取り出した要素数。
+     */
+    usize TryPopBatch(T* out, usize capacity) noexcept {
+        if (!out && capacity != 0) return 0;
+        FScopedLock lock(m_Mtx);
+        usize count = 0;
+        while (count < capacity && LogicalSizeLocked() != 0) {
+            out[count++] = Move(m_Queue[m_Head++]);
+        }
+        CompactLocked(true);
+        return count;
+    }
+
+    /**
+     * 値が届くか Close されるまで待って 1 件取り出す。
+     *
+     * @return 値を取り出せた場合は true。closed かつ空なら false。
      */
     bool Pop(T& out) noexcept {
         FScopedLock lock(m_Mtx);
-        while (m_Q.Size() == 0 && !_closed) {
-            m_Cv.Wait(m_Mtx);  // FScopedLock 内部の mutex を unlock+wait+relock
+        while (LogicalSizeLocked() == 0 && !m_Closed) {
+            ++m_WaiterCount;
+            m_Cv.Wait(m_Mtx);
+            --m_WaiterCount;
         }
-        if (m_Q.Size() == 0) return false;     // closed && empty
-        out = Move(m_Q[0]);
-        for (usize i = 1; i < m_Q.Size(); ++i) {
-            m_Q[i - 1] = Move(m_Q[i]);
+        return PopOneLocked(out);
+    }
+
+    /** クローズし、待機中の全 Pop を起こす。繰り返し呼んでも安全。 */
+    void Close() noexcept {
+        bool notify = false;
+        {
+            FScopedLock lock(m_Mtx);
+            if (!m_Closed) {
+                m_Closed = true;
+                notify = m_WaiterCount != 0;
+            }
         }
-        m_Q.PopBack();
+        if (notify) m_Cv.NotifyAll();
+    }
+
+    /** クローズ済みなら true を返す。 */
+    bool IsClosed() const noexcept {
+        FScopedLock lock(m_Mtx);
+        return m_Closed;
+    }
+
+    /** 現在保持している論理要素数を返す。 */
+    usize Size() const noexcept {
+        FScopedLock lock(m_Mtx);
+        return LogicalSizeLocked();
+    }
+
+    /** 設定された最大要素数を返す。0 は無制限。 */
+    usize MaxDepth() const noexcept { return m_MaxDepth; }
+
+private:
+    /** lock 保持中の論理要素数を返す。 */
+    usize LogicalSizeLocked() const noexcept {
+        return m_Queue.Size() - m_Head;
+    }
+
+    /** lock 保持中に上限へ達しているかを返す。 */
+    bool IsFullLocked() const noexcept {
+        return m_MaxDepth != 0 && LogicalSizeLocked() >= m_MaxDepth;
+    }
+
+    /** lock 保持中に 1 件取り出す。 */
+    bool PopOneLocked(T& out) noexcept {
+        if (LogicalSizeLocked() == 0) return false;
+        out = Move(m_Queue[m_Head++]);
+        CompactLocked(true);
         return true;
     }
 
-    /** クローズし、待機中の全 Pop を起こして false で抜けさせる。 */
-    void Close() noexcept {
-        {
-            FScopedLock lock(m_Mtx);
-            _closed = true;
+    /**
+     * 消費済み先頭領域をまとめて除去する。
+     *
+     * @param allow_empty_clear true なら空になった配列を即座に論理クリアする。
+     */
+    void CompactLocked(bool allow_empty_clear) noexcept {
+        const usize live = LogicalSizeLocked();
+        if (live == 0) {
+            if (allow_empty_clear || m_Head >= 64) {
+                m_Queue.Clear();
+                m_Head = 0;
+            }
+            return;
         }
-        m_Cv.NotifyAll();
+        if (m_Head < 64 || m_Head < live) return;
+        for (usize i = 0; i < live; ++i) {
+            m_Queue[i] = Move(m_Queue[m_Head + i]);
+        }
+        while (m_Queue.Size() > live) m_Queue.PopBack();
+        m_Head = 0;
     }
 
-    /**
-     * クローズ済みかを返す。
-     *
-     * @return Close() 済みなら true。
-     */
-    bool IsClosed() const noexcept {
-        FScopedLock lock(m_Mtx);
-        return _closed;
-    }
+    /** キュー全体を保護する mutex。 */
+    mutable FMutex m_Mtx;
 
-    /**
-     * 現在キューに溜まっている要素数を返す。
-     *
-     * @return キューの要素数。
-     */
-    usize Size() const noexcept {
-        FScopedLock lock(m_Mtx);
-        return m_Q.Size();
-    }
+    /** 値到着と Close を通知する条件変数。 */
+    FConditionVar m_Cv;
 
-private:
-    /** キュー全体を保護する mutex (const メソッドからも触るため mutable)。 */
-    mutable FMutex   m_Mtx;
+    /** 消費済み先頭領域を含む物理配列。 */
+    TArray<T> m_Queue;
 
-    /** 値到着・クローズを通知する条件変数。 */
-    FConditionVar    m_Cv;
+    /** 次に読み出す物理配列 index。 */
+    usize m_Head = 0;
 
-    /** 値を保持する FIFO キュー。 */
-    TArray<T>        m_Q;
+    /** 0 なら無制限の論理要素数上限。 */
+    usize m_MaxDepth = 0;
+
+    /** 条件変数で待機中の consumer 数。 */
+    usize m_WaiterCount = 0;
 
     /** クローズ済みフラグ。 */
-    bool            _closed = false;
+    bool m_Closed = false;
+};
+
+/**
+ * 1 producer / 1 consumer 専用の固定容量 lock-free FIFO。
+ *
+ * @details producer は Push 系、consumer は TryPop 系だけを呼ぶ。head と tail は単調増加し、
+ * 配列 index だけをビットマスクで折り返す。Close は最後の Push 完了後に呼び、
+ * Push と並行実行しない。consumer は Close 観測後も残件を空になるまで取り出せる。
+ * 型と容量の誤用、例外を送出し得る値操作はコンパイル時に拒否する。
+ */
+template<typename T, usize Capacity>
+class TMessagePipe<T, EMessagePipePolicy::Spsc, Capacity> {
+    static_assert(kIsValidMessagePipeCapacity<Capacity>, "SPSC パイプ容量は 2 以上の 2 の累乗である必要があります");
+    static_assert(std::is_nothrow_default_constructible_v<T>, "SPSC パイプの値型は noexcept 既定構築可能である必要があります");
+    static_assert(std::is_nothrow_move_constructible_v<T>, "SPSC パイプの値型は noexcept ムーブ構築可能である必要があります");
+    static_assert(std::is_nothrow_move_assignable_v<T>, "SPSC パイプの値型は noexcept ムーブ代入可能である必要があります");
+    static_assert(std::is_nothrow_destructible_v<T>, "SPSC パイプの値型は noexcept 破棄可能である必要があります");
+
+public:
+    /** 空の固定容量パイプを構築する。 */
+    TMessagePipe() noexcept = default;
+
+    /** クローズして破棄する。 */
+    ~TMessagePipe() noexcept { Close(); }
+
+    /** コピー禁止。 */
+    TMessagePipe(const TMessagePipe&) = delete;
+
+    /** コピー代入禁止。 */
+    TMessagePipe& operator=(const TMessagePipe&) = delete;
+
+    /**
+     * producer スレッドから値を 1 件追加する。
+     *
+     * @return 追加できた場合は true。満杯または Close 済みなら false。
+     */
+    bool Push(T value) noexcept {
+        if (m_Closed.Load(EMemoryOrder::Acquire) != 0) return false;
+        const usize tail = m_Tail.Load(EMemoryOrder::Relaxed);
+        const usize head = m_Head.Load(EMemoryOrder::Acquire);
+        if (tail - head >= Capacity) return false;
+        m_Buffer[tail & (Capacity - 1)] = Move(value);
+        m_Tail.Store(tail + 1, EMemoryOrder::Release);
+        return true;
+    }
+
+    /** producer スレッドから複数件を追加し、追加できた件数を返す。 */
+    usize PushBatch(T* values, usize count) noexcept {
+        if (!values && count != 0) return 0;
+        usize pushed = 0;
+        while (pushed < count && Push(Move(values[pushed]))) ++pushed;
+        return pushed;
+    }
+
+    /**
+     * consumer スレッドから値を 1 件取り出す。
+     *
+     * @return 取り出せた場合は true、空なら false。
+     */
+    bool TryPop(T& out) noexcept {
+        const usize head = m_Head.Load(EMemoryOrder::Relaxed);
+        const usize tail = m_Tail.Load(EMemoryOrder::Acquire);
+        if (head == tail) return false;
+        out = Move(m_Buffer[head & (Capacity - 1)]);
+        m_Head.Store(head + 1, EMemoryOrder::Release);
+        return true;
+    }
+
+    /** consumer スレッドから最大 capacity 件を取り出す。 */
+    usize TryPopBatch(T* out, usize capacity) noexcept {
+        if (!out && capacity != 0) return 0;
+        usize popped = 0;
+        while (popped < capacity && TryPop(out[popped])) ++popped;
+        return popped;
+    }
+
+    /**
+     * producer 側を閉じ、以後の Push を拒否する。
+     *
+     * @details 最後の Push が完了してから呼ぶ。Push と Close の
+     * 並行実行は契約外。既に積まれた値は consumer が引き続き取り出せる。
+     */
+    void Close() noexcept {
+        m_Closed.Store(1, EMemoryOrder::Release);
+    }
+
+    /** クローズ済みなら true を返す。 */
+    bool IsClosed() const noexcept {
+        return m_Closed.Load(EMemoryOrder::Acquire) != 0;
+    }
+
+    /** 現在保持している要素数を返す。 */
+    usize Size() const noexcept {
+        const usize head = m_Head.Load(EMemoryOrder::Acquire);
+        const usize tail = m_Tail.Load(EMemoryOrder::Acquire);
+        return tail - head;
+    }
+
+    /** 固定容量を返す。 */
+    static constexpr usize MaxDepth() noexcept { return Capacity; }
+
+private:
+    /** 固定容量の値領域。producer が書き consumer が読む。 */
+    T m_Buffer[Capacity]{};
+
+    /** consumer だけが更新する単調増加 read index。 */
+    alignas(64) TAtomic<usize> m_Head{0};
+
+    /** producer だけが更新する単調増加 write index。 */
+    alignas(64) TAtomic<usize> m_Tail{0};
+
+    /** 以後の Push を拒否するフラグ。 */
+    TAtomic<u32> m_Closed{0};
 };
 
 } // namespace acs
@@ -75222,111 +76463,152 @@ const FSettingDesc* BuiltinSettingSchema(u32& out_count) noexcept;
 
 // ===================== gameframework/ReflectApply.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS GameFramework — ReflectApply
-//   反射フィールド (offset 付き) を介して «実インスタンスへ値を読み書き» する。
-// -----------------------------------------------------------------------------
-// 長年保留だった「エディタで編集した値 (authored values) を、実体化したコンポーネント
-// インスタンスへ適用する」ブリッジ。ACS_CLASS/ACS_PROPERTY のコード生成は ACS_RFIELD_D
-// (offset + 既定値) で反射するため、ここで offset を使って値を実メンバへ書き込める。
-//
-//   void* obj = reg.CreateById(typeId);          // 実体化
-//   ApplyDefaults(obj, *desc);                    // C++ 既定値で初期化
-//   f32 v[4] = { 7.5f, 0, 0, 0 };
-//   ApplyValueByName(obj, *desc, "speed", v);     // authored 値を上書き
-//
-// offset==0 && size==0 のフィールド (ACS_RPROP = スキーマのみ) は実メンバが無いので skip。
-// =============================================================================
 
 
 namespace acs::game {
 
-/** フィールドが実メンバ (offset 付き) を持つか (ACS_RPROP のスキーマのみは false)。 */
+/**
+ * フィールドが実メンバを持つかを返す。
+ *
+ * @param f 判定する反射フィールド。
+ * @return メンバ領域があれば true。定義情報だけを持つACS_RPROPは false。
+ */
 inline bool FieldHasStorage(const FReflectField& f) noexcept { return f.size != 0u; }
 
 namespace reflect_apply_detail {
 
-using ApplyFn = void (*)(unsigned char*, const f32*) noexcept;
-using ReadFn = void (*)(const unsigned char*, f32*) noexcept;
-
+/**
+ * 型が決まった反射フィールドへ値を書き込む。
+ *
+ * @tparam Kind 書き込む反射フィールド種別。
+ * @param p 書き込み先メンバの先頭。
+ * @param v 書き込む4成分値。
+ */
 template<EFieldKind Kind>
-void Apply(unsigned char* p, const f32* v) noexcept
+inline void Apply(unsigned char* p, const f32* v) noexcept
 {
     if constexpr (Kind == EFieldKind::Bool)
         *reinterpret_cast<bool*>(p) = v[0] != 0.0f;
-    else if constexpr (Kind == EFieldKind::I32 ||
-                       Kind == EFieldKind::ObjectRef)
+    else if constexpr (Kind == EFieldKind::I32 || Kind == EFieldKind::ObjectRef)
         *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]);
     else if constexpr (Kind == EFieldKind::U32)
         *reinterpret_cast<u32*>(p) = static_cast<u32>(v[0]);
     else if constexpr (Kind == EFieldKind::F32)
         *reinterpret_cast<f32*>(p) = v[0];
     else if constexpr (Kind == EFieldKind::Vec2) {
-        auto* d = reinterpret_cast<f32*>(p); d[0] = v[0]; d[1] = v[1];
+        /** 2成分の書き込み先。 */
+        auto* destination = reinterpret_cast<f32*>(p);
+        destination[0] = v[0]; destination[1] = v[1];
     } else if constexpr (Kind == EFieldKind::Vec3) {
-        auto* d = reinterpret_cast<f32*>(p);
-        d[0] = v[0]; d[1] = v[1]; d[2] = v[2];
+        /** 3成分の書き込み先。 */
+        auto* destination = reinterpret_cast<f32*>(p);
+        destination[0] = v[0]; destination[1] = v[1]; destination[2] = v[2];
     } else if constexpr (Kind == EFieldKind::Vec4) {
-        auto* d = reinterpret_cast<f32*>(p);
-        d[0] = v[0]; d[1] = v[1]; d[2] = v[2]; d[3] = v[3];
+        /** 4成分の書き込み先。 */
+        auto* destination = reinterpret_cast<f32*>(p);
+        destination[0] = v[0]; destination[1] = v[1]; destination[2] = v[2]; destination[3] = v[3];
     }
 }
 
+/**
+ * 型が決まった反射フィールドから値を読み出す。
+ *
+ * @tparam Kind 読み出す反射フィールド種別。
+ * @param p 読み出し元メンバの先頭。
+ * @param out 読み出した4成分値の出力先。
+ */
 template<EFieldKind Kind>
-void Read(const unsigned char* p, f32* out) noexcept
+inline void Read(const unsigned char* p, f32* out) noexcept
 {
     if constexpr (Kind == EFieldKind::Bool)
         out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f;
-    else if constexpr (Kind == EFieldKind::I32 ||
-                       Kind == EFieldKind::ObjectRef)
+    else if constexpr (Kind == EFieldKind::I32 || Kind == EFieldKind::ObjectRef)
         out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p));
     else if constexpr (Kind == EFieldKind::U32)
         out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p));
     else if constexpr (Kind == EFieldKind::F32)
         out[0] = *reinterpret_cast<const f32*>(p);
     else if constexpr (Kind == EFieldKind::Vec2) {
-        auto* d = reinterpret_cast<const f32*>(p); out[0] = d[0]; out[1] = d[1];
+        /** 2成分の読み出し元。 */
+        auto* source = reinterpret_cast<const f32*>(p);
+        out[0] = source[0]; out[1] = source[1];
     } else if constexpr (Kind == EFieldKind::Vec3) {
-        auto* d = reinterpret_cast<const f32*>(p);
-        out[0] = d[0]; out[1] = d[1]; out[2] = d[2];
+        /** 3成分の読み出し元。 */
+        auto* source = reinterpret_cast<const f32*>(p);
+        out[0] = source[0]; out[1] = source[1]; out[2] = source[2];
     } else if constexpr (Kind == EFieldKind::Vec4) {
-        auto* d = reinterpret_cast<const f32*>(p);
-        out[0] = d[0]; out[1] = d[1]; out[2] = d[2]; out[3] = d[3];
+        /** 4成分の読み出し元。 */
+        auto* source = reinterpret_cast<const f32*>(p);
+        out[0] = source[0]; out[1] = source[1]; out[2] = source[2]; out[3] = source[3];
     }
 }
 
-inline constexpr ApplyFn kApplyDispatch[] = {
-    &Apply<EFieldKind::Bool>, &Apply<EFieldKind::I32>,
-    &Apply<EFieldKind::U32>, &Apply<EFieldKind::F32>,
-    &Apply<EFieldKind::Vec2>, &Apply<EFieldKind::Vec3>,
-    &Apply<EFieldKind::Vec4>, &Apply<EFieldKind::String>,
-    &Apply<EFieldKind::Enum>, &Apply<EFieldKind::ObjectRef>
-};
-inline constexpr ReadFn kReadDispatch[] = {
-    &Read<EFieldKind::Bool>, &Read<EFieldKind::I32>,
-    &Read<EFieldKind::U32>, &Read<EFieldKind::F32>,
-    &Read<EFieldKind::Vec2>, &Read<EFieldKind::Vec3>,
-    &Read<EFieldKind::Vec4>, &Read<EFieldKind::String>,
-    &Read<EFieldKind::Enum>, &Read<EFieldKind::ObjectRef>
-};
-inline constexpr bool kDispatchSupported[] = {
-    true, true, true, true, true, true, true, false, false, true
-};
-inline constexpr usize kFieldKindCount =
-    static_cast<usize>(EFieldKind::ObjectRef) + 1u;
-static_assert(kFieldKindCount ==
-              sizeof(kApplyDispatch) / sizeof(kApplyDispatch[0]));
-static_assert(kFieldKindCount ==
-              sizeof(kReadDispatch) / sizeof(kReadDispatch[0]));
+/** 各組み込み種別が数値の読み書きに対応するかを示す表。 */
+inline constexpr bool kDispatchSupported[] = {true, true, true, true, true, true, true, false, false, true};
+/** 組み込み反射フィールド種別の総数。 */
+inline constexpr usize kFieldKindCount = static_cast<usize>(EFieldKind::ObjectRef) + 1u;
+static_assert(kFieldKindCount == sizeof(kDispatchSupported) / sizeof(kDispatchSupported[0]));
+
+/**
+ * 実行時の種別を、インライン化可能な型別処理へ振り分ける。
+ *
+ * @details 関数ポインター表を使わず、コンパイラーが各特殊化を呼び出し元へ
+ * 展開できる形を保つ。未対応種別は従来どおり何もしない。
+ *
+ * @param kind 書き込む反射フィールド種別。
+ * @param p 書き込み先メンバの先頭。
+ * @param v 書き込む4成分値。
+ */
+inline void ApplyByKind(EFieldKind kind, unsigned char* p, const f32* v) noexcept
+{
+    switch (kind) {
+    case EFieldKind::Bool:      Apply<EFieldKind::Bool>(p, v); break;
+    case EFieldKind::I32:       Apply<EFieldKind::I32>(p, v); break;
+    case EFieldKind::U32:       Apply<EFieldKind::U32>(p, v); break;
+    case EFieldKind::F32:       Apply<EFieldKind::F32>(p, v); break;
+    case EFieldKind::Vec2:      Apply<EFieldKind::Vec2>(p, v); break;
+    case EFieldKind::Vec3:      Apply<EFieldKind::Vec3>(p, v); break;
+    case EFieldKind::Vec4:      Apply<EFieldKind::Vec4>(p, v); break;
+    case EFieldKind::ObjectRef: Apply<EFieldKind::ObjectRef>(p, v); break;
+    default: break;
+    }
+}
+
+/**
+ * 種別ごとの読み出し処理を間接呼び出しなしで選択する。
+ *
+ * @param kind 読み出す反射フィールド種別。
+ * @param p 読み出し元メンバの先頭。
+ * @param out 読み出した4成分値の出力先。
+ */
+inline void ReadByKind(EFieldKind kind, const unsigned char* p, f32* out) noexcept
+{
+    switch (kind) {
+    case EFieldKind::Bool:      Read<EFieldKind::Bool>(p, out); break;
+    case EFieldKind::I32:       Read<EFieldKind::I32>(p, out); break;
+    case EFieldKind::U32:       Read<EFieldKind::U32>(p, out); break;
+    case EFieldKind::F32:       Read<EFieldKind::F32>(p, out); break;
+    case EFieldKind::Vec2:      Read<EFieldKind::Vec2>(p, out); break;
+    case EFieldKind::Vec3:      Read<EFieldKind::Vec3>(p, out); break;
+    case EFieldKind::Vec4:      Read<EFieldKind::Vec4>(p, out); break;
+    case EFieldKind::ObjectRef: Read<EFieldKind::ObjectRef>(p, out); break;
+    default: break;
+    }
+}
 
 } // reflect_apply_detail 名前空間
 
-/** 組み込み種別が数値の読み書き記述子を持つか。プラグイン・未知種別は false。 */
+/**
+ * 組み込み種別が数値の読み書きに対応するかを返す。
+ *
+ * @param kind 判定する反射フィールド種別。
+ * @return 対応する組み込み種別なら true。プラグイン・未知種別は false。
+ */
 constexpr bool ReflectFieldDispatchSupported(EFieldKind kind) noexcept
 {
+    /** 対応表へ使う列挙値の添字。 */
     const usize index = static_cast<usize>(kind);
-    return index < reflect_apply_detail::kFieldKindCount &&
-           reflect_apply_detail::kDispatchSupported[index];
+    return index < reflect_apply_detail::kFieldKindCount && reflect_apply_detail::kDispatchSupported[index];
 }
 
 /**
@@ -75338,10 +76620,9 @@ constexpr bool ReflectFieldDispatchSupported(EFieldKind kind) noexcept
  */
 inline void ApplyFieldValue(void* obj, const FReflectField& f, const f32 v[4]) noexcept {
     if (obj == nullptr || !FieldHasStorage(f)) return;
+    /** 対象フィールドの書き込み先メンバ。 */
     auto* const p = static_cast<unsigned char*>(obj) + f.offset;
-    const usize index = static_cast<usize>(f.kind);
-    if (index < reflect_apply_detail::kFieldKindCount)
-        reflect_apply_detail::kApplyDispatch[index](p, v);
+    reflect_apply_detail::ApplyByKind(f.kind, p, v);
 }
 
 /**
@@ -75354,10 +76635,9 @@ inline void ApplyFieldValue(void* obj, const FReflectField& f, const f32 v[4]) n
 inline void ReadFieldValue(const void* obj, const FReflectField& f, f32 out[4]) noexcept {
     out[0] = out[1] = out[2] = out[3] = 0.0f;
     if (obj == nullptr || !FieldHasStorage(f)) return;
+    /** 対象フィールドの読み出し元メンバ。 */
     const auto* const p = static_cast<const unsigned char*>(obj) + f.offset;
-    const usize index = static_cast<usize>(f.kind);
-    if (index < reflect_apply_detail::kFieldKindCount)
-        reflect_apply_detail::kReadDispatch[index](p, out);
+    reflect_apply_detail::ReadByKind(f.kind, p, out);
 }
 
 /**
@@ -75365,25 +76645,38 @@ inline void ReadFieldValue(const void* obj, const FReflectField& f, f32 out[4]) 
  *
  * @details C++ のメンバ初期化子とは別に、反射の defaults を実メンバへ書く。CreateById 直後に
  * 呼べば「反射上の既定値」と実体を一致させられる。offset 無しフィールドは skip。
+ *
+ * @param obj 初期化する対象インスタンス。
+ * @param desc 適用する型記述子。
  */
 inline void ApplyDefaults(void* obj, const FTypeDesc& desc) noexcept {
     if (obj == nullptr || desc.fields == nullptr) return;
-    for (u32 i = 0; i < desc.field_count; ++i) ApplyFieldValue(obj, desc.fields[i], desc.fields[i].defaults);
+    /** 既定値を適用するフィールド位置。 */
+    for (u32 field_index = 0; field_index < desc.field_count; ++field_index) ApplyFieldValue(obj, desc.fields[field_index], desc.fields[field_index].defaults);
 }
 
 /**
  * 名前でフィールドを探し、値 (f32 4 成分) を実メンバへ書き込む。
  *
+ * @param obj 書き込み先の対象インスタンス。
+ * @param desc 検索する型記述子。
+ * @param name 検索するフィールド名。
+ * @param v 書き込む4成分値。
  * @return 該当フィールドへ書けたら true、無ければ false。
  */
 inline bool ApplyValueByName(void* obj, const FTypeDesc& desc, const char* name, const f32 v[4]) noexcept {
     if (obj == nullptr || desc.fields == nullptr || name == nullptr) return false;
-    for (u32 i = 0; i < desc.field_count; ++i) {
-        const FReflectField& f = desc.fields[i];
+    /** 名前を照合するフィールド位置。 */
+    for (u32 field_index = 0; field_index < desc.field_count; ++field_index) {
+        /** 現在照合している反射フィールド。 */
+        const FReflectField& f = desc.fields[field_index];
         if (f.name == nullptr) continue;
-        const char* a = f.name; const char* b = name;
-        while (*a != '\0' && *a == *b) { ++a; ++b; }
-        if (*a == '\0' && *b == '\0') {
+        /** 登録済みフィールド名の比較位置。 */
+        const char* registered_character = f.name;
+        /** 検索名の比較位置。 */
+        const char* requested_character = name;
+        while (*registered_character != '\0' && *registered_character == *requested_character) { ++registered_character; ++requested_character; }
+        if (*registered_character == '\0' && *requested_character == '\0') {
             if (!FieldHasStorage(f)) return false;   // スキーマのみ → 書けない
             ApplyFieldValue(obj, f, v);
             return true;
@@ -75392,7 +76685,7 @@ inline bool ApplyValueByName(void* obj, const FTypeDesc& desc, const char* name,
     return false;
 }
 
-} // namespace acs::game
+} // acs::game 名前空間
 
 // ===================== gameframework/ReflectCatalog.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -88971,6 +90264,61 @@ void InstallLocalMatchmakerAsDefault() noexcept;
 
 } // namespace acs::localmatch
 
+// ===================== math/BatchTransformPolicy.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** バッチ内の各要素を点または方向として扱うコンパイル時方針。 */
+enum class EBatchTransformPolicy : u8 {
+    /** 行列の平行移動を適用する点。 */
+    Point,
+
+    /** 行列の平行移動を適用しない方向ベクトル。 */
+    Vector
+};
+
+/**
+ * 種別分岐と関数ポインタ呼び出しを除去してバッチ変換する。
+ *
+ * @tparam Policy 点または方向を選ぶコンパイル時方針。
+ * @param Input Count 個の入力配列。
+ * @param Output Count 個を格納できる出力配列。
+ * @param Count 変換する要素数。
+ * @param Matrix 各要素へ適用する行列。
+ */
+template<EBatchTransformPolicy Policy>
+ACS_FORCEINLINE void TransformBatchStatic(const FVec3* Input, FVec3* Output, usize Count, const FMat4& Matrix) noexcept
+{
+    static_assert(Policy == EBatchTransformPolicy::Point || Policy == EBatchTransformPolicy::Vector, "未対応のバッチ変換方針です");
+    // 現在変換する要素位置。
+    for (usize Index = 0; Index < Count; ++Index) {
+        if constexpr (Policy == EBatchTransformPolicy::Point) {
+            Output[Index] = TransformPoint(Input[Index], Matrix);
+        } else {
+            Output[Index] = TransformVector(Input[Index], Matrix);
+        }
+    }
+}
+
+/**
+ * 要素数もコンパイル時に決まる固定配列をバッチ変換する。
+ *
+ * @tparam Policy 点または方向を選ぶコンパイル時方針。
+ * @tparam Count 入出力配列の要素数。
+ * @param Input 固定長の入力配列。
+ * @param Output 固定長の出力配列。
+ * @param Matrix 各要素へ適用する行列。
+ */
+template<EBatchTransformPolicy Policy, usize Count>
+ACS_FORCEINLINE void TransformBatchStatic(const FVec3 (&Input)[Count], FVec3 (&Output)[Count], const FMat4& Matrix) noexcept
+{
+    TransformBatchStatic<Policy>(Input, Output, Count, Matrix);
+}
+
+} // namespace acs
+
 // ===================== math/CameraRig.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -89206,16 +90554,6 @@ ACS_FORCEINLINE bool HasSse41() noexcept { return Cpu().sse41; }
 
 // ===================== math/MathDispatch.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Math — バッチ演算の CPU ディスパッチテーブル
-// -----------------------------------------------------------------------------
-// 1 要素ずつの計算は Vec/Mat/FQuat ヘッダにインライン記述（DirectXMath が
-// /arch:* に応じて最適 SIMD を選ぶ）。一方、N 要素の一括変換などは関数
-// ポインタテーブル経由でディスパッチし、起動時に検出した CPU 機能に応じて
-// 最適な実装を選択する。
-//
-// 現状は SSE2 ベースライン経路のみ実装。
-// =============================================================================
 
 
 namespace acs {
@@ -90390,21 +91728,13 @@ struct TPoolRef {
 
 // ===================== memory/PoolAllocator.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Memory — 固定サイズブロックプール
-// -----------------------------------------------------------------------------
-// 同サイズの小オブジェクトを大量に確保・解放するパターンに特化。
-// 例: パーティクル、ノード、コンポーネント、タスクオブジェクト。
-//
-// アルゴリズム:
-//   - 起動時に N 個分の連続バッファを確保
-//   - フリーリストを「単方向リンクスタック」として管理
-//   - Alloc/Free と所有状態を同一の軽量ロックで保護
-//   - 二重解放、外部ポインタ、ブロック途中のポインタを拒否
-// =============================================================================
 
 
 namespace acs {
+
+/** 要素型と容量を固定する型付きプールの前方宣言。 */
+template<typename T, usize Capacity>
+class TTypedPoolAllocator;
 
 /**
  * 同サイズ小ブロックに特化したスレッドセーフな固定サイズプール。
@@ -90429,8 +91759,7 @@ public:
      * @param Alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
      * @param BackingAllocator ストレージの確保元 (nullptr なら DefaultAllocator)。
      */
-    FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment,
-                   FAllocator* BackingAllocator = nullptr) noexcept;
+    FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment, FAllocator* BackingAllocator = nullptr) noexcept;
 
     /** ストレージを backing に返して破棄する。 */
     ~FPoolAllocator() noexcept override;
@@ -90453,12 +91782,39 @@ public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override;
 
     /**
+     * 型・サイズ検査済みの呼び出し元向けに 1 ブロックを確保する。
+     *
+     * @return 確保したブロック。枯渇時は nullptr。
+     */
+    void* AllocBlock() noexcept;
+
+    /**
+     * 1 回のロックで複数ブロックを確保する。
+     *
+     * @param Output 取得ポインタの出力配列。未取得分は nullptr にする。
+     * @param Count 要求ブロック数。
+     * @return 実際に取得できたブロック数。
+     */
+    usize AllocBatch(void** Output, usize Count) noexcept;
+
+    /**
      * ブロックをフリーリストへ返す。
      *
      * @details nullptr、外部ポインタ、ブロック途中のポインタ、二重解放は安全に拒否する。
      * @param Pointer このプールが払い出したブロック (nullptr 可)。
      */
     void Free(void* Pointer) noexcept override;
+
+    /**
+     * 1 回のロックで複数ブロックを返却する。
+     *
+     * nullptr、外部ポインタ、途中ポインタ、重複指定は無視する。
+     *
+     * @param Pointers 返却対象ポインタの配列。
+     * @param Count 配列要素数。
+     * @return 実際に返却できたブロック数。
+     */
+    usize FreeBatch(void* const* Pointers, usize Count) noexcept;
 
     /**
      * 1 ブロックのサイズを返す (切り上げ後)。
@@ -90500,6 +91856,9 @@ public:
         return m_Live.Load(EMemoryOrder::Acquire);
     }
 
+    /** バッチ化効果の計測に使う累積ロック取得回数を返す。 */
+    u64 LockAcquisitionCount() const noexcept;
+
     /**
      * 識別名を返す。
      *
@@ -90528,6 +91887,24 @@ public:
     }
 
 private:
+    template<typename, usize>
+    friend class TTypedPoolAllocator;
+
+    /**
+     * typed Destroy の重複実行を防ぐため、払い出し状態を破棄中へ遷移する。
+     *
+     * @param Pointer このプールが払い出した構築済みオブジェクト。
+     * @return 払い出し中から破棄中へ遷移できた場合は true。
+     */
+    bool TryBeginDestroyBlock(void* Pointer) noexcept;
+
+    /**
+     * デストラクタ完了後のブロックをフリーリストへ戻す。
+     *
+     * @param Pointer TryBeginDestroyBlock に成功したブロック。
+     */
+    void FinishDestroyBlock(void* Pointer) noexcept;
+
     /** フリーリストノード (フリーブロックの先頭にオーバーレイ配置)。 */
     struct FNode {
         /** 次のフリーブロックへのリンク。 */
@@ -90537,7 +91914,7 @@ private:
     /** ブロック配列の先頭 (backing から 1 回確保、失敗時 nullptr)。 */
     u8* m_Storage = nullptr;
 
-    /** 各ブロックが払い出し中かを保持する所有状態配列。 */
+    /** 各ブロックの所有状態。0 は空き、1 は払い出し中、2 は破棄中。 */
     u8* m_AllocationStates = nullptr;
 
     /** 切り上げ済みの 1 ブロックサイズ。 */
@@ -90555,11 +91932,14 @@ private:
     /** 現在使用中のブロック数 (統計用)。 */
     TAtomic<u64> m_Live{0};
 
+    /** Alloc/Free 系がフリーリスト用ロックを取得した累積回数。 */
+    u64 m_LockAcquisitions = 0u;
+
     /** フリーリストの先頭。m_Lock の保護下でのみ読み書きする。 */
     FNode* m_FreeHead = nullptr;
 
     /** フリーリストと所有状態を一体で保護する。 */
-    FMutex m_Lock;
+    mutable FMutex m_Lock;
 };
 
 } // namespace acs
@@ -92018,6 +93398,128 @@ private:
      * @return 実際に解放できた場合は true、不正または重複解放なら false。
      */
     bool FreeSharded(void* Pointer) noexcept;
+};
+
+} // namespace acs
+
+// ===================== memory/TypedPoolAllocator.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * 要素型と容量をコンパイル時に固定する型付きプール。
+ *
+ * @tparam T プールへ格納する要素型。
+ * @tparam Capacity 同時に保持できる要素数。
+ */
+template<typename T, usize Capacity>
+class TTypedPoolAllocator final {
+    static_assert(Capacity > 0u, "Capacity must be greater than zero");
+
+    /** T とフリーリストポインタの双方を満たす整列値。 */
+    static constexpr usize kAlignment = alignof(T) > sizeof(void*) ? alignof(T) : sizeof(void*);
+
+    /** T とフリーリストポインタのうち大きい生ブロック長。 */
+    static constexpr usize kRawBlockSize = sizeof(T) > sizeof(void*) ? sizeof(T) : sizeof(void*);
+
+    /** 整列値の倍数へ切り上げた実ブロック長。 */
+    static constexpr usize kBlockSize = (kRawBlockSize + kAlignment - 1u) & ~(kAlignment - 1u);
+
+public:
+    /**
+     * 型から求めた固定レイアウトでプールを構築する。
+     *
+     * @param BackingAllocator ストレージの確保元。nullptr は既定アロケータを使う。
+     */
+    explicit TTypedPoolAllocator(FAllocator* BackingAllocator = nullptr) noexcept
+        : m_Pool(kBlockSize, Capacity, kAlignment, BackingAllocator)
+    {
+    }
+
+    /** 破棄前に全構築値が明示的に返却済みであることを検証する。 */
+    ~TTypedPoolAllocator() noexcept
+    {
+        ACS_ASSERTF(m_Pool.AllocationCount() == 0u, "TTypedPoolAllocator の破棄前に全要素を返却する必要があります");
+    }
+
+    /** ストレージの単独所有を守るためコピー構築を禁止する。 */
+    TTypedPoolAllocator(const TTypedPoolAllocator&) = delete;
+
+    /** ストレージの単独所有を守るためコピー代入を禁止する。 */
+    TTypedPoolAllocator& operator=(const TTypedPoolAllocator&) = delete;
+
+    /**
+     * 未構築の T 用領域を取得する。
+     *
+     * @return 取得した領域。プール枯渇時は nullptr。
+     */
+    T* Allocate() noexcept
+    {
+        return static_cast<T*>(m_Pool.AllocBlock());
+    }
+
+    /**
+     * T を引数付き構築して返す。
+     *
+     * @param Values T のコンストラクタへ転送する値。
+     * @return 構築した T。プール枯渇時は nullptr。
+     */
+    template<typename... Args>
+    T* Create(Args&&... Values) noexcept
+    {
+        /** T を構築する未初期化領域。 */
+        void* const Storage = m_Pool.AllocBlock();
+        if (Storage == nullptr) return nullptr;
+        return ::new (Storage) T(Forward<Args>(Values)...);
+    }
+
+    /**
+     * 構築済み T を一度だけ破棄してプールへ返す。
+     *
+     * @param Pointer このプールから取得した構築済み T。
+     * @return 破棄できた場合は true。無効ポインタまたは重複破棄は false。
+     */
+    bool Destroy(T* Pointer) noexcept
+    {
+        if (!m_Pool.TryBeginDestroyBlock(Pointer)) return false;
+        Pointer->~T();
+        m_Pool.FinishDestroyBlock(Pointer);
+        return true;
+    }
+
+    /**
+     * 未構築領域をプールへ返す。
+     *
+     * @param Pointer Allocate で取得した未構築領域。
+     */
+    void Deallocate(T* Pointer) noexcept
+    {
+        m_Pool.Free(Pointer);
+    }
+
+    /** コンパイル時に決まる実ブロック長を返す。 */
+    static constexpr usize BlockSize() noexcept { return kBlockSize; }
+
+    /** コンパイル時に決まるブロック総数を返す。 */
+    static constexpr usize BlockCount() noexcept { return Capacity; }
+
+    /** 現在払い出し中のブロック数を返す。 */
+    u64 AllocationCount() const noexcept { return m_Pool.AllocationCount(); }
+
+    /** 確保と返却で取得した累積ロック回数を返す。 */
+    u64 LockAcquisitionCount() const noexcept { return m_Pool.LockAcquisitionCount(); }
+
+    /** 型なしプールへ可変参照でアクセスする。 */
+    FPoolAllocator& Untyped() noexcept { return m_Pool; }
+
+    /** 型なしプールへ読み取り専用参照でアクセスする。 */
+    const FPoolAllocator& Untyped() const noexcept { return m_Pool; }
+
+private:
+    /** 実ストレージと所有状態を管理する型なしプール。 */
+    FPoolAllocator m_Pool;
 };
 
 } // namespace acs
@@ -95086,23 +96588,139 @@ void InstallOpenXrAsDefault() noexcept;
 
 } // namespace acs::openxr
 
+// ===================== platform/FileExtensionKind.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 既知の ASCII 拡張子分類。非 ASCII や曖昧な末尾は Unknown のまま扱う。 */
+enum class EFileExtensionKind : u8 {
+    /** 既知形式へ安全に分類できない拡張子。 */
+    Unknown,
+
+    /** INI 設定ファイル。 */
+    Ini,
+
+    /** cfg 設定ファイル。 */
+    Config,
+
+    /** JSON 文書。 */
+    Json,
+
+    /** プレーンテキスト。 */
+    Text,
+
+    /** 任意バイナリ。 */
+    Binary,
+
+    /** ACS の資産パック。 */
+    AssetPack,
+};
+
+} // namespace acs
+
 // ===================== platform/FileSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ファイル I/O とパス操作
-//
-// 使い方:
-//   auto data = FFileSystem::ReadAllBytes(L"data/save.bin");
-//   if (data.IsErr()) { /* エラー処理 */ }
-//   TSpan<const byte> bytes = data.Value().AsSpan();
-//
-//   FFileSystem::WriteAllBytes(L"data/save.bin", bytes);
 
+
+// ===================== platform/FileSystemDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** ファイル I/O hot path の決定的な診断値。 */
+struct FFileSystemDiagnostics {
+    /** ReadFile の呼び出し回数。 */
+    u64 read_syscalls = 0;
+
+    /** WriteFile の呼び出し回数。 */
+    u64 write_syscalls = 0;
+
+    /** ReadAllText で中間 byte 配列から再コピーした byte 数。常に 0 が最適経路。 */
+    u64 text_intermediate_copy_bytes = 0;
+};
+
+} // namespace acs
+
+#include <type_traits>
 
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
 class FFileSystem {
 public:
+    /** ASCII 大文字を小文字へ変換し、それ以外は変更しない。 */
+    static constexpr char AsciiLower(char value) noexcept {
+        return value >= 'A' && value <= 'Z'
+            ? static_cast<char>(value + ('a' - 'A'))
+            : value;
+    }
+
+    /** 文字が ASCII 範囲なら true を返す。 */
+    template<typename Char>
+    static constexpr bool IsAscii(Char value) noexcept {
+        using U = std::make_unsigned_t<Char>;
+        return static_cast<U>(value) <= static_cast<U>(0x7f);
+    }
+
+    /** Windows または portable なパス区切りなら true を返す。 */
+    template<typename Char>
+    static constexpr bool IsPathSeparator(Char value) noexcept {
+        return value == static_cast<Char>('\\') || value == static_cast<Char>('/');
+    }
+
+    /**
+     * NUL 終端パスの最終要素を ASCII 拡張子で分類する。
+     *
+     * @details 隠しファイル、末尾 dot、複数 dot の空拡張子、非 ASCII 拡張子は Unknown。
+     * パス本体の Unicode は読み替えず、最終 dot より後ろだけを安全に ASCII 比較する。
+     */
+    template<typename Char>
+    static constexpr EFileExtensionKind ClassifyExtension(const Char* path) noexcept {
+        if (!path) return EFileExtensionKind::Unknown;
+        usize segment_begin = 0;
+        usize last_dot = static_cast<usize>(-1);
+        usize length = 0;
+        for (; path[length] != static_cast<Char>(0); ++length) {
+            if (IsPathSeparator(path[length])) {
+                segment_begin = length + 1;
+                last_dot = static_cast<usize>(-1);
+            } else if (path[length] == static_cast<Char>('.')) {
+                last_dot = length;
+            }
+        }
+        if (last_dot == static_cast<usize>(-1) || last_dot == segment_begin || last_dot + 1 >= length) {
+            return EFileExtensionKind::Unknown;
+        }
+
+        const usize extension_size = length - last_dot - 1;
+        char extension[8]{};
+        if (extension_size >= sizeof(extension)) return EFileExtensionKind::Unknown;
+        for (usize i = 0; i < extension_size; ++i) {
+            const Char value = path[last_dot + 1 + i];
+            if (!IsAscii(value)) return EFileExtensionKind::Unknown;
+            extension[i] = AsciiLower(static_cast<char>(value));
+        }
+
+        const auto equals = [&](const char* expected) constexpr noexcept {
+            usize i = 0;
+            while (i < extension_size && expected[i] != '\0') {
+                if (extension[i] != expected[i]) return false;
+                ++i;
+            }
+            return i == extension_size && expected[i] == '\0';
+        };
+        if (equals("ini")) return EFileExtensionKind::Ini;
+        if (equals("cfg")) return EFileExtensionKind::Config;
+        if (equals("json")) return EFileExtensionKind::Json;
+        if (equals("txt")) return EFileExtensionKind::Text;
+        if (equals("bin")) return EFileExtensionKind::Binary;
+        if (equals("acpak")) return EFileExtensionKind::AssetPack;
+        return EFileExtensionKind::Unknown;
+    }
+
     /**
      * ファイル全体をバイト列として読み込む。
      *
@@ -95115,7 +96733,7 @@ public:
     /**
      * ファイル全体を文字列として読み込む。
      *
-     * @details ReadAllBytes の結果に末尾 NUL を付与して返す (中身は無変換のバイト列)。
+     * @details char 配列を 1 回だけ確保して直接読み込み、末尾 NUL を付与する。
      * @param path 読み込むファイルのパス。
      * @return NUL 終端付きの文字配列、読み取り失敗時はエラー。
      */
@@ -95131,6 +96749,19 @@ public:
      * @return 成功なら空の TResult、開けない・書き込み不足時はエラー。
      */
     static TResult<void> WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept;
+
+    /**
+     * 同一ディレクトリの一時ファイルへ書き、rename で内容を原子的に公開する。
+     *
+     * @details 書き込みと FlushFileBuffers が成功するまで既存ファイルを変更しない。
+     * 対象が reparse point の場合はリンクそのものを置換せず、従来の WriteAllBytes へ
+     * 委譲してリンク先を書き換える。
+     * @param path 書き出し先のファイルパス。
+     * @param data 書き出すバイト列の先頭。
+     * @param size 書き出すバイト数。
+     * @return 成功なら空の TResult。一時ファイル作成・書き込み・置換失敗時はエラー。
+     */
+    static TResult<void> WriteAllBytesAtomic(const wchar_t* path, const byte* data, usize size) noexcept;
 
     /**
      * NUL 終端文字列をファイルへ書き出す (終端 NUL は書き込まない)。
@@ -95182,9 +96813,70 @@ public:
      * @return 成功なら空の TResult、削除失敗時はエラー。
      */
     static TResult<void> Delete(const wchar_t* path) noexcept;
+
+    /** 現在の I/O 診断値をスナップショットとして返す。 */
+    static FFileSystemDiagnostics Diagnostics() noexcept;
+
+    /** I/O 診断値だけを 0 に戻す。 */
+    static void ResetDiagnostics() noexcept;
 };
 
 } // namespace acs
+
+// ===================== platform/GamepadPollScheduler.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::detail {
+
+/**
+ * 接続中ポートを毎フレーム、未接続確認を順番に一つずつ選ぶ。
+ *
+ * @tparam PortCount 管理するゲームパッドポート数。1以上32以下。
+ */
+template <usize PortCount>
+class TGamepadPollScheduler {
+    static_assert(PortCount > 0, "ゲームパッド・スケジューラには1ポート以上が必要です");
+    static_assert(PortCount <= 32, "ポーリングマスクが保持できるのは32ポートまでです");
+
+public:
+    /**
+     * 今フレームに取得するポートをビットマスクで返す。
+     *
+     * @param connected 各ポートの直前フレームの接続状態。
+     * @return 接続中の全ポートと、未接続確認用の最大1ポートを含むマスク。
+     */
+    constexpr u32 BuildPollMask(const bool (&connected)[PortCount]) noexcept
+    {
+        /** 今フレームに取得するポートのビット集合。 */
+        u32 mask = 0;
+        /** 接続中ポートを走査する添字。 */
+        for (usize port_index = 0; port_index < PortCount; ++port_index) {
+            if (connected[port_index]) mask |= u32{1} << static_cast<u32>(port_index);
+        }
+
+        /** 次の未接続ポートを探す相対位置。 */
+        for (usize offset = 0; offset < PortCount; ++offset) {
+            /** 今回接続を確認する候補ポート。 */
+            const usize port_index = (m_NextDisconnected + offset) % PortCount;
+            if (!connected[port_index]) {
+                mask |= u32{1} << static_cast<u32>(port_index);
+                m_NextDisconnected = (port_index + 1) % PortCount;
+                break;
+            }
+        }
+        return mask;
+    }
+
+    /** 未接続確認を先頭ポートから再開する。 */
+    constexpr void Reset() noexcept { m_NextDisconnected = 0; }
+
+private:
+    /** 次回の未接続確認を開始するポート位置。 */
+    usize m_NextDisconnected = 0;
+};
+
+} // acs::detail 名前空間
 
 // ===================== platform/Input.h =====================
 // SPDX-License-Identifier: Apache-2.0

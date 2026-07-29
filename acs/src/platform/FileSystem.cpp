@@ -3,10 +3,23 @@
 #include "platform/FileSystem.h"
 #include "foundation/Platform.h"
 #include "foundation/Move.h"
+#include "threading/Atomic.h"
 
 namespace acs {
 
 namespace {
+
+/** ReadFile 呼び出し回数。 */
+TAtomic<u64> g_ReadSyscalls{0};
+
+/** WriteFile 呼び出し回数。 */
+TAtomic<u64> g_WriteSyscalls{0};
+
+/** ReadAllText が中間配列から再コピーした byte 数。単一確保経路では常に 0。 */
+TAtomic<u64> g_TextIntermediateCopyBytes{0};
+
+/** 原子的書き込み用の一時ファイル名を一意化する採番値。 */
+TAtomic<u32> g_AtomicWriteSequence{1};
 
 /**
  * 読み取り用にファイルを開いてハンドルを返す。
@@ -15,9 +28,9 @@ namespace {
  * @param path 開くファイルのパス。
  * @return ファイルハンドル (失敗時は INVALID_HANDLE_VALUE)。
  */
-HANDLE OpenForRead(const wchar_t* path) noexcept {
-    return ::CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
-                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+HANDLE OpenForRead(const wchar_t* path) noexcept
+{
+    return ::CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
 }
 
 /**
@@ -27,64 +40,199 @@ HANDLE OpenForRead(const wchar_t* path) noexcept {
  * @param path 開くファイルのパス。
  * @return ファイルハンドル (失敗時は INVALID_HANDLE_VALUE)。
  */
-HANDLE OpenForWrite(const wchar_t* path) noexcept {
-    return ::CreateFileW(path, GENERIC_WRITE, 0, nullptr,
-                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+HANDLE OpenForWrite(const wchar_t* path) noexcept
+{
+    return ::CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 }
 
-} // namespace
+/**
+ * ファイルを 1 回の確保と最大 1 回の ReadFile で読み込む。
+ *
+ * @tparam Element byte または char。
+ * @tparam NullTerminate true なら読み取り byte の後ろへ NUL を 1 個付ける。
+ */
+template<typename Element, bool NullTerminate>
+TResult<TArray<Element>> ReadWholeFile(const wchar_t* path) noexcept
+{
+    static_assert(sizeof(Element) == 1, "全体読み込みの出力要素は 1 byte である必要があります");
+    if (!path || path[0] == L'\0') {
+        return ACS_ERR(IO, 99, "ReadWholeFile: path is null or empty");
+    }
 
-// ファイル全体をバイト列として読み込む
-TResult<TArray<byte>> FFileSystem::ReadAllBytes(const wchar_t* path) noexcept {
     const HANDLE h = OpenForRead(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 100, "CreateFileW (read) failed", ::GetLastError());
 
     LARGE_INTEGER size{};
     if (!::GetFileSizeEx(h, &size)) {
-        DWORD err = ::GetLastError();
+        const DWORD error = ::GetLastError();
         ::CloseHandle(h);
-        return ACS_ERR_OS(IO, 101, "GetFileSizeEx failed", err);
+        return ACS_ERR_OS(IO, 101, "GetFileSizeEx failed", error);
     }
-    if (size.QuadPart > 0xFFFFFFFFLL) {
+    if (size.QuadPart < 0 || size.QuadPart > MAXDWORD) {
         ::CloseHandle(h);
         return ACS_ERR(IO, 102, "File too large (>4GB)");
     }
 
-    TArray<byte> buf;
-    buf.Resize(static_cast<usize>(size.QuadPart));
-    DWORD read = 0;
-    const BOOL ok = ::ReadFile(h, buf.Data(), static_cast<DWORD>(buf.Size()), &read, nullptr);
-    const DWORD err = ok ? 0 : ::GetLastError();
+    /** ファイル本体の byte 数。 */
+    const usize content_size = static_cast<usize>(size.QuadPart);
+    /** 文字列終端を含む確保要素数。 */
+    const usize allocation_size = content_size + (NullTerminate ? 1u : 0u);
+    if (allocation_size < content_size) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, 104, "ReadWholeFile: allocation size overflow");
+    }
+
+    /** ファイル内容を直接受け取る出力配列。 */
+    TArray<Element> buffer;
+    if (!buffer.TryResize(allocation_size)) {
+        ::CloseHandle(h);
+        return ACS_ERR(IO, 105, "ReadWholeFile: allocation failed");
+    }
+
+    DWORD bytes_read = 0;
+    BOOL read_ok = TRUE;
+    DWORD read_error = ERROR_SUCCESS;
+    if (content_size != 0) {
+        g_ReadSyscalls.FetchAdd(1);
+        read_ok = ::ReadFile(h, buffer.Data(), static_cast<DWORD>(content_size), &bytes_read, nullptr);
+        if (!read_ok) read_error = ::GetLastError();
+    }
     ::CloseHandle(h);
-    if (!ok || read != buf.Size())
-        return ACS_ERR_OS(IO, 103, "ReadFile failed", err);
-    return TResult<TArray<byte>>(OkInit, Move(buf));
+    if (!read_ok || bytes_read != content_size)
+        return ACS_ERR_OS(IO, 103, "ReadFile failed", read_error);
+
+    if constexpr (NullTerminate) buffer[content_size] = Element{};
+    return TResult<TArray<Element>>(OkInit, Move(buffer));
 }
 
-// ファイル全体を文字列として読み込む（末尾に NUL を付与する）
+} // namespace
+
+// ファイル全体をバイト列として読み込む
+TResult<TArray<byte>> FFileSystem::ReadAllBytes(const wchar_t* path) noexcept {
+    return ReadWholeFile<byte, false>(path);
+}
+
+// ファイル全体を直接 char 配列へ読み込み、末尾に NUL を付与する。
 TResult<TArray<char>> FFileSystem::ReadAllText(const wchar_t* path) noexcept {
-    auto br = ReadAllBytes(path);
-    if (br.IsErr()) return Err<TArray<char>>(br.Error());
-    TArray<byte>& b = br.Value();
-    TArray<char> out;
-    out.Resize(b.Size() + 1);
-    for (usize i = 0; i < b.Size(); ++i) out[i] = static_cast<char>(b[i]);
-    out[b.Size()] = '\0';
-    return TResult<TArray<char>>(OkInit, Move(out));
+    return ReadWholeFile<char, true>(path);
 }
 
 // バイト列を書き出す（上書き）
 TResult<void> FFileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 109, "WriteAllBytes: path is null or empty");
+    if (size > MAXDWORD)
+        return ACS_ERR(IO, 112, "WriteAllBytes: payload is larger than 4GB");
+    if (!data && size != 0)
+        return ACS_ERR(IO, 113, "WriteAllBytes: data is null");
+
     const HANDLE h = OpenForWrite(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 110, "CreateFileW (write) failed", ::GetLastError());
     DWORD wrote = 0;
-    const BOOL ok = ::WriteFile(h, data, static_cast<DWORD>(size), &wrote, nullptr);
+    BOOL ok = TRUE;
+    if (size != 0) {
+        g_WriteSyscalls.FetchAdd(1);
+        ok = ::WriteFile(h, data, static_cast<DWORD>(size), &wrote, nullptr);
+    }
     const DWORD err = ok ? 0 : ::GetLastError();
     ::CloseHandle(h);
     if (!ok || wrote != size)
         return ACS_ERR_OS(IO, 111, "WriteFile failed", err);
+    return Ok();
+}
+
+// 同一ディレクトリの一時ファイルを完全に書いてから原子的に公開する。
+TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* data, usize size) noexcept {
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 114, "WriteAllBytesAtomic: path is null or empty");
+    if (size > MAXDWORD)
+        return ACS_ERR(IO, 115, "WriteAllBytesAtomic: payload is larger than 4GB");
+    if (!data && size != 0)
+        return ACS_ERR(IO, 116, "WriteAllBytesAtomic: data is null");
+
+    const DWORD destination_attributes = ::GetFileAttributesW(path);
+    if (destination_attributes != INVALID_FILE_ATTRIBUTES && (destination_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        // reparse point 自体を rename で置換せず、従来どおりリンク先へ書く。
+        return WriteAllBytes(path, data, size);
+    }
+
+    wchar_t temporary_path[1024]{};
+    usize path_length = 0;
+    while (path[path_length] != L'\0' && path_length < 960) {
+        temporary_path[path_length] = path[path_length];
+        ++path_length;
+    }
+    if (path[path_length] != L'\0')
+        return ACS_ERR(IO, 117, "WriteAllBytesAtomic: path is too long");
+
+    constexpr wchar_t kSuffix[] = L".acs-tmp-";
+    for (usize i = 0; i + 1 < sizeof(kSuffix) / sizeof(kSuffix[0]); ++i)
+        temporary_path[path_length++] = kSuffix[i];
+
+    const auto append_hex = [&](u32 value, usize& cursor) noexcept {
+        constexpr wchar_t kHex[] = L"0123456789abcdef";
+        for (i32 shift = 28; shift >= 0; shift -= 4)
+            temporary_path[cursor++] = kHex[(value >> shift) & 0x0f];
+    };
+    append_hex(::GetCurrentProcessId(), path_length);
+    temporary_path[path_length++] = L'-';
+    const usize sequence_offset = path_length;
+
+    HANDLE temporary = INVALID_HANDLE_VALUE;
+    DWORD create_error = ERROR_FILE_EXISTS;
+    for (u32 attempt = 0; attempt < 8; ++attempt) {
+        usize cursor = sequence_offset;
+        append_hex(g_AtomicWriteSequence.FetchAdd(1), cursor);
+        temporary_path[cursor] = L'\0';
+        temporary = ::CreateFileW(temporary_path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_WRITE_THROUGH, nullptr);
+        if (temporary != INVALID_HANDLE_VALUE) break;
+        create_error = ::GetLastError();
+        if (create_error != ERROR_FILE_EXISTS && create_error != ERROR_ALREADY_EXISTS) {
+            break;
+        }
+    }
+    if (temporary == INVALID_HANDLE_VALUE)
+        return ACS_ERR_OS(IO, 118, "WriteAllBytesAtomic: temporary CreateFileW failed", create_error);
+
+    DWORD written = 0;
+    BOOL write_ok = TRUE;
+    if (size != 0) {
+        g_WriteSyscalls.FetchAdd(1);
+        write_ok = ::WriteFile(temporary, data, static_cast<DWORD>(size), &written, nullptr);
+    }
+    DWORD error = write_ok ? ERROR_SUCCESS : ::GetLastError();
+    if (write_ok && written == size && !::FlushFileBuffers(temporary)) {
+        write_ok = FALSE;
+        error = ::GetLastError();
+    }
+    ::CloseHandle(temporary);
+    if (!write_ok || written != size) {
+        ::DeleteFileW(temporary_path);
+        return ACS_ERR_OS(IO, 119, "WriteAllBytesAtomic: temporary write failed", error);
+    }
+
+    // 一時ファイル作成中に公開先が reparse point へ変わった競合も rename 前に再確認する。
+    /** 置換直前の公開先属性。 */
+    const DWORD current_destination_attributes = ::GetFileAttributesW(path);
+    if (current_destination_attributes != INVALID_FILE_ATTRIBUTES && (current_destination_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        ::DeleteFileW(temporary_path);
+        return WriteAllBytes(path, data, size);
+    }
+
+    BOOL replaced = FALSE;
+    if (current_destination_attributes != INVALID_FILE_ATTRIBUTES) {
+        replaced = ::ReplaceFileW(path, temporary_path, nullptr, REPLACEFILE_WRITE_THROUGH, nullptr, nullptr);
+    }
+    if (!replaced) {
+        replaced = ::MoveFileExW(temporary_path, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    }
+    if (!replaced) {
+        error = ::GetLastError();
+        ::DeleteFileW(temporary_path);
+        return ACS_ERR_OS(IO, 121, "WriteAllBytesAtomic: replace failed", error);
+    }
     return Ok();
 }
 
@@ -97,6 +245,8 @@ TResult<void> FFileSystem::WriteAllText(const wchar_t* path, const char* text) n
 
 // ファイルサイズ取得
 TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 119, "FileSize: path is null or empty");
     WIN32_FILE_ATTRIBUTE_DATA d{};
     if (!::GetFileAttributesExW(path, GetFileExInfoStandard, &d))
         return ACS_ERR_OS(IO, 120, "GetFileAttributesExW failed", ::GetLastError());
@@ -108,34 +258,66 @@ TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
 
 // ファイル存在確認
 bool FFileSystem::Exists(const wchar_t* path) noexcept {
+    if (!path || path[0] == L'\0') return false;
     const DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
 // ディレクトリ存在確認
 bool FFileSystem::DirectoryExists(const wchar_t* path) noexcept {
+    if (!path || path[0] == L'\0') return false;
     const DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
 // ディレクトリ作成（既に存在する場合は成功扱い、親も再帰作成）
 TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 129, "CreateDirectory: path is null or empty");
     if (DirectoryExists(path)) return Ok();
     wchar_t buf[1024];
     usize n = 0;
     while (path[n] && n < 1023) { buf[n] = path[n]; ++n; }
+    if (path[n] != L'\0')
+        return ACS_ERR(IO, 131, "CreateDirectory: path is too long");
     buf[n] = 0;
+
+    // drive root と UNC の server/share 部分は作成対象ではない。
+    usize creation_start = 0;
+    if (n >= 3 && ((buf[0] >= L'A' && buf[0] <= L'Z') || (buf[0] >= L'a' && buf[0] <= L'z')) && buf[1] == L':' && IsPathSeparator(buf[2])) {
+        creation_start = 3;
+    } else if (n >= 2 && IsPathSeparator(buf[0]) && IsPathSeparator(buf[1])) {
+        creation_start = n;
+        usize separator_count = 0;
+        for (usize i = 2; i < n; ++i) {
+            if (!IsPathSeparator(buf[i])) continue;
+            ++separator_count;
+            if (separator_count == 2) {
+                creation_start = i + 1;
+                break;
+            }
+        }
+    } else if (n != 0 && IsPathSeparator(buf[0])) {
+        creation_start = 1;
+    }
+
     for (usize i = 0; i < n; ++i) {
         const wchar_t c = buf[i];
-        if ((c == L'\\' || c == L'/') && i > 0) {
+        if (IsPathSeparator(c) && i >= creation_start && i > 0) {
             buf[i] = 0;
-            if (!DirectoryExists(buf)) ::CreateDirectoryW(buf, nullptr);
+            if (!DirectoryExists(buf) && !::CreateDirectoryW(buf, nullptr)) {
+                const DWORD error = ::GetLastError();
+                if (error != ERROR_ALREADY_EXISTS || !DirectoryExists(buf)) {
+                    buf[i] = c;
+                    return ACS_ERR_OS(IO, 132, "CreateDirectoryW parent failed", error);
+                }
+            }
             buf[i] = c;
         }
     }
     if (!::CreateDirectoryW(path, nullptr)) {
         const DWORD err = ::GetLastError();
-        if (err != ERROR_ALREADY_EXISTS)
+        if (err != ERROR_ALREADY_EXISTS || !DirectoryExists(path))
             return ACS_ERR_OS(IO, 130, "CreateDirectoryW failed", err);
     }
     return Ok();
@@ -143,9 +325,29 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
 
 // ファイル削除
 TResult<void> FFileSystem::Delete(const wchar_t* path) noexcept {
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 139, "Delete: path is null or empty");
     if (!::DeleteFileW(path))
         return ACS_ERR_OS(IO, 140, "DeleteFileW failed", ::GetLastError());
     return Ok();
+}
+
+/** 現在の I/O 診断値を返す。 */
+FFileSystemDiagnostics FFileSystem::Diagnostics() noexcept
+{
+    return FFileSystemDiagnostics{
+        g_ReadSyscalls.Load(EMemoryOrder::Acquire),
+        g_WriteSyscalls.Load(EMemoryOrder::Acquire),
+        g_TextIntermediateCopyBytes.Load(EMemoryOrder::Acquire),
+    };
+}
+
+/** I/O 診断値だけを 0 に戻す。 */
+void FFileSystem::ResetDiagnostics() noexcept
+{
+    g_ReadSyscalls.Store(0, EMemoryOrder::Release);
+    g_WriteSyscalls.Store(0, EMemoryOrder::Release);
+    g_TextIntermediateCopyBytes.Store(0, EMemoryOrder::Release);
 }
 
 } // namespace acs

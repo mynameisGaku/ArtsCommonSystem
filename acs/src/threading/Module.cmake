@@ -17,6 +17,7 @@ acs_module(
         Atomic.h
         ConditionVar.h
         JobGraph.h
+        JobGraphDiagnostics.h
         MemoryOrder.h
         Mutex.h
         RwLock.h
@@ -25,6 +26,7 @@ acs_module(
         ThreadAffinity.h
         ThreadId.h
         ThreadPool.h
+        ThreadPoolDiagnostics.h
     PUBLIC_DEPS
         Foundation
 )

@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// ワークスチール FThreadPool（Chase-Lev SPMC deque + help-stealing wait）
 #pragma once
 
 #include "foundation/Types.h"
 #include "foundation/Result.h"
+#include "foundation/Move.h"
 #include "threading/Atomic.h"
+#include "threading/ThreadPoolDiagnostics.h"
+
+#include <cstddef>
+#include <new>
+#include <type_traits>
 
 namespace acs {
 
@@ -132,6 +137,12 @@ public:
      */
     static u32          CurrentWorkerIndex() noexcept;
 
+    /** 現在の同期・割り当て診断値をスナップショットとして返す。 */
+    static FThreadPoolDiagnostics Diagnostics() noexcept;
+
+    /** 診断カウンタだけを 0 に戻す。投入済みタスクには影響しない。 */
+    static void ResetDiagnostics() noexcept;
+
     /** ワーカー以外のスレッドを表す番兵インデックス。 */
     static constexpr u32 kNotAWorker = 0xFFFFFFFFu;
 
@@ -146,6 +157,57 @@ public:
      * @return 成功なら空の TResult。未初期化・null fn・ノード確保失敗時はエラー。
      */
     static TResult<void> Submit(const FTask& t) noexcept;
+
+    /**
+     * 所有権付き callable を非同期タスクとして投入する。
+     *
+     * @details `void(u32 worker_index) noexcept` または `void() noexcept` として呼べ、
+     * noexcept 構築・破棄できる型だけを受け付ける。
+     * 小さい callable は固定ノード内へ直接構築し、サイズまたは alignment 超過時だけ
+     * callable 本体を heap へ置く。投入成功後の寿命と破棄は ThreadPool が管理する。
+     * @tparam Callable 呼び出し可能オブジェクト型。
+     * @param callable 所有権を ThreadPool へ渡す callable。
+     * @param counter 任意の完了カウンタ。
+     * @return 投入結果。
+     */
+    template<typename Callable>
+    static TResult<void> SubmitCallable(Callable&& callable, FCompletionCounter* counter = nullptr) noexcept
+    {
+        /** ノードへ保存する具象型。 */
+        using StoredCallable = std::decay_t<Callable>;
+        /** worker index 付き形式を選ぶか。 */
+        constexpr bool kUsesWorkerIndex = std::is_invocable_r_v<void, StoredCallable&, u32>;
+        static_assert(kUsesWorkerIndex || std::is_invocable_r_v<void, StoredCallable&>, "ThreadPool callable は void(u32) または void() として呼べる必要があります");
+        static_assert(std::is_nothrow_constructible_v<StoredCallable, Callable&&>, "ThreadPool callable は noexcept 構築できる必要があります");
+        static_assert(std::is_nothrow_destructible_v<StoredCallable>, "ThreadPool callable は noexcept 破棄できる必要があります");
+        static_assert(kUsesWorkerIndex ? std::is_nothrow_invocable_r_v<void, StoredCallable&, u32> : std::is_nothrow_invocable_r_v<void, StoredCallable&>, "ThreadPool callable の呼び出しは noexcept である必要があります");
+
+        /** callable の所有情報を保持するノード。 */
+        FCallableTaskStorage* const storage = AcquireCallableTaskStorage();
+        if (!storage) {
+            return ACS_ERR(Threading, 9, "FThreadPool callable storage is unavailable");
+        }
+
+        if constexpr (sizeof(StoredCallable) <= kInlineCallableBytes && alignof(StoredCallable) <= alignof(std::max_align_t)) {
+            /** 固定領域へ構築した callable。 */
+            auto* const object = ::new (static_cast<void*>(storage->inline_storage)) StoredCallable(Forward<Callable>(callable));
+            storage->object = object;
+            storage->destroy = &DestroyInlineCallable<StoredCallable>;
+            storage->heap_callable = false;
+        } else {
+            /** 個別確保した callable。 */
+            auto* const object = new (std::nothrow) StoredCallable(Forward<Callable>(callable));
+            if (!object) {
+                AbandonCallableTaskStorage(storage);
+                return ACS_ERR(Memory, 10, "FThreadPool callable allocation failed");
+            }
+            storage->object = object;
+            storage->destroy = &DestroyHeapCallable<StoredCallable>;
+            storage->heap_callable = true;
+        }
+        storage->invoke = &InvokeCallable<StoredCallable>;
+        return PublishCallableTaskStorage(storage, counter);
+    }
 
     /**
      * counter が 0 になるまで待機する (待機中もスティーリングに参加)。
@@ -164,9 +226,70 @@ public:
      * @param user body に渡すユーザーデータ。
      * @return 成功なら空の TResult。未初期化・null body・確保失敗時はエラー。
      */
-    static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain,
-                                    void (*body)(u32 i, u32 worker_index, void* user),
-                                    void* user) noexcept;
+    static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, void (*body)(u32 i, u32 worker_index, void* user), void* user) noexcept;
+
+private:
+    /** 固定ノード内へ直接置ける callable の最大 byte 数。 */
+    static constexpr usize kInlineCallableBytes = 64;
+
+    /** 所有 callable の実行・破棄・確保元情報を保持する内部ノード。 */
+    struct FCallableTaskStorage {
+        /** inline callable の固定領域。 */
+        alignas(std::max_align_t) u8 inline_storage[kInlineCallableBytes]{};
+
+        /** inline 領域または heap callable 本体。 */
+        void* object = nullptr;
+
+        /** callable を具象型で呼ぶ thunk。 */
+        void (*invoke)(void* object, u32 worker_index) noexcept = nullptr;
+
+        /** callable を具象型で破棄する thunk。 */
+        void (*destroy)(void* object) noexcept = nullptr;
+
+        /** 所有する PoolState。 */
+        void* owner = nullptr;
+
+        /** callable 本体が heap fallback なら true。 */
+        bool heap_callable = false;
+    };
+
+    /** callable ノードを確保し、構築完了まで PoolState の寿命を保持する。 */
+    static FCallableTaskStorage* AcquireCallableTaskStorage() noexcept;
+
+    /** 構築前に失敗した callable ノードを返却する。 */
+    static void AbandonCallableTaskStorage(FCallableTaskStorage* storage) noexcept;
+
+    /** 構築済み callable ノードを通常 Submit 経路へ公開する。 */
+    static TResult<void> PublishCallableTaskStorage(FCallableTaskStorage* storage, FCompletionCounter* counter) noexcept;
+
+    /** 実行中の callable ノードを呼び、破棄して確保元へ返す。 */
+    static void CallableTaskThunk(void* storage, u32 worker_index) noexcept;
+
+    /** 型付き callable を共通ノード ABI へ接続する。 */
+    template<typename Callable>
+    static void InvokeCallable(void* object, u32 worker_index) noexcept
+    {
+        /** 呼び出す具象 callable。 */
+        auto& callable = *static_cast<Callable*>(object);
+        if constexpr (std::is_invocable_r_v<void, Callable&, u32>)
+            callable(worker_index);
+        else
+            callable();
+    }
+
+    /** inline callable を具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyInlineCallable(void* object) noexcept
+    {
+        static_cast<Callable*>(object)->~Callable();
+    }
+
+    /** heap callable を具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyHeapCallable(void* object) noexcept
+    {
+        delete static_cast<Callable*>(object);
+    }
 };
 
 } // namespace acs

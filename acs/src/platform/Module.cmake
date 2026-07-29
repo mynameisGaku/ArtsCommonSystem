@@ -15,7 +15,9 @@ acs_module(
         Window.cpp
     HEADERS
         Event.h
+        FileExtensionKind.h
         FileSystem.h
+        FileSystemDiagnostics.h
         Input.h
         InputCodes.h
         Localization.h

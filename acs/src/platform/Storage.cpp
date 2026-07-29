@@ -64,22 +64,28 @@ void RTrim(FString& s) noexcept {
  * @param base 先頭のベースパス。
  * @param sub サブディレクトリ名。
  * @param file ファイル名。
+ * @return 全要素を格納できた場合は true。出力容量不足なら false。
  */
-void Concat(wchar_t* out, usize cap, const wchar_t* base,
-            const wchar_t* sub, const wchar_t* file) noexcept {
-    if (cap == 0) return;
-    out[0] = 0;
-    auto append = [&](const wchar_t* s) {
-        usize w = 0;
-        while (out[w]) ++w;
-        for (; *s && w + 1 < cap; ++s, ++w) out[w] = *s;
-        out[w] = 0;
+bool Concat(wchar_t* out, usize cap, const wchar_t* base, const wchar_t* sub, const wchar_t* file) noexcept {
+    if (!out || cap == 0) return false;
+    usize written = 0;
+    bool complete = true;
+    auto append = [&](const wchar_t* text) {
+        while (*text) {
+            if (written + 1 >= cap) {
+                complete = false;
+                break;
+            }
+            out[written++] = *text++;
+        }
     };
     append(base);
     append(L"\\");
     append(sub);
     append(L"\\");
     append(file);
+    out[written] = L'\0';
+    return complete;
 }
 
 /**
@@ -187,7 +193,8 @@ const FStorage::FEntry* FStorage::FindEntry(const char* key) const noexcept {
 }
 
 TResult<void> FStorage::Load(const wchar_t* path) noexcept {
-    if (!path) return ACS_ERR(IO, 100, "FStorage::Load: null path");
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 100, "FStorage::Load: null or empty path");
     if (!FFileSystem::Exists(path)) {
         // 無ければ空状態のまま成功扱い
         return Ok();
@@ -273,7 +280,8 @@ TResult<void> FStorage::LoadFromBytes(const u8* data, usize size) noexcept {
 }
 
 TResult<void> FStorage::Save(const wchar_t* path) noexcept {
-    if (!path) return ACS_ERR(IO, 101, "FStorage::Save: null path");
+    if (!path || path[0] == L'\0')
+        return ACS_ERR(IO, 101, "FStorage::Save: null or empty path");
 
     // 親ディレクトリを作成（無ければ）
     wchar_t dir[1024];
@@ -295,13 +303,10 @@ TResult<void> FStorage::Save(const wchar_t* path) noexcept {
         out.Append(m_Entries[i].value.View());
         out.Append('\n');
     }
-    return FFileSystem::WriteAllBytes(path,
-        reinterpret_cast<const byte*>(out.Data()), out.Size());
+    return FFileSystem::WriteAllBytesAtomic(path, reinterpret_cast<const byte*>(out.Data()), out.Size());
 }
 
-TResult<void> FStorage::GetAppDataPath(const wchar_t* sub_dir,
-                                     const wchar_t* file_name,
-                                     wchar_t* out, usize cap) noexcept {
+TResult<void> FStorage::GetAppDataPath(const wchar_t* sub_dir, const wchar_t* file_name, wchar_t* out, usize cap) noexcept {
     if (!out || cap == 0) return ACS_ERR(IO, 110, "GetAppDataPath: bad args");
 
     // %APPDATA%（FOLDERID_RoamingAppData）を取得
@@ -312,11 +317,10 @@ TResult<void> FStorage::GetAppDataPath(const wchar_t* sub_dir,
         return ACS_ERR_OS(OS, 111, "SHGetKnownFolderPath failed", static_cast<u32>(hr));
     }
 
-    Concat(out, cap,
-           appdata,
-           sub_dir   ? sub_dir   : L"acs",
-           file_name ? file_name : L"storage.ini");
+    const bool path_complete = Concat(out, cap, appdata, sub_dir ? sub_dir : L"acs", file_name ? file_name : L"storage.ini");
     ::CoTaskMemFree(appdata);
+    if (!path_complete)
+        return ACS_ERR(IO, 112, "GetAppDataPath: output buffer is too small");
 
     // 親ディレクトリを事前作成（Save で再度作るが、Load 前に呼ぶケースもあるので）
     wchar_t parent[1024];

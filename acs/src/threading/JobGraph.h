@@ -1,25 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// FJobGraph — 依存関係付き並列タスクスケジューラ
-//
-// 使い方:
-//   FJobGraph g;
-//   auto loadA  = g.Add(&LoadAssetA, &ctx);
-//   auto loadB  = g.Add(&LoadAssetB, &ctx);
-//   auto build  = g.Add(&BuildScene, &ctx);
-//   auto upload = g.Add(&UploadGpu,  &ctx);
-//
-//   build.DependOn(loadA);
-//   build.DependOn(loadB);
-//   upload.DependOn(build);
-//
-//   g.Submit();         // 投入 (依存 0 の job から走り出す)
-//   g.Wait();           // 全 job 完了まで block
-//
-// 実装:
-//   ・FThreadPool 上で動く。各 job は完了時に「dependents の deps_remaining を
-//     atomic decrement して 0 になったら FThreadPool::Submit」する fan-out 方式
-//   ・グラフは Submit 後に変更不可 (Add は Submit より前のみ)
-//   ・Reset() で再利用可能 (依存関係はそのまま、deps_remaining だけ復元)
 #pragma once
 
 #include "foundation/Types.h"
@@ -27,6 +6,12 @@
 #include "container/Array.h"
 #include "threading/Atomic.h"
 #include "threading/ThreadPool.h"
+#include "threading/JobGraphDiagnostics.h"
+#include "foundation/Move.h"
+
+#include <cstddef>
+#include <new>
+#include <type_traits>
 
 namespace acs {
 
@@ -96,6 +81,54 @@ public:
     FJobHandle Add(JobFn fn, void* user) noexcept;
 
     /**
+     * 所有権付き callable を job として追加する。
+     *
+     * @details `void(u32 worker_index) noexcept` または `void() noexcept` として呼べ、
+     * noexcept 構築・破棄できる型だけを受け付ける。
+     * 小さい callable は FJob 内へ直接構築し、サイズまたは alignment が上限を超える場合だけ
+     * heap へフォールバックする。どちらも graph 破棄時まで寿命が保証される。
+     * @tparam Callable 呼び出し可能オブジェクト型。
+     * @param callable graph が所有する callable。
+     * @return 追加した job のハンドル。確保失敗時は無効。
+     */
+    template<typename Callable>
+    FJobHandle AddCallable(Callable&& callable) noexcept
+    {
+        /** job が所有する具象 callable 型。 */
+        using StoredCallable = std::decay_t<Callable>;
+        /** worker index 付き形式を選ぶか。 */
+        constexpr bool kUsesWorkerIndex = std::is_invocable_r_v<void, StoredCallable&, u32>;
+        static_assert(kUsesWorkerIndex || std::is_invocable_r_v<void, StoredCallable&>, "JobGraph callable は void(u32) または void() として呼べる必要があります");
+        static_assert(std::is_nothrow_constructible_v<StoredCallable, Callable&&>, "JobGraph callable は noexcept 構築できる必要があります");
+        static_assert(std::is_nothrow_destructible_v<StoredCallable>, "JobGraph callable は noexcept 破棄できる必要があります");
+        static_assert(kUsesWorkerIndex ? std::is_nothrow_invocable_r_v<void, StoredCallable&, u32> : std::is_nothrow_invocable_r_v<void, StoredCallable&>, "JobGraph callable の呼び出しは noexcept である必要があります");
+
+        /** callable を所有する新規 job。 */
+        FJob* const job = AppendEmptyJob();
+        if (!job) return {};
+
+        if constexpr (sizeof(StoredCallable) <= kInlineCallableBytes && alignof(StoredCallable) <= alignof(std::max_align_t)) {
+            /** job の固定領域へ構築した callable。 */
+            auto* const stored = ::new (static_cast<void*>(job->callable_storage)) StoredCallable(Forward<Callable>(callable));
+            job->user = stored;
+            job->destroy_callable = &DestroyInlineCallable<StoredCallable>;
+            ++m_Diagnostics.inline_callable_count;
+        } else {
+            /** サイズ超過により個別確保した callable。 */
+            auto* const stored = new (std::nothrow) StoredCallable(Forward<Callable>(callable));
+            if (!stored) {
+                RemoveLastJob(job);
+                return {};
+            }
+            job->user = stored;
+            job->destroy_callable = &DestroyHeapCallable<StoredCallable>;
+            ++m_Diagnostics.heap_callable_count;
+        }
+        job->fn = &CallableThunk<StoredCallable>;
+        return FJobHandle{this, m_JobCount - 1};
+    }
+
+    /**
      * upstream → downstream の依存関係を追加する (Submit 前のみ有効)。
      *
      * @param upstream 先に完了する必要があるジョブ。
@@ -123,7 +156,10 @@ public:
      *
      * @return 登録済みジョブ数。
      */
-    u32 JobCount() const noexcept { return static_cast<u32>(m_Jobs.Size()); }
+    u32 JobCount() const noexcept { return m_JobCount; }
+
+    /** 現在の構築・再実行診断値を返す。 */
+    FJobGraphDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
 
 private:
     friend struct FJobHandle;
@@ -155,16 +191,97 @@ private:
 
         /** 所属するグラフ (JobThunk から参照する)。 */
         FJobGraph*      owner            = nullptr;
+
+        /** inline callable の固定領域。 */
+        alignas(std::max_align_t) u8 callable_storage[48]{};
+
+        /** 所有 callable を破棄する関数。raw Add では null。 */
+        void (*destroy_callable)(FJob* job) noexcept = nullptr;
     };
 
-    /** 登録済みジョブ群 (各要素は new で確保され、デストラクタで解放)。 */
-    TArray<FJob*>        m_Jobs;
+    /** job 内へ直接置ける callable の最大 byte 数。 */
+    static constexpr usize kInlineCallableBytes = 48;
+
+    /** graph 自体へ直接置ける job 数。 */
+    static constexpr u32 kInlineJobCapacity = 32;
+
+    /** 型付き callable を JobFn ABI へ接続するコンパイル時 thunk。 */
+    template<typename Callable>
+    static void CallableThunk(void* user, u32 worker_index) noexcept
+    {
+        /** 呼び出す具象 callable。 */
+        auto& callable = *static_cast<Callable*>(user);
+        if constexpr (std::is_invocable_r_v<void, Callable&, u32>) {
+            callable(worker_index);
+        } else {
+            callable();
+        }
+    }
+
+    /** inline callable を正しい具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyInlineCallable(FJob* job) noexcept
+    {
+        static_cast<Callable*>(static_cast<void*>(job->callable_storage))->~Callable();
+    }
+
+    /** heap fallback callable を正しい具象型で破棄する。 */
+    template<typename Callable>
+    static void DestroyHeapCallable(FJob* job) noexcept
+    {
+        delete static_cast<Callable*>(job->user);
+    }
+
+    /** 空の job を末尾へ追加し、確保失敗時は null を返す。 */
+    FJob* AppendEmptyJob() noexcept;
+
+    /** 直前に追加した job を公開前の失敗時に取り消す。 */
+    void RemoveLastJob(FJob* job) noexcept;
+
+    /** index の job を返す。 */
+    FJob* JobAt(u32 index) noexcept;
+
+    /** index の job を返す const 版。 */
+    const FJob* JobAt(u32 index) const noexcept;
+
+    /** job と所有 callable を正しい確保元へ返す。 */
+    void DestroyJob(FJob* job) noexcept;
+
+    /** 依存構造を検証し、entry index 群を初回だけ構築する。 */
+    TResult<void> CompileTopology() noexcept;
+
+    /** graph へ直接置く FJob の未初期化領域。 */
+    alignas(FJob) u8 m_InlineJobStorage[sizeof(FJob) * kInlineJobCapacity]{};
+
+    /** inline 上限を超えた job pointer。 */
+    TArray<FJob*> m_OverflowJobs;
+
+    /** 登録済み job 数。 */
+    u32 m_JobCount = 0;
+
+    /** 検証済みの依存 0 job index 群。 */
+    TArray<u32> m_EntryJobs;
+
+    /** Kahn 法で再利用する依存数 scratch。 */
+    TArray<u32> m_TopologyRemaining;
+
+    /** Kahn 法で再利用する queue scratch。 */
+    TArray<u32> m_TopologyQueue;
+
+    /** 現在の graph 形状を検証済みなら true。 */
+    bool m_TopologyCompiled = false;
+
+    /** 検証済み graph が循環を含むなら true。 */
+    bool m_TopologyHasCycle = false;
 
     /** 実行中ジョブ数の完了カウンタ (Submit/完了ごとに増減)。 */
     FCompletionCounter  m_Counter;
 
     /** Submit 済みフラグ (true 以降は Add/AddDependency 不可)。 */
     bool               m_bSubmitted       = false;
+
+    /** 構築・再実行経路の診断値。 */
+    FJobGraphDiagnostics m_Diagnostics;
 };
 
 } // namespace acs

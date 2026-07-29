@@ -59,6 +59,7 @@ FSubscriptionHandle FMessageBroker::SubscribeRaw(EventTypeId channel,
     s.active = true;
     s.cb     = cb;
     s.user   = user;
+    ++ch->active_count;
     return FSubscriptionHandle{ channel, s.id, s.generation };
 }
 
@@ -68,23 +69,24 @@ bool FMessageBroker::Unsubscribe(FSubscriptionHandle h) noexcept {
     FChannel* ch = GetChannel(h.channel, false);
     if (!ch) return false;
 
-    for (usize i = 0; i < ch->slots.Size(); ++i) {
-        FSlot& s = ch->slots[i];
-        if (s.id == h.id && s.generation == h.generation && s.active) {
-            if (ch->publish_depth > 0) {
-                // Publish 中はスロット解放を遅延 (反復中の崩しを防ぐ)
-                ch->pending_cancel.PushBack(static_cast<u32>(i));
-                s.active = false;   // 即座に「呼ばれない」状態にだけはする
-            } else {
-                s.active = false;
-                s.cb     = nullptr;
-                s.user   = nullptr;
-                ch->free_indices.PushBack(static_cast<u32>(i));
-            }
-            return true;
-        }
+    // id は新規 slot の index + 1 として一度だけ採番され、再利用時も変わらない。
+    // したがって線形探索せず、generation と active を照合して O(1) で特定できる。
+    const u32 idx = h.id - 1;
+    if (idx >= ch->slots.Size()) return false;
+    FSlot& s = ch->slots[idx];
+    if (s.id != h.id || s.generation != h.generation || !s.active) return false;
+
+    s.active = false;
+    --ch->active_count;
+    if (ch->publish_depth > 0) {
+        // Publish 中はスロット解放を遅延し、現在の反復を壊さない。
+        ch->pending_cancel.PushBack(idx);
+    } else {
+        s.cb   = nullptr;
+        s.user = nullptr;
+        ch->free_indices.PushBack(idx);
     }
-    return false;
+    return true;
 }
 
 /** 発行時点の購読者集合を同期で呼び、ネスト解消後に遅延 Cancel を反映する。 */
@@ -121,10 +123,7 @@ void FMessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexce
 /** 指定チャンネルの active な購読 slot 数を数えて返す。 */
 u32 FMessageBroker::SubscriberCount(EventTypeId channel) const noexcept {
     if (channel >= m_Channels.Size() || !m_Channels[channel]) return 0;
-    const FChannel* ch = m_Channels[channel];
-    u32 n = 0;
-    for (usize i = 0; i < ch->slots.Size(); ++i) if (ch->slots[i].active) ++n;
-    return n;
+    return m_Channels[channel]->active_count;
 }
 
 } // namespace acs

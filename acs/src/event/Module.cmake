@@ -12,7 +12,10 @@ acs_module(
     HEADERS
         MessageBroker.h
         MessagePipe.h
+        MessagePipePolicy.h
         Timer.h
+        TimerDiagnostics.h
+        TimerSchedulePolicy.h
     PUBLIC_DEPS
         Foundation
         Container

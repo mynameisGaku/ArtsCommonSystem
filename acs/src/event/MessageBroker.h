@@ -1,39 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// FMessageBroker — 型ベースの pub/sub イベントバス
-//
-// **スレッド契約 (重要)**: FMessageBroker は **シングルスレッド前提** です。
-//   Subscribe / Publish / Unsubscribe を異なるスレッドから呼ぶと未定義動作。
-//   スレッド間通信が必要な場合は TMessagePipe<T> (event/MessagePipe.h) を使う。
-//   (型 ID 採番だけ TAtomic を使うのは複数スレッドで同じ型 E の id が一致するため)
-//
-// 使い方:
-//   struct FDamageEvent { FEntityId target; f32 amount; };
-//
-//   static void OnDamage(const void* payload, void* user) {
-//       const auto& e = *static_cast<const FDamageEvent*>(payload);
-//       auto* self = static_cast<FMyState*>(user);
-//       // ...
-//   }
-//
-//   FMessageBroker bus;
-//   FSubscriptionHandle h = bus.Subscribe<FDamageEvent>(&OnDamage, &my_state);
-//
-//   FDamageEvent e{ enemy, 25.0f };
-//   bus.Publish<FDamageEvent>(e);
-//
-//   bus.Unsubscribe(h);
-//
-// 設計:
-//   ・コールバックは関数ポインタ + payload (const void*) + user (void*)
-//   ・型 E ごとに ChannelId を割り当てる (EventTypeId<E>)
-//   ・Publish は同期実行 (即座にハンドラ呼ぶ)。非同期にしたければユーザー側で
-//     キューイング (TMessagePipe を使う)。
-//   ・Subscribe / Unsubscribe は Publish 中でも安全 (予約バッファに溜めて遅延適用)
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "threading/Atomic.h"
+
+#include <type_traits>
 
 namespace acs {
 
@@ -150,6 +122,24 @@ public:
     }
 
     /**
+     * 型付きコールバックをコンパイル時に検証して購読する。
+     *
+     * @details Callback は `void(const E&, void*) noexcept` として呼べる必要がある。関数自体を
+     * 非型テンプレート引数にするため、slot には型タグや実行時 cast 用情報を保持せず、
+     * Publish の ABI は従来の MessageCallback のまま維持できる。
+     * @tparam E 購読するイベント型。
+     * @tparam Callback コンパイル時に確定する型付きコールバック。
+     * @param user Callback へ渡すユーザーデータ。
+     * @return 購読を指すハンドル。
+     */
+    template<typename E, auto Callback>
+    FSubscriptionHandle SubscribeTyped(void* user) noexcept
+    {
+        static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), const E&, void*>, "型付きイベントコールバックは void(const E&, void*) noexcept として呼べる必要があります");
+        return SubscribeRaw(GetEventTypeId<E>(), &TypedCallbackThunk<E, Callback>, user);
+    }
+
+    /**
      * 購読を解除する (Publish 中に呼んでも安全)。
      *
      * @details Publish 反復中の場合は slot 解放を遅延しつつ即座に「呼ばれない」状態にする。
@@ -220,7 +210,17 @@ private:
 
         /** publish_depth>0 の間に貯めた解除対象 slot 添字。 */
         TArray<u32>   pending_cancel;
+
+        /** 現在 active な購読 slot 数。 */
+        u32 active_count = 0;
     };
+
+    /** 型付きコールバックを既存 MessageCallback ABI へ接続するコンパイル時 thunk。 */
+    template<typename E, auto Callback>
+    static void TypedCallbackThunk(const void* payload, void* user) noexcept
+    {
+        Callback(*static_cast<const E*>(payload), user);
+    }
 
     /**
      * 型消去された購読登録の実体 (Subscribe から委譲)。

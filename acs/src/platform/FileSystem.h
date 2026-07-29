@@ -1,24 +1,90 @@
 // SPDX-License-Identifier: Apache-2.0
-// ファイル I/O とパス操作
-//
-// 使い方:
-//   auto data = FFileSystem::ReadAllBytes(L"data/save.bin");
-//   if (data.IsErr()) { /* エラー処理 */ }
-//   TSpan<const byte> bytes = data.Value().AsSpan();
-//
-//   FFileSystem::WriteAllBytes(L"data/save.bin", bytes);
 #pragma once
 
 #include "foundation/Types.h"
 #include "foundation/Result.h"
 #include "container/Array.h"
 #include "container/StringView.h"
+#include "platform/FileExtensionKind.h"
+#include "platform/FileSystemDiagnostics.h"
+
+#include <type_traits>
 
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
 class FFileSystem {
 public:
+    /** ASCII 大文字を小文字へ変換し、それ以外は変更しない。 */
+    static constexpr char AsciiLower(char value) noexcept {
+        return value >= 'A' && value <= 'Z'
+            ? static_cast<char>(value + ('a' - 'A'))
+            : value;
+    }
+
+    /** 文字が ASCII 範囲なら true を返す。 */
+    template<typename Char>
+    static constexpr bool IsAscii(Char value) noexcept {
+        using U = std::make_unsigned_t<Char>;
+        return static_cast<U>(value) <= static_cast<U>(0x7f);
+    }
+
+    /** Windows または portable なパス区切りなら true を返す。 */
+    template<typename Char>
+    static constexpr bool IsPathSeparator(Char value) noexcept {
+        return value == static_cast<Char>('\\') || value == static_cast<Char>('/');
+    }
+
+    /**
+     * NUL 終端パスの最終要素を ASCII 拡張子で分類する。
+     *
+     * @details 隠しファイル、末尾 dot、複数 dot の空拡張子、非 ASCII 拡張子は Unknown。
+     * パス本体の Unicode は読み替えず、最終 dot より後ろだけを安全に ASCII 比較する。
+     */
+    template<typename Char>
+    static constexpr EFileExtensionKind ClassifyExtension(const Char* path) noexcept {
+        if (!path) return EFileExtensionKind::Unknown;
+        usize segment_begin = 0;
+        usize last_dot = static_cast<usize>(-1);
+        usize length = 0;
+        for (; path[length] != static_cast<Char>(0); ++length) {
+            if (IsPathSeparator(path[length])) {
+                segment_begin = length + 1;
+                last_dot = static_cast<usize>(-1);
+            } else if (path[length] == static_cast<Char>('.')) {
+                last_dot = length;
+            }
+        }
+        if (last_dot == static_cast<usize>(-1) || last_dot == segment_begin || last_dot + 1 >= length) {
+            return EFileExtensionKind::Unknown;
+        }
+
+        const usize extension_size = length - last_dot - 1;
+        char extension[8]{};
+        if (extension_size >= sizeof(extension)) return EFileExtensionKind::Unknown;
+        for (usize i = 0; i < extension_size; ++i) {
+            const Char value = path[last_dot + 1 + i];
+            if (!IsAscii(value)) return EFileExtensionKind::Unknown;
+            extension[i] = AsciiLower(static_cast<char>(value));
+        }
+
+        const auto equals = [&](const char* expected) constexpr noexcept {
+            usize i = 0;
+            while (i < extension_size && expected[i] != '\0') {
+                if (extension[i] != expected[i]) return false;
+                ++i;
+            }
+            return i == extension_size && expected[i] == '\0';
+        };
+        if (equals("ini")) return EFileExtensionKind::Ini;
+        if (equals("cfg")) return EFileExtensionKind::Config;
+        if (equals("json")) return EFileExtensionKind::Json;
+        if (equals("txt")) return EFileExtensionKind::Text;
+        if (equals("bin")) return EFileExtensionKind::Binary;
+        if (equals("acpak")) return EFileExtensionKind::AssetPack;
+        return EFileExtensionKind::Unknown;
+    }
+
     /**
      * ファイル全体をバイト列として読み込む。
      *
@@ -31,7 +97,7 @@ public:
     /**
      * ファイル全体を文字列として読み込む。
      *
-     * @details ReadAllBytes の結果に末尾 NUL を付与して返す (中身は無変換のバイト列)。
+     * @details char 配列を 1 回だけ確保して直接読み込み、末尾 NUL を付与する。
      * @param path 読み込むファイルのパス。
      * @return NUL 終端付きの文字配列、読み取り失敗時はエラー。
      */
@@ -47,6 +113,19 @@ public:
      * @return 成功なら空の TResult、開けない・書き込み不足時はエラー。
      */
     static TResult<void> WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept;
+
+    /**
+     * 同一ディレクトリの一時ファイルへ書き、rename で内容を原子的に公開する。
+     *
+     * @details 書き込みと FlushFileBuffers が成功するまで既存ファイルを変更しない。
+     * 対象が reparse point の場合はリンクそのものを置換せず、従来の WriteAllBytes へ
+     * 委譲してリンク先を書き換える。
+     * @param path 書き出し先のファイルパス。
+     * @param data 書き出すバイト列の先頭。
+     * @param size 書き出すバイト数。
+     * @return 成功なら空の TResult。一時ファイル作成・書き込み・置換失敗時はエラー。
+     */
+    static TResult<void> WriteAllBytesAtomic(const wchar_t* path, const byte* data, usize size) noexcept;
 
     /**
      * NUL 終端文字列をファイルへ書き出す (終端 NUL は書き込まない)。
@@ -98,6 +177,12 @@ public:
      * @return 成功なら空の TResult、削除失敗時はエラー。
      */
     static TResult<void> Delete(const wchar_t* path) noexcept;
+
+    /** 現在の I/O 診断値をスナップショットとして返す。 */
+    static FFileSystemDiagnostics Diagnostics() noexcept;
+
+    /** I/O 診断値だけを 0 に戻す。 */
+    static void ResetDiagnostics() noexcept;
 };
 
 } // namespace acs

@@ -1,32 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// FTimerManager — フレーム単位の遅延 / 周期タイマー
-//
-// 使い方:
-//   struct FMyState { FWorld* w; FEntityId e; };
-//   static void OnFire(void* user) {
-//       auto* s = static_cast<FMyState*>(user);
-//       // ...
-//   }
-//
-//   FTimerManager timers;
-//   FMyState st { &world, enemy };
-//   FTimerHandle h = timers.SetTimeout(2.5f, &OnFire, &st);
-//
-//   // フレームループで:
-//   timers.Tick(dt);
-//
-//   // 任意のキャンセル
-//   timers.Cancel(h);
-//
-// 設計:
-//   ・コールバックは関数ポインタ + void* user (STL 不依存方針に合わせる)
-//   ・FTimerHandle は世代付き (Cancel 後に再利用された ID で誤発火しない)
-//   ・SetInterval は self-rearm 方式 (発火後に次の period_seconds まで再カウント)
-//   ・全タイマは線形配列で持つ (1000 個程度なら Tick の O(N) は問題ない)
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "event/TimerDiagnostics.h"
+#include "event/TimerSchedulePolicy.h"
+
+#include <type_traits>
 
 namespace acs {
 
@@ -111,6 +91,30 @@ public:
     FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept;
 
     /**
+     * 発火方針と型付きコールバックをコンパイル時に確定して登録する。
+     *
+     * @details Callback は `void(User*) noexcept` として呼べる必要がある。if constexpr で
+     * SetTimeout / SetInterval を選ぶため、登録の hot path に方針判定分岐を残さない。
+     * @tparam Policy 1 回限りまたは周期発火。
+     * @tparam Callback コンパイル時に確定する型付きコールバック。
+     * @tparam User user pointer の型。
+     * @param seconds 遅延または周期秒。
+     * @param user Callback へ渡す pointer。
+     * @return 登録したタイマのハンドル。
+     */
+    template<ETimerSchedulePolicy Policy, auto Callback, typename User>
+    FTimerHandle Schedule(f32 seconds, User* user) noexcept
+    {
+        static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), User*>, "型付きタイマコールバックは void(User*) noexcept として呼べる必要があります");
+        if constexpr (Policy == ETimerSchedulePolicy::Once) {
+            return SetTimeout(seconds, &TypedTimerThunk<User, Callback>, user);
+        } else {
+            static_assert(Policy == ETimerSchedulePolicy::Repeating, "未対応のタイマ発火方針です");
+            return SetInterval(seconds, &TypedTimerThunk<User, Callback>, user);
+        }
+    }
+
+    /**
      * 指定タイマをキャンセルする。
      *
      * @param h キャンセルするタイマハンドル。
@@ -144,6 +148,12 @@ public:
      */
     u32 ActiveCount() const noexcept;
 
+    /** 現在の決定的な走査診断値を返す。 */
+    FTimerDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
+
+    /** 走査診断値だけを 0 に戻す。タイマ状態は変更しない。 */
+    void ResetDiagnostics() noexcept { m_Diagnostics = {}; }
+
 private:
     /**
      * 1 タイマ slot (残時間・周期・コールバックを保持)。
@@ -174,6 +184,13 @@ private:
         void*           user        = nullptr;
     };
 
+    /** 型付きコールバックを既存 TimerCallback ABI へ接続するコンパイル時 thunk。 */
+    template<typename User, auto Callback>
+    static void TypedTimerThunk(void* user) noexcept
+    {
+        Callback(static_cast<User*>(user));
+    }
+
     /** 次の登録へ割り当てる、0 以外の世代番号を取得する。 */
     u32 AcquireGeneration() noexcept;
 
@@ -183,8 +200,20 @@ private:
     /** slot 配列と再利用配列の容量を解放し、保留中の Clear を完了する。 */
     void ReleaseClearedStorage() noexcept;
 
+    /** 新規 slot index を active bitset で表現できるようにする。 */
+    void EnsureActiveWord(u32 slot_index) noexcept;
+
+    /** slot の active bit を立てる。 */
+    void MarkActive(u32 slot_index) noexcept;
+
+    /** slot の active bit を下ろす。 */
+    void MarkInactive(u32 slot_index) noexcept;
+
     /** タイマ slot の配列。 */
     TArray<FSlot> m_Slots;
+
+    /** active slot だけを昇順に走査する 64-bit bitset。 */
+    TArray<u64> m_ActiveWords;
 
     /** 解放済みで再利用待ちの slot 添字。 */
     TArray<u32>  m_FreeIndices;
@@ -200,6 +229,12 @@ private:
 
     /** Tick 中の Clear により、配列容量の解放を最外周 Tick まで保留しているか。 */
     bool m_ClearPending = false;
+
+    /** 現在 active な slot 数。 */
+    u32 m_ActiveCount = 0;
+
+    /** 最適化経路の決定的な診断値。 */
+    FTimerDiagnostics m_Diagnostics;
 };
 
 } // namespace acs

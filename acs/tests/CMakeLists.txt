@@ -98,6 +98,7 @@ add_executable(acs_unit_tests
     particleeffect_tests.cpp
     water2d_ripple_lifetime_tests.cpp
     water3d_ripple_lifetime_tests.cpp
+    foundation_optimization_wave_b_tests.cpp
     volumetric_cloud_world_anchor_tests.cpp
     atmosphere_composite_tests.cpp
     shadow_map_cb_safety_tests.cpp
@@ -160,6 +161,31 @@ set_tests_properties(
     ACS.ChangedCppRulesAuditSelfTest
     ACS.FoundationPerformanceContract
     PROPERTIES LABELS "Performance;Foundation" TIMEOUT 30)
+
+# Foundation Optimization Wave B を他の長時間テストから分離して反復する。
+add_executable(acs_foundation_optimization_wave_b_tests
+    main.cpp
+    foundation_optimization_wave_b_tests.cpp
+)
+set_target_properties(
+    acs_foundation_optimization_wave_b_tests
+    PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_foundation_optimization_wave_b_tests)
+target_link_libraries(acs_foundation_optimization_wave_b_tests PRIVATE
+    ACS::Foundation
+    ACS::Threading
+    ACS::Memory
+    ACS::Container
+    ACS::Platform
+    ACS::Event
+    ACS::Test
+)
+add_test(
+    NAME ACS.FoundationOptimizationWaveB
+    COMMAND acs_foundation_optimization_wave_b_tests)
+set_tests_properties(
+    ACS.FoundationOptimizationWaveB
+    PROPERTIES TIMEOUT 60)
 
 # LinearAllocator の Reset 競合を他モジュールのリンク状態から独立して反復できる専用ターゲット。
 add_executable(acs_linear_allocator_lifecycle_tests
