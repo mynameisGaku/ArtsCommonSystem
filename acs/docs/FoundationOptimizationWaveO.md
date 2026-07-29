@@ -40,6 +40,8 @@ Publish中に追加された購読者が、未走査の空きslotへ再利用さ
 
 - Release: layout、runner self-test、32 process ownership stressが3/3成功。
 - Debug: layout、runner self-test、32 process ownership stressが3/3成功。
+- Release raw DX12のhidden Editor ABI lifecycleが1/1成功し、28段階を完走した。計測totalは7443.36 msで、CPU worker側のPBR compileが5203.75 ms、volumetric-cloud compileが1641.51 msを占めた。これは各段階のwall timeでありowner threadの連続block時間ではない。同期owner段階の最大観測値はHDR post processの158.76 msだった。
+- 同じ計測でinteractive water段階は0.00 msとなり、scene要求前のshader・constant-buffer生成を行っていない。追加で遅延できることが確認できた処理だけを対象にする方針と一致する。
 - Win64実測サイズ: `TArray<u32>` 32、`FString` 32、`THashMap<u32,u32>` 64、`FTask` 24、`FJobHandle` 16、`FJobGraph` 4032、`FSubscriptionHandle` 12、`FTimerHandle` 8 byte。
 - 診断型の実測サイズ: thread pool 96、job graph 40、timer 24、file 24 byte。
 
