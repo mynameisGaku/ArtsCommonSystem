@@ -23,23 +23,36 @@ inline constexpr u16 kSubAcpakBridgeBadArgument = 1393;
 /** UTF-8 名 pool の防御的な最大バイト数。 */
 inline constexpr usize kAcpakMaxUtf8NamePoolBytes = kAcpakMaxPathPoolBytes * 2u;
 
+/** NUL を含む UTF-16 変換先要素数を検証して返す。 */
+TResult<u32> RequiredWideUnits(const char* Text) noexcept
+{
+    if (Text == nullptr || Text[0] == 0) {
+        return TResult<u32>(ACS_ERR(IO, kSubAcpakBridgeBadArgument, "Acpak bridge path is empty"));
+    }
+    const int Required = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Text, -1, nullptr, 0);
+    if (Required <= 0) {
+        return TResult<u32>(ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "Acpak bridge path is not valid UTF-8"));
+    }
+    return TResult<u32>(OkInit, static_cast<u32>(Required));
+}
+
 /** UTF-8 文字列を呼び出し側所有の UTF-16 バッファへ変換する。 */
 TResult<const wchar_t*> ConvertUtf8ToWide(const char* Text, wchar_t* Out, u32 OutCapacity) noexcept
 {
-    if (Text == nullptr || Text[0] == 0 || Out == nullptr || OutCapacity == 0) {
+    if (Out == nullptr || OutCapacity == 0u) {
         return TResult<const wchar_t*>(ACS_ERR(IO, kSubAcpakBridgeBadArgument, "Acpak bridge path is empty"));
     }
 
-    const int Required = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Text, -1, nullptr, 0);
-    if (Required <= 0) {
-        return TResult<const wchar_t*>(ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "Acpak bridge path is not valid UTF-8"));
+    const auto RequiredResult = RequiredWideUnits(Text);
+    if (RequiredResult.IsErr()) {
+        return TResult<const wchar_t*>(RequiredResult.Error());
     }
-    if (static_cast<u32>(Required) > OutCapacity) {
+    const u32 Required = RequiredResult.Value();
+    if (Required > OutCapacity) {
         return TResult<const wchar_t*>(ACS_ERR(IO, kSubAcpakBridgePathTooLong, "Acpak bridge path is too long"));
     }
 
-    const int Written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Text, -1, Out,
-                                              static_cast<int>(OutCapacity));
+    const int Written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Text, -1, Out, static_cast<int>(Required));
     if (Written <= 0) {
         return TResult<const wchar_t*>(ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "Acpak bridge path conversion failed"));
     }
@@ -200,6 +213,72 @@ TResult<void> FAcpakGameReader::ReadFile(const char* Name, u8* OutBuffer, u64 Bu
     if (ReadResult.IsErr()) {
         return ReadResult.Error();
     }
+    return Ok();
+}
+
+TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Requests, u32 Count, u32* CompletedCount) noexcept
+{
+    FScopedSharedLock Lock(m_LifecycleLock);
+    if (CompletedCount != nullptr) *CompletedCount = 0u;
+    if (Count > kAcpakReadBatchMaxEntries || (Count > 0u && Requests == nullptr)) {
+        return ACS_ERR(IO, game::kSubAssetPackInvalidBatch, "FAcpakGameReader::ReadFiles: invalid batch");
+    }
+    if (Count == 0u) return Ok();
+
+    FAllocator& Allocator = *m_Utf8NamePool.GetAllocator();
+    TArray<wchar_t> WideNamePool(Allocator);
+    TArray<const wchar_t*> WideNames(Allocator);
+    TArray<void*> OutBuffers(Allocator);
+    TArray<u64> BufferSizes(Allocator);
+    TArray<u32> RequiredUnits(Allocator);
+    if (!WideNames.TryResize(Count) || !OutBuffers.TryResize(Count) || !BufferSizes.TryResize(Count) || !RequiredUnits.TryResize(Count)) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakGameReader::ReadFiles: allocation failed");
+    }
+
+    usize PathUnits = 0u;
+    u32 PreparedCount = 0u;
+    FErrorCode DeferredError{};
+    for (u32 Index = 0u; Index < Count; ++Index) {
+        const auto RequiredResult = RequiredWideUnits(Requests[Index].Name);
+        if (RequiredResult.IsErr()) {
+            DeferredError = RequiredResult.Error();
+            break;
+        }
+        if (RequiredResult.Value() > kPathCapacity) {
+            DeferredError = ACS_ERR(IO, kSubAcpakBridgePathTooLong, "FAcpakGameReader::ReadFiles: path is too long");
+            break;
+        }
+        RequiredUnits[Index] = RequiredResult.Value();
+        PathUnits += RequiredUnits[Index];
+        OutBuffers[Index] = Requests[Index].OutBuffer;
+        BufferSizes[Index] = Requests[Index].BufferSize;
+        ++PreparedCount;
+    }
+    if (!WideNamePool.TryResize(PathUnits)) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakGameReader::ReadFiles: path pool allocation failed");
+    }
+
+    usize PathOffset = 0u;
+    u32 ConvertedCount = 0u;
+    for (u32 Index = 0u; Index < PreparedCount; ++Index) {
+        wchar_t* const WideName = WideNamePool.Data() + PathOffset;
+        const int Written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Requests[Index].Name, -1, WideName, static_cast<int>(RequiredUnits[Index]));
+        if (Written != static_cast<int>(RequiredUnits[Index])) {
+            DeferredError = ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "FAcpakGameReader::ReadFiles: path conversion failed");
+            break;
+        }
+        WideNames[Index] = WideName;
+        PathOffset += RequiredUnits[Index];
+        ++ConvertedCount;
+    }
+
+    // 後続パス変換エラーより先行 read エラーを優先し、逐次 API と同じ部分完了順を保つ。
+    if (ConvertedCount == 0u) return DeferredError;
+    u32 IgnoredCompletedCount = 0u;
+    u32* const ActualCompletedCount = CompletedCount != nullptr ? CompletedCount : &IgnoredCompletedCount;
+    const auto Result = m_Reader.ReadFiles(WideNames.Data(), OutBuffers.Data(), BufferSizes.Data(), ConvertedCount, ActualCompletedCount);
+    if (Result.IsErr()) return Result.Error();
+    if (!DeferredError.IsOk()) return DeferredError;
     return Ok();
 }
 

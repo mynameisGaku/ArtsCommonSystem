@@ -89,13 +89,14 @@ bool IsValidLoaderExtension(const char* Extension) noexcept
 /**
  * パスから FAssetId を作る (wchar_t 列をバイト列としてハッシュ)。
  *
- * @param path ハッシュ元のパス。
+ * @param Path ハッシュ元のパス。
  * @return パスから生成した FAssetId。
  */
-FAssetId MakeIdFromPath(const wchar_t* path) noexcept {
-    usize len = 0;
-    while (path[len]) ++len;
-    return MakeAssetId(FStringView(reinterpret_cast<const char*>(path), len * sizeof(wchar_t)));
+FAssetId MakeIdFromPath(const wchar_t* Path) noexcept
+{
+    usize Length = 0u;
+    while (Path[Length] != L'\0') ++Length;
+    return MakeAssetId(FStringView(reinterpret_cast<const char*>(Path), Length * sizeof(wchar_t)));
 }
 
 /** ロック外ロード処理の全 return 経路で処理中カウントを戻す。 */
@@ -187,11 +188,15 @@ TResult<TSharedPtr<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
         const TSharedPtr<FAsset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             cached = *hit;
+            ++m_CacheHitCount;
         } else {
             loader = FindLoader(path);
             // loader と this をロック外で参照する前に登録する。Shutdown はこの値が 0 に
             // 戻るまでキャッシュ・ローダ配列・レジストリ本体を破棄しない。
-            if (loader) m_ActiveOperations.Add(1);
+            if (loader) {
+                m_ActiveOperations.Add(1);
+                ++m_PhysicalFileReadCount;
+            }
         }
     }
 
@@ -247,8 +252,8 @@ struct FAsyncLoadJob {
     /** ロード対象のアセット ID。 */
     FAssetId                  id        = FAssetId{};
 
-    /** ロード対象のパス (最大 259 文字 + NUL)。 */
-    wchar_t                  path[kAssetRegistryMaxPathLength + 1u] = {};
+    /** ワーカー完了まで共有する不変パス。 */
+    TSharedPtr<FInternedAssetPath> path;
 };
 
 /**
@@ -268,7 +273,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     TUniquePtr<FAsyncLoadJob> job(raw_job, raw_job ? raw_job->allocator : nullptr);
     if (!job) return;
 
-    auto bytes_r = FFileSystem::ReadAllBytes(job->path);
+    auto bytes_r = FFileSystem::ReadAllBytes(job->path->Path());
     if (bytes_r.IsErr()) {
         job->state->error = bytes_r.Error();
         job->state->has_error = true;
@@ -360,15 +365,18 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
             state->counter.Done();
             return FAssetFuture(Move(state));
         }
+        ++m_AsyncRequestCount;
 
         const TSharedPtr<FAsset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
+            ++m_CacheHitCount;
             state->counter.Done();
             return FAssetFuture(Move(state));
         }
         const TSharedPtr<FAsyncLoadState>* pending = m_InFlight.Find(id);
         if (pending && pending->Get()) {
+            ++m_AsyncCoalescedCount;
             return FAssetFuture(*pending);
         }
         loader = FindLoader(path);
@@ -389,6 +397,21 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         return FAssetFuture(Move(state));
     }
 
+    // cache / in-flight hit には所有コピーを追加しない。新規ジョブだけが
+    // 長さ比例の共有パスを確保し、従来の固定長 job buffer を置き換える。
+    usize PathLength = 0u;
+    while (path[PathLength] != L'\0') ++PathLength;
+    auto InternResult = m_PathInterner.Intern(path, PathLength);
+    if (InternResult.IsErr()) {
+        AsyncLoadFinished(id);
+        m_ActiveOperations.Done();
+        state->error = InternResult.Error();
+        state->has_error = true;
+        state->counter.Done();
+        return FAssetFuture(Move(state));
+    }
+    TSharedPtr<FInternedAssetPath> InternedPath = Move(InternResult.Value());
+
     // ジョブを heap 確保し FThreadPool に投入
     auto job = MakeUnique<FAsyncLoadJob>();
     if (!job) {
@@ -405,10 +428,12 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     job->active_operations = &m_ActiveOperations;
     job->loader   = loader;
     job->id       = id;
-    // 検証済みのパスを完全に所有する。切り詰めは行わない。
-    usize i = 0;
-    while (path[i]) { job->path[i] = path[i]; ++i; }
-    job->path[i] = 0;
+    job->path     = Move(InternedPath);
+    {
+        FScopedLock lk(m_Lock);
+        ++m_AsyncJobCount;
+        ++m_PhysicalFileReadCount;
+    }
 
     FTask t{};
     t.fn      = &AsyncLoadWorker;
@@ -440,6 +465,21 @@ void FAssetRegistry::Clear() noexcept {
     m_Cache.Clear();
 }
 
+FAssetRegistryDiagnostics FAssetRegistry::Diagnostics() const noexcept
+{
+    FAssetRegistryDiagnostics Result{};
+    {
+        FScopedLock Lock(m_Lock);
+        Result.async_request_count = m_AsyncRequestCount;
+        Result.async_coalesced_count = m_AsyncCoalescedCount;
+        Result.async_job_count = m_AsyncJobCount;
+        Result.physical_file_read_count = m_PhysicalFileReadCount;
+        Result.cache_hit_count = m_CacheHitCount;
+    }
+    Result.path_interner = m_PathInterner.Diagnostics();
+    return Result;
+}
+
 void FAssetRegistry::Shutdown() noexcept
 {
     {
@@ -463,6 +503,7 @@ void FAssetRegistry::Shutdown() noexcept
     m_Cache.ReleaseStorage();
     m_InFlight.ReleaseStorage();
     m_Loaders.ReleaseStorage();
+    m_PathInterner.Reset();
     m_ShutdownComplete = true;
 }
 
@@ -473,6 +514,11 @@ void FAssetRegistry::Restart() noexcept
     FScopedLock lk(m_Lock);
     m_Closing = false;
     m_ShutdownComplete = false;
+    m_AsyncRequestCount = 0u;
+    m_AsyncCoalescedCount = 0u;
+    m_AsyncJobCount = 0u;
+    m_PhysicalFileReadCount = 0u;
+    m_CacheHitCount = 0u;
 }
 
 namespace {

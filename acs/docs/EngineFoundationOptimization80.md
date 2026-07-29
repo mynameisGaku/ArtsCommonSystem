@@ -91,12 +91,12 @@ and compile-time assertions are required where they keep build cost bounded.
 | T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Active |
 | T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Active |
 | T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Active |
-| T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Active |
-| T54 | K | Storage | Add safe mapped-read path for large immutable assets | B | Active |
-| T55 | K | Compression | Reuse bounded decompression scratch buffers | B | Active |
-| T56 | K | Assets | Batch dependency resolution in stable topological order | B | Active |
+| T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Complete |
+| T54 | K | Storage | Add safe mapped-read path for large immutable assets | B | Complete |
+| T55 | K | Compression | Reuse bounded decompression scratch buffers | B | Complete |
+| T56 | K | Assets | Batch dependency resolution in stable topological order | B | Complete |
 | T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Active |
-| T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Active |
+| T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Complete |
 | T59 | L | Render | Add inline storage for common render-command payloads | C | Active |
 | T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Active |
 | T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Active |

@@ -18,6 +18,7 @@ acs_module(
         AcpakFormat.h
         AcpakGameBridge.h
         AcpakLz4.h
+        AcpakReadDiagnostics.h
         AcpakReader.h
         AcpakWriter.h
     PUBLIC_DEPS

@@ -12,6 +12,7 @@
 #include "gameframework/ReflectApply.h"
 #include "asset/MeshAsset.h"
 #include "container/Array.h"
+#include "container/Hash.h"
 #include "container/HashMap.h"
 #include "container/StringView.h"
 #include "foundation/Move.h"
@@ -1511,42 +1512,189 @@ TResult<TSharedPtr<FAsset>> DecodeMesh(
         ACS_ERR(Asset, 496, "Scene3D mesh format is unsupported"));
 }
 
-EScene3DSerializeError LoadPackDependencies(
-    IAssetPackReader& pack, FParsedScene3DDocument& document,
-    u32& dependencies_loaded) noexcept {
-    TArray<byte> bytes;
-    for (u32 i = 0u; i < document.Nodes.Size(); ++i) {
-        FParsedNode& node = document.Nodes[i];
-        if (node.HasMeshPath) {
-            if (!IsSafeVirtualAssetPath(node.MeshPath))
-                return EScene3DSerializeError::AssetPathInvalid;
-            if (!ReadPackEntry(
-                    pack, node.MeshPath, kScene3DAssetMaxBytes, bytes)) {
-                return EScene3DSerializeError::AssetMissing;
+enum class ESceneDependencyKind : u8 {
+    Mesh = 0u,
+    Material = 1u,
+};
+
+struct FSceneDependencyRecord {
+    FSceneDependencyRecord(FAllocator& Allocator, ESceneDependencyKind InKind, const char* InPath, u64 InHash) noexcept
+        : Nodes(Allocator), Kind(InKind), Path(InPath), Hash(InHash)
+    {
+    }
+
+    FSceneDependencyRecord(const FSceneDependencyRecord&) = delete;
+    FSceneDependencyRecord& operator=(const FSceneDependencyRecord&) = delete;
+    FSceneDependencyRecord(FSceneDependencyRecord&&) noexcept = default;
+    FSceneDependencyRecord& operator=(FSceneDependencyRecord&&) noexcept = default;
+
+    /** この依存を参照する node index。 */
+    TArray<u32> Nodes;
+
+    /** 依存のデコード種別。 */
+    ESceneDependencyKind Kind = ESceneDependencyKind::Mesh;
+
+    /** document 内で寿命が保証された初出パス。 */
+    const char* Path = nullptr;
+
+    /** 種別を含む検索用ハッシュ。 */
+    u64 Hash = 0u;
+};
+
+u64 SceneDependencyHash(ESceneDependencyKind Kind, const char* Path) noexcept
+{
+    usize Length = 0u;
+    while (Path[Length] != '\0') ++Length;
+    const u64 PathHash = HashBytes(Path, Length);
+    return PathHash ^ (static_cast<u64>(Kind) + 0x9E3779B97F4A7C15ull + (PathHash << 6u) + (PathHash >> 2u));
+}
+
+bool AddStableSceneDependency(TArray<FSceneDependencyRecord>& Dependencies, THashMap<u64, u32>& FirstByHash, ESceneDependencyKind Kind, const char* Path, u32 NodeIndex) noexcept
+{
+    const u64 Hash = SceneDependencyHash(Kind, Path);
+    if (FirstByHash.Find(Hash) != nullptr) {
+        for (usize Index = 0u; Index < Dependencies.Size(); ++Index) {
+            FSceneDependencyRecord& Existing = Dependencies[Index];
+            if (Existing.Hash == Hash && Existing.Kind == Kind && std::strcmp(Existing.Path, Path) == 0) {
+                return Existing.Nodes.TryPushBack(NodeIndex);
             }
-            auto decoded = DecodeMesh(node.MeshPath, bytes);
-            if (decoded.IsErr() || !decoded.Value())
-                return EScene3DSerializeError::AssetDecodeFailed;
-            node.LoadedMesh = decoded.Value();
-            ++dependencies_loaded;
-            bytes.Clear();
         }
-        if (node.HasMaterialPath) {
-            if (!IsSafeVirtualAssetPath(node.MaterialPath))
+    }
+
+    const u32 NewIndex = static_cast<u32>(Dependencies.Size());
+    FSceneDependencyRecord* const Record = Dependencies.TryEmplaceBack(*Dependencies.GetAllocator(), Kind, Path, Hash);
+    if (Record == nullptr || !Record->Nodes.TryPushBack(NodeIndex)) {
+        return false;
+    }
+    if (FirstByHash.Find(Hash) == nullptr && !FirstByHash.TryInsert(Hash, NewIndex)) {
+        Dependencies.PopBack();
+        return false;
+    }
+    return true;
+}
+
+EScene3DSerializeError BuildStableSceneDependencyOrder(FParsedScene3DDocument& Document, bool ValidateVirtualPaths, TArray<FSceneDependencyRecord>& Dependencies) noexcept
+{
+    THashMap<u64, u32> FirstByHash;
+    if (!Dependencies.TryReserve(static_cast<usize>(Document.Nodes.Size()) * 2u)) {
+        return EScene3DSerializeError::AllocationFailure;
+    }
+    for (u32 NodeIndex = 0u; NodeIndex < Document.Nodes.Size(); ++NodeIndex) {
+        FParsedNode& Node = Document.Nodes[NodeIndex];
+        if (Node.HasMeshPath) {
+            if (ValidateVirtualPaths && !IsSafeVirtualAssetPath(Node.MeshPath)) {
                 return EScene3DSerializeError::AssetPathInvalid;
-            if (!ReadPackEntry(
-                    pack, node.MaterialPath,
-                    static_cast<u64>(kMaterial2DMaxTextBytes), bytes)) {
+            }
+            if (!AddStableSceneDependency(Dependencies, FirstByHash, ESceneDependencyKind::Mesh, Node.MeshPath, NodeIndex)) {
+                return EScene3DSerializeError::AllocationFailure;
+            }
+        }
+        if (Node.HasMaterialPath) {
+            if (ValidateVirtualPaths && !IsSafeVirtualAssetPath(Node.MaterialPath)) {
+                return EScene3DSerializeError::AssetPathInvalid;
+            }
+            if (!AddStableSceneDependency(Dependencies, FirstByHash, ESceneDependencyKind::Material, Node.MaterialPath, NodeIndex)) {
+                return EScene3DSerializeError::AllocationFailure;
+            }
+        }
+    }
+    return EScene3DSerializeError::None;
+}
+
+EScene3DSerializeError DecodeAndAssignSceneDependency(FParsedScene3DDocument& Document, const FSceneDependencyRecord& Dependency, const TArray<byte>& Bytes, u32& DependenciesLoaded) noexcept
+{
+    if (Dependency.Kind == ESceneDependencyKind::Mesh) {
+        auto Decoded = DecodeMesh(Dependency.Path, Bytes);
+        if (Decoded.IsErr() || !Decoded.Value()) {
+            return EScene3DSerializeError::AssetDecodeFailed;
+        }
+        for (u32 NodeIndex : Dependency.Nodes) {
+            Document.Nodes[NodeIndex].LoadedMesh = Decoded.Value();
+            ++DependenciesLoaded;
+        }
+        return EScene3DSerializeError::None;
+    }
+
+    FMaterial2D Material{};
+    const FMaterial2DLoadResult MaterialResult = TryParseAcsmatText(reinterpret_cast<const char*>(Bytes.Data()), Bytes.Size(), Material);
+    if (!MaterialResult.Succeeded()) {
+        return EScene3DSerializeError::MaterialDecodeFailed;
+    }
+    for (u32 NodeIndex : Dependency.Nodes) {
+        Document.Nodes[NodeIndex].LoadedMaterial = Material;
+        ++DependenciesLoaded;
+    }
+    return EScene3DSerializeError::None;
+}
+
+EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene3DDocument& document, u32& dependencies_loaded) noexcept {
+    TArray<FSceneDependencyRecord> Dependencies;
+    const EScene3DSerializeError OrderError = BuildStableSceneDependencyOrder(document, true, Dependencies);
+    if (OrderError != EScene3DSerializeError::None) return OrderError;
+
+    constexpr u32 kBatchEntries = 8u;
+    constexpr u64 kBatchBytes = 32u * 1024u * 1024u;
+    TArray<byte> BatchBytes[kBatchEntries];
+    FAssetPackReadRequest Requests[kBatchEntries]{};
+    u32 DependencyIndices[kBatchEntries]{};
+    u8 EmptyDestinations[kBatchEntries]{};
+
+    u32 Cursor = 0u;
+    while (Cursor < Dependencies.Size()) {
+        u32 BatchCount = 0u;
+        u64 BatchSize = 0u;
+        while (Cursor < Dependencies.Size() && BatchCount < kBatchEntries) {
+            const FSceneDependencyRecord& Dependency = Dependencies[Cursor];
+            const u64 MaxBytes =
+                Dependency.Kind == ESceneDependencyKind::Mesh
+                    ? kScene3DAssetMaxBytes
+                    : static_cast<u64>(kMaterial2DMaxTextBytes);
+            const auto SizeResult = pack.FileSize(Dependency.Path);
+            if (SizeResult.IsErr() || SizeResult.Value() > MaxBytes) {
+                if (BatchCount == 0u)
+                    return EScene3DSerializeError::AssetMissing;
+                break;
+            }
+
+            const u64 Size64 = SizeResult.Value();
+            if (BatchCount > 0u && (BatchSize >= kBatchBytes || Size64 > kBatchBytes - BatchSize)) {
+                break;
+            }
+            const usize Size = static_cast<usize>(Size64);
+            if (static_cast<u64>(Size) != Size64 || !BatchBytes[BatchCount].TryResize(Size)) {
                 return EScene3DSerializeError::AssetMissing;
             }
-            const FMaterial2DLoadResult material_result =
-                TryParseAcsmatText(
-                    reinterpret_cast<const char*>(bytes.Data()),
-                    bytes.Size(), node.LoadedMaterial);
-            if (!material_result.Succeeded())
-                return EScene3DSerializeError::MaterialDecodeFailed;
-            ++dependencies_loaded;
-            bytes.Clear();
+
+            Requests[BatchCount].Name = Dependency.Path;
+            Requests[BatchCount].OutBuffer =
+                Size > 0u
+                    ? reinterpret_cast<u8*>(BatchBytes[BatchCount].Data())
+                    : &EmptyDestinations[BatchCount];
+            Requests[BatchCount].BufferSize = Size64;
+            DependencyIndices[BatchCount] = Cursor;
+            BatchSize += Size64;
+            ++BatchCount;
+            ++Cursor;
+        }
+
+        if (BatchCount == 0u) {
+            return EScene3DSerializeError::AssetMissing;
+        }
+        u32 CompletedCount = 0u;
+        const auto ReadResult = pack.ReadFiles(Requests, BatchCount, &CompletedCount);
+        if (CompletedCount > BatchCount) {
+            return EScene3DSerializeError::AssetMissing;
+        }
+        // 後続 read が失敗しても、旧逐次経路と同じく先行 dependency の
+        // decode error を先に確定する。外部 Scene への commit はまだ行わない。
+        for (u32 Index = 0u; Index < CompletedCount; ++Index) {
+            const EScene3DSerializeError DecodeError = DecodeAndAssignSceneDependency(document, Dependencies[DependencyIndices[Index]], BatchBytes[Index], dependencies_loaded);
+            if (DecodeError != EScene3DSerializeError::None)
+                return DecodeError;
+            BatchBytes[Index].Clear();
+        }
+        if (ReadResult.IsErr() || CompletedCount != BatchCount) {
+            return EScene3DSerializeError::AssetMissing;
         }
     }
     return EScene3DSerializeError::None;
@@ -1617,51 +1765,28 @@ bool ResolveLooseDependencyPath(
     return true;
 }
 
-EScene3DSerializeError LoadLooseDependencies(
-    const char* scene_path, FParsedScene3DDocument& document,
-    u32& dependencies_loaded) noexcept {
+EScene3DSerializeError LoadLooseDependencies(const char* scene_path, FParsedScene3DDocument& document, u32& dependencies_loaded) noexcept {
+    TArray<FSceneDependencyRecord> Dependencies;
+    const EScene3DSerializeError OrderError = BuildStableSceneDependencyOrder(document, false, Dependencies);
+    if (OrderError != EScene3DSerializeError::None) return OrderError;
+
     TArray<byte> bytes;
     char resolved[2048]{};
-    for (u32 i = 0u; i < document.Nodes.Size(); ++i) {
-        FParsedNode& node = document.Nodes[i];
-        if (node.HasMeshPath) {
-            if (!ResolveLooseDependencyPath(
-                    scene_path, node.MeshPath, resolved,
-                    static_cast<u32>(sizeof(resolved)))) {
-                return EScene3DSerializeError::AssetPathInvalid;
-            }
-            EScene3DSerializeError read_error =
-                ReadLooseFile(resolved, kScene3DAssetMaxBytes, bytes);
-            if (read_error != EScene3DSerializeError::None)
-                return read_error;
-            auto decoded = DecodeMesh(node.MeshPath, bytes);
-            if (decoded.IsErr() || !decoded.Value())
-                return EScene3DSerializeError::AssetDecodeFailed;
-            node.LoadedMesh = decoded.Value();
-            ++dependencies_loaded;
-            bytes.Clear();
+    for (const FSceneDependencyRecord& Dependency : Dependencies) {
+        if (!ResolveLooseDependencyPath(scene_path, Dependency.Path, resolved, static_cast<u32>(sizeof(resolved)))) {
+            return EScene3DSerializeError::AssetPathInvalid;
         }
-        if (node.HasMaterialPath) {
-            if (!ResolveLooseDependencyPath(
-                    scene_path, node.MaterialPath, resolved,
-                    static_cast<u32>(sizeof(resolved)))) {
-                return EScene3DSerializeError::AssetPathInvalid;
-            }
-            EScene3DSerializeError read_error =
-                ReadLooseFile(
-                    resolved, static_cast<u64>(kMaterial2DMaxTextBytes),
-                    bytes);
-            if (read_error != EScene3DSerializeError::None)
-                return read_error;
-            const FMaterial2DLoadResult material_result =
-                TryParseAcsmatText(
-                    reinterpret_cast<const char*>(bytes.Data()),
-                    bytes.Size(), node.LoadedMaterial);
-            if (!material_result.Succeeded())
-                return EScene3DSerializeError::MaterialDecodeFailed;
-            ++dependencies_loaded;
-            bytes.Clear();
-        }
+        const u64 MaxBytes =
+            Dependency.Kind == ESceneDependencyKind::Mesh
+                ? kScene3DAssetMaxBytes
+                : static_cast<u64>(kMaterial2DMaxTextBytes);
+        const EScene3DSerializeError ReadError = ReadLooseFile(resolved, MaxBytes, bytes);
+        if (ReadError != EScene3DSerializeError::None)
+            return ReadError;
+        const EScene3DSerializeError DecodeError = DecodeAndAssignSceneDependency(document, Dependency, bytes, dependencies_loaded);
+        if (DecodeError != EScene3DSerializeError::None)
+            return DecodeError;
+        bytes.Clear();
     }
     return EScene3DSerializeError::None;
 }

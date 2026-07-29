@@ -23,6 +23,21 @@
 
 namespace acs::game {
 
+TResult<void> IAssetPackReader::ReadFiles(const FAssetPackReadRequest* Requests, u32 Count, u32* CompletedCount) noexcept
+{
+    if (CompletedCount != nullptr) *CompletedCount = 0u;
+    if (Count > 0u && Requests == nullptr) {
+        return ACS_ERR(IO, kSubAssetPackInvalidBatch, "IAssetPackReader::ReadFiles: null requests");
+    }
+    for (u32 Index = 0u; Index < Count; ++Index) {
+        const FAssetPackReadRequest& Request = Requests[Index];
+        const auto Result = ReadFile(Request.Name, Request.OutBuffer, Request.BufferSize);
+        if (Result.IsErr()) return Result.Error();
+        if (CompletedCount != nullptr) *CompletedCount = Index + 1u;
+    }
+    return Ok();
+}
+
 /** NotImplemented を返す stub 実装。 */
 TResult<void> FAssetPackReaderStub::Mount(const char* pack_path) noexcept {
     (void)pack_path;  // 未使用引数 (Stub なので no-op)

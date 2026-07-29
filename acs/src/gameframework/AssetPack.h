@@ -1,60 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — AssetPack (`.acpak` 暗号化アーカイブ I/F stub)
-//
-// 製品化に向けた「アセットのパッケージング + 暗号化」を担うエンジンモジュールの
-// シーム (seam) インターフェース。開発中はバラのファイル、出荷時は 1 つの
-// 不透明な `.acpak` にまとめ、ゲームコードを変えずに切り替えられる。
-//
-// 注: **実装は独立モジュール `acs::assetpack` (`src/assetpack/`) に置き**、
-// GameFramework 内には interface stub のみを置く。AES-256-GCM 暗号 + LZ4 圧縮 +
-// 認証タグ検証 等の実体実装は独立モジュール側で行う。
-//
-// 使い方:
-//   class FAssetLoader {
-//       acs::game::IAssetPackReader* m_Pack = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは GoldenAssetPackReader を DI、開発ビルドでは Stub。
-//           m_Pack = &acs::game::GetReaderStub();
-//           (void)m_Pack->Mount("game.acpak");
-//       }
-//       void LoadTexture(const char* name) noexcept {
-//           if (auto sz = m_Pack->FileSize(name); sz.IsOk()) {
-//               u8* buf = AllocateBuffer(sz.Value());
-//               (void)m_Pack->ReadFile(name, buf, sz.Value());
-//               // ... decode ...
-//           }
-//       }
-//   };
-//
-// 設計選択 (Pillar G):
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: AES-GCM / LZ4 / bcrypt (Windows CNG)
-//     依存は重く、それらをリンクしないテストビルドでも本 I/F だけは常に提供する。
-//     実装は別モジュール (`acs::assetpack`) で `IAssetPackReader` /
-//     `IAssetPackWriter` を override する形を取る。
-//   ・**Reader / Writer を別 I/F に分離**: ランタイムは Reader しか要らず、Writer は
-//     ツール (パッキングコマンド) 側のみ使う。実装も別バイナリに分けやすくする。
-//   ・**所有しない const char***: ファイル名 / pack パスは呼び出し側 / 実装側の
-//     ライフタイムに従う。Bridge はコピーしない (STL <string> 不使用方針)。
-//     `FileName(index)` の戻り値は「次の Mount/Unmount を呼ぶまで有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API を
-//     `ACS_ERR(Generic, kSubAssetPackNotImplemented, ...)` で返す。
-//   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `GetReaderStub()` / `GetWriterStub()` を提供。実 AssetPack 未統合の
-//     ビルドでもポインタ DI だけでコンパイル可能。
-//   ・**実 AssetPack 実装はここでは作らない**: FAcpakGameReader 等は AES-GCM
-//     CNG / LZ4 への依存を伴うため、本ファイルでは I/F + Stub のみ。
-//
-// 範囲外 (本ファイルでは持たない):
-//   ・実 `.acpak` フォーマットの読み書き (ヘッダ / TOC / ブロブ領域)。
-//   ・AES-256-GCM 復号 + 認証タグ検証、LZ4 解凍。
-//   ・パスヒープ暗号化、ハッシュのみモード、追記 patch pak。
-//   ・非同期ストリーミング (Mount は同期 mmap 前提、ReadFile も同期コピー)。
-//   ・複数 pak のスタック (overlay) — pak A 上書き pak B の優先解決。
 #pragma once
 
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "gameframework/AssetPackReadRequest.h"
 
 namespace acs::game {
 
@@ -67,6 +16,7 @@ inline constexpr u16 kSubAssetPackNotImplemented = 1201;
 
 /** Mount() 前の API 呼び出しを表す subcode。 */
 inline constexpr u16 kSubAssetPackNotMounted     = 1202;
+inline constexpr u16 kSubAssetPackInvalidBatch   = 1203;
 
 /**
  * 現在マウント中の pak の最小情報。
@@ -168,6 +118,18 @@ public:
      * @return 成功なら空の TResult、容量不足等はエラー。
      */
     virtual TResult<void> ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept = 0;
+
+    /**
+     * 複数ファイルを要求順に読み取る。
+     *
+     * @details 既定実装は ReadFile を順番に呼び、既存 backend の互換性を維持する。
+     * 後続要素の失敗時も、それ以前の出力は commit 済みである。
+     * @param Requests 入力名、出力先、出力容量を持つ要求配列。
+     * @param Count Requests の要素数。
+     * @param CompletedCount 任意。成功済み要素数を常に書き戻す。
+     * @return 全要求を読めた場合は成功、引数不正または個々の ReadFile 失敗時はエラー。
+     */
+    virtual TResult<void> ReadFiles(const FAssetPackReadRequest* Requests, u32 Count, u32* CompletedCount = nullptr) noexcept;
 };
 
 /**

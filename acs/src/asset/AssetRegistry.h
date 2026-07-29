@@ -22,6 +22,8 @@
 #include "asset/Asset.h"
 #include "asset/IAssetLoader.h"
 #include "asset/AssetFuture.h"
+#include "asset/AssetPathInterner.h"
+#include "asset/AssetRegistryDiagnostics.h"
 
 namespace acs {
 
@@ -58,7 +60,8 @@ public:
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
     explicit FAssetRegistry(FAllocator& allocator) noexcept
-        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator)
+        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator),
+          m_PathInterner(allocator)
     {
     }
 
@@ -107,6 +110,9 @@ public:
      * @return 完了確認用の FAssetFuture。
      */
     FAssetFuture LoadAsync(const wchar_t* path) noexcept;
+
+    /** ロード共有とパス保持の累積診断値を一括取得する。 */
+    FAssetRegistryDiagnostics Diagnostics() const noexcept;
 
     /**
      * 新規ロード受付を閉じ、処理中の同期・非同期ロードを待って全キャッシュを解放する。
@@ -163,7 +169,7 @@ private:
     IAssetLoader* FindLoader(const wchar_t* path) noexcept;
 
     /** キャッシュ・ローダ配列を保護する FMutex。 */
-    FMutex                          m_Lock;
+    mutable FMutex                  m_Lock;
 
     /** ID をキーにしたアセットキャッシュ。 */
     THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
@@ -178,6 +184,24 @@ private:
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;
+
+    /** 非同期ジョブと再要求で共有する有界パス所有プール。 */
+    FAssetPathInterner m_PathInterner;
+
+    /** 有効な非同期要求数。 */
+    u64 m_AsyncRequestCount = 0u;
+
+    /** 進行中ジョブへ合流した非同期要求数。 */
+    u64 m_AsyncCoalescedCount = 0u;
+
+    /** 実際に投入した非同期ジョブ数。 */
+    u64 m_AsyncJobCount = 0u;
+
+    /** 実際に開始したファイル読込数。 */
+    u64 m_PhysicalFileReadCount = 0u;
+
+    /** キャッシュから返した要求数。 */
+    u64 m_CacheHitCount = 0u;
 
     /** Shutdown が新規ロード受付を閉じた後は true (m_Lock で保護)。 */
     bool m_Closing = false;

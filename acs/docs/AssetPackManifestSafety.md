@@ -53,6 +53,21 @@ reader は manifest 解析の前後で file identity、size、last-write time �
 変化は `kAcpakSubFileChanged` として報告します。handle は read/delete sharing で開き、
 POSIX rename semantics により既存 snapshot を無効化せず新しい path を公開します。
 
+256 KiB 以上の archive は同じ検証済み handle から read-only mapping を試します。
+mapping 失敗時は archive open を失敗させず、従来の `ReadFile` 経路へ戻ります。
+atomic replace 後も mapping は旧 handle の snapshot を保持します。`Close()` は view、
+mapping handle、file handle の順で閉じます。
+
+raw mapped entry は CRC 成功後だけ caller buffer へ copy します。圧縮/暗号化 entry は
+最終 scratch 上で復号・展開・CRC を完了してから commit します。reader が保持する
+stored/final scratch は各 16 MiB までで、競合または上限超過時は呼び出し局所 scratch
+へ戻ります。
+
+`ReadFiles()` は最大 1,024 entry を要求順に一つの lifecycle lock 境界で読みます。
+all-or-nothing ではなく、後続失敗時も先行出力は commit 済みです。任意の
+`CompletedCount` で成功済み件数を取得できます。診断 snapshot/reset は進行中 read の
+完了境界を作ってから mapped/buffered/scratch/batch counter を集約または初期化します。
+
 安定した manifest error subcode は次のとおりです。
 
 - `kAcpakSubBadPath`
@@ -74,6 +89,12 @@ registry path は UTF-16 code unit 1,023 個までです。同期/非同期 load
 path だけを黙って切り詰めることはありません。cache 挿入も allocation を検証し、
 fail-fast container 操作の代わりに安定した OOM error を返します。
 
+新規 async job の path は最大 256件/65,536 code unit の
+`FAssetPathInterner` で共有します。sync load、cache hit、in-flight hit は interner を
+通らず、従来 hot path に lock/allocation を追加しません。pool は未使用 path だけを
+evict し、全要素が使用中なら非保持の共有 path を返すため job lifetime を短縮しません。
+DDC owner は現時点で存在しないため、この pool を DDC 名目で別 lifetime に流用しません。
+
 ## テスト
 
 `tests/assetpack_manifest_safety_tests.cpp` は次を検証します。
@@ -82,6 +103,10 @@ fail-fast container 操作の代わりに安定した OOM error を返します�
 - 埋め込み NUL、重複、traversal、reserved schema の拒否。
 - 不正 `AddFile` 後の pending list 不変。
 - 旧 reader を開いたままの原子的置換。
+- large archive の旧 mapped view と置換後の新 reader の byte parity。
+- mapped CRC 失敗時の caller buffer 不変、batch の部分完了数。
+- 圧縮 scratch の上限、再利用、4 並行 read の byte parity。
 - finalize 前に中断した場合の既存 archive 保護。
 - 検証付き loader 登録、extension 重複、OOM。
 - 同期/非同期の path 上限超過を切り詰めず拒否すること。
+- async path pool の上限、pin 中の寿命、cache/in-flight hit の非介入、shutdown 競合。

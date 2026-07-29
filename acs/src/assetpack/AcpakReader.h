@@ -1,29 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS AssetPack — `.acpak` v1 アーカイブ読み出し器
-// -----------------------------------------------------------------------------
-// 1 つの `.acpak` ファイルを開き、含まれる仮想ファイルを名前 (wchar_t*) で
-// 取り出すための実装クラス。GameFramework の `IAssetPackReader` とは
-// 独立して動作する。
-//
-// 使い方の典型例:
-//   acs::assetpack::FAcpakReader reader;
-//   auto r = reader.Open(L"game.acpak");
-//   if (r.IsErr()) { /* マウント失敗 */ }
-//
-//   auto sz = reader.GetUncompressedSize(L"textures/hero.png");
-//   if (sz.IsOk()) {
-//       acs::byte* buf = MyAllocator().Allocate(sz.Value());
-//       auto rd = reader.ReadFile(L"textures/hero.png", buf, sz.Value());
-//       if (rd.IsOk()) { /* buf に PNG 生バイト */ }
-//   }
-//
-//   reader.Close();
-//
-// 非コピー・非ムーブ:
-//   ファイルハンドル + 文字列 pool + entry 配列を所有しているため、所有権移転は
-//   サポートしない。Reader インスタンスは固定アドレスでライフタイム管理する。
-// =============================================================================
 #pragma once
 
 #include "foundation/Result.h"
@@ -31,9 +6,11 @@
 #include "container/Array.h"
 #include "threading/Mutex.h"
 #include "threading/RwLock.h"
+#include "threading/Atomic.h"
 
 #include "assetpack/AcpakFormat.h"
 #include "assetpack/AcpakCrypto.h" // AcpakKey (暗号化 pak の鍵注入)
+#include "assetpack/AcpakReadDiagnostics.h"
 
 namespace acs::assetpack {
 
@@ -156,6 +133,26 @@ public:
     TResult<u64> ReadFile(const wchar_t* Path, void* OutBuffer, u64 BufferSize) noexcept;
 
     /**
+     * 複数ファイルを要求順に読み取る。
+     *
+     * @details ライフサイクルロックと不変マッピングを一括共有し、要求順と検証順を
+     * 変えない。後続要素の失敗時も、それ以前の出力は commit 済みである。
+     * @param Paths 読み出す UTF-16 仮想パスの配列。
+     * @param OutBuffers 各要求の出力先バッファ配列。
+     * @param BufferSizes 各出力先の容量配列。
+     * @param Count 各配列の要素数。
+     * @param CompletedCount 任意。成功済み要素数を常に書き戻す。
+     * @return 全要求を読めた場合は総バイト数、引数不正、容量不足、検証失敗、I/O 失敗時はエラー。
+     */
+    TResult<u64> ReadFiles(const wchar_t* const* Paths, void* const* OutBuffers, const u64* BufferSizes, u32 Count, u32* CompletedCount = nullptr) noexcept;
+
+    /** 読み取りを完了境界で止め、relaxed カウンタ群を一括集約する。 */
+    FAcpakReadDiagnostics ReadDiagnostics() const noexcept;
+
+    /** 進行中の読み取り完了後、診断カウンタを決定的に初期化する。 */
+    void ResetReadDiagnostics() noexcept;
+
+    /**
      * 仮想パスの復号 + 解凍後のバイト数を返す。
      *
      * @details ReadFile 用バッファの事前確保に使う。
@@ -193,6 +190,24 @@ private:
     /** ライフサイクル共有ロック取得済みで entry を検索する。 */
     const FAcpakFileEntry* FindEntryUnlocked(const wchar_t* Path) const noexcept;
 
+    /** ライフサイクル共有ロック取得済みで一つの entry を読み取る。 */
+    TResult<u64> ReadEntryUnlocked(const FAcpakFileEntry& Entry, void* OutBuffer, u64 BufferSize) noexcept;
+
+    /** 現在の不変ファイルスナップショットへ読み取り専用マッピングを試す。 */
+    void TryCreateReadMappingUnlocked() noexcept;
+
+    /** 読み取り経路の relaxed 診断カウンタ群。 */
+    struct FReadDiagnosticCounters {
+        TAtomic<u64> MappedReadCount{0u};
+        TAtomic<u64> MappedReadBytes{0u};
+        TAtomic<u64> BufferedReadCount{0u};
+        TAtomic<u64> BufferedReadBytes{0u};
+        TAtomic<u64> ScratchReuseCount{0u};
+        TAtomic<u64> ScratchFallbackCount{0u};
+        TAtomic<u64> BatchCount{0u};
+        TAtomic<u64> BatchEntryCount{0u};
+    };
+
     /** Open/Close と読み出し処理の寿命を同期する。 */
     mutable FRwLock m_LifecycleLock;
 
@@ -201,6 +216,12 @@ private:
 
     /** Win32 HANDLE 相当 (<windows.h> を header から外すため void* で保持)。 */
     void* m_FileHandle = nullptr;
+
+    /** 読み取り専用 file mapping handle。作成失敗時は null。 */
+    void* m_FileMappingHandle = nullptr;
+
+    /** パッケージ全体の読み取り専用 view。作成失敗時は null。 */
+    const u8* m_MappedView = nullptr;
 
     /** CreateFileW 直後に GetFileSizeEx で得たファイル長。 */
     u64 m_FileSize = 0;
@@ -222,6 +243,18 @@ private:
 
     /** SetKey で鍵が設定されたか (Close で false にリセット)。 */
     bool m_HasKey = false;
+
+    /** 小中規模の格納データを再利用する一時領域。 */
+    TArray<u8> m_StoredScratch;
+
+    /** 検証完了まで出力を保持する再利用領域。 */
+    TArray<u8> m_FinalScratch;
+
+    /** 保持一時領域を一呼び出しだけに貸し出す。 */
+    mutable FMutex m_ScratchLock;
+
+    /** correctness から独立した累積診断値。 */
+    FReadDiagnosticCounters m_ReadDiagnosticCounters;
 };
 
 } // namespace acs::assetpack

@@ -150,6 +150,7 @@ set(_acsgen_gameframework_headers
     AppState.h
     AssetBundle.h
     AssetPack.h
+    AssetPackReadRequest.h
     AudioDirector.h
     BackendClient.h
     BeatGrid.h

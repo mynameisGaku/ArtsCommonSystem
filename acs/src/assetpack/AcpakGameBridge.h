@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Concrete GameFramework bridge for `.acpak`.
 #pragma once
 
 #include "assetpack/AcpakReader.h"
@@ -93,6 +92,16 @@ public:
      * @return 成功なら空の TResult、変換失敗 / バッファ不足 / I/O 失敗ならエラー。
      */
     acs::TResult<void> ReadFile(const char* Name, acs::u8* OutBuffer, acs::u64 BufferSize) noexcept override;
+
+    /**
+     * UTF-8 パス変換と Reader の共有ロックを一括して複数ファイルを読む。
+     *
+     * @param Requests 入力名、出力先、出力容量を持つ要求配列。
+     * @param Count Requests の要素数。
+     * @param CompletedCount 任意。成功済み要素数を常に書き戻す。
+     * @return 全要求を読めた場合は成功、不正な UTF-8、容量不足、検証失敗、I/O 失敗時はエラー。
+     */
+    acs::TResult<void> ReadFiles(const acs::game::FAssetPackReadRequest* Requests, acs::u32 Count, acs::u32* CompletedCount = nullptr) noexcept override;
 
 private:
     /** NUL 終端を含む UTF-16 パスの最大容量。 */

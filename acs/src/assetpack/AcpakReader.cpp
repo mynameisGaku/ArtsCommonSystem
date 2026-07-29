@@ -239,7 +239,9 @@ FAcpakReader::FAcpakReader() noexcept : FAcpakReader(DefaultAllocator())
 }
 
 /** 指定 allocator で file table と文字列 pool を構築する。 */
-FAcpakReader::FAcpakReader(FAllocator& Allocator) noexcept : m_Entries(Allocator), m_StringPool(Allocator)
+FAcpakReader::FAcpakReader(FAllocator& Allocator) noexcept
+    : m_Entries(Allocator), m_StringPool(Allocator),
+      m_StoredScratch(Allocator), m_FinalScratch(Allocator)
 {
 }
 
@@ -259,6 +261,14 @@ void FAcpakReader::Close() noexcept
 /** ライフサイクルロック取得済みで内部状態を空に戻す。 */
 void FAcpakReader::CloseUnlocked() noexcept
 {
+    if (m_MappedView != nullptr) {
+        ::UnmapViewOfFile(m_MappedView);
+        m_MappedView = nullptr;
+    }
+    if (m_FileMappingHandle != nullptr) {
+        ::CloseHandle(static_cast<HANDLE>(m_FileMappingHandle));
+        m_FileMappingHandle = nullptr;
+    }
     if (m_FileHandle != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(m_FileHandle));
         m_FileHandle = nullptr;
@@ -268,6 +278,8 @@ void FAcpakReader::CloseUnlocked() noexcept
     m_TableOffset = 0;
     m_Entries.ReleaseStorage();
     m_StringPool.ReleaseStorage();
+    m_StoredScratch.ReleaseStorage();
+    m_FinalScratch.ReleaseStorage();
 
     // 鍵情報の defensive zero (再 Open のときに古い鍵が漏れないよう)。
     MemSet(m_Key.bytes, 0, sizeof(m_Key.bytes));
@@ -302,6 +314,10 @@ TResult<void> FAcpakReader::Open(const wchar_t* FilePath) noexcept
     CloseUnlocked();
     m_FileHandle = Staged.m_FileHandle;
     Staged.m_FileHandle = nullptr;
+    m_FileMappingHandle = Staged.m_FileMappingHandle;
+    Staged.m_FileMappingHandle = nullptr;
+    m_MappedView = Staged.m_MappedView;
+    Staged.m_MappedView = nullptr;
     m_FileSize = Staged.m_FileSize;
     Staged.m_FileSize = 0;
     m_Flags = Staged.m_Flags;
@@ -375,7 +391,26 @@ TResult<void> FAcpakReader::OpenIntoEmptyUnlocked(const wchar_t* FilePath) noexc
         return ACS_ERR(IO, kAcpakSubFileChanged,
                        "FAcpakReader::Open: file changed while manifest was read");
     }
+    TryCreateReadMappingUnlocked();
     return Ok();
+}
+
+void FAcpakReader::TryCreateReadMappingUnlocked() noexcept
+{
+    if (m_FileHandle == nullptr || m_FileSize < kAcpakMappedReadMinimumBytes || m_FileSize > static_cast<u64>(static_cast<usize>(-1))) {
+        return;
+    }
+
+    const HANDLE Mapping = ::CreateFileMappingW(static_cast<HANDLE>(m_FileHandle), nullptr, PAGE_READONLY, 0u, 0u, nullptr);
+    if (Mapping == nullptr) return;
+
+    const void* const View = ::MapViewOfFile(Mapping, FILE_MAP_READ, 0u, 0u, 0u);
+    if (View == nullptr) {
+        ::CloseHandle(Mapping);
+        return;
+    }
+    m_FileMappingHandle = Mapping;
+    m_MappedView = static_cast<const u8*>(View);
 }
 
 /** header (36B) と file table の全 entry を 2 パスで読み出す。 */
@@ -726,117 +761,229 @@ TResult<u64> FAcpakReader::ReadFile(const wchar_t* Path, void* OutBuffer, u64 Bu
     if (BufferSize < Entry->size_uncompressed) {
         return ACS_ERR(IO, kAcpakSubBufferTooSmall, "FAcpakReader::ReadFile: buffer too small");
     }
+    return ReadEntryUnlocked(*Entry, OutBuffer, BufferSize);
+}
+
+TResult<u64> FAcpakReader::ReadEntryUnlocked(const FAcpakFileEntry& EntryReference, void* OutBuffer, u64 BufferSize) noexcept
+{
+    const FAcpakFileEntry* const Entry = &EntryReference;
+    if (OutBuffer == nullptr) {
+        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakReader::ReadFile: out_buffer is null");
+    }
+    if (BufferSize < Entry->size_uncompressed) {
+        return ACS_ERR(IO, kAcpakSubBufferTooSmall, "FAcpakReader::ReadFile: buffer too small");
+    }
 
     const bool bEncrypted = (m_Flags & static_cast<u32>(AcpakFlagEncrypted)) != 0u;
     const bool bCompressed = (m_Flags & static_cast<u32>(AcpakFlagCompressed)) != 0u;
-
     const HANDLE Handle = static_cast<HANDLE>(m_FileHandle);
-    DWORD Error = 0;
-
-    // 暗号化 pak で鍵未設定なら早期に弾く (Decrypt がいずれにせよ失敗するが、
-    // 専用 subcode で返した方がトラブルシュートに親切)。
     if (bEncrypted && !m_HasKey) {
         return ACS_ERR(Asset, kAcpakSubCryptoKey, "FAcpakReader::ReadFile: encrypted pak but no key set");
     }
 
-    // ---- pipeline 設計 (decrypt-then-decompress) -------------------------
-    //
-    //   ディスク → [size_stored bytes (ciphertext or stored)]
-    //     ↓ (encrypted ? AES-GCM decrypt : noop)
-    //     [size_stored bytes (compressed or raw)]
-    //     ↓ (compressed ? LZ4 decompress : noop)
-    //     [size_uncompressed bytes (final plaintext)]
-    //     ↓ CRC32 検証
-    //     out_buffer
-    //
-    // 中間段が必要かは flags の組み合わせ次第:
-    //   ・flags == 0           : ディスク直 → out_buffer (中間バッファ不要)
-    //   ・compressed only      : ディスク → tmp(size_stored) → LZ4 → out_buffer
-    //   ・encrypted only       : ディスク → out_buffer に load → in-place decrypt
-    //                            (size_stored == size_uncompressed なので buffer OK)
-    //   ・encrypted+compressed : ディスク → tmp(size_stored) → in-place decrypt
-    //                            → LZ4 → out_buffer
-    //
-    // tmp バッファは size_stored バイト確保する。
-
     const usize FinalSize = static_cast<usize>(Entry->size_uncompressed);
     if (static_cast<u64>(FinalSize) != Entry->size_uncompressed) {
-        return ACS_ERR(Asset, kAcpakSubBadSize,
-                       "FAcpakReader::ReadFile: output exceeds address space");
+        return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::ReadFile: output exceeds address space");
     }
-    TArray<u8> Final(*m_StringPool.GetAllocator());
-    if (!Final.TryResize(FinalSize)) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory,
-                       "FAcpakReader::ReadFile: transactional output allocation failed");
+    const usize StoredSize = static_cast<usize>(Entry->size_stored);
+    if (static_cast<u64>(StoredSize) != Entry->size_stored) {
+        return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::ReadFile: stored data exceeds address space");
     }
-    void* const FinalDestination = Final.IsEmpty() ? nullptr : Final.Data();
 
-    TArray<u8> Temporary(*m_StringPool.GetAllocator());
-    void* StoredDestination = nullptr;
+    FReadDiagnosticCounters& Diagnostic = m_ReadDiagnosticCounters;
+    const u8* const MappedSource = m_MappedView != nullptr
+        ? m_MappedView + static_cast<usize>(Entry->offset) : nullptr;
 
+    // 無圧縮・無暗号のマッピング経路は CRC 成功後だけ出力へコピーする。
+    if (!bEncrypted && !bCompressed && MappedSource != nullptr) {
+        Diagnostic.MappedReadCount.FetchAdd(1u);
+        Diagnostic.MappedReadBytes.FetchAdd(Entry->size_stored);
+        const u32 ActualCrc = ComputeCrc32(MappedSource, Entry->size_uncompressed);
+        if (ActualCrc != Entry->crc32) {
+            ACS_LOG_WARN("FAcpakReader::ReadFile: CRC mismatch (expected=0x%08x, actual=0x%08x)", Entry->crc32, ActualCrc);
+            return ACS_ERR(Asset, kAcpakSubBadCrc, "FAcpakReader::ReadFile: CRC32 mismatch");
+        }
+        if (FinalSize > 0u) MemCopy(OutBuffer, MappedSource, FinalSize);
+        return TResult<u64>(OkInit, Entry->size_uncompressed);
+    }
+
+    const bool NeedStoredScratch = bCompressed && (bEncrypted || MappedSource == nullptr);
+    const bool NeedFinalScratch = true;
+    const bool RetainEligible = StoredSize <= kAcpakRetainedScratchMaxBytes && FinalSize <= kAcpakRetainedScratchMaxBytes;
+
+    TArray<u8> LocalStored(*m_StringPool.GetAllocator());
+    TArray<u8> LocalFinal(*m_StringPool.GetAllocator());
+    TArray<u8>* Stored = &LocalStored;
+    TArray<u8>* Final = &LocalFinal;
+    FMutex* RetainedLock = nullptr;
+    if (RetainEligible && m_ScratchLock.TryLock()) {
+        RetainedLock = &m_ScratchLock;
+        Stored = &m_StoredScratch;
+        Final = &m_FinalScratch;
+        const bool Reused = (!NeedStoredScratch || Stored->Capacity() >= StoredSize) && (!NeedFinalScratch || Final->Capacity() >= FinalSize);
+        if (Reused) Diagnostic.ScratchReuseCount.FetchAdd(1u);
+    } else {
+        Diagnostic.ScratchFallbackCount.FetchAdd(1u);
+    }
+
+    /** 保持一時領域を全 return 経路で返す。 */
+    struct FRetainedScratchGuard {
+        FMutex* Lock = nullptr;
+        ~FRetainedScratchGuard() noexcept
+        {
+            if (Lock != nullptr) Lock->Unlock();
+        }
+    } ScratchGuard{RetainedLock};
+
+    if (NeedStoredScratch && !Stored->TryResize(StoredSize)) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakReader::ReadFile: intermediate allocation failed");
+    }
+    if (!Final->TryResize(FinalSize)) {
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakReader::ReadFile: transactional output allocation failed");
+    }
+
+    u8* const FinalDestination = Final->IsEmpty() ? nullptr : Final->Data();
+    u8* MutableStored = nullptr;
+    const u8* StoredSource = nullptr;
     if (bCompressed) {
-        // 中間バッファ確保
         if (Entry->size_stored > 0xFFFFFFFFu) {
             return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::ReadFile: stored size > 4GiB (LZ4 limit)");
         }
-        if (!Temporary.TryResize(static_cast<usize>(Entry->size_stored))) {
-            return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakReader::ReadFile: intermediate allocation failed");
+        if (NeedStoredScratch) {
+            MutableStored = Stored->IsEmpty() ? nullptr : Stored->Data();
+            StoredSource = MutableStored;
+        } else {
+            StoredSource = MappedSource;
         }
-        StoredDestination = Temporary.IsEmpty() ? nullptr : Temporary.Data();
     } else {
-        // 非圧縮なら out_buffer 直接 (size_stored == size_uncompressed)
-        StoredDestination = FinalDestination;
+        MutableStored = FinalDestination;
+        StoredSource = FinalDestination;
     }
 
-    // ---- ディスク read -----------------------------------------------------
-    if (Entry->size_stored > 0) {
-        if (!ReadAt(Handle, Entry->offset, StoredDestination, Entry->size_stored, Error, m_IoLock)) {
-            return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakReader::ReadFile: ReadFile (data) failed", Error);
+    if (Entry->size_stored > 0u) {
+        if (MappedSource != nullptr) {
+            Diagnostic.MappedReadCount.FetchAdd(1u);
+            Diagnostic.MappedReadBytes.FetchAdd(Entry->size_stored);
+            if (MutableStored != nullptr) {
+                MemCopy(MutableStored, MappedSource, StoredSize);
+            }
+        } else {
+            DWORD Error = 0u;
+            if (!ReadAt(Handle, Entry->offset, MutableStored, Entry->size_stored, Error, m_IoLock)) {
+                return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakReader::ReadFile: ReadFile (data) failed", Error);
+            }
+            Diagnostic.BufferedReadCount.FetchAdd(1u);
+            Diagnostic.BufferedReadBytes.FetchAdd(Entry->size_stored);
         }
     }
 
-    // ---- AES-GCM 復号 (in-place) -------------------------------------------
-    // size_stored == 0 (= 元から空ファイル) でも GMAC 動作で tag 検証を行う。
-    // ここを skip すると空ファイルの cipher_tag が攻撃者に書き換え自由になる。
+    // 空の暗号化 entry でも tag 検証を行う。
     if (bEncrypted) {
-        u8* const Bytes = static_cast<u8*>(StoredDestination);
-        const auto DecryptResult = FAcpakCrypto::Decrypt(m_Key, Entry->cipher_nonce, Entry->cipher_tag, Bytes,
-                                                         Entry->size_stored, Bytes);
+        const auto DecryptResult = FAcpakCrypto::Decrypt(m_Key, Entry->cipher_nonce, Entry->cipher_tag, MutableStored, Entry->size_stored, MutableStored);
         if (DecryptResult.IsErr()) {
-            // tag mismatch は改竄、その他は CNG エラー — 呼び出し側にそのまま
-            // 伝搬する (subcode が原因を示す)。
             return DecryptResult.Error();
         }
+        StoredSource = MutableStored;
     }
 
-    // ---- LZ4 解凍 ---------------------------------------------------------
     if (bCompressed && Entry->size_uncompressed > 0) {
         if (Entry->size_uncompressed > 0xFFFFFFFFu) {
             return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::ReadFile: uncompressed size > 4GiB (LZ4 limit)");
         }
-        const auto DecompressResult = FAcpakLz4::Decompress(
-            Temporary.Data(), static_cast<u32>(Entry->size_stored),
-            Final.Data(), static_cast<u32>(Entry->size_uncompressed));
+        const auto DecompressResult = FAcpakLz4::Decompress(StoredSource, static_cast<u32>(Entry->size_stored), FinalDestination, static_cast<u32>(Entry->size_uncompressed));
         if (DecompressResult.IsErr()) {
             return DecompressResult.Error();
         }
         if (static_cast<u64>(DecompressResult.Value()) != Entry->size_uncompressed) {
-            // 解凍結果サイズが TOC と一致しない = 破損 or バグ
             return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakReader::ReadFile: LZ4 decompressed size mismatch");
         }
     }
 
-    // ---- CRC32 検証 (元の生バイトに対して) --------------------------------
     const u32 ActualCrc = ComputeCrc32(FinalDestination, Entry->size_uncompressed);
     if (ActualCrc != Entry->crc32) {
         ACS_LOG_WARN("FAcpakReader::ReadFile: CRC mismatch (expected=0x%08x, actual=0x%08x)", Entry->crc32, ActualCrc);
         return ACS_ERR(Asset, kAcpakSubBadCrc, "FAcpakReader::ReadFile: CRC32 mismatch");
     }
 
-    if (FinalSize > 0) {
-        MemCopy(OutBuffer, Final.Data(), FinalSize);
-    }
+    if (FinalSize > 0u) MemCopy(OutBuffer, FinalDestination, FinalSize);
     return TResult<u64>(OkInit, Entry->size_uncompressed);
+}
+
+TResult<u64> FAcpakReader::ReadFiles(const wchar_t* const* Paths, void* const* OutBuffers, const u64* BufferSizes, u32 Count, u32* CompletedCount) noexcept
+{
+    FScopedSharedLock Lock(m_LifecycleLock);
+    if (CompletedCount != nullptr) *CompletedCount = 0u;
+    if (m_FileHandle == nullptr) {
+        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakReader::ReadFiles: pak not open");
+    }
+    if (Count > kAcpakReadBatchMaxEntries || (Count > 0u && (Paths == nullptr || OutBuffers == nullptr || BufferSizes == nullptr))) {
+        return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakReader::ReadFiles: invalid batch");
+    }
+
+    FReadDiagnosticCounters& Diagnostic = m_ReadDiagnosticCounters;
+    Diagnostic.BatchCount.FetchAdd(1u);
+    Diagnostic.BatchEntryCount.FetchAdd(Count);
+
+    u64 TotalBytes = 0u;
+    for (u32 Index = 0u; Index < Count; ++Index) {
+        const FAcpakFileEntry* const Entry = FindEntryUnlocked(Paths[Index]);
+        if (Entry == nullptr) {
+            return ACS_ERR(IO, kAcpakSubNotFound, "FAcpakReader::ReadFiles: path not found");
+        }
+        if (TotalBytes > static_cast<u64>(-1) - Entry->size_uncompressed) {
+            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakReader::ReadFiles: byte count overflow");
+        }
+        const auto Result = ReadEntryUnlocked(*Entry, OutBuffers[Index], BufferSizes[Index]);
+        if (Result.IsErr()) return Result.Error();
+        TotalBytes += Result.Value();
+        if (CompletedCount != nullptr) *CompletedCount = Index + 1u;
+    }
+    return TResult<u64>(OkInit, TotalBytes);
+}
+
+FAcpakReadDiagnostics FAcpakReader::ReadDiagnostics() const noexcept
+{
+    // 読み取りを短時間止め、全カウンタを同じ完了境界で集約する。
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    FAcpakReadDiagnostics Result{};
+    Result.mapped_read_count =
+        m_ReadDiagnosticCounters.MappedReadCount.Load(EMemoryOrder::Relaxed);
+    Result.mapped_read_bytes =
+        m_ReadDiagnosticCounters.MappedReadBytes.Load(EMemoryOrder::Relaxed);
+    Result.buffered_read_count =
+        m_ReadDiagnosticCounters.BufferedReadCount.Load(EMemoryOrder::Relaxed);
+    Result.buffered_read_bytes =
+        m_ReadDiagnosticCounters.BufferedReadBytes.Load(EMemoryOrder::Relaxed);
+    Result.scratch_reuse_count =
+        m_ReadDiagnosticCounters.ScratchReuseCount.Load(EMemoryOrder::Relaxed);
+    Result.scratch_fallback_count =
+        m_ReadDiagnosticCounters.ScratchFallbackCount.Load(EMemoryOrder::Relaxed);
+    Result.batch_count =
+        m_ReadDiagnosticCounters.BatchCount.Load(EMemoryOrder::Relaxed);
+    Result.batch_entry_count =
+        m_ReadDiagnosticCounters.BatchEntryCount.Load(EMemoryOrder::Relaxed);
+    {
+        FScopedLock ScratchLock(m_ScratchLock);
+        Result.retained_scratch_bytes =
+            static_cast<u64>(m_StoredScratch.Capacity()) +
+            static_cast<u64>(m_FinalScratch.Capacity());
+    }
+    Result.mapped_view_active = m_MappedView != nullptr;
+    return Result;
+}
+
+void FAcpakReader::ResetReadDiagnostics() noexcept
+{
+    // reset 前に開始した読み取りを完了させ、reset 後の増分と混在させない。
+    FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
+    m_ReadDiagnosticCounters.MappedReadCount.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.MappedReadBytes.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.BufferedReadCount.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.BufferedReadBytes.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.ScratchReuseCount.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.ScratchFallbackCount.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.BatchCount.Store(0u, EMemoryOrder::Relaxed);
+    m_ReadDiagnosticCounters.BatchEntryCount.Store(0u, EMemoryOrder::Relaxed);
 }
 
 } // namespace acs::assetpack

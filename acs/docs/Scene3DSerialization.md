@@ -22,6 +22,11 @@
   親ディレクトリ基準で解決・検証してから適用する。
 - `TryLoadScene3DAssetPack` は既定でpack内の `main.acscene` を読み、同じpackだけから
   依存を解決する。mount後の欠損、CRC/解凍、デコード失敗ではloose fileへfallbackしない。
+  mesh/material 依存は kind と完全pathで重複排除し、初出順の最大8 entry、合計
+  32 MiBを目安とするbatchで読む。32 MiBを超える単一依存は進行保証のため一件だけで
+  読む。現在の外部依存は相互参照を持たないleafなので初出順が安定したtopological
+  orderになる。同じ依存を複数nodeが参照してもread/decodeは一度だけ行い、
+  `DependenciesLoaded`は従来どおり参照nodeごとに数える。
 - `SaveScene3DText` / `LoadScene3DText` は既存呼び出し向けの簡易 API として残る。
   新規コード、ファイル入力、ネットワーク入力ではサイズ付き `TryLoadScene3DText` を使う。
 - `Scene3DSerializeErrorName` はログやテレメトリ向けの安定した ASCII 名を返す。
@@ -70,6 +75,10 @@
 解析し、親関係・深度・値・文字列・命令・反射型を検証する。file/pack APIはさらに全メッシュ/
 マテリアル依存を読み、デコードを完了してからcommitする。したがって入力破損、未対応命令、
 欠損依存、CRC/解凍/デコード失敗では読み込み先の既存シーンを変更しない。
+
+pack batch は後続entryの失敗時に先行entryの完了数を返す。loaderはprivate parsed
+document上で完了済み依存を初出順にdecodeし、旧逐次経路と同じ先行decode errorを優先する。
+batch bufferやparsed nodeが更新されても、全依存が成功するまでは公開Sceneへcommitしない。
 
 呼び出し中に別スレッドからシーンを変更することはサポートしない。保存の計測後に内容が変化した
 場合は `scene_changed_during_save` を返す。

@@ -12,10 +12,12 @@ acs_module(
     NAME    Asset
     TYPE    Runtime
     SOURCES
+        AssetPathInterner.cpp
         AssetRegistry.cpp
         AudioAsset.cpp
         BinaryAsset.cpp
         ImageAsset.cpp
+        InternedAssetPath.cpp
         MeshAsset.cpp
         MeshPrimitive.cpp
         SkinnedMesh.cpp
@@ -24,11 +26,15 @@ acs_module(
         Asset.h
         AssetFuture.h
         AssetId.h
+        AssetPathInterner.h
+        AssetPathInternerDiagnostics.h
         AssetRegistry.h
+        AssetRegistryDiagnostics.h
         AudioAsset.h
         BinaryAsset.h
         IAssetLoader.h
         ImageAsset.h
+        InternedAssetPath.h
         MeshAsset.h
         MeshPrimitive.h
         SkinnedMesh.h
