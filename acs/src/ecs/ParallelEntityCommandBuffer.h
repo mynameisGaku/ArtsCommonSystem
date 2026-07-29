@@ -162,6 +162,19 @@ public:
     }
 
     /**
+     * 各ワーカースロットに同じ件数を事前予約する。記録開始前に単一スレッドから呼ぶ。
+     */
+    bool TryReservePerSlot(usize command_count) noexcept
+    {
+        bool ok = !m_Buffers.IsEmpty();
+        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+            ok = m_Buffers[i]->TryReserve(command_count) && ok;
+        }
+        if (!ok) m_DroppedRecords.FetchAdd(1u);
+        return ok;
+    }
+
+    /**
      * 全スロットの記録済み操作数の合計を返す (単一スレッドから呼ぶこと)。
      *
      * @return 未適用の記録数。

@@ -24,6 +24,91 @@ namespace acs::game {
 /** フィールドが実メンバ (offset 付き) を持つか (ACS_RPROP のスキーマのみは false)。 */
 inline bool FieldHasStorage(const FReflectField& f) noexcept { return f.size != 0u; }
 
+namespace reflect_apply_detail {
+
+using ApplyFn = void (*)(unsigned char*, const f32*) noexcept;
+using ReadFn = void (*)(const unsigned char*, f32*) noexcept;
+
+template<EFieldKind Kind>
+void Apply(unsigned char* p, const f32* v) noexcept
+{
+    if constexpr (Kind == EFieldKind::Bool)
+        *reinterpret_cast<bool*>(p) = v[0] != 0.0f;
+    else if constexpr (Kind == EFieldKind::I32 ||
+                       Kind == EFieldKind::ObjectRef)
+        *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]);
+    else if constexpr (Kind == EFieldKind::U32)
+        *reinterpret_cast<u32*>(p) = static_cast<u32>(v[0]);
+    else if constexpr (Kind == EFieldKind::F32)
+        *reinterpret_cast<f32*>(p) = v[0];
+    else if constexpr (Kind == EFieldKind::Vec2) {
+        auto* d = reinterpret_cast<f32*>(p); d[0] = v[0]; d[1] = v[1];
+    } else if constexpr (Kind == EFieldKind::Vec3) {
+        auto* d = reinterpret_cast<f32*>(p);
+        d[0] = v[0]; d[1] = v[1]; d[2] = v[2];
+    } else if constexpr (Kind == EFieldKind::Vec4) {
+        auto* d = reinterpret_cast<f32*>(p);
+        d[0] = v[0]; d[1] = v[1]; d[2] = v[2]; d[3] = v[3];
+    }
+}
+
+template<EFieldKind Kind>
+void Read(const unsigned char* p, f32* out) noexcept
+{
+    if constexpr (Kind == EFieldKind::Bool)
+        out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f;
+    else if constexpr (Kind == EFieldKind::I32 ||
+                       Kind == EFieldKind::ObjectRef)
+        out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p));
+    else if constexpr (Kind == EFieldKind::U32)
+        out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p));
+    else if constexpr (Kind == EFieldKind::F32)
+        out[0] = *reinterpret_cast<const f32*>(p);
+    else if constexpr (Kind == EFieldKind::Vec2) {
+        auto* d = reinterpret_cast<const f32*>(p); out[0] = d[0]; out[1] = d[1];
+    } else if constexpr (Kind == EFieldKind::Vec3) {
+        auto* d = reinterpret_cast<const f32*>(p);
+        out[0] = d[0]; out[1] = d[1]; out[2] = d[2];
+    } else if constexpr (Kind == EFieldKind::Vec4) {
+        auto* d = reinterpret_cast<const f32*>(p);
+        out[0] = d[0]; out[1] = d[1]; out[2] = d[2]; out[3] = d[3];
+    }
+}
+
+inline constexpr ApplyFn kApplyDispatch[] = {
+    &Apply<EFieldKind::Bool>, &Apply<EFieldKind::I32>,
+    &Apply<EFieldKind::U32>, &Apply<EFieldKind::F32>,
+    &Apply<EFieldKind::Vec2>, &Apply<EFieldKind::Vec3>,
+    &Apply<EFieldKind::Vec4>, &Apply<EFieldKind::String>,
+    &Apply<EFieldKind::Enum>, &Apply<EFieldKind::ObjectRef>
+};
+inline constexpr ReadFn kReadDispatch[] = {
+    &Read<EFieldKind::Bool>, &Read<EFieldKind::I32>,
+    &Read<EFieldKind::U32>, &Read<EFieldKind::F32>,
+    &Read<EFieldKind::Vec2>, &Read<EFieldKind::Vec3>,
+    &Read<EFieldKind::Vec4>, &Read<EFieldKind::String>,
+    &Read<EFieldKind::Enum>, &Read<EFieldKind::ObjectRef>
+};
+inline constexpr bool kDispatchSupported[] = {
+    true, true, true, true, true, true, true, false, false, true
+};
+inline constexpr usize kFieldKindCount =
+    static_cast<usize>(EFieldKind::ObjectRef) + 1u;
+static_assert(kFieldKindCount ==
+              sizeof(kApplyDispatch) / sizeof(kApplyDispatch[0]));
+static_assert(kFieldKindCount ==
+              sizeof(kReadDispatch) / sizeof(kReadDispatch[0]));
+
+} // reflect_apply_detail 名前空間
+
+/** 組み込み種別が数値の読み書き記述子を持つか。プラグイン・未知種別は false。 */
+constexpr bool ReflectFieldDispatchSupported(EFieldKind kind) noexcept
+{
+    const usize index = static_cast<usize>(kind);
+    return index < reflect_apply_detail::kFieldKindCount &&
+           reflect_apply_detail::kDispatchSupported[index];
+}
+
 /**
  * 1 フィールドの値 (f32 4 成分ソース) を obj の実メンバへ書き込む。
  *
@@ -34,17 +119,9 @@ inline bool FieldHasStorage(const FReflectField& f) noexcept { return f.size != 
 inline void ApplyFieldValue(void* obj, const FReflectField& f, const f32 v[4]) noexcept {
     if (obj == nullptr || !FieldHasStorage(f)) return;
     auto* const p = static_cast<unsigned char*>(obj) + f.offset;
-    switch (f.kind) {
-        case EFieldKind::Bool:  *reinterpret_cast<bool*>(p) = (v[0] != 0.0f); break;
-        case EFieldKind::I32:   *reinterpret_cast<i32*>(p)  = static_cast<i32>(v[0]); break;
-        case EFieldKind::ObjectRef: *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]); break;  // 参照先 ID (実行時に解決)
-        case EFieldKind::U32:   *reinterpret_cast<u32*>(p)  = static_cast<u32>(v[0]); break;
-        case EFieldKind::F32:   *reinterpret_cast<f32*>(p)  = v[0]; break;
-        case EFieldKind::Vec2: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; } break;
-        case EFieldKind::Vec3: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; d[2]=v[2]; } break;
-        case EFieldKind::Vec4: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; d[2]=v[2]; d[3]=v[3]; } break;
-        default: break;   // FString / Enum などは未対応 (skip)
-    }
+    const usize index = static_cast<usize>(f.kind);
+    if (index < reflect_apply_detail::kFieldKindCount)
+        reflect_apply_detail::kApplyDispatch[index](p, v);
 }
 
 /**
@@ -58,17 +135,9 @@ inline void ReadFieldValue(const void* obj, const FReflectField& f, f32 out[4]) 
     out[0] = out[1] = out[2] = out[3] = 0.0f;
     if (obj == nullptr || !FieldHasStorage(f)) return;
     const auto* const p = static_cast<const unsigned char*>(obj) + f.offset;
-    switch (f.kind) {
-        case EFieldKind::Bool:  out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f; break;
-        case EFieldKind::I32:   out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
-        case EFieldKind::ObjectRef: out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
-        case EFieldKind::U32:   out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p)); break;
-        case EFieldKind::F32:   out[0] = *reinterpret_cast<const f32*>(p); break;
-        case EFieldKind::Vec2: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; } break;
-        case EFieldKind::Vec3: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; out[2]=d[2]; } break;
-        case EFieldKind::Vec4: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; out[2]=d[2]; out[3]=d[3]; } break;
-        default: break;
-    }
+    const usize index = static_cast<usize>(f.kind);
+    if (index < reflect_apply_detail::kFieldKindCount)
+        reflect_apply_detail::kReadDispatch[index](p, out);
 }
 
 /**

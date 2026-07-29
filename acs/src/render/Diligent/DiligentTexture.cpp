@@ -62,7 +62,7 @@ TResult<void> FDiligentTexture::Init(FDiligentDevice& device, const FTextureDesc
     }
     if ((desc.initial_data == nullptr) != (desc.initial_data_size == 0) ||
         (desc.is_depth_target && desc.is_render_target) || (desc.shader_visible_depth && !desc.is_depth_target) ||
-        (desc.is_depth_target && desc.format != EFormat::D24_UNorm_S8_UInt && desc.format != EFormat::D32_Float) ||
+        !IsFormatUsageLegal(desc.format, desc.is_depth_target) ||
         (desc.per_slice_rtv && !desc.is_render_target) ||
         (desc.depth > 1 && (desc.array_size > 1 || desc.is_cubemap || desc.per_slice_rtv))) {
         return ACS_ERR(Render, 133, "FDiligentTexture: invalid descriptor combination");

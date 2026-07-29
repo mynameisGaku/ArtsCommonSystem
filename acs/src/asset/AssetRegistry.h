@@ -57,7 +57,8 @@ public:
      *
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
-    explicit FAssetRegistry(FAllocator& allocator) noexcept : m_Cache(allocator), m_Loaders(allocator)
+    explicit FAssetRegistry(FAllocator& allocator) noexcept
+        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator)
     {
     }
 
@@ -149,6 +150,9 @@ public:
      */
     TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a) noexcept;
 
+    /** 完了した非同期要求を処理中テーブルから外す。 */
+    void AsyncLoadFinished(FAssetId id) noexcept;
+
 private:
     /**
      * 拡張子から適切なローダを選ぶ。
@@ -163,6 +167,14 @@ private:
 
     /** ID をキーにしたアセットキャッシュ。 */
     THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
+
+    /**
+     * 同一 ID の未完了ロードが共有する状態。
+     *
+     * @details 同じパスへの同時 LoadAsync はこの状態を再利用し、ファイル入出力・
+     * ローダー呼び出し・ジョブ確保を 1 回へ集約する。成功・失敗の完了時に必ず除去する。
+     */
+    THashMap<FAssetId, TSharedPtr<FAsyncLoadState>> m_InFlight;
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;

@@ -28,7 +28,7 @@ public:
 
     TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId, const TArray<byte>&) noexcept override
     {
-        entered.Store(1, EMemoryOrder::Release);
+        entered.FetchAdd(1);
         while (release.Load(EMemoryOrder::Acquire) == 0)
             SleepMs(1);
 
@@ -95,6 +95,44 @@ ACS_TEST(FAssetRegistry, DestructorWaitsForAsyncLoad)
     EXPECT_EQ(delete_context.finished.Load(EMemoryOrder::Acquire), 1u);
     EXPECT_TRUE(future.Get().IsOk());
 
+    FThreadPool::Shutdown();
+    (void)FFileSystem::Delete(kAsyncAssetPath);
+}
+
+ACS_TEST(FAssetRegistry, ConcurrentSamePathAsyncLoadsShareOneJobAndIdentity)
+{
+    FThreadPool::Shutdown();
+    EXPECT_TRUE(FThreadPool::Init(2).IsOk());
+
+    const byte file_data[] = {9, 8, 7, 6};
+    EXPECT_TRUE(FFileSystem::WriteAllBytes(
+                    kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
+
+    FBlockingAssetLoader loader;
+    FAssetRegistry registry;
+    registry.RegisterLoader(&loader);
+
+    FAssetFuture first = registry.LoadAsync(kAsyncAssetPath);
+    for (u32 i = 0; i < 2000 &&
+                    loader.entered.Load(EMemoryOrder::Acquire) == 0; ++i) {
+        SleepMs(1);
+    }
+    FAssetFuture second = registry.LoadAsync(kAsyncAssetPath);
+    EXPECT_TRUE(first.Valid());
+    EXPECT_TRUE(second.Valid());
+    EXPECT_EQ(loader.entered.Load(EMemoryOrder::Acquire), 1u);
+
+    loader.release.Store(1, EMemoryOrder::Release);
+    const auto first_result = first.Get();
+    const auto second_result = second.Get();
+    EXPECT_TRUE(first_result.IsOk());
+    EXPECT_TRUE(second_result.IsOk());
+    if (first_result.IsOk() && second_result.IsOk()) {
+        EXPECT_TRUE(first_result.Value().Get() == second_result.Value().Get());
+    }
+    EXPECT_EQ(loader.entered.Load(EMemoryOrder::Acquire), 1u);
+
+    registry.Shutdown();
     FThreadPool::Shutdown();
     (void)FFileSystem::Delete(kAsyncAssetPath);
 }

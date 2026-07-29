@@ -15,6 +15,11 @@
 using namespace acs;
 using namespace acs::game;
 
+static_assert(ReflectFieldDispatchSupported(EFieldKind::Vec4));
+static_assert(ReflectFieldDispatchSupported(EFieldKind::ObjectRef));
+static_assert(!ReflectFieldDispatchSupported(EFieldKind::String));
+static_assert(!ReflectFieldDispatchSupported(static_cast<EFieldKind>(255u)));
+
 // 実コンポーネント同様に «仮想デストラクタ (vtable)» を持つ多態型。public メンバ。
 struct FApplyMover {
     virtual ~FApplyMover() noexcept = default;

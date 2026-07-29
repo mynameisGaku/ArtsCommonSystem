@@ -14,13 +14,63 @@ namespace acs {
 /** コンポーネント型 ID (0..kMaxComponentTypes-1、ストレージ配列の添字に使う)。 */
 using ComponentTypeId = u32;
 
+/** ビルド内で安定したコンパイル時コンポーネント署名。永続化 ID には使用しない。 */
+using ComponentSignatureId = u64;
+
 /** 同時に扱えるコンポーネント型の上限 (Slots 配列の長さ)。 */
 inline constexpr ComponentTypeId kMaxComponentTypes = 256;
 
 namespace ecs_detail {
 /** 全 T 共通の採番カウンタ (次に割り当てる ID を保持)。 */
 inline TAtomic<u32> g_next_component_type_id{0};
+
+constexpr ComponentSignatureId HashComponentSignature(
+    const char* text) noexcept
+{
+    ComponentSignatureId hash = 14695981039346656037ull;
+    while (*text != '\0') {
+        hash ^= static_cast<u8>(*text++);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+template<typename T>
+constexpr ComponentSignatureId StaticComponentSignature() noexcept
+{
+#if defined(_MSC_VER)
+    return HashComponentSignature(__FUNCSIG__);
+#else
+    return HashComponentSignature(__PRETTY_FUNCTION__);
+#endif
+}
 } // namespace ecs_detail
+
+template<typename T>
+ComponentTypeId GetComponentTypeId() noexcept;
+
+/**
+ * コンパイル時クエリ・振り分け用の型特性。
+ *
+ * @details Signature は型パックの比較・特殊化に使い、World ストレージの密な添字は
+ * 従来どおり RuntimeId() の動的代替経路を使う。これによりプラグイン型の後付け互換を保つ。
+ */
+template<typename T>
+struct TComponentTypeTraits {
+    static constexpr ComponentSignatureId Signature =
+        ecs_detail::StaticComponentSignature<T>();
+
+    static ComponentTypeId RuntimeId() noexcept
+    {
+        return GetComponentTypeId<T>();
+    }
+};
+
+template<typename T>
+constexpr ComponentSignatureId GetComponentSignatureId() noexcept
+{
+    return TComponentTypeTraits<T>::Signature;
+}
 
 /**
  * 型 T に固有な ComponentTypeId を返す (初回呼び出しで採番、以降はキャッシュ)。

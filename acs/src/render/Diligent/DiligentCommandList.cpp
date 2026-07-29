@@ -676,8 +676,10 @@ void FDiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& p = static_cast<FDiligentPipeline&>(pipeline);
+    const bool needs_bind = TRhiPipelineBindPolicy<
+        ERhiPipelineBindDomain::Graphics>::NeedsBind(m_Pipeline, &p);
     m_Pipeline = &p;
-    if (p.Native()) ctx->SetPipelineState(p.Native());
+    if (needs_bind && p.Native()) ctx->SetPipelineState(p.Native());
 }
 
 void FDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
@@ -838,9 +840,11 @@ void FDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& p = static_cast<FDiligentPipeline&>(pipeline);
+    const bool needs_bind = TRhiPipelineBindPolicy<
+        ERhiPipelineBindDomain::Compute>::NeedsBind(m_Pipeline, &p);
     m_Pipeline = &p;
     m_BoundUavTexCount = 0;
-    if (p.Native()) ctx->SetPipelineState(p.Native());
+    if (needs_bind && p.Native()) ctx->SetPipelineState(p.Native());
 }
 
 void FDiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {

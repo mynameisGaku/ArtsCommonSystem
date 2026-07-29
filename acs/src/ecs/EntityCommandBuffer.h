@@ -15,8 +15,8 @@
 //   cmd.Flush();                                 // 反復後にまとめて適用
 //
 // 設計:
-//   ・Add<T> の値は New<T> で安定アドレスにヒープ退避するため、再配置による自己参照
-//     破壊が起きない。適用時は FWorld へムーブし、退避値を破棄する。
+//   ・16 バイト以下の単純な値はコマンド内へ直接保持し、それ以外だけ New<T> で
+//     安定アドレスへ退避する。適用時は FWorld へムーブし、ヒープ値だけ破棄する。
 //   ・Create は Each 中でも安全 (dense へ追記するだけで既存参照を無効化しない) ため
 //     遅延不要。新規エンティティへ即 Add したい場合のみ、Create は即時・Add は本バッファへ。
 //   ・記録の確保が OOM した場合は該当操作を落として HasOverflowed()=true にする
@@ -94,7 +94,7 @@ public:
     }
 
     /**
-     * T コンポーネントの追加を記録する (値は安定アドレスへ退避)。
+     * T コンポーネントの追加を記録する (小型の単純な値はコマンド内へ保持)。
      *
      * @tparam T 追加するコンポーネント型。
      * @param e 追加先のエンティティ。
@@ -103,19 +103,13 @@ public:
     template<typename T>
     void Add(FEntityId e, T value) noexcept
     {
-        T* const stored = New<T>(*m_Alloc, Move(value));
-        if (!stored) {
-            m_bOverflowed = true;
-            return;
-        }
         FCommand c{};
         c.kind = ECommandKind::Add;
         c.entity = e;
-        c.value = stored;
         c.apply = &ApplyAdd<T>;
-        c.destroy = &DestroyValue<T>;
+        if (!StoreValue(c, Move(value))) return;
         if (!m_Commands.TryPushBack(c)) {
-            DestroyValue<T>(*m_Alloc, stored);
+            DestroyStoredValue(c);
             m_bOverflowed = true;
         }
     }
@@ -137,7 +131,7 @@ public:
     }
 
     /**
-     * 「生成 + T を付与」を記録する (値は安定アドレスへ退避、Flush 時に生成)。
+     * 「生成 + T を付与」を記録する (小型の単純な値は内部保持、Flush 時に生成)。
      *
      * @details 弾やパーティクル等の並列スポーンに使う。複数コンポーネントを同一エンティティへ
      * 付けたい場合は Flush 後に FWorld 側で組み立てるか、T を集約構造体にすること。
@@ -147,18 +141,12 @@ public:
     template<typename T>
     void CreateWith(T value) noexcept
     {
-        T* const stored = New<T>(*m_Alloc, Move(value));
-        if (!stored) {
-            m_bOverflowed = true;
-            return;
-        }
         FCommand c{};
         c.kind = ECommandKind::Create;
-        c.value = stored;
         c.apply = &ApplyAdd<T>;
-        c.destroy = &DestroyValue<T>;
+        if (!StoreValue(c, Move(value))) return;
         if (!m_Commands.TryPushBack(c)) {
-            DestroyValue<T>(*m_Alloc, stored);
+            DestroyStoredValue(c);
             m_bOverflowed = true;
         }
     }
@@ -180,14 +168,14 @@ public:
                 c.apply(*m_World, c.entity, nullptr);
                 break;
             case ECommandKind::Add:
-                c.apply(*m_World, c.entity, c.value);   // 退避値を FWorld へムーブ
-                c.destroy(*m_Alloc, c.value);           // ムーブ済み退避値を破棄
+                c.apply(*m_World, c.entity, c.Value());
+                DestroyStoredValue(c);
                 break;
             case ECommandKind::Create: {
                 const FEntityId created = m_World->Create();
                 if (c.apply != nullptr) {                // CreateWith: 退避値を付与
-                    c.apply(*m_World, created, c.value);
-                    c.destroy(*m_Alloc, c.value);
+                    c.apply(*m_World, created, c.Value());
+                    DestroyStoredValue(c);
                 }
                 break;
             }
@@ -203,9 +191,7 @@ public:
     {
         for (usize i = 0; i < m_Commands.Size(); ++i) {
             FCommand& c = m_Commands[i];
-            if (c.destroy != nullptr) {                  // Add / CreateWith の退避値
-                c.destroy(*m_Alloc, c.value);
-            }
+            DestroyStoredValue(c);
         }
         m_Commands.Clear();
     }
@@ -220,6 +206,16 @@ public:
     bool IsEmpty() const noexcept
     {
         return m_Commands.IsEmpty();
+    }
+
+    /**
+     * 予想コマンド数を一括予約する。成功後、その件数まではコマンド配列を再確保しない。
+     */
+    bool TryReserve(usize command_count) noexcept
+    {
+        if (m_Commands.TryReserve(command_count)) return true;
+        m_bOverflowed = true;
+        return false;
     }
 
     /**
@@ -243,12 +239,55 @@ private:
 
     /** 1 つの遅延コマンド。value / thunk は種別に応じて使う。 */
     struct FCommand {
+        static constexpr usize kInlineValueBytes = 16u;
         ECommandKind kind = ECommandKind::Destroy;
         FEntityId entity{};
-        void* value = nullptr;                                      // Add のみ (退避した T)
+        void* value = nullptr;                                      // 大型または非単純な T
         void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;  // Add / Remove
         void (*destroy)(FAllocator&, void*) noexcept = nullptr;     // Add のみ
+        alignas(16) byte inline_value[kInlineValueBytes]{};
+        bool inline_value_used = false;
+
+        void* Value() noexcept
+        {
+            return inline_value_used
+                ? static_cast<void*>(inline_value)
+                : value;
+        }
     };
+
+    template<typename T>
+    bool StoreValue(FCommand& command, T&& value) noexcept
+    {
+        if constexpr (
+            IsTriviallyCopyableV<T> &&
+            IsTriviallyDestructibleV<T> &&
+            sizeof(T) <= FCommand::kInlineValueBytes &&
+            alignof(T) <= 16u) {
+            MemCopy(command.inline_value, &value, sizeof(T));
+            command.inline_value_used = true;
+            return true;
+        } else {
+            T* const stored = New<T>(*m_Alloc, Move(value));
+            if (!stored) {
+                m_bOverflowed = true;
+                return false;
+            }
+            command.value = stored;
+            command.destroy = &DestroyValue<T>;
+            return true;
+        }
+    }
+
+    void DestroyStoredValue(FCommand& command) noexcept
+    {
+        if (!command.inline_value_used && command.destroy != nullptr) {
+            command.destroy(*m_Alloc, command.value);
+        }
+        command.value = nullptr;
+        command.destroy = nullptr;
+        command.inline_value_used = false;
+    }
 
     /** 退避した T を FWorld へムーブ追加する型消去 thunk。 */
     template<typename T>

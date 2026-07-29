@@ -9,35 +9,6 @@
 
 namespace acs {
 
-namespace {
-
-/**
- * EFormat 1 ピクセルあたりのバイト数を返す (簡易テーブル)。
- *
- * @details 初期データのアップロード時に行ピッチを計算するのに使う。
- * @param f 問い合わせるピクセルフォーマット。
- * @return 1 ピクセルのバイト数 (未知フォーマットは 0)。
- */
-u32 BytesPerPixel(EFormat f) noexcept {
-    switch (f) {
-        case EFormat::R8G8B8A8_UNorm:
-        case EFormat::R8G8B8A8_UNorm_sRGB:
-        case EFormat::R8G8B8A8_UInt:
-        case EFormat::B8G8R8A8_UNorm:           return 4;
-        case EFormat::R16G16_Float:             return 4;
-        case EFormat::R16G16B16A16_Float:       return 8;
-        case EFormat::R11G11B10_Float:          return 4;
-        case EFormat::R32G32_Float:             return 8;
-        case EFormat::R32G32B32_Float:          return 12;
-        case EFormat::R32G32B32A32_Float:       return 16;
-        case EFormat::D24_UNorm_S8_UInt:        return 4;
-        case EFormat::D32_Float:                return 4;
-        default:                                return 0;
-    }
-}
-
-} // namespace
-
 /** 割り当て済みの SRV/DSV/RTV スロットを解放しリソースを Release する。 */
 FDx12Texture::~FDx12Texture() noexcept {
     Reset();
@@ -107,7 +78,7 @@ FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noex
     }
 
     const DXGI_FORMAT typed_fmt = ToDxgiFormat(desc.format);
-    const u32 bpp = BytesPerPixel(desc.format);
+    const u32 bpp = GetFormatTraits(desc.format).bytes_per_block;
     if (typed_fmt == DXGI_FORMAT_UNKNOWN || (bpp == 0 && !desc.is_depth_target)) {
         ACS_LOG_ERROR("Dx12Texture: bpp=0 for fmt=%d", static_cast<int>(desc.format));
         r.hr = E_INVALIDARG;
@@ -119,7 +90,7 @@ FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noex
         (desc.initial_data == nullptr) != (desc.initial_data_size == 0) ||
         (desc.is_depth_target && desc.is_render_target) || (desc.shader_visible_depth && !desc.is_depth_target) ||
         (desc.is_depth_target && desc.is_uav) ||
-        (desc.is_depth_target && desc.format != EFormat::D24_UNorm_S8_UInt && desc.format != EFormat::D32_Float) ||
+        !IsFormatUsageLegal(desc.format, desc.is_depth_target) ||
         (m_Depth > 1 && (m_ArraySize != 1 || desc.is_cubemap || desc.is_depth_target ||
                          desc.is_render_target || desc.per_slice_rtv || desc.initial_data))) {
         ACS_LOG_ERROR("Dx12Texture: descriptor の組み合わせまたは範囲が不正です");

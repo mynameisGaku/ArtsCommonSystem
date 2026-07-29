@@ -23,27 +23,7 @@ namespace {
  */
 u32 ReadbackBytesPerPixel(EFormat format) noexcept
 {
-    switch (format) {
-    case EFormat::R8G8B8A8_UNorm:
-    case EFormat::R8G8B8A8_UNorm_sRGB:
-    case EFormat::R8G8B8A8_UInt:
-    case EFormat::B8G8R8A8_UNorm:
-    case EFormat::R11G11B10_Float:
-    case EFormat::D24_UNorm_S8_UInt:
-    case EFormat::D32_Float:
-        return 4u;
-    case EFormat::R16G16_Float:
-        return 4u;
-    case EFormat::R16G16B16A16_Float:
-    case EFormat::R32G32_Float:
-        return 8u;
-    case EFormat::R32G32B32_Float:
-        return 12u;
-    case EFormat::R32G32B32A32_Float:
-        return 16u;
-    default:
-        return 0u;
-    }
+    return GetFormatTraits(format).bytes_per_block;
 }
 
 /** 例外を使わず SRWLOCK の排他範囲を確実に閉じる内部ガード。 */

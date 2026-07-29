@@ -237,6 +237,7 @@ Root().AddChild(Move(player));
 
 ## ドキュメント
 
+- [`FoundationOptimizationWaveC.md`](acs/docs/FoundationOptimizationWaveC.md) — アセット/ECS/reflection/RHI の Wave C 最適化と Release 証跡
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
 - [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド

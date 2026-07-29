@@ -32,6 +32,20 @@
 
 using namespace acs;
 
+static_assert(GetFormatTraits(EFormat::R32G32B32_Float).bytes_per_block == 12u);
+static_assert(IsDepthFormat(EFormat::D24_UNorm_S8_UInt));
+static_assert(FormatHasAspect(
+    EFormat::D24_UNorm_S8_UInt, EFormatAspect::Stencil));
+static_assert(!IsFormatUsageLegal(EFormat::D32_Float, false));
+static_assert(!IsFormatUsageLegal(EFormat::R8G8B8A8_UNorm, true));
+static_assert(GetFormatTraits(static_cast<EFormat>(255u)).bytes_per_block == 0u);
+static_assert(TRhiPipelineBindPolicy<
+              ERhiPipelineBindDomain::Graphics>::Accepts(false));
+static_assert(!TRhiPipelineBindPolicy<
+              ERhiPipelineBindDomain::Graphics>::Accepts(true));
+static_assert(TRhiPipelineBindPolicy<
+              ERhiPipelineBindDomain::Compute>::Accepts(true));
+
 ACS_TEST(Render, Utf8DecoderRejectsNonCanonicalScalars)
 {
     const char valid[] = {

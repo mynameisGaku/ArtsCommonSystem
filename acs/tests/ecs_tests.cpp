@@ -7,6 +7,7 @@
 #include "ecs/System.h"
 #include "ecs/EntityCommandBuffer.h"
 #include "ecs/ParallelEntityCommandBuffer.h"
+#include "memory/SystemAllocator.h"
 #include "threading/ThreadPool.h"
 
 using namespace acs;
@@ -16,6 +17,11 @@ struct FPosition { f32 x, y, z; };
 struct FVelocity { f32 dx, dy, dz; };
 struct FHealth   { i32 hp; };
 struct FFrozen   { u8 unused; };  // タグ的コンポーネント (除外フィルタ検証用)
+
+static_assert(GetComponentSignatureId<FPosition>() ==
+              TComponentTypeTraits<FPosition>::Signature);
+static_assert(GetComponentSignatureId<FPosition>() !=
+              GetComponentSignatureId<FVelocity>());
 
 /** 非コピー・可ムーブなコンポーネント (World::CopyFrom の拒否契約検証用)。 */
 struct FMoveOnlyComp {
@@ -104,6 +110,37 @@ ACS_TEST(Ecs, QueryIteratesMatching) {
     u32 count = 0;
     w.Query<FPosition, FVelocity>().Each([&count](FEntityId, FPosition&, FVelocity&){ ++count; });
     EXPECT_EQ(count, 50u);  // 偶数 i のみ Velocity を持つ
+}
+
+ACS_TEST(Ecs, QuerySnapshotRejectsDestroyedGenerationAndDefersReusedSlot)
+{
+    FWorld world;
+    const FEntityId first = world.Create();
+    const FEntityId stale = world.Create();
+    world.Add<FPosition>(first, {1.0f, 0.0f, 0.0f});
+    world.Add<FPosition>(stale, {2.0f, 0.0f, 0.0f});
+
+    u32 visits = 0u;
+    FEntityId replacement{};
+    world.Query<FPosition>().Each(
+        [&](FEntityId entity, FPosition&) {
+            ++visits;
+            if (entity == first) {
+                world.Destroy(stale);
+                replacement = world.Create();
+                world.Add<FPosition>(
+                    replacement, {3.0f, 0.0f, 0.0f});
+            }
+        });
+
+    EXPECT_EQ(visits, 1u);
+    EXPECT_FALSE(world.IsAlive(stale));
+    EXPECT_TRUE(world.IsAlive(replacement));
+
+    u32 next_visits = 0u;
+    world.Query<FPosition>().Each(
+        [&](FEntityId, FPosition&) { ++next_visits; });
+    EXPECT_EQ(next_visits, 2u);
 }
 
 ACS_TEST(Ecs, SystemSchedulerRuns) {
@@ -214,6 +251,31 @@ ACS_TEST(Ecs, EntityCommandBufferGracefullyHandlesOutOfMemory)
 
     cmd.Flush();                 // 記録ゼロなので no-op、クラッシュしない
     EXPECT_TRUE(w.IsAlive(e));    // Destroy は落ちたのでエンティティは生存
+}
+
+ACS_TEST(Ecs, EntityCommandBufferInlinesSmallValuesAfterBatchReserve)
+{
+    FWorld world;
+    FSystemAllocator allocator;
+    FEntityCommandBuffer commands(world, allocator);
+    constexpr usize kCount = 128u;
+    EXPECT_TRUE(commands.TryReserve(kCount));
+    const u64 reserved_allocations = allocator.AllocationCount();
+    EXPECT_EQ(reserved_allocations, 1ull);
+
+    FEntityId entities[kCount]{};
+    for (usize i = 0; i < kCount; ++i) {
+        entities[i] = world.Create();
+        commands.Add<FHealth>(
+            entities[i], FHealth{static_cast<i32>(i)});
+    }
+    EXPECT_EQ(allocator.AllocationCount(), reserved_allocations);
+    EXPECT_FALSE(commands.HasOverflowed());
+
+    commands.Flush();
+    EXPECT_EQ(allocator.AllocationCount(), reserved_allocations);
+    EXPECT_EQ(world.Get<FHealth>(entities[kCount - 1u])->hp,
+              static_cast<i32>(kCount - 1u));
 }
 
 ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
@@ -431,4 +493,24 @@ ACS_TEST(Ecs, QueryEachExcludingSkipsEntitiesWithExcludedComponents)
     u32 all = 0;
     w.Query<FPosition>().EachExcluding<>([&](FEntityId, FPosition&) { ++all; });
     EXPECT_EQ(all, 20u);
+}
+
+ACS_TEST(Ecs, QueryOptionalSpecializationReturnsNullablePointers)
+{
+    FWorld world;
+    const FEntityId with_optional = world.Create();
+    const FEntityId without_optional = world.Create();
+    world.Add<FPosition>(with_optional, {1.0f, 0.0f, 0.0f});
+    world.Add<FPosition>(without_optional, {2.0f, 0.0f, 0.0f});
+    world.Add<FVelocity>(with_optional, {3.0f, 0.0f, 0.0f});
+
+    u32 present = 0u;
+    u32 missing = 0u;
+    world.Query<FPosition>().EachOptional<FVelocity>(
+        [&](FEntityId, FPosition&, FVelocity* velocity) {
+            if (velocity != nullptr) ++present;
+            else ++missing;
+        });
+    EXPECT_EQ(present, 1u);
+    EXPECT_EQ(missing, 1u);
 }

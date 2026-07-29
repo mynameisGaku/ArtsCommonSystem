@@ -1001,6 +1001,11 @@ void FDx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
         SetComputePipeline(pipeline);
         return;
     }
+    if (!TRhiPipelineBindPolicy<
+            ERhiPipelineBindDomain::Graphics>::NeedsBind(
+                m_BoundPipe, &p)) {
+        return;
+    }
     m_CmdList->SetPipelineState(p.Pso());
     m_CmdList->SetGraphicsRootSignature(p.RootSignature());
     m_CmdList->IASetPrimitiveTopology(ToD3DPrimitive(p.Topology()));
@@ -1052,7 +1057,11 @@ void FDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
 
 void FDx12CommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     auto& p = static_cast<FDx12Pipeline&>(pipeline);
-    if (!p.IsCompute() || !p.Pso() || !p.RootSignature()) return;
+    using FPolicy =
+        TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Compute>;
+    if (!FPolicy::Accepts(p.IsCompute()) ||
+        !p.Pso() || !p.RootSignature() ||
+        !FPolicy::NeedsBind(m_BoundPipe, &p)) return;
     m_CmdList->SetPipelineState(p.Pso());
     m_CmdList->SetComputeRootSignature(p.RootSignature());
     m_BoundPipe = &p;

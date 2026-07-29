@@ -272,6 +272,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     if (bytes_r.IsErr()) {
         job->state->error = bytes_r.Error();
         job->state->has_error = true;
+        job->registry->AsyncLoadFinished(job->id);
         job->state->counter.Done();
         return;
     }
@@ -280,6 +281,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     if (asset_r.IsErr()) {
         job->state->error = asset_r.Error();
         job->state->has_error = true;
+        job->registry->AsyncLoadFinished(job->id);
         job->state->counter.Done();
         return;
     }
@@ -289,6 +291,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
         job->state->error = ACS_ERR(Asset, kAssetRegistrySubNullAsset,
                                     "loader returned null asset");
         job->state->has_error = true;
+        job->registry->AsyncLoadFinished(job->id);
         job->state->counter.Done();
         return;
     }
@@ -300,11 +303,13 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     if (CacheResult.IsErr()) {
         job->state->error = CacheResult.Error();
         job->state->has_error = true;
+        job->registry->AsyncLoadFinished(job->id);
         job->state->counter.Done();
         return;
     }
 
     job->state->result = Move(a);
+    job->registry->AsyncLoadFinished(job->id);
     job->state->counter.Done();
     // job は TUniquePtr のスコープ抜けで自動 delete
 }
@@ -322,6 +327,11 @@ TResult<void> FAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a
                        "FAssetRegistry::AsyncCacheInsert: cache allocation failed");
     }
     return Ok();
+}
+
+void FAssetRegistry::AsyncLoadFinished(FAssetId id) noexcept {
+    FScopedLock lk(m_Lock);
+    m_InFlight.Remove(id);
 }
 
 FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
@@ -357,8 +367,22 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
             state->counter.Done();
             return FAssetFuture(Move(state));
         }
+        const TSharedPtr<FAsyncLoadState>* pending = m_InFlight.Find(id);
+        if (pending && pending->Get()) {
+            return FAssetFuture(*pending);
+        }
         loader = FindLoader(path);
-        if (loader) m_ActiveOperations.Add(1);
+        if (loader) {
+            if (!m_InFlight.TryInsert(id, state)) {
+                state->error = ACS_ERR(
+                    Memory, kAssetRegistrySubOutOfMemory,
+                    "LoadAsync: in-flight allocation failed");
+                state->has_error = true;
+                state->counter.Done();
+                return FAssetFuture(Move(state));
+            }
+            m_ActiveOperations.Add(1);
+        }
     }
     if (!loader) {
         state->error = ACS_ERR(Asset, kAssetRegistrySubNoLoader, "LoadAsync: no loader");
@@ -370,6 +394,7 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // ジョブを heap 確保し FThreadPool に投入
     auto job = MakeUnique<FAsyncLoadJob>();
     if (!job) {
+        AsyncLoadFinished(id);
         m_ActiveOperations.Done();
         state->error = ACS_ERR(Memory, kAssetRegistrySubOutOfMemory, "LoadAsync: alloc");
         state->has_error = true;
@@ -438,6 +463,7 @@ void FAssetRegistry::Shutdown() noexcept
     if (m_ShutdownComplete) return;
     // 確保元を維持したまま容量を返す。再起動後も同じアロケータを使用する。
     m_Cache.ReleaseStorage();
+    m_InFlight.ReleaseStorage();
     m_Loaders.ReleaseStorage();
     m_ShutdownComplete = true;
 }

@@ -49,6 +49,107 @@ enum class EFormat : u8 {
 
     /** 深度のみ (32bit float)。 */
     D32_Float,
+
+    /** 列挙・表の網羅性を検証する終端値。GPU 形式としては使用しない。 */
+    Count,
+};
+
+enum class EFormatAspect : u8 {
+    None = 0u,
+    Color = 1u,
+    Depth = 2u,
+    Stencil = 4u,
+};
+
+constexpr EFormatAspect operator|(EFormatAspect a, EFormatAspect b) noexcept
+{
+    return static_cast<EFormatAspect>(
+        static_cast<u8>(a) | static_cast<u8>(b));
+}
+
+struct FFormatTraits {
+    u8 bytes_per_block = 0u;
+    u8 block_width = 1u;
+    u8 block_height = 1u;
+    EFormatAspect aspects = EFormatAspect::None;
+    bool compressed = false;
+};
+
+inline constexpr FFormatTraits kFormatTraits[] = {
+    {0u, 1u, 1u, EFormatAspect::None, false},
+    {4u, 1u, 1u, EFormatAspect::Color, false},
+    {4u, 1u, 1u, EFormatAspect::Color, false},
+    {4u, 1u, 1u, EFormatAspect::Color, false},
+    {4u, 1u, 1u, EFormatAspect::Color, false},
+    {4u, 1u, 1u, EFormatAspect::Color, false},
+    {8u, 1u, 1u, EFormatAspect::Color, false},
+    {4u, 1u, 1u, EFormatAspect::Color, false},
+    {8u, 1u, 1u, EFormatAspect::Color, false},
+    {12u, 1u, 1u, EFormatAspect::Color, false},
+    {16u, 1u, 1u, EFormatAspect::Color, false},
+    {4u, 1u, 1u, EFormatAspect::Depth | EFormatAspect::Stencil, false},
+    {4u, 1u, 1u, EFormatAspect::Depth, false},
+};
+static_assert(
+    sizeof(kFormatTraits) / sizeof(kFormatTraits[0]) ==
+    static_cast<usize>(EFormat::Count));
+
+constexpr FFormatTraits GetFormatTraits(EFormat format) noexcept
+{
+    const usize index = static_cast<usize>(format);
+    return index < static_cast<usize>(EFormat::Count)
+        ? kFormatTraits[index]
+        : FFormatTraits{};
+}
+
+constexpr bool FormatHasAspect(
+    EFormat format, EFormatAspect aspect) noexcept
+{
+    return (static_cast<u8>(GetFormatTraits(format).aspects) &
+            static_cast<u8>(aspect)) != 0u;
+}
+
+constexpr bool IsDepthFormat(EFormat format) noexcept
+{
+    return FormatHasAspect(format, EFormatAspect::Depth);
+}
+
+constexpr bool IsColorFormat(EFormat format) noexcept
+{
+    return FormatHasAspect(format, EFormatAspect::Color);
+}
+
+constexpr bool IsFormatUsageLegal(
+    EFormat format, bool depth_target) noexcept
+{
+    const FFormatTraits traits = GetFormatTraits(format);
+    return traits.bytes_per_block != 0u &&
+           traits.block_width != 0u && traits.block_height != 0u &&
+           (depth_target ? IsDepthFormat(format) : IsColorFormat(format));
+}
+
+/** バックエンドのパイプライン束縛キャッシュをコンパイル時に特殊化する領域。 */
+enum class ERhiPipelineBindDomain : u8 {
+    Graphics,
+    Compute,
+};
+
+template<ERhiPipelineBindDomain Domain>
+struct TRhiPipelineBindPolicy {
+    static constexpr bool Accepts(bool is_compute) noexcept
+    {
+        if constexpr (Domain == ERhiPipelineBindDomain::Compute)
+            return is_compute;
+        else
+            return !is_compute;
+    }
+
+    template<typename Pipeline>
+    static constexpr bool NeedsBind(
+        const Pipeline* current, const Pipeline* requested) noexcept
+    {
+        return requested != nullptr && current != requested;
+    }
 };
 
 /**

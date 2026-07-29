@@ -46,8 +46,8 @@ public:
      * @details
      * primary の dense をローカルへスナップショットしてから反復するため、fn 内の
      * Add/Remove/Destroy で **訪問するエンティティ集合** は無効化されない (反復開始時点で固定)。
-     * 反復中に追加したエンティティはこの走査では訪問されず、削除したエンティティは InvokeWith の
-     * 再 Get + AllPresent 再確認でスキップされる。
+     * 反復中に追加したエンティティはこの走査では訪問されず、削除したエンティティは
+     * 世代付きスナップショットと 1 回の必須コンポーネント解決でスキップされる。
      *
      * ただし fn へ渡す Comps& 参照は Get と同じ無効化規約に従う。fn が **同じコンポーネント型** を
      * Add/Remove して TSparseSet が再確保すると、その参照は dangling になる。fn 内で構造変更した後は
@@ -69,17 +69,14 @@ public:
         // dense[] をローカルへスナップショットしてから反復する。fn が当該コンポーネントを
         // Add/Remove して TSparseSet が m_Dense を再確保すると、生 dense ポインタが dangling
         // になり use-after-free する。コピーに対して反復することで構造的変更に安全化する。
-        TArray<u32> snapshot;
+        TArray<FEntityId> snapshot;
         snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
-            snapshot[i] = dense[i];
+            snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
 
         for (usize i = 0; i < count; ++i) {
-            const FEntityId e = m_World.MakeIdFromIndex(snapshot[i]);
-            if (AllPresent(e)) {
-                InvokeWith(fn, e);
-            }
+            InvokeIfPresent(fn, snapshot[i]);
         }
     }
 
@@ -102,17 +99,39 @@ public:
         const usize count = primary->Size();
         if (count == 0) return;
 
-        TArray<u32> snapshot;
+        TArray<FEntityId> snapshot;
         snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
-            snapshot[i] = dense[i];
+            snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
 
         for (usize i = 0; i < count; ++i) {
-            const FEntityId e = m_World.MakeIdFromIndex(snapshot[i]);
-            if (AllPresent(e) && !AnyPresent<Excludes...>(e)) {
-                InvokeWith(fn, e);
-            }
+            InvokeIfPresentExcluding<Excludes...>(fn, snapshot[i]);
+        }
+    }
+
+    /**
+     * 必須 Comps を全て持つエンティティを走査し、Optional は null 許容ポインターで渡す。
+     *
+     * @details 必須・任意の両型パックはコンパイル時に特殊化される。エンティティごとの
+     * 型種別分岐はなく、各スパース検索は 1 型 1 回だけ行う。
+     */
+    template<typename... Optional, typename Fn>
+    void EachOptional(Fn fn) noexcept
+    {
+        FSparseSetBase* primary = nullptr;
+        if (!ResolvePrimary(primary)) return;
+        const usize count = primary->Size();
+        if (count == 0u) return;
+
+        TArray<FEntityId> snapshot;
+        if (!snapshot.TryResize(count)) return;
+        const u32* dense = primary->DenseEntities();
+        for (usize i = 0; i < count; ++i)
+            snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
+
+        for (usize i = 0; i < count; ++i) {
+            InvokeIfPresentOptional<Optional...>(fn, snapshot[i]);
         }
     }
 
@@ -145,12 +164,12 @@ public:
 
         // dense[] をスナップショットしてから並列反復する。fn が構造的変更を起こすと生 dense
         // が dangling するため、コピーを指す (snapshot は ParallelFor の block 中ずっと生存)。
-        TArray<u32> snapshot;
+        TArray<FEntityId> snapshot;
         snapshot.Resize(count);
         {
             const u32* dense = primary->DenseEntities();
             for (u32 i = 0; i < count; ++i)
-                snapshot[i] = dense[i];
+                snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
         }
 
         // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
@@ -158,17 +177,13 @@ public:
         struct FCtx {
             TQueryView* self;
             Fn* fn;
-            const u32* dense;
+            const FEntityId* entities;
         };
         FCtx ctx{this, &fn, snapshot.Data()};
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<FCtx*>(user);
-            const u32 idx = c->dense[i];
-            const FEntityId e = c->self->m_World.MakeIdFromIndex(idx);
-            if (c->self->AllPresent(e)) {
-                c->self->InvokeWith(*c->fn, e);
-            }
+            c->self->InvokeIfPresent(*c->fn, c->entities[i]);
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
@@ -199,19 +214,6 @@ private:
     }
 
     /**
-     * 指定エンティティが Comps を全て持っているかを返す。
-     *
-     * @param e 判定するエンティティ。
-     * @return 全コンポーネントを持っていれば true。
-     */
-    bool AllPresent(FEntityId e) noexcept
-    {
-        bool all = true;
-        ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
-        return all;
-    }
-
-    /**
      * 指定エンティティが Excludes のいずれかを持っているかを返す。
      *
      * @tparam Excludes 判定するコンポーネント型 (0 個なら常に false)。
@@ -227,16 +229,57 @@ private:
     }
 
     /**
-     * 全コンポーネントを取り出して fn を呼ぶ (呼び出し前に AllPresent で確認済み)。
-     *
-     * @tparam Fn (FEntityId, Comps&...) を受け取る呼び出し可能型。
-     * @param fn 適用するラムダ。
-     * @param e 対象エンティティ。
+     * 必須コンポーネントのポインターを各型 1 回だけ解決し、全て有効なら呼び出す。
+     * 型パックはコンパイル時に特殊化され、エンティティごとの型 ID ループや二重検索を持たない。
      */
     template<typename Fn>
-    void InvokeWith(Fn fn, FEntityId e) noexcept
+    void InvokeIfPresent(Fn& fn, FEntityId e) noexcept
     {
-        fn(e, *m_World.template Get<Comps>(e)...);
+        InvokeResolved(fn, e, m_World.template Get<Comps>(e)...);
+    }
+
+    template<typename Fn>
+    static void InvokeResolved(
+        Fn& fn, FEntityId e, Comps*... components) noexcept
+    {
+        if (((components != nullptr) && ...)) {
+            fn(e, *components...);
+        }
+    }
+
+    /** 必須ポインターを再検索せず、コンパイル時の除外型パックも同じ振り分けに畳む。 */
+    template<typename... Excludes, typename Fn>
+    void InvokeIfPresentExcluding(Fn& fn, FEntityId e) noexcept
+    {
+        InvokeResolvedExcluding<Excludes...>(
+            fn, e, m_World.template Get<Comps>(e)...);
+    }
+
+    template<typename... Excludes, typename Fn>
+    void InvokeResolvedExcluding(
+        Fn& fn, FEntityId e, Comps*... components) noexcept
+    {
+        if (((components != nullptr) && ...) &&
+            !AnyPresent<Excludes...>(e)) {
+            fn(e, *components...);
+        }
+    }
+
+    template<typename... Optional, typename Fn>
+    void InvokeIfPresentOptional(Fn& fn, FEntityId e) noexcept
+    {
+        InvokeResolvedOptional<Optional...>(
+            fn, e, m_World.template Get<Comps>(e)...);
+    }
+
+    template<typename... Optional, typename Fn>
+    void InvokeResolvedOptional(
+        Fn& fn, FEntityId e, Comps*... components) noexcept
+    {
+        if (((components != nullptr) && ...)) {
+            fn(e, *components...,
+               m_World.template Get<Optional>(e)...);
+        }
     }
 
     /** 走査対象の FWorld。 */
