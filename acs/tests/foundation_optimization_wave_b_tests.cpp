@@ -218,6 +218,37 @@ void OnRawMessage(const void*, void* user) noexcept
     ++static_cast<FTypedBrokerContext*>(user)->raw_calls;
 }
 
+/** Publish 中の購読追加が次回配送まで遅延することを記録する状態。 */
+struct FSubscribeDuringPublishContext {
+    /** 検証対象の broker。 */
+    FMessageBroker* broker = nullptr;
+
+    /** 発行開始時から存在する購読者の呼び出し回数。 */
+    i32 initial_calls = 0;
+
+    /** 発行中に追加した購読者の呼び出し回数。 */
+    i32 added_calls = 0;
+
+    /** 発行中の購読追加を一度だけ行ったか。 */
+    bool subscribed = false;
+};
+
+/** 発行中に追加される購読者の呼び出しを記録する。 */
+void OnAddedDuringPublish(const FTypedMessage&, void* user) noexcept
+{
+    ++static_cast<FSubscribeDuringPublishContext*>(user)->added_calls;
+}
+
+/** 最初の配送で新しい購読者を追加する。 */
+void OnSubscribeDuringPublish(const FTypedMessage&, void* user) noexcept
+{
+    auto& context = *static_cast<FSubscribeDuringPublishContext*>(user);
+    ++context.initial_calls;
+    if (context.subscribed) return;
+    context.subscribed = true;
+    context.broker->SubscribeTyped<FTypedMessage, &OnAddedDuringPublish>(&context);
+}
+
 struct FTimerCounter {
     u32 hits = 0;
 };
@@ -466,6 +497,30 @@ ACS_TEST(FoundationOptimizationWaveB, TypedBrokerPreservesNestedPublishCancellat
     EXPECT_EQ(context.raw_calls, 0);
     EXPECT_EQ(broker.SubscriberCount(GetEventTypeId<FTypedMessage>()), 1u);
     EXPECT_TRUE(broker.Unsubscribe(typed));
+}
+
+ACS_TEST(FoundationOptimizationWaveB, BrokerDefersSubscriptionAddedDuringPublish)
+{
+    FMessageBroker broker;
+    FSubscribeDuringPublishContext context;
+    context.broker = &broker;
+
+    const FSubscriptionHandle initial =
+        broker.SubscribeTyped<FTypedMessage, &OnSubscribeDuringPublish>(&context);
+    const FSubscriptionHandle reusable =
+        broker.SubscribeTyped<FTypedMessage, &OnAddedDuringPublish>(&context);
+    EXPECT_TRUE(initial.IsValid());
+    EXPECT_TRUE(reusable.IsValid());
+    EXPECT_TRUE(broker.Unsubscribe(reusable));
+
+    broker.Publish(FTypedMessage{1});
+    EXPECT_EQ(context.initial_calls, 1);
+    EXPECT_EQ(context.added_calls, 0);
+    EXPECT_EQ(broker.SubscriberCount(GetEventTypeId<FTypedMessage>()), 2u);
+
+    broker.Publish(FTypedMessage{2});
+    EXPECT_EQ(context.initial_calls, 2);
+    EXPECT_EQ(context.added_calls, 1);
 }
 
 ACS_TEST(FoundationOptimizationWaveB, TimerUsesDirectCancelAndActiveBitset)

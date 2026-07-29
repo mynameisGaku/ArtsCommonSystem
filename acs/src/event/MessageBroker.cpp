@@ -45,7 +45,9 @@ FSubscriptionHandle FMessageBroker::SubscribeRaw(EventTypeId channel,
     if (!ch) return kInvalidSubscription;
 
     u32 idx;
-    if (ch->free_indices.Size() > 0) {
+    // Publish 中は未走査位置の空き slot を再利用すると、発行開始後の購読者まで
+    // 同じ配送へ混入する。発行時点の集合を固定するため末尾へ追加する。
+    if (ch->publish_depth == 0 && ch->free_indices.Size() > 0) {
         idx = ch->free_indices[ch->free_indices.Size() - 1];
         ch->free_indices.PopBack();
     } else {

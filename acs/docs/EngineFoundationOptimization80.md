@@ -39,16 +39,16 @@ and compile-time assertions are required where they keep build cost bounded.
 
 | ID | Wave | Area | Deliverable | Initial owner | State |
 |---:|:---:|---|---|---|---|
-| T01 | A | Containers | Reduce `TArray` growth and relocation work with measured policies | A | Active |
-| T02 | A | Containers | Improve hash-table probing and heterogeneous lookup | A | Active |
-| T03 | A | Strings | Remove avoidable `FString` copies through `FStringView` paths | A | Active |
-| T04 | A | Serialization | Reduce JSON parser/writer allocation and token overhead | A | Active |
-| T05 | A | Memory | Improve allocator/object-pool hot paths and reuse | A | Active |
-| T06 | B | Threading | Reduce thread-pool wakeups and contention | B | Active |
-| T07 | B | Jobs | Reduce job-graph scheduling allocations and synchronization | B | Active |
-| T08 | B | Messaging | Add safe message batching and reduce broker contention | B | Active |
-| T09 | B | Timing | Improve timer scheduling and due-item traversal | B | Active |
-| T10 | B | Storage | Reduce filesystem/storage call and buffer overhead | B | Active |
+| T01 | A | Containers | Reduce `TArray` growth and relocation work with measured policies | A | Complete |
+| T02 | A | Containers | Improve hash-table probing and heterogeneous lookup | A | Complete |
+| T03 | A | Strings | Remove avoidable `FString` copies through `FStringView` paths | A | Complete |
+| T04 | A | Serialization | Reduce JSON parser/writer allocation and token overhead | A | Complete |
+| T05 | A | Memory | Improve allocator/object-pool hot paths and reuse | A | Complete |
+| T06 | B | Threading | Reduce thread-pool wakeups and contention | B | Complete |
+| T07 | B | Jobs | Reduce job-graph scheduling allocations and synchronization | B | Complete |
+| T08 | B | Messaging | Add safe message batching and reduce broker contention | B | Complete |
+| T09 | B | Timing | Improve timer scheduling and due-item traversal | B | Complete |
+| T10 | B | Storage | Reduce filesystem/storage call and buffer overhead | B | Complete |
 | T11 | C | Assets | Deduplicate asset-registry keys and accelerate lookup | C | Complete |
 | T12 | C | ECS | Improve sparse-set/query locality and iteration overhead | C | Complete |
 | T13 | C | ECS | Batch and merge entity command buffers efficiently | C | Complete |
@@ -59,16 +59,16 @@ and compile-time assertions are required where they keep build cost bounded.
 | T18 | D | Application | Add bounded minimized/background event wait without visible-frame loss | Root | Complete |
 | T19 | D | Logging | Coalesce asynchronous logger wakeups safely | Root | Complete |
 | T20 | D | Build | Add measured, reversible Release IPO/LTCG policy | Root | Complete |
-| T21 | E | Containers/TMP | Add verified trivially-relocatable trait and `if constexpr` path | A | Active |
-| T22 | E | Hashing/TMP | Add constexpr literal hashing and heterogeneous lookup | A | Active |
-| T23 | E | Parsing/TMP | Generate fixed character/token classification at compile time | A | Active |
-| T24 | E | Memory/TMP | Specialize fixed allocator size/alignment classes | A | Active |
-| T25 | E | Math/TMP | Select scalar/SIMD math policy at compile time | A | Active |
-| T26 | F | Jobs/TMP | Introduce bounded inline callable storage for jobs | B | Active |
-| T27 | F | Events/TMP | Generate typed callback thunks without heap wrappers | B | Active |
-| T28 | F | Queues/TMP | Specialize queue policy for known producer/consumer topology | B | Active |
-| T29 | F | Paths/TMP | Classify common paths/extensions with constexpr tables | B | Active |
-| T30 | F | Timing/TMP | Specialize timer clocks/callback policies without virtual dispatch | B | Active |
+| T21 | E | Containers/TMP | Add verified trivially-relocatable trait and `if constexpr` path | A | Complete |
+| T22 | E | Hashing/TMP | Add constexpr literal hashing and heterogeneous lookup | A | Complete |
+| T23 | E | Parsing/TMP | Generate fixed character/token classification at compile time | A | Complete |
+| T24 | E | Memory/TMP | Specialize fixed allocator size/alignment classes | A | Complete |
+| T25 | E | Math/TMP | Select scalar/SIMD math policy at compile time | A | Complete |
+| T26 | F | Jobs/TMP | Introduce bounded inline callable storage for jobs | B | Complete |
+| T27 | F | Events/TMP | Generate typed callback thunks without heap wrappers | B | Complete |
+| T28 | F | Queues/TMP | Specialize queue policy for known producer/consumer topology | B | Complete |
+| T29 | F | Paths/TMP | Classify common paths/extensions with constexpr tables | B | Complete |
+| T30 | F | Timing/TMP | Specialize timer clocks/callback policies without virtual dispatch | B | Complete |
 | T31 | G | ECS/TMP | Generate component traits and compact signatures | C | Complete |
 | T32 | G | ECS/TMP | Add typed query iteration with static component access | C | Complete |
 | T33 | G | Reflection/TMP | Generate bounded constexpr reflection dispatch tables | C | Complete |
@@ -79,29 +79,29 @@ and compile-time assertions are required where they keep build cost bounded.
 | T38 | H | Measurement | Report TMP dispatch, compile time, and binary size deltas | Root | Complete |
 | T39 | H | Verification | Add bounded performance verifier/CTest gate | Root | Complete |
 | T40 | H | Governance | Maintain ledger, evidence index, and static-safety audit | Root | Complete |
-| T41 | I | Data layout | Measure and remove cache-line false sharing in hot shared state | A | Queued |
-| T42 | I | Branching | Split measured hot/cold data and code paths | A | Queued |
-| T43 | I | Containers | Apply bounded inline capacity to a measured transient path | A | Queued |
-| T44 | I | Memory | Reuse a measured allocation path with an intrusive/free list | A | Queued |
-| T45 | I | Validation/TMP | Generate constexpr enum validation and lookup tables | A | Queued |
-| T46 | I | Results | Improve hot/cold result propagation and branch layout | A | Queued |
+| T41 | I | Data layout | Measure and remove cache-line false sharing in hot shared state | A | Active |
+| T42 | I | Branching | Split measured hot/cold data and code paths | A | Active |
+| T43 | I | Containers | Apply bounded inline capacity to a measured transient path | A | Active |
+| T44 | I | Memory | Reuse a measured allocation path with an intrusive/free list | A | Active |
+| T45 | I | Validation/TMP | Generate constexpr enum validation and lookup tables | A | Active |
+| T46 | I | Results | Improve hot/cold result propagation and branch layout | A | Active |
 | T47 | J | Math/SIMD | Batch AABB and frustum tests with scalar parity fallback | C | Active |
 | T48 | J | Transform | Add SoA transform-update batch with cache-local traversal | C | Active |
 | T49 | J | ECS | Add measured blocked iteration/prefetch strategy | C | Active |
 | T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Active |
-| T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Queued |
-| T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Queued |
-| T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Queued |
-| T54 | K | Storage | Add safe mapped-read path for large immutable assets | B | Queued |
-| T55 | K | Compression | Reuse bounded decompression scratch buffers | B | Queued |
-| T56 | K | Assets | Batch dependency resolution in stable topological order | B | Queued |
-| T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Queued |
-| T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Queued |
+| T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Active |
+| T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Active |
+| T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Active |
+| T54 | K | Storage | Add safe mapped-read path for large immutable assets | B | Active |
+| T55 | K | Compression | Reuse bounded decompression scratch buffers | B | Active |
+| T56 | K | Assets | Batch dependency resolution in stable topological order | B | Active |
+| T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Active |
+| T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Active |
 | T59 | L | Render | Add inline storage for common render-command payloads | C | Active |
 | T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Active |
 | T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Active |
 | T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Active |
-| T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Queued |
+| T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Active |
 | T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Active |
 | T65 | M | Handles/TMP | Add generation-checked static handle-layout traits and parity tests | A | Queued |
 | T66 | M | Containers | Add word-batched bitset operations with scalar parity fallback | A | Queued |
@@ -111,10 +111,10 @@ and compile-time assertions are required where they keep build cost bounded.
 | T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Queued |
 | T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Queued |
 | T72 | M | Paths | Normalize and hash canonical paths once across storage boundaries | B | Queued |
-| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Queued |
-| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Queued |
-| T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Queued |
-| T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Queued |
+| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Active |
+| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Active |
+| T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Active |
+| T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Active |
 | T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Queued |
 | T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Queued |
 | T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Queued |

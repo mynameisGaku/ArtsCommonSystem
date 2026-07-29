@@ -65,7 +65,7 @@ compile/runtime の変更前値は一回測定、runtime の変更後値は六�
 - ThreadPool: wake 予約は `wake_lock` 内で sleeper 数と再確認し、burst 中の予約重複と lost wake を防ぐ。shutdown は全 waiter を解除し、worker/callable lifecycle 中の自己 wait を行わない。
 - Callable: inline/heap の保存先を明示し、実行後、submit 失敗、graph 破棄の全経路で destructor を一度だけ呼ぶ。worker が submit 戻り前にノードを返却できるため、返却後にノードへ触れない。`SubmitCallable` / `AddCallable` は noexcept 構築・呼び出し・破棄できる型だけを `static_assert` で受理し、暗黙 terminate となる throw 可能型を拒否する。
 - JobGraph: cycle と不正 dependency を submit 前に拒否し、topology 成功時だけ cache を再利用する。capacity 超過は heap fallback として診断できる。
-- MessagePipe/Broker: MPMC FIFO、SPSC 順序、bounded push、batch 順序、nested publish 中の cancel をテストする。SPSC は noexcept の既定構築・move 構築・move 代入・破棄を要求し、Close と Push を並行させない。typed API は raw ABI thunk を介して従来配送と同じ reentrancy を保ち、noexcept callback だけを受理する。
+- MessagePipe/Broker: MPMC FIFO、SPSC 順序、bounded push、batch 順序、nested publish 中の cancel をテストする。Publish 中の新規購読は空き slot を再利用せず末尾へ追加し、発行開始後の購読者を次回配送まで呼ばない。SPSC は noexcept の既定構築・move 構築・move 代入・破棄を要求し、Close と Push を並行させない。typed API は raw ABI thunk を介して従来配送と同じ reentrancy を保ち、noexcept callback だけを受理する。
 - Timer: handle generation、slot 再利用順、nested callback、Once/Repeating の無効 period cleanup を維持する。typed callback は noexcept をコンパイル時に要求する。
 - File/Storage: null/empty、4 GiB 超、親が通常 file、locked destination を安全に処理する。atomic write は同一 directory の temp を flush 後に replace し、失敗時に旧内容を維持して temp を削除する。reparse target は link 自体を置換しない。`.json` / `.bin` / `.acpak` を含む従来の Storage path は引き続き保存・読込できる。
 
