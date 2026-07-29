@@ -20,6 +20,7 @@ acs_module(
         JobGraphDiagnostics.h
         MemoryOrder.h
         Mutex.h
+        ParallelForDiagnostics.h
         RwLock.h
         ScopedLock.h
         Thread.h

@@ -88,7 +88,7 @@ acs/
 | FThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル FMutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は FMutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
 | TAtomic | Win32 `_Interlocked*` 組み込み | `std::atomic` 不使用。ARM64 では接尾辞付き（`_acq` / `_rel`）、x64 ではフルフェンスをベースラインに。 |
 | THashMap | Robin Hood + 値の密配置 + 8-bit フィンガープリント | ankerl::unordered_dense レイアウト — 失敗ルックアップが最速、tombstone なし、連続イテレーション可。SIMD プロービングは v2 に延期。 |
-| FAllocator 群 | 仮想 `FAllocator` 基底 + FSystemAllocator / FLinearAllocator / FPoolAllocator / FArenaAllocator | FPoolAllocator は単方向フリーリストと所有状態を同じ軽量ロックで保護し、外部ポインタや二重解放も拒否する。 |
+| FAllocator 群 | 仮想 `FAllocator` 基底 + FSystemAllocator / FLinearAllocator / FPoolAllocator / FArenaAllocator | FPoolAllocator は単方向フリーリストと所有状態を同じ軽量ロックで保護する。FArenaAllocator は batch 予約と世代式 `Reset(false)` により、利用者統計を保ったまま cursor 更新と毎 frame の page 走査を削減する。 |
 | Math | DirectXMath を `FVec3 / FVec4 / FMat4 / FQuat` でラップ | Microsoft 保守、SSE2〜AVX2 パス同梱、Windows 上 NEON 対応も視野。人間に優しい POD 型を公開し、バッチ演算は関数ポインタテーブルでディスパッチ。 |
 | FString | 24 バイトの SSO（22 バイトをインライン）+ ヒープフォールバック | absl/folly 風のレイアウト。x64 のキャッシュライン 1/3 程度のサイズに合わせている。 |
 | Test | 独自 `ACS_TEST(Suite, Name)` マクロ + `EXPECT_*` | GoogleTest 依存を避ける。FMutex 保護のレジストリ、テストごとの失敗カウンタ。 |

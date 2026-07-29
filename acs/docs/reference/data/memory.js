@@ -142,14 +142,28 @@ ACS_REF.modules.push({
     {
       name: "FArenaAllocator",
       kind: "クラス", header: "memory/ArenaAllocator.h",
-      summary: "確保はポインタを進めるだけ(超高速)、解放は<b>まとめて Reset</b>のみ、という使い捨て<t>アロケータ</t>。容量は固定せず、満杯になると<b>ページを足して自動で伸びる</b>(ページバック式バンプ)。",
+      summary: "確保はポインタを進めるだけ(超高速)、解放は<b>まとめて Reset</b>のみ、という使い捨て<t>アロケータ</t>。容量は固定せず、満杯になると<b>ページを足して自動で伸びる</b>(ページバック式バンプ)。同形状の領域は batch 予約でき、Reset は世代を進めて先頭 page だけを即時初期化する。",
       when: "1 フレームだけ使って次フレームに全部捨てる一時データ(描画コマンド等)。個別解放はしない。",
       sample: "FArenaAllocator arena(64 * 1024);   // 引数は1ページのサイズ(既定 64KB)。容量上限ではない\nvoid* a = arena.Alloc(64, 16, FSourceLoc::Current());\n// ...フレーム処理...\narena.Reset();                      // 全確保を一括無効化(超高速)。ページは再利用",
       members: [
         { sig: "FArenaAllocator(usize page_size = 64*1024, FAllocator* backing_allocator = nullptr)", desc: "<b>第1引数はページサイズ</b>(全体容量ではない)。満杯時は backing_allocator から新ページを足して伸びる。" },
         { sig: "void* Alloc(usize size, usize alignment, FSourceLoc location)", ret: "確保した領域", desc: "末尾にポインタを進めて確保。alignment は 2 のべき乗かつ最大 64 KiB。不正値やサイズ計算のオーバーフローは null で拒否する。" },
+        { sig: "bool AllocBatch(void** output, usize count, usize size, usize alignment, FSourceLoc location = Current())", ret: "全領域を確保できたか", desc: "同じ size/alignment の <code>count</code> 領域を cursor 更新 1 回で予約する。失敗時は output 全要素を null にし、統計を変えない。" },
         { sig: "void Free(void* pointer)", desc: "<b>no-op</b>(個別解放はしない)。" },
-        { sig: "void Reset(bool release_pages = false)", desc: "全確保を一括無効化。開始済み Alloc の完了を待ち、Reset 中の新規 Alloc は null で拒否する。<code>release_pages=true</code> で backing にページを返す。既定はページを保持して再利用。" }
+        { sig: "void Reset(bool release_pages = false)", desc: "全確保を一括無効化。開始済み Alloc の完了を待ち、Reset 中の新規 Alloc は null で拒否する。既定経路は世代を進め、先頭以外の保持 page を再利用直前に遅延初期化する。<code>release_pages=true</code> で backing に全ページを返す。" },
+        { sig: "FArenaAllocatorDiagnostics Diagnostics() const", ret: "診断 snapshot", desc: "保持 page、batch 回数/領域数、直前 Reset の page visit、遅延初期化数を返す。通常 Alloc に診断用 atomic 更新は追加しない。" }
+      ]
+    },
+    {
+      name: "FArenaAllocatorDiagnostics",
+      kind: "構造体", header: "memory/ArenaAllocatorDiagnostics.h",
+      summary: "Arena の batch と世代 Reset の効果を観測する 40 byte の値 snapshot。owner や寿命は持たない。",
+      members: [
+        { sig: "u64 retained_pages", desc: "現在保持する page 数。診断取得時に GrowLock 内で数える。" },
+        { sig: "u64 batch_allocations", desc: "最後の Reset 以降に成功した batch 呼び出し数。" },
+        { sig: "u64 batch_suballocations", desc: "最後の Reset 以降に batch で返した領域数。" },
+        { sig: "u64 last_reset_page_visits", desc: "直前の Reset が直接参照した page 数。通常の保持 Reset は 0 または 1。" },
+        { sig: "u64 lazy_page_resets", desc: "最後の Reset 以降に再利用直前まで初期化を遅らせた page 数。" }
       ]
     },
     {

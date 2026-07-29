@@ -26,6 +26,7 @@ acs_module(
     HEADERS
         Allocator.h
         ArenaAllocator.h
+        ArenaAllocatorDiagnostics.h
         CrtDebugHeapDiagnostics.h
         LinearAllocator.h
         Memory.h

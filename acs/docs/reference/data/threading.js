@@ -179,7 +179,7 @@ ACS_REF.modules.push({
     {
       name: "FThreadPool",
       kind: "クラス", header: "threading/ThreadPool.h",
-      summary: "あらかじめ用意したワーカー<t>スレッド</t>群に小さなタスクを投げて並列実行させる<t>スレッドプール</t>。<t>ワークスチール</t>方式で、暇なワーカーが忙しいワーカーの仕事を奪い負荷を均す。全 static の単一プール。",
+      summary: "あらかじめ用意したワーカー<t>スレッド</t>群に小さなタスクを投げて並列実行させる<t>スレッドプール</t>。<t>ワークスチール</t>方式で、暇なワーカーが忙しいワーカーの仕事を奪い負荷を均す。全 static の単一プール。ParallelFor は 32 分割まで stack、超過分は再利用 block を使う。",
       when: "数百〜数千の独立した小タスク(描画準備・更新・計算)を CPU 全コアで捌きたい時。<code>FThread</code> を毎回作るより遥かに軽い。依存関係があるなら <t>FJobGraph</t>。",
       sample: "FThreadPool::Init();                 // 論理CPU数でワーカー起動\nFCompletionCounter done;\nFTask t{ &MyTask, &ctx, &done };\nFThreadPool::Submit(t);              // 投入(counter は自動 Add)\nFThreadPool::Wait(done);            // 完了待ち(待機中も手伝う)\nFThreadPool::Shutdown();",
       members: [
@@ -187,10 +187,24 @@ ACS_REF.modules.push({
         { sig: "static void Shutdown()", desc: "全ワーカーを停止しプールを片付ける。" },
         { sig: "static u32 WorkerCount()", ret: "ワーカー数", desc: "起動中のワーカースレッド数。" },
         { sig: "static u32 CurrentWorkerIndex()", ret: "0..N-1 or kNotAWorker", desc: "呼び出しスレッドがプールのワーカーなら通し番号、そうでなければ <code>kNotAWorker</code>。" },
+        { sig: "static FParallelForDiagnostics CaptureParallelForDiagnostics()", ret: "診断 snapshot", desc: "ParallelFor の stack、固定 block、heap 退避と同時使用量を返す。既存 <code>FThreadPoolDiagnostics</code> の 96 byte ABI は変えない。" },
         { sig: "static constexpr u32 kNotAWorker = 0xFFFFFFFF", desc: "<code>CurrentWorkerIndex()</code> がワーカー外スレッドで返す番兵値。" },
         { sig: "static TResult<void> Submit(const FTask& t)", ret: "成否", desc: "タスクを投入する。<code>t.counter</code> が非 null なら自動で <code>Add(1)</code> される。", when: "1 個のタスクを並列キューに積む時。" },
         { sig: "static void Wait(FCompletionCounter& counter)", desc: "<code>counter</code> が 0 になるまで待つ。待機中の呼び出しスレッドも仕事を手伝う(スティーリング参加)。" },
         { sig: "static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, body, void* user)", ret: "成否", desc: "<code>[begin, end)</code> を <code>grain</code> 個ずつに分割して並列実行し、全部終わるまで待つ。", when: "配列を範囲分割して並列処理したい時の定番。", sample: "FThreadPool::ParallelFor(0, n, 64,\n  [](u32 i, u32 w, void* u){ /* i 番目を処理 */ }, &ctx);" }
+      ]
+    },
+    {
+      name: "FParallelForDiagnostics",
+      kind: "構造体", header: "threading/ParallelForDiagnostics.h",
+      summary: "<code>FThreadPool::ParallelFor</code> が一時 context をどこへ置いたかと、固定 block の同時使用量を返す 40 byte の値 snapshot。",
+      when: "分割数や同時 ParallelFor 数に対して固定 pool が足りているか、heap 退避が起きていないかを profiler や性能 test で確認する時。",
+      members: [
+        { sig: "u64 inline_calls", desc: "32 分割以下で stack だけを使った呼び出し数。" },
+        { sig: "u64 pool_blocks", desc: "固定 free-list から取得した block の累計数。" },
+        { sig: "u64 pool_blocks_in_use", desc: "現在貸し出している block 数。" },
+        { sig: "u64 pool_blocks_high_water", desc: "同時貸し出し block 数の最大値。" },
+        { sig: "u64 heap_blocks", desc: "固定 pool 枯渇後に OS heap へ退避した block 数。" }
       ]
     },
     {

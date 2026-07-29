@@ -79,18 +79,18 @@ and compile-time assertions are required where they keep build cost bounded.
 | T38 | H | Measurement | Report TMP dispatch, compile time, and binary size deltas | Root | Complete |
 | T39 | H | Verification | Add bounded performance verifier/CTest gate | Root | Complete |
 | T40 | H | Governance | Maintain ledger, evidence index, and static-safety audit | Root | Complete |
-| T41 | I | Data layout | Measure and remove cache-line false sharing in hot shared state | A | Active |
-| T42 | I | Branching | Split measured hot/cold data and code paths | A | Active |
-| T43 | I | Containers | Apply bounded inline capacity to a measured transient path | A | Active |
-| T44 | I | Memory | Reuse a measured allocation path with an intrusive/free list | A | Active |
-| T45 | I | Validation/TMP | Generate constexpr enum validation and lookup tables | A | Active |
-| T46 | I | Results | Improve hot/cold result propagation and branch layout | A | Active |
+| T41 | I | Data layout | Measure and remove cache-line false sharing in hot shared state | A | Complete |
+| T42 | I | Branching | Split measured hot/cold data and code paths | A | Deferred |
+| T43 | I | Containers | Apply bounded inline capacity to a measured transient path | A | Complete |
+| T44 | I | Memory | Reuse a measured allocation path with an intrusive/free list | A | Complete |
+| T45 | I | Validation/TMP | Generate constexpr enum validation and lookup tables | A | Complete |
+| T46 | I | Results | Improve hot/cold result propagation and branch layout | A | Deferred |
 | T47 | J | Math/SIMD | Batch AABB and frustum tests with scalar parity fallback | C | Active |
 | T48 | J | Transform | Add SoA transform-update batch with cache-local traversal | C | Active |
 | T49 | J | ECS | Add measured blocked iteration/prefetch strategy | C | Active |
 | T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Active |
-| T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Active |
-| T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Active |
+| T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Complete |
+| T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Complete |
 | T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Complete |
 | T54 | K | Storage | Add safe mapped-read path for large immutable assets | B | Complete |
 | T55 | K | Compression | Reuse bounded decompression scratch buffers | B | Complete |

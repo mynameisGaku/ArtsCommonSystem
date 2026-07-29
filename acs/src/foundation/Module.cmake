@@ -15,6 +15,8 @@ acs_module(
         Assert.h
         Cast.h
         Compiler.h
+        EndianSerialization.h
+        EnumLookup.h
         Error.h
         Limits.h
         Log.h

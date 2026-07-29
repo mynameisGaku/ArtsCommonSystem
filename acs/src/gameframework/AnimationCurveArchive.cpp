@@ -3,6 +3,8 @@
 #include "gameframework/AnimationCurveArchive.h"
 
 #include "container/Array.h"
+#include "foundation/EndianSerialization.h"
+#include "foundation/EnumLookup.h"
 #include "foundation/Error.h"
 #include "gameframework/SaveArchive.h"
 #include "memory/Memory.h"
@@ -12,43 +14,37 @@ namespace {
 
 constexpr u8 kMagic[8] = {'A', 'C', 'S', 'C', 'U', 'R', 'V', '\0'};
 
-void WriteU16LE(u8* destination, u16 value) noexcept {
-    destination[0] = static_cast<u8>(value);
-    destination[1] = static_cast<u8>(value >> 8u);
-}
+/** 補間 enum の整数値と一致する名前 table。 */
+constexpr const char* kInterpolationNames[]{"Step", "Linear", "Hermite"};
+/** wire 検証で使う補間 enum の constexpr table。 */
+constexpr TContiguousEnumLookup<ECurveInterpolation, 3u> kInterpolationLookup(kInterpolationNames);
 
-void WriteU32LE(u8* destination, u32 value) noexcept {
-    destination[0] = static_cast<u8>(value);
-    destination[1] = static_cast<u8>(value >> 8u);
-    destination[2] = static_cast<u8>(value >> 16u);
-    destination[3] = static_cast<u8>(value >> 24u);
-}
+/** wrap enum の整数値と一致する名前 table。 */
+constexpr const char* kWrapModeNames[]{"Clamp", "Loop", "PingPong"};
+/** wire 検証で使う wrap enum の constexpr table。 */
+constexpr TContiguousEnumLookup<FAnimationCurve::EWrapMode, 3u> kWrapModeLookup(kWrapModeNames);
 
-u16 ReadU16LE(const u8* source) noexcept {
-    return static_cast<u16>(
-        static_cast<u16>(source[0]) |
-        static_cast<u16>(static_cast<u16>(source[1]) << 8u));
-}
+/** archive error enum の整数値と一致する名前 table。 */
+constexpr const char* kArchiveErrorNames[]{
+    "None",
+    "NullArgument",
+    "BufferTooSmall",
+    "InvalidMagic",
+    "UnsupportedVersion",
+    "InvalidHeader",
+    "SizeMismatch",
+    "ChecksumMismatch",
+    "TooManyKeys",
+    "InvalidCurveData",
+    "AllocationFailure",
+    "PersistenceFailure",
+};
+/** archive error 名を生成する constexpr table。 */
+constexpr TContiguousEnumLookup<EAnimationCurveArchiveError, 12u> kArchiveErrorLookup(kArchiveErrorNames);
 
-u32 ReadU32LE(const u8* source) noexcept {
-    return static_cast<u32>(source[0]) |
-           (static_cast<u32>(source[1]) << 8u) |
-           (static_cast<u32>(source[2]) << 16u) |
-           (static_cast<u32>(source[3]) << 24u);
-}
-
-void WriteF32LE(u8* destination, f32 value) noexcept {
-    u32 bits = 0u;
-    MemCopy(&bits, &value, sizeof(bits));
-    WriteU32LE(destination, bits);
-}
-
-f32 ReadF32LE(const u8* source) noexcept {
-    const u32 bits = ReadU32LE(source);
-    f32 value = 0.0f;
-    MemCopy(&value, &bits, sizeof(value));
-    return value;
-}
+static_assert(kInterpolationLookup.Contains(ECurveInterpolation::Hermite));
+static_assert(kWrapModeLookup.Contains(FAnimationCurve::EWrapMode::PingPong));
+static_assert(kArchiveErrorLookup.Contains(EAnimationCurveArchiveError::PersistenceFailure));
 
 u32 WireCrc32(const u8* bytes, usize size) noexcept {
     u32 crc = 0xFFFFFFFFu;
@@ -68,15 +64,11 @@ u32 WireCrc32(const u8* bytes, usize size) noexcept {
 }
 
 bool IsValidWrapMode(FAnimationCurve::EWrapMode mode) noexcept {
-    return mode == FAnimationCurve::EWrapMode::Clamp ||
-           mode == FAnimationCurve::EWrapMode::Loop ||
-           mode == FAnimationCurve::EWrapMode::PingPong;
+    return kWrapModeLookup.Contains(mode);
 }
 
 bool IsValidInterpolation(ECurveInterpolation interpolation) noexcept {
-    return interpolation == ECurveInterpolation::Step ||
-           interpolation == ECurveInterpolation::Linear ||
-           interpolation == ECurveInterpolation::Hermite;
+    return kInterpolationLookup.Contains(interpolation);
 }
 
 FAnimationCurveArchiveResult MakeCurveFailure(
@@ -161,21 +153,7 @@ FAnimationCurveResult ValidateCurve(
 
 const char* FAnimationCurveArchiveResult::ErrorName(
     EAnimationCurveArchiveError error) noexcept {
-    switch (error) {
-    case EAnimationCurveArchiveError::None: return "None";
-    case EAnimationCurveArchiveError::NullArgument: return "NullArgument";
-    case EAnimationCurveArchiveError::BufferTooSmall: return "BufferTooSmall";
-    case EAnimationCurveArchiveError::InvalidMagic: return "InvalidMagic";
-    case EAnimationCurveArchiveError::UnsupportedVersion: return "UnsupportedVersion";
-    case EAnimationCurveArchiveError::InvalidHeader: return "InvalidHeader";
-    case EAnimationCurveArchiveError::SizeMismatch: return "SizeMismatch";
-    case EAnimationCurveArchiveError::ChecksumMismatch: return "ChecksumMismatch";
-    case EAnimationCurveArchiveError::TooManyKeys: return "TooManyKeys";
-    case EAnimationCurveArchiveError::InvalidCurveData: return "InvalidCurveData";
-    case EAnimationCurveArchiveError::AllocationFailure: return "AllocationFailure";
-    case EAnimationCurveArchiveError::PersistenceFailure: return "PersistenceFailure";
-    }
-    return "Unknown";
+    return kArchiveErrorLookup.Name(error);
 }
 
 u64 FAnimationCurveArchive::EncodedSize(
@@ -212,32 +190,30 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Encode(
 
     u8* output = static_cast<u8*>(out_bytes);
     MemCopy(output, kMagic, sizeof(kMagic));
-    WriteU16LE(output + 8u, kWireVersion);
-    WriteU16LE(output + 10u, static_cast<u16>(kHeaderSize));
-    WriteU32LE(output + 12u, curve.KeyCount());
+    WriteLittleEndian(output + 8u, kWireVersion);
+    WriteLittleEndian(output + 10u, static_cast<u16>(kHeaderSize));
+    WriteLittleEndian(output + 12u, curve.KeyCount());
     output[16u] = static_cast<u8>(curve.PreWrap());
     output[17u] = static_cast<u8>(curve.PostWrap());
-    WriteU16LE(output + 18u, 0u);
+    WriteLittleEndian(output + 18u, u16{0u});
     const u32 payload_size = curve.KeyCount() * kKeyRecordSize;
-    WriteU32LE(output + 20u, payload_size);
-    WriteU32LE(output + 24u, 0u);
-    WriteU32LE(output + 28u, 0u);
+    WriteLittleEndian(output + 20u, payload_size);
+    WriteLittleEndian(output + 24u, u32{0u});
+    WriteLittleEndian(output + 28u, u32{0u});
 
     u8* record = output + kHeaderSize;
     for (u32 index = 0u; index < curve.KeyCount(); ++index) {
         const FCurveKey& key = *curve.Key(index);
-        WriteF32LE(record + 0u, key.time);
-        WriteF32LE(record + 4u, key.value);
-        WriteF32LE(record + 8u, key.in_tangent);
-        WriteF32LE(record + 12u, key.out_tangent);
+        WriteLittleEndian(record + 0u, key.time);
+        WriteLittleEndian(record + 4u, key.value);
+        WriteLittleEndian(record + 8u, key.in_tangent);
+        WriteLittleEndian(record + 12u, key.out_tangent);
         record[16u] = static_cast<u8>(key.in_interp);
         record[17u] = static_cast<u8>(key.out_interp);
-        WriteU16LE(record + 18u, 0u);
+        WriteLittleEndian(record + 18u, u16{0u});
         record += kKeyRecordSize;
     }
-    WriteU32LE(output + 24u,
-               WireCrc32(output,
-                         static_cast<usize>(required_size)));
+    WriteLittleEndian(output + 24u, WireCrc32(output, static_cast<usize>(required_size)));
 
     FAnimationCurveArchiveResult result{};
     result.required_size = required_size;
@@ -275,27 +251,25 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Decode(
             return result;
         }
     }
-    if (ReadU16LE(input + 8u) != kWireVersion) {
+    if (ReadLittleEndian<u16>(input + 8u) != kWireVersion) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::UnsupportedVersion;
         return result;
     }
-    if (ReadU16LE(input + 10u) != kHeaderSize ||
-        ReadU16LE(input + 18u) != 0u ||
-        ReadU32LE(input + 28u) != 0u) {
+    if (ReadLittleEndian<u16>(input + 10u) != kHeaderSize || ReadLittleEndian<u16>(input + 18u) != 0u || ReadLittleEndian<u32>(input + 28u) != 0u) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::InvalidHeader;
         return result;
     }
 
-    const u32 key_count = ReadU32LE(input + 12u);
+    const u32 key_count = ReadLittleEndian<u32>(input + 12u);
     if (key_count > FAnimationCurve::kMaxKeys) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::TooManyKeys;
         result.required_size = kMaxEncodedSize;
         return result;
     }
-    const u32 payload_size = ReadU32LE(input + 20u);
+    const u32 payload_size = ReadLittleEndian<u32>(input + 20u);
     const u64 required_size =
         static_cast<u64>(kHeaderSize) +
         static_cast<u64>(key_count) *
@@ -318,8 +292,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Decode(
         result.required_size = required_size;
         return result;
     }
-    if (WireCrc32(input, static_cast<usize>(required_size)) !=
-        ReadU32LE(input + 24u)) {
+    if (WireCrc32(input, static_cast<usize>(required_size)) != ReadLittleEndian<u32>(input + 24u)) {
         FAnimationCurveArchiveResult result{};
         result.error = EAnimationCurveArchiveError::ChecksumMismatch;
         result.required_size = required_size;
@@ -335,7 +308,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Decode(
     }
     const u8* record = input + kHeaderSize;
     for (u32 index = 0u; index < key_count; ++index) {
-        if (ReadU16LE(record + 18u) != 0u) {
+        if (ReadLittleEndian<u16>(record + 18u) != 0u) {
             FAnimationCurveArchiveResult result{};
             result.error = EAnimationCurveArchiveError::InvalidHeader;
             result.key_index = index;
@@ -343,10 +316,10 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Decode(
             return result;
         }
         FCurveKey& key = staged[index];
-        key.time = ReadF32LE(record + 0u);
-        key.value = ReadF32LE(record + 4u);
-        key.in_tangent = ReadF32LE(record + 8u);
-        key.out_tangent = ReadF32LE(record + 12u);
+        key.time = ReadLittleEndian<f32>(record + 0u);
+        key.value = ReadLittleEndian<f32>(record + 4u);
+        key.in_tangent = ReadLittleEndian<f32>(record + 8u);
+        key.out_tangent = ReadLittleEndian<f32>(record + 12u);
         key.in_interp =
             static_cast<ECurveInterpolation>(record[16u]);
         key.out_interp =

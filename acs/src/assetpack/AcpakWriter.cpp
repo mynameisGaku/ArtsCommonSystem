@@ -18,6 +18,7 @@
 // =============================================================================
 #include "assetpack/AcpakWriter.h"
 
+#include "foundation/EndianSerialization.h"
 #include "foundation/Platform.h"
 #include "foundation/Log.h"
 #include "memory/Memory.h"
@@ -156,25 +157,25 @@ bool WriteAll(HANDLE h, const void* src, u64 size, DWORD& err) noexcept
 }
 
 /**
- * u32 を 4 バイト LE で書き出す (strict-aliasing 安全)。
+ * u32 を host endian に依存せず 4 バイト LE で書き出す。
  *
  * @param dst 書き込み先 (4 バイト)。
  * @param v 書き込む u32。
  */
 void WriteU32LE(u8* dst, u32 v) noexcept
 {
-    MemCopy(dst, &v, sizeof(u32));
+    WriteLittleEndian(dst, v);
 }
 
 /**
- * u64 を 8 バイト LE で書き出す (strict-aliasing 安全)。
+ * u64 を host endian に依存せず 8 バイト LE で書き出す。
  *
  * @param dst 書き込み先 (8 バイト)。
  * @param v 書き込む u64。
  */
 void WriteU64LE(u8* dst, u64 v) noexcept
 {
-    MemCopy(dst, &v, sizeof(u64));
+    WriteLittleEndian(dst, v);
 }
 
 /**

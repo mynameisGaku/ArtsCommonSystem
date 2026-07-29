@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// ページバック式バンプアロケータ（容量を固定せず、満杯になったらページ追加）
 #pragma once
 
+#include "memory/ArenaAllocatorDiagnostics.h"
 #include "memory/Allocator.h"
 #include "threading/Atomic.h"
 #include "threading/Mutex.h"
@@ -14,8 +14,8 @@ namespace acs {
  * @details
  * 通常確保は現在ページ内をアトミック CAS 1 回で前進させる (lock-free)。ページが満杯に
  * なったときだけ FMutex で排他して backing から新ページを確保する。PageSize より大きい
- * 要求には専用ページを割り当てる。個別 Free は非対応 (no-op)。Reset でカーソルを巻き戻すか
- * (ページ保持)、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
+ * 要求には専用ページを割り当てる。個別 Free は非対応 (no-op)。Reset で世代を進めて page を
+ * 遅延再利用するか、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
  * Reset 開始後の Alloc は nullptr で拒否する。
  */
 class FArenaAllocator final : public FAllocator {
@@ -51,6 +51,18 @@ public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override;
 
     /**
+     * 同じ size と alignment の領域を 1 回の cursor 予約からまとめて返す。
+     *
+     * @param Output Count 件の結果を書き込む配列。失敗時は全要素を nullptr にする。
+     * @param Count 必要な領域数。
+     * @param Size 1 領域の要求 byte 数。
+     * @param Alignment 各領域の要求 alignment。
+     * @param Location 診断用の呼び出し位置。
+     * @return 全領域を確保できた場合は true。
+     */
+    bool AllocBatch(void** Output, usize Count, usize Size, usize Alignment, FSourceLoc Location = FSourceLoc::Current()) noexcept;
+
+    /**
      * 個別解放は非対応 (no-op)。
      *
      * @details まとめて Reset で破棄する。
@@ -74,13 +86,21 @@ public:
      * 全確保を無効化する。
      *
      * @details
-     * bReleasePages=false なら全ページのカーソルを 0 に巻き戻してページを再利用する
-     * (再確保なし)。true なら全ページを backing に返却する。新しい Alloc の入場を閉じ、
+     * bReleasePages=false なら世代を進めて先頭ページだけを初期化し、残りは再公開直前に
+     * GrowLock 内で遅延初期化する。通常経路は保持ページ数に依存しない。true なら全ページを
+     * backing に返却する。新しい Alloc の入場を閉じ、
      * 開始済みの Alloc が完了してから GrowLock を取るため、並行実行でもページへ競合アクセスしない。
      * Reset 後はそれ以前に払い出した全ポインタが無効になるため、呼び出し側はデータ利用者を別途停止すること。
      * @param bReleasePages true でページを backing に返却、false でカーソルだけ巻き戻し。
      */
     void Reset(bool bReleasePages = false) noexcept;
+
+    /**
+     * 現在の batch と世代 reset 診断値を返す。
+     *
+     * @return 各 atomic 値を読み取った診断 snapshot。
+     */
+    FArenaAllocatorDiagnostics Diagnostics() const noexcept;
 
     /**
      * 現在の総割当バイト数を返す。
@@ -137,6 +157,9 @@ private:
 
         /** 現在のカーソル位置 (このページ内の確保済みバイト数)。 */
         TAtomic<u64> used;
+
+        /** この page の used が属する Reset 世代。 */
+        u64 generation;
     };
 
     /**
@@ -147,6 +170,17 @@ private:
      * @return 初期化済み FPage (失敗時 nullptr)。
      */
     FPage* AllocPage(usize Size) noexcept;
+
+    /**
+     * 1 回の cursor 更新で連続領域を予約し、利用者向け統計を指定件数分だけ加算する。
+     *
+     * @param ReservedSize cursor 上で予約する byte 数。
+     * @param Alignment 予約先頭の alignment。
+     * @param AccountedBytes BytesAllocated に加算する利用者 byte 数。
+     * @param AccountedAllocations AllocationCount に加算する利用者領域数。
+     * @return 予約先頭。失敗時は nullptr。
+     */
+    ACS_FORCEINLINE void* ReserveRegion(usize ReservedSize, usize Alignment, usize AccountedBytes, usize AccountedAllocations) noexcept;
 
     /** Reset と競合しない確保操作として入場できれば true を返す。 */
     bool TryBeginAllocation() noexcept;
@@ -167,7 +201,7 @@ private:
     FPage* m_Pages = nullptr;
 
     /** 新ページ確保とリスト操作を排他するロック。 */
-    FMutex m_GrowLock;
+    mutable FMutex m_GrowLock;
 
     /** 1 の間は Reset がページ群を操作中で、新しい Alloc を拒否する。 */
     TAtomic<u32> m_ResetInProgress{0};
@@ -183,6 +217,21 @@ private:
 
     /** 過去ピークの割当バイト数 (CAS で更新)。 */
     mutable TAtomic<u64> m_Peak{0};
+
+    /** 現在の Reset 世代。GrowLock または Reset gate の内側で更新する。 */
+    u64 m_Generation = 1u;
+
+    /** 最後の Reset 以降に成功した batch 確保回数。 */
+    TAtomic<u64> m_BatchAllocationCount{0};
+
+    /** 最後の Reset 以降に batch で返した領域数。 */
+    TAtomic<u64> m_BatchSuballocationCount{0};
+
+    /** 直前の Reset が直接参照した page 数。 */
+    TAtomic<u64> m_LastResetPageVisits{0};
+
+    /** 最後の Reset 以降に遅延初期化した page 数。 */
+    TAtomic<u64> m_LazyPageResetCount{0};
 };
 
 } // namespace acs

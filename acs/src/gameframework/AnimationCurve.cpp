@@ -16,6 +16,7 @@
 //              を保存しているため。これで key 間隔を変えても曲線形が直感的に保てる。
 #include "gameframework/AnimationCurve.h"
 #include "gameframework/Easing.h"
+#include "foundation/EnumLookup.h"
 #include "foundation/Move.h"
 #include "math/Math.h"
 
@@ -25,52 +26,55 @@ namespace acs::game {
 
 namespace {
 
+/** 補間 enum の整数値と一致する名前 table。 */
+constexpr const char* kInterpolationNames[]{"Step", "Linear", "Hermite"};
+/** 補間 enum の妥当性と名前を生成する constexpr table。 */
+constexpr TContiguousEnumLookup<ECurveInterpolation, 3u> kInterpolationLookup(kInterpolationNames);
+
+/** wrap enum の整数値と一致する名前 table。 */
+constexpr const char* kWrapModeNames[]{"Clamp", "Loop", "PingPong"};
+/** wrap enum の妥当性と名前を生成する constexpr table。 */
+constexpr TContiguousEnumLookup<FAnimationCurve::EWrapMode, 3u> kWrapModeLookup(kWrapModeNames);
+
+/** 曲線 error enum の整数値と一致する名前 table。 */
+constexpr const char* kCurveErrorNames[]{
+    "None",
+    "NullKeys",
+    "TooManyKeys",
+    "NonFiniteValue",
+    "InvalidInterpolation",
+    "InvalidEasingType",
+    "InvalidSampleCount",
+    "InvalidWrapMode",
+    "UnsortedKeys",
+    "DuplicateKeyTime",
+    "AllocationFailure",
+    "ResultOutOfRange",
+};
+/** 曲線 error 名を生成する constexpr table。 */
+constexpr TContiguousEnumLookup<EAnimationCurveError, 12u> kCurveErrorLookup(kCurveErrorNames);
+
+static_assert(kInterpolationLookup.Contains(ECurveInterpolation::Hermite));
+static_assert(kWrapModeLookup.Contains(FAnimationCurve::EWrapMode::PingPong));
+static_assert(kCurveErrorLookup.Contains(EAnimationCurveError::ResultOutOfRange));
+
 bool IsFiniteCurveValue(f32 value) noexcept {
     return std::isfinite(value);
 }
 
 bool IsValidInterpolation(ECurveInterpolation interpolation) noexcept {
-    switch (interpolation) {
-    case ECurveInterpolation::Step:
-    case ECurveInterpolation::Linear:
-    case ECurveInterpolation::Hermite:
-        return true;
-    }
-    return false;
+    return kInterpolationLookup.Contains(interpolation);
 }
 
 bool IsValidWrapMode(FAnimationCurve::EWrapMode mode) noexcept {
-    switch (mode) {
-    case FAnimationCurve::EWrapMode::Clamp:
-    case FAnimationCurve::EWrapMode::Loop:
-    case FAnimationCurve::EWrapMode::PingPong:
-        return true;
-    }
-    return false;
+    return kWrapModeLookup.Contains(mode);
 }
 
 } // namespace
 
 const char* FAnimationCurveResult::ErrorName(
     EAnimationCurveError error) noexcept {
-    switch (error) {
-    case EAnimationCurveError::None: return "None";
-    case EAnimationCurveError::NullKeys: return "NullKeys";
-    case EAnimationCurveError::TooManyKeys: return "TooManyKeys";
-    case EAnimationCurveError::NonFiniteValue: return "NonFiniteValue";
-    case EAnimationCurveError::InvalidInterpolation:
-        return "InvalidInterpolation";
-    case EAnimationCurveError::InvalidEasingType:
-        return "InvalidEasingType";
-    case EAnimationCurveError::InvalidSampleCount:
-        return "InvalidSampleCount";
-    case EAnimationCurveError::InvalidWrapMode: return "InvalidWrapMode";
-    case EAnimationCurveError::UnsortedKeys: return "UnsortedKeys";
-    case EAnimationCurveError::DuplicateKeyTime: return "DuplicateKeyTime";
-    case EAnimationCurveError::AllocationFailure: return "AllocationFailure";
-    case EAnimationCurveError::ResultOutOfRange: return "ResultOutOfRange";
-    }
-    return "Unknown";
+    return kCurveErrorLookup.Name(error);
 }
 
 /**

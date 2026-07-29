@@ -239,6 +239,22 @@ ACS_TEST(AnimationCurvePersistence, CanonicalRoundTripPreservesAllFields) {
     EXPECT_TRUE(CurvesEqual(source, restored));
 }
 
+ACS_TEST(AnimationCurvePersistence, EmptyCurveEncodingMatchesGoldenBytes) {
+    /** 既定 wrap を持つ空の曲線。 */
+    FAnimationCurve source;
+    /** 既定曲線の固定長 wire 出力。 */
+    u8 bytes[FAnimationCurveArchive::kHeaderSize]{};
+    /** Encode が報告する書き込み byte 数。 */
+    u64 written = 0u;
+    /** version、予約領域、CRC を含む既存 wire の正準 byte 列。 */
+    constexpr u8 kGoldenBytes[FAnimationCurveArchive::kHeaderSize]{0x41u, 0x43u, 0x53u, 0x43u, 0x55u, 0x52u, 0x56u, 0x00u, 0x01u, 0x00u, 0x20u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0xCFu, 0xEFu, 0xD1u, 0x76u, 0x00u, 0x00u, 0x00u, 0x00u};
+
+    EXPECT_TRUE(FAnimationCurveArchive::Encode(source, bytes, sizeof(bytes), written).Succeeded());
+    EXPECT_EQ(written, static_cast<u64>(sizeof(kGoldenBytes)));
+    /** 正準 wire と比較する byte 位置。 */
+    for (usize index = 0u; index < sizeof(kGoldenBytes); ++index) EXPECT_EQ(bytes[index], kGoldenBytes[index]);
+}
+
 ACS_TEST(AnimationCurvePersistence, EveryEasingPresetRoundTripsCanonically) {
     for (u32 value = 0u;
          value < static_cast<u32>(Easing::EEasingType::Count);

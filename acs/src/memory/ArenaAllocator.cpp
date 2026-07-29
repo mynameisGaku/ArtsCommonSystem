@@ -55,6 +55,7 @@ FArenaAllocator::FPage* FArenaAllocator::AllocPage(usize Size) noexcept
     NewPage->base = reinterpret_cast<u8*>(AlignUp(static_cast<u8*>(Raw) + sizeof(FPage), 64));
     NewPage->size = Size;
     NewPage->used.Store(0, EMemoryOrder::Release);
+    NewPage->generation = m_Generation;
     return NewPage;
 }
 
@@ -79,29 +80,39 @@ void FArenaAllocator::EndAllocation() noexcept
     m_ActiveAllocations.FetchSub(1u);
 }
 
-// 確保
 void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
-    if (Size == 0) return nullptr;
+    return ReserveRegion(Size, Alignment, Size, 1u);
+}
+
+ACS_FORCEINLINE void* FArenaAllocator::ReserveRegion(usize ReservedSize, usize Alignment, usize AccountedBytes, usize AccountedAllocations) noexcept
+{
+    if (ReservedSize == 0u || AccountedAllocations == 0u) return nullptr;
     if (!IsPow2(Alignment) || Alignment > kMaximumArenaAlignment) return nullptr;
-    if (Size > (~usize(0)) - (Alignment - 1u)) return nullptr;
+    if (ReservedSize > (~usize(0)) - (Alignment - 1u)) return nullptr;
     if (!TryBeginAllocation()) return nullptr;
 
+    /** 関数離脱時に arena の確保入場数を戻す局所 guard。 */
     struct FActiveAllocationScope {
+        /** 入場数を戻す arena。 */
         FArenaAllocator* allocator = nullptr;
 
+        /** 保持している確保入場を終了する。 */
         ~FActiveAllocationScope() noexcept
         {
             allocator->EndAllocation();
         }
-    } AllocationScope{this};
+    };
+    /** 現在の確保入場を所有する guard。 */
+    FActiveAllocationScope AllocationScope{this};
 
     // 新ページの data 先頭がどこに置かれても、最大 Alignment - 1 バイトの前方余白を含めて
-    // Size バイトを収容できる容量を確保する。これがないと同じ不足ページを増やし続ける。
-    const usize MinimumPageSize = Size + Alignment - 1u;
+    // ReservedSize バイトを収容できる容量を確保する。これがないと同じ不足ページを増やし続ける。
+    const usize MinimumPageSize = ReservedSize + Alignment - 1u;
 
     while (true) {
         FPage* CurrentPage = m_Current.Load(EMemoryOrder::Acquire);
+        // m_Current は現世代へ初期化した page だけを公開し、Reset gate が操作中の世代変更を防ぐ。
         if (CurrentPage) {
             // 現在ページに収まるか確認
             const u64 CurrentUsed = CurrentPage->used.Load(EMemoryOrder::Relaxed);
@@ -110,14 +121,14 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
                 return nullptr;
             }
             const u64 AlignedOffset = AlignUp(BaseAddress + CurrentUsed, Alignment) - BaseAddress;
-            if (AlignedOffset <= CurrentPage->size && Size <= CurrentPage->size - AlignedOffset) {
-                const u64 NextUsed = AlignedOffset + Size;
+            if (AlignedOffset <= CurrentPage->size && ReservedSize <= CurrentPage->size - AlignedOffset) {
+                const u64 NextUsed = AlignedOffset + ReservedSize;
                 // CAS でカーソルを進める
                 u64 ExpectedUsed = CurrentUsed;
                 if (CurrentPage->used.CompareExchange(ExpectedUsed, NextUsed)) {
                     // ピーク値を CAS で更新
-                    const u64 AllocatedBytes = m_Bytes.FetchAdd(Size) + Size;
-                    m_AllocationCount.FetchAdd(1u);
+                    const u64 AllocatedBytes = m_Bytes.FetchAdd(AccountedBytes) + AccountedBytes;
+                    m_AllocationCount.FetchAdd(AccountedAllocations);
                     u64 RecordedPeakBytes = m_Peak.Load(EMemoryOrder::Relaxed);
                     while (AllocatedBytes > RecordedPeakBytes &&
                            !m_Peak.CompareExchange(RecordedPeakBytes, AllocatedBytes)) {}
@@ -138,6 +149,11 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
         for (FPage* CandidatePage = m_Pages; CandidatePage; CandidatePage = CandidatePage->next) {
             if (CandidatePage == CurrentPageAfterLock) continue;
 
+            if (CandidatePage->generation != m_Generation) {
+                CandidatePage->used.Store(0u, EMemoryOrder::Relaxed);
+                CandidatePage->generation = m_Generation;
+                m_LazyPageResetCount.FetchAdd(1u);
+            }
             const u64 CandidateUsed = CandidatePage->used.Load(EMemoryOrder::Acquire);
             const u64 CandidateBaseAddress = reinterpret_cast<u64>(CandidatePage->base);
             if (CandidateUsed > (~u64(0)) - CandidateBaseAddress ||
@@ -147,7 +163,7 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
 
             const u64 CandidateOffset = AlignUp(CandidateBaseAddress + CandidateUsed, Alignment) -
                                         CandidateBaseAddress;
-            if (CandidateOffset <= CandidatePage->size && Size <= CandidatePage->size - CandidateOffset) {
+            if (CandidateOffset <= CandidatePage->size && ReservedSize <= CandidatePage->size - CandidateOffset) {
                 m_Current.Store(CandidatePage, EMemoryOrder::Release);
                 break;
             }
@@ -163,6 +179,33 @@ void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*
         m_Current.Store(NewPage, EMemoryOrder::Release);
         // 新ページに対して Alloc を再試行
     }
+}
+
+bool FArenaAllocator::AllocBatch(void** Output, usize Count, usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+{
+    if (!Output || Count == 0u) return false;
+    /** 失敗時の契約を先に満たす出力 index。 */
+    for (usize Index = 0u; Index < Count; ++Index) Output[Index] = nullptr;
+    if (Size == 0u || !IsPow2(Alignment) || Alignment > kMaximumArenaAlignment) return false;
+    if (Size > (~usize{0}) - (Alignment - 1u)) return false;
+
+    /** 隣接領域の alignment を保つ byte 間隔。 */
+    const usize Stride = AlignUp(Size, Alignment);
+    if (Count - 1u > ((~usize{0}) - Size) / Stride) return false;
+    /** cursor 上で 1 回だけ予約する総 byte 数。 */
+    const usize ReservedSize = Stride * (Count - 1u) + Size;
+    if (Count > (~usize{0}) / Size) return false;
+    /** 利用者へ返す padding を除いた総 byte 数。 */
+    const usize AccountedBytes = Size * Count;
+    /** 1 回で確保した連続領域の先頭。 */
+    u8* const First = static_cast<u8*>(ReserveRegion(ReservedSize, Alignment, AccountedBytes, Count));
+    if (!First) return false;
+
+    /** 予約領域から利用者領域を切り出す index。 */
+    for (usize Index = 0u; Index < Count; ++Index) Output[Index] = First + Stride * Index;
+    m_BatchAllocationCount.FetchAdd(1u);
+    m_BatchSuballocationCount.FetchAdd(Count);
+    return true;
 }
 
 void FArenaAllocator::Free(void* /*Pointer*/) noexcept
@@ -202,6 +245,10 @@ bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize 
     FScopedLock ScopedGrowLock(m_GrowLock);
     for (FPage* CurrentPage = m_Pages; CurrentPage; CurrentPage = CurrentPage->next)
     {
+        if (CurrentPage->generation != m_Generation)
+        {
+            continue;
+        }
         const uptr PageBegin = reinterpret_cast<uptr>(CurrentPage->base);
         const u64 UsedBytes = CurrentPage->used.Load(EMemoryOrder::Acquire);
         if (UsedBytes > static_cast<u64>(~uptr{0} - PageBegin))
@@ -215,6 +262,21 @@ bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize 
         }
     }
     return false;
+}
+
+FArenaAllocatorDiagnostics FArenaAllocator::Diagnostics() const noexcept
+{
+    /** page 列の安定した読み取りを保証する lock。 */
+    FScopedLock ScopedGrowLock(m_GrowLock);
+    /** 現在の診断 snapshot。 */
+    FArenaAllocatorDiagnostics Diagnostics{};
+    /** 保持数へ加算する page。 */
+    for (const FPage* Page = m_Pages; Page; Page = Page->next) ++Diagnostics.retained_pages;
+    Diagnostics.batch_allocations = m_BatchAllocationCount.Load(EMemoryOrder::Acquire);
+    Diagnostics.batch_suballocations = m_BatchSuballocationCount.Load(EMemoryOrder::Acquire);
+    Diagnostics.last_reset_page_visits = m_LastResetPageVisits.Load(EMemoryOrder::Acquire);
+    Diagnostics.lazy_page_resets = m_LazyPageResetCount.Load(EMemoryOrder::Acquire);
+    return Diagnostics;
 }
 
 // 巻き戻し or 全解放
@@ -236,6 +298,19 @@ void FArenaAllocator::Reset(bool bReleasePages) noexcept
     }
 
     FScopedLock ScopedGrowLock(m_GrowLock);
+    /** 今回の Reset が直接参照した page 数。 */
+    u64 ResetPageVisits = 0u;
+    /** 世代 wrap 時だけ古い世代値との衝突を消す。 */
+    const bool GenerationWrapped = m_Generation == ~u64{0};
+    if (GenerationWrapped && !bReleasePages) {
+        /** wrap 前の世代値を除去する page。 */
+        for (FPage* PageIterator = m_Pages; PageIterator; PageIterator = PageIterator->next) {
+            PageIterator->generation = 0u;
+            ++ResetPageVisits;
+        }
+    }
+    m_Generation = GenerationWrapped ? 1u : m_Generation + 1u;
+
     if (bReleasePages) {
         // 全ページを backing に返却
         FPage* CurrentPage = m_Pages;
@@ -243,17 +318,25 @@ void FArenaAllocator::Reset(bool bReleasePages) noexcept
             FPage* const NextPage = CurrentPage->next;
             m_Backing->Free(CurrentPage);
             CurrentPage = NextPage;
+            ++ResetPageVisits;
         }
         m_Pages = nullptr;
         m_Current.Store(nullptr, EMemoryOrder::Release);
     } else {
-        // ページを保持してカーソルだけ巻き戻し
-        for (FPage* PageIterator = m_Pages; PageIterator; PageIterator = PageIterator->next)
-            PageIterator->used.Store(0, EMemoryOrder::Release);
+        // 先頭 page だけを即時初期化し、残りは GrowLock 内で初回利用時に初期化する。
+        if (m_Pages) {
+            m_Pages->used.Store(0u, EMemoryOrder::Relaxed);
+            m_Pages->generation = m_Generation;
+            if (!GenerationWrapped) ResetPageVisits = 1u;
+        }
         m_Current.Store(m_Pages, EMemoryOrder::Release);
     }
     m_Bytes.Store(0, EMemoryOrder::Release);
     m_AllocationCount.Store(0, EMemoryOrder::Release);
+    m_BatchAllocationCount.Store(0u, EMemoryOrder::Release);
+    m_BatchSuballocationCount.Store(0u, EMemoryOrder::Release);
+    m_LazyPageResetCount.Store(0u, EMemoryOrder::Release);
+    m_LastResetPageVisits.Store(ResetPageVisits, EMemoryOrder::Release);
     m_ResetInProgress.Store(0u, EMemoryOrder::Release);
 }
 

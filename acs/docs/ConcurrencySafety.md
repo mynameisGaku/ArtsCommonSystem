@@ -91,7 +91,7 @@ Free/Realloc は物理 `mi_free` を即時に行わず、ブロックを侵入�
 | `FShardedTlsfAllocator` | ○ | ライフサイクルゲート + シャード毎ロック。Alloc/Free は所有シャードをロック。thread-local マガジンはロックフリー hot path |
 | `FTlsfAllocator` | ✕ (単体) | 単一インスタンスは非同期。ShardedTlsf のシャードとして専用ロック下で使う前提 |
 | `FLinearAllocator` | ○ | `m_Used` の CAS でロックフリー bump。Reset/寿命は制御スピンロックで直列化 |
-| `FArenaAllocator` | ○ | ページ毎 `used` の CAS でロックフリー bump。新ページ確保時のみ grow ロック |
+| `FArenaAllocator` | ○ | ページ毎 `used` の CAS でロックフリー bump。Reset gate が入場済み操作を drain して世代を進め、保持 page は GrowLock 内で再公開前に遅延初期化する |
 | `FPoolAllocator` | ○ | FMutex で Alloc/Free を保護。FThreadPool から並行利用される |
 | `FSystemAllocator` | ○ | 侵入ヘッダに owner/magic/世代を持ち、別インスタンス/旧世代の Free/Realloc を拒否 |
 | `FRelocatableAllocator` | ✕ | **設計上単一スレッド専用**。Compact が全ポインタを無効化するため内部同期しない。利用側が保証する |

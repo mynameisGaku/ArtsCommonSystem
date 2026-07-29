@@ -39,6 +39,15 @@ constexpr usize kCallableNodeBlockSize = 128;
 /** 1 回の外部投入キュー lock 取得でワーカーへ移す最大件数。 */
 constexpr u32 kSubmitDrainBatchSize = 16;
 
+/** ParallelFor が呼び出し stack に直接置く context 件数。 */
+constexpr u32 kParallelForInlineContextCapacity = 32;
+
+/** ParallelFor の再利用 block が保持する context 件数。 */
+constexpr u32 kParallelForContextBlockCapacity = 64;
+
+/** 同時に貸し出せる ParallelFor context block 数。 */
+constexpr u32 kParallelForContextBlockPoolCount = 32;
+
 /**
  * Chase-Lev ワークスチール deque (single-producer / multi-consumer)。
  *
@@ -49,13 +58,13 @@ constexpr u32 kSubmitDrainBatchSize = 16;
  */
 struct alignas(64) FWorkerDeque {
     /** Steal 側 (先頭) のインデックス。他ワーカーが奪う。 */
-    TAtomic<i64> top    {0};
+    alignas(64) TAtomic<i64> top{0};
 
     /** オーナー側 (末尾) のインデックス。オーナーが追加・取り出す。 */
-    TAtomic<i64> bottom {0};
+    alignas(64) TAtomic<i64> bottom{0};
 
     /** タスク本体のリングバッファ (値コピーで格納)。 */
-    FTask        buffer[kDequeCapacity] {};
+    FTask buffer[kDequeCapacity]{};
 
     /**
      * オーナー専用。末尾にタスクを Push する。
@@ -121,6 +130,10 @@ struct alignas(64) FWorkerDeque {
     }
 };
 
+static_assert(offsetof(FWorkerDeque, top) % 64u == 0u);
+static_assert(offsetof(FWorkerDeque, bottom) % 64u == 0u);
+static_assert(offsetof(FWorkerDeque, bottom) - offsetof(FWorkerDeque, top) >= 64u);
+
 /** 外部投入キューの単方向リストノード (プール外スレッドからの Submit を保持)。 */
 struct FSubmissionNode {
     /** 次のノード (末尾は nullptr)。 */
@@ -143,6 +156,30 @@ struct FSubmissionQueue {
 
     /** 現在キューに溜まっているタスク数。 */
     u32              count = 0;
+};
+
+/** ParallelFor の 1 チャンク分の実行 context。 */
+struct FParallelForContext {
+    /** 各 index に対して呼ぶ処理。 */
+    void (*body)(u32 index, u32 worker_index, void* user) = nullptr;
+
+    /** body に渡す利用者 context。 */
+    void* user = nullptr;
+
+    /** このチャンクの開始 index。 */
+    u32 begin = 0;
+
+    /** このチャンクの終了 index。 */
+    u32 end = 0;
+};
+
+/** ParallelFor context を free-list で再利用する固定長 block。 */
+struct FParallelForContextBlock {
+    /** 今回の呼び出しが保持する次 block。 */
+    FParallelForContextBlock* next;
+
+    /** 連続するチャンク context。 */
+    FParallelForContext contexts[kParallelForContextBlockCapacity];
 };
 
 /**
@@ -180,14 +217,14 @@ struct FPoolState {
     /** ワーカー配列 (64B 整列で確保)。 */
     FWorker*           workers      = nullptr;
 
-    /** workers のために HeapAlloc が返した元ポインタ (解放時は整列後ポインタではなくこちらを使う)。 */
+    /** workers の確保元が返した解放用ポインタ。 */
     void* worker_allocation = nullptr;
 
     /** ワーカー数。 */
     u32               worker_count = 0;
 
-    /** 各ワーカーのスレッドハンドル。 */
-    FThread            threads[kMaxWorkers];
+    /** 各ワーカーの thread handle。 */
+    FThread threads[kMaxWorkers];
 
     /** 動作フラグ (1=動作中, 0=停止要求)。 */
     TAtomic<u32>       running      {0};
@@ -231,6 +268,9 @@ struct FPoolState {
     /** 所有 callable ノードを HeapAlloc せず取る固定サイズプール。 */
     FPoolAllocator* callable_node_pool = nullptr;
 
+    /** ParallelFor の overflow context を再利用する固定 block pool。 */
+    FPoolAllocator* parallel_for_context_pool = nullptr;
+
     /** 外部投入キュー lock の取得回数。 */
     TAtomic<u64> submission_lock_acquisitions{0};
 
@@ -263,6 +303,22 @@ struct FPoolState {
 
     /** 所有 callable ノードプール枯渇後の HeapAlloc 回数。 */
     TAtomic<u64> callable_node_heap_fallbacks{0};
+
+    /** ParallelFor が stack context だけで完了した回数。 */
+    TAtomic<u64> parallel_for_inline_calls{0};
+
+    /** ParallelFor が固定 block pool から取得した block 数。 */
+    TAtomic<u64> parallel_for_pool_blocks{0};
+
+    /** 現在貸し出している ParallelFor context block 数。 */
+    TAtomic<u64> parallel_for_pool_blocks_in_use{0};
+
+    /** 同時に貸し出した ParallelFor context block 数の最大値。 */
+    TAtomic<u64> parallel_for_pool_blocks_high_water{0};
+
+    /** ParallelFor が OS heap へ退避した block 数。 */
+    TAtomic<u64> parallel_for_heap_blocks{0};
+
 };
 
 /** プール全体の状態へのグローバルポインタ (null = 未初期化)。 */
@@ -360,6 +416,62 @@ void ReleaseSubmitNode(FPoolState* state, FSubmissionNode* n) noexcept
         pool->Free(n);
     } else {
         ::HeapFree(::GetProcessHeap(), 0, n);
+    }
+}
+
+/**
+ * ParallelFor context block を固定 free-list から取得し、枯渇時だけ heap へ退避する。
+ *
+ * @param pool block の所有元。
+ * @return 初期化済み block。確保失敗時は nullptr。
+ */
+FParallelForContextBlock* AcquireParallelForContextBlock(FPoolState* pool) noexcept
+{
+    /** 固定 pool または heap が返した未初期化領域。 */
+    void* memory = nullptr;
+    /** 固定 pool から取得した場合は true。 */
+    bool from_pool = false;
+    if (pool->parallel_for_context_pool) {
+        memory = pool->parallel_for_context_pool->Alloc(sizeof(FParallelForContextBlock), alignof(FParallelForContextBlock), FSourceLoc::Current());
+    }
+    if (memory) {
+        from_pool = true;
+        pool->parallel_for_pool_blocks.FetchAdd(1u);
+    } else {
+        memory = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FParallelForContextBlock));
+        if (!memory) return nullptr;
+        pool->parallel_for_heap_blocks.FetchAdd(1u);
+    }
+    /** 未初期化領域で block の寿命を開始する。 */
+    FParallelForContextBlock* const block = ::new (memory) FParallelForContextBlock;
+    block->next = nullptr;
+    if (from_pool) {
+        /** 今回の貸し出しを含む同時使用数。 */
+        const u64 in_use = pool->parallel_for_pool_blocks_in_use.FetchAdd(1u) + 1u;
+        /** 記録済み最大値。 */
+        u64 high_water = pool->parallel_for_pool_blocks_high_water.Load(EMemoryOrder::Acquire);
+        while (in_use > high_water && !pool->parallel_for_pool_blocks_high_water.CompareExchange(high_water, in_use)) {}
+    }
+    return block;
+}
+
+/**
+ * ParallelFor context block を構築元へ返す。
+ *
+ * @param pool block の所有元。
+ * @param block 返却する block。
+ */
+void ReleaseParallelForContextBlock(FPoolState* pool, FParallelForContextBlock* block) noexcept
+{
+    if (!block) return;
+    /** 貸出数を free-list 公開前に減らす固定 pool 所有領域なら true。 */
+    const bool from_pool = pool->parallel_for_context_pool && pool->parallel_for_context_pool->Contains(block);
+    block->~FParallelForContextBlock();
+    if (from_pool) {
+        pool->parallel_for_pool_blocks_in_use.FetchSub(1u);
+        pool->parallel_for_context_pool->Free(block);
+    } else {
+        ::HeapFree(::GetProcessHeap(), 0, block);
     }
 }
 
@@ -661,6 +773,12 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     }
     g_pool->callable_node_pool = ::new (callable_pool_mem) FPoolAllocator(kCallableNodeBlockSize, kCallableNodePoolCount, alignof(std::max_align_t));
 
+    /** ParallelFor 固定 block pool object の配置先。 */
+    void* const parallel_for_pool_memory = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPoolAllocator));
+    if (parallel_for_pool_memory) {
+        g_pool->parallel_for_context_pool = ::new (parallel_for_pool_memory) FPoolAllocator(sizeof(FParallelForContextBlock), kParallelForContextBlockPoolCount, alignof(FParallelForContextBlock));
+    }
+
     g_pool->accepting.Store(1, EMemoryOrder::Release);
     g_pool->running.Store(1, EMemoryOrder::Release);
 
@@ -678,6 +796,10 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
             ::HeapFree(::GetProcessHeap(), 0, g_pool->submit_node_pool);
             g_pool->callable_node_pool->~FPoolAllocator();
             ::HeapFree(::GetProcessHeap(), 0, g_pool->callable_node_pool);
+            if (g_pool->parallel_for_context_pool) {
+                g_pool->parallel_for_context_pool->~FPoolAllocator();
+                ::HeapFree(::GetProcessHeap(), 0, g_pool->parallel_for_context_pool);
+            }
             ::HeapFree(::GetProcessHeap(), 0, wmem);
             g_pool->~FPoolState();
             ::HeapFree(::GetProcessHeap(), 0, g_pool);
@@ -760,6 +882,13 @@ void FThreadPool::Shutdown() noexcept {
         pool->callable_node_pool->~FPoolAllocator();
         ::HeapFree(::GetProcessHeap(), 0, pool->callable_node_pool);
         pool->callable_node_pool = nullptr;
+    }
+
+    // ParallelFor context block pool を破棄する。
+    if (pool->parallel_for_context_pool) {
+        pool->parallel_for_context_pool->~FPoolAllocator();
+        ::HeapFree(::GetProcessHeap(), 0, pool->parallel_for_context_pool);
+        pool->parallel_for_context_pool = nullptr;
     }
 
     // ワーカー破棄
@@ -924,12 +1053,36 @@ FThreadPoolDiagnostics FThreadPool::Diagnostics() noexcept
     return diagnostics;
 }
 
-/** 診断カウンタだけを 0 に戻す。 */
+/** ParallelFor の一時 context 格納診断値を返す。 */
+FParallelForDiagnostics FThreadPool::CaptureParallelForDiagnostics() noexcept
+{
+    /** 診断取得中の PoolState 寿命を固定する pin。 */
+    FPoolPin pin;
+    /** 診断対象のプール。 */
+    FPoolState* const pool = pin.Get();
+    if (!pool) return {};
+    /** 読み取った ParallelFor 診断値。 */
+    FParallelForDiagnostics diagnostics{};
+    diagnostics.inline_calls = pool->parallel_for_inline_calls.Load(EMemoryOrder::Acquire);
+    diagnostics.pool_blocks = pool->parallel_for_pool_blocks.Load(EMemoryOrder::Acquire);
+    diagnostics.pool_blocks_in_use = pool->parallel_for_pool_blocks_in_use.Load(EMemoryOrder::Acquire);
+    diagnostics.pool_blocks_high_water = pool->parallel_for_pool_blocks_high_water.Load(EMemoryOrder::Acquire);
+    diagnostics.heap_blocks = pool->parallel_for_heap_blocks.Load(EMemoryOrder::Acquire);
+    return diagnostics;
+}
+
+/** ThreadPool と ParallelFor の診断カウンタを 0 に戻す。 */
 void FThreadPool::ResetDiagnostics() noexcept
 {
     FPoolPin pin;
     FPoolState* const pool = pin.Get();
     if (!pool) return;
+    pool->parallel_for_inline_calls.Store(0, EMemoryOrder::Release);
+    pool->parallel_for_pool_blocks.Store(0, EMemoryOrder::Release);
+    /** Reset 中も有効な貸し出し数。 */
+    const u64 parallel_for_blocks_in_use = pool->parallel_for_pool_blocks_in_use.Load(EMemoryOrder::Acquire);
+    pool->parallel_for_pool_blocks_high_water.Store(parallel_for_blocks_in_use, EMemoryOrder::Release);
+    pool->parallel_for_heap_blocks.Store(0, EMemoryOrder::Release);
     pool->submission_lock_acquisitions.Store(0, EMemoryOrder::Release);
     pool->submission_drain_lock_acquisitions.Store(0, EMemoryOrder::Release);
     pool->submission_lock_contentions.Store(0, EMemoryOrder::Release);
@@ -1058,66 +1211,112 @@ void FThreadPool::Wait(FCompletionCounter& counter) noexcept {
 }
 
 namespace {
-/** ParallelFor の 1 チャンク分の実行コンテキスト。 */
-struct FPfContext {
-    /** 各インデックスに対して呼ぶユーザー関数 (i, worker_index, user)。 */
-    void (*body)(u32 i, u32 worker_index, void* user);
-
-    /** body に渡すユーザーデータ。 */
-    void* user;
-
-    /** このチャンクの開始インデックス (含む)。 */
-    u32 begin;
-
-    /** このチャンクの終了インデックス (含まない)。 */
-    u32 end;
-};
-
 /**
  * 1 チャンク [begin, end) を順次実行する TaskFn アダプタ。
  *
- * @param arg PFContext へのポインタ。
+ * @param arg FParallelForContext へのポインタ。
  * @param worker_index 実行中のワーカーインデックス。
  */
 void PFRangeFn(void* arg, u32 worker_index) noexcept {
-    auto* r = static_cast<FPfContext*>(arg);
+    /** 実行するチャンク context。 */
+    auto* r = static_cast<FParallelForContext*>(arg);
+    /** body へ渡すチャンク内 index。 */
     for (u32 i = r->begin; i < r->end; ++i) r->body(i, worker_index, r->user);
+}
+
+/**
+ * 呼び出しが保持する ParallelFor context block 列をすべて返す。
+ *
+ * @param pool block の所有元。
+ * @param first 返却する block 列の先頭。
+ */
+void ReleaseParallelForContextBlocks(FPoolState* pool, FParallelForContextBlock* first) noexcept
+{
+    /** 現在返却する block。 */
+    FParallelForContextBlock* block = first;
+    while (block) {
+        /** 破棄前に退避する次 block。 */
+        FParallelForContextBlock* const next = block->next;
+        ReleaseParallelForContextBlock(pool, block);
+        block = next;
+    }
 }
 } // namespace
 
 /** 範囲 [begin, end) を grain で分割して並列実行し、完了まで待つ。 */
 TResult<void> FThreadPool::ParallelFor(u32 begin, u32 end, u32 grain, void (*body)(u32, u32, void*), void* user) noexcept {
-    if (WorkerCount() == 0) return ACS_ERR(Threading, 5, "FThreadPool not initialized");
+    /** context pool を含む PoolState の寿命を呼び出し完了まで固定する。 */
+    FPoolPin pin;
+    /** ParallelFor を実行する pool。 */
+    FPoolState* const pool = pin.Get();
+    if (!pool || pool->worker_count == 0) return ACS_ERR(Threading, 5, "FThreadPool not initialized");
     if (!body)   return ACS_ERR(Threading, 6, "ParallelFor body is null");
     if (begin >= end) return Ok();
     if (grain == 0)   grain = 1;
 
+    /** 処理する総 index 数。 */
     const u32 total = end - begin;
-    const u32 chunks = (total + grain - 1) / grain;
+    /** overflow を起こさず求めたチャンク数。 */
+    const u32 chunks = 1u + (total - 1u) / grain;
 
-    // チャンクごとの PFContext を 1 つの連続ブロックで確保
-    auto* ranges = static_cast<FPfContext*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPfContext) * chunks));
-    if (!ranges) return ACS_ERR(Memory, 5, "ParallelFor range alloc failed");
+    /** 通常規模の呼び出しが確保を行わずに使う stack context。 */
+    FParallelForContext inline_contexts[kParallelForInlineContextCapacity]{};
+    /** overflow context block 列の先頭。 */
+    FParallelForContextBlock* first_block = nullptr;
+    /** overflow context block 列の末尾。 */
+    FParallelForContextBlock* last_block = nullptr;
 
+    if (chunks <= kParallelForInlineContextCapacity) {
+        pool->parallel_for_inline_calls.FetchAdd(1u);
+    } else {
+        /** 必要な固定長 block 数。 */
+        const u32 block_count = 1u + (chunks - 1u) / kParallelForContextBlockCapacity;
+        /** 取得する固定長 block の index。 */
+        for (u32 block_index = 0u; block_index < block_count; ++block_index) {
+            /** 今回取得した再利用 block。 */
+            FParallelForContextBlock* const block = AcquireParallelForContextBlock(pool);
+            if (!block) {
+                ReleaseParallelForContextBlocks(pool, first_block);
+                return ACS_ERR(Memory, 5, "ParallelFor range block alloc failed");
+            }
+            if (last_block) last_block->next = block;
+            else first_block = block;
+            last_block = block;
+        }
+    }
+
+    /** 全投入済みチャンクの完了通知先。 */
     FCompletionCounter counter;
+    /** overflow 時に現在参照している block。 */
+    FParallelForContextBlock* current_block = first_block;
+    /** 投入する ParallelFor チャンク index。 */
     for (u32 c = 0; c < chunks; ++c) {
-        ranges[c].body  = body;
-        ranges[c].user  = user;
-        ranges[c].begin = begin + c * grain;
-        ranges[c].end   = ranges[c].begin + grain;
-        if (ranges[c].end > end) ranges[c].end = end;
+        if (first_block && c != 0u && (c % kParallelForContextBlockCapacity) == 0u) {
+            current_block = current_block->next;
+        }
+        /** 現在チャンクの寿命を保持する context。 */
+        FParallelForContext* const range = first_block
+            ? &current_block->contexts[c % kParallelForContextBlockCapacity]
+            : &inline_contexts[c];
+        range->body = body;
+        range->user = user;
+        range->begin = begin + c * grain;
+        range->end = range->begin + grain;
+        if (range->end > end) range->end = end;
 
-        const FTask t { &PFRangeFn, &ranges[c], &counter };
-        auto r = Submit(t);
-        if (r.IsErr()) {
+        /** 現在チャンクを実行する task。 */
+        const FTask task{&PFRangeFn, range, &counter};
+        /** task の投入結果。 */
+        TResult<void> result = Submit(task);
+        if (result.IsErr()) {
             // 投入失敗 — 既に投入済みのものを待ってから返す
             Wait(counter);
-            ::HeapFree(::GetProcessHeap(), 0, ranges);
-            return r;
+            ReleaseParallelForContextBlocks(pool, first_block);
+            return result;
         }
     }
     Wait(counter);
-    ::HeapFree(::GetProcessHeap(), 0, ranges);
+    ReleaseParallelForContextBlocks(pool, first_block);
     return Ok();
 }
 

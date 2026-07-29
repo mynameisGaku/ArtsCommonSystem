@@ -5,6 +5,7 @@
 #include "foundation/Result.h"
 #include "foundation/Move.h"
 #include "threading/Atomic.h"
+#include "threading/ParallelForDiagnostics.h"
 #include "threading/ThreadPoolDiagnostics.h"
 
 #include <cstddef>
@@ -140,7 +141,10 @@ public:
     /** 現在の同期・割り当て診断値をスナップショットとして返す。 */
     static FThreadPoolDiagnostics Diagnostics() noexcept;
 
-    /** 診断カウンタだけを 0 に戻す。投入済みタスクには影響しない。 */
+    /** ParallelFor の一時 context 格納診断値をスナップショットとして返す。 */
+    static FParallelForDiagnostics CaptureParallelForDiagnostics() noexcept;
+
+    /** ThreadPool と ParallelFor の診断カウンタを 0 に戻す。投入済みタスクには影響しない。 */
     static void ResetDiagnostics() noexcept;
 
     /** ワーカー以外のスレッドを表す番兵インデックス。 */
@@ -219,6 +223,8 @@ public:
     /**
      * 範囲 [begin, end) を grain サイズに分割して並列実行し、完了まで待つ。
      *
+     * @details 32 chunk までは呼び出し stack、超過分は固定 block pool を使い、
+     * pool 枯渇時だけ OS heap へ退避する。全 context は Wait 完了まで保持される。
      * @param begin 範囲の開始インデックス (含む)。
      * @param end 範囲の終了インデックス (含まない)。
      * @param grain 1 チャンクが処理する要素数 (0 は 1 に補正)。

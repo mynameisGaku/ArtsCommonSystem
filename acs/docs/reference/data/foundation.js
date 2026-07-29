@@ -272,6 +272,29 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "WriteLittleEndian / ReadLittleEndian",
+      kind: "関数テンプレート", header: "foundation/EndianSerialization.h",
+      summary: "1/2/4/8 byte の整数・浮動小数・列挙値を、host CPU に依存しない little endian byte 列へ書き出し・読み戻す。無効表現を持つ <code>bool</code> は compile-time に拒否する。",
+      when: "AssetPack や保存データなど、CPU endian に左右されない固定 wire 形式を実装する時。",
+      sample: "u8 bytes[8]{};\nWriteLittleEndian(bytes, u32{0x12345678});\nu32 value = ReadLittleEndian&lt;u32&gt;(bytes);",
+      members: [
+        { sig: "template&lt;typename T&gt; void WriteLittleEndian(u8* destination, T value)", desc: "<code>sizeof(T)</code> byte を little endian 順で書く。" },
+        { sig: "template&lt;typename T&gt; T ReadLittleEndian(const u8* source)", ret: "復元した値", desc: "little endian byte 列から同じ固定幅型を復元する。" }
+      ]
+    },
+    {
+      name: "TContiguousEnumLookup&lt;Enum, Count&gt;",
+      kind: "クラステンプレート", header: "foundation/EnumLookup.h",
+      summary: "0 始まりで欠番のない列挙値の妥当性判定と名前取得を、constexpr 名前表から生成する。",
+      when: "wire 値の検証や診断名で同じ switch/比較列を重複させず、compile-time に範囲を固定したい時。",
+      sample: "constexpr const char* names[]{\"A\", \"B\"};\nconstexpr TContiguousEnumLookup&lt;EMode, 2&gt; lookup(names);\nif (lookup.Contains(mode)) Log(lookup.Name(mode));",
+      members: [
+        { sig: "constexpr bool Contains(Enum value) const", ret: "有効範囲なら true", desc: "値が 0 以上 Count 未満かを検証する。" },
+        { sig: "constexpr const char* Name(Enum value, const char* fallback = \"Unknown\") const", ret: "名前または fallback", desc: "有効値を添字にして名前を返す。" },
+        { sig: "static constexpr usize Size()", ret: "有効値数", desc: "compile-time の Count を返す。" }
+      ]
+    },
+    {
       name: "コンパイラ / プラットフォーム検出マクロ",
       kind: "マクロ", header: "foundation/Compiler.h",
       summary: "どの<b>コンパイラ・OS・アーキテクチャ・ビルド種別</b>かを判定するマクロと、方言差を吸収した<b>関数属性ラッパ</b>（強制インライン化・到達ヒント等）をまとめたもの。依存なしでどこからでも include できる。",

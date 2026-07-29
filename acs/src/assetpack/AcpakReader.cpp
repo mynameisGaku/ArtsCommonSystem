@@ -20,6 +20,7 @@
 // =============================================================================
 #include "assetpack/AcpakReader.h"
 
+#include "foundation/EndianSerialization.h"
 #include "foundation/Platform.h" // <windows.h> を 1 箇所に隠す
 #include "foundation/Log.h"
 #include "foundation/Move.h"
@@ -126,32 +127,24 @@ bool ReadAt(HANDLE Handle, u64 Offset, void* Destination, u64 Size, DWORD& Error
 }
 
 /**
- * 4 バイトを u32 (LE) として strict-aliasing 安全に読む。
- *
- * @details
- * reinterpret_cast<u32*> は strict-aliasing 違反になり得るため memcpy で読む。
- * ACS 対応プラットフォームは全て LE なので生バイト並びがそのまま LE 整数になる。
+ * 4 バイトを host endian に依存せず u32 (LE) として読む。
  * @param src 読み出し元 (4 バイト)。
  * @return 読み出した u32。
  */
 u32 ReadU32LE(const u8* src) noexcept
 {
-    u32 v = 0;
-    MemCopy(&v, src, sizeof(u32));
-    return v;
+    return ReadLittleEndian<u32>(src);
 }
 
 /**
- * 8 バイトを u64 (LE) として strict-aliasing 安全に読む。
+ * 8 バイトを host endian に依存せず u64 (LE) として読む。
  *
  * @param src 読み出し元 (8 バイト)。
  * @return 読み出した u64。
  */
 u64 ReadU64LE(const u8* src) noexcept
 {
-    u64 v = 0;
-    MemCopy(&v, src, sizeof(u64));
-    return v;
+    return ReadLittleEndian<u64>(src);
 }
 
 /**
