@@ -6,6 +6,7 @@
 #include "container/Array.h"
 #include "threading/Atomic.h"
 #include "threading/ThreadPool.h"
+#include "threading/JobGraphCompletionDiagnostics.h"
 #include "threading/JobGraphDiagnostics.h"
 #include "foundation/Move.h"
 
@@ -161,6 +162,13 @@ public:
     /** 現在の構築・再実行診断値を返す。 */
     FJobGraphDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
 
+    /** 現在の完了カウンタ一括予約を既存診断 ABI と分離して返す。 */
+    FJobGraphCompletionDiagnostics CompletionDiagnostics() const noexcept
+    {
+        if (!m_bSubmitted || m_JobCount == 0u) return {};
+        return FJobGraphCompletionDiagnostics{1u, m_JobCount};
+    }
+
 private:
     friend struct FJobHandle;
 
@@ -274,7 +282,7 @@ private:
     /** 検証済み graph が循環を含むなら true。 */
     bool m_TopologyHasCycle = false;
 
-    /** 実行中ジョブ数の完了カウンタ (Submit/完了ごとに増減)。 */
+    /** Submit で全 job を一括予約し、各 job 完了時に減らす完了カウンタ。 */
     FCompletionCounter  m_Counter;
 
     /** Submit 済みフラグ (true 以降は Add/AddDependency 不可)。 */

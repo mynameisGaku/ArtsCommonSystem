@@ -16,6 +16,8 @@ inline constexpr u16 kSubAssetPackNotImplemented = 1201;
 
 /** Mount() 前の API 呼び出しを表す subcode。 */
 inline constexpr u16 kSubAssetPackNotMounted     = 1202;
+
+/** 一括 read の要求数または配列が不正であることを表す subcode。 */
 inline constexpr u16 kSubAssetPackInvalidBatch   = 1203;
 
 /**

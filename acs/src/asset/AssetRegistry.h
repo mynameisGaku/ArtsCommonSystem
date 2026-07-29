@@ -60,8 +60,7 @@ public:
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
     explicit FAssetRegistry(FAllocator& allocator) noexcept
-        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator),
-          m_PathInterner(allocator)
+        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator), m_PathInterner(allocator)
     {
     }
 

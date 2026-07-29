@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // =============================================================================
 // ACS AssetPack — `.acpak` v1 アーカイブ書き出し器
 // -----------------------------------------------------------------------------
@@ -24,8 +25,6 @@
 //     Finalize 内で一気に行い、呼び出し側の入力寿命に依存しない。
 // 非コピー・非ムーブ。
 // =============================================================================
-#pragma once
-
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 #include "container/Array.h"
@@ -113,10 +112,11 @@ public:
      *
      * @details
      * virtual_path / data は呼び出し中に内部所有領域へコピーする。成功後は呼び出し側で
-     * 直ちに再利用または解放できる。size 0 のファイルも追加できる。Open 前 /
-     * Finalize 後に呼ぶと kAcpakSubNotOpen、data が null かつ size>0 は
+     * 直ちに再利用または解放できる。仮想 path は `/` 区切りの正規形だけを受け入れ、
+     * hash を一度保持して重複候補だけを完全比較する。size 0 のファイルも追加できる。
+     * Open 前 / Finalize 後に呼ぶと kAcpakSubNotOpen、data が null かつ size>0 は
      * kAcpakSubIOFailure。
-     * @param VirtualPath pak 内の仮想パス (UTF-16、wcscmp で検索される)。
+     * @param VirtualPath pak 内の正規形仮想パス (UTF-16、完全一致で検索される)。
      * @param Data 追加するファイルの生バイト列。
      * @param Size Data のバイト数。
      * @return 成功なら空の TResult、失敗ならエラー。
@@ -150,6 +150,9 @@ private:
 
         /** NUL 終端を含む仮想パス。 */
         TArray<wchar_t> Path;
+
+        /** 正規形 Path から AddFile 時に一度だけ計算した hash。 */
+        u64 PathHash = 0u;
 
         /** 追加するファイルの生バイト列。 */
         TArray<u8> Data;

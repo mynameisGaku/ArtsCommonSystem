@@ -237,6 +237,7 @@ Root().AddChild(Move(player));
 
 ## ドキュメント
 
+- [`FoundationOptimizationWaveM.md`](acs/docs/FoundationOptimizationWaveM.md) — 完了通知batch、event snapshot、canonical package pathのWave M検証
 - [`FoundationOptimizationWaveK.md`](acs/docs/FoundationOptimizationWaveK.md) — mapped package I/O、scratch再利用、依存batch、path所有のWave K検証
 - [`FoundationOptimizationWaveC.md`](acs/docs/FoundationOptimizationWaveC.md) — アセット/ECS/reflection/RHI の Wave C 最適化と Release 証跡
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入

@@ -18,6 +18,7 @@ acs_module(
         FileExtensionKind.h
         FileSystem.h
         FileSystemDiagnostics.h
+        GamepadPollScheduler.h
         Input.h
         InputCodes.h
         Localization.h

@@ -12,6 +12,7 @@ bool FInternedAssetPath::TryInitialize(const wchar_t* Path, usize Length) noexce
 {
     if (Path == nullptr || !m_Units.IsEmpty()) return false;
     if (!m_Units.TryResize(Length + 1u)) return false;
+    /** 所有配列へ複写する path の添字。 */
     for (usize Index = 0u; Index < Length; ++Index) {
         m_Units[Index] = Path[Index];
     }
@@ -37,6 +38,7 @@ FAssetId FInternedAssetPath::Id() const noexcept
 bool FInternedAssetPath::Equals(const wchar_t* Path, usize Length) const noexcept
 {
     if (Path == nullptr || Length != this->Length()) return false;
+    /** 完全一致を調べる path の添字。 */
     for (usize Index = 0u; Index < Length; ++Index) {
         if (m_Units[Index] != Path[Index]) return false;
     }

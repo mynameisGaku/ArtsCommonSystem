@@ -1512,20 +1512,29 @@ TResult<TSharedPtr<FAsset>> DecodeMesh(
         ACS_ERR(Asset, 496, "Scene3D mesh format is unsupported"));
 }
 
+/** Scene3D dependency の decode 種別。 */
 enum class ESceneDependencyKind : u8 {
+    /** メッシュアセット。 */
     Mesh = 0u,
+    /** マテリアルアセット。 */
     Material = 1u,
 };
 
+/** 同じ path と種別を参照する node 群を一件へまとめた record。 */
 struct FSceneDependencyRecord {
+    /** allocator と dependency identity を指定して構築する。 */
     FSceneDependencyRecord(FAllocator& Allocator, ESceneDependencyKind InKind, const char* InPath, u64 InHash) noexcept
         : Nodes(Allocator), Kind(InKind), Path(InPath), Hash(InHash)
     {
     }
 
+    /** 所有 node 配列のコピーを禁止する。 */
     FSceneDependencyRecord(const FSceneDependencyRecord&) = delete;
+    /** 所有 node 配列のコピー代入を禁止する。 */
     FSceneDependencyRecord& operator=(const FSceneDependencyRecord&) = delete;
+    /** 所有 node 配列の move を許可する。 */
     FSceneDependencyRecord(FSceneDependencyRecord&&) noexcept = default;
+    /** 所有 node 配列の move 代入を許可する。 */
     FSceneDependencyRecord& operator=(FSceneDependencyRecord&&) noexcept = default;
 
     /** この依存を参照する node index。 */
@@ -1541,19 +1550,26 @@ struct FSceneDependencyRecord {
     u64 Hash = 0u;
 };
 
+/** dependency 種別と path から検索用 hash を作る。 */
 u64 SceneDependencyHash(ESceneDependencyKind Kind, const char* Path) noexcept
 {
+    /** NUL を除く path byte 数。 */
     usize Length = 0u;
     while (Path[Length] != '\0') ++Length;
+    /** path だけから得た基礎 hash。 */
     const u64 PathHash = HashBytes(Path, Length);
     return PathHash ^ (static_cast<u64>(Kind) + 0x9E3779B97F4A7C15ull + (PathHash << 6u) + (PathHash >> 2u));
 }
 
+/** 初出順を維持して dependency または参照 node を追加する。 */
 bool AddStableSceneDependency(TArray<FSceneDependencyRecord>& Dependencies, THashMap<u64, u32>& FirstByHash, ESceneDependencyKind Kind, const char* Path, u32 NodeIndex) noexcept
 {
+    /** 種別を含む dependency hash。 */
     const u64 Hash = SceneDependencyHash(Kind, Path);
     if (FirstByHash.Find(Hash) != nullptr) {
+        /** hash 候補を完全一致で確認する添字。 */
         for (usize Index = 0u; Index < Dependencies.Size(); ++Index) {
+            /** 現在確認する dependency record。 */
             FSceneDependencyRecord& Existing = Dependencies[Index];
             if (Existing.Hash == Hash && Existing.Kind == Kind && std::strcmp(Existing.Path, Path) == 0) {
                 return Existing.Nodes.TryPushBack(NodeIndex);
@@ -1561,7 +1577,9 @@ bool AddStableSceneDependency(TArray<FSceneDependencyRecord>& Dependencies, THas
         }
     }
 
+    /** 新規 record を追加する添字。 */
     const u32 NewIndex = static_cast<u32>(Dependencies.Size());
+    /** 追加できた dependency record。 */
     FSceneDependencyRecord* const Record = Dependencies.TryEmplaceBack(*Dependencies.GetAllocator(), Kind, Path, Hash);
     if (Record == nullptr || !Record->Nodes.TryPushBack(NodeIndex)) {
         return false;
@@ -1573,13 +1591,17 @@ bool AddStableSceneDependency(TArray<FSceneDependencyRecord>& Dependencies, THas
     return true;
 }
 
+/** document の初出順で重複 dependency を集約する。 */
 EScene3DSerializeError BuildStableSceneDependencyOrder(FParsedScene3DDocument& Document, bool ValidateVirtualPaths, TArray<FSceneDependencyRecord>& Dependencies) noexcept
 {
+    /** hash ごとの最初の dependency 添字。 */
     THashMap<u64, u32> FirstByHash;
     if (!Dependencies.TryReserve(static_cast<usize>(Document.Nodes.Size()) * 2u)) {
         return EScene3DSerializeError::AllocationFailure;
     }
+    /** document node を初出順に調べる添字。 */
     for (u32 NodeIndex = 0u; NodeIndex < Document.Nodes.Size(); ++NodeIndex) {
+        /** 現在 dependency を収集する node。 */
         FParsedNode& Node = Document.Nodes[NodeIndex];
         if (Node.HasMeshPath) {
             if (ValidateVirtualPaths && !IsSafeVirtualAssetPath(Node.MeshPath)) {
@@ -1601,13 +1623,16 @@ EScene3DSerializeError BuildStableSceneDependencyOrder(FParsedScene3DDocument& D
     return EScene3DSerializeError::None;
 }
 
+/** 一件の共有 dependency を decode し、全参照 node へ割り当てる。 */
 EScene3DSerializeError DecodeAndAssignSceneDependency(FParsedScene3DDocument& Document, const FSceneDependencyRecord& Dependency, const TArray<byte>& Bytes, u32& DependenciesLoaded) noexcept
 {
     if (Dependency.Kind == ESceneDependencyKind::Mesh) {
+        /** 共有する mesh decode 結果。 */
         auto Decoded = DecodeMesh(Dependency.Path, Bytes);
         if (Decoded.IsErr() || !Decoded.Value()) {
             return EScene3DSerializeError::AssetDecodeFailed;
         }
+        /** mesh を割り当てる参照 node 添字。 */
         for (u32 NodeIndex : Dependency.Nodes) {
             Document.Nodes[NodeIndex].LoadedMesh = Decoded.Value();
             ++DependenciesLoaded;
@@ -1615,11 +1640,14 @@ EScene3DSerializeError DecodeAndAssignSceneDependency(FParsedScene3DDocument& Do
         return EScene3DSerializeError::None;
     }
 
+    /** 共有する material decode 先。 */
     FMaterial2D Material{};
+    /** material text の decode 結果。 */
     const FMaterial2DLoadResult MaterialResult = TryParseAcsmatText(reinterpret_cast<const char*>(Bytes.Data()), Bytes.Size(), Material);
     if (!MaterialResult.Succeeded()) {
         return EScene3DSerializeError::MaterialDecodeFailed;
     }
+    /** material を割り当てる参照 node 添字。 */
     for (u32 NodeIndex : Dependency.Nodes) {
         Document.Nodes[NodeIndex].LoadedMaterial = Material;
         ++DependenciesLoaded;
@@ -1627,28 +1655,40 @@ EScene3DSerializeError DecodeAndAssignSceneDependency(FParsedScene3DDocument& Do
     return EScene3DSerializeError::None;
 }
 
+/** pack dependency を安定順序の有界 batch で読み込む。 */
 EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene3DDocument& document, u32& dependencies_loaded) noexcept {
+    /** 初出順に集約した dependency 群。 */
     TArray<FSceneDependencyRecord> Dependencies;
+    /** dependency 収集と path 検証の結果。 */
     const EScene3DSerializeError OrderError = BuildStableSceneDependencyOrder(document, true, Dependencies);
     if (OrderError != EScene3DSerializeError::None) return OrderError;
 
+    /** 一回で reader へ渡す最大 dependency 数。 */
     constexpr u32 kBatchEntries = 8u;
+    /** 一回で確保する最大 payload byte 数。 */
     constexpr u64 kBatchBytes = 32u * 1024u * 1024u;
+    /** batch 内の各 dependency payload。 */
     TArray<byte> BatchBytes[kBatchEntries];
+    /** reader へ渡す batch request 群。 */
     FAssetPackReadRequest Requests[kBatchEntries]{};
+    /** request と dependency record の対応添字。 */
     u32 DependencyIndices[kBatchEntries]{};
+    /** 空 payload request へ渡す有効な出力先。 */
     u8 EmptyDestinations[kBatchEntries]{};
 
+    /** 次に batch へ追加する dependency 添字。 */
     u32 Cursor = 0u;
     while (Cursor < Dependencies.Size()) {
+        /** 現在 batch に追加済みの request 数。 */
         u32 BatchCount = 0u;
+        /** 現在 batch の payload 合計 byte 数。 */
         u64 BatchSize = 0u;
         while (Cursor < Dependencies.Size() && BatchCount < kBatchEntries) {
+            /** 現在 batch へ追加を試す dependency。 */
             const FSceneDependencyRecord& Dependency = Dependencies[Cursor];
-            const u64 MaxBytes =
-                Dependency.Kind == ESceneDependencyKind::Mesh
-                    ? kScene3DAssetMaxBytes
-                    : static_cast<u64>(kMaterial2DMaxTextBytes);
+            /** dependency 種別ごとの最大 payload byte 数。 */
+            const u64 MaxBytes = Dependency.Kind == ESceneDependencyKind::Mesh ? kScene3DAssetMaxBytes : static_cast<u64>(kMaterial2DMaxTextBytes);
+            /** pack 内 payload size の取得結果。 */
             const auto SizeResult = pack.FileSize(Dependency.Path);
             if (SizeResult.IsErr() || SizeResult.Value() > MaxBytes) {
                 if (BatchCount == 0u)
@@ -1656,10 +1696,12 @@ EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene
                 break;
             }
 
+            /** pack が報告した payload byte 数。 */
             const u64 Size64 = SizeResult.Value();
             if (BatchCount > 0u && (BatchSize >= kBatchBytes || Size64 > kBatchBytes - BatchSize)) {
                 break;
             }
+            /** address space 内で表現した payload byte 数。 */
             const usize Size = static_cast<usize>(Size64);
             if (static_cast<u64>(Size) != Size64 || !BatchBytes[BatchCount].TryResize(Size)) {
                 return EScene3DSerializeError::AssetMissing;
@@ -1680,14 +1722,18 @@ EScene3DSerializeError LoadPackDependencies(IAssetPackReader& pack, FParsedScene
         if (BatchCount == 0u) {
             return EScene3DSerializeError::AssetMissing;
         }
+        /** reader が完了した先頭 request 数。 */
         u32 CompletedCount = 0u;
+        /** 現在 batch の read 結果。 */
         const auto ReadResult = pack.ReadFiles(Requests, BatchCount, &CompletedCount);
         if (CompletedCount > BatchCount) {
             return EScene3DSerializeError::AssetMissing;
         }
         // 後続 read が失敗しても、旧逐次経路と同じく先行 dependency の
         // decode error を先に確定する。外部 Scene への commit はまだ行わない。
+        /** read 済み dependency を decode する添字。 */
         for (u32 Index = 0u; Index < CompletedCount; ++Index) {
+            /** 現在 dependency の decode と node 割り当て結果。 */
             const EScene3DSerializeError DecodeError = DecodeAndAssignSceneDependency(document, Dependencies[DependencyIndices[Index]], BatchBytes[Index], dependencies_loaded);
             if (DecodeError != EScene3DSerializeError::None)
                 return DecodeError;
@@ -1766,23 +1812,26 @@ bool ResolveLooseDependencyPath(
 }
 
 EScene3DSerializeError LoadLooseDependencies(const char* scene_path, FParsedScene3DDocument& document, u32& dependencies_loaded) noexcept {
+    /** 初出順に集約した loose dependency 群。 */
     TArray<FSceneDependencyRecord> Dependencies;
+    /** dependency 収集結果。 */
     const EScene3DSerializeError OrderError = BuildStableSceneDependencyOrder(document, false, Dependencies);
     if (OrderError != EScene3DSerializeError::None) return OrderError;
 
     TArray<byte> bytes;
     char resolved[2048]{};
+    /** 初出順に読み込む dependency。 */
     for (const FSceneDependencyRecord& Dependency : Dependencies) {
         if (!ResolveLooseDependencyPath(scene_path, Dependency.Path, resolved, static_cast<u32>(sizeof(resolved)))) {
             return EScene3DSerializeError::AssetPathInvalid;
         }
-        const u64 MaxBytes =
-            Dependency.Kind == ESceneDependencyKind::Mesh
-                ? kScene3DAssetMaxBytes
-                : static_cast<u64>(kMaterial2DMaxTextBytes);
+        /** dependency 種別ごとの最大 payload byte 数。 */
+        const u64 MaxBytes = Dependency.Kind == ESceneDependencyKind::Mesh ? kScene3DAssetMaxBytes : static_cast<u64>(kMaterial2DMaxTextBytes);
+        /** loose file の read 結果。 */
         const EScene3DSerializeError ReadError = ReadLooseFile(resolved, MaxBytes, bytes);
         if (ReadError != EScene3DSerializeError::None)
             return ReadError;
+        /** dependency の decode と node 割り当て結果。 */
         const EScene3DSerializeError DecodeError = DecodeAndAssignSceneDependency(document, Dependency, bytes, dependencies_loaded);
         if (DecodeError != EScene3DSerializeError::None)
             return DecodeError;

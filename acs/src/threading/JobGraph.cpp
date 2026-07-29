@@ -159,7 +159,6 @@ void FJobGraph::JobThunk(void* user, u32 worker_index) noexcept
         FTask task{};
         task.fn = &FJobGraph::JobThunk;
         task.user = dependent;
-        graph->m_Counter.Add(1);
         if (FThreadPool::Submit(task).IsErr()) {
             // 最後の依存を解いた実行者が一度だけ同期実行し、枝の欠落を防ぐ。
             JobThunk(dependent, worker_index);
@@ -242,9 +241,9 @@ TResult<void> FJobGraph::Submit() noexcept
         return ACS_ERR(Threading, 2, "FJobGraph: no entry job");
 
     m_bSubmitted = true;
-    /** 実行開始点として投入する job 数。 */
-    const u32 entry_count = static_cast<u32>(m_EntryJobs.Size());
-    m_Counter.Add(entry_count + 1);
+    // 未投入の entry と依存待ち job も先に残数へ含める。これにより実行中の
+    // 後続公開と Wait の競合で 0 が一時的に見えることなく、RMW は一回で済む。
+    m_Counter.Add(m_JobCount);
 
     for (usize i = 0; i < m_EntryJobs.Size(); ++i) {
         /** 依存がない実行開始 job。 */
@@ -258,7 +257,6 @@ TResult<void> FJobGraph::Submit() noexcept
             JobThunk(job, 0);
         }
     }
-    m_Counter.Done();
     return Ok();
 }
 

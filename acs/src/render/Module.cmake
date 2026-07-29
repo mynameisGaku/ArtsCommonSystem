@@ -38,9 +38,9 @@ set(_acsgen_render_sources
     Ssgi.cpp
     Ssr.cpp
     StandardShader.cpp
-    SubsurfaceScattering.cpp
     SubstrateExpression.cpp
     SubstrateMaterial.cpp
+    SubsurfaceScattering.cpp
     VertexScatter.cpp
     WaterSurface3D.cpp
 )
@@ -49,7 +49,10 @@ set(_acsgen_render_headers
     Blit.h
     BurnEffect.h
     DebugDraw.h
+    DescriptorSlotPool.h
     Font.h
+    FormatAspect.h
+    FormatTraits.h
     Fxaa.h
     HiZ.h
     IRhiBuffer.h
@@ -66,6 +69,8 @@ set(_acsgen_render_headers
     NormalMatrix.h
     Particles.h
     PbrShader.h
+    PipelineStateKey.h
+    PipelineStateKeyCache.h
     PostProcess.h
     RefractionShader.h
     RenderGraphAliasAssignment.h
@@ -75,7 +80,10 @@ set(_acsgen_render_headers
     Render.h
     RenderAssets.h
     Renderer.h
+    RhiPipelineBindDomain.h
+    RhiPipelineBindPolicy.h
     RhiTypes.h
+    ShaderParameterLayoutMetadata.h
     ShadowMap.h
     SkinnedShader.h
     Sky.h
@@ -85,9 +93,10 @@ set(_acsgen_render_headers
     Ssgi.h
     Ssr.h
     StandardShader.h
-    SubsurfaceScattering.h
     SubstrateExpression.h
     SubstrateMaterial.h
+    SubsurfaceScattering.h
+    TemporalHistory.h
     VertexScatter.h
     WaterSurface3D.h
 )

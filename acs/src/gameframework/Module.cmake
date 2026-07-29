@@ -161,6 +161,7 @@ set(_acsgen_gameframework_headers
     BehaviorTree.h
     BuffSystem.h
     Camera2D.h
+    CameraComponent3D.h
     CameraShakePresets.h
     CameraStack.h
     CharacterCustomizer.h
@@ -255,7 +256,6 @@ set(_acsgen_gameframework_headers
     Scene.h
     Scene2D.h
     Scene3D.h
-    CameraComponent3D.h
     Scene3DSerialize.h
     SceneCommandQueue.h
     SceneEventBus.h
@@ -293,6 +293,7 @@ set(_acsgen_gameframework_headers
     TilemapQuery.h
     Transform2D.h
     Transform3D.h
+    TransformBatchSoA.h
     TriggerComponent.h
     TriggerWorld2D.h
     TurnManager.h

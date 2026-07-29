@@ -18,10 +18,11 @@ namespace acs::assetpack {
  * 1 つの `.acpak` を開き、含まれる仮想ファイルを名前で取り出す Reader。
  *
  * @details
- * header と file table を読み込み、各 path を内部の文字列 pool に保持して
- * 名前 (wchar_t*) で検索・読み出しする。ファイルハンドル + 文字列 pool +
- * entry 配列を所有するため non-copy / non-move で、固定アドレスでライフタイムを
- * 管理する。GameFramework の IAssetPackReader とは独立に動作する。
+ * header と file table を読み込み、各 path を内部の文字列 pool に保持する。
+ * manifest 読み込み時に正規形 path の hash を一度だけ保持し、検索時は hash
+ * 一致候補だけを完全比較する。ファイルハンドル + 文字列 pool + entry 配列を
+ * 所有するため non-copy / non-move で、固定アドレスでライフタイムを管理する。
+ * GameFramework の IAssetPackReader とは独立に動作する。
  */
 class FAcpakReader {
 public:
@@ -109,11 +110,12 @@ public:
     const FAcpakFileEntry* GetEntry(u32 Index) const noexcept;
 
     /**
-     * 仮想パスから entry を探す。
+     * 正規形の仮想パスから entry を探す。
      *
      * @details
-     * 線形探索 (数百〜数千 entry 想定で十分高速)。比較は wcscmp 相当の完全一致。
-     * @param Path 探す仮想パス (UTF-16)。
+     * path hash を一回計算し、manifest 読み込み時に保持した hash と一致する
+     * 候補だけを wcscmp 相当で完全比較する。
+     * @param Path 探す正規形仮想パス (UTF-16)。
      * @return 見つかった entry (無い / 未 Open なら nullptr)。
      */
     const FAcpakFileEntry* FindEntry(const wchar_t* Path) const noexcept;
@@ -198,13 +200,21 @@ private:
 
     /** 読み取り経路の relaxed 診断カウンタ群。 */
     struct FReadDiagnosticCounters {
+        /** mapping から読んだ回数。 */
         TAtomic<u64> MappedReadCount{0u};
+        /** mapping から読んだ格納 byte 数。 */
         TAtomic<u64> MappedReadBytes{0u};
+        /** Win32 ReadFile で読んだ回数。 */
         TAtomic<u64> BufferedReadCount{0u};
+        /** Win32 ReadFile で読んだ格納 byte 数。 */
         TAtomic<u64> BufferedReadBytes{0u};
+        /** 保持 scratch を再利用できた回数。 */
         TAtomic<u64> ScratchReuseCount{0u};
+        /** 局所 scratch へ fallback した回数。 */
         TAtomic<u64> ScratchFallbackCount{0u};
+        /** batch read 呼び出し数。 */
         TAtomic<u64> BatchCount{0u};
+        /** batch read で処理した要求数。 */
         TAtomic<u64> BatchEntryCount{0u};
     };
 
@@ -234,6 +244,9 @@ private:
 
     /** file table の in-memory 表現 (entry.path は m_StringPool を指す)。 */
     TArray<FAcpakFileEntry> m_Entries;
+
+    /** m_Entries と同じ index で保持する正規形仮想 path の hash。 */
+    TArray<u64> m_PathHashes;
 
     /** path 文字列の連結 pool (NUL 区切り)。 */
     TArray<wchar_t> m_StringPool;

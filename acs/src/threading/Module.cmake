@@ -17,6 +17,7 @@ acs_module(
         Atomic.h
         ConditionVar.h
         JobGraph.h
+        JobGraphCompletionDiagnostics.h
         JobGraphDiagnostics.h
         MemoryOrder.h
         Mutex.h

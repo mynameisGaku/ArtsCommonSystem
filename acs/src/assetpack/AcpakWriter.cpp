@@ -196,41 +196,6 @@ usize LenWBounded(const wchar_t* Text) noexcept
     return Length;
 }
 
-bool IsValidVirtualPath(const wchar_t* Path, usize Length) noexcept
-{
-    if (Path == nullptr || Length == 0 || Path[0] == L'/' || Path[Length - 1u] == L'/') {
-        return false;
-    }
-
-    usize SegmentStart = 0;
-    for (usize Index = 0; Index < Length; ++Index) {
-        const wchar_t Character = Path[Index];
-        if (Character < 0x20 || Character == L'\\' || Character == L':') return false;
-        if (Character >= 0xD800 && Character <= 0xDBFF) {
-            if (Index + 1u >= Length || Path[Index + 1u] < 0xDC00 || Path[Index + 1u] > 0xDFFF) {
-                return false;
-            }
-            ++Index;
-            continue;
-        }
-        if (Character >= 0xDC00 && Character <= 0xDFFF) return false;
-        if (Character != L'/') continue;
-
-        const usize SegmentLength = Index - SegmentStart;
-        if (SegmentLength == 0 ||
-            (SegmentLength == 1u && Path[SegmentStart] == L'.') ||
-            (SegmentLength == 2u && Path[SegmentStart] == L'.' &&
-             Path[SegmentStart + 1u] == L'.')) {
-            return false;
-        }
-        SegmentStart = Index + 1u;
-    }
-    const usize LastLength = Length - SegmentStart;
-    return !((LastLength == 1u && Path[SegmentStart] == L'.') ||
-             (LastLength == 2u && Path[SegmentStart] == L'.' &&
-              Path[SegmentStart + 1u] == L'.'));
-}
-
 bool EqualPath(const TArray<wchar_t>& Stored, const wchar_t* Path, usize Length) noexcept
 {
     if (Stored.Size() != Length + 1u) return false;
@@ -466,23 +431,28 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
         return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: file count exceeds limit");
     }
 
+    /** NUL を除く仮想パス長。 */
     const usize PathLength = LenWBounded(VirtualPath);
-    if (PathLength == 0 || PathLength > kAcpakMaxPathLength ||
-        !IsValidVirtualPath(VirtualPath, PathLength)) {
+    if (PathLength == 0 || PathLength > kAcpakMaxPathLength || !IsCanonicalAcpakVirtualPath(VirtualPath, PathLength)) {
         return ACS_ERR(IO, kAcpakSubBadPath,
                        "FAcpakWriter::AddFile: invalid virtual path");
     }
+    /** 正規形 path に対して AddFile 中に一度だけ計算する hash。 */
+    const u64 PathHash = HashCanonicalAcpakVirtualPath(VirtualPath, PathLength);
+    /** hash 一致候補だけを完全比較する登録済み entry index。 */
     for (usize Index = 0; Index < m_Pending.Size(); ++Index) {
-        if (EqualPath(m_Pending[Index].Path, VirtualPath, PathLength)) {
+        if (m_Pending[Index].PathHash == PathHash && EqualPath(m_Pending[Index].Path, VirtualPath, PathLength)) {
             return ACS_ERR(Asset, kAcpakSubDuplicatePath,
                            "FAcpakWriter::AddFile: duplicate virtual path");
         }
     }
+    /** 現在の address space で扱う payload byte 数。 */
     const usize PayloadSize = static_cast<usize>(Size);
     if (static_cast<u64>(PayloadSize) != Size) {
         return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: payload exceeds address space");
     }
 
+    /** path と payload を保持する新規 pending entry。 */
     FPendingEntry* Entry = m_Pending.TryEmplaceBack(*m_Allocator);
     if (Entry == nullptr) {
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: pending entry allocation failed");
@@ -492,6 +462,7 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
         m_Pending.PopBack();
         return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: path copy allocation failed");
     }
+    Entry->PathHash = PathHash;
     MemCopy(Entry->Path.Data(), VirtualPath, (PathLength + 1u) * sizeof(wchar_t));
 
     if (!Entry->Data.TryResize(PayloadSize)) {

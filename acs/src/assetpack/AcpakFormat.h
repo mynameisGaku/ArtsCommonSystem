@@ -1,98 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS AssetPack — `.acpak` v1 ファイルフォーマット bit-precise 定義
-// -----------------------------------------------------------------------------
-// `.acpak` は ACS が「アセット流出のカジュアル防止 + 完全性検証」を行うため
-// の独自アーカイブフォーマット。「raw bytes + CRC32 検証」のレイアウトに加え、
-// AES-256-GCM (Windows CNG) 暗号化 + LZ4 圧縮を同フレーム内で扱える。
-//
-// ヘッダ + ファイルデータ + ファイルテーブル の 3 セクション構成:
-//
-//   offset  size  field                  説明
-//   ------  ----  ---------------------  -----------------------------------
-//   0x00     8    magic                  "ACPAK\0\0\0" (kAcpakMagic)
-//   0x08     4    version                u32 = kAcpakVersion (= 1)
-//   0x0C     4    flags                  u32 (EAcpakFlags bitfield)
-//   0x10     4    file_count             u32
-//   0x14     4    padding                u32 = 0 (align(8) で file_table_offset
-//                                                を 8 バイト境界に乗せる)
-//   0x18     8    file_table_offset      u64 (アーカイブ先頭からのオフセット)
-//   0x20     4    reserved               u32 = 0
-//   0x24     -    (拡張領域)
-//
-//   [file 0 data] ... [file N-1 data]   (各 entry の offset/size に基づき配置)
-//
-//   [file table]:
-//     for each file:
-//       path_len            : u32 (UTF-16 ワイド文字数、NUL 含まず)
-//       path                : wchar_t[path_len] (UTF-16LE、NUL 含まず)
-//       offset              : u64 (アーカイブ先頭からのオフセット)
-//       size_uncompressed   : u64 (復号 + 解凍後のバイト数)
-//       size_stored         : u64 (アーカイブ上の生バイト数 = 圧縮+暗号化済サイズ)
-//       crc32               : u32 (size_uncompressed バイトに対する CRC32、
-//                                  poly=0xEDB88320, init=0xFFFFFFFF, xorout=
-//                                  0xFFFFFFFF)
-//       cipher_nonce[12]    : (only if header.flags & AcpakFlagEncrypted)
-//                              AES-256-GCM 用 per-file nonce。CSPRNG で生成。
-//       cipher_tag[16]      : (only if header.flags & AcpakFlagEncrypted)
-//                              AES-256-GCM 認証タグ。Encrypt 時に書き出し、
-//                              Decrypt 時に検証。
-//
-//   下位互換: header.flags & AcpakFlagEncrypted == 0 のときは cipher_nonce /
-//   cipher_tag を file table に書かない (= v1 raw レイアウトと完全一致)。
-//   FAcpakReader::Open は flags を見て分岐するので、v1 で作成した .acpak は
-//   v2 ライブラリでもそのまま読める。
-//
-// 全数値は little-endian、host 側もすべて little-endian 前提 (ACS 対応プラット
-// フォームは Win/x64 と将来の ARM64 = little-endian only)。
-//
-// 設計上の注記:
-//   ・wchar_t = UTF-16 (Windows convention) を採用。Win32 CreateFileW と直結
-//     できるため、`.acpak` 内のパス仕様もそのまま wchar_t* で扱う。
-//   ・magic は人間可読 8 バイト ("ACPAK\0\0\0")。version はそれと独立した u32。
-//     TSaveSlot.h の "ACSV" は 4 バイト magic だが、AssetPack はマウント検査が
-//     より頻繁・高負荷なので 8 バイトの強い signature を採る。
-//   ・file_table は「ファイルデータの後 (末尾)」に配置する。これにより
-//     Writer はストリーミング書き込みできる (AddFile 中はテーブルをメモリ上に
-//     貯め、Finalize で末尾に書き出す)。
-//   ・CRC32 は size_uncompressed バイト (= 復号 + 解凍後の生データ) に対して
-//     計算する。圧縮/暗号化の有無に関わらず検証仕様が変わらないよう
-//     「uncompressed バイトに対する CRC」と固定する。
-// =============================================================================
 #pragma once
 
+#include "container/Hash.h"
 #include "foundation/Types.h"
 
 namespace acs::assetpack {
 
-/**
- * `.acpak` ファイル先頭 8 バイトの magic = "ACPAK\0\0\0"。
- *
- * @details
- * Reader は CreateFileW 直後にこの 8 バイトと一致するかを最初に検査する。
- * reinterpret_cast<u64>(...) のような alias 越え比較は strict-aliasing を
- * 破るため避け、必ず memcmp / バイト列比較で検査する。
- */
-inline constexpr u8 kAcpakMagic[8] = {
-    'A', 'C', 'P', 'A', 'K', '\0', '\0', '\0'
-};
+/** `.acpak` 先頭の固定 8-byte magic。 */
+inline constexpr u8 kAcpakMagic[8] = {'A', 'C', 'P', 'A', 'K', '\0', '\0', '\0'};
 
-/**
- * 現在のフォーマットバージョン (= 1)。
- *
- * @details
- * flags の bit を追加することで後方互換を保つ (reader は flags の未知 bit を
- * 見つけた場合のみエラーを返す)。互換破壊する変更を行うときにだけ 2 に上げる。
- */
+/** 現在の互換 format version。 */
 inline constexpr u32 kAcpakVersion = 1u;
 
-/**
- * header.flags の bitfield。pipeline は compress-then-encrypt 順。
- *
- * @details
- * 書き込みは compress-then-encrypt、読み出しはその逆順の
- * decrypt-then-decompress。Reader/Writer は flags を見て pipeline を組み立てる。
- */
+/** package の圧縮・暗号化 flag。 */
 enum EAcpakFlags : u32 {
     /** フラグなし (= 生バイト + CRC32 のみ、v1 raw レイアウト)。 */
     AcpakFlagNone        = 0u,
@@ -104,16 +24,7 @@ enum EAcpakFlags : u32 {
     AcpakFlagCompressed  = 1u << 1,
 };
 
-/**
- * アーカイブ先頭に書き込まれる固定長ヘッダ POD。
- *
- * @details
- * 全フィールド little-endian。file_table_offset の前に padding u32 を入れて
- * u64 を 8B 境界に揃える (一部 ARM プロセッサは unaligned u64 read で fault を
- * 起こすため)。reinterpret_cast による直接読込は禁止し、Reader/Writer は明示的に
- * バイト列を memcpy で読み出す (Hash.cpp と同じ流儀)。ディスク I/O は
- * kAcpakHeaderDiskSize (= 36) を用いて行う。
- */
+/** archive 先頭の little-endian 固定 header。 */
 struct FAcpakHeader {
     /** magic = kAcpakMagic ("ACPAK\0\0\0")。 */
     u8  magic[8];
@@ -137,25 +48,10 @@ struct FAcpakHeader {
     u32 reserved;
 };
 
-/**
- * ヘッダのディスク上サイズ (= 36 バイト)。
- *
- * @details
- * magic(8) + version(4) + flags(4) + file_count(4) + padding(4) = 24 で
- * file_table_offset(8) は 8B 境界に揃い、+8 = 32、+ reserved(4) = 36。
- * sizeof(FAcpakHeader) は処理系の構造体パディングで 40 になり得るため、I/O は
- * 必ずこの定数を使って 36 バイトで読み書きする。
- */
+/** header の disk 上固定 byte 数。 */
 inline constexpr usize kAcpakHeaderDiskSize = 36;
 
-/**
- * 暗号化フラグ立ち時に各 entry が file table に追加で持つバイト数 (= 28)。
- *
- * @details
- * cipher_nonce(12) + cipher_tag(16) = 28。Reader/Writer は
- * header.flags & AcpakFlagEncrypted のときだけこの 28 バイトを読み書きする。
- * v1 (flags=0) では 0 バイト = レイアウト変更なし。
- */
+/** 暗号化 entry が追加で持つ nonce と tag の byte 数。 */
 inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;
 
 /** 1 つの pak に格納できる entry 数の防御的上限。 */
@@ -170,23 +66,56 @@ inline constexpr usize kAcpakMaxPathPoolBytes = 256u * 1024u * 1024u;
 /** Writer の出力先 OS パスに許す UTF-16 code unit 数 (NUL を含まない)。 */
 inline constexpr usize kAcpakMaxOutputPathLength = 1023u;
 
-static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
-              "Fixed-width integer types broken");
-static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,
-              "FAcpakHeader::magic must be 8 bytes");
+/** `.acpak` 仮想 path が永続化可能な正規形かを返す。 */
+inline bool IsCanonicalAcpakVirtualPath(const wchar_t* Path, usize Length) noexcept
+{
+    if (Path == nullptr || Length == 0u || Path[0] == L'/' || Path[Length - 1u] == L'/') {
+        return false;
+    }
 
-/**
- * Reader が file table から構築する in-memory のファイルエントリ表現。
- *
- * @details
- * アーカイブ上のレイアウトとは形が異なる (path はディスク上では path_len +
- * wchar_t[path_len] の可変長だが、ここでは Reader 内の文字列 pool を指す
- * const wchar_t* として保持する)。path は Reader が Open した時点から Close
- * までだけ有効で、Close 後のアクセスは UB。cipher_nonce / cipher_tag は
- * AcpakFlagEncrypted が立った pak でのみディスクから読み込まれ、flags=0 (v1) の
- * pak ではゼロクリアされる。AES-256-GCM 規格上 nonce は 96bit (12B)、tag は
- * 128bit (16B) 固定。
- */
+    /** 現在の segment が始まる code unit 位置。 */
+    usize SegmentStart = 0u;
+    for (usize Index = 0u; Index < Length; ++Index) {
+        /** 今回検証する UTF-16 code unit。 */
+        const wchar_t Character = Path[Index];
+        if (Character == L'\0' || Character < 0x20 || Character == L'\\' || Character == L':') {
+            return false;
+        }
+        if (Character >= 0xD800 && Character <= 0xDBFF) {
+            if (Index + 1u >= Length || Path[Index + 1u] < 0xDC00 || Path[Index + 1u] > 0xDFFF) {
+                return false;
+            }
+            ++Index;
+            continue;
+        }
+        if (Character >= 0xDC00 && Character <= 0xDFFF) {
+            return false;
+        }
+        if (Character != L'/') continue;
+
+        /** 区切り直前までの segment 長。 */
+        const usize SegmentLength = Index - SegmentStart;
+        if (SegmentLength == 0u || (SegmentLength == 1u && Path[SegmentStart] == L'.') || (SegmentLength == 2u && Path[SegmentStart] == L'.' && Path[SegmentStart + 1u] == L'.')) {
+            return false;
+        }
+        SegmentStart = Index + 1u;
+    }
+
+    /** 最後の segment 長。 */
+    const usize LastLength = Length - SegmentStart;
+    return !((LastLength == 1u && Path[SegmentStart] == L'.') || (LastLength == 2u && Path[SegmentStart] == L'.' && Path[SegmentStart + 1u] == L'.'));
+}
+
+/** 正規形の UTF-16 path を完全一致規則のまま hash する。 */
+inline u64 HashCanonicalAcpakVirtualPath(const wchar_t* Path, usize Length) noexcept
+{
+    return HashBytes(Path, Length * sizeof(wchar_t));
+}
+
+static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8, "Fixed-width integer types broken");
+static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8, "FAcpakHeader::magic must be 8 bytes");
+
+/** Reader が manifest から構築して Close まで保持する entry。 */
 struct FAcpakFileEntry {
     /** Reader 内文字列 pool への参照 (Close まで有効)。 */
     const wchar_t* path;
@@ -209,10 +138,6 @@ struct FAcpakFileEntry {
     /** AES-256-GCM 認証タグ (encrypted pak のみ有効、それ以外は 0)。 */
     u8             cipher_tag[16];
 };
-
-// AssetPack の subcode は ErrCategory::IO / ErrCategory::Asset 配下で
-// 1300 番台を使う。TSaveSlot (1-99) / FSteamworksBridge (1001-1099) /
-// WorkshopBridge (1101-1199) / AssetPack stub (1200 番台) とは重ならない。
 
 /** 先頭 8 バイトが kAcpakMagic でない (= .acpak でない)。 */
 inline constexpr u16 kAcpakSubBadMagic         = 1301;

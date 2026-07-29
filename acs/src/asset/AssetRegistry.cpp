@@ -94,6 +94,7 @@ bool IsValidLoaderExtension(const char* Extension) noexcept
  */
 FAssetId MakeIdFromPath(const wchar_t* Path) noexcept
 {
+    /** NUL を除く UTF-16 path 長。 */
     usize Length = 0u;
     while (Path[Length] != L'\0') ++Length;
     return MakeAssetId(FStringView(reinterpret_cast<const char*>(Path), Length * sizeof(wchar_t)));
@@ -399,8 +400,10 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
 
     // cache / in-flight hit には所有コピーを追加しない。新規ジョブだけが
     // 長さ比例の共有パスを確保し、従来の固定長 job buffer を置き換える。
+    /** intern 対象 path の NUL を除く長さ。 */
     usize PathLength = 0u;
     while (path[PathLength] != L'\0') ++PathLength;
+    /** 共有 path の取得結果。 */
     auto InternResult = m_PathInterner.Intern(path, PathLength);
     if (InternResult.IsErr()) {
         AsyncLoadFinished(id);
@@ -410,6 +413,7 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         state->counter.Done();
         return FAssetFuture(Move(state));
     }
+    /** 非同期 job が完了まで所有する共有 path。 */
     TSharedPtr<FInternedAssetPath> InternedPath = Move(InternResult.Value());
 
     // ジョブを heap 確保し FThreadPool に投入
@@ -430,6 +434,7 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     job->id       = id;
     job->path     = Move(InternedPath);
     {
+        /** job 投入診断値を保護する lock。 */
         FScopedLock lk(m_Lock);
         ++m_AsyncJobCount;
         ++m_PhysicalFileReadCount;
@@ -467,8 +472,10 @@ void FAssetRegistry::Clear() noexcept {
 
 FAssetRegistryDiagnostics FAssetRegistry::Diagnostics() const noexcept
 {
+    /** 呼び出し元へ返す診断 snapshot。 */
     FAssetRegistryDiagnostics Result{};
     {
+        /** registry 内診断値の同時取得を守る lock。 */
         FScopedLock Lock(m_Lock);
         Result.async_request_count = m_AsyncRequestCount;
         Result.async_coalesced_count = m_AsyncCoalescedCount;

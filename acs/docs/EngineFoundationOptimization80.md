@@ -107,10 +107,10 @@ and compile-time assertions are required where they keep build cost bounded.
 | T66 | M | Containers | Add word-batched bitset operations with scalar parity fallback | A | Queued |
 | T67 | M | Lookup | Select tiny-table linear/sorted lookup policy from measured thresholds | A | Queued |
 | T68 | M | Serialization | Add bounded zero-copy byte-view decoding for immutable input | A | Queued |
-| T69 | M | Threading | Batch completion-counter updates without weakening wait semantics | B | Queued |
-| T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Queued |
-| T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Queued |
-| T72 | M | Paths | Normalize and hash canonical paths once across storage boundaries | B | Queued |
+| T69 | M | Threading | Batch completion-counter updates without weakening wait semantics | B | Complete |
+| T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Deferred |
+| T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Complete |
+| T72 | M | Paths | Validate and hash canonical paths once across storage boundaries | B | Complete |
 | T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Active |
 | T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Active |
 | T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Active |

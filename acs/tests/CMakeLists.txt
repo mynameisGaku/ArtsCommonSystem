@@ -103,6 +103,7 @@ add_executable(acs_unit_tests
     foundation_public_layout_tests.cpp
     foundation_optimization_wave_k_tests.cpp
     foundation_optimization_wave_i_tests.cpp
+    foundation_optimization_wave_m_tests.cpp
     volumetric_cloud_world_anchor_tests.cpp
     atmosphere_composite_tests.cpp
     shadow_map_cb_safety_tests.cpp
@@ -286,6 +287,32 @@ add_test(
 set_tests_properties(
     ACS.FoundationOptimizationWaveI
     PROPERTIES LABELS "Performance;Foundation;Stress" TIMEOUT 60)
+
+# Foundation Optimization Wave M の completion / event / path 契約を独立反復する。
+add_executable(acs_foundation_optimization_wave_m_tests
+    main.cpp
+    foundation_optimization_wave_m_tests.cpp
+)
+set_target_properties(
+    acs_foundation_optimization_wave_m_tests
+    PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_foundation_optimization_wave_m_tests)
+target_link_libraries(acs_foundation_optimization_wave_m_tests PRIVATE
+    ACS::Foundation
+    ACS::Threading
+    ACS::Memory
+    ACS::Container
+    ACS::Platform
+    ACS::Event
+    ACS::AssetPack
+    ACS::Test
+)
+add_test(
+    NAME ACS.FoundationOptimizationWaveM
+    COMMAND acs_foundation_optimization_wave_m_tests)
+set_tests_properties(
+    ACS.FoundationOptimizationWaveM
+    PROPERTIES LABELS "Foundation;Stress" TIMEOUT 120)
 
 # LinearAllocator の Reset 競合を他モジュールのリンク状態から独立して反復できる専用ターゲット。
 add_executable(acs_linear_allocator_lifecycle_tests

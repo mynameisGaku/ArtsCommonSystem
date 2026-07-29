@@ -14,7 +14,9 @@ acs_module(
         Array.h
         ConstexprHash.h
         Hash.h
+        HashBytesBatch.h
         HashMap.h
+        InlineArray.h
         Json.h
         Span.h
         StableStringKey.h

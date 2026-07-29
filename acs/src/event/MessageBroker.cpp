@@ -103,7 +103,11 @@ void FMessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexce
     for (usize i = 0; i < n; ++i) {
         FSlot& s = ch->slots[i];
         if (!s.active || !s.cb) continue;
-        s.cb(payload, s.user);
+        /** 再確保前に確定した呼び出し先。 */
+        const MessageCallback callback = s.cb;
+        /** callback へ渡す user pointer。 */
+        void* const user = s.user;
+        callback(payload, user);
     }
     --ch->publish_depth;
 

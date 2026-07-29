@@ -2,6 +2,7 @@
 // 基盤最適化で扱う公開型の Win64 レイアウト予算テスト
 #include "test/Test.h"
 #include "test/Expect.h"
+#include "assetpack/AcpakReader.h"
 #include "container/Array.h"
 #include "container/HashMap.h"
 #include "container/String.h"
@@ -31,6 +32,8 @@ static_assert(sizeof(FSubscriptionHandle) <= 12u, "購読ハンドルの3整数�
 static_assert(sizeof(FTimerHandle) <= 8u, "タイマハンドルの2整数予算を超えました");
 static_assert(sizeof(FThreadPoolDiagnostics) <= 96u, "thread pool診断型の予算を超えました");
 static_assert(sizeof(FJobGraphDiagnostics) <= 40u, "job graph診断型の予算を超えました");
+static_assert(sizeof(FJobGraphCompletionDiagnostics) == 16u, "job graph完了診断型の2整数契約が崩れました");
+static_assert(sizeof(assetpack::FAcpakReader) <= 336u, "package readerのpath hash所有予算を超えました");
 static_assert(sizeof(FTimerDiagnostics) <= 24u, "timer診断型の予算を超えました");
 static_assert(sizeof(FFileSystemDiagnostics) <= 24u, "file診断型の予算を超えました");
 static_assert(alignof(FTask) <= alignof(void*), "タスク記述子のalignment予算を超えました");
@@ -40,8 +43,10 @@ ACS_TEST(FoundationOptimizationWaveO, PublicLayoutBudgetsRemainBounded)
 {
     EXPECT_TRUE(sizeof(FThreadPoolDiagnostics) <= 96u);
     EXPECT_TRUE(sizeof(FJobGraphDiagnostics) <= 40u);
+    EXPECT_EQ(sizeof(FJobGraphCompletionDiagnostics), 16u);
+    EXPECT_TRUE(sizeof(assetpack::FAcpakReader) <= 336u);
     EXPECT_TRUE(sizeof(FTimerDiagnostics) <= 24u);
     EXPECT_TRUE(sizeof(FFileSystemDiagnostics) <= 24u);
 
-    std::printf("foundation_layout array=%zu string=%zu hashmap=%zu counter=%zu task=%zu job_handle=%zu job_graph=%zu subscription=%zu timer=%zu thread_diag=%zu job_diag=%zu timer_diag=%zu file_diag=%zu\n", sizeof(TArray<u32>), sizeof(FString), sizeof(THashMap<u32, u32>), sizeof(FCompletionCounter), sizeof(FTask), sizeof(FJobHandle), sizeof(FJobGraph), sizeof(FSubscriptionHandle), sizeof(FTimerHandle), sizeof(FThreadPoolDiagnostics), sizeof(FJobGraphDiagnostics), sizeof(FTimerDiagnostics), sizeof(FFileSystemDiagnostics));
+    std::printf("foundation_layout array=%zu string=%zu hashmap=%zu counter=%zu task=%zu job_handle=%zu job_graph=%zu subscription=%zu timer=%zu thread_diag=%zu job_diag=%zu job_completion_diag=%zu acpak_reader=%zu timer_diag=%zu file_diag=%zu\n", sizeof(TArray<u32>), sizeof(FString), sizeof(THashMap<u32, u32>), sizeof(FCompletionCounter), sizeof(FTask), sizeof(FJobHandle), sizeof(FJobGraph), sizeof(FSubscriptionHandle), sizeof(FTimerHandle), sizeof(FThreadPoolDiagnostics), sizeof(FJobGraphDiagnostics), sizeof(FJobGraphCompletionDiagnostics), sizeof(assetpack::FAcpakReader), sizeof(FTimerDiagnostics), sizeof(FFileSystemDiagnostics));
 }

@@ -29,8 +29,11 @@ TResult<void> IAssetPackReader::ReadFiles(const FAssetPackReadRequest* Requests,
     if (Count > 0u && Requests == nullptr) {
         return ACS_ERR(IO, kSubAssetPackInvalidBatch, "IAssetPackReader::ReadFiles: null requests");
     }
+    /** 要求順を維持して読む添字。 */
     for (u32 Index = 0u; Index < Count; ++Index) {
+        /** 現在処理する一件の read 要求。 */
         const FAssetPackReadRequest& Request = Requests[Index];
+        /** backend の単一ファイル read 結果。 */
         const auto Result = ReadFile(Request.Name, Request.OutBuffer, Request.BufferSize);
         if (Result.IsErr()) return Result.Error();
         if (CompletedCount != nullptr) *CompletedCount = Index + 1u;

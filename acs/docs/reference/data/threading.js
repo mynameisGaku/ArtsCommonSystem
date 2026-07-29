@@ -237,16 +237,28 @@ ACS_REF.modules.push({
     {
       name: "FJobGraph",
       kind: "クラス", header: "threading/JobGraph.h",
-      summary: "<b>依存関係のある</b>タスク(ジョブ)を並べて並列実行するスケジューラ。『B は A の後』のような順序を指定すると、依存が解けたジョブから自動的に <t>FThreadPool</t> 上で走り出す。",
+      summary: "<b>依存関係のある</b>タスク(ジョブ)を並べて並列実行するスケジューラ。『B は A の後』のような順序を指定すると、依存が解けたジョブから自動的に <t>FThreadPool</t> 上で走り出す。Submit 冒頭で全 job の完了数を 1 回だけ予約し、依存解決ごとの加算を避ける。",
       when: "読み込み→構築→GPU アップロードのように、一部は並列・一部は順序ありの処理パイプラインを組みたい時。",
       sample: "FJobGraph g;\nauto loadA = g.Add(&LoadA, &ctx);\nauto loadB = g.Add(&LoadB, &ctx);\nauto build = g.Add(&Build, &ctx);\nbuild.DependOn(loadA);   // loadA,loadB 完了後に build\nbuild.DependOn(loadB);\ng.Submit();              // 依存0のジョブから開始\ng.Wait();                // 全完了まで待つ",
       members: [
         { sig: "FJobHandle Add(JobFn fn, void* user)", ret: "ジョブのハンドル", desc: "ジョブを 1 件追加する。<code>Submit</code> より前にだけ呼べる。", when: "グラフを組み立てる段階。" },
         { sig: "void AddDependency(FJobHandle upstream, FJobHandle downstream)", desc: "<code>upstream</code> が終わるまで <code>downstream</code> を走らせない依存を張る(<code>FJobHandle::DependOn</code> と同じ)。" },
-        { sig: "TResult<void> Submit()", ret: "成否", desc: "全ジョブを <code>FThreadPool</code> に投入。依存 0 のジョブが即走り始める。投入後はグラフ変更不可。" },
+        { sig: "TResult<void> Submit()", ret: "成否", desc: "全 job の完了数を一括予約してから、依存 0 の job を <code>FThreadPool</code> に投入する。未投入・依存待ち job も先に残数へ含むため、待機側へ一時的な 0 を公開しない。投入後はグラフ変更不可。" },
         { sig: "void Wait()", desc: "全ジョブが終わるまで待つ(待機中もスティーリングに参加)。" },
         { sig: "void Reset()", desc: "依存関係はそのままに残カウントを初期値へ戻し、同じグラフを再実行できるようにする。" },
-        { sig: "u32 JobCount() const", ret: "ジョブ数", desc: "グラフに登録されたジョブの数。" }
+        { sig: "u32 JobCount() const", ret: "ジョブ数", desc: "グラフに登録されたジョブの数。" },
+        { sig: "FJobGraphCompletionDiagnostics CompletionDiagnostics() const", ret: "現在予約", desc: "現在 Submit 済みなら <code>{1, JobCount()}</code>、未 Submit または Reset 後なら <code>{0, 0}</code>。既存 <code>FJobGraphDiagnostics</code> の 40B ABI を変えない独立値型。" }
+      ]
+    },
+    {
+      name: "FJobGraphCompletionDiagnostics",
+      kind: "構造体", header: "threading/JobGraphCompletionDiagnostics.h",
+      summary: "現在の JobGraph 完了カウンタ一括予約だけを返す 16B の診断値。累計ではなく、Reset 後の job 追加を含む次回 Submit の実 job 数を正しく表すため現在状態に限定する。",
+      when: "依存 job ごとの <code>Add(1)</code> が復活していないことと、Submit が全 job を一括予約したことを決定的に検証する時。",
+      sample: "auto d = graph.CompletionDiagnostics();\nif (d.reservation_batch_count == 1)\n    ACS_ASSERT(d.reserved_job_count == graph.JobCount());",
+      members: [
+        { sig: "u64 reservation_batch_count", desc: "現在 Submit 済みなら 1、未 Submit または Reset 後なら 0。" },
+        { sig: "u64 reserved_job_count", desc: "現在の一括予約に含めた job 数。予約なしなら 0。" }
       ]
     },
     {

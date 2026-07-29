@@ -16,7 +16,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags)", ret: "成否(<t>Result</t>)", desc: "出力先と同じディレクトリに一意な一時ファイルを作る。出力先はまだ変更しない。<code>flags</code> で圧縮/暗号化を選び、未知 bit と二重 Open はエラー。暗号化する場合は <code>Finalize</code> より前に <code>SetKey</code> を呼ぶ。" },
         { sig: "void SetKey(const FAcpakKey& key)", desc: "暗号化に使う<t>鍵</t>を設定する。<code>AcpakFlagEncrypted</code> を立てた時に <code>Finalize</code> で使われる。Open の前後どちらでも呼べる。", when: "暗号化付きの pak を作る時(鍵未設定だと Finalize でエラー)。" },
-        { sig: "TResult<void> AddFile(const wchar_t* virtual_path, const void* data, u64 size)", desc: "1 ファイルを追加する。仮想パスと全バイトを Writer の内部配列へコピーし、同名パスや不正な <code>.</code>/<code>..</code> segment は拒否する。成功後は呼び出し側が入力を直ちに再利用・解放してよい。", sample: "w.AddFile(L\"textures/hero.png\", pngBytes, pngLen);", when: "梱包したいファイルを 1 つずつ登録していく時。" },
+        { sig: "TResult<void> AddFile(const wchar_t* virtual_path, const void* data, u64 size)", desc: "1 ファイルを追加する。<code>/</code> 区切りの正規形仮想パスと全バイトを内部配列へコピーし、path hash を一度保持する。重複確認は hash 一致候補だけを完全比較し、同名パスや不正な <code>.</code>/<code>..</code> segment は拒否する。成功後は呼び出し側が入力を直ちに再利用・解放してよい。", sample: "w.AddFile(L\"textures/hero.png\", pngBytes, pngLen);", when: "梱包したいファイルを 1 つずつ登録していく時。" },
         { sig: "TResult<void> Finalize()", desc: "一時ファイルへヘッダ→全データ→<t>ファイルテーブル</t>の順で書き出し、元バイトの <t>CRC32</t> を記録する。ヘッダ確定後に <code>FlushFileBuffers</code> し、出力先へ原子的に置換する。置換が成功するまでは既存の出力先を保ち、書込み・flush・置換の失敗時は <code>Close</code> またはデストラクタが一時ファイルを削除する。", when: "全ファイルの AddFile が済んだ後、最後に 1 度だけ。" },
         { sig: "void Close()", desc: "ハンドルと内部入力コピーを解放し、鍵を 0 クリアする。まだ原子的置換していない一時ファイルは削除し、既存の出力先を残す。多重 Close は安全。" }
       ]
@@ -34,7 +34,7 @@ ACS_REF.modules.push({
         { sig: "bool IsOpen() const", ret: "開いているか", desc: "Open 成功後かつ Close 前なら true。" },
         { sig: "u32 FileCount() const", ret: "ファイル数", desc: "今開いている pak に含まれる仮想ファイルの数。未 Open なら 0。" },
         { sig: "const FAcpakFileEntry* GetEntry(u32 index) const", ret: "エントリ or null", desc: "<code>index</code> 番目のファイル情報を返す。範囲外・未 Open なら null。返り値の寿命は次の Close まで。" },
-        { sig: "const FAcpakFileEntry* FindEntry(const wchar_t* path) const", ret: "エントリ or null", desc: "仮想パスからファイル情報を探す(<t>線形探索</t>・完全一致)。見つからない・未 Open なら null。" },
+        { sig: "const FAcpakFileEntry* FindEntry(const wchar_t* path) const", ret: "エントリ or null", desc: "要求 path を一度 hash し、manifest 読み込み時に保持した hash と一致する候補だけを大文字小文字を区別して完全比較する。見つからない・非正規形・未 Open なら null。" },
         { sig: "TResult<u64> ReadFile(const wchar_t* path, void* out_buffer, u64 buffer_size)", ret: "書き込んだバイト数", desc: "ファイルを <code>out_buffer</code> へ読み出す。<code>buffer_size</code> は <code>GetUncompressedSize</code> 以上必要。読み出し後 <t>CRC32</t> を照合し、不一致(破損/改竄)はエラー。", sample: "auto r = reader.ReadFile(L\"data/level1.bin\", buf, bufSize);\nif (r.IsOk()) { /* buf に生データ */ }", when: "実際にファイルの中身が欲しい時。" },
         { sig: "TResult<u64> GetUncompressedSize(const wchar_t* path) const", ret: "復号+解凍後のバイト数", desc: "ファイルの最終サイズを返す。<code>ReadFile</code> 用バッファの事前確保に使う。未存在パスはエラー。", when: "ReadFile の前に必要なバッファ量を知りたい時。" },
         { sig: "u32 Flags() const", ret: "<t>フラグ</t>", desc: "ヘッダから読んだ <code>flags</code>(暗号化/圧縮の有無)をそのまま返す。診断用。" }
