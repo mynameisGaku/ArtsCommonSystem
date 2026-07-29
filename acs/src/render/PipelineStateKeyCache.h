@@ -19,9 +19,12 @@ public:
      * @return 見つかった場合は true。
      */
     bool Find(const FPipelineStateKey& key, u32& identifier) const noexcept {
+        /** open addressing の開始 slot。 */
         const u32 start = static_cast<u32>(key.primary % Capacity);
         for (u32 probe = 0u; probe < Capacity; ++probe) {
+            /** 現在照合する slot。 */
             const u32 slot = (start + probe) % Capacity;
+            /** 現在照合する entry。 */
             const FEntry& entry = m_Entries[slot];
             if (!entry.occupied) return false;
             if (entry.key == key) {
@@ -41,10 +44,13 @@ public:
      * @return 検索または登録できた場合は true、満杯なら false。
      */
     bool FindOrIntern(const FPipelineStateKey& key, u32& identifier, bool& found) noexcept {
-        const u32 start = static_cast<u32>(key.primary % Capacity); // 線形探索の開始位置。
+        /** 線形探索の開始位置。 */
+        const u32 start = static_cast<u32>(key.primary % Capacity);
         for (u32 probe = 0u; probe < Capacity; ++probe) {
-            const u32 slot = (start + probe) % Capacity; // 今回検査する表の位置。
-            FEntry& entry = m_Entries[slot]; // 今回検査する登録要素。
+            /** 今回検査する表の位置。 */
+            const u32 slot = (start + probe) % Capacity;
+            /** 今回検査する登録要素。 */
+            FEntry& entry = m_Entries[slot];
             if (!entry.occupied) {
                 entry.key = key;
                 entry.identifier = m_NextIdentifier++;

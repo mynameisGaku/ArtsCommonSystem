@@ -3,6 +3,8 @@
 #include "render/Dx12/Dx12Device.h"
 #include "render/FormatTraits.h"
 #include "render/Dx12/Dx12Texture.h" // Dx12Texture (ReadTexture の cast)
+#include "render/PipelineStateKeyCache.h"
+#include "memory/New.h"
 #include "memory/UniquePtr.h"
 
 #include <cstring> // std::memcpy
@@ -48,6 +50,21 @@ private:
 
 } // namespace
 
+/** key table・COM owner・lock を公開 device layout 外へ隔離する内部 cache owner。 */
+struct FDx12Device::FPipelineCacheOwner {
+    /** 確保元 allocator を記録して同じ所有者へ返す。 */
+    explicit FPipelineCacheOwner(FAllocator& allocator) noexcept : allocator(&allocator) {}
+
+    /** 自身を確保した allocator。 */
+    FAllocator* allocator = nullptr;
+    /** PSO key を native 配列 index へ intern する表。 */
+    TPipelineStateKeyCache<kPipelineCacheCapacity> key_cache;
+    /** cache が所有する PSO。 */
+    ID3D12PipelineState* pipeline_states[kPipelineCacheCapacity]{};
+    /** cache が所有する root signature。 */
+    ID3D12RootSignature* root_signatures[kPipelineCacheCapacity]{};
+};
+
 FDx12Device::~FDx12Device() noexcept
 {
     Reset();
@@ -56,11 +73,18 @@ FDx12Device::~FDx12Device() noexcept
 bool FDx12Device::FindCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState*& pipeline, ID3D12RootSignature*& root_signature) noexcept {
     pipeline = nullptr;
     root_signature = nullptr;
+    /** owner の参照から COM AddRef までを Reset と直列化する lock。 */
     FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
+    /** outer lock 内で安定している現在の cache owner。 */
+    FPipelineCacheOwner* owner = m_PipelineCacheOwner;
+    if (owner == nullptr) return false;
+    /** key table が返す native 配列 index。 */
     u32 identifier = 0u;
-    if (!m_PipelineKeyCache.Find(key, identifier) || identifier >= kPipelineCacheCapacity) return false;
-    ID3D12PipelineState* cached_pipeline = m_CachedPipelineStates[identifier];
-    ID3D12RootSignature* cached_root_signature = m_CachedRootSignatures[identifier];
+    if (!owner->key_cache.Find(key, identifier) || identifier >= kPipelineCacheCapacity) return false;
+    /** cache が所有する PSO。 */
+    ID3D12PipelineState* cached_pipeline = owner->pipeline_states[identifier];
+    /** cache が所有する root signature。 */
+    ID3D12RootSignature* cached_root_signature = owner->root_signatures[identifier];
     if (cached_pipeline == nullptr || cached_root_signature == nullptr) return false;
     cached_pipeline->AddRef();
     cached_root_signature->AddRef();
@@ -71,28 +95,49 @@ bool FDx12Device::FindCachedPipeline(const FPipelineStateKey& key, ID3D12Pipelin
 
 void FDx12Device::StoreCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState* pipeline, ID3D12RootSignature* root_signature) noexcept {
     if (pipeline == nullptr || root_signature == nullptr) return;
+    /** owner の遅延生成から登録までを Reset と直列化する lock。 */
     FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
+    /** outer lock 内で安定している現在の cache owner。 */
+    FPipelineCacheOwner* owner = m_PipelineCacheOwner;
+    if (owner == nullptr) {
+        /** owner の確保と解放に使う allocator。 */
+        FAllocator& allocator = DefaultAllocator();
+        /** 初回登録用に確保する候補 owner。 */
+        owner = New<FPipelineCacheOwner>(allocator, allocator);
+        if (owner == nullptr) return;
+        m_PipelineCacheOwner = owner;
+    }
+    /** key table が返す native 配列 index。 */
     u32 identifier = 0u;
+    /** 同じ key が既に登録済みか。 */
     bool found = false;
-    if (!m_PipelineKeyCache.FindOrIntern(key, identifier, found) || identifier >= kPipelineCacheCapacity || found) return;
+    if (!owner->key_cache.FindOrIntern(key, identifier, found) || identifier >= kPipelineCacheCapacity || found) return;
     pipeline->AddRef();
     root_signature->AddRef();
-    m_CachedPipelineStates[identifier] = pipeline;
-    m_CachedRootSignatures[identifier] = root_signature;
+    owner->pipeline_states[identifier] = pipeline;
+    owner->root_signatures[identifier] = root_signature;
 }
 
 void FDx12Device::ResetPipelineCache(bool release_objects) noexcept {
+    /** owner の切離しから metadata delete までを lookup/register と直列化する lock。 */
     FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
+    /** outer lock 内で切り離す cache owner。 */
+    FPipelineCacheOwner* owner = m_PipelineCacheOwner;
+    if (owner == nullptr) return;
+    m_PipelineCacheOwner = nullptr;
     for (u32 index = 0u; index < kPipelineCacheCapacity; ++index) {
         if (release_objects) {
-            ACS_SAFE_RELEASE(m_CachedPipelineStates[index]);
-            ACS_SAFE_RELEASE(m_CachedRootSignatures[index]);
+            ACS_SAFE_RELEASE(owner->pipeline_states[index]);
+            ACS_SAFE_RELEASE(owner->root_signatures[index]);
         } else {
-            m_CachedPipelineStates[index] = nullptr;
-            m_CachedRootSignatures[index] = nullptr;
+            owner->pipeline_states[index] = nullptr;
+            owner->root_signatures[index] = nullptr;
         }
     }
-    m_PipelineKeyCache.Reset();
+    owner->key_cache.Reset();
+    /** owner が記録した確保元 allocator。 */
+    FAllocator& allocator = *owner->allocator;
+    Delete(allocator, owner);
 }
 
 void FDx12Device::Reset() noexcept

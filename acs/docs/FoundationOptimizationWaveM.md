@@ -2,8 +2,9 @@
 
 ## 目的
 
-Wave M の T69〜T72 は、待機・event 配送・package path 検索の共有基盤を、
-観測可能な契約を弱めずに軽くする。採用判断は次の四点で行った。
+Wave M の T65〜T72 は、世代付きハンドル、timer、immutable byte decode、
+待機、event 配送、package path 検索の共有基盤を、観測可能な契約を弱めずに
+監査・最適化する。採用判断は次の四点で行った。
 
 - 目的: 実際に繰り返される RMW、文字列比較、所有参照を減らす。
 - 効果: 決定的な回数または layout で差分を説明できる。
@@ -12,6 +13,8 @@ Wave M の T69〜T72 は、待機・event 配送・package path 検索の共有�
   round-trip、公開 layout、規約・reference・module・配布物監査から確認できる。
 
 品質、完全一致規則、package format、公開 handle の意味は変更しない。
+
+## T69〜T72: 待機・event・package path
 
 ## T69: 完了カウンタの一括予約
 
@@ -158,3 +161,99 @@ changed C++ rules は Wave M 基点で20 files / 752 lines、Wave K 基点を含
 27 files / 2,476 linesを合格した。reference JavaScript 2件の構文検査も合格した。
 単一 header と Diligent / xxhash を含む Debug / Release 統合 library は
 `build_single_header.ps1` で再生成し、配布 pipeline の完走を確認した。
+## T65〜T68: ハンドル・timer・入力記録
+
+Wave M は、世代付きハンドル、疎な timer 走査、少数 lookup、immutable byte decode
+を、既存の意味論と所有権を変えずに監査・最適化する。汎用部品を先に増やさず、
+実 consumer、失敗条件、寿命、結果 parity を確認できる経路だけを採用する。
+
+## 採用判断
+
+| Task | 判断 | 期待効果 | 依存関係 | 検証可能性 |
+|---|---|---|---|---|
+| T65 handle layout | 採用 | 異種ハンドルの ABI drift を compile time で検出 | 既存の object/entity/timer/subscription handle | offset・幅・size の static assert と既存の stale handle 再利用テスト |
+| T66 word-batched bitset | 既存実装を正式採用 | inactive slot の field 読み出しを避ける | `FTimerManager::m_ActiveWords` と x64 bit scan | 8192 timer 中 1 active の訪問数・word 数、callback mutation/Clear |
+| T67 tiny lookup policy | 延期 | 閾値なしの policy 増加を回避 | 代表 workload と transition/cycle 指標が未整備 | 実 consumer の計測値が得られるまで未実装 |
+| T68 immutable decode | 採用 | header/sample の中間 copy・decode 前 allocation を除去 | `TSpan<const u8>`、既存 `.acsr` CRC/上限 | 正常 field parity、truncation、CRC、範囲外、transactional load |
+
+## T65: generation handle layout trait
+
+`TGenerationHandleLayoutTraits<T>` は物理配置だけを記述する。無効 identity は
+`FObjectHandle` が `0xFFFFFFFF`、`FEntityId` が `0xFFFFFFFF`、timer/subscription が
+`0` と異なり、generation の進め方も各 owner が保持する。このため共通 base handle
+や pack/unpack API は作らず、identity/generation の offset・byte 幅、domain prefix、
+型全体の size/alignment だけを各 handle header で特殊化した。
+
+`FSubscriptionHandle` の channel は domain prefix として明示し、
+`FObjectHandle` の 64bit generation と padding も縮めない。これにより既存 stale
+handle 判定を変えず、ABI の意図しない並べ替えだけをテストで検出できる。
+
+## T66: timer active word
+
+`FTimerManager` は既に `m_ActiveWords` を production の `Tick` で走査し、
+set bit だけを bit scan している。generic bitset を追加して二重管理せず、この経路を
+採用した。callback は timer の追加、cancel、`Clear` を実行できるため、各 callback
+後に同じ word を再読込する。初回 snapshot に固定すると、後続 slot の cancel を
+見落とすか、再利用 slot を誤って処理するため、この再読込は削除しない。
+
+8192 timer のうち 8191 件を cancel した試験では active slot 訪問は 1 件であり、
+word load は 128 件で固定する。次段の summary bitset は、この word load 自体が
+代表 workload の bottleneck と計測された場合だけ検討する。
+
+## T67: tiny lookup の延期条件
+
+repository 内の少数 lookup を調査したが、linear から sorted/hash へ切り替える件数
+閾値を再現可能に決める production consumer と計測値は得られなかった。汎用 policy
+を追加しても呼び出し・状態遷移の削減を検証できないため延期する。
+
+再開条件は、実 consumer、件数分布、lookup/更新比、比較回数または cycle/hardware
+counter を同じ workload で取得し、選択した閾値が少なくとも二構成で改善すること。
+
+## T68: bounded immutable recording view
+
+`FInputRecordingView::Decode` は caller-owned `.acsr` を借用し、次を allocation 前に
+全件検証する。
+
+- magic `ACSR`、version 1、tick rate と sample 件数の製品上限
+- header 16 byte + `29 * sample_count` + CRC footer 4 byte の厳密サイズ
+- sample 領域の CRC32
+- mouse x/y の NaN・Infinity 拒否
+
+一 sample の layout は tick 4 byte、key code 8 byte、key state 8 byte、mouse x/y
+各 4 byte、button mask 1 byteの合計 29 byteであり、`FInputSample::sizeof` に依存
+しない。`TSpan::TrySubSpan` は null、範囲外、加算 overflow を assert なしで拒否し、
+失敗時に出力 view を変更しない。
+
+format constant、LE read/write、CRC32、finite mouse 検査、sample encode/decode は
+非公開 `input_recording_detail` の `InputRecordingFormat.h/.cpp` に一元化する。
+serializer、owned loader、immutable view が同じ helper を使うため、29 byte layout
+や CRC の片側だけが更新される drift point を残さない。shared helper は owner や
+update lifecycle を持たないため subsystem にはしない。
+
+view は buffer を所有しない。view の使用中、caller は元 buffer を生存かつ不変に
+保つ。mapped file の close と競合する公開 view は導入していない。
+`FInputRecorder::TryLoadFromBuffer` はこの decoder を使い、全検証後にだけ owned
+sample array を staging するため、既存の失敗時 state 不変契約も維持する。
+
+## InputRecorder の役割と範囲
+
+`FInputRecorder` は OS 寄りの key state と mouse 入力を tick 順に保存し、TAS、
+自動テスト、バグ再現へ使う。`FLockstep` の解釈済み button/axis 記録とは独立する。
+通常は input event を `FInputSample` に変換した直後に `Capture` し、再生時は
+`ConsumeSample` の結果を OS 入力の代わりに渡す。
+
+storage は `TArray<FInputSample>`、検索は記録順を前提とした cursor 前進である。
+録画・再生・idle は排他的で、コピーとムーブを禁止する。現時点の範囲外は一 tick
+9 件以上の key 変化、wheel/gamepad analog、圧縮、巻き戻し、複数 recorder の協調である。
+
+## 検証
+
+- clean Debug `acs_unit_tests`: 1151 passed / 0 failed
+- clean Release `acs_unit_tests`: 1147 passed / 0 failed
+- handle layout static assert と公開 layout 出力
+- timer sparse word diagnostics と callback mutation/Clear
+- immutable view の正常 decode、truncation、CRC、span fail-closed
+- changed C++ rule audit: 15 files / 325 lines
+- C++ conventions audit: 1177 files
+- module source manifest audit: 29 source directories / 296 `.cpp`
+- `acsbuild gen` の再実行で同一 `Module.cmake` を生成

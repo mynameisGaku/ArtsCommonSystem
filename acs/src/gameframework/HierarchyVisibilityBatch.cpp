@@ -12,6 +12,7 @@ bool IsLocallyVisible(const ANode* node) noexcept {
 
 } // namespace
 
+/** 一 node から root まで scalar に可視性を検査する。 */
 bool FHierarchyVisibilityBatch::EvaluateScalar(const ANode* node) noexcept {
     for (const ANode* current = node; current != nullptr; current = current->Parent()) {
         if (!IsLocallyVisible(current)) return false;
@@ -19,6 +20,7 @@ bool FHierarchyVisibilityBatch::EvaluateScalar(const ANode* node) noexcept {
     return node != nullptr;
 }
 
+/** pre-order node 列を stack 再利用で一括評価する。 */
 bool FHierarchyVisibilityBatch::Evaluate(ANode* const* nodes, usize count, const ANode* boundary_root) noexcept {
     Clear();
     if (count == 0u) return true;
@@ -34,13 +36,16 @@ bool FHierarchyVisibilityBatch::Evaluate(ANode* const* nodes, usize count, const
         }
     }
     for (usize index = 0u; index < count; ++index) {
+        /** 現在評価する node。 */
         ANode* node = nodes[index];
         if (node == nullptr) {
             m_Visibility[index] = 0u;
             continue;
         }
+        /** pre-order 上の親 node。 */
         const ANode* parent = node->Parent();
         while (!m_Stack.IsEmpty() && m_Stack[m_Stack.Size() - 1u].node != parent) m_Stack.PopBack();
+        /** ancestor を含めた現在 node の可視性。 */
         bool visible = false;
         if (parent == nullptr) {
             visible = IsLocallyVisible(node);
@@ -68,12 +73,14 @@ bool FHierarchyVisibilityBatch::Evaluate(ANode* const* nodes, usize count, const
     return true;
 }
 
+/** 結果と作業 stack を空に戻す。 */
 void FHierarchyVisibilityBatch::Clear() noexcept {
     m_Visibility.Clear();
     m_Stack.Clear();
     m_ScalarFallbackCount = 0u;
 }
 
+/** 指定結果 index の可視性を範囲検査して返す。 */
 bool FHierarchyVisibilityBatch::IsVisible(usize index) const noexcept {
     return index < m_Visibility.Size() && m_Visibility[index] != 0u;
 }

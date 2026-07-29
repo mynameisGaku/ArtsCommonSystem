@@ -26,8 +26,8 @@ set(_acsgen_render_sources
     PbrShader.cpp
     PostProcess.cpp
     RefractionShader.cpp
-    RenderGraphTransientAlias.cpp
     RenderAssets.cpp
+    RenderGraphTransientAlias.cpp
     Renderer.cpp
     ShadowMap.cpp
     SkinnedShader.cpp
@@ -73,12 +73,12 @@ set(_acsgen_render_headers
     PipelineStateKeyCache.h
     PostProcess.h
     RefractionShader.h
+    Render.h
+    RenderAssets.h
     RenderGraphAliasAssignment.h
     RenderGraphAliasPlanSummary.h
     RenderGraphResourceLifetime.h
     RenderGraphTransientAlias.h
-    Render.h
-    RenderAssets.h
     Renderer.h
     RhiPipelineBindDomain.h
     RhiPipelineBindPolicy.h

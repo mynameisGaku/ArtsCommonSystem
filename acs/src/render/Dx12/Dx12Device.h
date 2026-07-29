@@ -4,7 +4,7 @@
 
 #include "render/IRhiDevice.h"
 #include "render/DescriptorSlotPool.h"
-#include "render/PipelineStateKeyCache.h"
+#include "render/PipelineStateKey.h"
 #include "render/Dx12/Dx12Common.h"
 #include "container/Array.h"
 
@@ -316,6 +316,8 @@ public:
 private:
     friend class FDx12Pipeline;
 
+    struct FPipelineCacheOwner;
+
     /** 同一 PSO key の native object を取得する。 */
     bool FindCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState*& pipeline, ID3D12RootSignature*& root_signature) noexcept;
 
@@ -528,17 +530,11 @@ private:
     /** PSO cache の固定容量。 */
     static constexpr u32 kPipelineCacheCapacity = 512u;
 
-    /** PSO key を native 配列 index へ intern する表。 */
-    TPipelineStateKeyCache<kPipelineCacheCapacity> m_PipelineKeyCache;
-
-    /** cache が所有する PSO。 */
-    ID3D12PipelineState* m_CachedPipelineStates[kPipelineCacheCapacity]{};
-
-    /** cache が所有する root signature。 */
-    ID3D12RootSignature* m_CachedRootSignatures[kPipelineCacheCapacity]{};
-
-    /** PSO cache の検索と登録を直列化する lock。 */
+    /** PSO cache owner の参照・生成・破棄を直列化する outer lock。 */
     SRWLOCK m_PipelineCacheLock = SRWLOCK_INIT;
+
+    /** 初回登録時だけ確保する cpp-private PSO cache owner。 */
+    FPipelineCacheOwner* m_PipelineCacheOwner = nullptr;
 };
 
 } // namespace acs

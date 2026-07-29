@@ -18,6 +18,7 @@ acs_module(
         EndianSerialization.h
         EnumLookup.h
         Error.h
+        GenerationHandleLayoutTraits.h
         Limits.h
         Log.h
         Move.h

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/GenerationHandleLayoutTraits.h"
 #include "container/Array.h"
 #include "event/TimerDiagnostics.h"
 #include "event/TimerSchedulePolicy.h"
@@ -40,6 +41,27 @@ struct FTimerHandle {
     bool operator==(const FTimerHandle& o) const noexcept {
         return id == o.id && generation == o.generation;
     }
+};
+
+/** FTimerHandle の 32bit identity/generation 物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FTimerHandle> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** timer identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FTimerHandle, id);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FTimerHandle, generation);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FTimerHandle::id);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FTimerHandle::generation);
+    /** domain prefix を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FTimerHandle);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FTimerHandle);
 };
 
 /** 無効な FTimerHandle (戻り値や初期値で使う番兵)。 */

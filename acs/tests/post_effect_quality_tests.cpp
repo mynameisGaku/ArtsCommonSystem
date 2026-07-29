@@ -3965,17 +3965,30 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
 
     const std::string reset_pipeline_cache = section(device, "void FDx12Device::ResetPipelineCache(", "void FDx12Device::Reset()");
     EXPECT_TRUE(!reset_pipeline_cache.empty());
+    // outer lock は owner の読取・切離し・Delete の全寿命を覆う。
+    const std::size_t cache_outer_lock = reset_pipeline_cache.find("FExclusiveLockGuard cache_guard(m_PipelineCacheLock)");
+    const std::size_t owner_load = reset_pipeline_cache.find("FPipelineCacheOwner* owner = m_PipelineCacheOwner", cache_outer_lock);
+    const std::size_t owner_detach = reset_pipeline_cache.find("m_PipelineCacheOwner = nullptr", owner_load);
     EXPECT_TRUE(reset_pipeline_cache.find("if (release_objects)") != std::string::npos);
-    EXPECT_TRUE(reset_pipeline_cache.find("ACS_SAFE_RELEASE(m_CachedPipelineStates[index])") != std::string::npos);
-    EXPECT_TRUE(reset_pipeline_cache.find("ACS_SAFE_RELEASE(m_CachedRootSignatures[index])") != std::string::npos);
-    EXPECT_TRUE(reset_pipeline_cache.find("m_CachedPipelineStates[index] = nullptr") != std::string::npos);
-    EXPECT_TRUE(reset_pipeline_cache.find("m_CachedRootSignatures[index] = nullptr") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("ACS_SAFE_RELEASE(owner->pipeline_states[index])") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("ACS_SAFE_RELEASE(owner->root_signatures[index])") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("owner->pipeline_states[index] = nullptr") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("owner->root_signatures[index] = nullptr") != std::string::npos);
     // 所有配列を空にしてから key table を破棄する順序。
-    const std::size_t abandoned_pipeline = reset_pipeline_cache.find("m_CachedPipelineStates[index] = nullptr");
-    const std::size_t abandoned_root = reset_pipeline_cache.find("m_CachedRootSignatures[index] = nullptr");
-    const std::size_t key_table_reset = reset_pipeline_cache.find("m_PipelineKeyCache.Reset()");
+    const std::size_t abandoned_pipeline = reset_pipeline_cache.find("owner->pipeline_states[index] = nullptr");
+    const std::size_t abandoned_root = reset_pipeline_cache.find("owner->root_signatures[index] = nullptr");
+    const std::size_t key_table_reset = reset_pipeline_cache.find("owner->key_cache.Reset()");
+    const std::size_t owner_delete = reset_pipeline_cache.find("Delete(allocator, owner)", key_table_reset);
+    EXPECT_TRUE(cache_outer_lock < owner_load);
+    EXPECT_TRUE(owner_load < owner_detach);
     EXPECT_TRUE(abandoned_pipeline < key_table_reset);
     EXPECT_TRUE(abandoned_root < key_table_reset);
+    EXPECT_TRUE(key_table_reset < owner_delete);
+
+    const std::string find_pipeline_cache = section(device, "bool FDx12Device::FindCachedPipeline(", "void FDx12Device::StoreCachedPipeline(");
+    const std::string store_pipeline_cache = section(device, "void FDx12Device::StoreCachedPipeline(", "void FDx12Device::ResetPipelineCache(");
+    EXPECT_TRUE(find_pipeline_cache.find("FExclusiveLockGuard cache_guard(m_PipelineCacheLock)") < find_pipeline_cache.find("FPipelineCacheOwner* owner = m_PipelineCacheOwner"));
+    EXPECT_TRUE(store_pipeline_cache.find("FExclusiveLockGuard cache_guard(m_PipelineCacheLock)") < store_pipeline_cache.find("FPipelineCacheOwner* owner = m_PipelineCacheOwner"));
 
     EXPECT_TRUE(device_header.find(
         "Lock order is Retirement -> QueueSubmission and Retirement -> Descriptor") !=

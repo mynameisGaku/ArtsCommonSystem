@@ -36,8 +36,11 @@ inline u32 PipelineKeyFloatBits(f32 value) noexcept {
 /** 生 byte 列を二系統の内容 hash へ変換する。 */
 inline FPipelineStateKey PipelineKeyBytes(const void* data, usize size) noexcept {
     if (data == nullptr && size != 0u) return FPipelineStateKey{};
+    /** hash 対象 byte 列。 */
     const byte* bytes = static_cast<const byte*>(data);
+    /** primary hash の累積値。 */
     u64 primary = 0xCBF29CE484222325ull;
+    /** 独立 verification hash の累積値。 */
     u64 verification = 0x84222325CBF29CE4ull;
     for (usize index = 0u; index < size; ++index) {
         primary = (primary ^ static_cast<u64>(bytes[index])) * 0x100000001B3ull;
@@ -49,6 +52,7 @@ inline FPipelineStateKey PipelineKeyBytes(const void* data, usize size) noexcept
 /** null 終端文字列をポインター値に依存しない内容 hash へ変換する。 */
 inline FPipelineStateKey PipelineKeyString(const char* value) noexcept {
     if (value == nullptr) return FPipelineStateKey{};
+    /** null 終端を除く文字数。 */
     usize length = 0u;
     while (value[length] != '\0') ++length;
     return PipelineKeyBytes(value, length);
@@ -57,8 +61,11 @@ inline FPipelineStateKey PipelineKeyString(const char* value) noexcept {
 /** shader の bytecode 内容と stage から意味上の識別値を作る。 */
 inline FPipelineStateKey PipelineKeyShader(const IRhiShader* shader) noexcept {
     if (shader == nullptr) return FPipelineStateKey{};
+    /** shader が公開する bytecode 先頭。 */
     const byte* bytecode = shader->Bytecode();
+    /** shader bytecode の byte 数。 */
     const usize bytecode_size = shader->BytecodeSize();
+    /** 内容または pointer fallback から作る識別 key。 */
     FPipelineStateKey content = bytecode != nullptr && bytecode_size > 0u ? PipelineKeyBytes(bytecode, bytecode_size) : FPipelineStateKey{HashMix64(reinterpret_cast<u64>(shader)), HashMix64(reinterpret_cast<u64>(shader) ^ 0xA4093822299F31D0ull)};
     content.primary = PipelineKeyCombine(content.primary, PipelineKeyCombine(static_cast<u64>(bytecode_size), static_cast<u64>(shader->Stage())));
     content.verification = PipelineKeyCombine(content.verification, PipelineKeyCombine(static_cast<u64>(shader->Stage()), static_cast<u64>(bytecode_size)));
@@ -87,6 +94,7 @@ inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcep
         key.primary = PipelineKeyCombine(key.primary, value);
         key.verification = PipelineKeyCombine(key.verification, value ^ 0xA4093822299F31D0ull);
     };
+    /** 二系統 hash を独立に key へ合成する関数。 */
     const auto add_pair = [&key](const FPipelineStateKey& value) noexcept {
         key.primary = PipelineKeyCombine(key.primary, value.primary);
         key.verification = PipelineKeyCombine(key.verification, value.verification);
@@ -95,6 +103,7 @@ inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcep
     add_pair(PipelineKeyShader(desc.ps));
     add(static_cast<u64>(desc.topology));
     // backend が実際に使う RT 数。
+    /** backend が実際に消費する RT 数。 */
     const u32 render_target_count = desc.ps == nullptr ? 0u : desc.rt_count == 0u ? 1u : desc.rt_count;
     add(static_cast<u64>(render_target_count));
     if (render_target_count == 1u && desc.rt_count == 0u) {
@@ -147,6 +156,7 @@ inline FPipelineStateKey MakePipelineStateKey(const FComputePipelineDesc& desc) 
         key.primary = PipelineKeyCombine(key.primary, value);
         key.verification = PipelineKeyCombine(key.verification, value ^ 0xC0AC29B7C97C50DDull);
     };
+    /** 二系統 hash を独立に key へ合成する関数。 */
     const auto add_pair = [&key](const FPipelineStateKey& value) noexcept {
         key.primary = PipelineKeyCombine(key.primary, value.primary);
         key.verification = PipelineKeyCombine(key.verification, value.verification);

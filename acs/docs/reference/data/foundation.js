@@ -295,6 +295,20 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "TGenerationHandleLayoutTraits&lt;T&gt;",
+      kind: "型特性テンプレート", header: "foundation/GenerationHandleLayoutTraits.h",
+      summary: "世代付きハンドルの<b>物理配置だけ</b>を公開する ABI 監査用 trait。identity・generation の位置と幅、domain prefix、型全体の size/alignment を compile time で取得できる。",
+      when: "異種ハンドルの serialize・ABI 検査・静的契約テストで、field 配置の意図しない変更を検出したい時。無効値、生存判定、generation 更新規則の共通化には使わない。",
+      sample: "static_assert(TGenerationHandleLayoutTraits&lt;FEntityId&gt;::kAvailable);\nstatic_assert(TGenerationHandleLayoutTraits&lt;FEntityId&gt;::kGenerationOffset == offsetof(FEntityId, generation));",
+      members: [
+        { sig: "static constexpr bool kAvailable", desc: "対象型の特殊化が物理配置情報を提供する場合は true。未登録型の primary template は false。" },
+        { sig: "static constexpr usize kIdentityOffset / kGenerationOffset", desc: "identity field と generation field の byte offset。" },
+        { sig: "static constexpr usize kIdentityBytes / kGenerationBytes", desc: "identity field と generation field の byte 幅。" },
+        { sig: "static constexpr usize kDomainPrefixBytes", desc: "identity より前に channel 等の domain field がある場合の byte 幅。無い型は 0。" },
+        { sig: "static constexpr usize kStorageBytes / kStorageAlignment", desc: "ハンドル型全体の size と alignment。" }
+      ]
+    },
+    {
       name: "コンパイラ / プラットフォーム検出マクロ",
       kind: "マクロ", header: "foundation/Compiler.h",
       summary: "どの<b>コンパイラ・OS・アーキテクチャ・ビルド種別</b>かを判定するマクロと、方言差を吸収した<b>関数属性ラッパ</b>（強制インライン化・到達ヒント等）をまとめたもの。依存なしでどこからでも include できる。",

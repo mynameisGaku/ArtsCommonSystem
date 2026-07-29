@@ -23,6 +23,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/GenerationHandleLayoutTraits.h"
 #include "foundation/Move.h" // Forward / 配置 new
 #include "container/Array.h"
 #include "memory/New.h"
@@ -56,6 +57,27 @@ struct FObjectHandle {
     {
         return !(*this == Other);
     }
+};
+
+/** FObjectHandle の 64bit 世代を保った物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FObjectHandle> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** スロット identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FObjectHandle, index);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FObjectHandle, gen);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FObjectHandle::index);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FObjectHandle::gen);
+    /** domain prefix を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FObjectHandle);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FObjectHandle);
 };
 
 /**

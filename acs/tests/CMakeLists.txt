@@ -13,6 +13,7 @@ add_executable(acs_unit_tests
     component_factory_tests.cpp
     component_services_tests.cpp
     input_feed_tests.cpp
+    input_recording_view_tests.cpp
     rigidworld_tests.cpp
     rigidbody_component_tests.cpp
     debugdraw_tests.cpp

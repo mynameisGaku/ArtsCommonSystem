@@ -2,6 +2,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/GenerationHandleLayoutTraits.h"
 #include "container/Array.h"
 #include "threading/Atomic.h"
 
@@ -68,6 +69,27 @@ struct FSubscriptionHandle {
     bool operator==(const FSubscriptionHandle& o) const noexcept {
         return channel == o.channel && id == o.id && generation == o.generation;
     }
+};
+
+/** FSubscriptionHandle の channel prefix 付き物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FSubscriptionHandle> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** channel 後にある購読 identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FSubscriptionHandle, id);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FSubscriptionHandle, generation);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FSubscriptionHandle::id);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FSubscriptionHandle::generation);
+    /** identity より前にある channel prefix の byte 幅。 */
+    static constexpr usize kDomainPrefixBytes = offsetof(FSubscriptionHandle, id);
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FSubscriptionHandle);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FSubscriptionHandle);
 };
 
 /** 無効な FSubscriptionHandle (戻り値や初期値で使う番兵)。 */

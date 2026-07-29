@@ -9,7 +9,11 @@
 #include "event/MessageBroker.h"
 #include "event/Timer.h"
 #include "event/TimerDiagnostics.h"
+#include "ecs/Entity.h"
+#include "memory/ObjectPool.h"
 #include "platform/FileSystemDiagnostics.h"
+#include "render/Dx12/Dx12Device.h"
+#include "render/PipelineStateKeyCache.h"
 #include "threading/JobGraph.h"
 #include "threading/JobGraphDiagnostics.h"
 #include "threading/ThreadPool.h"
@@ -38,6 +42,20 @@ static_assert(sizeof(FTimerDiagnostics) <= 24u, "timer診断型の予算を超�
 static_assert(sizeof(FFileSystemDiagnostics) <= 24u, "file診断型の予算を超えました");
 static_assert(alignof(FTask) <= alignof(void*), "タスク記述子のalignment予算を超えました");
 static_assert(alignof(FJobGraph) <= alignof(std::max_align_t), "ジョブグラフのalignment予算を超えました");
+static_assert(TGenerationHandleLayoutTraits<FObjectHandle>::kAvailable, "object handle layout trait が未登録です");
+static_assert(TGenerationHandleLayoutTraits<FObjectHandle>::kIdentityOffset == offsetof(FObjectHandle, index), "object identity offset が一致しません");
+static_assert(TGenerationHandleLayoutTraits<FObjectHandle>::kGenerationOffset == offsetof(FObjectHandle, gen), "object generation offset が一致しません");
+static_assert(TGenerationHandleLayoutTraits<FEntityId>::kStorageBytes == sizeof(FEntityId), "entity handle size が一致しません");
+static_assert(TGenerationHandleLayoutTraits<FEntityId>::kGenerationBytes == sizeof(u32), "entity generation 幅が一致しません");
+static_assert(TGenerationHandleLayoutTraits<FTimerHandle>::kIdentityOffset == 0u, "timer identity は先頭 field である必要があります");
+static_assert(TGenerationHandleLayoutTraits<FTimerHandle>::kGenerationOffset == sizeof(u32), "timer generation offset が一致しません");
+static_assert(TGenerationHandleLayoutTraits<FSubscriptionHandle>::kDomainPrefixBytes == sizeof(EventTypeId), "subscription channel prefix が一致しません");
+static_assert(TGenerationHandleLayoutTraits<FSubscriptionHandle>::kGenerationOffset == sizeof(EventTypeId) + sizeof(u32), "subscription generation offset が一致しません");
+static_assert(sizeof(FDx12Device) <= 22528u, "DX12 device の公開 layout 予算を超えました");
+
+/** inline cache 時代の同一 field 構成から算出する比較用 byte 数。 */
+constexpr usize kFormerDx12DeviceBytes = sizeof(FDx12Device) - sizeof(void*) + sizeof(TPipelineStateKeyCache<512u>) + sizeof(ID3D12PipelineState*) * 512u + sizeof(ID3D12RootSignature*) * 512u;
+static_assert(kFormerDx12DeviceBytes > sizeof(FDx12Device) + 20000u, "PSO cache owner 分離の layout 削減量が不足しています");
 
 ACS_TEST(FoundationOptimizationWaveO, PublicLayoutBudgetsRemainBounded)
 {
@@ -48,5 +66,5 @@ ACS_TEST(FoundationOptimizationWaveO, PublicLayoutBudgetsRemainBounded)
     EXPECT_TRUE(sizeof(FTimerDiagnostics) <= 24u);
     EXPECT_TRUE(sizeof(FFileSystemDiagnostics) <= 24u);
 
-    std::printf("foundation_layout array=%zu string=%zu hashmap=%zu counter=%zu task=%zu job_handle=%zu job_graph=%zu subscription=%zu timer=%zu thread_diag=%zu job_diag=%zu job_completion_diag=%zu acpak_reader=%zu timer_diag=%zu file_diag=%zu\n", sizeof(TArray<u32>), sizeof(FString), sizeof(THashMap<u32, u32>), sizeof(FCompletionCounter), sizeof(FTask), sizeof(FJobHandle), sizeof(FJobGraph), sizeof(FSubscriptionHandle), sizeof(FTimerHandle), sizeof(FThreadPoolDiagnostics), sizeof(FJobGraphDiagnostics), sizeof(FJobGraphCompletionDiagnostics), sizeof(assetpack::FAcpakReader), sizeof(FTimerDiagnostics), sizeof(FFileSystemDiagnostics));
+    std::printf("foundation_layout array=%zu string=%zu hashmap=%zu counter=%zu task=%zu job_handle=%zu job_graph=%zu subscription=%zu timer=%zu thread_diag=%zu job_diag=%zu job_completion_diag=%zu acpak_reader=%zu timer_diag=%zu file_diag=%zu dx12_device_before=%zu dx12_device_after=%zu\n", sizeof(TArray<u32>), sizeof(FString), sizeof(THashMap<u32, u32>), sizeof(FCompletionCounter), sizeof(FTask), sizeof(FJobHandle), sizeof(FJobGraph), sizeof(FSubscriptionHandle), sizeof(FTimerHandle), sizeof(FThreadPoolDiagnostics), sizeof(FJobGraphDiagnostics), sizeof(FJobGraphCompletionDiagnostics), sizeof(assetpack::FAcpakReader), sizeof(FTimerDiagnostics), sizeof(FFileSystemDiagnostics), kFormerDx12DeviceBytes, sizeof(FDx12Device));
 }

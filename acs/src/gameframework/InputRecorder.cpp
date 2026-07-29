@@ -25,146 +25,12 @@
 //     対象に計算し footer に置く (FSaveArchive / assetpack と同一の
 //     poly 0xEDB88320 実装)。InputSample 自体の memcpy には頼らず、ABI 非依存。
 #include "gameframework/InputRecorder.h"
+#include "gameframework/InputRecordingFormat.h"
+#include "gameframework/InputRecordingView.h"
 
 #include "foundation/Move.h"
-#include "memory/Memory.h"  // MemCopy
 
 namespace acs::game {
-
-namespace {
-
-/** `.acsr` magic ('ACSR' を little-endian u32 に詰めた値)。 */
-constexpr u32 kMagic        = 0x52534341u;
-
-/** `.acsr` フォーマットのバージョン番号。 */
-constexpr u32 kVersion      = 1u;
-
-/** header のバイト数 (magic + version + tick_rate + count、各 4B)。 */
-constexpr u32 kHeaderSize   = 16u;
-
-/** footer のバイト数 (crc32、4B)。 */
-constexpr u32 kFooterSize   = 4u;
-
-/**
- * 1 sample の on-disk バイト数。
- *
- * @details tick(4) + codes(8) + states(8) + mx(4) + my(4) + buttons(1) の明示
- * レイアウト。InputSample の sizeof (padding 込み) には依存しない。
- */
-constexpr u32 kSampleOnDisk = 29u;
-
-/**
- * u32 を little-endian で書き出す (strict-aliasing 安全)。
- *
- * @param dst 書き込み先 (4B 以上)。
- * @param v 書き出す値。
- */
-inline void WriteU32LE(u8* dst, u32 v) noexcept { MemCopy(dst, &v, sizeof(u32)); }
-
-/**
- * little-endian の u32 を読み出す (strict-aliasing 安全)。
- *
- * @param src 読み込み元 (4B 以上)。
- * @return 読み出した u32 値。
- */
-inline u32  ReadU32LE (const u8* src) noexcept { u32 v = 0; MemCopy(&v, src, sizeof(u32)); return v; }
-
-/**
- * f32 のビットパターンを u32 として取り出す (memcpy で aliasing 回避)。
- *
- * @param v ビット取り出し対象の f32。
- * @return v のビットパターンを表す u32。
- */
-inline u32 BitsOfF32(f32 v) noexcept { u32 out = 0; MemCopy(&out, &v, sizeof(u32)); return out; }
-
-/** NaN と正負 infinity を拒否する IEEE-754 binary32 の有限値判定。 */
-inline bool IsFiniteF32Bits(u32 bits) noexcept { return (bits & 0x7F800000u) != 0x7F800000u; }
-
-/**
- * u32 のビットパターンを f32 として復元する (memcpy で aliasing 回避)。
- *
- * @param v ビットパターンを表す u32。
- * @return 復元した f32。
- */
-inline f32 F32FromBits(u32 v) noexcept { f32 out = 0.0f; MemCopy(&out, &v, sizeof(f32)); return out; }
-
-/**
- * CRC32 計算テーブルを返す (poly 0xEDB88320、Meyer's singleton で thread-safe 初期化)。
- *
- * @details
- * FSaveArchive.cpp / assetpack と同一実装。あちらの table は anonymous namespace に
- * 閉じていて外から link できないため、InputRecorder が単体で使えるよう独立に持つ。
- * @return 256 要素の CRC32 テーブルへのポインタ。
- */
-const u32* GetCrc32Table() noexcept
-{
-    struct FCrc32Table {
-        FCrc32Table() noexcept
-        {
-            for (u32 Index = 0; Index < 256; ++Index) {
-                u32 Value = Index;
-                for (u32 Bit = 0; Bit < 8; ++Bit) {
-                    Value = (Value & 1u) ? (0xEDB88320u ^ (Value >> 1)) : (Value >> 1);
-                }
-                Values[Index] = Value;
-            }
-        }
-
-        u32 Values[256] = {};
-    };
-
-    static const FCrc32Table Table;
-    return Table.Values;
-}
-
-/**
- * バイト列の CRC32 を計算する (poly 0xEDB88320、init/xorout 0xFFFFFFFF)。
- *
- * @param data 対象バイト列の先頭。
- * @param size 対象バイト数。
- * @return 計算した CRC32 値。
- */
-u32 ComputeCrc32(const void* data, u64 size) noexcept {
-    const u32* table = GetCrc32Table();
-    const u8*  p     = static_cast<const u8*>(data);
-    u32        crc   = 0xFFFFFFFFu;
-    for (u64 i = 0; i < size; ++i) {
-        crc = table[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
-
-/**
- * 1 sample を on-disk の LE フォーマット (kSampleOnDisk バイト) に書き出す。
- *
- * @param dst 書き込み先 (kSampleOnDisk バイト以上)。
- * @param s 書き出す入力サンプル。
- */
-void WriteSample(u8* dst, const FInputSample& s) noexcept {
-    WriteU32LE(dst + 0, s.tick);
-    MemCopy(dst + 4,  s.key_codes_changed, 8);
-    MemCopy(dst + 12, s.key_states,        8);
-    WriteU32LE(dst + 20, BitsOfF32(s.mouse_pos.x));
-    WriteU32LE(dst + 24, BitsOfF32(s.mouse_pos.y));
-    dst[28] = s.mouse_button_states;
-}
-
-/**
- * on-disk の LE フォーマット (kSampleOnDisk バイト) から 1 sample を復元する。
- *
- * @param src 読み込み元 (kSampleOnDisk バイト以上)。
- * @param out 復元した入力サンプルの書き込み先。
- */
-void ReadSample(const u8* src, FInputSample& out) noexcept {
-    out.tick = ReadU32LE(src + 0);
-    MemCopy(out.key_codes_changed, src + 4,  8);
-    MemCopy(out.key_states,        src + 12, 8);
-    out.mouse_pos.x          = F32FromBits(ReadU32LE(src + 20));
-    out.mouse_pos.y          = F32FromBits(ReadU32LE(src + 24));
-    out.mouse_button_states  = src[28];
-}
-
-} // namespace
 
 /** Recording モードへ切り替え、tick / cursor をリセットする (既存 samples は保持)。 */
 void FInputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
@@ -278,17 +144,16 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
     }
     const u32 sample_count = static_cast<u32>(m_Samples.Size());
     for (u32 i = 0; i < sample_count; ++i) {
-        if (!IsFiniteF32Bits(BitsOfF32(m_Samples[i].mouse_pos.x)) ||
-            !IsFiniteF32Bits(BitsOfF32(m_Samples[i].mouse_pos.y))) {
+        if (!input_recording_detail::HasFiniteMousePosition(m_Samples[i])) {
             return ACS_ERR(IO, kSub_BadValue,
                            "FInputRecorder::SaveToBuffer: non-finite mouse position");
         }
     }
     // 必要バイト数 = header + samples + footer。u64 で計算して overflow を避ける。
     const u64 required64 =
-        static_cast<u64>(kHeaderSize) +
-        static_cast<u64>(sample_count) * static_cast<u64>(kSampleOnDisk) +
-        static_cast<u64>(kFooterSize);
+        static_cast<u64>(input_recording_detail::kHeaderBytes) +
+        static_cast<u64>(sample_count) * static_cast<u64>(input_recording_detail::kSampleBytes) +
+        static_cast<u64>(input_recording_detail::kFooterBytes);
     if (required64 > static_cast<u64>(size)) {
         return ACS_ERR(IO, kSub_BufferTooSmall,
                        "FInputRecorder::SaveToBuffer: buffer too small for samples");
@@ -296,21 +161,21 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
     const u32 required = static_cast<u32>(required64);
 
     // ---- header (16B) -------------------------------------------------------
-    WriteU32LE(buffer + 0,  kMagic);
-    WriteU32LE(buffer + 4,  kVersion);
-    WriteU32LE(buffer + 8,  m_TickRateHz);
-    WriteU32LE(buffer + 12, sample_count);
+    input_recording_detail::WriteU32(buffer + 0, input_recording_detail::kMagic);
+    input_recording_detail::WriteU32(buffer + 4, input_recording_detail::kVersion);
+    input_recording_detail::WriteU32(buffer + 8, m_TickRateHz);
+    input_recording_detail::WriteU32(buffer + 12, sample_count);
 
-    // ---- samples (field 単位 LE。1 sample = kSampleOnDisk バイト) -----------
-    u8* samples_begin = buffer + kHeaderSize;
+    // ---- samples (field 単位 LE。1 sample = kSampleBytes バイト) -------------
+    u8* samples_begin = buffer + input_recording_detail::kHeaderBytes;
     for (u32 i = 0; i < sample_count; ++i) {
-        WriteSample(samples_begin + static_cast<u64>(i) * kSampleOnDisk, m_Samples[i]);
+        input_recording_detail::WriteSample(samples_begin + static_cast<u64>(i) * input_recording_detail::kSampleBytes, m_Samples[i]);
     }
 
     // ---- crc32 footer (samples 部のみを対象) --------------------------------
-    const u64 samples_bytes = static_cast<u64>(sample_count) * kSampleOnDisk;
-    const u32 crc = ComputeCrc32(samples_begin, samples_bytes);
-    WriteU32LE(samples_begin + samples_bytes, crc);
+    const u64 samples_bytes = static_cast<u64>(sample_count) * input_recording_detail::kSampleBytes;
+    const u32 crc = input_recording_detail::ComputeCrc32(TSpan<const u8>(samples_begin, static_cast<usize>(samples_bytes)));
+    input_recording_detail::WriteU32(samples_begin + samples_bytes, crc);
 
     out_written = required;
     return Ok();
@@ -335,79 +200,28 @@ TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcep
 
 /** 全検証とstaging成功後にだけsamplesを置換するchecked load。 */
 TResult<void> FInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
-    if (buffer == nullptr) {
-        return ACS_ERR(IO, kSub_NullBuffer,
-                       "FInputRecorder::LoadFromBuffer: buffer is null");
-    }
-    // header + footer 最小サイズ。これ未満は magic すら読めない。
-    if (size < kHeaderSize + kFooterSize) {
-        return ACS_ERR(IO, kSub_BadSize,
-                       "FInputRecorder::LoadFromBuffer: buffer smaller than header+footer");
-    }
-
-    // ---- header parse -------------------------------------------------------
-    const u32 magic        = ReadU32LE(buffer + 0);
-    if (magic != kMagic) {
-        return ACS_ERR(IO, kSub_BadMagic,
-                       "FInputRecorder::LoadFromBuffer: magic mismatch (not an .acsr)");
-    }
-    const u32 version      = ReadU32LE(buffer + 4);
-    if (version != kVersion) {
-        return ACS_ERR(IO, kSub_BadVersion,
-                       "FInputRecorder::LoadFromBuffer: version mismatch");
-    }
-    const u32 tick_rate_hz = ReadU32LE(buffer + 8);
-    const u32 sample_count = ReadU32LE(buffer + 12);
-    if (tick_rate_hz == 0 || tick_rate_hz > kInputRecorderMaximumTickRateHz ||
-        sample_count > kInputRecorderMaximumSamples) {
-        return ACS_ERR(IO, kSub_LimitExceeded,
-                       "FInputRecorder::TryLoadFromBuffer: tick rate or sample count exceeds the limit");
-    }
-
-    // ---- sample_count とサイズの整合検証 (overflow 安全に u64 で) ------------
-    const u64 expected64 =
-        static_cast<u64>(kHeaderSize) +
-        static_cast<u64>(sample_count) * static_cast<u64>(kSampleOnDisk) +
-        static_cast<u64>(kFooterSize);
-    if (expected64 != static_cast<u64>(size)) {
-        return ACS_ERR(IO, kSub_BadSize,
-                       "FInputRecorder::LoadFromBuffer: sample_count inconsistent with size");
-    }
-
-    // ---- crc32 検証 (samples 部のみを対象) ----------------------------------
-    const u8* samples_begin = buffer + kHeaderSize;
-    const u64 samples_bytes = static_cast<u64>(sample_count) * kSampleOnDisk;
-    const u32 expected_crc  = ReadU32LE(samples_begin + samples_bytes);
-    const u32 actual_crc    = ComputeCrc32(samples_begin, samples_bytes);
-    if (actual_crc != expected_crc) {
-        return ACS_ERR(IO, kSub_BadCrc,
-                       "FInputRecorder::LoadFromBuffer: CRC32 mismatch (corrupt or tampered)");
-    }
-    for (u32 i = 0; i < sample_count; ++i) {
-        const u8* sample = samples_begin + static_cast<u64>(i) * kSampleOnDisk;
-        if (!IsFiniteF32Bits(ReadU32LE(sample + 20u)) ||
-            !IsFiniteF32Bits(ReadU32LE(sample + 24u))) {
-            return ACS_ERR(IO, kSub_BadValue,
-                           "FInputRecorder::TryLoadFromBuffer: non-finite mouse position");
-        }
-    }
+    /** allocation 前に全入力を検証する immutable zero-copy view。 */
+    TResult<FInputRecordingView> view_result = FInputRecordingView::Decode(TSpan<const u8>(buffer, size));
+    if (view_result.IsErr()) return view_result.Error();
+    /** 検証済み入力記録 view。 */
+    const FInputRecordingView& view = view_result.Value();
 
     TArray<FInputSample> staged(*m_Samples.GetAllocator());
-    if (!staged.TryReserve(static_cast<usize>(sample_count))) {
+    if (!staged.TryReserve(static_cast<usize>(view.SampleCount()))) {
         return ACS_ERR(Memory, kSub_Oom,
                        "FInputRecorder::TryLoadFromBuffer: sample staging allocation failed");
     }
-    for (u32 i = 0; i < sample_count; ++i) {
-        FInputSample s;
-        ReadSample(samples_begin + static_cast<u64>(i) * kSampleOnDisk, s);
-        if (!staged.TryPushBack(s)) {
+    for (u32 index = 0u; index < view.SampleCount(); ++index) {
+        /** view から復元する一件分の sample。 */
+        FInputSample sample;
+        if (!view.DecodeSample(index, sample) || !staged.TryPushBack(sample)) {
             return ACS_ERR(Memory, kSub_Oom,
                            "FInputRecorder::TryLoadFromBuffer: sample staging append failed");
         }
     }
 
     m_Samples = Move(staged);
-    m_TickRateHz  = tick_rate_hz;
+    m_TickRateHz  = view.TickRateHz();
     m_CurrentTick = 0;
     m_Cursor      = 0;
     return Ok();

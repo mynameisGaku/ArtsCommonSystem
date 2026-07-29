@@ -23,6 +23,18 @@ struct FClearFromCallbackContext {
     FTimerHandle registration_during_clear{};
 };
 
+/** callback 中 cancel の active word 再読込を検査する context。 */
+struct FCancelLaterTimerContext {
+    /** cancel を実行する manager。 */
+    FTimerManager* manager = nullptr;
+    /** 同じ word の後方にある timer。 */
+    FTimerHandle later{};
+    /** cancel callback の発火数。 */
+    int cancel_hits = 0;
+    /** cancel 対象 callback の発火数。 */
+    int later_hits = 0;
+};
+
 void OnLaterTimer(void* user)
 {
     ++static_cast<FClearFromCallbackContext*>(user)->later_hits;
@@ -36,6 +48,23 @@ void OnClearFromCallback(void* user)
     context.registration_during_clear = context.manager->SetTimeout(0.0f, &OnLaterTimer, &context);
     // Clear 保留中の再入 Tick は何も発火せず、最外周 Tick が容量解放を担当する。
     context.manager->Tick(1.0f);
+}
+
+/** 同じ active word の後方 timer を発火前に cancel する。 */
+void OnCancelLaterTimer(void* user)
+{
+    /** mutation 対象を保持する context。 */
+    FCancelLaterTimerContext& context = *static_cast<FCancelLaterTimerContext*>(user);
+    ++context.cancel_hits;
+    (void)context.manager->Cancel(context.later);
+}
+
+/** cancel されなかった場合だけ後方発火を記録する。 */
+void OnCancelledLaterTimer(void* user)
+{
+    /** 発火数を保持する context。 */
+    FCancelLaterTimerContext& context = *static_cast<FCancelLaterTimerContext*>(user);
+    ++context.later_hits;
 }
 } // namespace
 
@@ -141,6 +170,25 @@ ACS_TEST(Event, TimerClearFromIntervalCallbackStopsCatchUp)
     EXPECT_EQ(context.clear_hits, 1);
     EXPECT_EQ(timers.ActiveCount(), 0u);
     EXPECT_TRUE(!timers.Cancel(interval));
+}
+
+ACS_TEST(Event, TimerReloadsActiveWordAfterCallbackMutation)
+{
+    /** callback mutation を実行する timer manager。 */
+    FTimerManager timers;
+    /** 同じ word 内 cancel の結果を保持する context。 */
+    FCancelLaterTimerContext context;
+    context.manager = &timers;
+    /** 先に走査される cancel callback timer。 */
+    const FTimerHandle cancelling = timers.SetTimeout(0.0f, &OnCancelLaterTimer, &context);
+    context.later = timers.SetTimeout(0.0f, &OnCancelledLaterTimer, &context);
+    EXPECT_TRUE(cancelling.IsValid());
+    EXPECT_TRUE(context.later.IsValid());
+
+    timers.Tick(0.0f);
+    EXPECT_EQ(context.cancel_hits, 1);
+    EXPECT_EQ(context.later_hits, 0);
+    EXPECT_EQ(timers.ActiveCount(), 0u);
 }
 
 // ---- MessageBroker: Subscribe + Publish + Unsubscribe ----------------------

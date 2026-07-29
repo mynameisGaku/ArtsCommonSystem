@@ -5,8 +5,6 @@
 # ============================================================================
 set(_acsgen_gameframework_sources
     ANode.cpp
-    HierarchyVisibilityBatch.cpp
-    HierarchyWorldTransformBatch.cpp
     AccessibilityProfile.cpp
     AchievementManager.cpp
     AmbientDirector.cpp
@@ -50,10 +48,14 @@ set(_acsgen_gameframework_sources
     Game.cpp
     GameFlow.cpp
     HealthSystem.cpp
+    HierarchyVisibilityBatch.cpp
+    HierarchyWorldTransformBatch.cpp
     HotReload.cpp
     HungerSystem.cpp
     InputMap.cpp
     InputRecorder.cpp
+    InputRecordingFormat.cpp
+    InputRecordingView.cpp
     InspectorSeam.cpp
     InventorySystem.cpp
     LapTimer.cpp
@@ -142,8 +144,6 @@ set(_acsgen_gameframework_sources
 set(_acsgen_gameframework_headers
     AComponent.h
     ANode.h
-    HierarchyVisibilityBatch.h
-    HierarchyWorldTransformBatch.h
     AccessibilityProfile.h
     AchievementManager.h
     AcsClass.h
@@ -198,11 +198,15 @@ set(_acsgen_gameframework_headers
     GameFlow.h
     GameFramework.h
     HealthSystem.h
+    HierarchyVisibilityBatch.h
+    HierarchyWorldTransformBatch.h
     HotReload.h
     HotReloadDiagnosticsInternal.h
     HungerSystem.h
     InputMap.h
     InputRecorder.h
+    InputRecordingFormat.h
+    InputRecordingView.h
     InspectorSeam.h
     InventorySystem.h
     LapTimer.h

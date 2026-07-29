@@ -103,10 +103,10 @@ and compile-time assertions are required where they keep build cost bounded.
 | T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Active |
 | T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Active |
 | T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Active |
-| T65 | M | Handles/TMP | Add generation-checked static handle-layout traits and parity tests | A | Queued |
-| T66 | M | Containers | Add word-batched bitset operations with scalar parity fallback | A | Queued |
-| T67 | M | Lookup | Select tiny-table linear/sorted lookup policy from measured thresholds | A | Queued |
-| T68 | M | Serialization | Add bounded zero-copy byte-view decoding for immutable input | A | Queued |
+| T65 | M | Handles/TMP | Add generation-checked static handle-layout traits and parity tests | A | Complete |
+| T66 | M | Containers | Adopt existing timer active-word bit scan and preserve callback mutation semantics | A | Complete |
+| T67 | M | Lookup | Defer generic policy until a measured production threshold exists | A | Deferred |
+| T68 | M | Serialization | Add bounded zero-copy byte-view decoding for immutable input | A | Complete |
 | T69 | M | Threading | Batch completion-counter updates without weakening wait semantics | B | Complete |
 | T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Deferred |
 | T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Complete |

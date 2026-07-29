@@ -92,11 +92,14 @@ cache key に含まれており、追加費用に対する correctness 改善を
 - RT state は backend が消費する有効状態へ正規化する。MRT 時の legacy
   `rt_format`、有効数より後ろの `rt_formats`、depth-only 時の全 RT field は
   hash しない。legacy 単一 RT と同内容の明示 1-RT も同じ key になる。
-- raw DX12 device は最大 512 件の PSO/root signature を所有して再利用する。
+- raw DX12 device は cpp-private の遅延 heap owner で最大 512 件の
+  PSO/root signature を所有して再利用する。公開 device 本体には owner pointer
+  だけを置き、key table と COM 配列による約 20 KiB の ABI 肥大を避ける。
   同内容を別 backing storage に置いた文字列も同じ key となり、同じ native
   pointer が返ることをテストで固定した。
-- final queue 完了を証明できない teardown では、cache 所有参照を意図的に解放せず
-  null 化する。retired GPU resource と同じく shutdown 時の use-after-free を
+- final queue 完了を証明できない teardown では、heap owner 内の cache 所有参照を
+  意図的に解放せず null 化してから owner metadata だけを破棄する。retired GPU
+  resource と同じく shutdown 時の use-after-free を
   避ける fail-safe であり、通常終了では全参照を解放する。source 契約テストは
   queue 完了判定後に cache reset が行われる順序、通常終了の `Release`、異常終了の
   PSO/root signature null 化、最後の key table reset を固定する。
@@ -112,6 +115,23 @@ cache key に含まれており、追加費用に対する correctness 改善を
 | `N` 個 per-slice RTV の descriptor lock | `N` 回 | 1 回 |
 | frustum plane 判定の同時 lane 数 (x64) | 1 | 4 |
 | PSO key table の追加確保 | 利用側依存 | 0 回 |
+
+PSO cache owner は最初の native pipeline 登録時に一度だけ確保する。lookup には owner
+pointer の acquire read が一段増える一方、device の作成だけで 512 entry table を
+構築・保持せず、公開 layout と cold device cost を抑える。cache 内の hot probe と
+COM AddRef は outer device lock の内側で実行する。
+
+Win64 Debug/Release 共通の layout 実測は、inline cache 構成 **42,400 byte**、
+cpp-private owner 構成 **21,920 byte** で、**20,480 byte (48.3%)** を削減した。
+比較値は同じ compiler/ABI で cache table、二つの 512 pointer 配列、lock を
+device pointer と置換した byte 数から算出し、22,528 byte の公開 layout budget と
+20,000 byte 超の削減 static assert で固定する。
+
+device 側には owner pointer と小さな outer `SRWLOCK` だけを残す。Find/Store は
+owner pointer を読む前に outer lock を取得し、Reset は同じ lock の内側で pointer
+を切り離し、COM release または意図的 null 化、key reset、owner delete まで完了する。
+これにより `load owner → Reset/Delete → freed lock access` の競合窓を作らない。
+source 契約テストは三経路の lock-before-owner と delete-before-unlock を固定する。
 
 これらは allocator count、pool high-water/free count、scalar parity の Release テストで
 固定しており、壁時計だけに依存する不安定な合否判定は置いていない。

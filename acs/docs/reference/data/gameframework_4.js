@@ -194,6 +194,18 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "FInputRecordingView",
+      kind: "クラス", header: "gameframework/InputRecordingView.h",
+      summary: "caller-owned の <code>.acsr</code> バイト列を全検証し、sample 領域を<b>コピーせず借用</b>する immutable decoder。header、製品上限、厳密サイズ、CRC32、mouse の有限値を allocation 前に検査する。",
+      when: "mapped file や受信バッファを所有配列へ展開せず、安全に順次参照したい時。記録を長期保持・編集する場合は <code>FInputRecorder::TryLoadFromBuffer</code> を使う。",
+      sample: "TSpan&lt;const u8&gt; bytes(fileData, fileSize); // view より長く生存し、不変に保つ\nTResult&lt;FInputRecordingView&gt; result = FInputRecordingView::Decode(bytes);\nif (result.IsOk()) {\n    FInputSample sample;\n    result.Value().DecodeSample(0u, sample);\n}",
+      members: [
+        { sig: "static TResult&lt;FInputRecordingView&gt; Decode(TSpan&lt;const u8&gt; bytes)", ret: "検証済み view または FErrorCode", desc: "magic/version、tick rate・件数上限、厳密サイズ、CRC32、全 sample の有限 mouse 値を検査する。null、truncation、破損、上限超過は失敗し、入力を所有しない。" },
+        { sig: "bool DecodeSample(u32 index, FInputSample& out) const", ret: "範囲内なら true", desc: "固定 29 byte の ABI 非依存 layout から一件を復元する。範囲外では false を返し、out を変更しない。" },
+        { sig: "u32 TickRateHz() const / SampleCount() const", desc: "検証済み header の tick rate と sample 件数を返す。" }
+      ]
+    },
+    {
       name: "FInputSample",
       kind: "構造体", header: "gameframework/InputRecorder.h",
       summary: "1 tick 分の生入力サンプル (<t>POD</t>)。状態変化したキー (最大 8) + マウス座標 + マウスボタン bitmask を持つ。",

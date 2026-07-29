@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 連続メモリ領域への非所有ビュー（std::span 代替）。
-// 所有権を持たないため、参照先のライフタイムに注意すること。
 #pragma once
 
 #include "foundation/Types.h"
@@ -126,6 +124,22 @@ public:
     constexpr TSpan SubSpan(usize offset, usize count) const noexcept {
         ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);  // 加算ラップしない形で範囲検査
         return TSpan(offset == 0u ? m_Data : m_Data + offset, count);
+    }
+
+    /**
+     * 範囲が妥当な場合だけ部分ビューを返す。
+     *
+     * @details 外部入力の decode で assert に依存せず、null と加算 overflow を
+     * fail-closed に拒否する。失敗時は out を変更しない。
+     * @param offset 開始要素位置。
+     * @param count 取得要素数。
+     * @param out 成功時の部分ビュー格納先。
+     * @return 範囲が有効なら true。
+     */
+    constexpr bool TrySubSpan(usize offset, usize count, TSpan& out) const noexcept {
+        if ((m_Data == nullptr && m_Size != 0u) || offset > m_Size || count > m_Size - offset) return false;
+        out = TSpan(offset == 0u ? m_Data : m_Data + offset, count);
+        return true;
     }
 
 private:

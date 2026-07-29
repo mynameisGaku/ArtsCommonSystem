@@ -6,6 +6,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/GenerationHandleLayoutTraits.h"
 
 namespace acs {
 
@@ -48,6 +49,27 @@ struct FEntityId {
      * @return 一致しなければ true。
      */
     constexpr bool operator!=(FEntityId o) const noexcept { return !(*this == o); }
+};
+
+/** FEntityId の 32bit identity/generation 物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FEntityId> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** entity identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FEntityId, index);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FEntityId, generation);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FEntityId::index);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FEntityId::generation);
+    /** domain prefix を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FEntityId);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FEntityId);
 };
 
 /** 無効な FEntityId (戻り値や初期値で使う番兵)。 */
