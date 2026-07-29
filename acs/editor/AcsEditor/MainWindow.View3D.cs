@@ -192,9 +192,22 @@ public partial class MainWindow
     // ===== Inspector: 3D ノードの transform/色/形状を動的生成 =====
     private void Clear3DInspector()
     {
-        Insp3DPanel.Children.Clear();
-        Insp3DPanel.Visibility = Visibility.Collapsed;
-        InspEnabled.Visibility = Visibility.Collapsed;   // ヘッダの Enabled トグルも隠す (選択なし / 2D)
+        bool wasPopulating = _pop3d;
+        _pop3d = true;
+        try
+        {
+            Insp3DPanel.Children.Clear();
+            Insp3DPanel.Visibility = Visibility.Collapsed;
+            // ヘッダの Enabled トグルも隠す (選択なし / 2D)。
+            // IsThreeState の解除で Unchecked が発火しても native state を変更しない。
+            InspEnabled.Visibility = Visibility.Collapsed;
+            InspEnabled.IsThreeState = false;
+            InspEnabled.ToolTip = "有効 (Enabled)";
+        }
+        finally
+        {
+            _pop3d = wasPopulating;
+        }
         if (!_view3d)
         {
             // 2D へ戻ったら 2D Inspector の表示を復帰。
@@ -210,6 +223,16 @@ public partial class MainWindow
     private void OnInspEnabledChanged(object sender, System.Windows.RoutedEventArgs e)
     {
         if (_pop3d || Engine == IntPtr.Zero) return;
+        int[] selected = Selected3DNodeIds();
+        if (selected.Length > 1)
+        {
+            bool? desired = InspEnabled.IsChecked;
+            if (!desired.HasValue) return;
+            if (!ApplyMultiEnabled(selected, desired.Value))
+                Populate3DInspector(selected[0]);
+            return;
+        }
+
         int id = EngineInterop.acs_editor_selected3d(Engine);
         if (id < 0) return;
         EngineInterop.acs_editor_node3d_set_enabled(Engine, id, InspEnabled.IsChecked == true ? 1 : 0);
@@ -217,6 +240,19 @@ public partial class MainWindow
     }
 
     private void Populate3DInspector(int id)
+    {
+        int[] selected = Selected3DNodeIds();
+        if (selected.Length > 1 &&
+            Array.IndexOf(selected, id) >= 0)
+        {
+            Populate3DMultiInspector(selected);
+            return;
+        }
+
+        PopulateSingle3DInspector(id);
+    }
+
+    private void PopulateSingle3DInspector(int id)
     {
         if (Engine == IntPtr.Zero) return;
         // 2D の Inspector フィールドを隠し、3D 用パネルを出す。
@@ -234,8 +270,10 @@ public partial class MainWindow
 
         _pop3d = true;
         // Enabled トグルをヘッダ (オブジェクト名の横) に表示・同期。NODE 節から移動。_pop3d 中なので発火しない。
+        InspEnabled.IsThreeState = false;
         InspEnabled.IsChecked  = EngineInterop.acs_editor_node3d_get_enabled(Engine, id) != 0;
         InspEnabled.Visibility = Visibility.Visible;
+        InspEnabled.ToolTip = "有効 (Enabled)";
         Insp3DPanel.Children.Clear();
         // プレハブ/Blueprint インスタンスなら «◆ Prefab: X» + Apply/Revert バナーを先頭に出す (2D PopulateComponents 鏡映)。
         string prefabSrc = EngineInterop.NodePrefabSrc3D(Engine, id);
@@ -325,6 +363,938 @@ public partial class MainWindow
         };
         Insp3DPanel.Children.Add(del);
         _pop3d = false;
+    }
+
+    private int[] Selected3DNodeIds()
+    {
+        if (Engine == IntPtr.Zero)
+            return Array.Empty<int>();
+
+        int count = Math.Clamp(
+            EngineInterop.acs_editor_selected3d_count(Engine),
+            0,
+            Math.Max(0, EngineInterop.acs_editor_node3d_count(Engine)));
+        var nativeOrder = new List<int>(count);
+        for (int index = 0; index < count; ++index)
+            nativeOrder.Add(
+                EngineInterop.acs_editor_selected3d_at(Engine, index));
+        return InspectorMultiEditContract.NormalizeSelection(
+            nativeOrder,
+            EngineInterop.acs_editor_selected3d(Engine));
+    }
+
+    private void Populate3DMultiInspector(int[] selected)
+    {
+        if (Engine == IntPtr.Zero || selected.Length < 2)
+            return;
+
+        var transforms = new List<float[]>(selected.Length);
+        var kinds = new List<int>(selected.Length);
+        var enabled = new List<bool>(selected.Length);
+        foreach (int nodeId in selected)
+        {
+            var transform = new float[9];
+            if (EngineInterop.acs_editor_node3d_get_transform(
+                    Engine,
+                    nodeId,
+                    transform) == 0)
+            {
+                Clear3DInspector();
+                InspName.Text = "Selection unavailable";
+                InspSub.Text = "The scene changed while Details was refreshing.";
+                Log(
+                    $"Details could not capture selected 3D node {nodeId}.",
+                    "Scene",
+                    LogLevel.Warn);
+                return;
+            }
+
+            transforms.Add(transform);
+            kinds.Add(EngineInterop.acs_editor_node3d_kind(Engine, nodeId));
+            enabled.Add(
+                EngineInterop.acs_editor_node3d_get_enabled(
+                    Engine,
+                    nodeId) != 0);
+        }
+
+        InspFields.Visibility = Visibility.Collapsed;
+        ActionButtons.Visibility = Visibility.Collapsed;
+        Insp3DPanel.Visibility = Visibility.Visible;
+        InspName.Text = $"{selected.Length} objects selected";
+        InspSub.Text = "3D nodes · shared properties";
+
+        _pop3d = true;
+        try
+        {
+            InspectorMixedBool enabledValue =
+                InspectorMultiEditContract.ResolveBool(enabled);
+            InspEnabled.IsThreeState = true;
+            InspEnabled.IsChecked = enabledValue.IsMixed
+                ? null
+                : enabledValue.Value;
+            InspEnabled.Visibility = Visibility.Visible;
+            InspEnabled.ToolTip = enabledValue.IsMixed
+                ? "Enabled has multiple values. Click to apply one value to the selection."
+                : "Apply Enabled to every selected object.";
+            Insp3DPanel.Children.Clear();
+            Insp3DPanel.Children.Add(new TextBlock
+            {
+                Text =
+                    $"{InspectorMultiEditContract.MixedPlaceholder} indicates multiple values. " +
+                    "Only edited axes are applied.",
+                Foreground = (Brush)FindResource("TextDim"),
+                FontSize = 10,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 6),
+            });
+
+            bool anyDetails = false;
+            if (DetailsMatches(
+                    "transform",
+                    "location",
+                    "position",
+                    "rotation",
+                    "scale",
+                    "reset"))
+            {
+                var transformBody = new StackPanel();
+                transformBody.Children.Add(MixedVectorRow(
+                    "Location",
+                    ResolveMixedComponents(transforms, 0, 3),
+                    patch => ApplyMultiTransformPatch(
+                        selected,
+                        InspectorMultiEditContract.BuildSparsePatch(
+                            9,
+                            0,
+                            patch),
+                        "Edit Location",
+                        "inspector.multi.transform.location")));
+                transformBody.Children.Add(MixedVectorRow(
+                    "Rotation",
+                    ResolveMixedComponents(transforms, 3, 3),
+                    patch => ApplyMultiTransformPatch(
+                        selected,
+                        InspectorMultiEditContract.BuildSparsePatch(
+                            9,
+                            3,
+                            patch),
+                        "Edit Rotation",
+                        "inspector.multi.transform.rotation")));
+                transformBody.Children.Add(MixedVectorRow(
+                    "Scale",
+                    ResolveMixedComponents(transforms, 6, 3),
+                    patch => ApplyMultiTransformPatch(
+                        selected,
+                        InspectorMultiEditContract.BuildSparsePatch(
+                            9,
+                            6,
+                            patch),
+                        "Edit Scale",
+                        "inspector.multi.transform.scale")));
+                transformBody.Children.Add(new TextBlock
+                {
+                    Text =
+                        "Legacy zero/near-zero scale must be repaired on that object " +
+                        "with a single selection before batch Scale or Reset.",
+                    Foreground = (Brush)FindResource("TextDim"),
+                    FontSize = 10,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(64, 3, 0, 1),
+                });
+
+                var reset = new Button
+                {
+                    Content = "↺ Reset selected transforms",
+                    Padding = new Thickness(8, 3, 8, 3),
+                    Margin = new Thickness(64, 6, 0, 1),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    ToolTip =
+                        "Reset Location and Rotation to 0 and Scale to 1 for every selected object.",
+                };
+                reset.Click += (_, __) =>
+                {
+                    float?[] resetValues =
+                    {
+                        0.0f, 0.0f, 0.0f,
+                        0.0f, 0.0f, 0.0f,
+                        1.0f, 1.0f, 1.0f,
+                    };
+                    if (ApplyMultiTransformPatch(
+                            selected,
+                            resetValues,
+                            "Reset Transforms",
+                            "inspector.multi.transform.reset"))
+                    {
+                        Populate3DInspector(selected[0]);
+                    }
+                };
+                transformBody.Children.Add(reset);
+                Insp3DPanel.Children.Add(
+                    DetailsCategory("Transform", transformBody));
+                anyDetails = true;
+            }
+
+            FrameworkElement? components =
+                BuildMulti3DComponents(selected, kinds);
+            if (components != null)
+            {
+                Insp3DPanel.Children.Add(
+                    DetailsCategory("Components", components));
+                anyDetails = true;
+            }
+
+            if (!anyDetails)
+                Insp3DPanel.Children.Add(EmptyDetailsResult());
+        }
+        finally
+        {
+            _pop3d = false;
+        }
+    }
+
+    private FrameworkElement? BuildMulti3DComponents(
+        int[] selected,
+        IReadOnlyList<int> kinds)
+    {
+        bool allRenderable = true;
+        for (int index = 0; index < kinds.Count; ++index)
+            allRenderable &= kinds[index] != 6;
+        if (!allRenderable ||
+            !DetailsMatches(
+                "component",
+                "native",
+                "mesh renderer",
+                "mesh",
+                "renderer",
+                "shape",
+                "type",
+                "color",
+                "material"))
+        {
+            return null;
+        }
+
+        var body = new StackPanel();
+        bool sameKind = true;
+        for (int index = 1; index < kinds.Count; ++index)
+            sameKind &= kinds[index] == kinds[0];
+        body.Children.Add(LabeledValue3D(
+            "Type",
+            sameKind
+                ? MeshRendererTypeName(kinds[0])
+                : InspectorMultiEditContract.MixedPlaceholder));
+
+        var colors = new List<float[]>(selected.Length);
+        bool capturedColors = true;
+        foreach (int nodeId in selected)
+        {
+            var color = new float[4];
+            capturedColors &=
+                EngineInterop.acs_editor_node3d_get_color(
+                    Engine,
+                    nodeId,
+                    color) != 0;
+            colors.Add(color);
+        }
+        if (capturedColors &&
+            DetailsMatches(
+                "component",
+                "native",
+                "mesh renderer",
+                "mesh",
+                "renderer",
+                "color",
+                "tint",
+                "opacity",
+                "alpha"))
+        {
+            body.Children.Add(MixedVectorRow(
+                "Color",
+                ResolveMixedComponents(colors, 0, 4),
+                patch => ApplyMultiColorPatch(
+                    selected,
+                    patch,
+                    "Edit Mesh Renderer Color",
+                    "inspector.multi.mesh-renderer.color")));
+        }
+
+        if (DetailsMatches(
+                "component",
+                "native",
+                "mesh renderer",
+                "mesh",
+                "renderer",
+                "material",
+                "shader",
+                "surface"))
+        {
+            string firstMaterial =
+                EngineInterop.NodeMaterial3D(Engine, selected[0]);
+            bool sameMaterial = true;
+            for (int index = 1; index < selected.Length; ++index)
+            {
+                sameMaterial &= string.Equals(
+                    firstMaterial,
+                    EngineInterop.NodeMaterial3D(
+                        Engine,
+                        selected[index]),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            string materialLabel = sameMaterial
+                ? string.IsNullOrWhiteSpace(firstMaterial)
+                    ? "(None)"
+                    : System.IO.Path.GetFileName(firstMaterial)
+                : InspectorMultiEditContract.MixedPlaceholder;
+            body.Children.Add(
+                LabeledValue3D("Material", materialLabel));
+        }
+
+        var panel = new StackPanel();
+        // Keep the native renderer in the ordinary component stack, after Transform.
+        panel.Children.Add(
+            ComponentCard("Mesh Renderer", body, native: true));
+        panel.Children.Add(new TextBlock
+        {
+            Text =
+                "Add/remove component and material assignment require a single selection.",
+            Foreground = (Brush)FindResource("TextDim"),
+            FontSize = 10,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2, 5, 0, 2),
+        });
+        return panel;
+    }
+
+    private static string MeshRendererTypeName(int kind) => kind switch
+    {
+        0 => "Cube",
+        1 => "Sphere",
+        2 => "Plane",
+        3 => "Static Mesh",
+        4 => "Sprite",
+        5 => "Polygon",
+        _ => "Unknown",
+    };
+
+    private static InspectorMixedFloat[] ResolveMixedComponents(
+        IReadOnlyList<float[]> values,
+        int offset,
+        int count)
+    {
+        var result = new InspectorMixedFloat[count];
+        var component = new float[values.Count];
+        for (int componentIndex = 0;
+             componentIndex < count;
+             ++componentIndex)
+        {
+            for (int valueIndex = 0;
+                 valueIndex < values.Count;
+                 ++valueIndex)
+            {
+                component[valueIndex] =
+                    values[valueIndex][offset + componentIndex];
+            }
+
+            result[componentIndex] =
+                InspectorMultiEditContract.ResolveFloat(component);
+        }
+
+        return result;
+    }
+
+    private FrameworkElement MixedVectorRow(
+        string label,
+        IReadOnlyList<InspectorMixedFloat> initialValues,
+        Func<float?[], bool> onChanged)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        grid.ColumnDefinitions.Add(
+            new ColumnDefinition { Width = new GridLength(64) });
+        for (int index = 0; index < initialValues.Count; ++index)
+        {
+            grid.ColumnDefinitions.Add(
+                new ColumnDefinition
+                {
+                    Width =
+                        new GridLength(1, GridUnitType.Star),
+                });
+        }
+
+        var rowLabel = new TextBlock
+        {
+            Text = label,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("TextDim"),
+        };
+        Grid.SetColumn(rowLabel, 0);
+        grid.Children.Add(rowLabel);
+
+        var values = new InspectorMixedFloat[initialValues.Count];
+        var boxes = new TextBox[initialValues.Count];
+        var touched = new bool[initialValues.Count];
+        var suppressTextChange = new bool[initialValues.Count];
+        for (int index = 0; index < initialValues.Count; ++index)
+        {
+            int componentIndex = index;
+            values[index] = initialValues[index];
+            var box = new TextBox
+            {
+                Text =
+                    InspectorMultiEditContract.DisplayText(
+                        values[index]),
+                Margin = new Thickness(index == 0 ? 0 : 3, 0, 0, 0),
+                Style = (Style)FindResource("NumBox"),
+                ToolTip = values[index].IsMixed
+                    ? "Multiple values. Type to apply this axis to the selection."
+                    : null,
+            };
+            box.GotKeyboardFocus += (_, __) =>
+            {
+                if (!values[componentIndex].IsMixed ||
+                    touched[componentIndex] ||
+                    box.Text != InspectorMultiEditContract.MixedPlaceholder)
+                {
+                    return;
+                }
+
+                suppressTextChange[componentIndex] = true;
+                box.Clear();
+                suppressTextChange[componentIndex] = false;
+            };
+            box.TextChanged += (_, __) =>
+            {
+                if (!suppressTextChange[componentIndex] &&
+                    box.IsKeyboardFocusWithin)
+                {
+                    touched[componentIndex] = true;
+                    box.ClearValue(Control.BorderBrushProperty);
+                    box.ToolTip = null;
+                }
+            };
+            Grid.SetColumn(box, index + 1);
+            grid.Children.Add(box);
+            boxes[index] = box;
+        }
+
+        bool Apply()
+        {
+            var patch = new float?[boxes.Length];
+            bool hasPatch = false;
+            for (int index = 0; index < boxes.Length; ++index)
+            {
+                if (!touched[index])
+                    continue;
+                if (!float.TryParse(
+                        boxes[index].Text,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out float parsed) ||
+                    !float.IsFinite(parsed))
+                {
+                    boxes[index].BorderBrush = Brushes.IndianRed;
+                    boxes[index].ToolTip =
+                        "Enter a finite numeric value.";
+                    return false;
+                }
+
+                patch[index] = parsed;
+                hasPatch = true;
+            }
+
+            if (!hasPatch)
+            {
+                for (int index = 0; index < boxes.Length; ++index)
+                {
+                    if (values[index].IsMixed &&
+                        string.IsNullOrWhiteSpace(boxes[index].Text))
+                    {
+                        suppressTextChange[index] = true;
+                        boxes[index].Text =
+                            InspectorMultiEditContract.MixedPlaceholder;
+                        suppressTextChange[index] = false;
+                    }
+                }
+                return true;
+            }
+
+            if (!onChanged(patch))
+            {
+                for (int index = 0; index < boxes.Length; ++index)
+                {
+                    suppressTextChange[index] = true;
+                    boxes[index].Text =
+                        InspectorMultiEditContract.DisplayText(
+                            values[index]);
+                    suppressTextChange[index] = false;
+                    touched[index] = false;
+                    boxes[index].ClearValue(
+                        Control.BorderBrushProperty);
+                    boxes[index].ToolTip = values[index].IsMixed
+                        ? "Multiple values. Type to apply this axis to the selection."
+                        : null;
+                }
+                return false;
+            }
+
+            for (int index = 0; index < boxes.Length; ++index)
+            {
+                if (patch[index].HasValue)
+                {
+                    values[index] = new InspectorMixedFloat(
+                        true,
+                        false,
+                        patch[index]!.Value);
+                }
+
+                suppressTextChange[index] = true;
+                boxes[index].Text =
+                    InspectorMultiEditContract.DisplayText(
+                        values[index]);
+                suppressTextChange[index] = false;
+                touched[index] = false;
+                boxes[index].ClearValue(Control.BorderBrushProperty);
+                boxes[index].ToolTip = values[index].IsMixed
+                    ? "Multiple values. Type to apply this axis to the selection."
+                    : null;
+            }
+
+            return true;
+        }
+
+        foreach (TextBox box in boxes)
+        {
+            box.LostKeyboardFocus += (_, __) => Apply();
+            box.KeyDown += (_, ev) =>
+            {
+                if (ev.Key == Key.Enter && Apply())
+                    Keyboard.ClearFocus();
+            };
+        }
+
+        return grid;
+    }
+
+    private sealed class MultiArrayMutation
+    {
+        internal MultiArrayMutation(float[] before, float[] after)
+        {
+            Before = before;
+            After = after;
+        }
+
+        internal float[] Before { get; }
+        internal float[] After { get; }
+    }
+
+    private sealed class MultiTransformMutation
+    {
+        internal MultiTransformMutation(
+            float[] before,
+            float[] after,
+            uint componentMask)
+        {
+            Before = before;
+            After = after;
+            ComponentMask = componentMask;
+        }
+
+        internal float[] Before { get; }
+        internal float[] After { get; }
+        internal uint ComponentMask { get; }
+    }
+
+    private readonly record struct MultiEnabledMutation(bool Before);
+
+    private bool ApplyMultiTransformPatch(
+        int[] selected,
+        IReadOnlyList<float?> patch,
+        string label,
+        string propertyIdentity)
+    {
+        if (patch.Count != 9 ||
+            !ValidateFinitePatch(patch) ||
+            !InspectorMultiEditContract.SameSelection(
+                selected,
+                Selected3DNodeIds()))
+        {
+            Log(
+                $"{label} was cancelled because the selection or value changed.",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+
+        string selectionIdentity =
+            InspectorMultiEditContract.SelectionIdentity(selected);
+        using IDisposable transaction = BeginSceneDocumentTransaction(
+            label,
+            propertyIdentity + "." + selectionIdentity,
+            TimeSpan.Zero,
+            selected[0]);
+        int nonRestorableScaleNode = -1;
+        InspectorAtomicBatchResult result =
+            InspectorMultiEditContract.ApplyAtomically(
+                selected,
+                (int nodeId, out MultiTransformMutation mutation) =>
+                {
+                    var before = new float[9];
+                    if (EngineInterop.acs_editor_node3d_get_transform(
+                            Engine,
+                            nodeId,
+                            before) == 0)
+                    {
+                        mutation = null!;
+                        return false;
+                    }
+
+                    if (!InspectorMultiEditContract.TryBuildTransformMutation(
+                            before,
+                            patch,
+                            out float[] after,
+                            out uint componentMask))
+                    {
+                        if (InspectorMultiEditContract
+                                .ContainsNonRestorablePatchedScale(
+                                    before,
+                                    patch))
+                        {
+                            nonRestorableScaleNode = nodeId;
+                        }
+                        mutation = null!;
+                        return false;
+                    }
+
+                    mutation = new MultiTransformMutation(
+                        before,
+                        after,
+                        componentMask);
+                    return true;
+                },
+                (nodeId, mutation) =>
+                    WriteAndVerifyTransformMasked(
+                        nodeId,
+                        mutation.After,
+                        mutation.ComponentMask),
+                (nodeId, mutation) =>
+                    WriteAndVerifyTransformMasked(
+                        nodeId,
+                        mutation.Before,
+                        mutation.ComponentMask));
+        string? failureDetail = nonRestorableScaleNode >= 0
+            ? $"No writes were made. Node {nonRestorableScaleNode} has a " +
+              "legacy zero/near-zero value on an edited scale axis; select " +
+              "that object alone, enter a non-zero scale, then retry."
+            : null;
+        return ReportMultiBatchResult(
+            label,
+            selected.Length,
+            result,
+            failureDetail);
+    }
+
+    private bool ApplyMultiColorPatch(
+        int[] selected,
+        IReadOnlyList<float?> patch,
+        string label,
+        string propertyIdentity)
+    {
+        if (patch.Count != 4 ||
+            !ValidateFinitePatch(patch) ||
+            !InspectorMultiEditContract.SameSelection(
+                selected,
+                Selected3DNodeIds()))
+        {
+            Log(
+                $"{label} was cancelled because the selection or value changed.",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+
+        string selectionIdentity =
+            InspectorMultiEditContract.SelectionIdentity(selected);
+        using IDisposable transaction = BeginSceneDocumentTransaction(
+            label,
+            propertyIdentity + "." + selectionIdentity,
+            TimeSpan.Zero,
+            selected[0]);
+        InspectorAtomicBatchResult result =
+            InspectorMultiEditContract.ApplyAtomically(
+                selected,
+                (int nodeId, out MultiArrayMutation mutation) =>
+                {
+                    var before = new float[4];
+                    if (EngineInterop.acs_editor_node3d_get_color(
+                            Engine,
+                            nodeId,
+                            before) == 0 ||
+                        !AllFinite(before))
+                    {
+                        mutation = null!;
+                        return false;
+                    }
+
+                    var after = (float[])before.Clone();
+                    for (int index = 0; index < patch.Count; ++index)
+                    {
+                        if (patch[index].HasValue)
+                            after[index] = patch[index]!.Value;
+                    }
+                    mutation = new MultiArrayMutation(before, after);
+                    return true;
+                },
+                (nodeId, mutation) =>
+                    WriteAndVerifyColor(nodeId, mutation.After),
+                (nodeId, mutation) =>
+                    WriteAndVerifyColor(nodeId, mutation.Before));
+        return ReportMultiBatchResult(label, selected.Length, result);
+    }
+
+    private bool ApplyMultiEnabled(int[] selected, bool desired)
+    {
+        if (!InspectorMultiEditContract.SameSelection(
+                selected,
+                Selected3DNodeIds()))
+        {
+            Log(
+                "Enabled batch was cancelled because the selection changed.",
+                "Scene",
+                LogLevel.Warn);
+            return false;
+        }
+
+        string selectionIdentity =
+            InspectorMultiEditContract.SelectionIdentity(selected);
+        using IDisposable transaction = BeginSceneDocumentTransaction(
+            "Edit Enabled",
+            "inspector.multi.enabled." + selectionIdentity,
+            TimeSpan.Zero,
+            selected[0]);
+        InspectorAtomicBatchResult result =
+            InspectorMultiEditContract.ApplyAtomically(
+                selected,
+                (int nodeId, out MultiEnabledMutation mutation) =>
+                {
+                    var transform = new float[9];
+                    if (EngineInterop.acs_editor_node3d_get_transform(
+                            Engine,
+                            nodeId,
+                            transform) == 0)
+                    {
+                        mutation = default;
+                        return false;
+                    }
+
+                    mutation = new MultiEnabledMutation(
+                        EngineInterop.acs_editor_node3d_get_enabled(
+                            Engine,
+                            nodeId) != 0);
+                    return true;
+                },
+                (nodeId, mutation) =>
+                    mutation.Before == desired ||
+                    WriteAndVerifyEnabled(nodeId, desired),
+                (nodeId, mutation) =>
+                    WriteAndVerifyEnabled(nodeId, mutation.Before));
+        return ReportMultiBatchResult(
+            "Edit Enabled",
+            selected.Length,
+            result);
+    }
+
+    private bool WriteAndVerifyTransformMasked(
+        int nodeId,
+        float[] transform,
+        uint componentMask)
+    {
+        if (EngineInterop.acs_editor_node3d_set_transform_masked(
+                Engine,
+                nodeId,
+                componentMask,
+                transform,
+                (uint)transform.Length) == 0)
+        {
+            return false;
+        }
+
+        var current = new float[9];
+        return EngineInterop.acs_editor_node3d_get_transform(
+                   Engine,
+                   nodeId,
+                   current) != 0 &&
+               TransformArraysEquivalent(
+                   current,
+                   transform,
+                   componentMask);
+    }
+
+    private bool WriteAndVerifyColor(int nodeId, float[] color)
+    {
+        if (EngineInterop.acs_editor_node3d_set_color(
+                Engine,
+                nodeId,
+                color[0],
+                color[1],
+                color[2],
+                color[3]) == 0)
+        {
+            return false;
+        }
+
+        var current = new float[4];
+        return EngineInterop.acs_editor_node3d_get_color(
+                   Engine,
+                   nodeId,
+                   current) != 0 &&
+               FloatArraysEquivalent(current, color);
+    }
+
+    private bool WriteAndVerifyEnabled(int nodeId, bool enabled)
+    {
+        EngineInterop.acs_editor_node3d_set_enabled(
+            Engine,
+            nodeId,
+            enabled ? 1 : 0);
+        var transform = new float[9];
+        return EngineInterop.acs_editor_node3d_get_transform(
+                   Engine,
+                   nodeId,
+                   transform) != 0 &&
+               (EngineInterop.acs_editor_node3d_get_enabled(
+                    Engine,
+                    nodeId) != 0) == enabled;
+    }
+
+    private bool ReportMultiBatchResult(
+        string label,
+        int targetCount,
+        InspectorAtomicBatchResult result,
+        string? failureDetail = null)
+    {
+        if (result.Succeeded)
+        {
+            Log(
+                $"{label}: applied to {targetCount} selected objects.",
+                "Scene",
+                LogLevel.Info);
+            return true;
+        }
+
+        LogLevel level = result.RollbackSucceeded
+            ? LogLevel.Warn
+            : LogLevel.Error;
+        string rollback = failureDetail ??
+            (result.FailureStage == InspectorAtomicFailureStage.Capture
+                ? "No writes were made because the target state could not be captured safely."
+                : result.RollbackSucceeded
+                    ? "All prior writes were rolled back."
+                    : "Rollback could not restore every target; reload or Undo immediately.");
+        Log(
+            $"{label} failed at node {result.FailedNodeId} " +
+            $"({result.FailureStage}). {rollback}",
+            "Scene",
+            level);
+        return false;
+    }
+
+    private static bool ValidateFinitePatch(
+        IReadOnlyList<float?> patch)
+    {
+        bool hasValue = false;
+        for (int index = 0; index < patch.Count; ++index)
+        {
+            if (!patch[index].HasValue)
+                continue;
+            if (!float.IsFinite(patch[index]!.Value))
+                return false;
+            hasValue = true;
+        }
+        return hasValue;
+    }
+
+    private static bool FloatArraysEquivalent(
+        IReadOnlyList<float> left,
+        IReadOnlyList<float> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+        for (int index = 0; index < left.Count; ++index)
+        {
+            if (!float.IsFinite(left[index]) ||
+                !float.IsFinite(right[index]))
+            {
+                return false;
+            }
+
+            float scale = MathF.Max(
+                1.0f,
+                MathF.Max(
+                    MathF.Abs(left[index]),
+                    MathF.Abs(right[index])));
+            if (MathF.Abs(left[index] - right[index]) >
+                1.0e-5f * scale)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool AllFinite(IReadOnlyList<float> values)
+    {
+        for (int index = 0; index < values.Count; ++index)
+        {
+            if (!float.IsFinite(values[index]))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool TransformArraysEquivalent(
+        IReadOnlyList<float> current,
+        IReadOnlyList<float> expected,
+        uint componentMask)
+    {
+        if (current.Count != InspectorMultiEditContract.TransformComponentCount ||
+            expected.Count != InspectorMultiEditContract.TransformComponentCount)
+        {
+            return false;
+        }
+
+        for (int index = 0;
+             index < InspectorMultiEditContract.TransformComponentCount;
+             ++index)
+        {
+            if (!float.IsFinite(current[index]) ||
+                !float.IsFinite(expected[index]))
+            {
+                return false;
+            }
+
+            if ((componentMask & (1u << index)) == 0u)
+            {
+                if (BitConverter.SingleToInt32Bits(current[index]) !=
+                    BitConverter.SingleToInt32Bits(expected[index]))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            float scale = MathF.Max(
+                1.0f,
+                MathF.Max(
+                    MathF.Abs(current[index]),
+                    MathF.Abs(expected[index])));
+            if (MathF.Abs(current[index] - expected[index]) >
+                1.0e-5f * scale)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>「ラベル: 値」の読み取り専用行 (3D Inspector の種別表示などに使う)。</summary>

@@ -546,6 +546,13 @@ internal static class EngineInterop
     public static extern int acs_editor_node3d_set_transform(IntPtr handle, int id,
         float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int acs_editor_node3d_set_transform_masked(
+        IntPtr handle,
+        int id,
+        uint componentMask,
+        [In] float[] values9,
+        uint valueCount);
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_get_color(IntPtr handle, int id, [Out] float[] out4);
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int acs_editor_node3d_set_color(IntPtr handle, int id, float r, float g, float b, float a);

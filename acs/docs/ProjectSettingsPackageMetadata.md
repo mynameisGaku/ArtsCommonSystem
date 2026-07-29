@@ -3,16 +3,22 @@
 `Project Settings > Distribution` is the authoring surface for the optional
 `Config/PackageMetadata.json` document. It edits the publisher, description,
 copyright, and HTTPS support URL that Package embeds into
-`package-manifest.json`.
+`package-manifest.json` and the private staged game EXE's deterministic PE
+`VERSIONINFO`. Publisher, description, copyright, and support URL map to
+`CompanyName`, `FileDescription`, `LegalCopyright`, and `SupportUrl`
+respectively; Project name and the Package dialog version provide
+`ProductName` and `ProductVersion`.
 
 ## One validation contract
 
-The UI, package preflight, manifest creation, CLI verification, and archive
-inspection all use `PackageProductMetadataContract`. The editor displays the
+The UI, package preflight, manifest creation, staged-EXE publication, CLI
+verification, and archive inspection all use
+`PackageProductMetadataContract`. The editor displays the
 contract's field issues inline; it does not mirror URL, length, whitespace, or
 control-character rules in a second UI validator. Consequently, a value shown
 as valid in Project Settings is evaluated by the same code when the package is
-built.
+built. Archive verification reconstructs the expected PE fields from the
+package manifest and rejects a mismatch; it never executes the game.
 
 Loading is strict and fail-closed. An oversized file, malformed JSON, duplicate
 or unknown property, unsupported schema, invalid UTF-8, reparse point, or

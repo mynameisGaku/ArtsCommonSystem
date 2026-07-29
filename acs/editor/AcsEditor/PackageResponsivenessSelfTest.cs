@@ -435,12 +435,18 @@ internal static class PackageResponsivenessSelfTest
         bool addExternalAttributes = false)
     {
         const string packageId = "Verifier-1.2.3-win64";
+        var executableProductMetadata = new PackageProductMetadata(
+            1,
+            "ACS Self-Test",
+            "Package verifier fixture.",
+            "",
+            "https://example.invalid/acs");
         byte[] executable = invalidExecutable
             ? Encoding.ASCII.GetBytes("MZ not a PE image")
-            : File.ReadAllBytes(
-                Environment.ProcessPath ??
-                throw new InvalidOperationException(
-                    "Self-test process path is unavailable."));
+            : CreateVerifierExecutable(
+                directory,
+                suffix,
+                executableProductMetadata);
         byte[] assetPack = Encoding.ASCII.GetBytes("ACPAK verifier fixture");
         var declaredPayloads = new Dictionary<string, byte[]>(StringComparer.Ordinal)
         {
@@ -484,10 +490,12 @@ internal static class PackageResponsivenessSelfTest
             productMetadata = new
             {
                 schemaVersion = 1,
-                publisher = nullMetadataPublisher ? null : "ACS Self-Test",
-                description = "Package verifier fixture.",
-                copyright = "",
-                supportUrl = "https://example.invalid/acs",
+                publisher = nullMetadataPublisher
+                    ? null
+                    : executableProductMetadata.Publisher,
+                description = executableProductMetadata.Description,
+                copyright = executableProductMetadata.Copyright,
+                supportUrl = executableProductMetadata.SupportUrl,
             },
             assetPack = new
             {
@@ -548,6 +556,31 @@ internal static class PackageResponsivenessSelfTest
             packageId + "/package-manifest.json",
             JsonSerializer.SerializeToUtf8Bytes(manifest));
         return path;
+    }
+
+    private static byte[] CreateVerifierExecutable(
+        string directory,
+        string suffix,
+        PackageProductMetadata productMetadata)
+    {
+        string source =
+            Environment.ProcessPath ??
+            throw new InvalidOperationException(
+                "Self-test process path is unavailable.");
+        string staged = Path.Combine(
+            directory,
+            suffix + "-staged.exe");
+        File.Copy(source, staged);
+        PackageExecutableProductMetadata expected =
+            PackageExecutableMetadataContract.Create(
+                "Verifier",
+                "1.2.3",
+                productMetadata,
+                "Verifier.exe");
+        _ = PackageExecutableMetadataContract.ApplyFile(
+            staged,
+            expected);
+        return File.ReadAllBytes(staged);
     }
 
     private static ZipArchiveEntry WriteVerifierEntry(

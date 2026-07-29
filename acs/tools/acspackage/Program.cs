@@ -2289,6 +2289,321 @@ internal static partial class Program
             File.WriteAllText(Path.Combine(binaries, "Game_reflect.dll"), "editor only");
 
             PackageProjectInfo project = LoadProject(projectFile);
+            PackageProductMetadata fixtureProductMetadata =
+                PackageProductMetadataContract.LoadOptional(config);
+            PackageExecutableProductMetadata expectedExecutableMetadata =
+                PackageExecutableMetadataContract.Create(
+                    project.Name,
+                    "1.2.3",
+                    fixtureProductMetadata,
+                    "Game.exe");
+            string executableMetadataRoot =
+                Path.Combine(testRoot, "ExecutableMetadata");
+            Directory.CreateDirectory(executableMetadataRoot);
+            string metadataCopyA =
+                Path.Combine(executableMetadataRoot, "metadata-a.exe");
+            string metadataCopyB =
+                Path.Combine(executableMetadataRoot, "metadata-b.exe");
+            File.Copy(executable, metadataCopyA);
+            File.Copy(executable, metadataCopyB);
+            PackageExecutableInspection metadataInspectionA =
+                PackageExecutableMetadataContract.ApplyFile(
+                    metadataCopyA,
+                    expectedExecutableMetadata);
+            PackageExecutableInspection metadataInspectionB =
+                PackageExecutableMetadataContract.ApplyFile(
+                    metadataCopyB,
+                    expectedExecutableMetadata);
+            Assert(
+                SHA256.HashData(File.ReadAllBytes(metadataCopyA))
+                    .SequenceEqual(
+                        SHA256.HashData(File.ReadAllBytes(metadataCopyB))) &&
+                metadataInspectionA.ProductMetadata ==
+                    expectedExecutableMetadata &&
+                metadataInspectionB.ProductMetadata ==
+                    expectedExecutableMetadata,
+                "independently patched executable copies must be byte-identical " +
+                "and preserve exact product metadata");
+            FileVersionInfo shellVersionInfo =
+                FileVersionInfo.GetVersionInfo(metadataCopyA);
+            Assert(
+                shellVersionInfo.ProductName ==
+                    expectedExecutableMetadata.ProductName &&
+                shellVersionInfo.ProductVersion ==
+                    expectedExecutableMetadata.ProductVersion &&
+                shellVersionInfo.CompanyName ==
+                    expectedExecutableMetadata.CompanyName &&
+                shellVersionInfo.FileDescription ==
+                    expectedExecutableMetadata.FileDescription &&
+                shellVersionInfo.LegalCopyright ==
+                    expectedExecutableMetadata.LegalCopyright &&
+                shellVersionInfo.FileVersion ==
+                    expectedExecutableMetadata.FileVersion &&
+                shellVersionInfo.OriginalFilename ==
+                    expectedExecutableMetadata.OriginalFilename,
+                "Windows version APIs must observe the canonical packaged VERSIONINFO");
+
+            string generatedManifestCopy =
+                Path.Combine(executableMetadataRoot, "generated-manifest.exe");
+            File.Copy(executable, generatedManifestCopy);
+            PackageExecutableMetadataContract
+                .RemoveApplicationManifestForSelfTest(generatedManifestCopy);
+            PackageExecutableInspection generatedManifestInspection =
+                PackageExecutableMetadataContract.ApplyFile(
+                    generatedManifestCopy,
+                    expectedExecutableMetadata);
+            Assert(
+                generatedManifestInspection.ApplicationManifest is
+                {
+                    AssemblyName: "Game",
+                    AssemblyVersion: "1.2.3.0",
+                    ProcessorArchitecture: "amd64",
+                    RequestedExecutionLevel: "asInvoker",
+                    UiAccess: false,
+                },
+                "a missing application manifest must receive one deterministic " +
+                "Windows x64 asInvoker identity");
+
+            string identityFreeManifestCopy =
+                Path.Combine(
+                    executableMetadataRoot,
+                    "identity-free-manifest.exe");
+            File.Copy(executable, identityFreeManifestCopy);
+            PackageExecutableMetadataContract
+                .ReplaceApplicationManifestForSelfTest(
+                    identityFreeManifestCopy,
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <?xml version="1.0" encoding="UTF-8"?>
+                        <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+                          <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+                            <security>
+                              <requestedPrivileges>
+                                <requestedExecutionLevel level="asInvoker"
+                                                         uiAccess="false" />
+                              </requestedPrivileges>
+                            </security>
+                          </trustInfo>
+                        </assembly>
+                        """));
+            PackageExecutableInspection identityFreeManifestInspection =
+                PackageExecutableMetadataContract.ApplyFile(
+                    identityFreeManifestCopy,
+                    expectedExecutableMetadata);
+            Assert(
+                identityFreeManifestInspection.ApplicationManifest is
+                {
+                    AssemblyName: "",
+                    AssemblyVersion: "",
+                    ProcessorArchitecture: "*",
+                    RequestedExecutionLevel: "asInvoker",
+                    UiAccess: false,
+                },
+                "a valid process manifest without assemblyIdentity must be " +
+                "preserved while retaining strict execution-level safety");
+
+            bool metadataMismatchRejected = false;
+            try
+            {
+                PackageExecutableMetadataContract.ValidateInspection(
+                    metadataInspectionA,
+                    expectedExecutableMetadata with
+                    {
+                        CompanyName = "Different Publisher"
+                    });
+            }
+            catch (InvalidDataException)
+            {
+                metadataMismatchRejected = true;
+            }
+            Assert(
+                metadataMismatchRejected,
+                "manifest-to-PE product metadata mismatch must fail closed");
+
+            bool directMetadataValidationRejected = false;
+            try
+            {
+                PackageExecutableMetadataContract.ValidateInspection(
+                    metadataInspectionA,
+                    expectedExecutableMetadata with
+                    {
+                        SupportUrl = "http://example.invalid/not-https"
+                    });
+            }
+            catch (InvalidDataException)
+            {
+                directMetadataValidationRejected = true;
+            }
+            Assert(
+                directMetadataValidationRejected,
+                "direct executable metadata validation must retain bounded HTTPS semantics");
+
+            byte[] canonicalVersionInfo =
+                PackageExecutableMetadataContract.BuildVersionInfoForSelfTest(
+                    expectedExecutableMetadata);
+            string extraLanguageCopy =
+                Path.Combine(executableMetadataRoot, "extra-language.exe");
+            File.Copy(metadataCopyA, extraLanguageCopy);
+            PackageExecutableMetadataContract.AddVersionInfoForSelfTest(
+                extraLanguageCopy,
+                name: 1,
+                language: 0x0411,
+                canonicalVersionInfo);
+            bool extraLanguageRejected = false;
+            try
+            {
+                PackageExecutableMetadataContract.ValidateInspection(
+                    PackageExecutableContract.InspectFile(extraLanguageCopy),
+                    expectedExecutableMetadata);
+            }
+            catch (InvalidDataException)
+            {
+                extraLanguageRejected = true;
+            }
+            Assert(
+                extraLanguageRejected,
+                "extra VERSIONINFO languages must fail canonical verification");
+
+            string extraNameCopy =
+                Path.Combine(executableMetadataRoot, "extra-name.exe");
+            File.Copy(metadataCopyA, extraNameCopy);
+            PackageExecutableMetadataContract.AddVersionInfoForSelfTest(
+                extraNameCopy,
+                name: 2,
+                language: 0x0409,
+                canonicalVersionInfo);
+            bool extraNameRejected = false;
+            try
+            {
+                _ = PackageExecutableContract.InspectFile(extraNameCopy);
+            }
+            catch (InvalidDataException)
+            {
+                extraNameRejected = true;
+            }
+            Assert(
+                extraNameRejected,
+                "VERSIONINFO resources outside ID 1 must fail closed");
+
+            string undeclaredResourcesCopy =
+                Path.Combine(executableMetadataRoot, "undeclared-resources.exe");
+            File.Copy(metadataCopyA, undeclaredResourcesCopy);
+            SetPeNumberOfRvaAndSizesForSelfTest(
+                undeclaredResourcesCopy,
+                2);
+            PackageExecutableInspection undeclaredResourcesInspection =
+                PackageExecutableContract.InspectFile(
+                    undeclaredResourcesCopy);
+            Assert(
+                undeclaredResourcesInspection.ProductMetadata is null &&
+                undeclaredResourcesInspection.ApplicationManifest is null,
+                "PE resource bytes outside NumberOfRvaAndSizes must not be treated as declared data directories");
+
+            string truncatedDirectoriesCopy =
+                Path.Combine(executableMetadataRoot, "truncated-directories.exe");
+            File.Copy(metadataCopyA, truncatedDirectoriesCopy);
+            SetPeNumberOfRvaAndSizesForSelfTest(
+                truncatedDirectoriesCopy,
+                uint.MaxValue);
+            bool truncatedDirectoriesRejected = false;
+            try
+            {
+                _ = PackageExecutableContract.InspectFile(
+                    truncatedDirectoriesCopy);
+            }
+            catch (InvalidDataException)
+            {
+                truncatedDirectoriesRejected = true;
+            }
+            Assert(
+                truncatedDirectoriesRejected,
+                "PE data-directory count must fit inside the declared optional header");
+
+            bool cyclicResourceDirectoryRejected = false;
+            try
+            {
+                PackageExecutableContract.ValidateResourceDirectoryForSelfTest(
+                    BuildCyclicResourceDirectoryForSelfTest());
+            }
+            catch (InvalidDataException)
+            {
+                cyclicResourceDirectoryRejected = true;
+            }
+            Assert(
+                cyclicResourceDirectoryRejected,
+                "cyclic or multiply visited PE resource directories must fail closed");
+
+            bool resourceEntryBudgetRejected = false;
+            try
+            {
+                PackageExecutableContract.ValidateResourceDirectoryForSelfTest(
+                    BuildResourceDirectoryBudgetAttackForSelfTest());
+            }
+            catch (InvalidDataException)
+            {
+                resourceEntryBudgetRejected = true;
+            }
+            Assert(
+                resourceEntryBudgetRejected,
+                "PE resource traversal must enforce one strict global entry budget");
+
+            string incompatibleManifestCopy =
+                Path.Combine(executableMetadataRoot, "incompatible-manifest.exe");
+            File.Copy(executable, incompatibleManifestCopy);
+            PackageExecutableMetadataContract
+                .ReplaceApplicationManifestForSelfTest(
+                    incompatibleManifestCopy,
+                    Encoding.UTF8.GetBytes(
+                        """
+                        <?xml version="1.0" encoding="UTF-8"?>
+                        <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+                          <assemblyIdentity name="Incompatible" version="1.0.0.0"
+                                            processorArchitecture="amd64" type="win32" />
+                          <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+                            <security>
+                              <requestedPrivileges>
+                                <requestedExecutionLevel level="requireAdministrator"
+                                                         uiAccess="false" />
+                              </requestedPrivileges>
+                            </security>
+                          </trustInfo>
+                        </assembly>
+                        """));
+            bool incompatibleManifestRejected = false;
+            try
+            {
+                _ = PackageExecutableContract.InspectFile(
+                    incompatibleManifestCopy);
+            }
+            catch (PackageApplicationManifestException)
+            {
+                incompatibleManifestRejected = true;
+            }
+            Assert(
+                incompatibleManifestRejected,
+                "an embedded elevation manifest must fail package inspection");
+
+            string malformedManifestCopy =
+                Path.Combine(executableMetadataRoot, "malformed-manifest.exe");
+            File.Copy(executable, malformedManifestCopy);
+            PackageExecutableMetadataContract
+                .ReplaceApplicationManifestForSelfTest(
+                    malformedManifestCopy,
+                    Encoding.UTF8.GetBytes("<assembly"));
+            bool malformedManifestRejected = false;
+            try
+            {
+                _ = PackageExecutableContract.InspectFile(
+                    malformedManifestCopy);
+            }
+            catch (PackageApplicationManifestException)
+            {
+                malformedManifestRejected = true;
+            }
+            Assert(
+                malformedManifestRejected,
+                "a malformed embedded application manifest must fail closed");
+
             var optionsA = new PackageOptions(
                 Path.Combine(testRoot, "OutputA"),
                 "1.2.3",
@@ -2709,6 +3024,48 @@ internal static partial class Program
                 !productMetadata.TryGetProperty("isEmpty", out _) &&
                 !productMetadata.TryGetProperty("IsEmpty", out _),
                 "bounded distribution metadata missing from manifest");
+            PackageProductMetadata manifestProductMetadata =
+                productMetadata.Deserialize<PackageProductMetadata>() ??
+                throw new InvalidDataException(
+                    "package manifest product metadata is empty");
+            PackageExecutableProductMetadata manifestExecutableMetadata =
+                PackageExecutableMetadataContract.Create(
+                    manifest.RootElement.GetProperty("productName").GetString() ??
+                        throw new InvalidDataException(
+                            "package manifest product name is empty"),
+                    manifest.RootElement.GetProperty("productVersion").GetString() ??
+                        throw new InvalidDataException(
+                            "package manifest product version is empty"),
+                    manifestProductMetadata,
+                    manifest.RootElement.GetProperty("executable").GetString() ??
+                        throw new InvalidDataException(
+                            "package manifest executable is empty"));
+            ZipArchiveEntry packagedExecutableEntry =
+                zip.GetEntry(prefix + "Game.exe") ??
+                throw new InvalidDataException(
+                    "packaged executable ZIP entry is missing");
+            PackageExecutableInspection packagedExecutableInspection;
+            await using (Stream packagedExecutableStream =
+                         packagedExecutableEntry.Open())
+            {
+                packagedExecutableInspection =
+                    PackageExecutableContract.Inspect(
+                        packagedExecutableStream,
+                        packagedExecutableEntry.Length);
+            }
+            PackageExecutableMetadataContract.ValidateInspection(
+                packagedExecutableInspection,
+                manifestExecutableMetadata);
+            Assert(
+                packagedExecutableInspection.ProductMetadata ==
+                    manifestExecutableMetadata &&
+                packagedExecutableInspection.ApplicationManifest is
+                {
+                    RequestedExecutionLevel: "asInvoker",
+                    UiAccess: false,
+                },
+                "package-manifest identity and distribution fields must round-trip " +
+                "exactly through PE VERSIONINFO with a compatible manifest");
             JsonElement manifestPack =
                 manifest.RootElement.GetProperty("assetPack");
             string expectedPackHash = Convert.ToHexString(
@@ -2769,6 +3126,17 @@ internal static partial class Program
                     issue.Code == "EXECUTABLE_INVALID" &&
                     issue.Severity == PackageIssueSeverity.Error),
                 "source package preflight must fail closed on a non-PE executable");
+            IReadOnlyList<PackageIssue> unrepresentableVersionIssues =
+                PackageCore.Validate(
+                    project,
+                    optionsA with { ProductVersion = "65536.0.0" },
+                    executable,
+                    [runtime]);
+            Assert(
+                unrepresentableVersionIssues.Any(issue =>
+                    issue.Code == "EXECUTABLE_METADATA_INVALID" &&
+                    issue.Severity == PackageIssueSeverity.Error),
+                "SemVer components outside VERSIONINFO UInt16 fields must fail preflight");
 
             var developmentOptions = new PackageOptions(
                 Path.Combine(testRoot, "OutputDevelopment"),
@@ -3186,8 +3554,11 @@ internal static partial class Program
                 "SELF-TEST PASS: canonical Asset-ID dependency closure, DDC miss/hit reuse, " +
                 "deterministic Cook/acpak+ZIP, native and archive SHA-256 verify, " +
                 "canonical/bootstrap/product manifest, PE32+ AMD64 preflight, " +
+                "byte-identical VERSIONINFO publication, manifest-to-PE metadata " +
+                "round-trip, compatible/generated asInvoker manifests, " +
                 "2D+supported 3D package smoke, metadata/source exclusions, path rewrite, and " +
-                "identity-mismatch/traversal/reparse/runtime-adapter guards, plus standalone " +
+                "metadata/version/resource/identity-mismatch, malformed-manifest, " +
+                "traversal/reparse/runtime-adapter guards, plus standalone " +
                 "verification/inspection reports, adversarial ZIP/JSON/terminal and " +
                 "exact-length guards, and " +
                 "deterministic package diff safety.");
@@ -4073,6 +4444,100 @@ internal static partial class Program
             "Self-test ZIP entry was not found in the central directory.");
     }
 
+    private static void SetPeNumberOfRvaAndSizesForSelfTest(
+        string path,
+        uint count)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        if (bytes.Length < 64 ||
+            bytes[0] != (byte)'M' ||
+            bytes[1] != (byte)'Z')
+        {
+            throw new InvalidDataException(
+                "Self-test executable is not an MZ image.");
+        }
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(0x3c));
+        int optionalHeaderOffset = checked(peOffset + 4 + 20);
+        int countOffset = checked(optionalHeaderOffset + 108);
+        if (peOffset < 64 ||
+            countOffset < 0 ||
+            countOffset > bytes.Length - sizeof(uint) ||
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                bytes.AsSpan(peOffset)) != 0x00004550u ||
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                bytes.AsSpan(optionalHeaderOffset)) != 0x020b)
+        {
+            throw new InvalidDataException(
+                "Self-test executable is not a bounded PE32+ image.");
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            bytes.AsSpan(countOffset),
+            count);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static byte[] BuildCyclicResourceDirectoryForSelfTest()
+    {
+        byte[] directory = new byte[24];
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            directory.AsSpan(14),
+            1);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            directory.AsSpan(16),
+            24);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            directory.AsSpan(20),
+            0x80000000u);
+        return directory;
+    }
+
+    private static byte[] BuildResourceDirectoryBudgetAttackForSelfTest()
+    {
+        const int rootEntryCount = 4;
+        const int branchEntryCount = 4096;
+        const int rootSize = 16 + rootEntryCount * 8;
+        const int branchSize = 16 + branchEntryCount * 8;
+        byte[] directory =
+            new byte[rootSize + rootEntryCount * branchSize];
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            directory.AsSpan(14),
+            rootEntryCount);
+
+        for (int rootIndex = 0;
+             rootIndex < rootEntryCount;
+             rootIndex++)
+        {
+            int branchOffset = rootSize + rootIndex * branchSize;
+            int rootEntryOffset = 16 + rootIndex * 8;
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                directory.AsSpan(rootEntryOffset),
+                24);
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                directory.AsSpan(rootEntryOffset + 4),
+                0x80000000u | checked((uint)branchOffset));
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                directory.AsSpan(branchOffset + 14),
+                branchEntryCount);
+            for (int branchIndex = 0;
+                 branchIndex < branchEntryCount;
+                 branchIndex++)
+            {
+                int entryOffset =
+                    branchOffset + 16 + branchIndex * 8;
+                // Non-process manifest ID 2 is intentionally ignored after
+                // the directory has been charged to the global budget.
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    directory.AsSpan(entryOffset),
+                    2);
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    directory.AsSpan(entryOffset + 4),
+                    0);
+            }
+        }
+        return directory;
+    }
+
     private static async Task TestReparsePointIfSupportedAsync(
         string testRoot,
         string assets,
@@ -4092,11 +4557,14 @@ internal static partial class Program
         string jsonOutputLink = Path.Combine(testRoot, "JsonOutputLink");
         string externalJsonOutput =
             Path.Combine(testRoot, "ExternalJsonOutput");
+        string executableMetadataLink =
+            Path.Combine(testRoot, "ExecutableMetadataLink.exe");
         bool assetLinkCreated = false;
         bool tempLinkCreated = false;
         bool ddcLinkCreated = false;
         bool outputLinkCreated = false;
         bool jsonOutputLinkCreated = false;
+        bool executableMetadataLinkCreated = false;
         string linkedProjectRoot = Path.Combine(testRoot, "LinkedProjectRoot");
         bool projectRootLinkCreated = false;
         Directory.CreateDirectory(external);
@@ -4112,6 +4580,32 @@ internal static partial class Program
 
             Directory.Delete(assetLink);
             assetLinkCreated = false;
+
+            File.CreateSymbolicLink(executableMetadataLink, executable);
+            executableMetadataLinkCreated = true;
+            bool executableMetadataLinkRejected = false;
+            try
+            {
+                PackageProductMetadata metadata =
+                    PackageProductMetadataContract.LoadOptional(
+                        project.ConfigDirectory);
+                _ = PackageExecutableMetadataContract.ApplyFile(
+                    executableMetadataLink,
+                    PackageExecutableMetadataContract.Create(
+                        project.Name,
+                        options.ProductVersion,
+                        metadata,
+                        Path.GetFileName(executable)));
+            }
+            catch (InvalidDataException)
+            {
+                executableMetadataLinkRejected = true;
+            }
+            Assert(
+                executableMetadataLinkRejected,
+                "executable metadata publication must reject a reparse-point target");
+            File.Delete(executableMetadataLink);
+            executableMetadataLinkCreated = false;
 
             Directory.CreateSymbolicLink(linkedProjectRoot, project.RootDirectory);
             projectRootLinkCreated = true;
@@ -4280,6 +4774,17 @@ internal static partial class Program
                      FileAttributes.ReparsePoint) != 0)
                 {
                     Directory.Delete(jsonOutputLink);
+                }
+            }
+            catch { }
+            try
+            {
+                if (executableMetadataLinkCreated &&
+                    File.Exists(executableMetadataLink) &&
+                    (File.GetAttributes(executableMetadataLink) &
+                     FileAttributes.ReparsePoint) != 0)
+                {
+                    File.Delete(executableMetadataLink);
                 }
             }
             catch { }

@@ -28,6 +28,8 @@ enum class ECapability : std::uint64_t {
     CameraAuthoringV1     = 1ull << 10u,
     CameraViewRequestsV1  = 1ull << 11u,
     ProfilerV5            = 1ull << 12u,
+    OptionalServiceDiagnosticsV2 = 1ull << 13u,
+    SparseTransformMutationV1 = 1ull << 14u,
 };
 
 [[nodiscard]] constexpr std::uint64_t CapabilityBit(
@@ -48,12 +50,15 @@ inline constexpr std::uint64_t kCapabilities =
     CapabilityBit(ECapability::SubstrateGraph) |
     CapabilityBit(ECapability::InteractiveWater3D) |
     CapabilityBit(ECapability::ResizeResultContract) |
-    CapabilityBit(ECapability::VolumetricCloudWorkloadV1);
+    CapabilityBit(ECapability::VolumetricCloudWorkloadV1) |
+    CapabilityBit(ECapability::OptionalServiceDiagnosticsV2) |
+    CapabilityBit(ECapability::SparseTransformMutationV1);
 
 inline constexpr std::uint64_t kRequiredManagedHostCapabilities =
     CapabilityBit(ECapability::FrameResultContract) |
     CapabilityBit(ECapability::IncrementalStartup) |
-    CapabilityBit(ECapability::ResizeResultContract);
+    CapabilityBit(ECapability::ResizeResultContract) |
+    CapabilityBit(ECapability::SparseTransformMutationV1);
 
 [[nodiscard]] constexpr bool IsCompatible(
     std::uint32_t requested_version,

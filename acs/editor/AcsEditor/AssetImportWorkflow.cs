@@ -116,7 +116,8 @@ internal static class AssetImportWorkflow
         string destinationDirectory,
         IEnumerable<string> sourcePaths,
         CancellationToken cancellationToken = default,
-        AssetImportTestHooks? testHooks = null)
+        AssetImportTestHooks? testHooks = null,
+        AssetImporterSettings? importerSettings = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(sourcePaths);
@@ -181,7 +182,8 @@ internal static class AssetImportWorkflow
                         targetDirectory,
                         source,
                         cancellationToken,
-                        testHooks);
+                        testHooks,
+                        importerSettings: importerSettings);
                     published.Add(transaction);
                     imported.Add(new ImportedAssetFile(
                         transaction.Manifest.SourcePath,
@@ -278,7 +280,8 @@ internal static class AssetImportWorkflow
         IEnumerable<string> sourcePaths,
         CancellationToken cancellationToken = default,
         AssetImportTestHooks? testHooks = null,
-        AssetImportTraversalLimits? traversalLimits = null)
+        AssetImportTraversalLimits? traversalLimits = null,
+        AssetImporterSettings? importerSettings = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(sourcePaths);
@@ -295,7 +298,8 @@ internal static class AssetImportWorkflow
                 destinationDirectory,
                 sources,
                 cancellationToken,
-                testHooks);
+                testHooks,
+                importerSettings);
         }
 
         AssetImportTraversalLimits limits = traversalLimits ??
@@ -412,7 +416,8 @@ internal static class AssetImportWorkflow
                         file.SourceLastWriteUtcTicks),
                     destinationOverride: destination,
                     transactionIdOverride: file.TransactionId,
-                    stagingParentOverride: batchDirectory);
+                    stagingParentOverride: batchDirectory,
+                    importerSettings: importerSettings);
                 published.Add(transaction);
                 imported.Add(new ImportedAssetFile(
                     transaction.Manifest.SourcePath,
@@ -1598,7 +1603,8 @@ internal static class AssetImportWorkflow
         PlannedImportFile? expectedSource = null,
         string? destinationOverride = null,
         string? transactionIdOverride = null,
-        string? stagingParentOverride = null)
+        string? stagingParentOverride = null,
+        AssetImporterSettings? importerSettings = null)
     {
         string source = ValidateSourceFile(database.AssetsRoot, sourcePath);
         if (expectedSource != null &&
@@ -1691,9 +1697,13 @@ internal static class AssetImportWorkflow
                     $"Recursive import source changed after planning: " +
                     $"'{Path.GetFileName(source)}'.");
             }
-            string importer = ImporterForKind(
-                AssetDatabase.ClassifyExtension(Path.GetExtension(relativeDestination)));
-            var importSettings = new[]
+            string assetKind = AssetDatabase.ClassifyExtension(
+                Path.GetExtension(relativeDestination));
+            AssetImporterRecipe recipe =
+                AssetImporterRecipeContract.Create(
+                    assetKind,
+                    importerSettings);
+            var sourceSettings = new[]
             {
                 KeyValuePair.Create(
                     "sourceContentHash",
@@ -1705,12 +1715,17 @@ internal static class AssetImportWorkflow
                     "sourceSizeBytes",
                     snapshot.Length.ToString(CultureInfo.InvariantCulture)),
             };
+            KeyValuePair<string, string>[] importSettings =
+                recipe.Settings
+                    .Concat(sourceSettings)
+                    .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                    .ToArray();
             (AssetMetadata _, byte[] metadataBytes) =
                 database.CreateImportMetadataPayload(
                     relativeDestination,
                     source,
-                    importer,
-                    importerVersion: 1,
+                    recipe.Importer,
+                    recipe.ImporterVersion,
                     importSettings);
             WriteNewDurableFile(stagedMetadata, metadataBytes);
 
@@ -3779,18 +3794,6 @@ internal static class AssetImportWorkflow
         if (hooks?.FailAfter == checkpoint)
             throw new IOException($"Injected import failure after '{checkpoint}'.");
     }
-
-    private static string ImporterForKind(string kind) => kind switch
-    {
-        "image" => "texture",
-        "audio" => "audio",
-        "mesh" => "mesh",
-        "scene" => "scene",
-        "material" => "material",
-        "blueprint" => "blueprint",
-        "prefab" => "prefab",
-        _ => "passthrough",
-    };
 
     private static string SafeFileName(string? path)
     {

@@ -12,15 +12,19 @@ vertical slice. It performs:
    scene/material references to portable virtual paths;
 5. deterministic `acs_assetpack pack` output followed by native
    `acs_assetpack verify` of every entry and CRC;
-6. path-safe staging of the exact game executable, required non-system DLLs,
-   Microsoft VC runtime DLLs, `game.acpak`, and `Config/`;
-7. a manifest containing the Cooked pack path, SHA-256, format version,
+6. path-safe staging of a private game-executable copy, required non-system
+   DLLs, Microsoft VC runtime DLLs, `game.acpak`, and `Config/`;
+7. deterministic publication and immediate read-back verification of project
+   identity and distribution fields in the staged EXE's PE `VERSIONINFO`,
+   plus preservation of a compatible embedded application manifest or
+   generation of a missing `asInvoker` manifest;
+8. a manifest containing the Cooked pack path, SHA-256, format version,
    compression policy, source entry count, content-derived build ID, canonical
    scene Asset ID/importer/graph hash, and a reversible scene bootstrap
    envelope, plus validated distribution metadata; and
-8. a deterministic ZIP with stable entry order and timestamps, followed by a
-   complete manifest/path/size/SHA-256 and executable-header verification
-   before atomic publication.
+9. a deterministic ZIP with stable entry order and timestamps, followed by a
+   complete manifest/path/size/SHA-256, executable-header, application-manifest,
+   and manifest-to-`VERSIONINFO` verification before atomic publication.
 
 PDBs are opt-in. Editor-only `*_reflect.dll` files are always excluded.
 `Assets/` and `Config/` reject symlinks, junctions, and other reparse points.
@@ -44,6 +48,22 @@ section's raw or virtual range. A text file, malformed section layout, invalid
 entry point, or foreign-architecture binary renamed to `.exe` fails as
 `EXECUTABLE_INVALID` both before staging and when a completed archive is
 independently verified.
+
+PE resource inspection is also bounded and side-effect-free: the resource
+directory is limited to 64 MiB and each relevant `VERSIONINFO` or application
+manifest payload to 4 MiB. The parser honors PE32+
+`NumberOfRvaAndSizes`, rejects a directory count that does not fit the
+optional header, and limits one resource tree to 4,096 unique directory
+visits and 16,384 aggregate entries; repeated or cyclic directory offsets
+fail closed. An embedded process manifest is parsed with DTDs disabled. It
+must be a Windows `assembly` identity compatible with AMD64 (or
+architecture-neutral) and must use the effective
+`asInvoker` / `uiAccess=false` policy. Multiple language variants, malformed
+XML, `highestAvailable`, or `requireAdministrator` fail preflight as
+`EXECUTABLE_MANIFEST_INVALID`. Package never replaces an existing compatible
+manifest. If the executable has no process manifest, the Windows packaging
+host adds a deterministic AMD64 `asInvoker` identity to the private staged
+copy. No external `rc.exe` or `mt.exe` lookup is required.
 
 On Windows, runtime dependency resolution pins CMake's script-mode scanner to
 the `windows+pe`/`dumpbin` backend. `dumpbin.exe` is resolved from `PATH`, the
@@ -74,7 +94,30 @@ properties, bounds the file and each string, rejects hidden control
 characters, and requires a canonical absolute HTTPS support URL. The validated
 object is embedded as `productMetadata` in `package-manifest.json`; CLI
 `verify`, `inspect`, and `diff` preserve and compare it. Older schema-v3
-archives without `productMetadata` remain verifiable.
+archives without `productMetadata` retain structural and compatible-manifest
+verification; exact manifest-to-PE field binding begins when that object is
+present.
+
+The same captured object is applied to the private staged executable before
+payload hashing:
+
+- project name -> `ProductName`;
+- Package dialog version -> exact `ProductVersion`;
+- publisher -> `CompanyName`;
+- description -> `FileDescription`;
+- copyright -> `LegalCopyright`; and
+- support URL -> the custom `SupportUrl` string entry.
+
+`FileVersion` and the fixed Win32 file/product versions use the SemVer numeric
+core as `major.minor.patch.0`; prerelease/build text remains exact in
+`ProductVersion`. Each numeric component must fit `0..65535`, otherwise
+preflight reports `EXECUTABLE_METADATA_INVALID` instead of truncating it.
+`OriginalFilename` is the packaged EXE leaf name. The resource uses one
+canonical ID/language/string table, and Package reads it back byte-for-byte.
+Archive verification reconstructs the expected fields from
+`productName`, `productVersion`, `executable`, and `productMetadata` in
+`package-manifest.json`; any missing, duplicate, non-canonical, or mismatched
+resource fails closed. The original Release build output is never modified.
 
 The Editor exposes this document under `Project Settings > Distribution`.
 Edits are staged with inline validation from the same package contract, then
@@ -168,7 +211,10 @@ dotnet run --project tools/acspackage -- validate `
 exercises byte-identical Cook/ZIP output, the native pack verifier, manifest
 pack hashes, all profiles, canonical identity/bootstrap metadata, 2D and
 supported 3D reference rewriting, product metadata, PE32+ AMD64 preflight,
-metadata exclusions, unsupported/external inputs, traversal protection, and
+byte-identical independent `VERSIONINFO` updates, Windows version-API
+visibility, exact manifest-to-PE round trips, compatible/generated
+application manifests, duplicate resource/language rejection, metadata
+reparse protection, unsupported/external inputs, traversal protection, and
 the 3D fail-closed boundary.
 
 ## Distribution E2E audit
@@ -231,11 +277,13 @@ ships a scene with silently missing runtime behavior.
 
 Portable ZIP generation does not perform executable signing or publish to an
 external service. The Config snapshot and package manifest now carry
-publisher, copyright, description, and HTTPS support URL. Remaining
+publisher, copyright, description, and HTTPS support URL, and the staged EXE
+now carries the corresponding deterministic `VERSIONINFO`. Remaining
 distribution work includes:
 
-- semantic product version (currently entered in the Package dialog);
-- application icon and Windows version resources;
+- a durable project-level semantic version/release-channel policy (the current
+  version is entered in the Package dialog);
+- application icon selection and icon-resource publication;
 - package identifier and additional platform distribution profiles;
 - signing certificate selection backed by an OS credential store;
 - installer/MSIX generation and prerequisite declarations;
@@ -245,3 +293,7 @@ distribution work includes:
 
 Signing keys, store credentials, and store submission require user-owned
 external authority and are intentionally outside the local package command.
+Icon publication also remains separate because the current package metadata
+schema has no icon source. Signing must occur after all resource updates;
+Package intentionally does not claim that its staged resource rewrite
+preserves a signature from the unsigned build-input phase.

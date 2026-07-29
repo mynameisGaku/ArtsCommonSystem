@@ -317,7 +317,16 @@ public partial class App : Application
         if (e.Args.Length >= 1 && e.Args[0] == "--asset-import-selftest")
         {
             int failures = AssetImportWorkflowSelfTest.Run(Console.Error);
+            failures += AssetImporterSettingsSelfTest.Run(Console.Error);
             Shutdown(failures);
+            return;
+        }
+        if (e.Args.Length >= 2 &&
+            e.Args[0] == "--asset-import-settings-visual-fixture")
+        {
+            Shutdown(AssetImportSettingsVisualFixture.Run(
+                e.Args[1],
+                Console.Error));
             return;
         }
 
@@ -330,6 +339,7 @@ public partial class App : Application
             failures += AssetCreationSelfTest.Run(Console.Error);
             failures += AssetManagementSelfTest.Run(Console.Error);
             failures += AssetImportWorkflowSelfTest.Run(Console.Error);
+            failures += AssetImporterSettingsSelfTest.Run(Console.Error);
             failures += AssetTrashWorkflowSelfTest.Run(Console.Error);
             failures += AssetPathChangeSelfTest.Run(Console.Error);
             failures += AssetViewPresentationSelfTest.Run(Console.Error);
@@ -365,6 +375,17 @@ public partial class App : Application
             e.Args[0] == "--camera-authoring-selftest")
         {
             int failures = CameraAuthoringSelfTest.Run(Console.Error);
+            Shutdown(failures);
+            return;
+        }
+
+        // CLI: --inspector-multi-edit-selftest -> mixed-value presentation,
+        // stale-selection rejection, and all-or-nothing batch rollback.
+        if (e.Args.Length >= 1 &&
+            e.Args[0] == "--inspector-multi-edit-selftest")
+        {
+            int failures =
+                InspectorMultiEditSelfTest.Run(Console.Error);
             Shutdown(failures);
             return;
         }

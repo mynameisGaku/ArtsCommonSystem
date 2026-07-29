@@ -5,13 +5,16 @@
 #include "editor_abi/EditorFrustumCulling.h"
 #include "editor_abi/EditorAbiCapabilities.h"
 #include "editor_abi/EditorCloudWorkload.h"
+#include "editor_abi/EditorServiceDiagnostics.h"
 
 #include <windows.h>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <limits>
 #include <string>
+#include <thread>
 
 extern "C" __declspec(dllimport) void* acs_editor_create(void);
 extern "C" __declspec(dllimport) std::uint32_t
@@ -23,6 +26,12 @@ extern "C" __declspec(dllimport) int acs_editor_abi_query(
     std::uint64_t required_capabilities,
     std::uint32_t* out_version,
     std::uint64_t* out_capabilities);
+extern "C" __declspec(dllimport) int
+acs_editor_optional_service_diagnostic_get(
+    void* handle,
+    std::uint32_t service,
+    acs::editor_service_diagnostics::FDiagnostic* out_diagnostic,
+    std::uint32_t out_size);
 extern "C" __declspec(dllimport) const char* acs_editor_render_backend(void);
 extern "C" __declspec(dllimport) void acs_editor_destroy(void* handle);
 extern "C" __declspec(dllimport) int acs_editor_node_count(void* handle);
@@ -38,6 +47,9 @@ extern "C" __declspec(dllimport) void acs_editor_node_set_transform(
 extern "C" __declspec(dllimport) int acs_editor_node3d_set_transform(
     void* handle, int id, float px, float py, float pz, float rx, float ry, float rz,
     float sx, float sy, float sz);
+extern "C" __declspec(dllimport) int acs_editor_node3d_set_transform_masked(
+    void* handle, int id, std::uint32_t component_mask, const float* values9,
+    std::uint32_t value_count);
 extern "C" __declspec(dllimport) int acs_editor_node3d_get_transform(
     void* handle, int id, float* out9);
 extern "C" __declspec(dllimport) int acs_editor_scene3d_serialize(
@@ -207,6 +219,24 @@ bool RunAbiCapabilityContract() noexcept
         (kRequiredManagedHostCapabilities &
          CapabilityBit(ECapability::CameraViewRequestsV1)) == 0u,
         "multi-view request scheduling must remain optional");
+    static_assert(
+        (kCapabilities &
+         CapabilityBit(
+             ECapability::OptionalServiceDiagnosticsV2)) != 0u);
+    static_assert(
+        (kRequiredManagedHostCapabilities &
+         CapabilityBit(
+             ECapability::OptionalServiceDiagnosticsV2)) == 0u,
+        "service diagnostics must remain optional");
+    static_assert(
+        (kCapabilities &
+         CapabilityBit(
+             ECapability::SparseTransformMutationV1)) != 0u);
+    static_assert(
+        (kRequiredManagedHostCapabilities &
+         CapabilityBit(
+             ECapability::SparseTransformMutationV1)) != 0u,
+        "managed Details relies on sparse transform mutation");
 
     std::uint32_t version = 0u;
     std::uint64_t capabilities = 0ull;
@@ -240,6 +270,285 @@ bool RunAbiCapabilityContract() noexcept
            rejects_unknown_requirement &&
            backend != nullptr &&
            backend[0] != '\0';
+}
+
+bool RunOptionalServiceDiagnosticContract() noexcept
+{
+    using namespace acs::editor_service_diagnostics;
+    static_assert(sizeof(FDiagnostic) == kDiagnosticSize);
+    static_assert(kLegacyDiagnosticSize == 192u);
+    static_assert(kDiagnosticSize == 256u);
+
+    FDiagnostic malformed{};
+    malformed.version = 99u;
+    malformed.struct_size = kDiagnosticSize;
+    malformed.state = 0xA5A5A5A5u;
+    const bool rejects_null_output =
+        acs_editor_optional_service_diagnostic_get(
+            nullptr,
+            static_cast<acs::u32>(EService::Profiler),
+            nullptr,
+            kDiagnosticSize) == 0;
+    const bool rejects_unknown_version =
+        acs_editor_optional_service_diagnostic_get(
+            reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(1u)),
+            static_cast<acs::u32>(EService::Profiler),
+            &malformed,
+            kDiagnosticSize) == 0 &&
+        malformed.state == 0xA5A5A5A5u;
+    malformed = {};
+    malformed.version = kDiagnosticVersion;
+    malformed.struct_size = kDiagnosticSize - 1u;
+    const bool rejects_short_declared_size =
+        acs_editor_optional_service_diagnostic_get(
+            reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(1u)),
+            static_cast<acs::u32>(EService::Profiler),
+            &malformed,
+            kDiagnosticSize) == 0;
+    malformed = {};
+    malformed.state = 0xA5A5A5A5u;
+    const bool rejects_output_smaller_than_declared =
+        acs_editor_optional_service_diagnostic_get(
+            reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(1u)),
+            static_cast<acs::u32>(EService::Profiler),
+            &malformed,
+            kLegacyDiagnosticSize) == 0 &&
+        malformed.state == 0xA5A5A5A5u;
+    const bool rejects_header_too_short =
+        acs_editor_optional_service_diagnostic_get(
+            reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(1u)),
+            static_cast<acs::u32>(EService::Profiler),
+            &malformed,
+            sizeof(acs::u32) * 2u - 1u) == 0 &&
+        malformed.state == 0xA5A5A5A5u;
+
+    FDiagnostic invalid_host{};
+    const bool reports_invalid_host =
+        acs_editor_optional_service_diagnostic_get(
+            nullptr,
+            static_cast<acs::u32>(EService::Profiler),
+            &invalid_host,
+            kDiagnosticSize) == 1 &&
+        invalid_host.version == kDiagnosticVersion &&
+        invalid_host.struct_size == kDiagnosticSize &&
+        invalid_host.state == static_cast<acs::u32>(EState::Failed) &&
+        invalid_host.reason ==
+            static_cast<acs::u32>(EReason::InvalidHost) &&
+        invalid_host.error_domain ==
+            static_cast<acs::u32>(EErrorDomain::EditorHost) &&
+        invalid_host.error_code ==
+            static_cast<acs::i32>(EErrorCode::InvalidHost) &&
+        invalid_host.host_generation == 0u &&
+        invalid_host.diagnostic_generation != 0u &&
+        std::memchr(
+            invalid_host.message_utf8,
+            '\0',
+            kMessageBytes) != nullptr &&
+        std::memchr(
+            invalid_host.stable_code_utf8,
+            '\0',
+            kStableCodeBytes) != nullptr;
+    FDiagnostic invalid_nonnull_host{};
+    const bool never_dereferences_unregistered_host =
+        acs_editor_optional_service_diagnostic_get(
+            reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(1u)),
+            static_cast<acs::u32>(EService::Profiler),
+            &invalid_nonnull_host,
+            kDiagnosticSize) == 1 &&
+        invalid_nonnull_host.state ==
+            static_cast<acs::u32>(EState::Failed) &&
+        invalid_nonnull_host.reason ==
+            static_cast<acs::u32>(EReason::InvalidHost) &&
+        invalid_nonnull_host.host_generation == 0u;
+
+    void* const first = acs_editor_create();
+    void* const second = acs_editor_create();
+    if (first == nullptr || second == nullptr) {
+        acs_editor_destroy(first);
+        acs_editor_destroy(second);
+        return false;
+    }
+
+    FDiagnostic profiler{};
+    const bool profiler_enabled =
+        acs_editor_optional_service_diagnostic_get(
+            first,
+            static_cast<acs::u32>(EService::Profiler),
+            &profiler,
+            kDiagnosticSize) == 1 &&
+        profiler.service == static_cast<acs::u32>(EService::Profiler) &&
+        profiler.state == static_cast<acs::u32>(EState::Enabled) &&
+        profiler.reason == static_cast<acs::u32>(EReason::None) &&
+        (profiler.flags & Callable) != 0u &&
+        profiler.host_generation != 0u &&
+        profiler.diagnostic_generation != 0u &&
+        profiler.error_domain ==
+            static_cast<acs::u32>(EErrorDomain::None) &&
+        profiler.error_code ==
+            static_cast<acs::i32>(EErrorCode::None);
+
+    FDiagnostic cloud{};
+    const bool cloud_pending_before_attach =
+        acs_editor_optional_service_diagnostic_get(
+            first,
+            static_cast<acs::u32>(
+                EService::VolumetricCloudWorkload),
+            &cloud,
+            kDiagnosticSize) == 1 &&
+        cloud.state == static_cast<acs::u32>(EState::Pending) &&
+        cloud.reason ==
+            static_cast<acs::u32>(EReason::StartupPending) &&
+        (cloud.flags & Retryable) != 0u &&
+        (cloud.flags & Callable) == 0u &&
+        cloud.host_generation == profiler.host_generation &&
+        cloud.diagnostic_generation >
+            profiler.diagnostic_generation &&
+        cloud.error_domain ==
+            static_cast<acs::u32>(EErrorDomain::Renderer) &&
+        cloud.error_code ==
+            static_cast<acs::i32>(EErrorCode::StartupPending);
+
+    FDiagnostic legacy;
+    std::memset(&legacy, 0xA5, sizeof(legacy));
+    legacy.version = kLegacyDiagnosticVersion;
+    legacy.struct_size = kLegacyDiagnosticSize;
+    const bool legacy_prefix_only =
+        acs_editor_optional_service_diagnostic_get(
+            first,
+            static_cast<acs::u32>(EService::Profiler),
+            &legacy,
+            kLegacyDiagnosticSize) == 1 &&
+        legacy.version == kLegacyDiagnosticVersion &&
+        legacy.struct_size == kLegacyDiagnosticSize &&
+        legacy.state == static_cast<acs::u32>(EState::Enabled) &&
+        legacy.host_generation == profiler.host_generation &&
+        std::memchr(
+            legacy.message_utf8,
+            '\0',
+            kMessageBytes) != nullptr &&
+        legacy.error_domain == 0xA5A5A5A5u &&
+        legacy.error_code == static_cast<acs::i32>(0xA5A5A5A5u);
+
+    FDiagnostic unknown{};
+    const bool reports_unknown_service =
+        acs_editor_optional_service_diagnostic_get(
+            first,
+            0xFFFFFFFFu,
+            &unknown,
+            kDiagnosticSize) == 1 &&
+        unknown.state == static_cast<acs::u32>(EState::Disabled) &&
+        unknown.reason ==
+            static_cast<acs::u32>(EReason::UnknownService) &&
+        unknown.error_domain ==
+            static_cast<acs::u32>(EErrorDomain::EditorAbi) &&
+        unknown.error_code ==
+            static_cast<acs::i32>(EErrorCode::UnknownService);
+
+    FDiagnostic second_profiler{};
+    const bool host_generations_are_unique =
+        acs_editor_optional_service_diagnostic_get(
+            second,
+            static_cast<acs::u32>(EService::Profiler),
+            &second_profiler,
+            kDiagnosticSize) == 1 &&
+        second_profiler.host_generation != 0u &&
+        second_profiler.host_generation !=
+            profiler.host_generation;
+
+    void* const stale_first = first;
+    acs_editor_destroy(first);
+    FDiagnostic after_destroy{};
+    const bool destroyed_host_is_rejected_without_dereference =
+        acs_editor_optional_service_diagnostic_get(
+            stale_first,
+            static_cast<acs::u32>(EService::Profiler),
+            &after_destroy,
+            kDiagnosticSize) == 1 &&
+        after_destroy.state ==
+            static_cast<acs::u32>(EState::Failed) &&
+        after_destroy.reason ==
+            static_cast<acs::u32>(EReason::InvalidHost) &&
+        after_destroy.host_generation == 0u &&
+        after_destroy.diagnostic_generation >
+            second_profiler.diagnostic_generation;
+    // Registry removal also makes a repeated stale destroy a no-op.
+    acs_editor_destroy(stale_first);
+
+    bool query_destroy_race_is_safe = false;
+    void* const raced = acs_editor_create();
+    if (raced != nullptr) {
+        std::atomic<bool> stop_reader{false};
+        std::atomic<bool> reader_valid{true};
+        std::atomic<bool> saw_live{false};
+        std::atomic<bool> saw_invalid{false};
+        std::thread reader([&]() {
+            while (!stop_reader.load(std::memory_order_acquire)) {
+                FDiagnostic sample{};
+                if (acs_editor_optional_service_diagnostic_get(
+                        raced,
+                        static_cast<acs::u32>(EService::Profiler),
+                        &sample,
+                        kDiagnosticSize) != 1) {
+                    reader_valid.store(
+                        false, std::memory_order_release);
+                    break;
+                }
+                if (sample.host_generation != 0u &&
+                    sample.state ==
+                        static_cast<acs::u32>(EState::Enabled)) {
+                    saw_live.store(true, std::memory_order_release);
+                } else if (
+                    sample.host_generation == 0u &&
+                    sample.reason ==
+                        static_cast<acs::u32>(EReason::InvalidHost)) {
+                    saw_invalid.store(true, std::memory_order_release);
+                } else {
+                    reader_valid.store(
+                        false, std::memory_order_release);
+                    break;
+                }
+            }
+        });
+        for (int spin = 0;
+             spin < 10000 &&
+             !saw_live.load(std::memory_order_acquire);
+             ++spin) {
+            std::this_thread::yield();
+        }
+        acs_editor_destroy(raced);
+        for (int spin = 0;
+             spin < 10000 &&
+             !saw_invalid.load(std::memory_order_acquire);
+             ++spin) {
+            std::this_thread::yield();
+        }
+        stop_reader.store(true, std::memory_order_release);
+        reader.join();
+        query_destroy_race_is_safe =
+            reader_valid.load(std::memory_order_acquire) &&
+            saw_live.load(std::memory_order_acquire) &&
+            saw_invalid.load(std::memory_order_acquire);
+    }
+    acs_editor_destroy(second);
+    return rejects_null_output &&
+           rejects_unknown_version &&
+           rejects_short_declared_size &&
+           rejects_output_smaller_than_declared &&
+           rejects_header_too_short &&
+           reports_invalid_host &&
+           never_dereferences_unregistered_host &&
+           profiler_enabled &&
+           cloud_pending_before_attach &&
+           legacy_prefix_only &&
+           reports_unknown_service &&
+           host_generations_are_unique &&
+           destroyed_host_is_rejected_without_dereference &&
+           query_destroy_race_is_safe;
 }
 
 /** A production host starts blank and can enter/leave the loading presentation gate. */
@@ -694,6 +1003,90 @@ bool RunZeroScaleSafety() noexcept
         std::abs(transform[6]) >= 1.0e-4f &&
         std::abs(transform[7]) >= 1.0e-4f &&
         std::abs(transform[8]) >= 1.0e-4f;
+    acs_editor_destroy(host);
+    return ok;
+}
+
+/**
+ * Sparse Inspector writes preserve every unmasked transform component,
+ * including legacy finite scales below the current invertibility threshold.
+ */
+bool RunMaskedTransformMutationContract() noexcept
+{
+    void* const host = acs_editor_create();
+    if (host == nullptr) return false;
+
+    constexpr const char* kLegacyScene =
+        "ACS3D v2\n"
+        "N3D 17 -1 0 1 2 3 10 20 30 0 -0 0.00005 0.2 0.3 0.4 1 LegacyScale\n";
+    float initial[9]{};
+    bool ok =
+        acs_editor_scene3d_load_text(host, kLegacyScene) != 0 &&
+        acs_editor_node3d_get_transform(host, 17, initial) != 0 &&
+        initial[6] == 0.0f &&
+        initial[7] == 0.0f &&
+        std::signbit(initial[7]) &&
+        initial[8] == 5.0e-5f;
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    float location_request[9]{
+        9.0f, nan, nan,
+        nan, nan, nan,
+        nan, nan, nan,
+    };
+    float after_location[9]{};
+    ok = ok &&
+         acs_editor_node3d_set_transform_masked(
+             host, 17, 1u << 0u, location_request, 9u) != 0 &&
+         acs_editor_node3d_get_transform(
+             host, 17, after_location) != 0 &&
+         after_location[0] == 9.0f &&
+         after_location[1] == initial[1] &&
+         after_location[2] == initial[2] &&
+         after_location[6] == 0.0f &&
+         !std::signbit(after_location[6]) &&
+         after_location[7] == 0.0f &&
+         std::signbit(after_location[7]) &&
+         after_location[8] == initial[8];
+
+    float scale_request[9]{
+        nan, nan, nan,
+        nan, nan, nan,
+        nan, nan, 0.0f,
+    };
+    float after_scale[9]{};
+    ok = ok &&
+         acs_editor_node3d_set_transform_masked(
+             host, 17, 1u << 8u, scale_request, 9u) != 0 &&
+         acs_editor_node3d_get_transform(host, 17, after_scale) != 0 &&
+         after_scale[0] == after_location[0] &&
+         after_scale[6] == 0.0f &&
+         !std::signbit(after_scale[6]) &&
+         after_scale[7] == 0.0f &&
+         std::signbit(after_scale[7]) &&
+         after_scale[8] == 1.0e-4f;
+
+    float invalid_selected[9]{};
+    invalid_selected[0] = nan;
+    ok = ok &&
+         acs_editor_node3d_set_transform_masked(
+             host, 17, 0u, scale_request, 9u) == 0 &&
+         acs_editor_node3d_set_transform_masked(
+             host, 17, 1u << 9u, scale_request, 9u) == 0 &&
+         acs_editor_node3d_set_transform_masked(
+             host, 17, 1u << 0u, invalid_selected, 9u) == 0 &&
+         acs_editor_node3d_set_transform_masked(
+             host, 17, 1u << 0u, location_request, 8u) == 0;
+
+    float after_rejections[9]{};
+    ok = ok &&
+         acs_editor_node3d_get_transform(
+             host, 17, after_rejections) != 0 &&
+         std::memcmp(
+             after_scale,
+             after_rejections,
+             sizeof(after_scale)) == 0;
+
     acs_editor_destroy(host);
     return ok;
 }
@@ -1998,12 +2391,14 @@ int main()
 
     // OS とランタイムの初回遅延初期化を基準値から除外する。
     if (!RunAbiCapabilityContract()) return 18;
+    if (!RunOptionalServiceDiagnosticContract()) return 26;
     if (!RunOneLifecycle()) return 1;
     if (!RunStartupStatusContract()) return 13;
     if (!RunDestroyDuringAsyncWarmup()) return 14;
     if (!RunProfilerSnapshotContract()) return 12;
     if (!RunCloudWorkloadSnapshotContract()) return 19;
     if (!RunZeroScaleSafety()) return 8;
+    if (!RunMaskedTransformMutationContract()) return 27;
     if (!RunScene3DSerializationGrowth()) return 9;
     if (!RunSceneDocumentStrictPreflight()) return 17;
     if (!RunWater3DComponentRoundTrip()) return 15;

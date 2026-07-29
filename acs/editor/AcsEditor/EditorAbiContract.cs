@@ -24,6 +24,8 @@ internal enum EditorAbiCapability : ulong
     CameraAuthoringV1      = 1UL << 10,
     CameraViewRequestsV1   = 1UL << 11,
     ProfilerV5             = 1UL << 12,
+    OptionalServiceDiagnosticsV2 = 1UL << 13,
+    SparseTransformMutationV1 = 1UL << 14,
 }
 
 internal readonly record struct EditorAbiSnapshot(
@@ -86,7 +88,8 @@ internal static class EditorAbiContract
     internal const EditorAbiCapability RequiredCapabilities =
         EditorAbiCapability.FrameResultContract |
         EditorAbiCapability.IncrementalStartup |
-        EditorAbiCapability.ResizeResultContract;
+        EditorAbiCapability.ResizeResultContract |
+        EditorAbiCapability.SparseTransformMutationV1;
 
     internal static readonly IReadOnlyList<EditorAbiCapability>
         KnownCapabilities = Array.AsReadOnly(new[]
@@ -104,6 +107,8 @@ internal static class EditorAbiContract
             EditorAbiCapability.VolumetricCloudWorkloadV1,
             EditorAbiCapability.CameraAuthoringV1,
             EditorAbiCapability.CameraViewRequestsV1,
+            EditorAbiCapability.OptionalServiceDiagnosticsV2,
+            EditorAbiCapability.SparseTransformMutationV1,
         });
 
     private const EditorAbiCapability AllKnownCapabilities =
@@ -119,7 +124,9 @@ internal static class EditorAbiContract
         EditorAbiCapability.ResizeResultContract |
         EditorAbiCapability.VolumetricCloudWorkloadV1 |
         EditorAbiCapability.CameraAuthoringV1 |
-        EditorAbiCapability.CameraViewRequestsV1;
+        EditorAbiCapability.CameraViewRequestsV1 |
+        EditorAbiCapability.OptionalServiceDiagnosticsV2 |
+        EditorAbiCapability.SparseTransformMutationV1;
 
     internal static EditorAbiSnapshot Evaluate(
         bool queryAvailable,
@@ -200,6 +207,10 @@ internal static class EditorAbiContract
                 "camera-authoring-v1",
             EditorAbiCapability.CameraViewRequestsV1 =>
                 "camera-view-requests-v1",
+            EditorAbiCapability.OptionalServiceDiagnosticsV2 =>
+                "optional-service-diagnostics-v2",
+            EditorAbiCapability.SparseTransformMutationV1 =>
+                "sparse-transform-mutation-v1",
             _ => "unknown",
         };
 }

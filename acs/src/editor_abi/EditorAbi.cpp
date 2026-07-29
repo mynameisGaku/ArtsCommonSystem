@@ -25,6 +25,8 @@
 #include "memory/MemorySystem.h"
 #include "threading/Thread.h"
 #include "threading/ThreadPool.h"
+#include "threading/Mutex.h"
+#include "threading/ScopedLock.h"
 #include "gameframework/Reflect.h"          // FTypeRegistry / FTypeDesc / ETypeCategory
 #include "gameframework/ReflectCatalog.h"   // AcsRegisterEngineTypes (エンジン型カタログ)
 #include "gameframework/ANode.h"           // 実シーングラフ ANode / FTransform2D
@@ -80,6 +82,7 @@
 #include "editor_abi/EditorCloudWorkload.h"  // optional exact cloud-work snapshot ABI
 #include "editor_abi/EditorFrameContract.h"  // busy/fatal/presented frame contract
 #include "editor_abi/EditorAbiCapabilities.h" // versioned host capability negotiation
+#include "editor_abi/EditorServiceDiagnostics.h"
 #include "editor_abi/EditorRenderPolicy.h"   // producer/consumer gates for cached render data
 
 #include <cstdint>
@@ -89,6 +92,7 @@
 #include <algorithm> // std::max / std::abs (3D ピック)
 #include <new>      // std::nothrow
 #include <atomic>   // std::atomic (エンジンログ取り込み用 SPSC リング)
+#include <array>
 #include <limits>
 #include <cerrno>
 #include <cctype>
@@ -118,6 +122,45 @@ constexpr f32 kCamera3DPitchLimit = 1.5533f;  // 89 degrees: avoid the orbit-cam
 constexpr f32 kCamera3DMinDistance = 1.0f;
 constexpr f32 kCamera3DMaxDistance = 200.0f;
 constexpr f32 kCamera3DFramePitch = 0.55f;    // Stable downward framing view.
+std::atomic<u64> g_next_editor_host_generation{1u};
+std::atomic<u64> g_next_editor_diagnostic_generation{1u};
+struct FEditorHost;
+inline constexpr usize kMaxLiveEditorHosts = 4096u;
+FMutex g_editor_host_registry_mutex;
+std::array<const FEditorHost*, kMaxLiveEditorHosts>
+    g_live_editor_hosts{};
+usize g_live_editor_host_count = 0u;
+
+bool RegisterEditorHost(const FEditorHost* host) noexcept
+{
+    if (host == nullptr) return false;
+    const FScopedLock lock(g_editor_host_registry_mutex);
+    for (usize index = 0u;
+         index < g_live_editor_host_count;
+         ++index) {
+        if (g_live_editor_hosts[index] == host) return false;
+    }
+    if (g_live_editor_host_count == kMaxLiveEditorHosts) return false;
+    g_live_editor_hosts[g_live_editor_host_count++] = host;
+    return true;
+}
+
+bool UnregisterEditorHost(const FEditorHost* host) noexcept
+{
+    if (host == nullptr) return false;
+    const FScopedLock lock(g_editor_host_registry_mutex);
+    for (usize index = 0u;
+         index < g_live_editor_host_count;
+         ++index) {
+        if (g_live_editor_hosts[index] != host) continue;
+        --g_live_editor_host_count;
+        g_live_editor_hosts[index] =
+            g_live_editor_hosts[g_live_editor_host_count];
+        g_live_editor_hosts[g_live_editor_host_count] = nullptr;
+        return true;
+    }
+    return false;
+}
 
 /**
  * エディタ・シーンの 1 ノード。エンジンの実 ANode を継承し、階層・transform・
@@ -342,6 +385,9 @@ struct FSceneMeshCacheKey {
 struct FEditorHost {
     FRenderer    renderer;
     FSpriteBatch sprites;
+    // Monotonic process-local identity used to reject results that complete
+    // after a managed HwndHost has been destroyed and rebuilt.
+    u64          abi_host_generation = 0u;
     bool         attached      = false;
     bool         sprites_ready = false;
     // Startup GPU work is advanced one bounded step per render-pump message.
@@ -349,8 +395,8 @@ struct FEditorHost {
     // thread-affinity contract while allowing the WPF dispatcher to process
     // paint/input between shader and PSO creation steps.
     u32          startup_step   = 0;
-    bool         startup_ready  = false;
-    bool         startup_failed = false;
+    std::atomic<bool> startup_ready{false};
+    std::atomic<bool> startup_failed{false};
     // The managed editor suppresses scene presentation while a scene document is being
     // loaded.  Renderer warm-up and blank swapchain presentation continue, but no old
     // scene, sky, cloud, gizmo, or simulation frame may leak through the loading boundary.
@@ -393,7 +439,7 @@ struct FEditorHost {
     editor_profiler::FAccumulator profiler_work{};
     editor_profiler::FSnapshot    profiler_snapshot{};
     editor_cloud_workload::FSnapshot cloud_workload_snapshot{};
-    bool                          cloud_workload_available = false;
+    std::atomic<bool>             cloud_workload_available{false};
     editor_profiler::FRollingPeak profiler_cpu_peak{};
     editor_profiler::FRollingPeak profiler_gpu_peak{};
     editor_profiler::FRollingPeak profiler_active_cpu_peak{};
@@ -2909,6 +2955,205 @@ FLogRing g_log_ring;
 void EditorLogSink(acs::ELogSeverity sev, const char* msg) noexcept {
     g_log_ring.push(static_cast<int>(sev), msg);
 }
+u64 NextNonZeroGeneration(std::atomic<u64>& counter) noexcept
+{
+    u64 value = counter.fetch_add(1u, std::memory_order_relaxed);
+    if (value == 0u) {
+        value = counter.fetch_add(1u, std::memory_order_relaxed);
+    }
+    return value;
+}
+
+void CopyServiceDiagnosticText(
+    char* destination, usize capacity, const char* source) noexcept
+{
+    if (destination == nullptr || capacity == 0u) return;
+    destination[0] = '\0';
+    if (source == nullptr) return;
+    const usize source_bytes = std::strlen(source);
+    usize copy_bytes =
+        std::min(source_bytes, capacity - 1u);
+    if (copy_bytes < source_bytes) {
+        // Do not leave a truncated multi-byte code point in an otherwise
+        // strict UTF-8 ABI field. source[copy_bytes] is the first excluded
+        // byte, so continuation bytes mean the preceding code point is split.
+        while (copy_bytes > 0u &&
+               (static_cast<unsigned char>(source[copy_bytes]) &
+                0xC0u) == 0x80u) {
+            --copy_bytes;
+        }
+    }
+    if (copy_bytes != 0u) {
+        std::memcpy(destination, source, copy_bytes);
+    }
+    destination[copy_bytes] = '\0';
+}
+
+void SetServiceDiagnosticStatus(
+    editor_service_diagnostics::FDiagnostic& diagnostic,
+    editor_service_diagnostics::EState state,
+    editor_service_diagnostics::EReason reason,
+    u32 flags,
+    editor_service_diagnostics::EErrorDomain error_domain,
+    editor_service_diagnostics::EErrorCode error_code,
+    const char* message,
+    const char* stable_code) noexcept
+{
+    diagnostic.state = static_cast<u32>(state);
+    diagnostic.reason = static_cast<u32>(reason);
+    diagnostic.flags = flags;
+    diagnostic.error_domain = static_cast<u32>(error_domain);
+    diagnostic.error_code = static_cast<i32>(error_code);
+    CopyServiceDiagnosticText(
+        diagnostic.message_utf8,
+        editor_service_diagnostics::kMessageBytes,
+        message);
+    CopyServiceDiagnosticText(
+        diagnostic.stable_code_utf8,
+        editor_service_diagnostics::kStableCodeBytes,
+        stable_code);
+}
+
+u64 RequiredCapabilityForService(u32 service) noexcept
+{
+    using editor_abi::CapabilityBit;
+    using editor_abi::ECapability;
+    using editor_service_diagnostics::EService;
+    switch (static_cast<EService>(service)) {
+    case EService::Profiler:
+        return CapabilityBit(ECapability::ProfilerV5);
+    case EService::VolumetricCloudWorkload:
+        return CapabilityBit(
+            ECapability::VolumetricCloudWorkloadV1);
+    case EService::CameraViewRequests:
+        return CapabilityBit(ECapability::CameraViewRequestsV1);
+    default:
+        return 0u;
+    }
+}
+
+editor_service_diagnostics::FDiagnostic ResolveServiceDiagnostic(
+    const FEditorHost* host,
+    u32 service,
+    u64 diagnostic_generation) noexcept
+{
+    using namespace editor_service_diagnostics;
+    FDiagnostic diagnostic{};
+    diagnostic.service = service;
+    diagnostic.host_generation =
+        host != nullptr ? host->abi_host_generation : 0u;
+    diagnostic.diagnostic_generation = diagnostic_generation;
+
+    const u64 required_capability = RequiredCapabilityForService(service);
+    if (required_capability == 0u) {
+        SetServiceDiagnosticStatus(
+            diagnostic,
+            EState::Disabled,
+            EReason::UnknownService,
+            0u,
+            EErrorDomain::EditorAbi,
+            EErrorCode::UnknownService,
+            "The requested optional editor service is unknown.",
+            "ACS.SERVICE.UNKNOWN");
+        return diagnostic;
+    }
+    if ((editor_abi::kCapabilities & required_capability) == 0u) {
+        SetServiceDiagnosticStatus(
+            diagnostic,
+            EState::Disabled,
+            EReason::CapabilityNotAdvertised,
+            0u,
+            EErrorDomain::EditorAbi,
+            EErrorCode::CapabilityNotAdvertised,
+            "The native provider did not advertise this optional service.",
+            "ACS.SERVICE.CAPABILITY_MISSING");
+        return diagnostic;
+    }
+    if (host == nullptr) {
+        SetServiceDiagnosticStatus(
+            diagnostic,
+            EState::Failed,
+            EReason::InvalidHost,
+            0u,
+            EErrorDomain::EditorHost,
+            EErrorCode::InvalidHost,
+            "The editor host is null or no longer available.",
+            "ACS.SERVICE.INVALID_HOST");
+        return diagnostic;
+    }
+
+    switch (static_cast<EService>(service)) {
+    case EService::Profiler:
+        SetServiceDiagnosticStatus(
+            diagnostic,
+            EState::Enabled,
+            EReason::None,
+            Callable,
+            EErrorDomain::None,
+            EErrorCode::None,
+            "Profiler snapshots are available.",
+            "ACS.SERVICE.PROFILER.ENABLED");
+        break;
+    case EService::VolumetricCloudWorkload:
+        if (host->startup_failed) {
+            SetServiceDiagnosticStatus(
+                diagnostic,
+                EState::Failed,
+                EReason::StartupFailed,
+                0u,
+                EErrorDomain::Renderer,
+                EErrorCode::StartupFailed,
+                "Renderer startup failed before cloud diagnostics became available.",
+                "ACS.SERVICE.CLOUD.STARTUP_FAILED");
+        } else if (!host->startup_ready) {
+            SetServiceDiagnosticStatus(
+                diagnostic,
+                EState::Pending,
+                EReason::StartupPending,
+                Retryable,
+                EErrorDomain::Renderer,
+                EErrorCode::StartupPending,
+                "Cloud diagnostics are waiting for incremental renderer startup.",
+                "ACS.SERVICE.CLOUD.STARTUP_PENDING");
+        } else if (!host->cloud_workload_available) {
+            SetServiceDiagnosticStatus(
+                diagnostic,
+                EState::Inactive,
+                EReason::SceneFeatureInactive,
+                Callable | Retryable,
+                EErrorDomain::Renderer,
+                EErrorCode::SceneFeatureInactive,
+                "Cloud diagnostics are callable, but no cloud workload is active.",
+                "ACS.SERVICE.CLOUD.INACTIVE");
+        } else {
+            SetServiceDiagnosticStatus(
+                diagnostic,
+                EState::Enabled,
+                EReason::None,
+                Callable,
+                EErrorDomain::None,
+                EErrorCode::None,
+                "Cloud workload snapshots are available.",
+                "ACS.SERVICE.CLOUD.ENABLED");
+        }
+        break;
+    case EService::CameraViewRequests:
+        SetServiceDiagnosticStatus(
+            diagnostic,
+            EState::Enabled,
+            EReason::None,
+            Callable,
+            EErrorDomain::None,
+            EErrorCode::None,
+            "Camera-view request scheduling is available.",
+            "ACS.SERVICE.CAMERA_VIEWS.ENABLED");
+        break;
+    default:
+        break;
+    }
+    return diagnostic;
+}
+
 } // namespace
 
 /** エディタホスト間で共有する基盤の所有権と参照数。 */
@@ -10490,14 +10735,100 @@ ACS_EDITOR_API int acs_editor_abi_query(
         required_capabilities) ? 1 : 0;
 }
 
+/**
+ * Query the reason an optional native service is enabled, pending, inactive,
+ * disabled, or failed.
+ *
+ * A structurally valid request always returns 1 and receives a typed status,
+ * including null-host and unknown-service failures. Malformed version/size
+ * headers return 0 without dereferencing a host. Version 1 receives the exact
+ * 192-byte prefix; version 2 receives the full 256-byte payload.
+ */
+ACS_EDITOR_API int acs_editor_optional_service_diagnostic_get(
+    void* handle,
+    std::uint32_t service,
+    editor_service_diagnostics::FDiagnostic* out_diagnostic,
+    std::uint32_t out_size) {
+    using namespace editor_service_diagnostics;
+    if (out_diagnostic == nullptr ||
+        out_size < sizeof(u32) * 2u) {
+        return 0;
+    }
+
+    u32 requested_header[2]{};
+    std::memcpy(
+        requested_header,
+        out_diagnostic,
+        sizeof(requested_header));
+    const u32 requested_version = requested_header[0];
+    const u32 requested_size = requested_header[1];
+    u32 copy_size = 0u;
+    if (requested_version == kLegacyDiagnosticVersion) {
+        if (requested_size < kLegacyDiagnosticSize ||
+            requested_size > out_size ||
+            out_size < kLegacyDiagnosticSize) {
+            return 0;
+        }
+        copy_size = kLegacyDiagnosticSize;
+    } else if (requested_version == kDiagnosticVersion) {
+        if (requested_size < kDiagnosticSize ||
+            requested_size > out_size ||
+            out_size < kDiagnosticSize) {
+            return 0;
+        }
+        copy_size = kDiagnosticSize;
+    } else {
+        return 0;
+    }
+
+    FDiagnostic resolved{};
+    {
+        // Validate the opaque identity before dereferencing it and keep
+        // destroy from reclaiming a live host until the small status snapshot
+        // has been copied. This also makes stale non-null and arbitrary handles
+        // deterministic InvalidHost results instead of use-after-free reads.
+        const auto* candidate =
+            static_cast<const FEditorHost*>(handle);
+        const FScopedLock lock(g_editor_host_registry_mutex);
+        const FEditorHost* host = nullptr;
+        for (usize index = 0u;
+             index < g_live_editor_host_count;
+             ++index) {
+            const FEditorHost* live_host =
+                g_live_editor_hosts[index];
+            if (live_host != candidate) continue;
+            host = live_host;
+            break;
+        }
+        resolved = ResolveServiceDiagnostic(
+            host,
+            service,
+            NextNonZeroGeneration(
+                g_next_editor_diagnostic_generation));
+    }
+    if (requested_version == kLegacyDiagnosticVersion) {
+        resolved.version = kLegacyDiagnosticVersion;
+        resolved.struct_size = kLegacyDiagnosticSize;
+    }
+    std::memcpy(out_diagnostic, &resolved, copy_size);
+    return 1;
+}
+
 ACS_EDITOR_API void* acs_editor_create(void) {
     if (!EnsureSubsystems()) return nullptr;
     auto* host = new (std::nothrow) FEditorHost();
     if (host != nullptr) {
+        host->abi_host_generation =
+            NextNonZeroGeneration(g_next_editor_host_generation);
         // Production editor hosts start with an explicit empty document.  A demo scene here
         // used to be visible for several frames before the managed initial-scene load and
         // also became the accidental fallback after a failed load.
         ClearScene(*host);
+        if (!RegisterEditorHost(host)) {
+            delete host;
+            ReleaseSubsystems();
+            return nullptr;
+        }
     } else {
         ReleaseSubsystems();
     }
@@ -11847,7 +12178,7 @@ ACS_EDITOR_API void acs_editor_clear_instances(void* handle);
 
 ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr) return;
+    if (!UnregisterEditorHost(host)) return;
     // The worker owns no RHI resources, but it writes its compiled bytecode
     // result into the host.  Join before any host, renderer, or DLL teardown.
     JoinStartupWorker(*host);
@@ -16212,41 +16543,120 @@ ACS_EDITOR_API int acs_editor_node3d_get_transform(void* handle, int id, float* 
     return 1;
 }
 
+namespace {
+
+constexpr u32 kNode3DTransformComponentCount = 9u;
+constexpr u32 kNode3DTransformAllComponentsMask =
+    (1u << kNode3DTransformComponentCount) - 1u;
+constexpr u32 kNode3DRotationComponentsMask =
+    (1u << 3u) | (1u << 4u) | (1u << 5u);
+constexpr f32 kNode3DMinimumScaleMagnitude = 1.0e-4f;
+
+[[nodiscard]] f32 CanonicalNode3DScale(f32 value) noexcept
+{
+    if (value >= 0.0f && value < kNode3DMinimumScaleMagnitude) {
+        return kNode3DMinimumScaleMagnitude;
+    }
+    if (value < 0.0f && value > -kNode3DMinimumScaleMagnitude) {
+        return -kNode3DMinimumScaleMagnitude;
+    }
+    return value;
+}
+
+[[nodiscard]] int SetNode3DTransformMasked(
+    FEditorHost* host,
+    int id,
+    u32 component_mask,
+    const f32* values) noexcept
+{
+    if (host == nullptr ||
+        values == nullptr ||
+        component_mask == 0u ||
+        (component_mask & ~kNode3DTransformAllComponentsMask) != 0u) {
+        return 0;
+    }
+
+    game::ANode* const node = FindNode3DNode(*host, id);
+    if (node == nullptr) return 0;
+    for (u32 index = 0u; index < kNode3DTransformComponentCount; ++index) {
+        if ((component_mask & (1u << index)) != 0u &&
+            !std::isfinite(values[index])) {
+            return 0;
+        }
+    }
+
+    const bool resets_temporal_history =
+        TransformAffectsCurrentTemporalRenderCamera3D(*host, node);
+    if ((component_mask & (1u << 0u)) != 0u) {
+        node->Local().position.x = values[0];
+    }
+    if ((component_mask & (1u << 1u)) != 0u) {
+        node->Local().position.y = values[1];
+    }
+    if ((component_mask & (1u << 2u)) != 0u) {
+        node->Local().position.z = values[2];
+    }
+
+    if ((component_mask & kNode3DRotationComponentsMask) != 0u) {
+        AEditor3DRecordComponent* const record = Rec3D(node);
+        FVec3 euler =
+            (record != nullptr) ? record->euler : FVec3{ 0.0f, 0.0f, 0.0f };
+        if ((component_mask & (1u << 3u)) != 0u) euler.x = values[3];
+        if ((component_mask & (1u << 4u)) != 0u) euler.y = values[4];
+        if ((component_mask & (1u << 5u)) != 0u) euler.z = values[5];
+        node->Local().SetEulerDeg(euler);
+        if (record != nullptr) record->euler = euler;
+    }
+
+    if ((component_mask & (1u << 6u)) != 0u) {
+        node->Local().scale.x = CanonicalNode3DScale(values[6]);
+    }
+    if ((component_mask & (1u << 7u)) != 0u) {
+        node->Local().scale.y = CanonicalNode3DScale(values[7]);
+    }
+    if ((component_mask & (1u << 8u)) != 0u) {
+        node->Local().scale.z = CanonicalNode3DScale(values[8]);
+    }
+
+    if (resets_temporal_history) {
+        InvalidateTemporalRenderHistories(*host);
+    }
+    return 1;
+}
+
+} // namespace
+
+/**
+ * 3D ノードの transform の指定成分だけを設定する。
+ * component_mask の bit 0..8 は get_transform の float 0..8 に対応する。
+ * 未指定成分は読み書きせず、指定された scale 成分だけを invertible に正規化する。
+ */
+ACS_EDITOR_API int acs_editor_node3d_set_transform_masked(
+    void* handle,
+    int id,
+    std::uint32_t component_mask,
+    const float* values9,
+    std::uint32_t value_count)
+{
+    if (value_count != kNode3DTransformComponentCount) return 0;
+    return SetNode3DTransformMasked(
+        static_cast<FEditorHost*>(handle),
+        id,
+        static_cast<u32>(component_mask),
+        values9);
+}
+
 /** 3D ノードの transform を設定する。成功 1。 */
 ACS_EDITOR_API int acs_editor_node3d_set_transform(void* handle, int id,
         float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz) {
-    auto* host = static_cast<FEditorHost*>(handle);
-    if (host == nullptr) return 0;
-    game::ANode* n = FindNode3DNode(*host, id);
-    if (n == nullptr) return 0;
-    if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz) ||
-        !std::isfinite(rx) || !std::isfinite(ry) || !std::isfinite(rz) ||
-        !std::isfinite(sx) || !std::isfinite(sy) || !std::isfinite(sz)) {
-        return 0;
-    }
-    // PBR, motion-vector, and refraction passes use inverse-transpose normal
-    // matrices.  Preserve mirrored scales, but keep every axis invertible so
-    // an exact editor value of zero cannot inject NaN/Inf into the G-buffer.
-    constexpr f32 kMinScaleMagnitude = 1.0e-4f;
-    auto invertibleScale = [](f32 value) noexcept {
-        if (value >= 0.0f && value < kMinScaleMagnitude) return kMinScaleMagnitude;
-        if (value < 0.0f && value > -kMinScaleMagnitude) return -kMinScaleMagnitude;
-        return value;
+    const f32 values[kNode3DTransformComponentCount]{
+        px, py, pz, rx, ry, rz, sx, sy, sz,
     };
-    sx = invertibleScale(sx);
-    sy = invertibleScale(sy);
-    sz = invertibleScale(sz);
-    const bool resets_temporal_history =
-        TransformAffectsCurrentTemporalRenderCamera3D(
-            *host, n);
-    n->Local().position = FVec3{ px, py, pz };
-    n->Local().scale    = FVec3{ sx, sy, sz };
-    const FVec3 e{ rx, ry, rz };
-    n->Local().SetEulerDeg(e);                       // quat に焼く (描画/合成用)
-    AEditor3DRecordComponent* r = Rec3D(n); if (r != nullptr) r->euler = e;   // authored 値も保持
-    if (resets_temporal_history)
-        InvalidateTemporalRenderHistories(*host);
-    return 1;
+    return SetNode3DTransformMasked(
+        static_cast<FEditorHost*>(handle),
+        id,
+        kNode3DTransformAllComponentsMask,
+        values);
 }
 
 /** 3D ノードの色を取得する (rgba)。成功 1。 */

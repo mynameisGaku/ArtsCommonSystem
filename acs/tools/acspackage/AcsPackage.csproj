@@ -15,6 +15,7 @@
     <Compile Include="..\..\editor\AcsEditor\AssetCookPlanner.cs" Link="AssetCookPlanner.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetCreationWorkflow.cs" Link="AssetCreationWorkflow.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetImportWorkflow.cs" Link="AssetImportWorkflow.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\AssetImporterSettings.cs" Link="AssetImporterSettings.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetMutationLock.cs" Link="AssetMutationLock.cs"/>
     <Compile Include="..\..\editor\AcsEditor\AssetReimportWorkflow.cs" Link="AssetReimportWorkflow.cs"/>
     <Compile Include="..\..\editor\AcsEditor\CanonicalSceneAdapter.cs" Link="CanonicalSceneAdapter.cs"/>
@@ -24,6 +25,7 @@
     <Compile Include="..\..\editor\AcsEditor\EngineInterop.cs" Link="EngineInterop.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageCore.cs" Link="PackageCore.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageExecutableContract.cs" Link="PackageExecutableContract.cs"/>
+    <Compile Include="..\..\editor\AcsEditor\PackageExecutableMetadata.cs" Link="PackageExecutableMetadata.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageProcessRunner.cs" Link="PackageProcessRunner.cs"/>
     <Compile Include="..\..\editor\AcsEditor\PackageProductMetadata.cs" Link="PackageProductMetadata.cs"/>
     <Compile Include="..\..\editor\AcsEditor\Project.cs" Link="Project.cs"/>

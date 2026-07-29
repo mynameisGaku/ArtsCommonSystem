@@ -118,7 +118,9 @@ public partial class AssetBrowserPanel : UserControl
         IReadOnlyList<AssetBrowserCollectionView> Collections,
         string? SourcesWarning,
         ThumbnailDerivedDataCache? ThumbnailCache,
-        string? ThumbnailCacheWarning);
+        string? ThumbnailCacheWarning,
+        AssetImporterSettings ImporterSettings,
+        string? ImporterSettingsWarning);
 
     public ObservableCollection<AssetItem> Items { get; } = new();
     private ObservableCollection<AssetBrowserSourceNode> SourceRoots { get; } = new();
@@ -183,6 +185,8 @@ public partial class AssetBrowserPanel : UserControl
     private readonly AssetImageCache _thumbnailCache = new();
     private ThumbnailDerivedDataCache? _thumbnailDdc;
     private int _thumbnailDdcFailureReported;
+    private AssetImporterSettings _assetImporterSettings =
+        AssetImporterSettings.Default;
 
     /// <summary>画像/音声などのアセットがアクティブ化されたとき (MainWindow が割当を担う)。</summary>
     public event EventHandler<AssetActivatedEventArgs>? AssetActivated;
@@ -255,6 +259,7 @@ public partial class AssetBrowserPanel : UserControl
         _assetDatabase = null;
         _thumbnailDdc = null;
         _thumbnailDdcFailureReported = 0;
+        _assetImporterSettings = AssetImporterSettings.Default;
         _sourcesStore = null;
         _activeCollectionName = null;
         _assetSnapshot = Array.Empty<AssetRecord>();
@@ -377,6 +382,10 @@ public partial class AssetBrowserPanel : UserControl
                             "Persistent Asset thumbnail cache is unavailable: " +
                             error.Message;
                     }
+                    AssetImporterSettings importerSettings =
+                        AssetImporterSettingsStore.Load(
+                            project.RootDir,
+                            out string? importerSettingsWarning);
                     return new ProjectInitializationResult(
                         candidate,
                         refreshed,
@@ -388,7 +397,9 @@ public partial class AssetBrowserPanel : UserControl
                         collections,
                         sourcesWarning,
                         thumbnailCache,
-                        thumbnailCacheWarning);
+                        thumbnailCacheWarning,
+                        importerSettings,
+                        importerSettingsWarning);
                 },
                 waitForTurn: true,
                 cancellationToken);
@@ -420,6 +431,7 @@ public partial class AssetBrowserPanel : UserControl
         }
         _assetDatabase = database;
         _thumbnailDdc = initialization.ThumbnailCache;
+        _assetImporterSettings = initialization.ImporterSettings;
         _sourcesStore = initialization.SourcesStore;
         _assetSnapshot = initialization.Snapshot;
         UpdateAssetOperationUi();
@@ -428,6 +440,8 @@ public partial class AssetBrowserPanel : UserControl
             Log?.Invoke(initialization.SourcesWarning);
         if (initialization.ThumbnailCacheWarning != null)
             Log?.Invoke(initialization.ThumbnailCacheWarning);
+        if (initialization.ImporterSettingsWarning != null)
+            Log?.Invoke(initialization.ImporterSettingsWarning);
         foreach (string warning in importRecovery.Warnings)
             Log?.Invoke("Import recovery: " + warning);
         if (importRecovery.CompletedTransactions != 0 ||
@@ -3109,6 +3123,16 @@ public partial class AssetBrowserPanel : UserControl
             ? dlg.ShowDialog(owner)
             : dlg.ShowDialog();
         if (accepted != true) return;
+
+        var settingsWindow = new AssetImportSettingsWindow(
+            dlg.FileNames,
+            _assetImporterSettings);
+        if (owner != null)
+            settingsWindow.Owner = owner;
+        if (settingsWindow.ShowDialog() != true)
+            return;
+        _assetImporterSettings = settingsWindow.Settings;
+
         await ImportAssetsAsync(
             dlg.FileNames,
             _currentDir,
@@ -3134,7 +3158,9 @@ public partial class AssetBrowserPanel : UserControl
         if (sourcePaths.Count == 0 || !CanStartAssetOperation(action))
             return;
 
+        Project project = _project;
         AssetDatabase database = _assetDatabase;
+        AssetImporterSettings importerSettings = _assetImporterSettings;
         string[] sources = sourcePaths.ToArray();
         int generation = _projectRefreshGeneration;
         CancellationToken cancellationToken =
@@ -3142,11 +3168,18 @@ public partial class AssetBrowserPanel : UserControl
         try
         {
             AssetImportOperationResult operation = await RunAssetOperationAsync(
-                () => AssetImportWorkflow.ImportExternalPaths(
-                    database,
-                    destinationDirectory,
-                    sources,
-                    cancellationToken));
+                () =>
+                {
+                    AssetImporterSettingsStore.Save(
+                        project.RootDir,
+                        importerSettings);
+                    return AssetImportWorkflow.ImportExternalPaths(
+                        database,
+                        destinationDirectory,
+                        sources,
+                        cancellationToken,
+                        importerSettings: importerSettings);
+                });
 
             if (generation != _projectRefreshGeneration ||
                 !ReferenceEquals(database, _assetDatabase))

@@ -83,12 +83,15 @@ product-version label. The current required host set is:
 
 - result-bearing render frames;
 - incremental startup;
-- result-bearing resize.
+- result-bearing resize;
+- sparse Transform mutation, so mixed-value Details edits cannot silently
+  overwrite untouched components.
 
 Profiler v5 (with its version-4 compatibility prefix), the independent
 volumetric-cloud workload v1 snapshot, unified scene documents, high-quality
 material previews, Substrate graphs, interactive 3D water, camera authoring,
-and Camera View requests are advertised independently.
+Camera View requests, and optional-service diagnostics v2 are advertised
+independently.
 The renderer-facing quality and interaction contracts are detailed in
 [Interactive 3D Water](InteractiveWater3D.md) and
 [Render Effects Quality](RenderEffectsQuality.md).
@@ -98,6 +101,34 @@ publishes a stable startup diagnostic instead of calling further entry
 points. **Help > About ACS Editor** shows the product version, actual render
 backend, ABI version, negotiated capabilities, unknown future bits, and the
 compatibility result.
+
+`optional-service-diagnostics-v2` adds a typed, query-only status boundary
+without making it a required host capability. A caller initializes
+`acs_editor_optional_service_diagnostic_get` with a version/size header. Version
+1 receives exactly the 192-byte readable prefix: service, enabled/disabled/
+pending/inactive/failed state, reason, flags, process-local host generation,
+and a NUL-terminated UTF-8 message bounded to 160 bytes. Version 2 appends a
+64-byte typed tail containing error domain/code, a monotonic diagnostic
+generation, and a NUL-terminated stable code bounded to 48 bytes. The provider
+accepts either complete prefix and rejects unknown versions, undersized
+buffers, and inconsistent declared sizes before reading a host.
+
+A structurally valid query returns a status payload even for a null, stale, or
+unregistered host, or an unknown service. Profiler, volumetric-cloud workload,
+and Camera View requests therefore expose exact reasons such as capability
+missing, invalid host, startup pending, startup failed, or scene feature
+inactive instead of forcing managed code to infer state from a missing symbol
+or empty snapshot. A synchronized live-host registry validates the opaque
+identity before native dereference and excludes destruction while the bounded
+snapshot is copied. The three queried runtime state bits are atomic. Each
+native host receives a unique nonzero generation. Managed decoding uses that
+generation to reject allocator address reuse, applies strict bounded UTF-8,
+verifies the requested service and typed state/reason/error relationships, and
+can supply its expected generation; a result from a destroyed HwndHost
+generation is discarded before publication. The v1 prefix, typed v2 tail, malformed
+headers, stale-handle and query/destroy races, unique host generations, and
+startup-pending service state are fixed by `ACS.EditorAbiLifecycle` and
+`--abi-contract-selftest`.
 
 Startup is incremental:
 
@@ -257,6 +288,22 @@ Compatibility remains explicit:
 `CanonicalSceneAdapter` validates the supported bootstrap subset and rewrites
 portable references only in isolated cook copies. Unsupported directives or
 external resources fail closed rather than being silently dropped.
+
+### Details multi-selection transactions
+
+The 3D Details panel enumerates the complete native selection set rather than
+editing only its primary node. Shared Transform components and Mesh Renderer
+Color are editable per component; `—` represents mixed values and an untouched
+mixed component preserves each node's authored value. Enabled uses the same
+contract through a three-state header control. Mesh Renderer remains an
+ordinary native component card after Transform.
+
+Every batch captures all targets before writing, verifies native readback, and
+restores the failing target plus prior writes in reverse order when any write
+fails. One batch is enclosed by one canonical Scene document transaction, so
+Undo/Redo observes a single edit rather than one entry per node. See
+`docs/DetailsMultiEdit.md` for UI behavior, rollback boundaries, and the
+headless verification switch.
 
 ### Editor camera and authored game cameras
 
@@ -596,6 +643,17 @@ candidate remain inside the active project's `Assets` root. Folder tiles are
 intentionally omitted from the all-assets result set so the result represents
 indexed assets rather than a second, potentially expensive directory crawl.
 
+Manual import opens a mixed-selection settings surface before publication.
+Texture, mesh, and audio intent is normalized into an ordinal canonical recipe
+containing importer identity, importer version, settings schema, and a
+destination-independent SHA-256 recipe hash. The immutable recipe is written
+through the existing import journal into authoritative `.acsmeta`; its complete
+settings dictionary and importer version already participate in derived-data
+cache identity. The last accepted profile is strict, bounded Editor state under
+`Saved/Editor`, not an Asset. Folder drag-and-drop reuses that project-local
+profile so large directory imports do not open one modal per file. See
+`docs/AssetImporterSettings.md` for validation and transaction details.
+
 Image and Material tiles retain the bounded decoded-image LRU for the current
 session and add a project-local persistent thumbnail DDC under
 `Temp/DerivedDataCache/AssetBrowserThumbnails`. Its key is derived from the
@@ -695,8 +753,11 @@ a fresh operation for each Package invocation, maps existing stable preflight
 issue codes into `ACS.PACKAGE.*`, and completes only after success, validation
 failure, cancellation, or an exception. The same events are formatted into the
 existing Build log with their operation ID, so this foundation does not remove
-or reinterpret legacy process output. This slice is managed-only; native ABI
-jobs and native typed errors remain separate follow-up work.
+or reinterpret legacy process output. Native optional-service state and typed
+errors use the independent ABI payload above. Correlating native errors with
+managed operation GUIDs and adding cooperative cancellation to long-running
+native jobs remain follow-up work; the service-status query does not claim that
+job contract.
 `--operation-diagnostics-selftest` fixes contract validation, deterministic
 ordering and eviction, observer isolation, overflow truncation, and
 cancellation-safe terminal publication.

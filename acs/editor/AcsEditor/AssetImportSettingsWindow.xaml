@@ -1,0 +1,369 @@
+<Window x:Class="AcsEditor.AssetImportSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Asset Import Settings"
+        Width="860" Height="680"
+        MinWidth="720" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        Background="{StaticResource Win}"
+        Foreground="{StaticResource Text}"
+        FontFamily="Segoe UI"
+        FontSize="12"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display"
+        PreviewKeyDown="OnPreviewKeyDown">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="34"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+
+        <Style x:Key="MutedText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+
+        <Style x:Key="Overline" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource SectionFg}"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style x:Key="SectionCard" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Hairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="16"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Grid DockPanel.Dock="Top"
+              Height="34"
+              Background="{StaticResource Win}"
+              MouseLeftButtonDown="OnTitleBarMouseDown">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0"
+                        Orientation="Horizontal"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center">
+                <Border Width="3" Height="18"
+                        Background="{StaticResource Accent}"
+                        Margin="0,0,8,0"/>
+                <TextBlock Text="ASSET IMPORT"
+                           Foreground="{StaticResource TextDim}"
+                           FontSize="11.5"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Style="{StaticResource CaptionButton}"
+                        Content="&#x2012;"
+                        ToolTip="Minimize"
+                        Click="OnMinimize"/>
+                <Button Style="{StaticResource CloseCaptionButton}"
+                        Content="&#x2715;"
+                        ToolTip="Cancel import"
+                        Click="OnCancel"/>
+            </StackPanel>
+        </Grid>
+
+        <Border DockPanel.Dock="Top"
+                Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Edge}"
+                BorderThickness="0,1,0,1"
+                Padding="18,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Configure import recipes"
+                               FontSize="18"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="Settings are stored in asset metadata and participate in derived-data cache identity."
+                               Style="{StaticResource MutedText}"
+                               Margin="0,3,0,0"/>
+                </StackPanel>
+                <Border Grid.Column="1"
+                        Background="{StaticResource HeaderBg}"
+                        BorderBrush="{StaticResource Hairline}"
+                        BorderThickness="1"
+                        Padding="12,7"
+                        VerticalAlignment="Center">
+                    <TextBlock x:Name="SelectionCountText"
+                               FontFamily="Cascadia Mono, Consolas"
+                               Foreground="{StaticResource SectionFg}"/>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom"
+                Background="{StaticResource Panel}"
+                BorderBrush="{StaticResource Edge}"
+                BorderThickness="0,1,0,0"
+                Padding="14,11">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="ValidationText"
+                               Foreground="#FFFF8E7A"
+                               Visibility="Collapsed"/>
+                    <TextBlock x:Name="RecipeSummaryText"
+                               Style="{StaticResource MutedText}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="Cancel"
+                            MinWidth="86"
+                            Height="30"
+                            Margin="0,0,8,0"
+                            Click="OnCancel"/>
+                    <Button x:Name="ImportButton"
+                            Content="Import"
+                            MinWidth="104"
+                            Height="30"
+                            Background="{StaticResource Accent}"
+                            Foreground="White"
+                            FontWeight="SemiBold"
+                            IsDefault="True"
+                            Click="OnAccept"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Margin="14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="214"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Background="{StaticResource Panel}"
+                    BorderBrush="{StaticResource Hairline}"
+                    BorderThickness="1"
+                    Padding="14">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="SELECTION"
+                                   Style="{StaticResource Overline}"/>
+                        <TextBlock x:Name="SelectionSummaryText"
+                                   Margin="0,8,0,14"
+                                   Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                    <ListBox x:Name="SelectedFileList"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             IsHitTestVisible="False"
+                             AutomationProperties.Name="Selected import files">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="4"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Background="{StaticResource Accent}"
+                                            Opacity="0.65"
+                                            Margin="0,1,7,1"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <ScrollViewer Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border x:Name="TextureSection"
+                            Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <TextBlock Text="TEXTURE"
+                                       Style="{StaticResource Overline}"/>
+                            <TextBlock Text="Color interpretation, mip generation, and compression intent."
+                                       Style="{StaticResource MutedText}"
+                                       Margin="0,4,0,14"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Color space"
+                                           Style="{StaticResource FieldLabel}"/>
+                                <ComboBox x:Name="TextureColorSpaceBox"
+                                          Grid.Column="1"
+                                          MinHeight="28"
+                                          AutomationProperties.Name="Texture color space">
+                                    <ComboBoxItem Content="Auto detect" Tag="auto"/>
+                                    <ComboBoxItem Content="sRGB" Tag="srgb"/>
+                                    <ComboBoxItem Content="Linear" Tag="linear"/>
+                                </ComboBox>
+                                <TextBlock Grid.Row="1"
+                                           Text="Compression"
+                                           Style="{StaticResource FieldLabel}"
+                                           Margin="0,10,12,0"/>
+                                <ComboBox x:Name="TextureCompressionBox"
+                                          Grid.Row="1"
+                                          Grid.Column="1"
+                                          Margin="0,10,0,0"
+                                          MinHeight="28"
+                                          AutomationProperties.Name="Texture compression">
+                                    <ComboBoxItem Content="Default" Tag="default"/>
+                                    <ComboBoxItem Content="Normal map" Tag="normal-map"/>
+                                    <ComboBoxItem Content="HDR" Tag="hdr"/>
+                                    <ComboBoxItem Content="UI / unfiltered" Tag="ui"/>
+                                    <ComboBoxItem Content="Mask" Tag="mask"/>
+                                </ComboBox>
+                                <CheckBox x:Name="TextureMipmapsBox"
+                                          Grid.Row="2"
+                                          Grid.Column="1"
+                                          Margin="0,12,0,0"
+                                          Content="Generate mip chain"/>
+                                <CheckBox x:Name="TextureNormalDetectionBox"
+                                          Grid.Row="3"
+                                          Grid.Column="1"
+                                          Margin="0,8,0,0"
+                                          Content="Detect normal maps from naming and content"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="MeshSection"
+                            Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <TextBlock Text="STATIC / SKELETAL MESH"
+                                       Style="{StaticResource Overline}"/>
+                            <TextBlock Text="Canonical transform and generated authoring data."
+                                       Style="{StaticResource MutedText}"
+                                       Margin="0,4,0,14"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Uniform scale"
+                                           Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="MeshScaleBox"
+                                         Grid.Column="1"
+                                         MinHeight="28"
+                                         Padding="7,4"
+                                         AutomationProperties.Name="Mesh uniform scale"/>
+                                <CheckBox x:Name="MeshTangentsBox"
+                                          Grid.Row="1"
+                                          Grid.Column="1"
+                                          Margin="0,12,0,0"
+                                          Content="Import or generate tangent basis"/>
+                                <CheckBox x:Name="MeshCollisionBox"
+                                          Grid.Row="2"
+                                          Grid.Column="1"
+                                          Margin="0,8,0,0"
+                                          Content="Generate simple collision"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="AudioSection"
+                            Style="{StaticResource SectionCard}">
+                        <StackPanel>
+                            <TextBlock Text="AUDIO"
+                                       Style="{StaticResource Overline}"/>
+                            <TextBlock Text="Playback residency and deterministic preprocessing intent."
+                                       Style="{StaticResource MutedText}"
+                                       Margin="0,4,0,14"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Target sample rate"
+                                           Style="{StaticResource FieldLabel}"/>
+                                <ComboBox x:Name="AudioSampleRateBox"
+                                          Grid.Column="1"
+                                          MinHeight="28"
+                                          AutomationProperties.Name="Audio sample rate">
+                                    <ComboBoxItem Content="Auto / source" Tag="0"/>
+                                    <ComboBoxItem Content="22,050 Hz" Tag="22050"/>
+                                    <ComboBoxItem Content="44,100 Hz" Tag="44100"/>
+                                    <ComboBoxItem Content="48,000 Hz" Tag="48000"/>
+                                    <ComboBoxItem Content="96,000 Hz" Tag="96000"/>
+                                </ComboBox>
+                                <CheckBox x:Name="AudioStreamingBox"
+                                          Grid.Row="1"
+                                          Grid.Column="1"
+                                          Margin="0,12,0,0"
+                                          Content="Stream from package"/>
+                                <CheckBox x:Name="AudioNormalizeBox"
+                                          Grid.Row="2"
+                                          Grid.Column="1"
+                                          Margin="0,8,0,0"
+                                          Content="Normalize peak amplitude"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="PassthroughSection"
+                            Style="{StaticResource SectionCard}"
+                            Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock Text="PASSTHROUGH"
+                                       Style="{StaticResource Overline}"/>
+                            <TextBlock Text="No type-specific options are required. Source integrity and importer identity are still recorded."
+                                       Style="{StaticResource MutedText}"
+                                       Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

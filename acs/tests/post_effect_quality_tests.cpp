@@ -411,6 +411,14 @@ ACS_TEST(PostEffects,
         ExtractFunction(
             editor,
             "ACS_EDITOR_API int acs_editor_node3d_set_transform(");
+    const std::string node_transform_set_masked =
+        ExtractFunction(
+            editor,
+            "ACS_EDITOR_API int acs_editor_node3d_set_transform_masked(");
+    const std::string node_transform_set_masked_impl =
+        ExtractFunction(
+            editor,
+            "[[nodiscard]] int SetNode3DTransformMasked(");
     const std::string align_camera_to_view =
         ExtractFunction(
             editor,
@@ -477,9 +485,15 @@ ACS_TEST(PostEffects,
         "InvalidateTemporalRenderHistories(*host);") !=
         std::string::npos);
     EXPECT_TRUE(node_transform_set.find(
+        "SetNode3DTransformMasked(") !=
+        std::string::npos);
+    EXPECT_TRUE(node_transform_set_masked.find(
+        "SetNode3DTransformMasked(") !=
+        std::string::npos);
+    EXPECT_TRUE(node_transform_set_masked_impl.find(
         "TransformAffectsCurrentTemporalRenderCamera3D(") !=
         std::string::npos);
-    EXPECT_TRUE(node_transform_set.find(
+    EXPECT_TRUE(node_transform_set_masked_impl.find(
         "InvalidateTemporalRenderHistories(*host);") !=
         std::string::npos);
     EXPECT_TRUE(align_camera_to_view.find(

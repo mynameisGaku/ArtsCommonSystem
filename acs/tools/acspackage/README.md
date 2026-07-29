@@ -6,8 +6,9 @@ builds a Windows x64 Release target, verifies its bounded PE32+ AMD64 loader
 contract, resolves non-system PE runtime DLLs, runs
 the path-safe deterministic dependency-closure Cook, creates and natively
 verifies the existing `.acpak` v1 format, stages the game, writes a pack/file
-SHA-256 manifest with optional distribution metadata, and creates a
-deterministic ZIP.
+SHA-256 manifest with optional distribution metadata, publishes matching
+canonical PE `VERSIONINFO` plus a compatible/generated application manifest
+to the private staged EXE, and creates a deterministic ZIP.
 
 ```powershell
 dotnet run --project tools/acspackage -- package `
@@ -36,7 +37,13 @@ dotnet run --project tools/acspackage -- --self-test
 
 `verify` validates the archive root, manifest identity, declared file set,
 uncompressed sizes, every payload SHA-256, and the packaged executable's
-PE32+ AMD64 headers without extracting or executing the ZIP.
+PE32+ AMD64 headers without extracting or executing the ZIP. For newly
+produced archives it also reconstructs the expected EXE product fields from
+the package manifest and requires one byte-canonical `VERSIONINFO` resource
+plus a bounded, compatible `asInvoker` / `uiAccess=false` process manifest.
+Malformed/elevated manifests, duplicate VERSIONINFO IDs or languages, and any
+manifest-to-PE field mismatch fail closed. Legacy schema-v3 archives without
+`productMetadata` retain structural PE verification.
 The manifest is read into a bounded buffer of at most 4 MiB and must end at
 its declared decompressed length before JSON deserialization. Payload hashing
 reads exactly the declared length and probes at most one additional byte, so
@@ -108,7 +115,12 @@ hash. Scene configuration mismatches always fail closed.
 bounded parser rejects duplicate/unknown properties and invalid strings. The
 validated object joins the immutable Config snapshot, is embedded as
 `productMetadata`, and is preserved by `verify`/`inspect`/`diff`. Shipping
-without it remains compatible but reports `PACKAGE_METADATA_MISSING`.
+without it remains compatible but reports `PACKAGE_METADATA_MISSING`. The
+private staged EXE receives `CompanyName`, `FileDescription`,
+`LegalCopyright`, and `SupportUrl`; project name and the exact Package version
+provide `ProductName` and `ProductVersion`. Numeric SemVer components must fit
+Windows' UInt16 version fields. Existing compatible application manifests are
+inspected and preserved; a missing one is generated deterministically.
 
 `distribution-e2e` is the retained distribution audit. It creates a fresh
 3D fixture project strictly under the operating-system TEMP directory, invokes
@@ -161,5 +173,7 @@ The reversible 3D subset supports `N3D`, `MSH3D`, `MAT3D`, `FLG3D`,
 `EMPTY3D`, `CMP3D`, `CPROP3D`, and `SEL3D`. Editor-only `SPR3D`, `PLY3D`,
 `PFAB3D`, unknown directives, invalid reflected components, and standalone
 glTF files with external non-data URIs fail closed with explicit diagnostics.
-Executable signing, application icon/version resources, installer generation,
-and store upload are not part of this local packaging step.
+Executable signing, application icon resources, installer generation, and
+store upload are not part of this local packaging step. The current metadata
+schema has no icon source, and future signing must run after the deterministic
+resource update.

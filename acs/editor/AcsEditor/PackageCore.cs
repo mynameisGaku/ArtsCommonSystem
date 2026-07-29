@@ -599,6 +599,36 @@ public static class PackageCore
 
         if (File.Exists(executable) && !IsReparsePoint(executable))
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "EXECUTABLE_METADATA_PLATFORM_UNSUPPORTED",
+                    "Windows executable product metadata can only be published by the Windows packaging host.",
+                    executable));
+            }
+            if (sourceProductMetadataValid &&
+                !string.IsNullOrWhiteSpace(project.Name) &&
+                ProductVersionPattern.IsMatch(options.ProductVersion))
+            {
+                try
+                {
+                    _ = PackageExecutableMetadataContract.Create(
+                        project.Name,
+                        options.ProductVersion,
+                        sourceProductMetadata,
+                        Path.GetFileName(executable));
+                }
+                catch (Exception error) when (
+                    error is InvalidDataException or ArgumentException)
+                {
+                    issues.Add(new(
+                        PackageIssueSeverity.Error,
+                        "EXECUTABLE_METADATA_INVALID",
+                        error.Message,
+                        executable));
+                }
+            }
             try
             {
                 PackageExecutableInspection inspection =
@@ -608,6 +638,14 @@ public static class PackageCore
                     "EXECUTABLE_PE32PLUS_X64",
                     $"Windows x64 PE preflight passed: {inspection.SectionCount} sections, " +
                     $"subsystem {inspection.Subsystem}.",
+                    executable));
+            }
+            catch (PackageApplicationManifestException error)
+            {
+                issues.Add(new(
+                    PackageIssueSeverity.Error,
+                    "EXECUTABLE_MANIFEST_INVALID",
+                    error.Message,
                     executable));
             }
             catch (Exception error) when (
@@ -914,6 +952,21 @@ public static class PackageCore
             PackageProductMetadata productMetadata =
                 PackageProductMetadataContract.LoadOptional(
                     Path.Combine(packageRoot, "Config"));
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report(new(
+                "Metadata",
+                "Embedding and verifying executable product metadata...",
+                0,
+                1));
+            PackageExecutableProductMetadata executableProductMetadata =
+                PackageExecutableMetadataContract.Create(
+                    project.Name,
+                    options.ProductVersion,
+                    productMetadata,
+                    Path.GetFileName(executableDestination));
+            _ = PackageExecutableMetadataContract.ApplyFile(
+                executableDestination,
+                executableProductMetadata);
 
             CookResult cooked = await CookAssetPackAsync(
                 project,
@@ -1393,9 +1446,22 @@ public static class PackageCore
             entriesByPath[packageId + "/" + manifest.executable];
         await using (Stream executableStream = executableEntry.Open())
         {
-            _ = PackageExecutableContract.Inspect(
+            PackageExecutableInspection executableInspection =
+                PackageExecutableContract.Inspect(
                 executableStream,
                 executableEntry.Length);
+            if (manifest.productMetadata is not null)
+            {
+                PackageExecutableProductMetadata expectedExecutableMetadata =
+                    PackageExecutableMetadataContract.Create(
+                        manifest.productName,
+                        manifest.productVersion,
+                        manifest.productMetadata,
+                        manifest.executable);
+                PackageExecutableMetadataContract.ValidateInspection(
+                    executableInspection,
+                    expectedExecutableMetadata);
+            }
         }
 
         ManifestAssetPack assetPack = manifest.assetPack ??
