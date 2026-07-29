@@ -115,9 +115,9 @@ and compile-time assertions are required where they keep build cost bounded.
 | T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Active |
 | T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Active |
 | T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Active |
-| T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Queued |
-| T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Queued |
-| T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Queued |
+| T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Active |
+| T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Complete |
+| T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Complete |
 | T80 | O | Verification | Run clean Release, enabled backends, full tests, dist drift, and publish | Root | Queued |
 
 ## Baseline structural targets

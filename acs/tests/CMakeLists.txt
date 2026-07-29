@@ -99,6 +99,7 @@ add_executable(acs_unit_tests
     water2d_ripple_lifetime_tests.cpp
     water3d_ripple_lifetime_tests.cpp
     foundation_optimization_wave_b_tests.cpp
+    foundation_public_layout_tests.cpp
     volumetric_cloud_world_anchor_tests.cpp
     atmosphere_composite_tests.cpp
     shadow_map_cb_safety_tests.cpp
@@ -185,7 +186,50 @@ add_test(
     COMMAND acs_foundation_optimization_wave_b_tests)
 set_tests_properties(
     ACS.FoundationOptimizationWaveB
-    PROPERTIES TIMEOUT 60)
+    PROPERTIES LABELS "Foundation;Stress" TIMEOUT 60)
+
+# 最適化対象の公開型が意図せず肥大化しないことをWin64 ABIで固定する。
+add_executable(acs_foundation_public_layout_tests
+    main.cpp
+    foundation_public_layout_tests.cpp
+)
+set_target_properties(
+    acs_foundation_public_layout_tests
+    PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_foundation_public_layout_tests)
+target_link_libraries(acs_foundation_public_layout_tests PRIVATE
+    ACS::Foundation
+    ACS::Threading
+    ACS::Memory
+    ACS::Container
+    ACS::Platform
+    ACS::Event
+    ACS::Test
+)
+add_test(
+    NAME ACS.FoundationPublicLayout
+    COMMAND acs_foundation_public_layout_tests)
+set_tests_properties(
+    ACS.FoundationPublicLayout
+    PROPERTIES LABELS "Foundation;ABI" TIMEOUT 30)
+
+# 別process反復でglobal ownerの初期化・終了、queue、cancelの世代跨ぎを検証する。
+add_test(
+    NAME ACS.FoundationStressRunnerSelfTest
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ACS_TREE_ROOT}/scripts/run_foundation_stress.py"
+            --self-test)
+add_test(
+    NAME ACS.FoundationOwnershipStress
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ACS_TREE_ROOT}/scripts/run_foundation_stress.py"
+            --executable "$<TARGET_FILE:acs_foundation_optimization_wave_b_tests>"
+            --iterations 32
+            --timeout-seconds 60)
+set_tests_properties(
+    ACS.FoundationStressRunnerSelfTest
+    ACS.FoundationOwnershipStress
+    PROPERTIES LABELS "Foundation;Stress" TIMEOUT 2100)
 
 # LinearAllocator の Reset 競合を他モジュールのリンク状態から独立して反復できる専用ターゲット。
 add_executable(acs_linear_allocator_lifecycle_tests
