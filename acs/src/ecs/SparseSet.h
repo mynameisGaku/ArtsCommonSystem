@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // Sparse Set: エンティティ → コンポーネント値の高速対応表
 //
 // 構造:
@@ -9,15 +10,18 @@
 // 効果:
 //   ・Add / Remove / Contains が O(1)
 //   ・全要素の走査がキャッシュフレンドリーな密配列の線形走査
-#pragma once
 
 #include "foundation/Types.h"
+#include "foundation/Compiler.h"
 #include "foundation/Move.h"
 #include "foundation/TypeTraits.h"   // IsCopyConstructibleV (CloneErased の可否判定)
 #include "container/Array.h"
 #include "memory/New.h"              // New/Delete (CloneErased の複製確保)
 #include "memory/Memory.h"           // MemCopy
 #include "ecs/Entity.h"
+#if ACS_ARCH_X64
+#    include <immintrin.h>
+#endif
 
 namespace acs {
 
@@ -70,6 +74,22 @@ public:
      * @return dense_index → entity_index 配列の先頭 (要素数は Size())。
      */
     const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
+
+    /**
+     * 後続の IndexOf に備えて sparse 対応表の一要素をキャッシュへ先読みする。
+     *
+     * @param entity_index 先読みするエンティティのスロット番号。
+     */
+    void PrefetchSparse(u32 entity_index) const noexcept {
+        if (entity_index >= m_Sparse.Size()) return;
+#if ACS_ARCH_X64
+        _mm_prefetch(reinterpret_cast<const char*>(m_Sparse.Data() + entity_index), _MM_HINT_T0);
+#elif defined(__GNUC__) || defined(__clang__)
+        __builtin_prefetch(m_Sparse.Data() + entity_index, 0, 3);
+#else
+        (void)entity_index;
+#endif
+    }
 
     /**
      * 型を知らずに指定エンティティの値を削除する (FWorld::Destroy から呼ぶ)。

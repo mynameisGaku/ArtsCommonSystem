@@ -2186,10 +2186,28 @@ bool RunFrustumCullingContract() noexcept
             enabled_mask, 3u,
             [](acs::u32 index) noexcept { return index == 2u; });
 
+    constexpr acs::usize batch_count = 9u;
+    acs::FVec3 centers[batch_count] = {{0.0f, 0.0f, 5.0f}, {8.0f, 0.0f, 5.0f}, {-8.0f, 0.0f, 5.0f}, {0.0f, 8.0f, 5.0f}, {0.0f, -8.0f, 5.0f}, {0.0f, 0.0f, 11.0f}, {0.0f, 0.0f, 0.2f}, {1.0f, 1.0f, 5.0f}, {nan, 0.0f, 5.0f}};
+    acs::f32 radii[batch_count] = {0.25f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.5f, 1.0f};
+    acs::FVec3 scales[batch_count] = {{1,1,1}, {1,1,1}, {1,1,1}, {1,1,1}, {1,1,1}, {1,1,1}, {1,1,1}, {2,3,4}, {1,1,1}};
+    acs::f32 paddings[batch_count] = {0, 0, 0, 0, 0, 0, 0, 0.5f, 0};
+    FNodeDecision batch[batch_count]{};
+    EvaluateSpheresBatch(planes, centers, radii, scales, paddings, batch_count, batch);
+    bool batch_scalar_parity = true;
+    for (acs::usize i = 0u; i < batch_count; ++i) {
+        const FNodeDecision scalar = EvaluateSphere(planes, centers[i], radii[i], scales[i], paddings[i]);
+        batch_scalar_parity =
+            batch_scalar_parity &&
+            batch[i].valid == scalar.valid &&
+            batch[i].visible == scalar.visible &&
+            batch[i].world_radius == scalar.world_radius;
+    }
+
     return plane_contract && scale_contract &&
            fail_open && culled_skips_opaque &&
            orthographic_contract &&
-           production_submission_contract;
+           production_submission_contract &&
+           batch_scalar_parity;
 }
 
 /**

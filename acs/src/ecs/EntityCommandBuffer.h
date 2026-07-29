@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // =============================================================================
 // ACS ECS — FEntityCommandBuffer (構造変更の遅延記録・一括適用)
 // -----------------------------------------------------------------------------
@@ -22,7 +23,6 @@
 //   ・記録の確保が OOM した場合は該当操作を落として HasOverflowed()=true にする
 //     (Flush は残りを適用するが不完全であることを呼び出し側が検知できる)。
 // =============================================================================
-#pragma once
 
 #include "ecs/World.h"
 #include "memory/New.h"
@@ -245,7 +245,9 @@ private:
         void* value = nullptr;                                      // 大型または非単純な T
         void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;  // Add / Remove
         void (*destroy)(FAllocator&, void*) noexcept = nullptr;     // Add のみ
+        /** 小規模値を確保せず保持する領域。 */
         alignas(16) byte inline_value[kInlineValueBytes]{};
+        /** 小規模値領域を使用中なら true。 */
         bool inline_value_used = false;
 
         void* Value() noexcept
@@ -259,11 +261,7 @@ private:
     template<typename T>
     bool StoreValue(FCommand& command, T&& value) noexcept
     {
-        if constexpr (
-            IsTriviallyCopyableV<T> &&
-            IsTriviallyDestructibleV<T> &&
-            sizeof(T) <= FCommand::kInlineValueBytes &&
-            alignof(T) <= 16u) {
+        if constexpr (IsTriviallyCopyableV<T> && IsTriviallyDestructibleV<T> && sizeof(T) <= FCommand::kInlineValueBytes && alignof(T) <= 16u) {
             MemCopy(command.inline_value, &value, sizeof(T));
             command.inline_value_used = true;
             return true;

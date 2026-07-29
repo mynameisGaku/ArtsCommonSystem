@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // DX12 コマンドリスト実装
 #include "render/Dx12/Dx12CommandList.h"
+#include "render/RhiPipelineBindPolicy.h"
 #include "render/Dx12/Dx12Device.h"
 #include "render/Dx12/Dx12Swapchain.h"
 #include "render/Dx12/Dx12Buffer.h"
@@ -1001,9 +1002,7 @@ void FDx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
         SetComputePipeline(pipeline);
         return;
     }
-    if (!TRhiPipelineBindPolicy<
-            ERhiPipelineBindDomain::Graphics>::NeedsBind(
-                m_BoundPipe, &p)) {
+    if (!TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Graphics>::NeedsBind(m_BoundPipe, &p)) {
         return;
     }
     m_CmdList->SetPipelineState(p.Pso());
@@ -1057,11 +1056,8 @@ void FDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
 
 void FDx12CommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     auto& p = static_cast<FDx12Pipeline&>(pipeline);
-    using FPolicy =
-        TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Compute>;
-    if (!FPolicy::Accepts(p.IsCompute()) ||
-        !p.Pso() || !p.RootSignature() ||
-        !FPolicy::NeedsBind(m_BoundPipe, &p)) return;
+    using FPolicy = TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Compute>;
+    if (!FPolicy::Accepts(p.IsCompute()) || !p.Pso() || !p.RootSignature() || !FPolicy::NeedsBind(m_BoundPipe, &p)) return;
     m_CmdList->SetPipelineState(p.Pso());
     m_CmdList->SetComputeRootSignature(p.RootSignature());
     m_BoundPipe = &p;

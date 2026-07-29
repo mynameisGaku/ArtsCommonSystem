@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // FWorld::Query<FPos, FVel>().Each(...) を提供するクエリヘルパ
 //
 // 仕組み: 指定された全コンポーネントを持つエンティティを選び出して、
@@ -10,7 +11,6 @@
 // 並列バージョン: EachParallel(fn, grain) は FThreadPool::ParallelFor で
 //                 chunk 分割して投入。ラムダはエンティティごとに独立に
 //                 呼ばれることを前提にする (= 共有資源を触るならユーザー側で同期)。
-#pragma once
 
 #include "foundation/Types.h"
 #include "ecs/World.h"
@@ -74,8 +74,10 @@ public:
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
+        FSparseSetBase* required_sets[] = {static_cast<FSparseSetBase*>(m_World.template TryGetSet<Comps>())...};
 
         for (usize i = 0; i < count; ++i) {
+            PrefetchRequiredSets(snapshot, i, count, required_sets, sizeof(required_sets) / sizeof(required_sets[0]));
             InvokeIfPresent(fn, snapshot[i]);
         }
     }
@@ -192,6 +194,26 @@ public:
 
 private:
     /**
+     * 大規模走査時だけ一定距離先の sparse 対応表を先読みする。
+     *
+     * @details 128 件未満では分岐直後に戻り、小規模クエリへ追加の集合検索を入れない。
+     */
+    void PrefetchRequiredSets(const TArray<FEntityId>& snapshot, usize index, usize count, FSparseSetBase* const* sets, usize set_count) noexcept {
+        /** 小規模走査では先読み命令の固定費を避ける。 */
+        constexpr usize kMinimumCount = 128u;
+        /** 疎配列を処理より先にキャッシュへ要求する距離。 */
+        constexpr usize kPrefetchDistance = 16u;
+        if (count < kMinimumCount || index + kPrefetchDistance >= count) {
+            return;
+        }
+        const FEntityId future = snapshot[index + kPrefetchDistance]; // 先読み対象のエンティティ。
+        for (usize i = 0u; i < set_count; ++i) {
+            FSparseSetBase* set = sets[i]; // 今回先読みする疎集合。
+            if (set != nullptr) set->PrefetchSparse(future.index);
+        }
+    }
+
+    /**
      * 全 Comps の TSparseSet を取得し、最小サイズのものを主軸として選ぶ。
      *
      * @details どれか 1 つでも未登録 (= 該当コンポーネントを持つエンティティが皆無) の
@@ -239,8 +261,7 @@ private:
     }
 
     template<typename Fn>
-    static void InvokeResolved(
-        Fn& fn, FEntityId e, Comps*... components) noexcept
+    static void InvokeResolved(Fn& fn, FEntityId e, Comps*... components) noexcept
     {
         if (((components != nullptr) && ...)) {
             fn(e, *components...);
@@ -251,16 +272,13 @@ private:
     template<typename... Excludes, typename Fn>
     void InvokeIfPresentExcluding(Fn& fn, FEntityId e) noexcept
     {
-        InvokeResolvedExcluding<Excludes...>(
-            fn, e, m_World.template Get<Comps>(e)...);
+        InvokeResolvedExcluding<Excludes...>(fn, e, m_World.template Get<Comps>(e)...);
     }
 
     template<typename... Excludes, typename Fn>
-    void InvokeResolvedExcluding(
-        Fn& fn, FEntityId e, Comps*... components) noexcept
+    void InvokeResolvedExcluding(Fn& fn, FEntityId e, Comps*... components) noexcept
     {
-        if (((components != nullptr) && ...) &&
-            !AnyPresent<Excludes...>(e)) {
+        if (((components != nullptr) && ...) && !AnyPresent<Excludes...>(e)) {
             fn(e, *components...);
         }
     }
@@ -268,17 +286,14 @@ private:
     template<typename... Optional, typename Fn>
     void InvokeIfPresentOptional(Fn& fn, FEntityId e) noexcept
     {
-        InvokeResolvedOptional<Optional...>(
-            fn, e, m_World.template Get<Comps>(e)...);
+        InvokeResolvedOptional<Optional...>(fn, e, m_World.template Get<Comps>(e)...);
     }
 
     template<typename... Optional, typename Fn>
-    void InvokeResolvedOptional(
-        Fn& fn, FEntityId e, Comps*... components) noexcept
+    void InvokeResolvedOptional(Fn& fn, FEntityId e, Comps*... components) noexcept
     {
         if (((components != nullptr) && ...)) {
-            fn(e, *components...,
-               m_World.template Get<Optional>(e)...);
+            fn(e, *components..., m_World.template Get<Optional>(e)...);
         }
     }
 

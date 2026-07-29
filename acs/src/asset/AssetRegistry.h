@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // アセットレジストリ（パスからロードして共有保持する）
 //
 // 使い方:
@@ -12,7 +13,6 @@
 //   }
 //
 //   // 同じパスで再度 Load すれば同じ TSharedPtr を返す（キャッシュヒット）
-#pragma once
 
 #include "foundation/Types.h"
 #include "foundation/Result.h"

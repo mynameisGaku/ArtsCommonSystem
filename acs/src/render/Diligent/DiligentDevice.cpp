@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FDiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
 #include "render/Diligent/DiligentDevice.h"
+#include "render/FormatTraits.h"
 
 #if WITH_RENDER_DILIGENT
 

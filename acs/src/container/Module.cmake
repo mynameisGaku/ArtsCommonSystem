@@ -8,6 +8,7 @@ acs_module(
     TYPE    Runtime
     SOURCES
         Hash.cpp
+        HashBytesBatch.cpp
         Json.cpp
         String.cpp
     HEADERS

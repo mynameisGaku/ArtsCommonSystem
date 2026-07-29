@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FDiligentTexture 実装
 #include "render/Diligent/DiligentTexture.h"
+#include "render/FormatTraits.h"
 
 #if WITH_RENDER_DILIGENT
 

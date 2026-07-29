@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // DX12 デバイス実装
 #include "render/Dx12/Dx12Device.h"
+#include "render/FormatTraits.h"
 #include "render/Dx12/Dx12Texture.h" // Dx12Texture (ReadTexture の cast)
 #include "memory/UniquePtr.h"
 
@@ -125,14 +126,11 @@ void FDx12Device::Reset() noexcept
     m_FrameSlot = 0;
     m_AdapterName[0] = '\0';
     m_SrvHandleSize = 0;
-    m_SrvHighWater = 0;
-    m_SrvFreeCount = 0;
+    m_SrvSlots.Reset();
     m_DsvHandleSize = 0;
-    m_DsvHighWater = 0;
-    m_DsvFreeCount = 0;
+    m_DsvSlots.Reset();
     m_RtvHandleSize = 0;
-    m_RtvHighWater = 0;
-    m_RtvFreeCount = 0;
+    m_RtvSlots.Reset();
 }
 
 FHrResult FDx12Device::InitDescriptorHeaps() noexcept
@@ -151,8 +149,7 @@ FHrResult FDx12Device::InitDescriptorHeaps() noexcept
         return r;
     }
     m_SrvHandleSize = m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    m_SrvHighWater = 0;
-    m_SrvFreeCount = 0;
+    m_SrvSlots.Reset();
 
     // DSV 用 CPU 専用ヒープ
     D3D12_DESCRIPTOR_HEAP_DESC dsv_hd{};
@@ -168,8 +165,7 @@ FHrResult FDx12Device::InitDescriptorHeaps() noexcept
         return r;
     }
     m_DsvHandleSize = m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-    m_DsvHighWater = 0;
-    m_DsvFreeCount = 0;
+    m_DsvSlots.Reset();
 
     // RTV 用 CPU 専用ヒープ（オフスクリーン RT 用）
     D3D12_DESCRIPTOR_HEAP_DESC rtv_hd{};
@@ -187,31 +183,32 @@ FHrResult FDx12Device::InitDescriptorHeaps() noexcept
         return r;
     }
     m_RtvHandleSize = m_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-    m_RtvHighWater = 0;
-    m_RtvFreeCount = 0;
+    m_RtvSlots.Reset();
     return r;
 }
 
 i32 FDx12Device::AllocateSrvSlot() noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
-    if (m_SrvFreeCount > 0) {
-        return m_SrvFreeList[--m_SrvFreeCount];
-    }
-    if (m_SrvHighWater >= kSrvCapacity) return -1;
-    return static_cast<i32>(m_SrvHighWater++);
+    return m_SrvSlots.Allocate();
+}
+
+bool FDx12Device::AllocateSrvSlots(i32* output, u32 count) noexcept
+{
+    FExclusiveLockGuard guard(m_DescriptorLock);
+    return m_SrvSlots.AllocateBatch(output, count);
 }
 
 void FDx12Device::FreeSrvSlot(i32 index) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
-    if (index < 0 || static_cast<u32>(index) >= m_SrvHighWater) return;
-    for (u32 i = 0; i < m_SrvFreeCount; ++i) {
-        if (m_SrvFreeList[i] == index) return; // 二重返却で同一スロットを重複配布しない
-    }
-    if (m_SrvFreeCount < kSrvCapacity) {
-        m_SrvFreeList[m_SrvFreeCount++] = index;
-    }
+    m_SrvSlots.Free(index);
+}
+
+void FDx12Device::FreeSrvSlots(const i32* slots, u32 count) noexcept
+{
+    FExclusiveLockGuard guard(m_DescriptorLock);
+    m_SrvSlots.FreeBatch(slots, count);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept
@@ -235,19 +232,25 @@ D3D12_GPU_DESCRIPTOR_HANDLE FDx12Device::SrvGpuHandle(i32 index) const noexcept
 i32 FDx12Device::AllocateDsvSlot() noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
-    if (m_DsvFreeCount > 0) return m_DsvFreeList[--m_DsvFreeCount];
-    if (m_DsvHighWater >= kDsvCapacity) return -1;
-    return static_cast<i32>(m_DsvHighWater++);
+    return m_DsvSlots.Allocate();
+}
+
+bool FDx12Device::AllocateDsvSlots(i32* output, u32 count) noexcept
+{
+    FExclusiveLockGuard guard(m_DescriptorLock);
+    return m_DsvSlots.AllocateBatch(output, count);
 }
 
 void FDx12Device::FreeDsvSlot(i32 index) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
-    if (index < 0 || static_cast<u32>(index) >= m_DsvHighWater) return;
-    for (u32 i = 0; i < m_DsvFreeCount; ++i) {
-        if (m_DsvFreeList[i] == index) return;
-    }
-    if (m_DsvFreeCount < kDsvCapacity) m_DsvFreeList[m_DsvFreeCount++] = index;
+    m_DsvSlots.Free(index);
+}
+
+void FDx12Device::FreeDsvSlots(const i32* slots, u32 count) noexcept
+{
+    FExclusiveLockGuard guard(m_DescriptorLock);
+    m_DsvSlots.FreeBatch(slots, count);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept
@@ -261,19 +264,25 @@ D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept
 i32 FDx12Device::AllocateRtvSlot() noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
-    if (m_RtvFreeCount > 0) return m_RtvFreeList[--m_RtvFreeCount];
-    if (m_RtvHighWater >= kRtvCapacity) return -1;
-    return static_cast<i32>(m_RtvHighWater++);
+    return m_RtvSlots.Allocate();
+}
+
+bool FDx12Device::AllocateRtvSlots(i32* output, u32 count) noexcept
+{
+    FExclusiveLockGuard guard(m_DescriptorLock);
+    return m_RtvSlots.AllocateBatch(output, count);
 }
 
 void FDx12Device::FreeRtvSlot(i32 index) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
-    if (index < 0 || static_cast<u32>(index) >= m_RtvHighWater) return;
-    for (u32 i = 0; i < m_RtvFreeCount; ++i) {
-        if (m_RtvFreeList[i] == index) return;
-    }
-    if (m_RtvFreeCount < kRtvCapacity) m_RtvFreeList[m_RtvFreeCount++] = index;
+    m_RtvSlots.Free(index);
+}
+
+void FDx12Device::FreeRtvSlots(const i32* slots, u32 count) noexcept
+{
+    FExclusiveLockGuard guard(m_DescriptorLock);
+    m_RtvSlots.FreeBatch(slots, count);
 }
 
 void FDx12Device::ReleaseRetiredResource(

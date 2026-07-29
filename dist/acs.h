@@ -5719,13 +5719,61 @@ namespace acs {
 /** コンポーネント型 ID (0..kMaxComponentTypes-1、ストレージ配列の添字に使う)。 */
 using ComponentTypeId = u32;
 
+/** ビルド内で安定したコンパイル時コンポーネント署名。永続化 ID には使用しない。 */
+using ComponentSignatureId = u64;
+
 /** 同時に扱えるコンポーネント型の上限 (Slots 配列の長さ)。 */
 inline constexpr ComponentTypeId kMaxComponentTypes = 256;
 
 namespace ecs_detail {
 /** 全 T 共通の採番カウンタ (次に割り当てる ID を保持)。 */
 inline TAtomic<u32> g_next_component_type_id{0};
+
+constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
+{
+    ComponentSignatureId hash = 14695981039346656037ull; // FNV-1a の途中値。
+    while (*text != '\0') {
+        hash ^= static_cast<u8>(*text++);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+template<typename T>
+constexpr ComponentSignatureId StaticComponentSignature() noexcept
+{
+#if defined(_MSC_VER)
+    return HashComponentSignature(__FUNCSIG__);
+#else
+    return HashComponentSignature(__PRETTY_FUNCTION__);
+#endif
+}
 } // namespace ecs_detail
+
+template<typename T>
+ComponentTypeId GetComponentTypeId() noexcept;
+
+/**
+ * コンパイル時クエリ・振り分け用の型特性。
+ *
+ * @details Signature は型パックの比較・特殊化に使い、World ストレージの密な添字は
+ * 従来どおり RuntimeId() の動的代替経路を使う。これによりプラグイン型の後付け互換を保つ。
+ */
+template<typename T>
+struct TComponentTypeTraits {
+    static constexpr ComponentSignatureId Signature = ecs_detail::StaticComponentSignature<T>();
+
+    static ComponentTypeId RuntimeId() noexcept
+    {
+        return GetComponentTypeId<T>();
+    }
+};
+
+template<typename T>
+constexpr ComponentSignatureId GetComponentSignatureId() noexcept
+{
+    return TComponentTypeTraits<T>::Signature;
+}
 
 /**
  * 型 T に固有な ComponentTypeId を返す (初回呼び出しで採番、以降はキャッシュ)。
@@ -5758,6 +5806,9 @@ ComponentTypeId GetComponentTypeId() noexcept {
 //   ・Add / Remove / Contains が O(1)
 //   ・全要素の走査がキャッシュフレンドリーな密配列の線形走査
 
+#if ACS_ARCH_X64
+#    include <immintrin.h>
+#endif
 
 namespace acs {
 
@@ -5810,6 +5861,22 @@ public:
      * @return dense_index → entity_index 配列の先頭 (要素数は Size())。
      */
     const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
+
+    /**
+     * 後続の IndexOf に備えて sparse 対応表の一要素をキャッシュへ先読みする。
+     *
+     * @param entity_index 先読みするエンティティのスロット番号。
+     */
+    void PrefetchSparse(u32 entity_index) const noexcept {
+        if (entity_index >= m_Sparse.Size()) return;
+#if ACS_ARCH_X64
+        _mm_prefetch(reinterpret_cast<const char*>(m_Sparse.Data() + entity_index), _MM_HINT_T0);
+#elif defined(__GNUC__) || defined(__clang__)
+        __builtin_prefetch(m_Sparse.Data() + entity_index, 0, 3);
+#else
+        (void)entity_index;
+#endif
+    }
 
     /**
      * 型を知らずに指定エンティティの値を削除する (FWorld::Destroy から呼ぶ)。
@@ -7466,7 +7533,8 @@ public:
      *
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
-    explicit FAssetRegistry(FAllocator& allocator) noexcept : m_Cache(allocator), m_Loaders(allocator)
+    explicit FAssetRegistry(FAllocator& allocator) noexcept
+        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator)
     {
     }
 
@@ -7558,6 +7626,9 @@ public:
      */
     TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a) noexcept;
 
+    /** 完了した非同期要求を処理中テーブルから外す。 */
+    void AsyncLoadFinished(FAssetId id) noexcept;
+
 private:
     /**
      * 拡張子から適切なローダを選ぶ。
@@ -7572,6 +7643,14 @@ private:
 
     /** ID をキーにしたアセットキャッシュ。 */
     THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
+
+    /**
+     * 同一 ID の未完了ロードが共有する状態。
+     *
+     * @details 同じパスへの同時 LoadAsync はこの状態を再利用し、ファイル入出力・
+     * ローダー呼び出し・ジョブ確保を 1 回へ集約する。成功・失敗の完了時に必ず除去する。
+     */
+    THashMap<FAssetId, TSharedPtr<FAsyncLoadState>> m_InFlight;
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;
@@ -8749,6 +8828,9 @@ enum class EFormat : u8 {
 
     /** 深度のみ (32bit float)。 */
     D32_Float,
+
+    /** 列挙・表の網羅性を検証する終端値。GPU 形式としては使用しない。 */
+    Count,
 };
 
 /**
@@ -16855,6 +16937,210 @@ private:
 
 } // namespace acs
 
+// ===================== container/HashBytesBatch.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** バッチハッシュ一件分の入力範囲とシード。 */
+struct FHashBytesInput {
+    /** ハッシュ対象の先頭。 */
+    const void* data = nullptr;
+    /** ハッシュ対象のバイト数。 */
+    usize length = 0u;
+    /** 一件固有の初期シード。 */
+    u64 seed = 0xCBF29CE484222325ull;
+};
+
+/**
+ * 独立した複数範囲のハッシュをまとめて計算する。
+ *
+ * @param inputs 入力範囲とシードの配列。
+ * @param count 入出力の要素数。
+ * @param output HashBytes と同じ値を書き込む配列。
+ */
+void HashBytesBatch(const FHashBytesInput* inputs, usize count, u64* output) noexcept;
+
+/**
+ * 四個の整数キーを依存鎖ごとに交互実行して混合する。
+ *
+ * @param input 四個の整数キー。
+ * @param output HashMix64 と同じ値を書き込む四要素配列。
+ */
+void HashMix64Batch4(const u64 (&input)[4], u64 (&output)[4]) noexcept;
+
+} // namespace acs
+
+// ===================== container/InlineArray.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * 小規模な配列をオブジェクト内に保持し、容量超過時だけ動的配列へ移行する。
+ *
+ * @details 動的領域へ移行した場合の再利用規則を次に示す。
+ * 一度動的領域へ移行した後は Clear 後も確保済み容量を再利用する。これにより、
+ * フレームごとに同じピークへ達するキューで確保と解放を繰り返さない。
+ */
+template<typename T, usize InlineCapacity>
+class TInlineArray {
+    static_assert(InlineCapacity > 0u);
+
+public:
+    TInlineArray() noexcept = default;
+
+    explicit TInlineArray(FAllocator& allocator) noexcept : m_Overflow(allocator) {
+    }
+
+    TInlineArray(const TInlineArray&) = delete;
+    TInlineArray& operator=(const TInlineArray&) = delete;
+
+    TInlineArray(TInlineArray&& other) noexcept : m_Overflow(Move(other.m_Overflow)), m_InlineSize(other.m_InlineSize), m_UsingOverflow(other.m_UsingOverflow) {
+        if (!m_UsingOverflow) {
+            for (usize i = 0u; i < m_InlineSize; ++i) {
+                ::new (static_cast<void*>(InlineData() + i)) T(Move(other.InlineData()[i]));
+                other.InlineData()[i].~T();
+            }
+        }
+        other.m_InlineSize = 0u;
+        other.m_UsingOverflow = false;
+    }
+
+    TInlineArray& operator=(TInlineArray&& other) noexcept {
+        if (this == &other) return *this;
+        DestroyInline();
+        m_Overflow = Move(other.m_Overflow);
+        m_InlineSize = other.m_InlineSize;
+        m_UsingOverflow = other.m_UsingOverflow;
+        if (!m_UsingOverflow) {
+            for (usize i = 0u; i < m_InlineSize; ++i) {
+                ::new (static_cast<void*>(InlineData() + i)) T(Move(other.InlineData()[i]));
+                other.InlineData()[i].~T();
+            }
+        }
+        other.m_InlineSize = 0u;
+        other.m_UsingOverflow = false;
+        return *this;
+    }
+
+    ~TInlineArray() noexcept {
+        DestroyInline();
+    }
+
+    usize Size() const noexcept {
+        return m_UsingOverflow ? m_Overflow.Size() : m_InlineSize;
+    }
+
+    bool IsEmpty() const noexcept {
+        return Size() == 0u;
+    }
+
+    bool UsesInlineStorage() const noexcept {
+        return !m_UsingOverflow;
+    }
+
+    T& operator[](usize index) noexcept {
+        ACS_ASSERT(index < Size());
+        return m_UsingOverflow ? m_Overflow[index] : InlineData()[index];
+    }
+
+    const T& operator[](usize index) const noexcept {
+        ACS_ASSERT(index < Size());
+        return m_UsingOverflow ? m_Overflow[index] : InlineData()[index];
+    }
+
+    bool TryPushBack(const T& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.TryPushBack(value);
+        if (m_InlineSize < InlineCapacity) {
+            ::new (static_cast<void*>(InlineData() + m_InlineSize)) T(value);
+            ++m_InlineSize;
+            return true;
+        }
+        if (!MoveToOverflow()) return false;
+        return m_Overflow.TryPushBack(value);
+    }
+
+    bool TryPushBack(T&& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.TryPushBack(Move(value));
+        if (m_InlineSize < InlineCapacity) {
+            ::new (static_cast<void*>(InlineData() + m_InlineSize)) T(Move(value));
+            ++m_InlineSize;
+            return true;
+        }
+        if (!MoveToOverflow()) return false;
+        return m_Overflow.TryPushBack(Move(value));
+    }
+
+    void PushBack(const T& value) noexcept {
+        ACS_CHECKF(TryPushBack(value), "TInlineArray::PushBack failed (size=%zu, T=%zu)", Size(), sizeof(T));
+    }
+
+    void PushBack(T&& value) noexcept {
+        ACS_CHECKF(TryPushBack(Move(value)), "TInlineArray::PushBack failed (size=%zu, T=%zu)", Size(), sizeof(T));
+    }
+
+    void PopBack() noexcept {
+        ACS_ASSERT(!IsEmpty());
+        if (m_UsingOverflow) {
+            m_Overflow.PopBack();
+            return;
+        }
+        --m_InlineSize;
+        InlineData()[m_InlineSize].~T();
+    }
+
+    void Clear() noexcept {
+        if (m_UsingOverflow) {
+            m_Overflow.Clear();
+            return;
+        }
+        DestroyInline();
+    }
+
+private:
+    T* InlineData() noexcept {
+        return reinterpret_cast<T*>(m_InlineStorage);
+    }
+
+    const T* InlineData() const noexcept {
+        return reinterpret_cast<const T*>(m_InlineStorage);
+    }
+
+    void DestroyInline() noexcept {
+        if (m_UsingOverflow) return;
+        while (m_InlineSize > 0u) {
+            --m_InlineSize;
+            InlineData()[m_InlineSize].~T();
+        }
+    }
+
+    bool MoveToOverflow() noexcept {
+        if (!m_Overflow.TryReserve(InlineCapacity * 2u)) return false;
+        for (usize i = 0u; i < m_InlineSize; ++i) {
+            if (!m_Overflow.TryPushBack(Move(InlineData()[i]))) {
+                return false;
+            }
+        }
+        DestroyInline();
+        m_UsingOverflow = true;
+        return true;
+    }
+
+    /** 小規模要素を直接構築する領域。 */
+    alignas(T) byte m_InlineStorage[sizeof(T) * InlineCapacity]{};
+    /** 容量超過後に使用する動的配列。 */
+    TArray<T> m_Overflow;
+    /** 直接領域に構築済みの要素数。 */
+    usize m_InlineSize = 0u;
+    /** 動的配列へ移行済みなら true。 */
+    bool m_UsingOverflow = false;
+};
+
+} // namespace acs
+
 // ===================== container/Json.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // ACS Container — FJson (STL 不使用の JSON DOM パーサ)
@@ -20778,8 +21064,8 @@ private:
 //   cmd.Flush();                                 // 反復後にまとめて適用
 //
 // 設計:
-//   ・Add<T> の値は New<T> で安定アドレスにヒープ退避するため、再配置による自己参照
-//     破壊が起きない。適用時は FWorld へムーブし、退避値を破棄する。
+//   ・16 バイト以下の単純な値はコマンド内へ直接保持し、それ以外だけ New<T> で
+//     安定アドレスへ退避する。適用時は FWorld へムーブし、ヒープ値だけ破棄する。
 //   ・Create は Each 中でも安全 (dense へ追記するだけで既存参照を無効化しない) ため
 //     遅延不要。新規エンティティへ即 Add したい場合のみ、Create は即時・Add は本バッファへ。
 //   ・記録の確保が OOM した場合は該当操作を落として HasOverflowed()=true にする
@@ -20851,7 +21137,7 @@ public:
     }
 
     /**
-     * T コンポーネントの追加を記録する (値は安定アドレスへ退避)。
+     * T コンポーネントの追加を記録する (小型の単純な値はコマンド内へ保持)。
      *
      * @tparam T 追加するコンポーネント型。
      * @param e 追加先のエンティティ。
@@ -20860,19 +21146,13 @@ public:
     template<typename T>
     void Add(FEntityId e, T value) noexcept
     {
-        T* const stored = New<T>(*m_Alloc, Move(value));
-        if (!stored) {
-            m_bOverflowed = true;
-            return;
-        }
         FCommand c{};
         c.kind = ECommandKind::Add;
         c.entity = e;
-        c.value = stored;
         c.apply = &ApplyAdd<T>;
-        c.destroy = &DestroyValue<T>;
+        if (!StoreValue(c, Move(value))) return;
         if (!m_Commands.TryPushBack(c)) {
-            DestroyValue<T>(*m_Alloc, stored);
+            DestroyStoredValue(c);
             m_bOverflowed = true;
         }
     }
@@ -20894,7 +21174,7 @@ public:
     }
 
     /**
-     * 「生成 + T を付与」を記録する (値は安定アドレスへ退避、Flush 時に生成)。
+     * 「生成 + T を付与」を記録する (小型の単純な値は内部保持、Flush 時に生成)。
      *
      * @details 弾やパーティクル等の並列スポーンに使う。複数コンポーネントを同一エンティティへ
      * 付けたい場合は Flush 後に FWorld 側で組み立てるか、T を集約構造体にすること。
@@ -20904,18 +21184,12 @@ public:
     template<typename T>
     void CreateWith(T value) noexcept
     {
-        T* const stored = New<T>(*m_Alloc, Move(value));
-        if (!stored) {
-            m_bOverflowed = true;
-            return;
-        }
         FCommand c{};
         c.kind = ECommandKind::Create;
-        c.value = stored;
         c.apply = &ApplyAdd<T>;
-        c.destroy = &DestroyValue<T>;
+        if (!StoreValue(c, Move(value))) return;
         if (!m_Commands.TryPushBack(c)) {
-            DestroyValue<T>(*m_Alloc, stored);
+            DestroyStoredValue(c);
             m_bOverflowed = true;
         }
     }
@@ -20937,14 +21211,14 @@ public:
                 c.apply(*m_World, c.entity, nullptr);
                 break;
             case ECommandKind::Add:
-                c.apply(*m_World, c.entity, c.value);   // 退避値を FWorld へムーブ
-                c.destroy(*m_Alloc, c.value);           // ムーブ済み退避値を破棄
+                c.apply(*m_World, c.entity, c.Value());
+                DestroyStoredValue(c);
                 break;
             case ECommandKind::Create: {
                 const FEntityId created = m_World->Create();
                 if (c.apply != nullptr) {                // CreateWith: 退避値を付与
-                    c.apply(*m_World, created, c.value);
-                    c.destroy(*m_Alloc, c.value);
+                    c.apply(*m_World, created, c.Value());
+                    DestroyStoredValue(c);
                 }
                 break;
             }
@@ -20960,9 +21234,7 @@ public:
     {
         for (usize i = 0; i < m_Commands.Size(); ++i) {
             FCommand& c = m_Commands[i];
-            if (c.destroy != nullptr) {                  // Add / CreateWith の退避値
-                c.destroy(*m_Alloc, c.value);
-            }
+            DestroyStoredValue(c);
         }
         m_Commands.Clear();
     }
@@ -20977,6 +21249,16 @@ public:
     bool IsEmpty() const noexcept
     {
         return m_Commands.IsEmpty();
+    }
+
+    /**
+     * 予想コマンド数を一括予約する。成功後、その件数まではコマンド配列を再確保しない。
+     */
+    bool TryReserve(usize command_count) noexcept
+    {
+        if (m_Commands.TryReserve(command_count)) return true;
+        m_bOverflowed = true;
+        return false;
     }
 
     /**
@@ -21000,12 +21282,53 @@ private:
 
     /** 1 つの遅延コマンド。value / thunk は種別に応じて使う。 */
     struct FCommand {
+        static constexpr usize kInlineValueBytes = 16u;
         ECommandKind kind = ECommandKind::Destroy;
         FEntityId entity{};
-        void* value = nullptr;                                      // Add のみ (退避した T)
+        void* value = nullptr;                                      // 大型または非単純な T
         void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;  // Add / Remove
         void (*destroy)(FAllocator&, void*) noexcept = nullptr;     // Add のみ
+        /** 小規模値を確保せず保持する領域。 */
+        alignas(16) byte inline_value[kInlineValueBytes]{};
+        /** 小規模値領域を使用中なら true。 */
+        bool inline_value_used = false;
+
+        void* Value() noexcept
+        {
+            return inline_value_used
+                ? static_cast<void*>(inline_value)
+                : value;
+        }
     };
+
+    template<typename T>
+    bool StoreValue(FCommand& command, T&& value) noexcept
+    {
+        if constexpr (IsTriviallyCopyableV<T> && IsTriviallyDestructibleV<T> && sizeof(T) <= FCommand::kInlineValueBytes && alignof(T) <= 16u) {
+            MemCopy(command.inline_value, &value, sizeof(T));
+            command.inline_value_used = true;
+            return true;
+        } else {
+            T* const stored = New<T>(*m_Alloc, Move(value));
+            if (!stored) {
+                m_bOverflowed = true;
+                return false;
+            }
+            command.value = stored;
+            command.destroy = &DestroyValue<T>;
+            return true;
+        }
+    }
+
+    void DestroyStoredValue(FCommand& command) noexcept
+    {
+        if (!command.inline_value_used && command.destroy != nullptr) {
+            command.destroy(*m_Alloc, command.value);
+        }
+        command.value = nullptr;
+        command.destroy = nullptr;
+        command.inline_value_used = false;
+    }
 
     /** 退避した T を FWorld へムーブ追加する型消去 thunk。 */
     template<typename T>
@@ -21204,6 +21527,19 @@ public:
     }
 
     /**
+     * 各ワーカースロットに同じ件数を事前予約する。記録開始前に単一スレッドから呼ぶ。
+     */
+    bool TryReservePerSlot(usize command_count) noexcept
+    {
+        bool ok = !m_Buffers.IsEmpty();
+        for (usize i = 0; i < m_Buffers.Size(); ++i) {
+            ok = m_Buffers[i]->TryReserve(command_count) && ok;
+        }
+        if (!ok) m_DroppedRecords.FetchAdd(1u);
+        return ok;
+    }
+
+    /**
      * 全スロットの記録済み操作数の合計を返す (単一スレッドから呼ぶこと)。
      *
      * @return 未適用の記録数。
@@ -21334,8 +21670,8 @@ public:
      * @details
      * primary の dense をローカルへスナップショットしてから反復するため、fn 内の
      * Add/Remove/Destroy で **訪問するエンティティ集合** は無効化されない (反復開始時点で固定)。
-     * 反復中に追加したエンティティはこの走査では訪問されず、削除したエンティティは InvokeWith の
-     * 再 Get + AllPresent 再確認でスキップされる。
+     * 反復中に追加したエンティティはこの走査では訪問されず、削除したエンティティは
+     * 世代付きスナップショットと 1 回の必須コンポーネント解決でスキップされる。
      *
      * ただし fn へ渡す Comps& 参照は Get と同じ無効化規約に従う。fn が **同じコンポーネント型** を
      * Add/Remove して TSparseSet が再確保すると、その参照は dangling になる。fn 内で構造変更した後は
@@ -21357,17 +21693,16 @@ public:
         // dense[] をローカルへスナップショットしてから反復する。fn が当該コンポーネントを
         // Add/Remove して TSparseSet が m_Dense を再確保すると、生 dense ポインタが dangling
         // になり use-after-free する。コピーに対して反復することで構造的変更に安全化する。
-        TArray<u32> snapshot;
+        TArray<FEntityId> snapshot;
         snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
-            snapshot[i] = dense[i];
+            snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
+        FSparseSetBase* required_sets[] = {static_cast<FSparseSetBase*>(m_World.template TryGetSet<Comps>())...};
 
         for (usize i = 0; i < count; ++i) {
-            const FEntityId e = m_World.MakeIdFromIndex(snapshot[i]);
-            if (AllPresent(e)) {
-                InvokeWith(fn, e);
-            }
+            PrefetchRequiredSets(snapshot, i, count, required_sets, sizeof(required_sets) / sizeof(required_sets[0]));
+            InvokeIfPresent(fn, snapshot[i]);
         }
     }
 
@@ -21390,17 +21725,39 @@ public:
         const usize count = primary->Size();
         if (count == 0) return;
 
-        TArray<u32> snapshot;
+        TArray<FEntityId> snapshot;
         snapshot.Resize(count);
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
-            snapshot[i] = dense[i];
+            snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
 
         for (usize i = 0; i < count; ++i) {
-            const FEntityId e = m_World.MakeIdFromIndex(snapshot[i]);
-            if (AllPresent(e) && !AnyPresent<Excludes...>(e)) {
-                InvokeWith(fn, e);
-            }
+            InvokeIfPresentExcluding<Excludes...>(fn, snapshot[i]);
+        }
+    }
+
+    /**
+     * 必須 Comps を全て持つエンティティを走査し、Optional は null 許容ポインターで渡す。
+     *
+     * @details 必須・任意の両型パックはコンパイル時に特殊化される。エンティティごとの
+     * 型種別分岐はなく、各スパース検索は 1 型 1 回だけ行う。
+     */
+    template<typename... Optional, typename Fn>
+    void EachOptional(Fn fn) noexcept
+    {
+        FSparseSetBase* primary = nullptr;
+        if (!ResolvePrimary(primary)) return;
+        const usize count = primary->Size();
+        if (count == 0u) return;
+
+        TArray<FEntityId> snapshot;
+        if (!snapshot.TryResize(count)) return;
+        const u32* dense = primary->DenseEntities();
+        for (usize i = 0; i < count; ++i)
+            snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
+
+        for (usize i = 0; i < count; ++i) {
+            InvokeIfPresentOptional<Optional...>(fn, snapshot[i]);
         }
     }
 
@@ -21433,12 +21790,12 @@ public:
 
         // dense[] をスナップショットしてから並列反復する。fn が構造的変更を起こすと生 dense
         // が dangling するため、コピーを指す (snapshot は ParallelFor の block 中ずっと生存)。
-        TArray<u32> snapshot;
+        TArray<FEntityId> snapshot;
         snapshot.Resize(count);
         {
             const u32* dense = primary->DenseEntities();
             for (u32 i = 0; i < count; ++i)
-                snapshot[i] = dense[i];
+                snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
         }
 
         // FThreadPool::ParallelFor は stateless 関数ポインタしか受け取れないので
@@ -21446,17 +21803,13 @@ public:
         struct FCtx {
             TQueryView* self;
             Fn* fn;
-            const u32* dense;
+            const FEntityId* entities;
         };
         FCtx ctx{this, &fn, snapshot.Data()};
 
         auto thunk = [](u32 i, u32 /*worker*/, void* user) {
             auto* c = static_cast<FCtx*>(user);
-            const u32 idx = c->dense[i];
-            const FEntityId e = c->self->m_World.MakeIdFromIndex(idx);
-            if (c->self->AllPresent(e)) {
-                c->self->InvokeWith(*c->fn, e);
-            }
+            c->self->InvokeIfPresent(*c->fn, c->entities[i]);
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
@@ -21464,6 +21817,26 @@ public:
     }
 
 private:
+    /**
+     * 大規模走査時だけ一定距離先の sparse 対応表を先読みする。
+     *
+     * @details 128 件未満では分岐直後に戻り、小規模クエリへ追加の集合検索を入れない。
+     */
+    void PrefetchRequiredSets(const TArray<FEntityId>& snapshot, usize index, usize count, FSparseSetBase* const* sets, usize set_count) noexcept {
+        /** 小規模走査では先読み命令の固定費を避ける。 */
+        constexpr usize kMinimumCount = 128u;
+        /** 疎配列を処理より先にキャッシュへ要求する距離。 */
+        constexpr usize kPrefetchDistance = 16u;
+        if (count < kMinimumCount || index + kPrefetchDistance >= count) {
+            return;
+        }
+        const FEntityId future = snapshot[index + kPrefetchDistance]; // 先読み対象のエンティティ。
+        for (usize i = 0u; i < set_count; ++i) {
+            FSparseSetBase* set = sets[i]; // 今回先読みする疎集合。
+            if (set != nullptr) set->PrefetchSparse(future.index);
+        }
+    }
+
     /**
      * 全 Comps の TSparseSet を取得し、最小サイズのものを主軸として選ぶ。
      *
@@ -21487,19 +21860,6 @@ private:
     }
 
     /**
-     * 指定エンティティが Comps を全て持っているかを返す。
-     *
-     * @param e 判定するエンティティ。
-     * @return 全コンポーネントを持っていれば true。
-     */
-    bool AllPresent(FEntityId e) noexcept
-    {
-        bool all = true;
-        ((all = all && (m_World.template Get<Comps>(e) != nullptr)), ...);
-        return all;
-    }
-
-    /**
      * 指定エンティティが Excludes のいずれかを持っているかを返す。
      *
      * @tparam Excludes 判定するコンポーネント型 (0 個なら常に false)。
@@ -21515,16 +21875,50 @@ private:
     }
 
     /**
-     * 全コンポーネントを取り出して fn を呼ぶ (呼び出し前に AllPresent で確認済み)。
-     *
-     * @tparam Fn (FEntityId, Comps&...) を受け取る呼び出し可能型。
-     * @param fn 適用するラムダ。
-     * @param e 対象エンティティ。
+     * 必須コンポーネントのポインターを各型 1 回だけ解決し、全て有効なら呼び出す。
+     * 型パックはコンパイル時に特殊化され、エンティティごとの型 ID ループや二重検索を持たない。
      */
     template<typename Fn>
-    void InvokeWith(Fn fn, FEntityId e) noexcept
+    void InvokeIfPresent(Fn& fn, FEntityId e) noexcept
     {
-        fn(e, *m_World.template Get<Comps>(e)...);
+        InvokeResolved(fn, e, m_World.template Get<Comps>(e)...);
+    }
+
+    template<typename Fn>
+    static void InvokeResolved(Fn& fn, FEntityId e, Comps*... components) noexcept
+    {
+        if (((components != nullptr) && ...)) {
+            fn(e, *components...);
+        }
+    }
+
+    /** 必須ポインターを再検索せず、コンパイル時の除外型パックも同じ振り分けに畳む。 */
+    template<typename... Excludes, typename Fn>
+    void InvokeIfPresentExcluding(Fn& fn, FEntityId e) noexcept
+    {
+        InvokeResolvedExcluding<Excludes...>(fn, e, m_World.template Get<Comps>(e)...);
+    }
+
+    template<typename... Excludes, typename Fn>
+    void InvokeResolvedExcluding(Fn& fn, FEntityId e, Comps*... components) noexcept
+    {
+        if (((components != nullptr) && ...) && !AnyPresent<Excludes...>(e)) {
+            fn(e, *components...);
+        }
+    }
+
+    template<typename... Optional, typename Fn>
+    void InvokeIfPresentOptional(Fn& fn, FEntityId e) noexcept
+    {
+        InvokeResolvedOptional<Optional...>(fn, e, m_World.template Get<Comps>(e)...);
+    }
+
+    template<typename... Optional, typename Fn>
+    void InvokeResolvedOptional(Fn& fn, FEntityId e, Comps*... components) noexcept
+    {
+        if (((components != nullptr) && ...)) {
+            fn(e, *components..., m_World.template Get<Optional>(e)...);
+        }
     }
 
     /** 走査対象の FWorld。 */
@@ -22511,6 +22905,9 @@ constexpr bool ShouldPublishProfiler(i32 abi_result) noexcept {
 
 #include <algorithm>
 #include <cmath>
+#if ACS_ARCH_X64
+#    include <immintrin.h>
+#endif
 
 namespace acs::editor_frustum_culling {
 
@@ -22589,46 +22986,93 @@ struct FNodeDecision {
     f32 world_radius = 0.0f;
 };
 
-inline FNodeDecision EvaluateSphere(
-    const FPlane (&planes)[6], FVec3 center,
-    f32 local_radius, FVec3 world_scale,
-    f32 world_radius_padding = 0.0f) noexcept {
-    FNodeDecision decision{};
-    if (!std::isfinite(center.x) ||
-        !std::isfinite(center.y) ||
-        !std::isfinite(center.z) ||
-        !std::isfinite(local_radius) ||
-        local_radius < 0.0f ||
-        !std::isfinite(world_scale.x) ||
-        !std::isfinite(world_scale.y) ||
-        !std::isfinite(world_scale.z) ||
-        !std::isfinite(world_radius_padding) ||
-        world_radius_padding < 0.0f) {
+/** 球の入力値を検査し、ワールド空間の半径を求める。 */
+inline FNodeDecision PrepareSphere(FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding) noexcept {
+    FNodeDecision decision{}; // 検査と半径計算の結果。
+    if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z) || !std::isfinite(local_radius) || local_radius < 0.0f || !std::isfinite(world_scale.x) || !std::isfinite(world_scale.y) || !std::isfinite(world_scale.z) || !std::isfinite(world_radius_padding) || world_radius_padding < 0.0f) {
         return decision;
     }
-    const f32 maximum_scale = std::max(
-        std::fabs(world_scale.x),
-        std::max(
-            std::fabs(world_scale.y),
-            std::fabs(world_scale.z)));
-    decision.world_radius =
-        local_radius * maximum_scale +
-        world_radius_padding;
+    const f32 maximum_scale = std::max(std::fabs(world_scale.x), std::max(std::fabs(world_scale.y), std::fabs(world_scale.z))); // 三軸の最大絶対スケール。
+    decision.world_radius = local_radius * maximum_scale + world_radius_padding;
     if (!std::isfinite(decision.world_radius))
         return decision;
     decision.valid = true;
+    return decision;
+}
+
+inline FNodeDecision EvaluateSphere(const FPlane (&planes)[6], FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding = 0.0f) noexcept {
+    FNodeDecision decision = PrepareSphere(center, local_radius, world_scale, world_radius_padding);
+    if (!decision.valid) return decision;
     for (const FPlane& plane : planes) {
-        const f32 signed_distance =
-            center.x * plane.normal.x +
-            center.y * plane.normal.y +
-            center.z * plane.normal.z +
-            plane.distance;
+        const f32 signed_distance = center.x * plane.normal.x + center.y * plane.normal.y + center.z * plane.normal.z + plane.distance;
         if (signed_distance < -decision.world_radius) {
             decision.visible = false;
             break;
         }
     }
     return decision;
+}
+
+/**
+ * 球群を四個単位でフラスタム判定し、端数と非 x64 環境では単体経路へ戻す。
+ *
+ * @details 妥当性検査と半径計算は EvaluateSphere と共通化しているため、無効入力の
+ * fail-open 契約を含めて単体経路と同じ結果を返す。
+ * @param planes 判定に使う六つのフラスタム平面。
+ * @param centers 球中心の配列。
+ * @param local_radii ローカル空間半径の配列。
+ * @param world_scales ワールド空間スケールの配列。
+ * @param world_radius_paddings 追加半径の配列。nullptr なら零。
+ * @param count 処理する球数。
+ * @param output 判定結果を書き込む配列。
+ */
+inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers, const f32* local_radii, const FVec3* world_scales, const f32* world_radius_paddings, usize count, FNodeDecision* output) noexcept {
+    if (centers == nullptr || local_radii == nullptr || world_scales == nullptr || output == nullptr) {
+        return;
+    }
+
+    usize index = 0u; // 次に処理する球の位置。
+#if ACS_ARCH_X64
+    alignas(16) f32 xs[4]{}; // 四球の中心 X。
+    alignas(16) f32 ys[4]{}; // 四球の中心 Y。
+    alignas(16) f32 zs[4]{}; // 四球の中心 Z。
+    alignas(16) f32 radii[4]{}; // 四球のワールド半径。
+    for (; index + 4u <= count; index += 4u) {
+        u32 valid_mask = 0u; // 入力が有効な SIMD レーン。
+        for (u32 lane = 0u; lane < 4u; ++lane) {
+            const usize item = index + lane; // 今回準備する球の位置。
+            const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[item] : 0.0f; // 球へ加える半径。
+            output[item] = PrepareSphere(centers[item], local_radii[item], world_scales[item], padding);
+            xs[lane] = centers[item].x;
+            ys[lane] = centers[item].y;
+            zs[lane] = centers[item].z;
+            radii[lane] = output[item].world_radius;
+            if (output[item].valid) valid_mask |= 1u << lane;
+        }
+
+        const __m128 x = _mm_load_ps(xs); // 四球の中心 X。
+        const __m128 y = _mm_load_ps(ys); // 四球の中心 Y。
+        const __m128 z = _mm_load_ps(zs); // 四球の中心 Z。
+        const __m128 negative_radius = _mm_sub_ps(_mm_setzero_ps(), _mm_load_ps(radii)); // 四球の負半径。
+        u32 culled_mask = 0u; // 一平面でも外側になった SIMD レーン。
+        for (const FPlane& plane : planes) {
+            __m128 distance = _mm_mul_ps(x, _mm_set1_ps(plane.normal.x)); // 四球から平面までの符号付き距離。
+            distance = _mm_add_ps(distance, _mm_mul_ps(y, _mm_set1_ps(plane.normal.y)));
+            distance = _mm_add_ps(distance, _mm_mul_ps(z, _mm_set1_ps(plane.normal.z)));
+            distance = _mm_add_ps(distance, _mm_set1_ps(plane.distance));
+            culled_mask |= static_cast<u32>(_mm_movemask_ps(_mm_cmplt_ps(distance, negative_radius)));
+        }
+        culled_mask &= valid_mask;
+        for (u32 lane = 0u; lane < 4u; ++lane) {
+            if ((culled_mask & (1u << lane)) != 0u)
+                output[index + lane].visible = false;
+        }
+    }
+#endif
+    for (; index < count; ++index) {
+        const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[index] : 0.0f; // 球へ加える半径。
+        output[index] = EvaluateSphere(planes, centers[index], local_radii[index], world_scales[index], padding);
+    }
 }
 
 struct FFrameDecision {
@@ -65928,6 +66372,11 @@ public:
      */
     u32 PendingCount() const noexcept;
 
+    /** 現在のコマンド列がオブジェクト内領域だけを使用しているかを返す。 */
+    bool UsesInlineStorage() const noexcept {
+        return m_Records.UsesInlineStorage();
+    }
+
     /**
      * label に一致する command が 1 つ以上あるかを返す。
      *
@@ -65952,7 +66401,8 @@ private:
     void StableSortByPriority() noexcept;
 
     /** 保持中の command 列。 */
-    TArray<FCommandRecord> m_Records;
+    static constexpr usize kInlineCommandCapacity = 16u;
+    TInlineArray<FCommandRecord, kInlineCommandCapacity> m_Records;
 };
 
 } // namespace acs::game
@@ -74794,6 +75244,91 @@ namespace acs::game {
 /** フィールドが実メンバ (offset 付き) を持つか (ACS_RPROP のスキーマのみは false)。 */
 inline bool FieldHasStorage(const FReflectField& f) noexcept { return f.size != 0u; }
 
+namespace reflect_apply_detail {
+
+using ApplyFn = void (*)(unsigned char*, const f32*) noexcept;
+using ReadFn = void (*)(const unsigned char*, f32*) noexcept;
+
+template<EFieldKind Kind>
+void Apply(unsigned char* p, const f32* v) noexcept
+{
+    if constexpr (Kind == EFieldKind::Bool)
+        *reinterpret_cast<bool*>(p) = v[0] != 0.0f;
+    else if constexpr (Kind == EFieldKind::I32 ||
+                       Kind == EFieldKind::ObjectRef)
+        *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]);
+    else if constexpr (Kind == EFieldKind::U32)
+        *reinterpret_cast<u32*>(p) = static_cast<u32>(v[0]);
+    else if constexpr (Kind == EFieldKind::F32)
+        *reinterpret_cast<f32*>(p) = v[0];
+    else if constexpr (Kind == EFieldKind::Vec2) {
+        auto* d = reinterpret_cast<f32*>(p); d[0] = v[0]; d[1] = v[1];
+    } else if constexpr (Kind == EFieldKind::Vec3) {
+        auto* d = reinterpret_cast<f32*>(p);
+        d[0] = v[0]; d[1] = v[1]; d[2] = v[2];
+    } else if constexpr (Kind == EFieldKind::Vec4) {
+        auto* d = reinterpret_cast<f32*>(p);
+        d[0] = v[0]; d[1] = v[1]; d[2] = v[2]; d[3] = v[3];
+    }
+}
+
+template<EFieldKind Kind>
+void Read(const unsigned char* p, f32* out) noexcept
+{
+    if constexpr (Kind == EFieldKind::Bool)
+        out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f;
+    else if constexpr (Kind == EFieldKind::I32 ||
+                       Kind == EFieldKind::ObjectRef)
+        out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p));
+    else if constexpr (Kind == EFieldKind::U32)
+        out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p));
+    else if constexpr (Kind == EFieldKind::F32)
+        out[0] = *reinterpret_cast<const f32*>(p);
+    else if constexpr (Kind == EFieldKind::Vec2) {
+        auto* d = reinterpret_cast<const f32*>(p); out[0] = d[0]; out[1] = d[1];
+    } else if constexpr (Kind == EFieldKind::Vec3) {
+        auto* d = reinterpret_cast<const f32*>(p);
+        out[0] = d[0]; out[1] = d[1]; out[2] = d[2];
+    } else if constexpr (Kind == EFieldKind::Vec4) {
+        auto* d = reinterpret_cast<const f32*>(p);
+        out[0] = d[0]; out[1] = d[1]; out[2] = d[2]; out[3] = d[3];
+    }
+}
+
+inline constexpr ApplyFn kApplyDispatch[] = {
+    &Apply<EFieldKind::Bool>, &Apply<EFieldKind::I32>,
+    &Apply<EFieldKind::U32>, &Apply<EFieldKind::F32>,
+    &Apply<EFieldKind::Vec2>, &Apply<EFieldKind::Vec3>,
+    &Apply<EFieldKind::Vec4>, &Apply<EFieldKind::String>,
+    &Apply<EFieldKind::Enum>, &Apply<EFieldKind::ObjectRef>
+};
+inline constexpr ReadFn kReadDispatch[] = {
+    &Read<EFieldKind::Bool>, &Read<EFieldKind::I32>,
+    &Read<EFieldKind::U32>, &Read<EFieldKind::F32>,
+    &Read<EFieldKind::Vec2>, &Read<EFieldKind::Vec3>,
+    &Read<EFieldKind::Vec4>, &Read<EFieldKind::String>,
+    &Read<EFieldKind::Enum>, &Read<EFieldKind::ObjectRef>
+};
+inline constexpr bool kDispatchSupported[] = {
+    true, true, true, true, true, true, true, false, false, true
+};
+inline constexpr usize kFieldKindCount =
+    static_cast<usize>(EFieldKind::ObjectRef) + 1u;
+static_assert(kFieldKindCount ==
+              sizeof(kApplyDispatch) / sizeof(kApplyDispatch[0]));
+static_assert(kFieldKindCount ==
+              sizeof(kReadDispatch) / sizeof(kReadDispatch[0]));
+
+} // reflect_apply_detail 名前空間
+
+/** 組み込み種別が数値の読み書き記述子を持つか。プラグイン・未知種別は false。 */
+constexpr bool ReflectFieldDispatchSupported(EFieldKind kind) noexcept
+{
+    const usize index = static_cast<usize>(kind);
+    return index < reflect_apply_detail::kFieldKindCount &&
+           reflect_apply_detail::kDispatchSupported[index];
+}
+
 /**
  * 1 フィールドの値 (f32 4 成分ソース) を obj の実メンバへ書き込む。
  *
@@ -74804,17 +75339,9 @@ inline bool FieldHasStorage(const FReflectField& f) noexcept { return f.size != 
 inline void ApplyFieldValue(void* obj, const FReflectField& f, const f32 v[4]) noexcept {
     if (obj == nullptr || !FieldHasStorage(f)) return;
     auto* const p = static_cast<unsigned char*>(obj) + f.offset;
-    switch (f.kind) {
-        case EFieldKind::Bool:  *reinterpret_cast<bool*>(p) = (v[0] != 0.0f); break;
-        case EFieldKind::I32:   *reinterpret_cast<i32*>(p)  = static_cast<i32>(v[0]); break;
-        case EFieldKind::ObjectRef: *reinterpret_cast<i32*>(p) = static_cast<i32>(v[0]); break;  // 参照先 ID (実行時に解決)
-        case EFieldKind::U32:   *reinterpret_cast<u32*>(p)  = static_cast<u32>(v[0]); break;
-        case EFieldKind::F32:   *reinterpret_cast<f32*>(p)  = v[0]; break;
-        case EFieldKind::Vec2: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; } break;
-        case EFieldKind::Vec3: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; d[2]=v[2]; } break;
-        case EFieldKind::Vec4: { auto* d = reinterpret_cast<f32*>(p); d[0]=v[0]; d[1]=v[1]; d[2]=v[2]; d[3]=v[3]; } break;
-        default: break;   // FString / Enum などは未対応 (skip)
-    }
+    const usize index = static_cast<usize>(f.kind);
+    if (index < reflect_apply_detail::kFieldKindCount)
+        reflect_apply_detail::kApplyDispatch[index](p, v);
 }
 
 /**
@@ -74828,17 +75355,9 @@ inline void ReadFieldValue(const void* obj, const FReflectField& f, f32 out[4]) 
     out[0] = out[1] = out[2] = out[3] = 0.0f;
     if (obj == nullptr || !FieldHasStorage(f)) return;
     const auto* const p = static_cast<const unsigned char*>(obj) + f.offset;
-    switch (f.kind) {
-        case EFieldKind::Bool:  out[0] = *reinterpret_cast<const bool*>(p) ? 1.0f : 0.0f; break;
-        case EFieldKind::I32:   out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
-        case EFieldKind::ObjectRef: out[0] = static_cast<f32>(*reinterpret_cast<const i32*>(p)); break;
-        case EFieldKind::U32:   out[0] = static_cast<f32>(*reinterpret_cast<const u32*>(p)); break;
-        case EFieldKind::F32:   out[0] = *reinterpret_cast<const f32*>(p); break;
-        case EFieldKind::Vec2: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; } break;
-        case EFieldKind::Vec3: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; out[2]=d[2]; } break;
-        case EFieldKind::Vec4: { auto* d = reinterpret_cast<const f32*>(p); out[0]=d[0]; out[1]=d[1]; out[2]=d[2]; out[3]=d[3]; } break;
-        default: break;
-    }
+    const usize index = static_cast<usize>(f.kind);
+    if (index < reflect_apply_detail::kFieldKindCount)
+        reflect_apply_detail::kReadDispatch[index](p, out);
 }
 
 /**
@@ -77876,6 +78395,54 @@ struct FTileRayHit {
  */
 FTileRayHit RaycastTilemap(const FTilemap& map, u32 layer,
                            FVec2 origin, FVec2 dir, f32 max_dist) noexcept;
+
+} // namespace acs::game
+
+// ===================== gameframework/TransformBatchSoA.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 連続する transform 群を属性別に参照する入力ビュー。 */
+struct FTransformSoAInput {
+    /** 子 transform の位置配列。 */
+    const FVec3* positions = nullptr;
+    /** 子 transform の回転配列。 */
+    const FQuat* rotations = nullptr;
+    /** 子 transform のスケール配列。 */
+    const FVec3* scales = nullptr;
+};
+
+/**
+ * 一つの親 transform と SoA 配置された子 transform 群をまとめて合成する。
+ *
+ * @param parent 全ての子へ適用する親 transform。
+ * @param local 属性別に配置した子 transform。
+ * @param output_positions 合成後の位置配列。
+ * @param output_rotations 合成後の回転配列。
+ * @param output_scales 合成後のスケール配列。
+ * @param count 処理する子 transform 数。
+ * @return 入出力が有効なら true。
+ */
+inline bool ComposeTransformBatchSoA(const FTransform3D& parent, FTransformSoAInput local, FVec3* output_positions, FQuat* output_rotations, FVec3* output_scales, usize count) noexcept {
+    if (count == 0u) return true;
+    if (local.positions == nullptr || local.rotations == nullptr || local.scales == nullptr || output_positions == nullptr || output_rotations == nullptr || output_scales == nullptr) {
+        return false;
+    }
+    for (usize index = 0u; index < count; ++index) {
+        // 合成前の子 transform を連続配列から読み出す。
+        const FVec3 local_position = local.positions[index];
+        const FQuat local_rotation = local.rotations[index];
+        const FVec3 local_scale = local.scales[index];
+        // 親スケールを適用した子位置。
+        const FVec3 scaled = {parent.scale.x * local_position.x, parent.scale.y * local_position.y, parent.scale.z * local_position.z};
+        output_positions[index] = parent.position + Rotate(parent.rotation, scaled);
+        output_rotations[index] = local_rotation * parent.rotation;
+        output_scales[index] = {parent.scale.x * local_scale.x, parent.scale.y * local_scale.y, parent.scale.z * local_scale.z};
+    }
+    return true;
+}
 
 } // namespace acs::game
 
@@ -95793,6 +96360,164 @@ private:
 
 } // namespace acs
 
+// ===================== render/DescriptorSlotPool.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * 固定容量のディスクリプタ番号を再利用する、確保を伴わないスロットプール。
+ *
+ * @details 同期とバッチ確保の契約を次に示す。
+ * 外側で同期することを前提とする。バッチ確保は全件成功または全件失敗であり、
+ * 途中失敗による返却処理を呼び出し側へ要求しない。
+ */
+template<u32 Capacity>
+class TDescriptorSlotPool {
+    static_assert(Capacity > 0u);
+
+public:
+    /** 一つのスロットを確保し、空きがなければ -1 を返す。 */
+    i32 Allocate() noexcept {
+        i32 slot = -1; // 確保したスロット番号。
+        return AllocateBatch(&slot, 1u) ? slot : -1;
+    }
+
+    /** 指定数のスロットをまとめて確保する。 */
+    bool AllocateBatch(i32* output, u32 count) noexcept {
+        if (count == 0u) return true;
+        if (output == nullptr || count > AvailableCount()) return false;
+        u32 written = 0u; // 出力済みスロット数。
+        while (written < count && m_FreeCount > 0u)
+            output[written++] = m_FreeList[--m_FreeCount];
+        while (written < count)
+            output[written++] = static_cast<i32>(m_HighWater++);
+        return true;
+    }
+
+    /** 一つのスロットを再利用待ちへ戻す。 */
+    void Free(i32 slot) noexcept {
+        if (slot < 0 || static_cast<u32>(slot) >= m_HighWater) return;
+        for (u32 i = 0u; i < m_FreeCount; ++i) {
+            if (m_FreeList[i] == slot) return;
+        }
+        if (m_FreeCount < Capacity) m_FreeList[m_FreeCount++] = slot;
+    }
+
+    /** 指定されたスロット群を再利用待ちへ戻す。 */
+    void FreeBatch(const i32* slots, u32 count) noexcept {
+        if (slots == nullptr) return;
+        for (u32 i = 0u; i < count; ++i) Free(slots[i]);
+    }
+
+    /** 新規に発行済みの最大位置を返す。 */
+    u32 HighWater() const noexcept { return m_HighWater; }
+    /** 再利用待ちのスロット数を返す。 */
+    u32 FreeCount() const noexcept { return m_FreeCount; }
+    /** 現在確保できるスロット数を返す。 */
+    u32 AvailableCount() const noexcept {
+        return m_FreeCount + (Capacity - m_HighWater);
+    }
+
+    /** 全スロットを未発行状態へ戻す。 */
+    void Reset() noexcept {
+        m_HighWater = 0u;
+        m_FreeCount = 0u;
+    }
+
+private:
+    /** 再利用待ちスロットを保持するスタック。 */
+    i32 m_FreeList[Capacity]{};
+    /** 連続領域から次に発行する位置。 */
+    u32 m_HighWater = 0u;
+    /** 再利用待ちスロット数。 */
+    u32 m_FreeCount = 0u;
+};
+
+} // namespace acs
+
+// ===================== render/FormatAspect.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 形式が保持する画像成分。 */
+enum class EFormatAspect : u8 {
+    /** 画像成分を持たない。 */
+    None = 0u,
+    /** 色成分を持つ。 */
+    Color = 1u,
+    /** 深度成分を持つ。 */
+    Depth = 2u,
+    /** ステンシル成分を持つ。 */
+    Stencil = 4u,
+};
+
+/** 二つの画像成分を結合する。 */
+constexpr EFormatAspect operator|(EFormatAspect left, EFormatAspect right) noexcept {
+    return static_cast<EFormatAspect>(static_cast<u8>(left) | static_cast<u8>(right));
+}
+
+} // namespace acs
+
+// ===================== render/FormatTraits.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 一つの GPU 形式が持つ固定属性。 */
+struct FFormatTraits {
+    /** 一ブロックのバイト数。 */
+    u8 bytes_per_block = 0u;
+    /** 一ブロックの横画素数。 */
+    u8 block_width = 1u;
+    /** 一ブロックの縦画素数。 */
+    u8 block_height = 1u;
+    /** 形式が持つ画像成分。 */
+    EFormatAspect aspects = EFormatAspect::None;
+    /** ブロック圧縮形式なら true。 */
+    bool compressed = false;
+};
+
+/** EFormat と同じ添字で参照する固定属性表。 */
+inline constexpr FFormatTraits kFormatTraits[] = {{0u, 1u, 1u, EFormatAspect::None, false}, {4u, 1u, 1u, EFormatAspect::Color, false}, {4u, 1u, 1u, EFormatAspect::Color, false}, {4u, 1u, 1u, EFormatAspect::Color, false}, {4u, 1u, 1u, EFormatAspect::Color, false}, {4u, 1u, 1u, EFormatAspect::Color, false}, {8u, 1u, 1u, EFormatAspect::Color, false}, {4u, 1u, 1u, EFormatAspect::Color, false}, {8u, 1u, 1u, EFormatAspect::Color, false}, {12u, 1u, 1u, EFormatAspect::Color, false}, {16u, 1u, 1u, EFormatAspect::Color, false}, {4u, 1u, 1u, EFormatAspect::Depth | EFormatAspect::Stencil, false}, {4u, 1u, 1u, EFormatAspect::Depth, false}};
+static_assert(sizeof(kFormatTraits) / sizeof(kFormatTraits[0]) == static_cast<usize>(EFormat::Count));
+
+/** 指定形式の固定属性を返し、範囲外なら無効属性を返す。 */
+constexpr FFormatTraits GetFormatTraits(EFormat format) noexcept {
+    // 属性表を参照する添字。
+    const usize index = static_cast<usize>(format);
+    return index < static_cast<usize>(EFormat::Count) ? kFormatTraits[index] : FFormatTraits{};
+}
+
+/** 指定形式が画像成分を持つか返す。 */
+constexpr bool FormatHasAspect(EFormat format, EFormatAspect aspect) noexcept {
+    return (static_cast<u8>(GetFormatTraits(format).aspects) & static_cast<u8>(aspect)) != 0u;
+}
+
+/** 指定形式が深度成分を持つか返す。 */
+constexpr bool IsDepthFormat(EFormat format) noexcept {
+    return FormatHasAspect(format, EFormatAspect::Depth);
+}
+
+/** 指定形式が色成分を持つか返す。 */
+constexpr bool IsColorFormat(EFormat format) noexcept {
+    return FormatHasAspect(format, EFormatAspect::Color);
+}
+
+/** 指定形式を色または深度対象へ使用できるか返す。 */
+constexpr bool IsFormatUsageLegal(EFormat format, bool depth_target) noexcept {
+    // 検査する固定属性。
+    const FFormatTraits traits = GetFormatTraits(format);
+    return traits.bytes_per_block != 0u && traits.block_width != 0u && traits.block_height != 0u &&
+           (depth_target ? IsDepthFormat(format) : IsColorFormat(format));
+}
+
+} // namespace acs
+
 // ===================== render/Fxaa.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // FXAA (Fast Approximate Anti-Aliasing) フルスクリーンパス
@@ -97434,6 +98159,200 @@ private:
 
 } // namespace acs
 
+// ===================== render/PipelineStateKey.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** PSO 記述子を高速検索するための 128 bit キー。 */
+struct FPipelineStateKey {
+    /** open addressing の開始位置に使う主ハッシュ。 */
+    u64 primary = 0u;
+    /** 主ハッシュ衝突を識別する検証ハッシュ。 */
+    u64 verification = 0u;
+
+    /** 二つのハッシュが一致するか返す。 */
+    constexpr bool operator==(const FPipelineStateKey& other) const noexcept {
+        return primary == other.primary && verification == other.verification;
+    }
+};
+
+/** 一つの整数値を PSO キーへ混合する。 */
+inline u64 PipelineKeyCombine(u64 hash, u64 value) noexcept {
+    return HashMix64(hash ^ HashMix64(value + 0x9E3779B97F4A7C15ull));
+}
+
+/** 浮動小数値の bit 表現をキー用整数へ写す。 */
+inline u32 PipelineKeyFloatBits(f32 value) noexcept {
+    // 浮動小数値の bit 表現。
+    u32 bits = 0u;
+    MemCopy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+/** サンプラーの全状態を PSO キーへ加える。 */
+template<typename FAdd>
+inline void AddSamplerToPipelineKey(const FSamplerDesc& sampler, FAdd&& add) noexcept {
+    add(static_cast<u64>(sampler.filter));
+    add(static_cast<u64>(sampler.address_u));
+    add(static_cast<u64>(sampler.address_v));
+    add(static_cast<u64>(sampler.address_w));
+    add(PipelineKeyFloatBits(sampler.min_lod));
+    add(PipelineKeyFloatBits(sampler.max_lod));
+    add(sampler.max_anisotropy);
+    add(sampler.comparison ? 1u : 0u);
+}
+
+/** graphics 記述子の全 PSO 状態からキーを作る。 */
+inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcept {
+    // 構築中の二重ハッシュ。
+    FPipelineStateKey key{0x243F6A8885A308D3ull, 0x13198A2E03707344ull};
+    // 一つの状態値を二重ハッシュへ加える処理。
+    const auto add = [&key](u64 value) noexcept {
+        key.primary = PipelineKeyCombine(key.primary, value);
+        key.verification = PipelineKeyCombine(key.verification, value ^ 0xA4093822299F31D0ull);
+    };
+    add(reinterpret_cast<u64>(desc.vs));
+    add(reinterpret_cast<u64>(desc.ps));
+    add(static_cast<u64>(desc.topology));
+    add(static_cast<u64>(desc.rt_format));
+    add(static_cast<u64>(desc.rt_count));
+    for (u32 index = 0u; index < 8u; ++index) add(static_cast<u64>(desc.rt_formats[index]));
+    add(static_cast<u64>(desc.depth_format));
+    add(desc.vertex_stride);
+    add(desc.layout_count);
+    for (u32 index = 0u; index < desc.layout_count && index < 8u; ++index) {
+        add(reinterpret_cast<u64>(desc.layout[index].semantic_name));
+        add(desc.layout[index].semantic_index);
+        add(static_cast<u64>(desc.layout[index].format));
+        add(desc.layout[index].offset);
+    }
+    add(desc.cbuffer_slots);
+    add(desc.texture_slots);
+    add(desc.static_sampler_count);
+    for (u32 index = 0u; index < desc.static_sampler_count && index < 16u; ++index) {
+        AddSamplerToPipelineKey(desc.static_samplers[index], add);
+    }
+    add(static_cast<u64>(desc.cull_mode));
+    add(static_cast<u64>(desc.blend_mode));
+    add(desc.depth_test ? 1u : 0u);
+    add(desc.depth_write ? 1u : 0u);
+    add(desc.stencil.enable ? 1u : 0u);
+    add(static_cast<u64>(desc.stencil.func));
+    add(static_cast<u64>(desc.stencil.pass_op));
+    add(static_cast<u64>(desc.stencil.fail_op));
+    add(static_cast<u64>(desc.stencil.depth_fail_op));
+    add(desc.stencil.read_mask);
+    add(desc.stencil.write_mask);
+    add(desc.sample_count);
+    for (u32 index = 0u; index < desc.cbuffer_slots && index < 16u; ++index) {
+        add(reinterpret_cast<u64>(desc.cbuffer_names[index]));
+    }
+    for (u32 index = 0u; index < desc.texture_slots && index < 16u; ++index) {
+        add(reinterpret_cast<u64>(desc.texture_names[index]));
+    }
+    return key;
+}
+
+/** compute 記述子の全 PSO 状態からキーを作る。 */
+inline FPipelineStateKey MakePipelineStateKey(const FComputePipelineDesc& desc) noexcept {
+    // 構築中の二重ハッシュ。
+    FPipelineStateKey key{0x452821E638D01377ull, 0xBE5466CF34E90C6Cull};
+    // 一つの状態値を二重ハッシュへ加える処理。
+    const auto add = [&key](u64 value) noexcept {
+        key.primary = PipelineKeyCombine(key.primary, value);
+        key.verification = PipelineKeyCombine(key.verification, value ^ 0xC0AC29B7C97C50DDull);
+    };
+    add(reinterpret_cast<u64>(desc.cs));
+    add(desc.cbuffer_slots);
+    add(desc.srv_slots);
+    add(desc.uav_slots);
+    add(desc.static_sampler_count);
+    for (u32 index = 0u; index < desc.static_sampler_count && index < 16u; ++index) {
+        AddSamplerToPipelineKey(desc.static_samplers[index], add);
+    }
+    for (u32 index = 0u; index < desc.cbuffer_slots && index < 16u; ++index) {
+        add(reinterpret_cast<u64>(desc.cbuffer_names[index]));
+    }
+    for (u32 index = 0u; index < desc.srv_slots && index < 16u; ++index) {
+        add(reinterpret_cast<u64>(desc.srv_names[index]));
+    }
+    for (u32 index = 0u; index < desc.uav_slots && index < 16u; ++index) {
+        add(reinterpret_cast<u64>(desc.uav_names[index]));
+    }
+    return key;
+}
+
+} // namespace acs
+
+// ===================== render/PipelineStateKeyCache.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 固定容量かつ確保不要の PSO キー intern 表。 */
+template<u32 Capacity>
+class TPipelineStateKeyCache {
+    static_assert(Capacity > 0u);
+
+public:
+    /**
+     * キーを検索し、未登録なら新しい識別子で登録する。
+     *
+     * @param key 検索または登録する PSO キー。
+     * @param identifier 既存または新規の識別子。
+     * @param found 既存キーが見つかった場合は true。
+     * @return 検索または登録できた場合は true、満杯なら false。
+     */
+    bool FindOrIntern(const FPipelineStateKey& key, u32& identifier, bool& found) noexcept {
+        const u32 start = static_cast<u32>(key.primary % Capacity); // 線形探索の開始位置。
+        for (u32 probe = 0u; probe < Capacity; ++probe) {
+            const u32 slot = (start + probe) % Capacity; // 今回検査する表の位置。
+            FEntry& entry = m_Entries[slot]; // 今回検査する登録要素。
+            if (!entry.occupied) {
+                entry.key = key;
+                entry.identifier = m_NextIdentifier++;
+                entry.occupied = true;
+                identifier = entry.identifier;
+                found = false;
+                ++m_Size;
+                return true;
+            }
+            if (entry.key == key) {
+                identifier = entry.identifier;
+                found = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 登録済みキー数を返す。 */
+    u32 Size() const noexcept { return m_Size; }
+
+private:
+    /** 一つの登録済み PSO キー。 */
+    struct FEntry {
+        /** 登録した PSO キー。 */
+        FPipelineStateKey key{};
+        /** 呼び出し側へ返す識別子。 */
+        u32 identifier = 0u;
+        /** この位置が使用済みなら true。 */
+        bool occupied = false;
+    };
+
+    /** open addressing で検索する固定表。 */
+    FEntry m_Entries[Capacity]{};
+    /** 次に発行する識別子。 */
+    u32 m_NextIdentifier = 0u;
+    /** 登録済みキー数。 */
+    u32 m_Size = 0u;
+};
+
+} // namespace acs
+
 // ===================== render/RefractionShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // スクリーンスペース屈折シェーダ
@@ -97676,6 +98595,88 @@ private:
 // ---- 低レベル RHI（バックエンド非依存の描画インターフェイス）----------------
 
 // ---- 高レベルヘルパ ---------------------------------------------------------
+
+// ===================== render/RhiPipelineBindDomain.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** パイプラインを拘束するコマンド領域。 */
+enum class ERhiPipelineBindDomain : u8 {
+    /** グラフィックス領域。 */
+    Graphics,
+    /** コンピュート領域。 */
+    Compute,
+};
+
+} // namespace acs
+
+// ===================== render/RhiPipelineBindPolicy.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 領域ごとのパイプライン束縛判定をコンパイル時に特殊化する。 */
+template<ERhiPipelineBindDomain Domain>
+struct TRhiPipelineBindPolicy {
+    /** パイプライン種別を受理するか返す。 */
+    static constexpr bool Accepts(bool is_compute) noexcept {
+        if constexpr (Domain == ERhiPipelineBindDomain::Compute) return is_compute;
+        return !is_compute;
+    }
+
+    /** 現在値と要求値から再束縛が必要か返す。 */
+    template<typename Pipeline>
+    static constexpr bool NeedsBind(const Pipeline* current, const Pipeline* requested) noexcept {
+        return requested != nullptr && current != requested;
+    }
+};
+
+} // namespace acs
+
+// ===================== render/ShaderParameterLayoutMetadata.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** シェーダー資源と頂点レイアウトの静的な個数情報。 */
+struct FShaderParameterLayoutMetadata {
+    /** 定数バッファのスロット数。 */
+    u32 cbuffer_slots = 0u;
+    /** 読み取り資源のスロット数。 */
+    u32 texture_slots = 0u;
+    /** 静的サンプラーのスロット数。 */
+    u32 sampler_slots = 0u;
+    /** 頂点入力要素数。 */
+    u32 input_elements = 0u;
+
+    /** graphics 用の固定上限内か返す。 */
+    constexpr bool IsValidGraphics() const noexcept {
+        return cbuffer_slots <= 16u && texture_slots <= 16u && sampler_slots <= 16u &&
+               input_elements <= 8u;
+    }
+
+    /** compute 用の固定上限内か返す。 */
+    constexpr bool IsValidCompute(u32 uav_slots) const noexcept {
+        return cbuffer_slots <= 16u && texture_slots <= 16u && sampler_slots <= 16u &&
+               input_elements == 0u && uav_slots <= 16u;
+    }
+};
+
+/** graphics 記述子から個数情報を作る。 */
+constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FPipelineDesc& desc) noexcept {
+    return {desc.cbuffer_slots, desc.texture_slots, desc.static_sampler_count, desc.layout_count};
+}
+
+/** compute 記述子から個数情報を作る。 */
+constexpr FShaderParameterLayoutMetadata ShaderLayoutMetadata(const FComputePipelineDesc& desc) noexcept {
+    return {desc.cbuffer_slots, desc.srv_slots, desc.static_sampler_count, 0u};
+}
+
+} // namespace acs
 
 // ===================== render/ShadowMap.h =====================
 // SPDX-License-Identifier: Apache-2.0

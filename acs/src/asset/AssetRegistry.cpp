@@ -374,9 +374,7 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         loader = FindLoader(path);
         if (loader) {
             if (!m_InFlight.TryInsert(id, state)) {
-                state->error = ACS_ERR(
-                    Memory, kAssetRegistrySubOutOfMemory,
-                    "LoadAsync: in-flight allocation failed");
+                state->error = ACS_ERR(Memory, kAssetRegistrySubOutOfMemory, "LoadAsync: in-flight allocation failed");
                 state->has_error = true;
                 state->counter.Done();
                 return FAssetFuture(Move(state));

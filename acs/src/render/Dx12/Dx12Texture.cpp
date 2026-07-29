@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // DX12 テクスチャ実装
 #include "render/Dx12/Dx12Texture.h"
+#include "render/FormatTraits.h"
 #include "render/Dx12/Dx12Device.h"
 #include "memory/UniquePtr.h"
 #include "foundation/Log.h"
@@ -499,15 +500,23 @@ FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noex
             // array_size * mip_levels 個の per-slice RTV を作成 (cube face / 配列スライス / mip
             // を個別の描画先にする)。並び順 index = slice*mip_levels + mip で
             // RtvCpuHandleForSlice() がこの順に引く。
+            if (m_MipLevels == 0u || m_ArraySize > (~u32{0} / m_MipLevels)) {
+                ACS_LOG_ERROR("Dx12Texture: per-slice RTV count overflow");
+                r.hr = E_INVALIDARG;
+                Reset();
+                return r;
+            }
+            const u32 rtv_count = m_ArraySize * m_MipLevels;
+            if (!m_RtvSlots.TryResize(rtv_count) || !device.AllocateRtvSlots(m_RtvSlots.Data(), rtv_count)) {
+                ACS_LOG_ERROR("Dx12Texture: per-slice RTV slot exhausted (count=%u)", rtv_count);
+                r.hr = E_OUTOFMEMORY;
+                Reset();
+                return r;
+            }
+            u32 rtv_index = 0u;
             for (u32 s = 0; s < m_ArraySize; ++s) {
                 for (u32 mip = 0; mip < m_MipLevels; ++mip) {
-                    const i32 slot = device.AllocateRtvSlot();
-                    if (slot < 0) {
-                        ACS_LOG_ERROR("Dx12Texture: per-slice RTV slot 枯渇 (slice=%u mip=%u)", s, mip);
-                        r.hr = E_OUTOFMEMORY;
-                        Reset();
-                        return r;
-                    }
+                    const i32 slot = m_RtvSlots[rtv_index++];
                     D3D12_RENDER_TARGET_VIEW_DESC rtv{};
                     rtv.Format = typed_fmt;
                     rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
@@ -517,7 +526,6 @@ FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noex
                     rtv.Texture2DArray.PlaneSlice      = 0;
                     device.D3DDevice()->CreateRenderTargetView(
                         m_Resource, &rtv, device.RtvCpuHandle(slot));
-                    m_RtvSlots.PushBack(slot);
                 }
             }
         } else {

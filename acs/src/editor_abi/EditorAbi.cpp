@@ -730,6 +730,13 @@ struct FEditorHost {
     TArray<FVec3> scene_mesh_local_center;
     TArray<f32> scene_mesh_local_radius;
     TArray<u8> scene_mesh_visible;
+    TArray<FVec3> frustum_centers_scratch;
+    TArray<f32> frustum_radii_scratch;
+    TArray<FVec3> frustum_scales_scratch;
+    TArray<f32> frustum_padding_scratch;
+    TArray<u32> frustum_node_indices_scratch;
+    TArray<editor_frustum_culling::FNodeDecision>
+        frustum_decisions_scratch;
     // Hot render-path scratch. Capacity is retained by the host so selecting
     // an object or drawing sprites never allocates after the first warm frame.
     TArray<FM3DVtx> gizmo_vertices;
@@ -1349,6 +1356,12 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.scene_mesh_local_center.Clear();
     h.scene_mesh_local_radius.Clear();
     h.scene_mesh_visible.Clear();
+    h.frustum_centers_scratch.Clear();
+    h.frustum_radii_scratch.Clear();
+    h.frustum_scales_scratch.Clear();
+    h.frustum_padding_scratch.Clear();
+    h.frustum_node_indices_scratch.Clear();
+    h.frustum_decisions_scratch.Clear();
     h.scene_mesh_cache_valid = false;
     h.last_render_camera_node_id = -2;
     h.game_camera_preview_node_id = -1;
@@ -8401,6 +8414,13 @@ void BuildSceneMeshVisibility(
         return;
     editor_frustum_culling::FFrameDecision frame{};
 
+    host.frustum_centers_scratch.Resize(nodes.Size());
+    host.frustum_radii_scratch.Resize(nodes.Size());
+    host.frustum_scales_scratch.Resize(nodes.Size());
+    host.frustum_padding_scratch.Resize(nodes.Size());
+    host.frustum_node_indices_scratch.Resize(nodes.Size());
+    host.frustum_decisions_scratch.Resize(nodes.Size());
+    u32 candidate_count = 0u;
     for (u32 index = 0u; index < nodes.Size(); ++index) {
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
@@ -8423,29 +8443,25 @@ void BuildSceneMeshVisibility(
         const FVec3 center = TransformPoint(
             host.scene_mesh_local_center[index],
             world.ToMat4());
-        const f32 world_radius_padding =
-            interactive_water && record != nullptr
-            ? host.water3d.ConservativeDisplacementBoundForSurface(
-                  static_cast<u64>(
-                      static_cast<u32>(record->id)),
-                  WaterSurface3DParamsFor(record))
-            : 0.0f;
-        const editor_frustum_culling::FNodeDecision decision =
-            editor_frustum_culling::EvaluateSphere(
-                planes, center,
-                host.scene_mesh_local_radius[index],
-                world.scale,
-                world_radius_padding);
+        const f32 world_radius_padding = interactive_water && record != nullptr ? host.water3d.ConservativeDisplacementBoundForSurface(static_cast<u64>(static_cast<u32>(record->id)), WaterSurface3DParamsFor(record)) : 0.0f;
+        host.frustum_centers_scratch[candidate_count] = center;
+        host.frustum_radii_scratch[candidate_count] = host.scene_mesh_local_radius[index];
+        host.frustum_scales_scratch[candidate_count] = world.scale;
+        host.frustum_padding_scratch[candidate_count] = world_radius_padding;
+        host.frustum_node_indices_scratch[candidate_count] = index;
+        ++candidate_count;
+    }
+    editor_frustum_culling::EvaluateSpheresBatch(planes, host.frustum_centers_scratch.Data(), host.frustum_radii_scratch.Data(), host.frustum_scales_scratch.Data(), host.frustum_padding_scratch.Data(), candidate_count, host.frustum_decisions_scratch.Data());
+    for (u32 candidate = 0u; candidate < candidate_count; ++candidate) {
+        const editor_frustum_culling::FNodeDecision& decision = host.frustum_decisions_scratch[candidate];
         frame.Apply(decision);
         if (!frame.enabled) {
-            // A partial mask would make the diagnostic counts misleading.
-            // Keep every node visible and explicitly disable the feature.
+            // 部分的な可視マスクを公開せず、無効入力では従来どおり fail-open にする。
             for (u32 reset = 0u; reset < nodes.Size(); ++reset)
                 host.scene_mesh_visible[reset] = 1u;
             return;
         }
-        host.scene_mesh_visible[index] =
-            decision.visible ? 1u : 0u;
+        host.scene_mesh_visible[host.frustum_node_indices_scratch[candidate]] = decision.visible ? 1u : 0u;
     }
     host.profiler_work.frustum_culling_enabled =
         frame.enabled;

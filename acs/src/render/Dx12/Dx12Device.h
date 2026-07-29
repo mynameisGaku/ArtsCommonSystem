@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// DX12 デバイス実装
 #pragma once
+// DX12 デバイス実装
 
 #include "render/IRhiDevice.h"
+#include "render/DescriptorSlotPool.h"
 #include "render/Dx12/Dx12Common.h"
 #include "container/Array.h"
 
@@ -82,12 +83,18 @@ public:
      */
     i32 AllocateSrvSlot() noexcept;
 
+    /** 複数の SRV/UAV スロットを一度の同期区間で確保する。 */
+    bool AllocateSrvSlots(i32* output, u32 count) noexcept;
+
     /**
      * SRV ヒープスロットを返却する (テクスチャ破棄時)。
      *
      * @param index 返却するスロットインデックス (負値は無視)。
      */
     void FreeSrvSlot(i32 index) noexcept;
+
+    /** 複数の SRV/UAV スロットを一度の同期区間で返却する。 */
+    void FreeSrvSlots(const i32* slots, u32 count) noexcept;
 
     /**
      * 指定 SRV スロットの CPU デスクリプタハンドルを返す。
@@ -112,12 +119,18 @@ public:
      */
     i32 AllocateDsvSlot() noexcept;
 
+    /** 複数の DSV スロットを一度の同期区間で確保する。 */
+    bool AllocateDsvSlots(i32* output, u32 count) noexcept;
+
     /**
      * DSV ヒープスロットを返却する。
      *
      * @param index 返却するスロットインデックス (負値は無視)。
      */
     void FreeDsvSlot(i32 index) noexcept;
+
+    /** 複数の DSV スロットを一度の同期区間で返却する。 */
+    void FreeDsvSlots(const i32* slots, u32 count) noexcept;
 
     /**
      * 指定 DSV スロットの CPU デスクリプタハンドルを返す。
@@ -134,12 +147,18 @@ public:
      */
     i32 AllocateRtvSlot() noexcept;
 
+    /** 複数の RTV スロットを一度の同期区間で確保する。 */
+    bool AllocateRtvSlots(i32* output, u32 count) noexcept;
+
     /**
      * RTV ヒープスロットを返却する。
      *
      * @param index 返却するスロットインデックス (負値は無視)。
      */
     void FreeRtvSlot(i32 index) noexcept;
+
+    /** 複数の RTV スロットを一度の同期区間で返却する。 */
+    void FreeRtvSlots(const i32* slots, u32 count) noexcept;
 
     /**
      * Transfer an unreferenced buffer resource to the device retirement queue.
@@ -460,14 +479,8 @@ private:
     /** SRV ヒープの容量。 */
     static constexpr u32 kSrvCapacity = 1024;
 
-    /** SRV ヒープの未割り当て先頭位置 (high-water)。 */
-    u32 m_SrvHighWater = 0;
-
-    /** 返却された SRV スロットのフリーリスト。 */
-    i32 m_SrvFreeList[kSrvCapacity]{};
-
-    /** フリーリストに積まれた SRV スロット数。 */
-    u32 m_SrvFreeCount = 0;
+    /** SRV/UAV スロットの再利用状態。 */
+    TDescriptorSlotPool<kSrvCapacity> m_SrvSlots;
 
     /** DSV ヒープ (CPU のみ、小容量)。 */
     ID3D12DescriptorHeap* m_DsvHeap = nullptr;
@@ -478,14 +491,8 @@ private:
     /** DSV ヒープの容量。 */
     static constexpr u32 kDsvCapacity = 16;
 
-    /** DSV ヒープの未割り当て先頭位置 (high-water)。 */
-    u32 m_DsvHighWater = 0;
-
-    /** 返却された DSV スロットのフリーリスト。 */
-    i32 m_DsvFreeList[kDsvCapacity]{};
-
-    /** フリーリストに積まれた DSV スロット数。 */
-    u32 m_DsvFreeCount = 0;
+    /** DSV スロットの再利用状態。 */
+    TDescriptorSlotPool<kDsvCapacity> m_DsvSlots;
 
     /** RTV ヒープ (CPU のみ、オフスクリーン RT 用。BeginRenderToTexture で使う)。 */
     ID3D12DescriptorHeap* m_RtvHeap = nullptr;
@@ -503,14 +510,8 @@ private:
      */
     static constexpr u32 kRtvCapacity = 256;
 
-    /** RTV ヒープの未割り当て先頭位置 (high-water)。 */
-    u32 m_RtvHighWater = 0;
-
-    /** 返却された RTV スロットのフリーリスト。 */
-    i32 m_RtvFreeList[kRtvCapacity]{};
-
-    /** フリーリストに積まれた RTV スロット数。 */
-    u32 m_RtvFreeCount = 0;
+    /** RTV スロットの再利用状態。 */
+    TDescriptorSlotPool<kRtvCapacity> m_RtvSlots;
 };
 
 } // namespace acs

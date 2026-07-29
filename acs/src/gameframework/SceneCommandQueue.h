@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#pragma once
 // GameFramework Pillar A — FSceneCommandQueue (deferred command queue / editor 連携)
 //
 // 走査中 (OnUpdate / OnDraw) に発火された「シーン構造変更」等の要求をフレーム末
@@ -60,10 +61,9 @@
 //     なら mutex を内蔵するか SPSC ring に置き換える必要あり)
 //   ・command 履歴 / undo (editor の undo stack は別レイヤで持つべき)
 //   ・cross-scene broadcast (FSceneEventBus と同じく FScene を越えるのは将来課題)
-#pragma once
 
 #include "foundation/Types.h"
-#include "container/Array.h"
+#include "container/InlineArray.h"
 
 namespace acs::game {
 
@@ -175,6 +175,11 @@ public:
      */
     u32 PendingCount() const noexcept;
 
+    /** 現在のコマンド列がオブジェクト内領域だけを使用しているかを返す。 */
+    bool UsesInlineStorage() const noexcept {
+        return m_Records.UsesInlineStorage();
+    }
+
     /**
      * label に一致する command が 1 つ以上あるかを返す。
      *
@@ -199,7 +204,8 @@ private:
     void StableSortByPriority() noexcept;
 
     /** 保持中の command 列。 */
-    TArray<FCommandRecord> m_Records;
+    static constexpr usize kInlineCommandCapacity = 16u;
+    TInlineArray<FCommandRecord, kInlineCommandCapacity> m_Records;
 };
 
 } // namespace acs::game

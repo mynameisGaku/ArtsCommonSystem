@@ -11,6 +11,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/Transform3D.h"
+#include "gameframework/TransformBatchSoA.h"
 #include "gameframework/ANode.h"
 #include "gameframework/AComponent.h"
 #include "gameframework/Scene3D.h"
@@ -75,6 +76,29 @@ ACS_TEST(Transform3D, IdentityDefault) {
     EXPECT_NEAR(t.rotation.y, 0.0f, 1e-6f);
     EXPECT_NEAR(t.rotation.z, 0.0f, 1e-6f);
     EXPECT_NEAR(t.rotation.w, 1.0f, 1e-6f);
+}
+
+ACS_TEST(Transform3D, SoABatchMatchesScalarComposeAndSupportsInPlaceUpdate)
+{
+    constexpr usize kCount = 5u;
+    FTransform3D parent{FVec3{3.0f, -2.0f, 8.0f}, FQuat::AxisAngle(FVec3{0, 1, 0}, 0.65f), FVec3{2.0f, 3.0f, 4.0f}};
+    FVec3 positions[kCount] = {{1,2,3}, {-4,5,6}, {7,-8,9}, {0,0,0}, {0.5f,1.5f,-2.5f}};
+    FQuat rotations[kCount] = {FQuat{}, FQuat::AxisAngle(FVec3{1,0,0}, 0.2f), FQuat::AxisAngle(FVec3{0,0,1}, -0.4f), FQuat{}, FQuat::AxisAngle(FVec3{0,1,0}, 0.8f)};
+    FVec3 scales[kCount] = {{1,1,1}, {2,1,1}, {1,2,1}, {1,1,3}, {0.5f,0.75f,1.25f}};
+    FTransform3D expected[kCount]{};
+    for (usize i = 0u; i < kCount; ++i) {
+        expected[i] = parent.Compose(FTransform3D{positions[i], rotations[i], scales[i]});
+    }
+
+    EXPECT_TRUE(ComposeTransformBatchSoA(parent, FTransformSoAInput{positions, rotations, scales}, positions, rotations, scales, kCount));
+    for (usize i = 0u; i < kCount; ++i) {
+        ExpectVec3Near(positions[i], expected[i].position, 1.0e-6f);
+        ExpectVec3Near(scales[i], expected[i].scale, 1.0e-6f);
+        EXPECT_NEAR(rotations[i].x, expected[i].rotation.x, 1.0e-6f);
+        EXPECT_NEAR(rotations[i].y, expected[i].rotation.y, 1.0e-6f);
+        EXPECT_NEAR(rotations[i].z, expected[i].rotation.z, 1.0e-6f);
+        EXPECT_NEAR(rotations[i].w, expected[i].rotation.w, 1.0e-6f);
+    }
 }
 
 // --- 回転方向の «実測クロスチェック» ----------------------------------------

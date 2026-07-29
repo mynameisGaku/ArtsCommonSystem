@@ -7,11 +7,58 @@
 #include "container/Span.h"
 #include "container/HashMap.h"
 #include "container/Hash.h"
+#include "container/HashBytesBatch.h"
+#include "container/InlineArray.h"
 #include "foundation/Move.h"
 #include "memory/SystemAllocator.h"
 #include "platform/Storage.h"
 
 using namespace acs;
+
+ACS_TEST(Container, InlineArrayAvoidsHeapUntilCapacityAndPreservesOrder)
+{
+    FSystemAllocator allocator;
+    TInlineArray<u32, 4u> values(allocator);
+    const u64 initial_allocations = allocator.AllocationCount();
+    for (u32 i = 0u; i < 4u; ++i) values.PushBack(i + 10u);
+    EXPECT_TRUE(values.UsesInlineStorage());
+    EXPECT_EQ(allocator.AllocationCount(), initial_allocations);
+
+    values.PushBack(14u);
+    EXPECT_FALSE(values.UsesInlineStorage());
+    EXPECT_TRUE(allocator.AllocationCount() > initial_allocations);
+    EXPECT_EQ(values.Size(), static_cast<usize>(5u));
+    for (u32 i = 0u; i < 5u; ++i) EXPECT_EQ(values[i], i + 10u);
+
+    const u64 spilled_allocations = allocator.AllocationCount();
+    values.Clear();
+    values.PushBack(99u);
+    EXPECT_FALSE(values.UsesInlineStorage());
+    EXPECT_EQ(allocator.AllocationCount(), spilled_allocations);
+    EXPECT_EQ(values[0], 99u);
+}
+
+ACS_TEST(Container, BatchHashMaintainsScalarParity)
+{
+    const char short_text[] = "acs";
+    const char medium_text[] = "foundation optimization";
+    const char empty_text[] = "";
+    byte binary[65]{};
+    for (u32 i = 0u; i < 65u; ++i)
+        binary[i] = static_cast<byte>(i * 17u + 3u);
+    const FHashBytesInput inputs[] = {{short_text, sizeof(short_text) - 1u, 1u}, {medium_text, sizeof(medium_text) - 1u, 2u}, {binary, sizeof(binary), 3u}, {empty_text, 0u, 4u}};
+    u64 batch[4]{};
+    HashBytesBatch(inputs, 4u, batch);
+    for (usize i = 0u; i < 4u; ++i) {
+        EXPECT_EQ(batch[i], HashBytes(inputs[i].data, inputs[i].length, inputs[i].seed));
+    }
+
+    const u64 keys[4] = {0u, 1u, 0x123456789abcdef0ull, ~0ull};
+    u64 mixed[4]{};
+    HashMix64Batch4(keys, mixed);
+    for (u32 i = 0u; i < 4u; ++i)
+        EXPECT_EQ(mixed[i], HashMix64(keys[i]));
+}
 
 namespace {
 

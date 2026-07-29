@@ -105,16 +105,14 @@ ACS_TEST(FAssetRegistry, ConcurrentSamePathAsyncLoadsShareOneJobAndIdentity)
     EXPECT_TRUE(FThreadPool::Init(2).IsOk());
 
     const byte file_data[] = {9, 8, 7, 6};
-    EXPECT_TRUE(FFileSystem::WriteAllBytes(
-                    kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
+    EXPECT_TRUE(FFileSystem::WriteAllBytes(kAsyncAssetPath, file_data, sizeof(file_data)).IsOk());
 
     FBlockingAssetLoader loader;
     FAssetRegistry registry;
     registry.RegisterLoader(&loader);
 
     FAssetFuture first = registry.LoadAsync(kAsyncAssetPath);
-    for (u32 i = 0; i < 2000 &&
-                    loader.entered.Load(EMemoryOrder::Acquire) == 0; ++i) {
+    for (u32 i = 0; i < 2000 && loader.entered.Load(EMemoryOrder::Acquire) == 0; ++i) {
         SleepMs(1);
     }
     FAssetFuture second = registry.LoadAsync(kAsyncAssetPath);

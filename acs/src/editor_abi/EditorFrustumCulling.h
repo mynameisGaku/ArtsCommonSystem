@@ -2,11 +2,15 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "foundation/Compiler.h"
 #include "math/Mat.h"
 #include "math/Vec.h"
 
 #include <algorithm>
 #include <cmath>
+#if ACS_ARCH_X64
+#    include <immintrin.h>
+#endif
 
 namespace acs::editor_frustum_culling {
 
@@ -85,46 +89,93 @@ struct FNodeDecision {
     f32 world_radius = 0.0f;
 };
 
-inline FNodeDecision EvaluateSphere(
-    const FPlane (&planes)[6], FVec3 center,
-    f32 local_radius, FVec3 world_scale,
-    f32 world_radius_padding = 0.0f) noexcept {
-    FNodeDecision decision{};
-    if (!std::isfinite(center.x) ||
-        !std::isfinite(center.y) ||
-        !std::isfinite(center.z) ||
-        !std::isfinite(local_radius) ||
-        local_radius < 0.0f ||
-        !std::isfinite(world_scale.x) ||
-        !std::isfinite(world_scale.y) ||
-        !std::isfinite(world_scale.z) ||
-        !std::isfinite(world_radius_padding) ||
-        world_radius_padding < 0.0f) {
+/** 球の入力値を検査し、ワールド空間の半径を求める。 */
+inline FNodeDecision PrepareSphere(FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding) noexcept {
+    FNodeDecision decision{}; // 検査と半径計算の結果。
+    if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z) || !std::isfinite(local_radius) || local_radius < 0.0f || !std::isfinite(world_scale.x) || !std::isfinite(world_scale.y) || !std::isfinite(world_scale.z) || !std::isfinite(world_radius_padding) || world_radius_padding < 0.0f) {
         return decision;
     }
-    const f32 maximum_scale = std::max(
-        std::fabs(world_scale.x),
-        std::max(
-            std::fabs(world_scale.y),
-            std::fabs(world_scale.z)));
-    decision.world_radius =
-        local_radius * maximum_scale +
-        world_radius_padding;
+    const f32 maximum_scale = std::max(std::fabs(world_scale.x), std::max(std::fabs(world_scale.y), std::fabs(world_scale.z))); // 三軸の最大絶対スケール。
+    decision.world_radius = local_radius * maximum_scale + world_radius_padding;
     if (!std::isfinite(decision.world_radius))
         return decision;
     decision.valid = true;
+    return decision;
+}
+
+inline FNodeDecision EvaluateSphere(const FPlane (&planes)[6], FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding = 0.0f) noexcept {
+    FNodeDecision decision = PrepareSphere(center, local_radius, world_scale, world_radius_padding);
+    if (!decision.valid) return decision;
     for (const FPlane& plane : planes) {
-        const f32 signed_distance =
-            center.x * plane.normal.x +
-            center.y * plane.normal.y +
-            center.z * plane.normal.z +
-            plane.distance;
+        const f32 signed_distance = center.x * plane.normal.x + center.y * plane.normal.y + center.z * plane.normal.z + plane.distance;
         if (signed_distance < -decision.world_radius) {
             decision.visible = false;
             break;
         }
     }
     return decision;
+}
+
+/**
+ * 球群を四個単位でフラスタム判定し、端数と非 x64 環境では単体経路へ戻す。
+ *
+ * @details 妥当性検査と半径計算は EvaluateSphere と共通化しているため、無効入力の
+ * fail-open 契約を含めて単体経路と同じ結果を返す。
+ * @param planes 判定に使う六つのフラスタム平面。
+ * @param centers 球中心の配列。
+ * @param local_radii ローカル空間半径の配列。
+ * @param world_scales ワールド空間スケールの配列。
+ * @param world_radius_paddings 追加半径の配列。nullptr なら零。
+ * @param count 処理する球数。
+ * @param output 判定結果を書き込む配列。
+ */
+inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers, const f32* local_radii, const FVec3* world_scales, const f32* world_radius_paddings, usize count, FNodeDecision* output) noexcept {
+    if (centers == nullptr || local_radii == nullptr || world_scales == nullptr || output == nullptr) {
+        return;
+    }
+
+    usize index = 0u; // 次に処理する球の位置。
+#if ACS_ARCH_X64
+    alignas(16) f32 xs[4]{}; // 四球の中心 X。
+    alignas(16) f32 ys[4]{}; // 四球の中心 Y。
+    alignas(16) f32 zs[4]{}; // 四球の中心 Z。
+    alignas(16) f32 radii[4]{}; // 四球のワールド半径。
+    for (; index + 4u <= count; index += 4u) {
+        u32 valid_mask = 0u; // 入力が有効な SIMD レーン。
+        for (u32 lane = 0u; lane < 4u; ++lane) {
+            const usize item = index + lane; // 今回準備する球の位置。
+            const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[item] : 0.0f; // 球へ加える半径。
+            output[item] = PrepareSphere(centers[item], local_radii[item], world_scales[item], padding);
+            xs[lane] = centers[item].x;
+            ys[lane] = centers[item].y;
+            zs[lane] = centers[item].z;
+            radii[lane] = output[item].world_radius;
+            if (output[item].valid) valid_mask |= 1u << lane;
+        }
+
+        const __m128 x = _mm_load_ps(xs); // 四球の中心 X。
+        const __m128 y = _mm_load_ps(ys); // 四球の中心 Y。
+        const __m128 z = _mm_load_ps(zs); // 四球の中心 Z。
+        const __m128 negative_radius = _mm_sub_ps(_mm_setzero_ps(), _mm_load_ps(radii)); // 四球の負半径。
+        u32 culled_mask = 0u; // 一平面でも外側になった SIMD レーン。
+        for (const FPlane& plane : planes) {
+            __m128 distance = _mm_mul_ps(x, _mm_set1_ps(plane.normal.x)); // 四球から平面までの符号付き距離。
+            distance = _mm_add_ps(distance, _mm_mul_ps(y, _mm_set1_ps(plane.normal.y)));
+            distance = _mm_add_ps(distance, _mm_mul_ps(z, _mm_set1_ps(plane.normal.z)));
+            distance = _mm_add_ps(distance, _mm_set1_ps(plane.distance));
+            culled_mask |= static_cast<u32>(_mm_movemask_ps(_mm_cmplt_ps(distance, negative_radius)));
+        }
+        culled_mask &= valid_mask;
+        for (u32 lane = 0u; lane < 4u; ++lane) {
+            if ((culled_mask & (1u << lane)) != 0u)
+                output[index + lane].visible = false;
+        }
+    }
+#endif
+    for (; index < count; ++index) {
+        const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[index] : 0.0f; // 球へ加える半径。
+        output[index] = EvaluateSphere(planes, centers[index], local_radii[index], world_scales[index], padding);
+    }
 }
 
 struct FFrameDecision {

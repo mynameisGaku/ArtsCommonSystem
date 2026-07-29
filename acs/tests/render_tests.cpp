@@ -15,6 +15,11 @@
 #include "render/PbrShader.h"
 #include "render/RenderAssets.h"
 #include "render/SpriteBatch.h"
+#include "render/DescriptorSlotPool.h"
+#include "render/FormatTraits.h"
+#include "render/PipelineStateKeyCache.h"
+#include "render/RhiPipelineBindPolicy.h"
+#include "render/ShaderParameterLayoutMetadata.h"
 #include "asset/MeshAsset.h"
 #if WITH_RENDER_DX12_RAW
 #    include "render/Dx12/Dx12Buffer.h"
@@ -32,19 +37,81 @@
 
 using namespace acs;
 
+ACS_TEST(Render, DescriptorSlotPoolBatchesAndRecyclesTransactionally)
+{
+    TDescriptorSlotPool<8u> slots;
+    i32 first[6]{};
+    EXPECT_TRUE(slots.AllocateBatch(first, 6u));
+    for (i32 i = 0; i < 6; ++i) EXPECT_EQ(first[i], i);
+
+    const i32 returned[3] = {1, 3, 5};
+    slots.FreeBatch(returned, 3u);
+    slots.Free(3);
+    EXPECT_EQ(slots.FreeCount(), 3u);
+
+    i32 impossible[6]{};
+    EXPECT_FALSE(slots.AllocateBatch(impossible, 6u));
+    EXPECT_EQ(slots.HighWater(), 6u);
+    EXPECT_EQ(slots.FreeCount(), 3u);
+
+    i32 recycled[5]{};
+    EXPECT_TRUE(slots.AllocateBatch(recycled, 5u));
+    EXPECT_EQ(recycled[0], 5);
+    EXPECT_EQ(recycled[1], 3);
+    EXPECT_EQ(recycled[2], 1);
+    EXPECT_EQ(recycled[3], 6);
+    EXPECT_EQ(recycled[4], 7);
+    EXPECT_EQ(slots.AvailableCount(), 0u);
+}
+
+ACS_TEST(Render, ShaderLayoutMetadataAndPipelineKeyCacheAreDeterministic)
+{
+    constexpr FPipelineDesc constexpr_desc{};
+    constexpr FShaderParameterLayoutMetadata constexpr_metadata =
+        ShaderLayoutMetadata(constexpr_desc);
+    static_assert(constexpr_metadata.IsValidGraphics());
+
+    FPipelineDesc first{};
+    first.cbuffer_slots = 2u;
+    first.texture_slots = 3u;
+    first.static_sampler_count = 1u;
+    first.layout_count = 1u;
+    first.layout[0] = FInputElement{
+        "POSITION", 0u, EFormat::R32G32B32_Float, 0u};
+    FPipelineDesc same = first;
+    FPipelineDesc changed = first;
+    changed.depth_write = !first.depth_write;
+
+    const FPipelineStateKey first_key = MakePipelineStateKey(first);
+    EXPECT_TRUE(first_key == MakePipelineStateKey(same));
+    EXPECT_FALSE(first_key == MakePipelineStateKey(changed));
+    EXPECT_TRUE(ShaderLayoutMetadata(first).IsValidGraphics());
+
+    TPipelineStateKeyCache<8u> cache;
+    u32 first_id = ~0u;
+    bool found = true;
+    EXPECT_TRUE(cache.FindOrIntern(first_key, first_id, found));
+    EXPECT_FALSE(found);
+    u32 same_id = ~0u;
+    EXPECT_TRUE(cache.FindOrIntern(MakePipelineStateKey(same), same_id, found));
+    EXPECT_TRUE(found);
+    EXPECT_EQ(same_id, first_id);
+    u32 changed_id = ~0u;
+    EXPECT_TRUE(cache.FindOrIntern(MakePipelineStateKey(changed), changed_id, found));
+    EXPECT_FALSE(found);
+    EXPECT_TRUE(changed_id != first_id);
+    EXPECT_EQ(cache.Size(), 2u);
+}
+
 static_assert(GetFormatTraits(EFormat::R32G32B32_Float).bytes_per_block == 12u);
 static_assert(IsDepthFormat(EFormat::D24_UNorm_S8_UInt));
-static_assert(FormatHasAspect(
-    EFormat::D24_UNorm_S8_UInt, EFormatAspect::Stencil));
+static_assert(FormatHasAspect(EFormat::D24_UNorm_S8_UInt, EFormatAspect::Stencil));
 static_assert(!IsFormatUsageLegal(EFormat::D32_Float, false));
 static_assert(!IsFormatUsageLegal(EFormat::R8G8B8A8_UNorm, true));
 static_assert(GetFormatTraits(static_cast<EFormat>(255u)).bytes_per_block == 0u);
-static_assert(TRhiPipelineBindPolicy<
-              ERhiPipelineBindDomain::Graphics>::Accepts(false));
-static_assert(!TRhiPipelineBindPolicy<
-              ERhiPipelineBindDomain::Graphics>::Accepts(true));
-static_assert(TRhiPipelineBindPolicy<
-              ERhiPipelineBindDomain::Compute>::Accepts(true));
+static_assert(TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Graphics>::Accepts(false));
+static_assert(!TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Graphics>::Accepts(true));
+static_assert(TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Compute>::Accepts(true));
 
 ACS_TEST(Render, Utf8DecoderRejectsNonCanonicalScalars)
 {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FDiligentCommandList 実装
 #include "render/Diligent/DiligentCommandList.h"
+#include "render/RhiPipelineBindPolicy.h"
 
 #if WITH_RENDER_DILIGENT
 

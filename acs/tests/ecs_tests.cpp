@@ -18,10 +18,8 @@ struct FVelocity { f32 dx, dy, dz; };
 struct FHealth   { i32 hp; };
 struct FFrozen   { u8 unused; };  // タグ的コンポーネント (除外フィルタ検証用)
 
-static_assert(GetComponentSignatureId<FPosition>() ==
-              TComponentTypeTraits<FPosition>::Signature);
-static_assert(GetComponentSignatureId<FPosition>() !=
-              GetComponentSignatureId<FVelocity>());
+static_assert(GetComponentSignatureId<FPosition>() == TComponentTypeTraits<FPosition>::Signature);
+static_assert(GetComponentSignatureId<FPosition>() != GetComponentSignatureId<FVelocity>());
 
 /** 非コピー・可ムーブなコンポーネント (World::CopyFrom の拒否契約検証用)。 */
 struct FMoveOnlyComp {
@@ -112,6 +110,35 @@ ACS_TEST(Ecs, QueryIteratesMatching) {
     EXPECT_EQ(count, 50u);  // 偶数 i のみ Velocity を持つ
 }
 
+ACS_TEST(Ecs, QueryLargePrefetchPathPreservesFilteringAndValues)
+{
+    FWorld world;
+    constexpr u32 kCount = 192u;
+    for (u32 i = 0u; i < kCount; ++i) {
+        const FEntityId entity = world.Create();
+        world.Add<FPosition>(entity, FPosition{static_cast<f32>(i), 0.0f, 0.0f});
+        if ((i % 3u) != 0u)
+            world.Add<FVelocity>(entity, FVelocity{1.0f, 0.0f, 0.0f});
+    }
+    u32 visited = 0u;
+    f32 sum = 0.0f;
+    const auto visit_matching = [&](FEntityId, FPosition& position, FVelocity&) {
+        ++visited;
+        sum += position.x;
+    };
+    world.Query<FPosition, FVelocity>().Each(visit_matching);
+    u32 expected_count = 0u;
+    f32 expected_sum = 0.0f;
+    for (u32 i = 0u; i < kCount; ++i) {
+        if ((i % 3u) != 0u) {
+            ++expected_count;
+            expected_sum += static_cast<f32>(i);
+        }
+    }
+    EXPECT_EQ(visited, expected_count);
+    EXPECT_EQ(sum, expected_sum);
+}
+
 ACS_TEST(Ecs, QuerySnapshotRejectsDestroyedGenerationAndDefersReusedSlot)
 {
     FWorld world;
@@ -122,24 +149,22 @@ ACS_TEST(Ecs, QuerySnapshotRejectsDestroyedGenerationAndDefersReusedSlot)
 
     u32 visits = 0u;
     FEntityId replacement{};
-    world.Query<FPosition>().Each(
-        [&](FEntityId entity, FPosition&) {
-            ++visits;
-            if (entity == first) {
-                world.Destroy(stale);
-                replacement = world.Create();
-                world.Add<FPosition>(
-                    replacement, {3.0f, 0.0f, 0.0f});
-            }
-        });
+    const auto mutate_during_visit = [&](FEntityId entity, FPosition&) {
+        ++visits;
+        if (entity == first) {
+            world.Destroy(stale);
+            replacement = world.Create();
+            world.Add<FPosition>(replacement, {3.0f, 0.0f, 0.0f});
+        }
+    };
+    world.Query<FPosition>().Each(mutate_during_visit);
 
     EXPECT_EQ(visits, 1u);
     EXPECT_FALSE(world.IsAlive(stale));
     EXPECT_TRUE(world.IsAlive(replacement));
 
     u32 next_visits = 0u;
-    world.Query<FPosition>().Each(
-        [&](FEntityId, FPosition&) { ++next_visits; });
+    world.Query<FPosition>().Each([&](FEntityId, FPosition&) { ++next_visits; });
     EXPECT_EQ(next_visits, 2u);
 }
 
@@ -266,16 +291,14 @@ ACS_TEST(Ecs, EntityCommandBufferInlinesSmallValuesAfterBatchReserve)
     FEntityId entities[kCount]{};
     for (usize i = 0; i < kCount; ++i) {
         entities[i] = world.Create();
-        commands.Add<FHealth>(
-            entities[i], FHealth{static_cast<i32>(i)});
+        commands.Add<FHealth>(entities[i], FHealth{static_cast<i32>(i)});
     }
     EXPECT_EQ(allocator.AllocationCount(), reserved_allocations);
     EXPECT_FALSE(commands.HasOverflowed());
 
     commands.Flush();
     EXPECT_EQ(allocator.AllocationCount(), reserved_allocations);
-    EXPECT_EQ(world.Get<FHealth>(entities[kCount - 1u])->hp,
-              static_cast<i32>(kCount - 1u));
+    EXPECT_EQ(world.Get<FHealth>(entities[kCount - 1u])->hp, static_cast<i32>(kCount - 1u));
 }
 
 ACS_TEST(Ecs, WorldCopyFromSnapshotAndRollback)
@@ -506,11 +529,11 @@ ACS_TEST(Ecs, QueryOptionalSpecializationReturnsNullablePointers)
 
     u32 present = 0u;
     u32 missing = 0u;
-    world.Query<FPosition>().EachOptional<FVelocity>(
-        [&](FEntityId, FPosition&, FVelocity* velocity) {
-            if (velocity != nullptr) ++present;
-            else ++missing;
-        });
+    const auto visit_optional = [&](FEntityId, FPosition&, FVelocity* velocity) {
+        if (velocity != nullptr) ++present;
+        else ++missing;
+    };
+    world.Query<FPosition>().EachOptional<FVelocity>(visit_optional);
     EXPECT_EQ(present, 1u);
     EXPECT_EQ(missing, 1u);
 }

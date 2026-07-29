@@ -1088,9 +1088,7 @@ ACS_TEST(PostEffects, EditorFrustumCullingMasksEveryPerNodeGeometryPass)
     const std::size_t water_displacement_bound =
         build_visibility.find(
             "ConservativeDisplacementBoundForSurface(");
-    const std::size_t sphere_evaluation =
-        build_visibility.find(
-            "editor_frustum_culling::EvaluateSphere(");
+    const std::size_t sphere_evaluation = build_visibility.find("editor_frustum_culling::EvaluateSpheresBatch(");
     EXPECT_TRUE(build_visibility.find(
         "if (interactive_water) continue;") == std::string::npos);
     EXPECT_TRUE(build_visibility.find(

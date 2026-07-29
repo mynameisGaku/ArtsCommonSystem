@@ -164,7 +164,7 @@ void FSceneCommandQueue::Flush() noexcept {
     //    snapshot 範囲外 (Flush 中に追加) は実行せず全て残す。
     //    安定順序を維持するため、新 TArray で書き戻す方式を採用 (PopBack/Swap は
     //    順序破壊が起き得るため避ける)。
-    TArray<FCommandRecord> retained;
+    TInlineArray<FCommandRecord, kInlineCommandCapacity> retained;
 
     for (usize i = 0; i < snapshot_size; ++i) {
         // fn が ClearAll()/Cancel() で m_Records を縮めると、固定 snapshot_size の i が

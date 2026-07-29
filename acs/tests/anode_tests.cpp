@@ -7,6 +7,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "gameframework/ANode.h"
+#include "gameframework/SceneCommandQueue.h"
 #include "gameframework/RenderContext.h"
 
 using namespace acs;
@@ -45,7 +46,26 @@ ANode& AddTagged(ANode& parent, FRecFixture& fx, i32 tag) noexcept
     return n;
 }
 
+void CountSceneCommand(void* user) noexcept
+{
+    ++*static_cast<u32*>(user);
+}
+
 } // namespace
+
+ACS_TEST(SceneCommandQueue, InlineCapacityAndSpillPreserveExecution)
+{
+    FSceneCommandQueue queue;
+    u32 calls = 0u;
+    for (u32 i = 0u; i < 16u; ++i)
+        queue.Enqueue("inline", &CountSceneCommand, &calls);
+    EXPECT_TRUE(queue.UsesInlineStorage());
+    queue.Enqueue("spill", &CountSceneCommand, &calls);
+    EXPECT_FALSE(queue.UsesInlineStorage());
+    queue.Flush();
+    EXPECT_EQ(calls, 17u);
+    EXPECT_EQ(queue.PendingCount(), 0u);
+}
 
 ACS_TEST(ANode, ObjectLifecycleAndWeakRef) {
     TObjectPtr<ANode> root = NewObject<ANode>();
