@@ -79,6 +79,8 @@ ctest --test-dir acs/Intermediate/foundation-ipo -C Release `
 - `ACS.FoundationPerformanceVerifierSelfTest`: pass
 - `ACS.FoundationPerformanceContract`: pass
 - `ACS.FoundationLogCompileGate`: pass
+- `ACS.FoundationEndToEndAggregatorSelfTest`: pass
+- `ACS.ChangedCppRulesAuditSelfTest`: pass
 - `ACS.UnitTests`: pass
 
 ## 回帰ゲート
@@ -92,3 +94,15 @@ ctest --test-dir acs/Intermediate/foundation-ipo -C Release `
 
 このため、CIホストの一時的な負荷やCPU周波数変動でテストを不安定にせず、
 最適化そのものが失われた場合だけ失敗する。
+
+## 共通C++規約と統合証跡
+
+`audit_changed_cpp_rules.py` は `origin/main` など指定した基準との差分だけを対象にし、
+追加C++行の括弧・初期化子一行規約、日本語コメント、変更header冒頭の
+SPDX/include guard規約を検査する。既存コード全体を一括整形せず、今回の変更が
+新たな違反を増やさないことを機械的に確認できる。
+
+`run_foundation_end_to_end.py` は任意のC++差分規約監査、Releaseビルド、全CTest、
+決定的な基盤性能契約を順に実行し、終了コード・所要時間・失敗出力末尾を
+単一JSONへ原子的に保存する。
+最終統合時はこのJSONをT64/T80の再現可能な証跡として使用する。

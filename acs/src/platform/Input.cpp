@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // 入力ポーリング実装
 #include "platform/Input.h"
+#include "platform/GamepadPollScheduler.h"
 #include "foundation/Platform.h"
 
 #include <Xinput.h>
@@ -73,20 +74,20 @@ detail::TGamepadPollScheduler<4> g_gamepad_poll_scheduler;
 
 /** EGamepadButton から XInput のボタンビットへ変換するテーブル (0 は未対応ボタン)。 */
 constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
-    XINPUT_GAMEPAD_A,              // A
-    XINPUT_GAMEPAD_B,              // B
-    XINPUT_GAMEPAD_X,              // X
-    XINPUT_GAMEPAD_Y,              // Y
-    XINPUT_GAMEPAD_DPAD_UP,        // Up
-    XINPUT_GAMEPAD_DPAD_DOWN,      // Down
-    XINPUT_GAMEPAD_DPAD_LEFT,      // Left
-    XINPUT_GAMEPAD_DPAD_RIGHT,     // Right
-    XINPUT_GAMEPAD_LEFT_SHOULDER,  // LeftBumper
-    XINPUT_GAMEPAD_RIGHT_SHOULDER, // RightBumper
-    XINPUT_GAMEPAD_LEFT_THUMB,     // LeftStick
-    XINPUT_GAMEPAD_RIGHT_THUMB,    // RightStick
-    XINPUT_GAMEPAD_START,          // Start
-    XINPUT_GAMEPAD_BACK,           // Back
+    XINPUT_GAMEPAD_A,              // Aボタン
+    XINPUT_GAMEPAD_B,              // Bボタン
+    XINPUT_GAMEPAD_X,              // Xボタン
+    XINPUT_GAMEPAD_Y,              // Yボタン
+    XINPUT_GAMEPAD_DPAD_UP,        // 方向パッド上
+    XINPUT_GAMEPAD_DPAD_DOWN,      // 方向パッド下
+    XINPUT_GAMEPAD_DPAD_LEFT,      // 方向パッド左
+    XINPUT_GAMEPAD_DPAD_RIGHT,     // 方向パッド右
+    XINPUT_GAMEPAD_LEFT_SHOULDER,  // 左バンパー
+    XINPUT_GAMEPAD_RIGHT_SHOULDER, // 右バンパー
+    XINPUT_GAMEPAD_LEFT_THUMB,     // 左スティック押し込み
+    XINPUT_GAMEPAD_RIGHT_THUMB,    // 右スティック押し込み
+    XINPUT_GAMEPAD_START,          // スタートボタン
+    XINPUT_GAMEPAD_BACK,           // バックボタン
     0,                              // Guide (XInput では未公開)
 };
 
@@ -145,7 +146,7 @@ void AppendTextUtf8(FInputState& s, u32 cp) noexcept {
     s.text_utf8[s.text_len] = 0;
 }
 
-} // namespace
+} // 無名名前空間
 
 // フレーム先頭で呼ぶ：状態をフレーム間で進める
 void FInput::Update() noexcept {
@@ -170,17 +171,21 @@ void FInput::Update() noexcept {
     // ゲームパッド: XInput を 4 ポート分ポーリング
     // 先に全スナップショットを進める。次フレームに未接続ポートを確認しない場合でも、
     // 切断による Released はちょうど1フレームだけ成立する。
-    for (DWORD i = 0; i < 4; ++i) {
-        g_input.pad_prev[i] = g_input.pad_now[i];
+    /** 状態履歴を進めるゲームパッドポート。 */
+    for (DWORD port_index = 0; port_index < 4; ++port_index) {
+        g_input.pad_prev[port_index] = g_input.pad_now[port_index];
     }
 
     // 接続中デバイスは毎フレーム取得し、失敗する未接続確認だけを分散する。
+    /** 今フレームに状態を取得するポート集合。 */
     const u32 poll_mask = g_gamepad_poll_scheduler.BuildPollMask(g_input.pad_connected);
-    for (DWORD i = 0; i < 4; ++i) {
-        if ((poll_mask & (u32{1} << i)) == 0) continue;
-        ZeroMemory(&g_input.pad_now[i], sizeof(XINPUT_STATE));
-        const DWORD r = ::XInputGetState(i, &g_input.pad_now[i]);
-        g_input.pad_connected[i] = (r == ERROR_SUCCESS);
+    /** 状態を取得するゲームパッドポート。 */
+    for (DWORD port_index = 0; port_index < 4; ++port_index) {
+        if ((poll_mask & (u32{1} << port_index)) == 0) continue;
+        ZeroMemory(&g_input.pad_now[port_index], sizeof(XINPUT_STATE));
+        /** XInput による状態取得結果。 */
+        const DWORD result = ::XInputGetState(port_index, &g_input.pad_now[port_index]);
+        g_input.pad_connected[port_index] = (result == ERROR_SUCCESS);
     }
 }
 
@@ -294,4 +299,4 @@ f32 FInput::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {
     }
 }
 
-} // namespace acs
+} // acs 名前空間

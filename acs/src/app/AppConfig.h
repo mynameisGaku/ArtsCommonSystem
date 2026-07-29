@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// アプリケーション初期化オプション
 #pragma once
 
 #include "foundation/Types.h"
@@ -71,4 +70,4 @@ struct FAppConfig {
     f32            clear_a = 1.0f;
 };
 
-} // namespace acs
+} // acs 名前空間

@@ -156,7 +156,10 @@ struct FProducerGuard {
 
 /** プロデューサが確保したリング位置とセルをまとめる。 */
 struct FRecordReservation {
+    /** 書き込み権を得たリングセル。 */
     FCell* cell = nullptr;
+
+    /** 単調増加するリング位置。 */
     LONG64 position = 0;
 };
 
@@ -164,21 +167,26 @@ struct FRecordReservation {
  * 空きセルを確保し、共通のレコード情報を設定する。
  *
  * 呼び出し側が g_active_producers を登録済みで、同じ世代が有効な間だけ呼ぶ。
+ *
+ * @param severity 出力する重大度。
+ * @param location 呼び出し元のソース位置。
+ * @param reservation 確保したセルと位置の出力先。
+ * @return セルを確保できた場合は true。満杯なら破棄件数を加算して false。
  */
-bool ReserveRecord(
-    ELogSeverity severity,
-    FSourceLoc location,
-    FRecordReservation& reservation) noexcept
+bool ReserveRecord(ELogSeverity severity, FSourceLoc location, FRecordReservation& reservation) noexcept
 {
+    /** 次に確保を試みる単調増加位置。 */
     LONG64 position = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
+    /** 現在確認しているリングセル。 */
     FCell* cell = nullptr;
     while (true) {
         cell = &g_state.ring[position & g_state.mask];
+        /** セルが再利用可能になる単調増加位置。 */
         const LONG64 sequence = ::_InterlockedExchangeAdd64(&cell->sequence, 0);
+        /** セルの公開状態と要求位置の差。 */
         const LONG64 difference = sequence - position;
         if (difference == 0) {
-            if (::_InterlockedCompareExchange64(
-                    &g_state.enqueue_pos, position + 1, position) == position) {
+            if (::_InterlockedCompareExchange64(&g_state.enqueue_pos, position + 1, position) == position) {
                 break;
             }
         } else if (difference < 0) {
@@ -203,26 +211,23 @@ bool ReserveRecord(
  * 完成したセルを公開し、空から非空になった場合だけライターを起こす。
  *
  * wake_lock を共有取得することで、ライターの空判定と CV 待機の間に通知が失われない。
+ *
+ * @param reservation 公開するセルと単調増加位置。
  */
 void PublishRecord(const FRecordReservation& reservation) noexcept
 {
-    ::_InterlockedExchange64(
-        &reservation.cell->sequence, reservation.position + 1);
+    ::_InterlockedExchange64(&reservation.cell->sequence, reservation.position + 1);
 
-    const LONG64 dequeue_position =
-        ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
-    if (!detail::ShouldSignalLogConsumer(
-            static_cast<u64>(reservation.position),
-            static_cast<u64>(dequeue_position))) {
+    /** 公開時点でコンシューマが次に読む位置。 */
+    const LONG64 dequeue_position = ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
+    if (!detail::ShouldSignalLogConsumer(static_cast<u64>(reservation.position), static_cast<u64>(dequeue_position))) {
         return;
     }
 
     ::AcquireSRWLockShared(&g_state.wake_lock);
-    const LONG64 synchronized_dequeue =
-        ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
-    if (detail::ShouldSignalLogConsumer(
-            static_cast<u64>(reservation.position),
-            static_cast<u64>(synchronized_dequeue))) {
+    /** 待機判定と同期したコンシューマ位置。 */
+    const LONG64 synchronized_dequeue = ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
+    if (detail::ShouldSignalLogConsumer(static_cast<u64>(reservation.position), static_cast<u64>(synchronized_dequeue))) {
         ::_InterlockedIncrement64(&g_state.wake_signal_count);
         ::WakeConditionVariable(&g_state.wake_cv);
     }
@@ -448,7 +453,9 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept
         // lock 取得後にもう一度空を確認する。プロデューサ側の共有 lock と組み合わせ、
         // 空判定直後から CV 待機開始までの通知取りこぼしを防ぐ。
         ::AcquireSRWLockExclusive(&g_state.wake_lock);
+        /** プロデューサが次に確保する位置。 */
         const LONG64 head = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
+        /** コンシューマが次に読み取る位置。 */
         const LONG64 tail = ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
         if (::_InterlockedExchangeAdd(&g_state.running, 0) != 0 && tail >= head) {
             ::SleepConditionVariableSRW(&g_state.wake_cv, &g_state.wake_lock, 100, 0);
@@ -462,7 +469,7 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept
     return 0;
 }
 
-} // namespace
+} // 無名名前空間
 
 /** 全資源の公開が完了し、Write を受け付けられる状態かを返す。 */
 bool FLogger::IsInitialized() noexcept
@@ -669,8 +676,7 @@ u64 FLogger::DroppedCount() noexcept
 
 u64 FLogger::WakeSignalCount() noexcept
 {
-    return static_cast<u64>(
-        ::_InterlockedExchangeAdd64(&g_state.wake_signal_count, 0));
+    return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.wake_signal_count, 0));
 }
 
 /** プロデューサ実体: Vyukov 風 CAS でセルを予約し、書き込んで release 公開する。詳細は宣言を参照。 */
@@ -689,16 +695,15 @@ void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* form
         lifecycle_generation != ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0))
         return;
 
+    /** 今回のログレコード用に確保したセル。 */
     FRecordReservation reservation;
     if (!ReserveRecord(severity, location, reservation)) return;
 
+    /** printf互換の可変長引数。 */
     va_list ap;
     va_start(ap, format);
-    int n = ::vsnprintf(
-        reservation.cell->message,
-        kMessageMax,
-        format ? format : "(null)",
-        ap);
+    /** 整形後の文字数。 */
+    int n = ::vsnprintf(reservation.cell->message, kMessageMax, format ? format : "(null)", ap);
     va_end(ap);
     if (n < 0) n = 0;
     if (static_cast<u32>(n) >= kMessageMax) n = static_cast<int>(kMessageMax - 1);
@@ -706,33 +711,30 @@ void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* form
     PublishRecord(reservation);
 }
 
-void FLogger::WriteMessage(
-    ELogSeverity severity,
-    FSourceLoc location,
-    const char* message,
-    usize length) noexcept
+void FLogger::WriteMessage(ELogSeverity severity, FSourceLoc location, const char* message, usize length) noexcept
 {
-    const LONG lifecycle_generation =
-        ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0);
+    /** 書き込み開始時のロガー世代。 */
+    const LONG lifecycle_generation = ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0);
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
-    if (static_cast<LONG>(severity) <
-        ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) {
+    if (static_cast<LONG>(severity) < ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) {
         return;
     }
 
     ::_InterlockedIncrement(&g_active_producers);
+    /** 終了時に活動中プロデューサ数を戻す保護物。 */
     FProducerGuard producer_guard;
     (void)producer_guard;
-    if (!::_InterlockedExchangeAdd(&g_inited, 0) ||
-        lifecycle_generation !=
-            ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0)) {
+    if (!::_InterlockedExchangeAdd(&g_inited, 0) || lifecycle_generation != ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0)) {
         return;
     }
 
+    /** 今回のログレコード用に確保したセル。 */
     FRecordReservation reservation;
     if (!ReserveRecord(severity, location, reservation)) return;
 
+    /** nullptrを安全な固定文字列へ置き換えたコピー元。 */
     const char* source = message ? message : "(null)";
+    /** リングセルへコピーする終端文字を除いた長さ。 */
     usize copy_length = message ? length : usize{6};
     if (copy_length >= kMessageMax) copy_length = kMessageMax - 1;
     if (copy_length > 0) {
@@ -743,4 +745,4 @@ void FLogger::WriteMessage(
     PublishRecord(reservation);
 }
 
-} // namespace acs
+} // acs 名前空間

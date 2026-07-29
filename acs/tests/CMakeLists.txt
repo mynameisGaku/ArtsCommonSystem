@@ -140,12 +140,24 @@ add_test(
             "${ACS_TREE_ROOT}/scripts/verify_foundation_performance.py"
             --self-test)
 add_test(
+    NAME ACS.FoundationEndToEndAggregatorSelfTest
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ACS_TREE_ROOT}/scripts/run_foundation_end_to_end.py"
+            --self-test)
+add_test(
+    NAME ACS.ChangedCppRulesAuditSelfTest
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ACS_TREE_ROOT}/scripts/audit_changed_cpp_rules.py"
+            --self-test)
+add_test(
     NAME ACS.FoundationPerformanceContract
     COMMAND "${Python3_EXECUTABLE}"
             "${ACS_TREE_ROOT}/scripts/verify_foundation_performance.py"
             --executable "$<TARGET_FILE:acs_foundation_performance>")
 set_tests_properties(
     ACS.FoundationPerformanceVerifierSelfTest
+    ACS.FoundationEndToEndAggregatorSelfTest
+    ACS.ChangedCppRulesAuditSelfTest
     ACS.FoundationPerformanceContract
     PROPERTIES LABELS "Performance;Foundation" TIMEOUT 30)
 

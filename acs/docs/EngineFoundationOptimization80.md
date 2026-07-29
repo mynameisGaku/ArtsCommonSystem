@@ -1,4 +1,4 @@
-# Engine Foundation Optimization: 64-Task Execution Ledger
+# Engine Foundation Optimization: 80-Task Execution Ledger
 
 ## Objective
 
@@ -49,11 +49,11 @@ and compile-time assertions are required where they keep build cost bounded.
 | T08 | B | Messaging | Add safe message batching and reduce broker contention | B | Active |
 | T09 | B | Timing | Improve timer scheduling and due-item traversal | B | Active |
 | T10 | B | Storage | Reduce filesystem/storage call and buffer overhead | B | Active |
-| T11 | C | Assets | Deduplicate asset-registry keys and accelerate lookup | C | Active |
-| T12 | C | ECS | Improve sparse-set/query locality and iteration overhead | C | Active |
-| T13 | C | ECS | Batch and merge entity command buffers efficiently | C | Active |
-| T14 | C | Scene | Reduce scene/reflection runtime dispatch overhead | C | Active |
-| T15 | C | RHI | Reduce DX12/RHI submission and redundant state work | C | Active |
+| T11 | C | Assets | Deduplicate asset-registry keys and accelerate lookup | C | Complete |
+| T12 | C | ECS | Improve sparse-set/query locality and iteration overhead | C | Complete |
+| T13 | C | ECS | Batch and merge entity command buffers efficiently | C | Complete |
+| T14 | C | Scene | Reduce scene/reflection runtime dispatch overhead | C | Complete |
+| T15 | C | RHI | Reduce DX12/RHI submission and redundant state work | C | Complete |
 | T16 | D | Measurement | Add deterministic foundation performance harness and JSON report | Root | Complete |
 | T17 | D | Input | Poll connected pads every frame and stagger disconnected probes | Root | Complete |
 | T18 | D | Application | Add bounded minimized/background event wait without visible-frame loss | Root | Complete |
@@ -69,11 +69,11 @@ and compile-time assertions are required where they keep build cost bounded.
 | T28 | F | Queues/TMP | Specialize queue policy for known producer/consumer topology | B | Active |
 | T29 | F | Paths/TMP | Classify common paths/extensions with constexpr tables | B | Active |
 | T30 | F | Timing/TMP | Specialize timer clocks/callback policies without virtual dispatch | B | Active |
-| T31 | G | ECS/TMP | Generate component traits and compact signatures | C | Active |
-| T32 | G | ECS/TMP | Add typed query iteration with static component access | C | Active |
-| T33 | G | Reflection/TMP | Generate bounded constexpr reflection dispatch tables | C | Active |
-| T34 | G | RHI/TMP | Add compile-time RHI format traits and validation | C | Active |
-| T35 | G | RHI/TMP | Generate stable pipeline/descriptor key components | C | Active |
+| T31 | G | ECS/TMP | Generate component traits and compact signatures | C | Complete |
+| T32 | G | ECS/TMP | Add typed query iteration with static component access | C | Complete |
+| T33 | G | Reflection/TMP | Generate bounded constexpr reflection dispatch tables | C | Complete |
+| T34 | G | RHI/TMP | Add compile-time RHI format traits and validation | C | Complete |
+| T35 | G | RHI/TMP | Generate stable pipeline/descriptor key components | C | Complete |
 | T36 | H | Logging/TMP | Add compile-time severity gate with unchanged default semantics | Root | Complete |
 | T37 | H | Logging/TMP | Add literal-log fast path that bypasses formatting safely | Root | Complete |
 | T38 | H | Measurement | Report TMP dispatch, compile time, and binary size deltas | Root | Complete |
@@ -85,10 +85,10 @@ and compile-time assertions are required where they keep build cost bounded.
 | T44 | I | Memory | Reuse a measured allocation path with an intrusive/free list | A | Queued |
 | T45 | I | Validation/TMP | Generate constexpr enum validation and lookup tables | A | Queued |
 | T46 | I | Results | Improve hot/cold result propagation and branch layout | A | Queued |
-| T47 | J | Math/SIMD | Batch AABB and frustum tests with scalar parity fallback | C | Queued |
-| T48 | J | Transform | Add SoA transform-update batch with cache-local traversal | C | Queued |
-| T49 | J | ECS | Add measured blocked iteration/prefetch strategy | C | Queued |
-| T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Queued |
+| T47 | J | Math/SIMD | Batch AABB and frustum tests with scalar parity fallback | C | Active |
+| T48 | J | Transform | Add SoA transform-update batch with cache-local traversal | C | Active |
+| T49 | J | ECS | Add measured blocked iteration/prefetch strategy | C | Active |
+| T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Active |
 | T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Queued |
 | T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Queued |
 | T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Queued |
@@ -97,12 +97,28 @@ and compile-time assertions are required where they keep build cost bounded.
 | T56 | K | Assets | Batch dependency resolution in stable topological order | B | Queued |
 | T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Queued |
 | T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Queued |
-| T59 | L | Render | Add inline storage for common render-command payloads | C | Queued |
-| T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Queued |
-| T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Queued |
-| T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Queued |
+| T59 | L | Render | Add inline storage for common render-command payloads | C | Active |
+| T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Active |
+| T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Active |
+| T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Active |
 | T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Queued |
-| T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Queued |
+| T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Active |
+| T65 | M | Handles/TMP | Add generation-checked static handle-layout traits and parity tests | A | Queued |
+| T66 | M | Containers | Add word-batched bitset operations with scalar parity fallback | A | Queued |
+| T67 | M | Lookup | Select tiny-table linear/sorted lookup policy from measured thresholds | A | Queued |
+| T68 | M | Serialization | Add bounded zero-copy byte-view decoding for immutable input | A | Queued |
+| T69 | M | Threading | Batch completion-counter updates without weakening wait semantics | B | Queued |
+| T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Queued |
+| T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Queued |
+| T72 | M | Paths | Normalize and hash canonical paths once across storage boundaries | B | Queued |
+| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Queued |
+| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Queued |
+| T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Queued |
+| T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Queued |
+| T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Queued |
+| T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Queued |
+| T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Queued |
+| T80 | O | Verification | Run clean Release, enabled backends, full tests, dist drift, and publish | Root | Queued |
 
 ## Baseline structural targets
 

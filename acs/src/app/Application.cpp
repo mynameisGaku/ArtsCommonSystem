@@ -97,7 +97,7 @@ private:
 };
 #endif
 
-} // namespace
+} // 無名名前空間
 
 FApplication::FRuntimeFoundationLifetime::~FRuntimeFoundationLifetime() noexcept
 {
@@ -205,8 +205,7 @@ void FApplication::EventBridge(void* user_data, const FEvent& event) noexcept
     FInput::OnEvent(event);
     if (app->m_RendererFailurePending) return;
     if (event.type == EEventType::WindowResize && !app->m_Window.IsMinimized()) {
-        if (!app->m_Renderer.OnResize(
-                event.resize.width, event.resize.height)) {
+        if (!app->m_Renderer.OnResize(event.resize.width, event.resize.height)) {
             app->m_RendererFailurePending = true;
             return;
         }
@@ -365,9 +364,9 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
             frame_completed = true;
         }
         if (package_smoke_active && frame_completed) {
-            // Publish readiness only after one completed standard or custom
-            // frame. Renderer initialization plus scene OnStart alone is not
-            // sufficient proof that the staged runtime can render.
+            // 標準または独自フレームが一つ完了してから準備完了を公開する。
+            // レンダラー初期化とシーン開始だけでは、段階配置した実行環境が
+            // 描画できる証拠として不十分なためである。
             PublishPackageSmokeReady(package_smoke_token);
             m_bRunning = false;
         }
@@ -400,4 +399,4 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     return renderer_failed ? 6 : 0;
 }
 
-} // namespace acs
+} // acs 名前空間

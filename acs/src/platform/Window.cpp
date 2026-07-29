@@ -224,7 +224,7 @@ bool EnsureWindowClass() noexcept {
     return true;
 }
 
-} // namespace
+} // 無名名前空間
 
 FWindow::~FWindow() noexcept {
     if (m_Hwnd) {
@@ -348,8 +348,7 @@ void FWindow::PollEvents() noexcept {
 
 void FWindow::WaitForEvents(u32 timeout_ms) noexcept {
     if (timeout_ms == 0) return;
-    (void)::MsgWaitForMultipleObjectsEx(
-        0, nullptr, static_cast<DWORD>(timeout_ms), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    (void)::MsgWaitForMultipleObjectsEx(0, nullptr, static_cast<DWORD>(timeout_ms), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 }
 
 void FWindow::SetEventCallback(EventCallback cb, void* user) noexcept {
@@ -397,4 +396,4 @@ void FWindow::SetFullscreen(bool on) noexcept {
     m_Fullscreen = on;
 }
 
-} // namespace acs
+} // acs 名前空間

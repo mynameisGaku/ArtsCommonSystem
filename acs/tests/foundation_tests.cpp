@@ -38,7 +38,9 @@ TAtomic<u32> g_ordering_sink_hits{0};
 TAtomic<u32> g_ordering_sink_observed_incomplete{0};
 TAtomic<u32> g_flush_started{0};
 TAtomic<u32> g_flush_completed{0};
+/** リテラル用出力先(sink)が呼ばれた回数。 */
 TAtomic<u32> g_literal_sink_hits{0};
+/** リテラル用出力先(sink)が最後に受け取った文字列。 */
 char g_literal_sink_message[64]{};
 
 /** lifecycle 競合中に呼ばれたログ件数を記録する。 */
@@ -47,16 +49,21 @@ void CountingLoggerSink(ELogSeverity, const char*)
     g_logger_sink_hits.FetchAdd(1);
 }
 
-/** リテラル高速経路が内容と終端を変えないことを確認する。 */
+/**
+ * リテラル高速経路が内容と終端を変えないことを記録する。
+ *
+ * @param message ロガーが出力先(sink)へ渡した終端文字付きメッセージ。
+ */
 void CaptureLiteralLoggerSink(ELogSeverity, const char* message)
 {
-    usize i = 0;
+    /** 出力配列へ次に書き込む文字位置。 */
+    usize character_index = 0;
     if (message != nullptr) {
-        for (; i + 1 < sizeof(g_literal_sink_message) && message[i] != '\0'; ++i) {
-            g_literal_sink_message[i] = message[i];
+        for (; character_index + 1 < sizeof(g_literal_sink_message) && message[character_index] != '\0'; ++character_index) {
+            g_literal_sink_message[character_index] = message[character_index];
         }
     }
-    g_literal_sink_message[i] = '\0';
+    g_literal_sink_message[character_index] = '\0';
     g_literal_sink_hits.FetchAdd(1);
 }
 
@@ -157,7 +164,7 @@ void RestoreTestLogger()
     FLogger::Init(config);
 }
 
-} // namespace
+} // 無名名前空間
 
 ACS_TEST(Foundation, ResultOk)
 {
@@ -197,6 +204,7 @@ ACS_TEST(Foundation, LoggerEmits)
     EXPECT_TRUE(true);
 }
 
+/** リテラル高速経路が文字列内容と終端を保つことを確認する。 */
 ACS_TEST(Foundation, LoggerLiteralFastPathPreservesMessage)
 {
     FLogger::Flush();

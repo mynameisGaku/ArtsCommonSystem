@@ -1,19 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Win32 ウィンドウ（イベント駆動、初学者向け簡易 API）
-//
-// 使い方:
-//   FWindowConfig cfg;
-//   cfg.title  = L"MyGame";
-//   cfg.width  = 1280;
-//   cfg.height = 720;
-//   auto wr = FWindow::Create(cfg);
-//   if (wr.IsErr()) return -1;
-//   FWindow& w = wr.Value();
-//
-//   while (!w.ShouldClose()) {
-//       w.PollEvents();
-//       // ゲーム処理
-//   }
 #pragma once
 
 #include "foundation/Types.h"
@@ -124,6 +109,8 @@ public:
      *
      * 最小化中・バックグラウンド中のループ向け。ここではメッセージを配送せず、
      * 次回の PollEvents が通常どおり順序を保って配送する。
+     *
+     * @param timeout_ms 待機する上限時間。0なら待機しない。
      */
     void WaitForEvents(u32 timeout_ms) noexcept;
 
@@ -206,6 +193,7 @@ public:
      *
      * @param w 新しいクライアント領域の幅 (px)。
      * @param h 新しいクライアント領域の高さ (px)。
+     * @param minimized WM_SIZE が最小化を通知した場合は true。
      */
     void UpdateSize_Internal(u32 w, u32 h, bool minimized) noexcept
     {
@@ -246,4 +234,4 @@ private:
     i32             m_SavedRect[4] {};
 };
 
-} // namespace acs
+} // acs 名前空間

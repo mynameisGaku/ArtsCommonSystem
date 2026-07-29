@@ -9,6 +9,7 @@
 #include "test/Test.h"
 #include "test/Expect.h"
 #include "platform/Input.h"
+#include "platform/GamepadPollScheduler.h"
 #include "platform/Event.h"
 #include "platform/InputCodes.h"
 #include "gameframework/InputMap.h"
@@ -24,7 +25,7 @@ FEvent KeyEvt(EKey k, bool down) noexcept {
     e.key.repeat = false;
     return e;
 }
-} // namespace
+} // 無名名前空間
 
 // OnEvent で押下/解放を流すと FInputMap.IsHeld が追従する。
 ACS_TEST(InputFeed, OnEventDrivesInputMapHeld) {
@@ -120,7 +121,9 @@ ACS_TEST(InputFeed, GamepadAxisBindingComposesWithKeys)
 // 全ポート未接続時は1フレーム1回だけ確認し、4フレーム以内に全ポートを巡回する。
 ACS_TEST(InputFeed, DisconnectedGamepadPollingIsStaggered)
 {
+    /** 直前フレームに接続していたポート。 */
     bool connected[4]{};
+    /** テスト対象のポーリング順序制御。 */
     detail::TGamepadPollScheduler<4> scheduler;
     EXPECT_EQ(scheduler.BuildPollMask(connected), 0x1u);
     EXPECT_EQ(scheduler.BuildPollMask(connected), 0x2u);
@@ -132,9 +135,13 @@ ACS_TEST(InputFeed, DisconnectedGamepadPollingIsStaggered)
 // 接続中ポートは毎フレーム含め、未接続確認だけを追加で1ポートに制限する。
 ACS_TEST(InputFeed, ConnectedGamepadPollingRemainsFullRate)
 {
+    /** 直前フレームに接続していたポート。 */
     bool connected[4]{true, false, true, false};
+    /** テスト対象のポーリング順序制御。 */
     detail::TGamepadPollScheduler<4> scheduler;
+    /** 1フレーム目に取得するポート集合。 */
     const u32 first = scheduler.BuildPollMask(connected);
+    /** 2フレーム目に取得するポート集合。 */
     const u32 second = scheduler.BuildPollMask(connected);
     EXPECT_EQ(first & 0x5u, 0x5u);
     EXPECT_EQ(second & 0x5u, 0x5u);

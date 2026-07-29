@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// 非同期スレッドセーフ FLogger（Vyukov MPMC ring + writer thread）
 #pragma once
 
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
+#include "foundation/Move.h"
 #include "foundation/SourceLoc.h"
 #include "foundation/TypeTraits.h"
 
@@ -48,52 +48,86 @@ enum class ELogSeverity : u8 {
 
 namespace detail {
 
-/** 公開した位置が現在の読み取り位置なら、空から非空への遷移として起床が必要。 */
+/**
+ * 公開位置が読み取り位置と一致するかを返す。
+ *
+ * @param published_position プロデューサが公開したリング位置。
+ * @param dequeue_position コンシューマが次に読み取るリング位置。
+ * @return 空から非空への遷移なら true。
+ */
 constexpr bool ShouldSignalLogConsumer(u64 published_position, u64 dequeue_position) noexcept
 {
     return published_position == dequeue_position;
 }
 
-/** 文字列リテラルに printf 書式開始文字が含まれるかをコンパイル時にも判定する。 */
+/**
+ * 文字列リテラルに printf 書式開始文字が含まれるかを判定する。
+ *
+ * @tparam N 終端文字を含む文字配列長。
+ * @param message 判定する文字配列。
+ * @return パーセント記号を含む場合は true。
+ */
 template <usize N>
 constexpr bool ContainsLogFormatMarker(const char (&message)[N]) noexcept
 {
-    for (usize i = 0; i + 1 < N; ++i) {
-        if (message[i] == '%') return true;
+    /** 終端文字を除いて確認する文字位置。 */
+    for (usize character_index = 0; character_index + 1 < N; ++character_index) {
+        if (message[character_index] == '%') return true;
     }
     return false;
 }
 
 /** ログ呼び出しが直接コピー経路か printf 整形経路かを表す。 */
 enum class ELogDispatchKind : u8 {
+    /** 整形せずに直接コピーする。 */
     Literal,
+
+    /** printf 互換の書式処理を行う。 */
     Formatted,
 };
 
-/** 文字列リテラルの内容から、コンパイル時にも経路を分類する。 */
+/**
+ * 文字列リテラルの内容から書き込み経路を分類する。
+ *
+ * @tparam N 終端文字を含む文字配列長。
+ * @param message 分類する文字配列。
+ * @return 直接コピーまたは書式処理の種別。
+ */
 template <usize N>
 constexpr ELogDispatchKind ClassifyLogDispatch(const char (&message)[N]) noexcept
 {
-    return ContainsLogFormatMarker(message)
-        ? ELogDispatchKind::Formatted
-        : ELogDispatchKind::Literal;
+    return ContainsLogFormatMarker(message) ? ELogDispatchKind::Formatted : ELogDispatchKind::Literal;
 }
 
-/** 転送参照から文字列リテラルの配列長を取り出すための型特性。 */
+/**
+ * 転送参照から文字列リテラルの配列長を取り出す型特性。
+ *
+ * @tparam T 判定する書式引数型。
+ */
 template <typename T>
 struct TLogLiteralInfo {
+    /** 型が安全な文字列リテラルなら true。 */
     static constexpr bool IsLiteral = false;
+
+    /** 終端文字を含む文字配列長。非リテラルは0。 */
     static constexpr usize Extent = 0;
 };
 
-/** const 文字配列だけを安全な文字列リテラル候補として扱う。 */
+/**
+ * const文字配列を安全な文字列リテラルとして扱う特殊化。
+ *
+ * @tparam N 終端文字を含む文字配列長。
+ */
 template <usize N>
 struct TLogLiteralInfo<const char[N]> {
+    /** const文字配列なので常に true。 */
     static constexpr bool IsLiteral = true;
+
+    /** 終端文字を含む文字配列長。 */
     static constexpr usize Extent = N;
 };
 
-} // namespace detail
+} // detail 名前空間
 
 /**
  * ログレベルを文字列化する (出力フォーマット用)。
@@ -221,12 +255,16 @@ public:
      */
     static u64 WakeSignalCount() noexcept;
 
-    /** 指定レベルがコンパイル時の最小レベル以上かを返す。 */
+    /**
+     * 指定レベルがコンパイル時の最小レベル以上かを返す。
+     *
+     * @tparam Severity 判定する固定重大度。
+     * @return コンパイル対象なら true。
+     */
     template <ELogSeverity Severity>
     static constexpr bool CompiledEnabled() noexcept
     {
-        return static_cast<u8>(Severity) >=
-               static_cast<u8>(ACS_COMPILED_LOG_MIN_SEVERITY);
+        return static_cast<u8>(Severity) >= static_cast<u8>(ACS_COMPILED_LOG_MIN_SEVERITY);
     }
 
     /**
@@ -244,55 +282,56 @@ public:
      * 整形済みメッセージをリングへ直接積む。
      *
      * printf 置換が不要な文字列リテラル用。length は終端 NUL を含めない。
+     * ロガー未初期化、重大度の対象外、またはリング満杯なら出力しない。
+     *
+     * @param severity 出力する重大度。
+     * @param location 呼び出し元のソース位置。
+     * @param message 整形済みの文字列。nullptrは"(null)"として扱う。
+     * @param length messageの終端文字を含まない長さ。
      */
-    ACS_NEVERINLINE static void WriteMessage(
-        ELogSeverity severity,
-        FSourceLoc location,
-        const char* message,
-        usize length) noexcept;
+    ACS_NEVERINLINE static void WriteMessage(ELogSeverity severity, FSourceLoc location, const char* message, usize length) noexcept;
 
     /**
      * 書式指定子を含まない文字列リテラルを直接書き込みへ振り分ける。
      *
      * '%' を含む場合は従来の printf 互換経路へ戻し、"%%" の意味も維持する。
+     * 実際の失敗条件はWriteまたはWriteMessageと同じ。
+     *
+     * @tparam TFormat 書式引数の転送型。
+     * @tparam TArgs 可変長の置換引数型。
+     * @param severity 出力する重大度。
+     * @param location 呼び出し元のソース位置。
+     * @param format 文字列リテラルまたは printf 互換書式。
+     * @param args formatへ適用する置換引数。
      */
     template <typename TFormat, typename... TArgs>
-    ACS_FORCEINLINE static void WriteDispatch(
-        ELogSeverity severity,
-        FSourceLoc location,
-        TFormat&& format,
-        TArgs... args) noexcept
+    ACS_FORCEINLINE static void WriteDispatch(ELogSeverity severity, FSourceLoc location, TFormat&& format, TArgs&&... args) noexcept
     {
+        /** 転送された書式引数から参照を除いた型。 */
         using FFormat = RemoveRefT<TFormat>;
-        if constexpr (
-            sizeof...(TArgs) == 0 &&
-            detail::TLogLiteralInfo<FFormat>::IsLiteral) {
-            if (detail::ClassifyLogDispatch(format) ==
-                detail::ELogDispatchKind::Literal) {
-                constexpr usize extent =
-                    detail::TLogLiteralInfo<FFormat>::Extent;
-                WriteMessage(
-                    severity,
-                    location,
-                    format,
-                    extent > 0 ? extent - 1 : 0);
+        /** 置換引数がなく、安全な文字配列を直接扱える場合は true。 */
+        constexpr bool use_literal_path = sizeof...(TArgs) == 0 && detail::TLogLiteralInfo<FFormat>::IsLiteral;
+        if constexpr (use_literal_path) {
+            if (detail::ClassifyLogDispatch(format) == detail::ELogDispatchKind::Literal) {
+                /** 終端文字を含む文字配列長。 */
+                constexpr usize extent = detail::TLogLiteralInfo<FFormat>::Extent;
+                WriteMessage(severity, location, format, extent > 0 ? extent - 1 : 0);
                 return;
             }
             Write(severity, location, format);
         } else {
-            Write(severity, location, format, args...);
+            Write(severity, location, format, Forward<TArgs>(args)...);
         }
     }
 };
 
-} // namespace acs
+} // acs 名前空間
 
 // 内部マクロ: 指定レベルが有効ならログを出力
-#define ACS_LOG(sev, fmt, ...)                                                        \
-    do {                                                                              \
-        if (::acs::FLogger::Enabled(sev))                                             \
-            ::acs::FLogger::WriteDispatch(                                           \
-                sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);   \
+#define ACS_LOG(sev, fmt, ...)                                                                                          \
+    do {                                                                                                                \
+        if (::acs::FLogger::Enabled(sev))                                                                               \
+            ::acs::FLogger::WriteDispatch(sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);           \
     } while (0)
 
 // 固定レベルは if constexpr で無効レベルの引数評価とコード生成を完全に除去する。

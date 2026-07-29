@@ -37,7 +37,7 @@ public:
     }
 };
 
-} // namespace acs::app_internal
+} // acs::app_internal 名前空間
 
 namespace {
 
@@ -98,7 +98,7 @@ FMemorySystemConfig ApplicationMemoryConfig() noexcept
     return config;
 }
 
-} // namespace
+} // 無名名前空間
 
 ACS_TEST(FApplicationLifetime, OwnedFoundationOutlivesDerivedMembers)
 {
@@ -167,16 +167,20 @@ ACS_TEST(FApplicationLifetime, ExternallyOwnedFoundationSurvivesApplication)
     FStackTrace::ShutdownSymbolResolver();
 }
 
+/** ムーブ構築とムーブ代入が最小化状態を正しく移すことを確認する。 */
 ACS_TEST(FApplicationLifetime, WindowMovePreservesMinimizedState)
 {
+    /** 最小化状態を持つ移動元ウィンドウ。 */
     FWindow source;
     source.UpdateSize_Internal(0, 0, true);
     EXPECT_TRUE(source.IsMinimized());
 
+    /** 移動構築後のウィンドウ。 */
     FWindow moved(Move(source));
     EXPECT_TRUE(moved.IsMinimized());
     EXPECT_TRUE(!source.IsMinimized());
 
+    /** 移動代入先のウィンドウ。 */
     FWindow assigned;
     assigned = Move(moved);
     EXPECT_TRUE(assigned.IsMinimized());
