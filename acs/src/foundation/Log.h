@@ -5,6 +5,16 @@
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
 #include "foundation/SourceLoc.h"
+#include "foundation/TypeTraits.h"
+
+#ifndef ACS_COMPILED_LOG_MIN_SEVERITY
+    // 0=Trace ～ 6=Off。既定値は従来どおり全レベルをコンパイル対象にする。
+    #define ACS_COMPILED_LOG_MIN_SEVERITY 0
+#endif
+
+#if ACS_COMPILED_LOG_MIN_SEVERITY < 0 || ACS_COMPILED_LOG_MIN_SEVERITY > 6
+    #error "ACS_COMPILED_LOG_MIN_SEVERITY は 0～6 の範囲で指定してください"
+#endif
 
 namespace acs {
 
@@ -35,6 +45,55 @@ enum class ELogSeverity : u8 {
     /** 出力停止 (この値を最小レベルにすると何も出力しない)。 */
     Off = 6,
 };
+
+namespace detail {
+
+/** 公開した位置が現在の読み取り位置なら、空から非空への遷移として起床が必要。 */
+constexpr bool ShouldSignalLogConsumer(u64 published_position, u64 dequeue_position) noexcept
+{
+    return published_position == dequeue_position;
+}
+
+/** 文字列リテラルに printf 書式開始文字が含まれるかをコンパイル時にも判定する。 */
+template <usize N>
+constexpr bool ContainsLogFormatMarker(const char (&message)[N]) noexcept
+{
+    for (usize i = 0; i + 1 < N; ++i) {
+        if (message[i] == '%') return true;
+    }
+    return false;
+}
+
+/** ログ呼び出しが直接コピー経路か printf 整形経路かを表す。 */
+enum class ELogDispatchKind : u8 {
+    Literal,
+    Formatted,
+};
+
+/** 文字列リテラルの内容から、コンパイル時にも経路を分類する。 */
+template <usize N>
+constexpr ELogDispatchKind ClassifyLogDispatch(const char (&message)[N]) noexcept
+{
+    return ContainsLogFormatMarker(message)
+        ? ELogDispatchKind::Formatted
+        : ELogDispatchKind::Literal;
+}
+
+/** 転送参照から文字列リテラルの配列長を取り出すための型特性。 */
+template <typename T>
+struct TLogLiteralInfo {
+    static constexpr bool IsLiteral = false;
+    static constexpr usize Extent = 0;
+};
+
+/** const 文字配列だけを安全な文字列リテラル候補として扱う。 */
+template <usize N>
+struct TLogLiteralInfo<const char[N]> {
+    static constexpr bool IsLiteral = true;
+    static constexpr usize Extent = N;
+};
+
+} // namespace detail
 
 /**
  * ログレベルを文字列化する (出力フォーマット用)。
@@ -156,6 +215,21 @@ public:
     static u64 DroppedCount() noexcept;
 
     /**
+     * 通常レコードの投入によってライタースレッドへ送った起床通知数を返す。
+     *
+     * @return 現在のロガー世代で送った通知の累積数。
+     */
+    static u64 WakeSignalCount() noexcept;
+
+    /** 指定レベルがコンパイル時の最小レベル以上かを返す。 */
+    template <ELogSeverity Severity>
+    static constexpr bool CompiledEnabled() noexcept
+    {
+        return static_cast<u8>(Severity) >=
+               static_cast<u8>(ACS_COMPILED_LOG_MIN_SEVERITY);
+    }
+
+    /**
      * 1 レコードをリングに積む実書き込み関数 (printf 互換)。
      *
      * @details ホットパスの肥大化を避けるため NEVERINLINE。通常は ACS_LOG_* マクロ経由で呼ぶ。
@@ -165,20 +239,73 @@ public:
      * @param ... format に対応する可変長引数。
      */
     ACS_NEVERINLINE static void Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept;
+
+    /**
+     * 整形済みメッセージをリングへ直接積む。
+     *
+     * printf 置換が不要な文字列リテラル用。length は終端 NUL を含めない。
+     */
+    ACS_NEVERINLINE static void WriteMessage(
+        ELogSeverity severity,
+        FSourceLoc location,
+        const char* message,
+        usize length) noexcept;
+
+    /**
+     * 書式指定子を含まない文字列リテラルを直接書き込みへ振り分ける。
+     *
+     * '%' を含む場合は従来の printf 互換経路へ戻し、"%%" の意味も維持する。
+     */
+    template <typename TFormat, typename... TArgs>
+    ACS_FORCEINLINE static void WriteDispatch(
+        ELogSeverity severity,
+        FSourceLoc location,
+        TFormat&& format,
+        TArgs... args) noexcept
+    {
+        using FFormat = RemoveRefT<TFormat>;
+        if constexpr (
+            sizeof...(TArgs) == 0 &&
+            detail::TLogLiteralInfo<FFormat>::IsLiteral) {
+            if (detail::ClassifyLogDispatch(format) ==
+                detail::ELogDispatchKind::Literal) {
+                constexpr usize extent =
+                    detail::TLogLiteralInfo<FFormat>::Extent;
+                WriteMessage(
+                    severity,
+                    location,
+                    format,
+                    extent > 0 ? extent - 1 : 0);
+                return;
+            }
+            Write(severity, location, format);
+        } else {
+            Write(severity, location, format, args...);
+        }
+    }
 };
 
 } // namespace acs
 
 // 内部マクロ: 指定レベルが有効ならログを出力
-#define ACS_LOG(sev, fmt, ...)                                                            \
-    do {                                                                                  \
-        if (::acs::FLogger::Enabled(sev))                                                 \
-            ::acs::FLogger::Write(sev, ::acs::FSourceLoc::Current(), fmt, ##__VA_ARGS__); \
+#define ACS_LOG(sev, fmt, ...)                                                        \
+    do {                                                                              \
+        if (::acs::FLogger::Enabled(sev))                                             \
+            ::acs::FLogger::WriteDispatch(                                           \
+                sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);   \
     } while (0)
 
-#define ACS_LOG_TRACE(fmt, ...) ACS_LOG(::acs::ELogSeverity::Trace, fmt, ##__VA_ARGS__)
-#define ACS_LOG_DEBUG(fmt, ...) ACS_LOG(::acs::ELogSeverity::Debug, fmt, ##__VA_ARGS__)
-#define ACS_LOG_INFO(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Info, fmt, ##__VA_ARGS__)
-#define ACS_LOG_WARN(fmt, ...)  ACS_LOG(::acs::ELogSeverity::Warn, fmt, ##__VA_ARGS__)
-#define ACS_LOG_ERROR(fmt, ...) ACS_LOG(::acs::ELogSeverity::Error, fmt, ##__VA_ARGS__)
-#define ACS_LOG_FATAL(fmt, ...) ACS_LOG(::acs::ELogSeverity::Fatal, fmt, ##__VA_ARGS__)
+// 固定レベルは if constexpr で無効レベルの引数評価とコード生成を完全に除去する。
+#define ACS_LOG_STATIC(sev, fmt, ...)                                                \
+    do {                                                                            \
+        if constexpr (::acs::FLogger::CompiledEnabled<sev>()) {                     \
+            ACS_LOG(sev, fmt __VA_OPT__(,) __VA_ARGS__);                            \
+        }                                                                           \
+    } while (0)
+
+#define ACS_LOG_TRACE(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Trace, fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_DEBUG(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Debug, fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_INFO(fmt, ...)  ACS_LOG_STATIC(::acs::ELogSeverity::Info,  fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_WARN(fmt, ...)  ACS_LOG_STATIC(::acs::ELogSeverity::Warn,  fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_ERROR(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Error, fmt __VA_OPT__(,) __VA_ARGS__)
+#define ACS_LOG_FATAL(fmt, ...) ACS_LOG_STATIC(::acs::ELogSeverity::Fatal, fmt __VA_OPT__(,) __VA_ARGS__)

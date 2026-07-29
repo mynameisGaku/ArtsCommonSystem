@@ -1,3 +1,5 @@
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+
 add_executable(acs_unit_tests
     main.cpp
     foundation_tests.cpp
@@ -107,6 +109,45 @@ add_executable(acs_unit_tests
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 
 acs_apply_compiler_options(acs_unit_tests)
+
+# 実機タイミングだけに依存せず、削減した呼び出し・起床回数を JSON で検証する。
+add_executable(acs_foundation_performance
+    foundation_performance_main.cpp
+)
+set_target_properties(acs_foundation_performance PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_foundation_performance)
+target_include_directories(acs_foundation_performance PRIVATE "${ACS_SOURCE_ROOT}")
+add_test(NAME ACS.FoundationPerformance COMMAND acs_foundation_performance)
+set_tests_properties(ACS.FoundationPerformance PROPERTIES
+    LABELS "Performance;Foundation"
+    TIMEOUT 30)
+
+# Foundation ライブラリをリンクせず、無効ログがシンボル参照ごと消えることを確認する。
+add_executable(acs_foundation_log_compile_gate
+    foundation_log_compile_gate_main.cpp
+)
+set_target_properties(acs_foundation_log_compile_gate PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_foundation_log_compile_gate)
+target_include_directories(acs_foundation_log_compile_gate PRIVATE "${ACS_SOURCE_ROOT}")
+add_test(NAME ACS.FoundationLogCompileGate COMMAND acs_foundation_log_compile_gate)
+set_tests_properties(ACS.FoundationLogCompileGate PROPERTIES
+    LABELS "Performance;Foundation"
+    TIMEOUT 30)
+
+add_test(
+    NAME ACS.FoundationPerformanceVerifierSelfTest
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ACS_TREE_ROOT}/scripts/verify_foundation_performance.py"
+            --self-test)
+add_test(
+    NAME ACS.FoundationPerformanceContract
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ACS_TREE_ROOT}/scripts/verify_foundation_performance.py"
+            --executable "$<TARGET_FILE:acs_foundation_performance>")
+set_tests_properties(
+    ACS.FoundationPerformanceVerifierSelfTest
+    ACS.FoundationPerformanceContract
+    PROPERTIES LABELS "Performance;Foundation" TIMEOUT 30)
 
 # LinearAllocator の Reset 競合を他モジュールのリンク状態から独立して反復できる専用ターゲット。
 add_executable(acs_linear_allocator_lifecycle_tests
@@ -301,7 +342,6 @@ endif()
 # C++ の実宣言だけを字句解析し、型 prefix・列挙子とメンバー呼び出しの型名衝突・
 # 削除済み Node API の再流入を防ぐ。
 # コメント・文字列・raw string 内の HLSL は監査対象にしない。
-find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 set(ACS_CPP_CONVENTIONS_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_cpp_conventions.py")
 

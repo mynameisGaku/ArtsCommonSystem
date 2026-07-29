@@ -166,3 +166,24 @@ ACS_TEST(FApplicationLifetime, ExternallyOwnedFoundationSurvivesApplication)
     FMemorySystem::Shutdown();
     FStackTrace::ShutdownSymbolResolver();
 }
+
+ACS_TEST(FApplicationLifetime, WindowMovePreservesMinimizedState)
+{
+    FWindow source;
+    source.UpdateSize_Internal(0, 0, true);
+    EXPECT_TRUE(source.IsMinimized());
+
+    FWindow moved(Move(source));
+    EXPECT_TRUE(moved.IsMinimized());
+    EXPECT_TRUE(!source.IsMinimized());
+
+    FWindow assigned;
+    assigned = Move(moved);
+    EXPECT_TRUE(assigned.IsMinimized());
+    EXPECT_TRUE(!moved.IsMinimized());
+
+    assigned.UpdateSize_Internal(1280, 720, false);
+    EXPECT_TRUE(!assigned.IsMinimized());
+    EXPECT_EQ(assigned.Width(), 1280u);
+    EXPECT_EQ(assigned.Height(), 720u);
+}

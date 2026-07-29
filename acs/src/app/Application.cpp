@@ -204,7 +204,7 @@ void FApplication::EventBridge(void* user_data, const FEvent& event) noexcept
     FApplication* const app = static_cast<FApplication*>(user_data);
     FInput::OnEvent(event);
     if (app->m_RendererFailurePending) return;
-    if (event.type == EEventType::WindowResize) {
+    if (event.type == EEventType::WindowResize && !app->m_Window.IsMinimized()) {
         if (!app->m_Renderer.OnResize(
                 event.resize.width, event.resize.height)) {
             app->m_RendererFailurePending = true;
@@ -324,6 +324,15 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
                 "stopping before frame recording");
             renderer_failed = true;
             break;
+        }
+        if (!m_bRunning || m_Window.ShouldClose()) break;
+
+        // 最小化中のスワップチェーンには描画すべき画素がない。フレーム時計だけを進めて
+        // 復帰直後の dt が数秒分へ跳ねることを防ぎ、ビジー描画せず入力または上限時間まで待つ。
+        if (m_Window.IsMinimized()) {
+            (void)m_FrameTimer.Tick();
+            m_Window.WaitForEvents(configuration.minimized_wait_ms);
+            continue;
         }
         FMemorySystem::ResetTemp(); // Temp セグメントを毎フレーム巻き戻し
         m_Dt = m_FrameTimer.Tick();

@@ -23,6 +23,49 @@
 
 namespace acs {
 
+namespace detail {
+
+/**
+ * フレームごとのゲームパッド・ポーリング対象をビットマスクで組み立てる。
+ *
+ * 接続中のポートは遅延を増やさず毎フレーム含める。未接続ポートはラウンドロビンで
+ * 1 つだけ追加し、コントローラがない環境で毎フレーム 4 回失敗していた
+ * XInput 呼び出しを削減する。
+ */
+template <usize PortCount>
+class TGamepadPollScheduler {
+    static_assert(PortCount > 0, "ゲームパッド・スケジューラには1ポート以上が必要です");
+    static_assert(PortCount <= 32, "ポーリングマスクが保持できるのは32ポートまでです");
+
+public:
+    /** 接続中の全ポートと、未接続確認用の最大1ポートを含むマスクを返す。 */
+    constexpr u32 BuildPollMask(const bool (&connected)[PortCount]) noexcept
+    {
+        u32 mask = 0;
+        for (usize i = 0; i < PortCount; ++i) {
+            if (connected[i]) mask |= u32{1} << static_cast<u32>(i);
+        }
+
+        for (usize offset = 0; offset < PortCount; ++offset) {
+            const usize index = (m_NextDisconnected + offset) % PortCount;
+            if (!connected[index]) {
+                mask |= u32{1} << static_cast<u32>(index);
+                m_NextDisconnected = (index + 1) % PortCount;
+                break;
+            }
+        }
+        return mask;
+    }
+
+    /** ラウンドロビン位置を初期化する。主に決定的テストで使用する。 */
+    constexpr void Reset() noexcept { m_NextDisconnected = 0; }
+
+private:
+    usize m_NextDisconnected = 0;
+};
+
+} // namespace detail
+
 /**
  * キーボード・マウス・ゲームパッドの入力ポーリング API (全メソッド static)。
  *

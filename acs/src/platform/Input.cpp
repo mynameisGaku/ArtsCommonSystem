@@ -68,6 +68,9 @@ struct FInputState {
 /** プロセス唯一の入力状態 (全 static メソッドが参照する)。 */
 FInputState g_input;
 
+/** 接続中は毎フレーム取得し、未接続確認だけをフレーム間へ分散する。 */
+detail::TGamepadPollScheduler<4> g_gamepad_poll_scheduler;
+
 /** EGamepadButton から XInput のボタンビットへ変換するテーブル (0 は未対応ボタン)。 */
 constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
     XINPUT_GAMEPAD_A,              // A
@@ -165,8 +168,16 @@ void FInput::Update() noexcept {
     g_input.text_utf8[0] = 0;
 
     // ゲームパッド: XInput を 4 ポート分ポーリング
+    // 先に全スナップショットを進める。次フレームに未接続ポートを確認しない場合でも、
+    // 切断による Released はちょうど1フレームだけ成立する。
     for (DWORD i = 0; i < 4; ++i) {
         g_input.pad_prev[i] = g_input.pad_now[i];
+    }
+
+    // 接続中デバイスは毎フレーム取得し、失敗する未接続確認だけを分散する。
+    const u32 poll_mask = g_gamepad_poll_scheduler.BuildPollMask(g_input.pad_connected);
+    for (DWORD i = 0; i < 4; ++i) {
+        if ((poll_mask & (u32{1} << i)) == 0) continue;
         ZeroMemory(&g_input.pad_now[i], sizeof(XINPUT_STATE));
         const DWORD r = ::XInputGetState(i, &g_input.pad_now[i]);
         g_input.pad_connected[i] = (r == ERROR_SUCCESS);

@@ -120,6 +120,14 @@ public:
     void PollEvents() noexcept;
 
     /**
+     * Win32 入力メッセージが届くか、指定した上限時間まで待機する。
+     *
+     * 最小化中・バックグラウンド中のループ向け。ここではメッセージを配送せず、
+     * 次回の PollEvents が通常どおり順序を保って配送する。
+     */
+    void WaitForEvents(u32 timeout_ms) noexcept;
+
+    /**
      * 閉じる要求が来ているかを返す。
      *
      * @return × ボタン押下や Close 呼び出しで閉じる要求が立っていれば true。
@@ -142,6 +150,9 @@ public:
      * @return 現在の高さ (px)。
      */
     u32 Height() const noexcept { return m_Height; }
+
+    /** ネイティブウィンドウが最小化中なら true を返す。 */
+    bool IsMinimized() const noexcept { return m_Minimized; }
 
     /**
      * ネイティブの HWND を返す (Render モジュールが Swapchain 生成に使う)。
@@ -196,7 +207,12 @@ public:
      * @param w 新しいクライアント領域の幅 (px)。
      * @param h 新しいクライアント領域の高さ (px)。
      */
-    void UpdateSize_Internal(u32 w, u32 h) noexcept { m_Width = w; m_Height = h; }
+    void UpdateSize_Internal(u32 w, u32 h, bool minimized) noexcept
+    {
+        m_Width = w;
+        m_Height = h;
+        m_Minimized = minimized;
+    }
 
 private:
     /** ネイティブウィンドウハンドル (HWND を void* で保持。未生成なら nullptr)。 */
@@ -210,6 +226,9 @@ private:
 
     /** 閉じる要求フラグ (ShouldClose が返す値)。 */
     bool            m_ShouldClose  = false;
+
+    /** WM_SIZE から更新するネイティブウィンドウの最小化状態。 */
+    bool            m_Minimized    = false;
 
     /** イベント通知先コールバック (未登録なら nullptr)。 */
     EventCallback   m_Callback      = nullptr;

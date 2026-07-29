@@ -82,6 +82,9 @@ struct FLoggerState {
     /** 累積 drop 件数 (DroppedCount 用。決して 0 化しない)。 */
     ACS_CACHELINE_ALIGN volatile LONG64 dropped_total = 0;
 
+    /** 通常レコード投入によって送った起床通知の累積数。 */
+    ACS_CACHELINE_ALIGN volatile LONG64 wake_signal_count = 0;
+
     /** ホットパスの severity ゲート (別キャッシュラインに配置した最小レベル)。 */
     ACS_CACHELINE_ALIGN volatile LONG min_severity = static_cast<LONG>(ELogSeverity::Info);
 
@@ -151,6 +154,81 @@ struct FProducerGuard {
     }
 };
 
+/** プロデューサが確保したリング位置とセルをまとめる。 */
+struct FRecordReservation {
+    FCell* cell = nullptr;
+    LONG64 position = 0;
+};
+
+/**
+ * 空きセルを確保し、共通のレコード情報を設定する。
+ *
+ * 呼び出し側が g_active_producers を登録済みで、同じ世代が有効な間だけ呼ぶ。
+ */
+bool ReserveRecord(
+    ELogSeverity severity,
+    FSourceLoc location,
+    FRecordReservation& reservation) noexcept
+{
+    LONG64 position = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
+    FCell* cell = nullptr;
+    while (true) {
+        cell = &g_state.ring[position & g_state.mask];
+        const LONG64 sequence = ::_InterlockedExchangeAdd64(&cell->sequence, 0);
+        const LONG64 difference = sequence - position;
+        if (difference == 0) {
+            if (::_InterlockedCompareExchange64(
+                    &g_state.enqueue_pos, position + 1, position) == position) {
+                break;
+            }
+        } else if (difference < 0) {
+            ::_InterlockedIncrement64(&g_state.dropped);
+            ::_InterlockedIncrement64(&g_state.dropped_total);
+            return false;
+        } else {
+            position = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
+        }
+    }
+
+    cell->severity = severity;
+    cell->loc = location;
+    cell->thread_id = ::GetCurrentThreadId();
+    ::QueryPerformanceCounter(&cell->timestamp);
+    reservation.cell = cell;
+    reservation.position = position;
+    return true;
+}
+
+/**
+ * 完成したセルを公開し、空から非空になった場合だけライターを起こす。
+ *
+ * wake_lock を共有取得することで、ライターの空判定と CV 待機の間に通知が失われない。
+ */
+void PublishRecord(const FRecordReservation& reservation) noexcept
+{
+    ::_InterlockedExchange64(
+        &reservation.cell->sequence, reservation.position + 1);
+
+    const LONG64 dequeue_position =
+        ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
+    if (!detail::ShouldSignalLogConsumer(
+            static_cast<u64>(reservation.position),
+            static_cast<u64>(dequeue_position))) {
+        return;
+    }
+
+    ::AcquireSRWLockShared(&g_state.wake_lock);
+    const LONG64 synchronized_dequeue =
+        ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
+    if (detail::ShouldSignalLogConsumer(
+            static_cast<u64>(reservation.position),
+            static_cast<u64>(synchronized_dequeue))) {
+        ::_InterlockedIncrement64(&g_state.wake_signal_count);
+        ::WakeConditionVariable(&g_state.wake_cv);
+    }
+    ::ReleaseSRWLockShared(&g_state.wake_lock);
+}
+
 /**
  * writer thread の生成前に確保した初期化資源を巻き戻す。
  *
@@ -182,6 +260,7 @@ void RollbackInitWithoutWriter() noexcept
     g_state.dequeue_pos = 0;
     g_state.completed_emit_pos = 0;
     g_state.dropped = 0;
+    g_state.wake_signal_count = 0;
 }
 
 /**
@@ -366,9 +445,15 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept
         }
 
         // === スリープ（CV 起床 or 100ms タイムアウト） ===
-        AcquireSRWLockExclusive(&g_state.wake_lock);
-        ::SleepConditionVariableSRW(&g_state.wake_cv, &g_state.wake_lock, 100, 0);
-        ReleaseSRWLockExclusive(&g_state.wake_lock);
+        // lock 取得後にもう一度空を確認する。プロデューサ側の共有 lock と組み合わせ、
+        // 空判定直後から CV 待機開始までの通知取りこぼしを防ぐ。
+        ::AcquireSRWLockExclusive(&g_state.wake_lock);
+        const LONG64 head = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
+        const LONG64 tail = ::_InterlockedExchangeAdd64(&g_state.dequeue_pos, 0);
+        if (::_InterlockedExchangeAdd(&g_state.running, 0) != 0 && tail >= head) {
+            ::SleepConditionVariableSRW(&g_state.wake_cv, &g_state.wake_lock, 100, 0);
+        }
+        ::ReleaseSRWLockExclusive(&g_state.wake_lock);
     }
 
     if (g_state.out_file != INVALID_HANDLE_VALUE) {
@@ -420,6 +505,7 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
     g_state.dequeue_pos = 0;
     g_state.completed_emit_pos = 0;
     g_state.dropped = 0;
+    g_state.wake_signal_count = 0;
 
     // 出力先ハンドル取得
     g_state.use_console = configuration.console;
@@ -581,6 +667,12 @@ u64 FLogger::DroppedCount() noexcept
     return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.dropped_total, 0));
 }
 
+u64 FLogger::WakeSignalCount() noexcept
+{
+    return static_cast<u64>(
+        ::_InterlockedExchangeAdd64(&g_state.wake_signal_count, 0));
+}
+
 /** プロデューサ実体: Vyukov 風 CAS でセルを予約し、書き込んで release 公開する。詳細は宣言を参照。 */
 void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept
 {
@@ -597,47 +689,58 @@ void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* form
         lifecycle_generation != ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0))
         return;
 
-    // === スロット予約（CAS ループ） ===
-    LONG64 pos = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
-    FCell* cell = nullptr;
-    while (true) {
-        cell = &g_state.ring[pos & g_state.mask];
-        LONG64 seq = ::_InterlockedExchangeAdd64(&cell->sequence, 0);
-        LONG64 dif = seq - pos;
-        if (dif == 0) {
-            // セルが空なら pos を進めて確保
-            if (::_InterlockedCompareExchange64(&g_state.enqueue_pos, pos + 1, pos) == pos) break;
-        } else if (dif < 0) {
-            // リング満杯なら drop (未警告バッチと累積の両方を加算)
-            ::_InterlockedIncrement64(&g_state.dropped);
-            ::_InterlockedIncrement64(&g_state.dropped_total);
-            return;
-        } else {
-            // 他プロデューサが先に取った — pos を再読み込み
-            pos = ::_InterlockedExchangeAdd64(&g_state.enqueue_pos, 0);
-        }
-    }
-
-    // === セル内容を書き込み ===
-    cell->severity = severity;
-    cell->loc = location;
-    cell->thread_id = ::GetCurrentThreadId();
-    ::QueryPerformanceCounter(&cell->timestamp);
+    FRecordReservation reservation;
+    if (!ReserveRecord(severity, location, reservation)) return;
 
     va_list ap;
     va_start(ap, format);
-    int n = ::vsnprintf(cell->message, kMessageMax, format ? format : "(null)", ap);
+    int n = ::vsnprintf(
+        reservation.cell->message,
+        kMessageMax,
+        format ? format : "(null)",
+        ap);
     va_end(ap);
     if (n < 0) n = 0;
     if (static_cast<u32>(n) >= kMessageMax) n = static_cast<int>(kMessageMax - 1);
-    cell->message_len = static_cast<u16>(n);
+    reservation.cell->message_len = static_cast<u16>(n);
+    PublishRecord(reservation);
+}
 
-    // === 公開（release ストア） ===
-    // sequence = pos + 1 でライタに「コミット済み」を通知
-    ::_InterlockedExchange64(&cell->sequence, pos + 1);
+void FLogger::WriteMessage(
+    ELogSeverity severity,
+    FSourceLoc location,
+    const char* message,
+    usize length) noexcept
+{
+    const LONG lifecycle_generation =
+        ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0);
+    if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
+    if (static_cast<LONG>(severity) <
+        ::_InterlockedExchangeAdd(&g_state.min_severity, 0)) {
+        return;
+    }
 
-    // ライタが寝ていたら起こす
-    ::WakeConditionVariable(&g_state.wake_cv);
+    ::_InterlockedIncrement(&g_active_producers);
+    FProducerGuard producer_guard;
+    (void)producer_guard;
+    if (!::_InterlockedExchangeAdd(&g_inited, 0) ||
+        lifecycle_generation !=
+            ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0)) {
+        return;
+    }
+
+    FRecordReservation reservation;
+    if (!ReserveRecord(severity, location, reservation)) return;
+
+    const char* source = message ? message : "(null)";
+    usize copy_length = message ? length : usize{6};
+    if (copy_length >= kMessageMax) copy_length = kMessageMax - 1;
+    if (copy_length > 0) {
+        ::memcpy(reservation.cell->message, source, copy_length);
+    }
+    reservation.cell->message[copy_length] = '\0';
+    reservation.cell->message_len = static_cast<u16>(copy_length);
+    PublishRecord(reservation);
 }
 
 } // namespace acs

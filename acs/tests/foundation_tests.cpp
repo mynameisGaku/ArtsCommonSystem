@@ -15,6 +15,8 @@
 #include "threading/Atomic.h"
 #include "threading/Thread.h"
 
+#include <cstring>
+
 using namespace acs;
 
 namespace {
@@ -36,11 +38,26 @@ TAtomic<u32> g_ordering_sink_hits{0};
 TAtomic<u32> g_ordering_sink_observed_incomplete{0};
 TAtomic<u32> g_flush_started{0};
 TAtomic<u32> g_flush_completed{0};
+TAtomic<u32> g_literal_sink_hits{0};
+char g_literal_sink_message[64]{};
 
 /** lifecycle 競合中に呼ばれたログ件数を記録する。 */
 void CountingLoggerSink(ELogSeverity, const char*)
 {
     g_logger_sink_hits.FetchAdd(1);
+}
+
+/** リテラル高速経路が内容と終端を変えないことを確認する。 */
+void CaptureLiteralLoggerSink(ELogSeverity, const char* message)
+{
+    usize i = 0;
+    if (message != nullptr) {
+        for (; i + 1 < sizeof(g_literal_sink_message) && message[i] != '\0'; ++i) {
+            g_literal_sink_message[i] = message[i];
+        }
+    }
+    g_literal_sink_message[i] = '\0';
+    g_literal_sink_hits.FetchAdd(1);
 }
 
 /** SetSink の待機契約を決定的に検証するため、解除指示まで callback 内で待つ。 */
@@ -178,6 +195,21 @@ ACS_TEST(Foundation, LoggerEmits)
     ACS_LOG_INFO("foundation log smoke test value=%d", 7);
     FLogger::Flush();
     EXPECT_TRUE(true);
+}
+
+ACS_TEST(Foundation, LoggerLiteralFastPathPreservesMessage)
+{
+    FLogger::Flush();
+    g_literal_sink_hits.Store(0);
+    g_literal_sink_message[0] = '\0';
+    FLogger::SetSink(&CaptureLiteralLoggerSink);
+
+    ACS_LOG_INFO("literal fast path");
+    FLogger::Flush();
+
+    FLogger::SetSink(nullptr);
+    EXPECT_EQ(g_literal_sink_hits.Load(), 1u);
+    EXPECT_TRUE(std::strcmp(g_literal_sink_message, "literal fast path") == 0);
 }
 
 ACS_TEST(Foundation, LoggerOversizedCapacityIsBounded)

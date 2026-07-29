@@ -116,3 +116,27 @@ ACS_TEST(InputFeed, GamepadAxisBindingComposesWithKeys)
     EXPECT_TRUE(input_map.IsHeld(move));
     FInput::OnEvent(KeyEvt(EKey::D, false));
 }
+
+// 全ポート未接続時は1フレーム1回だけ確認し、4フレーム以内に全ポートを巡回する。
+ACS_TEST(InputFeed, DisconnectedGamepadPollingIsStaggered)
+{
+    bool connected[4]{};
+    detail::TGamepadPollScheduler<4> scheduler;
+    EXPECT_EQ(scheduler.BuildPollMask(connected), 0x1u);
+    EXPECT_EQ(scheduler.BuildPollMask(connected), 0x2u);
+    EXPECT_EQ(scheduler.BuildPollMask(connected), 0x4u);
+    EXPECT_EQ(scheduler.BuildPollMask(connected), 0x8u);
+    EXPECT_EQ(scheduler.BuildPollMask(connected), 0x1u);
+}
+
+// 接続中ポートは毎フレーム含め、未接続確認だけを追加で1ポートに制限する。
+ACS_TEST(InputFeed, ConnectedGamepadPollingRemainsFullRate)
+{
+    bool connected[4]{true, false, true, false};
+    detail::TGamepadPollScheduler<4> scheduler;
+    const u32 first = scheduler.BuildPollMask(connected);
+    const u32 second = scheduler.BuildPollMask(connected);
+    EXPECT_EQ(first & 0x5u, 0x5u);
+    EXPECT_EQ(second & 0x5u, 0x5u);
+    EXPECT_EQ(first | second, 0xFu);
+}

@@ -127,7 +127,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
         case WM_SIZE: {
             const u32 width  = static_cast<u32>(LOWORD(lp));
             const u32 height = static_cast<u32>(HIWORD(lp));
-            w->UpdateSize_Internal(width, height);
+            w->UpdateSize_Internal(width, height, wp == SIZE_MINIMIZED);
             FEvent e{}; e.type = EEventType::WindowResize;
             e.resize.width = width; e.resize.height = height;
             w->DispatchEvent_Internal(e);
@@ -235,7 +235,7 @@ FWindow::~FWindow() noexcept {
 
 FWindow::FWindow(FWindow&& o) noexcept
     : m_Hwnd(o.m_Hwnd), m_Width(o.m_Width), m_Height(o.m_Height),
-      m_ShouldClose(o.m_ShouldClose),
+      m_ShouldClose(o.m_ShouldClose), m_Minimized(o.m_Minimized),
       m_Callback(o.m_Callback), m_CallbackUser(o.m_CallbackUser),
       // フルスクリーン状態 (現在値 + 復元用の保存矩形/スタイル) も漏れなくムーブする。
       // 以前はこれらを取りこぼし、フルスクリーン中の窓をムーブすると IsFullscreen() が
@@ -251,6 +251,7 @@ FWindow::FWindow(FWindow&& o) noexcept
     o.m_Width = 0;
     o.m_Height = 0;
     o.m_ShouldClose = false;
+    o.m_Minimized = false;
     o.m_Callback = nullptr;
     o.m_CallbackUser = nullptr;
     o.m_Fullscreen = false;
@@ -269,6 +270,7 @@ FWindow& FWindow::operator=(FWindow&& o) noexcept {
     m_Width = o.m_Width;
     m_Height = o.m_Height;
     m_ShouldClose = o.m_ShouldClose;
+    m_Minimized = o.m_Minimized;
     m_Callback = o.m_Callback;
     m_CallbackUser = o.m_CallbackUser;
     // フルスクリーン状態 (現在値 + 復元用の保存矩形/スタイル) も漏れなくムーブする。
@@ -281,6 +283,7 @@ FWindow& FWindow::operator=(FWindow&& o) noexcept {
     o.m_Width = 0;
     o.m_Height = 0;
     o.m_ShouldClose = false;
+    o.m_Minimized = false;
     o.m_Callback = nullptr;
     o.m_CallbackUser = nullptr;
     o.m_Fullscreen = false;
@@ -317,6 +320,7 @@ TResult<FWindow> FWindow::Create(const FWindowConfig& cfg) noexcept {
     w.m_Width = cfg.width;
     w.m_Height = cfg.height;
     w.m_ShouldClose = false;
+    w.m_Minimized = false;
 
     // 結果オブジェクトを構築。ここで FWindow のムーブコンストラクタが走り、
     // HWND の prop が最終的な格納先 (result の実体) を指すよう再登録される。
@@ -340,6 +344,12 @@ void FWindow::PollEvents() noexcept {
         ::TranslateMessage(&msg);
         ::DispatchMessageW(&msg);
     }
+}
+
+void FWindow::WaitForEvents(u32 timeout_ms) noexcept {
+    if (timeout_ms == 0) return;
+    (void)::MsgWaitForMultipleObjectsEx(
+        0, nullptr, static_cast<DWORD>(timeout_ms), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 }
 
 void FWindow::SetEventCallback(EventCallback cb, void* user) noexcept {

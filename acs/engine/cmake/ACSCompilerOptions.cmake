@@ -1,5 +1,12 @@
 # Centralized compiler option helper for ACS targets.
 function(acs_apply_compiler_options tgt)
+    # Release の ACS ターゲットだけへ IPO/LTCG を適用する。Debug と ASan は従来どおり
+    # 高速な反復ビルドと診断可能性を保つ。
+    if(ACS_RELEASE_IPO_ACTIVE)
+        set_property(TARGET ${tgt}
+            PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    endif()
+
     if(MSVC)
         target_compile_options(${tgt} PRIVATE
             /W4
@@ -47,6 +54,10 @@ function(acs_apply_compiler_options tgt)
     else()
         target_compile_definitions(${tgt} PUBLIC ACS_ASSERTS_ENABLED=0)
     endif()
+    # 固定レベルのログマクロを if constexpr で除去する。既定の 0 は従来互換で、
+    # 配布ビルドでは 2 (Info) などへ上げて Trace/Debug の引数評価も消せる。
+    target_compile_definitions(${tgt} PUBLIC
+        ACS_COMPILED_LOG_MIN_SEVERITY=${ACS_COMPILED_LOG_MIN_SEVERITY})
 
     # VS Solution Explorer のフィルタを実ディスクのフォルダ構成と一致させる。
     # ターゲット定義 dir を基準に source_group(TREE) を張り、engine は src/<mod>/…、

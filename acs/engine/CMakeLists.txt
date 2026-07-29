@@ -25,6 +25,7 @@ include(ACSCompilerOptions)
 include(ACSModuleSystem)
 include(ACSThirdParty)
 include(ACSPackage)
+include(CheckIPOSupported)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +63,27 @@ option(ACS_BUILD_TOOLS    "Build ACS CLI tools (acs_assetpack)" ON)
 option(ACS_ENABLE_ASSERTS "Enable ACS_ASSERT in all builds"    ON)
 option(ACS_ENABLE_ADDRESS_SANITIZER
        "Instrument ACS targets with AddressSanitizer"          OFF)
+option(ACS_ENABLE_RELEASE_IPO
+       "Enable interprocedural optimization for Release ACS targets" ON)
+set(ACS_COMPILED_LOG_MIN_SEVERITY "0" CACHE STRING
+    "Compile-time log minimum: 0=Trace, 1=Debug, 2=Info, 3=Warn, 4=Error, 5=Fatal, 6=Off")
+if(NOT ACS_COMPILED_LOG_MIN_SEVERITY MATCHES "^[0-6]$")
+    message(FATAL_ERROR
+        "ACS_COMPILED_LOG_MIN_SEVERITY must be one digit from 0 through 6")
+endif()
+
+# Release の実行速度を優先して IPO/LTCG を既定有効にする。ASan とは計装目的が異なり
+# リンク互換性も保証できないため併用せず、ツールチェーン非対応時も安全に無効化する。
+set(ACS_RELEASE_IPO_ACTIVE OFF)
+if(ACS_ENABLE_RELEASE_IPO AND NOT ACS_ENABLE_ADDRESS_SANITIZER)
+    check_ipo_supported(RESULT ACS_RELEASE_IPO_ACTIVE
+                        OUTPUT ACS_RELEASE_IPO_DIAGNOSTIC
+                        LANGUAGES CXX)
+    if(NOT ACS_RELEASE_IPO_ACTIVE)
+        message(WARNING
+            "ACS: Release IPO/LTCG is unavailable: ${ACS_RELEASE_IPO_DIAGNOSTIC}")
+    endif()
+endif()
 
 # MSVC の Debug 既定値に含まれる /RTC は AddressSanitizer と併用できない。
 # 個々のターゲットではなくキャッシュ変数から除去し、依存ターゲットにも残さない。
