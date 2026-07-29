@@ -110,35 +110,6 @@ ACS_TEST(Ecs, QueryIteratesMatching) {
     EXPECT_EQ(count, 50u);  // 偶数 i のみ Velocity を持つ
 }
 
-ACS_TEST(Ecs, QueryLargePrefetchPathPreservesFilteringAndValues)
-{
-    FWorld world;
-    constexpr u32 kCount = 192u;
-    for (u32 i = 0u; i < kCount; ++i) {
-        const FEntityId entity = world.Create();
-        world.Add<FPosition>(entity, FPosition{static_cast<f32>(i), 0.0f, 0.0f});
-        if ((i % 3u) != 0u)
-            world.Add<FVelocity>(entity, FVelocity{1.0f, 0.0f, 0.0f});
-    }
-    u32 visited = 0u;
-    f32 sum = 0.0f;
-    const auto visit_matching = [&](FEntityId, FPosition& position, FVelocity&) {
-        ++visited;
-        sum += position.x;
-    };
-    world.Query<FPosition, FVelocity>().Each(visit_matching);
-    u32 expected_count = 0u;
-    f32 expected_sum = 0.0f;
-    for (u32 i = 0u; i < kCount; ++i) {
-        if ((i % 3u) != 0u) {
-            ++expected_count;
-            expected_sum += static_cast<f32>(i);
-        }
-    }
-    EXPECT_EQ(visited, expected_count);
-    EXPECT_EQ(sum, expected_sum);
-}
-
 ACS_TEST(Ecs, QuerySnapshotRejectsDestroyedGenerationAndDefersReusedSlot)
 {
     FWorld world;

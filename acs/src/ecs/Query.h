@@ -74,10 +74,7 @@ public:
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
-        FSparseSetBase* required_sets[] = {static_cast<FSparseSetBase*>(m_World.template TryGetSet<Comps>())...};
-
         for (usize i = 0; i < count; ++i) {
-            PrefetchRequiredSets(snapshot, i, count, required_sets, sizeof(required_sets) / sizeof(required_sets[0]));
             InvokeIfPresent(fn, snapshot[i]);
         }
     }
@@ -193,26 +190,6 @@ public:
     }
 
 private:
-    /**
-     * 大規模走査時だけ一定距離先の sparse 対応表を先読みする。
-     *
-     * @details 128 件未満では分岐直後に戻り、小規模クエリへ追加の集合検索を入れない。
-     */
-    void PrefetchRequiredSets(const TArray<FEntityId>& snapshot, usize index, usize count, FSparseSetBase* const* sets, usize set_count) noexcept {
-        /** 小規模走査では先読み命令の固定費を避ける。 */
-        constexpr usize kMinimumCount = 128u;
-        /** 疎配列を処理より先にキャッシュへ要求する距離。 */
-        constexpr usize kPrefetchDistance = 16u;
-        if (count < kMinimumCount || index + kPrefetchDistance >= count) {
-            return;
-        }
-        const FEntityId future = snapshot[index + kPrefetchDistance]; // 先読み対象のエンティティ。
-        for (usize i = 0u; i < set_count; ++i) {
-            FSparseSetBase* set = sets[i]; // 今回先読みする疎集合。
-            if (set != nullptr) set->PrefetchSparse(future.index);
-        }
-    }
-
     /**
      * 全 Comps の TSparseSet を取得し、最小サイズのものを主軸として選ぶ。
      *

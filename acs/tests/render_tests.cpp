@@ -37,6 +37,33 @@
 
 using namespace acs;
 
+namespace {
+
+/** PSO key の shader 内容比較に使う固定 shader。 */
+class FPipelineKeyTestShader final : public IRhiShader {
+public:
+    /** shader stage を保持する。 */
+    explicit FPipelineKeyTestShader(EShaderStage stage, byte marker = 4u) noexcept : m_Stage(stage) { m_Bytecode[3] = marker; }
+
+    /** 固定 stage を返す。 */
+    EShaderStage Stage() const noexcept override { return m_Stage; }
+
+    /** 固定 bytecode を返す。 */
+    const byte* Bytecode() const noexcept override { return m_Bytecode; }
+
+    /** 固定 bytecode 長を返す。 */
+    usize BytecodeSize() const noexcept override { return sizeof(m_Bytecode); }
+
+private:
+    /** シェーダ段階。 */
+    EShaderStage m_Stage = EShaderStage::Pixel;
+
+    /** 意味比較用 bytecode。 */
+    byte m_Bytecode[4] = {1u, 2u, 3u, 4u};
+};
+
+} // namespace
+
 ACS_TEST(Render, DescriptorSlotPoolBatchesAndRecyclesTransactionally)
 {
     TDescriptorSlotPool<8u> slots;
@@ -71,20 +98,57 @@ ACS_TEST(Render, ShaderLayoutMetadataAndPipelineKeyCacheAreDeterministic)
         ShaderLayoutMetadata(constexpr_desc);
     static_assert(constexpr_metadata.IsValidGraphics());
 
+    char first_semantic[] = "POSITION";
+    char same_semantic[] = "POSITION";
+    char first_cbuffer[] = "FrameData";
+    char same_cbuffer[] = "FrameData";
+    char first_texture[] = "BaseColor";
+    char same_texture[] = "BaseColor";
+    // 有効 RT 状態を持たせる pixel shader。
+    FPipelineKeyTestShader pixel_shader(EShaderStage::Pixel);
+    FPipelineKeyTestShader same_pixel_shader(EShaderStage::Pixel);
+    FPipelineKeyTestShader changed_bytecode_shader(EShaderStage::Pixel, 5u);
+    FPipelineKeyTestShader changed_stage_shader(EShaderStage::Vertex);
     FPipelineDesc first{};
+    first.ps = &pixel_shader;
     first.cbuffer_slots = 2u;
     first.texture_slots = 3u;
     first.static_sampler_count = 1u;
     first.layout_count = 1u;
-    first.layout[0] = FInputElement{
-        "POSITION", 0u, EFormat::R32G32B32_Float, 0u};
+    first.layout[0] = FInputElement{first_semantic, 0u, EFormat::R32G32B32_Float, 0u};
+    first.cbuffer_names[0] = first_cbuffer;
+    first.texture_names[0] = first_texture;
     FPipelineDesc same = first;
+    same.ps = &same_pixel_shader;
+    same.layout[0].semantic_name = same_semantic;
+    same.cbuffer_names[0] = same_cbuffer;
+    same.texture_names[0] = same_texture;
     FPipelineDesc changed = first;
     changed.depth_write = !first.depth_write;
+    FPipelineDesc changed_bytecode = first;
+    changed_bytecode.ps = &changed_bytecode_shader;
+    FPipelineDesc changed_stage = first;
+    changed_stage.ps = &changed_stage_shader;
+    // MRT で無視される legacy RT と未使用 slot が異なる記述子。
+    FPipelineDesc canonical_mrt = first;
+    canonical_mrt.rt_count = 2u;
+    canonical_mrt.rt_formats[0] = EFormat::R8G8B8A8_UNorm;
+    canonical_mrt.rt_formats[1] = EFormat::R16G16B16A16_Float;
+    FPipelineDesc ignored_mrt_fields = canonical_mrt;
+    ignored_mrt_fields.rt_format = EFormat::D32_Float;
+    ignored_mrt_fields.rt_formats[7] = EFormat::R11G11B10_Float;
+    // legacy RT と同じ backend 状態を明示 MRT で表す記述子。
+    FPipelineDesc explicit_single_rt = first;
+    explicit_single_rt.rt_count = 1u;
+    explicit_single_rt.rt_formats[0] = first.rt_format;
 
     const FPipelineStateKey first_key = MakePipelineStateKey(first);
     EXPECT_TRUE(first_key == MakePipelineStateKey(same));
     EXPECT_FALSE(first_key == MakePipelineStateKey(changed));
+    EXPECT_FALSE(first_key == MakePipelineStateKey(changed_bytecode));
+    EXPECT_FALSE(first_key == MakePipelineStateKey(changed_stage));
+    EXPECT_TRUE(MakePipelineStateKey(canonical_mrt) == MakePipelineStateKey(ignored_mrt_fields));
+    EXPECT_TRUE(first_key == MakePipelineStateKey(explicit_single_rt));
     EXPECT_TRUE(ShaderLayoutMetadata(first).IsValidGraphics());
 
     TPipelineStateKeyCache<8u> cache;
@@ -875,10 +939,19 @@ ACS_TEST(Render, Dx12ReinitializeAndRollback)
         pipeline_desc.vs = &vertex_shader;
         pipeline_desc.ps = &pixel_shader;
         pipeline_desc.rt_format = EFormat::R8G8B8A8_UNorm;
+        ID3D12PipelineState* cached_pipeline = nullptr;
+        ID3D12RootSignature* cached_root_signature = nullptr;
         for (u32 i = 0; i < 8; ++i) {
             EXPECT_TRUE(pipeline.Init(device, pipeline_desc).IsOk());
             EXPECT_TRUE(pipeline.Pso() != nullptr);
             EXPECT_TRUE(pipeline.RootSignature() != nullptr);
+            if (i == 0u) {
+                cached_pipeline = pipeline.Pso();
+                cached_root_signature = pipeline.RootSignature();
+            } else {
+                EXPECT_TRUE(pipeline.Pso() == cached_pipeline);
+                EXPECT_TRUE(pipeline.RootSignature() == cached_root_signature);
+            }
         }
 
         pipeline_desc.layout_count = 9;

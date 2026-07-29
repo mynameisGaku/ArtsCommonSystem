@@ -7,6 +7,7 @@
 #include "render/Diligent/DiligentCommon.h"
 #include "render/Diligent/DiligentDevice.h"
 #include "render/Diligent/DiligentShader.h"
+#include "render/ShaderParameterLayoutMetadata.h"
 #include "foundation/Log.h"
 
 #include <cstring>
@@ -64,6 +65,7 @@ void FDiligentPipeline::Reset() noexcept
 
 TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept {
     Reset();
+    if (!ShaderLayoutMetadata(desc).IsValidGraphics()) return ACS_ERR(Render, 158, "FDiligentPipeline: shader layout exceeds fixed limits");
     m_Device = &device;
     m_CbSlots  = desc.cbuffer_slots;
     m_TexSlots = desc.texture_slots;
@@ -308,6 +310,7 @@ const char* FDiligentPipeline::UavName(u32 slot) const noexcept {
 TResult<void> FDiligentPipeline::InitCompute(FDiligentDevice& device,
                                             const FComputePipelineDesc& desc) noexcept {
     Reset();
+    if (!ShaderLayoutMetadata(desc).IsValidCompute(desc.uav_slots)) return ACS_ERR(Render, 159, "FDiligentPipeline(compute): shader layout exceeds fixed limits");
     m_Device    = &device;
     m_IsCompute = true;
     m_CbSlots   = desc.cbuffer_slots;

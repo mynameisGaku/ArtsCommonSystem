@@ -26,6 +26,7 @@ set(_acsgen_render_sources
     PbrShader.cpp
     PostProcess.cpp
     RefractionShader.cpp
+    RenderGraphTransientAlias.cpp
     RenderAssets.cpp
     Renderer.cpp
     ShadowMap.cpp
@@ -67,6 +68,10 @@ set(_acsgen_render_headers
     PbrShader.h
     PostProcess.h
     RefractionShader.h
+    RenderGraphAliasAssignment.h
+    RenderGraphAliasPlanSummary.h
+    RenderGraphResourceLifetime.h
+    RenderGraphTransientAlias.h
     Render.h
     RenderAssets.h
     Renderer.h

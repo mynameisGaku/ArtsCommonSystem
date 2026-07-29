@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "gameframework/HierarchyVisibilityBatch.h"
+
+namespace acs::game {
+
+namespace {
+
+/** node 自身の描画有効状態だけを返す。 */
+bool IsLocallyVisible(const ANode* node) noexcept {
+    return node != nullptr && node->IsVisible() && node->IsEnabled() && !node->IsPendingDestroy();
+}
+
+} // namespace
+
+bool FHierarchyVisibilityBatch::EvaluateScalar(const ANode* node) noexcept {
+    for (const ANode* current = node; current != nullptr; current = current->Parent()) {
+        if (!IsLocallyVisible(current)) return false;
+    }
+    return node != nullptr;
+}
+
+bool FHierarchyVisibilityBatch::Evaluate(ANode* const* nodes, usize count, const ANode* boundary_root) noexcept {
+    Clear();
+    if (count == 0u) return true;
+    if (count == static_cast<usize>(-1) || nodes == nullptr || !m_Visibility.TryResize(count) || !m_Stack.TryReserve(count + 1u)) {
+        Clear();
+        return false;
+    }
+    if (boundary_root != nullptr) {
+        const FStackEntry root_entry{boundary_root, EvaluateScalar(boundary_root)};
+        if (!m_Stack.TryPushBack(root_entry)) {
+            Clear();
+            return false;
+        }
+    }
+    for (usize index = 0u; index < count; ++index) {
+        ANode* node = nodes[index];
+        if (node == nullptr) {
+            m_Visibility[index] = 0u;
+            continue;
+        }
+        const ANode* parent = node->Parent();
+        while (!m_Stack.IsEmpty() && m_Stack[m_Stack.Size() - 1u].node != parent) m_Stack.PopBack();
+        bool visible = false;
+        if (parent == nullptr) {
+            visible = IsLocallyVisible(node);
+        } else if (!m_Stack.IsEmpty()) {
+            visible = m_Stack[m_Stack.Size() - 1u].visible && IsLocallyVisible(node);
+        } else {
+            visible = EvaluateScalar(node);
+            ++m_ScalarFallbackCount;
+            if (boundary_root != nullptr) {
+                const FStackEntry root_entry{boundary_root, EvaluateScalar(boundary_root)};
+                if (!m_Stack.TryPushBack(root_entry)) {
+                    Clear();
+                    return false;
+                }
+            }
+        }
+        m_Visibility[index] = visible ? 1u : 0u;
+        const FStackEntry entry{node, visible};
+        if (!m_Stack.TryPushBack(entry)) {
+            Clear();
+            return false;
+        }
+    }
+    m_Stack.Clear();
+    return true;
+}
+
+void FHierarchyVisibilityBatch::Clear() noexcept {
+    m_Visibility.Clear();
+    m_Stack.Clear();
+    m_ScalarFallbackCount = 0u;
+}
+
+bool FHierarchyVisibilityBatch::IsVisible(usize index) const noexcept {
+    return index < m_Visibility.Size() && m_Visibility[index] != 0u;
+}
+
+} // namespace acs::game

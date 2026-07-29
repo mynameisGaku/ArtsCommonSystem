@@ -5,6 +5,8 @@
 # ============================================================================
 set(_acsgen_gameframework_sources
     ANode.cpp
+    HierarchyVisibilityBatch.cpp
+    HierarchyWorldTransformBatch.cpp
     AccessibilityProfile.cpp
     AchievementManager.cpp
     AmbientDirector.cpp
@@ -140,6 +142,8 @@ set(_acsgen_gameframework_sources
 set(_acsgen_gameframework_headers
     AComponent.h
     ANode.h
+    HierarchyVisibilityBatch.h
+    HierarchyWorldTransformBatch.h
     AccessibilityProfile.h
     AchievementManager.h
     AcsClass.h

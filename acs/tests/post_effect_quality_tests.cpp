@@ -3943,11 +3943,10 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
         reset.find("completed >= final_fence", final_wait);
     const std::size_t final_release =
         reset.find("ReleaseAllRetiredResources()", completion_check);
-    const std::size_t abandon_on_failure =
-        reset.find(
-            "if (!final_signal_completed && m_GfxQueue != nullptr)");
+    const std::size_t abandon_on_failure = reset.find("if (!final_signal_completed && m_GfxQueue != nullptr)");
     const std::size_t abandon =
         reset.find("AbandonAllRetiredResources()", abandon_on_failure);
+    const std::size_t pipeline_cache_reset = reset.find("ResetPipelineCache(final_signal_completed || m_GfxQueue == nullptr)", abandon);
     EXPECT_TRUE(final_signal != std::string::npos);
     EXPECT_TRUE(signal_success != std::string::npos);
     EXPECT_TRUE(final_wait != std::string::npos);
@@ -3955,11 +3954,28 @@ ACS_TEST(PostEffects, RawDx12RetirementIsMainSubmitOrderedAndFailureSafe)
     EXPECT_TRUE(final_release != std::string::npos);
     EXPECT_TRUE(abandon_on_failure != std::string::npos);
     EXPECT_TRUE(abandon != std::string::npos);
+    EXPECT_TRUE(pipeline_cache_reset != std::string::npos);
     EXPECT_TRUE(final_signal < signal_success);
     EXPECT_TRUE(signal_success < final_wait);
     EXPECT_TRUE(final_wait < completion_check);
     EXPECT_TRUE(completion_check < final_release);
     EXPECT_TRUE(final_release < abandon_on_failure);
+    EXPECT_TRUE(abandon < pipeline_cache_reset);
+    EXPECT_TRUE(reset.find("PSO と root signature を解放せず use-after-free を防ぐ", abandon) != std::string::npos);
+
+    const std::string reset_pipeline_cache = section(device, "void FDx12Device::ResetPipelineCache(", "void FDx12Device::Reset()");
+    EXPECT_TRUE(!reset_pipeline_cache.empty());
+    EXPECT_TRUE(reset_pipeline_cache.find("if (release_objects)") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("ACS_SAFE_RELEASE(m_CachedPipelineStates[index])") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("ACS_SAFE_RELEASE(m_CachedRootSignatures[index])") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("m_CachedPipelineStates[index] = nullptr") != std::string::npos);
+    EXPECT_TRUE(reset_pipeline_cache.find("m_CachedRootSignatures[index] = nullptr") != std::string::npos);
+    // 所有配列を空にしてから key table を破棄する順序。
+    const std::size_t abandoned_pipeline = reset_pipeline_cache.find("m_CachedPipelineStates[index] = nullptr");
+    const std::size_t abandoned_root = reset_pipeline_cache.find("m_CachedRootSignatures[index] = nullptr");
+    const std::size_t key_table_reset = reset_pipeline_cache.find("m_PipelineKeyCache.Reset()");
+    EXPECT_TRUE(abandoned_pipeline < key_table_reset);
+    EXPECT_TRUE(abandoned_root < key_table_reset);
 
     EXPECT_TRUE(device_header.find(
         "Lock order is Retirement -> QueueSubmission and Retirement -> Descriptor") !=

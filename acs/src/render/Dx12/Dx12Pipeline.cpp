@@ -2,6 +2,7 @@
 // DX12 グラフィックスパイプライン実装
 #include "render/Dx12/Dx12Pipeline.h"
 #include "render/Dx12/Dx12Device.h"
+#include "render/ShaderParameterLayoutMetadata.h"
 #include "memory/UniquePtr.h"
 #include "foundation/Log.h"
 
@@ -264,6 +265,10 @@ FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) no
     FHrResult r{};
     Reset();
 
+    if (!ShaderLayoutMetadata(desc).IsValidGraphics()) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
     if (!device.D3DDevice() || !desc.vs || !desc.vs->Bytecode() || desc.vs->BytecodeSize() == 0 ||
         desc.vs->Stage() != EShaderStage::Vertex) {
         r.hr = E_INVALIDARG;
@@ -306,6 +311,8 @@ FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) no
     m_Topology = desc.topology;
     m_CbufferSlots = desc.cbuffer_slots;
     m_TextureSlots = desc.texture_slots;
+    const FPipelineStateKey pipeline_key = MakePipelineStateKey(desc);
+    if (device.FindCachedPipeline(pipeline_key, m_Pso, m_RootSig)) return r;
 
     // ルートシグネチャを構築する。
     // パラメータ: [N x root CBV (b0..)] + [M x descriptor table (1 SRV @ tN..)]
@@ -436,6 +443,8 @@ FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) no
     if (r.IsErr() || !m_Pso) {
         if (r.IsOk()) r.hr = E_FAIL;
         Reset();
+    } else {
+        device.StoreCachedPipeline(pipeline_key, m_Pso, m_RootSig);
     }
     return r;
 }
@@ -445,6 +454,10 @@ FHrResult FDx12Pipeline::InitCompute(FDx12Device& device,
     FHrResult r{};
     Reset();
 
+    if (!ShaderLayoutMetadata(desc).IsValidCompute(desc.uav_slots)) {
+        r.hr = E_INVALIDARG;
+        return r;
+    }
     if (!device.D3DDevice() || !desc.cs || !desc.cs->Bytecode() ||
         desc.cs->BytecodeSize() == 0 || desc.cs->Stage() != EShaderStage::Compute) {
         r.hr = E_INVALIDARG;
@@ -462,6 +475,8 @@ FHrResult FDx12Pipeline::InitCompute(FDx12Device& device,
     m_CbufferSlots = desc.cbuffer_slots;
     m_TextureSlots = desc.srv_slots;
     m_UavSlots = desc.uav_slots;
+    const FPipelineStateKey pipeline_key = MakePipelineStateKey(desc);
+    if (device.FindCachedPipeline(pipeline_key, m_Pso, m_RootSig)) return r;
 
     // root parameter 順は raw command-list 契約の一部:
     // [CBV b0..] [SRV table t0..] [UAV table u0..]。
@@ -555,6 +570,8 @@ FHrResult FDx12Pipeline::InitCompute(FDx12Device& device,
     if (r.IsErr() || !m_Pso) {
         if (r.IsOk()) r.hr = E_FAIL;
         Reset();
+    } else {
+        device.StoreCachedPipeline(pipeline_key, m_Pso, m_RootSig);
     }
     return r;
 }

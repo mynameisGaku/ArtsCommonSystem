@@ -1,18 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// HDR ポストプロセス (Bloom + Tonemap) パイプライン
-//
-// 想定ワークフロー:
-//   1) FRenderer.BeginFrame() の直前で FPostProcess.BeginScenePass()
-//      → HDR R16G16B16A16_Float RT に切替
-//   2) シーン (FSky, FStandardShader, FParticleSystem 等) を HDR で描画
-//   3) FPostProcess.Render(cmd, swapchain_buffer)
-//      → Bloom (extract → downsample → upsample) → Tonemap → Backbuffer
-//   4) FRenderer.EndFrame() で Present
-//
-// 設計上の選択:
-//   - Bloom は 5 段の mip chain (1/2, 1/4, ... 1/32) で downsample → upsample
-//   - Tonemap は ACES Filmic (Narkowicz 2016 近似) → 最後に sRGB ガンマ
-//   - パイプラインは Diligent backend を前提（Dx12 raw は未対応）
 #pragma once
 
 #include "foundation/Result.h"
@@ -26,6 +12,7 @@
 #include "render/IRhiPipeline.h"
 #include "render/IRhiShader.h"
 #include "render/IRhiBuffer.h"
+#include "render/RenderGraphAliasPlanSummary.h"
 
 namespace acs {
 
@@ -354,6 +341,16 @@ public:
     EFormat       HdrFormat()       const noexcept { return m_HdrFormat; }
 
     /**
+     * 現在の PostProcess graph で利用できる transient alias 候補集計を返す。
+     *
+     * @details Resize 成功時にも更新される。実 GPU alias はバックエンドが
+     * alias barrier と placed resource を提供する場合だけ、この安全な候補を使う。
+     */
+    const FRenderGraphAliasPlanSummary& TransientAliasPlan() const noexcept {
+        return m_TransientAliasPlan;
+    }
+
+    /**
      * Bloom + Tonemap (+ 任意の TAA / auto-exposure) を実行し swapchain buffer へ書き出す。
      *
      * @param cmd 既に Begin 済みのコマンドリスト。
@@ -657,6 +654,9 @@ private:
 
     /** luma mip / 露出テクスチャのフォーマット。 */
     EFormat                  m_LumaFormat = EFormat::R16G16_Float;
+
+    /** 固定 PostProcess graph から計算した transient alias 候補集計。 */
+    FRenderGraphAliasPlanSummary m_TransientAliasPlan{};
 };
 
 } // namespace acs

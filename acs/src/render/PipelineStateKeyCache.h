@@ -12,6 +12,27 @@ class TPipelineStateKeyCache {
 
 public:
     /**
+     * 登録済みキーを検索する。
+     *
+     * @param key 検索する PSO キー。
+     * @param identifier 登録済み識別子。
+     * @return 見つかった場合は true。
+     */
+    bool Find(const FPipelineStateKey& key, u32& identifier) const noexcept {
+        const u32 start = static_cast<u32>(key.primary % Capacity);
+        for (u32 probe = 0u; probe < Capacity; ++probe) {
+            const u32 slot = (start + probe) % Capacity;
+            const FEntry& entry = m_Entries[slot];
+            if (!entry.occupied) return false;
+            if (entry.key == key) {
+                identifier = entry.identifier;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * キーを検索し、未登録なら新しい識別子で登録する。
      *
      * @param key 検索または登録する PSO キー。
@@ -44,6 +65,13 @@ public:
 
     /** 登録済みキー数を返す。 */
     u32 Size() const noexcept { return m_Size; }
+
+    /** 登録済みキーを全て定数時間相当の固定表初期化で破棄する。 */
+    void Reset() noexcept {
+        for (u32 index = 0u; index < Capacity; ++index) m_Entries[index] = FEntry{};
+        m_NextIdentifier = 0u;
+        m_Size = 0u;
+    }
 
 private:
     /** 一つの登録済み PSO キー。 */

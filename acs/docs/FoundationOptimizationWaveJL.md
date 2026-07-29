@@ -10,8 +10,8 @@ Wave J/L は、描画品質・数値精度・公開 API の互換性を下げず
 
 | 対象 | 期待効果 | 依存関係 | 検証方法 |
 |---|---|---|---|
-| frustum/transform/hash batch | 同じ結果を保ったまま反復固定費を削減 | x64 SSE は任意。非 x64 は scalar fallback | scalar parity と端数・無効入力テスト |
-| ECS sparse prefetch | 大規模 query の sparse 対応表待ちを隠蔽 | compiler prefetch intrinsic。128 件未満は従来経路 | query の要素・世代・構造変更契約テスト |
+| frustum/transform batch | 同じ結果を保ったまま反復固定費を削減 | x64 SSE は任意。非 x64 は scalar fallback | scalar parity と端数・無効入力テスト |
+| ECS sparse prefetch | 固定距離の改善を証明できず cache pollution の可能性あり | 代表 workload と cache miss 指標が未整備 | 不採用 |
 | inline command storage | 通常規模の queue allocation を除去 | 既存 allocator と `TArray` の spill storage | allocation count と queue 順序テスト |
 | descriptor pool | descriptor lock と再利用固定費を削減 | raw DX12 descriptor heap | transactional failure と recycle テスト |
 | shader metadata/PSO key | layout 検査と PSO lookup の確保を除去 | 共通 RHI descriptor 型 | constexpr、状態差分、衝突照合テスト |
@@ -36,19 +36,29 @@ convention/module/single-header/distribution 監査から再現可能に検証�
 - 入出力を同じ配列にでき、AoS 一時 transform を構築せずに位置・回転・
   スケールを連続走査する。
 - 結果は全要素について `FTransform3D::Compose` と同じである。
+- エディタの scene mesh prepass は明示 stack の反復 DFS で順序を保ち、兄弟を
+  16 件ずつ合成する。host が結果と stack の容量を保持するため、warm frame は
+  allocation 0 で scene cache、vertex 構築、frustum 判定、material 検査へ同じ
+  world transform を渡す。列挙数や確保が不正なら既存の scalar `World()` へ戻る。
+- `FHierarchyWorldTransformBatch` はエンジン上限の深さ 512 を持つ chain 8 本、
+  合計 4096 node を 64 回評価し、scalar parity、pre-order、保持容量の再利用、
+  非再帰動作を固定する。
 
-### T49: ECS sparse prefetch
+### T49: ECS sparse prefetch を不採用
 
-- 128 件以上の `Query::Each` だけ、16 件先の required component sparse 対応表へ
-  prefetch hint を発行する。
-- required set のポインターは走査前に一度だけ解決する。
-- 小規模クエリ、スナップショット、世代検査、構造変更安全性は変更しない。
+128 件以上、16 件先という固定 prefetch を検討したが、代表的な sparse query の
+cache miss または latency 改善を再現できず、cache pollution で逆効果になる可能性を
+排除できない。prefetch API、production call、parity test をすべて撤去した。
+再検討には entity 分布と component 密度を固定した workload、および hardware
+counter による miss/latency 指標が必要である。
 
-### T50: バッチ hash
+### T50: バッチ hash を不採用
 
-- 独立範囲向け `HashBytesBatch` と、四レーンの依存鎖を交互実行する
-  `HashMix64Batch4` を追加した。
-- 各出力は既存 `HashBytes` / `HashMix64` とビット単位で一致する。
+独立範囲と四レーンの batch hash を検討したが、実 backend で hash 回数や状態遷移を
+減らす production consumer を確立できなかった。scene mesh material path を
+毎フレーム hash する案も、既存の material loaded state と描画に使う material 値が
+cache key に含まれており、追加費用に対する correctness 改善を証明できないため
+撤去した。utility、test、Module 登録、本番統合を残していない。
 
 ### T59: command inline storage
 
@@ -70,11 +80,29 @@ convention/module/single-header/distribution 監査から再現可能に検証�
 
 - `FShaderParameterLayoutMetadata` は graphics/compute の slot 上限を constexpr で
   検査できる。
+- raw DX12 と Diligent の graphics/compute pipeline 作成前に metadata を検査し、
+  不正な slot layout を backend 呼び出し前に拒否する。
 - graphics/compute descriptor から 128 bit `FPipelineStateKey` を生成する。
+  primary と verification は別 seed、別 multiplier、別 avalanche で byte 列を
+  独立走査する。
 - 固定容量・確保不要の `TPipelineStateKeyCache` は open addressing で key を
   intern し、二つの 64 bit 値を照合して primary hash 衝突を同一視しない。
 - shader identity、RT/depth、input layout、resource names、sampler、raster/depth/
   stencil/MSAA をキーへ含める。
+- RT state は backend が消費する有効状態へ正規化する。MRT 時の legacy
+  `rt_format`、有効数より後ろの `rt_formats`、depth-only 時の全 RT field は
+  hash しない。legacy 単一 RT と同内容の明示 1-RT も同じ key になる。
+- raw DX12 device は最大 512 件の PSO/root signature を所有して再利用する。
+  同内容を別 backing storage に置いた文字列も同じ key となり、同じ native
+  pointer が返ることをテストで固定した。
+- final queue 完了を証明できない teardown では、cache 所有参照を意図的に解放せず
+  null 化する。retired GPU resource と同じく shutdown 時の use-after-free を
+  避ける fail-safe であり、通常終了では全参照を解放する。source 契約テストは
+  queue 完了判定後に cache reset が行われる順序、通常終了の `Release`、異常終了の
+  PSO/root signature null 化、最後の key table reset を固定する。
+- この保持方針は raw DX12 queue fence 完了を証明できない異常終了だけに依存する。
+  device-loss 時も安全に待機または fence retire できる backend 契約が整った時は、
+  leak-safe 保持を明示的な遅延解放へ置き換えて再検討する。
 
 ## 決定的なコスト指標
 
@@ -84,28 +112,23 @@ convention/module/single-header/distribution 監査から再現可能に検証�
 | `N` 個 per-slice RTV の descriptor lock | `N` 回 | 1 回 |
 | frustum plane 判定の同時 lane 数 (x64) | 1 | 4 |
 | PSO key table の追加確保 | 利用側依存 | 0 回 |
-| ECS prefetch が動く最小件数 | なし | 128 件 |
 
 これらは allocator count、pool high-water/free count、scalar parity の Release テストで
 固定しており、壁時計だけに依存する不安定な合否判定は置いていない。
 
 ## 検証
 
-- raw DX12 Release `acs_unit_tests`: **1109 passed / 0 failed**
+- raw DX12 Release `acs_unit_tests`: **1112 passed / 0 failed**
 - raw DX12 Release `acs_editor_abi_lifecycle_tests`: **exit 0**
-- raw DX12 Debug `acs_unit_tests`: **1113 passed / 0 failed**
+- raw DX12 Debug `acs_unit_tests`: **1116 passed / 0 failed**
 - raw DX12 Debug `acs_editor_abi_lifecycle_tests`: **exit 0**
 - SIMD frustum: valid/invalid/tail を含む scalar parity
 - SoA transform: in-place 更新を含む scalar parity
-- hash: range batch と四整数 lane の scalar parity
 - descriptor pool: transactional failure、二重返却、LIFO recycle
 - inline command storage: 16 件まで allocation 0、spill 後の容量再利用
 - pipeline metadata/key: constexpr validation、同値 intern、状態差分
-- raw DX12 Release の clean build は **約 126 秒**、最終差分の incremental build は
-  **19.2 秒**だった。
-- Release binary size は `acs_unit_tests.exe` **5,661,696 bytes**、
-  `acs_editor_abi.dll` **2,591,232 bytes**、
-  `acs_editor_abi_lifecycle_tests.exe` **76,800 bytes**だった。
+- Debug・Release とも対象 binary を clean build してから検証した。増分 build の
+  成否や壁時計、binary size はこの wave の改善判定には使っていない。
 - `audit_changed_cpp_rules.py --base-ref origin/main` は、統合側で別途修正済みの
   `ReflectApply.h` だけを除いて違反なし。
 - 関連 CTest の unit/lifecycle は Debug・Release とも全件通過し、
@@ -116,8 +139,8 @@ convention/module/single-header/distribution 監査から再現可能に検証�
 ## バックエンドと互換性
 
 - raw DX12 の実ビルド・実行を検証した。
-- Diligent backend の動作ロジックは変更せず、共通型分割に伴う include のみ更新した。
+- Diligent backend にも pipeline metadata の同じ事前検査を追加した。
   Diligent 構成は初回依存取得に約 10 分を要するため、この wave のローカル検証では
-  実施していない。
+  source 契約の確認までとし、runtime backend は実施していない。
 - 新 API は追加であり、既存 public method の署名、描画精度、shader 精度、
   resource lifetime 契約は変更していない。

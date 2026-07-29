@@ -4,6 +4,7 @@
 
 #include "render/IRhiDevice.h"
 #include "render/DescriptorSlotPool.h"
+#include "render/PipelineStateKeyCache.h"
 #include "render/Dx12/Dx12Common.h"
 #include "container/Array.h"
 
@@ -313,6 +314,17 @@ public:
     FHrResult Init(const FDeviceConfig& configuration) noexcept;
 
 private:
+    friend class FDx12Pipeline;
+
+    /** 同一 PSO key の native object を取得する。 */
+    bool FindCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState*& pipeline, ID3D12RootSignature*& root_signature) noexcept;
+
+    /** 作成済み native object を PSO key へ登録する。 */
+    void StoreCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState* pipeline, ID3D12RootSignature* root_signature) noexcept;
+
+    /** device が所有する PSO cache を解放または安全側で放棄する。 */
+    void ResetPipelineCache(bool release_objects) noexcept;
+
     struct FRetiredResource {
         ID3D12Resource* resource = nullptr;
         i32 srv_slot = -1;
@@ -512,6 +524,21 @@ private:
 
     /** RTV スロットの再利用状態。 */
     TDescriptorSlotPool<kRtvCapacity> m_RtvSlots;
+
+    /** PSO cache の固定容量。 */
+    static constexpr u32 kPipelineCacheCapacity = 512u;
+
+    /** PSO key を native 配列 index へ intern する表。 */
+    TPipelineStateKeyCache<kPipelineCacheCapacity> m_PipelineKeyCache;
+
+    /** cache が所有する PSO。 */
+    ID3D12PipelineState* m_CachedPipelineStates[kPipelineCacheCapacity]{};
+
+    /** cache が所有する root signature。 */
+    ID3D12RootSignature* m_CachedRootSignatures[kPipelineCacheCapacity]{};
+
+    /** PSO cache の検索と登録を直列化する lock。 */
+    SRWLOCK m_PipelineCacheLock = SRWLOCK_INIT;
 };
 
 } // namespace acs

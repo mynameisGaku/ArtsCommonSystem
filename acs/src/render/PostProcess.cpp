@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // FPostProcess (Bloom + ACES Tonemap) 実装
 #include "render/PostProcess.h"
+#include "render/RenderGraphTransientAlias.h"
 #include "foundation/Move.h"
 #include "foundation/Log.h"
 #include "math/Vec.h"
@@ -1240,6 +1241,7 @@ void FPostProcess::Shutdown() noexcept {
     m_BloomOutputValid = false;
     m_TaaOutputValid = false;
     m_ExposureOutputValid = false;
+    m_TransientAliasPlan = {};
     m_Device = nullptr;
 }
 
@@ -1275,6 +1277,7 @@ TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
         m_LumaMips[i] = Move(candidate.m_LumaMips[i]);
     m_LumaMipCount = candidate.m_LumaMipCount;
     m_ExposedRt = Move(candidate.m_ExposedRt);
+    m_TransientAliasPlan = candidate.m_TransientAliasPlan;
     m_Width  = width;
     m_Height = height;
     m_TaaFrame  = 0;     // reset TAA state on resize (history は size 違いで使えない)
@@ -1284,6 +1287,39 @@ TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
     m_ExposureOutputValid = false;
     return Ok();
 }
+
+namespace {
+
+/** 固定 PostProcess graph の一時リソース寿命を集計する。 */
+FRenderGraphAliasPlanSummary BuildPostProcessTransientAliasPlan(u32 width, u32 height, u32 luma_mip_count) noexcept {
+    // Luma 一時リソースの最大合計。
+    constexpr u32 max_resource_count = 13;
+    // Luma render target heap の互換クラス。
+    constexpr u64 luma_compatibility = 2;
+
+    // 固定 graph の寿命入力。
+    FRenderGraphResourceLifetime lifetimes[max_resource_count]{};
+    // 現在追加済みの寿命数。
+    u32 resource_count = 0;
+
+    // Luma chain は隣接 mip が同一 pass で重なり、1 段飛ばしだけが候補となる。
+    u32 luma_width = width;
+    u32 luma_height = height;
+    for (u32 mip_index = 0; mip_index < luma_mip_count; ++mip_index) {
+        luma_width = luma_width > 1 ? luma_width / 2 : 1;
+        luma_height = luma_height > 1 ? luma_height / 2 : 1;
+        lifetimes[resource_count++] = FRenderGraphResourceLifetime{0x200u + mip_index, luma_compatibility, static_cast<u64>(luma_width) * static_cast<u64>(luma_height) * 4u, mip_index, mip_index + 1u, true, true};
+    }
+
+    // 候補計画は GPU 所有権を変更せず集計だけを公開する。
+    FRenderGraphTransientAliasPlanner planner;
+    if (!planner.Build(lifetimes, resource_count)) {
+        return {};
+    }
+    return planner.Summary();
+}
+
+} // namespace
 
 TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // メイン HDR RT
@@ -1309,7 +1345,8 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
         auto br = CreateRhiTexture(device, bd);
         if (br.IsErr()) return Err<void>(br.Error());
         m_BloomMips[i] = Move(br.Value());
-        auto btr = CreateRhiTexture(device, bd);                 // separable Gaussian の ping-pong 用 (同サイズ)
+        // Upsample を含む全段の ping-pong 先を確保する。
+        auto btr = CreateRhiTexture(device, bd);
         if (btr.IsErr()) return Err<void>(btr.Error());
         m_BloomTmp[i] = Move(btr.Value());
     }
@@ -1370,6 +1407,7 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
         if (xr.IsErr()) return Err<void>(xr.Error());
         m_ExposedRt = Move(xr.Value());
     }
+    m_TransientAliasPlan = BuildPostProcessTransientAliasPlan(w, h, m_LumaMipCount);
     return Ok();
 }
 

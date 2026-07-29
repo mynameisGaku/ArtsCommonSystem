@@ -53,6 +53,48 @@ FDx12Device::~FDx12Device() noexcept
     Reset();
 }
 
+bool FDx12Device::FindCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState*& pipeline, ID3D12RootSignature*& root_signature) noexcept {
+    pipeline = nullptr;
+    root_signature = nullptr;
+    FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
+    u32 identifier = 0u;
+    if (!m_PipelineKeyCache.Find(key, identifier) || identifier >= kPipelineCacheCapacity) return false;
+    ID3D12PipelineState* cached_pipeline = m_CachedPipelineStates[identifier];
+    ID3D12RootSignature* cached_root_signature = m_CachedRootSignatures[identifier];
+    if (cached_pipeline == nullptr || cached_root_signature == nullptr) return false;
+    cached_pipeline->AddRef();
+    cached_root_signature->AddRef();
+    pipeline = cached_pipeline;
+    root_signature = cached_root_signature;
+    return true;
+}
+
+void FDx12Device::StoreCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState* pipeline, ID3D12RootSignature* root_signature) noexcept {
+    if (pipeline == nullptr || root_signature == nullptr) return;
+    FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
+    u32 identifier = 0u;
+    bool found = false;
+    if (!m_PipelineKeyCache.FindOrIntern(key, identifier, found) || identifier >= kPipelineCacheCapacity || found) return;
+    pipeline->AddRef();
+    root_signature->AddRef();
+    m_CachedPipelineStates[identifier] = pipeline;
+    m_CachedRootSignatures[identifier] = root_signature;
+}
+
+void FDx12Device::ResetPipelineCache(bool release_objects) noexcept {
+    FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
+    for (u32 index = 0u; index < kPipelineCacheCapacity; ++index) {
+        if (release_objects) {
+            ACS_SAFE_RELEASE(m_CachedPipelineStates[index]);
+            ACS_SAFE_RELEASE(m_CachedRootSignatures[index]);
+        } else {
+            m_CachedPipelineStates[index] = nullptr;
+            m_CachedRootSignatures[index] = nullptr;
+        }
+    }
+    m_PipelineKeyCache.Reset();
+}
+
 void FDx12Device::Reset() noexcept
 {
 #if ACS_BUILD_DEBUG
@@ -99,6 +141,8 @@ void FDx12Device::Reset() noexcept
     } else if (RetiredResourceCount() != 0u) {
         AbandonAllRetiredResources();
     }
+    // GPU 完了を証明できない場合は PSO と root signature を解放せず use-after-free を防ぐ。
+    ResetPipelineCache(final_signal_completed || m_GfxQueue == nullptr);
     if (m_IdleEvent) {
         ::CloseHandle(m_IdleEvent);
         m_IdleEvent = nullptr;

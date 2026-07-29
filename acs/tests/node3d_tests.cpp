@@ -12,6 +12,8 @@
 #include "test/Expect.h"
 #include "gameframework/Transform3D.h"
 #include "gameframework/TransformBatchSoA.h"
+#include "gameframework/HierarchyVisibilityBatch.h"
+#include "gameframework/HierarchyWorldTransformBatch.h"
 #include "gameframework/ANode.h"
 #include "gameframework/AComponent.h"
 #include "gameframework/Scene3D.h"
@@ -98,6 +100,46 @@ ACS_TEST(Transform3D, SoABatchMatchesScalarComposeAndSupportsInPlaceUpdate)
         EXPECT_NEAR(rotations[i].y, expected[i].rotation.y, 1.0e-6f);
         EXPECT_NEAR(rotations[i].z, expected[i].rotation.z, 1.0e-6f);
         EXPECT_NEAR(rotations[i].w, expected[i].rotation.w, 1.0e-6f);
+    }
+}
+
+ACS_TEST(Transform3D, HierarchyBatchMatchesScalarAtMaximumDepthWithoutRecursiveStack) {
+    constexpr u32 kChainCount = 8u;
+    FScene3D scene;
+    TArray<ANode*> preorder;
+    EXPECT_TRUE(preorder.TryReserve(static_cast<usize>(kChainCount) * kNodeMaxTreeDepth));
+    for (u32 chain = 0u; chain < kChainCount; ++chain) {
+        ANode* parent = &scene.Root();
+        for (u32 depth = 1u; depth <= kNodeMaxTreeDepth; ++depth) {
+            const FScene3DSpawnResult added = scene.TrySpawn(FStringView("TransformStress"), parent);
+            EXPECT_TRUE(added.Succeeded());
+            if (!added.Succeeded()) return;
+            added.Node->Local().position = FVec3{0.001f * static_cast<f32>(depth), 0.01f * static_cast<f32>(chain), -0.002f};
+            added.Node->Local().rotation = FQuat::AxisAngle(FVec3{0.0f, 1.0f, 0.0f}, 0.0001f * static_cast<f32>(depth));
+            added.Node->Local().scale = FVec3{1.0f, 1.0f, 1.0f};
+            EXPECT_TRUE(preorder.TryPushBack(added.Node));
+            parent = added.Node;
+        }
+    }
+
+    FHierarchyWorldTransformBatch batch;
+    EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Size()));
+    EXPECT_EQ(batch.Count(), preorder.Size());
+    for (usize index = 0u; index < preorder.Size(); ++index) {
+        const FTransform3D scalar = preorder[index]->World();
+        const FTransform3D& batched = batch.At(index);
+        ExpectVec3Near(batched.position, scalar.position, 1.0e-4f);
+        ExpectVec3Near(batched.scale, scalar.scale, 1.0e-6f);
+        EXPECT_NEAR(batched.rotation.x, scalar.rotation.x, 1.0e-5f);
+        EXPECT_NEAR(batched.rotation.y, scalar.rotation.y, 1.0e-5f);
+        EXPECT_NEAR(batched.rotation.z, scalar.rotation.z, 1.0e-5f);
+        EXPECT_NEAR(batched.rotation.w, scalar.rotation.w, 1.0e-5f);
+    }
+
+    const FTransform3D* retained = batch.Transforms();
+    for (u32 repeat = 0u; repeat < 64u; ++repeat) {
+        EXPECT_TRUE(batch.Evaluate(&scene.Root(), preorder.Size()));
+        EXPECT_TRUE(batch.Transforms() == retained);
     }
 }
 
@@ -228,6 +270,58 @@ ACS_TEST(Transform3D, ComposeRotationMatchesMatrixProduct) {
 // === ANode 階層 ===========================================================
 
 // --- 親の transform が子の World() に合成される (2 段) -----------------------
+ACS_TEST(Node3D, HierarchyVisibilityBatchMatchesScalarAndFallsBackSafely)
+{
+    FScene3D scene;
+    ANode& first = scene.Spawn(FStringView("First"));
+    ANode& first_child = scene.Spawn(FStringView("FirstChild"), &first);
+    ANode& first_sibling = scene.Spawn(FStringView("FirstSibling"), &first);
+    ANode& second = scene.Spawn(FStringView("Second"));
+    ANode& second_child = scene.Spawn(FStringView("SecondChild"), &second);
+    first.SetVisible(false);
+    second_child.SetEnabled(false);
+
+    ANode* preorder[5] = {&first, &first_child, &first_sibling, &second, &second_child};
+    FHierarchyVisibilityBatch batch;
+    EXPECT_TRUE(batch.Evaluate(preorder, 5u, &scene.Root()));
+    EXPECT_EQ(batch.ScalarFallbackCount(), 0u);
+    for (u32 index = 0u; index < 5u; ++index) EXPECT_EQ(batch.IsVisible(index), FHierarchyVisibilityBatch::EvaluateScalar(preorder[index]));
+
+    ANode* malformed[2] = {&first_child, &first};
+    EXPECT_TRUE(batch.Evaluate(malformed, 2u, &scene.Root()));
+    EXPECT_EQ(batch.ScalarFallbackCount(), 1u);
+    for (u32 index = 0u; index < 2u; ++index) EXPECT_EQ(batch.IsVisible(index), FHierarchyVisibilityBatch::EvaluateScalar(malformed[index]));
+    EXPECT_FALSE(batch.Evaluate(nullptr, static_cast<usize>(-1), &scene.Root()));
+}
+
+ACS_TEST(Node3D, HierarchyVisibilityBatchRetainsParityUnderStress)
+{
+    FScene3D scene;
+    TArray<ANode*> nodes;
+    nodes.Reserve(1024u);
+    u32 authored_index = 0u;
+    for (u32 group = 0u; group < 128u; ++group) {
+        ANode& parent = scene.Spawn(FStringView("VisibilityStressParent"));
+        parent.SetVisible((authored_index % 17u) != 0u);
+        parent.SetEnabled((authored_index % 29u) != 0u);
+        nodes.PushBack(&parent);
+        ++authored_index;
+        for (u32 child_index = 0u; child_index < 7u; ++child_index) {
+            ANode& child = scene.Spawn(FStringView("VisibilityStressChild"), &parent);
+            child.SetVisible((authored_index % 17u) != 0u);
+            child.SetEnabled((authored_index % 29u) != 0u);
+            nodes.PushBack(&child);
+            ++authored_index;
+        }
+    }
+    FHierarchyVisibilityBatch batch;
+    for (u32 iteration = 0u; iteration < 64u; ++iteration) {
+        EXPECT_TRUE(batch.Evaluate(nodes.Data(), nodes.Size(), &scene.Root()));
+        EXPECT_EQ(batch.ScalarFallbackCount(), 0u);
+        for (u32 index = 0u; index < nodes.Size(); ++index) EXPECT_EQ(batch.IsVisible(index), FHierarchyVisibilityBatch::EvaluateScalar(nodes[index]));
+    }
+}
+
 ACS_TEST(Node3D, WorldComposesThroughHierarchy) {
     ANode root;
     root.Local().position = FVec3{10, 0, 0};

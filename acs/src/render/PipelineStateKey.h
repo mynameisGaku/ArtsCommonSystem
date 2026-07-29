@@ -33,6 +33,38 @@ inline u32 PipelineKeyFloatBits(f32 value) noexcept {
     return bits;
 }
 
+/** 生 byte 列を二系統の内容 hash へ変換する。 */
+inline FPipelineStateKey PipelineKeyBytes(const void* data, usize size) noexcept {
+    if (data == nullptr && size != 0u) return FPipelineStateKey{};
+    const byte* bytes = static_cast<const byte*>(data);
+    u64 primary = 0xCBF29CE484222325ull;
+    u64 verification = 0x84222325CBF29CE4ull;
+    for (usize index = 0u; index < size; ++index) {
+        primary = (primary ^ static_cast<u64>(bytes[index])) * 0x100000001B3ull;
+        verification = (verification ^ (static_cast<u64>(bytes[index]) + 0x9Dull)) * 0x9E3779B185EBCA87ull;
+    }
+    return FPipelineStateKey{HashMix64(primary ^ static_cast<u64>(size)), HashMix64(verification ^ (static_cast<u64>(size) * 0xD6E8FEB86659FD93ull))};
+}
+
+/** null 終端文字列をポインター値に依存しない内容 hash へ変換する。 */
+inline FPipelineStateKey PipelineKeyString(const char* value) noexcept {
+    if (value == nullptr) return FPipelineStateKey{};
+    usize length = 0u;
+    while (value[length] != '\0') ++length;
+    return PipelineKeyBytes(value, length);
+}
+
+/** shader の bytecode 内容と stage から意味上の識別値を作る。 */
+inline FPipelineStateKey PipelineKeyShader(const IRhiShader* shader) noexcept {
+    if (shader == nullptr) return FPipelineStateKey{};
+    const byte* bytecode = shader->Bytecode();
+    const usize bytecode_size = shader->BytecodeSize();
+    FPipelineStateKey content = bytecode != nullptr && bytecode_size > 0u ? PipelineKeyBytes(bytecode, bytecode_size) : FPipelineStateKey{HashMix64(reinterpret_cast<u64>(shader)), HashMix64(reinterpret_cast<u64>(shader) ^ 0xA4093822299F31D0ull)};
+    content.primary = PipelineKeyCombine(content.primary, PipelineKeyCombine(static_cast<u64>(bytecode_size), static_cast<u64>(shader->Stage())));
+    content.verification = PipelineKeyCombine(content.verification, PipelineKeyCombine(static_cast<u64>(shader->Stage()), static_cast<u64>(bytecode_size)));
+    return content;
+}
+
 /** サンプラーの全状態を PSO キーへ加える。 */
 template<typename FAdd>
 inline void AddSamplerToPipelineKey(const FSamplerDesc& sampler, FAdd&& add) noexcept {
@@ -55,17 +87,26 @@ inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcep
         key.primary = PipelineKeyCombine(key.primary, value);
         key.verification = PipelineKeyCombine(key.verification, value ^ 0xA4093822299F31D0ull);
     };
-    add(reinterpret_cast<u64>(desc.vs));
-    add(reinterpret_cast<u64>(desc.ps));
+    const auto add_pair = [&key](const FPipelineStateKey& value) noexcept {
+        key.primary = PipelineKeyCombine(key.primary, value.primary);
+        key.verification = PipelineKeyCombine(key.verification, value.verification);
+    };
+    add_pair(PipelineKeyShader(desc.vs));
+    add_pair(PipelineKeyShader(desc.ps));
     add(static_cast<u64>(desc.topology));
-    add(static_cast<u64>(desc.rt_format));
-    add(static_cast<u64>(desc.rt_count));
-    for (u32 index = 0u; index < 8u; ++index) add(static_cast<u64>(desc.rt_formats[index]));
+    // backend が実際に使う RT 数。
+    const u32 render_target_count = desc.ps == nullptr ? 0u : desc.rt_count == 0u ? 1u : desc.rt_count;
+    add(static_cast<u64>(render_target_count));
+    if (render_target_count == 1u && desc.rt_count == 0u) {
+        add(static_cast<u64>(desc.rt_format));
+    } else {
+        for (u32 index = 0u; index < render_target_count && index < 8u; ++index) add(static_cast<u64>(desc.rt_formats[index]));
+    }
     add(static_cast<u64>(desc.depth_format));
     add(desc.vertex_stride);
     add(desc.layout_count);
     for (u32 index = 0u; index < desc.layout_count && index < 8u; ++index) {
-        add(reinterpret_cast<u64>(desc.layout[index].semantic_name));
+        add_pair(PipelineKeyString(desc.layout[index].semantic_name));
         add(desc.layout[index].semantic_index);
         add(static_cast<u64>(desc.layout[index].format));
         add(desc.layout[index].offset);
@@ -89,10 +130,10 @@ inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcep
     add(desc.stencil.write_mask);
     add(desc.sample_count);
     for (u32 index = 0u; index < desc.cbuffer_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.cbuffer_names[index]));
+        add_pair(PipelineKeyString(desc.cbuffer_names[index]));
     }
     for (u32 index = 0u; index < desc.texture_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.texture_names[index]));
+        add_pair(PipelineKeyString(desc.texture_names[index]));
     }
     return key;
 }
@@ -106,7 +147,11 @@ inline FPipelineStateKey MakePipelineStateKey(const FComputePipelineDesc& desc) 
         key.primary = PipelineKeyCombine(key.primary, value);
         key.verification = PipelineKeyCombine(key.verification, value ^ 0xC0AC29B7C97C50DDull);
     };
-    add(reinterpret_cast<u64>(desc.cs));
+    const auto add_pair = [&key](const FPipelineStateKey& value) noexcept {
+        key.primary = PipelineKeyCombine(key.primary, value.primary);
+        key.verification = PipelineKeyCombine(key.verification, value.verification);
+    };
+    add_pair(PipelineKeyShader(desc.cs));
     add(desc.cbuffer_slots);
     add(desc.srv_slots);
     add(desc.uav_slots);
@@ -115,13 +160,13 @@ inline FPipelineStateKey MakePipelineStateKey(const FComputePipelineDesc& desc) 
         AddSamplerToPipelineKey(desc.static_samplers[index], add);
     }
     for (u32 index = 0u; index < desc.cbuffer_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.cbuffer_names[index]));
+        add_pair(PipelineKeyString(desc.cbuffer_names[index]));
     }
     for (u32 index = 0u; index < desc.srv_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.srv_names[index]));
+        add_pair(PipelineKeyString(desc.srv_names[index]));
     }
     for (u32 index = 0u; index < desc.uav_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.uav_names[index]));
+        add_pair(PipelineKeyString(desc.uav_names[index]));
     }
     return key;
 }

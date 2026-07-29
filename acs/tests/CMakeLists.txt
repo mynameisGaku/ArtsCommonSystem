@@ -54,6 +54,7 @@ add_executable(acs_unit_tests
     collider_tests.cpp
     crypto_tests.cpp
     render_tests.cpp
+    render_graph_transient_alias_tests.cpp
     rhi_command_statistics_tests.cpp
     diligent_memory_adapter_tests.cpp
     gpu_live_object_diagnostics_tests.cpp
@@ -428,6 +429,23 @@ target_link_libraries(acs_foundation_optimization_bench PRIVATE
     ACS::Container
     ACS::Math
 )
+
+# Render Graph の alias 寿命解析を GPU 初期化なしで高速に反復する。
+add_executable(acs_render_graph_transient_alias_tests
+    main.cpp
+    render_graph_transient_alias_tests.cpp
+)
+set_target_properties(acs_render_graph_transient_alias_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_render_graph_transient_alias_tests)
+target_link_libraries(acs_render_graph_transient_alias_tests PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Container
+    ACS::Render
+    ACS::Test
+)
+add_test(NAME ACS.RenderGraphTransientAlias COMMAND acs_render_graph_transient_alias_tests)
+set_tests_properties(ACS.RenderGraphTransientAlias PROPERTIES TIMEOUT 30)
 
 # Debug CRT 専用 probe は multi-config でも target を生成し、実行構成だけ Debug に限定する。
 if(MSVC

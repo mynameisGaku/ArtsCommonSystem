@@ -41,6 +41,8 @@
 #include "gameframework/ANode.h"           // ANode / AComponent
 #include "gameframework/MeshComponent3D.h"  // AMeshComponent3D (prim/color/mesh の native 保持)
 #include "gameframework/WaterSurface3DComponent.h"
+#include "gameframework/HierarchyVisibilityBatch.h"
+#include "gameframework/HierarchyWorldTransformBatch.h"
 #include "gameframework/Scene3DSerialize.h" // (将来) シリアライザ委譲用
 #include "gameframework/SceneTextLoader.h" // strict ACSCENE document preflight
 #include "memory/UniquePtr.h"               // TUniquePtr / MakeUnique
@@ -730,6 +732,10 @@ struct FEditorHost {
     TArray<FVec3> scene_mesh_local_center;
     TArray<f32> scene_mesh_local_radius;
     TArray<u8> scene_mesh_visible;
+    game::FHierarchyVisibilityBatch scene_mesh_hierarchy_visibility;
+    bool scene_mesh_hierarchy_batch_ready = false;
+    game::FHierarchyWorldTransformBatch scene_mesh_world_batch;
+    bool scene_mesh_world_batch_ready = false;
     TArray<FVec3> frustum_centers_scratch;
     TArray<f32> frustum_radii_scratch;
     TArray<FVec3> frustum_scales_scratch;
@@ -1356,6 +1362,10 @@ void ClearScene3DResourcesRetired(FEditorHost& h) noexcept {
     h.scene_mesh_local_center.Clear();
     h.scene_mesh_local_radius.Clear();
     h.scene_mesh_visible.Clear();
+    h.scene_mesh_hierarchy_visibility.Clear();
+    h.scene_mesh_hierarchy_batch_ready = false;
+    h.scene_mesh_world_batch.Clear();
+    h.scene_mesh_world_batch_ready = false;
     h.frustum_centers_scratch.Clear();
     h.frustum_radii_scratch.Clear();
     h.frustum_scales_scratch.Clear();
@@ -6157,6 +6167,17 @@ bool IsEffectivelyVisibleAndEnabled(
     return node != nullptr;
 }
 
+/** 3D prepass の batch 結果を使い、失敗時だけ scalar 判定へ戻る。 */
+bool SceneMeshHierarchyVisible(const FEditorHost& host, u32 index, const game::ANode* node) noexcept {
+    return host.scene_mesh_hierarchy_batch_ready ? host.scene_mesh_hierarchy_visibility.IsVisible(index) : IsEffectivelyVisibleAndEnabled(node);
+}
+
+/** 3D prepass の batch world を使い、失敗時だけ node の scalar 計算へ戻る。 */
+game::FTransform3D SceneMeshWorldTransform(const FEditorHost& host, u32 index, const game::ANode* node) noexcept {
+    if (host.scene_mesh_world_batch_ready && index < host.scene_mesh_world_batch.Count()) return host.scene_mesh_world_batch.At(index);
+    return node != nullptr ? node->World() : game::FTransform3D{};
+}
+
 struct FDeterministicGameCamera2D {
     f32 center_x = 0.0f;
     f32 center_y = 0.0f;
@@ -8201,8 +8222,7 @@ int SceneMeshWaterSlot(
     return 0;
 }
 
-FSceneMeshCacheKey BuildSceneMeshCacheKey(
-    FEditorHost& h, game::ANode* node) noexcept {
+FSceneMeshCacheKey BuildSceneMeshCacheKey(FEditorHost& h, game::ANode* node, bool active, const game::FTransform3D& world) noexcept {
     FSceneMeshCacheKey key{};
     key.node = node;
     if (node == nullptr) return key;
@@ -8214,7 +8234,7 @@ FSceneMeshCacheKey BuildSceneMeshCacheKey(
     key.editor_id = record != nullptr ? record->id : 0;
     key.primitive = NPrim(node);
     key.water_slot = SceneMeshWaterSlot(h, record);
-    key.world = node->World().ToMat4();
+    key.world = world.ToMat4();
     key.node_color = NColor(node);
 
     constexpr u32 kEffectivelyActive = 1u << 0u;
@@ -8225,7 +8245,6 @@ FSceneMeshCacheKey BuildSceneMeshCacheKey(
     constexpr u32 kHasMaterial = 1u << 5u;
     constexpr u32 kMaterialLoaded = 1u << 6u;
 
-    const bool active = IsEffectivelyVisibleAndEnabled(node);
     const bool empty = record != nullptr && record->is_empty;
     const bool rendered_by_water = IsRenderedByWater3D(h, node);
     if (active) key.state |= kEffectivelyActive;
@@ -8290,7 +8309,7 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         h.scene_mesh_local_center[i] = FVec3{0.0f, 0.0f, 0.0f};
         h.scene_mesh_local_radius[i] = -1.0f;
         game::ANode* nn = all3d[i];
-        if (!IsEffectivelyVisibleAndEnabled(nn)) continue;
+        if (!SceneMeshHierarchyVisible(h, i, nn)) continue;
         { AEditor3DRecordComponent* er = Rec3D(nn); if (er != nullptr && er->is_empty) continue; }       // 空ノードは描画しない
         if (Mesh3D(nn) == nullptr || Mesh3D(nn)->RenderHandle() != nullptr) continue;   // スプライトは別パス
         const bool interactive_water =
@@ -8365,7 +8384,7 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         }
         const u32 vertex_offset = dv.Size();
         AppendMeshTris(
-            dv, cm, nn->World().ToMat4(), albedo,
+            dv, cm, SceneMeshWorldTransform(h, i, nn).ToMat4(), albedo,
             h.m3d_dyn_cap, mtl, rgh);
         h.scene_mesh_vertex_offset[i] = vertex_offset;
         h.scene_mesh_vertex_count[i] =
@@ -8398,8 +8417,7 @@ void BuildSceneMeshVisibility(
     host.profiler_work.frustum_visible = 0u;
     host.profiler_work.frustum_culled = 0u;
     host.scene_mesh_visible.Resize(nodes.Size());
-    for (u32 index = 0u; index < nodes.Size(); ++index)
-        host.scene_mesh_visible[index] = 1u;
+    for (u32 index = 0u; index < nodes.Size(); ++index) host.scene_mesh_visible[index] = SceneMeshHierarchyVisible(host, index, nodes[index]) ? 1u : 0u;
 
     if (!host.pbr3d_ready ||
         host.scene_mesh_local_center.Size() != nodes.Size() ||
@@ -8425,9 +8443,7 @@ void BuildSceneMeshVisibility(
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
-        if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
-            (record != nullptr && record->is_empty) ||
-            mesh->RenderHandle() != nullptr) {
+        if (!SceneMeshHierarchyVisible(host, index, node) || mesh == nullptr || (record != nullptr && record->is_empty) || mesh->RenderHandle() != nullptr) {
             continue;
         }
         const bool interactive_water =
@@ -8439,7 +8455,7 @@ void BuildSceneMeshVisibility(
             !gpu_mesh->index_buffer) {
             continue;
         }
-        const game::FTransform3D world = node->World();
+        const game::FTransform3D world = SceneMeshWorldTransform(host, index, node);
         const FVec3 center = TransformPoint(
             host.scene_mesh_local_center[index],
             world.ToMat4());
@@ -8476,8 +8492,7 @@ bool RefreshSceneMeshCache(
     h.scene_mesh_key_scratch.Clear();
     h.scene_mesh_key_scratch.Reserve(all3d.Size());
     for (u32 index = 0u; index < all3d.Size(); ++index) {
-        h.scene_mesh_key_scratch.PushBack(
-            BuildSceneMeshCacheKey(h, all3d[index]));
+        h.scene_mesh_key_scratch.PushBack(BuildSceneMeshCacheKey(h, all3d[index], SceneMeshHierarchyVisible(h, index, all3d[index]), SceneMeshWorldTransform(h, index, all3d[index])));
     }
 
     const bool cache_matches =
@@ -8772,10 +8787,7 @@ InspectOpaqueSsssMaterials(
         game::ANode* node = nodes[node_index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
-        if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
-            (record != nullptr && record->is_empty) ||
-            mesh->RenderHandle() != nullptr ||
-            IsRenderedByWater3D(host, node)) {
+        if (!SceneMeshHierarchyVisible(host, node_index, node) || mesh == nullptr || (record != nullptr && record->is_empty) || mesh->RenderHandle() != nullptr || IsRenderedByWater3D(host, node)) {
             continue;
         }
         if (!mesh->MaterialLoaded() && mesh->HasMaterial()) {
@@ -8862,9 +8874,7 @@ FPbrFrameDrawCounts CountPbrFrameDraws(
         game::ANode* node = nodes[index];
         AEditor3DRecordComponent* record = Rec3D(node);
         game::AMeshComponent3D* mesh = Mesh3D(node);
-        if (!IsEffectivelyVisibleAndEnabled(node) || mesh == nullptr ||
-            (record != nullptr && record->is_empty) ||
-            mesh->RenderHandle() != nullptr) {
+        if (!SceneMeshHierarchyVisible(host, index, node) || mesh == nullptr || (record != nullptr && record->is_empty) || mesh->RenderHandle() != nullptr) {
             return;
         }
         if (IsRenderedByWater3D(host, node)) {
@@ -8887,9 +8897,7 @@ FPbrFrameDrawCounts CountPbrFrameDraws(
     return counts;
 }
 
-bool DrawEditorPbrNode(
-    FEditorHost& host, IRhiCommandList& command_list,
-    game::ANode* node, bool subsurface_mrt) noexcept {
+bool DrawEditorPbrNode(FEditorHost& host, IRhiCommandList& command_list, game::ANode* node, const game::FTransform3D& world, bool subsurface_mrt) noexcept {
     if (!IsEffectivelyVisibleAndEnabled(node)) return true;
     AEditor3DRecordComponent* record = Rec3D(node);
     if (record != nullptr && record->is_empty) return true;
@@ -8947,14 +8955,14 @@ bool DrawEditorPbrNode(
     }
     if (subsurface_mrt) {
         return host.pbr3d.DrawMeshSubsurfaceMrt(
-            command_list, *gpu_mesh, node->World().ToMat4(), albedo,
+            command_list, *gpu_mesh, world.ToMat4(), albedo,
             lit ? pbr.metallic : 0.0f,
             lit ? pbr.roughness : 0.5f, pbr.ao,
             lit && record != nullptr
                 ? record->material_albedo_tex.Get() : nullptr);
     }
     return host.pbr3d.DrawMesh(
-        command_list, *gpu_mesh, node->World().ToMat4(), albedo,
+        command_list, *gpu_mesh, world.ToMat4(), albedo,
         lit ? pbr.metallic : 0.0f,
         lit ? pbr.roughness : 0.5f, pbr.ao,
         lit && record != nullptr
@@ -9309,6 +9317,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
             h.profiler_work.opaque_cpu_ms);
         all3d.Clear();
         Dfs3DCollect(&h.scene3d.Root(), all3d);
+        h.scene_mesh_world_batch_ready = h.scene_mesh_world_batch.Evaluate(&h.scene3d.Root(), all3d.Size());
+        h.scene_mesh_hierarchy_batch_ready = h.scene_mesh_hierarchy_visibility.Evaluate(all3d.Data(), all3d.Size(), &h.scene3d.Root());
         PrepareWater3DDrawEligibility(h, all3d);
         (void)RefreshSceneMeshCache(h, all3d);
     }
@@ -9843,7 +9853,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 if (gm == nullptr) return;
 
                 AEditor3DRecordComponent* er = Rec3D(nn);
-                const FMat4 world = nn->World().ToMat4();
+                const FMat4 world = SceneMeshWorldTransform(h, i, nn).ToMat4();
                 const FMat4 prevW =
                     (motionHistoryReady && er != nullptr &&
                      er->prev_world_valid)
@@ -10141,11 +10151,8 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                 h,
                 editor_frustum_culling::ESceneGeometryPass::PbrOpaqueDraw),
             all3d.Size(),
-            [&](u32 i) noexcept {
-                ssss_mrt_draws_valid =
-                    DrawEditorPbrNode(
-                        h, *cl, all3d[i], ssss_mrt_bound) &&
-                    ssss_mrt_draws_valid;
+            [&](u32 node_index) noexcept {
+                ssss_mrt_draws_valid = DrawEditorPbrNode(h, *cl, all3d[node_index], SceneMeshWorldTransform(h, node_index, all3d[node_index]), ssss_mrt_bound) && ssss_mrt_draws_valid;
             });
     } else {   // フォールバック: 自前 kMesh3DHLSL (FPbrShader 不可時)
         draw_aggregate_mesh_fallback();
@@ -10278,10 +10285,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         const FVec3 lBL{ -0.5f, -0.5f, 0 }, lBR{ 0.5f, -0.5f, 0 };
         const FVec2 uTL{ 1, 0 }, uTR{ 0, 0 }, uBL{ 1, 1 }, uBR{ 0, 1 };
         for (u32 i = 0; i < all3d.Size() && stex.Size() < kMaxSpr; ++i) {
-            if (!IsEffectivelyVisibleAndEnabled(all3d[i])) continue;
+            if (!SceneMeshHierarchyVisible(h, i, all3d[i])) continue;
             game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
             if (mc == nullptr || mc->RenderHandle() == nullptr) continue;
-            const FMat4 m = all3d[i]->World().ToMat4();
+            const FMat4 m = SceneMeshWorldTransform(h, i, all3d[i]).ToMat4();
             auto wv = [&](FVec3 lp, FVec2 uv) {
                 const FVec4 w = Transform(FVec4{ lp.x, lp.y, lp.z, 1.0f }, m);
                 FSprVtx o; o.px = w.x; o.py = w.y; o.pz = w.z; o.u = uv.x; o.v = uv.y; sv.PushBack(o);
@@ -10470,7 +10477,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                             RefractionPreflight),
                     all3d.Size(),
                     [&](u32 i) noexcept {
-                if (!IsEffectivelyVisibleAndEnabled(all3d[i])) return false;
+                if (!SceneMeshHierarchyVisible(h, i, all3d[i])) return false;
                 game::AMeshComponent3D* mc = Mesh3D(all3d[i]);
                 return !IsRenderedByWater3D(h, all3d[i]) &&
                        mc != nullptr && mc->MaterialLoaded() &&
@@ -10503,7 +10510,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         all3d.Size(),
                         [&](u32 i) noexcept {
                         game::ANode* nn = all3d[i];
-                        if (!IsEffectivelyVisibleAndEnabled(nn)) return;
+                        if (!SceneMeshHierarchyVisible(h, i, nn)) return;
                         game::AMeshComponent3D* mc = Mesh3D(nn);
                         if (mc == nullptr || mc->RenderHandle() != nullptr) return;
                         if (IsRenderedByWater3D(h, nn)) return;
@@ -10521,10 +10528,10 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
                         const FVec3 tint{ p.baseColor.x, p.baseColor.y, p.baseColor.z };
                         // thickness は «屈折先までの world 距離» = レンズ歪みの強さ。固定 0.5 だと小さく
                         // 背景がほぼ曲がらず «ガラスに見えない» → オブジェクトサイズ(world scale)に比例させる。
-                        const FVec3 ws = nn->World().scale;
+                        const game::FTransform3D world = SceneMeshWorldTransform(h, i, nn);
+                        const FVec3 ws = world.scale;
                         const f32 thick = ((ws.x + ws.y + ws.z) / 3.0f) * 1.4f;
-                        h.refr3d.DrawMesh(*cl, *gm, nn->World().ToMat4(), *h.refr_bg, *h.ibl3d.EnvCubemap(),
-                                          p.ior, thick, tint, p.roughness, 0.0f);
+                        h.refr3d.DrawMesh(*cl, *gm, world.ToMat4(), *h.refr_bg, *h.ibl3d.EnvCubemap(), p.ior, thick, tint, p.roughness, 0.0f);
                     });
                     cl->EndRenderToTexture(*hdrRt);
                 }
