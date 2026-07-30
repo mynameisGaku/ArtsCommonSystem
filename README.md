@@ -203,7 +203,7 @@ Root().AddChild(Move(player));
 ## サンプル
 
 `acs/samples/`には、`00_HelloEasy`から`66_HelloVertexSSS`まで、CMake targetを持つ
-**67個**の番号付きサンプルディレクトリがあります。backend依存のサンプルは、対応する
+**68個（00〜67）**の番号付きサンプルディレクトリがあります。backend依存のサンプルは、対応する
 生成スイッチを有効にした時だけCMake targetへ追加されます。
 
 | サンプル | target | 内容 | 追加条件 |

@@ -731,7 +731,7 @@ if(ACS_IS_TOP_LEVEL)
                 COMMAND "${CMAKE_CXX_COMPILER}"
                         /nologo /Zs /std:c++20 /utf-8
                         /permissive- /Zc:__cplusplus /Zc:preprocessor
-                        /EHs-c- /GR- /D_HAS_EXCEPTIONS=0
+                        /EHsc /GR- /D_HAS_EXCEPTIONS=1
                         "/I${ACS_DIST_ROOT}"
                         "${ACS_DIST_ROOT}/examples/check.cpp"
                 WORKING_DIRECTORY "${ACS_DIST_ROOT}"

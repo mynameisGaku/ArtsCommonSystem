@@ -46,6 +46,9 @@ ASanはNUL終端を持たない空のworkspace iniを読み込むと、ImGuiが`
 不足した場合はskipせず失敗する。一時directoryは終了時に削除し、`dist/examples`
 へ`.obj`や`.exe`を残さない。通常開発のclean checkoutにはlibrary配布物がないため
 既定はOFFとし、T80のsingle-header生成後にONで再configureして実行する。
+公式SDKはDiligent static libraryを同梱するため、consumerも`/EHsc`と
+`_HAS_EXCEPTIONS=1`で同じMSVC STL ABIへ揃える。ACSの公開APIとsourceが例外を
+投げない契約は変更せず、RTTIは`/GR-`のまま維持する。
 deploy先を検証する場合は
 `ACS_DISTRIBUTION_CONSUMER_ROOT=C:\acs`（`generate.ps1`では
 `-DistributionRoot C:\acs`）を指定する。

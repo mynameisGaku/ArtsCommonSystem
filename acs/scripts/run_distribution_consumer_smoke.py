@@ -25,16 +25,12 @@ if(NOT DEFINED ACS_DISTRIBUTION_ROOT)
     message(FATAL_ERROR "ACS_DISTRIBUTION_ROOT is required")
 endif()
 
-string(REGEX REPLACE "(^|[ \t])[/\\-]EHsc([ \t]|$)" " "
-       CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-string(STRIP "${CMAKE_CXX_FLAGS}" CMAKE_CXX_FLAGS)
-
 add_executable(acs_distribution_consumer
     "${ACS_DISTRIBUTION_ROOT}/examples/check.cpp")
 target_compile_features(acs_distribution_consumer PRIVATE cxx_std_20)
-target_compile_definitions(acs_distribution_consumer PRIVATE _HAS_EXCEPTIONS=0)
+target_compile_definitions(acs_distribution_consumer PRIVATE _HAS_EXCEPTIONS=1)
 target_compile_options(acs_distribution_consumer PRIVATE
-    /utf-8 /EHs-c- /GR- /permissive- /Zc:__cplusplus /Zc:preprocessor)
+    /utf-8 /EHsc /GR- /permissive- /Zc:__cplusplus /Zc:preprocessor)
 target_include_directories(acs_distribution_consumer PRIVATE
     "${ACS_DISTRIBUTION_ROOT}")
 target_link_directories(acs_distribution_consumer PRIVATE
@@ -269,6 +265,9 @@ def self_test() -> int:
             and command[command.index("-A") + 1] == "x64"
             and command[command.index("-T") + 1] == "vTest"
             and find_consumer_executable(build_directory) == executable
+            and "_HAS_EXCEPTIONS=1" in CMAKE_PROJECT
+            and "/EHsc" in CMAKE_PROJECT
+            and "/EHs-c-" not in CMAKE_PROJECT
             and rejects_invalid
         )
     return 0 if valid else 1

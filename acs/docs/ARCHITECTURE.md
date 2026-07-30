@@ -4,17 +4,18 @@
 Windows / DirectX 12 向けのモジュール式 C++20 ゲームフレームワークです。
 ACS はランタイム基盤（型・スレッド・メモリ・コンテナ・数学）から始まり、
 現在はプラットフォーム・ECS・イベント・アセット・描画・音声・ネットワーク・
-UI までを含みます。**下記の 17 モジュールはすべて実装済みです。**
+UI までを含みます。現在は `src/*/Module.cmake` に **28 モジュール**を定義し、
+標準構成の21モジュールと構成時に選ぶ7個の任意backendに分けています。
 
 ## 設計原則
 
-1. **STL を使わない。** `std::vector`, `std::string`, `std::atomic`,
-   `std::thread`, `std::mutex`, `std::function`, `<algorithm>`,
-   `<type_traits>` などは使用しません。代替は `acs::` 名前空間にあります
-   （`TArray<T>`, `FString`, `TAtomic<T>`, `FThread`, `FMutex`, ...）。C 標準
-   ヘッダ（`<cstdint>`, `<cstddef>`, `<cstring>`, `<cstdio>`, `<cmath>`）、
-   コンパイラ組み込み（`<intrin.h>`, `<immintrin.h>`）、Windows SDK
-   （`<windows.h>`, `<DbgHelp.h>`, `<DirectXMath.h>`）は明示的に許可します。
+1. **公開所有ABIへSTL型を持ち込まない。** 動的所有には `std::vector`,
+   `std::string`, `std::function` ではなく `TArray<T>`, `FString` と関数pointerを
+   使い、threadingも `TAtomic<T>`, `FThread`, `FMutex` を標準の境界にします。
+   template trait、局所algorithm、時刻取得などの実装補助には `<type_traits>`,
+   `<algorithm>`, `<atomic>`, `<chrono>` を必要な翻訳単位またはheaderで使用しますが、
+   STL containerの所有権を公開APIへ露出しません。C標準header、compiler組み込み、
+   Windows SDKとDirectXMathも明示的に利用します。
 2. **例外なし・RTTI なし。** ACS sourceのエラーは `TResult<T, FErrorCode>` で伝搬します。
    raw-DX12構成は `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0` です。Diligent static libraryは
    内部で例外とMSVC STLの例外型を使うため、Diligent構成のACS targetだけ
@@ -65,8 +66,13 @@ acs/
 │   ├── network/                # TCP ソケット
 │   ├── imgui/                  # Dear ImGui 統合
 │   ├── mvvm/                   # MVVM データバインディング
-│   └── ui/                     # FWidget ベースの UI フレームワーク
-├── samples/                    # 26 個のサンプルプログラム (samples/README.md 参照)
+│   ├── ui/                     # FWidget ベースの UI フレームワーク
+│   ├── easy/                   # 初学者向けの高水準 API
+│   ├── assetpack/              # .acpak の作成・読み取り
+│   ├── gameframework/          # Scene、Node、ゲーム機能
+│   ├── collision/              # 2D / 3D 衝突判定
+│   └── <optional>/             # Steamworks、Lua、ONNX、OpenXR、crash、telemetry、local match
+├── samples/                    # 68 個（00〜67）の番号付きサンプル (samples/README.md 参照)
 └── tests/                      # モジュール単体テスト
 ```
 
@@ -82,7 +88,10 @@ acs/
 - `Platform` / `Ecs` / `Event` が OS・エンティティ・メッセージング層を足す。
 - `Asset` と `Render` がコンテンツ読み込みとグラフィックスを提供する。
 - `App` がウィンドウ + レンダラ + ECS を `FApplication` ループにまとめる。
-- `Audio` / `Network` / `Imgui` / `Mvvm` / `Ui` はより高レベルの opt-in。
+- `Audio` / `Network` / `Imgui` / `Mvvm` / `Ui` / `Easy` / `AssetPack` /
+  `GameFramework` / `Collision` が標準構成の高水準機能を提供する。
+- `Steamworks` / `Scripting` / `MlOnnx` / `OpenXr` / `CrashWin` /
+  `TelemetryFile` / `LocalMatch` は構成時に明示して有効化する任意backendである。
 
 ## 主要な設計判断
 
@@ -94,7 +103,7 @@ acs/
 | THashMap | Robin Hood + 値の密配置 + 8-bit フィンガープリント | ankerl::unordered_dense レイアウト — 失敗ルックアップが最速、tombstone なし、連続イテレーション可。SIMD プロービングは v2 に延期。 |
 | FAllocator 群 | 仮想 `FAllocator` 基底 + FSystemAllocator / FLinearAllocator / FPoolAllocator / FArenaAllocator | FPoolAllocator は単方向フリーリストと所有状態を同じ軽量ロックで保護する。FArenaAllocator は batch 予約と世代式 `Reset(false)` により、利用者統計を保ったまま cursor 更新と毎 frame の page 走査を削減する。 |
 | Math | DirectXMath を `FVec3 / FVec4 / FMat4 / FQuat` でラップ | Microsoft 保守、SSE2〜AVX2 パス同梱、Windows 上 NEON 対応も視野。人間に優しい POD 型を公開し、バッチ演算は関数ポインタテーブルでディスパッチ。 |
-| FString | 24 バイトの SSO（22 バイトをインライン）+ ヒープフォールバック | absl/folly 風のレイアウト。x64 のキャッシュライン 1/3 程度のサイズに合わせている。 |
+| FString | 24 バイトの SSO union（22 バイトをインライン）+ 8 バイトの allocator 所有参照 | 全体は Win64 で 32 バイト。短い文字列は確保せず、長い文字列だけヒープへ移す。 |
 | Test | 独自 `ACS_TEST(Suite, Name)` マクロ + `EXPECT_*` | GoogleTest 依存を避ける。FMutex 保護のレジストリ、テストごとの失敗カウンタ。 |
 
 ## 新しいモジュールの追加

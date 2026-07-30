@@ -34,15 +34,16 @@ dist/
 
 ### Required compiler options (ABI must match)
 
-ACS is a **no-STL, no-exceptions, no-RTTI** engine. A consumer translation unit
-**must** be built with the same settings or layouts/mangling diverge. `acs.h`
-contains `#error` guards that stop the build immediately if exceptions or RTTI
-are left enabled, so you get a clear message instead of cryptic link errors.
+ACS public ABI remains **free of STL-owned types, no-throw, and no-RTTI**. The official SDK includes
+the Diligent static libraries, whose MSVC STL ABI uses exceptions. A consumer
+translation unit **must** therefore enable the same compiler exception ABI even
+though ACS APIs do not throw. `acs.h` contains `#error` guards for exception and
+RTTI mismatches, so you get a clear message instead of cryptic link errors.
 
 | Setting | Value | VS / cl flag |
 |---|---|---|
 | C++ standard | C++20 | `/std:c++20` |
-| Exceptions | disabled | `/EHs-c-` + `/D_HAS_EXCEPTIONS=0` |
+| Exception ABI | enabled for Diligent; ACS APIs do not throw | `/EHsc` + `/D_HAS_EXCEPTIONS=1` |
 | RTTI | disabled | `/GR-` |
 | Runtime (Debug) | Multi-threaded Debug DLL | `/MDd` → link `lib\x64\Debug` |
 | Runtime (Release) | Multi-threaded DLL | `/MD` → link `lib\x64\Release` |
@@ -148,7 +149,7 @@ powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
 python acs/scripts/amalgamate.py --check
 python acs/scripts/audit_cpp_conventions.py --root dist --scope .
 # 4) syntax-check the consumer
-cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHs-c- /GR- /D_HAS_EXCEPTIONS=0 /I dist dist/examples/check.cpp
+cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHsc /GR- /D_HAS_EXCEPTIONS=1 /I dist dist/examples/check.cpp
 # 5) configure, link, and execute a temporary Debug/Release consumer
 python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Debug --generator "Visual Studio 18 2026" --generator-platform x64
 python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Release --generator "Visual Studio 18 2026" --generator-platform x64

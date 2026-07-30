@@ -49,11 +49,15 @@ BANNER = '''// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 #pragma once
 
-// ---- ABI guards: ACS is built with exceptions + RTTI disabled (no-STL engine).
-//      A consumer TU MUST match, or layouts/mangling diverge. Fail fast & clear.
+// ---- ABI guard: 公式SDKはDiligent同梱のためMSVCの例外有効STL ABIを使う。
+//      ACS sourceは例外を投げず、RTTIも無効のまま維持する。
+//      consumer翻訳単位も同じcompiler設定へ揃える。
 #if defined(_MSC_VER)
-  #if defined(_CPPUNWIND)
-    #error "ACS requires exceptions disabled. Compile with: /EHs-c- /D_HAS_EXCEPTIONS=0"
+  #if !defined(_CPPUNWIND)
+    #error "ACS SDK requires the Diligent exception ABI. Compile with: /EHsc /D_HAS_EXCEPTIONS=1"
+  #endif
+  #if !defined(_HAS_EXCEPTIONS) || _HAS_EXCEPTIONS != 1
+    #error "ACS SDK requires _HAS_EXCEPTIONS=1 to match Diligent"
   #endif
   #if defined(_CPPRTTI)
     #error "ACS requires RTTI disabled. Compile with: /GR-"

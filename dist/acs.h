@@ -8,11 +8,15 @@
 // =============================================================================
 #pragma once
 
-// ---- ABI guards: ACS is built with exceptions + RTTI disabled (no-STL engine).
-//      A consumer TU MUST match, or layouts/mangling diverge. Fail fast & clear.
+// ---- ABI guard: 公式SDKはDiligent同梱のためMSVCの例外有効STL ABIを使う。
+//      ACS sourceは例外を投げず、RTTIも無効のまま維持する。
+//      consumer翻訳単位も同じcompiler設定へ揃える。
 #if defined(_MSC_VER)
-  #if defined(_CPPUNWIND)
-    #error "ACS requires exceptions disabled. Compile with: /EHs-c- /D_HAS_EXCEPTIONS=0"
+  #if !defined(_CPPUNWIND)
+    #error "ACS SDK requires the Diligent exception ABI. Compile with: /EHsc /D_HAS_EXCEPTIONS=1"
+  #endif
+  #if !defined(_HAS_EXCEPTIONS) || _HAS_EXCEPTIONS != 1
+    #error "ACS SDK requires _HAS_EXCEPTIONS=1 to match Diligent"
   #endif
   #if defined(_CPPRTTI)
     #error "ACS requires RTTI disabled. Compile with: /GR-"
@@ -3653,8 +3657,6 @@ int MemCmp(const void* Left, const void* Right, usize Size) noexcept;
 
 // ===================== container/Span.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 連続メモリ領域への非所有ビュー（std::span 代替）。
-// 所有権を持たないため、参照先のライフタイムに注意すること。
 
 
 namespace acs {
@@ -3774,8 +3776,25 @@ public:
      * @return [offset, offset+count) を指す部分ビュー。
      */
     constexpr TSpan SubSpan(usize offset, usize count) const noexcept {
-        ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);  // 加算ラップしない形で範囲検査
+        // 加算ラップしない形で範囲を検査する。
+        ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);
         return TSpan(offset == 0u ? m_Data : m_Data + offset, count);
+    }
+
+    /**
+     * 範囲が妥当な場合だけ部分ビューを返す。
+     *
+     * @details 外部入力の decode で assert に依存せず、null と加算 overflow を
+     * fail-closed に拒否する。失敗時は out を変更しない。
+     * @param offset 開始要素位置。
+     * @param count 取得要素数。
+     * @param out 成功時の部分ビュー格納先。
+     * @return 範囲が有効なら true。
+     */
+    constexpr bool TrySubSpan(usize offset, usize count, TSpan& out) const noexcept {
+        if ((m_Data == nullptr && m_Size != 0u) || offset > m_Size || count > m_Size - offset) return false;
+        out = TSpan(offset == 0u ? m_Data : m_Data + offset, count);
+        return true;
     }
 
 private:
@@ -5444,11 +5463,30 @@ private:
 
 // ===================== ecs/Entity.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// エンティティ ID（世代付きハンドル）
-//
-// FEntityId は 64 ビットで「インデックス + 世代」を表す。
-// 同じインデックスが再利用されても世代が違うので、古い ID を使うと検出できる。
 
+
+// ===================== foundation/GenerationHandleLayoutTraits.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <cstddef>
+
+namespace acs {
+
+/**
+ * 世代付きハンドルの物理配置情報を公開する trait。
+ *
+ * @details 各ハンドル固有の無効値・生存判定・再利用規則は統一せず、ABI 監査に必要な
+ * identity と generation の位置・幅だけを特殊化側から提供する。
+ * @tparam T 検査対象のハンドル型。
+ */
+template<typename T>
+struct TGenerationHandleLayoutTraits {
+    /** 対象型に物理配置 trait が定義されているか。 */
+    static constexpr bool kAvailable = false;
+};
+
+} // namespace acs
 
 namespace acs {
 
@@ -5493,6 +5531,27 @@ struct FEntityId {
     constexpr bool operator!=(FEntityId o) const noexcept { return !(*this == o); }
 };
 
+/** FEntityId の 32bit identity/generation 物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FEntityId> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** entity identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FEntityId, index);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FEntityId, generation);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FEntityId::index);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FEntityId::generation);
+    /** domain prefix を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FEntityId);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FEntityId);
+};
+
 /** 無効な FEntityId (戻り値や初期値で使う番兵)。 */
 inline constexpr FEntityId kInvalidEntity = FEntityId{0xFFFFFFFFu, 0};
 
@@ -5500,11 +5559,6 @@ inline constexpr FEntityId kInvalidEntity = FEntityId{0xFFFFFFFFu, 0};
 
 // ===================== ecs/ComponentId.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// コンポーネント型 ID の取得（型ごとに一意な番号を割り当てる）
-//
-// 仕組み: GetComponentTypeId<T>() を呼ぶと、初回呼び出し時に新しい u32 を割り当てる。
-//         以降は同じ値を返すので、コンポーネント T → ストレージ配列のインデックス
-//         として使える。
 
 
 // ===================== threading/Atomic.h =====================
@@ -6081,9 +6135,11 @@ namespace ecs_detail {
 /** 全 T 共通の採番カウンタ (次に割り当てる ID を保持)。 */
 inline TAtomic<u32> g_next_component_type_id{0};
 
+/** 型署名文字列を FNV-1a でハッシュ化する。 */
 constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
 {
-    ComponentSignatureId hash = 14695981039346656037ull; // FNV-1a の途中値。
+    /** FNV-1a の途中値。 */
+    ComponentSignatureId hash = 14695981039346656037ull;
     while (*text != '\0') {
         hash ^= static_cast<u8>(*text++);
         hash *= 1099511628211ull;
@@ -6091,6 +6147,7 @@ constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
     return hash;
 }
 
+/** コンパイラが生成する型署名からコンポーネント署名を作る。 */
 template<typename T>
 constexpr ComponentSignatureId StaticComponentSignature() noexcept
 {
@@ -6102,6 +6159,7 @@ constexpr ComponentSignatureId StaticComponentSignature() noexcept
 }
 } // namespace ecs_detail
 
+/** 型ごとに実行時 ID を一度だけ割り当てて返す。 */
 template<typename T>
 ComponentTypeId GetComponentTypeId() noexcept;
 
@@ -6113,14 +6171,17 @@ ComponentTypeId GetComponentTypeId() noexcept;
  */
 template<typename T>
 struct TComponentTypeTraits {
+    /** コンパイル時に求めた型署名。 */
     static constexpr ComponentSignatureId Signature = ecs_detail::StaticComponentSignature<T>();
 
+    /** World 内部で使う密な実行時 ID を返す。 */
     static ComponentTypeId RuntimeId() noexcept
     {
         return GetComponentTypeId<T>();
     }
 };
 
+/** 型 T のコンパイル時署名を返す。 */
 template<typename T>
 constexpr ComponentSignatureId GetComponentSignatureId() noexcept
 {
@@ -6158,9 +6219,6 @@ ComponentTypeId GetComponentTypeId() noexcept {
 //   ・Add / Remove / Contains が O(1)
 //   ・全要素の走査がキャッシュフレンドリーな密配列の線形走査
 
-#if ACS_ARCH_X64
-#    include <immintrin.h>
-#endif
 
 namespace acs {
 
@@ -6213,22 +6271,6 @@ public:
      * @return dense_index → entity_index 配列の先頭 (要素数は Size())。
      */
     const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
-
-    /**
-     * 後続の IndexOf に備えて sparse 対応表の一要素をキャッシュへ先読みする。
-     *
-     * @param entity_index 先読みするエンティティのスロット番号。
-     */
-    void PrefetchSparse(u32 entity_index) const noexcept {
-        if (entity_index >= m_Sparse.Size()) return;
-#if ACS_ARCH_X64
-        _mm_prefetch(reinterpret_cast<const char*>(m_Sparse.Data() + entity_index), _MM_HINT_T0);
-#elif defined(__GNUC__) || defined(__clang__)
-        __builtin_prefetch(m_Sparse.Data() + entity_index, 0, 3);
-#else
-        (void)entity_index;
-#endif
-    }
 
     /**
      * 型を知らずに指定エンティティの値を削除する (FWorld::Destroy から呼ぶ)。
@@ -6668,19 +6710,6 @@ private:
 
 // ===================== asset/AssetRegistry.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// アセットレジストリ（パスからロードして共有保持する）
-//
-// 使い方:
-//   FAssetRegistry reg;
-//   reg.RegisterLoader(MakeShared<FBinaryAssetLoader>().Get());
-//
-//   auto r = reg.Load(L"data/save.bin");
-//   if (r.IsOk()) {
-//       TSharedPtr<FAsset> a = r.Value();
-//       // a を保持し続ければレジストリ内部でもキャッシュされる
-//   }
-//
-//   // 同じパスで再度 Load すれば同じ TSharedPtr を返す（キャッシュヒット）
 
 
 // ===================== memory/SharedPtr.h =====================
@@ -7599,6 +7628,32 @@ public:
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== threading/ParallelForDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** ParallelFor の一時 context 格納経路と同時使用量を観測する診断値。 */
+struct FParallelForDiagnostics {
+    /** 固定長 stack 領域だけで完了した呼び出し数。 */
+    u64 inline_calls = 0u;
+
+    /** 固定 free-list から取得した context block 数。 */
+    u64 pool_blocks = 0u;
+
+    /** 現在貸し出している context block 数。 */
+    u64 pool_blocks_in_use = 0u;
+
+    /** 同時に貸し出した context block 数の最大値。 */
+    u64 pool_blocks_high_water = 0u;
+
+    /** 固定 free-list 枯渇後に OS heap へ退避した context block 数。 */
+    u64 heap_blocks = 0u;
+};
+
+} // namespace acs
+
 // ===================== threading/ThreadPoolDiagnostics.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -7779,7 +7834,10 @@ public:
     /** 現在の同期・割り当て診断値をスナップショットとして返す。 */
     static FThreadPoolDiagnostics Diagnostics() noexcept;
 
-    /** 診断カウンタだけを 0 に戻す。投入済みタスクには影響しない。 */
+    /** ParallelFor の一時 context 格納診断値をスナップショットとして返す。 */
+    static FParallelForDiagnostics CaptureParallelForDiagnostics() noexcept;
+
+    /** ThreadPool と ParallelFor の診断カウンタを 0 に戻す。投入済みタスクには影響しない。 */
     static void ResetDiagnostics() noexcept;
 
     /** ワーカー以外のスレッドを表す番兵インデックス。 */
@@ -7858,6 +7916,8 @@ public:
     /**
      * 範囲 [begin, end) を grain サイズに分割して並列実行し、完了まで待つ。
      *
+     * @details 32 chunk までは呼び出し stack、超過分は固定 block pool を使い、
+     * pool 枯渇時だけ OS heap へ退避する。全 context は Wait 完了まで保持される。
      * @param begin 範囲の開始インデックス (含む)。
      * @param end 範囲の終了インデックス (含まない)。
      * @param grain 1 チャンクが処理する要素数 (0 は 1 に補正)。
@@ -8019,6 +8079,182 @@ private:
 
 } // namespace acs
 
+// ===================== asset/AssetPathInterner.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== asset/AssetPathInternerDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** アセットパス共有プールの累積診断値。 */
+struct FAssetPathInternerDiagnostics {
+    /** Intern 呼び出し数。 */
+    u64 request_count = 0u;
+
+    /** 既存文字列を共有した回数。 */
+    u64 hit_count = 0u;
+
+    /** 新しい文字列を生成した回数。 */
+    u64 miss_count = 0u;
+
+    /** 未使用の保持文字列を追い出した回数。 */
+    u64 eviction_count = 0u;
+
+    /** 上限到達時に非保持の共有文字列を返した回数。 */
+    u64 bypass_count = 0u;
+
+    /** 現在保持している文字列数。 */
+    u64 retained_path_count = 0u;
+
+    /** 現在保持している NUL 込み文字数。 */
+    u64 retained_code_units = 0u;
+};
+
+} // namespace acs
+
+// ===================== asset/InternedAssetPath.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * 非同期ロード間で共有する不変アセットパス。
+ *
+ * @details 生成後に文字列を変更せず、共有参照が残る間はパスの寿命を保証する。
+ */
+class FInternedAssetPath {
+public:
+    /** 指定アロケータで空のパスを構築する。 */
+    FInternedAssetPath(FAllocator& Allocator, FAssetId Id) noexcept;
+
+    /** パス文字列を一度だけ設定する。 */
+    bool TryInitialize(const wchar_t* Path, usize Length) noexcept;
+
+    /** NUL 終端されたパスを返す。 */
+    const wchar_t* Path() const noexcept;
+
+    /** NUL を除く文字数を返す。 */
+    usize Length() const noexcept;
+
+    /** パスから計算済みのアセット ID を返す。 */
+    FAssetId Id() const noexcept;
+
+    /** 指定文字列と完全一致するかを返す。 */
+    bool Equals(const wchar_t* Path, usize Length) const noexcept;
+
+private:
+    /** NUL 終端を含む所有文字列。 */
+    TArray<wchar_t> m_Units;
+
+    /** パスから計算したアセット ID。 */
+    FAssetId m_Id{};
+};
+
+} // namespace acs
+
+namespace acs {
+
+/** 保持するアセットパス数の上限。 */
+inline constexpr usize kAssetPathInternerMaxEntries = 256u;
+
+/** 保持する NUL 込み文字数の上限。 */
+inline constexpr usize kAssetPathInternerMaxCodeUnits = 64u * 1024u;
+
+/** Intern に空パスが渡された。 */
+inline constexpr u16 kAssetPathInternerSubInvalidPath = 14u;
+
+/** 異なる完全パスが同じ FAssetId になった。 */
+inline constexpr u16 kAssetPathInternerSubHashCollision = 15u;
+
+/** 共有パスまたは table の確保に失敗した。 */
+inline constexpr u16 kAssetPathInternerSubOutOfMemory = 16u;
+
+/**
+ * アセットパスを有界に共有する所有プール。
+ *
+ * @details 未使用要素だけを追い出し、使用中パスのアドレスと寿命を維持する。
+ */
+class FAssetPathInterner {
+public:
+    /** デフォルトアロケータで空のプールを構築する。 */
+    FAssetPathInterner() noexcept;
+
+    /** 指定アロケータで空のプールを構築する。 */
+    explicit FAssetPathInterner(FAllocator& Allocator) noexcept;
+
+    /** コピーを禁止する。 */
+    FAssetPathInterner(const FAssetPathInterner&) = delete;
+
+    /** コピー代入を禁止する。 */
+    FAssetPathInterner& operator=(const FAssetPathInterner&) = delete;
+
+    /**
+     * 検証済みパスを共有する。
+     *
+     * @param Path NUL 終端されたパス。
+     * @param Length NUL を除く文字数。
+     * @return 共有パス。確保失敗またはハッシュ衝突時はエラー。
+     */
+    TResult<TSharedPtr<FInternedAssetPath>> Intern(const wchar_t* Path, usize Length) noexcept;
+
+    /** 累積診断値を一括取得する。 */
+    FAssetPathInternerDiagnostics Diagnostics() const noexcept;
+
+    /** 保持参照を解放し、診断値を初期化する。 */
+    void Reset() noexcept;
+
+private:
+    /** 必要量を収めるため未使用要素を追い出す。 */
+    void EvictUnusedUntilFit(usize RequiredCodeUnits) noexcept;
+
+    /** 共有オブジェクトの確保元。 */
+    FAllocator* m_Allocator = nullptr;
+
+    /** パス ID ごとの共有文字列。 */
+    THashMap<FAssetId, TSharedPtr<FInternedAssetPath>> m_Paths;
+
+    /** 共有プールと診断値を保護する。 */
+    mutable FMutex m_Lock;
+
+    /** 累積診断値。 */
+    FAssetPathInternerDiagnostics m_Diagnostics{};
+};
+
+} // namespace acs
+
+// ===================== asset/AssetRegistryDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** アセットレジストリのロード共有診断値。 */
+struct FAssetRegistryDiagnostics {
+    /** 有効な LoadAsync 呼び出し数。 */
+    u64 async_request_count = 0u;
+
+    /** 進行中の同一ロードへ合流した回数。 */
+    u64 async_coalesced_count = 0u;
+
+    /** 実際に投入した非同期ジョブ数。 */
+    u64 async_job_count = 0u;
+
+    /** 実際に開始したファイル読込数。 */
+    u64 physical_file_read_count = 0u;
+
+    /** キャッシュから返した同期・非同期要求数。 */
+    u64 cache_hit_count = 0u;
+
+    /** パス共有プールの診断値。 */
+    FAssetPathInternerDiagnostics path_interner{};
+};
+
+} // namespace acs
+
 namespace acs {
 
 /** Registry が同期/非同期で完全に所有できる OS path の最大 code unit 数。 */
@@ -8054,7 +8290,7 @@ public:
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
     explicit FAssetRegistry(FAllocator& allocator) noexcept
-        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator)
+        : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator), m_PathInterner(allocator)
     {
     }
 
@@ -8103,6 +8339,9 @@ public:
      * @return 完了確認用の FAssetFuture。
      */
     FAssetFuture LoadAsync(const wchar_t* path) noexcept;
+
+    /** ロード共有とパス保持の累積診断値を一括取得する。 */
+    FAssetRegistryDiagnostics Diagnostics() const noexcept;
 
     /**
      * 新規ロード受付を閉じ、処理中の同期・非同期ロードを待って全キャッシュを解放する。
@@ -8159,7 +8398,7 @@ private:
     IAssetLoader* FindLoader(const wchar_t* path) noexcept;
 
     /** キャッシュ・ローダ配列を保護する FMutex。 */
-    FMutex                          m_Lock;
+    mutable FMutex                  m_Lock;
 
     /** ID をキーにしたアセットキャッシュ。 */
     THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
@@ -8174,6 +8413,24 @@ private:
 
     /** 登録済みローダ (非所有ポインタ)。 */
     TArray<IAssetLoader*>           m_Loaders;
+
+    /** 非同期ジョブと再要求で共有する有界パス所有プール。 */
+    FAssetPathInterner m_PathInterner;
+
+    /** 有効な非同期要求数。 */
+    u64 m_AsyncRequestCount = 0u;
+
+    /** 進行中ジョブへ合流した非同期要求数。 */
+    u64 m_AsyncCoalescedCount = 0u;
+
+    /** 実際に投入した非同期ジョブ数。 */
+    u64 m_AsyncJobCount = 0u;
+
+    /** 実際に開始したファイル読込数。 */
+    u64 m_PhysicalFileReadCount = 0u;
+
+    /** キャッシュから返した要求数。 */
+    u64 m_CacheHitCount = 0u;
 
     /** Shutdown が新規ロード受付を閉じた後は true (m_Lock で保護)。 */
     bool m_Closing = false;
@@ -10677,6 +10934,27 @@ struct FTimerHandle {
     }
 };
 
+/** FTimerHandle の 32bit identity/generation 物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FTimerHandle> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** timer identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FTimerHandle, id);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FTimerHandle, generation);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FTimerHandle::id);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FTimerHandle::generation);
+    /** domain prefix を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FTimerHandle);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FTimerHandle);
+};
+
 /** 無効な FTimerHandle (戻り値や初期値で使う番兵)。 */
 inline constexpr FTimerHandle kInvalidTimer{};
 
@@ -10941,6 +11219,27 @@ struct FSubscriptionHandle {
     bool operator==(const FSubscriptionHandle& o) const noexcept {
         return channel == o.channel && id == o.id && generation == o.generation;
     }
+};
+
+/** FSubscriptionHandle の channel prefix 付き物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FSubscriptionHandle> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** channel 後にある購読 identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FSubscriptionHandle, id);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FSubscriptionHandle, generation);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FSubscriptionHandle::id);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FSubscriptionHandle::generation);
+    /** identity より前にある channel prefix の byte 幅。 */
+    static constexpr usize kDomainPrefixBytes = offsetof(FSubscriptionHandle, id);
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FSubscriptionHandle);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FSubscriptionHandle);
 };
 
 /** 無効な FSubscriptionHandle (戻り値や初期値で使う番兵)。 */
@@ -14219,98 +14518,17 @@ public:
 
 // ===================== assetpack/AcpakFormat.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS AssetPack — `.acpak` v1 ファイルフォーマット bit-precise 定義
-// -----------------------------------------------------------------------------
-// `.acpak` は ACS が「アセット流出のカジュアル防止 + 完全性検証」を行うため
-// の独自アーカイブフォーマット。「raw bytes + CRC32 検証」のレイアウトに加え、
-// AES-256-GCM (Windows CNG) 暗号化 + LZ4 圧縮を同フレーム内で扱える。
-//
-// ヘッダ + ファイルデータ + ファイルテーブル の 3 セクション構成:
-//
-//   offset  size  field                  説明
-//   ------  ----  ---------------------  -----------------------------------
-//   0x00     8    magic                  "ACPAK\0\0\0" (kAcpakMagic)
-//   0x08     4    version                u32 = kAcpakVersion (= 1)
-//   0x0C     4    flags                  u32 (EAcpakFlags bitfield)
-//   0x10     4    file_count             u32
-//   0x14     4    padding                u32 = 0 (align(8) で file_table_offset
-//                                                を 8 バイト境界に乗せる)
-//   0x18     8    file_table_offset      u64 (アーカイブ先頭からのオフセット)
-//   0x20     4    reserved               u32 = 0
-//   0x24     -    (拡張領域)
-//
-//   [file 0 data] ... [file N-1 data]   (各 entry の offset/size に基づき配置)
-//
-//   [file table]:
-//     for each file:
-//       path_len            : u32 (UTF-16 ワイド文字数、NUL 含まず)
-//       path                : wchar_t[path_len] (UTF-16LE、NUL 含まず)
-//       offset              : u64 (アーカイブ先頭からのオフセット)
-//       size_uncompressed   : u64 (復号 + 解凍後のバイト数)
-//       size_stored         : u64 (アーカイブ上の生バイト数 = 圧縮+暗号化済サイズ)
-//       crc32               : u32 (size_uncompressed バイトに対する CRC32、
-//                                  poly=0xEDB88320, init=0xFFFFFFFF, xorout=
-//                                  0xFFFFFFFF)
-//       cipher_nonce[12]    : (only if header.flags & AcpakFlagEncrypted)
-//                              AES-256-GCM 用 per-file nonce。CSPRNG で生成。
-//       cipher_tag[16]      : (only if header.flags & AcpakFlagEncrypted)
-//                              AES-256-GCM 認証タグ。Encrypt 時に書き出し、
-//                              Decrypt 時に検証。
-//
-//   下位互換: header.flags & AcpakFlagEncrypted == 0 のときは cipher_nonce /
-//   cipher_tag を file table に書かない (= v1 raw レイアウトと完全一致)。
-//   FAcpakReader::Open は flags を見て分岐するので、v1 で作成した .acpak は
-//   v2 ライブラリでもそのまま読める。
-//
-// 全数値は little-endian、host 側もすべて little-endian 前提 (ACS 対応プラット
-// フォームは Win/x64 と将来の ARM64 = little-endian only)。
-//
-// 設計上の注記:
-//   ・wchar_t = UTF-16 (Windows convention) を採用。Win32 CreateFileW と直結
-//     できるため、`.acpak` 内のパス仕様もそのまま wchar_t* で扱う。
-//   ・magic は人間可読 8 バイト ("ACPAK\0\0\0")。version はそれと独立した u32。
-//     TSaveSlot.h の "ACSV" は 4 バイト magic だが、AssetPack はマウント検査が
-//     より頻繁・高負荷なので 8 バイトの強い signature を採る。
-//   ・file_table は「ファイルデータの後 (末尾)」に配置する。これにより
-//     Writer はストリーミング書き込みできる (AddFile 中はテーブルをメモリ上に
-//     貯め、Finalize で末尾に書き出す)。
-//   ・CRC32 は size_uncompressed バイト (= 復号 + 解凍後の生データ) に対して
-//     計算する。圧縮/暗号化の有無に関わらず検証仕様が変わらないよう
-//     「uncompressed バイトに対する CRC」と固定する。
-// =============================================================================
 
 
 namespace acs::assetpack {
 
-/**
- * `.acpak` ファイル先頭 8 バイトの magic = "ACPAK\0\0\0"。
- *
- * @details
- * Reader は CreateFileW 直後にこの 8 バイトと一致するかを最初に検査する。
- * reinterpret_cast<u64>(...) のような alias 越え比較は strict-aliasing を
- * 破るため避け、必ず memcmp / バイト列比較で検査する。
- */
-inline constexpr u8 kAcpakMagic[8] = {
-    'A', 'C', 'P', 'A', 'K', '\0', '\0', '\0'
-};
+/** `.acpak` 先頭の固定 8-byte magic。 */
+inline constexpr u8 kAcpakMagic[8] = {'A', 'C', 'P', 'A', 'K', '\0', '\0', '\0'};
 
-/**
- * 現在のフォーマットバージョン (= 1)。
- *
- * @details
- * flags の bit を追加することで後方互換を保つ (reader は flags の未知 bit を
- * 見つけた場合のみエラーを返す)。互換破壊する変更を行うときにだけ 2 に上げる。
- */
+/** 現在の互換 format version。 */
 inline constexpr u32 kAcpakVersion = 1u;
 
-/**
- * header.flags の bitfield。pipeline は compress-then-encrypt 順。
- *
- * @details
- * 書き込みは compress-then-encrypt、読み出しはその逆順の
- * decrypt-then-decompress。Reader/Writer は flags を見て pipeline を組み立てる。
- */
+/** package の圧縮・暗号化 flag。 */
 enum EAcpakFlags : u32 {
     /** フラグなし (= 生バイト + CRC32 のみ、v1 raw レイアウト)。 */
     AcpakFlagNone        = 0u,
@@ -14322,16 +14540,7 @@ enum EAcpakFlags : u32 {
     AcpakFlagCompressed  = 1u << 1,
 };
 
-/**
- * アーカイブ先頭に書き込まれる固定長ヘッダ POD。
- *
- * @details
- * 全フィールド little-endian。file_table_offset の前に padding u32 を入れて
- * u64 を 8B 境界に揃える (一部 ARM プロセッサは unaligned u64 read で fault を
- * 起こすため)。reinterpret_cast による直接読込は禁止し、Reader/Writer は明示的に
- * バイト列を memcpy で読み出す (Hash.cpp と同じ流儀)。ディスク I/O は
- * kAcpakHeaderDiskSize (= 36) を用いて行う。
- */
+/** archive 先頭の little-endian 固定 header。 */
 struct FAcpakHeader {
     /** magic = kAcpakMagic ("ACPAK\0\0\0")。 */
     u8  magic[8];
@@ -14355,25 +14564,10 @@ struct FAcpakHeader {
     u32 reserved;
 };
 
-/**
- * ヘッダのディスク上サイズ (= 36 バイト)。
- *
- * @details
- * magic(8) + version(4) + flags(4) + file_count(4) + padding(4) = 24 で
- * file_table_offset(8) は 8B 境界に揃い、+8 = 32、+ reserved(4) = 36。
- * sizeof(FAcpakHeader) は処理系の構造体パディングで 40 になり得るため、I/O は
- * 必ずこの定数を使って 36 バイトで読み書きする。
- */
+/** header の disk 上固定 byte 数。 */
 inline constexpr usize kAcpakHeaderDiskSize = 36;
 
-/**
- * 暗号化フラグ立ち時に各 entry が file table に追加で持つバイト数 (= 28)。
- *
- * @details
- * cipher_nonce(12) + cipher_tag(16) = 28。Reader/Writer は
- * header.flags & AcpakFlagEncrypted のときだけこの 28 バイトを読み書きする。
- * v1 (flags=0) では 0 バイト = レイアウト変更なし。
- */
+/** 暗号化 entry が追加で持つ nonce と tag の byte 数。 */
 inline constexpr usize kAcpakCipherFieldsDiskSize = 12u + 16u;
 
 /** 1 つの pak に格納できる entry 数の防御的上限。 */
@@ -14388,23 +14582,56 @@ inline constexpr usize kAcpakMaxPathPoolBytes = 256u * 1024u * 1024u;
 /** Writer の出力先 OS パスに許す UTF-16 code unit 数 (NUL を含まない)。 */
 inline constexpr usize kAcpakMaxOutputPathLength = 1023u;
 
-static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8,
-              "Fixed-width integer types broken");
-static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8,
-              "FAcpakHeader::magic must be 8 bytes");
+/** `.acpak` 仮想 path が永続化可能な正規形かを返す。 */
+inline bool IsCanonicalAcpakVirtualPath(const wchar_t* Path, usize Length) noexcept
+{
+    if (Path == nullptr || Length == 0u || Path[0] == L'/' || Path[Length - 1u] == L'/') {
+        return false;
+    }
 
-/**
- * Reader が file table から構築する in-memory のファイルエントリ表現。
- *
- * @details
- * アーカイブ上のレイアウトとは形が異なる (path はディスク上では path_len +
- * wchar_t[path_len] の可変長だが、ここでは Reader 内の文字列 pool を指す
- * const wchar_t* として保持する)。path は Reader が Open した時点から Close
- * までだけ有効で、Close 後のアクセスは UB。cipher_nonce / cipher_tag は
- * AcpakFlagEncrypted が立った pak でのみディスクから読み込まれ、flags=0 (v1) の
- * pak ではゼロクリアされる。AES-256-GCM 規格上 nonce は 96bit (12B)、tag は
- * 128bit (16B) 固定。
- */
+    /** 現在の segment が始まる code unit 位置。 */
+    usize SegmentStart = 0u;
+    for (usize Index = 0u; Index < Length; ++Index) {
+        /** 今回検証する UTF-16 code unit。 */
+        const wchar_t Character = Path[Index];
+        if (Character == L'\0' || Character < 0x20 || Character == L'\\' || Character == L':') {
+            return false;
+        }
+        if (Character >= 0xD800 && Character <= 0xDBFF) {
+            if (Index + 1u >= Length || Path[Index + 1u] < 0xDC00 || Path[Index + 1u] > 0xDFFF) {
+                return false;
+            }
+            ++Index;
+            continue;
+        }
+        if (Character >= 0xDC00 && Character <= 0xDFFF) {
+            return false;
+        }
+        if (Character != L'/') continue;
+
+        /** 区切り直前までの segment 長。 */
+        const usize SegmentLength = Index - SegmentStart;
+        if (SegmentLength == 0u || (SegmentLength == 1u && Path[SegmentStart] == L'.') || (SegmentLength == 2u && Path[SegmentStart] == L'.' && Path[SegmentStart + 1u] == L'.')) {
+            return false;
+        }
+        SegmentStart = Index + 1u;
+    }
+
+    /** 最後の segment 長。 */
+    const usize LastLength = Length - SegmentStart;
+    return !((LastLength == 1u && Path[SegmentStart] == L'.') || (LastLength == 2u && Path[SegmentStart] == L'.' && Path[SegmentStart + 1u] == L'.'));
+}
+
+/** 正規形の UTF-16 path を完全一致規則のまま hash する。 */
+inline u64 HashCanonicalAcpakVirtualPath(const wchar_t* Path, usize Length) noexcept
+{
+    return HashBytes(Path, Length * sizeof(wchar_t));
+}
+
+static_assert(sizeof(u8) == 1 && sizeof(u32) == 4 && sizeof(u64) == 8, "Fixed-width integer types broken");
+static_assert(sizeof(((FAcpakHeader*)0)->magic) == 8, "FAcpakHeader::magic must be 8 bytes");
+
+/** Reader が manifest から構築して Close まで保持する entry。 */
 struct FAcpakFileEntry {
     /** Reader 内文字列 pool への参照 (Close まで有効)。 */
     const wchar_t* path;
@@ -14427,10 +14654,6 @@ struct FAcpakFileEntry {
     /** AES-256-GCM 認証タグ (encrypted pak のみ有効、それ以外は 0)。 */
     u8             cipher_tag[16];
 };
-
-// AssetPack の subcode は ErrCategory::IO / ErrCategory::Asset 配下で
-// 1300 番台を使う。TSaveSlot (1-99) / FSteamworksBridge (1001-1099) /
-// WorkshopBridge (1101-1199) / AssetPack stub (1200 番台) とは重ならない。
 
 /** 先頭 8 バイトが kAcpakMagic でない (= .acpak でない)。 */
 inline constexpr u16 kAcpakSubBadMagic         = 1301;
@@ -14490,36 +14713,10 @@ inline constexpr u16 kAcpakSubAtomicReplace    = 1318;
 
 // ===================== assetpack/AcpakGameBridge.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Concrete GameFramework bridge for `.acpak`.
 
 
 // ===================== assetpack/AcpakReader.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS AssetPack — `.acpak` v1 アーカイブ読み出し器
-// -----------------------------------------------------------------------------
-// 1 つの `.acpak` ファイルを開き、含まれる仮想ファイルを名前 (wchar_t*) で
-// 取り出すための実装クラス。GameFramework の `IAssetPackReader` とは
-// 独立して動作する。
-//
-// 使い方の典型例:
-//   acs::assetpack::FAcpakReader reader;
-//   auto r = reader.Open(L"game.acpak");
-//   if (r.IsErr()) { /* マウント失敗 */ }
-//
-//   auto sz = reader.GetUncompressedSize(L"textures/hero.png");
-//   if (sz.IsOk()) {
-//       acs::byte* buf = MyAllocator().Allocate(sz.Value());
-//       auto rd = reader.ReadFile(L"textures/hero.png", buf, sz.Value());
-//       if (rd.IsOk()) { /* buf に PNG 生バイト */ }
-//   }
-//
-//   reader.Close();
-//
-// 非コピー・非ムーブ:
-//   ファイルハンドル + 文字列 pool + entry 配列を所有しているため、所有権移転は
-//   サポートしない。Reader インスタンスは固定アドレスでライフタイム管理する。
-// =============================================================================
 
 
 // ===================== threading/RwLock.h =====================
@@ -14593,16 +14790,67 @@ private:
 } // namespace acs
 
 
+// ===================== assetpack/AcpakReadDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::assetpack {
+
+/** 読み取り用ファイルマッピングを作る最小パッケージサイズ。 */
+inline constexpr u64 kAcpakMappedReadMinimumBytes = 256u * 1024u;
+
+/** Reader が保持して再利用する一時領域の最大サイズ。 */
+inline constexpr usize kAcpakRetainedScratchMaxBytes = 16u * 1024u * 1024u;
+
+/** 一度に受け付けるパッケージ読み取り要求数の上限。 */
+inline constexpr u32 kAcpakReadBatchMaxEntries = 1024u;
+
+/** パッケージ読み取り経路の累積診断値。 */
+struct FAcpakReadDiagnostics {
+    /** 不変マッピングから読んだ回数。 */
+    u64 mapped_read_count = 0u;
+
+    /** 不変マッピングから読んだ格納バイト数。 */
+    u64 mapped_read_bytes = 0u;
+
+    /** ReadFile を使った回数。 */
+    u64 buffered_read_count = 0u;
+
+    /** ReadFile を使って読んだ格納バイト数。 */
+    u64 buffered_read_bytes = 0u;
+
+    /** 保持一時領域を再利用した回数。 */
+    u64 scratch_reuse_count = 0u;
+
+    /** 競合または上限超過で局所一時領域を使った回数。 */
+    u64 scratch_fallback_count = 0u;
+
+    /** 複数要求 API の呼び出し数。 */
+    u64 batch_count = 0u;
+
+    /** 複数要求 API で処理した要素数。 */
+    u64 batch_entry_count = 0u;
+
+    /** 現在保持している一時領域の容量。 */
+    u64 retained_scratch_bytes = 0u;
+
+    /** 現在不変ファイルマッピングを利用できるか。 */
+    bool mapped_view_active = false;
+};
+
+} // namespace acs::assetpack
+
 namespace acs::assetpack {
 
 /**
  * 1 つの `.acpak` を開き、含まれる仮想ファイルを名前で取り出す Reader。
  *
  * @details
- * header と file table を読み込み、各 path を内部の文字列 pool に保持して
- * 名前 (wchar_t*) で検索・読み出しする。ファイルハンドル + 文字列 pool +
- * entry 配列を所有するため non-copy / non-move で、固定アドレスでライフタイムを
- * 管理する。GameFramework の IAssetPackReader とは独立に動作する。
+ * header と file table を読み込み、各 path を内部の文字列 pool に保持する。
+ * manifest 読み込み時に正規形 path の hash を一度だけ保持し、検索時は hash
+ * 一致候補だけを完全比較する。ファイルハンドル + 文字列 pool + entry 配列を
+ * 所有するため non-copy / non-move で、固定アドレスでライフタイムを管理する。
+ * GameFramework の IAssetPackReader とは独立に動作する。
  */
 class FAcpakReader {
 public:
@@ -14636,8 +14884,9 @@ public:
      *
      * @details
      * file_path は UTF-16 (Windows convention)。成功すると以降の API が有効に
-     * なる。多重 Open は前回を自動 Close する。失敗時は内部状態が Close() 後と
-     * 同じになる (IsOpen() == false)。暗号化 pak (AcpakFlagEncrypted) は Open の
+     * なる。多重 Open は新しい pak の検証完了後にだけ前回の状態を置換する。
+     * 失敗時は現在の handle・manifest・鍵を維持し、未 Open なら未 Open のままにする。
+     * 暗号化 pak (AcpakFlagEncrypted) は Open の
      * 前に SetKey() で鍵を与えておく必要がある (Open 自体は header と file table
      * = nonce/tag を含む までしか読まないので鍵不要だが、鍵なしで encrypted pak
      * の ReadFile を呼ぶと kAcpakSubCryptoKey を返す)。失敗時は
@@ -14690,11 +14939,12 @@ public:
     const FAcpakFileEntry* GetEntry(u32 Index) const noexcept;
 
     /**
-     * 仮想パスから entry を探す。
+     * 正規形の仮想パスから entry を探す。
      *
      * @details
-     * 線形探索 (数百〜数千 entry 想定で十分高速)。比較は wcscmp 相当の完全一致。
-     * @param Path 探す仮想パス (UTF-16)。
+     * path hash を一回計算し、manifest 読み込み時に保持した hash と一致する
+     * 候補だけを wcscmp 相当で完全比較する。
+     * @param Path 探す正規形仮想パス (UTF-16)。
      * @return 見つかった entry (無い / 未 Open なら nullptr)。
      */
     const FAcpakFileEntry* FindEntry(const wchar_t* Path) const noexcept;
@@ -14712,6 +14962,26 @@ public:
      * @return 実際に書き込んだバイト数 (= size_uncompressed)、失敗ならエラー。
      */
     TResult<u64> ReadFile(const wchar_t* Path, void* OutBuffer, u64 BufferSize) noexcept;
+
+    /**
+     * 複数ファイルを要求順に読み取る。
+     *
+     * @details ライフサイクルロックと不変マッピングを一括共有し、要求順と検証順を
+     * 変えない。後続要素の失敗時も、それ以前の出力は commit 済みである。
+     * @param Paths 読み出す UTF-16 仮想パスの配列。
+     * @param OutBuffers 各要求の出力先バッファ配列。
+     * @param BufferSizes 各出力先の容量配列。
+     * @param Count 各配列の要素数。
+     * @param CompletedCount 任意。成功済み要素数を常に書き戻す。
+     * @return 全要求を読めた場合は総バイト数、引数不正、容量不足、検証失敗、I/O 失敗時はエラー。
+     */
+    TResult<u64> ReadFiles(const wchar_t* const* Paths, void* const* OutBuffers, const u64* BufferSizes, u32 Count, u32* CompletedCount = nullptr) noexcept;
+
+    /** 読み取りを完了境界で止め、relaxed カウンタ群を一括集約する。 */
+    FAcpakReadDiagnostics ReadDiagnostics() const noexcept;
+
+    /** 進行中の読み取り完了後、診断カウンタを決定的に初期化する。 */
+    void ResetReadDiagnostics() noexcept;
 
     /**
      * 仮想パスの復号 + 解凍後のバイト数を返す。
@@ -14751,6 +15021,32 @@ private:
     /** ライフサイクル共有ロック取得済みで entry を検索する。 */
     const FAcpakFileEntry* FindEntryUnlocked(const wchar_t* Path) const noexcept;
 
+    /** ライフサイクル共有ロック取得済みで一つの entry を読み取る。 */
+    TResult<u64> ReadEntryUnlocked(const FAcpakFileEntry& Entry, void* OutBuffer, u64 BufferSize) noexcept;
+
+    /** 現在の不変ファイルスナップショットへ読み取り専用マッピングを試す。 */
+    void TryCreateReadMappingUnlocked() noexcept;
+
+    /** 読み取り経路の relaxed 診断カウンタ群。 */
+    struct FReadDiagnosticCounters {
+        /** mapping から読んだ回数。 */
+        TAtomic<u64> MappedReadCount{0u};
+        /** mapping から読んだ格納 byte 数。 */
+        TAtomic<u64> MappedReadBytes{0u};
+        /** Win32 ReadFile で読んだ回数。 */
+        TAtomic<u64> BufferedReadCount{0u};
+        /** Win32 ReadFile で読んだ格納 byte 数。 */
+        TAtomic<u64> BufferedReadBytes{0u};
+        /** 保持 scratch を再利用できた回数。 */
+        TAtomic<u64> ScratchReuseCount{0u};
+        /** 局所 scratch へ fallback した回数。 */
+        TAtomic<u64> ScratchFallbackCount{0u};
+        /** batch read 呼び出し数。 */
+        TAtomic<u64> BatchCount{0u};
+        /** batch read で処理した要求数。 */
+        TAtomic<u64> BatchEntryCount{0u};
+    };
+
     /** Open/Close と読み出し処理の寿命を同期する。 */
     mutable FRwLock m_LifecycleLock;
 
@@ -14759,6 +15055,12 @@ private:
 
     /** Win32 HANDLE 相当 (<windows.h> を header から外すため void* で保持)。 */
     void* m_FileHandle = nullptr;
+
+    /** 読み取り専用 file mapping handle。作成失敗時は null。 */
+    void* m_FileMappingHandle = nullptr;
+
+    /** パッケージ全体の読み取り専用 view。作成失敗時は null。 */
+    const u8* m_MappedView = nullptr;
 
     /** CreateFileW 直後に GetFileSizeEx で得たファイル長。 */
     u64 m_FileSize = 0;
@@ -14772,6 +15074,9 @@ private:
     /** file table の in-memory 表現 (entry.path は m_StringPool を指す)。 */
     TArray<FAcpakFileEntry> m_Entries;
 
+    /** m_Entries と同じ index で保持する正規形仮想 path の hash。 */
+    TArray<u64> m_PathHashes;
+
     /** path 文字列の連結 pool (NUL 区切り)。 */
     TArray<wchar_t> m_StringPool;
 
@@ -14780,37 +15085,24 @@ private:
 
     /** SetKey で鍵が設定されたか (Close で false にリセット)。 */
     bool m_HasKey = false;
+
+    /** 小中規模の格納データを再利用する一時領域。 */
+    TArray<u8> m_StoredScratch;
+
+    /** 検証完了まで出力を保持する再利用領域。 */
+    TArray<u8> m_FinalScratch;
+
+    /** 保持一時領域を一呼び出しだけに貸し出す。 */
+    mutable FMutex m_ScratchLock;
+
+    /** correctness から独立した累積診断値。 */
+    FReadDiagnosticCounters m_ReadDiagnosticCounters;
 };
 
 } // namespace acs::assetpack
 
 // ===================== assetpack/AcpakWriter.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS AssetPack — `.acpak` v1 アーカイブ書き出し器
-// -----------------------------------------------------------------------------
-// 複数のバラのファイル (= バイト列) を 1 つの `.acpak` にまとめる Writer。
-// ツールビルド (= パッキングコマンド) から使うことを想定し、ランタイムは
-// FAcpakReader だけで足りる。
-//
-// 使い方の典型例:
-//   acs::assetpack::FAcpakWriter w;
-//   auto r = w.Open(L"out/game.acpak", acs::assetpack::AcpakFlagNone);
-//   if (r.IsErr()) { /* 開けない */ }
-//
-//   for (auto& asset : assets) {
-//       w.AddFile(asset.virtual_path, asset.bytes, asset.size);
-//   }
-//
-//   auto fin = w.Finalize();   // header + 全 data + file table を書き出す
-//   if (fin.IsErr()) { /* 書き出し失敗 */ }
-//   w.Close();                  // ハンドルを閉じる (Finalize 失敗時のロールバックもここ)
-//
-// 設計:
-//   ・AddFile は仮想パスとデータを内部 pending list にコピーする。実書き込みは
-//     Finalize 内で一気に行い、呼び出し側の入力寿命に依存しない。
-// 非コピー・非ムーブ。
-// =============================================================================
 
 
 
@@ -14893,10 +15185,11 @@ public:
      *
      * @details
      * virtual_path / data は呼び出し中に内部所有領域へコピーする。成功後は呼び出し側で
-     * 直ちに再利用または解放できる。size 0 のファイルも追加できる。Open 前 /
-     * Finalize 後に呼ぶと kAcpakSubNotOpen、data が null かつ size>0 は
+     * 直ちに再利用または解放できる。仮想 path は `/` 区切りの正規形だけを受け入れ、
+     * hash を一度保持して重複候補だけを完全比較する。size 0 のファイルも追加できる。
+     * Open 前 / Finalize 後に呼ぶと kAcpakSubNotOpen、data が null かつ size>0 は
      * kAcpakSubIOFailure。
-     * @param VirtualPath pak 内の仮想パス (UTF-16、wcscmp で検索される)。
+     * @param VirtualPath pak 内の正規形仮想パス (UTF-16、完全一致で検索される)。
      * @param Data 追加するファイルの生バイト列。
      * @param Size Data のバイト数。
      * @return 成功なら空の TResult、失敗ならエラー。
@@ -14930,6 +15223,9 @@ private:
 
         /** NUL 終端を含む仮想パス。 */
         TArray<wchar_t> Path;
+
+        /** 正規形 Path から AddFile 時に一度だけ計算した hash。 */
+        u64 PathHash = 0u;
 
         /** 追加するファイルの生バイト列。 */
         TArray<u8> Data;
@@ -14973,59 +15269,27 @@ private:
 
 // ===================== gameframework/AssetPack.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — AssetPack (`.acpak` 暗号化アーカイブ I/F stub)
-//
-// 製品化に向けた「アセットのパッケージング + 暗号化」を担うエンジンモジュールの
-// シーム (seam) インターフェース。開発中はバラのファイル、出荷時は 1 つの
-// 不透明な `.acpak` にまとめ、ゲームコードを変えずに切り替えられる。
-//
-// 注: **実装は独立モジュール `acs::assetpack` (`src/assetpack/`) に置き**、
-// GameFramework 内には interface stub のみを置く。AES-256-GCM 暗号 + LZ4 圧縮 +
-// 認証タグ検証 等の実体実装は独立モジュール側で行う。
-//
-// 使い方:
-//   class FAssetLoader {
-//       acs::game::IAssetPackReader* m_Pack = nullptr;
-//
-//       void OnStart() noexcept override {
-//           // 出荷ビルドでは GoldenAssetPackReader を DI、開発ビルドでは Stub。
-//           m_Pack = &acs::game::GetReaderStub();
-//           (void)m_Pack->Mount("game.acpak");
-//       }
-//       void LoadTexture(const char* name) noexcept {
-//           if (auto sz = m_Pack->FileSize(name); sz.IsOk()) {
-//               u8* buf = AllocateBuffer(sz.Value());
-//               (void)m_Pack->ReadFile(name, buf, sz.Value());
-//               // ... decode ...
-//           }
-//       }
-//   };
-//
-// 設計選択 (Pillar G):
-//   ・**シーム (= 純粋仮想 I/F) として抽象化**: AES-GCM / LZ4 / bcrypt (Windows CNG)
-//     依存は重く、それらをリンクしないテストビルドでも本 I/F だけは常に提供する。
-//     実装は別モジュール (`acs::assetpack`) で `IAssetPackReader` /
-//     `IAssetPackWriter` を override する形を取る。
-//   ・**Reader / Writer を別 I/F に分離**: ランタイムは Reader しか要らず、Writer は
-//     ツール (パッキングコマンド) 側のみ使う。実装も別バイナリに分けやすくする。
-//   ・**所有しない const char***: ファイル名 / pack パスは呼び出し側 / 実装側の
-//     ライフタイムに従う。Bridge はコピーしない (STL <string> 不使用方針)。
-//     `FileName(index)` の戻り値は「次の Mount/Unmount を呼ぶまで有効」と扱うこと。
-//   ・**TResult<T, FErrorCode> で例外なし**: ACS 全体方針に沿う。Stub は全 API を
-//     `ACS_ERR(Generic, kSubAssetPackNotImplemented, ...)` で返す。
-//   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `GetReaderStub()` / `GetWriterStub()` を提供。実 AssetPack 未統合の
-//     ビルドでもポインタ DI だけでコンパイル可能。
-//   ・**実 AssetPack 実装はここでは作らない**: FAcpakGameReader 等は AES-GCM
-//     CNG / LZ4 への依存を伴うため、本ファイルでは I/F + Stub のみ。
-//
-// 範囲外 (本ファイルでは持たない):
-//   ・実 `.acpak` フォーマットの読み書き (ヘッダ / TOC / ブロブ領域)。
-//   ・AES-256-GCM 復号 + 認証タグ検証、LZ4 解凍。
-//   ・パスヒープ暗号化、ハッシュのみモード、追記 patch pak。
-//   ・非同期ストリーミング (Mount は同期 mmap 前提、ReadFile も同期コピー)。
-//   ・複数 pak のスタック (overlay) — pak A 上書き pak B の優先解決。
 
+
+// ===================== gameframework/AssetPackReadRequest.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 一括パッケージ読み取りの一要素。 */
+struct FAssetPackReadRequest {
+    /** pak 内の UTF-8 仮想パス。 */
+    const char* Name = nullptr;
+
+    /** 読み取り先。 */
+    u8* OutBuffer = nullptr;
+
+    /** 読み取り先の容量。 */
+    u64 BufferSize = 0u;
+};
+
+} // namespace acs::game
 
 namespace acs::game {
 
@@ -15038,6 +15302,9 @@ inline constexpr u16 kSubAssetPackNotImplemented = 1201;
 
 /** Mount() 前の API 呼び出しを表す subcode。 */
 inline constexpr u16 kSubAssetPackNotMounted     = 1202;
+
+/** 一括 read の要求数または配列が不正であることを表す subcode。 */
+inline constexpr u16 kSubAssetPackInvalidBatch   = 1203;
 
 /**
  * 現在マウント中の pak の最小情報。
@@ -15139,6 +15406,18 @@ public:
      * @return 成功なら空の TResult、容量不足等はエラー。
      */
     virtual TResult<void> ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept = 0;
+
+    /**
+     * 複数ファイルを要求順に読み取る。
+     *
+     * @details 既定実装は ReadFile を順番に呼び、既存 backend の互換性を維持する。
+     * 後続要素の失敗時も、それ以前の出力は commit 済みである。
+     * @param Requests 入力名、出力先、出力容量を持つ要求配列。
+     * @param Count Requests の要素数。
+     * @param CompletedCount 任意。成功済み要素数を常に書き戻す。
+     * @return 全要求を読めた場合は成功、引数不正または個々の ReadFile 失敗時はエラー。
+     */
+    virtual TResult<void> ReadFiles(const FAssetPackReadRequest* Requests, u32 Count, u32* CompletedCount = nullptr) noexcept;
 };
 
 /**
@@ -15447,6 +15726,16 @@ public:
      * @return 成功なら空の TResult、変換失敗 / バッファ不足 / I/O 失敗ならエラー。
      */
     acs::TResult<void> ReadFile(const char* Name, acs::u8* OutBuffer, acs::u64 BufferSize) noexcept override;
+
+    /**
+     * UTF-8 パス変換と Reader の共有ロックを一括して複数ファイルを読む。
+     *
+     * @param Requests 入力名、出力先、出力容量を持つ要求配列。
+     * @param Count Requests の要素数。
+     * @param CompletedCount 任意。成功済み要素数を常に書き戻す。
+     * @return 全要求を読めた場合は成功、不正な UTF-8、容量不足、検証失敗、I/O 失敗時はエラー。
+     */
+    acs::TResult<void> ReadFiles(const acs::game::FAssetPackReadRequest* Requests, acs::u32 Count, acs::u32* CompletedCount = nullptr) noexcept override;
 
 private:
     /** NUL 終端を含む UTF-16 パスの最大容量。 */
@@ -17687,41 +17976,6 @@ constexpr u64 HashLiteral(const char (&Literal)[N], u64 Seed = 0xCBF29CE48422232
 
 } // namespace acs
 
-// ===================== container/HashBytesBatch.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-namespace acs {
-
-/** バッチハッシュ一件分の入力範囲とシード。 */
-struct FHashBytesInput {
-    /** ハッシュ対象の先頭。 */
-    const void* data = nullptr;
-    /** ハッシュ対象のバイト数。 */
-    usize length = 0u;
-    /** 一件固有の初期シード。 */
-    u64 seed = 0xCBF29CE484222325ull;
-};
-
-/**
- * 独立した複数範囲のハッシュをまとめて計算する。
- *
- * @param inputs 入力範囲とシードの配列。
- * @param count 入出力の要素数。
- * @param output HashBytes と同じ値を書き込む配列。
- */
-void HashBytesBatch(const FHashBytesInput* inputs, usize count, u64* output) noexcept;
-
-/**
- * 四個の整数キーを依存鎖ごとに交互実行して混合する。
- *
- * @param input 四個の整数キー。
- * @param output HashMix64 と同じ値を書き込む四要素配列。
- */
-void HashMix64Batch4(const u64 (&input)[4], u64 (&output)[4]) noexcept;
-
-} // namespace acs
-
 // ===================== container/InlineArray.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -19715,6 +19969,23 @@ static_assert(
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== threading/JobGraphCompletionDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** JobGraph の現在の完了カウンタ予約を既存診断 ABI と分離して返す値。 */
+struct FJobGraphCompletionDiagnostics {
+    /** 現在 Submit 済みなら 1、未 Submit または Reset 後なら 0。 */
+    u64 reservation_batch_count = 0u;
+
+    /** 現在の一括予約へ含めた job 数。 */
+    u64 reserved_job_count = 0u;
+};
+
+} // namespace acs
+
 // ===================== threading/JobGraphDiagnostics.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -19899,6 +20170,13 @@ public:
     /** 現在の構築・再実行診断値を返す。 */
     FJobGraphDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
 
+    /** 現在の完了カウンタ一括予約を既存診断 ABI と分離して返す。 */
+    FJobGraphCompletionDiagnostics CompletionDiagnostics() const noexcept
+    {
+        if (!m_bSubmitted || m_JobCount == 0u) return {};
+        return FJobGraphCompletionDiagnostics{1u, m_JobCount};
+    }
+
 private:
     friend struct FJobHandle;
 
@@ -20012,7 +20290,7 @@ private:
     /** 検証済み graph が循環を含むなら true。 */
     bool m_TopologyHasCycle = false;
 
-    /** 実行中ジョブ数の完了カウンタ (Submit/完了ごとに増減)。 */
+    /** Submit で全 job を一括予約し、各 job 完了時に減らす完了カウンタ。 */
     FCompletionCounter  m_Counter;
 
     /** Submit 済みフラグ (true 以降は Add/AddDependency 不可)。 */
@@ -22068,29 +22346,6 @@ private:
 
 // ===================== ecs/EntityCommandBuffer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS ECS — FEntityCommandBuffer (構造変更の遅延記録・一括適用)
-// -----------------------------------------------------------------------------
-// Query::Each / EachParallel の反復中は、fn へ渡した Comps& 参照が同型の Add/Remove で
-// dangling するため、直接構造変更すると use-after-free になり得る (Query.h の契約参照)。
-// 本バッファへ Destroy / Add<T> / Remove<T> を記録しておき、反復後に Flush() で FWorld へ
-// 記録順に適用することで安全に構造変更できる (AAA ECS の command buffer 相当)。
-//
-// 例:
-//   FEntityCommandBuffer cmd(world);
-//   world.Query<FHealth>().Each([&](FEntityId e, FHealth& h) {
-//       if (h.value <= 0) cmd.Destroy(e);       // 反復中は記録だけ (参照は無効化しない)
-//   });
-//   cmd.Flush();                                 // 反復後にまとめて適用
-//
-// 設計:
-//   ・16 バイト以下の単純な値はコマンド内へ直接保持し、それ以外だけ New<T> で
-//     安定アドレスへ退避する。適用時は FWorld へムーブし、ヒープ値だけ破棄する。
-//   ・Create は Each 中でも安全 (dense へ追記するだけで既存参照を無効化しない) ため
-//     遅延不要。新規エンティティへ即 Add したい場合のみ、Create は即時・Add は本バッファへ。
-//   ・記録の確保が OOM した場合は該当操作を落として HasOverflowed()=true にする
-//     (Flush は残りを適用するが不完全であることを呼び出し側が検知できる)。
-// =============================================================================
 
 
 namespace acs {
@@ -22130,6 +22385,7 @@ public:
      */
     void Destroy(FEntityId e) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Destroy;
         c.entity = e;
@@ -22147,6 +22403,7 @@ public:
     template<typename T>
     void Remove(FEntityId e) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Remove;
         c.entity = e;
@@ -22166,6 +22423,7 @@ public:
     template<typename T>
     void Add(FEntityId e, T value) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Add;
         c.entity = e;
@@ -22186,6 +22444,7 @@ public:
      */
     void Create() noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Create;
         if (!m_Commands.TryPushBack(c)) {
@@ -22204,6 +22463,7 @@ public:
     template<typename T>
     void CreateWith(T value) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Create;
         c.apply = &ApplyAdd<T>;
@@ -22221,7 +22481,9 @@ public:
      */
     void Flush() noexcept
     {
+        /** 適用するコマンド位置。 */
         for (usize i = 0; i < m_Commands.Size(); ++i) {
+            /** 現在適用するコマンド。 */
             FCommand& c = m_Commands[i];
             switch (c.kind) {
             case ECommandKind::Destroy:
@@ -22235,8 +22497,10 @@ public:
                 DestroyStoredValue(c);
                 break;
             case ECommandKind::Create: {
+                /** 新しく生成したエンティティ。 */
                 const FEntityId created = m_World->Create();
-                if (c.apply != nullptr) {                // CreateWith: 退避値を付与
+                // CreateWith の場合だけ保持値を付与する。
+                if (c.apply != nullptr) {
                     c.apply(*m_World, created, c.Value());
                     DestroyStoredValue(c);
                 }
@@ -22252,7 +22516,9 @@ public:
      */
     void Clear() noexcept
     {
+        /** 破棄するコマンド位置。 */
         for (usize i = 0; i < m_Commands.Size(); ++i) {
+            /** 現在破棄するコマンド。 */
             FCommand& c = m_Commands[i];
             DestroyStoredValue(c);
         }
@@ -22273,6 +22539,9 @@ public:
 
     /**
      * 予想コマンド数を一括予約する。成功後、その件数まではコマンド配列を再確保しない。
+     *
+     * @param command_count 予約するコマンド数。
+     * @return 予約できれば true。確保失敗時は false。
      */
     bool TryReserve(usize command_count) noexcept
     {
@@ -22294,33 +22563,43 @@ public:
 private:
     /** 遅延コマンドの種別。 */
     enum class ECommandKind : u8 {
+        /** エンティティを破棄する。 */
         Destroy,
+        /** コンポーネントを追加する。 */
         Add,
+        /** コンポーネントを除去する。 */
         Remove,
-        Create,   // apply==nullptr なら空生成、非 null なら CreateWith (生成 + 付与)
+        /** apply が空なら空生成し、設定済みならコンポーネントも付与する。 */
+        Create,
     };
 
     /** 1 つの遅延コマンド。value / thunk は種別に応じて使う。 */
     struct FCommand {
+        /** コマンド内へ直接保持できる最大バイト数。 */
         static constexpr usize kInlineValueBytes = 16u;
+        /** 実行する操作種別。 */
         ECommandKind kind = ECommandKind::Destroy;
+        /** 操作対象のエンティティ。 */
         FEntityId entity{};
-        void* value = nullptr;                                      // 大型または非単純な T
-        void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;  // Add / Remove
-        void (*destroy)(FAllocator&, void*) noexcept = nullptr;     // Add のみ
+        /** 大型または非単純な値の退避先。 */
+        void* value = nullptr;
+        /** 追加または除去を型消去して適用する関数。 */
+        void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;
+        /** ヒープへ退避した値を型消去して破棄する関数。 */
+        void (*destroy)(FAllocator&, void*) noexcept = nullptr;
         /** 小規模値を確保せず保持する領域。 */
         alignas(16) byte inline_value[kInlineValueBytes]{};
         /** 小規模値領域を使用中なら true。 */
         bool inline_value_used = false;
 
+        /** 保持方式にかかわらず値の先頭を返す。 */
         void* Value() noexcept
         {
-            return inline_value_used
-                ? static_cast<void*>(inline_value)
-                : value;
+            return inline_value_used ? static_cast<void*>(inline_value) : value;
         }
     };
 
+    /** 値を内部領域またはヒープへ保持し、失敗時は overflow 状態にする。 */
     template<typename T>
     bool StoreValue(FCommand& command, T&& value) noexcept
     {
@@ -22329,6 +22608,7 @@ private:
             command.inline_value_used = true;
             return true;
         } else {
+            /** ヒープへ退避した値。 */
             T* const stored = New<T>(*m_Alloc, Move(value));
             if (!stored) {
                 m_bOverflowed = true;
@@ -22340,6 +22620,7 @@ private:
         }
     }
 
+    /** コマンドがヒープへ退避した値だけを破棄し、保持状態を初期化する。 */
     void DestroyStoredValue(FCommand& command) noexcept
     {
         if (!command.inline_value_used && command.destroy != nullptr) {
@@ -22718,10 +22999,7 @@ public:
         const u32* dense = primary->DenseEntities();
         for (usize i = 0; i < count; ++i)
             snapshot[i] = m_World.MakeIdFromIndex(dense[i]);
-        FSparseSetBase* required_sets[] = {static_cast<FSparseSetBase*>(m_World.template TryGetSet<Comps>())...};
-
         for (usize i = 0; i < count; ++i) {
-            PrefetchRequiredSets(snapshot, i, count, required_sets, sizeof(required_sets) / sizeof(required_sets[0]));
             InvokeIfPresent(fn, snapshot[i]);
         }
     }
@@ -22837,26 +23115,6 @@ public:
     }
 
 private:
-    /**
-     * 大規模走査時だけ一定距離先の sparse 対応表を先読みする。
-     *
-     * @details 128 件未満では分岐直後に戻り、小規模クエリへ追加の集合検索を入れない。
-     */
-    void PrefetchRequiredSets(const TArray<FEntityId>& snapshot, usize index, usize count, FSparseSetBase* const* sets, usize set_count) noexcept {
-        /** 小規模走査では先読み命令の固定費を避ける。 */
-        constexpr usize kMinimumCount = 128u;
-        /** 疎配列を処理より先にキャッシュへ要求する距離。 */
-        constexpr usize kPrefetchDistance = 16u;
-        if (count < kMinimumCount || index + kPrefetchDistance >= count) {
-            return;
-        }
-        const FEntityId future = snapshot[index + kPrefetchDistance]; // 先読み対象のエンティティ。
-        for (usize i = 0u; i < set_count; ++i) {
-            FSparseSetBase* set = sets[i]; // 今回先読みする疎集合。
-            if (set != nullptr) set->PrefetchSparse(future.index);
-        }
-    }
-
     /**
      * 全 Comps の TSparseSet を取得し、最小サイズのものを主軸として選ぶ。
      *
@@ -24006,13 +24264,23 @@ struct FNodeDecision {
     f32 world_radius = 0.0f;
 };
 
-/** 球の入力値を検査し、ワールド空間の半径を求める。 */
+/**
+ * 球の入力値を検査し、ワールド空間の半径を求める。
+ *
+ * @param center ワールド空間の球中心。
+ * @param local_radius ローカル空間の半径。
+ * @param world_scale ワールド空間の三軸スケール。
+ * @param world_radius_padding 判定へ加える余白半径。
+ * @return 有効性と算出半径。非有限値または負の半径では valid が false。
+ */
 inline FNodeDecision PrepareSphere(FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding) noexcept {
-    FNodeDecision decision{}; // 検査と半径計算の結果。
+    /** 検査と半径計算の結果。 */
+    FNodeDecision decision{};
     if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z) || !std::isfinite(local_radius) || local_radius < 0.0f || !std::isfinite(world_scale.x) || !std::isfinite(world_scale.y) || !std::isfinite(world_scale.z) || !std::isfinite(world_radius_padding) || world_radius_padding < 0.0f) {
         return decision;
     }
-    const f32 maximum_scale = std::max(std::fabs(world_scale.x), std::max(std::fabs(world_scale.y), std::fabs(world_scale.z))); // 三軸の最大絶対スケール。
+    /** 三軸の最大絶対スケール。 */
+    const f32 maximum_scale = std::max(std::fabs(world_scale.x), std::max(std::fabs(world_scale.y), std::fabs(world_scale.z)));
     decision.world_radius = local_radius * maximum_scale + world_radius_padding;
     if (!std::isfinite(decision.world_radius))
         return decision;
@@ -24020,10 +24288,23 @@ inline FNodeDecision PrepareSphere(FVec3 center, f32 local_radius, FVec3 world_s
     return decision;
 }
 
+/**
+ * 一つの球を六平面のフラスタムに対して判定する。
+ *
+ * @param planes 判定に使う六つのフラスタム平面。
+ * @param center ワールド空間の球中心。
+ * @param local_radius ローカル空間の半径。
+ * @param world_scale ワールド空間の三軸スケール。
+ * @param world_radius_padding 判定へ加える余白半径。
+ * @return 有効性、可視性、算出したワールド半径。無効入力は可視扱いで返す。
+ */
 inline FNodeDecision EvaluateSphere(const FPlane (&planes)[6], FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding = 0.0f) noexcept {
+    /** 入力検査済みの判定結果。 */
     FNodeDecision decision = PrepareSphere(center, local_radius, world_scale, world_radius_padding);
     if (!decision.valid) return decision;
+    /** 現在判定するフラスタム平面。 */
     for (const FPlane& plane : planes) {
+        /** 球中心から平面までの符号付き距離。 */
         const f32 signed_distance = center.x * plane.normal.x + center.y * plane.normal.y + center.z * plane.normal.z + plane.distance;
         if (signed_distance < -decision.world_radius) {
             decision.visible = false;
@@ -24051,17 +24332,26 @@ inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers
         return;
     }
 
-    usize index = 0u; // 次に処理する球の位置。
+    /** 次に処理する球の位置。 */
+    usize index = 0u;
 #if ACS_ARCH_X64
-    alignas(16) f32 xs[4]{}; // 四球の中心 X。
-    alignas(16) f32 ys[4]{}; // 四球の中心 Y。
-    alignas(16) f32 zs[4]{}; // 四球の中心 Z。
-    alignas(16) f32 radii[4]{}; // 四球のワールド半径。
+    /** 四球の中心 X。 */
+    alignas(16) f32 xs[4]{};
+    /** 四球の中心 Y。 */
+    alignas(16) f32 ys[4]{};
+    /** 四球の中心 Z。 */
+    alignas(16) f32 zs[4]{};
+    /** 四球のワールド半径。 */
+    alignas(16) f32 radii[4]{};
     for (; index + 4u <= count; index += 4u) {
-        u32 valid_mask = 0u; // 入力が有効な SIMD レーン。
+        /** 入力が有効な SIMD レーン。 */
+        u32 valid_mask = 0u;
+        /** 球を格納する SIMD レーン。 */
         for (u32 lane = 0u; lane < 4u; ++lane) {
-            const usize item = index + lane; // 今回準備する球の位置。
-            const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[item] : 0.0f; // 球へ加える半径。
+            /** 今回準備する球の位置。 */
+            const usize item = index + lane;
+            /** 球へ加える半径。 */
+            const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[item] : 0.0f;
             output[item] = PrepareSphere(centers[item], local_radii[item], world_scales[item], padding);
             xs[lane] = centers[item].x;
             ys[lane] = centers[item].y;
@@ -24070,19 +24360,27 @@ inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers
             if (output[item].valid) valid_mask |= 1u << lane;
         }
 
-        const __m128 x = _mm_load_ps(xs); // 四球の中心 X。
-        const __m128 y = _mm_load_ps(ys); // 四球の中心 Y。
-        const __m128 z = _mm_load_ps(zs); // 四球の中心 Z。
-        const __m128 negative_radius = _mm_sub_ps(_mm_setzero_ps(), _mm_load_ps(radii)); // 四球の負半径。
-        u32 culled_mask = 0u; // 一平面でも外側になった SIMD レーン。
+        /** 四球の中心 X。 */
+        const __m128 x = _mm_load_ps(xs);
+        /** 四球の中心 Y。 */
+        const __m128 y = _mm_load_ps(ys);
+        /** 四球の中心 Z。 */
+        const __m128 z = _mm_load_ps(zs);
+        /** 四球の負半径。 */
+        const __m128 negative_radius = _mm_sub_ps(_mm_setzero_ps(), _mm_load_ps(radii));
+        /** 一平面でも外側になった SIMD レーン。 */
+        u32 culled_mask = 0u;
+        /** 現在判定するフラスタム平面。 */
         for (const FPlane& plane : planes) {
-            __m128 distance = _mm_mul_ps(x, _mm_set1_ps(plane.normal.x)); // 四球から平面までの符号付き距離。
+            /** 四球から平面までの符号付き距離。 */
+            __m128 distance = _mm_mul_ps(x, _mm_set1_ps(plane.normal.x));
             distance = _mm_add_ps(distance, _mm_mul_ps(y, _mm_set1_ps(plane.normal.y)));
             distance = _mm_add_ps(distance, _mm_mul_ps(z, _mm_set1_ps(plane.normal.z)));
             distance = _mm_add_ps(distance, _mm_set1_ps(plane.distance));
             culled_mask |= static_cast<u32>(_mm_movemask_ps(_mm_cmplt_ps(distance, negative_radius)));
         }
         culled_mask &= valid_mask;
+        /** 可視性を反映する SIMD レーン。 */
         for (u32 lane = 0u; lane < 4u; ++lane) {
             if ((culled_mask & (1u << lane)) != 0u)
                 output[index + lane].visible = false;
@@ -24090,7 +24388,8 @@ inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers
     }
 #endif
     for (; index < count; ++index) {
-        const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[index] : 0.0f; // 球へ加える半径。
+        /** 球へ加える半径。 */
+        const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[index] : 0.0f;
         output[index] = EvaluateSphere(planes, centers[index], local_radii[index], world_scales[index], padding);
     }
 }
@@ -24859,8 +25158,7 @@ enum class EMessagePipePolicy : u8 {
 
 /** SPSC 固定容量として利用できる値かをコンパイル時に返す。 */
 template<usize Capacity>
-inline constexpr bool kIsValidMessagePipeCapacity =
-    Capacity >= 2 && (Capacity & (Capacity - 1)) == 0;
+inline constexpr bool kIsValidMessagePipeCapacity = Capacity >= 2 && (Capacity & (Capacity - 1)) == 0;
 
 } // namespace acs
 
@@ -25083,11 +25381,14 @@ public:
     /**
      * 値を FIFO の末尾に積む。
      *
+     * @param value 追加する値。
      * @return 追加できた場合は true。Close 済み、上限到達、確保失敗なら false。
      */
     bool Push(T value) noexcept {
+        /** 待機中 consumer へ通知するか。 */
         bool notify = false;
         {
+            /** キュー操作中に保持するロック。 */
             FScopedLock lock(m_Mtx);
             if (m_Closed || IsFullLocked()) return false;
             CompactLocked(false);
@@ -25108,9 +25409,12 @@ public:
      */
     usize PushBatch(T* values, usize count) noexcept {
         if (!values && count != 0) return 0;
+        /** 実際に追加した要素数。 */
         usize pushed = 0;
+        /** ロック取得時点の待機 consumer 数。 */
         usize waiters = 0;
         {
+            /** バッチ追加中に保持するロック。 */
             FScopedLock lock(m_Mtx);
             if (m_Closed) return 0;
             CompactLocked(false);
@@ -25130,9 +25434,11 @@ public:
     /**
      * 値を 1 つ取り出す。
      *
+     * @param out 取り出した値の格納先。
      * @return 取り出せた場合は true、空なら false。
      */
     bool TryPop(T& out) noexcept {
+        /** キュー操作中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         return PopOneLocked(out);
     }
@@ -25146,7 +25452,9 @@ public:
      */
     usize TryPopBatch(T* out, usize capacity) noexcept {
         if (!out && capacity != 0) return 0;
+        /** バッチ取り出し中に保持するロック。 */
         FScopedLock lock(m_Mtx);
+        /** 実際に取り出した要素数。 */
         usize count = 0;
         while (count < capacity && LogicalSizeLocked() != 0) {
             out[count++] = Move(m_Queue[m_Head++]);
@@ -25158,9 +25466,11 @@ public:
     /**
      * 値が届くか Close されるまで待って 1 件取り出す。
      *
+     * @param out 取り出した値の格納先。
      * @return 値を取り出せた場合は true。closed かつ空なら false。
      */
     bool Pop(T& out) noexcept {
+        /** 待機と取り出し中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         while (LogicalSizeLocked() == 0 && !m_Closed) {
             ++m_WaiterCount;
@@ -25172,8 +25482,10 @@ public:
 
     /** クローズし、待機中の全 Pop を起こす。繰り返し呼んでも安全。 */
     void Close() noexcept {
+        /** 待機中 consumer へ通知するか。 */
         bool notify = false;
         {
+            /** close 状態更新中に保持するロック。 */
             FScopedLock lock(m_Mtx);
             if (!m_Closed) {
                 m_Closed = true;
@@ -25185,12 +25497,14 @@ public:
 
     /** クローズ済みなら true を返す。 */
     bool IsClosed() const noexcept {
+        /** close 状態参照中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         return m_Closed;
     }
 
     /** 現在保持している論理要素数を返す。 */
     usize Size() const noexcept {
+        /** 要素数参照中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         return LogicalSizeLocked();
     }
@@ -25223,6 +25537,7 @@ private:
      * @param allow_empty_clear true なら空になった配列を即座に論理クリアする。
      */
     void CompactLocked(bool allow_empty_clear) noexcept {
+        /** 未消費の論理要素数。 */
         const usize live = LogicalSizeLocked();
         if (live == 0) {
             if (allow_empty_clear || m_Head >= 64) {
@@ -25232,6 +25547,7 @@ private:
             return;
         }
         if (m_Head < 64 || m_Head < live) return;
+        /** 未消費要素を詰め直す位置。 */
         for (usize i = 0; i < live; ++i) {
             m_Queue[i] = Move(m_Queue[m_Head + i]);
         }
@@ -25293,11 +25609,14 @@ public:
     /**
      * producer スレッドから値を 1 件追加する。
      *
+     * @param value 追加する値。
      * @return 追加できた場合は true。満杯または Close 済みなら false。
      */
     bool Push(T value) noexcept {
         if (m_Closed.Load(EMemoryOrder::Acquire) != 0) return false;
+        /** producer が次に書き込む単調増加位置。 */
         const usize tail = m_Tail.Load(EMemoryOrder::Relaxed);
+        /** consumer が次に読み取る単調増加位置。 */
         const usize head = m_Head.Load(EMemoryOrder::Acquire);
         if (tail - head >= Capacity) return false;
         m_Buffer[tail & (Capacity - 1)] = Move(value);
@@ -25305,9 +25624,16 @@ public:
         return true;
     }
 
-    /** producer スレッドから複数件を追加し、追加できた件数を返す。 */
+    /**
+     * producer スレッドから複数件を追加する。
+     *
+     * @param values 追加する値配列。
+     * @param count 入力要素数。
+     * @return 実際に追加した要素数。
+     */
     usize PushBatch(T* values, usize count) noexcept {
         if (!values && count != 0) return 0;
+        /** 実際に追加した要素数。 */
         usize pushed = 0;
         while (pushed < count && Push(Move(values[pushed]))) ++pushed;
         return pushed;
@@ -25316,10 +25642,13 @@ public:
     /**
      * consumer スレッドから値を 1 件取り出す。
      *
+     * @param out 取り出した値の格納先。
      * @return 取り出せた場合は true、空なら false。
      */
     bool TryPop(T& out) noexcept {
+        /** consumer が次に読み取る単調増加位置。 */
         const usize head = m_Head.Load(EMemoryOrder::Relaxed);
+        /** producer が次に書き込む単調増加位置。 */
         const usize tail = m_Tail.Load(EMemoryOrder::Acquire);
         if (head == tail) return false;
         out = Move(m_Buffer[head & (Capacity - 1)]);
@@ -25327,9 +25656,16 @@ public:
         return true;
     }
 
-    /** consumer スレッドから最大 capacity 件を取り出す。 */
+    /**
+     * consumer スレッドから最大 capacity 件を取り出す。
+     *
+     * @param out 取り出した値の格納先配列。
+     * @param capacity 出力できる最大要素数。
+     * @return 実際に取り出した要素数。
+     */
     usize TryPopBatch(T* out, usize capacity) noexcept {
         if (!out && capacity != 0) return 0;
+        /** 実際に取り出した要素数。 */
         usize popped = 0;
         while (popped < capacity && TryPop(out[popped])) ++popped;
         return popped;
@@ -25352,7 +25688,9 @@ public:
 
     /** 現在保持している要素数を返す。 */
     usize Size() const noexcept {
+        /** consumer が次に読み取る単調増加位置。 */
         const usize head = m_Head.Load(EMemoryOrder::Acquire);
+        /** producer が次に書き込む単調増加位置。 */
         const usize tail = m_Tail.Load(EMemoryOrder::Acquire);
         return tail - head;
     }
@@ -25537,6 +25875,179 @@ ACS_FORCEINLINE const To* CastChecked(const From* p) noexcept {
     ACS_CHECKF(r != nullptr, "CastChecked failed: source is null or not the requested type");
     return r;
 }
+
+} // namespace acs
+
+// ===================== foundation/EndianSerialization.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <cstring>
+
+namespace acs {
+
+namespace endian_detail {
+
+/** byte 数から同幅の符号なし格納型を選ぶ補助 template。 */
+template<usize Size>
+struct TUnsignedStorage;
+
+/** 1 byte 値の格納型。 */
+template<>
+struct TUnsignedStorage<1u> {
+    using Type = u8;
+};
+
+/** 2 byte 値の格納型。 */
+template<>
+struct TUnsignedStorage<2u> {
+    using Type = u16;
+};
+
+/** 4 byte 値の格納型。 */
+template<>
+struct TUnsignedStorage<4u> {
+    using Type = u32;
+};
+
+/** 8 byte 値の格納型。 */
+template<>
+struct TUnsignedStorage<8u> {
+    using Type = u64;
+};
+
+/** 直列化対象と同じ幅の符号なし格納型。 */
+template<typename T>
+using UnsignedStorageT = typename TUnsignedStorage<sizeof(T)>::Type;
+
+/** 対応する固定幅 scalar または enum なら true。 */
+template<typename T>
+inline constexpr bool IsEndianSerializableV =
+    !IsSameV<RemoveCVT<T>, bool> &&
+    (IsIntegralV<T> || IsFloatingV<T> || IsEnumV<T>) &&
+    (sizeof(T) == 1u || sizeof(T) == 2u || sizeof(T) == 4u || sizeof(T) == 8u);
+
+} // namespace endian_detail
+
+/**
+ * 固定幅 scalar または enum を host endian に依存しない little endian byte 列へ書く。
+ *
+ * @tparam T 書き込む固定幅型。
+ * @param Destination sizeof(T) byte 以上の書き込み先。
+ * @param Value 書き込む値。
+ */
+template<typename T>
+ACS_FORCEINLINE void WriteLittleEndian(u8* Destination, T Value) noexcept
+{
+    /** cv 修飾を除いた実値型。 */
+    using ValueType = RemoveCVT<T>;
+    static_assert(endian_detail::IsEndianSerializableV<ValueType>, "little endian 直列化は 1/2/4/8 byte scalar または enum だけを受け付けます");
+    /** 値の object representation を保持する同幅整数。 */
+    using StorageType = endian_detail::UnsignedStorageT<ValueType>;
+    /** host 上の bit pattern。 */
+    StorageType Bits = 0u;
+    std::memcpy(&Bits, &Value, sizeof(Bits));
+    /** 書き出す little endian byte 位置。 */
+    for (usize Index = 0u; Index < sizeof(Bits); ++Index) {
+        Destination[Index] = static_cast<u8>(Bits >> (Index * 8u));
+    }
+}
+
+/**
+ * little endian byte 列を host endian に依存せず固定幅 scalar または enum へ戻す。
+ *
+ * @tparam T 読み戻す固定幅型。
+ * @param Source sizeof(T) byte 以上の読み取り元。
+ * @return 復元した値。
+ */
+template<typename T>
+ACS_FORCEINLINE T ReadLittleEndian(const u8* Source) noexcept
+{
+    /** cv 修飾を除いた実値型。 */
+    using ValueType = RemoveCVT<T>;
+    static_assert(endian_detail::IsEndianSerializableV<ValueType>, "little endian 直列化は 1/2/4/8 byte scalar または enum だけを受け付けます");
+    /** 値の object representation を保持する同幅整数。 */
+    using StorageType = endian_detail::UnsignedStorageT<ValueType>;
+    /** little endian byte を組み立てた host 整数。 */
+    StorageType Bits = 0u;
+    /** 読み取る little endian byte 位置。 */
+    for (usize Index = 0u; Index < sizeof(Bits); ++Index) {
+        Bits |= static_cast<StorageType>(Source[Index]) << (Index * 8u);
+    }
+    /** 復元先の値。 */
+    ValueType Value{};
+    std::memcpy(&Value, &Bits, sizeof(Value));
+    return Value;
+}
+
+} // namespace acs
+
+// ===================== foundation/EnumLookup.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * 0 から連続する enum の妥当性判定と名前取得を constexpr 配列から行う。
+ *
+ * @tparam Enum 0 始まりで欠番のない enum 型。
+ * @tparam Count 有効値と名前の件数。
+ */
+template<typename Enum, usize Count>
+class TContiguousEnumLookup {
+    static_assert(IsEnumV<Enum>, "TContiguousEnumLookup は enum 型だけを受け付けます");
+    static_assert(Count > 0u, "TContiguousEnumLookup には 1 件以上の名前が必要です");
+
+public:
+    /**
+     * enum 値と同じ index 順の名前列から table を生成する。
+     *
+     * @param Names 0 から Count - 1 に対応する名前列。
+     */
+    constexpr explicit TContiguousEnumLookup(const char* const (&Names)[Count]) noexcept
+    {
+        /** 名前表へコピーする enum index。 */
+        for (usize Index = 0u; Index < Count; ++Index) m_Names[Index] = Names[Index];
+    }
+
+    /**
+     * 値が 0 から Count - 1 の範囲なら true を返す。
+     *
+     * @param Value 検証する enum 値。
+     * @return table の有効範囲なら true。
+     */
+    constexpr bool Contains(Enum Value) const noexcept
+    {
+        return static_cast<u64>(Value) < static_cast<u64>(Count);
+    }
+
+    /**
+     * 有効値に対応する名前を返し、範囲外なら Fallback を返す。
+     *
+     * @param Value 名前を取得する enum 値。
+     * @param Fallback 範囲外で返す文字列。
+     * @return 名前表内の名前または範囲外文字列。
+     */
+    constexpr const char* Name(Enum Value, const char* Fallback = "Unknown") const noexcept
+    {
+        return Contains(Value) ? m_Names[static_cast<usize>(Value)] : Fallback;
+    }
+
+    /**
+     * table が保持する有効値数を返す。
+     *
+     * @return 保持する有効値数。
+     */
+    static constexpr usize Size() noexcept
+    {
+        return Count;
+    }
+
+private:
+    /** enum 値の整数表現を index として引く名前列。 */
+    const char* m_Names[Count]{};
+};
 
 } // namespace acs
 
@@ -50972,21 +51483,35 @@ private:
 
 // ===================== render/PostProcess.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// HDR ポストプロセス (Bloom + Tonemap) パイプライン
-//
-// 想定ワークフロー:
-//   1) FRenderer.BeginFrame() の直前で FPostProcess.BeginScenePass()
-//      → HDR R16G16B16A16_Float RT に切替
-//   2) シーン (FSky, FStandardShader, FParticleSystem 等) を HDR で描画
-//   3) FPostProcess.Render(cmd, swapchain_buffer)
-//      → Bloom (extract → downsample → upsample) → Tonemap → Backbuffer
-//   4) FRenderer.EndFrame() で Present
-//
-// 設計上の選択:
-//   - Bloom は 5 段の mip chain (1/2, 1/4, ... 1/32) で downsample → upsample
-//   - Tonemap は ACES Filmic (Narkowicz 2016 近似) → 最後に sRGB ガンマ
-//   - パイプラインは Diligent backend を前提（Dx12 raw は未対応）
 
+
+// ===================== render/RenderGraphAliasPlanSummary.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** Render Graph transient alias 候補計画の集計値。 */
+struct FRenderGraphAliasPlanSummary {
+    /** 解析した論理リソース数。 */
+    u32 resource_count = 0;
+
+    /** 候補計画で必要になる物理 slot 数。 */
+    u32 slot_count = 0;
+
+    /** alias を行わない場合の合計バイト数。 */
+    u64 logical_bytes = 0;
+
+    /** 各候補 slot の最大リソースを合計したバイト数。 */
+    u64 candidate_heap_bytes = 0;
+
+    /** placed resource 実装後に削減可能な候補バイト数を返す。 */
+    constexpr u64 PotentialSavedBytes() const noexcept {
+        return logical_bytes >= candidate_heap_bytes ? logical_bytes - candidate_heap_bytes : 0;
+    }
+};
+
+} // namespace acs
 
 namespace acs {
 
@@ -51315,6 +51840,16 @@ public:
     EFormat       HdrFormat()       const noexcept { return m_HdrFormat; }
 
     /**
+     * 現在の PostProcess graph で利用できる transient alias 候補集計を返す。
+     *
+     * @details Resize 成功時にも更新される。実 GPU alias はバックエンドが
+     * alias barrier と placed resource を提供する場合だけ、この安全な候補を使う。
+     */
+    const FRenderGraphAliasPlanSummary& TransientAliasPlan() const noexcept {
+        return m_TransientAliasPlan;
+    }
+
+    /**
      * Bloom + Tonemap (+ 任意の TAA / auto-exposure) を実行し swapchain buffer へ書き出す。
      *
      * @param cmd 既に Begin 済みのコマンドリスト。
@@ -51618,6 +52153,9 @@ private:
 
     /** luma mip / 露出テクスチャのフォーマット。 */
     EFormat                  m_LumaFormat = EFormat::R16G16_Float;
+
+    /** 固定 PostProcess graph から計算した transient alias 候補集計。 */
+    FRenderGraphAliasPlanSummary m_TransientAliasPlan{};
 };
 
 } // namespace acs
@@ -64519,84 +65057,6 @@ private:
 
 // ===================== gameframework/InputRecorder.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputRecorder (raw 入力の録画 / 再生)
-//
-// 役割:
-//   1) **raw 入力レイヤの録画**: キーボード状態変化 (8 key まで) + マウス座標 +
-//      マウスボタン bitmask を 1 tick = 1 `FInputSample` として時系列に蓄え、
-//      後でそのまま replay 再生する。FLockstep が「ゲーム的に解釈済みの
-//      ボタン bitmask + アナログスティック」を扱うのに対し、こちらは
-//      **OS 寄りの raw 信号** (key code + key state + mouse pos) を扱う。
-//   2) **TAS / 自動テスト / バグ再現用 `.acsr` 形式の入力ファイル**:
-//      magic + version + tick_rate + count + samples + CRC32 の bit-precise
-//      layout で、SaveToBuffer / LoadFromBuffer で永続化する。
-//      FLockstep `.acsl` と並列の独立フォーマット。
-//   3) **FInputMap の後段に置く想定**: アプリ側で `Capture(sample)` を呼ぶのは
-//      Win32 raw input / SDL event を `FInputSample` に詰めた直後。再生側は
-//      `ConsumeSample(tick, out)` で取り出し、ゲームループは録画時と
-//      ピクセル単位で同じ入力列を見ることになる。
-//
-// 使い方 (想定):
-//   FInputRecorder rec;
-//   rec.StartRecording(/*tick_rate_hz=*/60);
-//
-//   // ゲームループ (録画中):
-//   FInputSample s;
-//   s.tick                = m_Tick;
-//   s.key_codes_changed[] = ...; // 今 tick に押下/解放された key (最大 8 個)
-//   s.key_states[]        = ...; // 同 index の press(1)/release(0) 状態
-//   s.mouse_pos           = { mx, my };
-//   s.mouse_button_states = mouse_bitmask;
-//   rec.Capture(s);
-//   ++m_Tick;
-//
-//   // 後で Replay:
-//   rec.StartReplay();
-//   while (running) {
-//       FInputSample s;
-//       if (rec.ConsumeSample(m_Tick, s)) {
-//           // s を OS 入力レイヤの代わりに使う (差し替え)
-//       }
-//       ++m_Tick;
-//   }
-//
-// 設計選択:
-//   ・**FInputSample は trivially-copyable POD**: `u32 tick + u8[8] codes +
-//     u8[8] states + FVec2 mouse_pos + u8 mouse_buttons + padding`。TArray に
-//     詰めて bulk memcpy で I/O できるよう sizeof は 28 B 程度に収まる想定。
-//     key 変化を 8 個までに絞ったのは fighting game / ARPG / RTS で同 tick に
-//     9 個以上の key 変化が起きる頻度が事実上ゼロのため (10 finger 同時入力でも
-//     状態変化点に限定すれば 8 で足りる)。9 個以上の場合は呼び出し側で 2 tick に
-//     分割するか、将来 variable-length encoding を導入する。
-//   ・**ERecorderMode の 3 状態**: FLockstep の ENetMode (Local/Lockstep/Replay) と
-//     異なり、こちらは「録画もしない・録画する・再生する」の 3 状態のみ。
-//     ネットコードは FLockstep 側に分離してあるため、FInputRecorder は録画/再生に
-//     特化する。
-//   ・**TArray<FInputSample> による線形ストレージ**: 60 Hz × 30 min = 108,000 件 ×
-//     ~28 B = ~3 MB 程度。`.acsr` ファイルでもこのオーダー。長時間 TAS で
-//     1 時間分でも ~6 MB なので無圧縮で OK。
-//   ・**ConsumeSample は線形検索 + cursor 前進**: 記録順 = tick 昇順を仮定し、
-//     FLockstep と同じ amortised O(1) パターンを採用。
-//   ・**コピー / ムーブ禁止**: FLockstep / FSettings / FPartySystem と同方針。
-//     録画中の state が分裂すると再生時にズレるため、誤って値渡しされる経路を
-//     最初から塞ぐ。
-//   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
-//
-// File layout (`.acsr` の SaveToBuffer / LoadFromBuffer):
-//   offset  size  field          説明
-//   ------  ----  ------------   ---------------------------------------------
-//   0x00    4     magic          'ACSR' = 0x52534341 (little-endian)
-//   0x04    4     version        u32。現在 = 1。
-//   0x08    4     tick_rate_hz   u32。再生側との sample rate 整合検証用。
-//   0x0C    4     sample_count   u32。続く FInputSample の個数。
-//   0x10    N     samples        FInputSample[sample_count] (各 ~28 B)。
-//   0x10+N  4     crc32_footer   u32。samples 部の CRC-32 (改竄/破損検知用)。
-//
-// 範囲外:
-//   ・variable-length encoding (key 変化 9 個以上の tick への対応)
-//   ・mouse wheel / gamepad analog stick の追加 (現状は key + mouse pos/button のみ)
-//   ・複数 recorder 同時並行録画 / 早送り / 巻き戻し
-//   ・差分圧縮 / RLE / zstd
 
 
 namespace acs::game {
@@ -74433,6 +74893,225 @@ private:
 
 } // namespace acs::game
 
+
+// ===================== gameframework/HierarchyVisibilityBatch.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * DFS pre-order の階層可視性を一括評価して保持する。
+ *
+ * @details 親が入力内で先行する通常経路は stack を使って線形時間で評価する。
+ * 順序が不正な要素だけ scalar 判定へ戻り、結果の互換性を維持する。
+ */
+class FHierarchyVisibilityBatch {
+public:
+    /**
+     * 単一 node の継承可視性を評価する。
+     *
+     * @param node 評価対象。
+     * @return 自身と全祖先が有効かつ可視なら true。
+     */
+    static bool EvaluateScalar(const ANode* node) noexcept;
+
+    /**
+     * DFS pre-order の node 群を一括評価する。
+     *
+     * @param nodes 評価対象の連続配列。
+     * @param count node 数。
+     * @param boundary_root 入力直前の共通親。不要なら nullptr。
+     * @return scratch を用意して全件評価できた場合は true。
+     */
+    bool Evaluate(ANode* const* nodes, usize count, const ANode* boundary_root) noexcept;
+
+    /** 評価結果を破棄し、確保容量は保持する。 */
+    void Clear() noexcept;
+
+    /** 指定 index が有効かつ可視か返す。 */
+    bool IsVisible(usize index) const noexcept;
+
+    /** 評価済み node 数を返す。 */
+    usize Count() const noexcept { return m_Visibility.Size(); }
+
+    /** 順序不整合で scalar fallback した件数を返す。 */
+    u32 ScalarFallbackCount() const noexcept { return m_ScalarFallbackCount; }
+
+private:
+    /** DFS 走査中の祖先状態。 */
+    struct FStackEntry {
+        /** 祖先 node。 */
+        const ANode* node = nullptr;
+
+        /** 祖先までを含む可視性。 */
+        bool visible = false;
+    };
+
+    /** 評価済み可視性。 */
+    TArray<u8> m_Visibility;
+
+    /** 現在の祖先 stack。 */
+    TArray<FStackEntry> m_Stack;
+
+    /** scalar fallback 件数。 */
+    u32 m_ScalarFallbackCount = 0u;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/HierarchyWorldTransformBatch.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * DFS pre-order の world transform を保持 scratch で一括構築する。
+ *
+ * @details 明示 stack により階層深さに比例する C++ call stack を使わない。
+ * sibling は SoA batch で合成し、失敗時は部分結果を公開しない。成功後の再評価は
+ * 確保済み容量を再利用する。
+ */
+class FHierarchyWorldTransformBatch {
+public:
+    /**
+     * root 自身を除く subtree を DFS pre-order で評価する。
+     *
+     * @param root 評価境界の root。
+     * @param expected_count root 配下の非 null node 数。
+     * @return 全 node を順序どおり評価できた場合 true。
+     */
+    bool Evaluate(ANode* root, usize expected_count) noexcept;
+
+    /** 結果と作業 stack の要素数を 0 にし、確保済み容量は保持する。 */
+    void Clear() noexcept;
+
+    /** 成功した直近評価の world transform 配列を返す。 */
+    const FTransform3D* Transforms() const noexcept { return m_Transforms.Data(); }
+
+    /** 成功した直近評価の node 数を返す。 */
+    usize Count() const noexcept { return m_Transforms.Size(); }
+
+    /** 指定 index の world transform を返す。 */
+    const FTransform3D& At(usize index) const noexcept { return m_Transforms[index]; }
+
+private:
+    /** 未評価 node と計算済み world transform。 */
+    struct FPendingWorld {
+        /** 評価対象 node。 */
+        ANode* node = nullptr;
+
+        /** node の world transform。 */
+        FTransform3D world{};
+    };
+
+    /** 子を逆順で作業 stack へ積む。 */
+    bool PushChildrenReverse(ANode* parent, const FTransform3D& parent_world, usize expected_count) noexcept;
+
+    /** DFS の未評価 node。 */
+    TArray<FPendingWorld> m_Pending;
+
+    /** DFS pre-order の計算結果。 */
+    TArray<FTransform3D> m_Transforms;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/InputRecordingFormat.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+struct FInputSample;
+
+namespace input_recording_detail {
+
+/** `.acsr` の形式識別値。 */
+inline constexpr u32 kMagic = 0x52534341u;
+/** 対応する `.acsr` version。 */
+inline constexpr u32 kVersion = 1u;
+/** header の byte 幅。 */
+inline constexpr usize kHeaderBytes = 16u;
+/** footer CRC の byte 幅。 */
+inline constexpr usize kFooterBytes = 4u;
+/** sample 一件の on-disk byte 幅。 */
+inline constexpr usize kSampleBytes = 29u;
+
+/** little-endian u32 を aliasing 安全に読む。 */
+u32 ReadU32(const u8* source) noexcept;
+/** little-endian u32 を aliasing 安全に書く。 */
+void WriteU32(u8* destination, u32 value) noexcept;
+/** sample 内の mouse float が全て有限か返す。 */
+bool HasFiniteMousePosition(const u8* sample) noexcept;
+/** in-memory sample 内の mouse float が全て有限か返す。 */
+bool HasFiniteMousePosition(const FInputSample& sample) noexcept;
+/** byte 列の CRC32 を計算する。 */
+u32 ComputeCrc32(TSpan<const u8> bytes) noexcept;
+/** sample を ABI 非依存 on-disk layout へ書く。 */
+void WriteSample(u8* destination, const FInputSample& sample) noexcept;
+/** on-disk sample を ABI 非依存に復元する。 */
+void ReadSample(const u8* source, FInputSample& sample) noexcept;
+
+} // namespace input_recording_detail
+} // namespace acs::game
+
+// ===================== gameframework/InputRecordingView.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+struct FInputSample;
+
+/**
+ * 検証済み入力記録を所有権なしで参照する immutable decoder。
+ *
+ * @details Decode は header・上限・厳密サイズ・CRC・有限 float を全件検証する。
+ * view の寿命中は呼び出し側が元バッファを生存かつ不変に保つ必要がある。
+ */
+class FInputRecordingView {
+public:
+    /**
+     * 外部バイト列を全検証して zero-copy view を作る。
+     *
+     * @param bytes 所有権を借用する `.acsr` 全体。
+     * @return 成功時は検証済み view、失敗時は FInputRecorder と同じ subcode。
+     */
+    static TResult<FInputRecordingView> Decode(TSpan<const u8> bytes) noexcept;
+
+    /**
+     * 指定 index の sample を ABI 非依存に復元する。
+     *
+     * @param index 復元する sample index。
+     * @param out 成功時の sample 格納先。
+     * @return 範囲内なら true。失敗時は out を変更しない。
+     */
+    bool DecodeSample(u32 index, FInputSample& out) const noexcept;
+
+    /** 記録時の tick rate を返す。 */
+    u32 TickRateHz() const noexcept { return m_TickRateHz; }
+
+    /** 検証済み sample 件数を返す。 */
+    u32 SampleCount() const noexcept { return m_SampleCount; }
+
+private:
+    /** 検証済み sample 領域と metadata から view を構築する。 */
+    FInputRecordingView(TSpan<const u8> sample_bytes, u32 tick_rate_hz, u32 sample_count) noexcept
+        : m_SampleBytes(sample_bytes), m_TickRateHz(tick_rate_hz), m_SampleCount(sample_count) {}
+
+    /** 呼び出し側が所有する検証済み sample バイト列。 */
+    TSpan<const u8> m_SampleBytes;
+
+    /** 記録時の tick rate。 */
+    u32 m_TickRateHz = 0u;
+
+    /** 検証済み sample 件数。 */
+    u32 m_SampleCount = 0u;
+};
+
+} // namespace acs::game
 
 // ===================== gameframework/Light2DComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -90600,8 +91279,33 @@ void TransformVectors(const FVec3* in, FVec3* out, usize count, const FMat4& m) 
 
 // ===================== memory/ArenaAllocator.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ページバック式バンプアロケータ（容量を固定せず、満杯になったらページ追加）
 
+
+// ===================== memory/ArenaAllocatorDiagnostics.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** Arena の予約回数、batch 化、世代 reset を観測する診断値。 */
+struct FArenaAllocatorDiagnostics {
+    /** 現在保持している page 数。 */
+    u64 retained_pages = 0u;
+
+    /** 最後の Reset 以降に成功した batch 確保回数。 */
+    u64 batch_allocations = 0u;
+
+    /** 最後の Reset 以降に batch で返した領域数。 */
+    u64 batch_suballocations = 0u;
+
+    /** 直前の Reset が直接参照した page 数。 */
+    u64 last_reset_page_visits = 0u;
+
+    /** 最後の Reset 以降に初回利用時まで初期化を遅らせた page 数。 */
+    u64 lazy_page_resets = 0u;
+};
+
+} // namespace acs
 
 namespace acs {
 
@@ -90611,8 +91315,8 @@ namespace acs {
  * @details
  * 通常確保は現在ページ内をアトミック CAS 1 回で前進させる (lock-free)。ページが満杯に
  * なったときだけ FMutex で排他して backing から新ページを確保する。PageSize より大きい
- * 要求には専用ページを割り当てる。個別 Free は非対応 (no-op)。Reset でカーソルを巻き戻すか
- * (ページ保持)、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
+ * 要求には専用ページを割り当てる。個別 Free は非対応 (no-op)。Reset で世代を進めて page を
+ * 遅延再利用するか、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
  * Reset 開始後の Alloc は nullptr で拒否する。
  */
 class FArenaAllocator final : public FAllocator {
@@ -90648,6 +91352,18 @@ public:
     void* Alloc(usize Size, usize Alignment, FSourceLoc Location) noexcept override;
 
     /**
+     * 同じ size と alignment の領域を 1 回の cursor 予約からまとめて返す。
+     *
+     * @param Output Count 件の結果を書き込む配列。失敗時は全要素を nullptr にする。
+     * @param Count 必要な領域数。
+     * @param Size 1 領域の要求 byte 数。
+     * @param Alignment 各領域の要求 alignment。
+     * @param Location 診断用の呼び出し位置。
+     * @return 全領域を確保できた場合は true。
+     */
+    bool AllocBatch(void** Output, usize Count, usize Size, usize Alignment, FSourceLoc Location = FSourceLoc::Current()) noexcept;
+
+    /**
      * 個別解放は非対応 (no-op)。
      *
      * @details まとめて Reset で破棄する。
@@ -90671,13 +91387,21 @@ public:
      * 全確保を無効化する。
      *
      * @details
-     * bReleasePages=false なら全ページのカーソルを 0 に巻き戻してページを再利用する
-     * (再確保なし)。true なら全ページを backing に返却する。新しい Alloc の入場を閉じ、
+     * bReleasePages=false なら世代を進めて先頭ページだけを初期化し、残りは再公開直前に
+     * GrowLock 内で遅延初期化する。通常経路は保持ページ数に依存しない。true なら全ページを
+     * backing に返却する。新しい Alloc の入場を閉じ、
      * 開始済みの Alloc が完了してから GrowLock を取るため、並行実行でもページへ競合アクセスしない。
      * Reset 後はそれ以前に払い出した全ポインタが無効になるため、呼び出し側はデータ利用者を別途停止すること。
      * @param bReleasePages true でページを backing に返却、false でカーソルだけ巻き戻し。
      */
     void Reset(bool bReleasePages = false) noexcept;
+
+    /**
+     * 現在の batch と世代 reset 診断値を返す。
+     *
+     * @return 各 atomic 値を読み取った診断 snapshot。
+     */
+    FArenaAllocatorDiagnostics Diagnostics() const noexcept;
 
     /**
      * 現在の総割当バイト数を返す。
@@ -90734,6 +91458,9 @@ private:
 
         /** 現在のカーソル位置 (このページ内の確保済みバイト数)。 */
         TAtomic<u64> used;
+
+        /** この page の used が属する Reset 世代。 */
+        u64 generation;
     };
 
     /**
@@ -90744,6 +91471,17 @@ private:
      * @return 初期化済み FPage (失敗時 nullptr)。
      */
     FPage* AllocPage(usize Size) noexcept;
+
+    /**
+     * 1 回の cursor 更新で連続領域を予約し、利用者向け統計を指定件数分だけ加算する。
+     *
+     * @param ReservedSize cursor 上で予約する byte 数。
+     * @param Alignment 予約先頭の alignment。
+     * @param AccountedBytes BytesAllocated に加算する利用者 byte 数。
+     * @param AccountedAllocations AllocationCount に加算する利用者領域数。
+     * @return 予約先頭。失敗時は nullptr。
+     */
+    ACS_FORCEINLINE void* ReserveRegion(usize ReservedSize, usize Alignment, usize AccountedBytes, usize AccountedAllocations) noexcept;
 
     /** Reset と競合しない確保操作として入場できれば true を返す。 */
     bool TryBeginAllocation() noexcept;
@@ -90764,7 +91502,7 @@ private:
     FPage* m_Pages = nullptr;
 
     /** 新ページ確保とリスト操作を排他するロック。 */
-    FMutex m_GrowLock;
+    mutable FMutex m_GrowLock;
 
     /** 1 の間は Reset がページ群を操作中で、新しい Alloc を拒否する。 */
     TAtomic<u32> m_ResetInProgress{0};
@@ -90780,6 +91518,21 @@ private:
 
     /** 過去ピークの割当バイト数 (CAS で更新)。 */
     mutable TAtomic<u64> m_Peak{0};
+
+    /** 現在の Reset 世代。GrowLock または Reset gate の内側で更新する。 */
+    u64 m_Generation = 1u;
+
+    /** 最後の Reset 以降に成功した batch 確保回数。 */
+    TAtomic<u64> m_BatchAllocationCount{0};
+
+    /** 最後の Reset 以降に batch で返した領域数。 */
+    TAtomic<u64> m_BatchSuballocationCount{0};
+
+    /** 直前の Reset が直接参照した page 数。 */
+    TAtomic<u64> m_LastResetPageVisits{0};
+
+    /** 最後の Reset 以降に遅延初期化した page 数。 */
+    TAtomic<u64> m_LazyPageResetCount{0};
 };
 
 } // namespace acs
@@ -91378,27 +92131,6 @@ private:
 
 // ===================== memory/ObjectPool.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Memory — TObjectPool<T> / FObjectHandle / TPoolRef<T>
-//   世代付きスロットマッププール (generational slot map)。
-// -----------------------------------------------------------------------------
-// 「GC の代替となる、速いオブジェクト寿命管理」。UE の UObject GC のような mark-sweep
-// ではなく、ハンドル + プール方式で:
-//   ・Create / Destroy が O(1) (フリーリスト再利用)
-//   ・GC のような «ポーズ» が一切無い (決定的)
-//   ・オブジェクトのアドレスが安定 (チャンク格納。TArray 再確保で動かない)
-//   ・解放後の参照は «世代カウンタ» で安全に無効化 (dangling を検出して nullptr)
-//   ・生存オブジェクトを密な配列で反復 (キャッシュ効率)
-//
-// 例:
-//   TObjectPool<FEnemy> pool;
-//   FObjectHandle h = pool.Create(/*ctor args*/);
-//   if (FEnemy* e = pool.Get(h)) e->Update(dt);   // 生きていれば取得
-//   pool.Destroy(h);                              // 解放 → 以後 Get(h) は nullptr
-//   pool.ForEach([](FEnemy& e, FObjectHandle){ e.Tick(); });
-//
-// ACS_CLASS で定義したユーザー型もそのまま T に使える (リフレクションとは独立)。
-// =============================================================================
 
 
 namespace acs {
@@ -91429,6 +92161,27 @@ struct FObjectHandle {
     {
         return !(*this == Other);
     }
+};
+
+/** FObjectHandle の 64bit 世代を保った物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FObjectHandle> {
+    /** 物理配置 trait が利用可能。 */
+    static constexpr bool kAvailable = true;
+    /** スロット identity の byte offset。 */
+    static constexpr usize kIdentityOffset = offsetof(FObjectHandle, index);
+    /** generation の byte offset。 */
+    static constexpr usize kGenerationOffset = offsetof(FObjectHandle, gen);
+    /** identity field の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FObjectHandle::index);
+    /** generation field の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FObjectHandle::gen);
+    /** domain prefix を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** 型全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FObjectHandle);
+    /** 型全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FObjectHandle);
 };
 
 /**
@@ -91510,8 +92263,10 @@ public:
 
         reinterpret_cast<T*>(PoolSlot->storage)->~T();
         PoolSlot->alive = false;
-        PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);    // 世代を進める → 既存ハンドルは無効に
-        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1]; // 密な生存リストから swap-remove
+        // 世代を進めて既存ハンドルを無効化する。
+        PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);
+        /** 密な生存リストから末尾交換で除く slot index。 */
+        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1];
         m_Live[PoolSlot->liveIdx] = LastSlotIndex;
         SlotRef(LastSlotIndex).liveIdx = PoolSlot->liveIdx;
         m_Live.PopBack();
@@ -91638,7 +92393,8 @@ private:
     {
         const u32 ChunkIndex = SlotIndex / kChunkSize;
         while (static_cast<u32>(m_Chunks.Size()) <= ChunkIndex) {
-            FChunk* NewChunk = New<FChunk>(*m_Alloc); // チャンクはアドレス固定 (移動しない)
+            /** アドレスを固定して追加する chunk。 */
+            FChunk* NewChunk = New<FChunk>(*m_Alloc);
             if (NewChunk == nullptr) return false;
             for (u32 i = 0; i < kChunkSize; ++i)
                 NewChunk->slots[i].gen = m_GenerationSeed;
@@ -96651,21 +97407,37 @@ namespace acs {
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
 class FFileSystem {
 public:
-    /** ASCII 大文字を小文字へ変換し、それ以外は変更しない。 */
+    /**
+     * ASCII 大文字を小文字へ変換し、それ以外は変更しない。
+     *
+     * @param value 変換する文字。
+     * @return 小文字化した文字。
+     */
     static constexpr char AsciiLower(char value) noexcept {
-        return value >= 'A' && value <= 'Z'
-            ? static_cast<char>(value + ('a' - 'A'))
-            : value;
+        return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A')) : value;
     }
 
-    /** 文字が ASCII 範囲なら true を返す。 */
+    /**
+     * 文字が ASCII 範囲なら true を返す。
+     *
+     * @tparam Char 入力文字型。
+     * @param value 確認する文字。
+     * @return ASCII 範囲なら true。
+     */
     template<typename Char>
     static constexpr bool IsAscii(Char value) noexcept {
+        /** 符号なしへ変換した文字型。 */
         using U = std::make_unsigned_t<Char>;
         return static_cast<U>(value) <= static_cast<U>(0x7f);
     }
 
-    /** Windows または portable なパス区切りなら true を返す。 */
+    /**
+     * Windows または portable なパス区切りなら true を返す。
+     *
+     * @tparam Char 入力文字型。
+     * @param value 確認する文字。
+     * @return スラッシュまたはバックスラッシュなら true。
+     */
     template<typename Char>
     static constexpr bool IsPathSeparator(Char value) noexcept {
         return value == static_cast<Char>('\\') || value == static_cast<Char>('/');
@@ -96676,12 +97448,18 @@ public:
      *
      * @details 隠しファイル、末尾 dot、複数 dot の空拡張子、非 ASCII 拡張子は Unknown。
      * パス本体の Unicode は読み替えず、最終 dot より後ろだけを安全に ASCII 比較する。
+     * @tparam Char 入力文字型。
+     * @param path 分類する NUL 終端パス。
+     * @return 判定できた拡張子種別。不正または未対応なら Unknown。
      */
     template<typename Char>
     static constexpr EFileExtensionKind ClassifyExtension(const Char* path) noexcept {
         if (!path) return EFileExtensionKind::Unknown;
+        /** 最終パス要素の開始位置。 */
         usize segment_begin = 0;
+        /** 最終パス要素にある最後の dot 位置。 */
         usize last_dot = static_cast<usize>(-1);
+        /** パス全体の文字数。 */
         usize length = 0;
         for (; path[length] != static_cast<Char>(0); ++length) {
             if (IsPathSeparator(path[length])) {
@@ -96695,16 +97473,22 @@ public:
             return EFileExtensionKind::Unknown;
         }
 
+        /** dot を除いた拡張子の文字数。 */
         const usize extension_size = length - last_dot - 1;
+        /** ASCII 小文字へ正規化した拡張子。 */
         char extension[8]{};
         if (extension_size >= sizeof(extension)) return EFileExtensionKind::Unknown;
+        /** 正規化する拡張子位置。 */
         for (usize i = 0; i < extension_size; ++i) {
+            /** 現在正規化する文字。 */
             const Char value = path[last_dot + 1 + i];
             if (!IsAscii(value)) return EFileExtensionKind::Unknown;
             extension[i] = AsciiLower(static_cast<char>(value));
         }
 
+        /** 正規化済み拡張子を ASCII 文字列と比較する。 */
         const auto equals = [&](const char* expected) constexpr noexcept {
+            /** 比較する文字位置。 */
             usize i = 0;
             while (i < extension_size && expected[i] != '\0') {
                 if (extension[i] != expected[i]) return false;
@@ -98072,15 +98856,23 @@ class TDescriptorSlotPool {
 public:
     /** 一つのスロットを確保し、空きがなければ -1 を返す。 */
     i32 Allocate() noexcept {
-        i32 slot = -1; // 確保したスロット番号。
+        /** 確保したスロット番号。 */
+        i32 slot = -1;
         return AllocateBatch(&slot, 1u) ? slot : -1;
     }
 
-    /** 指定数のスロットをまとめて確保する。 */
+    /**
+     * 指定数のスロットをまとめて確保する。
+     *
+     * @param output 確保した番号を書き込む配列。
+     * @param count 確保するスロット数。
+     * @return 全件を確保できれば true。出力先不正または空き不足では false。
+     */
     bool AllocateBatch(i32* output, u32 count) noexcept {
         if (count == 0u) return true;
         if (output == nullptr || count > AvailableCount()) return false;
-        u32 written = 0u; // 出力済みスロット数。
+        /** 出力済みスロット数。 */
+        u32 written = 0u;
         while (written < count && m_FreeCount > 0u)
             output[written++] = m_FreeList[--m_FreeCount];
         while (written < count)
@@ -98088,18 +98880,29 @@ public:
         return true;
     }
 
-    /** 一つのスロットを再利用待ちへ戻す。 */
+    /**
+     * 一つのスロットを再利用待ちへ戻す。
+     *
+     * @param slot 返却するスロット番号。範囲外または返却済みなら変更しない。
+     */
     void Free(i32 slot) noexcept {
         if (slot < 0 || static_cast<u32>(slot) >= m_HighWater) return;
+        /** 重複返却を確認する再利用待ち位置。 */
         for (u32 i = 0u; i < m_FreeCount; ++i) {
             if (m_FreeList[i] == slot) return;
         }
         if (m_FreeCount < Capacity) m_FreeList[m_FreeCount++] = slot;
     }
 
-    /** 指定されたスロット群を再利用待ちへ戻す。 */
+    /**
+     * 指定されたスロット群を再利用待ちへ戻す。
+     *
+     * @param slots 返却するスロット番号の配列。
+     * @param count 配列要素数。slots が空なら変更しない。
+     */
     void FreeBatch(const i32* slots, u32 count) noexcept {
         if (slots == nullptr) return;
+        /** 返却する配列位置。 */
         for (u32 i = 0u; i < count; ++i) Free(slots[i]);
     }
 
@@ -99883,6 +100686,45 @@ inline u32 PipelineKeyFloatBits(f32 value) noexcept {
     return bits;
 }
 
+/** 生 byte 列を二系統の内容 hash へ変換する。 */
+inline FPipelineStateKey PipelineKeyBytes(const void* data, usize size) noexcept {
+    if (data == nullptr && size != 0u) return FPipelineStateKey{};
+    /** hash 対象 byte 列。 */
+    const byte* bytes = static_cast<const byte*>(data);
+    /** primary hash の累積値。 */
+    u64 primary = 0xCBF29CE484222325ull;
+    /** 独立 verification hash の累積値。 */
+    u64 verification = 0x84222325CBF29CE4ull;
+    for (usize index = 0u; index < size; ++index) {
+        primary = (primary ^ static_cast<u64>(bytes[index])) * 0x100000001B3ull;
+        verification = (verification ^ (static_cast<u64>(bytes[index]) + 0x9Dull)) * 0x9E3779B185EBCA87ull;
+    }
+    return FPipelineStateKey{HashMix64(primary ^ static_cast<u64>(size)), HashMix64(verification ^ (static_cast<u64>(size) * 0xD6E8FEB86659FD93ull))};
+}
+
+/** null 終端文字列をポインター値に依存しない内容 hash へ変換する。 */
+inline FPipelineStateKey PipelineKeyString(const char* value) noexcept {
+    if (value == nullptr) return FPipelineStateKey{};
+    /** null 終端を除く文字数。 */
+    usize length = 0u;
+    while (value[length] != '\0') ++length;
+    return PipelineKeyBytes(value, length);
+}
+
+/** shader の bytecode 内容と stage から意味上の識別値を作る。 */
+inline FPipelineStateKey PipelineKeyShader(const IRhiShader* shader) noexcept {
+    if (shader == nullptr) return FPipelineStateKey{};
+    /** shader が公開する bytecode 先頭。 */
+    const byte* bytecode = shader->Bytecode();
+    /** shader bytecode の byte 数。 */
+    const usize bytecode_size = shader->BytecodeSize();
+    /** 内容または pointer fallback から作る識別 key。 */
+    FPipelineStateKey content = bytecode != nullptr && bytecode_size > 0u ? PipelineKeyBytes(bytecode, bytecode_size) : FPipelineStateKey{HashMix64(reinterpret_cast<u64>(shader)), HashMix64(reinterpret_cast<u64>(shader) ^ 0xA4093822299F31D0ull)};
+    content.primary = PipelineKeyCombine(content.primary, PipelineKeyCombine(static_cast<u64>(bytecode_size), static_cast<u64>(shader->Stage())));
+    content.verification = PipelineKeyCombine(content.verification, PipelineKeyCombine(static_cast<u64>(shader->Stage()), static_cast<u64>(bytecode_size)));
+    return content;
+}
+
 /** サンプラーの全状態を PSO キーへ加える。 */
 template<typename FAdd>
 inline void AddSamplerToPipelineKey(const FSamplerDesc& sampler, FAdd&& add) noexcept {
@@ -99905,17 +100747,28 @@ inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcep
         key.primary = PipelineKeyCombine(key.primary, value);
         key.verification = PipelineKeyCombine(key.verification, value ^ 0xA4093822299F31D0ull);
     };
-    add(reinterpret_cast<u64>(desc.vs));
-    add(reinterpret_cast<u64>(desc.ps));
+    /** 二系統 hash を独立に key へ合成する関数。 */
+    const auto add_pair = [&key](const FPipelineStateKey& value) noexcept {
+        key.primary = PipelineKeyCombine(key.primary, value.primary);
+        key.verification = PipelineKeyCombine(key.verification, value.verification);
+    };
+    add_pair(PipelineKeyShader(desc.vs));
+    add_pair(PipelineKeyShader(desc.ps));
     add(static_cast<u64>(desc.topology));
-    add(static_cast<u64>(desc.rt_format));
-    add(static_cast<u64>(desc.rt_count));
-    for (u32 index = 0u; index < 8u; ++index) add(static_cast<u64>(desc.rt_formats[index]));
+    // backend が実際に使う RT 数。
+    /** backend が実際に消費する RT 数。 */
+    const u32 render_target_count = desc.ps == nullptr ? 0u : desc.rt_count == 0u ? 1u : desc.rt_count;
+    add(static_cast<u64>(render_target_count));
+    if (render_target_count == 1u && desc.rt_count == 0u) {
+        add(static_cast<u64>(desc.rt_format));
+    } else {
+        for (u32 index = 0u; index < render_target_count && index < 8u; ++index) add(static_cast<u64>(desc.rt_formats[index]));
+    }
     add(static_cast<u64>(desc.depth_format));
     add(desc.vertex_stride);
     add(desc.layout_count);
     for (u32 index = 0u; index < desc.layout_count && index < 8u; ++index) {
-        add(reinterpret_cast<u64>(desc.layout[index].semantic_name));
+        add_pair(PipelineKeyString(desc.layout[index].semantic_name));
         add(desc.layout[index].semantic_index);
         add(static_cast<u64>(desc.layout[index].format));
         add(desc.layout[index].offset);
@@ -99939,10 +100792,10 @@ inline FPipelineStateKey MakePipelineStateKey(const FPipelineDesc& desc) noexcep
     add(desc.stencil.write_mask);
     add(desc.sample_count);
     for (u32 index = 0u; index < desc.cbuffer_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.cbuffer_names[index]));
+        add_pair(PipelineKeyString(desc.cbuffer_names[index]));
     }
     for (u32 index = 0u; index < desc.texture_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.texture_names[index]));
+        add_pair(PipelineKeyString(desc.texture_names[index]));
     }
     return key;
 }
@@ -99956,7 +100809,12 @@ inline FPipelineStateKey MakePipelineStateKey(const FComputePipelineDesc& desc) 
         key.primary = PipelineKeyCombine(key.primary, value);
         key.verification = PipelineKeyCombine(key.verification, value ^ 0xC0AC29B7C97C50DDull);
     };
-    add(reinterpret_cast<u64>(desc.cs));
+    /** 二系統 hash を独立に key へ合成する関数。 */
+    const auto add_pair = [&key](const FPipelineStateKey& value) noexcept {
+        key.primary = PipelineKeyCombine(key.primary, value.primary);
+        key.verification = PipelineKeyCombine(key.verification, value.verification);
+    };
+    add_pair(PipelineKeyShader(desc.cs));
     add(desc.cbuffer_slots);
     add(desc.srv_slots);
     add(desc.uav_slots);
@@ -99965,13 +100823,13 @@ inline FPipelineStateKey MakePipelineStateKey(const FComputePipelineDesc& desc) 
         AddSamplerToPipelineKey(desc.static_samplers[index], add);
     }
     for (u32 index = 0u; index < desc.cbuffer_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.cbuffer_names[index]));
+        add_pair(PipelineKeyString(desc.cbuffer_names[index]));
     }
     for (u32 index = 0u; index < desc.srv_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.srv_names[index]));
+        add_pair(PipelineKeyString(desc.srv_names[index]));
     }
     for (u32 index = 0u; index < desc.uav_slots && index < 16u; ++index) {
-        add(reinterpret_cast<u64>(desc.uav_names[index]));
+        add_pair(PipelineKeyString(desc.uav_names[index]));
     }
     return key;
 }
@@ -99991,6 +100849,30 @@ class TPipelineStateKeyCache {
 
 public:
     /**
+     * 登録済みキーを検索する。
+     *
+     * @param key 検索する PSO キー。
+     * @param identifier 登録済み識別子。
+     * @return 見つかった場合は true。
+     */
+    bool Find(const FPipelineStateKey& key, u32& identifier) const noexcept {
+        /** open addressing の開始 slot。 */
+        const u32 start = static_cast<u32>(key.primary % Capacity);
+        for (u32 probe = 0u; probe < Capacity; ++probe) {
+            /** 現在照合する slot。 */
+            const u32 slot = (start + probe) % Capacity;
+            /** 現在照合する entry。 */
+            const FEntry& entry = m_Entries[slot];
+            if (!entry.occupied) return false;
+            if (entry.key == key) {
+                identifier = entry.identifier;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * キーを検索し、未登録なら新しい識別子で登録する。
      *
      * @param key 検索または登録する PSO キー。
@@ -99999,10 +100881,13 @@ public:
      * @return 検索または登録できた場合は true、満杯なら false。
      */
     bool FindOrIntern(const FPipelineStateKey& key, u32& identifier, bool& found) noexcept {
-        const u32 start = static_cast<u32>(key.primary % Capacity); // 線形探索の開始位置。
+        /** 線形探索の開始位置。 */
+        const u32 start = static_cast<u32>(key.primary % Capacity);
         for (u32 probe = 0u; probe < Capacity; ++probe) {
-            const u32 slot = (start + probe) % Capacity; // 今回検査する表の位置。
-            FEntry& entry = m_Entries[slot]; // 今回検査する登録要素。
+            /** 今回検査する表の位置。 */
+            const u32 slot = (start + probe) % Capacity;
+            /** 今回検査する登録要素。 */
+            FEntry& entry = m_Entries[slot];
             if (!entry.occupied) {
                 entry.key = key;
                 entry.identifier = m_NextIdentifier++;
@@ -100023,6 +100908,13 @@ public:
 
     /** 登録済みキー数を返す。 */
     u32 Size() const noexcept { return m_Size; }
+
+    /** 登録済みキーを全て定数時間相当の固定表初期化で破棄する。 */
+    void Reset() noexcept {
+        for (u32 index = 0u; index < Capacity; ++index) m_Entries[index] = FEntry{};
+        m_NextIdentifier = 0u;
+        m_Size = 0u;
+    }
 
 private:
     /** 一つの登録済み PSO キー。 */
@@ -100287,6 +101179,136 @@ private:
 // ---- 低レベル RHI（バックエンド非依存の描画インターフェイス）----------------
 
 // ---- 高レベルヘルパ ---------------------------------------------------------
+
+// ===================== render/RenderGraphAliasAssignment.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** Render Graph リソースから alias slot への決定的な割り当て。 */
+struct FRenderGraphAliasAssignment {
+    /** 入力寿命と同じリソース識別子。 */
+    u32 resource_id = 0;
+
+    /** 共有候補となる物理 slot 番号。 */
+    u32 slot_index = 0;
+};
+
+} // namespace acs
+
+// ===================== render/RenderGraphResourceLifetime.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * Render Graph 上の一時リソース寿命。
+ *
+ * @details first_pass と last_pass は両端を含む。同じ pass で読み書きされる
+ * リソース同士は重複扱いとなり、同一 alias slot へ割り当てられない。
+ */
+struct FRenderGraphResourceLifetime {
+    /** 呼び出し側が管理する一意なリソース識別子。 */
+    u32 resource_id = 0;
+
+    /** heap 種別や用途を含む alias 互換クラス。 */
+    u64 compatibility_key = 0;
+
+    /** リソースが必要とする配置バイト数。 */
+    u64 size_bytes = 0;
+
+    /** 最初に参照する pass 番号。 */
+    u32 first_pass = 0;
+
+    /** 最後に参照する pass 番号。 */
+    u32 last_pass = 0;
+
+    /** フレームを越えて保持しないリソースか。 */
+    bool transient = true;
+
+    /** バックエンドが alias 配置を許可するか。 */
+    bool alias_allowed = true;
+};
+
+} // namespace acs
+
+// ===================== render/RenderGraphTransientAlias.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/**
+ * Render Graph 一時リソースの alias 候補を構築する。
+ *
+ * @details 互換クラスが一致し、両方が transient かつ alias 許可済みで、
+ * inclusive な寿命区間が重ならない場合だけ同一 slot を選ぶ。入力順に依存しない
+ * pass 順の決定的な greedy 計画を作り、GPU alias barrier の実体化は行わない。
+ */
+class FRenderGraphTransientAliasPlanner {
+public:
+    /**
+     * 寿命配列から alias 候補計画を構築する。
+     *
+     * @param lifetimes 解析する寿命配列。
+     * @param count 寿命配列の要素数。
+     * @return 成功なら true、不正入力または確保失敗なら false。
+     */
+    bool Build(const FRenderGraphResourceLifetime* lifetimes, usize count) noexcept;
+
+    /** 現在の計画を空へ戻す。 */
+    void Reset() noexcept;
+
+    /**
+     * 2 つの寿命を安全に alias 候補へできるか返す。
+     *
+     * @param first 一方の寿命。
+     * @param second もう一方の寿命。
+     * @return 安全な候補なら true。
+     */
+    static bool CanAlias(const FRenderGraphResourceLifetime& first, const FRenderGraphResourceLifetime& second) noexcept;
+
+    /** 入力順と同じ割り当て配列を返す。 */
+    const FRenderGraphAliasAssignment* Assignments() const noexcept {
+        return m_Assignments.Data();
+    }
+
+    /** 割り当て要素数を返す。 */
+    usize AssignmentCount() const noexcept {
+        return m_Assignments.Size();
+    }
+
+    /** 現在の計画集計を返す。 */
+    const FRenderGraphAliasPlanSummary& Summary() const noexcept {
+        return m_Summary;
+    }
+
+private:
+    /** 入力順を維持した slot 割り当て。 */
+    TArray<FRenderGraphAliasAssignment> m_Assignments;
+
+    /** pass 順へ並べた入力 index の作業領域。 */
+    TArray<u32> m_Order;
+
+    /** slot が最後に参照される pass。 */
+    TArray<u32> m_SlotLastPass;
+
+    /** slot の alias 互換クラス。 */
+    TArray<u64> m_SlotCompatibility;
+
+    /** slot に必要な最大配置バイト数。 */
+    TArray<u64> m_SlotBytes;
+
+    /** slot が後続 transient に再利用可能か。 */
+    TArray<u8> m_SlotReusable;
+
+    /** 現在の計画集計。 */
+    FRenderGraphAliasPlanSummary m_Summary{};
+};
+
+} // namespace acs
 
 // ===================== render/RhiPipelineBindDomain.h =====================
 // SPDX-License-Identifier: Apache-2.0
