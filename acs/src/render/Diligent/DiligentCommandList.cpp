@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // FDiligentCommandList 実装
 #include "render/Diligent/DiligentCommandList.h"
-#include "render/RhiPipelineBindPolicy.h"
 
 #if WITH_RENDER_DILIGENT
 
@@ -681,10 +680,10 @@ void FDiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& p = static_cast<FDiligentPipeline&>(pipeline);
-    const bool needs_bind = TRhiPipelineBindPolicy<
-        ERhiPipelineBindDomain::Graphics>::NeedsBind(m_Pipeline, &p);
     m_Pipeline = &p;
-    if (needs_bind && p.Native()) ctx->SetPipelineState(p.Native());
+    // 全 command list が同じ immediate context を共有する。Diligent 自身の
+    // context-global cache に通知し、別 list の bind や Flush 後も正しく再束縛する。
+    if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
 void FDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
@@ -845,11 +844,10 @@ void FDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     auto* ctx = m_Device->Context();
     if (!ctx) return;
     auto& p = static_cast<FDiligentPipeline&>(pipeline);
-    const bool needs_bind = TRhiPipelineBindPolicy<
-        ERhiPipelineBindDomain::Compute>::NeedsBind(m_Pipeline, &p);
     m_Pipeline = &p;
     m_BoundUavTexCount = 0;
-    if (needs_bind && p.Native()) ctx->SetPipelineState(p.Native());
+    // graphics と同じ共有 context のため、Diligent 側を唯一の bind cache とする。
+    if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
 void FDiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {

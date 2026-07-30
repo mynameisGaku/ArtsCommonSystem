@@ -15,12 +15,15 @@ ACS は 2 つの RHI バックエンドを持つ。**どちらをビルドする
 - Diligent static libraryは内部でC++例外を使う。MSVCでは同じ最終binaryに入るACS targetも
   `/EHsc`と`_HAS_EXCEPTIONS=1`へ揃え、`std::runtime_error`などのSTL ABIを一致させる。
   ACS source側は引き続き例外を投げず、`TResult`で失敗を返す。
-- `IDeviceContext::FinishFrame()`はdynamic descriptorを回収対象へ移すと同時に、
-  contextのpipeline stateを失効させる。`FDiligentCommandList::Begin()`もACS側の
-  pipeline bind cacheを失効させるため、off-screen submissionを連続しても次の
-  `SetPipeline()`は必ずnative PSOを再束縛する。
-- dynamic descriptor回収の回帰確認は
-  `FDiligentDevice.OffscreenSubmissionsRecycleDynamicDescriptors`が担当する。
+- `IDeviceContext::Flush()`はnative pipeline stateを失効させ、
+  `FinishFrame()`はdynamic descriptorを回収対象へ移す。全`FDiligentCommandList`は
+  1個のimmediate contextを共有するため、PSOの冗長bind判定はDiligentの
+  context-global cacheだけに委ねる。ACS側はpipelineをresource lookup用に保持するが、
+  `SetPipeline()`のnative通知をcommand-list-local cacheで省略しない。
+- dynamic descriptor回収は
+  `FDiligentDevice.OffscreenSubmissionsRecycleDynamicDescriptors`、off-screen / primary
+  Present境界と複数command list間のPSO整合は
+  `FDiligentDevice.SharedContextPipelineStateRemainsCoherent`が回帰確認する。
 
 ## 機能サポート表
 
