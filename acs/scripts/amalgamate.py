@@ -19,10 +19,23 @@ import stat
 import sys
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.normpath(os.path.join(HERE, "..", "..")).replace("\\", "/")  # リポジトリ root
-SRC  = ROOT + "/acs/src"
-DIST_HEADER = ROOT + "/dist/acs.h"
+
+def normalize_path(path):
+    """絶対pathを正規化し、区切りを生成処理内で統一する。"""
+
+    return os.path.normpath(os.path.abspath(path)).replace("\\", "/")
+
+
+def join_normalized_path(base, *parts):
+    """baseと相対要素を結合し、drive rootでも区切りを重複させない。"""
+
+    return normalize_path(os.path.join(base, *parts))
+
+
+HERE = normalize_path(os.path.dirname(__file__))
+ROOT = join_normalized_path(HERE, "..", "..")  # リポジトリ root
+SRC = join_normalized_path(ROOT, "acs", "src")
+DIST_HEADER = join_normalized_path(ROOT, "dist", "acs.h")
 
 EXCLUDE_SUBSTR = ["/Dx12/", "/Diligent/", "/test/"]
 
@@ -101,10 +114,34 @@ BANNER = '''// SPDX-License-Identifier: Apache-2.0
 
 def resolve(rel, from_path):
     for base in (SRC, os.path.dirname(from_path)):
-        cand = os.path.normpath(os.path.join(base, rel)).replace("\\", "/")
+        cand = normalize_path(os.path.join(base, rel))
         if os.path.exists(cand):
             return cand
     return None
+
+
+def source_identity(path):
+    """同一sourceをdrive別名やhard linkに依存しない実体IDへ変換する。"""
+
+    source_status = os.stat(path, follow_symlinks=True)
+    source_inode = getattr(source_status, "st_ino", 0)
+    if source_inode:
+        return ("file", source_status.st_dev, source_inode)
+    # inodeを公開しないfilesystemでは解決済みpathを安全な代替keyにする。
+    return ("path", os.path.normcase(os.path.realpath(normalize_path(path))))
+
+
+def source_relative_path(path):
+    """source root内のpathをdrive表記に依存しない表示名へ変換する。"""
+
+    normalized_path = normalize_path(path)
+    try:
+        relative_path = os.path.relpath(normalized_path, SRC).replace("\\", "/")
+    except ValueError:
+        return normalized_path
+    if relative_path == ".." or relative_path.startswith("../"):
+        return normalized_path
+    return relative_path
 
 
 def build_amalgamation():
@@ -116,11 +153,12 @@ def build_amalgamation():
     unresolved = []
 
     def inline(path):
-        path = path.replace("\\", "/")
-        if path in seen:
+        path = normalize_path(path)
+        identity = source_identity(path)
+        if identity in seen:
             return
-        seen.add(path)
-        rel = path[len(SRC) + 1:] if path.startswith(SRC) else path
+        seen.add(identity)
+        rel = source_relative_path(path)
         out.append("\n// ===================== " + rel + " =====================\n")
         with open(path, encoding="utf-8") as source_file:
             for line in source_file:
@@ -132,9 +170,7 @@ def build_amalgamation():
                     if target is None:
                         unresolved.append((rel, match.group(1)))
                         out.append(line)
-                    elif excluded(
-                        target[len(SRC) + 1:] if target.startswith(SRC) else target
-                    ):
+                    elif excluded(source_relative_path(target)):
                         out.append(
                             "// [amalgam] skipped internal include: "
                             + match.group(1)
@@ -157,9 +193,9 @@ def build_amalgamation():
                 out.append(line)
 
     roots = sorted(
-        path.replace("\\", "/")
-        for path in glob.glob(SRC + "/**/*.h", recursive=True)
-        if not excluded(path.replace("\\", "/")[len(SRC) + 1:])
+        normalize_path(path)
+        for path in glob.glob(os.path.join(SRC, "**", "*.h"), recursive=True)
+        if not excluded(source_relative_path(path))
     )
     for root in roots:
         inline(root)
@@ -243,6 +279,116 @@ def write_header_atomic(path, data):
                 pass
 
 
+def require_self_test(condition, message):
+    """自己検証の条件を確認し、不成立なら原因付きで失敗させる。"""
+
+    if not condition:
+        raise RuntimeError(message)
+
+
+def run_self_test():
+    """drive別名の重複抑止と配布先の原子的・link拒否契約を検証する。"""
+
+    with tempfile.TemporaryDirectory(prefix="acs-amalgamate-selftest-") as temp_root:
+        drive_name = os.path.splitdrive(os.path.abspath(temp_root))[0]
+        drive_root = drive_name + os.sep if drive_name else os.path.abspath(os.sep)
+        joined_source = join_normalized_path(drive_root, "acs", "src")
+        if drive_name:
+            require_self_test(
+                not joined_source.startswith(drive_name + "//"),
+                "drive root path retained a duplicate separator",
+            )
+
+        source_path = os.path.join(temp_root, "source.h")
+        alias_path = os.path.join(temp_root, "source-alias.h")
+        with open(source_path, "wb") as source_file:
+            source_file.write(b"#pragma once\n")
+        os.link(source_path, alias_path)
+        require_self_test(
+            source_identity(source_path) == source_identity(alias_path),
+            "hard-link aliases did not share one source identity",
+        )
+        seen_sources = {source_identity(source_path)}
+        require_self_test(
+            source_identity(alias_path) in seen_sources,
+            "source identity set did not suppress an alias",
+        )
+
+        destination_path = os.path.join(temp_root, "dist", "acs.h")
+        first_payload = b"first\n"
+        second_payload = b"second\n"
+        write_header_atomic(destination_path, first_payload)
+        write_header_atomic(destination_path, second_payload)
+        with open(destination_path, "rb") as destination_file:
+            require_self_test(
+                destination_file.read() == second_payload,
+                "atomic replacement did not publish the complete payload",
+            )
+        temporary_files = glob.glob(
+            os.path.join(os.path.dirname(destination_path), ".acs.h.*.tmp")
+        )
+        require_self_test(
+            not temporary_files,
+            "atomic replacement left a temporary file",
+        )
+
+        original_replace = os.replace
+
+        def reject_replace(unused_source, unused_destination):
+            del unused_source, unused_destination
+            raise OSError("injected replacement failure")
+
+        os.replace = reject_replace
+        try:
+            try:
+                write_header_atomic(destination_path, b"rejected\n")
+            except OSError as error:
+                require_self_test(
+                    "injected replacement failure" in str(error),
+                    "atomic failure was replaced by an unrelated error",
+                )
+            else:
+                raise RuntimeError("injected atomic replacement failure was ignored")
+        finally:
+            os.replace = original_replace
+        with open(destination_path, "rb") as destination_file:
+            require_self_test(
+                destination_file.read() == second_payload,
+                "failed atomic replacement modified the published header",
+            )
+        require_self_test(
+            not glob.glob(
+                os.path.join(os.path.dirname(destination_path), ".acs.h.*.tmp")
+            ),
+            "failed atomic replacement left a temporary file",
+        )
+
+        original_reparse_check = is_symlink_or_reparse_point
+        marked_reparse_path = [destination_path]
+
+        def mark_destination_as_reparse(path):
+            return normalize_path(path) == normalize_path(marked_reparse_path[0])
+
+        globals()["is_symlink_or_reparse_point"] = mark_destination_as_reparse
+        try:
+            for marked_path in (
+                destination_path,
+                os.path.dirname(destination_path),
+            ):
+                marked_reparse_path[0] = marked_path
+                try:
+                    validate_distribution_destination(destination_path)
+                except OSError as error:
+                    require_self_test(
+                        "symbolic link or reparse point" in str(error),
+                        "reparse destination failed for an unrelated reason",
+                    )
+                else:
+                    raise RuntimeError("reparse destination was accepted")
+        finally:
+            globals()["is_symlink_or_reparse_point"] = original_reparse_check
+
+
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(
         description="ACS 公開ヘッダの単一ヘッダ配布物を生成・検証する。"
@@ -258,11 +404,25 @@ def parse_arguments(argv):
         action="store_true",
         help="生成結果と dist/acs.h を byte 単位で比較する",
     )
+    action.add_argument(
+        "--self-test",
+        action="store_true",
+        help="path別名の重複抑止と原子的書込みの安全契約を検証する",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     arguments = parse_arguments(sys.argv[1:] if argv is None else argv)
+    if arguments.self_test:
+        try:
+            run_self_test()
+        except (OSError, UnicodeError, RuntimeError, ValueError) as error:
+            print(f"amalgamate self-test failed: {error}", file=sys.stderr)
+            return 2
+        print("amalgamate self-test passed")
+        return 0
+
     try:
         seen, out, externals, unresolved = build_amalgamation()
     except (OSError, UnicodeError, RuntimeError, ValueError) as error:

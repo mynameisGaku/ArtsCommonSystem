@@ -146,6 +146,7 @@ cmake --build acs/Intermediate/vs --config Release -j
 powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1 -SelfTest
 powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
 # 3) verify tracked header drift and naming/node conventions
+python acs/scripts/amalgamate.py --self-test
 python acs/scripts/amalgamate.py --check
 python acs/scripts/audit_cpp_conventions.py --root dist --scope .
 # 4) syntax-check the consumer
@@ -158,7 +159,11 @@ python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist -
 `acs/scripts/amalgamate.py` produces `acs.h` (inlines every public
 `#include "..."`, hoists nothing — external `<...>` includes stay in place;
 strips `#pragma once`; adds the link/ABI pragmas). `--check` renders the same
-header in memory and byte-compares it with tracked `dist/acs.h`.
+header in memory and byte-compares it with tracked `dist/acs.h`. Path assembly
+normalizes drive roots, and the traversal identifies source files by filesystem
+identity, so a `subst` drive or another path alias cannot inline one header
+twice. `--self-test` covers this alias contract together with atomic replacement
+and symbolic-link/reparse-point rejection.
 `acs/scripts/build_single_header.ps1` runs it and merges the per-module
 `acs_*.lib` (+ bundled `imgui`/`lua`/`ufbx`/`mimalloc`) into one `acs.lib` per
 config, then requires and copies the adjacent Diligent/xxHash libraries.

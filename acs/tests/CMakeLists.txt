@@ -634,6 +634,13 @@ if(ACS_IS_TOP_LEVEL)
     set(ACS_AMALGAMATE_SCRIPT
         "${ACS_TREE_ROOT}/scripts/amalgamate.py")
 
+    add_test(NAME ACS.AmalgamationAliasSelfTest
+             COMMAND "${Python3_EXECUTABLE}" "${ACS_AMALGAMATE_SCRIPT}"
+                     --self-test)
+    set_tests_properties(
+        ACS.AmalgamationAliasSelfTest
+        PROPERTIES LABELS "StaticAnalysis;Distribution" TIMEOUT 30)
+
     if(WIN32)
         find_program(ACS_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
         if(ACS_POWERSHELL_EXECUTABLE)
