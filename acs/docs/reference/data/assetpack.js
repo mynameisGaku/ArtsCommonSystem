@@ -28,7 +28,7 @@ ACS_REF.modules.push({
       when: "実行時にアーカイブからテクスチャや音データを読み込みたい時。普通はゲーム起動時に 1 度 Open し、必要な時に ReadFile する。",
       sample: "acs::assetpack::FAcpakReader reader;\nreader.Open(L\"game.acpak\");\nauto sz = reader.GetUncompressedSize(L\"textures/hero.png\");\nacs::byte* buf = MyAlloc(sz.Value());\nreader.ReadFile(L\"textures/hero.png\", buf, sz.Value());\nreader.Close();",
       members: [
-        { sig: "TResult<void> Open(const wchar_t* file_path)", desc: "pak を開いてヘッダと<t>ファイルテーブル</t>を読む。多重 Open は前回を自動 Close。<b>暗号化 pak</b> は Open 前に <code>SetKey</code> で鍵を渡しておくこと(無いと ReadFile でエラー)。magic/version/flags 不一致はエラー。" },
+        { sig: "TResult<void> Open(const wchar_t* file_path)", desc: "pak を独立した一時 Reader へ開き、ヘッダと<t>ファイルテーブル</t>の検証完了後にだけ現在状態を置換する。多重 Open が失敗した場合は既存の handle・manifest・鍵を維持し、未 Open からの失敗は未 Open のまま。<b>暗号化 pak</b> は Open 前に <code>SetKey</code> で鍵を渡しておくこと(無いと ReadFile でエラー)。magic/version/flags 不一致はエラー。" },
         { sig: "void SetKey(const FAcpakKey& key)", desc: "暗号化 pak の<t>復号</t>鍵を設定する。<code>ReadFile</code> 内の AES-256-GCM 復号で使う。Close すると鍵情報は 0 クリアされる。", when: "暗号化された pak を読む時。" },
         { sig: "void Close()", desc: "ハンドルを閉じ、文字列<t>プール</t>と entry 配列を解放する。Open 前・Close 済でも安全。" },
         { sig: "bool IsOpen() const", ret: "開いているか", desc: "Open 成功後かつ Close 前なら true。" },

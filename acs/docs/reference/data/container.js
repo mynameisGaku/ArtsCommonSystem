@@ -43,7 +43,8 @@ ACS_REF.modules.push({
         { sig: "T* Data() / usize Size() / bool IsEmpty()", desc: "先頭ポインタ / 要素数 / 空かどうか。" },
         { sig: "T& operator[](usize i)", desc: "添字アクセス。範囲外は<t>アサート</t>(Debug のみ)。" },
         { sig: "T* begin() / T* end()", desc: "イテレータ。range-for に対応。" },
-        { sig: "TSpan SubSpan(usize offset, usize count)", ret: "部分ビュー", desc: "一部分だけを切り出したビューを返す(コピーしない)。", sample: "auto mid = sp.SubSpan(1, 2);  // 1 番目から 2 個" }
+        { sig: "TSpan SubSpan(usize offset, usize count)", ret: "部分ビュー", desc: "一部分だけを切り出したビューを返す(コピーしない)。範囲外は<t>アサート</t>で検出する。", sample: "auto mid = sp.SubSpan(1, 2);  // 1 番目から 2 個" },
+        { sig: "bool TrySubSpan(usize offset, usize count, TSpan&amp; out)", ret: "範囲が有効なら true", desc: "外部入力向けの fail-closed 版。null と非 0 size の不正 view、範囲外、加算 overflow をアサートなしで拒否し、失敗時は <code>out</code> を変更しない。", when: "ファイルや通信など信頼できない長さから部分 view を切り出す時。", sample: "TSpan&lt;const u8&gt; part;\nif (!bytes.TrySubSpan(offset, count, part)) {\n    return InvalidRange();\n}" }
       ]
     },
     {

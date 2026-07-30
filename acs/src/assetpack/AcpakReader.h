@@ -56,8 +56,9 @@ public:
      *
      * @details
      * file_path は UTF-16 (Windows convention)。成功すると以降の API が有効に
-     * なる。多重 Open は前回を自動 Close する。失敗時は内部状態が Close() 後と
-     * 同じになる (IsOpen() == false)。暗号化 pak (AcpakFlagEncrypted) は Open の
+     * なる。多重 Open は新しい pak の検証完了後にだけ前回の状態を置換する。
+     * 失敗時は現在の handle・manifest・鍵を維持し、未 Open なら未 Open のままにする。
+     * 暗号化 pak (AcpakFlagEncrypted) は Open の
      * 前に SetKey() で鍵を与えておく必要がある (Open 自体は header と file table
      * = nonce/tag を含む までしか読まないので鍵不要だが、鍵なしで encrypted pak
      * の ReadFile を呼ぶと kAcpakSubCryptoKey を返す)。失敗時は

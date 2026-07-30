@@ -85,10 +85,10 @@ and compile-time assertions are required where they keep build cost bounded.
 | T44 | I | Memory | Reuse a measured allocation path with an intrusive/free list | A | Complete |
 | T45 | I | Validation/TMP | Generate constexpr enum validation and lookup tables | A | Complete |
 | T46 | I | Results | Improve hot/cold result propagation and branch layout | A | Deferred |
-| T47 | J | Math/SIMD | Batch AABB and frustum tests with scalar parity fallback | C | Active |
-| T48 | J | Transform | Add SoA transform-update batch with cache-local traversal | C | Active |
-| T49 | J | ECS | Add measured blocked iteration/prefetch strategy | C | Active |
-| T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Active |
+| T47 | J | Math/SIMD | Batch AABB and frustum tests with scalar parity fallback | C | Complete |
+| T48 | J | Transform | Add SoA transform-update batch with cache-local traversal | C | Complete |
+| T49 | J | ECS | Add measured blocked iteration/prefetch strategy | C | Deferred |
+| T50 | J | Hash/SIMD | Add batch hash/CRC path with scalar parity fallback | C | Deferred |
 | T51 | J | Serialization/TMP | Generate endian-safe typed read/write primitives | A | Complete |
 | T52 | J | Memory | Add frame-arena batched suballocation and constant-time reset | A | Complete |
 | T53 | K | Async I/O | Coalesce compatible asynchronous file-read requests | B | Complete |
@@ -97,11 +97,11 @@ and compile-time assertions are required where they keep build cost bounded.
 | T56 | K | Assets | Batch dependency resolution in stable topological order | B | Complete |
 | T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Active |
 | T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Complete |
-| T59 | L | Render | Add inline storage for common render-command payloads | C | Active |
-| T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Active |
-| T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Active |
-| T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Active |
-| T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Active |
+| T59 | L | Render | Add inline storage for common render-command payloads | C | Complete |
+| T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Complete |
+| T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Complete |
+| T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Complete |
+| T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Deferred |
 | T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Active |
 | T65 | M | Handles/TMP | Add generation-checked static handle-layout traits and parity tests | A | Complete |
 | T66 | M | Containers | Adopt existing timer active-word bit scan and preserve callback mutation semantics | A | Complete |
@@ -111,10 +111,10 @@ and compile-time assertions are required where they keep build cost bounded.
 | T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Deferred |
 | T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Complete |
 | T72 | M | Paths | Validate and hash canonical paths once across storage boundaries | B | Complete |
-| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Active |
-| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Active |
-| T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Active |
-| T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Active |
+| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Deferred |
+| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Deferred |
+| T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Complete |
+| T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Complete |
 | T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Complete |
 | T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Complete |
 | T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Complete |

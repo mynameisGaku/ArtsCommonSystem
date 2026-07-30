@@ -36,7 +36,7 @@ Wave M の T65〜T72 は、世代付きハンドル、timer、immutable byte dec
 `{1, JobCount()}`、未 Submit または Reset 後なら `{0, 0}` を返す。この契約は、
 Reset 後に job を追加できる既存挙動とも矛盾しない。
 
-### 検証
+### 契約テスト
 
 - 127 job の二分木依存を16回反復し、Wait 後に全2,032 job が完了する。
 - 各 Submit の現在予約が `{1, 127}`、各 Reset 直後が `{0, 0}` になる。
@@ -73,7 +73,7 @@ callback 呼び出し前に関数 pointer と user pointer を値へ退避した
 大量 Subscribe が `slots` を再確保しても、実行中 callback の寿命が無効化された
 slot 参照へ依存しない。
 
-### 検証
+### 契約テスト
 
 一回の outer Publish 内で96購読を追加して再確保を起こし、未実行購読を即時解除し、
 nested Publish も実行する複合試験を追加した。
@@ -139,28 +139,6 @@ Win64 Release の実測値:
 | `FJobGraph` | 4,032B | member 追加なし、既存上限を維持 |
 | `FAcpakReader` | 336B | hash owner 32B を明示的に許容 |
 
-## 検証コマンド
-
-```powershell
-dotnet run --project acs\tools\acsbuild -- gen --root acs
-cmake -S acs\engine -B .wave-m-build -DACS_LAYOUT_ROOT=<worktree>\.wave-m-layout
-cmake --build .wave-m-build --config Release --target acs_foundation_optimization_wave_m_tests acs_foundation_public_layout_tests --parallel 16
-cmake --build .wave-m-build --config Debug --target acs_foundation_optimization_wave_m_tests acs_foundation_public_layout_tests --parallel 16
-.\.wave-m-layout\Binaries\Release\acs_foundation_optimization_wave_m_tests.exe
-.\.wave-m-layout\Binaries\Debug\acs_foundation_optimization_wave_m_tests.exe
-ctest --test-dir .wave-m-build -C Release --output-on-failure -R "^(ACS.ChangedCppRulesAuditSelfTest|ACS.FoundationOptimizationWaveM|ACS.FoundationPublicLayout|ACS.CppConventionsAuditSelfTest|ACS.CppConventionsAudit|ACS.ReferenceTypeNamesAuditSelfTest|ACS.ReferenceTypeNamesAudit|ACS.ModuleSourcesAuditSelfTest|ACS.ModuleSourcesAudit|ACS.AmalgamationDrift|ACS.DistributionConventions|ACS.DistributionHeaderSyntax)$"
-python acs\scripts\audit_changed_cpp_rules.py --root . --base-ref a537c07cc66096837e4aba58fd050d4039200ee8
-powershell -NoProfile -ExecutionPolicy Bypass -File acs\scripts\build_single_header.ps1
-```
-
-最終確認では Wave M 専用試験4/4と公開 layout 試験1/1が Debug / Release の
-双方で合格した。Release 専用試験の反復 stress は100/100、全 unit は
-Release 1,144/1,144、Debug 1,148/1,148で合格した。規約・reference type・module
-source・amalgamation drift・配布物監査をまとめた Release CTest は12/12で合格し、
-changed C++ rules は Wave M 基点で20 files / 752 lines、Wave K 基点を含む広い範囲で
-27 files / 2,476 linesを合格した。reference JavaScript 2件の構文検査も合格した。
-単一 header と Diligent / xxhash を含む Debug / Release 統合 library は
-`build_single_header.ps1` で再生成し、配布 pipeline の完走を確認した。
 ## T65〜T68: ハンドル・timer・入力記録
 
 Wave M は、世代付きハンドル、疎な timer 走査、少数 lookup、immutable byte decode
@@ -246,14 +224,44 @@ storage は `TArray<FInputSample>`、検索は記録順を前提とした cursor
 録画・再生・idle は排他的で、コピーとムーブを禁止する。現時点の範囲外は一 tick
 9 件以上の key 変化、wheel/gamepad analog、圧縮、巻き戻し、複数 recorder の協調である。
 
-## 検証
+## 統合検証
 
-- clean Debug `acs_unit_tests`: 1151 passed / 0 failed
-- clean Release `acs_unit_tests`: 1147 passed / 0 failed
-- handle layout static assert と公開 layout 出力
-- timer sparse word diagnostics と callback mutation/Clear
-- immutable view の正常 decode、truncation、CRC、span fail-closed
-- changed C++ rule audit: 15 files / 325 lines
-- C++ conventions audit: 1177 files
-- module source manifest audit: 29 source directories / 296 `.cpp`
-- `acsbuild gen` の再実行で同一 `Module.cmake` を生成
+Wave M の二つの作業枝で得た unit test 件数は、統合前の異なる source 集合を対象に
+していたため最終件数として併記しない。最終統合の合格件数は、統合 commit を入力に
+Debug / Release を clean 実行したログだけを正とする。Diligent backend と tracked
+配布物も同じ統合 commit から生成・検査した場合だけ完走扱いにする。
+
+検証判断は次の四点を維持する。
+
+- 目的: T65〜T72 の ABI、寿命、失敗時状態、完全一致規則が統合で欠落していないこと。
+- 効果: branch 固有の件数ではなく、同じ commit から再現できる合否を残すこと。
+- 依存: raw DX12 の Debug / Release、専用契約試験、公開 layout、静的監査を必須経路とする。
+- 検証可能性: 以下のコマンド、exact byte・回数・layout・状態不変のassertで確認できる。
+
+```powershell
+dotnet run --project acs\tools\acsbuild -- gen --root acs
+cmake -S acs\engine -B .wave-m-build -DACS_LAYOUT_ROOT=<worktree>\.wave-m-layout
+cmake --build .wave-m-build --config Debug --target acs_unit_tests acs_foundation_optimization_wave_m_tests acs_foundation_public_layout_tests --parallel 16
+cmake --build .wave-m-build --config Release --target acs_unit_tests acs_foundation_optimization_wave_m_tests acs_foundation_public_layout_tests --parallel 16
+ctest --test-dir .wave-m-build -C Debug --output-on-failure
+ctest --test-dir .wave-m-build -C Release --output-on-failure
+node --check acs\docs\reference\data\assetpack.js
+node --check acs\docs\reference\data\container.js
+python acs\scripts\audit_reference_type_names.py --root acs
+python acs\scripts\audit_module_sources.py --root acs
+git diff --check
+```
+
+この経路で確認する決定的な契約は次のとおり。
+
+- generation handle の offset・幅・size static assert と公開 layout 出力
+- timer sparse word の訪問数、callback mutation、cancel、`Clear`
+- immutable view の正常 decode、truncation、CRC、span fail-closed、transactional load
+- JobGraph の一括予約回数、全job完了、Reset 後の再予約
+- event の追加・解除・nested Publish とslot再確保後のcallback寿命
+- `.acpak` の正規形、case-sensitive完全一致、hash collision確認、round-trip
+- C++規約、reference型名、module source登録、生成結果のdrift
+
+Diligent backend と単一header・tracked配布物は上記raw経路とは別のrelease gateである。
+`build_single_header.ps1`、amalgamation drift、distribution conventions、配布header構文を
+統合 commit から実行していない段階では、これらを合格済みとして記録しない。
