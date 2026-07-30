@@ -110,7 +110,9 @@ build、全CTest、決定的な基盤性能契約を順に実行し、終了コ�
 失敗出力末尾を単一JSONへ原子的に保存する。schema 2 はsourceのHEAD SHAと
 比較基点SHA、tracked差分の有無、`CMakeCache.txt` のSHA-256、raw/Diligent・
 tests/tools/samples構成、性能実行fileと`--artifact`指定fileのsize・SHA-256を
-同時に保存する。`--expect-cache KEY=VALUE` はreleaseで要求した構成とcacheが
+同時に保存する。cacheの`CMAKE_HOME_DIRECTORY`は検証対象checkoutの
+`acs/engine`とfile identityまで照合し、別worktreeのbuild結果を現在SHAへ
+誤帰属させない。`--expect-cache KEY=VALUE` はreleaseで要求した構成とcacheが
 異なる場合に実行前で失敗し、`--require-clean-source`は実行前後のtracked差分と
 途中のcommit切替を拒否する。
 公開型のlayout変更を含む統合では `--clean-first` を指定し、古いMSBuild中間物と

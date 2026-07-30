@@ -18,6 +18,7 @@ from typing import Sequence
 
 REPORT_SCHEMA_VERSION = 2
 CMAKE_EVIDENCE_KEYS = (
+    "CMAKE_HOME_DIRECTORY",
     "ACS_RENDER_DX12_RAW",
     "ACS_RENDER_DILIGENT",
     "ACS_Render_DILIGENT",
@@ -229,6 +230,27 @@ def validate_cache_expectations(
             )
 
 
+def validate_build_source(
+    evidence: CMakeEvidence,
+    source_root: Path,
+) -> None:
+    """CMake build treeが検証対象checkoutのengineを参照することを確認する。"""
+    expected = source_root.resolve() / "acs" / "engine"
+    actual = Path(evidence.values["CMAKE_HOME_DIRECTORY"])
+    try:
+        matches = os.path.samefile(actual, expected)
+    except OSError as error:
+        raise RuntimeError(
+            "CMake source directory cannot be compared: "
+            f"expected={expected} actual={actual}: {error}"
+        ) from error
+    if not matches:
+        raise RuntimeError(
+            "CMake source directory mismatch: "
+            f"expected={expected} actual={actual}"
+        )
+
+
 def collect_artifact_evidence(paths: Sequence[Path]) -> list[ArtifactEvidence]:
     """重複を除いた検証artifactを非空fileとしてhash化する。"""
     artifacts: list[ArtifactEvidence] = []
@@ -329,12 +351,19 @@ def self_test() -> int:
 
         build_directory = root / "build"
         build_directory.mkdir()
+        cmake_source_directory = root / "acs" / "engine"
+        cmake_source_directory.mkdir(parents=True)
         cache_path = build_directory / "CMakeCache.txt"
+        cache_entries = [
+            f"{key}:BOOL=ON"
+            for key in CMAKE_EVIDENCE_KEYS
+            if key != "CMAKE_HOME_DIRECTORY"
+        ]
+        cache_entries.append(
+            f"CMAKE_HOME_DIRECTORY:INTERNAL={cmake_source_directory}"
+        )
         cache_path.write_text(
-            "\n".join(
-                f"{key}:BOOL=ON" for key in CMAKE_EVIDENCE_KEYS
-            )
-            + "\n",
+            "\n".join(cache_entries) + "\n",
             encoding="utf-8",
         )
         artifact_path = root / "artifact.bin"
@@ -360,6 +389,16 @@ def self_test() -> int:
             ["ACS_RENDER_DX12_RAW=ON", "ACS_BUILD_TESTS=ON"]
         )
         validate_cache_expectations(cmake, expectations)
+        validate_build_source(cmake, root)
+        wrong_source_values = dict(cmake.values)
+        wrong_source = root / "other" / "engine"
+        wrong_source.mkdir(parents=True)
+        wrong_source_values["CMAKE_HOME_DIRECTORY"] = str(wrong_source)
+        wrong_source_evidence = CMakeEvidence(
+            cmake.cache_path,
+            cmake.cache_sha256,
+            wrong_source_values,
+        )
         try:
             validate_cache_expectations(
                 cmake,
@@ -368,6 +407,11 @@ def self_test() -> int:
             rejects_mismatch = False
         except RuntimeError:
             rejects_mismatch = True
+        try:
+            validate_build_source(wrong_source_evidence, root)
+            rejects_wrong_source = False
+        except RuntimeError:
+            rejects_wrong_source = True
 
         tail = output_tail("\n".join(str(index) for index in range(100)), 3)
         clean_command = make_build_command(
@@ -387,6 +431,7 @@ def self_test() -> int:
             and fail_report["status"] == "fail"
             and fail_report["passed_steps"] == 1
             and rejects_mismatch
+            and rejects_wrong_source
             and tail == "97\n98\n99"
             and "--clean-first" in clean_command
         )
@@ -437,6 +482,7 @@ def main() -> int:
             args.base_ref,
         )
         cmake_evidence = collect_cmake_evidence(build_directory)
+        validate_build_source(cmake_evidence, source_root)
         cache_expectations = parse_cache_expectations(args.expect_cache)
         validate_cache_expectations(cmake_evidence, cache_expectations)
         if args.require_clean_source and source_evidence.tracked_dirty:
@@ -511,6 +557,7 @@ def main() -> int:
             args.base_ref,
         )
         final_cmake_evidence = collect_cmake_evidence(build_directory)
+        validate_build_source(final_cmake_evidence, source_root)
         validate_cache_expectations(
             final_cmake_evidence,
             cache_expectations,
