@@ -8,6 +8,12 @@ ACS_REF.modules.push({
   blurb: "<t>所有権</t>と寿命を安全に扱う型。手で <code>new</code>/<code>delete</code> を書かずに済ませ、<t>アロケータ</t>を用途別に使い分けます。",
   types: [
     {
+      name: "TTypedPoolAllocator&lt;T, Capacity&gt;",
+      kind: "クラステンプレート", header: "memory/TypedPoolAllocator.h",
+      summary: "型と件数から block size、alignment、容量をコンパイル時に固定する pool allocator。",
+      when: "同じ型を高頻度に確保・返却し、runtime layout 計算を除きたい時。"
+    },
+    {
       name: "TUniquePtr&lt;T&gt;",
       kind: "クラステンプレート", header: "memory/UniquePtr.h",
       summary: "<b>1 人だけが所有する</b><t>スマートポインタ</t>(std::unique_ptr 相当)。コピー不可・<t>ムーブ</t>のみ。スコープを抜けると自動で解放。",

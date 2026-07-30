@@ -61,11 +61,14 @@ public:
     /**
      * 値を FIFO の末尾に積む。
      *
+     * @param value 追加する値。
      * @return 追加できた場合は true。Close 済み、上限到達、確保失敗なら false。
      */
     bool Push(T value) noexcept {
+        /** 待機中 consumer へ通知するか。 */
         bool notify = false;
         {
+            /** キュー操作中に保持するロック。 */
             FScopedLock lock(m_Mtx);
             if (m_Closed || IsFullLocked()) return false;
             CompactLocked(false);
@@ -86,9 +89,12 @@ public:
      */
     usize PushBatch(T* values, usize count) noexcept {
         if (!values && count != 0) return 0;
+        /** 実際に追加した要素数。 */
         usize pushed = 0;
+        /** ロック取得時点の待機 consumer 数。 */
         usize waiters = 0;
         {
+            /** バッチ追加中に保持するロック。 */
             FScopedLock lock(m_Mtx);
             if (m_Closed) return 0;
             CompactLocked(false);
@@ -108,9 +114,11 @@ public:
     /**
      * 値を 1 つ取り出す。
      *
+     * @param out 取り出した値の格納先。
      * @return 取り出せた場合は true、空なら false。
      */
     bool TryPop(T& out) noexcept {
+        /** キュー操作中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         return PopOneLocked(out);
     }
@@ -124,7 +132,9 @@ public:
      */
     usize TryPopBatch(T* out, usize capacity) noexcept {
         if (!out && capacity != 0) return 0;
+        /** バッチ取り出し中に保持するロック。 */
         FScopedLock lock(m_Mtx);
+        /** 実際に取り出した要素数。 */
         usize count = 0;
         while (count < capacity && LogicalSizeLocked() != 0) {
             out[count++] = Move(m_Queue[m_Head++]);
@@ -136,9 +146,11 @@ public:
     /**
      * 値が届くか Close されるまで待って 1 件取り出す。
      *
+     * @param out 取り出した値の格納先。
      * @return 値を取り出せた場合は true。closed かつ空なら false。
      */
     bool Pop(T& out) noexcept {
+        /** 待機と取り出し中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         while (LogicalSizeLocked() == 0 && !m_Closed) {
             ++m_WaiterCount;
@@ -150,8 +162,10 @@ public:
 
     /** クローズし、待機中の全 Pop を起こす。繰り返し呼んでも安全。 */
     void Close() noexcept {
+        /** 待機中 consumer へ通知するか。 */
         bool notify = false;
         {
+            /** close 状態更新中に保持するロック。 */
             FScopedLock lock(m_Mtx);
             if (!m_Closed) {
                 m_Closed = true;
@@ -163,12 +177,14 @@ public:
 
     /** クローズ済みなら true を返す。 */
     bool IsClosed() const noexcept {
+        /** close 状態参照中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         return m_Closed;
     }
 
     /** 現在保持している論理要素数を返す。 */
     usize Size() const noexcept {
+        /** 要素数参照中に保持するロック。 */
         FScopedLock lock(m_Mtx);
         return LogicalSizeLocked();
     }
@@ -201,6 +217,7 @@ private:
      * @param allow_empty_clear true なら空になった配列を即座に論理クリアする。
      */
     void CompactLocked(bool allow_empty_clear) noexcept {
+        /** 未消費の論理要素数。 */
         const usize live = LogicalSizeLocked();
         if (live == 0) {
             if (allow_empty_clear || m_Head >= 64) {
@@ -210,6 +227,7 @@ private:
             return;
         }
         if (m_Head < 64 || m_Head < live) return;
+        /** 未消費要素を詰め直す位置。 */
         for (usize i = 0; i < live; ++i) {
             m_Queue[i] = Move(m_Queue[m_Head + i]);
         }
@@ -271,11 +289,14 @@ public:
     /**
      * producer スレッドから値を 1 件追加する。
      *
+     * @param value 追加する値。
      * @return 追加できた場合は true。満杯または Close 済みなら false。
      */
     bool Push(T value) noexcept {
         if (m_Closed.Load(EMemoryOrder::Acquire) != 0) return false;
+        /** producer が次に書き込む単調増加位置。 */
         const usize tail = m_Tail.Load(EMemoryOrder::Relaxed);
+        /** consumer が次に読み取る単調増加位置。 */
         const usize head = m_Head.Load(EMemoryOrder::Acquire);
         if (tail - head >= Capacity) return false;
         m_Buffer[tail & (Capacity - 1)] = Move(value);
@@ -283,9 +304,16 @@ public:
         return true;
     }
 
-    /** producer スレッドから複数件を追加し、追加できた件数を返す。 */
+    /**
+     * producer スレッドから複数件を追加する。
+     *
+     * @param values 追加する値配列。
+     * @param count 入力要素数。
+     * @return 実際に追加した要素数。
+     */
     usize PushBatch(T* values, usize count) noexcept {
         if (!values && count != 0) return 0;
+        /** 実際に追加した要素数。 */
         usize pushed = 0;
         while (pushed < count && Push(Move(values[pushed]))) ++pushed;
         return pushed;
@@ -294,10 +322,13 @@ public:
     /**
      * consumer スレッドから値を 1 件取り出す。
      *
+     * @param out 取り出した値の格納先。
      * @return 取り出せた場合は true、空なら false。
      */
     bool TryPop(T& out) noexcept {
+        /** consumer が次に読み取る単調増加位置。 */
         const usize head = m_Head.Load(EMemoryOrder::Relaxed);
+        /** producer が次に書き込む単調増加位置。 */
         const usize tail = m_Tail.Load(EMemoryOrder::Acquire);
         if (head == tail) return false;
         out = Move(m_Buffer[head & (Capacity - 1)]);
@@ -305,9 +336,16 @@ public:
         return true;
     }
 
-    /** consumer スレッドから最大 capacity 件を取り出す。 */
+    /**
+     * consumer スレッドから最大 capacity 件を取り出す。
+     *
+     * @param out 取り出した値の格納先配列。
+     * @param capacity 出力できる最大要素数。
+     * @return 実際に取り出した要素数。
+     */
     usize TryPopBatch(T* out, usize capacity) noexcept {
         if (!out && capacity != 0) return 0;
+        /** 実際に取り出した要素数。 */
         usize popped = 0;
         while (popped < capacity && TryPop(out[popped])) ++popped;
         return popped;
@@ -330,7 +368,9 @@ public:
 
     /** 現在保持している要素数を返す。 */
     usize Size() const noexcept {
+        /** consumer が次に読み取る単調増加位置。 */
         const usize head = m_Head.Load(EMemoryOrder::Acquire);
+        /** producer が次に書き込む単調増加位置。 */
         const usize tail = m_Tail.Load(EMemoryOrder::Acquire);
         return tail - head;
     }

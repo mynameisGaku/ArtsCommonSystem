@@ -59,12 +59,15 @@ TResult<TArray<Element>> ReadWholeFile(const wchar_t* path) noexcept
         return ACS_ERR(IO, 99, "ReadWholeFile: path is null or empty");
     }
 
+    /** 読み取り対象のファイルハンドル。 */
     const HANDLE h = OpenForRead(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 100, "CreateFileW (read) failed", ::GetLastError());
 
+    /** 読み取り対象のファイルサイズ。 */
     LARGE_INTEGER size{};
     if (!::GetFileSizeEx(h, &size)) {
+        /** サイズ取得時の OS エラー。 */
         const DWORD error = ::GetLastError();
         ::CloseHandle(h);
         return ACS_ERR_OS(IO, 101, "GetFileSizeEx failed", error);
@@ -90,8 +93,11 @@ TResult<TArray<Element>> ReadWholeFile(const wchar_t* path) noexcept
         return ACS_ERR(IO, 105, "ReadWholeFile: allocation failed");
     }
 
+    /** 実際に読み取った byte 数。 */
     DWORD bytes_read = 0;
+    /** ReadFile の成否。 */
     BOOL read_ok = TRUE;
+    /** ReadFile 失敗時の OS エラー。 */
     DWORD read_error = ERROR_SUCCESS;
     if (content_size != 0) {
         g_ReadSyscalls.FetchAdd(1);
@@ -127,15 +133,19 @@ TResult<void> FFileSystem::WriteAllBytes(const wchar_t* path, const byte* data, 
     if (!data && size != 0)
         return ACS_ERR(IO, 113, "WriteAllBytes: data is null");
 
+    /** 書き込み対象のファイルハンドル。 */
     const HANDLE h = OpenForWrite(path);
     if (h == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 110, "CreateFileW (write) failed", ::GetLastError());
+    /** 実際に書き込んだ byte 数。 */
     DWORD wrote = 0;
+    /** WriteFile の成否。 */
     BOOL ok = TRUE;
     if (size != 0) {
         g_WriteSyscalls.FetchAdd(1);
         ok = ::WriteFile(h, data, static_cast<DWORD>(size), &wrote, nullptr);
     }
+    /** WriteFile 失敗時の OS エラー。 */
     const DWORD err = ok ? 0 : ::GetLastError();
     ::CloseHandle(h);
     if (!ok || wrote != size)
@@ -152,13 +162,16 @@ TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* 
     if (!data && size != 0)
         return ACS_ERR(IO, 116, "WriteAllBytesAtomic: data is null");
 
+    /** 公開先の現在属性。 */
     const DWORD destination_attributes = ::GetFileAttributesW(path);
     if (destination_attributes != INVALID_FILE_ATTRIBUTES && (destination_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
         // reparse point 自体を rename で置換せず、従来どおりリンク先へ書く。
         return WriteAllBytes(path, data, size);
     }
 
+    /** 同一ディレクトリへ作る一時ファイルパス。 */
     wchar_t temporary_path[1024]{};
+    /** 一時ファイルパスへ書き込んだ文字数。 */
     usize path_length = 0;
     while (path[path_length] != L'\0' && path_length < 960) {
         temporary_path[path_length] = path[path_length];
@@ -167,22 +180,32 @@ TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* 
     if (path[path_length] != L'\0')
         return ACS_ERR(IO, 117, "WriteAllBytesAtomic: path is too long");
 
+    /** 一時ファイル名へ付ける識別接尾辞。 */
     constexpr wchar_t kSuffix[] = L".acs-tmp-";
+    /** 接尾辞から終端を除いてコピーする位置。 */
     for (usize i = 0; i + 1 < sizeof(kSuffix) / sizeof(kSuffix[0]); ++i)
         temporary_path[path_length++] = kSuffix[i];
 
+    /** 32 bit 値を固定八桁の十六進数として末尾へ追加する。 */
     const auto append_hex = [&](u32 value, usize& cursor) noexcept {
+        /** 十六進数の変換表。 */
         constexpr wchar_t kHex[] = L"0123456789abcdef";
+        /** 現在出力する四 bit の位置。 */
         for (i32 shift = 28; shift >= 0; shift -= 4)
             temporary_path[cursor++] = kHex[(value >> shift) & 0x0f];
     };
     append_hex(::GetCurrentProcessId(), path_length);
     temporary_path[path_length++] = L'-';
+    /** 一意な採番値を書き込む開始位置。 */
     const usize sequence_offset = path_length;
 
+    /** 作成できた一時ファイルハンドル。 */
     HANDLE temporary = INVALID_HANDLE_VALUE;
+    /** 一時ファイル作成時の直近 OS エラー。 */
     DWORD create_error = ERROR_FILE_EXISTS;
+    /** 一時ファイル名の再試行回数。 */
     for (u32 attempt = 0; attempt < 8; ++attempt) {
+        /** 今回の一時ファイル名末尾位置。 */
         usize cursor = sequence_offset;
         append_hex(g_AtomicWriteSequence.FetchAdd(1), cursor);
         temporary_path[cursor] = L'\0';
@@ -196,12 +219,15 @@ TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* 
     if (temporary == INVALID_HANDLE_VALUE)
         return ACS_ERR_OS(IO, 118, "WriteAllBytesAtomic: temporary CreateFileW failed", create_error);
 
+    /** 一時ファイルへ書き込んだ byte 数。 */
     DWORD written = 0;
+    /** 一時ファイル書き込みと flush の成否。 */
     BOOL write_ok = TRUE;
     if (size != 0) {
         g_WriteSyscalls.FetchAdd(1);
         write_ok = ::WriteFile(temporary, data, static_cast<DWORD>(size), &written, nullptr);
     }
+    /** 書き込みまたは置換時の OS エラー。 */
     DWORD error = write_ok ? ERROR_SUCCESS : ::GetLastError();
     if (write_ok && written == size && !::FlushFileBuffers(temporary)) {
         write_ok = FALSE;
@@ -221,6 +247,7 @@ TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* 
         return WriteAllBytes(path, data, size);
     }
 
+    /** 一時ファイルを公開先へ置換できたか。 */
     BOOL replaced = FALSE;
     if (current_destination_attributes != INVALID_FILE_ATTRIBUTES) {
         replaced = ::ReplaceFileW(path, temporary_path, nullptr, REPLACEFILE_WRITE_THROUGH, nullptr, nullptr);
@@ -238,6 +265,7 @@ TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* 
 
 // 文字列を書き出す（NUL 終端は書かない）
 TResult<void> FFileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
+    /** 終端を除いた入力文字数。 */
     usize len = 0;
     while (text && text[len]) ++len;
     return WriteAllBytes(path, reinterpret_cast<const byte*>(text), len);
@@ -247,9 +275,11 @@ TResult<void> FFileSystem::WriteAllText(const wchar_t* path, const char* text) n
 TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 119, "FileSize: path is null or empty");
+    /** ファイルサイズを含む Win32 属性。 */
     WIN32_FILE_ATTRIBUTE_DATA d{};
     if (!::GetFileAttributesExW(path, GetFileExInfoStandard, &d))
         return ACS_ERR_OS(IO, 120, "GetFileAttributesExW failed", ::GetLastError());
+    /** 64 bit に結合するファイルサイズ。 */
     LARGE_INTEGER sz{};
     sz.LowPart = d.nFileSizeLow;
     sz.HighPart = static_cast<LONG>(d.nFileSizeHigh);
@@ -259,6 +289,7 @@ TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
 // ファイル存在確認
 bool FFileSystem::Exists(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0') return false;
+    /** 対象パスの Win32 属性。 */
     const DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
@@ -266,6 +297,7 @@ bool FFileSystem::Exists(const wchar_t* path) noexcept {
 // ディレクトリ存在確認
 bool FFileSystem::DirectoryExists(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0') return false;
+    /** 対象パスの Win32 属性。 */
     const DWORD a = ::GetFileAttributesW(path);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
@@ -275,7 +307,9 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 129, "CreateDirectory: path is null or empty");
     if (DirectoryExists(path)) return Ok();
+    /** 途中の区切りを一時終端へ置換する作業パス。 */
     wchar_t buf[1024];
+    /** 作業パスの文字数。 */
     usize n = 0;
     while (path[n] && n < 1023) { buf[n] = path[n]; ++n; }
     if (path[n] != L'\0')
@@ -283,12 +317,15 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
     buf[n] = 0;
 
     // drive root と UNC の server/share 部分は作成対象ではない。
+    /** 中間ディレクトリを作り始める位置。 */
     usize creation_start = 0;
     if (n >= 3 && ((buf[0] >= L'A' && buf[0] <= L'Z') || (buf[0] >= L'a' && buf[0] <= L'z')) && buf[1] == L':' && IsPathSeparator(buf[2])) {
         creation_start = 3;
     } else if (n >= 2 && IsPathSeparator(buf[0]) && IsPathSeparator(buf[1])) {
         creation_start = n;
+        /** UNC の server/share 区切り数。 */
         usize separator_count = 0;
+        /** UNC の区切りを走査する位置。 */
         for (usize i = 2; i < n; ++i) {
             if (!IsPathSeparator(buf[i])) continue;
             ++separator_count;
@@ -301,11 +338,14 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
         creation_start = 1;
     }
 
+    /** 中間ディレクトリ候補を走査する位置。 */
     for (usize i = 0; i < n; ++i) {
+        /** 一時終端へ置換する元の文字。 */
         const wchar_t c = buf[i];
         if (IsPathSeparator(c) && i >= creation_start && i > 0) {
             buf[i] = 0;
             if (!DirectoryExists(buf) && !::CreateDirectoryW(buf, nullptr)) {
+                /** 中間ディレクトリ作成時の OS エラー。 */
                 const DWORD error = ::GetLastError();
                 if (error != ERROR_ALREADY_EXISTS || !DirectoryExists(buf)) {
                     buf[i] = c;
@@ -316,6 +356,7 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
         }
     }
     if (!::CreateDirectoryW(path, nullptr)) {
+        /** 最終ディレクトリ作成時の OS エラー。 */
         const DWORD err = ::GetLastError();
         if (err != ERROR_ALREADY_EXISTS || !DirectoryExists(path))
             return ACS_ERR_OS(IO, 130, "CreateDirectoryW failed", err);

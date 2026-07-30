@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// コンポーネント型 ID の取得（型ごとに一意な番号を割り当てる）
-//
-// 仕組み: GetComponentTypeId<T>() を呼ぶと、初回呼び出し時に新しい u32 を割り当てる。
-//         以降は同じ値を返すので、コンポーネント T → ストレージ配列のインデックス
-//         として使える。
 
 #include "foundation/Types.h"
 #include "threading/Atomic.h"
@@ -24,9 +19,11 @@ namespace ecs_detail {
 /** 全 T 共通の採番カウンタ (次に割り当てる ID を保持)。 */
 inline TAtomic<u32> g_next_component_type_id{0};
 
+/** 型署名文字列を FNV-1a でハッシュ化する。 */
 constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
 {
-    ComponentSignatureId hash = 14695981039346656037ull; // FNV-1a の途中値。
+    /** FNV-1a の途中値。 */
+    ComponentSignatureId hash = 14695981039346656037ull;
     while (*text != '\0') {
         hash ^= static_cast<u8>(*text++);
         hash *= 1099511628211ull;
@@ -34,6 +31,7 @@ constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
     return hash;
 }
 
+/** コンパイラが生成する型署名からコンポーネント署名を作る。 */
 template<typename T>
 constexpr ComponentSignatureId StaticComponentSignature() noexcept
 {
@@ -45,6 +43,7 @@ constexpr ComponentSignatureId StaticComponentSignature() noexcept
 }
 } // namespace ecs_detail
 
+/** 型ごとに実行時 ID を一度だけ割り当てて返す。 */
 template<typename T>
 ComponentTypeId GetComponentTypeId() noexcept;
 
@@ -56,14 +55,17 @@ ComponentTypeId GetComponentTypeId() noexcept;
  */
 template<typename T>
 struct TComponentTypeTraits {
+    /** コンパイル時に求めた型署名。 */
     static constexpr ComponentSignatureId Signature = ecs_detail::StaticComponentSignature<T>();
 
+    /** World 内部で使う密な実行時 ID を返す。 */
     static ComponentTypeId RuntimeId() noexcept
     {
         return GetComponentTypeId<T>();
     }
 };
 
+/** 型 T のコンパイル時署名を返す。 */
 template<typename T>
 constexpr ComponentSignatureId GetComponentSignatureId() noexcept
 {

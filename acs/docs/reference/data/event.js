@@ -8,6 +8,24 @@ ACS_REF.modules.push({
   blurb: "「○○が起きた」を発信する側と受け取る側を<b>疎結合</b>につなぐ仕組み。同じスレッド内で即配信する<t>pub/sub</t>、スレッドをまたいで値を受け渡すキュー、時間差で関数を呼ぶタイマーが揃っています。",
   types: [
     {
+      name: "EMessagePipePolicy",
+      kind: "列挙", header: "event/MessagePipePolicy.h",
+      summary: "<code>TMessagePipe</code> の MPMC mutex 経路と固定容量 SPSC lock-free 経路を選ぶ同期方針。",
+      when: "producer / consumer 数と待機要件に合わせてパイプ実装を静的に選ぶ時。"
+    },
+    {
+      name: "FTimerDiagnostics",
+      kind: "構造体", header: "event/TimerDiagnostics.h",
+      summary: "timer の cancel probe、active slot 走査、bitset 読み取り量を保持する診断 snapshot。",
+      when: "大量 timer の cancel と Tick が件数に対して適切に拡張するか確認する時。"
+    },
+    {
+      name: "ETimerSchedulePolicy",
+      kind: "列挙", header: "event/TimerSchedulePolicy.h",
+      summary: "型付き timer 登録で単発実行と反復実行をコンパイル時に選ぶ方針。",
+      when: "callback thunk の分岐を登録時に固定したい時。"
+    },
+    {
       name: "FMessageBroker",
       kind: "クラス", header: "event/MessageBroker.h",
       summary: "<b>型ごと</b>にイベントを配る<t>pub/sub</t>(出版/購読)バス。イベント型 <code>E</code> を購読しておくと、誰かが <code>Publish&lt;E&gt;()</code> した瞬間に登録した関数が<b>同期で</b>(その場で)呼ばれます。発信側と受信側が互いを知らなくてよいのが利点。",

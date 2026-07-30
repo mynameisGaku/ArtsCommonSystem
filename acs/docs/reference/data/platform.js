@@ -8,6 +8,18 @@ ACS_REF.modules.push({
   blurb: "ゲームの<b>器</b>になる部分。<t>ウィンドウ</t>を開き、キーボード・マウス・<t>ゲームパッド</t>の<t>入力</t>を読み取り、<t>フレーム</t>の経過時間を計り、ファイルや設定を保存します。OS（Windows）との橋渡し役です。",
   types: [
     {
+      name: "EFileExtensionKind",
+      kind: "列挙", header: "platform/FileExtensionKind.h",
+      summary: "INI、JSON、text、binary、acpak など既知の ASCII 拡張子分類。",
+      when: "Unicode パスを壊さず、最終拡張子だけを高速に振り分ける時。"
+    },
+    {
+      name: "FFileSystemDiagnostics",
+      kind: "構造体", header: "platform/FileSystemDiagnostics.h",
+      summary: "ReadFile、WriteFile、中間コピーの回数と byte 数を保持する I/O 診断 snapshot。",
+      when: "全体読み込みと原子的保存の syscall・copy 退行を確認する時。"
+    },
+    {
       name: "FWindow",
       kind: "クラス", header: "platform/Window.h",
       summary: "OS の<t>ウィンドウ</t>そのもの。タイトルバー付きの四角い領域を開き、× ボタンや入力などの<t>イベント</t>を受け取る。ゲームの一番外側のループはこれを中心に回す。",

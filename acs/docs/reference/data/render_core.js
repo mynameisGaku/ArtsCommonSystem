@@ -6,6 +6,30 @@ ACS_REF.modules.push({
   blurb: "GPU に絵を描くための土台。バックエンド(DX12 / Diligent)の違いを隠す低レベルな <t>RHI</t> 抽象と、その上に乗る「すぐ描ける」高レベルヘルパ(標準シェーダ・<t>スプライト</t>・フォント・空・<t>ポストプロセス</t>等)をまとめて提供します。",
   types: [
     {
+      name: "FRenderGraphResourceLifetime",
+      kind: "構造体", header: "render/RenderGraphResourceLifetime.h",
+      summary: "render graph 資源が最初と最後に使われる pass 位置、および alias 可否を保持する寿命区間。",
+      when: "一時 GPU 資源の占有期間が重ならないか解析する時。"
+    },
+    {
+      name: "FRenderGraphAliasAssignment",
+      kind: "構造体", header: "render/RenderGraphAliasAssignment.h",
+      summary: "論理資源を再利用可能な物理 slot へ割り当てた結果。",
+      when: "transient 資源の実割り当てと peak 使用量を確認する時。"
+    },
+    {
+      name: "FRenderGraphAliasPlanSummary",
+      kind: "構造体", header: "render/RenderGraphAliasPlanSummary.h",
+      summary: "論理資源数、物理 slot 数、alias で節約した byte 数をまとめた計画診断値。",
+      when: "render graph aliasing の効果を profiler やテストへ出す時。"
+    },
+    {
+      name: "FRenderGraphTransientAliasPlanner",
+      kind: "クラス", header: "render/RenderGraphTransientAlias.h",
+      summary: "互換性と寿命区間を基に transient 資源を物理 slot へ決定的に割り当てる planner。",
+      when: "同時に使わない render target や buffer の GPU メモリを再利用する時。"
+    },
+    {
       name: "FRenderer",
       kind: "クラス", header: "render/Renderer.h",
       summary: "ウィンドウへの描画ループを統括する<b>司令塔</b>。<t>デバイス</t>・<t>スワップチェイン</t>・<t>コマンドリスト</t>・深度バッファをまとめて初期化し、毎フレームの「開始→描く→終了」を 1 つにまとめる。",

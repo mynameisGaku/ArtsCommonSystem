@@ -8,6 +8,18 @@ ACS_REF.modules.push({
   blurb: "複数の処理を同時に走らせ(<t>スレッド</t>・<t>ジョブ</t>)、その時にデータが壊れないよう守る(<t>アトミック</t>・<t>排他</t>)ための道具一式。STL の <code>&lt;thread&gt;</code> / <code>&lt;atomic&gt;</code> / <code>&lt;mutex&gt;</code> を ACS 流に置き換えたものです。",
   types: [
     {
+      name: "FJobGraphDiagnostics",
+      kind: "構造体", header: "threading/JobGraphDiagnostics.h",
+      summary: "topology 構築、submit scan、reset visit、inline / heap job 数を保持する診断 snapshot。",
+      when: "同じ JobGraph の再利用と callable 保持経路を検証する時。"
+    },
+    {
+      name: "FThreadPoolDiagnostics",
+      kind: "構造体", header: "threading/ThreadPoolDiagnostics.h",
+      summary: "投入 drain、通知、競合、queued work、callable 保持経路を集計する診断 snapshot。",
+      when: "batch submit が余分な lock、wake、heap 確保を発生させていないか確認する時。"
+    },
+    {
       name: "TAtomic&lt;T&gt;",
       kind: "クラステンプレート", header: "threading/Atomic.h",
       summary: "<b>分割されない</b>読み書き・更新ができる値(std::atomic 相当)。複数<t>スレッド</t>が同時に触っても途中状態が見えず壊れない。整数・<t>列挙(enum)</t>・<t>ポインタ</t>(1/2/4/8 バイト)に使える。コピー不可。",

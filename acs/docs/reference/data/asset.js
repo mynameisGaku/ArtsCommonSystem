@@ -8,6 +8,30 @@ ACS_REF.modules.push({
   blurb: "画像・音声・メッシュ・テキストなどの素材ファイルを<b>パスを渡すだけで読み込み</b>、一度読んだものは<t>レジストリ</t>で共有・再利用します。<t>同期</t>でも<t>非同期</t>でも読み込めます。",
   types: [
     {
+      name: "FInternedAssetPath",
+      kind: "クラス", header: "asset/InternedAssetPath.h",
+      summary: "正規化済みアセットパスを共有テーブルの ID として保持する軽量キー。比較とコピーで文字列全体を走査しない。",
+      when: "レジストリやキャッシュで同じアセットパスを高頻度に比較する時。"
+    },
+    {
+      name: "FAssetPathInterner",
+      kind: "クラス", header: "asset/AssetPathInterner.h",
+      summary: "アセットパスを正規化して一度だけ保持し、同じパスへ同じ <code>FInternedAssetPath</code> を返す共有テーブル。",
+      when: "パス文字列の重複確保と繰り返しハッシュを抑えたい時。"
+    },
+    {
+      name: "FAssetPathInternerDiagnostics",
+      kind: "構造体", header: "asset/AssetPathInternerDiagnostics.h",
+      summary: "パス interner の登録数、再利用数、保持 byte 数を観測する診断 snapshot。",
+      when: "パス共有の効果とメモリ使用量をプロファイルする時。"
+    },
+    {
+      name: "FAssetRegistryDiagnostics",
+      kind: "構造体", header: "asset/AssetRegistryDiagnostics.h",
+      summary: "アセットレジストリの検索、登録、intern 再利用経路を観測する診断 snapshot。",
+      when: "アセット検索 hot path の退行を決定的カウンタで確認する時。"
+    },
+    {
       name: "FAsset",
       kind: "基底クラス", header: "asset/Asset.h",
       summary: "すべてのアセット(画像・音声・メッシュ・テキスト等)が継承する<b>共通の基底</b>。実行時の型 ID(<code>Type()</code>)・<t>FAssetId</t>・<t>ロード状態</t>を持つ。",

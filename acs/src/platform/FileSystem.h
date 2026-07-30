@@ -15,21 +15,37 @@ namespace acs {
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
 class FFileSystem {
 public:
-    /** ASCII 大文字を小文字へ変換し、それ以外は変更しない。 */
+    /**
+     * ASCII 大文字を小文字へ変換し、それ以外は変更しない。
+     *
+     * @param value 変換する文字。
+     * @return 小文字化した文字。
+     */
     static constexpr char AsciiLower(char value) noexcept {
-        return value >= 'A' && value <= 'Z'
-            ? static_cast<char>(value + ('a' - 'A'))
-            : value;
+        return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A')) : value;
     }
 
-    /** 文字が ASCII 範囲なら true を返す。 */
+    /**
+     * 文字が ASCII 範囲なら true を返す。
+     *
+     * @tparam Char 入力文字型。
+     * @param value 確認する文字。
+     * @return ASCII 範囲なら true。
+     */
     template<typename Char>
     static constexpr bool IsAscii(Char value) noexcept {
+        /** 符号なしへ変換した文字型。 */
         using U = std::make_unsigned_t<Char>;
         return static_cast<U>(value) <= static_cast<U>(0x7f);
     }
 
-    /** Windows または portable なパス区切りなら true を返す。 */
+    /**
+     * Windows または portable なパス区切りなら true を返す。
+     *
+     * @tparam Char 入力文字型。
+     * @param value 確認する文字。
+     * @return スラッシュまたはバックスラッシュなら true。
+     */
     template<typename Char>
     static constexpr bool IsPathSeparator(Char value) noexcept {
         return value == static_cast<Char>('\\') || value == static_cast<Char>('/');
@@ -40,12 +56,18 @@ public:
      *
      * @details 隠しファイル、末尾 dot、複数 dot の空拡張子、非 ASCII 拡張子は Unknown。
      * パス本体の Unicode は読み替えず、最終 dot より後ろだけを安全に ASCII 比較する。
+     * @tparam Char 入力文字型。
+     * @param path 分類する NUL 終端パス。
+     * @return 判定できた拡張子種別。不正または未対応なら Unknown。
      */
     template<typename Char>
     static constexpr EFileExtensionKind ClassifyExtension(const Char* path) noexcept {
         if (!path) return EFileExtensionKind::Unknown;
+        /** 最終パス要素の開始位置。 */
         usize segment_begin = 0;
+        /** 最終パス要素にある最後の dot 位置。 */
         usize last_dot = static_cast<usize>(-1);
+        /** パス全体の文字数。 */
         usize length = 0;
         for (; path[length] != static_cast<Char>(0); ++length) {
             if (IsPathSeparator(path[length])) {
@@ -59,16 +81,22 @@ public:
             return EFileExtensionKind::Unknown;
         }
 
+        /** dot を除いた拡張子の文字数。 */
         const usize extension_size = length - last_dot - 1;
+        /** ASCII 小文字へ正規化した拡張子。 */
         char extension[8]{};
         if (extension_size >= sizeof(extension)) return EFileExtensionKind::Unknown;
+        /** 正規化する拡張子位置。 */
         for (usize i = 0; i < extension_size; ++i) {
+            /** 現在正規化する文字。 */
             const Char value = path[last_dot + 1 + i];
             if (!IsAscii(value)) return EFileExtensionKind::Unknown;
             extension[i] = AsciiLower(static_cast<char>(value));
         }
 
+        /** 正規化済み拡張子を ASCII 文字列と比較する。 */
         const auto equals = [&](const char* expected) constexpr noexcept {
+            /** 比較する文字位置。 */
             usize i = 0;
             while (i < extension_size && expected[i] != '\0') {
                 if (extension[i] != expected[i]) return false;

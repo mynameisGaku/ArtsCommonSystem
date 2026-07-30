@@ -89,13 +89,23 @@ struct FNodeDecision {
     f32 world_radius = 0.0f;
 };
 
-/** 球の入力値を検査し、ワールド空間の半径を求める。 */
+/**
+ * 球の入力値を検査し、ワールド空間の半径を求める。
+ *
+ * @param center ワールド空間の球中心。
+ * @param local_radius ローカル空間の半径。
+ * @param world_scale ワールド空間の三軸スケール。
+ * @param world_radius_padding 判定へ加える余白半径。
+ * @return 有効性と算出半径。非有限値または負の半径では valid が false。
+ */
 inline FNodeDecision PrepareSphere(FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding) noexcept {
-    FNodeDecision decision{}; // 検査と半径計算の結果。
+    /** 検査と半径計算の結果。 */
+    FNodeDecision decision{};
     if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z) || !std::isfinite(local_radius) || local_radius < 0.0f || !std::isfinite(world_scale.x) || !std::isfinite(world_scale.y) || !std::isfinite(world_scale.z) || !std::isfinite(world_radius_padding) || world_radius_padding < 0.0f) {
         return decision;
     }
-    const f32 maximum_scale = std::max(std::fabs(world_scale.x), std::max(std::fabs(world_scale.y), std::fabs(world_scale.z))); // 三軸の最大絶対スケール。
+    /** 三軸の最大絶対スケール。 */
+    const f32 maximum_scale = std::max(std::fabs(world_scale.x), std::max(std::fabs(world_scale.y), std::fabs(world_scale.z)));
     decision.world_radius = local_radius * maximum_scale + world_radius_padding;
     if (!std::isfinite(decision.world_radius))
         return decision;
@@ -103,10 +113,23 @@ inline FNodeDecision PrepareSphere(FVec3 center, f32 local_radius, FVec3 world_s
     return decision;
 }
 
+/**
+ * 一つの球を六平面のフラスタムに対して判定する。
+ *
+ * @param planes 判定に使う六つのフラスタム平面。
+ * @param center ワールド空間の球中心。
+ * @param local_radius ローカル空間の半径。
+ * @param world_scale ワールド空間の三軸スケール。
+ * @param world_radius_padding 判定へ加える余白半径。
+ * @return 有効性、可視性、算出したワールド半径。無効入力は可視扱いで返す。
+ */
 inline FNodeDecision EvaluateSphere(const FPlane (&planes)[6], FVec3 center, f32 local_radius, FVec3 world_scale, f32 world_radius_padding = 0.0f) noexcept {
+    /** 入力検査済みの判定結果。 */
     FNodeDecision decision = PrepareSphere(center, local_radius, world_scale, world_radius_padding);
     if (!decision.valid) return decision;
+    /** 現在判定するフラスタム平面。 */
     for (const FPlane& plane : planes) {
+        /** 球中心から平面までの符号付き距離。 */
         const f32 signed_distance = center.x * plane.normal.x + center.y * plane.normal.y + center.z * plane.normal.z + plane.distance;
         if (signed_distance < -decision.world_radius) {
             decision.visible = false;
@@ -134,17 +157,26 @@ inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers
         return;
     }
 
-    usize index = 0u; // 次に処理する球の位置。
+    /** 次に処理する球の位置。 */
+    usize index = 0u;
 #if ACS_ARCH_X64
-    alignas(16) f32 xs[4]{}; // 四球の中心 X。
-    alignas(16) f32 ys[4]{}; // 四球の中心 Y。
-    alignas(16) f32 zs[4]{}; // 四球の中心 Z。
-    alignas(16) f32 radii[4]{}; // 四球のワールド半径。
+    /** 四球の中心 X。 */
+    alignas(16) f32 xs[4]{};
+    /** 四球の中心 Y。 */
+    alignas(16) f32 ys[4]{};
+    /** 四球の中心 Z。 */
+    alignas(16) f32 zs[4]{};
+    /** 四球のワールド半径。 */
+    alignas(16) f32 radii[4]{};
     for (; index + 4u <= count; index += 4u) {
-        u32 valid_mask = 0u; // 入力が有効な SIMD レーン。
+        /** 入力が有効な SIMD レーン。 */
+        u32 valid_mask = 0u;
+        /** 球を格納する SIMD レーン。 */
         for (u32 lane = 0u; lane < 4u; ++lane) {
-            const usize item = index + lane; // 今回準備する球の位置。
-            const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[item] : 0.0f; // 球へ加える半径。
+            /** 今回準備する球の位置。 */
+            const usize item = index + lane;
+            /** 球へ加える半径。 */
+            const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[item] : 0.0f;
             output[item] = PrepareSphere(centers[item], local_radii[item], world_scales[item], padding);
             xs[lane] = centers[item].x;
             ys[lane] = centers[item].y;
@@ -153,19 +185,27 @@ inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers
             if (output[item].valid) valid_mask |= 1u << lane;
         }
 
-        const __m128 x = _mm_load_ps(xs); // 四球の中心 X。
-        const __m128 y = _mm_load_ps(ys); // 四球の中心 Y。
-        const __m128 z = _mm_load_ps(zs); // 四球の中心 Z。
-        const __m128 negative_radius = _mm_sub_ps(_mm_setzero_ps(), _mm_load_ps(radii)); // 四球の負半径。
-        u32 culled_mask = 0u; // 一平面でも外側になった SIMD レーン。
+        /** 四球の中心 X。 */
+        const __m128 x = _mm_load_ps(xs);
+        /** 四球の中心 Y。 */
+        const __m128 y = _mm_load_ps(ys);
+        /** 四球の中心 Z。 */
+        const __m128 z = _mm_load_ps(zs);
+        /** 四球の負半径。 */
+        const __m128 negative_radius = _mm_sub_ps(_mm_setzero_ps(), _mm_load_ps(radii));
+        /** 一平面でも外側になった SIMD レーン。 */
+        u32 culled_mask = 0u;
+        /** 現在判定するフラスタム平面。 */
         for (const FPlane& plane : planes) {
-            __m128 distance = _mm_mul_ps(x, _mm_set1_ps(plane.normal.x)); // 四球から平面までの符号付き距離。
+            /** 四球から平面までの符号付き距離。 */
+            __m128 distance = _mm_mul_ps(x, _mm_set1_ps(plane.normal.x));
             distance = _mm_add_ps(distance, _mm_mul_ps(y, _mm_set1_ps(plane.normal.y)));
             distance = _mm_add_ps(distance, _mm_mul_ps(z, _mm_set1_ps(plane.normal.z)));
             distance = _mm_add_ps(distance, _mm_set1_ps(plane.distance));
             culled_mask |= static_cast<u32>(_mm_movemask_ps(_mm_cmplt_ps(distance, negative_radius)));
         }
         culled_mask &= valid_mask;
+        /** 可視性を反映する SIMD レーン。 */
         for (u32 lane = 0u; lane < 4u; ++lane) {
             if ((culled_mask & (1u << lane)) != 0u)
                 output[index + lane].visible = false;
@@ -173,7 +213,8 @@ inline void EvaluateSpheresBatch(const FPlane (&planes)[6], const FVec3* centers
     }
 #endif
     for (; index < count; ++index) {
-        const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[index] : 0.0f; // 球へ加える半径。
+        /** 球へ加える半径。 */
+        const f32 padding = world_radius_paddings != nullptr ? world_radius_paddings[index] : 0.0f;
         output[index] = EvaluateSphere(planes, centers[index], local_radii[index], world_scales[index], padding);
     }
 }

@@ -8,6 +8,24 @@ ACS_REF.modules.push({
   blurb: "ゲームでよく使う『入れ物』の型。<code>std::vector</code> / <code>std::string</code> / <code>std::unordered_map</code> 等の代わりに、<t>STL 不使用</t>・<t>アロケータ</t>注入対応で軽く速く実装したものです。",
   types: [
     {
+      name: "TInlineArray&lt;T, InlineCapacity&gt;",
+      kind: "クラステンプレート", header: "container/InlineArray.h",
+      summary: "少数要素を本体内へ保持し、容量超過時だけ allocator へ退避する可変長配列。",
+      when: "通常件数が小さい一時配列で heap 確保を避けつつ、まれな増加も扱う時。"
+    },
+    {
+      name: "FStableStringKey",
+      kind: "構造体", header: "container/StableStringKey.h",
+      summary: "文字列 view と事前計算済み hash を組にした非所有キー。",
+      when: "同じ文字列キーを繰り返し検索し、毎回の hash 計算を省く時。"
+    },
+    {
+      name: "FStringHasher",
+      kind: "構造体", header: "container/StringHasher.h",
+      summary: "<code>FString</code>、<code>FStringView</code>、安定キーを同じ規則で hash 化する関数オブジェクト。",
+      when: "文字列 map の所有キーと非所有キーを相互検索する時。"
+    },
+    {
       name: "TArray&lt;T&gt;",
       kind: "クラステンプレート", header: "container/Array.h",
       summary: "可変長配列（<code>std::vector</code> 相当）。末尾追加が速く、要素は連続メモリに並ぶ。<b>コピー禁止・<t>ムーブ</t>専用</b>で、複製したい時は明示的に <code>Clone()</code> を呼ばせる(うっかり高コストコピーを防ぐ)。<t>アロケータ</t>を差し替えられる。",

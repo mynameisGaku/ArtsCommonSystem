@@ -6,6 +6,30 @@ ACS_REF.modules.push({
   blurb: "ゲームを作るときに「だいたい毎回いる」部品の詰め合わせです。当たり判定の<t>トリガ</t>、ターン制、武器・弾薬、敵の<t>ウェーブ</t>、天候や水、UI、ボイスチャットなどを、エンジン本体に手を入れずに組み合わせて使えます。",
   types: [
     {
+      name: "FAssetPackReadRequest",
+      kind: "構造体", header: "gameframework/AssetPackReadRequest.h",
+      summary: "pak 内アセットの読み取り先、範囲、優先度を一つにまとめる要求値。",
+      when: "gameplay 側から asset pack の batch 読み取りを組み立てる時。"
+    },
+    {
+      name: "FHierarchyVisibilityBatch",
+      kind: "クラス", header: "gameframework/HierarchyVisibilityBatch.h",
+      summary: "親子階層の可視状態を親から子へ一括伝播し、変更対象だけを返す作業バッファ。",
+      when: "多数 node の表示状態を再帰呼び出しと一件ごとの再確保なしで更新する時。"
+    },
+    {
+      name: "FHierarchyWorldTransformBatch",
+      kind: "クラス", header: "gameframework/HierarchyWorldTransformBatch.h",
+      summary: "親子順に world transform を一括更新し、変更された node 範囲を追跡する作業バッファ。",
+      when: "scene 階層の transform 更新を cache-friendly な反復処理へまとめる時。"
+    },
+    {
+      name: "FTransformSoAInput",
+      kind: "構造体", header: "gameframework/TransformBatchSoA.h",
+      summary: "位置、回転、拡大率を別配列で受け渡す transform batch の SoA 入力 view。",
+      when: "大量 transform を連続配列から SIMD 向けに処理する時。"
+    },
+    {
       name: "ATriggerComponent",
       kind: "クラス", header: "gameframework/TriggerComponent.h",
       summary: "<t>ノード</t>を<t>トリガ</t>(重なり検出専用の当たり判定)に繋ぐ <t>コンポーネント</t>。プレイヤー / アイテム / 罠などが「触れた・離れた」を<b>そのノードごと</b>に受け取れます。<t>レイヤ</t>と<t>マスク</t>で反応相手を絞り込めます。",

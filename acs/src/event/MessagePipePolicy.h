@@ -21,7 +21,6 @@ enum class EMessagePipePolicy : u8 {
 
 /** SPSC 固定容量として利用できる値かをコンパイル時に返す。 */
 template<usize Capacity>
-inline constexpr bool kIsValidMessagePipeCapacity =
-    Capacity >= 2 && (Capacity & (Capacity - 1)) == 0;
+inline constexpr bool kIsValidMessagePipeCapacity = Capacity >= 2 && (Capacity & (Capacity - 1)) == 0;
 
 } // namespace acs

@@ -1,28 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// =============================================================================
-// ACS ECS — FEntityCommandBuffer (構造変更の遅延記録・一括適用)
-// -----------------------------------------------------------------------------
-// Query::Each / EachParallel の反復中は、fn へ渡した Comps& 参照が同型の Add/Remove で
-// dangling するため、直接構造変更すると use-after-free になり得る (Query.h の契約参照)。
-// 本バッファへ Destroy / Add<T> / Remove<T> を記録しておき、反復後に Flush() で FWorld へ
-// 記録順に適用することで安全に構造変更できる (AAA ECS の command buffer 相当)。
-//
-// 例:
-//   FEntityCommandBuffer cmd(world);
-//   world.Query<FHealth>().Each([&](FEntityId e, FHealth& h) {
-//       if (h.value <= 0) cmd.Destroy(e);       // 反復中は記録だけ (参照は無効化しない)
-//   });
-//   cmd.Flush();                                 // 反復後にまとめて適用
-//
-// 設計:
-//   ・16 バイト以下の単純な値はコマンド内へ直接保持し、それ以外だけ New<T> で
-//     安定アドレスへ退避する。適用時は FWorld へムーブし、ヒープ値だけ破棄する。
-//   ・Create は Each 中でも安全 (dense へ追記するだけで既存参照を無効化しない) ため
-//     遅延不要。新規エンティティへ即 Add したい場合のみ、Create は即時・Add は本バッファへ。
-//   ・記録の確保が OOM した場合は該当操作を落として HasOverflowed()=true にする
-//     (Flush は残りを適用するが不完全であることを呼び出し側が検知できる)。
-// =============================================================================
 
 #include "ecs/World.h"
 #include "memory/New.h"
@@ -67,6 +44,7 @@ public:
      */
     void Destroy(FEntityId e) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Destroy;
         c.entity = e;
@@ -84,6 +62,7 @@ public:
     template<typename T>
     void Remove(FEntityId e) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Remove;
         c.entity = e;
@@ -103,6 +82,7 @@ public:
     template<typename T>
     void Add(FEntityId e, T value) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Add;
         c.entity = e;
@@ -123,6 +103,7 @@ public:
      */
     void Create() noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Create;
         if (!m_Commands.TryPushBack(c)) {
@@ -141,6 +122,7 @@ public:
     template<typename T>
     void CreateWith(T value) noexcept
     {
+        /** 追加する遅延コマンド。 */
         FCommand c{};
         c.kind = ECommandKind::Create;
         c.apply = &ApplyAdd<T>;
@@ -158,7 +140,9 @@ public:
      */
     void Flush() noexcept
     {
+        /** 適用するコマンド位置。 */
         for (usize i = 0; i < m_Commands.Size(); ++i) {
+            /** 現在適用するコマンド。 */
             FCommand& c = m_Commands[i];
             switch (c.kind) {
             case ECommandKind::Destroy:
@@ -172,8 +156,10 @@ public:
                 DestroyStoredValue(c);
                 break;
             case ECommandKind::Create: {
+                /** 新しく生成したエンティティ。 */
                 const FEntityId created = m_World->Create();
-                if (c.apply != nullptr) {                // CreateWith: 退避値を付与
+                // CreateWith の場合だけ保持値を付与する。
+                if (c.apply != nullptr) {
                     c.apply(*m_World, created, c.Value());
                     DestroyStoredValue(c);
                 }
@@ -189,7 +175,9 @@ public:
      */
     void Clear() noexcept
     {
+        /** 破棄するコマンド位置。 */
         for (usize i = 0; i < m_Commands.Size(); ++i) {
+            /** 現在破棄するコマンド。 */
             FCommand& c = m_Commands[i];
             DestroyStoredValue(c);
         }
@@ -210,6 +198,9 @@ public:
 
     /**
      * 予想コマンド数を一括予約する。成功後、その件数まではコマンド配列を再確保しない。
+     *
+     * @param command_count 予約するコマンド数。
+     * @return 予約できれば true。確保失敗時は false。
      */
     bool TryReserve(usize command_count) noexcept
     {
@@ -231,33 +222,43 @@ public:
 private:
     /** 遅延コマンドの種別。 */
     enum class ECommandKind : u8 {
+        /** エンティティを破棄する。 */
         Destroy,
+        /** コンポーネントを追加する。 */
         Add,
+        /** コンポーネントを除去する。 */
         Remove,
-        Create,   // apply==nullptr なら空生成、非 null なら CreateWith (生成 + 付与)
+        /** apply が空なら空生成し、設定済みならコンポーネントも付与する。 */
+        Create,
     };
 
     /** 1 つの遅延コマンド。value / thunk は種別に応じて使う。 */
     struct FCommand {
+        /** コマンド内へ直接保持できる最大バイト数。 */
         static constexpr usize kInlineValueBytes = 16u;
+        /** 実行する操作種別。 */
         ECommandKind kind = ECommandKind::Destroy;
+        /** 操作対象のエンティティ。 */
         FEntityId entity{};
-        void* value = nullptr;                                      // 大型または非単純な T
-        void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;  // Add / Remove
-        void (*destroy)(FAllocator&, void*) noexcept = nullptr;     // Add のみ
+        /** 大型または非単純な値の退避先。 */
+        void* value = nullptr;
+        /** 追加または除去を型消去して適用する関数。 */
+        void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;
+        /** ヒープへ退避した値を型消去して破棄する関数。 */
+        void (*destroy)(FAllocator&, void*) noexcept = nullptr;
         /** 小規模値を確保せず保持する領域。 */
         alignas(16) byte inline_value[kInlineValueBytes]{};
         /** 小規模値領域を使用中なら true。 */
         bool inline_value_used = false;
 
+        /** 保持方式にかかわらず値の先頭を返す。 */
         void* Value() noexcept
         {
-            return inline_value_used
-                ? static_cast<void*>(inline_value)
-                : value;
+            return inline_value_used ? static_cast<void*>(inline_value) : value;
         }
     };
 
+    /** 値を内部領域またはヒープへ保持し、失敗時は overflow 状態にする。 */
     template<typename T>
     bool StoreValue(FCommand& command, T&& value) noexcept
     {
@@ -266,6 +267,7 @@ private:
             command.inline_value_used = true;
             return true;
         } else {
+            /** ヒープへ退避した値。 */
             T* const stored = New<T>(*m_Alloc, Move(value));
             if (!stored) {
                 m_bOverflowed = true;
@@ -277,6 +279,7 @@ private:
         }
     }
 
+    /** コマンドがヒープへ退避した値だけを破棄し、保持状態を初期化する。 */
     void DestroyStoredValue(FCommand& command) noexcept
     {
         if (!command.inline_value_used && command.destroy != nullptr) {

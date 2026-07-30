@@ -54,6 +54,44 @@ EXCLUDED_DIRECTORIES = frozenset(
     }
 )
 
+# 基盤最適化で追加した公開型のうち、参照欠落を継続監視する範囲。
+REQUIRED_FOUNDATION_REFERENCE_TYPES = frozenset(
+    {
+        "EFileExtensionKind",
+        "EFormatAspect",
+        "EMessagePipePolicy",
+        "ERhiPipelineBindDomain",
+        "ETimerSchedulePolicy",
+        "FAcpakReadDiagnostics",
+        "FAssetPackReadRequest",
+        "FAssetPathInterner",
+        "FAssetPathInternerDiagnostics",
+        "FAssetRegistryDiagnostics",
+        "FFileSystemDiagnostics",
+        "FFormatTraits",
+        "FHierarchyVisibilityBatch",
+        "FHierarchyWorldTransformBatch",
+        "FInternedAssetPath",
+        "FJobGraphDiagnostics",
+        "FPipelineStateKey",
+        "FRenderGraphAliasAssignment",
+        "FRenderGraphAliasPlanSummary",
+        "FRenderGraphResourceLifetime",
+        "FRenderGraphTransientAliasPlanner",
+        "FShaderParameterLayoutMetadata",
+        "FStableStringKey",
+        "FStringHasher",
+        "FThreadPoolDiagnostics",
+        "FTimerDiagnostics",
+        "FTransformSoAInput",
+        "TDescriptorSlotPool",
+        "TInlineArray",
+        "TPipelineStateKeyCache",
+        "TRhiPipelineBindPolicy",
+        "TTypedPoolAllocator",
+    }
+)
+
 
 @dataclass(frozen=True)
 class FReferenceEntry:
@@ -275,6 +313,23 @@ def audit(
     return violations
 
 
+def audit_required_references(
+    required: frozenset[str],
+    declared: set[str],
+    entries: Sequence[FReferenceEntry],
+) -> tuple[list[str], list[str]]:
+    """限定した公開型の宣言消失と参照欠落を決定的順序で返す。"""
+
+    referenced = {
+        name
+        for entry in entries
+        for name in entry_identifiers(entry)
+    }
+    undeclared = sorted(required - declared)
+    undocumented = sorted((required & declared) - referenced)
+    return undeclared, undocumented
+
+
 def run_self_test() -> int:
     """旧名検出、正名通過、関数・alias 除外の最小 fixture を検証する。"""
 
@@ -338,6 +393,20 @@ def run_self_test() -> int:
             print("reference audit corrected fixture did not pass", file=sys.stderr)
             return 1
 
+        required = frozenset({"FWorld", "FCpuFeatures", "TResult", "FMissing"})
+        undeclared, undocumented = audit_required_references(
+            required,
+            collect_declared_types(source_root),
+            collect_reference_entries(data_root),
+        )
+        if undeclared != ["FMissing"] or undocumented != ["TResult"]:
+            print(
+                "reference completeness self-test failed: "
+                f"undeclared={undeclared!r}, undocumented={undocumented!r}",
+                file=sys.stderr,
+            )
+            return 1
+
     print("ACS reference type-name audit self-test passed")
     return 0
 
@@ -397,9 +466,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
 
+    undeclared, undocumented = audit_required_references(
+        REQUIRED_FOUNDATION_REFERENCE_TYPES,
+        declared,
+        entries,
+    )
+    for name in undeclared:
+        print(
+            "docs/reference/data: error: "
+            f"[reference-required-type] {name} は公開型一覧に残っていますが宣言がありません"
+        )
+    for name in undocumented:
+        print(
+            "docs/reference/data: error: "
+            f"[reference-required-type] {name} の型リファレンスがありません"
+        )
+    if undeclared or undocumented:
+        print(
+            "ACS reference completeness audit failed: "
+            f"{len(undeclared)} undeclared, {len(undocumented)} undocumented",
+            file=sys.stderr,
+        )
+        return 1
+
     print(
         "ACS reference type-name audit passed: "
-        f"{len(entries)} entry(s), {len(declared)} declaration(s)"
+        f"{len(entries)} entry(s), {len(declared)} declaration(s), "
+        f"{len(REQUIRED_FOUNDATION_REFERENCE_TYPES)} required foundation type(s)"
     )
     return 0
 

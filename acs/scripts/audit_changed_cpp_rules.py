@@ -92,6 +92,38 @@ def code_without_literals(line: str) -> str:
     return "".join(output)
 
 
+def line_comment_index(line: str) -> int | None:
+    """文字列外にある行コメントの開始位置を返す。"""
+    quote = ""
+    escaped = False
+    index = 0
+    while index + 1 < len(line):
+        character = line[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = ""
+            index += 1
+            continue
+        if character in {"\"", "'"}:
+            quote = character
+            index += 1
+            continue
+        if character == "/" and line[index + 1] == "/":
+            return index
+        index += 1
+    return None
+
+
+def is_allowed_trailing_comment(line: str) -> bool:
+    """名前空間終端と条件付きコンパイル終端の短い識別コメントならtrueを返す。"""
+    stripped = line.strip()
+    return re.match(r"^}\s*//\s*(?:namespace|.*名前空間)", stripped) is not None or re.match(r"^#endif\b.*//", stripped) is not None
+
+
 def comment_text(line: str) -> str | None:
     """コメント行なら装飾を除いた本文を返す。"""
     stripped = line.strip()
@@ -109,6 +141,9 @@ def inspect_added_lines(lines: Iterable[AddedLine]) -> list[Violation]:
     violations: list[Violation] = []
     for added in lines:
         code = code_without_literals(added.text)
+        trailing_comment = line_comment_index(added.text)
+        if trailing_comment is not None and added.text[:trailing_comment].strip() and not is_allowed_trailing_comment(added.text):
+            violations.append(Violation(added.path, added.line, "行末コメントを対象式の直前へ移してください"))
         if code.count("(") != code.count(")"):
             violations.append(Violation(added.path, added.line, "括弧内部を一行に収めてください"))
         has_braced_initializer = re.search(r"(?<![=!<>])=(?!=)\s*\{", code) is not None
@@ -169,12 +204,14 @@ def self_test() -> int:
             "+// English only",
             "+Call(",
             "+const int values[] = {",
+            "+const int inline_value = 2; // 値の役割。",
+            "+} // namespace sample",
         ]
     )
     lines, headers = parse_added_lines(sample)
     violations = inspect_added_lines(lines)
     generated = is_generated_path(Path("dist/acs.h")) and not is_generated_path(Path("src/FExample.h"))
-    return 0 if len(lines) == 8 and headers == {Path("src/FExample.h")} and len(violations) == 3 and generated else 1
+    return 0 if len(lines) == 10 and headers == {Path("src/FExample.h")} and len(violations) == 4 and generated else 1
 
 
 def main() -> int:

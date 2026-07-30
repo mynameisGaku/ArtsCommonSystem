@@ -8,6 +8,12 @@ ACS_REF.modules.push({
   blurb: "ゲームの画像・音・データなど大量の<t>アセット</t>を <code>.acpak</code> という 1 つの書庫ファイルにまとめ、必要に応じて <t>圧縮</t>(LZ4)・<t>暗号化</t>(AES-256-GCM)して配布する仕組みです。実行中はその書庫から名前でファイルを取り出します。",
   types: [
     {
+      name: "FAcpakReadDiagnostics",
+      kind: "構造体", header: "assetpack/AcpakReadDiagnostics.h",
+      summary: "pak 読み取りの index 検索、範囲読み込み、復号、展開、失敗経路を集計する診断 snapshot。",
+      when: "配布 pak の読み込み量と余分なコピー、失敗理由をプロファイルする時。"
+    },
+    {
       name: "FAcpakWriter",
       kind: "クラス", header: "assetpack/AcpakWriter.h",
       summary: "バラバラのファイル(バイト列)を 1 つの <code>.acpak</code> <t>アーカイブ</t>にまとめて書き出す<b>梱包係</b>。入力は内部へコピーして所有し、完成品は同一ディレクトリの一時ファイルから出力先へ原子的に置換するため、途中失敗で既存 pak を壊さない。",

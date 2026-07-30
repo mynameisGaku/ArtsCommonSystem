@@ -74,21 +74,36 @@ detail::TGamepadPollScheduler<4> g_gamepad_poll_scheduler;
 
 /** EGamepadButton から XInput のボタンビットへ変換するテーブル (0 は未対応ボタン)。 */
 constexpr WORD kPadBits[(usize)EGamepadButton::_Count] = {
-    XINPUT_GAMEPAD_A,              // Aボタン
-    XINPUT_GAMEPAD_B,              // Bボタン
-    XINPUT_GAMEPAD_X,              // Xボタン
-    XINPUT_GAMEPAD_Y,              // Yボタン
-    XINPUT_GAMEPAD_DPAD_UP,        // 方向パッド上
-    XINPUT_GAMEPAD_DPAD_DOWN,      // 方向パッド下
-    XINPUT_GAMEPAD_DPAD_LEFT,      // 方向パッド左
-    XINPUT_GAMEPAD_DPAD_RIGHT,     // 方向パッド右
-    XINPUT_GAMEPAD_LEFT_SHOULDER,  // 左バンパー
-    XINPUT_GAMEPAD_RIGHT_SHOULDER, // 右バンパー
-    XINPUT_GAMEPAD_LEFT_THUMB,     // 左スティック押し込み
-    XINPUT_GAMEPAD_RIGHT_THUMB,    // 右スティック押し込み
-    XINPUT_GAMEPAD_START,          // スタートボタン
-    XINPUT_GAMEPAD_BACK,           // バックボタン
-    0,                              // Guide (XInput では未公開)
+    // Aボタン。
+    XINPUT_GAMEPAD_A,
+    // Bボタン。
+    XINPUT_GAMEPAD_B,
+    // Xボタン。
+    XINPUT_GAMEPAD_X,
+    // Yボタン。
+    XINPUT_GAMEPAD_Y,
+    // 方向パッド上。
+    XINPUT_GAMEPAD_DPAD_UP,
+    // 方向パッド下。
+    XINPUT_GAMEPAD_DPAD_DOWN,
+    // 方向パッド左。
+    XINPUT_GAMEPAD_DPAD_LEFT,
+    // 方向パッド右。
+    XINPUT_GAMEPAD_DPAD_RIGHT,
+    // 左バンパー。
+    XINPUT_GAMEPAD_LEFT_SHOULDER,
+    // 右バンパー。
+    XINPUT_GAMEPAD_RIGHT_SHOULDER,
+    // 左スティック押し込み。
+    XINPUT_GAMEPAD_LEFT_THUMB,
+    // 右スティック押し込み。
+    XINPUT_GAMEPAD_RIGHT_THUMB,
+    // スタートボタン。
+    XINPUT_GAMEPAD_START,
+    // バックボタン。
+    XINPUT_GAMEPAD_BACK,
+    // Guide ボタンは XInput で未公開。
+    0,
 };
 
 /**

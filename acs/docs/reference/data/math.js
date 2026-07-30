@@ -8,6 +8,12 @@ ACS_REF.modules.push({
   blurb: "ゲームの座標計算に必要な<t>ベクトル</t>・<t>行列</t>・<t>クォータニオン</t>・カメラ・衝突判定をまとめたモジュール。内部は <t>DirectXMath</t> に委譲し <t>SIMD</t> で高速。3D/2D 両方の当たり判定プリミティブも含む。",
   types: [
     {
+      name: "EBatchTransformPolicy",
+      kind: "列挙", header: "math/BatchTransformPolicy.h",
+      summary: "batch 変換を点、方向、法線のどの規則で行うかをコンパイル時に選ぶ方針。",
+      when: "runtime 分岐なしで同じ行列を大量のベクトルへ適用する時。"
+    },
+    {
       name: "FVec2",
       kind: "構造体", header: "math/Vec.h",
       summary: "2 次元<t>ベクトル</t>（x, y）。8 バイト。2D の位置・速度・方向を表す基本型。小さいので<t>SIMD</t>は使わず素直に計算する。",

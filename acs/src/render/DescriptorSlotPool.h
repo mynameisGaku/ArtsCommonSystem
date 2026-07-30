@@ -19,15 +19,23 @@ class TDescriptorSlotPool {
 public:
     /** 一つのスロットを確保し、空きがなければ -1 を返す。 */
     i32 Allocate() noexcept {
-        i32 slot = -1; // 確保したスロット番号。
+        /** 確保したスロット番号。 */
+        i32 slot = -1;
         return AllocateBatch(&slot, 1u) ? slot : -1;
     }
 
-    /** 指定数のスロットをまとめて確保する。 */
+    /**
+     * 指定数のスロットをまとめて確保する。
+     *
+     * @param output 確保した番号を書き込む配列。
+     * @param count 確保するスロット数。
+     * @return 全件を確保できれば true。出力先不正または空き不足では false。
+     */
     bool AllocateBatch(i32* output, u32 count) noexcept {
         if (count == 0u) return true;
         if (output == nullptr || count > AvailableCount()) return false;
-        u32 written = 0u; // 出力済みスロット数。
+        /** 出力済みスロット数。 */
+        u32 written = 0u;
         while (written < count && m_FreeCount > 0u)
             output[written++] = m_FreeList[--m_FreeCount];
         while (written < count)
@@ -35,18 +43,29 @@ public:
         return true;
     }
 
-    /** 一つのスロットを再利用待ちへ戻す。 */
+    /**
+     * 一つのスロットを再利用待ちへ戻す。
+     *
+     * @param slot 返却するスロット番号。範囲外または返却済みなら変更しない。
+     */
     void Free(i32 slot) noexcept {
         if (slot < 0 || static_cast<u32>(slot) >= m_HighWater) return;
+        /** 重複返却を確認する再利用待ち位置。 */
         for (u32 i = 0u; i < m_FreeCount; ++i) {
             if (m_FreeList[i] == slot) return;
         }
         if (m_FreeCount < Capacity) m_FreeList[m_FreeCount++] = slot;
     }
 
-    /** 指定されたスロット群を再利用待ちへ戻す。 */
+    /**
+     * 指定されたスロット群を再利用待ちへ戻す。
+     *
+     * @param slots 返却するスロット番号の配列。
+     * @param count 配列要素数。slots が空なら変更しない。
+     */
     void FreeBatch(const i32* slots, u32 count) noexcept {
         if (slots == nullptr) return;
+        /** 返却する配列位置。 */
         for (u32 i = 0u; i < count; ++i) Free(slots[i]);
     }
 

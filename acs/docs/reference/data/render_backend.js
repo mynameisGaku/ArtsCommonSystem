@@ -8,6 +8,54 @@ ACS_REF.modules.push({
   blurb: "GPU に実際に絵を描かせる<t>RHI</t>(描画ハードウェア抽象)の<b>中身</b>。共通インターフェイス <code>IRhiDevice</code> 等を、Windows ネイティブの <t>DX12</t> と、複数 API を束ねる <t>Diligent</t> の 2 系統で実装します。<b>ふだんはこれらを直接 new せず、<code>CreateRhiDevice()</code> 等のファクトリ越しに <code>IRhi*</code> ハンドルだけ触ります</b>。ここに載っているのは「どのバックエンドが裏で動いているか」を知りたい・拡張したい人向けの内部実装です。",
   types: [
     {
+      name: "TDescriptorSlotPool&lt;Capacity&gt;",
+      kind: "クラステンプレート", header: "render/DescriptorSlotPool.h",
+      summary: "固定容量の descriptor 番号を個別または全件成功の batch で再利用する無確保 pool。",
+      when: "descriptor heap の空き slot 管理で per-frame heap 確保を避ける時。"
+    },
+    {
+      name: "EFormatAspect",
+      kind: "列挙", header: "render/FormatAspect.h",
+      summary: "texture format が color、depth、stencil のどの aspect を持つかを示す bit 分類。",
+      when: "view 作成や barrier 設定を format ごとに分岐する時。"
+    },
+    {
+      name: "FFormatTraits",
+      kind: "構造体", header: "render/FormatTraits.h",
+      summary: "RHI format の block size、byte 数、aspect、圧縮特性を一度に返す静的 trait。",
+      when: "texture layout と upload size を switch の重複なしで求める時。"
+    },
+    {
+      name: "FPipelineStateKey",
+      kind: "構造体", header: "render/PipelineStateKey.h",
+      summary: "shader、layout、render state、target format を正規化して比較できる pipeline state の cache key。",
+      when: "同じ pipeline state の再生成を避ける時。"
+    },
+    {
+      name: "TPipelineStateKeyCache&lt;Capacity&gt;",
+      kind: "クラステンプレート", header: "render/PipelineStateKeyCache.h",
+      summary: "固定容量で pipeline key と値を保持し、既存 key を高速に再利用する cache。",
+      when: "描画記録中の pipeline state lookup を heap 確保なしで行う時。"
+    },
+    {
+      name: "ERhiPipelineBindDomain",
+      kind: "列挙", header: "render/RhiPipelineBindDomain.h",
+      summary: "pipeline binding が graphics、compute、ray tracing のどの command domain に属するかを表す。",
+      when: "command encoder の bind 経路を型安全に振り分ける時。"
+    },
+    {
+      name: "TRhiPipelineBindPolicy&lt;Domain&gt;",
+      kind: "構造体テンプレート", header: "render/RhiPipelineBindPolicy.h",
+      summary: "bind domain ごとの command 種別と検証規則をコンパイル時に提供する policy。",
+      when: "runtime domain 分岐を除いて pipeline binding を特殊化する時。"
+    },
+    {
+      name: "FShaderParameterLayoutMetadata",
+      kind: "構造体", header: "render/ShaderParameterLayoutMetadata.h",
+      summary: "shader parameter layout の hash、byte size、resource 数を保持する比較用 metadata。",
+      when: "shader と binding layout の互換性を cache key として確認する時。"
+    },
+    {
       name: "FDx12Device",
       kind: "クラス", header: "render/Dx12/Dx12Device.h",
       summary: "<t>DX12</t> ネイティブの<t>RHIデバイス</t>実装(<code>IRhiDevice</code> 派生)。<code>ID3D12Device</code>・コマンドキュー・<t>ディスクリプタヒープ</t>(SRV/RTV/DSV)・フレーム<t>フェンス</t>を抱える、DX12 描画の中枢です。",

@@ -11,6 +11,10 @@ The work runs as rolling waves. Four workers are kept active (the current
 physical concurrency limit), and completed workers immediately receive the next
 independent wave. A task is not considered complete merely because it compiles.
 
+Public API reference coverage, generated module manifests, and changed-C++
+comment gates are maintained together in
+[FoundationOptimizationCompliance.md](FoundationOptimizationCompliance.md).
+
 ## Acceptance contract
 
 Each task must provide the evidence applicable to its risk:
