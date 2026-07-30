@@ -285,6 +285,10 @@ bool FDiligentCommandList::TryGetGpuTiming(
 
 void FDiligentCommandList::Begin() noexcept {
     if (m_Device) m_Device->PrepareCommandRecording();
+    // PrepareCommandRecording は保留中の off-screen submission を FinishFrame で閉じる。
+    // FinishFrame は Diligent context の PSO 状態を消すため、ACS 側の借用キャッシュも
+    // 同じ記録境界で失効させ、同一 pipeline を次フレームで必ず再束縛する。
+    m_Pipeline = nullptr;
     // This marker is per submission. Keeping an old swapchain here would make a
     // later off-screen preview wait for a Present that will never occur.
     m_MainSwapchain = nullptr;

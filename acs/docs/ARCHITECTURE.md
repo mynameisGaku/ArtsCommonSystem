@@ -15,8 +15,12 @@ UI までを含みます。**下記の 17 モジュールはすべて実装済�
    ヘッダ（`<cstdint>`, `<cstddef>`, `<cstring>`, `<cstdio>`, `<cmath>`）、
    コンパイラ組み込み（`<intrin.h>`, `<immintrin.h>`）、Windows SDK
    （`<windows.h>`, `<DbgHelp.h>`, `<DirectXMath.h>`）は明示的に許可します。
-2. **例外なし・RTTI なし。** エラーは `TResult<T, FErrorCode>` で伝搬します。
-   コンパイラは `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0` で構成されます。
+2. **例外なし・RTTI なし。** ACS sourceのエラーは `TResult<T, FErrorCode>` で伝搬します。
+   raw-DX12構成は `/EHs-c- /GR- /D_HAS_EXCEPTIONS=0` です。Diligent static libraryは
+   内部で例外とMSVC STLの例外型を使うため、Diligent構成のACS targetだけ
+   `/EHsc /GR- /D_HAS_EXCEPTIONS=1` として最終binary内のSTL ABIを一致させます。
+   これはcompiler ABIの境界条件であり、ACS sourceの `throw` / `try` / `catch`
+   禁止と `TResult` 契約は変わりません。
 3. **既定でスレッドセーフ。** すべての公開 API はスレッド安全性の契約を
    ドキュメント化し守ります。コンテナ自体は内部ロックを持ちませんが、
    エンジンの `FRwLock` / `FMutex` / `TAtomic` プリミティブの背後で安全に使えます。

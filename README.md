@@ -226,7 +226,10 @@ Root().AddChild(Move(player));
 
 ## 設計上の前提
 
-- ACS targetはC++例外とRTTIを無効化し、失敗を`TResult<T,E>`などで明示的に返します。
+- ACS sourceはC++例外を使用せず、失敗を`TResult<T,E>`などで明示的に返します。
+  raw-DX12構成ではcompiler例外も無効です。Diligent static libraryを含む構成だけは
+  MSVC STL ABIを一致させるためcompiler例外を有効にしますが、ACSの例外禁止規約は変わりません。
+  RTTIはどちらの構成でも無効です。
 - 公開・コアAPIは`TArray`や`FString`などのallocator対応型を使います。一部のbackend実装は
   C/C++ runtimeの低レベルutilityを利用しますが、STL containerを公開APIへ要求しません。
 - `ACS_ASSERT`、`FSourceLoc`、`FStackTrace`、各種checked APIで失敗境界を明示します。

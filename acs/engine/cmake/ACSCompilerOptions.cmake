@@ -8,6 +8,17 @@ function(acs_apply_compiler_options tgt)
     endif()
 
     if(MSVC)
+        # Diligent の static library は内部で例外と MSVC STL の例外型を使う。
+        # 同じ最終 binary の ACS target だけ _HAS_EXCEPTIONS=0 にすると STL ABI が
+        # 分裂して LTCG C4743 になるため、Diligent 構成では compiler ABI を揃える。
+        # ACS source の throw/try/catch 禁止と TResult による失敗伝搬は維持する。
+        if(ACS_RENDER_DILIGENT)
+            set(_acs_exception_option /EHsc)
+            set(_acs_exception_definition _HAS_EXCEPTIONS=1)
+        else()
+            set(_acs_exception_option /EHs-c-)
+            set(_acs_exception_definition _HAS_EXCEPTIONS=0)
+        endif()
         target_compile_options(${tgt} PRIVATE
             /W4
             /permissive-
@@ -15,9 +26,8 @@ function(acs_apply_compiler_options tgt)
             /Zc:preprocessor
             /Zc:inline
             /utf-8
-            /EHs-c-          # exceptions disabled (TResult<T,E> only)
+            ${_acs_exception_option}
             /GR-             # RTTI disabled
-            /D_HAS_EXCEPTIONS=0
             # 警告抑制（無害／設計意図によるもの・サードパーティ起因）
             /wd4324          # C4324: struct padded due to alignas
             /wd4201          # C4201: nonstandard extension nameless union/struct
@@ -41,6 +51,7 @@ function(acs_apply_compiler_options tgt)
             NOMINMAX
             UNICODE _UNICODE
             _CRT_SECURE_NO_WARNINGS    # cgltf 等の fopen/strcpy で C4996 が出ないように
+            ${_acs_exception_definition}
         )
     else()
         target_compile_options(${tgt} PRIVATE
