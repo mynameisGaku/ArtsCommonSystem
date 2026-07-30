@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "gameframework/InputRecordingFormat.h"
 
+#include "foundation/EndianSerialization.h"
 #include "gameframework/InputRecorder.h"
 #include "memory/Memory.h"
 
@@ -62,16 +63,13 @@ const u32* Crc32Table() noexcept
 /** little-endian u32 を読む。 */
 u32 ReadU32(const u8* source) noexcept
 {
-    /** 復元する整数。 */
-    u32 value = 0u;
-    MemCopy(&value, source, sizeof(value));
-    return value;
+    return ReadLittleEndian<u32>(source);
 }
 
 /** little-endian u32 を書く。 */
 void WriteU32(u8* destination, u32 value) noexcept
 {
-    MemCopy(destination, &value, sizeof(value));
+    WriteLittleEndian(destination, value);
 }
 
 /** on-disk sample の mouse 値を検査する。 */
@@ -89,7 +87,7 @@ bool HasFiniteMousePosition(const FInputSample& sample) noexcept
 /** byte 列の CRC32 を計算する。 */
 u32 ComputeCrc32(TSpan<const u8> bytes) noexcept
 {
-    /** CRC32 lookup table。 */
+    /** CRC32 計算用の参照表。 */
     const u32* table = Crc32Table();
     /** 更新中の CRC。 */
     u32 crc = 0xFFFFFFFFu;

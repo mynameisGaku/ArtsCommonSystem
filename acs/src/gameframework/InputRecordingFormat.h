@@ -9,7 +9,7 @@ struct FInputSample;
 
 namespace input_recording_detail {
 
-/** `.acsr` magic。 */
+/** `.acsr` の形式識別値。 */
 inline constexpr u32 kMagic = 0x52534341u;
 /** 対応する `.acsr` version。 */
 inline constexpr u32 kVersion = 1u;

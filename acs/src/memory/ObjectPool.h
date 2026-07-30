@@ -1,25 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Memory — TObjectPool<T> / FObjectHandle / TPoolRef<T>
-//   世代付きスロットマッププール (generational slot map)。
-// -----------------------------------------------------------------------------
-// 「GC の代替となる、速いオブジェクト寿命管理」。UE の UObject GC のような mark-sweep
-// ではなく、ハンドル + プール方式で:
-//   ・Create / Destroy が O(1) (フリーリスト再利用)
-//   ・GC のような «ポーズ» が一切無い (決定的)
-//   ・オブジェクトのアドレスが安定 (チャンク格納。TArray 再確保で動かない)
-//   ・解放後の参照は «世代カウンタ» で安全に無効化 (dangling を検出して nullptr)
-//   ・生存オブジェクトを密な配列で反復 (キャッシュ効率)
-//
-// 例:
-//   TObjectPool<FEnemy> pool;
-//   FObjectHandle h = pool.Create(/*ctor args*/);
-//   if (FEnemy* e = pool.Get(h)) e->Update(dt);   // 生きていれば取得
-//   pool.Destroy(h);                              // 解放 → 以後 Get(h) は nullptr
-//   pool.ForEach([](FEnemy& e, FObjectHandle){ e.Tick(); });
-//
-// ACS_CLASS で定義したユーザー型もそのまま T に使える (リフレクションとは独立)。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"

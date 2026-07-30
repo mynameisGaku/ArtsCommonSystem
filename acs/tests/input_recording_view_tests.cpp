@@ -49,6 +49,33 @@ ACS_TEST(InputRecordingView, DecodesValidatedRecordingWithoutOwningBytes)
     EXPECT_TRUE(!decoded.Value().DecodeSample(1u, restored));
 }
 
+ACS_TEST(InputRecordingView, SerializesCanonicalLittleEndianBytes)
+{
+    /** 正準 byte 列を生成する recorder。 */
+    FInputRecorder recorder;
+    recorder.StartRecording(120u);
+    /** endian 境界を検査する一件の sample。 */
+    FInputSample sample;
+    sample.tick = 7u;
+    sample.key_codes_changed[0] = 65u;
+    sample.key_states[0] = 1u;
+    sample.mouse_pos = FVec2{12.5f, -4.25f};
+    sample.mouse_button_states = 3u;
+    recorder.Capture(sample);
+
+    /** serializer の出力先。 */
+    u8 bytes[64] = {};
+    /** serializer が書いた byte 数。 */
+    u32 written = 0u;
+    EXPECT_TRUE(recorder.SaveToBuffer(bytes, sizeof(bytes), written).IsOk());
+
+    /** header、sample、CRC を含む正準 little-endian byte 列。 */
+    constexpr u8 expected[] = {0x41u, 0x43u, 0x53u, 0x52u, 0x01u, 0x00u, 0x00u, 0x00u, 0x78u, 0x00u, 0x00u, 0x00u, 0x01u, 0x00u, 0x00u, 0x00u, 0x07u, 0x00u, 0x00u, 0x00u, 0x41u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x48u, 0x41u, 0x00u, 0x00u, 0x88u, 0xC0u, 0x03u, 0x34u, 0x22u, 0x07u, 0x6Eu};
+    EXPECT_EQ(written, static_cast<u32>(sizeof(expected)));
+    /** 正準 byte 列との比較位置。 */
+    for (usize index = 0u; index < sizeof(expected); ++index) EXPECT_EQ(bytes[index], expected[index]);
+}
+
 ACS_TEST(InputRecordingView, RejectsTruncationAndCorruptionFailClosed)
 {
     /** 最小の正常記録を生成する recorder。 */

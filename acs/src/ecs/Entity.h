@@ -1,8 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// エンティティ ID（世代付きハンドル）
-//
-// FEntityId は 64 ビットで「インデックス + 世代」を表す。
-// 同じインデックスが再利用されても世代が違うので、古い ID を使うと検出できる。
 #pragma once
 
 #include "foundation/Types.h"
