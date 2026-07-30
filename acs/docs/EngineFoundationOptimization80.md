@@ -106,7 +106,7 @@ and compile-time assertions are required where they keep build cost bounded.
 | T61 | L | Shader/TMP | Generate constexpr shader parameter/layout metadata | C | Complete |
 | T62 | L | Pipeline | Intern stable pipeline-state keys and cache lookups | C | Complete |
 | T63 | L | Profiling | Shard counters and batch profiler snapshots | B | Deferred |
-| T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Active |
+| T64 | L | Verification | Aggregate build/performance reports into end-to-end gate | Root | Complete |
 | T65 | M | Handles/TMP | Add generation-checked static handle-layout traits and parity tests | A | Complete |
 | T66 | M | Containers | Adopt existing timer active-word bit scan and preserve callback mutation semantics | A | Complete |
 | T67 | M | Lookup | Defer generic policy until a measured production threshold exists | A | Deferred |
@@ -122,7 +122,7 @@ and compile-time assertions are required where they keep build cost bounded.
 | T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Complete |
 | T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Complete |
 | T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Complete |
-| T80 | O | Verification | Run clean Release, enabled backends, full tests, dist drift, and publish | Root | Queued |
+| T80 | O | Verification | Run clean Release, enabled backends, full tests, dist drift, and publish | Root | Complete |
 
 ## Baseline structural targets
 

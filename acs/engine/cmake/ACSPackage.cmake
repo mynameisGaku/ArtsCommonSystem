@@ -43,23 +43,28 @@ function(acs_package_game target)
     endif()
 
     # 1. exe 本体
-    install(TARGETS ${target} RUNTIME DESTINATION "${ACS_P_DEST_PREFIX}")
+    install(TARGETS ${target}
+            RUNTIME DESTINATION "${ACS_P_DEST_PREFIX}"
+            COMPONENT ACSGameRuntime)
 
     # 2. 依存 DLL (CMake 3.21+ の TARGET_RUNTIME_DLLS で実行時 DLL を自動収集)。
     #    Diligent / d3dcompiler.dll など PRIVATE link 経由のものも含まれる。
     install(FILES "$<TARGET_RUNTIME_DLLS:${target}>"
             DESTINATION "${ACS_P_DEST_PREFIX}"
+            COMPONENT ACSGameRuntime
             OPTIONAL)
 
     # 3. PDB を任意で同梱 (Release では生成されないので OPTIONAL)。
     install(FILES "$<TARGET_PDB_FILE:${target}>"
             DESTINATION "${ACS_P_DEST_PREFIX}"
+            COMPONENT ACSGameRuntime
             OPTIONAL)
 
     # 4. アセットを ZIP 内 <target>/assets/ に同梱
     if(ACS_P_ASSETS_DIR AND IS_DIRECTORY "${ACS_P_ASSETS_DIR}")
         install(DIRECTORY "${ACS_P_ASSETS_DIR}/"
-                DESTINATION "${ACS_P_DEST_PREFIX}/assets")
+                DESTINATION "${ACS_P_DEST_PREFIX}/assets"
+                COMPONENT ACSGameRuntime)
     endif()
 
     # 5. このターゲットを CPack 対象として登録 (acs_enable_packaging が
@@ -72,6 +77,14 @@ endfunction()
 # CPACK_GENERATOR 等を上書きしたい場合は本関数呼び出し前に set(CPACK_* ...) する。
 # include(CPack) は本関数内で実行するので、利用者は呼ばなくてよい。
 function(acs_enable_packaging)
+    if(NOT EXISTS "${ACS_TREE_ROOT}/LICENSE")
+        message(FATAL_ERROR "ACS: product license not found: ${ACS_TREE_ROOT}/LICENSE")
+    endif()
+    install(FILES "${ACS_TREE_ROOT}/LICENSE"
+            DESTINATION "Licenses"
+            RENAME "ACS-License.txt"
+            COMPONENT ACSGameRuntime)
+
     if(NOT DEFINED CPACK_GENERATOR)
         set(CPACK_GENERATOR "ZIP")
     endif()
@@ -93,6 +106,14 @@ function(acs_enable_packaging)
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "${CPACK_PACKAGE_FILE_NAME}")
     # トップに余計な階層を作らない (ZIP 展開後すぐ <target>/ が見える)
     set(CPACK_PACKAGE_RELOCATABLE TRUE)
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY FALSE)
+    set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY FALSE)
+    # 宣言したゲーム実行物だけを収録し、依存プロジェクトの install 規則を隔離する。
+    set(CPACK_COMPONENTS_ALL ACSGameRuntime)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL TRUE)
+    set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
+    set(CPACK_INSTALL_CMAKE_PROJECTS
+        "${CMAKE_BINARY_DIR};${PROJECT_NAME};ACSGameRuntime;/")
 
     # PARENT_SCOPE で渡さないと include(CPack) に届かない
     set(CPACK_GENERATOR             "${CPACK_GENERATOR}"             PARENT_SCOPE)
@@ -105,6 +126,17 @@ function(acs_enable_packaging)
     set(CPACK_PACKAGE_INSTALL_DIRECTORY
         "${CPACK_PACKAGE_INSTALL_DIRECTORY}" PARENT_SCOPE)
     set(CPACK_PACKAGE_RELOCATABLE   TRUE                             PARENT_SCOPE)
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY
+        FALSE PARENT_SCOPE)
+    set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY
+        FALSE PARENT_SCOPE)
+    set(CPACK_COMPONENTS_ALL        ACSGameRuntime                   PARENT_SCOPE)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL
+        TRUE PARENT_SCOPE)
+    set(CPACK_COMPONENTS_GROUPING
+        ALL_COMPONENTS_IN_ONE PARENT_SCOPE)
+    set(CPACK_INSTALL_CMAKE_PROJECTS
+        "${CPACK_INSTALL_CMAKE_PROJECTS}" PARENT_SCOPE)
 
     include(CPack)
 

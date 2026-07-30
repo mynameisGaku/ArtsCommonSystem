@@ -17,6 +17,8 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(imgui_src)
+_acs_install_runtime_license(
+    "${imgui_src_SOURCE_DIR}/LICENSE.txt" "DearImGui-License.txt")
 
 # ImGui 本体を静的ライブラリとして構築 (公式リポジトリは CMakeLists を持たない)。
 # Backend (Win32 / DX12) は ACS_RENDER_DX12_RAW のときだけ追加。

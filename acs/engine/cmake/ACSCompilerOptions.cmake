@@ -1,4 +1,22 @@
 # Centralized compiler option helper for ACS targets.
+function(_acs_classify_source_path target_root tree_root source_path result)
+    cmake_path(SET _acs_class_target_root NORMALIZE "${target_root}")
+    cmake_path(SET _acs_class_tree_root NORMALIZE "${tree_root}")
+    cmake_path(SET _acs_class_source_path NORMALIZE "${source_path}")
+    cmake_path(IS_PREFIX _acs_class_target_root
+               "${_acs_class_source_path}" _acs_class_inside)
+    cmake_path(IS_PREFIX _acs_class_tree_root
+               "${_acs_class_source_path}" _acs_class_engine)
+    if(_acs_class_inside)
+        set(_acs_class Target)
+    elseif(_acs_class_engine)
+        set(_acs_class Engine)
+    else()
+        set(_acs_class External)
+    endif()
+    set(${result} "${_acs_class}" PARENT_SCOPE)
+endfunction()
+
 function(acs_apply_compiler_options tgt)
     # Release の ACS ターゲットだけへ IPO/LTCG を適用する。Debug と ASan は従来どおり
     # 高速な反復ビルドと診断可能性を保つ。
@@ -75,39 +93,46 @@ function(acs_apply_compiler_options tgt)
     # 各サンプルは自身の dir 構成をそのまま反映する。各サンプル CMakeLists 側で
     # "Source Files"/"Header Files" の regex grouping を書く必要はない (撤去済み)。
     #
-    # 一部のエディタ系サンプルは自分の dir 外 (src/gameframework/tools/*/…) の
-    # ソースを直接 add_executable しているため、自 dir 内/外でルートを分ける:
-    #   ・自 dir 内 → SOURCE_DIR 基準 (例: main.cpp が直下に出る)
-    #   ・自 dir 外 → プロジェクト root 基準 (実際のパス階層 src/… に出る)
+    # 外部プロジェクトは別 drive の ACS source も取り込むため、path prefix で
+    # target 内・ACS 内・外部共有 source の三種類へ分類する。
     get_target_property(_acs_tgt_srcdir ${tgt} SOURCE_DIR)
     get_target_property(_acs_tgt_srcs   ${tgt} SOURCES)
     if(_acs_tgt_srcs AND _acs_tgt_srcdir)
         set(_acs_inside "")
-        set(_acs_outside "")
+        set(_acs_engine "")
+        set(_acs_external "")
         foreach(_s ${_acs_tgt_srcs})
             if(IS_ABSOLUTE "${_s}")
                 set(_abs "${_s}")
             else()
                 set(_abs "${_acs_tgt_srcdir}/${_s}")
             endif()
-            file(RELATIVE_PATH _rel "${_acs_tgt_srcdir}" "${_abs}")
-            if(_rel MATCHES "^\\.\\.")
-                list(APPEND _acs_outside "${_abs}")
-            else()
+            cmake_path(SET _abs NORMALIZE "${_abs}")
+            _acs_classify_source_path("${_acs_tgt_srcdir}" "${ACS_TREE_ROOT}"
+                                      "${_abs}" _acs_source_class)
+            if(_acs_source_class STREQUAL Target)
                 list(APPEND _acs_inside "${_abs}")
+            elseif(_acs_source_class STREQUAL Engine)
+                list(APPEND _acs_engine "${_abs}")
+            else()
+                list(APPEND _acs_external "${_abs}")
             endif()
         endforeach()
         if(_acs_inside)
             source_group(TREE "${_acs_tgt_srcdir}" FILES ${_acs_inside})
         endif()
-        if(_acs_outside)
+        if(_acs_engine)
             # Files referenced from outside the target's own dir (e.g. editor
             # samples pulling in src/gameframework/tools/...). Anchor the VS
             # filter tree at the acs/ source root, NOT CMAKE_SOURCE_DIR — the
             # latter is acs/engine/ (where the build system lives) and those
             # files live one level up under acs/src, which source_group(TREE)
             # would reject as "not under the tree".
-            source_group(TREE "${ACS_TREE_ROOT}" FILES ${_acs_outside})
+            source_group(TREE "${ACS_TREE_ROOT}" FILES ${_acs_engine})
+        endif()
+        if(_acs_external)
+            # ACS 外の共有ソースは任意のドライブでも失敗しない固定 group にまとめる。
+            source_group("External Sources" FILES ${_acs_external})
         endif()
     endif()
 endfunction()

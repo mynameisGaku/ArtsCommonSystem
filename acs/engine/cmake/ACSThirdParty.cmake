@@ -6,6 +6,17 @@
 include_guard(GLOBAL)
 include(FetchContent)
 
+# 配布対象のlicenseを固有名で登録し、取得物の欠落をconfigure時に検出する。
+function(_acs_install_runtime_license source_file output_name)
+    if(NOT EXISTS "${source_file}")
+        message(FATAL_ERROR "ACS: third-party license not found: ${source_file}")
+    endif()
+    install(FILES "${source_file}"
+            DESTINATION "Licenses/ThirdParty"
+            RENAME "${output_name}"
+            COMPONENT ACSGameRuntime)
+endfunction()
+
 # ---- stb (image / vorbis) -------------------------------------------------
 function(acs_third_party_stb)
     if(TARGET acs_third_party::stb)
@@ -18,6 +29,8 @@ function(acs_third_party_stb)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(acs_stb)
+    _acs_install_runtime_license(
+        "${acs_stb_SOURCE_DIR}/LICENSE" "stb-License.txt")
     add_library(acs_third_party_stb INTERFACE)
     target_include_directories(acs_third_party_stb INTERFACE "${acs_stb_SOURCE_DIR}")
     add_library(acs_third_party::stb ALIAS acs_third_party_stb)
@@ -35,6 +48,8 @@ function(acs_third_party_cgltf)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(acs_cgltf)
+    _acs_install_runtime_license(
+        "${acs_cgltf_SOURCE_DIR}/LICENSE" "cgltf-License.txt")
     add_library(acs_third_party_cgltf INTERFACE)
     target_include_directories(acs_third_party_cgltf INTERFACE "${acs_cgltf_SOURCE_DIR}")
     add_library(acs_third_party::cgltf ALIAS acs_third_party_cgltf)
@@ -52,6 +67,8 @@ function(acs_third_party_ufbx)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(acs_ufbx)
+    _acs_install_runtime_license(
+        "${acs_ufbx_SOURCE_DIR}/LICENSE" "ufbx-License.txt")
     # ufbx は ufbx.c + ufbx.h の 2 ファイル構成。.c をコンパイルして静的 lib にする。
     add_library(acs_third_party_ufbx STATIC "${acs_ufbx_SOURCE_DIR}/ufbx.c")
     target_include_directories(acs_third_party_ufbx PUBLIC "${acs_ufbx_SOURCE_DIR}")
@@ -96,6 +113,10 @@ function(acs_third_party_mimalloc)
         GIT_SHALLOW    FALSE
     )
     FetchContent_MakeAvailable(acs_mimalloc)
+    # mimalloc はリンク依存として構築し、上流のSDK install規則は公開しない。
+    set_property(DIRECTORY "${acs_mimalloc_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+    _acs_install_runtime_license(
+        "${acs_mimalloc_SOURCE_DIR}/LICENSE" "mimalloc-License.txt")
 
     if(NOT TARGET mimalloc-static)
         message(FATAL_ERROR "ACS: mimalloc-static target was not created")
@@ -425,6 +446,8 @@ function(acs_third_party_drlibs)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(acs_drlibs)
+    _acs_install_runtime_license(
+        "${acs_drlibs_SOURCE_DIR}/LICENSE" "dr_libs-License.txt")
     add_library(acs_third_party_drlibs INTERFACE)
     target_include_directories(acs_third_party_drlibs INTERFACE "${acs_drlibs_SOURCE_DIR}")
     add_library(acs_third_party::drlibs ALIAS acs_third_party_drlibs)
@@ -526,6 +549,23 @@ function(acs_third_party_diligent)
     # 不要なので Fetch しない。将来 PBR/IBL の Diligent 標準実装が欲しく
     # なったら、ここを再有効化 + relative include path の修正を別途行う。
     FetchContent_MakeAvailable(acs_diligent_core)
+    # Diligent はリンク依存として構築し、上流の install 規則を ACS 配布から隔離する。
+    set_property(DIRECTORY "${acs_diligent_core_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
+    _acs_install_runtime_license(
+        "${acs_diligent_core_SOURCE_DIR}/License.txt"
+        "DiligentCore-License.txt")
+    _acs_install_runtime_license(
+        "${acs_diligent_core_SOURCE_DIR}/ThirdParty/xxHash/LICENSE"
+        "xxHash-License.txt")
+    _acs_install_runtime_license(
+        "${acs_diligent_core_SOURCE_DIR}/ThirdParty/DirectXShaderCompiler/LICENSE.TXT"
+        "DXC-License.txt")
+    _acs_install_runtime_license(
+        "${acs_diligent_core_SOURCE_DIR}/ThirdParty/DirectXShaderCompiler/ThirdPartyNotices.txt"
+        "DXC-ThirdPartyNotices.txt")
+    _acs_install_runtime_license(
+        "${acs_diligent_core_SOURCE_DIR}/ThirdParty/GPUOpenShaderUtils/License.txt"
+        "GPUOpenShaderUtils-License.txt")
 
     # Diligent の大量の target を Solution Explorer "third_party/Diligent" フォルダに集約。
     # 既知の主要 target を folder 移動する (TARGET 存在確認付き)。

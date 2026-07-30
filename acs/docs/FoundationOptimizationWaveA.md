@@ -192,6 +192,10 @@ cmake --build engine/cmake-build-release-wave-a --target package --parallel 8
 - SHA-256: `2E1BD9D7D50E130238B265C80AC471B1C269C5519CDB570AB3B78EF00C0A79A2`
 - 内容確認: `hello_easy/hello_easy.exe`、mimalloc header/library/CMake metadata を格納。
 
+この行はWave A時点の観測記録である。Wave Oの公開前監査でmimalloc SDK metadataの
+混入を配布境界違反と判定し、現在のCPackは`ACSGameRuntime` componentだけを収録する。
+必要なexe・runtime依存・asset・licenseだけを残し、private依存のinstall規則は隔離する。
+
 ## 検証結果
 
 2026-07-30 に以下を実行した。

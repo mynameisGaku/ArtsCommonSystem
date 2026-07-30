@@ -202,9 +202,13 @@ acs_package_game(my_game ASSETS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/assets)
 
 ```pwsh
 cmake --build build --config Release
-cmake --build build --target package
+cmake --build build --config Release --target package
 # → build/ACS-0.1.0-win64.zip ができる
 ```
+
+ZIP は `acs_package_game()` で宣言したゲーム実行物だけを収録し、private な
+FetchContent 依存の SDK や CMake metadata は混入させません。実際に必要な依存 DLL と
+アセットに加え、ACS と静的リンクされた第三者実装の license を同梱します。
 
 ZIP の中身：
 
@@ -215,6 +219,10 @@ my_game/
     ... (Diligent DLL など)
     assets/
         ... (ASSETS_DIR の中身)
+Licenses/
+    ACS-License.txt
+    ThirdParty/
+        ... (利用中の第三者licenseとnotice)
 ```
 
 ZIP を相手に渡し、`my_game.exe` をダブルクリックすればすぐ動きます。

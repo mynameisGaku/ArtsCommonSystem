@@ -29,6 +29,22 @@ Publish中に追加された購読者が、未走査の空きslotへ再利用さ
 
 ASanはNUL終端を持たない空のworkspace iniを読み込むと、ImGuiが`size == 0`を「長さを`strlen`で求める」指定として扱い、file bufferの末尾を1 byte越えて読むことを検出した。空iniだけ静的なNUL終端空文字列へ置き換え、非空iniは検証済みのpointerと明示長を維持する。これによりlayout formatや公開APIを変えず、外部library境界の契約だけを満たす。`WorkspaceLoadsNonNullTerminatedEmptyIni`は終端NULを書かない実fileを読み込み、この境界を回帰検証する。
 
+## P1: packageと別driveのbuild境界
+
+Diligent上流のlicense install先はACSと取得sourceが別driveの場合に絶対pathとなり、
+CPack stagingへ`C:/...`を連結して失敗していた。CPackの対象を
+`ACSGameRuntime` componentへ限定し、Diligentとmimallocのprivate install規則を
+親projectから隔離した。ACS、Diligent、xxHash、DXC notices、
+GPUOpenShaderUtils、mimalloc、Dear ImGui、stb、cgltf、ufbx、dr_libsのlicenseは
+固有名で明示登録し、欠落時はconfigureを失敗させる。
+
+外部ゲームprojectが`C:`、ACSが`W:`にある場合は`file(RELATIVE_PATH)`が絶対pathを
+返し、`GameReflectShim.cpp`をproject内と誤分類して`source_group(TREE)`が失敗していた。
+`cmake_path(IS_PREFIX)`でtarget内・ACS内・外部共有sourceへ三分類し、ACS外は固定groupへ
+退避する。`ACS.CompilerOptionsPathClassification`は`C:`・`W:`・`D:`の合成pathを使い、
+`ACS.PackageConfigurationContract`はcomponent、最上位directory、private install漏れ、
+必須license登録を決定的に検証する。
+
 ## T80: 公開前ゲート
 
 最終公開は新規build directoryで行い、次をすべて満たすまで実施しない。
@@ -93,4 +109,26 @@ python acs\scripts\run_foundation_end_to_end.py `
 - Win64実測サイズ: `TArray<u32>` 32、`FString` 32、`THashMap<u32,u32>` 64、`FTask` 24、`FJobHandle` 16、`FJobGraph` 4032、`FSubscriptionHandle` 12、`FTimerHandle` 8 byte。
 - 診断型の実測サイズ: thread pool 96、job graph 40、timer 24、file 24 byte。
 
-最終結果は全wave統合後のclean buildで更新する。Temp配下のfocused buildが出す`MSB8029`は中間directory位置の警告であり、最終build・実行・artifact検証を省略する根拠にはしない。
+Temp配下のfocused buildが出す`MSB8029`は中間directory位置の警告であり、
+最終build・実行・artifact検証を省略する根拠にはしない。全wave統合後の結果を以下へ記録する。
+
+## 最終統合結果
+
+2026-07-30の公開候補では、raw DX12とDiligentを同時に有効化した公式buildで
+Debug/Releaseの全targetを構築した。unit testはDebug 1,164件、Release 1,160件が成功し、
+全CTestは最終追加したbuild-system契約を含めDebug 41/41、Release 39/39を通過した。
+独立raw-only buildもDebug 34/34、Release 32/32、ownership stressは各100/100 process、
+空workspace iniのASan実行は1,164件を通過した。
+
+単一header配布は424 header、105,099行、Debug/Release各13個のDiligent/xxHash libraryを
+含む32 fileとなり、`acs.h`のSHA-256は
+`AA8B3DADFB0D05B7C211F223738807063C029E38FAAA11061DEB5203E96D955B`で
+`dist`と`C:\acs`が一致した。source外consumerはDebug/Releaseとも構文・link・実行に成功した。
+
+Release CPackは`ACS-0.1.0-win64.zip`を生成し、`hello_easy.exe`と12個のproduct/第三者
+license fileだけを収録した。sizeは1,049,218 bytes、SHA-256は
+`AFED6B25BAA47145FAE9EEDF58BC977CAB8D408E2C4F5482515DCF5D29B3074F`である。
+別系統のdistribution E2Eは二つのpackageをbyte-identicalとして
+`33f9adbb3f19b4315f3038eaa63dd1c2463ef8bf91c873040d4a8baecbcd614e`へ固定し、
+valid packageのverify/inspect/diffとhidden launchを通過した。payloadを改変したpackageは
+verify/inspect/diffがそれぞれexit 1/1/3で拒否された。

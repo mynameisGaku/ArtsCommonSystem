@@ -625,6 +625,29 @@ set_tests_properties(
     ACS.ModuleSourcesAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
+# 外部プロジェクトと ACS source が別 drive にある構成でも IDE group を安全に分ける。
+add_test(
+    NAME ACS.CompilerOptionsPathClassification
+    COMMAND "${CMAKE_COMMAND}"
+            "-DACS_COMPILER_OPTIONS_FILE=${ACS_TREE_ROOT}/engine/cmake/ACSCompilerOptions.cmake"
+            -P "${ACS_TREE_ROOT}/tests/compiler_options_path_classification.cmake")
+set_tests_properties(
+    ACS.CompilerOptionsPathClassification
+    PROPERTIES LABELS "StaticAnalysis;BuildSystem" TIMEOUT 30)
+
+# CPack は宣言したゲームruntimeだけを収録し、private依存のinstall規則を隔離する。
+add_test(
+    NAME ACS.PackageConfigurationContract
+    COMMAND "${CMAKE_COMMAND}"
+            "-DACS_CPACK_CONFIG=${CMAKE_BINARY_DIR}/CPackConfig.cmake"
+            "-DACS_INSTALL_SCRIPT=${CMAKE_BINARY_DIR}/cmake_install.cmake"
+            "-DACS_EXPECT_IMGUI_LICENSE=${ACS_RENDER_DX12_RAW}"
+            "-DACS_EXPECT_DILIGENT_LICENSES=${ACS_RENDER_DILIGENT}"
+            -P "${ACS_TREE_ROOT}/tests/package_configuration_contract.cmake")
+set_tests_properties(
+    ACS.PackageConfigurationContract
+    PROPERTIES LABELS "StaticAnalysis;BuildSystem;Distribution" TIMEOUT 30)
+
 # tracked dist/ は repository 最上位から開発するときだけ存在する配布成果物。
 # ACS を add_subdirectory した利用者や source-only 配布では sibling dist を参照せず、
 # 通常の configure/build/test を壊さない。
