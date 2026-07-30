@@ -1,37 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// =============================================================================
-// ACS AssetPack — `.acpak` v1 アーカイブ書き出し器
-// -----------------------------------------------------------------------------
-// 複数のバラのファイル (= バイト列) を 1 つの `.acpak` にまとめる Writer。
-// ツールビルド (= パッキングコマンド) から使うことを想定し、ランタイムは
-// FAcpakReader だけで足りる。
-//
-// 使い方の典型例:
-//   acs::assetpack::FAcpakWriter w;
-//   auto r = w.Open(L"out/game.acpak", acs::assetpack::AcpakFlagNone);
-//   if (r.IsErr()) { /* 開けない */ }
-//
-//   for (auto& asset : assets) {
-//       w.AddFile(asset.virtual_path, asset.bytes, asset.size);
-//   }
-//
-//   auto fin = w.Finalize();   // header + 全 data + file table を書き出す
-//   if (fin.IsErr()) { /* 書き出し失敗 */ }
-//   w.Close();                  // ハンドルを閉じる (Finalize 失敗時のロールバックもここ)
-//
-// 設計:
-//   ・AddFile は仮想パスとデータを内部 pending list にコピーする。実書き込みは
-//     Finalize 内で一気に行い、呼び出し側の入力寿命に依存しない。
-// 非コピー・非ムーブ。
-// =============================================================================
+
 #include "foundation/Result.h"
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "threading/Mutex.h"
 
 #include "assetpack/AcpakFormat.h"
-#include "assetpack/AcpakCrypto.h" // AcpakKey (暗号化 pak の鍵注入)
+#include "assetpack/AcpakCrypto.h"
 
 namespace acs::assetpack {
 

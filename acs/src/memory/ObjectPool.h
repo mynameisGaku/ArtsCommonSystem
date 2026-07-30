@@ -3,7 +3,7 @@
 
 #include "foundation/Types.h"
 #include "foundation/GenerationHandleLayoutTraits.h"
-#include "foundation/Move.h" // Forward / 配置 new
+#include "foundation/Move.h"
 #include "container/Array.h"
 #include "memory/New.h"
 #include "memory/Allocator.h"
@@ -138,8 +138,10 @@ public:
 
         reinterpret_cast<T*>(PoolSlot->storage)->~T();
         PoolSlot->alive = false;
-        PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);    // 世代を進める → 既存ハンドルは無効に
-        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1]; // 密な生存リストから swap-remove
+        // 世代を進めて既存ハンドルを無効化する。
+        PoolSlot->gen = AdvanceGeneration(PoolSlot->gen);
+        /** 密な生存リストから末尾交換で除く slot index。 */
+        const u32 LastSlotIndex = m_Live[m_Live.Size() - 1];
         m_Live[PoolSlot->liveIdx] = LastSlotIndex;
         SlotRef(LastSlotIndex).liveIdx = PoolSlot->liveIdx;
         m_Live.PopBack();
@@ -266,7 +268,8 @@ private:
     {
         const u32 ChunkIndex = SlotIndex / kChunkSize;
         while (static_cast<u32>(m_Chunks.Size()) <= ChunkIndex) {
-            FChunk* NewChunk = New<FChunk>(*m_Alloc); // チャンクはアドレス固定 (移動しない)
+            /** アドレスを固定して追加する chunk。 */
+            FChunk* NewChunk = New<FChunk>(*m_Alloc);
             if (NewChunk == nullptr) return false;
             for (u32 i = 0; i < kChunkSize; ++i)
                 NewChunk->slots[i].gen = m_GenerationSeed;

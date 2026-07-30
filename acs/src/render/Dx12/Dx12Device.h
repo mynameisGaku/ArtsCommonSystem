@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// DX12 デバイス実装
 
 #include "render/IRhiDevice.h"
 #include "render/DescriptorSlotPool.h"
@@ -316,6 +315,7 @@ public:
 private:
     friend class FDx12Pipeline;
 
+    /** PSO cache の所有物を公開 layout 外へ隔離する内部型。 */
     struct FPipelineCacheOwner;
 
     /** 同一 PSO key の native object を取得する。 */

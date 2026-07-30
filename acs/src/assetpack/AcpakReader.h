@@ -9,7 +9,7 @@
 #include "threading/Atomic.h"
 
 #include "assetpack/AcpakFormat.h"
-#include "assetpack/AcpakCrypto.h" // AcpakKey (暗号化 pak の鍵注入)
+#include "assetpack/AcpakCrypto.h"
 #include "assetpack/AcpakReadDiagnostics.h"
 
 namespace acs::assetpack {

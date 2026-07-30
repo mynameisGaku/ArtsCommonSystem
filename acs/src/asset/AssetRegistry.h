@@ -1,18 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// アセットレジストリ（パスからロードして共有保持する）
-//
-// 使い方:
-//   FAssetRegistry reg;
-//   reg.RegisterLoader(MakeShared<FBinaryAssetLoader>().Get());
-//
-//   auto r = reg.Load(L"data/save.bin");
-//   if (r.IsOk()) {
-//       TSharedPtr<FAsset> a = r.Value();
-//       // a を保持し続ければレジストリ内部でもキャッシュされる
-//   }
-//
-//   // 同じパスで再度 Load すれば同じ TSharedPtr を返す（キャッシュヒット）
 
 #include "foundation/Types.h"
 #include "foundation/Result.h"

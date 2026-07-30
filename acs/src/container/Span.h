@@ -122,7 +122,8 @@ public:
      * @return [offset, offset+count) を指す部分ビュー。
      */
     constexpr TSpan SubSpan(usize offset, usize count) const noexcept {
-        ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);  // 加算ラップしない形で範囲検査
+        // 加算ラップしない形で範囲を検査する。
+        ACS_ASSERT(offset <= m_Size && count <= m_Size - offset);
         return TSpan(offset == 0u ? m_Data : m_Data + offset, count);
     }
 
