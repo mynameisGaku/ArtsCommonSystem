@@ -403,8 +403,16 @@ ACS_TEST(FoundationOptimizationWaveB, ThreadPoolBatchesAndAvoidsRedundantWakeups
 {
     FThreadPool::Shutdown();
     EXPECT_TRUE(FThreadPool::Init(4).IsOk());
-    // 全 worker を park まで進め、最初の投入で実通知経路を必ず通す。
-    SleepMs(20);
+    /** park 完了を待つワーカー数。 */
+    const u32 worker_count = FThreadPool::WorkerCount();
+    /** 初期ワーカーが park へ入るまでの待機位置。 */
+    for (u32 wait = 0; wait < 10000 && FThreadPool::Diagnostics().worker_parks < worker_count; ++wait) {
+        SleepMs(1);
+    }
+    /** burst 前に観測した park 回数。 */
+    const u64 initial_worker_parks = FThreadPool::Diagnostics().worker_parks;
+    EXPECT_EQ(worker_count, 4u);
+    EXPECT_TRUE(initial_worker_parks >= worker_count);
     FThreadPool::ResetDiagnostics();
 
     /** 投入する待機タスク数。 */

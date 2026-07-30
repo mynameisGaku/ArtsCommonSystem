@@ -47,6 +47,8 @@ owner API は `MessagePipe.h`、`MessageBroker.h`、`Timer.h`、`FileSystem.h`�
 
 カウンタは `FThreadPoolDiagnostics`、`FJobGraphDiagnostics`、`FTimerDiagnostics`、`FFileSystemDiagnostics` と専用テスト出力から取得する。timer の変更前 probe 数と pipe の変更前 move 数は旧アルゴリズムから算出した解析値であり、wall-clock 推測ではない。
 
+ThreadPool の通知計測は、固定時間の待機ではなく全ワーカーの `worker_parks` を観測してから診断値をリセットし、512 task burst を投入する。これにより、OS scheduler がワーカー起動を遅延させても、park 中ワーカーを起こす経路と通知上限を同じ前提で検証する。実運用では投入時点に park 中ワーカーがいなければ `wake_one_calls == 0` は正当であり、公開済みキューを起動中ワーカーが直接観測する。
+
 ## ビルド・実行計測
 
 同一 Windows x64 環境、Visual Studio 18、Release、`--parallel 16` で測定した。
