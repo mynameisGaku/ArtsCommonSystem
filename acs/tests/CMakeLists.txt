@@ -674,6 +674,55 @@ if(ACS_IS_TOP_LEVEL)
             ACS.DistributionConventions
             PROPERTIES LABELS "StaticAnalysis;Distribution" TIMEOUT 60)
 
+        add_test(
+            NAME ACS.DistributionConsumerSmokeSelfTest
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${ACS_TREE_ROOT}/scripts/run_distribution_consumer_smoke.py"
+                    --self-test)
+        set_tests_properties(
+            ACS.DistributionConsumerSmokeSelfTest
+            PROPERTIES LABELS "StaticAnalysis;Distribution" TIMEOUT 30)
+
+        if(ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE)
+            if(ACS_DISTRIBUTION_CONSUMER_ROOT)
+                get_filename_component(_acs_distribution_consumer_root
+                    "${ACS_DISTRIBUTION_CONSUMER_ROOT}" ABSOLUTE)
+            else()
+                set(_acs_distribution_consumer_root "${ACS_DIST_ROOT}")
+            endif()
+            set(_acs_distribution_consumer_smoke_arguments
+                --distribution-root "${_acs_distribution_consumer_root}"
+                --cmake "${CMAKE_COMMAND}"
+                --generator "${CMAKE_GENERATOR}"
+                --timeout-seconds 300)
+            if(CMAKE_GENERATOR_PLATFORM)
+                list(APPEND _acs_distribution_consumer_smoke_arguments
+                    --generator-platform "${CMAKE_GENERATOR_PLATFORM}")
+            endif()
+            if(CMAKE_GENERATOR_TOOLSET)
+                list(APPEND _acs_distribution_consumer_smoke_arguments
+                    --generator-toolset "${CMAKE_GENERATOR_TOOLSET}")
+            endif()
+
+            foreach(_acs_distribution_configuration Debug Release)
+                add_test(
+                    NAME "ACS.DistributionConsumerSmoke${_acs_distribution_configuration}"
+                    COMMAND "${Python3_EXECUTABLE}"
+                            "${ACS_TREE_ROOT}/scripts/run_distribution_consumer_smoke.py"
+                            ${_acs_distribution_consumer_smoke_arguments}
+                            --configuration "${_acs_distribution_configuration}")
+                set_tests_properties(
+                    "ACS.DistributionConsumerSmoke${_acs_distribution_configuration}"
+                    PROPERTIES
+                        LABELS "StaticAnalysis;Distribution"
+                        TIMEOUT 360
+                        RUN_SERIAL TRUE)
+            endforeach()
+            unset(_acs_distribution_consumer_smoke_arguments)
+            unset(_acs_distribution_configuration)
+            unset(_acs_distribution_consumer_root)
+        endif()
+
         if(MSVC)
             # /Zs は object/link 成果物を作らず、配布側 include path だけで canonical
             # consumer を構文検証する。custom target 経由にして MSBuild の VC/SDK

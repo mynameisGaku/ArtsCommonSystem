@@ -34,7 +34,48 @@ Publish中に追加された購読者が、未走査の空きslotへ再利用さ
 3. 規約、変更C++、参照型名、Module source、単一header、amalgamation drift、配布header構文。
 4. foundation end-to-end JSON、stress、公開型layout、package生成。
 5. `origin/main` drift確認、非force統合、remote SHA確認。
-6. 公式single-header scriptによる `C:\acs` 配布とconsumer構文確認。
+6. 公式single-header scriptによる `C:\acs` 配布とconsumer構文・実link・実行確認。
+
+`ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=ON` は、tracked `dist` または同じ内容の
+`C:\acs` をsource tree外の一時CMake consumerからDebug/Releaseそれぞれでbuildし、
+`examples/check.cpp` の成功値まで実行する。compiler、SDK library、generator環境が
+不足した場合はskipせず失敗する。一時directoryは終了時に削除し、`dist/examples`
+へ`.obj`や`.exe`を残さない。通常開発のclean checkoutにはlibrary配布物がないため
+既定はOFFとし、T80のsingle-header生成後にONで再configureして実行する。
+deploy先を検証する場合は
+`ACS_DISTRIBUTION_CONSUMER_ROOT=C:\acs`（`generate.ps1`では
+`-DistributionRoot C:\acs`）を指定する。
+
+Foundation end-to-end JSONはschema 2を使う。HEADと比較基点のcommit SHA、
+tracked dirty状態、CMakeCacheのSHA-256とraw/Diligent/tests/tools/samples構成、
+性能実行fileおよび明示した配布artifactのSHA-256を同じreportへ保存する。
+T80では`--expect-cache`で両backendとtests/tools/samplesをONへ固定し、
+`--require-clean-source`も指定して、古いbuild tree、別構成のartifact、未commit
+sourceを合格証跡へ混在させない。
+
+```powershell
+cmake -S acs\engine -B acs\Intermediate\vs `
+  -DACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=ON `
+  -DACS_DISTRIBUTION_CONSUMER_ROOT=C:\acs
+ctest --test-dir acs\Intermediate\vs -C Release --output-on-failure `
+  -R "^ACS.DistributionConsumerSmoke(Debug|Release)$"
+
+python acs\scripts\run_foundation_end_to_end.py `
+  --build-dir acs\Intermediate\vs `
+  --performance-executable acs\Binaries\Release\acs_foundation_performance.exe `
+  --output acs\Saved\foundation-end-to-end-release.json `
+  --source-root . --base-ref origin/main --configuration Release `
+  --expect-cache ACS_RENDER_DX12_RAW=ON `
+  --expect-cache ACS_RENDER_DILIGENT=ON `
+  --expect-cache ACS_Render_DILIGENT=ON `
+  --expect-cache ACS_BUILD_TESTS=ON `
+  --expect-cache ACS_BUILD_TOOLS=ON `
+  --expect-cache ACS_BUILD_SAMPLES=ON `
+  --expect-cache ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=ON `
+  --artifact dist\acs.h `
+  --artifact dist\lib\x64\Release\acs.lib `
+  --require-clean-source
+```
 
 ## 現在のfocused検証
 

@@ -147,8 +147,11 @@ powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
 # 3) verify tracked header drift and naming/node conventions
 python acs/scripts/amalgamate.py --check
 python acs/scripts/audit_cpp_conventions.py --root dist --scope .
-# 4) in an x64 Visual Studio developer shell, syntax-check the consumer only
+# 4) syntax-check the consumer
 cl /nologo /Zs /std:c++20 /utf-8 /permissive- /Zc:__cplusplus /Zc:preprocessor /EHs-c- /GR- /D_HAS_EXCEPTIONS=0 /I dist dist/examples/check.cpp
+# 5) configure, link, and execute a temporary Debug/Release consumer
+python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Debug --generator "Visual Studio 18 2026" --generator-platform x64
+python acs/scripts/run_distribution_consumer_smoke.py --distribution-root dist --configuration Release --generator "Visual Studio 18 2026" --generator-platform x64
 ```
 
 `acs/scripts/amalgamate.py` produces `acs.h` (inlines every public
@@ -167,7 +170,17 @@ sizes, and SHA-256 hashes as `dist/`; a successful `配置完了` therefore mean
 the consumer directory is a complete byte-for-byte mirror rather than a
 partially updated mix of SDK generations.
 
+`run_distribution_consumer_smoke.py` creates its CMake source/build tree only
+under the operating-system temporary directory. It reuses
+`examples/check.cpp`, includes only the selected distribution root, links
+through the pragmas in `acs.h`, executes the resulting program, and removes the
+temporary tree. Pass `C:\acs` as `--distribution-root` to validate the deployed
+mirror without creating `.obj` or `.exe` files inside either SDK directory.
+
 With `ACS_BUILD_TESTS=ON`, a top-level ACS CMake configure that has this sibling
 `dist` directory also registers drift, convention-audit and `/Zs` consumer
-tests. An ACS source tree consumed through `add_subdirectory` does not register
-those distribution-only checks.
+tests. Set `ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=ON` after generating the
+Debug and Release libraries to register
+`ACS.DistributionConsumerSmokeDebug` and
+`ACS.DistributionConsumerSmokeRelease`. An ACS source tree consumed through
+`add_subdirectory` does not register those distribution-only checks.

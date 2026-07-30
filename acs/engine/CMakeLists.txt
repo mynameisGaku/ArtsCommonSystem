@@ -65,6 +65,10 @@ option(ACS_ENABLE_ADDRESS_SANITIZER
        "Instrument ACS targets with AddressSanitizer"          OFF)
 option(ACS_ENABLE_RELEASE_IPO
        "Enable interprocedural optimization for Release ACS targets" ON)
+option(ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE
+       "Link and run the generated Debug/Release distribution SDK" OFF)
+set(ACS_DISTRIBUTION_CONSUMER_ROOT "" CACHE PATH
+    "Distribution SDK root used by the Debug/Release consumer smoke")
 set(ACS_COMPILED_LOG_MIN_SEVERITY "0" CACHE STRING
     "Compile-time log minimum: 0=Trace, 1=Debug, 2=Info, 3=Warn, 4=Error, 5=Fatal, 6=Off")
 if(NOT ACS_COMPILED_LOG_MIN_SEVERITY MATCHES "^[0-6]$")

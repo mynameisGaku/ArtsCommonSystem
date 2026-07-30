@@ -22,6 +22,8 @@
 #   .\generate.ps1 -AllSamples     # 全 sample を Game filter に追加
 #   .\generate.ps1 -Sample 38_HelloFullGame -Name MyShooter
 #   .\generate.ps1 -Tests -Tools   # tests/tools も Engine 配下に追加
+#   .\generate.ps1 -DistributionSmoke -DistributionRoot C:\acs
+#                                  生成済み配布SDKの実link/run gateを追加
 #   .\generate.ps1 -AllBackends    # 任意 backend (Lua/Steamworks/ONNX/OpenXR/…) も全部 ON
 #   .\generate.ps1 -Onnx -OpenXr   # 個別に backend を ON
 #   .\generate.ps1 -Diligent       # Diligent RHI backend も追加
@@ -38,6 +40,8 @@ param(
     [switch]$AllSamples,
     [switch]$Tests,
     [switch]$Tools,
+    [switch]$DistributionSmoke,
+    [string]$DistributionRoot = "",
     [string]$Generator = "Visual Studio 18 2026",
     [switch]$Diligent,
     [switch]$Scripting,
@@ -163,12 +167,16 @@ $cmakeArgs = @(
     "-DACS_BUILD_SAMPLES=ON",
     "-DACS_BUILD_TESTS=$(if ($Tests) { 'ON' } else { 'OFF' })",
     "-DACS_BUILD_TOOLS=$(if ($Tools) { 'ON' } else { 'OFF' })",
+    "-DACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=$(if ($DistributionSmoke) { 'ON' } else { 'OFF' })",
     "-DACS_STARTUP_PROJECT=$StartupProject"
 )
 if ($AllSamples) {
     $cmakeArgs += "-DACS_ONLY_SAMPLE="
 } else {
     $cmakeArgs += "-DACS_ONLY_SAMPLE=$Sample"
+}
+if ($DistributionRoot) {
+    $cmakeArgs += "-DACS_DISTRIBUTION_CONSUMER_ROOT=$DistributionRoot"
 }
 if ($Diligent      -or $AllBackends) { $cmakeArgs += "-DACS_RENDER_DILIGENT=ON"; $cmakeArgs += "-DACS_Render_DILIGENT=ON" }
 # ↑ Render モジュール feature (ACS_Render_DILIGENT → WITH_RENDER_DILIGENT 定義) も明示 ON にする。これが無いと

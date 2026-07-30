@@ -105,9 +105,14 @@ SPDX/include guard規約を検査する。既存コード全体を一括整形�
 `ACS.DistributionConventions`、`ACS.DistributionHeaderSyntax`、配布drift検査へ
 委ねる。生成物自体を同じ規則で調査する場合だけ `--include-generated` を指定する。
 
-`run_foundation_end_to_end.py` は任意のC++差分規約監査、Releaseビルド、全CTest、
-決定的な基盤性能契約を順に実行し、終了コード・所要時間・失敗出力末尾を
-単一JSONへ原子的に保存する。
+`run_foundation_end_to_end.py` は任意のC++差分規約監査、DebugまたはReleaseの
+build、全CTest、決定的な基盤性能契約を順に実行し、終了コード・所要時間・
+失敗出力末尾を単一JSONへ原子的に保存する。schema 2 はsourceのHEAD SHAと
+比較基点SHA、tracked差分の有無、`CMakeCache.txt` のSHA-256、raw/Diligent・
+tests/tools/samples構成、性能実行fileと`--artifact`指定fileのsize・SHA-256を
+同時に保存する。`--expect-cache KEY=VALUE` はreleaseで要求した構成とcacheが
+異なる場合に実行前で失敗し、`--require-clean-source`は実行前後のtracked差分と
+途中のcommit切替を拒否する。
 公開型のlayout変更を含む統合では `--clean-first` を指定し、古いMSBuild中間物と
 新しいheaderが混在するABI不整合を排除する。
 最終統合時はこのJSONをT64/T80の再現可能な証跡として使用する。
