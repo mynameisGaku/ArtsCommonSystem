@@ -231,6 +231,32 @@ ACS_TEST(EditorCorePersistenceSafety, WorkspaceTitleWithSpacesRoundTripsV1) {
     EXPECT_TRUE(::DeleteFileW(path));
 }
 
+/** NUL 終端を持たない空 ImGui ini を明示長のまま安全に読み込めることを検証する。 */
+ACS_TEST(EditorCorePersistenceSafety, WorkspaceLoadsNonNullTerminatedEmptyIni) {
+    /** ImGui 設定を反映する一時 context。 */
+    FImGuiContextScope imgui;
+    EXPECT_TRUE(imgui.IsValid());
+    if (!imgui.IsValid()) return;
+
+    /** NUL を含めず保存する一時 layout path。 */
+    wchar_t path[768]{};
+    MakeEditorCoreTempPath(path, sizeof(path) / sizeof(path[0]), L"empty_ini.acslayout");
+
+    /** 終端 NUL をファイルへ書かない空 ImGui ini layout。 */
+    constexpr char kLayout[] = "ACS_EDLAYOUT 1\nIMGUI_INI 0\n";
+    EXPECT_TRUE(WriteRawFile(path, kLayout, static_cast<u32>(sizeof(kLayout) - 1u)));
+
+    /** 明示長の file buffer を読み込む検証対象 workspace。 */
+    FEditorWorkspace workspace;
+    /** 空 ini の読み込み結果。 */
+    const FEditorWorkspacePersistenceResult result = workspace.TryLoadLayout(path);
+    EXPECT_TRUE(result.Succeeded());
+    EXPECT_EQ(result.panel_entries, 0u);
+
+    workspace.Shutdown();
+    EXPECT_TRUE(::DeleteFileW(path));
+}
+
 ACS_TEST(EditorCorePersistenceSafety, WorkspaceRejectsInvalidPanelTitles) {
     FImGuiContextScope imgui;
     EXPECT_TRUE(imgui.IsValid());

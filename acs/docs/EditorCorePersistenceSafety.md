@@ -37,8 +37,11 @@ item spacing は `[0, 64]` に限定する。
 4. `PANEL <title> <visible> <dock-target>` 行
 
 ImGui ini は ImGui が所有する不透明データとして扱うが、明示バイト長、全体上限、
-embedded NUL を検証してから ImGui に渡す。panel title は空白を含まない表示可能
-ASCII に限定し、重複 title、重複 section、未知 trailing data を拒否する。
+embedded NUL を検証してから ImGui に渡す。byte-size が 0 の場合だけ、ImGui 内部の
+`strlen` 経路へ静的な NUL 終端空文字列を渡す。非空 ini は元の明示長を維持し、
+入力バッファに終端 NUL を要求しない。panel title は内部 ASCII space を許可するが、
+空、先頭・末尾 space、制御文字、非 ASCII は拒否する。重複 title、重複 section、
+未知 trailing data も拒否する。
 未登録 panel の行は互換性のため検証後に無視する。
 
 ## 入力上限
@@ -77,5 +80,5 @@ workspace はその後に ImGui ini を読み、panel 状態を反映する。
 ## テスト観点
 
 `editor_core_persistence_safety_tests.cpp` は canonical v1、重複、非有限値、embedded NUL、
-切断 ini、入力上限、失敗時の状態不変、開いた旧 reader を維持した原子的 theme 置換と
-load round-trip を検証する。
+切断 ini、NUL 終端を持たない空 ini、入力上限、失敗時の状態不変、空白入り panel title、
+開いた旧 reader を維持した原子的 theme 置換と load round-trip を検証する。

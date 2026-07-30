@@ -25,6 +25,10 @@ Editor rendererは既存の28段階startup state machineを維持する。各pum
 
 Publish中に追加された購読者が、未走査の空きslotへ再利用され同じ配送へ混入する契約違反も統合レビューで修正した。Publish中は新規購読を末尾へ追加し、発行開始時点の集合を固定する回帰テストをWave Bへ追加している。
 
+## P1: 明示長0のImGui境界
+
+ASanはNUL終端を持たない空のworkspace iniを読み込むと、ImGuiが`size == 0`を「長さを`strlen`で求める」指定として扱い、file bufferの末尾を1 byte越えて読むことを検出した。空iniだけ静的なNUL終端空文字列へ置き換え、非空iniは検証済みのpointerと明示長を維持する。これによりlayout formatや公開APIを変えず、外部library境界の契約だけを満たす。`WorkspaceLoadsNonNullTerminatedEmptyIni`は終端NULを書かない実fileを読み込み、この境界を回帰検証する。
+
 ## T80: 公開前ゲート
 
 最終公開は新規build directoryで行い、次をすべて満たすまで実施しない。

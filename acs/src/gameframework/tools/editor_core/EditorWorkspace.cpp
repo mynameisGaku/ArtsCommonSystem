@@ -698,7 +698,11 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TryParseLayoutText(
     if (ImGui::GetCurrentContext() == nullptr) {
         return fail(EEditorWorkspacePersistenceError::ImGuiContextMissing);
     }
-    ImGui::LoadIniSettingsFromMemory(ini_data, ini_size);
+    /** size 0 で ImGui が strlen を選んでも境界外を読まない静的な空文字列。 */
+    static constexpr char kEmptyIni[] = "";
+    /** 非空入力では検証済み明示長を維持し、空入力だけ終端保証へ切り替える参照。 */
+    const char* const imgui_ini_data = ini_size == 0u ? kEmptyIni : ini_data;
+    ImGui::LoadIniSettingsFromMemory(imgui_ini_data, ini_size);
     for (u32 i = 0u; i < panel_entries; ++i) {
         if (staged_changes[i].panel == nullptr) continue;
         staged_changes[i].panel->SetVisible(staged_changes[i].visible);
