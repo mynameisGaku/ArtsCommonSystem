@@ -1,7 +1,7 @@
 @echo off
 REM Build the example consumer against the single-header ACS distribution.
 REM Usage:  build_example.cmd [Debug|Release]   (default Debug)
-REM advapi32 は acs.h の自動 link 指示から受け取り、この命令へ重複指定しない。
+REM advapi32 and comdlg32 are supplied by the acs.h auto-link directives.
 setlocal
 set CFG=%1
 if "%CFG%"=="" set CFG=Debug

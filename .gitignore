@@ -61,6 +61,7 @@ dist/**/*.exe
 dist/**/*.obj
 dist/**/*.pdb
 dist/**/*.ilk
+dist/acs-distribution.sha256
 
 # ---- OS ノイズ -------------------------------------------------------------
 Thumbs.db

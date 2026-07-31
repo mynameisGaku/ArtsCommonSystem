@@ -21,7 +21,7 @@ acs.cmd configure --tests --scripting
 acs.cmd build --config Debug --target acs_unit_tests
 acs.cmd test --config Debug --filter "^ACS.UnitTests$"
 acs.cmd all --config Release --target acs_unit_tests --filter "^ACS.UnitTests$"
-acs.cmd dist --config Release --deploy "C:\ACS SDK"
+acs.cmd dist --deploy "C:\ACS SDK"
 acs.cmd clean
 acs.cmd help
 ```
@@ -85,7 +85,13 @@ acs.cmd ide open --tests
 ## 構成、target、test filter
 
 `build`、`test`、`all`では`--config Debug`または`--config Release`を指定できます。
-`dist`で構成を省略するとDebugとReleaseを生成し、指定した場合はその構成だけを生成します。
+`dist`で構成を省略するとDebugとReleaseを生成し、named manifestを公開できます。
+`--config`を指定した単一構成生成はlocal staging専用で、`--deploy`とは併用できません。
+両構成を生成した配布物には、`acs.h`と全libraryのSHA-256を固定する
+`acs-distribution.sha256`が含まれます。`--deploy`はpayload検証後にだけmanifestを
+原子的に公開し、reparse pointを含む配置先を拒否します。
+単一構成だけを再生成した場合は既存manifestを失効させるため、Debug/Releaseを
+同じ実行で再生成するまで公開可能なSDKとして扱われません。
 
 ```bat
 acs.cmd build -c release -t acs_unit_tests
@@ -115,14 +121,14 @@ PowerShellでは引用した`'--'`、コマンドプロンプトでは`--`より
 .\acs.ps1 configure '--' '-DACS_BUILD_SCRIPTING=ON' '-DUSER_PATH=C:\Path With Spaces'
 .\acs.ps1 build --config Release '--' '--parallel' '8'
 .\acs.ps1 test --config Debug '--' '--repeat' 'until-pass:2'
-.\acs.ps1 dist --config Release '--' -SelfTest
+.\acs.ps1 dist '--' -SelfTest
 ```
 
 ```bat
 acs.cmd configure -- "-DACS_BUILD_SCRIPTING=ON" "-DUSER_PATH=C:\Path With Spaces"
 acs.cmd build --config Release -- "--parallel" "8"
 acs.cmd test --config Debug -- "--repeat" "until-pass:2"
-acs.cmd dist --config Release -- -SelfTest
+acs.cmd dist -- -SelfTest
 ```
 
 `configure`では`generate.ps1`の`CMakeArguments`、preset使用時はCMake configureへ

@@ -262,6 +262,9 @@ function Assert-OptionBoundary($Options) {
     if ($Options.Deploy -and $Options.Command -ne "dist") {
         Throw-UsageError "--deploy は dist で使用してください"
     }
+    if ($Options.Command -eq "dist" -and $Options.Deploy -and $Options.ConfigurationSpecified) {
+        Throw-UsageError "単一構成のdistはlocal staging専用です。--deployにはDebug/Releaseの両構成生成を使用してください"
+    }
     if ($Options.Foundation -and $Options.Command -ne "test") {
         Throw-UsageError "--foundation は test で使用してください"
     }
@@ -735,7 +738,7 @@ IDE互換:
 操作option:
   --target <name>          build/allのtarget
   --filter <regex>         test/allのCTest filter
-  --deploy <path>          distのmirror先。安全判定は既存配布scriptへ委譲
+  --deploy <path>          両構成distのmirror先。安全判定は既存配布scriptへ委譲
   --foundation             testをrun_foundation_end_to_end.pyへ切替
   --yes, -y                clean-up.ps1の確認を省略
   --tests --tools --scripting --diligent --all-backends
@@ -746,7 +749,7 @@ IDE互換:
   $LauncherCommand build --config Debug --target acs_unit_tests
   $LauncherCommand test --config Debug --filter "^ACS.UnitTests$"
   $LauncherCommand all --config Release --target acs_unit_tests --filter "^ACS.UnitTests$"
-  $LauncherCommand dist --config Release --deploy "C:\ACS SDK"
+  $LauncherCommand dist --deploy "C:\ACS SDK"
   $LauncherCommand clean
   $LauncherCommand open --scripting
   $LauncherCommand configure $PassThroughSeparator "-DACS_BUILD_SCRIPTING=ON" "-DUSER_PATH=C:\Path With Spaces"

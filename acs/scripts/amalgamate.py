@@ -96,11 +96,12 @@ WINDOWS_SYSTEM_LIBRARIES = (
     "winmm.lib",
     "user32.lib",
     "gdi32.lib",
+    "comdlg32.lib",
     "advapi32.lib",
 )
 
 # 統合library内の未解決Windows APIを必ず満たす最小自動link契約。
-REQUIRED_WINDOWS_SYSTEM_LIBRARIES = frozenset({"advapi32.lib"})
+REQUIRED_WINDOWS_SYSTEM_LIBRARIES = frozenset({"advapi32.lib", "comdlg32.lib"})
 
 # 配布headerへ埋め込むMSVCの自動link指示。
 WINDOWS_SYSTEM_LINK_DIRECTIVES = "\n".join(

@@ -407,13 +407,21 @@ Write-Output "fake-clean-stdout"
     Assert-Contains $scriptOutput "CONFIGS=Debug,Release" "dist既定構成のarray境界が壊れています"
     Assert-Contains $scriptOutput "DEPLOY=" "dist構成を配布先へ誤bindしています"
 
-    $deployDirectory = Join-Path $temporaryRoot "deploy with spaces"
-    $result = Invoke-Shortcut $powerShellShortcut @("dist", "--config", "rElEaSe", "--deploy", $deployDirectory, "--", "-SelfTest") $workingDirectory
+    $result = Invoke-Shortcut $powerShellShortcut @("dist", "--config", "rElEaSe", "--", "-SelfTest") $workingDirectory
     Assert-ExitCode $result 0 "distは既存配布scriptへ委譲する必要があります"
     $scriptOutput = Get-Content -Raw -LiteralPath $scriptLog
     Assert-Contains $scriptOutput "CONFIGS=Release" "dist構成の正規化が欠落しています"
-    Assert-Contains $scriptOutput "DEPLOY=$deployDirectory" "空白を含む配布先境界が壊れています"
+    Assert-Contains $scriptOutput "DEPLOY=" "単一構成distを配布先へ誤bindしています"
     Assert-Contains $scriptOutput "SELF_TEST=True" "distの追加argumentが欠落しています"
+
+    $deployDirectory = Join-Path $temporaryRoot "deploy with spaces"
+    $result = Invoke-Shortcut $powerShellShortcut @("dist", "--config", "Release", "--deploy", $deployDirectory) $workingDirectory
+    Assert-ExitCode $result 2 "単一構成distのdeployを許可してはいけません"
+    $result = Invoke-Shortcut $powerShellShortcut @("dist", "--deploy", $deployDirectory, "--", "-SelfTest") $workingDirectory
+    Assert-ExitCode $result 0 "両構成distは空白を含む配布先へ委譲できる必要があります"
+    $scriptOutput = Get-Content -Raw -LiteralPath $scriptLog
+    Assert-Contains $scriptOutput "CONFIGS=Debug,Release" "deploy時の両構成指定が欠落しています"
+    Assert-Contains $scriptOutput "DEPLOY=$deployDirectory" "空白を含む配布先境界が壊れています"
 
     Remove-Item -LiteralPath $scriptLog -Force -ErrorAction SilentlyContinue
     $result = Invoke-Shortcut $powerShellShortcut @("clean", "--yes", "--dry-run") $workingDirectory

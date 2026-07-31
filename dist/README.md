@@ -11,6 +11,7 @@ This folder is self-contained. You do **not** need the ACS source tree.
 ```
 dist/
 ├─ acs.h                     ← single amalgamated header (all public API)
+├─ acs-distribution.sha256   ← exact header/library content manifest
 ├─ lib/x64/
 │  ├─ Debug/                 ← acs.lib + adjacent Diligent/xxhash libs (/MDd)
 │  └─ Release/               ← acs.lib + adjacent Diligent/xxhash libs (/MD)
@@ -59,11 +60,12 @@ RTTI mismatches, so you get a clear message instead of cryptic link errors.
 `acs.h` emits these via pragma — you don't list them manually:
 
 `acs.lib`, `d3d12`, `dxgi`, `d3dcompiler`, `dxguid`, `xaudio2`, `ws2_32`,
-`ole32`, `dbghelp`, `winmm`, `user32`, `gdi32`, `advapi32`, `Shlwapi`. Every entry after
+`ole32`, `dbghelp`, `winmm`, `user32`, `gdi32`, `comdlg32`, `advapi32`, `Shlwapi`. Every entry after
 `acs.lib` in this paragraph is a Windows SDK library.
 
 `advapi32` は、同梱した mimalloc が Windows の process token を設定する
 `OpenProcessToken` / `AdjustTokenPrivileges` / `LookupPrivilegeValueA` を解決するために必要です。
+`comdlg32` は、同梱した Diligent Win32 platform のファイル選択APIを解決するために必要です。
 
 The Diligent backend and its xxHash dependency are separate static libraries
 shipped **next to `acs.lib`** in each configuration directory. The same pragma
@@ -172,12 +174,19 @@ and symbolic-link/reparse-point rejection.
 config, then requires and copies the adjacent Diligent/xxHash libraries.
 The merge uses a unique response file and a same-directory temporary library,
 publishing `acs.lib` only after `lib.exe` succeeds and the output is non-empty.
-`-Deploy` rejects drive roots, reparse points, and any destination overlapping
-the source/build/dist trees before invoking `robocopy /MIR`. After the copy it
-fails closed unless the destination has the exact same relative file set,
-sizes, and SHA-256 hashes as `dist/`; a successful `配置完了` therefore means
-the consumer directory is a complete byte-for-byte mirror rather than a
-partially updated mix of SDK generations.
+その後、`ACS_DIST_SHA256_V1`形式の`acs-distribution.sha256`を、UTF-8 BOMなし、
+LF、相対path昇順、uppercase SHA-256で原子的に公開する。対象は`acs.h`と
+Debug/Releaseの全libraryであり、consumerは構成directory全体の同一性を検証できる。
+単一構成だけを再生成した場合は既存manifestを失効させ、local stagingとして扱う。
+Debug/Releaseを同じ実行で再生成するまで`-Deploy`とnamed manifest公開は行えない。
+`-Deploy`はdrive root、source/build/distとの重複、配置先tree内のreparse pointを
+事前拒否し、`robocopy /MIR /XJ`でmanifest以外のpayloadを配置する。file集合、size、
+SHA-256の完全一致を確認した後だけmanifestを原子的に置換し、最後にpayloadとmanifestを
+再検証する。したがって、同size・同timestampの破損fileをrobocopyがskipした場合や
+junctionがある場合は旧manifestを変更せず失敗する。配布tree全体に`.exe`、`.obj`、
+`.pdb`、`.ilk`、一時file、正規28件以外の`.lib`など、正規file一覧にないものが
+残る場合も拒否する。`-SelfTest`はcanonical形式、改ざん、
+欠落、stale file、build成果物、reader lock、skip、junction、mirrorの拒否契約も確認する。
 
 `run_distribution_consumer_smoke.py` creates its CMake source/build tree only
 under the operating-system temporary directory. It reuses

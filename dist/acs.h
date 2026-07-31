@@ -36,6 +36,7 @@
   #pragma comment(lib, "winmm.lib")
   #pragma comment(lib, "user32.lib")
   #pragma comment(lib, "gdi32.lib")
+  #pragma comment(lib, "comdlg32.lib")
   #pragma comment(lib, "advapi32.lib")
   // ---- Diligent RHI backend (built with ACS_RENDER_DILIGENT=ON). These static
   //      libs are shipped in dist/lib/x64/<cfg> next to acs.lib; the consumer's

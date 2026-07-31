@@ -2,6 +2,7 @@
 # 単一 header 版 ACS 配布物を dist/ へ再生成する:
 #   - dist/acs.h（amalgamate.py で生成）
 #   - dist/lib/x64/Debug/acs.lib と dist/lib/x64/Release/acs.lib
+#   - dist/acs-distribution.sha256（consumer が全 library を照合）
 #
 # 前提: 対象構成の engine を先に build しておく。例:
 #   cmake --build acs/Intermediate/vs --config Debug   -j
@@ -9,8 +10,8 @@
 #
 # 使い方:
 #   powershell -ExecutionPolicy Bypass -File acs/scripts/build_single_header.ps1
-#   ... -Configs Debug          # 1 構成だけ生成
-#   ... -Deploy C:\acs          # consumer 用の場所へ dist/ も mirror
+#   ... -Configs Debug          # 未署名のlocal stagingとして1構成だけ生成
+#   ... -Deploy C:\acs          # 両構成をconsumer用の場所へmirror
 #   ... -SelfTest               # path/原子的公開の安全機構だけを自己検証
 param(
     [string[]]$Configs = @('Debug','Release'),
@@ -22,6 +23,30 @@ $ErrorActionPreference = 'Stop'
 $repo  = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $build = Join-Path $repo 'acs\Intermediate\vs'
 $dist  = Join-Path $repo 'dist'
+$distributionManifestName = 'acs-distribution.sha256'
+$distributionManifestSchema = 'ACS_DIST_SHA256_V1'
+$distributionAdjacentLibraryNames = @(
+    'Diligent-Archiver-static',
+    'Diligent-BasicPlatform',
+    'Diligent-Common',
+    'Diligent-GraphicsAccessories',
+    'Diligent-GraphicsEngine',
+    'Diligent-GraphicsEngineD3D12-static',
+    'Diligent-GraphicsEngineD3DBase',
+    'Diligent-GraphicsEngineNextGenBase',
+    'Diligent-GraphicsTools',
+    'Diligent-Primitives',
+    'Diligent-ShaderTools',
+    'Diligent-Win32Platform',
+    'xxhash'
+)
+$distributionLibraryNames = @('acs.lib') + @($distributionAdjacentLibraryNames | ForEach-Object { "$_.lib" })
+$distributionLibraryCountPerConfiguration = 14
+$distributionContractFileCount = 29
+$distributionStaticRelativePaths = @('README.md', 'acs.h', 'examples/build_example.cmd', 'examples/check.cpp')
+if ($distributionLibraryNames.Count -ne $distributionLibraryCountPerConfiguration -or 1 + (2 * $distributionLibraryNames.Count) -ne $distributionContractFileCount) {
+    throw "配布libraryまたはmanifestの固定file数が一致しません"
+}
 
 # 構成名を path として悪用できないよう、配布で対応する 2 値へ正規化する。
 if (-not $Configs -or @($Configs).Count -eq 0) {
@@ -41,6 +66,10 @@ foreach ($requestedConfig in $Configs) {
     }
 }
 $Configs = $normalizedConfigs
+$isCompleteDistribution = $Configs.Count -eq 2 -and $Configs -contains 'Debug' -and $Configs -contains 'Release'
+if ($Deploy -and -not $isCompleteDistribution) {
+    throw "deployとnamed manifestの公開にはDebug/Releaseの両構成を同時指定してください"
+}
 
 function Get-NormalizedFullPath([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -98,13 +127,80 @@ function Assert-SafeDeployPath([string]$Path) {
     return $full
 }
 
+# root配下をリンク先へ移動せず列挙し、reparse pointを検出した時点で拒否する。
+function Get-RegularFilesWithoutReparse([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    Assert-NoReparseAncestor $normalizedRoot
+    if (-not (Test-Path -LiteralPath $normalizedRoot -PathType Container)) {
+        throw "通常directoryではない配布rootです: $normalizedRoot"
+    }
+
+    $pendingDirectories = [System.Collections.Generic.Stack[string]]::new()
+    $regularFiles = [System.Collections.Generic.List[string]]::new()
+    $pendingDirectories.Push($normalizedRoot)
+    while ($pendingDirectories.Count -gt 0) {
+        $directoryPath = $pendingDirectories.Pop()
+        $directoryItem = Get-Item -LiteralPath $directoryPath -Force
+        if (($directoryItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "配布tree内のreparse pointは拒否します: $directoryPath"
+        }
+        foreach ($childItem in Get-ChildItem -LiteralPath $directoryPath -Force) {
+            if (($childItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "配布tree内のreparse pointは拒否します: $($childItem.FullName)"
+            }
+            if ($childItem.PSIsContainer) {
+                $pendingDirectories.Push($childItem.FullName)
+            } else {
+                $regularFiles.Add($childItem.FullName)
+            }
+        }
+    }
+    return @($regularFiles)
+}
+
+# 既存treeがある場合だけ、配下にreparse pointがないことを確認する。
+function Assert-NoReparseSubtree([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    Assert-NoReparseAncestor $normalizedRoot
+    if (-not (Test-Path -LiteralPath $normalizedRoot)) { return }
+    if (-not (Test-Path -LiteralPath $normalizedRoot -PathType Container)) {
+        throw "deploy先が通常directoryではありません: $normalizedRoot"
+    }
+    Get-RegularFilesWithoutReparse $normalizedRoot | Out-Null
+}
+
+# dist全体を走査し、正規file以外が配布へ混入することを拒否する。
+function Assert-DistributionTreeAllowlist([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    $allowedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($staticRelativePath in $distributionStaticRelativePaths) {
+        $staticPath = [System.IO.Path]::GetFullPath((Join-Path $normalizedRoot $staticRelativePath))
+        if (-not (Test-Path -LiteralPath $staticPath -PathType Leaf) -or (Get-Item -LiteralPath $staticPath).Length -le 0) {
+            throw "ACS配布treeの必須fileがありません: $staticPath"
+        }
+        $allowedPaths.Add($staticPath) | Out-Null
+    }
+    $allowedPaths.Add([System.IO.Path]::GetFullPath((Join-Path $normalizedRoot $distributionManifestName))) | Out-Null
+    foreach ($configurationName in @('Debug', 'Release')) {
+        foreach ($libraryName in $distributionLibraryNames) {
+            $allowedLibraryPath = Join-Path $normalizedRoot "lib\x64\$configurationName\$libraryName"
+            $allowedPaths.Add([System.IO.Path]::GetFullPath($allowedLibraryPath)) | Out-Null
+        }
+    }
+    foreach ($filePath in Get-RegularFilesWithoutReparse $normalizedRoot) {
+        if (-not $allowedPaths.Contains([System.IO.Path]::GetFullPath($filePath))) {
+            throw "ACS配布treeへ正規file以外が混入しています: $filePath"
+        }
+    }
+}
+
 function Publish-FileAtomically([string]$TemporaryPath, [string]$DestinationPath) {
     $destinationDirectory = [System.IO.Path]::GetDirectoryName($DestinationPath)
     Assert-NoReparseAncestor $destinationDirectory
     Assert-NoReparseAncestor $DestinationPath
     if ((Test-Path -LiteralPath $DestinationPath) -and
         -not (Test-Path -LiteralPath $DestinationPath -PathType Leaf)) {
-        throw "配布 library の出力先が通常 file ではありません: $DestinationPath"
+        throw "配布 file の出力先が通常 file ではありません: $DestinationPath"
     }
     if (Test-Path -LiteralPath $DestinationPath -PathType Leaf) {
         $backupPath = Join-Path $destinationDirectory (
@@ -120,36 +216,162 @@ function Publish-FileAtomically([string]$TemporaryPath, [string]$DestinationPath
     }
 }
 
-function Get-DistributionFileManifest([string]$Root) {
+# 配布root配下の絶対pathを、manifest用のスラッシュ区切り相対pathへ変換する。
+function Get-AcsDistributionRelativePath([string]$Root, [string]$Path) {
     $normalizedRoot = Get-NormalizedFullPath $Root
-    Assert-NoReparseAncestor $normalizedRoot
-    if (-not (Test-Path -LiteralPath $normalizedRoot -PathType Container)) {
-        throw "配布 manifest の root が通常 directory ではありません: $normalizedRoot"
+    $rootPrefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+    $normalizedPath = [System.IO.Path]::GetFullPath($Path)
+    if (-not $normalizedPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "ACS配布fileがrootの外です: $normalizedPath"
+    }
+    return $normalizedPath.Substring($rootPrefix.Length).Replace('\', '/')
+}
+
+# CardGame verifierと同じheaderおよびDebug/Release library全件を列挙する。
+function Get-AcsDistributionContractFiles([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    Assert-NoReparseSubtree $normalizedRoot
+    Assert-DistributionTreeAllowlist $normalizedRoot
+
+    $headerPath = Join-Path $normalizedRoot 'acs.h'
+    $debugLibraryDirectory = Join-Path $normalizedRoot 'lib\x64\Debug'
+    $releaseLibraryDirectory = Join-Path $normalizedRoot 'lib\x64\Release'
+    $filesByRelativePath = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if (-not (Test-Path -LiteralPath $headerPath -PathType Leaf) -or (Get-Item -LiteralPath $headerPath).Length -le 0) {
+        throw "ACS配布manifestの必須fileがありません: $headerPath"
+    }
+    $candidateFiles = [System.Collections.Generic.List[string]]::new()
+    $candidateFiles.Add($headerPath)
+    foreach ($libraryDirectory in @($debugLibraryDirectory, $releaseLibraryDirectory)) {
+        if (-not (Test-Path -LiteralPath $libraryDirectory -PathType Container)) {
+            throw "ACS配布manifestの必須directoryがありません: $libraryDirectory"
+        }
+        $actualLibraryFiles = @(Get-RegularFilesWithoutReparse $libraryDirectory)
+        $actualLibraryPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($actualLibraryFile in $actualLibraryFiles) {
+            $actualLibraryPaths.Add([System.IO.Path]::GetFullPath($actualLibraryFile)) | Out-Null
+        }
+        foreach ($libraryName in $distributionLibraryNames) {
+            $requiredLibraryPath = [System.IO.Path]::GetFullPath((Join-Path $libraryDirectory $libraryName))
+            if (-not $actualLibraryPaths.Contains($requiredLibraryPath) -or (Get-Item -LiteralPath $requiredLibraryPath).Length -le 0) {
+                throw "ACS配布manifestの必須libraryがありません: $requiredLibraryPath"
+            }
+            $candidateFiles.Add($requiredLibraryPath)
+        }
+        if ($actualLibraryPaths.Count -ne $distributionLibraryNames.Count) {
+            throw "ACS配布manifestのlibrary集合が正規14件と一致しません: $libraryDirectory"
+        }
     }
 
-    $rootPrefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
-    $manifest = @{}
-    foreach ($file in Get-ChildItem -LiteralPath $normalizedRoot -Recurse -File -Force) {
-        Assert-NoReparseAncestor $file.FullName
-        if (-not $file.FullName.StartsWith(
-                $rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "配布 manifest の file が root の外です: $($file.FullName)"
+    foreach ($candidatePath in $candidateFiles) {
+        $relativePath = Get-AcsDistributionRelativePath $normalizedRoot $candidatePath
+        if ($relativePath.Contains('\') -or [System.IO.Path]::IsPathRooted($relativePath) -or $relativePath.StartsWith('/') -or $relativePath.EndsWith('/') -or $relativePath.Contains('//') -or @($relativePath -split '/' | Where-Object { $_ -eq '.' -or $_ -eq '..' }).Count -gt 0) {
+            throw "ACS配布manifestのpathが安全ではありません: $relativePath"
         }
-        $relativePath = $file.FullName.Substring($rootPrefix.Length)
+        if ($filesByRelativePath.ContainsKey($relativePath)) {
+            throw "ACS配布manifestのfile pathが重複しています: $relativePath"
+        }
+        $filesByRelativePath.Add($relativePath, [System.IO.Path]::GetFullPath($candidatePath))
+    }
+    if ($filesByRelativePath.Count -ne $distributionContractFileCount) {
+        throw "ACS配布manifestのfile数が正規29件と一致しません: $($filesByRelativePath.Count)"
+    }
+
+    $relativePaths = [string[]]@($filesByRelativePath.Keys)
+    [System.Array]::Sort($relativePaths, [System.StringComparer]::Ordinal)
+    $orderedFiles = [System.Collections.Generic.List[string]]::new()
+    foreach ($relativePath in $relativePaths) {
+        $orderedFiles.Add($filesByRelativePath[$relativePath])
+    }
+    return @($orderedFiles)
+}
+
+# manifestをUTF-8 BOMなし、LF、相対path昇順のcanonical byte列として作る。
+function New-AcsDistributionManifestContent([string]$Root) {
+    $manifestLines = [System.Collections.Generic.List[string]]::new()
+    $manifestLines.Add($distributionManifestSchema)
+    foreach ($distributionFile in Get-AcsDistributionContractFiles $Root) {
+        $relativePath = Get-AcsDistributionRelativePath $Root $distributionFile
+        $fileHash = (Get-FileHash -LiteralPath $distributionFile -Algorithm SHA256).Hash.ToUpperInvariant()
+        $manifestLines.Add("$fileHash  $relativePath")
+    }
+    return [string]::Join("`n", [string[]]$manifestLines) + "`n"
+}
+
+# manifestが現在の配布file集合とcanonical byte単位で一致することを確認する。
+function Assert-AcsDistributionManifest([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    $manifestPath = Join-Path $normalizedRoot $distributionManifestName
+    Assert-NoReparseAncestor $manifestPath
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "ACS配布manifestがありません: $manifestPath"
+    }
+
+    $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+    $expectedBytes = $utf8WithoutBom.GetBytes((New-AcsDistributionManifestContent $normalizedRoot))
+    $actualBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+    if ($actualBytes.Length -ne $expectedBytes.Length) {
+        throw "ACS配布manifestが現在の配布内容と一致しません: $manifestPath"
+    }
+    for ($byteIndex = 0; $byteIndex -lt $actualBytes.Length; ++$byteIndex) {
+        if ($actualBytes[$byteIndex] -ne $expectedBytes[$byteIndex]) {
+            throw "ACS配布manifestが現在の配布内容と一致しません: $manifestPath"
+        }
+    }
+}
+
+# 完全な一時fileを同じdirectoryで作り、最後にmanifest名へ原子的に公開する。
+function Publish-AcsDistributionManifest([string]$Root) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    $manifestPath = Join-Path $normalizedRoot $distributionManifestName
+    $temporaryManifestPath = Join-Path $normalizedRoot (".$distributionManifestName." + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($temporaryManifestPath, (New-AcsDistributionManifestContent $normalizedRoot), $utf8WithoutBom)
+        Publish-FileAtomically $temporaryManifestPath $manifestPath
+        $temporaryManifestPath = ''
+    } finally {
+        if ($temporaryManifestPath -and (Test-Path -LiteralPath $temporaryManifestPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $temporaryManifestPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Assert-AcsDistributionManifest $normalizedRoot
+    $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+    Write-Host "    配布manifest完了 (SHA-256=$manifestHash)"
+}
+
+function Get-DistributionFileManifest([string]$Root, [string[]]$ExcludedRelativePaths = @()) {
+    $normalizedRoot = Get-NormalizedFullPath $Root
+    Assert-NoReparseSubtree $normalizedRoot
+
+    $rootPrefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+    $excludedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($excludedRelativePath in $ExcludedRelativePaths) {
+        $excludedPaths.Add($excludedRelativePath) | Out-Null
+    }
+    $manifest = @{}
+    foreach ($filePath in Get-RegularFilesWithoutReparse $normalizedRoot) {
+        if (-not $filePath.StartsWith(
+                $rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "配布manifestのfileがrootの外です: $filePath"
+        }
+        $relativePath = $filePath.Substring($rootPrefix.Length)
+        if ($excludedPaths.Contains($relativePath)) { continue }
         if ($manifest.ContainsKey($relativePath)) {
-            throw "配布 manifest に重複する file path があります: $relativePath"
+            throw "配布manifestに重複するfile pathがあります: $relativePath"
         }
         $manifest[$relativePath] = [pscustomobject]@{
-            Length = $file.Length
-            Sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            Length = (Get-Item -LiteralPath $filePath).Length
+            Sha256 = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
         }
     }
     return $manifest
 }
 
-function Assert-MirroredDistribution([string]$Source, [string]$Destination) {
-    $sourceManifest = Get-DistributionFileManifest $Source
-    $destinationManifest = Get-DistributionFileManifest $Destination
+function Assert-MirroredDistribution([string]$Source, [string]$Destination, [switch]$ExcludeDistributionManifest) {
+    $excludedPaths = if ($ExcludeDistributionManifest) { @($distributionManifestName) } else { @() }
+    $sourceManifest = Get-DistributionFileManifest $Source $excludedPaths
+    $destinationManifest = Get-DistributionFileManifest $Destination $excludedPaths
     if ($sourceManifest.Count -ne $destinationManifest.Count) {
         throw ("deploy 後の file 数が一致しません: source={0}, destination={1}" -f
             $sourceManifest.Count, $destinationManifest.Count)
@@ -171,6 +393,39 @@ function Assert-MirroredDistribution([string]$Source, [string]$Destination) {
             throw "deploy 後の SHA-256 が一致しません: $relativePath"
         }
     }
+}
+
+# payloadの完全一致を確認した後だけ、named manifestを配置先へ原子的に公開する。
+function Publish-MirroredDistribution([string]$Source, [string]$Destination) {
+    $normalizedSource = Get-NormalizedFullPath $Source
+    $normalizedDestination = Get-NormalizedFullPath $Destination
+    Assert-NoReparseSubtree $normalizedSource
+    Assert-NoReparseSubtree $normalizedDestination
+    Assert-AcsDistributionManifest $normalizedSource
+
+    & robocopy $normalizedSource $normalizedDestination /MIR /XF $distributionManifestName /XJ /R:0 /W:0 /NJH /NJS /NDL /NFL /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopyに失敗しました ($LASTEXITCODE)" }
+    $global:LASTEXITCODE = 0
+
+    Assert-NoReparseSubtree $normalizedDestination
+    Assert-MirroredDistribution $normalizedSource $normalizedDestination -ExcludeDistributionManifest
+
+    $sourceManifestPath = Join-Path $normalizedSource $distributionManifestName
+    $destinationManifestPath = Join-Path $normalizedDestination $distributionManifestName
+    $temporaryManifestPath = Join-Path $normalizedDestination (".$distributionManifestName." + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        Copy-Item -LiteralPath $sourceManifestPath -Destination $temporaryManifestPath
+        Publish-FileAtomically $temporaryManifestPath $destinationManifestPath
+        $temporaryManifestPath = ''
+    } finally {
+        if ($temporaryManifestPath -and (Test-Path -LiteralPath $temporaryManifestPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $temporaryManifestPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Assert-NoReparseSubtree $normalizedDestination
+    Assert-MirroredDistribution $normalizedSource $normalizedDestination
+    Assert-AcsDistributionManifest $normalizedDestination
 }
 
 function Assert-ExpectedFailure([scriptblock]$Action, [string]$Name) {
@@ -266,6 +521,186 @@ function Invoke-PipelineSelfTest {
         Assert-ExpectedFailure {
             Assert-MirroredDistribution $mirrorSource $mirrorDestination
         } 'extra deploy file'
+
+        $manifestSource = Join-Path $testDirectory 'manifest-source'
+        $debugManifestDirectory = Join-Path $manifestSource 'lib\x64\Debug'
+        $releaseManifestDirectory = Join-Path $manifestSource 'lib\x64\Release'
+        $manifestExampleDirectory = Join-Path $manifestSource 'examples'
+        New-Item -ItemType Directory -Force -Path $debugManifestDirectory | Out-Null
+        New-Item -ItemType Directory -Force -Path $releaseManifestDirectory | Out-Null
+        New-Item -ItemType Directory -Force -Path $manifestExampleDirectory | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $manifestSource 'README.md'), 'fixture-readme')
+        [System.IO.File]::WriteAllText((Join-Path $manifestSource 'acs.h'), 'fixture-header')
+        [System.IO.File]::WriteAllText((Join-Path $manifestExampleDirectory 'build_example.cmd'), 'fixture-build')
+        [System.IO.File]::WriteAllText((Join-Path $manifestExampleDirectory 'check.cpp'), 'fixture-source')
+        $configurationFixtures = @(
+            [pscustomobject]@{ Name = 'Debug'; Directory = $debugManifestDirectory }
+            [pscustomobject]@{ Name = 'Release'; Directory = $releaseManifestDirectory }
+        )
+        foreach ($configurationFixture in $configurationFixtures) {
+            foreach ($libraryName in $distributionLibraryNames) {
+                $fixtureContent = "$($configurationFixture.Name)-$libraryName"
+                if ($libraryName -eq 'acs.lib' -and $configurationFixture.Name -eq 'Debug') {
+                    $fixtureContent = 'ABCD'
+                }
+                [System.IO.File]::WriteAllText((Join-Path $configurationFixture.Directory $libraryName), $fixtureContent)
+            }
+        }
+
+        Publish-AcsDistributionManifest $manifestSource
+        Assert-AcsDistributionManifest $manifestSource
+        $manifestPath = Join-Path $manifestSource $distributionManifestName
+        $manifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+        if (($manifestBytes.Length -ge 3 -and $manifestBytes[0] -eq 0xEF -and $manifestBytes[1] -eq 0xBB -and $manifestBytes[2] -eq 0xBF) -or (@($manifestBytes) -contains [byte]0x0D) -or $manifestBytes[$manifestBytes.Length - 1] -ne 0x0A) {
+            throw "self-testのmanifest改行またはUTF-8 BOM契約が一致しません"
+        }
+        $manifestText = [System.IO.File]::ReadAllText($manifestPath, [System.Text.UTF8Encoding]::new($false))
+        $manifestLines = @($manifestText -split "`n")
+        $actualManifestPaths = [System.Collections.Generic.List[string]]::new()
+        for ($lineIndex = 1; $lineIndex -lt $manifestLines.Count - 1; ++$lineIndex) {
+            $manifestMatch = [regex]::Match($manifestLines[$lineIndex], '^[0-9A-F]{64}  ([^ ].*)$')
+            if (-not $manifestMatch.Success) {
+                throw "self-testのmanifest entry形式が一致しません"
+            }
+            $actualManifestPaths.Add($manifestMatch.Groups[1].Value)
+        }
+        $expectedManifestPaths = [System.Collections.Generic.List[string]]::new()
+        $expectedManifestPaths.Add('acs.h')
+        foreach ($configurationName in @('Debug', 'Release')) {
+            foreach ($libraryName in $distributionLibraryNames) {
+                $expectedManifestPaths.Add("lib/x64/$configurationName/$libraryName")
+            }
+        }
+        $expectedManifestPaths.Sort([System.StringComparer]::Ordinal)
+        if ($actualManifestPaths.Count -ne $distributionContractFileCount) {
+            throw "self-testのmanifest entry数が29件ではありません"
+        }
+        if ([string]::Join("`n", [string[]]$actualManifestPaths) -cne [string]::Join("`n", [string[]]$expectedManifestPaths)) {
+            throw "self-testのmanifest path順序が一致しません"
+        }
+
+        $validManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+        [System.IO.File]::WriteAllText($manifestPath, "$distributionManifestSchema`n" + ('0' * 64) + "  acs.h`n", [System.Text.UTF8Encoding]::new($false))
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'tampered distribution manifest'
+        [System.IO.File]::WriteAllBytes($manifestPath, $validManifestBytes)
+
+        Remove-Item -LiteralPath $manifestPath -Force
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'missing distribution manifest'
+        [System.IO.File]::WriteAllBytes($manifestPath, $validManifestBytes)
+
+        $debugLibraryPath = Join-Path $debugManifestDirectory 'acs.lib'
+        [System.IO.File]::WriteAllText($debugLibraryPath, 'WXYZ')
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'stale distribution manifest hash'
+        [System.IO.File]::WriteAllText($debugLibraryPath, 'ABCD')
+        $staleLibraryPath = Join-Path $releaseManifestDirectory 'stale.lib'
+        [System.IO.File]::WriteAllText($staleLibraryPath, 'stale')
+        Assert-ExpectedFailure {
+            Assert-AcsDistributionManifest $manifestSource
+        } 'stale distribution manifest file set'
+        Remove-Item -LiteralPath $staleLibraryPath -Force
+
+        $outsideLibraryPath = Join-Path $manifestSource 'stale.lib'
+        [System.IO.File]::WriteAllText($outsideLibraryPath, 'stale')
+        Assert-ExpectedFailure {
+            Publish-AcsDistributionManifest $manifestSource
+        } 'unexpected library outside canonical directories'
+        Remove-Item -LiteralPath $outsideLibraryPath -Force
+
+        $ignoredArtifactPath = Join-Path $manifestExampleDirectory 'check.exe'
+        [System.IO.File]::WriteAllText($ignoredArtifactPath, 'ignored')
+        Assert-ExpectedFailure {
+            Publish-AcsDistributionManifest $manifestSource
+        } 'unexpected ignored distribution artifact outside libraries'
+        Remove-Item -LiteralPath $ignoredArtifactPath -Force
+
+        $requiredExamplePath = Join-Path $manifestExampleDirectory 'check.cpp'
+        $requiredExampleBytes = [System.IO.File]::ReadAllBytes($requiredExamplePath)
+        Remove-Item -LiteralPath $requiredExamplePath -Force
+        Assert-ExpectedFailure {
+            Publish-AcsDistributionManifest $manifestSource
+        } 'missing required distribution example'
+        [System.IO.File]::WriteAllBytes($requiredExamplePath, $requiredExampleBytes)
+
+        $missingAdjacentLibraryPath = Join-Path $releaseManifestDirectory 'Diligent-Common.lib'
+        $missingAdjacentLibraryBytes = [System.IO.File]::ReadAllBytes($missingAdjacentLibraryPath)
+        Remove-Item -LiteralPath $missingAdjacentLibraryPath -Force
+        Assert-ExpectedFailure {
+            Publish-AcsDistributionManifest $manifestSource
+        } 'missing adjacent distribution library'
+        [System.IO.File]::WriteAllBytes($missingAdjacentLibraryPath, $missingAdjacentLibraryBytes)
+        Assert-AcsDistributionManifest $manifestSource
+
+        $manifestDestination = Join-Path $testDirectory 'manifest-destination'
+        Publish-MirroredDistribution $manifestSource $manifestDestination
+        Assert-MirroredDistribution $manifestSource $manifestDestination
+        Assert-AcsDistributionManifest $manifestDestination
+
+        $destinationManifestPath = Join-Path $manifestDestination $distributionManifestName
+        $destinationManifestHashBefore = (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash
+        $destinationDebugLibraryPath = Join-Path $manifestDestination 'lib\x64\Debug\acs.lib'
+        [System.IO.File]::WriteAllText($debugLibraryPath, 'WXYZ')
+        $matchingTimestamp = [DateTime]::UtcNow.AddMinutes(-10)
+        [System.IO.File]::SetLastWriteTimeUtc($debugLibraryPath, $matchingTimestamp)
+        [System.IO.File]::SetLastWriteTimeUtc($destinationDebugLibraryPath, $matchingTimestamp)
+        Publish-AcsDistributionManifest $manifestSource
+        Assert-ExpectedFailure {
+            Publish-MirroredDistribution $manifestSource $manifestDestination
+        } 'same-size same-time skipped payload'
+        if ((Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash -cne $destinationManifestHashBefore -or [System.IO.File]::ReadAllText($destinationDebugLibraryPath) -cne 'ABCD') {
+            throw "self-testのpayload不一致失敗が旧manifestまたは配置先fileを変更しました"
+        }
+
+        [System.IO.File]::WriteAllText($debugLibraryPath, 'ABCD')
+        Publish-AcsDistributionManifest $manifestSource
+        Publish-MirroredDistribution $manifestSource $manifestDestination
+
+        $manifestHashBeforeLockedUpdate = (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash
+        $manifestLock = [System.IO.File]::Open($destinationManifestPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        try {
+            Assert-ExpectedFailure {
+                Publish-MirroredDistribution $manifestSource $manifestDestination
+            } 'parallel locked manifest update'
+        } finally {
+            $manifestLock.Dispose()
+        }
+        if ($manifestHashBeforeLockedUpdate -cne (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash) {
+            throw "self-testの並列manifest更新が既存内容を変更しました"
+        }
+
+        $junctionTarget = Join-Path $testDirectory 'junction-target'
+        $junctionPath = Join-Path $manifestDestination 'junction-probe'
+        New-Item -ItemType Directory -Force -Path $junctionTarget | Out-Null
+        $junctionSentinel = Join-Path $junctionTarget 'sentinel.txt'
+        [System.IO.File]::WriteAllText($junctionSentinel, 'outside')
+        & cmd.exe /d /c ('mklink /J "{0}" "{1}"' -f $junctionPath, $junctionTarget) | Out-Null
+        if ($LASTEXITCODE -ne 0 -or -not (Test-ReparsePoint $junctionPath)) {
+            throw "self-testのjunction作成に失敗しました"
+        }
+        try {
+            $manifestHashBeforeJunction = (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash
+            Assert-ExpectedFailure {
+                Publish-MirroredDistribution $manifestSource $manifestDestination
+            } 'destination subtree junction'
+            if (-not (Test-Path -LiteralPath $junctionSentinel -PathType Leaf) -or [System.IO.File]::ReadAllText($junctionSentinel) -cne 'outside' -or $manifestHashBeforeJunction -cne (Get-FileHash -LiteralPath $destinationManifestPath -Algorithm SHA256).Hash) {
+                throw "self-testのjunction拒否がroot外fileまたは旧manifestを変更しました"
+            }
+        } finally {
+            if (Test-Path -LiteralPath $junctionPath) {
+                [System.IO.Directory]::Delete($junctionPath)
+            }
+        }
+
+        $remainingManifestTemporaries = @(Get-ChildItem -LiteralPath $manifestDestination -File -Filter (".$distributionManifestName.*.tmp"))
+        if ($remainingManifestTemporaries.Count -ne 0) {
+            throw "self-testのmanifest一時fileが残っています"
+        }
+        Write-Host 'acs_distribution_manifest_self_test=ok cases=canonical,tamper,missing,stale,extra,partial,skip,reader_lock,junction,mirror'
     } finally {
         Remove-Item -LiteralPath $testDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -275,6 +710,18 @@ function Invoke-PipelineSelfTest {
 if ($SelfTest) {
     Invoke-PipelineSelfTest
     return
+}
+
+# 単一構成の更新では既存manifestを先に失効させ、公開可能なSDKと誤認させない。
+if (-not $isCompleteDistribution) {
+    $staleManifestPath = Join-Path $dist $distributionManifestName
+    Assert-NoReparseAncestor $staleManifestPath
+    if (Test-Path -LiteralPath $staleManifestPath) {
+        if (-not (Test-Path -LiteralPath $staleManifestPath -PathType Leaf)) {
+            throw "既存の配布manifestが通常fileではありません: $staleManifestPath"
+        }
+        Remove-Item -LiteralPath $staleManifestPath -Force
+    }
 }
 
 # vswhere から lib.exe を見つける。
@@ -375,11 +822,7 @@ foreach ($cfg in $Configs) {
     # consumer の #pragma comment(lib,...)（amalgamate.py の banner）が自動 link
     # できるようにする。FSky/FAtmosphere が呼ぶ CreateRhiComputePipeline と
     # device factory GetEngineFactoryD3D12 は Diligent 側だけに実装される。
-    $diligentNames = @(
-        'Diligent-Archiver-static','Diligent-BasicPlatform','Diligent-Common',
-        'Diligent-GraphicsAccessories','Diligent-GraphicsEngine','Diligent-GraphicsEngineD3D12-static',
-        'Diligent-GraphicsEngineD3DBase','Diligent-GraphicsEngineNextGenBase','Diligent-GraphicsTools',
-        'Diligent-Primitives','Diligent-ShaderTools','Diligent-Win32Platform','xxhash')
+    $diligentNames = $distributionAdjacentLibraryNames
     $depsRoot = Join-Path $build '_deps'
     $diligentSources = @{}
     foreach ($n in $diligentNames) {
@@ -435,15 +878,19 @@ foreach ($cfg in $Configs) {
     Write-Host "    Diligent/xxhash library $($diligentNames.Count)/$($diligentNames.Count) 件を同梱"
 }
 
-# 3) 任意で dist/ を consumer 用の場所へ mirror する（例: C:\acs）。
+# 3) 両構成を同時生成した場合だけnamed manifestを原子的に公開する。
+if ($isCompleteDistribution) {
+    Write-Host "==> dist/$distributionManifestName を生成"
+    Publish-AcsDistributionManifest $dist
+} else {
+    Write-Host "==> 単一構成のlocal staging完了（named manifestは未公開）"
+}
+
+# 4) 任意で dist/ を consumer 用の場所へ mirror する（例: C:\acs）。
 if ($Deploy) {
     $Deploy = Assert-SafeDeployPath $Deploy
     Write-Host "==> dist/ を配置 -> $Deploy"
-    & robocopy $dist $Deploy /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
-    # robocopy の exit code は 0..7 が成功、8 以上が実エラー。
-    if ($LASTEXITCODE -ge 8) { throw "robocopy に失敗しました ($LASTEXITCODE)" }
-    $global:LASTEXITCODE = 0
-    Assert-MirroredDistribution $dist $Deploy
-    Write-Host "    配置完了 (file 集合・size・SHA-256 一致)"
+    Publish-MirroredDistribution $dist $Deploy
+    Write-Host "    配置完了 (named manifest・file集合・size・SHA-256一致)"
 }
 Write-Host "完了"
