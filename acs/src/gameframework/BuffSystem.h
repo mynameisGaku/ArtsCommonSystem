@@ -1,98 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R / I — FBuffSystem (状態異常 / バフ / デバフ管理)
-//
-// RPG / アクション / ローグライク等で頻出する「複数 owner (= キャラ) に対して
-// 複数の時間制限付き効果 (バフ / デバフ) を載せて、tick で進行 + 期限切れ
-// 通知をする」マネージャ。`FEffectSystem` (Pillar I) が「画面の Flash /
-// Shake のような視覚演出」だったのに対し、本クラスは「キャラに紐付くゲームロジ
-// ック上の状態」を担当する。実際のステータス計算 (= AttackUp バフが攻撃力に
-// 何倍を掛けるか) は呼出側 (= キャラクタコンポーネント) が `AllBuffsOfOwner()`
-// で列挙して自分で行う設計 — 本クラスは「いつ、どの owner に、どの buff が、
-// 何 stack あるか、残り何秒か」だけを真実として保持する。
-//
-// 設計選択 (Pillar R/I — FBuffSystem):
-//   ・**FBuffOwnerId は 24bit index + 8bit gen の packed handle**:
-//     `FNodeId` / `FEmitterHandle` / `FTimerHandle` と同一規約。`m_Packed == 0` を
-//     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
-//     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
-//   ・**owner ごとに sparse な buff 配列**: FOwnerSlot 内に `TArray<FBuffInstance>`
-//     を持つ。owner 数は数百、各 owner の buff 数は通常 1〜10 程度を想定。
-//     線形検索で十分。SoA にして「全 owner 横断で同じ buff_id を集める」用途は
-//     現状無いので、AoS の単純さを優先。
-//   ・**registry は `TArray<FBuffDef>`**: FBuffDef はゲーム起動時に一括 Register
-//     される静的データ想定。id は const char* で文字列リテラルを参照する想定
-//     (`<string>` 禁止、所有しない、長寿命を caller が保証)。
-//   ・**EBuffStackPolicy 3 種**:
-//       - Refresh : 既存があれば remaining_sec を duration_sec で上書き (stack は据置)。
-//                   毒系の「重ねがけで時間延長」のような感覚。
-//       - Stack   : 既存があれば stack++ (max_stack で clamp)、remaining_sec も
-//                   reset (= 強化系で重ねたら最新タイマで進める方が UX 上自然)。
-//       - Ignore  : 既存があれば何もしない (= 「最初の 1 枚しか効かない」系)。
-//     どれを採るかはバフ定義ごとに固定 (= ApplyBuff 呼出側の都合で変える物では無い)。
-//   ・**tick_interval_sec > 0 で tick callback を発火**: Regen / Poison / Burn の
-//     ように「N 秒ごとに HP を増減する」用途。tick_interval_sec <= 0 のバフは
-//     「一発掛けっぱなしで終わるまで持続」(= AttackUp / DefenseUp / Shield 等)
-//     と解釈し、tick callback は発火しない。
-//   ・**callback は 1 個固定 + user pointer**: STL `<functional>` 禁止のため、
-//     C 関数ポインタ + void*。複数 listener が必要なら呼出側で fan-out。
-//     tick / expire は別々の callback を持ち、それぞれ独立に attach/detach 可能。
-//     callback は内部 mutation 中 (Tick 内) に発火するので、コールバック中に
-//     ApplyBuff / RemoveBuff / DestroyOwner を呼ぶのは非推奨 (= UB の温床)。
-//     必要なら呼出側で「あとで実行するキュー」を持ってフレーム境界で処理すること。
-//   ・**Tick は dt > 0 のみ進める**: 負 dt / 0 dt は no-op。dt が大きい場合
-//     (= フレーム droplet 等) でも tick_interval_sec を複数回踏むことがあり、
-//     その回数分 callback を発火する (= 1 フレで 3 回毒ダメージが入ることもある)。
-//     これは「frame skip でダメージが消える」より「正しく被弾する」方が
-//     ゲームロジック上素直という判断。
-//   ・**expire は Tick の最後にまとめて発火**: ループ中に TArray を圧縮すると
-//     インデックスがずれて bug の温床になる。残寿命 <= 0 になった buff を
-//     swap-and-pop で除去しつつ、その buff の id を一時バッファに記録 → 全
-//     除去完了後にコールバックを呼ぶ流れ。コールバック中に owner や buff が
-//     変化しても安全。
-//   ・**非コピー・非ムーブ**: 内部 TArray<FOwnerSlot> がさらに TArray<FBuffInstance>
-//     を持つ二段ネスト構造で、ポインタ参照や AllBuffsOfOwner で生バッファを
-//     返す API があるため。ムーブで実体アドレスが変わると外部参照が破綻する。
-//   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
-//
-// 使い方:
-//   FBuffSystem bs;
-//
-//   // 1) バフ定義を起動時に一括登録 (id は文字列リテラル想定)
-//   bs.RegisterBuff({
-//       /*id*/             "poison.snake",
-//       /*kind*/           EBuffKind::Poison,
-//       /*duration_sec*/   8.0f,
-//       /*tick_interval*/  1.0f,        // 1 秒ごとに tick callback
-//       /*magnitude*/      5.0f,        // 1 tick で 5 ダメージ
-//       /*stack_policy*/   EBuffStackPolicy::Stack,
-//       /*max_stack*/      5,
-//       /*is_debuff*/      true,
-//   });
-//
-//   // 2) owner を発行 (= キャラ初期化時)
-//   FBuffOwnerId player = bs.CreateOwner();
-//
-//   // 3) tick / expire コールバックで実ロジックを橋渡し
-//   bs.SetOnTickCallback(&MyOnBuffTick, &game_ctx);    // HP 増減等
-//   bs.SetOnExpireCallback(&MyOnBuffExpire, &game_ctx);
-//
-//   // 4) ゲーム中に発動
-//   bs.ApplyBuff(player, "poison.snake");
-//
-//   // 5) 毎フレ
-//   bs.Tick(dt);
-//
-//   // 6) AttackUp 等の「持続中の効果倍率」を毎フレ取得する想定:
-//   u32 n = 0;
-//   const FBuffInstance* list = bs.AllBuffsOfOwner(player, n);
-//   for (u32 i = 0; i < n; ++i) { /* 計算 */ }
-//
-// 範囲外 (将来拡張):
-//   ・「他の特定 buff と共存できない (Stun は Freeze を消す)」等の相互作用 → 上位
-//     ロジックで AllBuffsOfOwner + RemoveBuff を組合せて実現する。
-//   ・アイコン / 表示色 / 説明文 → 呼出側の UI 層で別 table を引く。
-//   ・永続化 → Pillar J Serialize に委譲。本クラスは起動毎にリセット。
-//   ・サーバ側検証 → Pillar V Backend に委譲。
 #pragma once
 
 #include "container/Array.h"
@@ -214,7 +120,7 @@ struct FBuffInstance {
  *
  * @details
  * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。FNodeId /
- * FEmitterHandle / FTimerHandle と同一規約。
+ * FEmitterHandle / FSceneTimerHandle と同一規約。
  */
 struct FBuffOwnerId {
     /** packed 表現 (上位 8bit = gen、下位 24bit = index)。0 は invalid。 */

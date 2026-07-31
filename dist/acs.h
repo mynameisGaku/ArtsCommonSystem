@@ -34044,100 +34044,6 @@ private:
 
 // ===================== gameframework/BuffSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R / I — FBuffSystem (状態異常 / バフ / デバフ管理)
-//
-// RPG / アクション / ローグライク等で頻出する「複数 owner (= キャラ) に対して
-// 複数の時間制限付き効果 (バフ / デバフ) を載せて、tick で進行 + 期限切れ
-// 通知をする」マネージャ。`FEffectSystem` (Pillar I) が「画面の Flash /
-// Shake のような視覚演出」だったのに対し、本クラスは「キャラに紐付くゲームロジ
-// ック上の状態」を担当する。実際のステータス計算 (= AttackUp バフが攻撃力に
-// 何倍を掛けるか) は呼出側 (= キャラクタコンポーネント) が `AllBuffsOfOwner()`
-// で列挙して自分で行う設計 — 本クラスは「いつ、どの owner に、どの buff が、
-// 何 stack あるか、残り何秒か」だけを真実として保持する。
-//
-// 設計選択 (Pillar R/I — FBuffSystem):
-//   ・**FBuffOwnerId は 24bit index + 8bit gen の packed handle**:
-//     `FNodeId` / `FEmitterHandle` / `FTimerHandle` と同一規約。`m_Packed == 0` を
-//     invalid とし、gen は常に 1 以上で配る (0 は「未使用 slot」を意味する)。
-//     これにより DestroyOwner 後の stale handle を gen 不一致で確実に弾ける。
-//   ・**owner ごとに sparse な buff 配列**: FOwnerSlot 内に `TArray<FBuffInstance>`
-//     を持つ。owner 数は数百、各 owner の buff 数は通常 1〜10 程度を想定。
-//     線形検索で十分。SoA にして「全 owner 横断で同じ buff_id を集める」用途は
-//     現状無いので、AoS の単純さを優先。
-//   ・**registry は `TArray<FBuffDef>`**: FBuffDef はゲーム起動時に一括 Register
-//     される静的データ想定。id は const char* で文字列リテラルを参照する想定
-//     (`<string>` 禁止、所有しない、長寿命を caller が保証)。
-//   ・**EBuffStackPolicy 3 種**:
-//       - Refresh : 既存があれば remaining_sec を duration_sec で上書き (stack は据置)。
-//                   毒系の「重ねがけで時間延長」のような感覚。
-//       - Stack   : 既存があれば stack++ (max_stack で clamp)、remaining_sec も
-//                   reset (= 強化系で重ねたら最新タイマで進める方が UX 上自然)。
-//       - Ignore  : 既存があれば何もしない (= 「最初の 1 枚しか効かない」系)。
-//     どれを採るかはバフ定義ごとに固定 (= ApplyBuff 呼出側の都合で変える物では無い)。
-//   ・**tick_interval_sec > 0 で tick callback を発火**: Regen / Poison / Burn の
-//     ように「N 秒ごとに HP を増減する」用途。tick_interval_sec <= 0 のバフは
-//     「一発掛けっぱなしで終わるまで持続」(= AttackUp / DefenseUp / Shield 等)
-//     と解釈し、tick callback は発火しない。
-//   ・**callback は 1 個固定 + user pointer**: STL `<functional>` 禁止のため、
-//     C 関数ポインタ + void*。複数 listener が必要なら呼出側で fan-out。
-//     tick / expire は別々の callback を持ち、それぞれ独立に attach/detach 可能。
-//     callback は内部 mutation 中 (Tick 内) に発火するので、コールバック中に
-//     ApplyBuff / RemoveBuff / DestroyOwner を呼ぶのは非推奨 (= UB の温床)。
-//     必要なら呼出側で「あとで実行するキュー」を持ってフレーム境界で処理すること。
-//   ・**Tick は dt > 0 のみ進める**: 負 dt / 0 dt は no-op。dt が大きい場合
-//     (= フレーム droplet 等) でも tick_interval_sec を複数回踏むことがあり、
-//     その回数分 callback を発火する (= 1 フレで 3 回毒ダメージが入ることもある)。
-//     これは「frame skip でダメージが消える」より「正しく被弾する」方が
-//     ゲームロジック上素直という判断。
-//   ・**expire は Tick の最後にまとめて発火**: ループ中に TArray を圧縮すると
-//     インデックスがずれて bug の温床になる。残寿命 <= 0 になった buff を
-//     swap-and-pop で除去しつつ、その buff の id を一時バッファに記録 → 全
-//     除去完了後にコールバックを呼ぶ流れ。コールバック中に owner や buff が
-//     変化しても安全。
-//   ・**非コピー・非ムーブ**: 内部 TArray<FOwnerSlot> がさらに TArray<FBuffInstance>
-//     を持つ二段ネスト構造で、ポインタ参照や AllBuffsOfOwner で生バッファを
-//     返す API があるため。ムーブで実体アドレスが変わると外部参照が破綻する。
-//   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
-//
-// 使い方:
-//   FBuffSystem bs;
-//
-//   // 1) バフ定義を起動時に一括登録 (id は文字列リテラル想定)
-//   bs.RegisterBuff({
-//       /*id*/             "poison.snake",
-//       /*kind*/           EBuffKind::Poison,
-//       /*duration_sec*/   8.0f,
-//       /*tick_interval*/  1.0f,        // 1 秒ごとに tick callback
-//       /*magnitude*/      5.0f,        // 1 tick で 5 ダメージ
-//       /*stack_policy*/   EBuffStackPolicy::Stack,
-//       /*max_stack*/      5,
-//       /*is_debuff*/      true,
-//   });
-//
-//   // 2) owner を発行 (= キャラ初期化時)
-//   FBuffOwnerId player = bs.CreateOwner();
-//
-//   // 3) tick / expire コールバックで実ロジックを橋渡し
-//   bs.SetOnTickCallback(&MyOnBuffTick, &game_ctx);    // HP 増減等
-//   bs.SetOnExpireCallback(&MyOnBuffExpire, &game_ctx);
-//
-//   // 4) ゲーム中に発動
-//   bs.ApplyBuff(player, "poison.snake");
-//
-//   // 5) 毎フレ
-//   bs.Tick(dt);
-//
-//   // 6) AttackUp 等の「持続中の効果倍率」を毎フレ取得する想定:
-//   u32 n = 0;
-//   const FBuffInstance* list = bs.AllBuffsOfOwner(player, n);
-//   for (u32 i = 0; i < n; ++i) { /* 計算 */ }
-//
-// 範囲外 (将来拡張):
-//   ・「他の特定 buff と共存できない (Stun は Freeze を消す)」等の相互作用 → 上位
-//     ロジックで AllBuffsOfOwner + RemoveBuff を組合せて実現する。
-//   ・アイコン / 表示色 / 説明文 → 呼出側の UI 層で別 table を引く。
-//   ・永続化 → Pillar J Serialize に委譲。本クラスは起動毎にリセット。
-//   ・サーバ側検証 → Pillar V Backend に委譲。
 
 
 namespace acs::game {
@@ -34256,7 +34162,7 @@ struct FBuffInstance {
  *
  * @details
  * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。FNodeId /
- * FEmitterHandle / FTimerHandle と同一規約。
+ * FEmitterHandle / FSceneTimerHandle と同一規約。
  */
 struct FBuffOwnerId {
     /** packed 表現 (上位 8bit = gen、下位 24bit = index)。0 は invalid。 */
@@ -64120,109 +64026,102 @@ private:
 } // namespace acs::game
 
 
-// ===================== gameframework/SceneTimer.h =====================
+// ===================== gameframework/SceneTimerHandle.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSceneTimer (scene-scoped 遅延コールバック)
-//
-// シーンスコープの SetTimeout / SetInterval。FScene 死亡で自動破棄される点が
-// 既存 `acs::FTimerManager` (event/Timer.h、グローバル寿命) との違い。各 FScene が
-// 自分の FSceneTimer をメンバ保持し OnUpdate から Tick(dt) を呼ぶ想定。
-//
-// 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FSceneTimer m_Timers;
-//       acs::game::FTimerHandle m_SpawnTimer;
-//
-//       void OnEnter() noexcept override {
-//           m_SpawnTimer = m_Timers.SetInterval(2.0f, &FGameplayScene::SpawnEnemy, this);
-//           m_Timers.SetTimeout(10.0f, &FGameplayScene::EndWave, this);
-//       }
-//       void OnUpdate(f32 dt) noexcept override { m_Timers.Tick(dt); }
-//       void OnExit() noexcept override { m_Timers.CancelAll(); }
-//
-//       static void SpawnEnemy(void* self) noexcept { /* ... */ }
-//       static void EndWave(void* self) noexcept    { /* ... */ }
-//   };
-//
-// 設計:
-//   ・コールバックは `void(*)(void*) noexcept` 関数ポインタ (std::function 不使用)。
-//   ・Handle は 24bit index + 8bit gen の packed u32。stale 参照を検出可能。
-//   ・delay/period <= 0 は invalid handle 返却 (即時実行はしない)。
-//   ・cb == nullptr は invalid handle 返却。
-//   ・Tick 内のコールバック発火順は登録順。1 Tick で複数回 fire する Interval は、
-//     `elapsed - period` を carry して同 Tick 内で連続発火 (大 dt 対策)。
-//   ・非コピー・非ムーブ。Tick 中の新規 SetTimeout/SetInterval は次 Tick から有効。
 
 
 namespace acs::game {
 
 /**
- * タイマーを識別する packed handle (24bit index + 8bit generation)。
+ * FSceneTimer が管理するタイマーを識別する 32bit の世代付きハンドル。
  *
- * @details
- * m_Packed == 0 を invalid と定義する (generation は active 化時に常に 1 以上に
- * なる)。slot 再利用後の stale 参照は generation 不一致で検出できる。
+ * @details 下位 24bit にスロット番号、上位 8bit に世代番号を保持する。
+ * m_Packed == 0 を無効値とし、スロット再利用後の古い参照は世代番号で拒否する。
  */
-struct FTimerHandle {
-    /** index と generation を詰めた 32bit 値 (0 = invalid)。 */
+struct FSceneTimerHandle {
+    /** スロット番号と世代番号を詰めた値。0 は無効値。 */
     u32 m_Packed = 0u;
 
-    /**
-     * handle が有効値かを返す。
-     *
-     * @return m_Packed が非 0 なら true。
-     */
-    bool IsValid() const noexcept { return m_Packed != 0u; }
-
-    /** index 部に割り当てるビット数。 */
+    /** スロット番号に割り当てるビット数。 */
     static constexpr u32 kIndexBits = 24u;
 
-    /** index 部を取り出すマスク (0x00FFFFFF)。 */
-    static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u; // 0x00FFFFFF
+    /** スロット番号を取り出すマスク。 */
+    static constexpr u32 kIndexMask = (1u << kIndexBits) - 1u;
 
-    /** index として表現できる最大値 (= 16777215 スロット)。 */
-    static constexpr u32 kMaxIndex  = kIndexMask;              // 16777215 個
+    /** スロット番号の予約済み上限値。 */
+    static constexpr u32 kMaxIndex = kIndexMask;
 
     /**
-     * index と generation から handle を組み立てる。
+     * ハンドルが無効値でないかを返す。
      *
-     * @param index スロット index (下位 24bit に格納、上位は切り捨て)。
-     * @param gen generation (上位 8bit に格納)。
-     * @return 詰めた FTimerHandle。
+     * @return m_Packed が 0 でなければ true。
      */
-    static FTimerHandle Pack(u32 index, u8 gen) noexcept {
-        FTimerHandle h;
-        h.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
-        return h;
+    constexpr bool IsValid() const noexcept
+    {
+        return m_Packed != 0u;
     }
 
     /**
-     * handle から index 部を取り出す。
+     * スロット番号と世代番号からハンドルを組み立てる。
      *
-     * @return スロット index (下位 24bit)。
+     * @param index 下位 24bit に格納するスロット番号。
+     * @param gen 上位 8bit に格納する世代番号。
+     * @return 指定値を詰めたハンドル。
      */
-    u32 Index() const noexcept { return m_Packed & kIndexMask; }
+    static constexpr FSceneTimerHandle Pack(u32 index, u8 gen) noexcept
+    {
+        /** 組み立てるハンドル。 */
+        FSceneTimerHandle handle{};
+        handle.m_Packed = (static_cast<u32>(gen) << kIndexBits) | (index & kIndexMask);
+        return handle;
+    }
 
     /**
-     * handle から generation 部を取り出す。
+     * ハンドルからスロット番号を取り出す。
      *
-     * @return generation (上位 8bit)。
+     * @return 下位 24bit のスロット番号。
      */
-    u8  Gen()   const noexcept { return static_cast<u8>(m_Packed >> kIndexBits); }
+    constexpr u32 Index() const noexcept
+    {
+        return m_Packed & kIndexMask;
+    }
+
+    /**
+     * ハンドルから世代番号を取り出す。
+     *
+     * @return 上位 8bit の世代番号。
+     */
+    constexpr u8 Gen() const noexcept
+    {
+        return static_cast<u8>(m_Packed >> kIndexBits);
+    }
 };
+
+/**
+ * FSceneTimerHandle の旧ソース互換名。
+ *
+ * @details ACS 0.x の移行期間だけ残し、ACS 1.0 で削除する。削除条件は、リポジトリ内の
+ * 実利用と配布用 consumer の旧名利用が 0 件になり、移行案内を 1 release 継続したこと。
+ * 型名変更で FSceneTimer の修飾シンボルが変わるため binary ABI は維持しない。既存 consumer は
+ * ACS ライブラリと同時に再ビルドする必要がある。新規コードでは FSceneTimerHandle を使う。
+ */
+using FTimerHandle [[deprecated("ACS 1.0 で削除予定です。FSceneTimerHandle を使用してください。")]] = FSceneTimerHandle;
+
+} // namespace acs::game
+
+// ===================== gameframework/SceneTimer.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
 
 /** タイマー発火時に呼ぶ C 関数ポインタ型 (user pointer を 1 つ受け取る)。 */
 using TimerCallback = void(*)(void* user) noexcept;
 
 /**
- * シーンスコープの SetTimeout / SetInterval を提供する遅延コールバック管理。
+ * 呼び出し側が所有し、シーン寿命で遅延コールバックを管理する。
  *
- * @details
- * 各 FScene がメンバとして保持し OnUpdate から Tick(dt) を呼ぶ想定で、FScene 死亡で
- * 自動破棄される (グローバル寿命の FTimerManager との違い)。コールバックは
- * void(*)(void*) noexcept 関数ポインタで保持し、handle は 24bit index + 8bit gen
- * の packed u32 で stale 参照を検出可能。発火中の self 参照との競合を避けるため
- * 非コピー・非ムーブ。
+ * @details 所有するシーンが Tick を呼び、破棄時は登録済みタイマーも破棄する。
  */
 class FSceneTimer {
 public:
@@ -64252,7 +64151,7 @@ public:
      * @param user cb に渡すコンテキスト (この管理は所有しない)。
      * @return 登録したタイマーの handle (不正引数なら invalid)。
      */
-    FTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept;
+    FSceneTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept;
 
     /**
      * period_sec ごとに cb(user) を繰り返し実行するタイマーを登録する。
@@ -64263,7 +64162,7 @@ public:
      * @param user cb に渡すコンテキスト (この管理は所有しない)。
      * @return 登録したタイマーの handle (不正引数なら invalid)。
      */
-    FTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept;
+    FSceneTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept;
 
     /**
      * 指定 handle のタイマーを停止する。
@@ -64271,7 +64170,7 @@ public:
      * @param h 停止するタイマーの handle。
      * @return active を停止できたら true。stale または既に完了済みなら false。
      */
-    bool Cancel(FTimerHandle h) noexcept;
+    bool Cancel(FSceneTimerHandle h) noexcept;
 
     /** 全 active timer を停止する (コールバックは呼ばない)。 */
     void CancelAll() noexcept;
@@ -64282,7 +64181,7 @@ public:
      * @param h 調べるタイマーの handle。
      * @return active なら true (stale / 完了済みなら false)。
      */
-    bool IsActive(FTimerHandle h) const noexcept;
+    bool IsActive(FSceneTimerHandle h) const noexcept;
 
     /**
      * 現在 active なタイマーの数を返す。
@@ -64338,9 +64237,9 @@ private:
      *
      * @param index スロット index。
      * @param gen スロットの generation。
-     * @return 対応する FTimerHandle。
+     * @return 対応する FSceneTimerHandle。
      */
-    FTimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
+    FSceneTimerHandle MakeHandle(u32 index, u8 gen) const noexcept;
 
     /** タイマースロット配列 (active/inactive 混在)。 */
     TArray<FTimerEntry> m_Entries;
@@ -64849,83 +64748,6 @@ private:
 
 // ===================== gameframework/ParticleEffectSystem.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FParticleEffectSystem (軽量 sprite particle)
-//
-// 2D ゲーム向けの最小コスト sprite パーティクル。`FEffectSystem`
-// が「Flash / HitStop / Shake のような単発演出」を担うのに対し、本クラスは
-// 「emitter で粒子を放出し続ける」連続演出 (炎・煙・スパーク・吹き出しなど) を担う。
-//
-// 設計選択:
-//   ・**emitter は generational handle**: 24bit index + 8bit gen を packed した
-//      `FEmitterHandle`。`FSceneTimer::FTimerHandle` / `FTriggerWorld2D::FTriggerId` と
-//      同じ規約。slot 再利用後の stale 参照は IsValid + gen 一致で検出可能。
-//   ・**particle pool は固定容量**: `Init(max_particles)` で確保した後はリサイズ
-//      しない。リアルタイムループのフレーム落ちを避けるため、最悪ケースを上限と
-//      する保守的なポリシー。空き探索は `next_free` カーソル + 線形走査の
-//      ハイブリッド (大半のフレームで O(1)、最悪 O(N))。
-//   ・**描画は user 側**: 本クラスは描画 API を一切呼ばず、`AllParticles()` で
-//      `const FParticle*` を渡すのみ。FSpriteBatch / FDebugDraw / カスタム pipeline
-//      など、ユーザー側の描画戦略に依存しない (= テスト容易・headless 動作可)。
-//   ・**FRandom は内部 LCG**: `acs::game::FRandom` (xoshiro128**) には依存せず、
-//      FParticleEffectSystem は単一の `u32` state を持つ簡素な Linear Congruential
-//      Generator で十分。理由は (1) particle 用途は統計的品質要求が弱い (見た目で
-//      バラけていれば十分), (2) 外部 PRNG 状態と独立にしておくと determinism を
-//      議論しやすい (replay 再現で外部 PRNG が動いても particle 配列は影響しない),
-//      (3) ヘッダ依存を最小化できる。Numerical Recipes の LCG (a=1664525,
-//      c=1013904223) を採用。
-//   ・**lifetime 切れは pool に返却**: particle.age >= particle.lifetime で
-//      `m_Active[i] = 0`、`--m_ActiveParticles` で実質的にプールへ戻す。slot の
-//      物理 index は変えない (= 描画側がフレームをまたぐ参照を握っている可能性は
-//      無いが、内部での swap-and-pop も不要にして単純化)。
-//   ・**emit_rate は accumulator 方式**: `m_EmitAccum += emit_rate * dt` を加算し、
-//      整数部分だけ放出する。dt が小さくても累積で放出できるし、大 dt のときも
-//      欠落しない。ただし上限は「pool 空き数」でクランプ。
-//   ・**Burst は emit_rate と独立**: `Burst()` は burst_count 個を一気に放出。
-//      連射やヒット時のフラッシュ用。
-//   ・**非コピー・非ムーブ**: TPool 同様、ポインタを外部に渡す API があるため
-//      コピーで実体が分裂すると未定義動作になりやすい。明示的に削除。
-//   ・**全 noexcept**: ACS 規約。失敗は invalid handle / no-op で表現。
-//
-// 使い方:
-//   FParticleEmitterDef def{};
-//   def.color_start      = {1.0f, 0.6f, 0.1f};  // 橙
-//   def.color_end        = {0.5f, 0.0f, 0.0f};  // 暗赤
-//   def.lifetime_sec     = 0.8f;
-//   def.emit_rate_per_sec= 30.0f;
-//   def.burst_count      = 12.0f;
-//   def.speed_min        = 40.0f;
-//   def.speed_max        = 80.0f;
-//   def.scale_start      = 8.0f;
-//   def.scale_end        = 0.0f;
-//   def.gravity          = {0.0f, 60.0f};       // y 下方向加速度
-//
-//   FParticleEffectSystem fx;
-//   fx.Init(2048);
-//   auto h = fx.CreateEmitter(def, {200.0f, 300.0f});
-//
-//   // 毎フレーム:
-//   fx.Tick(dt);
-//
-//   // 描画 (ユーザー側):
-//   u32 n = 0;
-//   const FParticle* p = fx.AllParticles(n);
-//   for (u32 i = 0; i < n; ++i) {
-//       if (!p[i].IsAlive()) continue;
-//       // FSpriteBatch.Draw(p[i].position, current_scale, current_color);
-//   }
-//
-//   // 爆発:
-//   fx.Burst(h);
-//
-//   // emitter 破棄 (FScene 退場時など):
-//   fx.DestroyEmitter(h);
-//
-// 範囲外:
-//   ・テクスチャ参照 / アニメーション (sprite sheet)
-//   ・回転 / 角速度 / 角減衰
-//   ・3D 位置 (現状は 2D FVec2)
-//   ・curve-based size/color (現状は線形補間のみ)
-//   ・GPU particle (現状は CPU)
 
 
 namespace acs::game {

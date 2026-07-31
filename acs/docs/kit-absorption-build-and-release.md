@@ -15,7 +15,7 @@ Kit の機能は別の基盤として残さず、責務が同じものを ACS �
 | 領域 | 判定 | 完了条件 |
 |---|---|---|
 | TypedEvent | 統合中 | clean 統合作業中の typed-event 差分を独立レビューし、Debug/Release と配布物で閉じる |
-| Scene timer と Event timer | 責務調整中 | 所有者、handle 幅、保存値、callback 中変更の契約を比較し、同一責務だけを統合する |
+| Scene timer と Event timer | 責務分離済み | シーン寿命の `FSceneTimerHandle` は4byte、event寿命の `FTimerHandle` は8byteとして、所有者、保存値、0秒登録方針を別契約で固定する |
 | Ease の旧数値 ID | 統合中 | `FLegacyKitEaseIdCodec` で固定33値を正規 enum と相互変換し、独立レビュー、Debug/Release、直接・単一ヘッダ利用、配布物の検証後に完了へ移す |
 | Random snapshot | 未統合 | 既存 Random を正規実装として拡張し、乱数消費順と復元上限を固定する |
 | Fixed-step、Input options、Diagnostics | 未統合 | 既存モジュールとの責務比較後、機能単位で実装と試験を移す |

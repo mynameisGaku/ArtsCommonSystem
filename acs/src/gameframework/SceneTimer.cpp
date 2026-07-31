@@ -15,6 +15,29 @@
 
 namespace acs::game {
 
+namespace {
+
+/** 使用中スロット数から末尾追加時の番号を求め、予約済み上限を発行しない。 */
+constexpr u32 ResolveAppendSlotIndex(usize slot_count) noexcept
+{
+    if (slot_count >= static_cast<usize>(FSceneTimerHandle::kMaxIndex)) {
+        return FSceneTimerHandle::kMaxIndex;
+    }
+    return static_cast<u32>(slot_count);
+}
+
+/** 管理側が発行できる最後のスロット番号。 */
+constexpr u32 kLastIssuedSceneTimerIndex = FSceneTimerHandle::kMaxIndex - 1u;
+
+/** スロットで表現できる最後の世代番号。 */
+constexpr u8 kLastSceneTimerGeneration = static_cast<u8>(255u);
+
+static_assert(ResolveAppendSlotIndex(kLastIssuedSceneTimerIndex) == kLastIssuedSceneTimerIndex, "最後のシーンタイマースロットを発行できる必要があります");
+static_assert(ResolveAppendSlotIndex(FSceneTimerHandle::kMaxIndex) == FSceneTimerHandle::kMaxIndex, "予約済み上限値は発行してはいけません");
+static_assert(FSceneTimerHandle::Pack(kLastIssuedSceneTimerIndex, kLastSceneTimerGeneration).m_Packed == 0xFFFFFFFEu, "最後に発行可能なシーンタイマー値が変わりました");
+
+} // namespace
+
 /** inactive slot を再利用するか末尾に追加して空きスロット index を返す (上限到達で kMaxIndex)。 */
 u32 FSceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
@@ -24,26 +47,29 @@ u32 FSceneTimer::AcquireSlot() noexcept {
             return static_cast<u32>(i);
         }
     }
-    // 全 slot 使用中 → 末尾に追加。24bit index 上限を守る (= 16M timer/scene)。
-    if (n >= static_cast<usize>(FTimerHandle::kMaxIndex)) {
-        return FTimerHandle::kMaxIndex; // sentinel: caller 側で invalid 扱い
+    // 全 slot 使用中なら、24bit の予約済み上限を除いた末尾番号を求める。
+    const u32 append_index = ResolveAppendSlotIndex(n);
+    if (append_index == FSceneTimerHandle::kMaxIndex) {
+        // 呼び出し側が無効値として扱う予約済み上限を返す。
+        return FSceneTimerHandle::kMaxIndex;
     }
     m_Entries.PushBack({});
-    return static_cast<u32>(m_Entries.Size()) - 1u;
+    return append_index;
 }
 
 /** index と gen を packed handle にまとめて返す。 */
-FTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
-    return FTimerHandle::Pack(index, gen);
+FSceneTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
+    return FSceneTimerHandle::Pack(index, gen);
 }
 
 /** delay_sec 後に 1 回だけ cb(user) を呼ぶ one-shot timer を登録する (不正引数は invalid handle)。 */
-FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
+FSceneTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (delay_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= FTimerHandle::kMaxIndex) return {}; // 上限到達
+    // スロット上限へ到達した場合は登録しない。
+    if (idx >= FSceneTimerHandle::kMaxIndex) return {};
 
     FTimerEntry& e = m_Entries[idx];
     // generation を 1 進める (0 は未使用扱いなので必ず 1 以上を保つ)
@@ -63,12 +89,12 @@ FTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user
 }
 
 /** period_sec ごとに cb(user) を繰り返す interval timer を登録する (不正引数は invalid handle)。 */
-FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
+FSceneTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (period_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
-    if (idx >= FTimerHandle::kMaxIndex) return {};
+    if (idx >= FSceneTimerHandle::kMaxIndex) return {};
 
     FTimerEntry& e = m_Entries[idx];
     u8 new_gen = static_cast<u8>(e.gen + 1u);
@@ -87,7 +113,7 @@ FTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* us
 }
 
 /** h が active なら停止して true を返す (stale / 完了済みは false)。 */
-bool FSceneTimer::Cancel(FTimerHandle h) noexcept {
+bool FSceneTimer::Cancel(FSceneTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= m_Entries.Size()) return false;
@@ -115,7 +141,7 @@ void FSceneTimer::CancelAll() noexcept {
 }
 
 /** h が現在も有効な active timer を指しているかを返す。 */
-bool FSceneTimer::IsActive(FTimerHandle h) const noexcept {
+bool FSceneTimer::IsActive(FSceneTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= m_Entries.Size()) return false;

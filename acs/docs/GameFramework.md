@@ -232,6 +232,23 @@ Elastic/Bounce の In/Out/InOut、および SmoothStep/SmootherStep を安定し
 `FTweenManager::Tween` と `FSequence::Tween` は `EEasingType` overload を持つため、
 関数ポインタを直接扱わずに型付き catalog から曲線を指定できる。
 
+### 5.1 シーンタイマーハンドルの責務境界
+
+`FSceneTimer` のタイマー管理と発火挙動は維持し、公開ハンドルの正規名だけを
+`FSceneTimerHandle` へ変更した。似た名前だった event モジュールのハンドルとは、
+所有者、寿命、値の構成、タイマー挙動が異なるため統合しない。
+
+| 型 | 所有者と寿命 | 公開レイアウト | 用途 |
+|---|---|---:|---|
+| `acs::game::FSceneTimerHandle` | 呼び出し側が所有する `FSceneTimer` と同じシーン寿命 | 4 bytes（24bit index + 8bit generation） | `FSceneTimer::SetTimeout` / `SetInterval` / `Cancel` |
+| `acs::FTimerHandle` | `acs::FTimerManager` の管理寿命 | 8 bytes（32bit id + 32bit generation） | event モジュールのタイマー |
+
+旧 `acs::game::FTimerHandle` は同じ型へのソース互換 alias として ACS 0.x の間だけ残し、
+ACS 1.0 で削除する。削除条件はリポジトリ内と配布用 consumer の旧名利用が 0 件になり、
+移行案内を 1 release 継続したことである。型名は C++ の修飾シンボルに含まれるため、
+この alias は旧バイナリとの ABI 互換を提供しない。利用側は ACS ライブラリと consumer を
+同じ版で再ビルドし、新規コードでは `FSceneTimerHandle` を直接使う。
+
 ---
 
 ## 6. ピラー D — 入力（`InputMap`）

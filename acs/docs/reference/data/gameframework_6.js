@@ -300,18 +300,18 @@ ACS_REF.modules.push({
       when: "敵を一定間隔で湧かせる、数秒後にウェーブを終わらせる、など時間ベースの処理を書く時。",
       sample: "m_SpawnTimer = m_Timers.SetInterval(2.0f, &SpawnEnemy, this);\nm_Timers.SetTimeout(10.0f, &EndWave, this);\n// OnUpdate から:\nm_Timers.Tick(dt);",
       members: [
-        { sig: "FTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user)", ret: "タイマーハンドル", desc: "delay 秒後に 1 回だけ実行する。delay&lt;=0 や cb=null は invalid。" },
-        { sig: "FTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user)", ret: "タイマーハンドル", desc: "period 秒ごとに繰り返し実行する (Cancel まで永続)。" },
-        { sig: "bool Cancel(FTimerHandle h)", desc: "タイマーを止める。止められたら true。" },
+        { sig: "FSceneTimerHandle SetTimeout(f32 delay_sec, TimerCallback cb, void* user)", ret: "シーンタイマーハンドル", desc: "delay 秒後に 1 回だけ実行する。delay&lt;=0 や cb=null は invalid。" },
+        { sig: "FSceneTimerHandle SetInterval(f32 period_sec, TimerCallback cb, void* user)", ret: "シーンタイマーハンドル", desc: "period 秒ごとに繰り返し実行する (Cancel まで永続)。" },
+        { sig: "bool Cancel(FSceneTimerHandle h)", desc: "タイマーを止める。止められたら true。" },
         { sig: "void CancelAll()", desc: "全タイマーを止める。<code>OnExit</code> 等で。" },
-        { sig: "bool IsActive(FTimerHandle h) const / u32 ActiveCount() const", desc: "そのタイマーが生きているか、稼働中の総数。" },
+        { sig: "bool IsActive(FSceneTimerHandle h) const / u32 ActiveCount() const", desc: "そのタイマーが生きているか、稼働中の総数。" },
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。大きい dt では Interval が同フレームで複数回発火し得る。" }
       ]
     },
     {
-      name: "FTimerHandle",
-      kind: "構造体", header: "gameframework/SceneTimer.h",
-      summary: "タイマー 1 個を指す<t>ハンドル</t>。24bit index + 8bit <t>世代番号</t>の packed u32 で、古い参照を検出できる。",
+      name: "FSceneTimerHandle",
+      kind: "構造体", header: "gameframework/SceneTimerHandle.h",
+      summary: "FSceneTimer 内のタイマー 1 個を指す 4byte の<t>ハンドル</t>。24bit index + 8bit <t>世代番号</t>の packed u32 で、古い参照を検出できる。旧 <code>game::FTimerHandle</code> は ACS 0.x 限定のソース互換名で、binary ABI は維持しない。",
       when: "登録したタイマーを後でキャンセルしたい時に保持しておく。",
       members: [
         { sig: "bool IsValid() const", desc: "有効なハンドルか (<code>m_Packed != 0</code>)。" }

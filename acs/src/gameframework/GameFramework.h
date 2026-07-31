@@ -66,6 +66,7 @@
 #include "gameframework/TutorialFlow.h"
 #include "gameframework/DialogueSystem.h"
 
+#include "gameframework/SceneTimerHandle.h"
 #include "gameframework/SceneTimer.h"
 #include "gameframework/TriggerWorld2D.h"
 #include "gameframework/AssetPack.h"

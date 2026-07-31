@@ -24,6 +24,7 @@ add_executable(acs_unit_tests
     spatialaudio2d_tests.cpp
     audio_backend_tests.cpp
     scene_serialize_tests.cpp
+    scene_timer_handle_tests.cpp
     component_factory_tests.cpp
     component_services_tests.cpp
     input_feed_tests.cpp
@@ -551,6 +552,30 @@ endif()
 
 add_test(NAME ACS.UnitTests COMMAND acs_unit_tests)
 set_tests_properties(ACS.UnitTests PROPERTIES TIMEOUT 120)
+
+# 4byte のシーンハンドルと 8byte の event ハンドルを別契約として独立検証する。
+add_executable(acs_scene_timer_handle_tests
+    main.cpp
+    scene_timer_handle_tests.cpp
+)
+set_target_properties(
+    acs_scene_timer_handle_tests
+    PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_scene_timer_handle_tests)
+target_link_libraries(acs_scene_timer_handle_tests PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Container
+    ACS::Event
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(
+    NAME ACS.SceneTimerHandle
+    COMMAND acs_scene_timer_handle_tests)
+set_tests_properties(
+    ACS.SceneTimerHandle
+    PROPERTIES LABELS "GameFramework;ABI" TIMEOUT 30)
 
 # FoundationOptimizationWaveA 用 Release マイクロベンチマーク。実時間は
 # 診断用の参考値なので、意図的に CTest へは登録しない。

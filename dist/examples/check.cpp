@@ -3,6 +3,21 @@
 #include <acs.h>
 #include <cstdio>
 
+static_assert(sizeof(acs::FTimerHandle) == 8u, "event タイマーハンドルは 8byte の独立型です");
+static_assert(sizeof(acs::game::FSceneTimerHandle) == 4u, "シーンタイマーハンドルは 4byte の packed 型です");
+
+/**
+ * 配布ライブラリを経由したシーンタイマー発火を記録する。
+ *
+ * @param user acs::u32 のアドレス。
+ */
+void CountSceneTimerFire(void* user) noexcept
+{
+    /** 呼び出し側が所有する発火回数。 */
+    auto& fire_count = *static_cast<acs::u32*>(user);
+    ++fire_count;
+}
+
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
 int main()
 {
@@ -41,6 +56,16 @@ int main()
     // header宣言と配布library実装を跨いだhash結果。
     const u64 linked_hash = HashBytes(kHashProbe, sizeof(kHashProbe) - 1u);
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash));
-    return (sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash) ? 0 : 1;
+    // 呼び出し側が所有するシーンタイマー。
+    game::FSceneTimer scene_timer;
+    // シーンタイマーの発火回数。
+    u32 scene_timer_fire_count = 0u;
+    // 配布ライブラリの新しい修飾シンボルを参照する正規ハンドル。
+    const game::FSceneTimerHandle scene_timer_handle = scene_timer.SetTimeout(1.0f, &CountSceneTimerFire, &scene_timer_fire_count);
+    scene_timer.Tick(1.0f);
+    // 登録、発火、完了をまとめて確認する結果。
+    const bool scene_timer_ok = scene_timer_handle.IsValid() && scene_timer_fire_count == 1u && !scene_timer.IsActive(scene_timer_handle);
+
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx scene_timer=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), scene_timer_fire_count);
+    return (sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && scene_timer_ok) ? 0 : 1;
 }
