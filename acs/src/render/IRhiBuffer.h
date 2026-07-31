@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GPU バッファ抽象（頂点・インデックス・定数バッファ用）
 #pragma once
 
 #include "foundation/Types.h"
@@ -98,6 +97,21 @@ public:
      * @param offset バッファ先頭からの書き込み開始オフセット (既定 0)。
      */
     virtual void Update(const void* data, usize size, usize offset = 0) noexcept = 0;
+
+    /**
+     * backendが実際にbindする親バッファを返す。
+     *
+     * @details 通常バッファは自身を返す。一時arenaの論理sliceは共有親を返す。
+     * @return backend固有型へ変換できる実バッファ。
+     */
+    virtual IRhiBuffer& BindingBuffer() noexcept { return *this; }
+
+    /**
+     * 実バッファ先頭からのbind offsetを返す。
+     *
+     * @return 通常バッファは0、一時arenaの論理sliceはアライン済みoffset。
+     */
+    virtual usize BindingOffset() const noexcept { return 0u; }
 };
 
 /**

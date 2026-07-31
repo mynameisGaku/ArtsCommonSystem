@@ -714,20 +714,35 @@ void FDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept 
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
-    auto& b = static_cast<FDiligentBuffer&>(cb);
+    /** 論理sliceを解決した実Diligentバッファ。 */
+    IRhiBuffer& binding_buffer = cb.BindingBuffer();
+    /** 実バッファ先頭からの定数範囲offset。 */
+    const usize binding_offset = cb.BindingOffset();
+    if (cb.Usage() != EBufferUsage::Uniform || binding_buffer.Usage() != EBufferUsage::Uniform || binding_offset > binding_buffer.Size() || cb.Size() > binding_buffer.Size() - binding_offset || (binding_offset & 255u) != 0u) return;
+    /** resource変数へ渡すbackendバッファ。 */
+    auto& b = static_cast<FDiligentBuffer&>(binding_buffer);
     if (!b.Native()) return;
 
     // Pipeline が保持してる名前 (cbuffer_names[slot]) で lookup
     const char* name = m_Pipeline->CbufferName(slot);
     if (m_Pipeline->IsCompute()) {
         auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_COMPUTE, name);
-        if (var) var->Set(b.Native());
+        if (var) {
+            if (binding_offset == 0u && cb.Size() == binding_buffer.Size()) var->Set(b.Native());
+            else var->SetBufferRange(b.Native(), static_cast<Diligent::Uint64>(binding_offset), static_cast<Diligent::Uint64>(cb.Size()));
+        }
         return;
     }
     auto* var = srb->GetVariableByName(Diligent::SHADER_TYPE_VERTEX, name);
-    if (var) var->Set(b.Native());
+    if (var) {
+        if (binding_offset == 0u && cb.Size() == binding_buffer.Size()) var->Set(b.Native());
+        else var->SetBufferRange(b.Native(), static_cast<Diligent::Uint64>(binding_offset), static_cast<Diligent::Uint64>(cb.Size()));
+    }
     var = srb->GetVariableByName(Diligent::SHADER_TYPE_PIXEL, name);
-    if (var) var->Set(b.Native());
+    if (var) {
+        if (binding_offset == 0u && cb.Size() == binding_buffer.Size()) var->Set(b.Native());
+        else var->SetBufferRange(b.Native(), static_cast<Diligent::Uint64>(binding_offset), static_cast<Diligent::Uint64>(cb.Size()));
+    }
 }
 
 void FDiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
@@ -815,7 +830,7 @@ void FDiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     // 「事前 state チェック」で false positive を出す (実遷移より前に検査)
     // ため、production では NONE を使う。
     da.Flags = Diligent::DRAW_FLAG_NONE;
-    RecordDraw(vertex_count);
+    RecordDraw(m_CommandStatistics, vertex_count);
     ctx->Draw(da);
 }
 
@@ -833,7 +848,7 @@ void FDiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 bas
     dia.FirstIndexLocation = first_index;
     dia.BaseVertex   = base_vertex;
     dia.Flags = Diligent::DRAW_FLAG_NONE;
-    RecordDraw(index_count);
+    RecordDraw(m_CommandStatistics, index_count);
     ctx->DrawIndexed(dia);
 }
 
@@ -898,7 +913,7 @@ void FDiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     dca.ThreadGroupCountX = gx;
     dca.ThreadGroupCountY = gy;
     dca.ThreadGroupCountZ = gz;
-    RecordDispatch();
+    RecordDispatch(m_CommandStatistics);
     ctx->DispatchCompute(dca);
 }
 
@@ -917,7 +932,7 @@ void FDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) n
     dcia.pAttribsBuffer                   = a.Native();
     dcia.AttribsBufferStateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
     dcia.DispatchArgsByteOffset           = static_cast<Diligent::Uint64>(byte_offset);
-    RecordDispatch();
+    RecordDispatch(m_CommandStatistics);
     ctx->DispatchComputeIndirect(dcia);
 }
 

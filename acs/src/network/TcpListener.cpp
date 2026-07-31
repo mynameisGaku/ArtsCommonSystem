@@ -10,6 +10,21 @@
 
 namespace acs {
 
+namespace {
+
+/** WinSock の IPv4 値を ACS のホストバイト順値へ変換する。 */
+FIpAddress ToIpAddress(const sockaddr_in& address) noexcept {
+    FIpAddress result{};
+    result.octets[0] = address.sin_addr.S_un.S_un_b.s_b1;
+    result.octets[1] = address.sin_addr.S_un.S_un_b.s_b2;
+    result.octets[2] = address.sin_addr.S_un.S_un_b.s_b3;
+    result.octets[3] = address.sin_addr.S_un.S_un_b.s_b4;
+    result.port = ::ntohs(address.sin_port);
+    return result;
+}
+
+} // namespace
+
 /** ソケットが開いていれば閉じてから破棄する。 */
 FTcpListener::~FTcpListener() noexcept {
     Close();
@@ -75,14 +90,9 @@ TResult<FTcpConnection> FTcpListener::Accept() noexcept {
                           reinterpret_cast<sockaddr*>(&sa), &len);
     if (cs == INVALID_SOCKET)
         return ACS_ERR_OS(IO, 225, "accept failed", static_cast<u32>(::WSAGetLastError()));
-    FIpAddress remote{};
-    remote.octets[0] = sa.sin_addr.S_un.S_un_b.s_b1;
-    remote.octets[1] = sa.sin_addr.S_un.S_un_b.s_b2;
-    remote.octets[2] = sa.sin_addr.S_un.S_un_b.s_b3;
-    remote.octets[3] = sa.sin_addr.S_un.S_un_b.s_b4;
-    remote.port      = ::ntohs(sa.sin_port);
-    return TResult<FTcpConnection>(OkInit,
-        FTcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
+    /** 接続元を ACS のアドレス値へ変換する。 */
+    const FIpAddress remote = ToIpAddress(sa);
+    return TResult<FTcpConnection>(OkInit, FTcpConnection::FromAccepted(static_cast<uptr>(cs), remote));
 }
 
 /** ソケットのノンブロッキングモードを切り替える。 */
@@ -93,6 +103,17 @@ TResult<void> FTcpListener::SetNonBlocking(bool enable) noexcept {
         return ACS_ERR_OS(IO, 227, "ioctlsocket failed",
                           static_cast<u32>(::WSAGetLastError()));
     return Ok();
+}
+
+/** OS が割り当てたローカル IPv4 アドレスとポートを取得する。 */
+TResult<FIpAddress> FTcpListener::LocalAddress() const noexcept {
+    if (m_Socket == ~uptr{0}) return ACS_ERR(IO, 228, "listener not open");
+    sockaddr_in address{};
+    int length = sizeof(address);
+    if (::getsockname(static_cast<SOCKET>(m_Socket), reinterpret_cast<sockaddr*>(&address), &length) == SOCKET_ERROR) {
+        return ACS_ERR_OS(IO, 229, "getsockname failed", static_cast<u32>(::WSAGetLastError()));
+    }
+    return TResult<FIpAddress>(OkInit, ToIpAddress(address));
 }
 
 /** ソケットが開いていれば閉じて無効状態にする (多重呼び出し安全)。 */

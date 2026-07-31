@@ -7,16 +7,20 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 4
+ARTIFACT_TREE_DIGEST_ALGORITHM = "sha256-path-size-content-v1"
+SOURCE_EVIDENCE_MODE = "start-endpoint-v1"
+ARTIFACT_TREE_EVIDENCE_MODE = "stable-double-scan-no-reparse-v1"
 CMAKE_EVIDENCE_KEYS = (
     "CMAKE_HOME_DIRECTORY",
     "ACS_RENDER_DX12_RAW",
@@ -52,6 +56,9 @@ class SourceEvidence:
     base_ref: str
     base_sha: str
     tracked_dirty: bool
+    untracked_files: list[str]
+    ahead_count: int
+    behind_count: int
 
 
 @dataclass(frozen=True)
@@ -69,6 +76,19 @@ class ArtifactEvidence:
 
     path: str
     size: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ArtifactTreeEvidence:
+    """配布directory全体のfile集合、総size、digestを固定する。"""
+
+    path: str
+    algorithm: str
+    evidence_mode: str
+    stability_passes: int
+    file_count: int
+    total_size: int
     sha256: str
 
 
@@ -132,6 +152,72 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def stat_signature(info: os.stat_result) -> tuple[int, ...]:
+    """置換と内容更新を検出するため、時刻とfile identityを安定した組へまとめる。"""
+    return (
+        int(info.st_dev),
+        int(info.st_ino),
+        int(info.st_mode),
+        int(info.st_size),
+        int(info.st_mtime_ns),
+        int(info.st_ctime_ns),
+        int(getattr(info, "st_file_attributes", 0)),
+    )
+
+
+def reject_link_or_reparse(path: Path, info: os.stat_result) -> None:
+    """symlinkとWindows reparse pointを配布境界として拒否する。"""
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    attributes = int(getattr(info, "st_file_attributes", 0))
+    if stat.S_ISLNK(info.st_mode) or (reparse_flag and attributes & reparse_flag):
+        raise RuntimeError(f"artifact path is link or reparse point: {path}")
+
+
+def absolute_without_link_resolution(path: Path) -> Path:
+    """linkを辿らず、呼出時のpath構成を保った絶対pathを返す。"""
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def validate_path_chain(path: Path) -> None:
+    """対象までの全componentにlinkまたはreparse pointがないことを確認する。"""
+    current = absolute_without_link_resolution(path)
+    while True:
+        info = current.lstat()
+        reject_link_or_reparse(current, info)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
+def stable_file_digest(path: Path) -> tuple[int, str]:
+    """fileをhashし、読取前後でidentity・size・更新時刻が不変なことを確認する。"""
+    before_path = path.lstat()
+    reject_link_or_reparse(path, before_path)
+    if not stat.S_ISREG(before_path.st_mode):
+        raise RuntimeError(f"artifact is not a regular file: {path}")
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        before_stream = os.fstat(stream.fileno())
+        if stat_signature(before_stream) != stat_signature(before_path):
+            raise RuntimeError(f"artifact changed before hashing: {path}")
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+        after_stream = os.fstat(stream.fileno())
+
+    after_path = path.lstat()
+    signatures = {
+        stat_signature(before_path),
+        stat_signature(before_stream),
+        stat_signature(after_stream),
+        stat_signature(after_path),
+    }
+    if len(signatures) != 1:
+        raise RuntimeError(f"artifact changed while hashing: {path}")
+    return before_path.st_size, digest.hexdigest()
+
+
 def run_git(source_root: Path, arguments: Sequence[str]) -> str:
     """source rootのgit値を取得し、曖昧な失敗を証跡へ入れない。"""
     completed = subprocess.run(
@@ -150,24 +236,55 @@ def run_git(source_root: Path, arguments: Sequence[str]) -> str:
 
 
 def collect_source_evidence(source_root: Path, base_ref: str) -> SourceEvidence:
-    """HEAD、比較基点、tracked差分を同じrepositoryから取得する。"""
+    """HEAD、比較基点、worktree差分を同じrepositoryから取得する。"""
     root = source_root.resolve()
     git_sha = run_git(root, ["rev-parse", "--verify", "HEAD^{commit}"])
     base_sha = run_git(
         root,
         ["rev-parse", "--verify", f"{base_ref}^{{commit}}"],
     )
-    tracked_status = run_git(
+    status_lines = run_git(
         root,
-        ["status", "--porcelain", "--untracked-files=no"],
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+    ).splitlines()
+    untracked_files = sorted(
+        line[3:] for line in status_lines if line.startswith("?? ")
     )
+    tracked_dirty = any(not line.startswith("?? ") for line in status_lines)
+    divergence = run_git(
+        root,
+        ["rev-list", "--left-right", "--count", f"{base_ref}...HEAD"],
+    ).split()
+    if len(divergence) != 2:
+        raise RuntimeError(f"invalid git divergence output: {divergence}")
+    behind_count, ahead_count = (int(value) for value in divergence)
     return SourceEvidence(
         root=str(root),
         git_sha=git_sha,
         base_ref=base_ref,
         base_sha=base_sha,
-        tracked_dirty=bool(tracked_status),
+        tracked_dirty=tracked_dirty,
+        untracked_files=untracked_files,
+        ahead_count=ahead_count,
+        behind_count=behind_count,
     )
+
+
+def validate_source_requirements(
+    evidence: SourceEvidence,
+    require_clean_source: bool,
+    require_base_ancestor: bool,
+) -> None:
+    """公開条件に応じてworktree汚染と比較基点からの後退を拒否する。"""
+    if require_clean_source and (
+        evidence.tracked_dirty or evidence.untracked_files
+    ):
+        raise RuntimeError("tracked or untracked source changes are present")
+    if require_base_ancestor and evidence.behind_count != 0:
+        raise RuntimeError(
+            f"{evidence.base_ref} is not an ancestor of HEAD "
+            f"(behind={evidence.behind_count})"
+        )
 
 
 def parse_cmake_cache(text: str) -> dict[str, str]:
@@ -251,26 +368,168 @@ def validate_build_source(
         )
 
 
-def collect_artifact_evidence(paths: Sequence[Path]) -> list[ArtifactEvidence]:
-    """重複を除いた検証artifactを非空fileとしてhash化する。"""
+def collect_artifact_evidence_once(paths: Sequence[Path]) -> list[ArtifactEvidence]:
+    """重複を除いたartifactを、一回の安定した読取でhash化する。"""
     artifacts: list[ArtifactEvidence] = []
-    visited: set[str] = set()
+    visited_paths: list[Path] = []
     for requested in paths:
-        path = requested.resolve()
-        key = os.path.normcase(str(path))
-        if key in visited:
+        path = absolute_without_link_resolution(requested)
+        validate_path_chain(path)
+        if any(os.path.samefile(path, visited) for visited in visited_paths):
             continue
-        visited.add(key)
-        if not path.is_file() or path.stat().st_size <= 0:
+        visited_paths.append(path)
+        size, file_digest = stable_file_digest(path)
+        if size <= 0:
             raise RuntimeError(f"artifact is missing or empty: {path}")
         artifacts.append(
             ArtifactEvidence(
                 path=str(path),
-                size=path.stat().st_size,
-                sha256=sha256_file(path),
+                size=size,
+                sha256=file_digest,
             )
         )
     return artifacts
+
+
+def collect_artifact_evidence(paths: Sequence[Path]) -> list[ArtifactEvidence]:
+    """artifactを二回収集し、途中更新を含まない安定した証跡だけを返す。"""
+    first = collect_artifact_evidence_once(paths)
+    second = collect_artifact_evidence_once(paths)
+    if first != second:
+        raise RuntimeError("artifact changed between stability scans")
+    return second
+
+
+def collect_tree_files(root: Path) -> list[Path]:
+    """reparse pointを辿らず、通常fileだけを決定的な順序で列挙する。"""
+    files: list[Path] = []
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        before_directory = directory.lstat()
+        reject_link_or_reparse(directory, before_directory)
+        if not stat.S_ISDIR(before_directory.st_mode):
+            raise RuntimeError(f"artifact tree entry is not a directory: {directory}")
+
+        with os.scandir(directory) as stream:
+            entries = sorted(
+                stream,
+                key=lambda entry: (entry.name.casefold(), entry.name),
+            )
+        for entry in entries:
+            path = Path(entry.path)
+            info = entry.stat(follow_symlinks=False)
+            reject_link_or_reparse(path, info)
+            if stat.S_ISDIR(info.st_mode):
+                pending.append(path)
+            elif stat.S_ISREG(info.st_mode):
+                files.append(path)
+            else:
+                raise RuntimeError(f"artifact tree contains special file: {path}")
+
+        after_directory = directory.lstat()
+        if stat_signature(before_directory) != stat_signature(after_directory):
+            raise RuntimeError(f"artifact tree directory changed while scanning: {directory}")
+
+    return sorted(
+        files,
+        key=lambda path: (
+            path.relative_to(root).as_posix().casefold(),
+            path.relative_to(root).as_posix(),
+        ),
+    )
+
+
+def collect_artifact_tree_evidence_once(paths: Sequence[Path]) -> list[ArtifactTreeEvidence]:
+    """配布directoryを一回走査し、相対path・size・file digestへ集約する。"""
+    trees: list[ArtifactTreeEvidence] = []
+    visited_roots: list[Path] = []
+    for requested in paths:
+        root = absolute_without_link_resolution(requested)
+        validate_path_chain(root)
+        root_info = root.lstat()
+        if not stat.S_ISDIR(root_info.st_mode):
+            raise RuntimeError(f"artifact tree is missing: {root}")
+        if any(os.path.samefile(root, visited) for visited in visited_roots):
+            continue
+        visited_roots.append(root)
+        files = collect_tree_files(root)
+        if not files:
+            raise RuntimeError(f"artifact tree is empty: {root}")
+        digest = hashlib.sha256()
+        total_size = 0
+        for path in files:
+            relative = path.relative_to(root).as_posix()
+            size, file_digest = stable_file_digest(path)
+            total_size += size
+            digest.update(relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(size).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(bytes.fromhex(file_digest))
+        trees.append(
+            ArtifactTreeEvidence(
+                path=str(root),
+                algorithm=ARTIFACT_TREE_DIGEST_ALGORITHM,
+                evidence_mode=ARTIFACT_TREE_EVIDENCE_MODE,
+                stability_passes=2,
+                file_count=len(files),
+                total_size=total_size,
+                sha256=digest.hexdigest(),
+            )
+        )
+    return trees
+
+
+def collect_artifact_tree_evidence(
+    paths: Sequence[Path],
+    between_passes_for_test: Callable[[], None] | None = None,
+) -> list[ArtifactTreeEvidence]:
+    """配布directoryを二回収集し、file集合とbytesが安定した証跡だけを返す。"""
+    first = collect_artifact_tree_evidence_once(paths)
+    if between_passes_for_test is not None:
+        between_passes_for_test()
+    second = collect_artifact_tree_evidence_once(paths)
+    if first != second:
+        raise RuntimeError("artifact tree changed between stability scans")
+    return second
+
+
+def validate_artifact_tree_parity(
+    trees: Sequence[ArtifactTreeEvidence],
+    require_identical: bool,
+) -> None:
+    """記録後の更新を拒否し、必要なら複数配布directoryの一致を確認する。"""
+    current = collect_artifact_tree_evidence(
+        [Path(tree.path) for tree in trees]
+    )
+    if list(trees) != current:
+        raise RuntimeError("artifact tree changed after evidence collection")
+    if not require_identical:
+        return
+    if len(trees) < 2:
+        raise RuntimeError(
+            "at least two artifact trees are required for parity validation"
+        )
+    expected = (
+        trees[0].algorithm,
+        trees[0].evidence_mode,
+        trees[0].file_count,
+        trees[0].total_size,
+        trees[0].sha256,
+    )
+    for tree in trees[1:]:
+        actual = (
+            tree.algorithm,
+            tree.evidence_mode,
+            tree.file_count,
+            tree.total_size,
+            tree.sha256,
+        )
+        if actual != expected:
+            raise RuntimeError(
+                f"artifact tree mismatch: {trees[0].path} != {tree.path}"
+            )
 
 
 def build_report(
@@ -279,6 +538,7 @@ def build_report(
     source: SourceEvidence,
     cmake: CMakeEvidence,
     artifacts: Sequence[ArtifactEvidence],
+    artifact_trees: Sequence[ArtifactTreeEvidence],
 ) -> dict[str, object]:
     """段階結果から、機械判定できる安定した報告形式を生成する。"""
     passed = all(step.return_code == 0 for step in steps)
@@ -286,9 +546,14 @@ def build_report(
         "schema": REPORT_SCHEMA_VERSION,
         "status": "pass" if passed else "fail",
         "configuration": configuration,
+        "evidence_contract": {
+            "source": SOURCE_EVIDENCE_MODE,
+            "artifact_tree": ARTIFACT_TREE_EVIDENCE_MODE,
+        },
         "source": asdict(source),
         "cmake": asdict(cmake),
         "artifacts": [asdict(artifact) for artifact in artifacts],
+        "artifact_trees": [asdict(tree) for tree in artifact_trees],
         "step_count": len(steps),
         "passed_steps": sum(step.return_code == 0 for step in steps),
         "steps": [asdict(step) for step in steps],
@@ -323,9 +588,15 @@ def self_test() -> int:
         root = Path(temporary)
         tracked_path = root / "tracked.txt"
         tracked_path.write_text("clean\n", encoding="utf-8")
+        ignore_path = root / ".gitignore"
+        ignore_path.write_text(
+            "acs/\nartifact.bin\nbuild/\ndistribution/\n"
+            "distribution-mirror/\n",
+            encoding="utf-8",
+        )
         git_commands = (
             ["git", "init"],
-            ["git", "add", "tracked.txt"],
+            ["git", "add", ".gitignore", "tracked.txt"],
             [
                 "git",
                 "-c",
@@ -368,22 +639,174 @@ def self_test() -> int:
         )
         artifact_path = root / "artifact.bin"
         artifact_path.write_bytes(b"foundation-evidence")
+        artifact_tree = root / "distribution"
+        artifact_tree.mkdir()
+        (artifact_tree / "acs.h").write_bytes(b"header")
+        library_directory = artifact_tree / "lib"
+        library_directory.mkdir()
+        (library_directory / "acs.lib").write_bytes(b"library")
+        mirror_tree = root / "distribution-mirror"
+        mirror_tree.mkdir()
+        (mirror_tree / "acs.h").write_bytes(b"header")
+        mirror_library_directory = mirror_tree / "lib"
+        mirror_library_directory.mkdir()
+        (mirror_library_directory / "acs.lib").write_bytes(b"library")
 
         source = collect_source_evidence(root, "HEAD")
         tracked_path.write_text("dirty\n", encoding="utf-8")
         dirty_source = collect_source_evidence(root, "HEAD")
         tracked_path.write_text("clean\n", encoding="utf-8")
+        untracked_path = root / "untracked.cpp"
+        untracked_path.write_text("int value;\n", encoding="utf-8")
+        untracked_source = collect_source_evidence(root, "HEAD")
+        untracked_path.unlink()
         cmake = collect_cmake_evidence(build_directory)
         artifacts = collect_artifact_evidence(
             [artifact_path, artifact_path]
         )
+        artifact_trees = collect_artifact_tree_evidence(
+            [artifact_tree, artifact_tree]
+        )
+        repeated_artifact_trees = collect_artifact_tree_evidence(
+            [artifact_tree]
+        )
+        if os.name == "nt":
+            # 同じdirectoryを指す通常pathと拡張長pathを重複として扱う。
+            physical_alias = Path("\\\\?\\" + str(artifact_tree))
+            physical_alias_trees = collect_artifact_tree_evidence(
+                [artifact_tree, physical_alias]
+            )
+            rejects_physical_alias = len(physical_alias_trees) == 1
+        else:
+            rejects_physical_alias = True
+        try:
+            collect_artifact_tree_evidence(
+                [artifact_tree],
+                lambda: (library_directory / "acs.lib").write_bytes(b"changed"),
+            )
+            rejects_between_pass_mutation = False
+        except RuntimeError:
+            rejects_between_pass_mutation = True
+        (library_directory / "acs.lib").write_bytes(b"library")
+
+        recorded_before_mutation = collect_artifact_tree_evidence(
+            [artifact_tree]
+        )
+        (library_directory / "acs.lib").write_bytes(b"changed")
+        try:
+            validate_artifact_tree_parity(recorded_before_mutation, False)
+            rejects_after_collection_mutation = False
+        except RuntimeError:
+            rejects_after_collection_mutation = True
+        (library_directory / "acs.lib").write_bytes(b"library")
+
+        outside_tree = root / "outside-tree"
+        outside_tree.mkdir()
+        (outside_tree / "outside.bin").write_bytes(b"outside")
+        reparse_entry = artifact_tree / "outside-link"
+        if os.name == "nt":
+            create_reparse = subprocess.run(
+                [
+                    "cmd.exe",
+                    "/d",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    str(reparse_entry),
+                    str(outside_tree),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            reparse_created = create_reparse.returncode == 0
+        else:
+            reparse_entry.symlink_to(outside_tree, target_is_directory=True)
+            reparse_created = True
+        try:
+            if reparse_created:
+                try:
+                    collect_artifact_tree_evidence([artifact_tree])
+                    rejects_reparse_tree = False
+                except RuntimeError:
+                    rejects_reparse_tree = True
+            else:
+                rejects_reparse_tree = False
+        finally:
+            if reparse_created:
+                if os.name == "nt":
+                    os.rmdir(reparse_entry)
+                else:
+                    reparse_entry.unlink()
+
+        try:
+            validate_artifact_tree_parity(artifact_trees, True)
+            rejects_single_tree_parity = False
+        except RuntimeError:
+            rejects_single_tree_parity = True
+        matching_artifact_trees = collect_artifact_tree_evidence(
+            [artifact_tree, mirror_tree]
+        )
+        validate_artifact_tree_parity(matching_artifact_trees, True)
+        (mirror_library_directory / "acs.lib").write_bytes(b"mismatch")
+        mismatched_artifact_trees = collect_artifact_tree_evidence(
+            [artifact_tree, mirror_tree]
+        )
+        try:
+            validate_artifact_tree_parity(mismatched_artifact_trees, True)
+            rejects_tree_mismatch = False
+        except RuntimeError:
+            rejects_tree_mismatch = True
+        (mirror_library_directory / "acs.lib").write_bytes(b"library")
+        (library_directory / "acs.lib").write_bytes(b"tampered")
+        changed_artifact_trees = collect_artifact_tree_evidence(
+            [artifact_tree]
+        )
+        (library_directory / "acs.lib").write_bytes(b"library")
+        validate_source_requirements(source, True, True)
+        try:
+            validate_source_requirements(dirty_source, True, True)
+            rejects_tracked = False
+        except RuntimeError:
+            rejects_tracked = True
+        try:
+            validate_source_requirements(untracked_source, True, True)
+            rejects_untracked = False
+        except RuntimeError:
+            rejects_untracked = True
+        behind_source = SourceEvidence(
+            source.root,
+            source.git_sha,
+            source.base_ref,
+            source.base_sha,
+            False,
+            [],
+            0,
+            1,
+        )
+        try:
+            validate_source_requirements(behind_source, False, True)
+            rejects_behind = False
+        except RuntimeError:
+            rejects_behind = True
         passing = StepResult("ok", "pass", 0, 1, ["true"], "", "")
         failing = StepResult("ng", "fail", 7, 1, ["false"], "", "failure")
         pass_report = build_report(
-            "Release", [passing], source, cmake, artifacts
+            "Release",
+            [passing],
+            source,
+            cmake,
+            artifacts,
+            artifact_trees,
         )
         fail_report = build_report(
-            "Release", [passing, failing], source, cmake, artifacts
+            "Release",
+            [passing, failing],
+            source,
+            cmake,
+            artifacts,
+            artifact_trees,
         )
         expectations = parse_cache_expectations(
             ["ACS_RENDER_DX12_RAW=ON", "ACS_BUILD_TESTS=ON"]
@@ -421,13 +844,40 @@ def self_test() -> int:
             pass_report["schema"] == REPORT_SCHEMA_VERSION
             and pass_report["status"] == "pass"
             and pass_report["passed_steps"] == 1
+            and pass_report["evidence_contract"]["source"]
+            == SOURCE_EVIDENCE_MODE
+            and pass_report["evidence_contract"]["artifact_tree"]
+            == ARTIFACT_TREE_EVIDENCE_MODE
             and pass_report["source"]["git_sha"] == source.base_sha
             and not pass_report["source"]["tracked_dirty"]
+            and not pass_report["source"]["untracked_files"]
+            and pass_report["source"]["ahead_count"] == 0
+            and pass_report["source"]["behind_count"] == 0
             and dirty_source.tracked_dirty
+            and rejects_tracked
+            and rejects_untracked
+            and rejects_behind
             and pass_report["cmake"]["values"]["ACS_RENDER_DILIGENT"] == "ON"
             and len(pass_report["artifacts"]) == 1
             and pass_report["artifacts"][0]["sha256"]
             == hashlib.sha256(b"foundation-evidence").hexdigest()
+            and len(pass_report["artifact_trees"]) == 1
+            and pass_report["artifact_trees"][0]["algorithm"]
+            == ARTIFACT_TREE_DIGEST_ALGORITHM
+            and pass_report["artifact_trees"][0]["evidence_mode"]
+            == ARTIFACT_TREE_EVIDENCE_MODE
+            and pass_report["artifact_trees"][0]["stability_passes"] == 2
+            and pass_report["artifact_trees"][0]["file_count"] == 2
+            and pass_report["artifact_trees"][0]["total_size"] == 13
+            and artifact_trees == repeated_artifact_trees
+            and rejects_physical_alias
+            and artifact_trees[0].sha256
+            != changed_artifact_trees[0].sha256
+            and rejects_between_pass_mutation
+            and rejects_after_collection_mutation
+            and rejects_reparse_tree
+            and rejects_single_tree_parity
+            and rejects_tree_mismatch
             and fail_report["status"] == "fail"
             and fail_report["passed_steps"] == 1
             and rejects_mismatch
@@ -443,11 +893,22 @@ def main() -> int:
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--performance-executable", type=Path)
     parser.add_argument("--artifact", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--artifact-tree",
+        type=Path,
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--require-identical-artifact-trees",
+        action="store_true",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--source-root", type=Path)
     parser.add_argument("--base-ref", default="origin/main")
     parser.add_argument("--expect-cache", action="append", default=[])
     parser.add_argument("--require-clean-source", action="store_true")
+    parser.add_argument("--require-base-ancestor", action="store_true")
     parser.add_argument("--configuration", default="Release")
     parser.add_argument("--jobs", type=int, default=max(1, os.cpu_count() or 1))
     parser.add_argument("--timeout-seconds", type=int, default=1800)
@@ -485,8 +946,11 @@ def main() -> int:
         validate_build_source(cmake_evidence, source_root)
         cache_expectations = parse_cache_expectations(args.expect_cache)
         validate_cache_expectations(cmake_evidence, cache_expectations)
-        if args.require_clean_source and source_evidence.tracked_dirty:
-            raise RuntimeError("tracked source changes are present")
+        validate_source_requirements(
+            source_evidence,
+            args.require_clean_source,
+            args.require_base_ancestor,
+        )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"foundation_end_to_end=evidence_error: {error}", file=sys.stderr)
         return 2
@@ -562,13 +1026,16 @@ def main() -> int:
             final_cmake_evidence,
             cache_expectations,
         )
+        validate_source_requirements(
+            final_source_evidence,
+            args.require_clean_source,
+            args.require_base_ancestor,
+        )
         if (
             final_source_evidence.git_sha != source_evidence.git_sha
             or final_source_evidence.base_sha != source_evidence.base_sha
         ):
             raise RuntimeError("source or base commit changed during verification")
-        if args.require_clean_source and final_source_evidence.tracked_dirty:
-            raise RuntimeError("tracked source changes appeared during verification")
         source_evidence = final_source_evidence
         cmake_evidence = final_cmake_evidence
     except (OSError, RuntimeError) as error:
@@ -587,15 +1054,25 @@ def main() -> int:
     artifact_paths = [performance_executable, *args.artifact]
     try:
         artifacts = collect_artifact_evidence(artifact_paths)
+        artifact_trees = collect_artifact_tree_evidence(args.artifact_tree)
+        validate_artifact_tree_parity(
+            artifact_trees,
+            args.require_identical_artifact_trees,
+        )
     except (OSError, RuntimeError) as error:
         artifacts = []
+        artifact_trees = []
         steps.append(
             StepResult(
                 name="artifact_evidence",
                 status="fail",
                 return_code=1,
                 duration_ms=0,
-                command=["sha256", *[str(path) for path in artifact_paths]],
+                command=[
+                    "sha256",
+                    *[str(path) for path in artifact_paths],
+                    *[str(path) for path in args.artifact_tree],
+                ],
                 stdout_tail="",
                 stderr_tail=str(error),
             )
@@ -607,6 +1084,7 @@ def main() -> int:
         source_evidence,
         cmake_evidence,
         artifacts,
+        artifact_trees,
     )
     write_report(args.output.resolve(), report)
     print(

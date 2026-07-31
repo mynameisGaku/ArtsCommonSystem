@@ -41,6 +41,7 @@ set(_acsgen_render_sources
     SubstrateExpression.cpp
     SubstrateMaterial.cpp
     SubsurfaceScattering.cpp
+    TransientUploadArena.cpp
     VertexScatter.cpp
     WaterSurface3D.cpp
 )
@@ -50,6 +51,7 @@ set(_acsgen_render_headers
     BurnEffect.h
     DebugDraw.h
     DescriptorSlotPool.h
+    DrawPacketSortKey.h
     Font.h
     FormatAspect.h
     FormatTraits.h
@@ -97,6 +99,7 @@ set(_acsgen_render_headers
     SubstrateMaterial.h
     SubsurfaceScattering.h
     TemporalHistory.h
+    TransientUploadArena.h
     VertexScatter.h
     WaterSurface3D.h
 )

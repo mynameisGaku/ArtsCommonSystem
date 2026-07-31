@@ -229,6 +229,18 @@ ACS_REF.modules.push({
         { sig: "using EasingFn = f32 (*)(f32) noexcept", desc: "既存コードと互換の関数ポインタ型。直接関数は finite 入力を [0,1] に clamp し、NaN や無限大でも NaN/domain error を生成しない。" }
       ]
     },
+    {
+      name: "FLegacyKitEaseIdCodec",
+      kind: "class", header: "gameframework/LegacyKitEaseIdCodec.h",
+      summary: "旧 Kit 形式で固定された33個のイージング数値 ID と、ACS の <code>Easing::EEasingType</code> を相互変換する状態なしの移行境界。曲線の評価実装や正規 enum の数値は変更しない。",
+      when: "旧形式の保存データを読み込む時、または互換出力へ旧数値 ID を書き戻す時。新規データはcanonical名を保存する。",
+      sample: "using namespace acs::game;\nEasing::EEasingType type = Easing::EEasingType::Linear;\nif (!FLegacyKitEaseIdCodec::TryDecode(saved_id, type)) {\n    /* type は変更されない */\n}",
+      members: [
+        { sig: "static constexpr i32 kLegacyIdCount = 33", desc: "旧形式で固定された有効 ID 数。将来ACSへ型が増えても自動では対応させない。" },
+        { sig: "static bool TryDecode(i32 legacy_id, Easing::EEasingType& out_type) noexcept", desc: "旧 ID 0〜32を正規型へ変換する。範囲外ではfalseを返し、出力を変更しない。" },
+        { sig: "static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept", desc: "固定表にある正規型を旧 IDへ戻す。Count、未知値、将来の未登録型ではfalseを返し、出力を変更しない。" }
+      ]
+    },
     // =====================================================================
     // 経済 / 権利 (LiveOps)
     // =====================================================================

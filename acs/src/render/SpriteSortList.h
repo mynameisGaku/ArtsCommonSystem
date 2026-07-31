@@ -1,34 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSpriteSortList — FSpriteBatch 用の明示的 depth/layer 順序レイヤ
-//
-// 動機:
-//   FSpriteBatch は immediate-mode の「提出順」バッチャで、同テクスチャの連続描画を
-//   自動バッチし、SetView / SetBlendMode / SetClipRect / SetStencilMode 等の状態切替は
-//   呼び出し順に依存する。ここに「深度ソート」を後付けすると texture-run バッチや
-//   状態切替の順序が壊れる。そこで **opt-in の上位レイヤ** として本クラスを用意する。
-//
-//   使い方: 描画コマンドを layer/depth 付きで Submit* に貯め、Sort() で安定ソートし、
-//   Replay(batch) で sorted 順に FSpriteBatch へ流す。FSpriteBatch 自体は無改変。
-//
-// ソート規約 (エンジンの ANode::DrawLayer と一致):
-//   第1キー layer 昇順 (小さい層 = 奥 = 先に描画)、
-//   第2キー depth 昇順 (小さい depth = 奥 = 先に描画)、
-//   同一キーは **挿入順を保持** (安定)。seq を総順序に含めるので決定的。
-//
-// 使い方:
-//   FSpriteSortList list;
-//   list.SubmitRect(0,0, w,32, bg,   /*layer*/0, /*depth*/0);   // 背景
-//   list.Submit(tex, px,py, 64,64,   /*layer*/1, /*depth*/py);  // キャラ (y で前後)
-//   list.Submit(hud, 8,8,  120,32,   /*layer*/10,/*depth*/0);   // HUD 前面
-//   list.Sort();
-//   sb.Begin(*cl, w, h);
-//   list.Replay(sb);                 // layer/depth 昇順で描画
-//   sb.End();
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "math/Vec.h"
+#include "render/DrawPacketSortKey.h"
 
 namespace acs {
 
@@ -123,7 +99,11 @@ public:
     void Clear() noexcept {
         m_Cmds.Clear();
         m_Order.Clear();
+        m_Scratch.Clear();
+        m_Keys.Clear();
         m_Seq = 0;
+        m_LastSortPasses = 0u;
+        m_LastSortItemVisits = 0u;
     }
 
     /**
@@ -134,6 +114,8 @@ public:
     void Reserve(u32 n) noexcept {
         m_Cmds.Reserve(n);
         m_Order.Reserve(n);
+        m_Scratch.Reserve(n);
+        m_Keys.Reserve(n);
     }
 
     /**
@@ -216,12 +198,16 @@ public:
     /**
      * (layer 昇順, depth 昇順, seq 昇順) で安定ソートしてソート順を確定する。
      *
-     * @details
-     * index 配列を安定挿入ソートする (コマンド本体は動かさない)。seq を最終キーに含めるため
-     * 同一 layer/depth は挿入順を保つ。挿入ソートなので大量コマンドでは O(n²) — ソートリストは
-     * 動的スプライトの前後関係付け用で、想定規模 (数百) では十分。静的大量描画は FScene2D 経路へ。
+     * @details compile-time layoutでlayer/depthを64bit keyへ変換し、小規模は挿入、
+     * 大規模は安定LSD radixで並べる。同一keyは提出順を保持する。
      */
     void Sort() noexcept;
+
+    /** 直前のSortで実行したradix byte pass数を返す。 */
+    u32 LastSortPassCount() const noexcept { return m_LastSortPasses; }
+
+    /** 直前のSortでkey生成、比較、radix走査したitem数を返す。 */
+    u64 LastSortItemVisits() const noexcept { return m_LastSortItemVisits; }
 
     /**
      * ソート済み順で i 番目のコマンドへの const 参照を返す (検証用)。
@@ -252,8 +238,20 @@ private:
     /** ソート結果のインデックス順 (Sort で確定、Clear/Submit 後は Sort まで未確定)。 */
     TArray<u32>        m_Order;
 
+    /** radix passの書き込み先として再利用するindex列。 */
+    TArray<u32>        m_Scratch;
+
+    /** command本体を動かさず再利用する64bit sort key列。 */
+    TArray<u64>        m_Keys;
+
     /** 次に振る挿入シーケンス番号。 */
     u32                m_Seq = 0;
+
+    /** 直前に実行したradix byte pass数。 */
+    u32                m_LastSortPasses = 0u;
+
+    /** 直前のSortが走査したitem数。 */
+    u64                m_LastSortItemVisits = 0u;
 };
 
 } // namespace acs

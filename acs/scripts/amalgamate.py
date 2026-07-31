@@ -38,10 +38,28 @@ SRC = join_normalized_path(ROOT, "acs", "src")
 DIST_HEADER = join_normalized_path(ROOT, "dist", "acs.h")
 
 EXCLUDE_SUBSTR = ["/Dx12/", "/Diligent/", "/test/"]
+EXCLUDE_PATHS = {
+    "scripting/LuaVmImpl.h",
+    "scripting/LuaVmValueConversion.h",
+}
+
+# 引用符includeを必要とする外部依存だけをmodule単位で明示する。
+# source内で同名fileを解決できる場合は、外部依存よりsourceを優先して展開する。
+EXTERNAL_QUOTED_HEADERS_BY_MODULE = {
+    "scripting": frozenset(("lua.h", "lauxlib.h", "lualib.h")),
+}
+
+SOURCE_INCLUDE = "source"
+EXTERNAL_INCLUDE = "external"
+UNRESOLVED_INCLUDE = "unresolved"
 
 
 def excluded(rel):
-    return rel.endswith("Internal.h") or any(s in ("/" + rel) for s in EXCLUDE_SUBSTR)
+    return (
+        rel in EXCLUDE_PATHS
+        or rel.endswith("Internal.h")
+        or any(s in ("/" + rel) for s in EXCLUDE_SUBSTR)
+    )
 
 
 inc_re  = re.compile(r'^\s*#\s*include\s+"([^"]+)"\s*(?://.*)?$')
@@ -51,8 +69,46 @@ include_directive_re = re.compile(r'^\s*#\s*include\b')
 quoted_include_fallback_re = re.compile(
     r'^\s*#\s*include\b[^\r\n]*"([^"]+)"'
 )
+defined_conditional_re = re.compile(
+    r"^\s*#\s*if\s+defined\(([A-Z][A-Z0-9_]*)\)\s*$"
+)
+conditional_open_re = re.compile(r"^\s*#\s*(?:if|ifdef|ifndef)\b")
+conditional_branch_re = re.compile(r"^\s*#\s*(?:else|elif)\b")
+conditional_close_re = re.compile(r"^\s*#\s*endif\s*$")
+scripting_test_macro_directive_re = re.compile(
+    r"^\s*#.*\bACS_SCRIPTING_[A-Z0-9_]*TEST[A-Z0-9_]*\b"
+)
 
-BANNER = '''// SPDX-License-Identifier: Apache-2.0
+# 製品配布から除くScripting境界をfileとmacroの一組に固定する。
+DISTRIBUTION_TEST_ONLY_PATH = "scripting/LuaVm.h"
+DISTRIBUTION_TEST_ONLY_MACRO = "ACS_SCRIPTING_TEST_HOOKS"
+
+# 単一header利用者がWindows SDKから自動linkするsystem library契約。
+WINDOWS_SYSTEM_LIBRARIES = (
+    "d3d12.lib",
+    "dxgi.lib",
+    "d3dcompiler.lib",
+    "dxguid.lib",
+    "xaudio2.lib",
+    "ws2_32.lib",
+    "ole32.lib",
+    "dbghelp.lib",
+    "winmm.lib",
+    "user32.lib",
+    "gdi32.lib",
+    "advapi32.lib",
+)
+
+# 統合library内の未解決Windows APIを必ず満たす最小自動link契約。
+REQUIRED_WINDOWS_SYSTEM_LIBRARIES = frozenset({"advapi32.lib"})
+
+# 配布headerへ埋め込むMSVCの自動link指示。
+WINDOWS_SYSTEM_LINK_DIRECTIVES = "\n".join(
+    f'  #pragma comment(lib, "{library_name}")'
+    for library_name in WINDOWS_SYSTEM_LIBRARIES
+)
+
+BANNER = f'''// SPDX-License-Identifier: Apache-2.0
 // =============================================================================
 // ACS Engine - Single-Header Amalgamation  (acs.h)
 // -----------------------------------------------------------------------------
@@ -79,17 +135,7 @@ BANNER = '''// SPDX-License-Identifier: Apache-2.0
 
 #if defined(_MSC_VER)
   #pragma comment(lib, "acs.lib")
-  #pragma comment(lib, "d3d12.lib")
-  #pragma comment(lib, "dxgi.lib")
-  #pragma comment(lib, "d3dcompiler.lib")
-  #pragma comment(lib, "dxguid.lib")
-  #pragma comment(lib, "xaudio2.lib")
-  #pragma comment(lib, "ws2_32.lib")
-  #pragma comment(lib, "ole32.lib")
-  #pragma comment(lib, "dbghelp.lib")
-  #pragma comment(lib, "winmm.lib")
-  #pragma comment(lib, "user32.lib")
-  #pragma comment(lib, "gdi32.lib")
+{WINDOWS_SYSTEM_LINK_DIRECTIVES}
   // ---- Diligent RHI backend (built with ACS_RENDER_DILIGENT=ON). These static
   //      libs are shipped in dist/lib/x64/<cfg> next to acs.lib; the consumer's
   //      library search path picks them up. Sky/Atmosphere compute pipelines and
@@ -112,12 +158,102 @@ BANNER = '''// SPDX-License-Identifier: Apache-2.0
 '''
 
 
+def is_collected_source_path(path):
+    """候補がsrc内にある通常fileならtrueを返す。"""
+
+    source_root = os.path.normcase(os.path.realpath(SRC))
+    candidate = os.path.normcase(os.path.realpath(path))
+    try:
+        if os.path.commonpath((source_root, candidate)) != source_root:
+            return False
+    except ValueError:
+        return False
+    return os.path.isfile(path)
+
+
 def resolve(rel, from_path):
+    """引用符includeを収集対象src内から解決する。"""
+
     for base in (SRC, os.path.dirname(from_path)):
         cand = normalize_path(os.path.join(base, rel))
-        if os.path.exists(cand):
+        if is_collected_source_path(cand):
             return cand
     return None
+
+
+def classify_quoted_include(source_rel, requested, resolved_target):
+    """引用符includeをsource、明示的外部、未解決へ分類する。"""
+
+    if resolved_target is not None:
+        return SOURCE_INCLUDE
+    module = source_rel.split("/", 1)[0]
+    external_headers = EXTERNAL_QUOTED_HEADERS_BY_MODULE.get(module, ())
+    if requested in external_headers:
+        return EXTERNAL_INCLUDE
+    return UNRESOLVED_INCLUDE
+
+
+def strip_distribution_test_only_blocks(source_rel, lines):
+    """許可したtest専用blockだけを配布入力から厳密に除く。"""
+
+    expected_macro = (
+        DISTRIBUTION_TEST_ONLY_MACRO
+        if source_rel == DISTRIBUTION_TEST_ONLY_PATH
+        else None
+    )
+    seen_count = 0
+    output = []
+    active_macro = None
+    for line_number, line in enumerate(lines, start=1):
+        if active_macro is not None:
+            if conditional_close_re.match(line):
+                active_macro = None
+                continue
+            if conditional_open_re.match(line):
+                raise RuntimeError(
+                    f"{source_rel}:{line_number}: nested distribution test-only conditional"
+                )
+            if conditional_branch_re.match(line):
+                raise RuntimeError(
+                    f"{source_rel}:{line_number}: branched distribution test-only conditional"
+                )
+            if re.match(r"^\s*#\s*endif\b", line):
+                raise RuntimeError(
+                    f"{source_rel}:{line_number}: malformed distribution test-only close"
+                )
+            continue
+
+        conditional_match = defined_conditional_re.match(line)
+        if conditional_match:
+            macro = conditional_match.group(1)
+            if macro == expected_macro:
+                if seen_count != 0:
+                    raise RuntimeError(
+                        f"{source_rel}:{line_number}: duplicate distribution test-only conditional {macro}"
+                    )
+                seen_count = 1
+                active_macro = macro
+                continue
+            if scripting_test_macro_directive_re.match(line):
+                raise RuntimeError(
+                    f"{source_rel}:{line_number}: unexpected Scripting test macro {macro}"
+                )
+
+        if scripting_test_macro_directive_re.match(line):
+            raise RuntimeError(
+                f"{source_rel}:{line_number}: malformed Scripting test macro conditional"
+            )
+        output.append(line)
+
+    if active_macro is not None:
+        raise RuntimeError(
+            f"{source_rel}: unclosed distribution test-only conditional {active_macro}"
+        )
+    if expected_macro is not None and seen_count != 1:
+        raise RuntimeError(
+            f"{source_rel}: expected exactly one distribution test-only conditional {expected_macro}"
+        )
+    return output
 
 
 def source_identity(path):
@@ -150,6 +286,7 @@ def build_amalgamation():
     seen = set()
     out = []
     externals = {}
+    quoted_externals = {}
     unresolved = []
 
     def inline(path):
@@ -161,14 +298,22 @@ def build_amalgamation():
         rel = source_relative_path(path)
         out.append("\n// ===================== " + rel + " =====================\n")
         with open(path, encoding="utf-8") as source_file:
-            for line in source_file:
+            source_lines = strip_distribution_test_only_blocks(
+                rel, source_file.readlines()
+            )
+            for line in source_lines:
                 if once_re.match(line):
                     continue
                 match = inc_re.match(line)
                 if match:
-                    target = resolve(match.group(1), path)
-                    if target is None:
-                        unresolved.append((rel, match.group(1)))
+                    requested = match.group(1)
+                    target = resolve(requested, path)
+                    include_kind = classify_quoted_include(rel, requested, target)
+                    if include_kind == EXTERNAL_INCLUDE:
+                        quoted_externals[requested] = quoted_externals.get(requested, 0) + 1
+                        out.append(line)
+                    elif include_kind == UNRESOLVED_INCLUDE:
+                        unresolved.append((rel, requested))
                         out.append(line)
                     elif excluded(source_relative_path(target)):
                         out.append(
@@ -195,21 +340,25 @@ def build_amalgamation():
     roots = sorted(
         normalize_path(path)
         for path in glob.glob(os.path.join(SRC, "**", "*.h"), recursive=True)
-        if not excluded(source_relative_path(path))
+        if is_collected_source_path(path) and not excluded(source_relative_path(path))
     )
     for root in roots:
         inline(root)
-    return seen, out, externals, unresolved
+    return seen, out, externals, quoted_externals, unresolved
 
 
-def print_report(seen, out, externals, unresolved):
+def print_report(seen, out, externals, quoted_externals, unresolved):
     """従来互換の外部 include / 件数レポートを表示する。"""
 
     print("=== external <...> includes pulled into amalgamation ===")
     for header, count in sorted(externals.items()):
         print(f"  {count:4d}  <{header}>")
+    if quoted_externals:
+        print("=== explicit external quoted includes preserved ===")
+        for header, count in sorted(quoted_externals.items()):
+            print(f'  {count:4d}  "{header}"')
     if unresolved:
-        print("=== UNRESOLVED quoted includes (left literal — fix these) ===")
+        print("=== UNRESOLVED quoted includes (left literal - fix these) ===")
         for source, requested in unresolved[:30]:
             print(f'  {source} -> "{requested}"')
     print(f"\nheaders inlined: {len(seen)}   output lines: {len(out)}")
@@ -286,8 +435,165 @@ def require_self_test(condition, message):
         raise RuntimeError(message)
 
 
+def require_self_test_raises(callback, message, expected_error=None):
+    """自己検証対象が期待したRuntimeErrorでfail-closedになることを確認する。"""
+
+    try:
+        callback()
+    except RuntimeError as error:
+        if expected_error is not None and str(error) != expected_error:
+            raise RuntimeError(
+                f"{message}: expected {expected_error!r}, received {str(error)!r}"
+            ) from error
+        return
+    raise RuntimeError(message)
+
+
 def run_self_test():
     """drive別名の重複抑止と配布先の原子的・link拒否契約を検証する。"""
+
+    require_self_test(
+        REQUIRED_WINDOWS_SYSTEM_LIBRARIES.issubset(WINDOWS_SYSTEM_LIBRARIES),
+        "Required Windows system library is missing from the generator contract",
+    )
+    require_self_test(
+        all(
+            BANNER.count(f'#pragma comment(lib, "{library_name}")') == 1
+            for library_name in WINDOWS_SYSTEM_LIBRARIES
+        ),
+        "Windows system library auto-link contract is incomplete or duplicated",
+    )
+    require_self_test(
+        excluded("scripting/LuaVmImpl.h")
+        and excluded("scripting/LuaVmValueConversion.h"),
+        "Lua implementation headers entered the public distribution",
+    )
+    require_self_test(
+        not excluded("scripting/LuaVm.h"),
+        "Lua public header was excluded from the distribution",
+    )
+    resolved_probe = join_normalized_path(SRC, "scripting", "LuaVm.h")
+    require_self_test(
+        classify_quoted_include("scripting/LuaVmImpl.h", "lua.h", resolved_probe) == SOURCE_INCLUDE,
+        "source include did not take precedence over an external header",
+    )
+    require_self_test(
+        classify_quoted_include("scripting/LuaVmImpl.h", "lua.h", None) == EXTERNAL_INCLUDE,
+        "explicit Scripting external header was not preserved",
+    )
+    require_self_test(
+        classify_quoted_include("foundation/Probe.h", "lua.h", None) == UNRESOLVED_INCLUDE,
+        "external quoted-header permission escaped its module",
+    )
+    require_self_test(
+        classify_quoted_include("scripting/Probe.h", "MissingInternal.h", None) == UNRESOLVED_INCLUDE,
+        "missing ACS source include was treated as external",
+    )
+    require_self_test(
+        not is_collected_source_path(join_normalized_path(SRC, "..", "..", "LICENSE")),
+        "a file outside src entered the collected source boundary",
+    )
+    test_macro = DISTRIBUTION_TEST_ONLY_MACRO
+    test_begin = f"#if defined({test_macro})\n"
+    stripped_probe = strip_distribution_test_only_blocks(
+        DISTRIBUTION_TEST_ONLY_PATH,
+        ["before\n", test_begin, "test member\n", "#endif\n", "after\n"],
+    )
+    require_self_test(
+        stripped_probe == ["before\n", "after\n"],
+        "distribution test-only block was not removed",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            ["test member\n"],
+        ),
+        "missing distribution test-only conditional was accepted",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            [test_begin, "#if defined(NESTED)\n", "#endif\n", "#endif\n"],
+        ),
+        "nested distribution test-only conditional was accepted",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            [test_begin, "test member\n"],
+        ),
+        "unclosed distribution test-only conditional was accepted",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            "foundation/Probe.h",
+            [test_begin, "test member\n", "#endif\n"],
+        ),
+        "distribution test-only conditional escaped its source file",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            [test_begin, "#endif\n", test_begin, "#endif\n"],
+        ),
+        "duplicate distribution test-only conditional was accepted",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            ["#if defined(ACS_SCRIPTING_OTHER_TEST_HOOKS)\n", "#endif\n"],
+        ),
+        "unexpected Scripting test macro was accepted",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            [test_begin, "#else\n", "#endif\n"],
+        ),
+        "distribution test-only else branch was accepted",
+        "scripting/LuaVm.h:2: branched distribution test-only conditional",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            [test_begin, "#elif defined(OTHER)\n", "#endif\n"],
+        ),
+        "distribution test-only elif branch was accepted",
+        "scripting/LuaVm.h:2: branched distribution test-only conditional",
+    )
+    require_self_test_raises(
+        lambda: strip_distribution_test_only_blocks(
+            DISTRIBUTION_TEST_ONLY_PATH,
+            [test_begin, "#endif // test-only\n"],
+        ),
+        "commented distribution test-only close was accepted",
+        "scripting/LuaVm.h:2: malformed distribution test-only close",
+    )
+
+    seen, out, _, quoted_externals, unresolved = build_amalgamation()
+    rendered_source = "".join(out)
+    require_self_test(bool(seen), "current source produced an empty amalgamation")
+    require_self_test(not unresolved, "current source has unresolved quoted includes")
+    require_self_test(not quoted_externals, "private Scripting headers leaked external quoted includes")
+    require_self_test(
+        "// ===================== scripting/LuaVm.h =====================" in rendered_source,
+        "public LuaVm header is absent from the generated source",
+    )
+    require_self_test(
+        test_macro not in rendered_source
+        and "SetNextNativeRegistrationIdToMaximumForTest" not in rendered_source,
+        "Scripting test-only boundary entered the generated source",
+    )
+    for private_header in EXCLUDE_PATHS:
+        require_self_test(
+            f"// ===================== {private_header} =====================" not in rendered_source,
+            f'private header "{private_header}" entered the generated source',
+        )
+    for external_header in EXTERNAL_QUOTED_HEADERS_BY_MODULE["scripting"]:
+        require_self_test(
+            f'#include "{external_header}"' not in rendered_source,
+            f'private external include "{external_header}" entered the generated source',
+        )
 
     with tempfile.TemporaryDirectory(prefix="acs-amalgamate-selftest-") as temp_root:
         drive_name = os.path.splitdrive(os.path.abspath(temp_root))[0]
@@ -424,12 +730,12 @@ def main(argv=None):
         return 0
 
     try:
-        seen, out, externals, unresolved = build_amalgamation()
+        seen, out, externals, quoted_externals, unresolved = build_amalgamation()
     except (OSError, UnicodeError, RuntimeError, ValueError) as error:
         print(f"amalgamate failed: source scan failed: {error}", file=sys.stderr)
         return 2
 
-    print_report(seen, out, externals, unresolved)
+    print_report(seen, out, externals, quoted_externals, unresolved)
     sys.stdout.flush()
     if unresolved:
         print(

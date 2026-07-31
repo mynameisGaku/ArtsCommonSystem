@@ -32,8 +32,10 @@ public sealed class DerivedDataCache
     private const long MaxPayloadBytes = 1024L * 1024 * 1024;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("ACSDDC1\n");
 
+    private readonly object _pathGate = new();
     private readonly string _projectRoot;
     private readonly string _cacheRoot;
+    private readonly DerivedDataCachePathPool _pathPool;
 
     public DerivedDataCache(string projectRoot, string cacheRoot)
     {
@@ -43,9 +45,21 @@ public sealed class DerivedDataCache
             throw new InvalidDataException("Derived Data Cache must be inside the project root.");
         EnsureSafeDirectory(_projectRoot, createIfMissing: false);
         EnsureSafeDirectory(_cacheRoot, createIfMissing: true);
+        _pathPool = new DerivedDataCachePathPool(
+            _cacheRoot,
+            ".ddc");
     }
 
     public string CacheRoot => _cacheRoot;
+
+    /// <summary>
+    /// owner 固有 DDC path pool の累積値と現在保持量を取得する。
+    /// </summary>
+    public DerivedDataCachePathPoolDiagnostics CapturePathDiagnostics()
+    {
+        lock (_pathGate)
+            return _pathPool.CaptureDiagnostics();
+    }
 
     public DerivedDataCacheResult GetOrCreate(
         AssetRecord asset,
@@ -56,19 +70,20 @@ public sealed class DerivedDataCache
         ArgumentNullException.ThrowIfNull(asset);
         ArgumentNullException.ThrowIfNull(producer);
         string key = ComputeKey(asset, cookerVersion, cookerSettings);
-        string directory = EntryDirectory(key);
-        EnsureSafeDirectory(directory, createIfMissing: true);
-        string entry = EntryPath(key);
-        EnsureSafeFileOrMissing(entry);
+        DerivedDataCachePath path;
+        lock (_pathGate)
+            path = _pathPool.Intern(key);
+        EnsureSafeDirectory(path.Directory, createIfMissing: true);
+        EnsureSafeFileOrMissing(path.EntryPath);
 
         bool corrupt = false;
-        if (File.Exists(entry))
+        if (File.Exists(path.EntryPath))
         {
             try
             {
                 return new(
                     key,
-                    ReadEntry(entry, key),
+                    ReadEntry(path.EntryPath, key),
                     DerivedDataCacheStatus.Hit);
             }
             catch (InvalidDataException)
@@ -82,7 +97,7 @@ public sealed class DerivedDataCache
         if (payload.LongLength > MaxPayloadBytes)
             throw new InvalidDataException(
                 $"Derived data payload exceeds {MaxPayloadBytes} bytes.");
-        WriteEntryAtomic(entry, key, payload);
+        WriteEntryAtomic(path.EntryPath, key, payload);
         return new(
             key,
             payload,
@@ -209,22 +224,6 @@ public sealed class DerivedDataCache
             }
             catch { }
         }
-    }
-
-    private string EntryDirectory(string key)
-    {
-        ValidateKey(key);
-        return Path.Combine(_cacheRoot, key[..2]);
-    }
-
-    private string EntryPath(string key) =>
-        Path.Combine(EntryDirectory(key), key + ".ddc");
-
-    private static void ValidateKey(string key)
-    {
-        if (key.Length != 64 || key.Any(static value =>
-                !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))))
-            throw new InvalidDataException("Derived data cache key is not canonical SHA-256.");
     }
 
     private void EnsureSafeDirectory(string path, bool createIfMissing)

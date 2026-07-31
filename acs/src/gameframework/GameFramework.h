@@ -1,8 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — まとめ include
-//
-// `#include "gameframework/GameFramework.h"` 1 行で v1 の Pillar A を全部
-// 引き込める。
 #pragma once
 
 #include "gameframework/Game.h"
@@ -13,6 +9,7 @@
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
 #include "gameframework/Easing.h"
+#include "gameframework/LegacyKitEaseIdCodec.h"
 #include "gameframework/Clock.h"
 #include "gameframework/Tween.h"
 #include "gameframework/Sequence.h"

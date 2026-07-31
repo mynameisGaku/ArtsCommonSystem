@@ -2352,8 +2352,10 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         standard.Init(device, EFormat::R16G16B16A16_Float, EFormat::D32_Float);
     EXPECT_TRUE(standard_result.IsOk());
     if (standard_result.IsOk()) {
+        EXPECT_EQ(standard.ObjectBufferPageCount(), 1u);
         EXPECT_FALSE(standard.BeginFrame(
             std::numeric_limits<u32>::max()));
+        EXPECT_EQ(standard.ObjectBufferPageCount(), 1u);
         EXPECT_FALSE(standard.SetObject(FMat4::Identity()));
         EXPECT_EQ(standard.ObjectDrawCount(), 0u);
         EXPECT_TRUE(standard.PerObjectCB() == nullptr);
@@ -2362,6 +2364,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
         EXPECT_TRUE(standard.BeginFrame(kLargeStandardDrawCount));
         EXPECT_TRUE(
             standard.ObjectBufferCapacity() >= kLargeStandardDrawCount);
+        EXPECT_EQ(standard.ObjectBufferPageCount(), 2u);
         standard.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
                            nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
         IRhiBuffer* first_object = nullptr;
@@ -2376,9 +2379,12 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
 
         const u32 retained_standard_capacity =
             standard.ObjectBufferCapacity();
+        const u32 retained_standard_pages =
+            standard.ObjectBufferPageCount();
         EXPECT_TRUE(standard.BeginFrame(1u));
         EXPECT_EQ(
             standard.ObjectBufferCapacity(), retained_standard_capacity);
+        EXPECT_EQ(standard.ObjectBufferPageCount(), retained_standard_pages);
         EXPECT_EQ(standard.ObjectDrawCount(), 0u);
         standard.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 0.0f},
                            nullptr, 0, FVec3{0.0f, 0.0f, 0.0f});
@@ -2482,6 +2488,7 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
                                      ECullMode::None);
     EXPECT_TRUE(pbr_result.IsOk());
     if (pbr_result.IsOk()) {
+        EXPECT_EQ(pbr.ObjectBufferPageCount(), 1u);
         // Compile, bind and execute the optional four-target shader/PSO, not
         // merely its single-target sibling. RT2 proves the material profile;
         // RT3 proves the final normal after PBR normal mapping is exported.
@@ -2690,24 +2697,30 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             large_draw_command_result.IsOk()) {
             auto large_draw_command =
                 Move(large_draw_command_result.Value());
+            pbr.ClearSubstrateSurface();
+            pbr.SetSubsurface(FVec3{0.0f, 0.0f, 0.0f}, 0.0f);
             EXPECT_TRUE(pbr.BeginFrame(512u));
             EXPECT_TRUE(pbr.ObjectBufferCapacity() >= 512u);
-            pbr.SetLights(
-                FMat4::Identity(), FVec3{0.0f, 0.0f, 2.0f},
-                nullptr, 0u, FVec3{0.1f, 0.1f, 0.1f});
+            EXPECT_EQ(pbr.ObjectBufferPageCount(), 2u);
+            pbr.SetLights(FMat4::Identity(), FVec3{0.0f, 0.0f, 2.0f}, nullptr, 0u, FVec3{1.0f, 1.0f, 1.0f});
             large_draw_command->Begin();
             large_draw_command->BeginRenderToTexture(
                 *mrt_scene.Value(), FClearColor{0, 0, 0, 0},
                 mrt_depth.Value().Get(), 1.0f);
             bool normal_draws_valid = true;
             for (u32 draw = 0u; draw < 512u; ++draw) {
-                normal_draws_valid =
-                    pbr.DrawMesh(
-                        *large_draw_command, gpu_triangle,
-                        FMat4::Identity(),
-                        FVec3{0.4f, 0.5f, 0.6f},
-                        0.0f, 0.5f, 1.0f) &&
-                    normal_draws_valid;
+                /** 中間slotを画面外へ置き、先頭と末尾のpage跨ぎ結果だけを観測するmodel。 */
+                FMat4 draw_model = FMat4::Translation(FVec3{4.0f, 0.0f, 0.0f});
+                /** page跨ぎで異なる定数範囲を識別する色。 */
+                FVec3 draw_color = FVec3{0.0f, 0.0f, 1.0f};
+                if (draw == 0u) {
+                    draw_model = FMat4::Translation(FVec3{-0.5f, 0.0f, 0.0f});
+                    draw_color = FVec3{1.0f, 0.0f, 0.0f};
+                } else if (draw == 511u) {
+                    draw_model = FMat4::Translation(FVec3{0.5f, 0.0f, 0.0f});
+                    draw_color = FVec3{0.0f, 1.0f, 0.0f};
+                }
+                normal_draws_valid = pbr.DrawMesh(*large_draw_command, gpu_triangle, draw_model, draw_color, 0.0f, 0.5f, 1.0f) && normal_draws_valid;
             }
             large_draw_command->EndRenderToTexture(
                 *mrt_scene.Value());
@@ -2716,12 +2729,34 @@ ACS_TEST(PostEffects, PipelinesCompileOnActiveBackend)
             device.WaitIdle();
             EXPECT_TRUE(normal_draws_valid);
             EXPECT_EQ(pbr.ObjectDrawCount(), static_cast<u32>(512u));
+            /** slot 0と511の異なる親page・offsetを描画結果で検証するHDR pixel列。 */
+            u16 arena_pixels[64u * 64u * 4u]{};
+            /** 共有arena描画結果のreadback成否。 */
+            const bool arena_output_read = device.ReadTexture(*mrt_scene.Value(), arena_pixels, static_cast<u32>(sizeof(arena_pixels)));
+            EXPECT_TRUE(arena_output_read);
+            if (arena_output_read) {
+                /** 左側slot 0の三角形中央pixel。 */
+                constexpr usize kLeftCenter = (32u * 64u + 16u) * 4u;
+                /** 右側slot 511の三角形中央pixel。 */
+                constexpr usize kRightCenter = (32u * 64u + 48u) * 4u;
+                EXPECT_EQ(arena_pixels[kLeftCenter + 0u], static_cast<u16>(0x3C00u));
+                EXPECT_EQ(arena_pixels[kLeftCenter + 1u], static_cast<u16>(0u));
+                EXPECT_EQ(arena_pixels[kLeftCenter + 2u], static_cast<u16>(0u));
+                EXPECT_EQ(arena_pixels[kLeftCenter + 3u], static_cast<u16>(0x3C00u));
+                EXPECT_EQ(arena_pixels[kRightCenter + 0u], static_cast<u16>(0u));
+                EXPECT_EQ(arena_pixels[kRightCenter + 1u], static_cast<u16>(0x3C00u));
+                EXPECT_EQ(arena_pixels[kRightCenter + 2u], static_cast<u16>(0u));
+                EXPECT_EQ(arena_pixels[kRightCenter + 3u], static_cast<u16>(0x3C00u));
+            }
 
             const u32 retained_capacity =
                 pbr.ObjectBufferCapacity();
+            const u32 retained_pages =
+                pbr.ObjectBufferPageCount();
             EXPECT_TRUE(pbr.BeginFrame(300u));
             EXPECT_EQ(
                 pbr.ObjectBufferCapacity(), retained_capacity);
+            EXPECT_EQ(pbr.ObjectBufferPageCount(), retained_pages);
             EXPECT_EQ(pbr.ObjectDrawCount(), static_cast<u32>(0u));
             pbr.SetLights(
                 FMat4::Identity(), FVec3{0.0f, 0.0f, 2.0f},

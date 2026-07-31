@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// DX12 コマンドリスト実装
 #pragma once
 
 #include "render/IRhiCommandList.h"
@@ -274,6 +273,12 @@ public:
     void* NativeHandle() noexcept override { return m_CmdList; }
 
 private:
+    /** Raw DX12が所有する変更可能な命令統計を返す。 */
+    FRhiCommandStatistics& StatisticsStorage() noexcept override { return m_CommandStatistics; }
+
+    /** Raw DX12が所有する読み取り専用の命令統計を返す。 */
+    const FRhiCommandStatistics& StatisticsStorage() const noexcept override { return m_CommandStatistics; }
+
     bool BeginCurrentSlot() noexcept;
     bool SubmitInternal(bool wait_for_next_slot) noexcept;
     static constexpr u32 kGpuTimingFrameSlots = 2;
@@ -300,6 +305,9 @@ private:
     void ResetGpuTiming() noexcept;
     void CollectGpuTiming(u32 slot) noexcept;
     u32 EmitGpuTimestamp() noexcept;
+
+    /** このRaw DX12コマンドリストだけに属する命令統計。 */
+    FRhiCommandStatistics m_CommandStatistics{};
 
     /** Init で受け取った DX12 デバイス (fence 待ち・キュー投入に使う)。 */
     FDx12Device*                     m_Device      = nullptr;

@@ -8,16 +8,32 @@ acs_module(
     TYPE    Runtime
     SOURCES
         MessageBroker.cpp
-        Timer.cpp
+        TimerManager.cpp
+        TypedEvent.cpp
     HEADERS
+        Delegate.h
+        EventTypeId.h
         MessageBroker.h
         MessagePipe.h
         MessagePipePolicy.h
+        MulticastDelegate.h
+        SimpleDelegate.h
+        SimpleMulticastDelegate.h
+        SubscriptionHandle.h
         Timer.h
         TimerDiagnostics.h
+        TimerHandle.h
+        TimerManager.h
         TimerSchedulePolicy.h
+        TypedEvent.h
+        TypedEventCallback.h
+        TypedEventHandle.h
+        TypedEventSlot.h
+        TypedEventState.h
+        TypedEventSubscription.h
     PUBLIC_DEPS
         Foundation
         Container
         Threading
+        Memory
 )

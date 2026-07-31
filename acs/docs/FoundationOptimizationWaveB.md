@@ -28,7 +28,7 @@ Wave B は、基盤層の待機・投入・イベント配送・タイマー・�
 
 ## 公開 API と依存関係
 
-owner API は `MessagePipe.h`、`MessageBroker.h`、`Timer.h`、`FileSystem.h`、`ThreadPool.h`、`JobGraph.h` に置き、公開補助型は一主要型一 header の規約に従って `MessagePipePolicy.h`、`TimerSchedulePolicy.h`、`TimerDiagnostics.h`、`FileExtensionKind.h`、`FileSystemDiagnostics.h`、`ThreadPoolDiagnostics.h`、`JobGraphDiagnostics.h` へ分離した。補助型は状態や独立ライフサイクルを持たず、owner header から include するため既存利用者の互換経路も維持する。従来の raw callback API と既定 MPMC pipe も残している。
+owner API は `MessagePipe.h`、`MessageBroker.h`、`TimerManager.h`、`FileSystem.h`、`ThreadPool.h`、`JobGraph.h` に置き、公開補助型は一主要型一 header の規約に従って `MessagePipePolicy.h`、`SubscriptionHandle.h`、`TimerHandle.h`、`TimerSchedulePolicy.h`、`TimerDiagnostics.h`、`FileExtensionKind.h`、`FileSystemDiagnostics.h`、`ThreadPoolDiagnostics.h`、`JobGraphDiagnostics.h` へ分離した。`Timer.h` は旧 include 経路を維持する互換 header として `TimerHandle.h` と `TimerManager.h` を公開する。補助型は状態や独立ライフサイクルを持たず、owner header から include するため既存利用者の互換経路も維持する。従来の raw callback API と既定 MPMC pipe も残している。
 
 `acsbuild gen` で Event / Platform / Threading の `Module.cmake` に分離 header を登録し、module source 監査と配布 header 生成から参照できるようにした。`acs/tests/CMakeLists.txt` には同じテストソースを使う専用 target `acs_foundation_optimization_wave_b_tests` と CTest `ACS.FoundationOptimizationWaveB` を登録した。外部 library 依存は追加していない。
 

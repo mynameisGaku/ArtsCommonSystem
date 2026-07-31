@@ -88,7 +88,7 @@ public:
             draw_first_vertices[draw_record_count] = first_vertex;
             ++draw_record_count;
         }
-        RecordDraw(vertex_count);
+        RecordDraw(m_CommandStatistics, vertex_count);
     }
 
     void DrawIndexed(
@@ -100,12 +100,12 @@ public:
             indexed_draw_counts[indexed_draw_record_count++] =
                 index_count;
         }
-        RecordDraw(index_count);
+        RecordDraw(m_CommandStatistics, index_count);
     }
 
     void Dispatch(u32 gx, u32 gy, u32 gz) noexcept override {
         if (gx == 0u || gy == 0u || gz == 0u) return;
-        RecordDispatch();
+        RecordDispatch(m_CommandStatistics);
     }
 
     void* NativeHandle() noexcept override { return nullptr; }
@@ -130,7 +130,20 @@ public:
     u32 draw_first_vertices[64]{};
     u32 indexed_draw_record_count = 0u;
     u32 indexed_draw_counts[64]{};
+
+private:
+    /** fakeが所有する変更可能な命令統計を返す。 */
+    FRhiCommandStatistics& StatisticsStorage() noexcept override { return m_CommandStatistics; }
+
+    /** fakeが所有する読み取り専用の命令統計を返す。 */
+    const FRhiCommandStatistics& StatisticsStorage() const noexcept override { return m_CommandStatistics; }
+
+    /** このfakeコマンドリストだけに属する命令統計。 */
+    FRhiCommandStatistics m_CommandStatistics{};
 };
+
+/** I接頭辞のcommand list interfaceがvptr以外の状態を持たないことを固定する。 */
+static_assert(sizeof(IRhiCommandList) == sizeof(void*));
 
 ACS_TEST(Render,
          NonBlockingCommandListDefaultsPreserveLegacyBackendContract)
@@ -244,6 +257,27 @@ ACS_TEST(Render, RhiCommandStatisticsCountAndReset)
     EXPECT_EQ(reset.draw_calls, 0u);
     EXPECT_EQ(reset.dispatch_calls, 0u);
     EXPECT_EQ(reset.triangles, 0u);
+}
+
+ACS_TEST(Render, RhiCommandStatisticsStorageBelongsToConcreteCommandList)
+{
+    /** draw統計だけを記録する一つ目のfake。 */
+    FStatisticsCommandList first;
+    /** dispatch統計だけを記録する二つ目のfake。 */
+    FStatisticsCommandList second;
+
+    first.Draw(6u);
+    second.Dispatch(1u, 1u, 1u);
+
+    EXPECT_TRUE(&first.Statistics() != &second.Statistics());
+    EXPECT_EQ(first.Statistics().draw_calls, 1u);
+    EXPECT_EQ(first.Statistics().dispatch_calls, 0u);
+    EXPECT_EQ(second.Statistics().draw_calls, 0u);
+    EXPECT_EQ(second.Statistics().dispatch_calls, 1u);
+
+    first.ResetStatistics();
+    EXPECT_EQ(first.Statistics().draw_calls, 0u);
+    EXPECT_EQ(second.Statistics().dispatch_calls, 1u);
 }
 
 ACS_TEST(Render, EditorSceneGeometryPassPolicyMatchesProductionCommands)

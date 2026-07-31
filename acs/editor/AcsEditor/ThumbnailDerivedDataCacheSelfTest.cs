@@ -82,6 +82,18 @@ internal static class ThumbnailDerivedDataCacheSelfTest
                 PixelsEqual(expected, cached),
                 "thumbnail DDC miss publishes a lossless entry and the next request hits");
 
+            DerivedDataCachePathPoolDiagnostics initialPathDiagnostics =
+                cache.CapturePathDiagnostics();
+            Check(
+                initialPathDiagnostics.RequestCount == 3 &&
+                initialPathDiagnostics.HitCount == 2 &&
+                initialPathDiagnostics.MissCount == 1 &&
+                initialPathDiagnostics.EvictionCount == 0 &&
+                initialPathDiagnostics.BypassCount == 0 &&
+                initialPathDiagnostics.RetainedPathCount == 1 &&
+                initialPathDiagnostics.RetainedCodeUnits > 0,
+                "thumbnail DDC reuses one owner-bounded path across miss, store, and hit");
+
             bool alphaStored = cache.Store(
                 contentAlpha,
                 "image",
@@ -568,6 +580,225 @@ internal static class ThumbnailDerivedDataCacheSelfTest
                         SearchOption.AllDirectories)
                     .Any(),
                 "atomic thumbnail publication leaves no temporary files");
+
+            var boundedPathPool = new DerivedDataCachePathPool(
+                cacheRoot,
+                ".fixture",
+                maximumEntries: 2,
+                maximumCodeUnits: 64L * 1024L);
+            DerivedDataCachePath pooledA =
+                boundedPathPool.Intern(contentA);
+            DerivedDataCachePath pooledAHit =
+                boundedPathPool.Intern(
+                    new string(contentA.ToCharArray()));
+            DerivedDataCachePath pooledB =
+                boundedPathPool.Intern(contentB);
+            _ = boundedPathPool.Intern(contentC);
+            DerivedDataCachePath pooledBHit =
+                boundedPathPool.Intern(
+                    new string(contentB.ToCharArray()));
+            DerivedDataCachePath pooledARecreated =
+                boundedPathPool.Intern(contentA);
+            DerivedDataCachePathPoolDiagnostics boundedPathDiagnostics =
+                boundedPathPool.CaptureDiagnostics();
+            string externallyRetainedPath = pooledA.EntryPath;
+            boundedPathPool.Reset();
+            DerivedDataCachePathPoolDiagnostics resetPathDiagnostics =
+                boundedPathPool.CaptureDiagnostics();
+            Check(
+                ReferenceEquals(
+                    pooledA.Directory,
+                    pooledAHit.Directory) &&
+                ReferenceEquals(
+                    pooledA.EntryPath,
+                    pooledAHit.EntryPath) &&
+                ReferenceEquals(
+                    pooledB.EntryPath,
+                    pooledBHit.EntryPath) &&
+                !ReferenceEquals(
+                    pooledA.EntryPath,
+                    pooledARecreated.EntryPath) &&
+                boundedPathDiagnostics.RequestCount == 6 &&
+                boundedPathDiagnostics.HitCount == 2 &&
+                boundedPathDiagnostics.MissCount == 4 &&
+                boundedPathDiagnostics.EvictionCount == 2 &&
+                boundedPathDiagnostics.BypassCount == 0 &&
+                boundedPathDiagnostics.RetainedPathCount == 2 &&
+                boundedPathDiagnostics.RetainedCodeUnits <=
+                    64L * 1024L &&
+                resetPathDiagnostics == default &&
+                externallyRetainedPath.EndsWith(
+                    contentA + ".fixture",
+                    StringComparison.Ordinal),
+                "DDC path pool has bounded LRU retention and reset does not invalidate returned strings");
+
+            var defaultBoundedPathPool =
+                new DerivedDataCachePathPool(
+                    cacheRoot,
+                    ".fixture");
+            for (int index = 0;
+                 index <=
+                    DerivedDataCachePathPool
+                        .DefaultMaximumEntries;
+                 index++)
+            {
+                _ = defaultBoundedPathPool.Intern(
+                    ContentHash(
+                        "default-path-bound-" +
+                        index.ToString(
+                            System.Globalization.CultureInfo
+                                .InvariantCulture)));
+            }
+            DerivedDataCachePathPoolDiagnostics
+                defaultBoundedPathDiagnostics =
+                defaultBoundedPathPool.CaptureDiagnostics();
+            Check(
+                defaultBoundedPathDiagnostics.RequestCount ==
+                    DerivedDataCachePathPool.DefaultMaximumEntries +
+                    1L &&
+                defaultBoundedPathDiagnostics.HitCount == 0 &&
+                defaultBoundedPathDiagnostics.MissCount ==
+                    DerivedDataCachePathPool.DefaultMaximumEntries +
+                    1L &&
+                defaultBoundedPathDiagnostics.EvictionCount == 1 &&
+                defaultBoundedPathDiagnostics.BypassCount == 0 &&
+                defaultBoundedPathDiagnostics.RetainedPathCount ==
+                    DerivedDataCachePathPool.DefaultMaximumEntries &&
+                defaultBoundedPathDiagnostics.RetainedCodeUnits <=
+                    DerivedDataCachePathPool
+                        .DefaultMaximumCodeUnits,
+                "default DDC path retention stops at 512 entries and 256 Ki code units");
+
+            var bypassPathPool = new DerivedDataCachePathPool(
+                cacheRoot,
+                ".fixture",
+                maximumEntries: 1,
+                maximumCodeUnits: 1);
+            DerivedDataCachePath bypassPath =
+                bypassPathPool.Intern(contentD);
+            DerivedDataCachePathPoolDiagnostics bypassPathDiagnostics =
+                bypassPathPool.CaptureDiagnostics();
+            Check(
+                bypassPathDiagnostics.RequestCount == 1 &&
+                bypassPathDiagnostics.HitCount == 0 &&
+                bypassPathDiagnostics.MissCount == 1 &&
+                bypassPathDiagnostics.EvictionCount == 0 &&
+                bypassPathDiagnostics.BypassCount == 1 &&
+                bypassPathDiagnostics.RetainedPathCount == 0 &&
+                bypassPathDiagnostics.RetainedCodeUnits == 0 &&
+                bypassPath.EntryPath.EndsWith(
+                    contentD + ".fixture",
+                    StringComparison.Ordinal),
+                "oversized DDC paths bypass retention without losing a valid result");
+
+            var invalidPathPool = new DerivedDataCachePathPool(
+                cacheRoot,
+                ".fixture");
+            Check(
+                Throws<InvalidDataException>(() =>
+                    _ = invalidPathPool.Intern(
+                        new string('a', 63))) &&
+                Throws<InvalidDataException>(() =>
+                    _ = invalidPathPool.Intern(
+                        new string('A', 64))) &&
+                Throws<InvalidDataException>(() =>
+                    _ = invalidPathPool.Intern(
+                        new string('a', 63) + "/")) &&
+                invalidPathPool.CaptureDiagnostics() == default,
+                "DDC path pool rejects noncanonical length, uppercase, and separator keys before mutation");
+
+            const int pathPerformanceRequests = 16384;
+            string[] pathPerformanceKeys =
+                Enumerable.Range(0, pathPerformanceRequests)
+                    .Select(_ =>
+                        new string(contentA.ToCharArray()))
+                    .ToArray();
+            var performancePathPool = new DerivedDataCachePathPool(
+                cacheRoot,
+                ".thumbddc",
+                maximumEntries: 1,
+                maximumCodeUnits: 64L * 1024L);
+            for (int index = 0; index < 4096; index++)
+                _ = performancePathPool.Intern(
+                    pathPerformanceKeys[index]);
+            performancePathPool.Reset();
+            for (int index = 0; index < 4096; index++)
+            {
+                string key = pathPerformanceKeys[index];
+                string warmDirectory = Path.Combine(
+                    cacheRoot,
+                    key[..2]);
+                _ = Path.Combine(
+                    warmDirectory,
+                    key + ".thumbddc");
+            }
+            long pooledPathLength = 0;
+            long pooledAllocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            var pooledPathClock = Stopwatch.StartNew();
+            for (int index = 0;
+                 index < pathPerformanceRequests;
+                 index++)
+            {
+                string key = pathPerformanceKeys[index];
+                DerivedDataCachePath pooledPath =
+                    performancePathPool.Intern(key);
+                pooledPathLength +=
+                    pooledPath.Directory.Length +
+                    pooledPath.EntryPath.Length;
+            }
+            pooledPathClock.Stop();
+            long pooledAllocatedBytes =
+                GC.GetAllocatedBytesForCurrentThread() -
+                pooledAllocatedBefore;
+
+            long rebuiltPathLength = 0;
+            long rebuiltAllocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            var rebuiltPathClock = Stopwatch.StartNew();
+            for (int index = 0;
+                 index < pathPerformanceRequests;
+                 index++)
+            {
+                string key = pathPerformanceKeys[index];
+                string rebuiltDirectory = Path.Combine(
+                        cacheRoot,
+                        key[..2]);
+                string rebuiltPath = Path.Combine(
+                    rebuiltDirectory,
+                    key + ".thumbddc");
+                rebuiltPathLength +=
+                    rebuiltDirectory.Length +
+                    rebuiltPath.Length;
+            }
+            rebuiltPathClock.Stop();
+            long rebuiltAllocatedBytes =
+                GC.GetAllocatedBytesForCurrentThread() -
+                rebuiltAllocatedBefore;
+            DerivedDataCachePathPoolDiagnostics
+                performancePathDiagnostics =
+                performancePathPool.CaptureDiagnostics();
+            output.WriteLine(
+                "INFO: DDC path reuse " +
+                $"requests={performancePathDiagnostics.RequestCount} " +
+                $"constructions={performancePathDiagnostics.MissCount} " +
+                $"reused={performancePathDiagnostics.HitCount} " +
+                $"pooled-allocated={pooledAllocatedBytes} " +
+                $"rebuilt-allocated={rebuiltAllocatedBytes} " +
+                $"pooled-ticks={pooledPathClock.ElapsedTicks} " +
+                $"rebuilt-ticks={rebuiltPathClock.ElapsedTicks}.");
+            Check(
+                pooledPathLength == rebuiltPathLength &&
+                pooledAllocatedBytes < rebuiltAllocatedBytes &&
+                performancePathDiagnostics.RequestCount ==
+                    pathPerformanceRequests &&
+                performancePathDiagnostics.HitCount ==
+                    pathPerformanceRequests - 1 &&
+                performancePathDiagnostics.MissCount == 1 &&
+                performancePathDiagnostics.EvictionCount == 0 &&
+                performancePathDiagnostics.BypassCount == 0 &&
+                performancePathDiagnostics.RetainedPathCount == 1,
+                "steady-state DDC path lookup constructs once and reuses every later request");
         }
         catch (Exception error)
         {

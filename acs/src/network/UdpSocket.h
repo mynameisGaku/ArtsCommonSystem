@@ -1,15 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// UDP ソケット（コネクションレス）
-//
-// 使い方:
-//   auto sr = FUdpSocket::Bind(FIpAddress::Any(), 8080);
-//   if (sr.IsErr()) { ... }
-//   FUdpSocket& s = sr.Value();
-//
-//   FIpAddress from{};
-//   isize n = s.RecvFrom(buf, sizeof(buf), from);
-//
-//   s.SendTo(FIpAddress::FromString("192.168.0.1"), 8080, data, size);
 #pragma once
 
 #include "foundation/Types.h"
@@ -25,6 +14,7 @@ namespace acs {
  * Bind() で生成し、SendTo()/RecvFrom() でデータグラムを送受信する。OS の
  * ソケットハンドルを単独所有する non-copy / move-only 型で、デストラクタや
  * Close() で確実にハンドルを閉じる。内部ハンドルは ~uptr{0} を無効値として持つ。
+ * 同じソケットへの呼び出しは利用側で直列化し、破棄まで FNetwork の初期化を保つ。
  */
 class FUdpSocket {
 public:
@@ -74,7 +64,8 @@ public:
      * @param dst_port 送信先ポート。
      * @param data 送信するデータの先頭。
      * @param size 送信するバイト数。
-     * @return 送信できたバイト数、失敗時は -1。
+     * @return 送信できたバイト数。size が 1 以上で null、WinSock の長さ上限超過、失敗時は -1。
+     * @details size が 0 の場合も空データグラムを OS へ送る。
      */
     isize SendTo(FIpAddress dst_addr, u16 dst_port, const void* data, usize size) noexcept;
 
@@ -84,7 +75,8 @@ public:
      * @param buf 受信データを書き込むバッファ。
      * @param size buf の容量 (バイト)。
      * @param from 送信元アドレス/ポートの書き込み先 (出力)。
-     * @return 受信できたバイト数、失敗時は -1。
+     * @return 受信できたバイト数。size が 1 以上で null、WinSock の長さ上限超過、失敗時は -1。
+     * @details size が 0 の空データグラムも受信する。失敗時は from を変更しない。
      */
     isize RecvFrom(void* buf, usize size, FIpAddress& from) noexcept;
 
@@ -95,6 +87,13 @@ public:
      * @return 成功なら空の TResult、失敗ならエラー。
      */
     TResult<void> SetNonBlocking(bool enable) noexcept;
+
+    /**
+     * OS が割り当てたローカル IPv4 アドレスとポートを返す。
+     *
+     * @return 成功ならバインド先。無効なソケットまたは WinSock 失敗ならエラー。
+     */
+    TResult<FIpAddress> LocalAddress() const noexcept;
 
     /** ソケットを閉じてハンドルを無効化する (多重呼び出し安全)。 */
     void Close() noexcept;

@@ -1,5 +1,19 @@
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 
+if(WIN32)
+    find_program(ACS_PROJECT_OPERATIONS_POWERSHELL NAMES powershell.exe powershell)
+    if(ACS_PROJECT_OPERATIONS_POWERSHELL)
+        add_test(
+            NAME ACS.ProjectOperationsSelfTest
+            COMMAND "${ACS_PROJECT_OPERATIONS_POWERSHELL}"
+                    -NoLogo -NoProfile -ExecutionPolicy Bypass
+                    -File "${CMAKE_CURRENT_SOURCE_DIR}/project_operations_self_test.ps1")
+        set_tests_properties(
+            ACS.ProjectOperationsSelfTest
+            PROPERTIES LABELS "StaticAnalysis;BuildSystem" TIMEOUT 60)
+    endif()
+endif()
+
 add_executable(acs_unit_tests
     main.cpp
     foundation_tests.cpp
@@ -23,6 +37,7 @@ add_executable(acs_unit_tests
     behaviortree_tests.cpp
     behavior_tree_persistence_safety_tests.cpp
     easing_completeness_tests.cpp
+    legacy_kit_ease_id_codec_tests.cpp
     easing_tween_integration_tests.cpp
     easing_tween_numeric_safety_tests.cpp
     easy_easing_facade_tests.cpp
@@ -46,6 +61,10 @@ add_executable(acs_unit_tests
     math_tests.cpp
     ecs_tests.cpp
     event_tests.cpp
+    delegate_tests.cpp
+    message_broker_safety_tests.cpp
+    simple_delegate_tests.cpp
+    typed_event_tests.cpp
     jobgraph_tests.cpp
     mvvm_tests.cpp
     observable_array_lifetime_safety_tests.cpp
@@ -112,6 +131,7 @@ add_executable(acs_unit_tests
     assetpack_manifest_safety_tests.cpp
     application_lifetime_tests.cpp
     win32_resource_tests.cpp
+    network_socket_io_tests.cpp
 )
 set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 
@@ -315,6 +335,20 @@ set_tests_properties(
     ACS.FoundationOptimizationWaveM
     PROPERTIES LABELS "Foundation;Stress" TIMEOUT 120)
 
+# FFileSystemの入力境界、既存root、通常ファイル衝突を単独検証する。
+add_executable(acs_file_system_safety_tests
+    main.cpp
+    file_system_safety_tests.cpp
+)
+set_target_properties(acs_file_system_safety_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_file_system_safety_tests)
+target_link_libraries(acs_file_system_safety_tests PRIVATE
+    ACS::Platform
+    ACS::Test
+)
+add_test(NAME ACS.FileSystemSafety COMMAND acs_file_system_safety_tests)
+set_tests_properties(ACS.FileSystemSafety PROPERTIES TIMEOUT 30)
+
 # LinearAllocator の Reset 競合を他モジュールのリンク状態から独立して反復できる専用ターゲット。
 add_executable(acs_linear_allocator_lifecycle_tests
     main.cpp
@@ -344,6 +378,18 @@ target_link_libraries(acs_audio_engine_lifetime_tests PRIVATE
 )
 add_test(NAME ACS.AudioEngineLifetime COMMAND acs_audio_engine_lifetime_tests)
 set_tests_properties(ACS.AudioEngineLifetime PROPERTIES TIMEOUT 30)
+
+# 公開音量経路の正規化とbackend失敗時の非変更契約を実音声機器なしで検証する。
+add_executable(acs_audio_volume_safety_tests audio_volume_safety_tests.cpp)
+set_target_properties(acs_audio_volume_safety_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_audio_volume_safety_tests)
+target_compile_definitions(acs_audio_volume_safety_tests PRIVATE ACS_AUDIO_TEST_HOOKS=1)
+target_link_libraries(acs_audio_volume_safety_tests PRIVATE
+    ACS::Foundation
+    ACS::Audio
+)
+add_test(NAME ACS.AudioVolumeSafety COMMAND acs_audio_volume_safety_tests)
+set_tests_properties(ACS.AudioVolumeSafety PROPERTIES TIMEOUT 30)
 
 # GameFramework の XAudio2 backend を基盤依存だけで隔離して寿命競合を検証する。
 add_executable(acs_xaudio2_backend_lifetime_tests
@@ -397,6 +443,21 @@ target_link_libraries(acs_mimalloc_allocator_tests PRIVATE
 )
 add_test(NAME ACS.MimallocAllocator COMMAND acs_mimalloc_allocator_tests)
 set_tests_properties(ACS.MimallocAllocator PROPERTIES TIMEOUT 60)
+
+# WinSock の入力境界と空データグラム契約を描画モジュールから独立して検証する。
+add_executable(acs_network_socket_io_tests
+    main.cpp
+    network_socket_io_tests.cpp
+)
+set_target_properties(acs_network_socket_io_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_network_socket_io_tests)
+target_link_libraries(acs_network_socket_io_tests PRIVATE
+    ACS::Foundation
+    ACS::Network
+    ACS::Test
+)
+add_test(NAME ACS.NetworkSocketIo COMMAND acs_network_socket_io_tests)
+set_tests_properties(ACS.NetworkSocketIo PROPERTIES RUN_SERIAL TRUE TIMEOUT 30)
 
 # GameFramework の失敗注入は unit test を構成した build にだけ組み込む。
 target_compile_definitions(acs_gameframework PRIVATE ACS_GAMEFRAMEWORK_TEST_HOOKS=1)
@@ -461,6 +522,33 @@ if(TARGET ACS::MlOnnx)
     acs_onnxruntime_runtime(acs_unit_tests)
 endif()
 
+if(TARGET ACS::Scripting)
+    # Lua関数登録の確保・公開失敗、再入拒否、退避関数を大規模テスト群から分離して検証する。
+    add_executable(acs_lua_vm_allocation_safety_tests
+        main.cpp
+        lua_vm_allocation_safety_tests.cpp
+        "${ACS_SOURCE_ROOT}/scripting/LuaDefault.cpp"
+        "${ACS_SOURCE_ROOT}/scripting/LuaVm.cpp"
+        "${ACS_SOURCE_ROOT}/scripting/LuaVmImpl.cpp"
+    )
+    set_target_properties(acs_lua_vm_allocation_safety_tests PROPERTIES FOLDER "Engine/Tests")
+    acs_apply_compiler_options(acs_lua_vm_allocation_safety_tests)
+    target_compile_definitions(acs_lua_vm_allocation_safety_tests PRIVATE
+        ACS_SCRIPTING_TEST_HOOKS=1
+        WITH_ACS_SCRIPTING=1
+    )
+    target_link_libraries(acs_lua_vm_allocation_safety_tests PRIVATE
+        ACS::Container
+        ACS::Foundation
+        ACS::GameFramework
+        ACS::Memory
+        ACS::Test
+        acs_third_party::lua
+    )
+    add_test(NAME ACS.LuaVmAllocationSafety COMMAND acs_lua_vm_allocation_safety_tests)
+    set_tests_properties(ACS.LuaVmAllocationSafety PROPERTIES TIMEOUT 30)
+endif()
+
 add_test(NAME ACS.UnitTests COMMAND acs_unit_tests)
 set_tests_properties(ACS.UnitTests PROPERTIES TIMEOUT 120)
 
@@ -497,6 +585,22 @@ target_link_libraries(acs_render_graph_transient_alias_tests PRIVATE
 )
 add_test(NAME ACS.RenderGraphTransientAlias COMMAND acs_render_graph_transient_alias_tests)
 set_tests_properties(ACS.RenderGraphTransientAlias PROPERTIES TIMEOUT 30)
+
+# 描画packet sortの決定的な作業量削減と補助時間を分離計測する。
+add_executable(acs_render_packet_performance
+    render_packet_performance_main.cpp
+)
+set_target_properties(acs_render_packet_performance PROPERTIES FOLDER "Engine/Benchmarks")
+acs_apply_compiler_options(acs_render_packet_performance)
+target_link_libraries(acs_render_packet_performance PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Container
+    ACS::Math
+    ACS::Render
+)
+add_test(NAME ACS.RenderPacketPerformance COMMAND acs_render_packet_performance)
+set_tests_properties(ACS.RenderPacketPerformance PROPERTIES LABELS "Performance;Render" TIMEOUT 30)
 
 # FoundationOptimizationWaveI 用 Release 診断 benchmark。時間値は CTest 合否に使わない。
 add_executable(acs_foundation_optimization_wave_i_bench
@@ -578,6 +682,34 @@ set_tests_properties(
     ACS.CppConventionsAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
+# C++型の意味とA/F/I/T/E接頭辞を照合し、旧C serviceの再流入を防ぐ。
+set(ACS_CPP_TYPE_ROLES_AUDIT
+    "${ACS_TREE_ROOT}/scripts/audit_cpp_type_roles.py")
+
+add_custom_target(acs_type_roles_check
+    COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --root "${ACS_SOURCE_ROOT}/event"
+    COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --root "${ACS_SOURCE_ROOT}/scripting"
+    WORKING_DIRECTORY "${ACS_TREE_ROOT}"
+    COMMENT "ACS: event/scripting型の役割とA/F/I/T/E接頭辞を監査"
+    USES_TERMINAL VERBATIM)
+set_target_properties(acs_type_roles_check PROPERTIES FOLDER "Tools")
+
+add_test(NAME ACS.CppTypeRoleAuditSelfTest
+         COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}" --self-test)
+add_test(NAME ACS.EventTypeRoleAudit
+         COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_SOURCE_ROOT}/event")
+add_test(NAME ACS.ScriptingTypeRoleAudit
+         COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_SOURCE_ROOT}/scripting")
+set_tests_properties(
+    ACS.CppTypeRoleAuditSelfTest
+    ACS.EventTypeRoleAudit
+    ACS.ScriptingTypeRoleAudit
+    PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
+
 # 手書き API リファレンスの class/struct/enum 表記を現行 C++ 宣言と照合し、
 # 大規模 rename 後にサンプルだけ旧名へ戻る drift を防ぐ。
 set(ACS_REFERENCE_TYPE_NAMES_AUDIT
@@ -624,6 +756,18 @@ set_tests_properties(
     ACS.ModuleSourcesAuditSelfTest
     ACS.ModuleSourcesAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
+
+# C++ の旧 Kit 境界と独立 Kit ディレクトリが再流入しないことを確認する。
+set(ACS_KIT_ABSORPTION_AUDIT "${ACS_TREE_ROOT}/scripts/audit_kit_absorption.py")
+add_custom_target(acs_kit_absorption_check
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --root "${ACS_TREE_ROOT}" --json-output "${CMAKE_BINARY_DIR}/kit-absorption-audit.json"
+    WORKING_DIRECTORY "${ACS_TREE_ROOT}"
+    COMMENT "ACS: Kit の C++ 境界と独立ディレクトリの再流入を監査"
+    USES_TERMINAL VERBATIM)
+set_target_properties(acs_kit_absorption_check PROPERTIES FOLDER "Tools")
+add_test(NAME ACS.KitAbsorptionAuditSelfTest COMMAND "${CMAKE_COMMAND}" -E env "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --self-test)
+add_test(NAME ACS.KitAbsorptionAudit COMMAND "${CMAKE_COMMAND}" -E env "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --root "${ACS_TREE_ROOT}" --json-output "${CMAKE_BINARY_DIR}/kit-absorption-audit.json")
+set_tests_properties(ACS.KitAbsorptionAuditSelfTest ACS.KitAbsorptionAudit PROPERTIES LABELS "StaticAnalysis;KitAbsorption" TIMEOUT 60)
 
 # 外部プロジェクトと ACS source が別 drive にある構成でも IDE group を安全に分ける。
 add_test(

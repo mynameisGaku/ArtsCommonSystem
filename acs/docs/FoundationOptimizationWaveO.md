@@ -69,12 +69,26 @@ deploy先を検証する場合は
 `ACS_DISTRIBUTION_CONSUMER_ROOT=C:\acs`（`generate.ps1`では
 `-DistributionRoot C:\acs`）を指定する。
 
-Foundation end-to-end JSONはschema 2を使う。HEADと比較基点のcommit SHA、
-tracked dirty状態、CMakeCacheのSHA-256とraw/Diligent/tests/tools/samples構成、
-性能実行fileおよび明示した配布artifactのSHA-256を同じreportへ保存する。
+Foundation end-to-end JSONはschema 4を使う。HEADと比較基点のcommit SHA、
+tracked dirty状態、未追跡file、比較基点に対するahead/behind、CMakeCacheの
+SHA-256とraw/Diligent/tests/tools/samples構成、性能実行fileおよび明示した
+配布artifactのSHA-256を同じreportへ保存する。
 T80では`--expect-cache`で両backendとtests/tools/samplesをONへ固定し、
-`--require-clean-source`も指定して、古いbuild tree、別構成のartifact、未commit
-sourceを合格証跡へ混在させない。
+`--require-clean-source`と`--require-base-ancestor`も指定して、古いbuild tree、
+別構成のartifact、未commit source、比較基点から後退したbranchを合格証跡へ
+混在させない。source確認は開始・終了時点のsnapshotなので、検証中は専用worktreeへ
+他processが書き込まないことを公開工程の前提にする。`--artifact-tree`は配布directory内の
+全相対path、size、各file SHA-256から決定的なtree digestを作る。fileごとの読取前後
+metadata照合とtree全体の二回走査で追加・削除・差し替えを検出し、symlinkとWindows
+reparse pointを拒否して配布root外のbytesを証跡へ混入させない。
+`--require-identical-artifact-trees`は生成元`dist`と配置先`C:\acs`を同じdigestで
+照合する直前にも両treeを再走査し、片側だけが古い状態と並行更新を公開証跡として
+拒否する。SUBSTや別表記が同じphysical directoryを指す場合は重複として除外し、
+未配置の単一treeを二treeの一致証跡として扱わない。
+`C:\acs`は最終公開工程だけが更新する共有配布先とする。並行taskの途中検証は
+task専用のTemp directoryへ配置し、別commit由来のheader/libraryを共有先へ
+混在させない。最終taskは生成直前にもtree不一致を記録し、最新mainから再配置した
+後の一致だけを公開証跡へ採用する。
 
 ```powershell
 cmake -S acs\engine -B acs\Intermediate\vs `
@@ -96,8 +110,12 @@ python acs\scripts\run_foundation_end_to_end.py `
   --expect-cache ACS_BUILD_SAMPLES=ON `
   --expect-cache ACS_ENABLE_DISTRIBUTION_CONSUMER_SMOKE=ON `
   --artifact dist\acs.h `
+  --artifact-tree dist `
+  --artifact-tree C:\acs `
+  --require-identical-artifact-trees `
   --artifact dist\lib\x64\Release\acs.lib `
-  --require-clean-source
+  --require-clean-source `
+  --require-base-ancestor
 ```
 
 ## 現在のfocused検証

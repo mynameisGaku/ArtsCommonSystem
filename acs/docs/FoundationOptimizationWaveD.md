@@ -107,14 +107,25 @@ SPDX/include guard規約を検査する。既存コード全体を一括整形�
 
 `run_foundation_end_to_end.py` は任意のC++差分規約監査、DebugまたはReleaseの
 build、全CTest、決定的な基盤性能契約を順に実行し、終了コード・所要時間・
-失敗出力末尾を単一JSONへ原子的に保存する。schema 2 はsourceのHEAD SHAと
-比較基点SHA、tracked差分の有無、`CMakeCache.txt` のSHA-256、raw/Diligent・
-tests/tools/samples構成、性能実行fileと`--artifact`指定fileのsize・SHA-256を
-同時に保存する。cacheの`CMAKE_HOME_DIRECTORY`は検証対象checkoutの
+失敗出力末尾を単一JSONへ原子的に保存する。schema 4 はsourceのHEAD SHAと
+比較基点SHA、tracked差分、未追跡file、ahead/behind、`CMakeCache.txt` の
+SHA-256、raw/Diligent・tests/tools/samples構成、性能実行fileと`--artifact`
+指定fileのsize・SHA-256を同時に保存する。`--artifact-tree`指定directoryは
+全相対path、size、file SHA-256を一つのtree digestへ集約する。各fileは読取前後の
+identity・size・更新時刻を照合し、tree全体を二回走査してfile集合とbytesの一致を
+確認する。root、親chain、配下のsymlinkとWindows reparse pointは境界外参照として
+拒否する。
+`--require-identical-artifact-trees`は二つ以上の指定treeについてfile数、総size、
+digestの一致を要求し、記録後から照合直前までの変更も再走査で拒否する。同じ
+physical directoryをSUBSTや別表記で二回指定しても一つへ畳み、二tree条件を満たさない。cacheの
+`CMAKE_HOME_DIRECTORY`は検証対象checkoutの
 `acs/engine`とfile identityまで照合し、別worktreeのbuild結果を現在SHAへ
 誤帰属させない。`--expect-cache KEY=VALUE` はreleaseで要求した構成とcacheが
-異なる場合に実行前で失敗し、`--require-clean-source`は実行前後のtracked差分と
-途中のcommit切替を拒否する。
+異なる場合に実行前で失敗し、`--require-clean-source`は実行前後のtracked/
+untracked差分、`--require-base-ancestor`は比較基点から後退したbranchを拒否する。
+source証跡は開始・終了時点のsnapshotであり、その間に変更して完全に復元する
+非協調writerまでは観測しない。公開検証は他processが書き込まない専用worktreeで
+行い、開始または終了時に残るcommit切替と差分を拒否する。
 公開型のlayout変更を含む統合では `--clean-first` を指定し、古いMSBuild中間物と
 新しいheaderが混在するABI不整合を排除する。
 最終統合時はこのJSONをT64/T80の再現可能な証跡として使用する。

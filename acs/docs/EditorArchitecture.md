@@ -741,6 +741,20 @@ publications, including eviction, perform N atomic writes with only bounded
 high-water reconciliation rather than N full scans or accumulated entry
 stats.
 
+Cook DDC and thumbnail DDC each own one bounded canonical-path pool. A pool
+retains at most 512 SHA-256 keys and 256 Ki UTF-16 code units for the key,
+prefix directory, and complete entry path; least-recently-used entries are
+released first. An individually oversized path is returned without retention.
+The immutable returned strings remain valid after eviction, and the pool
+lifetime ends with its package operation or Asset Browser cache owner. Cook
+uses a dedicated path gate and thumbnail operations reuse the existing cache
+gate. The pools expose request, hit, miss, eviction, bypass, retained-entry,
+and retained-code-unit snapshots. Canonical lowercase SHA-256 validation,
+project containment, and reparse checks remain fail-closed in Release.
+The source-import pipeline remains outside this optimization because its
+static worker has no equivalent owner lifetime; no process-global DDC path
+table is introduced.
+
 Project-root containment, ordinary-directory traversal, and entry reparse
 checks run before reads, writes, cleanup, and publication. Cache lookup,
 encoding, reconciliation, and cleanup stay inside the existing background

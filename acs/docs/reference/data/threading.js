@@ -191,7 +191,7 @@ ACS_REF.modules.push({
     {
       name: "FThreadPool",
       kind: "クラス", header: "threading/ThreadPool.h",
-      summary: "あらかじめ用意したワーカー<t>スレッド</t>群に小さなタスクを投げて並列実行させる<t>スレッドプール</t>。<t>ワークスチール</t>方式で、暇なワーカーが忙しいワーカーの仕事を奪い負荷を均す。全 static の単一プール。ParallelFor は 32 分割まで stack、超過分は再利用 block を使う。",
+      summary: "あらかじめ用意したワーカー<t>スレッド</t>群に小さなタスクを投げて並列実行させる<t>スレッドプール</t>。<t>ワークスチール</t>方式で、暇なワーカーが忙しいワーカーの仕事を奪い負荷を均す。全 static の単一プール。ParallelFor は 32 分割まで stack、超過分は再利用 block を使う。内部では実行制御・タスク流量・API寿命の共有値を別cache lineへ分け、投入とworker loopの干渉を抑える。",
       when: "数百〜数千の独立した小タスク(描画準備・更新・計算)を CPU 全コアで捌きたい時。<code>FThread</code> を毎回作るより遥かに軽い。依存関係があるなら <t>FJobGraph</t>。",
       sample: "FThreadPool::Init();                 // 論理CPU数でワーカー起動\nFCompletionCounter done;\nFTask t{ &MyTask, &ctx, &done };\nFThreadPool::Submit(t);              // 投入(counter は自動 Add)\nFThreadPool::Wait(done);            // 完了待ち(待機中も手伝う)\nFThreadPool::Shutdown();",
       members: [

@@ -1031,12 +1031,18 @@ void FDx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
 
 void FDx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
     if (!m_BoundPipe || slot >= m_BoundPipe->CBufferSlots()) return;
-    auto& b = static_cast<FDx12Buffer&>(cb);
+    /** 論理sliceを解決した実DX12バッファ。 */
+    IRhiBuffer& binding_buffer = cb.BindingBuffer();
+    /** 実バッファ先頭からの定数範囲offset。 */
+    const usize binding_offset = cb.BindingOffset();
+    if (cb.Usage() != EBufferUsage::Uniform || binding_buffer.Usage() != EBufferUsage::Uniform || binding_offset > binding_buffer.Size() || cb.Size() > binding_buffer.Size() - binding_offset || (binding_offset & 255u) != 0u) return;
+    /** root CBVへ渡すbackendバッファ。 */
+    auto& b = static_cast<FDx12Buffer&>(binding_buffer);
     // 両シグネチャとも CBV が先頭に並ぶため、ルートパラメーター index は slot と一致する。
     if (m_BoundPipe->IsCompute())
-        m_CmdList->SetComputeRootConstantBufferView(slot, b.Gpu());
+        m_CmdList->SetComputeRootConstantBufferView(slot, b.Gpu() + binding_offset);
     else
-        m_CmdList->SetGraphicsRootConstantBufferView(slot, b.Gpu());
+        m_CmdList->SetGraphicsRootConstantBufferView(slot, b.Gpu() + binding_offset);
 }
 
 void FDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
@@ -1077,7 +1083,7 @@ void FDx12CommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
 void FDx12CommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     if (!m_BoundPipe || !m_BoundPipe->IsCompute() ||
         gx == 0 || gy == 0 || gz == 0) return;
-    RecordDispatch();
+    RecordDispatch(m_CommandStatistics);
     m_CmdList->Dispatch(gx, gy, gz);
     // 後続の dispatch、transition、draw より前に全 UAV write を順序付ける。
     D3D12_RESOURCE_BARRIER barrier{};
@@ -1158,13 +1164,13 @@ bool FDx12CommandList::CopyDepthTexture(
 
 void FDx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     if (vertex_count == 0u) return;
-    RecordDraw(vertex_count);
+    RecordDraw(m_CommandStatistics, vertex_count);
     m_CmdList->DrawInstanced(vertex_count, 1, first_vertex, 0);
 }
 
 void FDx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
     if (index_count == 0u) return;
-    RecordDraw(index_count);
+    RecordDraw(m_CommandStatistics, index_count);
     m_CmdList->DrawIndexedInstanced(index_count, 1, first_index, base_vertex, 0);
 }
 

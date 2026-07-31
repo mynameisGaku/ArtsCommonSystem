@@ -93,7 +93,10 @@ fail-fast container 操作の代わりに安定した OOM error を返します�
 `FAssetPathInterner` で共有します。sync load、cache hit、in-flight hit は interner を
 通らず、従来 hot path に lock/allocation を追加しません。pool は未使用 path だけを
 evict し、全要素が使用中なら非保持の共有 path を返すため job lifetime を短縮しません。
-DDC owner は現時点で存在しないため、この pool を DDC 名目で別 lifetime に流用しません。
+Editor の Cook/thumbnail DDC はそれぞれの owner 固有
+`DerivedDataCachePathPool` を使います。最大512 key/256 Ki code unitのLRUと累積診断を
+持ちますが、registry lifetimeの`FAssetPathInterner`は流用しません。これによりAsset
+job、package operation、Asset Browser sessionの解放時点を混在させません。
 
 ## テスト
 

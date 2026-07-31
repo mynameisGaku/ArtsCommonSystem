@@ -16,12 +16,14 @@ acs_module(
     SOURCES
         LuaDefault.cpp
         LuaVm.cpp
+        LuaVmImpl.cpp
     HEADERS
         LuaVm.h
     PUBLIC_DEPS
         Foundation
         Container
         GameFramework
+        Memory
     LINK_PUBLIC
         acs_third_party_lua
 )

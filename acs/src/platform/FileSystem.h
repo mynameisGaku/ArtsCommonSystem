@@ -191,10 +191,11 @@ public:
     /**
      * ディレクトリを作成する (既存なら成功扱い、親ディレクトリも再帰作成)。
      *
-     * @details パス中の各区切りで中間ディレクトリを順に作成する。最終作成が
-     * ERROR_ALREADY_EXISTS の場合も成功とみなす。
+     * @details パス中の各区切りで中間ディレクトリを順に作成する。
+     * ERROR_ALREADY_EXISTS は対象が実ディレクトリの場合だけ成功とみなす。
+     * 既存のドライブrootとUNC share rootも成功扱いを維持する。
      * @param path 作成するディレクトリのパス。
-     * @return 成功なら空の TResult、作成失敗時はエラー。
+     * @return 成功なら空の TResult。nullまたは空はIO:131、通常ファイルとの衝突や作成失敗はエラー。
      */
     static TResult<void> CreateDirectory(const wchar_t* path) noexcept;
 

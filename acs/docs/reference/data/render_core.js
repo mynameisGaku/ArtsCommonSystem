@@ -142,6 +142,7 @@ ACS_REF.modules.push({
       sample: "auto* cl = rdr.CommandList();\ncl-&gt;SetPipeline(*pipe);\ncl-&gt;SetConstantBuffer(0, *frame_cb);\ncl-&gt;SetTexture(0, *tex);\ncl-&gt;SetVertexBuffer(*vb, stride);\ncl-&gt;SetIndexBuffer(*ib);\ncl-&gt;DrawIndexed(index_count);",
       members: [
         { sig: "void Begin() / End(); bool Submit()", desc: "記録開始 / 記録終了 / GPU へ投入。投入と completion fence の発行に失敗すると false。" },
+        { sig: "void ResetStatistics() / const FRhiCommandStatistics& Statistics() const", desc: "呼び出し側のframe境界で命令統計を初期化 / draw・dispatch・推定三角形数を取得する。統計領域は無状態interfaceではなく各Raw/Diligent具象が所有する。" },
         { sig: "void BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "バックバッファを RT としてバインド+クリア。depth を渡すと深度もバインド+クリア。", when: "画面への描画パスの最初。" },
         { sig: "void EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index)", desc: "バックバッファ描画を終え、<t>Present</t> 可能状態にする。" },
         { sig: "void BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear, IRhiTexture* depth = nullptr, f32 depth_clear = 1.0f)", desc: "オフスクリーン RT への描画開始(HDR RT / ポストプロセス用)。", when: "HDR パイプラインや反射の捕捉。" },
@@ -154,7 +155,7 @@ ACS_REF.modules.push({
         { sig: "void SetStencilRef(u32 ref)", desc: "<t>ステンシル</t>参照値を設定(同じ PSO で ref だけ切替できる)。" },
         { sig: "void SetPipeline(IRhiPipeline&)", desc: "次の Draw で使うパイプライン(VS+PS+レイアウト等)を設定。" },
         { sig: "void SetVertexBuffer(IRhiBuffer& vb, u32 stride) / SetIndexBuffer(IRhiBuffer& ib)", desc: "頂点 / インデックスバッファをバインド。" },
-        { sig: "void SetConstantBuffer(u32 slot, IRhiBuffer& cb) / SetTexture(u32 slot, IRhiTexture& tex)", desc: "<t>定数バッファ</t> / テクスチャを指定スロットにバインド。" },
+        { sig: "void SetConstantBuffer(u32 slot, IRhiBuffer& cb) / SetTexture(u32 slot, IRhiTexture& tex)", desc: "<t>定数バッファ</t> / テクスチャを指定スロットにバインド。共有upload pageの論理sliceは親bufferとoffset範囲へ解決する。" },
         { sig: "void Draw(u32 vertex_count, u32 first_vertex = 0)", desc: "非インデックス描画。" },
         { sig: "void DrawIndexed(u32 index_count, u32 first_index = 0, i32 base_vertex = 0)", desc: "インデックス描画(普通はこちら)。" },
         { sig: "void* NativeHandle()", ret: "ネイティブハンドル", desc: "ImGui 等の外部統合用に、バックエンド固有のハンドルを取り出す。" }
@@ -171,7 +172,21 @@ ACS_REF.modules.push({
         { sig: "struct FBufferDesc{ size, usage, cpu_writable, initial_data }", desc: "サイズ・用途・CPU 書込み可否・初期データ。" },
         { sig: "usize Size() const / EBufferUsage Usage() const", desc: "サイズ・用途を返す。" },
         { sig: "void Update(const void* data, usize size, usize offset = 0)", desc: "CPU からデータを書き込む(<code>cpu_writable=true</code> のバッファのみ)。", when: "定数バッファを毎フレーム更新するとき。" },
+        { sig: "IRhiBuffer& BindingBuffer() / usize BindingOffset() const", desc: "backendがbindする実bufferと先頭offset。通常bufferは自身と0、共有pageの論理sliceは親と256 byte境界offsetを返す。" },
         { sig: "TResult&lt;TUniquePtr&lt;IRhiBuffer&gt;&gt; CreateRhiBuffer(IRhiDevice&, const FBufferDesc&)", ret: "バッファ", desc: "バッファを作る。" }
+      ]
+    },
+    {
+      name: "FTransientUploadArena",
+      kind: "クラス", header: "render/TransientUploadArena.h",
+      summary: "同じ大きさの一時<t>定数バッファ</t>を256 byte境界の論理sliceへ分け、少数の共有GPU pageで保持するframe arena。",
+      when: "多数drawの定数をdrawごとに上書きせず保持しながら、GPU buffer生成数を減らすとき。Standard/PBR shaderが内部で使用する。",
+      sample: "FTransientUploadArena arena;\nif (arena.Init(*dev, sizeof(FObjectConstants), 64u).IsErr()) return;\nif (!arena.BeginFrame(expected_draws)) return;\nIRhiBuffer* object_cb = arena.Upload(&constants, sizeof(constants));\nif (!object_cb) return;\ncl-&gt;SetConstantBuffer(1u, *object_cb);",
+      members: [
+        { sig: "TResult&lt;void&gt; Init(IRhiDevice&, usize allocation_size, u32 initial_capacity) / void Reset()", desc: "論理slice寸法と初期pageを作る / 全pageを解放する。" },
+        { sig: "bool BeginFrame(u32 required_allocations = 0) / bool Reserve(u32)", desc: "必要容量を確保してCPU cursorをO(1)で先頭へ戻す / pageを追加する。既存slice addressは保持する。" },
+        { sig: "IRhiBuffer* Upload(const void* data, usize size) / Get(u32)", desc: "次sliceへ書いてbind可能な論理bufferを返す / 指定sliceを返す。" },
+        { sig: "u32 Capacity() / Used() / GpuBufferCount() / usize ReservedBytes()", desc: "論理容量、frame使用数、実GPU buffer数、RHI page記述へ要求した一frame分の論理byte数。" }
       ]
     },
     {
@@ -278,7 +293,8 @@ ACS_REF.modules.push({
       sample: "FStandardShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\n// 毎フレーム。実際に記録する Standard draw 数を正確に渡す\nif (!shd.BeginFrame(/* exact standard draws this frame */ 1u)) return;\nshd.SetFrame(cam.ViewProjection(), cam.Eye(),\n             FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});\nshd.DrawMesh(*rdr.CommandList(), gm, model, FVec3{1,1,1}, 0.5f, 64.0f);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "VS+PS・パイプライン・定数バッファ・既定白テクスチャを作る。" },
-        { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "毎フレームの描画記録前に呼び、実際に記録する Standard draw 数を正確に渡す。必要な draw 専用 CB を先に確保できなければ false。" },
+        { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "毎フレームの描画記録前に呼び、実際に記録する Standard draw 数を正確に渡す。共有upload arenaの必要sliceを確保できなければfalse。" },
+        { sig: "u32 ObjectBufferCapacity() / ObjectDrawCount() / ObjectBufferPageCount()", desc: "論理object slot容量、frame使用数、全slotを保持する実GPU buffer数。" },
         { sig: "[[deprecated]] kMaxObjectDrawsPerFrame = 256", desc: "旧固定リングとのソース互換用の目安値。プールは必要数まで増えるため、ハード上限ではない。" },
         { sig: "void SetFrame(view_projection, camera_pos, light_dir, light_color, ambient_color)", desc: "毎フレーム。カメラ + 1 灯の有向光源 + 環境光の簡易版。" },
         { sig: "void SetLights(view_projection, camera_pos, const FDirLight* lights, u32 count, ambient_color)", desc: "有向光源 最大 4 灯のマルチライト版。" },
@@ -309,6 +325,8 @@ ACS_REF.modules.push({
       sample: "FPbrShader shd;\nshd.Init(*rdr.Device(), rdr.ColorFormat(), rdr.DepthFormat());\nshd.SetLights(cam.ViewProjection(), cam.Eye(), lights, 1, ambient);\nshd.SetIbl(ibl.IrradianceMap(), ibl.PrefilterMap(), ibl.BrdfLut(), ibl.PrefilterMips());\nshd.DrawMesh(*rdr.CommandList(), gm, model,\n             FVec3{1,1,1}, /*metallic=*/0.0f, /*roughness=*/0.4f, /*ao=*/1.0f);",
       members: [
         { sig: "TResult&lt;void&gt; Init(IRhiDevice&, EFormat rt_format, EFormat depth_format)", desc: "シェーダ・パイプライン・定数バッファ・fallback テクスチャを作る。" },
+        { sig: "bool BeginFrame(u32 required_object_draws = 0)", desc: "PBR draw記録前に共有upload arenaの必要sliceを予約し、CPU cursorを先頭へ戻す。失敗時も既存容量は利用できる。" },
+        { sig: "u32 ObjectBufferCapacity() / ObjectDrawCount() / ObjectBufferPageCount()", desc: "論理object slot容量、frame使用数、全slotを保持する実GPU buffer数。" },
         { sig: "void SetLights(...) / SetPointLights(...) / SetAreaLights(const FAreaLight*, u32)", desc: "有向光源 4 灯 / 点光源 4 灯 / 矩形<t>エリアライト</t> 2 個。" },
         { sig: "void SetIbl(IRhiTexture* irradiance, IRhiTexture* prefilter, IRhiTexture* brdf_lut, u32 prefilter_mips)", desc: "<t>IBL</t> 用 3 テクスチャをバインド。3 つ揃うと環境光が IBL になる。", when: "FImageBasedLighting の各 Map をそのまま渡す。" },
         { sig: "void BindIblTextures(IRhiCommandList& cmd)", desc: "albedo と並んで IBL slot 1/2/3 を bind するヘルパ。" },
@@ -369,6 +387,31 @@ ACS_REF.modules.push({
         { sig: "void SetClipRect(i32 x, i32 y, i32 w, i32 h) / ClearClipRect()", desc: "以降の描画を矩形内(画面座標)に制限 / 解除。" },
         { sig: "void SetBlendMode(EBlendMode mode)", desc: "ブレンドモード切替。Additive で光のきらめき等。Off に戻すには AlphaBlend を渡す。" },
         { sig: "void SetStencilMode(EStencilMode mode, u8 ref = 1)", desc: "<t>ステンシル</t>マスクで描画範囲を制限。WriteMask で形を焼き、KeepInside/Outside で通す。stencil 付き深度パスでのみ。" }
+      ]
+    },
+    {
+      name: "TDrawPacketSortKeyLayout",
+      kind: "テンプレート構造体", header: "render/DrawPacketSortKey.h",
+      summary: "優先順に並べた整数fieldのbit幅から、64 bit描画sort keyのshiftとmaskをcompile time生成するlayout。",
+      when: "pipeline、material、depthなど複数fieldのkey配置を型として固定し、手書きshiftの重複やbit超過を防ぐとき。",
+      sample: "using FKey = TDrawPacketSortKeyLayout&lt;12u, 20u, 32u&gt;;\nu64 key = FKey::Insert&lt;0u&gt;(pipeline) |\n          FKey::Insert&lt;1u&gt;(material) |\n          FKey::Insert&lt;2u&gt;(depth);",
+      members: [
+        { sig: "static constexpr u32 FieldCount() / TotalBits()", desc: "field数 / 全fieldの合計bit数。合計64 bit超過はcompile error。" },
+        { sig: "template&lt;u32 I&gt; static constexpr u32 FieldBits() / FieldShift()", desc: "指定fieldのbit幅 / key内の下位bit位置。" },
+        { sig: "template&lt;u32 I&gt; static constexpr u64 Insert(u64 value)", desc: "値をfield幅でmaskし、優先順の位置へ配置する。" }
+      ]
+    },
+    {
+      name: "FSpriteSortList",
+      kind: "クラス", header: "render/SpriteSortList.h",
+      summary: "sprite commandをlayer、depth、提出順で安定整列して<code>FSpriteBatch</code>へ再生する。大量時はcompile-time keyと安定LSD radixを使う。",
+      when: "2D world、HUD、半透明spriteの前後関係を明示し、同じlayer/depthの合成順を維持したいとき。",
+      sample: "FSpriteSortList list;\nlist.SubmitRect(0, 0, w, h, color, /*layer=*/0, /*depth=*/0);\nlist.Submit(tex, x, y, w, h, /*layer=*/1, /*depth=*/y);\nlist.Sort();\nlist.Replay(sprite_batch);",
+      members: [
+        { sig: "void Submit(...) / SubmitSub(...) / SubmitRect(...)", desc: "texture sprite、UV範囲sprite、単色矩形をlayer/depth付きで蓄積する。" },
+        { sig: "void Sort()", desc: "24件以下は挿入sort、それ以上は最大8 byte passの安定radixでlayer/depth昇順へ並べる。" },
+        { sig: "void Replay(FSpriteBatch&) const / const FSpriteCmd& Ordered(u32) const", desc: "整列順にbatchへ流す / 検証や独自replay用に整列済みcommandを返す。" },
+        { sig: "u32 LastSortPassCount() / u64 LastSortItemVisits()", desc: "直前sortのradix pass数とkey生成、比較、radixを含む決定的なitem走査数。" }
       ]
     },
     {

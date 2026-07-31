@@ -355,10 +355,10 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
     if (fcb_r.IsErr()) return Err<void>(fcb_r.Error());
     m_FrameCb = Move(fcb_r.Value());
 
-    m_ResourceDevice = &device;
-    if (!EnsureObjectCapacity(kInitialObjectBufferCapacity)) {
-        const FErrorCode error = ACS_ERR(
-            Render, 381, "Standard initial object-CB pool allocation failed");
+    /** 共有object upload arenaの生成結果。 */
+    auto arena_result = m_ObjectArena.Init(device, CBSize<FObjectCbLayout>(), kInitialObjectBufferCapacity);
+    if (arena_result.IsErr()) {
+        const FErrorCode error = arena_result.Error();
         Shutdown();
         return error;
     }
@@ -421,56 +421,24 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
 void FStandardShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
-    m_ObjectCbs.ReleaseStorage();
+    m_ObjectArena.Reset();
     m_ObjectCbCursor = 0u;
     m_CurrentObjectCb = kInvalidObjectBuffer;
     m_FrameCapacityReady = false;
     m_ObjectCapacityFailureLogged = false;
-    m_ResourceDevice = nullptr;
     m_FrameCb.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
 }
 
-bool FStandardShader::EnsureObjectCapacity(
-    u32 required_object_draws) noexcept {
-    if (required_object_draws == kInvalidObjectBuffer) return false;
-    if (!m_ResourceDevice) return false;
-    if (required_object_draws <= m_ObjectCbs.Size()) return true;
-
-    u32 target = static_cast<u32>(m_ObjectCbs.Size());
-    if (target < kInitialObjectBufferCapacity)
-        target = kInitialObjectBufferCapacity;
-    while (target < required_object_draws) {
-        const u32 growth = target > 1u ? target / 2u : 1u;
-        if (target > kInvalidObjectBuffer - growth) {
-            target = required_object_draws;
-        } else {
-            target += growth;
-        }
-    }
-
-    if (!m_ObjectCbs.TryReserve(target)) return false;
-    while (m_ObjectCbs.Size() < target) {
-        FBufferDesc description{};
-        description.size = CBSize<FObjectCbLayout>();
-        description.usage = EBufferUsage::Uniform;
-        description.cpu_writable = true;
-        auto created = CreateRhiBuffer(*m_ResourceDevice, description);
-        if (created.IsErr())
-            return m_ObjectCbs.Size() >= required_object_draws;
-        if (!m_ObjectCbs.TryPushBack(Move(created.Value())))
-            return m_ObjectCbs.Size() >= required_object_draws;
-    }
-    return true;
-}
-
 bool FStandardShader::BeginFrame(u32 required_object_draws) noexcept {
+    /** 必要容量の確保結果。 */
+    const bool capacity_ready = m_ObjectArena.BeginFrame(required_object_draws);
     m_ObjectCbCursor = 0u;
     m_CurrentObjectCb =
-        m_ObjectCbs.IsEmpty() ? kInvalidObjectBuffer : 0u;
+        m_ObjectArena.Capacity() == 0u ? kInvalidObjectBuffer : 0u;
     m_ObjectCapacityFailureLogged = false;
-    m_FrameCapacityReady = EnsureObjectCapacity(required_object_draws);
+    m_FrameCapacityReady = capacity_ready;
     if (!m_FrameCapacityReady)
         m_CurrentObjectCb = kInvalidObjectBuffer;
     return m_FrameCapacityReady;
@@ -556,26 +524,11 @@ void FStandardShader::FlushFrameCB() noexcept {
 /** モデル行列・ベースカラー・マテリアルをオブジェクト定数バッファに書き込む。 */
 bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
-    if (!m_FrameCapacityReady ||
-        m_ObjectCbCursor == kInvalidObjectBuffer ||
-        (m_ObjectCbCursor >= m_ObjectCbs.Size() &&
-         !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
+    if (!m_FrameCapacityReady || m_ObjectCbCursor == kInvalidObjectBuffer) {
         if (!m_ObjectCapacityFailureLogged) {
-            ACS_LOG_WARN(
-                "FStandardShader: unable to grow per-frame object-CB pool "
-                "(required=%u, retained=%zu); remaining draws are skipped",
-                m_ObjectCbCursor == kInvalidObjectBuffer
-                    ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
-                m_ObjectCbs.Size());
+            ACS_LOG_WARN("FStandardShader: shared object upload arena is unavailable; remaining draws are skipped");
             m_ObjectCapacityFailureLogged = true;
         }
-        m_FrameCapacityReady = false;
-        m_CurrentObjectCb = kInvalidObjectBuffer;
-        return false;
-    }
-    m_CurrentObjectCb = m_ObjectCbCursor++;
-    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
-    if (!object_cb) {
         m_FrameCapacityReady = false;
         m_CurrentObjectCb = kInvalidObjectBuffer;
         return false;
@@ -584,7 +537,19 @@ bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
     cb.model      = model;
     cb.base_color = FVec4{base_color.x, base_color.y, base_color.z, 1.0f};
     cb.material   = FVec4{specular_strength, shininess, 0, 0};
-    object_cb->Update(&cb, sizeof(cb));
+    /** 今回の定数を保持する論理slice。 */
+    IRhiBuffer* const object_cb = m_ObjectArena.Upload(&cb, sizeof(cb));
+    if (object_cb == nullptr) {
+        if (!m_ObjectCapacityFailureLogged) {
+            ACS_LOG_WARN("FStandardShader: unable to grow shared object upload arena (required=%u, retained=%u); remaining draws are skipped", m_ObjectCbCursor + 1u, m_ObjectArena.Capacity());
+            m_ObjectCapacityFailureLogged = true;
+        }
+        m_FrameCapacityReady = false;
+        m_CurrentObjectCb = kInvalidObjectBuffer;
+        return false;
+    }
+    m_ObjectCbCursor = m_ObjectArena.Used();
+    m_CurrentObjectCb = m_ObjectCbCursor - 1u;
     return true;
 }
 

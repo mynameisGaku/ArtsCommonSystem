@@ -36,6 +36,7 @@
   #pragma comment(lib, "winmm.lib")
   #pragma comment(lib, "user32.lib")
   #pragma comment(lib, "gdi32.lib")
+  #pragma comment(lib, "advapi32.lib")
   // ---- Diligent RHI backend (built with ACS_RENDER_DILIGENT=ON). These static
   //      libs are shipped in dist/lib/x64/<cfg> next to acs.lib; the consumer's
   //      library search path picks them up. Sky/Atmosphere compute pipelines and
@@ -9984,7 +9985,6 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
 
 // ===================== render/IRhiCommandList.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// コマンドリスト抽象（GPU に送る命令を記録するバッファ）
 
 
 // ===================== render/IRhiTexture.h =====================
@@ -10158,16 +10158,15 @@ namespace acs {
 class IRhiDevice;
 class IRhiSwapchain;
 
-/**
- * Lightweight per-recording command counters.
- *
- * Triangle count is an estimate derived from submitted vertex/index counts
- * using triangle-list semantics. It is intended for editor diagnostics, not
- * pipeline-statistics validation.
- */
+/** 記録期間ごとの描画・compute命令数を保持する診断値。 */
 struct FRhiCommandStatistics {
+    /** 発行した有効なdraw命令数。 */
     u64 draw_calls = 0;
+
+    /** 発行した有効なcompute dispatch命令数。 */
     u64 dispatch_calls = 0;
+
+    /** triangle listとして頂点・index数から推定した三角形数。 */
     u64 triangles = 0;
 };
 
@@ -10242,12 +10241,12 @@ public:
     /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
     virtual ~IRhiCommandList() noexcept = default;
 
-    /** Reset low-overhead command counters at a caller-defined frame boundary. */
-    void ResetStatistics() noexcept { m_Statistics = {}; }
+    /** 呼び出し側が定めたフレーム境界で軽量な命令統計を初期化する。 */
+    void ResetStatistics() noexcept { StatisticsStorage() = {}; }
 
-    /** Return counters accumulated since ResetStatistics(). */
+    /** 直前のResetStatistics以降に蓄積した命令統計を返す。 */
     const FRhiCommandStatistics& Statistics() const noexcept {
-        return m_Statistics;
+        return StatisticsStorage();
     }
 
     /** 記録を開始する (毎フレーム最初に呼ぶ)。 */
@@ -10620,18 +10619,41 @@ public:
     virtual void BindStructuredSrv(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
 
 protected:
-    void RecordDraw(u32 element_count) noexcept {
+    /**
+     * 具象が所有する統計へ有効なdrawを記録する。
+     *
+     * @param statistics 更新する命令統計。
+     * @param element_count drawへ渡す頂点またはindex数。
+     */
+    static void RecordDraw(FRhiCommandStatistics& statistics, u32 element_count) noexcept {
         if (element_count == 0u) return;
-        ++m_Statistics.draw_calls;
-        m_Statistics.triangles += static_cast<u64>(element_count / 3u);
+        ++statistics.draw_calls;
+        statistics.triangles += static_cast<u64>(element_count / 3u);
     }
 
-    void RecordDispatch() noexcept {
-        ++m_Statistics.dispatch_calls;
+    /**
+     * 具象が所有する統計へ有効なcompute dispatchを記録する。
+     *
+     * @param statistics 更新する命令統計。
+     */
+    static void RecordDispatch(FRhiCommandStatistics& statistics) noexcept {
+        ++statistics.dispatch_calls;
     }
 
 private:
-    FRhiCommandStatistics m_Statistics{};
+    /**
+     * 具象コマンドリストが所有する変更可能な命令統計を返す。
+     *
+     * @return このコマンドリストだけに属する統計領域。
+     */
+    virtual FRhiCommandStatistics& StatisticsStorage() noexcept = 0;
+
+    /**
+     * 具象コマンドリストが所有する読み取り専用の命令統計を返す。
+     *
+     * @return このコマンドリストだけに属する統計領域。
+     */
+    virtual const FRhiCommandStatistics& StatisticsStorage() const noexcept = 0;
 };
 
 /** RAII helper that keeps named GPU markers balanced on all early exits. */
@@ -10861,6 +10883,286 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== event/TimerHandle.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <cstddef>
+
+namespace acs {
+
+/** 登録したタイマーを識別するハンドル。 */
+struct FTimerHandle {
+    /** タイマーの識別番号。 */
+    u32 id = 0;
+    /** 再利用された枠を見分ける世代番号。 */
+    u32 generation = 0;
+
+    /** 有効なタイマーを表せる値かを返す。 */
+    constexpr bool IsValid() const noexcept {
+        return id != 0 && generation != 0;
+    }
+
+    /** 有効なタイマーを表せる値かを返す。 */
+    constexpr bool Valid() const noexcept { return IsValid(); }
+
+    /**
+     * 同じタイマーを表すかを返す。
+     * @param other 比較するハンドル。
+     */
+    constexpr bool operator==(const FTimerHandle& other) const noexcept {
+        return id == other.id && generation == other.generation;
+    }
+
+    /**
+     * 異なるタイマーを表すかを返す。
+     * @param other 比較するハンドル。
+     */
+    constexpr bool operator!=(const FTimerHandle& other) const noexcept {
+        return !(*this == other);
+    }
+};
+
+/** FTimerHandle の 32bit 識別番号と世代番号の物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FTimerHandle> {
+    /** 物理配置情報を利用できる。 */
+    static constexpr bool kAvailable = true;
+    /** 識別番号の byte 位置。 */
+    static constexpr usize kIdentityOffset = offsetof(FTimerHandle, id);
+    /** 世代番号の byte 位置。 */
+    static constexpr usize kGenerationOffset = offsetof(FTimerHandle, generation);
+    /** 識別番号の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FTimerHandle::id);
+    /** 世代番号の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FTimerHandle::generation);
+    /** 識別番号より前に固有領域を持たない。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+    /** ハンドル全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FTimerHandle);
+    /** ハンドル全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FTimerHandle);
+};
+
+/** タイマーを指さない無効なハンドル。 */
+inline constexpr FTimerHandle kInvalidTimer{};
+
+} // namespace acs
+
+// ===================== event/TimerManager.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== event/SimpleDelegate.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== event/Delegate.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 関数形式ごとの単一デリゲートを宣言する。 */
+template<typename Signature>
+class TDelegate;
+
+/** 戻り値を持つ関数を一つだけ結び付ける型付きデリゲート。 */
+template<typename TResult, typename... Arguments>
+class TDelegate<TResult(Arguments...)> final {
+public:
+    /** 呼出し対象と引数を受け取る内部関数の型。 */
+    using FFunction = TResult (*)(void*, Arguments...);
+
+    /** 呼出し対象が未設定のデリゲートを作る。 */
+    constexpr TDelegate() noexcept = default;
+
+    /**
+     * 任意データを受け取る静的関数を結び付ける。
+     * @param function 呼び出す関数。nullptrなら未設定を返す。
+     * @param user 呼出し時に関数へ渡す任意データ。
+     */
+    static constexpr TDelegate CreateStatic(FFunction function, void* user = nullptr) noexcept {
+        return function != nullptr ? TDelegate(function, user) : TDelegate{};
+    }
+
+    /** 任意データを使わない静的関数を結び付ける。 */
+    template<auto Function>
+    static constexpr TDelegate CreateStatic() noexcept {
+        return TDelegate(&InvokeStatic<Function>, nullptr);
+    }
+
+    /**
+     * 対象のメンバー関数を結び付ける。
+     * 呼出し中は対象の生存を登録側で保つ必要がある。
+     * @param object 呼出し対象。nullptrなら未設定のデリゲートを返す。
+     */
+    template<auto Method, typename TObject>
+    static constexpr TDelegate CreateRaw(TObject* object) noexcept {
+        /** const指定を外して保存に使う対象型。呼出し時には元の指定へ戻す。 */
+        using FStoredObject = RemoveCVT<TObject>;
+        return object != nullptr ? TDelegate(&InvokeMember<Method, TObject>, const_cast<FStoredObject*>(object)) : TDelegate{};
+    }
+
+    /** 呼出し対象が設定済みならtrueを返す。 */
+    constexpr bool IsBound() const noexcept { return m_Function != nullptr; }
+
+    /**
+     * 実行結果を書き込み、未設定ならfalseを返す。
+     * @param out_result 呼出し結果の書込先。
+     * @param arguments 結び付けた関数へ渡す引数。
+     */
+    bool TryExecute(TResult& out_result, Arguments... arguments) const noexcept {
+        if (m_Function == nullptr) return false;
+        out_result = m_Function(m_User, Forward<Arguments>(arguments)...);
+        return true;
+    }
+
+    /** 設定を解除する。 */
+    constexpr void Unbind() noexcept {
+        m_Function = nullptr;
+        m_User = nullptr;
+    }
+
+    /** 低水準APIへ渡す関数を返す。 */
+    constexpr FFunction Function() const noexcept { return m_Function; }
+
+    /** 低水準APIへ渡す任意データを返す。 */
+    constexpr void* User() const noexcept { return m_User; }
+
+private:
+    /**
+     * 関数と任意データを直接保持する。
+     * @param function 呼び出す関数。
+     * @param user 関数へ渡す任意データ。
+     */
+    constexpr TDelegate(FFunction function, void* user) noexcept : m_Function(function), m_User(user) {}
+
+    /**
+     * @param arguments 静的関数へ渡す引数。
+     */
+    template<auto Function>
+    static TResult InvokeStatic(void*, Arguments... arguments) {
+        return Function(Forward<Arguments>(arguments)...);
+    }
+
+    /**
+     * @param user メンバー関数を呼ぶ対象。
+     * @param arguments メンバー関数へ渡す引数。
+     */
+    template<auto Method, typename TObject>
+    static TResult InvokeMember(void* user, Arguments... arguments) {
+        return (static_cast<TObject*>(user)->*Method)(Forward<Arguments>(arguments)...);
+    }
+
+    /** 呼出し先を型消去した関数。 */
+    FFunction m_Function = nullptr;
+    /** 呼出し先へ渡す任意データ。 */
+    void* m_User = nullptr;
+};
+
+/** 戻り値のない関数を一つだけ結び付ける型付きデリゲート。 */
+template<typename... Arguments>
+class TDelegate<void(Arguments...)> final {
+public:
+    /** 呼出し対象と引数を受け取る内部関数の型。 */
+    using FFunction = void (*)(void*, Arguments...);
+
+    /** 呼出し対象が未設定のデリゲートを作る。 */
+    constexpr TDelegate() noexcept = default;
+
+    /**
+     * 任意データを受け取る静的関数を結び付ける。
+     * @param function 呼び出す関数。nullptrなら未設定を返す。
+     * @param user 呼出し時に関数へ渡す任意データ。
+     */
+    static constexpr TDelegate CreateStatic(FFunction function, void* user = nullptr) noexcept {
+        return function != nullptr ? TDelegate(function, user) : TDelegate{};
+    }
+
+    /** 任意データを使わない静的関数を結び付ける。 */
+    template<auto Function>
+    static constexpr TDelegate CreateStatic() noexcept {
+        return TDelegate(&InvokeStatic<Function>, nullptr);
+    }
+
+    /**
+     * 対象のメンバー関数を結び付ける。
+     * 呼出し中は対象の生存を登録側で保つ必要がある。
+     * @param object 呼出し対象。nullptrなら未設定のデリゲートを返す。
+     */
+    template<auto Method, typename TObject>
+    static constexpr TDelegate CreateRaw(TObject* object) noexcept {
+        /** const指定を外して保存に使う対象型。呼出し時には元の指定へ戻す。 */
+        using FStoredObject = RemoveCVT<TObject>;
+        return object != nullptr ? TDelegate(&InvokeMember<Method, TObject>, const_cast<FStoredObject*>(object)) : TDelegate{};
+    }
+
+    /** 呼出し対象が設定済みならtrueを返す。 */
+    constexpr bool IsBound() const noexcept { return m_Function != nullptr; }
+
+    /**
+     * 設定済みの処理を呼び、未設定ならfalseを返す。
+     * @param arguments 結び付けた関数へ渡す引数。
+     */
+    bool ExecuteIfBound(Arguments... arguments) const noexcept {
+        if (m_Function == nullptr) return false;
+        m_Function(m_User, Forward<Arguments>(arguments)...);
+        return true;
+    }
+
+    /** 設定を解除する。 */
+    constexpr void Unbind() noexcept {
+        m_Function = nullptr;
+        m_User = nullptr;
+    }
+
+    /** 低水準APIへ渡す関数を返す。 */
+    constexpr FFunction Function() const noexcept { return m_Function; }
+
+    /** 低水準APIへ渡す任意データを返す。 */
+    constexpr void* User() const noexcept { return m_User; }
+
+private:
+    /**
+     * 関数と任意データを直接保持する。
+     * @param function 呼び出す関数。
+     * @param user 関数へ渡す任意データ。
+     */
+    constexpr TDelegate(FFunction function, void* user) noexcept : m_Function(function), m_User(user) {}
+
+    /**
+     * @param arguments 静的関数へ渡す引数。
+     */
+    template<auto Function>
+    static void InvokeStatic(void*, Arguments... arguments) {
+        Function(Forward<Arguments>(arguments)...);
+    }
+
+    /**
+     * @param user メンバー関数を呼ぶ対象。
+     * @param arguments メンバー関数へ渡す引数。
+     */
+    template<auto Method, typename TObject>
+    static void InvokeMember(void* user, Arguments... arguments) {
+        (static_cast<TObject*>(user)->*Method)(Forward<Arguments>(arguments)...);
+    }
+
+    /** 呼出し先を型消去した関数。 */
+    FFunction m_Function = nullptr;
+    /** 呼出し先へ渡す任意データ。 */
+    void* m_User = nullptr;
+};
+
+} // namespace acs
+
+namespace acs {
+
+/** 引数なしの処理を関数または対象へ結び付ける。 */
+using FSimpleDelegate = TDelegate<void()>;
+
+} // namespace acs
+
 // ===================== event/TimerDiagnostics.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10903,252 +11205,201 @@ enum class ETimerSchedulePolicy : u8 {
 namespace acs {
 
 /**
- * タイマを一意に指すハンドル (世代付き slot id)。
- *
- * @details
- * id は 1-based で 0 は無効。slot 再利用を generation で見分けるため、Cancel または発火で
- * 解放済みのハンドルで誤って再利用後の別タイマを操作することを防ぐ。
+ * タイマー発火時に呼び出す関数。
+ * @param user 登録時に指定した値。
  */
-struct FTimerHandle {
-    /** slot の 1-based id (0 は無効)。 */
-    u32 id         = 0;
-
-    /** 同 id の再利用を見分ける世代番号。 */
-    u32 generation = 0;
-
-    /**
-     * ハンドルが有効値かを返す。
-     *
-     * @return id が 0 でなければ true。
-     */
-    bool IsValid() const noexcept { return id != 0; }
-
-    /**
-     * id と generation の両方が一致するかを返す。
-     *
-     * @param o 比較対象のハンドル。
-     * @return 完全一致すれば true。
-     */
-    bool operator==(const FTimerHandle& o) const noexcept {
-        return id == o.id && generation == o.generation;
-    }
-};
-
-/** FTimerHandle の 32bit identity/generation 物理配置契約。 */
-template<>
-struct TGenerationHandleLayoutTraits<FTimerHandle> {
-    /** 物理配置 trait が利用可能。 */
-    static constexpr bool kAvailable = true;
-    /** timer identity の byte offset。 */
-    static constexpr usize kIdentityOffset = offsetof(FTimerHandle, id);
-    /** generation の byte offset。 */
-    static constexpr usize kGenerationOffset = offsetof(FTimerHandle, generation);
-    /** identity field の byte 幅。 */
-    static constexpr usize kIdentityBytes = sizeof(FTimerHandle::id);
-    /** generation field の byte 幅。 */
-    static constexpr usize kGenerationBytes = sizeof(FTimerHandle::generation);
-    /** domain prefix を持たない。 */
-    static constexpr usize kDomainPrefixBytes = 0u;
-    /** 型全体の byte 幅。 */
-    static constexpr usize kStorageBytes = sizeof(FTimerHandle);
-    /** 型全体の alignment。 */
-    static constexpr usize kStorageAlignment = alignof(FTimerHandle);
-};
-
-/** 無効な FTimerHandle (戻り値や初期値で使う番兵)。 */
-inline constexpr FTimerHandle kInvalidTimer{};
-
-/** タイマコールバック型 (user はユーザーデータ)。 */
 using TimerCallback = void (*)(void* user);
 
 /**
- * フレーム単位の遅延 / 周期タイマーを管理するマネージャ。
- *
- * @details
- * 全タイマを線形配列の slot で持ち、Tick で dt を減算して発火させる。SetTimeout は
- * 1 回限り、SetInterval は self-rearm 方式で周期発火する。slot は世代付きで再利用し、
- * 古いハンドルでの誤操作を防ぐ。コールバック中の追加・Cancel・Clear は安全。non-copy 型。
+ * フレーム単位の一回または周期タイマーを同じスレッド内で管理する。
+ * Tickが戻るまでは、この管理器と呼出し対象の寿命を呼出し側で保つ必要がある。
  */
 class FTimerManager {
 public:
-    /** 空のマネージャを構築する。 */
+    /** 空のタイマー管理器を作る。 */
     FTimerManager() noexcept = default;
 
-    /** マネージャを破棄する。 */
+    /** タイマー管理器を破棄する。 */
     ~FTimerManager() noexcept = default;
 
-    /** コピー禁止 (slot 配列と id 採番状態を抱えるため)。 */
+    /** タイマーの重複所有を防ぐためコピー構築を禁止する。 */
     FTimerManager(const FTimerManager&) = delete;
 
-    /** コピー代入も禁止。 */
+    /** タイマーの重複所有を防ぐためコピー代入を禁止する。 */
     FTimerManager& operator=(const FTimerManager&) = delete;
 
     /**
-     * delay_seconds 経過後に 1 回だけ呼ぶタイマを登録する。
-     *
-     * @param delay_seconds 発火までの秒 (負値は不正で kInvalidTimer を返す)。
-     * @param cb 発火時に呼ぶコールバック。
-     * @param user コールバックへ渡すユーザーデータ。
-     * @return タイマハンドル (cb が null・delay が負なら kInvalidTimer)。
+     * 指定時間後に一度だけ関数を呼び出す。
+     * 関数が空、秒数が負または有限値でない、保持領域を確保できない、または世代番号を使い切った場合は無効なハンドルを返す。
+     * @param delay_seconds 呼び出すまでの秒数。
+     * @param cb 呼び出す関数。
+     * @param user 呼び出す関数へ渡す値。
      */
     FTimerHandle SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept;
 
     /**
-     * period_seconds ごとに繰り返し呼ぶタイマを登録する。
-     *
-     * @param period_seconds 発火周期の秒 (0 以下は不正で kInvalidTimer を返す)。
-     * @param cb 発火時に呼ぶコールバック。
-     * @param user コールバックへ渡すユーザーデータ。
-     * @return タイマハンドル (cb が null・period が 0 以下なら kInvalidTimer)。
+     * 指定時間後に一度だけデリゲートを呼び出す。
+     * デリゲートが未設定の場合は無効なハンドルを返す。
+     * @param delay_seconds 呼び出すまでの秒数。
+     * @param delegate 呼び出すデリゲート。
+     */
+    FTimerHandle SetTimeout(f32 delay_seconds, FSimpleDelegate delegate) noexcept;
+
+    /**
+     * 指定周期で関数を繰り返し呼び出す。
+     * 関数が空、秒数が0以下または有限値でない、保持領域を確保できない、または世代番号を使い切った場合は無効なハンドルを返す。
+     * @param period_seconds 呼び出す周期の秒数。
+     * @param cb 呼び出す関数。
+     * @param user 呼び出す関数へ渡す値。
      */
     FTimerHandle SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept;
 
     /**
+     * 指定周期でデリゲートを繰り返し呼び出す。
+     * デリゲートが未設定の場合は無効なハンドルを返す。
+     * @param period_seconds 呼び出す周期の秒数。
+     * @param delegate 呼び出すデリゲート。
+     */
+    FTimerHandle SetInterval(f32 period_seconds, FSimpleDelegate delegate) noexcept;
+
+    /**
      * 発火方針と型付きコールバックをコンパイル時に確定して登録する。
-     *
-     * @details Callback は `void(User*) noexcept` として呼べる必要がある。if constexpr で
-     * SetTimeout / SetInterval を選ぶため、登録の hot path に方針判定分岐を残さない。
-     * @tparam Policy 1 回限りまたは周期発火。
+     * @tparam Policy 一回または周期発火の方針。
      * @tparam Callback コンパイル時に確定する型付きコールバック。
-     * @tparam User user pointer の型。
+     * @tparam User コールバックへ渡す値の型。
      * @param seconds 遅延または周期秒。
-     * @param user Callback へ渡す pointer。
-     * @return 登録したタイマのハンドル。
+     * @param user コールバックへ渡す値。
      */
     template<ETimerSchedulePolicy Policy, auto Callback, typename User>
-    FTimerHandle Schedule(f32 seconds, User* user) noexcept
-    {
-        static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), User*>, "型付きタイマコールバックは void(User*) noexcept として呼べる必要があります");
+    FTimerHandle Schedule(f32 seconds, User* user) noexcept {
+        static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), User*>, "型付きタイマーコールバックは void(User*) noexcept として呼べる必要があります");
         if constexpr (Policy == ETimerSchedulePolicy::Once) {
             return SetTimeout(seconds, &TypedTimerThunk<User, Callback>, user);
         } else {
-            static_assert(Policy == ETimerSchedulePolicy::Repeating, "未対応のタイマ発火方針です");
+            static_assert(Policy == ETimerSchedulePolicy::Repeating, "未対応のタイマー発火方針です");
             return SetInterval(seconds, &TypedTimerThunk<User, Callback>, user);
         }
     }
 
     /**
-     * 指定タイマをキャンセルする。
-     *
-     * @param h キャンセルするタイマハンドル。
-     * @return 該当タイマが見つかり解除できたら true (既に発火 / 解放済みなら false)。
+     * 指定したタイマーを取り消す。
+     * @param handle 取り消すタイマーのハンドル。
      */
-    bool Cancel(FTimerHandle h) noexcept;
+    bool Cancel(FTimerHandle handle) noexcept;
 
-    /**
-     * 全タイマを破棄し、空のマネージャに戻す。
-     *
-     * @details 登録済みの user pointer を終了後に保持しない。繰り返し呼んでも安全。
-     *          コールバック内から呼んだ場合、全 slot は直ちに無効化し、配列容量の解放だけを
-     *          最外周 Tick の終了まで延期する。その Tick が戻るまで新規登録は受け付けない。
-     */
+    /** 登録中のタイマーをすべて取り消す。 */
+    void CancelAll() noexcept;
+
+    /** 全タイマーを無効にして保持領域を空にする。 */
     void Clear() noexcept;
 
     /**
-     * 毎フレーム呼び、dt を経過させて発火条件を満たしたタイマを呼ぶ。
-     *
-     * @details
-     * 周期タイマは dt が複数周期ぶんなら catch-up で複数回発火する (発火数には上限あり)。
-     * コールバック中の新規タイマ追加・Cancel は安全。
-     * @param dt 前フレームからの経過秒。
+     * 指定したタイマーが現在も登録中かを返す。
+     * @param handle 調べるタイマーのハンドル。
+     */
+    bool IsActive(FTimerHandle handle) const noexcept;
+
+    /**
+     * 時間を進めて発火条件を満たしたタイマーを呼び出す。
+     * 秒数が負または有限値でない場合と再入呼出しでは状態を変更しない。
+     * 呼出し中に登録したタイマーは次回更新から進める。
+     * @param dt 前回から経過した秒数。
      */
     void Tick(f32 dt) noexcept;
 
-    /**
-     * 現在アクティブなタイマ数を返す (デバッグ用)。
-     *
-     * @return active な slot の数。
-     */
+    /** 現在有効なタイマー数を返す。 */
     u32 ActiveCount() const noexcept;
 
     /** 現在の決定的な走査診断値を返す。 */
     FTimerDiagnostics Diagnostics() const noexcept { return m_Diagnostics; }
 
-    /** 走査診断値だけを 0 に戻す。タイマ状態は変更しない。 */
+    /** 走査診断値だけを0へ戻し、タイマー状態は変更しない。 */
     void ResetDiagnostics() noexcept { m_Diagnostics = {}; }
 
 private:
-    /**
-     * 1 タイマ slot (残時間・周期・コールバックを保持)。
-     */
+    /** 一件分のタイマー情報。 */
     struct FSlot {
-        /** slot の 1-based id (0 は未割り当て)。 */
-        u32             id          = 0;
-
-        /** slot 再利用を見分ける世代番号。 */
-        u32             generation  = 0;
-
-        /** この slot が現在有効かのフラグ。 */
-        bool            active      = false;
-
-        /** 周期タイマなら true (SetInterval)、1 回限りなら false (SetTimeout)。 */
-        bool            repeating   = false;
-
-        /** 次の発火までの残り秒 (0 以下で発火)。 */
-        f32             remaining   = 0.0f;
-
-        /** SetInterval の発火周期 (1 回限りなら 0)。 */
-        f32             period      = 0.0f;
-
-        /** 発火時に呼ぶコールバック。 */
-        TimerCallback   cb          = nullptr;
-
-        /** コールバックへ渡すユーザーデータ。 */
-        void*           user        = nullptr;
+        /** タイマーの識別番号。 */
+        u32 id = 0;
+        /** 再利用された枠を見分ける世代番号。 */
+        u32 generation = 0;
+        /** 現在有効かを示す。 */
+        bool active = false;
+        /** 周期実行するかを示す。 */
+        bool repeating = false;
+        /** 現在の更新中に登録され、次回更新まで待つかを示す。 */
+        bool pending_until_next_tick = false;
+        /** 次回発火までの秒数。 */
+        f32 remaining = 0.0f;
+        /** 周期実行の間隔秒数。 */
+        f32 period = 0.0f;
+        /** 発火時に呼び出す関数。 */
+        TimerCallback cb = nullptr;
+        /** 呼び出す関数へ渡す値。 */
+        void* user = nullptr;
     };
 
-    /** 型付きコールバックを既存 TimerCallback ABI へ接続するコンパイル時 thunk。 */
+    /** 型付きコールバックを既存の TimerCallback へ接続する。 */
     template<typename User, auto Callback>
-    static void TypedTimerThunk(void* user) noexcept
-    {
+    static void TypedTimerThunk(void* user) noexcept {
         Callback(static_cast<User*>(user));
     }
 
-    /** 次の登録へ割り当てる、0 以外の世代番号を取得する。 */
+    /** 次の登録に使うゼロ以外の識別番号を返す。 */
+    u32 AcquireId() noexcept;
+
+    /** 次の登録に使う世代番号を返し、使い切った場合は0を返す。 */
     u32 AcquireGeneration() noexcept;
 
-    /** 全 slot のコールバックと user pointer を破棄し、論理的に空にする。 */
-    void InvalidateAllSlots() noexcept;
+    /** 新規タイマー枠を active bitset で表せるようにする。 */
+    bool EnsureActiveWord(u32 slot_index) noexcept;
 
-    /** slot 配列と再利用配列の容量を解放し、保留中の Clear を完了する。 */
-    void ReleaseClearedStorage() noexcept;
+    /** 登録に使う空き枠を返し、確保できなければ無効な位置を返す。 */
+    u32 AcquireSlotIndex() noexcept;
 
-    /** 新規 slot index を active bitset で表現できるようにする。 */
-    void EnsureActiveWord(u32 slot_index) noexcept;
+    /**
+     * 検証済みの時間と処理をタイマー枠へ登録する。
+     * @param duration_seconds 発火までの秒数または周期。
+     * @param repeating 周期実行する場合はtrue。
+     * @param cb 発火時に呼ぶ関数。
+     * @param user 関数へ渡す値。
+     */
+    FTimerHandle RegisterTimer(f32 duration_seconds, bool repeating, TimerCallback cb, void* user) noexcept;
 
-    /** slot の active bit を立てる。 */
+    /** タイマー枠の active bit を立てる。 */
     void MarkActive(u32 slot_index) noexcept;
 
-    /** slot の active bit を下ろす。 */
+    /** タイマー枠の active bit を下ろす。 */
     void MarkInactive(u32 slot_index) noexcept;
 
-    /** タイマ slot の配列。 */
+    /** 全タイマー枠を無効にする。 */
+    void InvalidateAllSlots() noexcept;
+
+    /** 全消去後の保持領域を解放する。 */
+    void ReleaseClearedStorage() noexcept;
+
+    /** 確保済みのタイマー枠。 */
     TArray<FSlot> m_Slots;
-
-    /** active slot だけを昇順に走査する 64-bit bitset。 */
+    /** 有効なタイマー枠だけを示す64-bit bitset。 */
     TArray<u64> m_ActiveWords;
-
-    /** 解放済みで再利用待ちの slot 添字。 */
-    TArray<u32>  m_FreeIndices;
-
-    /** 次に割り当てる 1-based slot id。 */
-    u32         m_NextId = 1;
-
-    /** 登録ごとに進め、Clear 前後でも古いハンドルと一致させない世代番号。 */
+    /** 再利用できるタイマー枠の位置。 */
+    TArray<u32> m_FreeIndices;
+    /** 次に割り当てるタイマー番号。 */
+    u32 m_NextId = 1;
+    /** 次に割り当てる世代番号。0は使い切り済みを示す。 */
     u32 m_NextGeneration = 1;
-
-    /** 再入 Tick を含む現在の Tick 呼び出し深度。 */
+    /** 現在の更新呼出し深度。 */
     u32 m_TickDepth = 0;
-
-    /** Tick 中の Clear により、配列容量の解放を最外周 Tick まで保留しているか。 */
+    /** 更新終了後に保持領域を解放するかを示す。 */
     bool m_ClearPending = false;
-
-    /** 現在 active な slot 数。 */
+    /** 現在有効なタイマー数。 */
     u32 m_ActiveCount = 0;
-
     /** 最適化経路の決定的な診断値。 */
     FTimerDiagnostics m_Diagnostics;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using CTimerManager = FTimerManager;
 
 } // namespace acs
 
@@ -11156,137 +11407,141 @@ private:
 // SPDX-License-Identifier: Apache-2.0
 
 
+// ===================== event/EventTypeId.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** メッセージ型ごとの通路を識別する番号。 */
+using EventTypeId = u32;
+
+/** 同時に扱えるメッセージ型の上限。 */
+inline constexpr EventTypeId kMaxEventTypes = 256;
+
+/**
+ * 通路番号が公開上限の範囲内かを返す。
+ * @param channel 調べる通路番号。
+ */
+constexpr bool IsValidEventTypeId(EventTypeId channel) noexcept { return channel < kMaxEventTypes; }
+
+} // namespace acs
+
+// ===================== event/SubscriptionHandle.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <cstddef>
+
+namespace acs {
+
+/** メッセージ購読を識別するハンドル。 */
+struct FSubscriptionHandle {
+    /** 購読先の通路番号。 */
+    EventTypeId channel = 0xFFFFFFFFu;
+    /** 通路内の購読番号。 */
+    u32 id = 0;
+    /** 再利用された購読枠を見分ける世代番号。 */
+    u32 generation = 0;
+
+    /** 通路、番号、世代がすべて設定済みかを返す。 */
+    constexpr bool IsValid() const noexcept { return IsValidEventTypeId(channel) && id != 0 && generation != 0; }
+
+    /**
+     * 同じ購読を表すかを返す。
+     * @param other 比較するハンドル。
+     */
+    constexpr bool operator==(const FSubscriptionHandle& other) const noexcept {
+        return channel == other.channel && id == other.id && generation == other.generation;
+    }
+};
+
+/** FSubscriptionHandle の通路番号付き物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FSubscriptionHandle> {
+    /** 物理配置情報を利用できる。 */
+    static constexpr bool kAvailable = true;
+    /** 購読番号の byte 位置。 */
+    static constexpr usize kIdentityOffset = offsetof(FSubscriptionHandle, id);
+    /** 世代番号の byte 位置。 */
+    static constexpr usize kGenerationOffset = offsetof(FSubscriptionHandle, generation);
+    /** 購読番号の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FSubscriptionHandle::id);
+    /** 世代番号の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FSubscriptionHandle::generation);
+    /** 購読番号より前にある通路番号の byte 幅。 */
+    static constexpr usize kDomainPrefixBytes = offsetof(FSubscriptionHandle, id);
+    /** ハンドル全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FSubscriptionHandle);
+    /** ハンドル全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FSubscriptionHandle);
+};
+
+/** 購読を指さない無効なハンドル。 */
+inline constexpr FSubscriptionHandle kInvalidSubscription{};
+
+} // namespace acs
+
 #include <type_traits>
 
 namespace acs {
 
-/** イベント型 ID (型 E ごとに一意な ChannelId)。 */
-using EventTypeId = u32;
-
-/** 同時に扱えるイベント型の上限。 */
-inline constexpr EventTypeId kMaxEventTypes = 256;
-
 namespace event_detail {
-/** 全 E 共通の採番カウンタ (次に割り当てる EventTypeId を保持)。 */
+/** 次に割り当てるメッセージ型番号。 */
 inline TAtomic<u32> g_next_event_type_id{0};
 } // namespace event_detail
 
 /**
- * イベント型 E に固有な EventTypeId を返す (初回呼び出しで採番、以降キャッシュ)。
- *
- * @details
- * magic statics + TAtomic::FetchAdd で採番するため、複数スレッドから同じ型 E を
- * 初めて呼んでも一意な id に確定する (型 ID 採番だけはスレッドセーフ)。
- * @tparam E ID を割り当てるイベント型。
- * @return 型 E に対応する EventTypeId。
+ * メッセージ型に固有の通路番号を返す。
+ * 型番号の採番だけは複数スレッドから安全に呼び出せる。
+ * @tparam E 番号を割り当てるメッセージ型。
  */
 template<typename E>
 EventTypeId GetEventTypeId() noexcept {
+    /** この型へ一度だけ割り当てる通路番号。 */
     static const EventTypeId id = event_detail::g_next_event_type_id.FetchAdd(1);
     return id;
 }
 
 /**
- * 購読を一意に指すハンドル (チャンネル + 世代付き slot id)。
- *
- * @details
- * id は 1-based で 0 は無効。slot 再利用を generation で見分けるため、Unsubscribe
- * 済みのハンドルで誤って別購読を解除することを防ぐ。
+ * メッセージを受け取る関数。
+ * @param payload 配信された値。
+ * @param user 購読時に登録した値。
  */
-struct FSubscriptionHandle {
-    /** 購読先チャンネルの EventTypeId。 */
-    EventTypeId channel    = 0xFFFFFFFFu;
-
-    /** チャンネル内 slot の 1-based id (0 は無効)。 */
-    u32         id         = 0;
-
-    /** slot 再利用を見分ける世代番号。 */
-    u32         generation = 0;
-
-    /**
-     * ハンドルが有効値かを返す。
-     *
-     * @return id が 0 でなければ true。
-     */
-    bool IsValid() const noexcept { return id != 0; }
-
-    /**
-     * チャンネル・id・世代の全てが一致するかを返す。
-     *
-     * @param o 比較対象のハンドル。
-     * @return 完全一致すれば true。
-     */
-    bool operator==(const FSubscriptionHandle& o) const noexcept {
-        return channel == o.channel && id == o.id && generation == o.generation;
-    }
-};
-
-/** FSubscriptionHandle の channel prefix 付き物理配置契約。 */
-template<>
-struct TGenerationHandleLayoutTraits<FSubscriptionHandle> {
-    /** 物理配置 trait が利用可能。 */
-    static constexpr bool kAvailable = true;
-    /** channel 後にある購読 identity の byte offset。 */
-    static constexpr usize kIdentityOffset = offsetof(FSubscriptionHandle, id);
-    /** generation の byte offset。 */
-    static constexpr usize kGenerationOffset = offsetof(FSubscriptionHandle, generation);
-    /** identity field の byte 幅。 */
-    static constexpr usize kIdentityBytes = sizeof(FSubscriptionHandle::id);
-    /** generation field の byte 幅。 */
-    static constexpr usize kGenerationBytes = sizeof(FSubscriptionHandle::generation);
-    /** identity より前にある channel prefix の byte 幅。 */
-    static constexpr usize kDomainPrefixBytes = offsetof(FSubscriptionHandle, id);
-    /** 型全体の byte 幅。 */
-    static constexpr usize kStorageBytes = sizeof(FSubscriptionHandle);
-    /** 型全体の alignment。 */
-    static constexpr usize kStorageAlignment = alignof(FSubscriptionHandle);
-};
-
-/** 無効な FSubscriptionHandle (戻り値や初期値で使う番兵)。 */
-inline constexpr FSubscriptionHandle kInvalidSubscription{};
-
-/** 購読コールバック型 (payload は const void*、user はユーザーデータ)。 */
 using MessageCallback = void (*)(const void* payload, void* user);
 
 /**
- * 型ベースの同期 pub/sub イベントバス (シングルスレッド前提)。
- *
- * @details
- * イベント型 E ごとに ChannelId を割り当て、購読コールバック (関数ポインタ + user) を
- * slot に登録する。Publish は発行時点の購読者集合を同期で即座に呼ぶ。Subscribe /
- * Unsubscribe は Publish 中でも安全 (解除は遅延適用)。Subscribe/Publish/Unsubscribe を
- * 異なるスレッドから呼ぶのは未定義動作で、スレッド間通信には TMessagePipe<T> を使う。
+ * 型ごとのメッセージを同じスレッド内で購読・配信する。
+ * 配信開始後の追加は次の配信から有効になり、配信中の解除と全解除も安全に処理する。
+ * 配信が戻るまでは、この仲介器と呼出し対象の寿命を呼出し側で保つ必要がある。
+ * 異なるスレッド間の受け渡しにはTMessagePipeを使う。
  */
 class FMessageBroker {
 public:
-    /** 空のブローカを構築する。 */
+    /** 空の仲介器を作る。 */
     FMessageBroker() noexcept = default;
 
-    /** 全チャンネルを解放して破棄する。 */
+    /** 全通路を解放する。 */
     ~FMessageBroker() noexcept;
 
-    /**
-     * 全購読とチャンネルを解放し、空のブローカに戻す。
-     *
-     * @details 実行中の既定アロケータで作られたチャンネルを FMemorySystem より先に
-     * 破棄するため、アプリケーション終了処理からも呼ばれる。繰り返し呼んでも安全。
-     * Publish のコールバック内からは呼ばないこと。
-     */
-    void Clear() noexcept;
-
-    /** コピー禁止 (チャンネルを所有するため)。 */
+    /** 通路の重複所有を防ぐためコピー構築を禁止する。 */
     FMessageBroker(const FMessageBroker&) = delete;
 
-    /** コピー代入も禁止。 */
+    /** 通路の重複所有を防ぐためコピー代入を禁止する。 */
     FMessageBroker& operator=(const FMessageBroker&) = delete;
 
     /**
-     * 型 E のイベントを購読する。
-     *
-     * @tparam E 購読するイベント型。
-     * @param cb 発行時に呼ぶコールバック (payload は const E* として渡る)。
-     * @param user コールバックへ渡すユーザーデータ。
-     * @return 購読を指すハンドル (cb が null なら kInvalidSubscription)。
+     * 全購読を直ちに無効化し、通路を解放する。
+     * 配信中に呼んだ場合は新しい購読を拒否し、最外側の配信終了時に通路を解放する。
+     */
+    void Clear() noexcept;
+
+    /**
+     * 指定した型のメッセージを購読する。
+     * 関数が空、型数が上限外、全解除中、世代番号を使い切った、または保持領域を確保できない場合は無効なハンドルを返す。
+     * @tparam E 購読するメッセージ型。
+     * @param cb 配信時に呼び出す関数。
+     * @param user 呼び出す関数へ渡す値。
      */
     template<typename E>
     FSubscriptionHandle Subscribe(MessageCallback cb, void* user) noexcept {
@@ -11295,37 +11550,29 @@ public:
 
     /**
      * 型付きコールバックをコンパイル時に検証して購読する。
-     *
-     * @details Callback は `void(const E&, void*) noexcept` として呼べる必要がある。関数自体を
-     * 非型テンプレート引数にするため、slot には型タグや実行時 cast 用情報を保持せず、
-     * Publish の ABI は従来の MessageCallback のまま維持できる。
-     * @tparam E 購読するイベント型。
+     * @tparam E 購読するメッセージ型。
      * @tparam Callback コンパイル時に確定する型付きコールバック。
-     * @param user Callback へ渡すユーザーデータ。
-     * @return 購読を指すハンドル。
+     * @param user コールバックへ渡す値。
      */
     template<typename E, auto Callback>
-    FSubscriptionHandle SubscribeTyped(void* user) noexcept
-    {
+    FSubscriptionHandle SubscribeTyped(void* user) noexcept {
         static_assert(std::is_nothrow_invocable_r_v<void, decltype(Callback), const E&, void*>, "型付きイベントコールバックは void(const E&, void*) noexcept として呼べる必要があります");
         return SubscribeRaw(GetEventTypeId<E>(), &TypedCallbackThunk<E, Callback>, user);
     }
 
     /**
-     * 購読を解除する (Publish 中に呼んでも安全)。
-     *
-     * @details Publish 反復中の場合は slot 解放を遅延しつつ即座に「呼ばれない」状態にする。
-     * @param h 解除する購読ハンドル。
-     * @return 該当購読が見つかり解除できたら true。
+     * 指定した購読を解除する。
+     * ハンドルが無効または解除済みの場合はfalseを返す。
+     * ハンドルは取得元の仲介器にだけ渡す。
+     * @param handle 解除する購読のハンドル。
      */
-    bool Unsubscribe(FSubscriptionHandle h) noexcept;
+    bool Unsubscribe(FSubscriptionHandle handle) noexcept;
 
     /**
-     * 型 E のイベントを発行し、全購読者を同期で呼ぶ。
-     *
-     * @details 発行時点の購読者集合のみを呼ぶ (Publish 中に追加された購読は対象外)。
-     * @tparam E 発行するイベント型。
-     * @param payload 各購読者へ渡すイベント値。
+     * 指定した型のメッセージを購読先へ配信する。
+     * 配信中の全解除後は残りの購読を呼ばない。
+     * @tparam E 配信するメッセージ型。
+     * @param payload 配信する値。
      */
     template<typename E>
     void Publish(const E& payload) noexcept {
@@ -11333,101 +11580,100 @@ public:
     }
 
     /**
-     * 指定チャンネルのアクティブな購読数を返す (デバッグ用)。
-     *
-     * @param channel 問い合わせるチャンネルの EventTypeId。
-     * @return active な購読 slot の数。
+     * 指定した通路の有効な購読数を返す。
+     * @param channel 調べる通路番号。
      */
     u32 SubscriberCount(EventTypeId channel) const noexcept;
 
 private:
-    /**
-     * 1 購読 slot (コールバックと世代を保持)。
-     */
+    /** 一件分の購読情報。 */
     struct FSlot {
-        /** slot の 1-based id (0 は未割り当て)。 */
-        u32           id          = 0;
-
-        /** slot 再利用を見分ける世代番号。 */
-        u32           generation  = 0;
-
-        /** この slot が現在有効かのフラグ。 */
-        bool          active      = false;
-
-        /** 発行時に呼ぶコールバック。 */
-        MessageCallback cb          = nullptr;
-
-        /** コールバックへ渡すユーザーデータ。 */
-        void*         user        = nullptr;
+        /** 通路内の購読番号。 */
+        u32 id = 0;
+        /** 再利用された購読枠を見分ける世代番号。 */
+        u32 generation = 0;
+        /** 現在購読中かを示す。 */
+        bool active = false;
+        /** 配信終了後または次回登録前に再利用一覧へ移すかを示す。 */
+        bool pending_reuse = false;
+        /** 配信時に呼び出す関数。 */
+        MessageCallback cb = nullptr;
+        /** 呼び出す関数へ渡す値。 */
+        void* user = nullptr;
     };
 
-    /**
-     * 1 イベント型に対応するチャンネル (購読 slot 集合と遅延解除キュー)。
-     */
+    /** 一つのメッセージ型に属する購読群。 */
     struct FChannel {
-        /** 購読 slot の配列。 */
-        TArray<FSlot>  slots;
-
-        /** 解放済みで再利用待ちの slot 添字。 */
-        TArray<u32>   free_indices;
-
-        /** 次に割り当てる 1-based slot id。 */
-        u32          next_id      = 1;
-
-        /** Publish 中のネストレベル (>0 のとき解除を遅延)。 */
-        i32          publish_depth = 0;
-
-        /** Clear 前の購読ハンドルを無効化するため、新規 slot へ与える世代。 */
-        u32 generation_seed = 0;
-
-        /** publish_depth>0 の間に貯めた解除対象 slot 添字。 */
-        TArray<u32>   pending_cancel;
-
-        /** 現在 active な購読 slot 数。 */
+        /** 確保済みの購読枠。 */
+        TArray<FSlot> slots;
+        /** 再利用できる購読枠の位置。 */
+        TArray<u32> free_indices;
+        /** 次に割り当てる購読番号。 */
+        u32 next_id = 1;
+        /** 入れ子になった配信の深さ。 */
+        i32 publish_depth = 0;
+        /** 現在有効な購読数。 */
         u32 active_count = 0;
+        /** 通路0の制御領域で保持する、全通路を合計した配信深度。 */
+        u32 broker_publish_depth = 0;
+        /** 通路0の制御領域で保持する、配信終了後の全解除要求。 */
+        bool broker_clear_pending = false;
     };
 
-    /** 型付きコールバックを既存 MessageCallback ABI へ接続するコンパイル時 thunk。 */
+    /** 型付きコールバックを既存の MessageCallback へ接続する。 */
     template<typename E, auto Callback>
-    static void TypedCallbackThunk(const void* payload, void* user) noexcept
-    {
+    static void TypedCallbackThunk(const void* payload, void* user) noexcept {
         Callback(*static_cast<const E*>(payload), user);
     }
 
     /**
-     * 型消去された購読登録の実体 (Subscribe から委譲)。
-     *
-     * @param channel 購読先チャンネルの EventTypeId。
-     * @param cb 登録するコールバック。
-     * @param user コールバックへ渡すユーザーデータ。
-     * @return 購読ハンドル (cb が null・チャンネル確保失敗なら kInvalidSubscription)。
+     * 型を消去した関数を指定した通路へ登録する。
+     * @param channel 登録先の通路番号。
+     * @param cb 配信時に呼び出す関数。
+     * @param user 呼び出す関数へ渡す値。
      */
-    FSubscriptionHandle SubscribeRaw(EventTypeId channel,
-                                     MessageCallback cb, void* user) noexcept;
+    FSubscriptionHandle SubscribeRaw(EventTypeId channel, MessageCallback cb, void* user) noexcept;
 
     /**
-     * 型消去された発行の実体 (Publish から委譲)。
-     *
-     * @param channel 発行先チャンネルの EventTypeId。
-     * @param payload 各購読者へ渡すペイロード先頭。
+     * 型を消去した値を指定した通路へ配信する。
+     * @param channel 配信先の通路番号。
+     * @param payload 配信する値。
      */
     void PublishRaw(EventTypeId channel, const void* payload) noexcept;
 
     /**
-     * EventTypeId に対応するチャンネルを返す (必要なら生成)。
-     *
-     * @param id 取得するチャンネルの EventTypeId。
-     * @param create true なら未生成時に新規確保する。
-     * @return チャンネルへのポインタ (未生成かつ create=false なら nullptr)。
+     * 指定した通路を取得し、必要なら作成する。
+     * @param id 取得する通路番号。
+     * @param create 存在しない通路を作成するか。
      */
     FChannel* GetChannel(EventTypeId id, bool create) noexcept;
 
-    /** チャンネル配列 (EventTypeId → FChannel*、所有権を持つ)。 */
-    TArray<FChannel*> m_Channels;
+    /** 制御領域を返し、未作成ならnullptrを返す。 */
+    FChannel* GetControlChannel() noexcept;
 
-    /** Clear のたびに進める、新規チャンネル用の世代。 */
+    /** 配信終了まで全解除を保留しているかを返す。 */
+    bool IsClearPending() const noexcept;
+
+    /**
+     * 再利用待ちの購読枠を空き一覧へ移す。
+     * @param channel 整理する通路。
+     */
+    static void CollectReusableSlots(FChannel& channel) noexcept;
+
+    /** 全通路の購読を無効化し、配信中の参照が指す領域は維持する。 */
+    void InvalidateAllChannels() noexcept;
+
+    /** 全通路と保持領域を解放し、保留中の全解除を完了する。 */
+    void ReleaseChannels() noexcept;
+
+    /** 通路番号から通路を引き、通路0を全通路の制御領域にも使う配列。 */
+    TArray<FChannel*> m_Channels;
+    /** 最後に割り当てた仲介器内で一意の世代番号。最大値では新規購読を拒否する。 */
     u32 m_GenerationSeed = 0;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using CMessageBroker = FMessageBroker;
 
 } // namespace acs
 
@@ -15983,24 +16229,6 @@ public:
 
 // ===================== audio/AudioEngine.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// XAudio2 ベースの音声エンジン
-//
-// 使い方:
-//   FAudioEngine engine;
-//   engine.Init();
-//
-//   // FAudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
-//   TSharedPtr<FAsset> asset = registry.Load(L"sound/bgm.ogg").Value();
-//   auto* audio = static_cast<FAudioAsset*>(asset.Get());
-//
-//   // 再生 (volume 0..1, loop は繰り返し)
-//   FSoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
-//
-//   // 停止 / 音量変更
-//   engine.SetVolume(h, 0.5f);
-//   engine.Stop(h);
-//
-//   engine.Shutdown();
 
 
 // ===================== audio/SoundHandle.h =====================
@@ -16052,141 +16280,169 @@ inline constexpr FSoundHandle kInvalidSound = FSoundHandle{0xFFFFFFFFu, 0};
 
 namespace acs {
 
-/** FAudioEngine が全再生 slot に保持できる PCM buffer 容量の合計上限。 */
+/** 全再生で保持できる未圧縮音声データの合計上限。 */
 inline constexpr u64 kAudioEngineResidentBufferBudgetBytes = 512ull * 1024ull * 1024ull;
 
 /**
- * XAudio2 を裏に持つ音声再生エンジン。
- *
- * @details
- * Init() で COM とマスタリングボイスを立ち上げ、Play() で FAudioAsset ごとに 1 つの
- * ソースボイス (発音スロット) を確保して再生する。同時発音は最大 64 スロットで、
- * 一発再生のボイスはバッファが流れ切ると自動回収され、ループ再生は Stop されるまで残る。
- * 各再生は世代付きの FSoundHandle で識別され、スロット再利用後の古いハンドルは無効になる。
- * 内部状態は XAudio2 ヘッダを公開しないよう pimpl で隠蔽する。pimpl の寿命は外側の
- * reader/writer lock、スロットは内側の mutex で保護する。
- * non-copy 型。
+ * XAudio2を使って音声の再生と停止を管理する。
+ * 内部状態の寿命と発音枠を個別に同期し、別スレッドからのShutdownを待ち合わせる。
  */
 class FAudioEngine {
 public:
-    /** 未初期化状態で構築する (XAudio2 は Init で立ち上げ)。 */
+    /** 未初期化の音声エンジンを作る。 */
     FAudioEngine() noexcept = default;
 
-    /** 破棄する (Shutdown を呼んで全ボイスと XAudio2 を解放)。 */
+    /** 全音声資源を解放して破棄する。 */
     ~FAudioEngine() noexcept;
 
-    /** コピー禁止 (XAudio2 リソースを単独所有するため)。 */
+    /** 音声資源の二重所有を防ぐためコピーを禁止する。 */
     FAudioEngine(const FAudioEngine&) = delete;
 
-    /** コピー代入も禁止。 */
+    /** 音声資源の二重所有を防ぐためコピー代入を禁止する。 */
     FAudioEngine& operator=(const FAudioEngine&) = delete;
 
     /**
-     * COM MTA 利用参照とマスタリングボイスを含む XAudio2 エンジンを初期化する。
-     *
-     * @details
-     * CoIncrementMTAUsage の cookie で MTA の寿命を保持するため、Shutdown と
-     * デストラクタは Init と異なるスレッドからでも安全に実行できる。
-     * @return 成功なら空の TResult、二重初期化や XAudio2 生成失敗ならエラー。
+     * 音声エンジンと最終出力先を初期化する。
+     * @return 成功時は空の結果、二重初期化または音声APIを初期化できない場合はエラー。
      */
     TResult<void> Init() noexcept;
 
     /**
-     * 全ボイスを停止・解放し、XAudio2 と COM MTA 利用参照を後始末する。
-     *
-     * @details 多重呼び出しは安全。実行中の共有操作が完了するまで待ち、新規操作を拒否してから
-     * 全状態を解放する。Init と異なるスレッドから呼んでもよい。
+     * 全再生を停止し、音声エンジンが持つ資源を解放する。
+     * 多重呼び出しは安全で、実行中の操作を待ってから新しい操作を拒否する。
      */
     void Shutdown() noexcept;
 
     /**
-     * アセットを 1 つのソースボイスで再生開始する。
-     *
-     * @details
-     * 空きスロットを確保し、サンプルデータを再生中保持用にコピーしてソースボイスを生成・
-     * 再生する。空きスロットが無い、アセットが空、または常駐 PCM 予算を超える場合は
-     * 無効ハンドルを返す。
-     * @param Asset 再生する音声アセット (wav/mp3/flac/ogg)。
-     * @param Volume 初期音量 (0.0..1.0、範囲外は内部でクランプ、既定 1.0)。
-     * @param bLoop true なら無限ループ再生 (既定 false の一発再生)。
-     * @return この再生を指す FSoundHandle (失敗時は kInvalidSound)。
+     * 音声アセットの再生を開始する。
+     * 空き枠、音声データ、保持容量、backend操作のいずれかが失敗した場合は状態を残さない。
+     * @param Asset 再生する音声データ。
+     * @param Volume 開始時の音量。非有限値は0、有限値は0から1の範囲へ収める。
+     * @param bLoop 繰り返し再生する場合はtrue。
+     * @return 再生の識別値。開始できない場合はkInvalidSound。
      */
     FSoundHandle Play(const FAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
 
     /**
-     * 指定ハンドルの再生を停止し、内部スロットを解放する。
-     *
-     * @details 世代が一致しない (= 既に解放済みの) ハンドルは無視する。
-     * @param Handle 停止する再生のハンドル。
+     * 指定した音声の再生を停止する。
+     * 世代が一致しない識別値は状態を変えない。
+     * @param Handle 停止する再生の識別値。
      */
     void Stop(FSoundHandle Handle) noexcept;
 
     /**
-     * 指定ハンドルの再生音量を変更する。
-     *
-     * @details 世代不一致のハンドルは無視する。値は 0.0..1.0 に内部クランプする。
-     * @param Handle 対象の再生ハンドル。
-     * @param Volume 新しい音量 (0.0..1.0)。
+     * 指定した再生の音量を変更する。
+     * backendが拒否した場合は以前の音量を維持して警告を記録する。
+     * @param Handle 音量を変える再生の識別値。
+     * @param Volume 新しい音量。非有限値は0、有限値は0から1の範囲へ収める。
      */
     void SetVolume(FSoundHandle Handle, f32 Volume) noexcept;
 
-    /** 再生中の全ボイスを停止し、全スロットを解放する。 */
+    /** 再生中の全音声を停止し、保持中の音声データも解放する。 */
     void StopAll() noexcept;
 
     /**
-     * 最終出力のマスター音量を変更する。
-     *
-     * @param Volume マスター音量 (0.0..1.0、範囲外は内部でクランプ)。
+     * 音声エンジン全体の出力音量を変更する。
+     * backendが拒否した場合は以前の音量を維持して警告を記録する。
+     * @param Volume 新しい全体音量。非有限値は0、有限値は0から1の範囲へ収める。
      */
     void SetMasterVolume(f32 Volume) noexcept;
 
-    /** 再生中の全ボイスを一時停止する (再生位置は保持される)。 */
+    /** 再生中の全音声を現在位置で一時停止する。 */
     void PauseAll() noexcept;
 
-    /** PauseAll で止めた全ボイスを保持位置から再開する。 */
+    /** 一時停止中の全音声を保持位置から再開する。 */
     void ResumeAll() noexcept;
 
     /**
-     * 現在使用中の発音スロット数を返す (デバッグ用)。
-     *
-     * @return アクティブなボイススロット数。
+     * 現在使用中の発音枠数を返す。
+     * @return 再生に使用している枠の数。
      */
     u32 ActiveCount() const noexcept;
 
 #if defined(ACS_AUDIO_TEST_HOOKS)
-    /** OS の音声デバイスに依存せず lifecycle/MTA cookie 契約を検証するテスト状態を作る。 */
+    /** OSの音声機器を使わずに状態管理を調べるテスト状態を作る。 */
     TResult<void> InitializeLifecycleTestState() noexcept;
 
-    /** lifecycle 共有操作を決定的に停止させるユニットテスト専用 hook。 */
-    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
-                                                    TAtomic<u32>* Release) noexcept;
+    /**
+     * OSの音声機器を使わずに公開音量操作を調べるテスト状態を作る。
+     * @return 成功時は空の結果、状態を作れない場合はエラー。
+     */
+    TResult<void> InitializeVolumeTestState() noexcept;
 
-    /** Shutdown 要求が公開操作を閉じているかを返すテスト専用 query。 */
+    /**
+     * 状態を読む処理をテスト用の合図で停止させる。
+     * @param Entered 処理の開始を通知する値。
+     * @param Release 処理の再開を許可する値。
+     */
+    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered, TAtomic<u32>* Release) noexcept;
+
+    /**
+     * 以後の音量backend操作を失敗させる経路を設定する。
+     * @param bPlayVolume 再生開始時の個別音量設定を失敗させる場合はtrue。
+     * @param bSetVolume 再生中の個別音量設定を失敗させる場合はtrue。
+     * @param bMasterVolume 全体音量設定を失敗させる場合はtrue。
+     */
+    void ConfigureVolumeFailuresForTesting(bool bPlayVolume, bool bSetVolume, bool bMasterVolume) noexcept;
+
+    /**
+     * 音量入力を公開経路と同じ規則で正規化する。
+     * @param Volume 確認する音量。
+     * @return 非有限値は0、有限値は0から1へ収めた値。
+     */
+    static f32 NormalizeVolumeForTesting(f32 Volume) noexcept;
+
+    /**
+     * 指定した再生のbackend音量を返す。
+     * @param Handle 確認する再生の識別値。
+     * @return backendが保持する音量。識別値が無効な場合は負数。
+     */
+    f32 VolumeForTesting(FSoundHandle Handle) const noexcept;
+
+    /** テストbackendが保持する全体音量を返す。 */
+    f32 MasterVolumeForTesting() const noexcept;
+
+    /** テストbackendが最後に受け取った正規化済み音量を返す。 */
+    f32 LastVolumeAttemptForTesting() const noexcept;
+
+    /** テストbackendが保持している音声データ容量を返す。 */
+    u64 ResidentBufferBytesForTesting() const noexcept;
+
+    /** テストbackendが確保している発音ボイス数を返す。 */
+    u32 AllocatedVoiceCountForTesting() const noexcept;
+
+    /** 個別音量または全体音量の失敗警告件数を返す。 */
+    u32 VolumeFailureWarningCountForTesting() const noexcept;
+
+    /** Shutdown要求中かをテストへ返す。 */
     bool IsShutdownRequestedForTesting() const noexcept;
 
-    /** lifecycle 状態が保持されているかを返すテスト専用 query。 */
+    /** 内部状態が保持されているかをテストへ返す。 */
     bool HasLifecycleStateForTesting() const noexcept;
 #endif
 
-    /** XAudio2 ヘッダを公開しないための pimpl 実装型 (前方宣言のみ)。 */
+    /** XAudio2の型を公開しないための内部状態。 */
     struct FImpl;
 
 private:
-    /** lifecycle 排他ロック取得済みで全リソースを解放する。 */
+    /** 内部状態の排他ロック取得後に全資源を解放する。 */
     void ShutdownUnlocked() noexcept;
 
-    /** Shutdown 要求中で新規共有操作を拒否すべきかを返す。 */
+    /** Shutdown要求中で新しい操作を拒否すべきかを返す。 */
     bool IsShutdownRequested() const noexcept;
 
-    /** Init/Shutdown と通常操作間で pimpl の寿命を同期する。 */
+    /** 初期化と通常操作の間で内部状態の寿命を保護する。 */
     mutable FRwLock m_LifecycleLock;
 
-    /** 実行開始済みの Shutdown 呼び出し数。0 以外では新規操作を拒否する。 */
+    /** 実行中のShutdown呼び出し数。 */
     TAtomic<u32> m_ShutdownRequests{0};
 
-    /** pimpl 実装の所有ポインタ (未初期化時は nullptr)。 */
+    /** 音声エンジンの内部状態。未初期化時はnullptr。 */
     FImpl* m_Impl = nullptr;
 };
+
+/** FAudioEngineの一時的なソース互換名。 */
+using CAudioEngine = FAudioEngine;
 
 } // namespace acs
 
@@ -25711,6 +25967,806 @@ private:
     /** 以後の Push を拒否するフラグ。 */
     TAtomic<u32> m_Closed{0};
 };
+
+} // namespace acs
+
+// ===================== event/MulticastDelegate.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== event/TypedEvent.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== event/TypedEventCallback.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs {
+
+/**
+ * 型付きイベントが呼び出す関数。
+ * @param User 呼び出し元が登録した値。
+ * @param Values 配信する値。
+ */
+template<typename... Arguments>
+using TEventCallback = void (*)(void* User, Arguments... Values) noexcept;
+
+} // namespace acs
+
+// ===================== event/TypedEventState.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== event/TypedEventSlot.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::typed_event_detail {
+
+/** 型付きイベントの一件分の購読情報。 */
+template<typename... Arguments>
+struct TEventSlot {
+    /** 配信時に呼び出す関数。 */
+    TEventCallback<Arguments...> callback = nullptr;
+
+    /** 呼び出す関数へ渡す値。 */
+    void* user = nullptr;
+
+    /** 配信中に追加された購読を見分ける順序番号。 */
+    u64 activation_sequence = 0;
+
+    /** 呼び出し順を決める優先度。 */
+    i32 priority = 0;
+
+    /** 古いハンドルを見分ける世代番号。 */
+    u32 generation = 1;
+
+    /** 現在購読中かを示す。 */
+    bool active = false;
+
+    /** 一度の配信後に解除するかを示す。 */
+    bool once = false;
+
+    /** 再利用待ちかを示す。 */
+    bool pending_reuse = false;
+
+    /** 世代番号を使い切り再利用できないかを示す。 */
+    bool retired = false;
+};
+
+} // namespace acs::typed_event_detail
+
+namespace acs::typed_event_detail {
+
+/** 型付きイベントと所有権付き購読が共有する状態。 */
+template<typename... Arguments>
+struct TEventState {
+    /**
+     * イベントの共有状態を作る。
+     * @param EventId イベント個体の識別番号。
+     */
+    explicit TEventState(u64 EventId) noexcept : event_id(EventId) {}
+
+    /** 確保済みの購読枠。 */
+    TArray<TEventSlot<Arguments...>> slots;
+
+    /** 再利用できる購読枠の位置。 */
+    TArray<u32> free_slots;
+
+    /** イベント個体の識別番号。 */
+    u64 event_id = 0;
+
+    /** 最後に登録した購読の順序番号。 */
+    u64 latest_activation_sequence = 0;
+
+    /** 有効な購読数。 */
+    u32 active_count = 0;
+
+    /** 入れ子になった配信の深さ。 */
+    u32 publish_depth = 0;
+};
+
+/** 新しい型付きイベントの識別番号を返す。 */
+u64 AllocateTypedEventIdentifier() noexcept;
+
+} // namespace acs::typed_event_detail
+
+// ===================== event/TypedEventSubscription.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== event/TypedEventHandle.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 型付きイベントの購読位置を識別するハンドル。 */
+struct FTypedEventHandle {
+    /** イベント個体の識別番号。 */
+    u64 event_id = 0;
+    /** 購読枠の位置。 */
+    u32 slot_index = 0;
+    /** 古いハンドルを見分ける世代番号。 */
+    u32 generation = 0;
+
+    /** 有効な購読先を表せる値かを返す。 */
+    constexpr bool IsValid() const noexcept {
+        return event_id != 0 && generation != 0;
+    }
+
+    /**
+     * 同じ購読位置を表すかを返す。
+     * @param Other 比較するハンドル。
+     */
+    constexpr bool operator==(FTypedEventHandle Other) const noexcept {
+        return event_id == Other.event_id && slot_index == Other.slot_index && generation == Other.generation;
+    }
+
+    /**
+     * 異なる購読位置を表すかを返す。
+     * @param Other 比較するハンドル。
+     */
+    constexpr bool operator!=(FTypedEventHandle Other) const noexcept {
+        return !(*this == Other);
+    }
+};
+
+} // namespace acs
+
+namespace acs {
+
+namespace typed_event_detail {
+/** 型付きイベントの共有状態。 */
+template<typename... Arguments>
+struct TEventState;
+}
+
+/** 破棄時に購読を解除する所有権付き購読。 */
+template<typename... Arguments>
+class TEventSubscription {
+public:
+    /** 空の購読を作る。 */
+    TEventSubscription() noexcept = default;
+
+    /** 保持中の購読を解除する。 */
+    ~TEventSubscription() noexcept { Reset(); }
+
+    /** 購読の重複所有を防ぐためコピー構築を禁止する。 */
+    TEventSubscription(const TEventSubscription&) = delete;
+
+    /** 購読の重複所有を防ぐためコピー代入を禁止する。 */
+    TEventSubscription& operator=(const TEventSubscription&) = delete;
+
+    /**
+     * 購読の所有権を移す。
+     * @param Other 移動元の購読。
+     */
+    TEventSubscription(TEventSubscription&& Other) noexcept : m_State(Move(Other.m_State)), m_Handle(Other.m_Handle) {
+        Other.m_Handle = {};
+    }
+
+    /**
+     * 現在の購読を解除して所有権を移す。
+     * @param Other 移動元の購読。
+     */
+    TEventSubscription& operator=(TEventSubscription&& Other) noexcept {
+        if (this == &Other) return *this;
+        Reset();
+        m_State = Move(Other.m_State);
+        m_Handle = Other.m_Handle;
+        Other.m_Handle = {};
+        return *this;
+    }
+
+    /** 購読先が現在も有効かを返す。 */
+    bool IsValid() const noexcept;
+
+    /** 購読を解除し、解除できたかを返す。 */
+    bool Reset() noexcept;
+
+    /** 保持中の購読ハンドルを返す。 */
+    FTypedEventHandle Handle() const noexcept { return m_Handle; }
+
+private:
+    /** この購読が参照する共有状態。 */
+    using FState = typed_event_detail::TEventState<Arguments...>;
+
+    /**
+     * イベントが登録した購読を所有する。
+     * @param State 購読先の共有状態。
+     * @param Handle 登録済みの購読ハンドル。
+     */
+    TEventSubscription(const TSharedPtr<FState>& State, FTypedEventHandle Handle) noexcept : m_State(State), m_Handle(Handle) {}
+
+    /** 購読先の寿命を延ばさない共有状態参照。 */
+    TWeakPtr<FState> m_State;
+    /** 解除対象を識別するハンドル。 */
+    FTypedEventHandle m_Handle{};
+
+    /** 所有権付き購読を作成できるイベント。 */
+    template<typename...>
+    friend class TEvent;
+};
+
+} // namespace acs
+
+namespace acs {
+
+/** 引数の型を保ったまま複数の購読先へ通知するイベント。 */
+template<typename... Arguments>
+class TEvent {
+    /** 同じ値を複数の購読へ渡すため、所有権が一度だけ移る右辺値参照は受け付けない。 */
+    static_assert((!IsRvalueRefV<Arguments> && ...), "型付きイベントの引数に右辺値参照は指定できません");
+    /** 値引数は各購読へ同じ内容を渡せるようにコピー構築を要求する。 */
+    static_assert(((IsLvalueRefV<Arguments> || IsCopyConstructibleV<Arguments>) && ...), "型付きイベントの値引数はコピー構築できる必要があります");
+
+public:
+    /** このイベントが呼び出す関数型。 */
+    using FCallback = TEventCallback<Arguments...>;
+    /** このイベントの所有権付き購読型。 */
+    using FSubscription = TEventSubscription<Arguments...>;
+
+    /** 空のイベントを作る。 */
+    TEvent() noexcept : m_State(MakeShared<FState>(typed_event_detail::AllocateTypedEventIdentifier())) {}
+
+    /** 全購読を解除する。 */
+    ~TEvent() noexcept { Clear(); }
+
+    /** イベント個体の重複を防ぐためコピー構築を禁止する。 */
+    TEvent(const TEvent&) = delete;
+
+    /** イベント個体の重複を防ぐためコピー代入を禁止する。 */
+    TEvent& operator=(const TEvent&) = delete;
+
+    /** 購読ハンドルの参照先を固定するため移動構築を禁止する。 */
+    TEvent(TEvent&&) = delete;
+
+    /** 購読ハンドルの参照先を固定するため移動代入を禁止する。 */
+    TEvent& operator=(TEvent&&) = delete;
+
+    /**
+     * 関数を購読先へ追加する。
+     * @param Callback 配信時に呼び出す関数。
+     * @param User 呼び出す関数へ渡す値。
+     */
+    FTypedEventHandle Subscribe(FCallback Callback, void* User = nullptr) noexcept {
+        return m_State ? AddSubscription(*m_State, Callback, User, false, 0) : FTypedEventHandle{};
+    }
+
+    /**
+     * 一度だけ呼び出す関数を追加する。
+     * @param Callback 配信時に呼び出す関数。
+     * @param User 呼び出す関数へ渡す値。
+     */
+    FTypedEventHandle SubscribeOnce(FCallback Callback, void* User = nullptr) noexcept {
+        return m_State ? AddSubscription(*m_State, Callback, User, true, 0) : FTypedEventHandle{};
+    }
+
+    /**
+     * 優先度を指定して関数を追加する。
+     * @param Callback 配信時に呼び出す関数。
+     * @param Priority 大きいほど先に呼び出す優先度。
+     * @param User 呼び出す関数へ渡す値。
+     */
+    FTypedEventHandle SubscribeWithPriority(FCallback Callback, i32 Priority, void* User = nullptr) noexcept {
+        return m_State ? AddSubscription(*m_State, Callback, User, false, Priority) : FTypedEventHandle{};
+    }
+
+    /**
+     * 優先度を指定して一度だけ呼び出す関数を追加する。
+     * @param Callback 配信時に呼び出す関数。
+     * @param Priority 大きいほど先に呼び出す優先度。
+     * @param User 呼び出す関数へ渡す値。
+     */
+    FTypedEventHandle SubscribeOnceWithPriority(FCallback Callback, i32 Priority, void* User = nullptr) noexcept {
+        return m_State ? AddSubscription(*m_State, Callback, User, true, Priority) : FTypedEventHandle{};
+    }
+
+    /**
+     * 破棄時に自動解除する購読を追加する。
+     * @param Callback 配信時に呼び出す関数。
+     * @param User 呼び出す関数へ渡す値。
+     */
+    FSubscription SubscribeOwned(FCallback Callback, void* User = nullptr) noexcept {
+        /** 登録した購読を識別するハンドル。 */
+        const FTypedEventHandle Handle = Subscribe(Callback, User);
+        return Handle.IsValid() ? FSubscription(m_State, Handle) : FSubscription{};
+    }
+
+    /**
+     * 指定した購読を解除する。
+     * @param Handle 解除する購読のハンドル。
+     */
+    bool Unsubscribe(FTypedEventHandle Handle) noexcept {
+        return m_State && UnsubscribeState(*m_State, Handle);
+    }
+
+    /**
+     * 指定した購読が有効かを返す。
+     * @param Handle 調べる購読のハンドル。
+     */
+    bool IsSubscribed(FTypedEventHandle Handle) const noexcept {
+        return m_State && IsSubscribedState(*m_State, Handle);
+    }
+
+    /**
+     * 指定した購読の優先度を取得する。
+     * @param Handle 調べる購読のハンドル。
+     * @param Priority 取得した優先度の格納先。
+     */
+    bool TryGetPriority(FTypedEventHandle Handle, i32& Priority) const noexcept {
+        if (!IsSubscribed(Handle)) return false;
+        Priority = m_State->slots[Handle.slot_index].priority;
+        return true;
+    }
+
+    /**
+     * 有効な購読ハンドルを呼び出し元の配列へ複写する。
+     * @param Output ハンドルの格納先。
+     * @param OutputCapacity 格納先の要素数。
+     * @param OutputCount 複写した要素数の格納先。
+     */
+    bool TryCopySubscriptionHandles(FTypedEventHandle* Output, u32 OutputCapacity, u32& OutputCount) const noexcept {
+        if (!m_State) {
+            if (!Output && OutputCapacity != 0) return false;
+            OutputCount = 0;
+            return true;
+        }
+        if ((!Output && OutputCapacity != 0) || m_State->active_count > OutputCapacity || (m_State->active_count != 0 && !Output)) return false;
+        /** 格納済みのハンドル数。 */
+        u32 Written = 0;
+        for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < m_State->slots.Size(); ++Index) {
+            /** 現在調べる購読情報。 */
+            const FSlot& Slot = m_State->slots[Index];
+            if (!Slot.active) continue;
+            if (!Slot.callback || Slot.generation == 0 || Slot.retired || Slot.pending_reuse) return false;
+            Output[Written++] = {m_State->event_id, Index, Slot.generation};
+        }
+        if (Written != m_State->active_count) return false;
+        OutputCount = Written;
+        return true;
+    }
+
+    /** 有効な購読数を返す。 */
+    u32 SubscriptionCount() const noexcept {
+        return m_State ? m_State->active_count : 0;
+    }
+
+    /** 現在配信中かを返す。 */
+    bool IsPublishing() const noexcept {
+        return m_State && m_State->publish_depth != 0;
+    }
+
+    /** 全購読を解除する。 */
+    void Clear() noexcept {
+        if (!m_State) return;
+        for (/** 現在解除する購読枠の位置。 */ u32 Index = 0; Index < m_State->slots.Size(); ++Index) {
+            if (m_State->slots[Index].active) RetireSlot(*m_State, Index);
+        }
+    }
+
+    /**
+     * 現在の購読先へ値を配信する。
+     * @param Values 配信する値。
+     */
+    void Publish(Arguments... Values) noexcept;
+
+private:
+    /** イベントの共有状態。 */
+    using FState = typed_event_detail::TEventState<Arguments...>;
+    /** 一件分の購読情報。 */
+    using FSlot = typed_event_detail::TEventSlot<Arguments...>;
+
+    /**
+     * 共有状態へ購読を追加する。
+     * @param State 追加先の共有状態。
+     * @param Callback 配信時に呼び出す関数。
+     * @param User 呼び出す関数へ渡す値。
+     * @param Once 一度の配信後に解除するか。
+     * @param Priority 呼び出し順を決める優先度。
+     */
+    static FTypedEventHandle AddSubscription(FState& State, FCallback Callback, void* User, bool Once, i32 Priority) noexcept;
+
+    /**
+     * 共有状態に指定した購読が残っているかを返す。
+     * @param State 調べる共有状態。
+     * @param Handle 調べる購読のハンドル。
+     */
+    static bool IsSubscribedState(const FState& State, FTypedEventHandle Handle) noexcept;
+
+    /**
+     * 共有状態から指定した購読を解除する。
+     * @param State 解除元の共有状態。
+     * @param Handle 解除する購読のハンドル。
+     */
+    static bool UnsubscribeState(FState& State, FTypedEventHandle Handle) noexcept;
+
+    /**
+     * 指定した購読枠を無効にする。
+     * @param State 対象の共有状態。
+     * @param SlotIndex 無効にする購読枠の位置。
+     */
+    static void RetireSlot(FState& State, u32 SlotIndex) noexcept;
+
+    /**
+     * 再利用待ちの購読枠を空き一覧へ移す。
+     * @param State 対象の共有状態。
+     */
+    static void CollectReusableSlots(FState& State) noexcept;
+
+    /** 購読情報を保持する共有状態。 */
+    TSharedPtr<FState> m_State;
+
+    /** 所有権付き購読から状態を確認できるようにする。 */
+    friend TEventSubscription<Arguments...>;
+};
+
+} // namespace acs
+
+
+// ===================== event/TypedEventStorage.inl =====================
+// SPDX-License-Identifier: Apache-2.0
+
+namespace acs {
+
+/**
+ * 共有状態に指定した購読が残っているかを返す。
+ * @param State 調べる共有状態。
+ * @param Handle 調べる購読のハンドル。
+ */
+template<typename... Arguments>
+bool TEvent<Arguments...>::IsSubscribedState(const FState& State, FTypedEventHandle Handle) noexcept {
+    if (!Handle.IsValid() || Handle.event_id != State.event_id || Handle.slot_index >= State.slots.Size()) return false;
+    /** ハンドルが指す購読情報。 */
+    const FSlot& Slot = State.slots[Handle.slot_index];
+    return Slot.active && Slot.generation == Handle.generation;
+}
+
+/**
+ * 共有状態から指定した購読を解除する。
+ * @param State 解除元の共有状態。
+ * @param Handle 解除する購読のハンドル。
+ */
+template<typename... Arguments>
+bool TEvent<Arguments...>::UnsubscribeState(FState& State, FTypedEventHandle Handle) noexcept {
+    if (!IsSubscribedState(State, Handle)) return false;
+    RetireSlot(State, Handle.slot_index);
+    return true;
+}
+
+/**
+ * 再利用待ちの購読枠を空き一覧へ移す。
+ * @param State 対象の共有状態。
+ */
+template<typename... Arguments>
+void TEvent<Arguments...>::CollectReusableSlots(FState& State) noexcept {
+    for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < State.slots.Size(); ++Index) {
+        /** 現在調べる購読情報。 */
+        FSlot& Slot = State.slots[Index];
+        if (!Slot.pending_reuse || Slot.retired) continue;
+        if (!State.free_slots.TryPushBack(Index)) return;
+        Slot.pending_reuse = false;
+    }
+}
+
+/**
+ * 指定した購読枠を無効にする。
+ * @param State 対象の共有状態。
+ * @param SlotIndex 無効にする購読枠の位置。
+ */
+template<typename... Arguments>
+void TEvent<Arguments...>::RetireSlot(FState& State, u32 SlotIndex) noexcept {
+    if (SlotIndex >= State.slots.Size()) return;
+    /** 無効にする購読情報。 */
+    FSlot& Slot = State.slots[SlotIndex];
+    if (!Slot.active) return;
+    Slot.callback = nullptr;
+    Slot.user = nullptr;
+    Slot.priority = 0;
+    Slot.active = false;
+    Slot.once = false;
+    --State.active_count;
+    if (Slot.generation == 0xffffffffu) {
+        Slot.retired = true;
+        Slot.pending_reuse = false;
+        return;
+    }
+    ++Slot.generation;
+    Slot.pending_reuse = !State.free_slots.TryPushBack(SlotIndex);
+}
+
+/**
+ * 共有状態へ購読を追加する。
+ * @param State 追加先の共有状態。
+ * @param Callback 配信時に呼び出す関数。
+ * @param User 呼び出す関数へ渡す値。
+ * @param Once 一度の配信後に解除するか。
+ * @param Priority 呼び出し順を決める優先度。
+ */
+template<typename... Arguments>
+FTypedEventHandle TEvent<Arguments...>::AddSubscription(FState& State, FCallback Callback, void* User, bool Once, i32 Priority) noexcept {
+    if (!Callback || State.event_id == 0 || State.latest_activation_sequence == ~u64(0)) return {};
+    CollectReusableSlots(State);
+    /** 追加先の購読枠の位置。 */
+    u32 SlotIndex = 0;
+    if (!State.free_slots.IsEmpty()) {
+        SlotIndex = State.free_slots.Back();
+        State.free_slots.PopBack();
+    } else {
+        if (State.slots.Size() >= 0xffffffffu || !State.slots.TryPushBack(FSlot{})) return {};
+        SlotIndex = static_cast<u32>(State.slots.Size() - 1);
+    }
+    /** 追加先の購読情報。 */
+    FSlot& Slot = State.slots[SlotIndex];
+    Slot.callback = Callback;
+    Slot.user = User;
+    Slot.activation_sequence = ++State.latest_activation_sequence;
+    Slot.priority = Priority;
+    Slot.active = true;
+    Slot.once = Once;
+    Slot.pending_reuse = false;
+    ++State.active_count;
+    return {State.event_id, SlotIndex, Slot.generation};
+}
+
+/**
+ * 現在の購読先へ値を配信する。
+ * @param Values 配信する値。
+ */
+template<typename... Arguments>
+void TEvent<Arguments...>::Publish(Arguments... Values) noexcept {
+    /** 値で渡す引数は購読ごとに複写できる必要がある。 */
+    static_assert(((IsLvalueRefV<Arguments> || IsCopyConstructibleV<Arguments>) && ...), "型付きイベントの値引数はコピー構築できる必要があります");
+    /** 配信中も購読状態を保持する共有参照。 */
+    TSharedPtr<FState> State = m_State;
+    if (!State) return;
+    /** 配信開始時点で存在した購読枠の数。 */
+    const u32 DeliveryCount = static_cast<u32>(State->slots.Size());
+    /** 配信開始後に追加された購読を除くための上限。 */
+    const u64 ActivationLimit = State->latest_activation_sequence;
+    ++State->publish_depth;
+    /** 前回呼び出した購読があるかを示す。 */
+    bool HasPrevious = false;
+    /** 前回呼び出した購読の優先度。 */
+    i32 PreviousPriority = 0;
+    /** 前回呼び出した購読枠の位置。 */
+    u32 PreviousIndex = 0;
+    for (;;) {
+        /** 次に呼び出す購読が見つかったかを示す。 */
+        bool Found = false;
+        /** 次に呼び出す購読枠の位置。 */
+        u32 SelectedIndex = 0;
+        /** 次に呼び出す購読の優先度。 */
+        i32 SelectedPriority = 0;
+        for (/** 現在調べる購読枠の位置。 */ u32 Index = 0; Index < DeliveryCount; ++Index) {
+            /** 現在調べる購読情報。 */
+            const FSlot& Slot = State->slots[Index];
+            if (!Slot.active || !Slot.callback || Slot.activation_sequence > ActivationLimit) continue;
+            if (HasPrevious && (Slot.priority > PreviousPriority || (Slot.priority == PreviousPriority && Index <= PreviousIndex))) continue;
+            if (!Found || Slot.priority > SelectedPriority || (Slot.priority == SelectedPriority && Index < SelectedIndex)) {
+                Found = true;
+                SelectedIndex = Index;
+                SelectedPriority = Slot.priority;
+            }
+        }
+        if (!Found) break;
+        /** 今回呼び出す関数。 */
+        FCallback Callback = State->slots[SelectedIndex].callback;
+        /** 今回の関数へ渡す値。 */
+        void* User = State->slots[SelectedIndex].user;
+        if (State->slots[SelectedIndex].once) RetireSlot(*State, SelectedIndex);
+        HasPrevious = true;
+        PreviousPriority = SelectedPriority;
+        PreviousIndex = SelectedIndex;
+        Callback(User, Values...);
+    }
+    --State->publish_depth;
+}
+
+/** 購読先が現在も有効かを返す。 */
+template<typename... Arguments>
+bool TEventSubscription<Arguments...>::IsValid() const noexcept {
+    /** 購読先が残っている間だけ保持する共有参照。 */
+    TSharedPtr<FState> State = m_State.Lock();
+    return State && TEvent<Arguments...>::IsSubscribedState(*State, m_Handle);
+}
+
+/** 購読を解除し、解除できたかを返す。 */
+template<typename... Arguments>
+bool TEventSubscription<Arguments...>::Reset() noexcept {
+    /** 解除処理中だけ保持する共有参照。 */
+    TSharedPtr<FState> State = m_State.Lock();
+    /** 有効な購読を解除できたかを示す。 */
+    const bool Removed = State && TEvent<Arguments...>::UnsubscribeState(*State, m_Handle);
+    m_State.Reset();
+    m_Handle = {};
+    return Removed;
+}
+
+} // namespace acs
+
+namespace acs {
+
+/** 関数形式ごとの複数デリゲートを宣言する。 */
+template<typename Signature>
+class TMulticastDelegate;
+
+/** 複数の処理を優先順に呼ぶ型付きデリゲート。 */
+template<typename... Arguments>
+class TMulticastDelegate<void(Arguments...)> final {
+    /** 同じ値を複数の処理へ渡すため、所有権が一度だけ移る右辺値参照は受け付けない。 */
+    static_assert((!IsRvalueRefV<Arguments> && ...), "複数デリゲートの引数に右辺値参照は指定できません");
+    /** 値引数は各処理へ同じ内容を渡せるようにコピー構築を要求する。 */
+    static_assert(((IsLvalueRefV<Arguments> || IsCopyConstructibleV<Arguments>) && ...), "複数デリゲートの値引数はコピー構築できる必要があります");
+
+public:
+    /** 登録できる関数の型。 */
+    using FCallback = TEventCallback<Arguments...>;
+    /** 生存中だけ登録を保つ購読の型。 */
+    using FSubscription = TEventSubscription<Arguments...>;
+
+    /**
+     * 処理を追加する。
+     * @param callback 呼び出す処理。
+     * @param user 呼出し時に渡す任意データ。
+     */
+    FTypedEventHandle Add(FCallback callback, void* user = nullptr) noexcept { return m_Event.Subscribe(callback, user); }
+
+    /** 任意データを使わない静的関数を追加する。 */
+    template<auto Function>
+    FTypedEventHandle AddStatic() noexcept {
+        return Add(&InvokeStatic<Function>);
+    }
+
+    /**
+     * 一度だけ呼ぶ処理を追加する。
+     * @param callback 呼び出す処理。
+     * @param user 呼出し時に渡す任意データ。
+     */
+    FTypedEventHandle AddOnce(FCallback callback, void* user = nullptr) noexcept { return m_Event.SubscribeOnce(callback, user); }
+
+    /** 任意データを使わない静的関数を一度だけ呼ぶ処理として追加する。 */
+    template<auto Function>
+    FTypedEventHandle AddOnceStatic() noexcept {
+        return AddOnce(&InvokeStatic<Function>);
+    }
+
+    /**
+     * 優先度付きの処理を追加する。
+     * @param callback 呼び出す処理。
+     * @param priority 大きいほど先に呼ぶ優先度。
+     * @param user 呼出し時に渡す任意データ。
+     */
+    FTypedEventHandle AddWithPriority(FCallback callback, i32 priority, void* user = nullptr) noexcept { return m_Event.SubscribeWithPriority(callback, priority, user); }
+
+    /**
+     * 一度だけ呼ぶ処理を優先度付きで追加する。
+     * @param callback 呼び出す処理。
+     * @param priority 大きいほど先に呼ぶ優先度。
+     * @param user 呼出し時に渡す任意データ。
+     */
+    FTypedEventHandle AddOnceWithPriority(FCallback callback, i32 priority, void* user = nullptr) noexcept { return m_Event.SubscribeOnceWithPriority(callback, priority, user); }
+
+    /**
+     * 任意データを使わない静的関数を優先度付きで追加する。
+     * @param priority 大きいほど先に呼ぶ優先度。
+     */
+    template<auto Function>
+    FTypedEventHandle AddStaticWithPriority(i32 priority) noexcept {
+        return AddWithPriority(&InvokeStatic<Function>, priority);
+    }
+
+    /**
+     * 対象のメンバー関数を追加する。
+     * 登録中は対象の生存を呼出し側で保つ必要がある。
+     * @param object 呼出し対象。nullptrなら無効な識別値を返す。
+     */
+    template<auto Method, typename TObject>
+    FTypedEventHandle AddRaw(TObject* object) noexcept {
+        return object != nullptr ? Add(&InvokeMember<Method, TObject>, StoreObjectPointer(object)) : FTypedEventHandle{};
+    }
+
+    /**
+     * 対象のメンバー関数を一度だけ呼ぶ処理として追加する。
+     * 登録中は対象の生存を呼出し側で保つ必要がある。
+     * @param object 呼出し対象。nullptrなら無効な識別値を返す。
+     */
+    template<auto Method, typename TObject>
+    FTypedEventHandle AddOnceRaw(TObject* object) noexcept {
+        return object != nullptr ? AddOnce(&InvokeMember<Method, TObject>, StoreObjectPointer(object)) : FTypedEventHandle{};
+    }
+
+    /**
+     * 対象のメンバー関数を優先度付きで追加する。
+     * 登録中は対象の生存を呼出し側で保つ必要がある。
+     * @param object 呼出し対象。nullptrなら無効な識別値を返す。
+     * @param priority 大きいほど先に呼ぶ優先度。
+     */
+    template<auto Method, typename TObject>
+    FTypedEventHandle AddRawWithPriority(TObject* object, i32 priority) noexcept {
+        return object != nullptr ? AddWithPriority(&InvokeMember<Method, TObject>, priority, StoreObjectPointer(object)) : FTypedEventHandle{};
+    }
+
+    /**
+     * 対象のメンバー関数を所有購読として追加する。
+     * 購読値が破棄されるまで対象の生存を呼出し側で保つ必要がある。
+     * @param object 呼出し対象。nullptrなら空の購読を返す。
+     */
+    template<auto Method, typename TObject>
+    FSubscription AddOwnedRaw(TObject* object) noexcept {
+        return object != nullptr ? m_Event.SubscribeOwned(&InvokeMember<Method, TObject>, StoreObjectPointer(object)) : FSubscription{};
+    }
+
+    /**
+     * 識別値に対応する処理を解除する。
+     * @param handle 解除対象を世代付きで識別する値。世代は古い値の再利用を防ぐ番号。
+     */
+    bool Remove(FTypedEventHandle handle) noexcept { return m_Event.Unsubscribe(handle); }
+
+    /** すべての処理を解除する。 */
+    void Clear() noexcept { m_Event.Clear(); }
+
+    /**
+     * 登録した処理を呼ぶ。
+     * @param arguments 各処理へ渡す引数。
+     */
+    void Broadcast(Arguments... arguments) noexcept { m_Event.Publish(arguments...); }
+
+    /** 登録中の処理数を返す。 */
+    u32 Count() const noexcept { return m_Event.SubscriptionCount(); }
+
+    /** 一つ以上の処理が登録されているかを返す。 */
+    bool IsBound() const noexcept { return Count() != 0; }
+
+private:
+    /**
+     * 対象ポインターを内部の任意データ形式へ変換する。
+     * 呼出し時は元のconst指定へ戻すため、対象そのものは変更しない。
+     * @param object 保存する呼出し対象。
+     */
+    template<typename TObject>
+    static void* StoreObjectPointer(TObject* object) noexcept {
+        /** const指定を外して保存に使う対象型。 */
+        using FStoredObject = RemoveCVT<TObject>;
+        return const_cast<FStoredObject*>(object);
+    }
+
+    /**
+     * 任意データを使わない静的関数を呼ぶ。
+     * @param arguments 静的関数へ渡す引数。
+     */
+    template<auto Function>
+    static void InvokeStatic(void*, Arguments... arguments) noexcept {
+        static_assert(noexcept(Function(arguments...)), "複数デリゲートの静的関数は例外を送出しない宣言が必要です");
+        Function(arguments...);
+    }
+
+    /**
+     * 対象のメンバー関数を呼ぶ。
+     * @param user 呼出し対象。
+     * @param arguments メンバー関数へ渡す引数。
+     */
+    template<auto Method, typename TObject>
+    static void InvokeMember(void* user, Arguments... arguments) noexcept {
+        static_assert(noexcept((static_cast<TObject*>(user)->*Method)(arguments...)), "複数デリゲートのメンバー関数は例外を送出しない宣言が必要です");
+        (static_cast<TObject*>(user)->*Method)(arguments...);
+    }
+
+    /** 購読順序と世代を管理する内部イベント。 */
+    TEvent<Arguments...> m_Event;
+};
+
+} // namespace acs
+
+// ===================== event/SimpleMulticastDelegate.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 引数なしの複数処理を登録順または優先順に呼び出す。 */
+using FSimpleMulticastDelegate = TMulticastDelegate<void()>;
 
 } // namespace acs
 
@@ -44630,7 +45686,6 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
 
 // ===================== render/IRhiBuffer.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GPU バッファ抽象（頂点・インデックス・定数バッファ用）
 
 
 namespace acs {
@@ -44724,6 +45779,21 @@ public:
      * @param offset バッファ先頭からの書き込み開始オフセット (既定 0)。
      */
     virtual void Update(const void* data, usize size, usize offset = 0) noexcept = 0;
+
+    /**
+     * backendが実際にbindする親バッファを返す。
+     *
+     * @details 通常バッファは自身を返す。一時arenaの論理sliceは共有親を返す。
+     * @return backend固有型へ変換できる実バッファ。
+     */
+    virtual IRhiBuffer& BindingBuffer() noexcept { return *this; }
+
+    /**
+     * 実バッファ先頭からのbind offsetを返す。
+     *
+     * @return 通常バッファは0、一時arenaの論理sliceはアライン済みoffset。
+     */
+    virtual usize BindingOffset() const noexcept { return 0u; }
 };
 
 /**
@@ -48423,10 +49493,6 @@ private:
 
 // ===================== gameframework/GameFramework.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — まとめ include
-//
-// `#include "gameframework/GameFramework.h"` 1 行で v1 の Pillar A を全部
-// 引き込める。
 
 
 // ===================== gameframework/Scene2D.h =====================
@@ -49491,41 +50557,6 @@ private:
 
 // ===================== render/PbrShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// PBR (Cook-Torrance BRDF) ライティングシェーダ — Metalness/Roughness workflow
-//
-// 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 + 環境光 +
-//       PBR 反射モデル + アルベドテクスチャで描画する。
-//
-// FStandardShader (Blinn-Phong) と並走する形で導入。既存 FStandardShader を
-// 使ってる sample はそのまま、新規 sample (HelloPbr 等) で FPbrShader を選ぶ。
-//
-// 使い方:
-//   FPbrShader shd;
-//   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   shd.BeginFrame(/* expected object draws across every pass */ 1);
-//   shd.SetLights(camera.ViewProjection(), camera.Eye(),
-//                 lights, 1, ambient_color);
-//   shd.SetObject(model_mat, base_color, /*metallic=*/0.0f, /*roughness=*/0.5f,
-//                 /*ao=*/1.0f);
-//   cl->SetPipeline(*shd.Pipeline());
-//   cl->SetConstantBuffer(0, *shd.PerFrameCB());
-//   cl->SetConstantBuffer(1, *shd.PerObjectCB());
-//   cl->SetTexture(0, *shd.DefaultWhiteTexture());
-//   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-//   cl->SetIndexBuffer(*gm.index_buffer);
-//   cl->DrawIndexed(gm.index_count);
-//
-// BRDF:
-//   ・GGX (Trowbridge-Reitz) normal distribution
-//   ・Smith joint geometry (Schlick-GGX approximation)
-//   ・Schlick Fresnel
-//   ・energy-conserving Lambertian diffuse
-//
-// material parameters:
-//   ・base_color: 非金属の albedo + 金属の reflectance tint
-//   ・metallic:   0 = dielectric (誘電体)、1 = metal
-//   ・roughness:  0 = mirror-smooth、1 = completely rough
-//   ・ao:         ambient occlusion (1 = no occlusion)
 
 
 // ===================== render/RenderAssets.h =====================
@@ -49625,43 +50656,180 @@ TResult<void> UploadSkinnedMesh(IRhiDevice& device,
 
 // ===================== render/StandardShader.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 標準ライティングシェーダ（最大 4 灯 + Blinn-Phong スペキュラ）
-//
-// 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 +
-//       環境光 + 鏡面反射 + アルベドテクスチャで描画する。
-//
-// 使い方（単一ライトのお手軽版）:
-//   FStandardShader shd;
-//   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
-//   shd.SetFrame(camera.ViewProjection(), camera.Eye(),
-//                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
-//
-// マルチライト版:
-//   FDirLight lights[2];
-//   lights[0].direction = FVec3{0.5f, -1, 0.3f}; lights[0].color = FVec3{1, 0.9f, 0.7f};
-//   lights[1].direction = FVec3{-0.4f, -0.6f, -0.8f}; lights[1].color = FVec3{0.3f, 0.4f, 0.6f};
-//   shd.SetLights(camera.ViewProjection(), camera.Eye(),
-//                 lights, 2, FVec3{0.1f, 0.1f, 0.15f});
-//
-// 簡単版 (1 関数で 1 体描画):
-//   shd.DrawMesh(*renderer.CommandList(), gm, model_mat,
-//                FVec3{1,1,1}, 0.5f, 64.0f, /*albedo=*/nullptr);
-//
-// 細かい制御版 (オブジェクト CB を上書きしないとき等):
-//   if (!shd.SetObject(model_mat, FVec3{1,1,1},
-//                      /*specular_strength=*/0.5f, /*shininess=*/64.0f)) return;
-//   auto* cl = renderer.CommandList();
-//   cl->SetPipeline(*shd.Pipeline());
-//   cl->SetConstantBuffer(0, *shd.PerFrameCB());
-//   // SetObject ごとに異なる CB になるため、各 draw の直前に再 bind する。
-//   cl->SetConstantBuffer(1, *shd.PerObjectCB());
-//   cl->SetTexture(0, my_texture_or_shd.DefaultWhiteTexture());
-//   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-//   cl->SetIndexBuffer (*gm.index_buffer);
-//   cl->DrawIndexed(gm.index_count);
 
 
+
+// ===================== render/TransientUploadArena.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+class IRhiDevice;
+
+/** 同一サイズの一時定数を少数のGPUバッファへまとめるフレームarena。 */
+class FTransientUploadArena final {
+public:
+    /** GPU資源を持たない空状態を作る。 */
+    FTransientUploadArena() noexcept = default;
+
+    /** 所有ページを解放する。 */
+    ~FTransientUploadArena() noexcept = default;
+
+    /** 単独所有を保つためコピーを禁止する。 */
+    FTransientUploadArena(const FTransientUploadArena&) = delete;
+
+    /** 単独所有を保つためコピー代入を禁止する。 */
+    FTransientUploadArena& operator=(const FTransientUploadArena&) = delete;
+
+    /** arenaの所有権を移す。 */
+    FTransientUploadArena(FTransientUploadArena&&) noexcept = default;
+
+    /** arenaの所有権を移して代入する。 */
+    FTransientUploadArena& operator=(FTransientUploadArena&&) noexcept = default;
+
+    /**
+     * 一時定数の大きさと初期個数を設定して最初の共有ページを作る。
+     *
+     * @param device ページを作るRHIデバイス。
+     * @param allocation_size 1割り当てで公開する最大バイト数。
+     * @param initial_capacity 最初に確保する割り当て数。
+     * @return 成功なら空の結果、入力不正または確保失敗ならエラー。
+     */
+    TResult<void> Init(IRhiDevice& device, usize allocation_size, u32 initial_capacity) noexcept;
+
+    /** 全ページを解放して未初期化状態へ戻す。 */
+    void Reset() noexcept;
+
+    /**
+     * 次フレームの必要数を予約し、使用位置だけを定数時間で先頭へ戻す。
+     *
+     * @details Raw backendはcommand recording開始時にfence完了済みframe slotを選び、
+     * Diligent backendは同じqueue上のUpdateBuffer copy完了後にframe slotを再利用する。
+     * renderer通常のframe境界で呼ぶ限り、CPU cursorのresetは実行中GPU範囲を上書きしない。
+     * @param required_allocations 今フレームに必要な割り当て数の上限。
+     * @return 必要容量を確保できた場合はtrue。
+     */
+    bool BeginFrame(u32 required_allocations = 0u) noexcept;
+
+    /**
+     * 必要数まで共有ページを追加する。
+     *
+     * @param required_allocations 必要な総割り当て数。
+     * @return 既存容量で足りるか追加確保に成功した場合はtrue。
+     */
+    bool Reserve(u32 required_allocations) noexcept;
+
+    /**
+     * 次の論理sliceへ定数を書き、通常のIRhiBufferとして返す。
+     *
+     * @param data 書き込む定数の先頭。
+     * @param size 書き込むバイト数。
+     * @return 成功時は割り当てslice、入力不正または確保失敗時はnullptr。
+     */
+    IRhiBuffer* Upload(const void* data, usize size) noexcept;
+
+    /** 指定した論理sliceを返す。 */
+    IRhiBuffer* Get(u32 allocation_index) noexcept;
+
+    /** 指定した論理sliceをconst arenaから返す。 */
+    IRhiBuffer* Get(u32 allocation_index) const noexcept;
+
+    /** 確保済みの論理slice数を返す。 */
+    u32 Capacity() const noexcept { return m_Capacity; }
+
+    /** 現フレームで使用済みの論理slice数を返す。 */
+    u32 Used() const noexcept { return m_Cursor; }
+
+    /** 所有する実GPUバッファ数を返す。 */
+    u32 GpuBufferCount() const noexcept { return static_cast<u32>(m_Pages.Size()); }
+
+    /** RHIページ記述へ要求した一frame分の論理総バイト数を返す。 */
+    usize ReservedBytes() const noexcept { return m_ReservedBytes; }
+
+    /** D3D12とDiligentで共通に使う定数バッファoffset境界を返す。 */
+    static constexpr usize AllocationAlignment() noexcept { return 256u; }
+
+private:
+    /** 共有GPUバッファの一範囲をIRhiBufferとして公開する論理slice。 */
+    class FSlice final : public IRhiBuffer {
+    public:
+        /** 親を持たない空sliceを作る。 */
+        FSlice() noexcept = default;
+
+        /** 親バッファと公開範囲を設定する。 */
+        void Configure(IRhiBuffer& buffer, usize offset, usize size) noexcept;
+
+        /** 公開範囲のバイト数を返す。 */
+        usize Size() const noexcept override { return m_Size; }
+
+        /** 定数バッファ用途を返す。 */
+        EBufferUsage Usage() const noexcept override { return EBufferUsage::Uniform; }
+
+        /** 公開範囲内へデータを書き込む。 */
+        void Update(const void* data, usize size, usize offset = 0u) noexcept override;
+
+        /** backendがbindする実バッファを返す。 */
+        IRhiBuffer& BindingBuffer() noexcept override;
+
+        /** 実バッファ先頭からのbind offsetを返す。 */
+        usize BindingOffset() const noexcept override;
+
+    private:
+        /** sliceを保持する実GPUバッファ。 */
+        IRhiBuffer* m_Buffer = nullptr;
+
+        /** 実GPUバッファ先頭からのバイトoffset。 */
+        usize m_Offset = 0u;
+
+        /** 呼び出し側へ公開する最大バイト数。 */
+        usize m_Size = 0u;
+    };
+
+    /** 一つの実GPUバッファと固定数sliceを所有するページ。 */
+    struct FPage {
+        /** ページが所有する実GPUバッファ。 */
+        TUniquePtr<IRhiBuffer> buffer;
+
+        /** 再配置しない論理slice配列。 */
+        TArray<FSlice> slices;
+
+        /** arena全体での先頭slice番号。 */
+        u32 first_allocation = 0u;
+    };
+
+    /** 指定個数を持つページを末尾へ追加する。 */
+    bool AddPage(u32 allocation_count) noexcept;
+
+    /** 要求値以上へ幾何成長させる次ページ個数を返す。 */
+    u32 NextPageCapacity(u32 required_allocations) const noexcept;
+
+    /** ページ生成に使うRHIデバイス。 */
+    IRhiDevice* m_Device = nullptr;
+
+    /** 一割り当てで公開する最大バイト数。 */
+    usize m_AllocationSize = 0u;
+
+    /** GPU上で隣接sliceを分離するアライン済み間隔。 */
+    usize m_Stride = 0u;
+
+    /** 全ページの論理slice総数。 */
+    u32 m_Capacity = 0u;
+
+    /** 現フレームで次に返すslice番号。 */
+    u32 m_Cursor = 0u;
+
+    /** 次の検索を始めるページ番号。 */
+    u32 m_ActivePage = 0u;
+
+    /** 実GPUバッファと固定sliceを所有するページ列。 */
+    TArray<FPage> m_Pages;
+
+    /** RHIページ記述へ要求した一frame分の論理総バイト数。 */
+    usize m_ReservedBytes = 0u;
+};
+
+} // namespace acs
 
 namespace acs {
 
@@ -49751,10 +50919,15 @@ public:
     bool BeginFrame(u32 required_object_draws = 0u) noexcept;
 
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_ObjectCbs.Size());
+        return m_ObjectArena.Capacity();
     }
 
     u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
+
+    /** object定数を保持する実GPUバッファ数を返す。 */
+    u32 ObjectBufferPageCount() const noexcept {
+        return m_ObjectArena.GpuBufferCount();
+    }
 
     /**
      * カメラ + 1 灯の有向光源 + 環境光で Frame CB を更新する (マルチライト不要時の簡易 API)。
@@ -49863,8 +51036,8 @@ public:
      * @return Object 定数バッファ。
      */
     IRhiBuffer*    PerObjectCB()   const noexcept {
-        return m_CurrentObjectCb < m_ObjectCbs.Size()
-             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+        return m_CurrentObjectCb < m_ObjectArena.Capacity()
+             ? m_ObjectArena.Get(m_CurrentObjectCb)
              : nullptr;
     }
 
@@ -49900,9 +51073,6 @@ public:
                   IRhiTexture* albedo    = nullptr) noexcept;
 
 private:
-    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
-
-    IRhiDevice* m_ResourceDevice = nullptr;
     /** キャッシュ済みの Frame 状態を Frame 定数バッファへ書き込む。 */
     void FlushFrameCB() noexcept;
 
@@ -49918,19 +51088,25 @@ private:
     /** Frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /**
-     * Object 定数バッファ (b1) の非ラップリング。
-     *
-     * Raw DX12 は command list の実行時に upload buffer を読むため、同じ CB を draw 間で
-     * 上書きすると全 draw が最後の model/material を参照する。BeginFrame だけが
-     * cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
-     */
+    /** 最初の共有uploadページへ確保する論理object slot数。 */
     static constexpr u32     kInitialObjectBufferCapacity = 64u;
+
+    /** object slotが無効であることを表す番号。 */
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
-    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+
+    /** per-object定数を少数のGPUページへまとめるupload arena。 */
+    FTransientUploadArena    m_ObjectArena;
+
+    /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
+
+    /** 最後にSetObjectが書いた論理slot番号。 */
     u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+
+    /** 必要なフレーム容量を確保済みか。 */
     bool                     m_FrameCapacityReady = false;
+
+    /** 現フレームの容量不足を記録済みか。 */
     bool                     m_ObjectCapacityFailureLogged = false;
 
     /** デフォルトの 1x1 白テクスチャ。 */
@@ -50756,29 +51932,27 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * Start one command-list frame and reserve immutable per-draw object CBs.
+     * command listのフレームを開始しdrawごとに独立するobject定数領域を予約する。
      *
-     * @details Call exactly once before recording any PBR draw for a frame.
-     * The cursor is deliberately not reset by SetLights: an MRT attempt and a
-     * later single-target fallback can therefore coexist in one command list
-     * without the fallback overwriting CB storage referenced by earlier draws.
-     * The pool persists across frames and grows geometrically when the hint (or
-     * a later SetObject) exceeds the current capacity.
-     *
-     * @param required_object_draws Upper bound for all PBR draws recorded in
-     * this frame, including fallback passes.
-     * @return true when the requested capacity is ready. Existing capacity
-     * remains usable if growth fails.
+     * @details PBR drawの記録前に一度呼ぶ。MRT失敗後のfallbackも同じarenaの後続sliceを
+     * 使うため、先に記録したdrawの定数を上書きしない。
+     * @param required_object_draws fallback passを含む今フレームのdraw上限。
+     * @return 必要容量を確保できた場合はtrue。失敗時も既存容量は利用できる。
      */
     bool BeginFrame(u32 required_object_draws = 0u) noexcept;
 
-    /** Number of reusable per-object constant buffers currently retained. */
+    /** 再利用可能な論理object定数slot数を返す。 */
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_ObjectCbs.Size());
+        return m_ObjectArena.Capacity();
     }
 
-    /** Number of per-object slots consumed since the last BeginFrame. */
+    /** 直前のBeginFrame以降に消費したobject slot数を返す。 */
     u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
+
+    /** 全論理slotを保持する実GPUバッファ数を返す。 */
+    u32 ObjectBufferPageCount() const noexcept {
+        return m_ObjectArena.GpuBufferCount();
+    }
 
     /**
      * 有向光源と camera・環境光を設定する (frame CB を更新)。
@@ -51173,8 +52347,8 @@ public:
      * @return object CB (b1、model・material 設定)。
      */
     IRhiBuffer*   PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < m_ObjectCbs.Size()
-            ? m_ObjectCbs[m_CurrentObjectCb].Get() : nullptr;
+        return m_CurrentObjectCb < m_ObjectArena.Capacity()
+            ? m_ObjectArena.Get(m_CurrentObjectCb) : nullptr;
     }
 
     /**
@@ -51230,10 +52404,7 @@ private:
     /** 現在の member 値から frame CB レイアウトを構築して GPU に書き込む。 */
     void FlushFrameCB() noexcept;
 
-    /** Grow the persistent object-CB pool without invalidating existing slots. */
-    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
-
-    /** Device that owns the currently committed RHI resources (non-owning). */
+    /** 現在公開中のRHI資源を所有するdevice。 */
     IRhiDevice* m_ResourceDevice = nullptr;
 
     /** PBR 描画の頂点シェーダ。 */
@@ -51254,21 +52425,22 @@ private:
     /** per-frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /**
-     * Persistent, growable per-object constant-buffer pool.
-     *
-     * A single frame-cycled CB cannot represent multiple recorded draws:
-     * later CPU updates would make every DrawIndexed observe the final object.
-     * Each draw therefore consumes a distinct buffer until the next BeginFrame.
-     * Pool storage survives frame resets and grows geometrically, removing
-     * the former 256-object visibility cliff without per-frame allocation
-     * churn.
-     */
+    /** 最初の共有uploadページへ確保する論理object slot数。 */
     static constexpr u32     kInitialObjectBufferCapacity = 64u;
+
+    /** object slotが無効であることを表す番号。 */
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
-    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+
+    /** per-object定数を少数のGPUページへまとめるupload arena。 */
+    FTransientUploadArena    m_ObjectArena;
+
+    /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
+
+    /** 最後にSetObjectが書いた論理slot番号。 */
     u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+
+    /** 現フレームの容量不足を記録済みか。 */
     bool                     m_ObjectCapacityFailureLogged = false;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
@@ -54266,6 +55438,45 @@ private:
     bool m_SsssRequested = false;
     bool m_GpuReady = false;
     bool m_GpuAttempted = false;
+};
+
+} // namespace acs::game
+
+// ===================== gameframework/LegacyKitEaseIdCodec.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/**
+ * 旧形式のイージング数値 ID と ACS の正規型を相互変換する。
+ * 数式は保持せず、失敗時は出力引数を変更しない。
+ */
+class FLegacyKitEaseIdCodec final {
+public:
+    /** 旧形式で固定された有効 ID 数。 */
+    static constexpr i32 kLegacyIdCount = 33;
+
+    /** 状態を持たない変換型の生成を禁止する。 */
+    FLegacyKitEaseIdCodec() = delete;
+
+    /**
+     * 旧形式の数値 ID を ACS の正規型へ変換する。
+     *
+     * @param legacy_id 0 以上 33 未満の旧形式 ID。
+     * @param out_type 変換成功時に書き込む正規型。
+     * @return 変換できた場合は true。不正値では false。
+     */
+    static bool TryDecode(i32 legacy_id, Easing::EEasingType& out_type) noexcept;
+
+    /**
+     * ACS の正規型を対応する旧形式の数値 ID へ変換する。
+     *
+     * @param type 変換する ACS の正規型。
+     * @param out_legacy_id 変換成功時に書き込む旧形式 ID。
+     * @return 旧形式に対応する型なら true。未対応型では false。
+     */
+    static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept;
 };
 
 } // namespace acs::game
@@ -96820,14 +98031,6 @@ public:
 
 // ===================== network/TcpConnection.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TCP 接続（送信・受信）
-//
-// 使い方 (クライアント側):
-//   auto cr = FTcpConnection::Connect(FIpAddress::FromString("127.0.0.1"), 8080);
-//   if (cr.IsErr()) { ... }
-//   FTcpConnection& c = cr.Value();
-//   c.Send(data, size);
-//   isize n = c.Recv(buf, sizeof(buf));
 
 
 namespace acs {
@@ -96839,7 +98042,8 @@ namespace acs {
  * クライアントは Connect で接続し、サーバ側は FTcpListener::Accept の戻り値から
  * FromAccepted 経由で構築される。Send/Recv でバイト列を送受信し、Close または
  * デストラクタで切断する。OS の SOCKET を単独所有する non-copy / move-only 型で、
- * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。
+ * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。同じ接続への呼び出しは
+ * 利用側で直列化し、接続を破棄するまで FNetwork の初期化を保つ。
  */
 class FTcpConnection {
 public:
@@ -96905,20 +98109,22 @@ public:
     /**
      * バッファを送信する。
      *
-     * @details 部分送信があり得る (要求サイズより少ないことがある)。未接続またはエラー時は -1。
+     * @details 部分送信があり得る。未接続、size が 1 以上で null、WinSock の長さ上限超過、OS エラーは -1。
+     * size が 0 なら領域を参照せず 0 を返す。
      * @param data 送信するデータの先頭ポインタ。
      * @param size 送信するバイト数。
-     * @return 実際に送れたバイト数。失敗時は -1。
+     * @return 実際に送れたバイト数。事前条件または OS 失敗時は -1。
      */
     isize Send(const void* data, usize size) noexcept;
 
     /**
      * バッファへ受信する。
      *
-     * @details 未接続またはエラー時は -1、相手が切断した場合は 0 を返す。
+     * @details 未接続、size が 1 以上で null、WinSock の長さ上限超過、OS エラーは -1。
+     * size が 0 なら OS を呼ばず 0 を返し、それ以外で 0 なら相手切断を示す。
      * @param buf 受信先バッファの先頭ポインタ。
      * @param size 受信先バッファのバイト数。
-     * @return 受信したバイト数 (0 は相手切断)。失敗時は -1。
+     * @return 受信したバイト数。size が 1 以上の呼出しで 0 は相手切断。失敗時は -1。
      */
     isize Recv(void* buf, usize size) noexcept;
 
@@ -96957,16 +98163,6 @@ private:
 
 // ===================== network/TcpListener.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// TCP リスナー（接続を待ち受ける側）
-//
-// 使い方 (サーバ側):
-//   auto lr = FTcpListener::Listen(FIpAddress::Any(), 8080);
-//   if (lr.IsErr()) { ... }
-//   FTcpListener& l = lr.Value();
-//   while (true) {
-//       auto cr = l.Accept();
-//       if (cr.IsOk()) HandleClient(Move(cr.Value()));
-//   }
 
 
 namespace acs {
@@ -97037,6 +98233,13 @@ public:
      */
     TResult<void> SetNonBlocking(bool enable) noexcept;
 
+    /**
+     * OS が割り当てたローカル IPv4 アドレスとポートを返す。
+     *
+     * @return 成功なら待ち受け先。無効なリスナーまたは WinSock 失敗ならエラー。
+     */
+    TResult<FIpAddress> LocalAddress() const noexcept;
+
     /** ソケットが開いていれば閉じて無効状態にする (多重呼び出し安全)。 */
     void Close() noexcept;
 
@@ -97056,17 +98259,6 @@ private:
 
 // ===================== network/UdpSocket.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// UDP ソケット（コネクションレス）
-//
-// 使い方:
-//   auto sr = FUdpSocket::Bind(FIpAddress::Any(), 8080);
-//   if (sr.IsErr()) { ... }
-//   FUdpSocket& s = sr.Value();
-//
-//   FIpAddress from{};
-//   isize n = s.RecvFrom(buf, sizeof(buf), from);
-//
-//   s.SendTo(FIpAddress::FromString("192.168.0.1"), 8080, data, size);
 
 
 namespace acs {
@@ -97078,6 +98270,7 @@ namespace acs {
  * Bind() で生成し、SendTo()/RecvFrom() でデータグラムを送受信する。OS の
  * ソケットハンドルを単独所有する non-copy / move-only 型で、デストラクタや
  * Close() で確実にハンドルを閉じる。内部ハンドルは ~uptr{0} を無効値として持つ。
+ * 同じソケットへの呼び出しは利用側で直列化し、破棄まで FNetwork の初期化を保つ。
  */
 class FUdpSocket {
 public:
@@ -97127,7 +98320,8 @@ public:
      * @param dst_port 送信先ポート。
      * @param data 送信するデータの先頭。
      * @param size 送信するバイト数。
-     * @return 送信できたバイト数、失敗時は -1。
+     * @return 送信できたバイト数。size が 1 以上で null、WinSock の長さ上限超過、失敗時は -1。
+     * @details size が 0 の場合も空データグラムを OS へ送る。
      */
     isize SendTo(FIpAddress dst_addr, u16 dst_port, const void* data, usize size) noexcept;
 
@@ -97137,7 +98331,8 @@ public:
      * @param buf 受信データを書き込むバッファ。
      * @param size buf の容量 (バイト)。
      * @param from 送信元アドレス/ポートの書き込み先 (出力)。
-     * @return 受信できたバイト数、失敗時は -1。
+     * @return 受信できたバイト数。size が 1 以上で null、WinSock の長さ上限超過、失敗時は -1。
+     * @details size が 0 の空データグラムも受信する。失敗時は from を変更しない。
      */
     isize RecvFrom(void* buf, usize size, FIpAddress& from) noexcept;
 
@@ -97148,6 +98343,13 @@ public:
      * @return 成功なら空の TResult、失敗ならエラー。
      */
     TResult<void> SetNonBlocking(bool enable) noexcept;
+
+    /**
+     * OS が割り当てたローカル IPv4 アドレスとポートを返す。
+     *
+     * @return 成功ならバインド先。無効なソケットまたは WinSock 失敗ならエラー。
+     */
+    TResult<FIpAddress> LocalAddress() const noexcept;
 
     /** ソケットを閉じてハンドルを無効化する (多重呼び出し安全)。 */
     void Close() noexcept;
@@ -97583,10 +98785,11 @@ public:
     /**
      * ディレクトリを作成する (既存なら成功扱い、親ディレクトリも再帰作成)。
      *
-     * @details パス中の各区切りで中間ディレクトリを順に作成する。最終作成が
-     * ERROR_ALREADY_EXISTS の場合も成功とみなす。
+     * @details パス中の各区切りで中間ディレクトリを順に作成する。
+     * ERROR_ALREADY_EXISTS は対象が実ディレクトリの場合だけ成功とみなす。
+     * 既存のドライブrootとUNC share rootも成功扱いを維持する。
      * @param path 作成するディレクトリのパス。
-     * @return 成功なら空の TResult、作成失敗時はエラー。
+     * @return 成功なら空の TResult。nullまたは空はIO:131、通常ファイルとの衝突や作成失敗はエラー。
      */
     static TResult<void> CreateDirectory(const wchar_t* path) noexcept;
 
@@ -98928,6 +100131,68 @@ private:
     u32 m_HighWater = 0u;
     /** 再利用待ちスロット数。 */
     u32 m_FreeCount = 0u;
+};
+
+} // namespace acs
+
+// ===================== render/DrawPacketSortKey.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 複数の整数fieldを優先順どおり64bit描画sort keyへ配置するcompile-time layout。 */
+template<u32... TFieldBits>
+struct TDrawPacketSortKeyLayout final {
+    static_assert(sizeof...(TFieldBits) > 0u, "draw sort key requires at least one field");
+    static_assert(((TFieldBits > 0u) && ...), "draw sort key fields must not be empty");
+    static_assert(((TFieldBits <= 64u) && ...), "draw sort key fields must fit in 64 bits");
+
+    /** layoutが持つfield数を返す。 */
+    static constexpr u32 FieldCount() noexcept { return sizeof...(TFieldBits); }
+
+    /** 全fieldが使うbit数を返す。 */
+    static constexpr u32 TotalBits() noexcept { return static_cast<u32>((u64{0} + ... + static_cast<u64>(TFieldBits))); }
+
+    static_assert((u64{0} + ... + static_cast<u64>(TFieldBits)) <= 64u, "draw sort key exceeds 64 bits");
+
+    /** 指定fieldのbit幅を返す。 */
+    template<u32 TFieldIndex>
+    static constexpr u32 FieldBits() noexcept
+    {
+        static_assert(TFieldIndex < FieldCount(), "draw sort key field index is out of range");
+        /** 宣言順のfield幅。 */
+        constexpr u32 kWidths[] = {TFieldBits...};
+        return kWidths[TFieldIndex];
+    }
+
+    /** 指定fieldを格納する下位bit位置を返す。 */
+    template<u32 TFieldIndex>
+    static constexpr u32 FieldShift() noexcept
+    {
+        static_assert(TFieldIndex < FieldCount(), "draw sort key field index is out of range");
+        /** 宣言順のfield幅。 */
+        constexpr u32 kWidths[] = {TFieldBits...};
+        /** 後続fieldが使う下位bit数。 */
+        u32 shift = 0u;
+        for (u32 index = TFieldIndex + 1u; index < FieldCount(); ++index) shift += kWidths[index];
+        return shift;
+    }
+
+    /** 指定field値をmaskして配置済みbit列を返す。 */
+    template<u32 TFieldIndex>
+    static constexpr u64 Insert(u64 value) noexcept
+    {
+        /** 対象fieldのbit幅。 */
+        constexpr u32 kBits = FieldBits<TFieldIndex>();
+        if constexpr (kBits == 64u) {
+            return value;
+        } else {
+            /** 対象fieldへ残す下位bit mask。 */
+            constexpr u64 kMask = (u64{1} << kBits) - 1u;
+            return (value & kMask) << FieldShift<TFieldIndex>();
+        }
+    }
 };
 
 } // namespace acs
@@ -102003,31 +103268,6 @@ private:
 
 // ===================== render/SpriteSortList.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// FSpriteSortList — FSpriteBatch 用の明示的 depth/layer 順序レイヤ
-//
-// 動機:
-//   FSpriteBatch は immediate-mode の「提出順」バッチャで、同テクスチャの連続描画を
-//   自動バッチし、SetView / SetBlendMode / SetClipRect / SetStencilMode 等の状態切替は
-//   呼び出し順に依存する。ここに「深度ソート」を後付けすると texture-run バッチや
-//   状態切替の順序が壊れる。そこで **opt-in の上位レイヤ** として本クラスを用意する。
-//
-//   使い方: 描画コマンドを layer/depth 付きで Submit* に貯め、Sort() で安定ソートし、
-//   Replay(batch) で sorted 順に FSpriteBatch へ流す。FSpriteBatch 自体は無改変。
-//
-// ソート規約 (エンジンの ANode::DrawLayer と一致):
-//   第1キー layer 昇順 (小さい層 = 奥 = 先に描画)、
-//   第2キー depth 昇順 (小さい depth = 奥 = 先に描画)、
-//   同一キーは **挿入順を保持** (安定)。seq を総順序に含めるので決定的。
-//
-// 使い方:
-//   FSpriteSortList list;
-//   list.SubmitRect(0,0, w,32, bg,   /*layer*/0, /*depth*/0);   // 背景
-//   list.Submit(tex, px,py, 64,64,   /*layer*/1, /*depth*/py);  // キャラ (y で前後)
-//   list.Submit(hud, 8,8,  120,32,   /*layer*/10,/*depth*/0);   // HUD 前面
-//   list.Sort();
-//   sb.Begin(*cl, w, h);
-//   list.Replay(sb);                 // layer/depth 昇順で描画
-//   sb.End();
 
 
 namespace acs {
@@ -102123,7 +103363,11 @@ public:
     void Clear() noexcept {
         m_Cmds.Clear();
         m_Order.Clear();
+        m_Scratch.Clear();
+        m_Keys.Clear();
         m_Seq = 0;
+        m_LastSortPasses = 0u;
+        m_LastSortItemVisits = 0u;
     }
 
     /**
@@ -102134,6 +103378,8 @@ public:
     void Reserve(u32 n) noexcept {
         m_Cmds.Reserve(n);
         m_Order.Reserve(n);
+        m_Scratch.Reserve(n);
+        m_Keys.Reserve(n);
     }
 
     /**
@@ -102216,12 +103462,16 @@ public:
     /**
      * (layer 昇順, depth 昇順, seq 昇順) で安定ソートしてソート順を確定する。
      *
-     * @details
-     * index 配列を安定挿入ソートする (コマンド本体は動かさない)。seq を最終キーに含めるため
-     * 同一 layer/depth は挿入順を保つ。挿入ソートなので大量コマンドでは O(n²) — ソートリストは
-     * 動的スプライトの前後関係付け用で、想定規模 (数百) では十分。静的大量描画は FScene2D 経路へ。
+     * @details compile-time layoutでlayer/depthを64bit keyへ変換し、小規模は挿入、
+     * 大規模は安定LSD radixで並べる。同一keyは提出順を保持する。
      */
     void Sort() noexcept;
+
+    /** 直前のSortで実行したradix byte pass数を返す。 */
+    u32 LastSortPassCount() const noexcept { return m_LastSortPasses; }
+
+    /** 直前のSortでkey生成、比較、radix走査したitem数を返す。 */
+    u64 LastSortItemVisits() const noexcept { return m_LastSortItemVisits; }
 
     /**
      * ソート済み順で i 番目のコマンドへの const 参照を返す (検証用)。
@@ -102252,8 +103502,20 @@ private:
     /** ソート結果のインデックス順 (Sort で確定、Clear/Submit 後は Sort まで未確定)。 */
     TArray<u32>        m_Order;
 
+    /** radix passの書き込み先として再利用するindex列。 */
+    TArray<u32>        m_Scratch;
+
+    /** command本体を動かさず再利用する64bit sort key列。 */
+    TArray<u64>        m_Keys;
+
     /** 次に振る挿入シーケンス番号。 */
     u32                m_Seq = 0;
+
+    /** 直前に実行したradix byte pass数。 */
+    u32                m_LastSortPasses = 0u;
+
+    /** 直前のSortが走査したitem数。 */
+    u64                m_LastSortItemVisits = 0u;
 };
 
 } // namespace acs
@@ -103027,48 +104289,16 @@ private:
 
 // ===================== scripting/LuaVm.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// Lua 5.4 backend (acs::game::IScriptVm の real 実装)。
-//
-// Lua は MIT / FetchContent 取得可能 / gating 無しなので、stub と違い
-// 実ビルド + 実動作まで完全検証できる real backend。
-//
-// 利用例:
-//   acs::scripting::FLuaVm vm;
-//   if (vm.Init().IsOk()) {
-//       vm.LoadScript("function add(a,b) return a+b end", 0, "inline");
-//       acs::game::FScriptValue args[2];
-//       args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;
-//       args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;
-//       acs::game::FScriptValue ret;
-//       vm.CallFunction("add", args, 2, &ret);  // ret.v.num == 5
-//       vm.Shutdown();
-//   }
-//
-// 設計:
-//   ・Pimpl で lua.h を public header から隠す (lua_State* を漏らさない)。
-//   ・NativeFunction の bridge は lua_pushcclosure の upvalue に
-//     (registry index, this) を載せる trampoline 方式。
-//   ・FScriptValue <-> Lua stack 変換は Nil/Bool/Number/FString/Handle の 5 種。
-//   ・全 noexcept、STL/<string> 不使用、TResult でエラー伝搬。
 
 
 namespace acs {
+/** 動的な保存領域を確保する型。 */
 class FAllocator;
 }
 
 namespace acs::scripting {
 
-/**
- * Lua 5.4 を backend にした acs::game::IScriptVm の実装。
- *
- * @details
- * Lua は MIT / FetchContent 取得可能 / gating 無しなので、stub と違い実ビルド +
- * 実動作まで完全検証できる real backend。Pimpl で lua.h を public header から隠し
- * (lua_State* を漏らさない)、NativeFunction の bridge は lua_pushcclosure の upvalue
- * に (registry index, this) を載せる trampoline 方式で実現する。FScriptValue <-> Lua
- * stack 変換は Nil/Bool/Number/FString/Handle の 5 種をサポートする。全 method は
- * noexcept で、STL/<string> 不使用、エラーは TResult で伝搬する。
- */
+/** Lua 5.4 の実行状態と登録関数を管理する。 */
 class FLuaVm final : public acs::game::IScriptVm {
 public:
     /** 空状態で構築する (lua_State は Init で生成)。 */
@@ -103077,11 +104307,13 @@ public:
     /**
      * 指定 allocator を native function 登録簿に使う空状態で構築する。
      *
-     * @param allocator native function 登録簿の確保に使う allocator。
+     * @details FLuaVmはallocatorへの参照を内部登録簿に保持するため、allocatorは構築した
+     * FLuaVmより後まで生存しなければならない。
+     * @param allocator native function 登録簿の確保に使い、FLuaVmより長く生存するallocator。
      */
     explicit FLuaVm(acs::FAllocator& allocator) noexcept;
 
-    /** 破棄する (Shutdown を呼んで lua_State を解放してから FImpl を delete)。 */
+    /** Lua状態を終了して内部データを解放する。 */
     ~FLuaVm() noexcept override;
 
     /** コピー禁止 (lua_State を単独所有するため)。 */
@@ -103090,7 +104322,7 @@ public:
     /** コピー代入も禁止。 */
     FLuaVm& operator=(const FLuaVm&) = delete;
 
-    /** ムーブ禁止 (FImpl ポインタの安定性を保つため)。 */
+    /** 内部データの位置を固定するためムーブを禁止する。 */
     FLuaVm(FLuaVm&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
@@ -103125,8 +104357,7 @@ public:
      * @param chunk_name エラーメッセージで使う表示名 (nullptr なら "=(load)")。
      * @return 成功なら空の TResult、未初期化 / source null / parse / 実行失敗ならエラー。
      */
-    acs::TResult<void>       LoadScript(const char* source, acs::u32 source_len,
-                                        const char* chunk_name)                  noexcept override;
+    acs::TResult<void>       LoadScript(const char* source, acs::u32 source_len, const char* chunk_name) noexcept override;
 
     /**
      * グローバル関数を呼び出す。
@@ -103140,25 +104371,27 @@ public:
      * @param ret_out 戻り値書き込み先 (nullptr で捨てる、その場合 0 値返し)。
      * @return 成功なら空の TResult、未初期化 / 引数不正 / 非関数 / 実行失敗ならエラー。
      */
-    acs::TResult<void>       CallFunction(const char* function_name,
-                                          const acs::game::FScriptValue* args,
-                                          acs::u32 arg_count,
-                                          acs::game::FScriptValue* ret_out)       noexcept override;
+    acs::TResult<void>       CallFunction(const char* function_name, const acs::game::FScriptValue* args, acs::u32 arg_count, acs::game::FScriptValue* ret_out) noexcept override;
 
     /**
      * C++ 関数を script グローバル空間に bind する。
      *
      * @details
-     * native registry に (fn, user) を追加し、その index と FImpl* を upvalue に載せた
-     * trampoline closure を function_name のグローバルに setglobal する。
+     * native registry に (fn, user) を追加し、その index と内部データを upvalue に載せた
+     * trampoline closure を function_name のグローバルへ公開する。登録領域を確保できない
+     * 場合はLuaのグローバルを変更せず、登録番号も消費しない。Lua側の公開は保護呼び出しで実行し、同じclosureを
+     * 関数名から取得できた場合だけ確定する。失敗時はstackとnative registry要素を戻し、
+     * 同名globalの復元も試みる。復元処理もLuaのメモリ不足になった場合は同名globalの値を
+     * 保証しない。Lua公開処理または注入allocatorから同じ実行環境へ再入した登録は、状態を
+     * 変えずに失敗させる。公開失敗時にLua側へ退避されたclosureは、登録ごとの識別番号で
+     * 後続登録と区別する。最大の登録番号は一度だけ割り当て、その後は再初期化しても登録を
+     * 恒久的に拒否する。
      * @param function_name script 側から見える関数名。
      * @param fn 呼び出される native 関数。
      * @param user fn の第 3 引数にそのまま渡されるコンテキスト (this 束縛用)。
-     * @return 成功なら空の TResult、未初期化 / 引数不正ならエラー。
+     * @return 成功なら空の TResult、未初期化 / 引数不正 / 登録領域の確保失敗 / Lua公開失敗ならエラー。
      */
-    acs::TResult<void>       RegisterNativeFunction(const char* function_name,
-                                                    acs::game::NativeFunction fn,
-                                                    void* user)                  noexcept override;
+    acs::TResult<void>       RegisterNativeFunction(const char* function_name, acs::game::NativeFunction fn, void* user) noexcept override;
 
     /**
      * グローバル数値変数を設定する。
@@ -103177,8 +104410,7 @@ public:
      * @param default_value 未定義 / 型不一致時に返す値。
      * @return 取得した数値 (取得できなければ default_value)。
      */
-    acs::f64                 GetGlobalNumber(const char* name,
-                                             acs::f64 default_value)       const noexcept override;
+    acs::f64                 GetGlobalNumber(const char* name, acs::f64 default_value) const noexcept override;
 
     /** lua_gc(LUA_GCCOLLECT) で強制 GC を 1 サイクル走らせる (未初期化なら no-op)。 */
     void                     CollectGarbage()                                    noexcept override;
@@ -103192,12 +104424,15 @@ public:
     acs::u64                 MemoryUsageBytes()                            const noexcept override;
 
 private:
-    /** lua_State* と native registry を隠す Pimpl 本体 (lua.h を public header から隠す)。 */
-    struct FImpl;
+    /** Lua状態と登録関数を隠す内部データ。 */
+    class FLuaVmImpl;
 
-    /** Pimpl 本体へのポインタ (構築時に new、破棄時に delete)。 */
-    FImpl* m_Impl = nullptr;
+    /** 内部データへの所有ポインタ。 */
+    FLuaVmImpl* m_Impl = nullptr;
 };
+
+/** 移行中のC接頭辞を正規のFLuaVm型として解釈する。 */
+using CLuaVm = FLuaVm;
 
 /**
  * プロセス共有の既定 FLuaVm singleton を返す (provider の実体)。

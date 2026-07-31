@@ -16,14 +16,15 @@ ACS_REF.modules.push({
       members: [
         { sig: "TResult<void> Init()", ret: "成功/失敗", desc: "<t>XAudio2</t> を初期化する。再生前に 1 回だけ呼ぶ。失敗は <t>Result</t> で返る。", when: "エンジン起動直後。", sample: "if (engine.Init().IsErr()) { /* 音なしで続行など */ }" },
         { sig: "void Shutdown()", desc: "全音停止 + 内部リソース解放。<t>デストラクタ</t>でも呼ばれるが明示的に呼んでよい。", when: "アプリ終了時。" },
-        { sig: "FSoundHandle Play(const FAudioAsset& asset, f32 volume = 1.0f, bool loop = false)", ret: "再生ハンドル", desc: "音声アセットの再生を開始し、その音を識別する <code>FSoundHandle</code> を返す。<code>volume</code> は 0.0〜1.0、<code>loop=true</code> で無限ループ。", when: "効果音や BGM を鳴らす瞬間。返ったハンドルを保持しておけば後で止められる。", sample: "FSoundHandle se = engine.Play(*hitSound);          // 1 回だけ\nFSoundHandle bgm = engine.Play(*music, 0.8f, true); // ループ再生" },
+        { sig: "FSoundHandle Play(const FAudioAsset& asset, f32 volume = 1.0f, bool loop = false)", ret: "再生ハンドル", desc: "音声アセットの再生を開始し、その音を識別する <code>FSoundHandle</code> を返す。有限の <code>volume</code> は 0.0〜1.0 に収め、NaN と正負の無限大は 0.0 にする。backend操作が失敗した場合は音声資源を破棄して無効値を返す。<code>loop=true</code> で無限ループ。", when: "効果音や BGM を鳴らす瞬間。返ったハンドルを保持しておけば後で止められる。", sample: "FSoundHandle se = engine.Play(*hitSound);          // 1 回だけ\nFSoundHandle bgm = engine.Play(*music, 0.8f, true); // ループ再生" },
         { sig: "void Stop(FSoundHandle h)", desc: "指定したハンドルの音を止め、内部スロットを解放する。無効/再生済みハンドルなら何もしない。", when: "ループ BGM を止める、鳴り続けている音を切る時。" },
-        { sig: "void SetVolume(FSoundHandle h, f32 volume)", desc: "個別の音の音量を変える。0.0〜1.0(範囲外は内部でクランプ)。", when: "再生中にフェードしたい、距離で音量を変えたい時。", sample: "engine.SetVolume(bgm, 0.3f); // この音だけ小さく" },
+        { sig: "void SetVolume(FSoundHandle h, f32 volume)", desc: "個別の音の音量を変える。有限値は 0.0〜1.0 に収め、NaN と正負の無限大は 0.0 にする。backendが拒否した場合は以前の音量を維持して警告する。", when: "再生中にフェードしたい、距離で音量を変えたい時。", sample: "engine.SetVolume(bgm, 0.3f); // この音だけ小さく" },
         { sig: "void StopAll()", desc: "再生中の音をすべて停止して解放する。", when: "シーン切り替えやゲームオーバーで全部消したい時。" },
-        { sig: "void SetMasterVolume(f32 volume)", desc: "最終出力全体(=すべての音)の音量を 0.0〜1.0 で設定する。個別音量とは別の<b>マスター</b>側。", when: "設定画面の『全体音量』スライダーなど。", sample: "engine.SetMasterVolume(options.MasterVol);" },
+        { sig: "void SetMasterVolume(f32 volume)", desc: "最終出力全体(=すべての音)の音量を設定する。有限値は 0.0〜1.0 に収め、NaN と正負の無限大は 0.0 にする。backendが拒否した場合は以前の音量を維持して警告する。個別音量とは別の<b>マスター</b>側。", when: "設定画面の『全体音量』スライダーなど。", sample: "engine.SetMasterVolume(options.MasterVol);" },
         { sig: "void PauseAll()", desc: "再生中の音をすべて一時停止する。再生位置は保持される。", when: "ポーズメニューを開いた時。", sample: "if (paused) engine.PauseAll();" },
         { sig: "void ResumeAll()", desc: "<code>PauseAll()</code> で止めた音を止めた位置から再開する。", when: "ポーズ解除した時。" },
-        { sig: "u32 ActiveCount() const", ret: "再生中スロット数", desc: "今鳴っている音の数を返す。主にデバッグ用。", when: "同時発音数を確認したい時。" }
+        { sig: "u32 ActiveCount() const", ret: "再生中スロット数", desc: "今鳴っている音の数を返す。主にデバッグ用。", when: "同時発音数を確認したい時。" },
+        { sig: "using CAudioEngine = FAudioEngine", desc: "旧名を使うコードのために残しているソース互換名。別の実装型や C 名の実装シンボルは作らず、正規の <code>FAudioEngine</code> そのものを指す。新しいコードでは <code>FAudioEngine</code> を使う。" }
       ]
     },
     {

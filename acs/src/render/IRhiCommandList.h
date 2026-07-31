@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// コマンドリスト抽象（GPU に送る命令を記録するバッファ）
 #pragma once
 
 #include "foundation/Types.h"
@@ -13,16 +12,15 @@ namespace acs {
 class IRhiDevice;
 class IRhiSwapchain;
 
-/**
- * Lightweight per-recording command counters.
- *
- * Triangle count is an estimate derived from submitted vertex/index counts
- * using triangle-list semantics. It is intended for editor diagnostics, not
- * pipeline-statistics validation.
- */
+/** 記録期間ごとの描画・compute命令数を保持する診断値。 */
 struct FRhiCommandStatistics {
+    /** 発行した有効なdraw命令数。 */
     u64 draw_calls = 0;
+
+    /** 発行した有効なcompute dispatch命令数。 */
     u64 dispatch_calls = 0;
+
+    /** triangle listとして頂点・index数から推定した三角形数。 */
     u64 triangles = 0;
 };
 
@@ -97,12 +95,12 @@ public:
     /** 派生バックエンド実装を正しく破棄するための仮想デストラクタ。 */
     virtual ~IRhiCommandList() noexcept = default;
 
-    /** Reset low-overhead command counters at a caller-defined frame boundary. */
-    void ResetStatistics() noexcept { m_Statistics = {}; }
+    /** 呼び出し側が定めたフレーム境界で軽量な命令統計を初期化する。 */
+    void ResetStatistics() noexcept { StatisticsStorage() = {}; }
 
-    /** Return counters accumulated since ResetStatistics(). */
+    /** 直前のResetStatistics以降に蓄積した命令統計を返す。 */
     const FRhiCommandStatistics& Statistics() const noexcept {
-        return m_Statistics;
+        return StatisticsStorage();
     }
 
     /** 記録を開始する (毎フレーム最初に呼ぶ)。 */
@@ -475,18 +473,41 @@ public:
     virtual void BindStructuredSrv(u32 /*slot*/, class IRhiBuffer& /*buf*/) noexcept {}
 
 protected:
-    void RecordDraw(u32 element_count) noexcept {
+    /**
+     * 具象が所有する統計へ有効なdrawを記録する。
+     *
+     * @param statistics 更新する命令統計。
+     * @param element_count drawへ渡す頂点またはindex数。
+     */
+    static void RecordDraw(FRhiCommandStatistics& statistics, u32 element_count) noexcept {
         if (element_count == 0u) return;
-        ++m_Statistics.draw_calls;
-        m_Statistics.triangles += static_cast<u64>(element_count / 3u);
+        ++statistics.draw_calls;
+        statistics.triangles += static_cast<u64>(element_count / 3u);
     }
 
-    void RecordDispatch() noexcept {
-        ++m_Statistics.dispatch_calls;
+    /**
+     * 具象が所有する統計へ有効なcompute dispatchを記録する。
+     *
+     * @param statistics 更新する命令統計。
+     */
+    static void RecordDispatch(FRhiCommandStatistics& statistics) noexcept {
+        ++statistics.dispatch_calls;
     }
 
 private:
-    FRhiCommandStatistics m_Statistics{};
+    /**
+     * 具象コマンドリストが所有する変更可能な命令統計を返す。
+     *
+     * @return このコマンドリストだけに属する統計領域。
+     */
+    virtual FRhiCommandStatistics& StatisticsStorage() noexcept = 0;
+
+    /**
+     * 具象コマンドリストが所有する読み取り専用の命令統計を返す。
+     *
+     * @return このコマンドリストだけに属する統計領域。
+     */
+    virtual const FRhiCommandStatistics& StatisticsStorage() const noexcept = 0;
 };
 
 /** RAII helper that keeps named GPU markers balanced on all early exits. */

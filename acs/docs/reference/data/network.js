@@ -41,8 +41,8 @@ ACS_REF.modules.push({
       sample: "auto cr = FTcpConnection::Connect(FIpAddress::Loopback(), 8080);\nif (cr.IsErr()) return;\nFTcpConnection& c = cr.Value();\nconst char msg[] = \\\"hello\\\";\nc.Send(msg, sizeof(msg));\nchar buf[256];\nisize n = c.Recv(buf, sizeof(buf));  // n==0 なら相手が切断",
       members: [
         { sig: "static TResult<FTcpConnection> Connect(FIpAddress addr, u16 port)", ret: "接続 or エラー", desc: "指定アドレス/ポートへ接続を試みる。成功すれば使える <code>FTcpConnection</code> を返す。", when: "クライアント側でサーバに繋ぐ時。" },
-        { sig: "isize Send(const void* data, usize size)", ret: "送れたバイト数", desc: "バッファを送信する。実際に送れたバイト数を返す(部分送信あり)。失敗時は -1。", when: "送る量が多い時は、戻り値が <code>size</code> 未満なら残りを再送する。" },
-        { sig: "isize Recv(void* buf, usize size)", ret: "受信バイト数", desc: "データを受け取る。<b>0 なら相手が切断</b>、-1 はエラー。", sample: "isize n = c.Recv(buf, sizeof(buf));\nif (n == 0) { /* 相手が閉じた */ }" },
+        { sig: "isize Send(const void* data, usize size)", ret: "送れたバイト数", desc: "バッファを送信する。部分送信あり。<code>size&gt;0</code> で null、WinSock 上限超過、失敗時は -1。<code>size=0</code> は領域を参照せず 0。", when: "送る量が多い時は、戻り値が <code>size</code> 未満なら残りを再送する。" },
+        { sig: "isize Recv(void* buf, usize size)", ret: "受信バイト数", desc: "データを受け取る。<code>size&gt;0</code> で null、WinSock 上限超過、失敗時は -1。<code>size&gt;0</code> で 0 なら相手が切断、<code>size=0</code> は OS を呼ばず 0。", sample: "isize n = c.Recv(buf, sizeof(buf));\nif (n == 0) { /* 相手が閉じた */ }" },
         { sig: "void Close()", desc: "接続を切断する。デストラクタでも自動で呼ばれる。" },
         { sig: "TResult<void> SetNonBlocking(bool enable)", ret: "成功 or エラー", desc: "<t>ノンブロッキング</t>モードに切り替える。true で <code>Recv</code> 等が待たずに即返るようになる。", when: "ゲームループの中で他の処理を止めずに通信したい時。" },
         { sig: "bool IsValid() const", ret: "有効か", desc: "接続が生きていれば true。" },
@@ -60,6 +60,7 @@ ACS_REF.modules.push({
         { sig: "static TResult<FTcpListener> Listen(FIpAddress addr, u16 port, u32 backlog = 16)", ret: "リスナー or エラー", desc: "指定アドレス/ポートで待ち受けを開始する。<code>addr=Any()</code> で全インターフェイス。<code>backlog</code> は保留接続の上限。", when: "サーバ起動時。" },
         { sig: "TResult<FTcpConnection> Accept()", ret: "接続 or エラー", desc: "接続を 1 本受け付ける(既定では届くまで<b>ブロック</b>)。返った <code>FTcpConnection</code> でそのクライアントと通信する。", when: "接続待ちループの中で毎回呼ぶ。" },
         { sig: "TResult<void> SetNonBlocking(bool enable)", ret: "成功 or エラー", desc: "<t>ノンブロッキング</t>に切り替える。true なら接続が無い時 <code>Accept</code> が待たずに即返る。", when: "メインループを止めずに接続を受けたい時。" },
+        { sig: "TResult<FIpAddress> LocalAddress() const", ret: "待ち受け先 or エラー", desc: "OS が割り当てたローカル IPv4 アドレスとポートを返す。<code>Listen(..., 0)</code> の実ポート確認にも使える。" },
         { sig: "void Close()", desc: "待ち受けを終了する。デストラクタでも呼ばれる。" },
         { sig: "bool IsValid() const", ret: "有効か", desc: "待ち受けが生きていれば true。" }
       ]
@@ -72,9 +73,10 @@ ACS_REF.modules.push({
       sample: "auto sr = FUdpSocket::Bind(FIpAddress::Any(), 8080);\nif (sr.IsErr()) return;\nFUdpSocket& s = sr.Value();\nFIpAddress from{};\nisize n = s.RecvFrom(buf, sizeof(buf), from);  // from に送信元が入る\ns.SendTo(FIpAddress::FromString(\\\"192.168.0.1\\\"), 8080, data, size);",
       members: [
         { sig: "static TResult<FUdpSocket> Bind(FIpAddress addr, u16 port)", ret: "ソケット or エラー", desc: "指定アドレス/ポートに<t>バインド</t>する。受信するなら <code>port</code> を指定、送信専用なら <code>port=0</code> で OS 任せ。<code>addr=Any()</code> で全インターフェイス。", when: "UDP 通信を始める最初の一歩。" },
-        { sig: "isize SendTo(FIpAddress dst_addr, u16 dst_port, const void* data, usize size)", ret: "送れたバイト数", desc: "宛先アドレス/ポートを指定して 1 通送る。失敗時 -1。接続不要なので相手ごとに宛先を変えてよい。", sample: "s.SendTo(FIpAddress::FromString(\\\"10.0.0.2\\\"), 9000, data, size);" },
-        { sig: "isize RecvFrom(void* buf, usize size, FIpAddress& from)", ret: "受信バイト数", desc: "1 通受け取り、<code>from</code> に<b>送信元アドレス</b>を書き込む。失敗時 -1。", when: "誰から届いたかを知って返信したい時。" },
+        { sig: "isize SendTo(FIpAddress dst_addr, u16 dst_port, const void* data, usize size)", ret: "送れたバイト数", desc: "宛先へ 1 通送る。<code>size&gt;0</code> で null、WinSock 上限超過、失敗時は -1。<code>size=0</code> も空データグラムとして送る。", sample: "s.SendTo(FIpAddress::FromString(\\\"10.0.0.2\\\"), 9000, data, size);" },
+        { sig: "isize RecvFrom(void* buf, usize size, FIpAddress& from)", ret: "受信バイト数", desc: "1 通受け取り、成功時だけ <code>from</code> に送信元を書き込む。<code>size&gt;0</code> で null、WinSock 上限超過、OS 失敗時は -1 で <code>from</code> を変えない。空データグラムも受信する。", when: "誰から届いたかを知って返信したい時。" },
         { sig: "TResult<void> SetNonBlocking(bool enable)", ret: "成功 or エラー", desc: "<t>ノンブロッキング</t>に切り替える。true なら受信が無い時 <code>RecvFrom</code> が待たずに即返る。" },
+        { sig: "TResult<FIpAddress> LocalAddress() const", ret: "バインド先 or エラー", desc: "OS が割り当てたローカル IPv4 アドレスとポートを返す。<code>Bind(..., 0)</code> の実ポート確認にも使える。" },
         { sig: "void Close()", desc: "ソケットを閉じる。デストラクタでも呼ばれる。" },
         { sig: "bool IsValid() const", ret: "有効か", desc: "ソケットが生きていれば true。" }
       ]

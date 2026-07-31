@@ -76,6 +76,11 @@ acs/
 └── tests/                      # モジュール単体テスト
 ```
 
+`samples` は [学習用サンプルへの全面移行計画](LearningSamplesMigrationPlan.md) に従い、
+現在の検証責務を新しい段階別サンプルへ移した後、既存群をすべて削除して置き換えます。
+移行中は公開API、optional module、Debug/Release、実行、単一ヘッダー、配布のcoverageを失わないことを
+削除条件とします。
+
 ### 依存グラフ
 
 モジュールは `Foundation` を最下層とする階層 DAG を成します。各モジュールは
@@ -90,6 +95,8 @@ acs/
 - `App` がウィンドウ + レンダラ + ECS を `FApplication` ループにまとめる。
 - `Audio` / `Network` / `Imgui` / `Mvvm` / `Ui` / `Easy` / `AssetPack` /
   `GameFramework` / `Collision` が標準構成の高水準機能を提供する。
+- `Network` の WinSock I/O 境界と 0 バイト通信は
+  [NetworkSocketSafety.md](NetworkSocketSafety.md) の契約に従う。
 - `Steamworks` / `Scripting` / `MlOnnx` / `OpenXr` / `CrashWin` /
   `TelemetryFile` / `LocalMatch` は構成時に明示して有効化する任意backendである。
 

@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Diligent Engine 経由のコマンドリスト
-// Diligent は IDeviceContext 自体がコマンドキューを持つ即時 API なので、
-// ACS の CommandList 概念は IDeviceContext の薄いラッパとして実装する。
 #pragma once
 
 #include "render/IRhiCommandList.h"
@@ -290,6 +287,12 @@ public:
     void BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept override;
 
 private:
+    /** Diligentが所有する変更可能な命令統計を返す。 */
+    FRhiCommandStatistics& StatisticsStorage() noexcept override { return m_CommandStatistics; }
+
+    /** Diligentが所有する読み取り専用の命令統計を返す。 */
+    const FRhiCommandStatistics& StatisticsStorage() const noexcept override { return m_CommandStatistics; }
+
     static constexpr u32 kGpuTimingFrameSlots = 2;
     static constexpr u32 kGpuTimingQueriesPerSlot = 32;
     static constexpr u32 kGpuTimingSegmentsPerSlot = 15;
@@ -312,6 +315,9 @@ private:
     void ResetGpuTiming() noexcept;
     void CollectGpuTiming(u32 slot) noexcept;
     u32 EmitGpuTimestamp() noexcept;
+
+    /** このDiligentコマンドリストだけに属する命令統計。 */
+    FRhiCommandStatistics m_CommandStatistics{};
 
     /** コマンドを積む先の Diligent デバイス。 */
     FDiligentDevice*    m_Device   = nullptr;

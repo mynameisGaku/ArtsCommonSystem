@@ -1,4 +1,4 @@
-# Engine Foundation Optimization: 80-Task Execution Ledger
+# Engine Foundation Optimization: 100-Task Execution Ledger
 
 ## Objective
 
@@ -99,7 +99,7 @@ and compile-time assertions are required where they keep build cost bounded.
 | T54 | K | Storage | Add safe mapped-read path for large immutable assets | B | Complete |
 | T55 | K | Compression | Reuse bounded decompression scratch buffers | B | Complete |
 | T56 | K | Assets | Batch dependency resolution in stable topological order | B | Complete |
-| T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Active |
+| T57 | K | Assets | Intern asset/DDC paths with bounded lifetime and diagnostics | B | Complete |
 | T58 | K | Packaging | Add package read-ahead/stream batching without format change | B | Complete |
 | T59 | L | Render | Add inline storage for common render-command payloads | C | Complete |
 | T60 | L | RHI | Batch and safely recycle descriptor allocations | C | Complete |
@@ -112,17 +112,37 @@ and compile-time assertions are required where they keep build cost bounded.
 | T67 | M | Lookup | Defer generic policy until a measured production threshold exists | A | Deferred |
 | T68 | M | Serialization | Add bounded zero-copy byte-view decoding for immutable input | A | Complete |
 | T69 | M | Threading | Batch completion-counter updates without weakening wait semantics | B | Complete |
-| T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Deferred |
+| T70 | M | Threading | Separate measured hot atomics onto independent cache lines | B | Complete |
 | T71 | M | Events | Reuse subscriber dispatch snapshots without callback lifetime races | B | Complete |
 | T72 | M | Paths | Validate and hash canonical paths once across storage boundaries | B | Complete |
-| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Deferred |
-| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Deferred |
+| T73 | N | Rendering | Batch transient upload-arena allocation and constant-time retirement | C | Complete |
+| T74 | N | Rendering/TMP | Generate stable draw-packet sort keys with compile-time field layout | C | Complete |
 | T75 | N | Render graph | Compute lifetime intervals and safe transient-alias candidates | C | Complete |
 | T76 | N | Culling | Add hierarchical visibility batches with scalar-result parity | C | Complete |
 | T77 | O | Startup | Measure module initialization and defer verified cold-only work | Root | Complete |
 | T78 | O | ABI | Gate optimized public type layouts with size and alignment budgets | Root | Complete |
 | T79 | O | Safety | Add stress gates for optimized ownership, queues, and cancellation | Root | Complete |
 | T80 | O | Verification | Run clean Release, enabled backends, full tests, dist drift, and publish | Root | Complete |
+| T81 | P | Network | Reject invalid socket I/O before WinSock and preserve empty datagrams | Root | Complete |
+| T82 | P | Storage | Make recursive directory creation race-safe without accepting files or device paths | Root | Complete |
+| T83 | P | Scripting | Make native registration transactional across allocator and Lua failures | Root | Active |
+| T84 | P | Scripting | Reject reentry, stale closures, spoofed globals, and exhausted registration generations | Root | Active |
+| T85 | P | Events | Saturate broker and timer generations without stale-handle wraparound | Root | Complete |
+| T86 | P | Events | Preserve constant-time broker operations across nested publish and clear | Root | Complete |
+| T87 | P | Timing | Preserve active-word traversal across callback mutation and cancellation | Root | Complete |
+| T88 | P | Events/TMP | Enforce typed delegate copy, reference, and noexcept contracts at compile time | Root | Complete |
+| T89 | P | Audio | Normalize non-finite and out-of-range volume through every public path | Root | Complete |
+| T90 | P | Audio | Roll back failed backend voice publication without leaking slots or buffers | Root | Complete |
+| T91 | P | Governance | Audit A/F/I/T/E roles by responsibility and cover event and scripting services | Root | Complete |
+| T92 | P | Modules | Verify generated source lists, public dependencies, and private-header closure | Root | Active |
+| T93 | P | ABI | Compare public layouts and decorated symbols against the published baseline | Root | Active |
+| T94 | P | RHI | Keep interfaces data-free and measure unavoidable consumer rebuild boundaries | Root | Complete |
+| T95 | P | Rendering | Verify upload paging and deterministic radix sorting on Raw and Diligent backends | Root | Complete |
+| T96 | P | Editor | Verify bounded DDC path interning in editor and package consumers | Root | Complete |
+| T97 | P | Distribution | Regenerate and audit the single-header and binary distribution | Root | Active |
+| T98 | P | Consumer | Build and run source-out Debug and Release distribution consumers | Root | Active |
+| T99 | P | Evidence | Capture stable, no-reparse, physically distinct artifact-tree parity | Root | Active |
+| T100 | P | Publish | Push the reviewed main revision and atomically mirror it to the final distribution root | Root | Active |
 
 ## Baseline structural targets
 

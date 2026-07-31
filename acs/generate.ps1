@@ -51,7 +51,8 @@ param(
     [switch]$CrashReporter,
     [switch]$Telemetry,
     [switch]$Matchmaker,
-    [switch]$AllBackends
+    [switch]$AllBackends,
+    [string[]]$CMakeArguments = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -189,13 +190,15 @@ if ($OpenXr        -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_OPENXR=ON" }
 if ($CrashReporter -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_CRASH_REPORTER=ON" }
 if ($Telemetry     -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_TELEMETRY_FILE=ON" }
 if ($Matchmaker    -or $AllBackends) { $cmakeArgs += "-DACS_BUILD_LOCAL_MATCHMAKER=ON" }
+if ($CMakeArguments) { $cmakeArgs += @($CMakeArguments) }
 
 Write-Host "[generate] cmake $($cmakeArgs -join ' ')" -ForegroundColor Cyan
 $log = Join-Path $saved "generate.log"
 & cmake @cmakeArgs | Tee-Object -FilePath $log
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "[generate] CMake configure failed (exit $LASTEXITCODE). See $log"
-    exit $LASTEXITCODE
+$cmakeExitCode = $LASTEXITCODE
+if ($cmakeExitCode -ne 0) {
+    Write-Host "[generate] CMake configure failed (exit $cmakeExitCode). See $log" -ForegroundColor Red
+    exit $cmakeExitCode
 }
 
 # 生成物フォルダを hidden に (エクスプローラの既定では隠れ、表示設定で見える)。

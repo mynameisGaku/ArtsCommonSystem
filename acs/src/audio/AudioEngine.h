@@ -1,22 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// XAudio2 ベースの音声エンジン
-//
-// 使い方:
-//   FAudioEngine engine;
-//   engine.Init();
-//
-//   // FAudioAsset (wav/mp3/flac/ogg) を Asset モジュールから取得
-//   TSharedPtr<FAsset> asset = registry.Load(L"sound/bgm.ogg").Value();
-//   auto* audio = static_cast<FAudioAsset*>(asset.Get());
-//
-//   // 再生 (volume 0..1, loop は繰り返し)
-//   FSoundHandle h = engine.Play(*audio, 1.0f, /*loop=*/true);
-//
-//   // 停止 / 音量変更
-//   engine.SetVolume(h, 0.5f);
-//   engine.Stop(h);
-//
-//   engine.Shutdown();
 #pragma once
 
 #include "foundation/Types.h"
@@ -31,140 +13,168 @@
 
 namespace acs {
 
-/** FAudioEngine が全再生 slot に保持できる PCM buffer 容量の合計上限。 */
+/** 全再生で保持できる未圧縮音声データの合計上限。 */
 inline constexpr u64 kAudioEngineResidentBufferBudgetBytes = 512ull * 1024ull * 1024ull;
 
 /**
- * XAudio2 を裏に持つ音声再生エンジン。
- *
- * @details
- * Init() で COM とマスタリングボイスを立ち上げ、Play() で FAudioAsset ごとに 1 つの
- * ソースボイス (発音スロット) を確保して再生する。同時発音は最大 64 スロットで、
- * 一発再生のボイスはバッファが流れ切ると自動回収され、ループ再生は Stop されるまで残る。
- * 各再生は世代付きの FSoundHandle で識別され、スロット再利用後の古いハンドルは無効になる。
- * 内部状態は XAudio2 ヘッダを公開しないよう pimpl で隠蔽する。pimpl の寿命は外側の
- * reader/writer lock、スロットは内側の mutex で保護する。
- * non-copy 型。
+ * XAudio2を使って音声の再生と停止を管理する。
+ * 内部状態の寿命と発音枠を個別に同期し、別スレッドからのShutdownを待ち合わせる。
  */
 class FAudioEngine {
 public:
-    /** 未初期化状態で構築する (XAudio2 は Init で立ち上げ)。 */
+    /** 未初期化の音声エンジンを作る。 */
     FAudioEngine() noexcept = default;
 
-    /** 破棄する (Shutdown を呼んで全ボイスと XAudio2 を解放)。 */
+    /** 全音声資源を解放して破棄する。 */
     ~FAudioEngine() noexcept;
 
-    /** コピー禁止 (XAudio2 リソースを単独所有するため)。 */
+    /** 音声資源の二重所有を防ぐためコピーを禁止する。 */
     FAudioEngine(const FAudioEngine&) = delete;
 
-    /** コピー代入も禁止。 */
+    /** 音声資源の二重所有を防ぐためコピー代入を禁止する。 */
     FAudioEngine& operator=(const FAudioEngine&) = delete;
 
     /**
-     * COM MTA 利用参照とマスタリングボイスを含む XAudio2 エンジンを初期化する。
-     *
-     * @details
-     * CoIncrementMTAUsage の cookie で MTA の寿命を保持するため、Shutdown と
-     * デストラクタは Init と異なるスレッドからでも安全に実行できる。
-     * @return 成功なら空の TResult、二重初期化や XAudio2 生成失敗ならエラー。
+     * 音声エンジンと最終出力先を初期化する。
+     * @return 成功時は空の結果、二重初期化または音声APIを初期化できない場合はエラー。
      */
     TResult<void> Init() noexcept;
 
     /**
-     * 全ボイスを停止・解放し、XAudio2 と COM MTA 利用参照を後始末する。
-     *
-     * @details 多重呼び出しは安全。実行中の共有操作が完了するまで待ち、新規操作を拒否してから
-     * 全状態を解放する。Init と異なるスレッドから呼んでもよい。
+     * 全再生を停止し、音声エンジンが持つ資源を解放する。
+     * 多重呼び出しは安全で、実行中の操作を待ってから新しい操作を拒否する。
      */
     void Shutdown() noexcept;
 
     /**
-     * アセットを 1 つのソースボイスで再生開始する。
-     *
-     * @details
-     * 空きスロットを確保し、サンプルデータを再生中保持用にコピーしてソースボイスを生成・
-     * 再生する。空きスロットが無い、アセットが空、または常駐 PCM 予算を超える場合は
-     * 無効ハンドルを返す。
-     * @param Asset 再生する音声アセット (wav/mp3/flac/ogg)。
-     * @param Volume 初期音量 (0.0..1.0、範囲外は内部でクランプ、既定 1.0)。
-     * @param bLoop true なら無限ループ再生 (既定 false の一発再生)。
-     * @return この再生を指す FSoundHandle (失敗時は kInvalidSound)。
+     * 音声アセットの再生を開始する。
+     * 空き枠、音声データ、保持容量、backend操作のいずれかが失敗した場合は状態を残さない。
+     * @param Asset 再生する音声データ。
+     * @param Volume 開始時の音量。非有限値は0、有限値は0から1の範囲へ収める。
+     * @param bLoop 繰り返し再生する場合はtrue。
+     * @return 再生の識別値。開始できない場合はkInvalidSound。
      */
     FSoundHandle Play(const FAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
 
     /**
-     * 指定ハンドルの再生を停止し、内部スロットを解放する。
-     *
-     * @details 世代が一致しない (= 既に解放済みの) ハンドルは無視する。
-     * @param Handle 停止する再生のハンドル。
+     * 指定した音声の再生を停止する。
+     * 世代が一致しない識別値は状態を変えない。
+     * @param Handle 停止する再生の識別値。
      */
     void Stop(FSoundHandle Handle) noexcept;
 
     /**
-     * 指定ハンドルの再生音量を変更する。
-     *
-     * @details 世代不一致のハンドルは無視する。値は 0.0..1.0 に内部クランプする。
-     * @param Handle 対象の再生ハンドル。
-     * @param Volume 新しい音量 (0.0..1.0)。
+     * 指定した再生の音量を変更する。
+     * backendが拒否した場合は以前の音量を維持して警告を記録する。
+     * @param Handle 音量を変える再生の識別値。
+     * @param Volume 新しい音量。非有限値は0、有限値は0から1の範囲へ収める。
      */
     void SetVolume(FSoundHandle Handle, f32 Volume) noexcept;
 
-    /** 再生中の全ボイスを停止し、全スロットを解放する。 */
+    /** 再生中の全音声を停止し、保持中の音声データも解放する。 */
     void StopAll() noexcept;
 
     /**
-     * 最終出力のマスター音量を変更する。
-     *
-     * @param Volume マスター音量 (0.0..1.0、範囲外は内部でクランプ)。
+     * 音声エンジン全体の出力音量を変更する。
+     * backendが拒否した場合は以前の音量を維持して警告を記録する。
+     * @param Volume 新しい全体音量。非有限値は0、有限値は0から1の範囲へ収める。
      */
     void SetMasterVolume(f32 Volume) noexcept;
 
-    /** 再生中の全ボイスを一時停止する (再生位置は保持される)。 */
+    /** 再生中の全音声を現在位置で一時停止する。 */
     void PauseAll() noexcept;
 
-    /** PauseAll で止めた全ボイスを保持位置から再開する。 */
+    /** 一時停止中の全音声を保持位置から再開する。 */
     void ResumeAll() noexcept;
 
     /**
-     * 現在使用中の発音スロット数を返す (デバッグ用)。
-     *
-     * @return アクティブなボイススロット数。
+     * 現在使用中の発音枠数を返す。
+     * @return 再生に使用している枠の数。
      */
     u32 ActiveCount() const noexcept;
 
 #if defined(ACS_AUDIO_TEST_HOOKS)
-    /** OS の音声デバイスに依存せず lifecycle/MTA cookie 契約を検証するテスト状態を作る。 */
+    /** OSの音声機器を使わずに状態管理を調べるテスト状態を作る。 */
     TResult<void> InitializeLifecycleTestState() noexcept;
 
-    /** lifecycle 共有操作を決定的に停止させるユニットテスト専用 hook。 */
-    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
-                                                    TAtomic<u32>* Release) noexcept;
+    /**
+     * OSの音声機器を使わずに公開音量操作を調べるテスト状態を作る。
+     * @return 成功時は空の結果、状態を作れない場合はエラー。
+     */
+    TResult<void> InitializeVolumeTestState() noexcept;
 
-    /** Shutdown 要求が公開操作を閉じているかを返すテスト専用 query。 */
+    /**
+     * 状態を読む処理をテスト用の合図で停止させる。
+     * @param Entered 処理の開始を通知する値。
+     * @param Release 処理の再開を許可する値。
+     */
+    static void ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered, TAtomic<u32>* Release) noexcept;
+
+    /**
+     * 以後の音量backend操作を失敗させる経路を設定する。
+     * @param bPlayVolume 再生開始時の個別音量設定を失敗させる場合はtrue。
+     * @param bSetVolume 再生中の個別音量設定を失敗させる場合はtrue。
+     * @param bMasterVolume 全体音量設定を失敗させる場合はtrue。
+     */
+    void ConfigureVolumeFailuresForTesting(bool bPlayVolume, bool bSetVolume, bool bMasterVolume) noexcept;
+
+    /**
+     * 音量入力を公開経路と同じ規則で正規化する。
+     * @param Volume 確認する音量。
+     * @return 非有限値は0、有限値は0から1へ収めた値。
+     */
+    static f32 NormalizeVolumeForTesting(f32 Volume) noexcept;
+
+    /**
+     * 指定した再生のbackend音量を返す。
+     * @param Handle 確認する再生の識別値。
+     * @return backendが保持する音量。識別値が無効な場合は負数。
+     */
+    f32 VolumeForTesting(FSoundHandle Handle) const noexcept;
+
+    /** テストbackendが保持する全体音量を返す。 */
+    f32 MasterVolumeForTesting() const noexcept;
+
+    /** テストbackendが最後に受け取った正規化済み音量を返す。 */
+    f32 LastVolumeAttemptForTesting() const noexcept;
+
+    /** テストbackendが保持している音声データ容量を返す。 */
+    u64 ResidentBufferBytesForTesting() const noexcept;
+
+    /** テストbackendが確保している発音ボイス数を返す。 */
+    u32 AllocatedVoiceCountForTesting() const noexcept;
+
+    /** 個別音量または全体音量の失敗警告件数を返す。 */
+    u32 VolumeFailureWarningCountForTesting() const noexcept;
+
+    /** Shutdown要求中かをテストへ返す。 */
     bool IsShutdownRequestedForTesting() const noexcept;
 
-    /** lifecycle 状態が保持されているかを返すテスト専用 query。 */
+    /** 内部状態が保持されているかをテストへ返す。 */
     bool HasLifecycleStateForTesting() const noexcept;
 #endif
 
-    /** XAudio2 ヘッダを公開しないための pimpl 実装型 (前方宣言のみ)。 */
+    /** XAudio2の型を公開しないための内部状態。 */
     struct FImpl;
 
 private:
-    /** lifecycle 排他ロック取得済みで全リソースを解放する。 */
+    /** 内部状態の排他ロック取得後に全資源を解放する。 */
     void ShutdownUnlocked() noexcept;
 
-    /** Shutdown 要求中で新規共有操作を拒否すべきかを返す。 */
+    /** Shutdown要求中で新しい操作を拒否すべきかを返す。 */
     bool IsShutdownRequested() const noexcept;
 
-    /** Init/Shutdown と通常操作間で pimpl の寿命を同期する。 */
+    /** 初期化と通常操作の間で内部状態の寿命を保護する。 */
     mutable FRwLock m_LifecycleLock;
 
-    /** 実行開始済みの Shutdown 呼び出し数。0 以外では新規操作を拒否する。 */
+    /** 実行中のShutdown呼び出し数。 */
     TAtomic<u32> m_ShutdownRequests{0};
 
-    /** pimpl 実装の所有ポインタ (未初期化時は nullptr)。 */
+    /** 音声エンジンの内部状態。未初期化時はnullptr。 */
     FImpl* m_Impl = nullptr;
 };
+
+/** FAudioEngineの一時的なソース互換名。 */
+using CAudioEngine = FAudioEngine;
 
 } // namespace acs

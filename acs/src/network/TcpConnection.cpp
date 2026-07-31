@@ -2,12 +2,25 @@
 // TCP 接続実装
 #include "network/TcpConnection.h"
 #include "network/Network.h"
+#include "foundation/Limits.h"
 #include "foundation/Platform.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 namespace acs {
+
+namespace {
+
+/** WinSock の長さ引数で安全に表せる最大バイト数。 */
+constexpr usize kMaximumSocketBufferSize = static_cast<usize>(TNumLimits<i32>::Max());
+
+/** WinSock へ渡せる領域と長さの組かを返す。 */
+bool IsSocketBufferValid(const void* buffer, usize size) noexcept {
+    return size <= kMaximumSocketBufferSize && (buffer != nullptr || size == 0);
+}
+
+} // namespace
 
 FTcpConnection::~FTcpConnection() noexcept {
     Close();
@@ -72,19 +85,19 @@ void FTcpConnection::Close() noexcept {
 }
 
 isize FTcpConnection::Send(const void* data, usize size) noexcept {
-    if (m_Socket == ~uptr{0}) return -1;
-    const int n = ::send(static_cast<SOCKET>(m_Socket), static_cast<const char*>(data),
-                   static_cast<int>(size), 0);
+    if (m_Socket == ~uptr{0} || !IsSocketBufferValid(data, size)) return -1;
+    if (size == 0) return 0;
+    const int n = ::send(static_cast<SOCKET>(m_Socket), static_cast<const char*>(data), static_cast<int>(size), 0);
     if (n == SOCKET_ERROR) return -1;
     return n;
 }
 
 isize FTcpConnection::Recv(void* buf, usize size) noexcept {
-    if (m_Socket == ~uptr{0}) return -1;
-    const int n = ::recv(static_cast<SOCKET>(m_Socket), static_cast<char*>(buf),
-                   static_cast<int>(size), 0);
+    if (m_Socket == ~uptr{0} || !IsSocketBufferValid(buf, size)) return -1;
+    if (size == 0) return 0;
+    const int n = ::recv(static_cast<SOCKET>(m_Socket), static_cast<char*>(buf), static_cast<int>(size), 0);
     if (n == SOCKET_ERROR) return -1;
-    return n;  // 0 は相手切断
+    return n;
 }
 
 TResult<void> FTcpConnection::SetNonBlocking(bool enable) noexcept {

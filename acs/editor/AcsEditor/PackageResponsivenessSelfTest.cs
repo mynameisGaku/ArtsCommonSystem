@@ -1506,6 +1506,8 @@ internal static class PackageResponsivenessSelfTest
                 currentSettings,
                 () => throw new InvalidOperationException(
                     "Current Blueprint Cook cache unexpectedly missed."));
+            DerivedDataCachePathPoolDiagnostics pathDiagnostics =
+                cache.CapturePathDiagnostics();
 
             Check(
                 legacy.Status == DerivedDataCacheStatus.Miss &&
@@ -1516,6 +1518,15 @@ internal static class PackageResponsivenessSelfTest
                 Encoding.UTF8.GetString(current.Payload) == "portable-parent-v4" &&
                 Encoding.UTF8.GetString(currentHit.Payload) == "portable-parent-v4",
                 "Blueprint rewrite v4 cannot reuse a v3 DDC payload with identical source, metadata, and graph hash");
+            Check(
+                pathDiagnostics.RequestCount == 3 &&
+                pathDiagnostics.HitCount == 1 &&
+                pathDiagnostics.MissCount == 2 &&
+                pathDiagnostics.EvictionCount == 0 &&
+                pathDiagnostics.BypassCount == 0 &&
+                pathDiagnostics.RetainedPathCount == 2 &&
+                pathDiagnostics.RetainedCodeUnits > 0,
+                "Cook DDC reuses canonical entry paths within its package-operation owner");
         }
         finally
         {

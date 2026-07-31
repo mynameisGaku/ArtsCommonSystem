@@ -1,29 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// LuaDefault — FLuaVm を gameframework の既定 ScriptVm provider へ結線する
-// -----------------------------------------------------------------------------
-// gameframework は ACS::Scripting に依存できない (循環依存) ため、結線は backend
-// 側 (本 TU) から `acs::game::SetScriptVmProvider()` を呼んで行う。アプリは起動時
-// に一度 `acs::scripting::InstallLuaAsDefault()` を呼ぶだけで、以降は backend 非
-// 依存に `acs::game::GetDefaultScriptVm()` で実 Lua 5.4 VM を取得できる。
-//
-// provider が返す VM はプロセス共有 singleton。初回アクセス時に Init() を 1 回
-// 走らせ、すぐ使える状態で返す (FScriptHost::Init(&vm) にそのまま差せる)。
-// =============================================================================
+// Lua VM を既定のスクリプト実行先へ接続する。
 #include "scripting/LuaVm.h"
 #include "gameframework/ScriptHost.h"
 #include "memory/SystemAllocator.h"
 
 namespace acs::scripting {
 
+/** 共有するLua VMを初期化して返す。 */
 acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
+    /** 共有VMとその確保元を同じ寿命で保持する。 */
     struct FDefaultLuaState {
-        FDefaultLuaState() noexcept : vm(allocator)
-        {
-        }
+        /** VMに確保元を渡して構築する。 */
+        FDefaultLuaState() noexcept : vm(allocator) {}
 
         // VM を先に破棄してから allocator を破棄する宣言順にする。
+        /** VMの保存領域を確保する。 */
         acs::FSystemAllocator allocator;
+        /** 既定として共有するLua VM。 */
         FLuaVm vm;
     };
 
@@ -35,6 +28,7 @@ acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
     return s_state.vm;
 }
 
+/** Lua VMを既定のスクリプト実行先に設定する。 */
 void InstallLuaAsDefault() noexcept {
     acs::game::SetScriptVmProvider(&GetDefaultLuaVm);
 }

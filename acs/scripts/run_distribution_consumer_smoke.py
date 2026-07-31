@@ -14,6 +14,8 @@ from typing import Sequence
 
 SUPPORTED_CONFIGURATIONS = ("Debug", "Release")
 EXECUTABLE_NAME = "acs_distribution_consumer.exe"
+# 統合libraryが利用するWindows APIを配布headerから解決する必須library。
+REQUIRED_HEADER_AUTO_LINK_LIBRARIES = ("advapi32.lib",)
 
 CMAKE_PROJECT = r"""cmake_minimum_required(VERSION 3.24)
 project(ACSDistributionConsumer LANGUAGES CXX)
@@ -23,6 +25,19 @@ if(NOT WIN32 OR NOT MSVC)
 endif()
 if(NOT DEFINED ACS_DISTRIBUTION_ROOT)
     message(FATAL_ERROR "ACS_DISTRIBUTION_ROOT is required")
+endif()
+
+# CMake/MSVC既定値のadvapi32を除き、配布headerの自動linkだけを検証する。
+separate_arguments(ACS_CXX_STANDARD_LIBRARIES NATIVE_COMMAND
+    "${CMAKE_CXX_STANDARD_LIBRARIES}")
+list(FILTER ACS_CXX_STANDARD_LIBRARIES EXCLUDE REGEX
+    "^[Aa][Dd][Vv][Aa][Pp][Ii]32(\\.lib)?$")
+list(JOIN ACS_CXX_STANDARD_LIBRARIES " " CMAKE_CXX_STANDARD_LIBRARIES)
+string(TOLOWER "${CMAKE_CXX_STANDARD_LIBRARIES}"
+    ACS_CXX_STANDARD_LIBRARIES_LOWER)
+if(ACS_CXX_STANDARD_LIBRARIES_LOWER MATCHES
+        "(^|[ \t;])advapi32(\\.lib)?([ \t;]|$)")
+    message(FATAL_ERROR "advapi32 must not enter through CMake standard libraries")
 endif()
 
 add_executable(acs_distribution_consumer
@@ -54,6 +69,16 @@ def required_distribution_files(root: Path, configuration: str) -> tuple[Path, .
         root / "acs.h",
         root / "examples" / "check.cpp",
         root / "lib" / "x64" / configuration / "acs.lib",
+    )
+
+
+def invalid_auto_link_libraries(header_path: Path) -> tuple[str, ...]:
+    """配布headerで自動link指示が欠落または重複する必須libraryを返す。"""
+    header_text = header_path.read_text(encoding="utf-8")
+    return tuple(
+        library_name
+        for library_name in REQUIRED_HEADER_AUTO_LINK_LIBRARIES
+        if header_text.count(f'#pragma comment(lib, "{library_name}")') != 1
     )
 
 
@@ -157,6 +182,22 @@ def run_smoke(args: argparse.Namespace) -> int:
         return 2
 
     try:
+        invalid_auto_links = invalid_auto_link_libraries(distribution_root / "acs.h")
+    except (OSError, UnicodeError) as error:
+        print(
+            f"distribution_consumer_smoke=fail reason=auto-link-read: {error}",
+            file=sys.stderr,
+        )
+        return 2
+    if invalid_auto_links:
+        print(
+            "distribution_consumer_smoke=fail invalid_auto_link="
+            + ", ".join(invalid_auto_links),
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
         with tempfile.TemporaryDirectory(
             prefix=f"acs-distribution-consumer-{configuration.lower()}-"
         ) as temporary:
@@ -238,6 +279,25 @@ def self_test() -> int:
         executable = build_directory / "Debug" / EXECUTABLE_NAME
         executable.parent.mkdir(parents=True)
         executable.write_bytes(b"probe")
+        valid_header = root / "valid-acs.h"
+        valid_header.write_text(
+            '#pragma comment(lib, "advapi32.lib")\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        missing_header = root / "missing-acs.h"
+        missing_header.write_text(
+            '#pragma comment(lib, "user32.lib")\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        duplicate_header = root / "duplicate-acs.h"
+        duplicate_header.write_text(
+            '#pragma comment(lib, "advapi32.lib")\n'
+            '#pragma comment(lib, "advapi32.lib")\n',
+            encoding="utf-8",
+            newline="\n",
+        )
         command = make_configure_command(
             "cmake",
             root / "source",
@@ -265,9 +325,14 @@ def self_test() -> int:
             and command[command.index("-A") + 1] == "x64"
             and command[command.index("-T") + 1] == "vTest"
             and find_consumer_executable(build_directory) == executable
+            and invalid_auto_link_libraries(valid_header) == ()
+            and invalid_auto_link_libraries(missing_header) == ("advapi32.lib",)
+            and invalid_auto_link_libraries(duplicate_header) == ("advapi32.lib",)
             and "_HAS_EXCEPTIONS=1" in CMAKE_PROJECT
             and "/EHsc" in CMAKE_PROJECT
             and "/EHs-c-" not in CMAKE_PROJECT
+            and "list(FILTER ACS_CXX_STANDARD_LIBRARIES EXCLUDE REGEX" in CMAKE_PROJECT
+            and "target_link_libraries" not in CMAKE_PROJECT
             and rejects_invalid
         )
     return 0 if valid else 1

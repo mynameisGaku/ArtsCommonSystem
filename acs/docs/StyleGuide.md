@@ -5,9 +5,9 @@
 
 **対象 / Scope**: `src/**`, `samples/**`, `tests/**`, `tools/**`, `editor/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
 
-**バージョン / Version**: v2.7 (2026-07-19 改訂)
+**バージョン / Version**: v2.8 (2026-07-30 改訂)
 
-> **基本方針 / Core philosophy** — ACS v2 は UE5 風の見分けやすい型 prefix を採用しつつ、prefix の意味は ACS の所有権モデルに合わせる。通常の値型は `F`、`FObject` が所有・破棄を管理するオブジェクトは `A`、template は `T`、純粋 interface は `I`、enum は `E` とする。特に `ANode` / `AComponent` とその派生型の `A` は、world-placeable を意味するのではなく **ACS object-managed** を意味する。
+> **基本方針 / Core philosophy** — ACS v2 は UE5 風の見分けやすい型 prefix を採用しつつ、prefix の意味は ACS の所有権モデルに合わせる。値・handle・serviceは `F`、`FObject` が所有・破棄を管理するオブジェクトは `A`、template は `T`、純粋 interface は `I`、enum は `E` とする。特に `ANode` / `AComponent` とその派生型の `A` は、world-placeable を意味するのではなく **ACS object-managed** を意味する。
 >
 > **v1 → v2 の変更点** (詳細は §15 Revision history):
 > - 通常の struct / class に **`F` prefix**
@@ -931,6 +931,15 @@ JSONのtop-levelは `schema_version`, `scanned_file_count`, `violation_count`, `
 `--self-test` と `--format` / `--json-output` の併用は、指定を無言で無視せずCLI引数エラー
 （終了値 `2`）として明示的に拒否する。
 
+#### 型の意味と接頭辞の監査
+
+`scripts/audit_cpp_type_roles.py`は、宣言構文だけでなく継承、ACS object登録、仮想操作、
+状態・寿命操作を根拠に`A` / `F` / `I` / `T` / `E`を照合する。`F`は値とhandleに加えて
+serviceの正規接頭辞であり、純粋仮想という構文だけでserviceを`I`へ変えない。旧`C`
+serviceはR020c違反として検出する。`class`と`struct`の選択だけでは役割を決めない。
+eventとscriptingの実走査をCTestで固定する。詳細と実行方法は
+[`TypeRoleAudit.md`](TypeRoleAudit.md)を参照する。
+
 ### 12.8 手書き API リファレンス型名監査
 
 ```bash
@@ -1007,6 +1016,7 @@ public / internal 分類は別契約のため対象外である。自己テス�
 |---|---|---|---|---|
 | **R020a** | class-struct-union-prefix | error | readability-identifier-naming + acs-R020a | 通常型は `F`、`FObject` 管理型は `A` prefix + PascalCase |
 | **R020b** | template-t-prefix | error | acs-R020b | template class / struct は `T` prefix + PascalCase |
+| **R020c** | type-role-prefix | error | 型役割補助監査 | 型の意味と `A` / `F` / `I` / `T` / `E` prefix の不一致、旧 `C` service、無接頭辞を禁止 |
 | **R021** | function-pascal-case | error | readability-identifier-naming.FunctionCase + 補助監査 | 関数・メソッドは型 prefix なしの PascalCase。既存型名と同名のメンバー呼び出しは禁止 |
 | **R022** | variable-pascal-case | error | readability-identifier-naming.VariableCase (段階導入) | ローカル変数・引数は PascalCase (1 字 / iterator 例外あり)。既存コードへの全面 gate は AST 移行後 |
 | **R022b** | bool-b-prefix | warning | acs-R022b | ローカル・引数・public POD bool は `bPascalCase`、private / protected member は `m_bPascalCase` |
@@ -1107,6 +1117,7 @@ auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 | 2026-07-19 | v2.5 | C++ conventions監査にCI向けJSON出力を追加。従来human形式を維持しつつ、決定的な違反順序、UTF-8、原子的なファイル保存、専用の書込み失敗終了値、JSON回帰fixtureを規定。 |
 | 2026-07-19 | v2.6 | R027を列挙子の型名衝突まで拡張。型renameが列挙子へ誤波及した場合をC++ lexerの二段監査で検出し、Windowsでも日本語診断をUTF-8で安定出力する。 |
 | 2026-07-19 | v2.7 | R021補助監査を既存型名と同名のメンバー呼び出しまで拡張し、型renameのメソッド名への誤波及を低誤検知で防止。変数規約表を現行の `m_PascalCase` と整合させ、module source監査への導線も追記。 |
+| 2026-07-30 | v2.8 | `F`を値・handle・serviceの正規接頭辞として明確化し、型の意味を照合する`audit_cpp_type_roles.py`、自己試験、event / scripting実走査gateを追加。`class` / `struct`構文を役割判定に使わず、旧`C` serviceの再流入をR020cで検出する。 |
 
 ---
 

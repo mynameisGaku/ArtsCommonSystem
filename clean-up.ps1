@@ -3,11 +3,12 @@
 # ask Y/N, then delete the found set. Nothing is deleted before you confirm.
 #
 # Everything targeted here is gitignored and recreated by a build or by
-# acs\generate.bat, so source / assets / tracked files are never touched.
+# acs.cmd / acs.ps1 の configure操作で再生成できるため、source / assets /
+# tracked filesは対象にしない。
 #
-# Run via clean-up.bat (double-click) or directly:
-#   .\clean-up.ps1        scan, list findings, ask Y/N, delete
-#   .\clean-up.ps1 -y     delete the found set immediately (no prompt)
+# 正規入口:
+#   acs.cmd clean          cmd.exe
+#   .\acs.ps1 clean        PowerShell
 [CmdletBinding()]
 param([Alias('y')][switch]$Yes)
 
@@ -131,5 +132,5 @@ foreach ($h in $found) {
 Write-Host ""
 Write-Host (" Deleted {0} item(s), freed {1}." -f $del, (Format-Size $freed).Trim())
 if ($failed) { Write-Host (" {0} item(s) could not be removed (locked / in use)." -f $failed) }
-Write-Host " Run  acs\generate.bat  to recreate the solution."
+Write-Host " Run  acs.cmd configure  or  .\acs.ps1 configure  to recreate the solution."
 Write-Host ""

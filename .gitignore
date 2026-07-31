@@ -43,6 +43,16 @@ configure.log
 acs_memdump.svg
 acs_memdump.bmp
 hello_save.ini
+/acs/imgui.ini
+/acs/bt_serialize_test.btg
+/imgui.ini
+/bt_serialize_test.btg
+
+# ---- ACS 監査の一時出力 -----------------------------------------------------
+/acs/Temp/
+
+# ---- 誤ってリポジトリ内へ展開された配布複製 -------------------------------
+/acs/acs/
 
 # ---- 単一ヘッダー配布 (dist/): ソース/ヘッダは追跡、巨大なマージ済みバイナリは除外 ----
 dist/lib/

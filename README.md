@@ -55,17 +55,22 @@ Ninjaと`CMakePresets.json`は現行の標準生成手順では使用しませ�
 使う場合は、generatorとソリューション拡張子を明示します。
 
 ```pwsh
-cd acs
-.\generate.ps1 -Generator "Visual Studio 17 2022" -Name ACSGame.sln
+.\acs.ps1 configure --generator "Visual Studio 17 2022" --name ACSGame.sln
 ```
 
 ## 生成・ビルド・実行
 
-リポジトリ直下から`acs/`へ移動し、PowerShellで実行します。
+日常のWindows操作は
+[`ProjectOperations.md`](acs/docs/ProjectOperations.md)を正本とします。PowerShellでは
+`.\acs.ps1`、コマンドプロンプトとIDE外部ツールでは`acs.cmd`を使います。両launcherは
+同じ操作実体へ委譲し、buildやcleanの規則を複製しません。
 
 ```pwsh
-cd acs
-.\generate.ps1 -Open
+.\acs.ps1 open
+```
+
+```bat
+acs.cmd open
 ```
 
 既定では次の構成になります。
@@ -80,35 +85,36 @@ cd acs
 - samples: `55_HelloScene2D`だけ
 - tests / CLI tools / optional backends: 無効
 
-Visual Studioを開かず、CMake CLIでビルド・実行する場合は次のとおりです。
+Visual Studioを開かずにbuild・実行する場合も同じ入口を使います。
 
 ```pwsh
-.\generate.ps1
-cmake --build .\Intermediate\vs --config Debug --target hello_scene2d
-.\Binaries\Debug\hello_scene2d.exe
+.\acs.ps1 configure
+.\acs.ps1 build --config Debug --target hello_scene2d
+.\acs\Binaries\Debug\hello_scene2d.exe
 ```
 
-PowerShellの実行ポリシーで`.ps1`が拒否される場合は、`generate.bat`をダブルクリックするか
-次のコマンドを使えます。
+コマンドプロンプトでは次のように実行します。
 
-```pwsh
-powershell -NoProfile -ExecutionPolicy Bypass -File .\generate.ps1 -Open
+```bat
+acs.cmd configure
+acs.cmd build --config Debug --target hello_scene2d
+acs\Binaries\Debug\hello_scene2d.exe
 ```
 
 ### 主な生成オプション
 
 | オプション | 効果 |
 |---|---|
-| `-Open` | 生成したソリューションをVisual Studioで開く |
-| `-Clean` | `Intermediate/vs`を削除してから再生成する |
-| `-Name MyGame` | 表層のソリューション名を`MyGame.slnx`へ変更する |
-| `-Sample 38_HelloFullGame` | 指定サンプルだけを生成し、targetも自動検出する |
-| `-AllSamples` | 選択したバックエンドで利用可能な全サンプルを追加する |
-| `-Tests` / `-Tools` | tests / `acs_assetpack` CLI targetを追加する |
-| `-Diligent` | raw DX12に加えてDiligent rendererを有効にする |
-| `-Scripting`, `-Steamworks`, `-Onnx`, `-OpenXr` | 対応する任意backendを有効にする |
-| `-CrashReporter`, `-Telemetry`, `-Matchmaker` | Windows crash dump、file telemetry、local matchmakerを有効にする |
-| `-AllBackends` | 上記の任意backendをまとめて有効にする。SDK設定が必要なbackendも含む |
+| `--open` | 生成したソリューションをVisual Studioで開く |
+| `--clean` | `Intermediate/vs`を削除してから再生成する |
+| `--name MyGame` | 表層のソリューション名を`MyGame.slnx`へ変更する |
+| `--sample 38_HelloFullGame` | 指定サンプルだけを生成し、targetも自動検出する |
+| `--all-samples` | 選択したバックエンドで利用可能な全サンプルを追加する |
+| `--tests` / `--tools` | tests / `acs_assetpack` CLI targetを追加する |
+| `--diligent` | raw DX12に加えてDiligent rendererを有効にする |
+| `--scripting`, `--steamworks`, `--onnx`, `--openxr` | 対応する任意backendを有効にする |
+| `--crash-reporter`, `--telemetry`, `--matchmaker` | Windows crash dump、file telemetry、local matchmakerを有効にする |
+| `--all-backends` | 上記の任意backendをまとめて有効にする。SDK設定が必要なbackendも含む |
 
 Diligentや任意backendを初めて有効化するconfigureでは、追加のGit repositoryやarchiveを
 取得するため時間がかかります。Steamworksなど、公開URLから自動取得できないSDKは個別設定が
@@ -117,9 +123,22 @@ Diligentや任意backendを初めて有効化するconfigureでは、追加のGi
 ### テスト
 
 ```pwsh
-.\generate.ps1 -Tests
-cmake --build .\Intermediate\vs --config Debug
-ctest --test-dir .\Intermediate\vs -C Debug --output-on-failure
+.\acs.ps1 configure --tests
+.\acs.ps1 build --config Debug
+.\acs.ps1 test --config Debug
+```
+
+### 低位の診断手順
+
+`acs/generate.ps1`、`cmake --build`、`ctest`は統一入口が委譲する既存実体です。
+launcher自体の調査やCMake固有の診断では直接実行できますが、通常の生成・build・test・
+配布・cleanでは上記launcherを使います。追加argumentはPowerShellでは引用した`'--'`、
+コマンドプロンプトでは`--`より後ろへ指定できます。
+
+```pwsh
+powershell -NoProfile -ExecutionPolicy Bypass -File .\acs\generate.ps1 -Tests
+cmake --build .\acs\Intermediate\vs --config Debug
+ctest --test-dir .\acs\Intermediate\vs -C Debug --output-on-failure
 ```
 
 ## 型名規約
@@ -211,18 +230,18 @@ Root().AddChild(Move(player));
 | `00_HelloEasy` | `hello_easy` | Easy APIによる最小2Dループ | 常時 |
 | `01_HelloWindow` | `hello_window` | `FApplication`とwindow / rendererの最小構成 | 常時 |
 | `20_HelloMVVM` | `hello_mvvm` | MVVMとImGui binding | raw DX12 |
-| `24_HelloBloom` | `hello_bloom` | HDR bloom / post process | `-Diligent` |
+| `24_HelloBloom` | `hello_bloom` | HDR bloom / post process | `--diligent` |
 | `38_HelloFullGame` | `hello_full_game` | 複数sceneを持つ完結ミニゲーム | raw DX12 |
-| `41_HelloOnnx` | `hello_onnx` | ONNX Runtime smoke test | `-Onnx` |
-| `42_HelloOpenXR` | `hello_openxr` | OpenXR loader smoke test | `-OpenXr` |
+| `41_HelloOnnx` | `hello_onnx` | ONNX Runtime smoke test | `--onnx` |
+| `42_HelloOpenXR` | `hello_openxr` | OpenXR loader smoke test | `--openxr` |
 | `46_HelloAssetPackBridge` | `hello_asset_pack_bridge` | `.acpak` write / mount / read | 常時 |
 | `55_HelloScene2D` | `hello_scene2d` | `FScene2D`と統一`ANode`の実用starter | raw DX12・既定 |
 | `63_HelloVerticalSlice` | `hello_vertical_slice` | titleからsaveまでの2D vertical slice | raw DX12 |
 | `64_HelloJobs` | `hello_jobs` | Easy job / parallel API | 常時 |
 | `66_HelloVertexSSS` | `hello_vertex_sss` | `FVertexScatter`による頂点空間SSS | 常時 |
 
-全ソースをソリューションへ加える場合は`.\generate.ps1 -AllSamples`、1件だけなら
-`.\generate.ps1 -Sample 64_HelloJobs`のように指定します。
+全ソースをソリューションへ加える場合は`.\acs.ps1 configure --all-samples`、1件だけなら
+`.\acs.ps1 configure --sample 64_HelloJobs`のように指定します。
 
 ## 設計上の前提
 
@@ -244,6 +263,8 @@ Root().AddChild(Move(player));
 - [`FoundationOptimizationWaveK.md`](acs/docs/FoundationOptimizationWaveK.md) — mapped package I/O、scratch再利用、依存batch、path所有のWave K検証
 - [`FoundationOptimizationWaveC.md`](acs/docs/FoundationOptimizationWaveC.md) — アセット/ECS/reflection/RHI の Wave C 最適化と Release 証跡
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
+- [`ProjectOperations.md`](acs/docs/ProjectOperations.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
+- [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 既存68サンプルを段階的な学習用サンプルへ全面移行する必須計画
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
 - [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計

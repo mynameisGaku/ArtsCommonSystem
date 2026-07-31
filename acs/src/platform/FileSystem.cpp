@@ -22,6 +22,115 @@ TAtomic<u64> g_TextIntermediateCopyBytes{0};
 TAtomic<u32> g_AtomicWriteSequence{1};
 
 /**
+ * ASCIIのドライブ文字ならtrueを返す。
+ *
+ * @param value 判定する文字。
+ * @return A-Zまたはa-zならtrue。
+ */
+constexpr bool IsDriveLetter(wchar_t value) noexcept
+{
+    return (value >= L'A' && value <= L'Z') || (value >= L'a' && value <= L'z');
+}
+
+/**
+ * 指定位置以降がpath separatorだけならtrueを返す。
+ *
+ * @param path 判定するパス。
+ * @param begin 判定開始位置。
+ * @param length パスの文字数。
+ * @return separator以外を含まなければtrue。
+ */
+constexpr bool HasOnlyPathSeparators(const wchar_t* path, usize begin, usize length) noexcept
+{
+    /** 判定する文字位置。 */
+    for (usize i = begin; i < length; ++i) {
+        if (!FFileSystem::IsPathSeparator(path[i])) return false;
+    }
+    return true;
+}
+
+/**
+ * 指定prefix直後がドライブrootならtrueを返す。
+ *
+ * @param path 判定するパス。
+ * @param length パスの文字数。
+ * @param prefix_length ドライブ文字より前の文字数。
+ * @return drive-letter、colon、separatorだけで終わる場合はtrue。
+ */
+constexpr bool IsDriveRootPath(const wchar_t* path, usize length, usize prefix_length) noexcept
+{
+    if (length < prefix_length + 3u) return false;
+    if (!IsDriveLetter(path[prefix_length]) || path[prefix_length + 1u] != L':' || !FFileSystem::IsPathSeparator(path[prefix_length + 2u])) return false;
+    return HasOnlyPathSeparators(path, prefix_length + 3u, length);
+}
+
+/**
+ * 通常UNCのserver/share rootならtrueを返す。
+ *
+ * @param path 判定するパス。
+ * @param length パスの文字数。
+ * @return serverとshareが各1要素あり、その後がseparatorだけならtrue。
+ */
+constexpr bool IsUncShareRootPath(const wchar_t* path, usize length) noexcept
+{
+    if (length < 5u || !FFileSystem::IsPathSeparator(path[0]) || !FFileSystem::IsPathSeparator(path[1])) return false;
+
+    /** server要素の終端位置。 */
+    usize server_end = 2u;
+    while (server_end < length && !FFileSystem::IsPathSeparator(path[server_end])) ++server_end;
+    if (server_end == 2u || server_end == length) return false;
+    if (server_end == 3u && (path[2] == L'?' || path[2] == L'.')) return false;
+
+    /** share要素の開始位置。 */
+    const usize share_begin = server_end + 1u;
+    if (share_begin >= length || FFileSystem::IsPathSeparator(path[share_begin])) return false;
+    /** share要素の終端位置。 */
+    usize share_end = share_begin;
+    while (share_end < length && !FFileSystem::IsPathSeparator(path[share_end])) ++share_end;
+    return HasOnlyPathSeparators(path, share_end, length);
+}
+
+/**
+ * CreateDirectoryWを呼ばず既存確認だけで受理できるroot構文ならtrueを返す。
+ *
+ * @param path 判定するパス。
+ * @param length パスの文字数。
+ * @return drive root、UNC share root、拡張drive rootのいずれかならtrue。
+ */
+constexpr bool IsDirectoryRootPath(const wchar_t* path, usize length) noexcept
+{
+    if (IsDriveRootPath(path, length, 0u) || IsUncShareRootPath(path, length)) return true;
+    return length >= 4u && FFileSystem::IsPathSeparator(path[0]) && FFileSystem::IsPathSeparator(path[1]) && path[2] == L'?' && FFileSystem::IsPathSeparator(path[3]) && IsDriveRootPath(path, length, 4u);
+}
+
+/**
+ * 文字列literalをroot構文としてcompile時に判定する。
+ *
+ * @tparam PathSize 終端文字を含む配列要素数。
+ * @param path 判定する文字列literal。
+ * @return root構文ならtrue。
+ */
+template<usize PathSize>
+constexpr bool IsDirectoryRootLiteral(const wchar_t (&path)[PathSize]) noexcept
+{
+    static_assert(PathSize > 0u);
+    return IsDirectoryRootPath(path, PathSize - 1u);
+}
+
+// root shortcutで受理する構文と、紛らわしい不正構文をcompile時に固定する。
+static_assert(IsDirectoryRootLiteral(L"C:\\"));
+static_assert(IsDirectoryRootLiteral(L"c:/"));
+static_assert(IsDirectoryRootLiteral(L"\\\\server\\share"));
+static_assert(IsDirectoryRootLiteral(L"\\\\server\\share\\"));
+static_assert(IsDirectoryRootLiteral(L"\\\\?\\C:\\"));
+static_assert(!IsDirectoryRootLiteral(L"C:\\file"));
+static_assert(!IsDirectoryRootLiteral(L"\\\\server"));
+static_assert(!IsDirectoryRootLiteral(L"\\\\server\\"));
+static_assert(!IsDirectoryRootLiteral(L"\\\\server\\\\share"));
+static_assert(!IsDirectoryRootLiteral(L"\\\\.\\C:\\"));
+static_assert(!IsDirectoryRootLiteral(L"\\\\?\\C:\\file"));
+
+/**
  * 読み取り用にファイルを開いてハンドルを返す。
  *
  * @details GENERIC_READ・FILE_SHARE_READ・OPEN_EXISTING で開くため未存在は失敗する。
@@ -302,11 +411,10 @@ bool FFileSystem::DirectoryExists(const wchar_t* path) noexcept {
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
-// ディレクトリ作成（既に存在する場合は成功扱い、親も再帰作成）
+/** 親を含めてディレクトリを作成し、通常ファイルとの衝突はエラーにする。 */
 TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
-    if (!path || path[0] == L'\0')
-        return ACS_ERR(IO, 129, "CreateDirectory: path is null or empty");
-    if (DirectoryExists(path)) return Ok();
+    if (path == nullptr || path[0] == L'\0')
+        return ACS_ERR(IO, 131, "CreateDirectory: path is null or empty");
     /** 途中の区切りを一時終端へ置換する作業パス。 */
     wchar_t buf[1024];
     /** 作業パスの文字数。 */
@@ -337,6 +445,9 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
     } else if (n != 0 && IsPathSeparator(buf[0])) {
         creation_start = 1;
     }
+
+    // CreateDirectoryWが既存volume rootへALREADY_EXISTS以外を返す環境でもroot契約を保つ。
+    if (IsDirectoryRootPath(buf, n) && DirectoryExists(path)) return Ok();
 
     /** 中間ディレクトリ候補を走査する位置。 */
     for (usize i = 0; i < n; ++i) {

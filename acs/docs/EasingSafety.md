@@ -27,6 +27,44 @@
 `TryParseName` を使用する。canonical名は安定した、大文字小文字を区別する
 ASCII識別子である。
 
+## 旧形式の数値 ID
+
+旧 Kit 形式で保存された数値 ID は、`EEasingType` へ直接castせず
+`FLegacyKitEaseIdCodec` で移行する。旧形式とACSでは同じ曲線でも数値順が
+異なり、同じ数値を持つのは `Linear = 0` だけである。
+
+```cpp
+Easing::EEasingType type = Easing::EEasingType::Linear;
+if (!FLegacyKitEaseIdCodec::TryDecode(saved_legacy_id, type)) {
+    // typeは変更されない
+}
+```
+
+固定された33個の対応は次の通り。
+
+| 旧 ID | ACS型 | 旧 ID | ACS型 | 旧 ID | ACS型 |
+|---:|---|---:|---|---:|---|
+| 0 | `Linear` | 11 | `SmootherStep` | 22 | `InExpo` |
+| 1 | `SmoothStep` | 12 | `InSine` | 23 | `OutExpo` |
+| 2 | `OutElastic` | 13 | `OutSine` | 24 | `InOutExpo` |
+| 3 | `InQuad` | 14 | `InOutQuad` | 25 | `InCirc` |
+| 4 | `OutQuad` | 15 | `InOutCubic` | 26 | `OutCirc` |
+| 5 | `InCubic` | 16 | `InQuart` | 27 | `InOutCirc` |
+| 6 | `OutCubic` | 17 | `OutQuart` | 28 | `InOutBack` |
+| 7 | `InOutSine` | 18 | `InOutQuart` | 29 | `InElastic` |
+| 8 | `InBack` | 19 | `InQuint` | 30 | `InOutElastic` |
+| 9 | `OutBack` | 20 | `OutQuint` | 31 | `InBounce` |
+| 10 | `OutBounce` | 21 | `InOutQuint` | 32 | `InOutBounce` |
+
+- `TryDecode` は旧 ID `0` 以上 `33` 未満だけを受理する。
+- `TryEncode` は上表にあるACS型だけを旧 IDへ戻す。将来追加される型は、
+  対応表を明示更新するまで拒否する。
+- どちらも失敗時に出力引数を変更せず、メモリ確保を行わない `noexcept` API。
+- 旧形式の別名文字列はACSのcanonical名ではないため、
+  `Easing::TryParseName` へ追加しない。
+- 変換対象は保存された曲線識別子である。評価はACSの正規実装を使うため、
+  過去実装との浮動小数点bit列の完全一致を保証するものではない。
+
 ## 数学的契約
 
 全ての曲線は正規化時刻 `t` を正規化補間進度へ写像する。
@@ -210,6 +248,16 @@ GameFrameworkはEasyへ依存しない。この境界を変更する場合は
 - 従来関数ポインタ境界での全域関数動作。
 - fallback、checked名前変換の全33種roundtrip、エラー分類、出力不変性。
 - 一括サンプリングの全33種一致、厳密な両端、点数上限、失敗時の配列全体不変性。
+
+### `tests/legacy_kit_ease_id_codec_tests.cpp`
+
+旧形式の固定ID変換を検証する。
+
+- 独立した全33件のgolden対応表。
+- 旧IDとACS型の両方向roundtrip。
+- `-1`、`33`、32bit整数の両端、`Count`、`0xff` の拒否。
+- 失敗時の出力不変性と両APIの `noexcept`。
+- 直接castでは旧IDを移行できないこと。
 
 ### `tests/animation_curve_persistence_tests.cpp`
 

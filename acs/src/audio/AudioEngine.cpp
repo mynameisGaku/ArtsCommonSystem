@@ -10,6 +10,7 @@
 #include "threading/Thread.h"
 #endif
 
+#include <cmath>
 #include <combaseapi.h>
 #include <new>
 #include <xaudio2.h>
@@ -20,6 +21,24 @@ namespace {
 
 /** 同時に確保できる発音スロット (ソースボイス) の上限。 */
 constexpr u32 kMaxVoices = 64;
+
+/**
+ * 音量を音声APIへ渡せる安全な範囲へ収める。
+ * @param Volume 利用者から受け取った音量。
+ * @return 非有限値は0、有限値は0から1へ収めた値。
+ */
+f32 NormalizeAudioVolume(f32 Volume) noexcept
+{
+    if (!std::isfinite(Volume) || Volume <= 0.0f)
+    {
+        return 0.0f;
+    }
+    if (Volume >= 1.0f)
+    {
+        return 1.0f;
+    }
+    return Volume;
+}
 
 /**
  * 1 個の発音スロット (XAudio2 ソースボイス + 再生用データ)。
@@ -39,6 +58,14 @@ struct FVoiceSlot {
 
     /** このスロットが現在使用中か。 */
     bool bInUse = false;
+
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    /** テストbackendが保持する個別音量。 */
+    f32 TestVolume = 1.0f;
+
+    /** テストbackend上で発音ボイスを確保しているか。 */
+    bool bTestVoiceCreated = false;
+#endif
 };
 
 u64 DestroySlot(FVoiceSlot& Slot) noexcept;
@@ -106,6 +133,27 @@ struct FAudioEngine::FImpl {
 #if defined(ACS_AUDIO_TEST_HOOKS)
     /** テスト用の疑似 MTA 参照で、実 CoDecrementMTAUsage を呼ばない。 */
     bool bTestMtaUsage = false;
+
+    /** 実音声機器の代わりに決定的なテストbackendを使うか。 */
+    bool bVolumeTestBackend = false;
+
+    /** 再生開始時の個別音量設定を拒否するか。 */
+    bool bFailPlayVolume = false;
+
+    /** 再生中の個別音量設定を拒否するか。 */
+    bool bFailSetVolume = false;
+
+    /** 全体音量設定を拒否するか。 */
+    bool bFailMasterVolume = false;
+
+    /** テストbackendが保持する全体音量。 */
+    f32 TestMasterVolume = 1.0f;
+
+    /** テストbackendが最後に受け取った正規化済み音量。 */
+    f32 LastVolumeAttempt = 1.0f;
+
+    /** void音量操作が失敗して警告した回数。 */
+    u32 VolumeFailureWarningCount = 0u;
 #endif
 
     /** スロット表とアクティブ数を保護する mutex。 */
@@ -122,6 +170,186 @@ struct FAudioEngine::FImpl {
 };
 
 namespace {
+
+/**
+ * 再生用backendが利用可能かを返す。
+ * @param Implementation 確認する音声エンジンの内部状態。
+ * @return 実backendまたはテストbackendを使える場合はtrue。
+ */
+bool HasPlaybackBackend(const FAudioEngine::FImpl& Implementation) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        return true;
+    }
+#endif
+    return Implementation.XAudio2 != nullptr;
+}
+
+/**
+ * 音声アセット用の発音ボイスを作る。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ * @param Slot 作成したボイスを保持する発音枠。
+ * @param WaveFormat 音声データの形式。
+ * @return 音声APIの結果。
+ */
+HRESULT CreateSourceVoice(FAudioEngine::FImpl& Implementation, FVoiceSlot& Slot, const WAVEFORMATEX& WaveFormat) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        Slot.bTestVoiceCreated = true;
+        return S_OK;
+    }
+#endif
+    if (Implementation.XAudio2 == nullptr)
+    {
+        return E_POINTER;
+    }
+    return Implementation.XAudio2->CreateSourceVoice(&Slot.Voice, &WaveFormat);
+}
+
+/**
+ * 発音ボイスが作成済みかを返す。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ * @param Slot 確認する発音枠。
+ * @return 実ボイスまたはテスト用ボイスが存在する場合はtrue。
+ */
+bool HasSourceVoice(const FAudioEngine::FImpl& Implementation, const FVoiceSlot& Slot) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        return Slot.bTestVoiceCreated;
+    }
+#else
+    (void)Implementation;
+#endif
+    return Slot.Voice != nullptr;
+}
+
+/**
+ * 再生用データを発音ボイスへ渡す。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ * @param Slot 再生に使う発音枠。
+ * @param Buffer 再生用データの参照情報。
+ * @return 音声APIの結果。
+ */
+HRESULT SubmitSourceBuffer(FAudioEngine::FImpl& Implementation, FVoiceSlot& Slot, const XAUDIO2_BUFFER& Buffer) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        return S_OK;
+    }
+#else
+    (void)Implementation;
+#endif
+    if (Slot.Voice == nullptr)
+    {
+        return E_POINTER;
+    }
+    return Slot.Voice->SubmitSourceBuffer(&Buffer);
+}
+
+/**
+ * 個別音量を発音ボイスへ設定する。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ * @param Slot 音量を変える発音枠。
+ * @param Volume 正規化済み音量。
+ * @param bPlaySetup 再生開始中の設定ならtrue。
+ * @return 音声APIの結果。
+ */
+HRESULT SetSourceVolume(FAudioEngine::FImpl& Implementation, FVoiceSlot& Slot, f32 Volume, bool bPlaySetup) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        Implementation.LastVolumeAttempt = Volume;
+        if ((bPlaySetup && Implementation.bFailPlayVolume) || (!bPlaySetup && Implementation.bFailSetVolume))
+        {
+            return E_FAIL;
+        }
+        Slot.TestVolume = Volume;
+        return S_OK;
+    }
+#else
+    (void)Implementation;
+    (void)bPlaySetup;
+#endif
+    if (Slot.Voice == nullptr)
+    {
+        return E_POINTER;
+    }
+    return Slot.Voice->SetVolume(Volume);
+}
+
+/**
+ * 発音ボイスの再生を開始する。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ * @param Slot 再生を開始する発音枠。
+ * @return 音声APIの結果。
+ */
+HRESULT StartSourceVoice(FAudioEngine::FImpl& Implementation, FVoiceSlot& Slot) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        return S_OK;
+    }
+#else
+    (void)Implementation;
+#endif
+    if (Slot.Voice == nullptr)
+    {
+        return E_POINTER;
+    }
+    return Slot.Voice->Start(0);
+}
+
+/**
+ * 全体音量を最終出力へ設定する。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ * @param Volume 正規化済み音量。
+ * @return 音声APIの結果。
+ */
+HRESULT ApplyMasterVolume(FAudioEngine::FImpl& Implementation, f32 Volume) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        Implementation.LastVolumeAttempt = Volume;
+        if (Implementation.bFailMasterVolume)
+        {
+            return E_FAIL;
+        }
+        Implementation.TestMasterVolume = Volume;
+        return S_OK;
+    }
+#endif
+    if (Implementation.MasteringVoice == nullptr)
+    {
+        return E_POINTER;
+    }
+    return Implementation.MasteringVoice->SetVolume(Volume);
+}
+
+/**
+ * void音量操作の失敗警告をテスト診断へ記録する。
+ * @param Implementation 操作する音声エンジンの内部状態。
+ */
+void RecordVolumeFailureWarning(FAudioEngine::FImpl& Implementation) noexcept
+{
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    if (Implementation.bVolumeTestBackend)
+    {
+        ++Implementation.VolumeFailureWarningCount;
+    }
+#else
+    (void)Implementation;
+#endif
+}
 
 /** 全スロットを停止して active count を 0 に戻す。 */
 void StopAllSlots(FAudioEngine::FImpl& Implementation) noexcept
@@ -316,8 +544,7 @@ FSoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop
         return kInvalidSound;
     }
     FImpl* const Implementation = m_Impl;
-    if (Implementation == nullptr || Implementation->XAudio2 == nullptr ||
-        Asset.SampleByteCount() == 0 || Asset.SampleByteCount() > 0xFFFFFFFFu)
+    if (Implementation == nullptr || !HasPlaybackBackend(*Implementation) || Asset.SampleByteCount() == 0 || Asset.SampleByteCount() > 0xFFFFFFFFu)
     {
         return kInvalidSound;
     }
@@ -349,8 +576,8 @@ FSoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop
     WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
     WaveFormat.cbSize = 0;
 
-    HRESULT Result = Implementation->XAudio2->CreateSourceVoice(&Slot.Voice, &WaveFormat);
-    if (FAILED(Result) || Slot.Voice == nullptr)
+    HRESULT Result = CreateSourceVoice(*Implementation, Slot, WaveFormat);
+    if (FAILED(Result) || !HasSourceVoice(*Implementation, Slot))
     {
         if (Slot.Voice != nullptr)
         {
@@ -383,23 +610,21 @@ FSoundHandle FAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop
     Buffer.Flags = XAUDIO2_END_OF_STREAM;
     Buffer.LoopCount = bLoop ? XAUDIO2_LOOP_INFINITE : 0;
 
-    if (Volume < 0)
-    {
-        Volume = 0;
-    }
-    if (Volume > 1)
-    {
-        Volume = 1;
-    }
+    Volume = NormalizeAudioVolume(Volume);
 
-    Result = Slot.Voice->SubmitSourceBuffer(&Buffer);
+    Result = SubmitSourceBuffer(*Implementation, Slot, Buffer);
     if (FAILED(Result))
     {
         DestroySlot(Slot);
         return kInvalidSound;
     }
-    Slot.Voice->SetVolume(Volume);
-    Result = Slot.Voice->Start(0);
+    Result = SetSourceVolume(*Implementation, Slot, Volume, true);
+    if (FAILED(Result))
+    {
+        DestroySlot(Slot);
+        return kInvalidSound;
+    }
+    Result = StartSourceVoice(*Implementation, Slot);
     if (FAILED(Result))
     {
         DestroySlot(Slot);
@@ -434,6 +659,10 @@ u64 DestroySlot(FVoiceSlot& Slot) noexcept
     ++Slot.Generation;
     Slot.ReservedBufferBytes = 0u;
     Slot.bInUse = false;
+#if defined(ACS_AUDIO_TEST_HOOKS)
+    Slot.TestVolume = 1.0f;
+    Slot.bTestVoiceCreated = false;
+#endif
     return ReleasedBufferBytes;
 }
 } // namespace
@@ -500,17 +729,12 @@ void FAudioEngine::SetVolume(FSoundHandle Handle, f32 Volume) noexcept
     {
         return;
     }
-    if (Volume < 0)
+    Volume = NormalizeAudioVolume(Volume);
+    const HRESULT Result = SetSourceVolume(*Implementation, Slot, Volume, false);
+    if (FAILED(Result))
     {
-        Volume = 0;
-    }
-    if (Volume > 1)
-    {
-        Volume = 1;
-    }
-    if (Slot.Voice)
-    {
-        Slot.Voice->SetVolume(Volume);
+        RecordVolumeFailureWarning(*Implementation);
+        ACS_LOG_WARN("FAudioEngine::SetVolume failed (hr=0x%08lx)", static_cast<unsigned long>(Result));
     }
 }
 
@@ -547,20 +771,18 @@ void FAudioEngine::SetMasterVolume(f32 Volume) noexcept
         return;
     }
     FImpl* const Implementation = m_Impl;
-    if (Implementation == nullptr || Implementation->MasteringVoice == nullptr)
+    if (Implementation == nullptr)
     {
         return;
     }
     FScopedLock StateLock(Implementation->StateMutex);
-    if (Volume < 0)
+    Volume = NormalizeAudioVolume(Volume);
+    const HRESULT Result = ApplyMasterVolume(*Implementation, Volume);
+    if (FAILED(Result))
     {
-        Volume = 0;
+        RecordVolumeFailureWarning(*Implementation);
+        ACS_LOG_WARN("FAudioEngine::SetMasterVolume failed (hr=0x%08lx)", static_cast<unsigned long>(Result));
     }
-    if (Volume > 1)
-    {
-        Volume = 1;
-    }
-    Implementation->MasteringVoice->SetVolume(Volume);
 }
 
 void FAudioEngine::PauseAll() noexcept
@@ -671,11 +893,147 @@ TResult<void> FAudioEngine::InitializeLifecycleTestState() noexcept
     return Ok();
 }
 
-void FAudioEngine::ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
-                                                       TAtomic<u32>* Release) noexcept
+/** 公開音量操作を実音声機器なしで検証できる内部状態を作る。 */
+TResult<void> FAudioEngine::InitializeVolumeTestState() noexcept
+{
+    TResult<void> Result = InitializeLifecycleTestState();
+    if (Result.IsErr())
+    {
+        return Result;
+    }
+
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return ACS_ERR(Generic, 5, "FAudioEngine volume test state is unavailable");
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    m_Impl->bVolumeTestBackend = true;
+    return Ok();
+}
+
+/** 状態読み取り処理を停止するテスト用の合図を設定する。 */
+void FAudioEngine::ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered, TAtomic<u32>* Release) noexcept
 {
     g_AudioLifecycleTestRelease.Store(Release, EMemoryOrder::Release);
     g_AudioLifecycleTestEntered.Store(Entered, EMemoryOrder::Release);
+}
+
+/** テストbackendで失敗させる音量操作を設定する。 */
+void FAudioEngine::ConfigureVolumeFailuresForTesting(bool bPlayVolume, bool bSetVolume, bool bMasterVolume) noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    if (!m_Impl->bVolumeTestBackend)
+    {
+        return;
+    }
+    m_Impl->bFailPlayVolume = bPlayVolume;
+    m_Impl->bFailSetVolume = bSetVolume;
+    m_Impl->bFailMasterVolume = bMasterVolume;
+}
+
+/** 公開音量操作と同じ規則で入力を正規化する。 */
+f32 FAudioEngine::NormalizeVolumeForTesting(f32 Volume) noexcept
+{
+    return NormalizeAudioVolume(Volume);
+}
+
+/** 指定した再生についてテストbackendが保持する個別音量を返す。 */
+f32 FAudioEngine::VolumeForTesting(FSoundHandle Handle) const noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr || !Handle.IsValid() || Handle.index >= kMaxVoices)
+    {
+        return -1.0f;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    const FVoiceSlot& Slot = m_Impl->Slots[Handle.index];
+    if (!m_Impl->bVolumeTestBackend || !Slot.bInUse || Slot.Generation != Handle.generation)
+    {
+        return -1.0f;
+    }
+    return Slot.TestVolume;
+}
+
+/** テストbackendが保持する全体音量を返す。 */
+f32 FAudioEngine::MasterVolumeForTesting() const noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return -1.0f;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    return m_Impl->bVolumeTestBackend ? m_Impl->TestMasterVolume : -1.0f;
+}
+
+/** テストbackendが最後に受け取った正規化済み音量を返す。 */
+f32 FAudioEngine::LastVolumeAttemptForTesting() const noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return -1.0f;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    return m_Impl->bVolumeTestBackend ? m_Impl->LastVolumeAttempt : -1.0f;
+}
+
+/** テストbackendで再生中に保持している音声データ容量を返す。 */
+u64 FAudioEngine::ResidentBufferBytesForTesting() const noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return 0u;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    return m_Impl->ResidentBufferBytes;
+}
+
+/** テストbackendが現在確保している発音ボイス数を返す。 */
+u32 FAudioEngine::AllocatedVoiceCountForTesting() const noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return 0u;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    if (!m_Impl->bVolumeTestBackend)
+    {
+        return 0u;
+    }
+
+    /** 確保中のテスト用発音ボイス数。 */
+    u32 VoiceCount = 0u;
+
+    /** 確保状態を確認する発音枠番号。 */
+    for (u32 Index = 0u; Index < kMaxVoices; ++Index)
+    {
+        if (m_Impl->Slots[Index].bTestVoiceCreated)
+        {
+            ++VoiceCount;
+        }
+    }
+    return VoiceCount;
+}
+
+/** 個別音量または全体音量の失敗を警告した回数を返す。 */
+u32 FAudioEngine::VolumeFailureWarningCountForTesting() const noexcept
+{
+    FScopedSharedLock LifecycleLock(m_LifecycleLock);
+    if (m_Impl == nullptr)
+    {
+        return 0u;
+    }
+    FScopedLock StateLock(m_Impl->StateMutex);
+    return m_Impl->VolumeFailureWarningCount;
 }
 
 bool FAudioEngine::IsShutdownRequestedForTesting() const noexcept

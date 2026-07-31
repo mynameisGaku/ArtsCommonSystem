@@ -24,6 +24,10 @@ constexpr i64 kDequeCapacity     = 4096;
 constexpr i64 kDequeCapacityMask = kDequeCapacity - 1;
 static_assert((kDequeCapacity & kDequeCapacityMask) == 0, "Deque capacity must be a power of two");
 
+/** 共有アトミック値の所有群を分離するキャッシュラインのバイト数。 */
+constexpr usize kCacheLineBytes = 64u;
+static_assert((kCacheLineBytes & (kCacheLineBytes - 1u)) == 0u);
+
 /** ワーカー数の上限 (PoolState の threads[] サイズと一致)。 */
 constexpr u32 kMaxWorkers = 256;
 
@@ -56,12 +60,12 @@ constexpr u32 kParallelForContextBlockPoolCount = 32;
  * top/bottom はアトミックで、release ストア・acquire ロード・最後の 1 個の CAS
  * arbitration により lock-free に競合を解決する。64B 整列で false sharing を避ける。
  */
-struct alignas(64) FWorkerDeque {
+struct alignas(kCacheLineBytes) FWorkerDeque {
     /** Steal 側 (先頭) のインデックス。他ワーカーが奪う。 */
-    alignas(64) TAtomic<i64> top{0};
+    alignas(kCacheLineBytes) TAtomic<i64> top{0};
 
     /** オーナー側 (末尾) のインデックス。オーナーが追加・取り出す。 */
-    alignas(64) TAtomic<i64> bottom{0};
+    alignas(kCacheLineBytes) TAtomic<i64> bottom{0};
 
     /** タスク本体のリングバッファ (値コピーで格納)。 */
     FTask buffer[kDequeCapacity]{};
@@ -130,9 +134,9 @@ struct alignas(64) FWorkerDeque {
     }
 };
 
-static_assert(offsetof(FWorkerDeque, top) % 64u == 0u);
-static_assert(offsetof(FWorkerDeque, bottom) % 64u == 0u);
-static_assert(offsetof(FWorkerDeque, bottom) - offsetof(FWorkerDeque, top) >= 64u);
+static_assert(offsetof(FWorkerDeque, top) % kCacheLineBytes == 0u);
+static_assert(offsetof(FWorkerDeque, bottom) % kCacheLineBytes == 0u);
+static_assert(offsetof(FWorkerDeque, bottom) - offsetof(FWorkerDeque, top) >= kCacheLineBytes);
 
 /** 外部投入キューの単方向リストノード (プール外スレッドからの Submit を保持)。 */
 struct FSubmissionNode {
@@ -157,6 +161,18 @@ struct FSubmissionQueue {
     /** 現在キューに溜まっているタスク数。 */
     u32              count = 0;
 };
+
+/** 公開APIの寿命参照だけを専用cache lineへ収める内部状態。 */
+struct alignas(kCacheLineBytes) FApiLifetimeState {
+    /** 公開APIがPoolStateを参照している数。解放前の寿命障壁に使う。 */
+    TAtomic<u32> api_users{0};
+
+    /** Submitが受付判定から公開完了までにいる数。終了開始時の障壁に使う。 */
+    TAtomic<u32> active_submitters{0};
+};
+
+static_assert(alignof(FApiLifetimeState) == kCacheLineBytes);
+static_assert(sizeof(FApiLifetimeState) == kCacheLineBytes);
 
 /** ParallelFor の 1 チャンク分の実行 context。 */
 struct FParallelForContext {
@@ -189,7 +205,7 @@ struct FParallelForContextBlock {
  */
 struct FPoolState;
 
-struct alignas(64) FWorker {
+struct alignas(kCacheLineBytes) FWorker {
     /** このワーカーのワークスチール deque。 */
     FWorkerDeque  deque;
 
@@ -214,6 +230,9 @@ struct alignas(64) FWorker {
 
 /** スレッドプール全体の状態 (シングルトン)。 */
 struct FPoolState {
+    /** 64B整列前の確保元ポインタ。終了時のHeapFreeへ渡す。 */
+    void* state_allocation = nullptr;
+
     /** ワーカー配列 (64B 整列で確保)。 */
     FWorker*           workers      = nullptr;
 
@@ -232,20 +251,14 @@ struct FPoolState {
     /** 外部スレッドから新しい仕事を受け付ける間は 1。終了開始時に 0 へ遷移する。 */
     TAtomic<u32> accepting{0};
 
-    /** 受理済みで、まだコールバックから戻っていないタスク数。 */
-    TAtomic<u32> outstanding{0};
+    /** 実行制御用キャッシュラインから分離した未完了タスク数。 */
+    alignas(kCacheLineBytes) TAtomic<u32> outstanding{0};
 
     /** 公開済みだが、まだいずれの実行者にも取得されていないタスク数。 */
     TAtomic<u32> queued_work{0};
 
     /** queued_work のうち外部投入 FIFO に残っているタスク数。 */
     TAtomic<u32> external_queued_work{0};
-
-    /** 公開 API がこの PoolState を参照している数。解放前のライフタイム障壁に使う。 */
-    TAtomic<u32> api_users{0};
-
-    /** Submit が受付判定から公開完了までの区間にいる呼び出し数。終了開始時の障壁に使う。 */
-    TAtomic<u32> active_submitters{0};
 
     /** 外部投入キュー。 */
     FSubmissionQueue   submit;
@@ -319,7 +332,61 @@ struct FPoolState {
     /** ParallelFor が OS heap へ退避した block 数。 */
     TAtomic<u64> parallel_for_heap_blocks{0};
 
+    /** 他の共有状態とcache lineを共有しないAPI寿命参照。必ず末尾へ置く。 */
+    FApiLifetimeState api_lifetime{};
 };
+
+/** 三所有群のキャッシュライン配置をコンパイル時に固定する。 */
+static_assert(alignof(FPoolState) >= kCacheLineBytes);
+static_assert(offsetof(FPoolState, outstanding) % kCacheLineBytes == 0u);
+static_assert(offsetof(FPoolState, api_lifetime) % kCacheLineBytes == 0u);
+static_assert(offsetof(FPoolState, api_lifetime) + sizeof(FApiLifetimeState) == sizeof(FPoolState));
+static_assert(offsetof(FPoolState, running) / kCacheLineBytes == offsetof(FPoolState, accepting) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, running) / kCacheLineBytes != offsetof(FPoolState, outstanding) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, outstanding) / kCacheLineBytes == offsetof(FPoolState, queued_work) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, outstanding) / kCacheLineBytes == offsetof(FPoolState, external_queued_work) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, outstanding) / kCacheLineBytes != offsetof(FPoolState, api_lifetime) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, api_lifetime) / kCacheLineBytes != offsetof(FPoolState, submit) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, api_lifetime) / kCacheLineBytes != offsetof(FPoolState, wake_lock) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, api_lifetime) / kCacheLineBytes != offsetof(FPoolState, wake_cv) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, api_lifetime) / kCacheLineBytes != offsetof(FPoolState, sleeping_workers) / kCacheLineBytes);
+static_assert(offsetof(FPoolState, api_lifetime) / kCacheLineBytes != offsetof(FPoolState, wake_reservations) / kCacheLineBytes);
+static_assert(offsetof(FApiLifetimeState, api_users) / kCacheLineBytes == offsetof(FApiLifetimeState, active_submitters) / kCacheLineBytes);
+
+/**
+ * 64B境界へ整列したPoolStateを確保する。
+ *
+ * @return 構築済みstate。確保失敗時はnullptr。
+ */
+FPoolState* CreatePoolState() noexcept
+{
+    /** 整列余白を含む確保byte数。 */
+    constexpr usize kAllocationBytes = sizeof(FPoolState) + kCacheLineBytes - 1u;
+    /** HeapFreeへ渡す元ポインタ。 */
+    void* const allocation = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, kAllocationBytes);
+    if (!allocation) return nullptr;
+    /** PoolStateを構築する64B境界アドレス。 */
+    const uptr aligned_address = (reinterpret_cast<uptr>(allocation) + kCacheLineBytes - 1u) & ~uptr{kCacheLineBytes - 1u};
+    ACS_ASSERT((aligned_address & (kCacheLineBytes - 1u)) == 0u);
+    /** 整列済み領域で寿命を開始したPoolState。 */
+    FPoolState* const state = ::new (reinterpret_cast<void*>(aligned_address)) FPoolState();
+    state->state_allocation = allocation;
+    return state;
+}
+
+/**
+ * PoolStateを破棄して整列前の確保元を解放する。
+ *
+ * @param state 破棄するstate。nullptrは無視する。
+ */
+void DestroyPoolState(FPoolState* state) noexcept
+{
+    if (!state) return;
+    /** placement new前にHeapAllocが返した解放対象。 */
+    void* const allocation = state->state_allocation;
+    state->~FPoolState();
+    ::HeapFree(::GetProcessHeap(), 0, allocation);
+}
 
 /** プール全体の状態へのグローバルポインタ (null = 未初期化)。 */
 FPoolState* g_pool = nullptr;
@@ -351,12 +418,12 @@ public:
     {
         FScopedLock lock(g_lifecycle_lock);
         m_Pool = g_pool;
-        if (m_Pool) m_Pool->api_users.FetchAdd(1);
+        if (m_Pool) m_Pool->api_lifetime.api_users.FetchAdd(1);
     }
 
     ~FPoolPin() noexcept
     {
-        if (m_Pool) m_Pool->api_users.FetchSub(1);
+        if (m_Pool) m_Pool->api_lifetime.api_users.FetchSub(1);
     }
 
     FPoolPin(const FPoolPin&) = delete;
@@ -724,21 +791,19 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     if (worker_count == 0) worker_count = HardwareConcurrency();
     if (worker_count > kMaxWorkers) worker_count = kMaxWorkers;
 
-    // PoolState をプロセスヒープから 0 クリア確保
-    void* mem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(FPoolState));
-    if (!mem) return ACS_ERR(Memory, 2, "FThreadPool state alloc failed");
-    g_pool = ::new (mem) FPoolState();
+    // 共有アトミック値のキャッシュライン境界を保証したPoolStateを確保する。
+    g_pool = CreatePoolState();
+    if (!g_pool) return ACS_ERR(Memory, 2, "FThreadPool state alloc failed");
 
     // ワーカー配列を 64B 境界整列で確保
-    usize total = sizeof(FWorker) * worker_count + 64;
+    usize total = sizeof(FWorker) * worker_count + kCacheLineBytes - 1u;
     void* wmem = ::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, total);
     if (!wmem) {
-        g_pool->~FPoolState();
-        ::HeapFree(::GetProcessHeap(), 0, g_pool);
+        DestroyPoolState(g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 3, "FThreadPool worker alloc failed");
     }
-    uptr aligned = (reinterpret_cast<uptr>(wmem) + 63) & ~uptr{63};
+    uptr aligned = (reinterpret_cast<uptr>(wmem) + kCacheLineBytes - 1u) & ~uptr{kCacheLineBytes - 1u};
     g_pool->worker_allocation = wmem;
     g_pool->workers = reinterpret_cast<FWorker*>(aligned);
     for (u32 i = 0; i < worker_count; ++i) {
@@ -752,8 +817,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     void* pool_mem = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPoolAllocator));
     if (!pool_mem) {
         ::HeapFree(::GetProcessHeap(), 0, wmem);
-        g_pool->~FPoolState();
-        ::HeapFree(::GetProcessHeap(), 0, g_pool);
+        DestroyPoolState(g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 7, "FThreadPool submit pool alloc failed");
     }
@@ -766,8 +830,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
         g_pool->submit_node_pool->~FPoolAllocator();
         ::HeapFree(::GetProcessHeap(), 0, g_pool->submit_node_pool);
         ::HeapFree(::GetProcessHeap(), 0, wmem);
-        g_pool->~FPoolState();
-        ::HeapFree(::GetProcessHeap(), 0, g_pool);
+        DestroyPoolState(g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 8, "FThreadPool callable pool alloc failed");
     }
@@ -801,8 +864,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
                 ::HeapFree(::GetProcessHeap(), 0, g_pool->parallel_for_context_pool);
             }
             ::HeapFree(::GetProcessHeap(), 0, wmem);
-            g_pool->~FPoolState();
-            ::HeapFree(::GetProcessHeap(), 0, g_pool);
+            DestroyPoolState(g_pool);
             g_pool = nullptr;
             return Err<void>(r.Error());
         }
@@ -834,7 +896,7 @@ void FThreadPool::Shutdown() noexcept {
     WakeAllWorkers(pool);
 
     // 受付判定を通過済みの Submit がキュー公開または失敗巻き戻しを終えるまで待つ。
-    while (pool->active_submitters.Load(EMemoryOrder::Acquire) != 0)
+    while (pool->api_lifetime.active_submitters.Load(EMemoryOrder::Acquire) != 0)
         Yield();
 
     // outstanding はコールバックから戻った後に減る。従って 0 ならキュー・deque・
@@ -853,7 +915,7 @@ void FThreadPool::Shutdown() noexcept {
         FScopedLock lifecycle_lock(g_lifecycle_lock);
         if (g_pool == pool) g_pool = nullptr;
     }
-    while (pool->api_users.Load(EMemoryOrder::Acquire) != 0)
+    while (pool->api_lifetime.api_users.Load(EMemoryOrder::Acquire) != 0)
         Yield();
 
     // outstanding == 0 なら通常は空。防御的にノードだけを回収する。
@@ -903,8 +965,7 @@ void FThreadPool::Shutdown() noexcept {
     ::HeapFree(::GetProcessHeap(), 0, pool->worker_allocation);
     pool->worker_allocation = nullptr;
 
-    pool->~FPoolState();
-    ::HeapFree(::GetProcessHeap(), 0, pool);
+    DestroyPoolState(pool);
 }
 
 /** 起動中のワーカー数を返す (未初期化なら 0)。 */
@@ -930,7 +991,7 @@ FThreadPool::FCallableTaskStorage* FThreadPool::AcquireCallableTaskStorage() noe
         pool = g_pool;
         if (!pool) return nullptr;
         // 構築中に Shutdown がノードプールを解放しないよう寿命を保持する。
-        pool->api_users.FetchAdd(1);
+        pool->api_lifetime.api_users.FetchAdd(1);
     }
 
     void* memory = nullptr;
@@ -942,7 +1003,7 @@ FThreadPool::FCallableTaskStorage* FThreadPool::AcquireCallableTaskStorage() noe
         memory = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FCallableTaskStorage));
     }
     if (!memory) {
-        pool->api_users.FetchSub(1);
+        pool->api_lifetime.api_users.FetchSub(1);
         return nullptr;
     }
 
@@ -966,7 +1027,7 @@ void FThreadPool::AbandonCallableTaskStorage(FCallableTaskStorage* storage) noex
     } else {
         ::HeapFree(::GetProcessHeap(), 0, storage);
     }
-    pool->api_users.FetchSub(1);
+    pool->api_lifetime.api_users.FetchSub(1);
 }
 
 /** 構築済み所有 callable を通常の FTask 経路へ公開する。 */
@@ -988,7 +1049,7 @@ TResult<void> FThreadPool::PublishCallableTaskStorage(FCallableTaskStorage* stor
             pool->callable_heap_submissions.FetchAdd(1);
         else
             pool->callable_inline_submissions.FetchAdd(1);
-        pool->api_users.FetchSub(1);
+        pool->api_lifetime.api_users.FetchSub(1);
         return result;
     }
 
@@ -1004,7 +1065,7 @@ TResult<void> FThreadPool::PublishCallableTaskStorage(FCallableTaskStorage* stor
     } else {
         ::HeapFree(::GetProcessHeap(), 0, storage);
     }
-    pool->api_users.FetchSub(1);
+    pool->api_lifetime.api_users.FetchSub(1);
     return result;
 }
 
@@ -1103,10 +1164,10 @@ TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
     if (!pool) return ACS_ERR(Threading, 3, "FThreadPool not initialized");
     if (!t.fn)   return ACS_ERR(Threading, 4, "Task fn is null");
 
-    pool->active_submitters.FetchAdd(1);
+    pool->api_lifetime.active_submitters.FetchAdd(1);
     const bool is_child_submit = tls_executing_pool == pool;
     if (pool->accepting.Load(EMemoryOrder::Acquire) == 0 && !is_child_submit) {
-        pool->active_submitters.FetchSub(1);
+        pool->api_lifetime.active_submitters.FetchSub(1);
         return ACS_ERR(Threading, 8, "FThreadPool is shutting down");
     }
 
@@ -1118,7 +1179,7 @@ TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
     if (wi != kNotAWorker && wi < pool->worker_count && is_child_submit) {
         pool->queued_work.FetchAdd(1);
         if (pool->workers[wi].deque.Push(t)) {
-            pool->active_submitters.FetchSub(1);
+            pool->api_lifetime.active_submitters.FetchSub(1);
             WakeOneIfSleeping(pool);
             return Ok();
         }
@@ -1131,7 +1192,7 @@ TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
     if (!node) {
         if (t.counter) t.counter->Done();
         pool->outstanding.FetchSub(1);
-        pool->active_submitters.FetchSub(1);
+        pool->api_lifetime.active_submitters.FetchSub(1);
         return ACS_ERR(Memory, 4, "Submission node alloc failed");
     }
     node->next = nullptr;
@@ -1152,7 +1213,7 @@ TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
         ++pool->submit.count;
         pool->submit.lock.Unlock();
     }
-    pool->active_submitters.FetchSub(1);
+    pool->api_lifetime.active_submitters.FetchSub(1);
     WakeOneIfSleeping(pool);
     return Ok();
 }

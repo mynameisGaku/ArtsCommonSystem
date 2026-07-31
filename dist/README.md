@@ -59,8 +59,11 @@ RTTI mismatches, so you get a clear message instead of cryptic link errors.
 `acs.h` emits these via pragma — you don't list them manually:
 
 `acs.lib`, `d3d12`, `dxgi`, `d3dcompiler`, `dxguid`, `xaudio2`, `ws2_32`,
-`ole32`, `dbghelp`, `winmm`, `user32`, `gdi32`, `Shlwapi`. Every entry after
+`ole32`, `dbghelp`, `winmm`, `user32`, `gdi32`, `advapi32`, `Shlwapi`. Every entry after
 `acs.lib` in this paragraph is a Windows SDK library.
+
+`advapi32` は、同梱した mimalloc が Windows の process token を設定する
+`OpenProcessToken` / `AdjustTokenPrivileges` / `LookupPrivilegeValueA` を解決するために必要です。
 
 The Diligent backend and its xxHash dependency are separate static libraries
 shipped **next to `acs.lib`** in each configuration directory. The same pragma

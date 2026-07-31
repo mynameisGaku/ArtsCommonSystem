@@ -1,27 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// Lua 5.4 backend (acs::game::IScriptVm の real 実装)。
-//
-// Lua は MIT / FetchContent 取得可能 / gating 無しなので、stub と違い
-// 実ビルド + 実動作まで完全検証できる real backend。
-//
-// 利用例:
-//   acs::scripting::FLuaVm vm;
-//   if (vm.Init().IsOk()) {
-//       vm.LoadScript("function add(a,b) return a+b end", 0, "inline");
-//       acs::game::FScriptValue args[2];
-//       args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;
-//       args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;
-//       acs::game::FScriptValue ret;
-//       vm.CallFunction("add", args, 2, &ret);  // ret.v.num == 5
-//       vm.Shutdown();
-//   }
-//
-// 設計:
-//   ・Pimpl で lua.h を public header から隠す (lua_State* を漏らさない)。
-//   ・NativeFunction の bridge は lua_pushcclosure の upvalue に
-//     (registry index, this) を載せる trampoline 方式。
-//   ・FScriptValue <-> Lua stack 変換は Nil/Bool/Number/FString/Handle の 5 種。
-//   ・全 noexcept、STL/<string> 不使用、TResult でエラー伝搬。
 #pragma once
 
 #include "foundation/Result.h"
@@ -29,22 +6,13 @@
 #include "gameframework/ScriptHost.h"
 
 namespace acs {
+/** 動的な保存領域を確保する型。 */
 class FAllocator;
 }
 
 namespace acs::scripting {
 
-/**
- * Lua 5.4 を backend にした acs::game::IScriptVm の実装。
- *
- * @details
- * Lua は MIT / FetchContent 取得可能 / gating 無しなので、stub と違い実ビルド +
- * 実動作まで完全検証できる real backend。Pimpl で lua.h を public header から隠し
- * (lua_State* を漏らさない)、NativeFunction の bridge は lua_pushcclosure の upvalue
- * に (registry index, this) を載せる trampoline 方式で実現する。FScriptValue <-> Lua
- * stack 変換は Nil/Bool/Number/FString/Handle の 5 種をサポートする。全 method は
- * noexcept で、STL/<string> 不使用、エラーは TResult で伝搬する。
- */
+/** Lua 5.4 の実行状態と登録関数を管理する。 */
 class FLuaVm final : public acs::game::IScriptVm {
 public:
     /** 空状態で構築する (lua_State は Init で生成)。 */
@@ -53,11 +21,13 @@ public:
     /**
      * 指定 allocator を native function 登録簿に使う空状態で構築する。
      *
-     * @param allocator native function 登録簿の確保に使う allocator。
+     * @details FLuaVmはallocatorへの参照を内部登録簿に保持するため、allocatorは構築した
+     * FLuaVmより後まで生存しなければならない。
+     * @param allocator native function 登録簿の確保に使い、FLuaVmより長く生存するallocator。
      */
     explicit FLuaVm(acs::FAllocator& allocator) noexcept;
 
-    /** 破棄する (Shutdown を呼んで lua_State を解放してから FImpl を delete)。 */
+    /** Lua状態を終了して内部データを解放する。 */
     ~FLuaVm() noexcept override;
 
     /** コピー禁止 (lua_State を単独所有するため)。 */
@@ -66,7 +36,7 @@ public:
     /** コピー代入も禁止。 */
     FLuaVm& operator=(const FLuaVm&) = delete;
 
-    /** ムーブ禁止 (FImpl ポインタの安定性を保つため)。 */
+    /** 内部データの位置を固定するためムーブを禁止する。 */
     FLuaVm(FLuaVm&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
@@ -101,8 +71,7 @@ public:
      * @param chunk_name エラーメッセージで使う表示名 (nullptr なら "=(load)")。
      * @return 成功なら空の TResult、未初期化 / source null / parse / 実行失敗ならエラー。
      */
-    acs::TResult<void>       LoadScript(const char* source, acs::u32 source_len,
-                                        const char* chunk_name)                  noexcept override;
+    acs::TResult<void>       LoadScript(const char* source, acs::u32 source_len, const char* chunk_name) noexcept override;
 
     /**
      * グローバル関数を呼び出す。
@@ -116,25 +85,27 @@ public:
      * @param ret_out 戻り値書き込み先 (nullptr で捨てる、その場合 0 値返し)。
      * @return 成功なら空の TResult、未初期化 / 引数不正 / 非関数 / 実行失敗ならエラー。
      */
-    acs::TResult<void>       CallFunction(const char* function_name,
-                                          const acs::game::FScriptValue* args,
-                                          acs::u32 arg_count,
-                                          acs::game::FScriptValue* ret_out)       noexcept override;
+    acs::TResult<void>       CallFunction(const char* function_name, const acs::game::FScriptValue* args, acs::u32 arg_count, acs::game::FScriptValue* ret_out) noexcept override;
 
     /**
      * C++ 関数を script グローバル空間に bind する。
      *
      * @details
-     * native registry に (fn, user) を追加し、その index と FImpl* を upvalue に載せた
-     * trampoline closure を function_name のグローバルに setglobal する。
+     * native registry に (fn, user) を追加し、その index と内部データを upvalue に載せた
+     * trampoline closure を function_name のグローバルへ公開する。登録領域を確保できない
+     * 場合はLuaのグローバルを変更せず、登録番号も消費しない。Lua側の公開は保護呼び出しで実行し、同じclosureを
+     * 関数名から取得できた場合だけ確定する。失敗時はstackとnative registry要素を戻し、
+     * 同名globalの復元も試みる。復元処理もLuaのメモリ不足になった場合は同名globalの値を
+     * 保証しない。Lua公開処理または注入allocatorから同じ実行環境へ再入した登録は、状態を
+     * 変えずに失敗させる。公開失敗時にLua側へ退避されたclosureは、登録ごとの識別番号で
+     * 後続登録と区別する。最大の登録番号は一度だけ割り当て、その後は再初期化しても登録を
+     * 恒久的に拒否する。
      * @param function_name script 側から見える関数名。
      * @param fn 呼び出される native 関数。
      * @param user fn の第 3 引数にそのまま渡されるコンテキスト (this 束縛用)。
-     * @return 成功なら空の TResult、未初期化 / 引数不正ならエラー。
+     * @return 成功なら空の TResult、未初期化 / 引数不正 / 登録領域の確保失敗 / Lua公開失敗ならエラー。
      */
-    acs::TResult<void>       RegisterNativeFunction(const char* function_name,
-                                                    acs::game::NativeFunction fn,
-                                                    void* user)                  noexcept override;
+    acs::TResult<void>       RegisterNativeFunction(const char* function_name, acs::game::NativeFunction fn, void* user) noexcept override;
 
     /**
      * グローバル数値変数を設定する。
@@ -153,8 +124,7 @@ public:
      * @param default_value 未定義 / 型不一致時に返す値。
      * @return 取得した数値 (取得できなければ default_value)。
      */
-    acs::f64                 GetGlobalNumber(const char* name,
-                                             acs::f64 default_value)       const noexcept override;
+    acs::f64                 GetGlobalNumber(const char* name, acs::f64 default_value) const noexcept override;
 
     /** lua_gc(LUA_GCCOLLECT) で強制 GC を 1 サイクル走らせる (未初期化なら no-op)。 */
     void                     CollectGarbage()                                    noexcept override;
@@ -167,13 +137,20 @@ public:
      */
     acs::u64                 MemoryUsageBytes()                            const noexcept override;
 
+#if defined(ACS_SCRIPTING_TEST_HOOKS)
+    /** 次回のnative関数登録へ最大の識別番号を割り当てるテスト専用境界設定。 */
+    void SetNextNativeRegistrationIdToMaximumForTest() noexcept;
+#endif
 private:
-    /** lua_State* と native registry を隠す Pimpl 本体 (lua.h を public header から隠す)。 */
-    struct FImpl;
+    /** Lua状態と登録関数を隠す内部データ。 */
+    class FLuaVmImpl;
 
-    /** Pimpl 本体へのポインタ (構築時に new、破棄時に delete)。 */
-    FImpl* m_Impl = nullptr;
+    /** 内部データへの所有ポインタ。 */
+    FLuaVmImpl* m_Impl = nullptr;
 };
+
+/** 移行中のC接頭辞を正規のFLuaVm型として解釈する。 */
+using CLuaVm = FLuaVm;
 
 /**
  * プロセス共有の既定 FLuaVm singleton を返す (provider の実体)。

@@ -59,6 +59,7 @@ set(_acsgen_gameframework_sources
     InspectorSeam.cpp
     InventorySystem.cpp
     LapTimer.cpp
+    LegacyKitEaseIdCodec.cpp
     LegacyScene3DAdapter.cpp
     LlmSafetyPipeline.cpp
     LocalizationDirector.cpp
@@ -210,6 +211,7 @@ set(_acsgen_gameframework_headers
     InspectorSeam.h
     InventorySystem.h
     LapTimer.h
+    LegacyKitEaseIdCodec.h
     LegacyScene3DAdapter.h
     Light2DComponent.h
     LlmSafetyPipeline.h

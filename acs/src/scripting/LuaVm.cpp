@@ -1,199 +1,189 @@
 // SPDX-License-Identifier: Apache-2.0
 // Lua 5.4 backend 実装 (acs::game::IScriptVm)。
-#include "scripting/LuaVm.h"
+#include "scripting/LuaVmImpl.h"
+#include "scripting/LuaVmValueConversion.h"
 
-#include "foundation/Log.h"
 #include "foundation/Error.h"
-#include "container/Array.h"
-
-extern "C" {
-#include "lua.h"
-#include "lauxlib.h"
-#include "lualib.h"
-}
+#include "foundation/Log.h"
 
 #include <cstring>
 
 namespace acs::scripting {
 
 using acs::game::FScriptValue;
-using acs::game::FScriptCallFrame;
 using acs::game::EScriptValueKind;
 using acs::game::NativeFunction;
+using lua_vm_detail::LuaToScriptValue;
+using lua_vm_detail::PushScriptValue;
 namespace script_err = acs::game::script_err;
-
-/**
- * lua_State* と native function registry を抱える Pimpl 本体。
- *
- * @details
- * lua.h を public header から隠すための実装隠蔽型。trampoline が IScriptVm& を
- * 渡せるよう所有 FLuaVm へのポインタも保持する。
- */
-struct FLuaVm::FImpl {
-    /** native function 登録簿の allocator を固定して構築する。 */
-    explicit FImpl(acs::FAllocator& allocator) noexcept : m_Natives(allocator)
-    {
-    }
-
-    /** Lua VM 本体 (Init で生成、Shutdown で lua_close)。 */
-    lua_State* m_L = nullptr;
-
-    /**
-     * 登録済み native function 1 件。
-     *
-     * @details lua closure の upvalue に index を載せ、trampoline がここから fn/user を引く。
-     */
-    struct FNativeReg {
-        /** script から call されたときに呼ぶ native 関数。 */
-        NativeFunction fn   = nullptr;
-
-        /** fn の第 3 引数に渡すコンテキストポインタ。 */
-        void*          user = nullptr;
-    };
-
-    /** 登録済み native function の配列 (index が closure upvalue になる)。 */
-    acs::TArray<FNativeReg> m_Natives;
-
-    /** この FImpl を所有する FLuaVm (trampoline が IScriptVm& を渡すため)。 */
-    FLuaVm*               m_Owner = nullptr;
-
-    /**
-     * 直前の CallFunction が anchor した戻り文字列の registry ref (LUA_NOREF=未保持)。
-     *
-     * @details
-     * CallFunction が返す FString は Lua 所有メモリを指す。スタックから pop すると
-     * GC 対象になり dangling になるため、直前に registry へ anchor して VM 寿命の間
-     * (= 次の CallFunction まで) 値を生かす。
-     */
-    int m_LastStringRef = LUA_NOREF;
-
-    /**
-     * 直前に anchor した戻り文字列を registry から外す (GC 許可)。
-     *
-     * @details CallFunction の度に呼び、前回の戻り文字列を解放してから今回の値を anchor し直す。
-     */
-    void ReleaseLastString() noexcept;
-
-    /**
-     * lua_CFunction として登録される native 関数 trampoline。
-     *
-     * @details
-     * static メンバなので FImpl の private メンバにアクセスできる (匿名 namespace の
-     * free 関数だと FImpl が FLuaVm の private nested 型なので触れない)。upvalue(1)=
-     * registry index、upvalue(2)=FLuaVm::FImpl* から該当 FNativeReg を引いて呼び出す。
-     * @param L Lua VM 状態。
-     * @return Lua に返す戻り値の個数 (戻り値が Nil 以外なら 1、それ以外は 0)。
-     */
-    static int NativeTrampoline(lua_State* L) noexcept;
-};
-
-/** 直前に anchor した戻り文字列を解放する (registry から unref して GC を許可)。 */
-void FLuaVm::FImpl::ReleaseLastString() noexcept {
-    if (m_L && m_LastStringRef != LUA_NOREF && m_LastStringRef != LUA_REFNIL) {
-        luaL_unref(m_L, LUA_REGISTRYINDEX, m_LastStringRef);
-    }
-    m_LastStringRef = LUA_NOREF;
-}
 
 namespace {
 
+/** Luaグローバル公開に必要な関数名、登録位置、中継先をまとめる。 */
+struct FNativeRegistrationOperation {
+    /** closureから参照するLua実装本体。 */
+    void* implementation = nullptr;
+
+    /** Luaグローバルへ公開する関数名。 */
+    const char* function_name = nullptr;
+
+    /** closureから呼び出す中継関数。 */
+    lua_CFunction trampoline = nullptr;
+
+    /** native登録簿内の関数位置。 */
+    int registration_index = 0;
+
+    /** 失敗した登録のclosureを後続登録から区別する番号。 */
+    lua_Integer registration_id = 0;
+
+    /** 公開失敗時に戻す同名グローバルのLua登録番号。 */
+    int previous_global_ref = LUA_NOREF;
+};
+
+/** 同一VMのnative登録中フラグを寿命で設定し、破棄時に解除する。 */
+class FNativeRegistrationGuard {
+public:
+    /**
+     * 再入拒否状態を開始する。
+     *
+     * @param registration_in_progress 登録中を示す状態。
+     */
+    explicit FNativeRegistrationGuard(bool& registration_in_progress) noexcept : m_RegistrationInProgress(registration_in_progress) {
+        m_RegistrationInProgress = true;
+    }
+
+    /** 再入拒否状態を解除する。 */
+    ~FNativeRegistrationGuard() noexcept {
+        m_RegistrationInProgress = false;
+    }
+
+    /** コピーによる二重解除を禁止する。 */
+    FNativeRegistrationGuard(const FNativeRegistrationGuard&) = delete;
+
+    /** コピー代入による二重解除を禁止する。 */
+    FNativeRegistrationGuard& operator=(const FNativeRegistrationGuard&) = delete;
+
+private:
+    /** 登録中を示す状態。 */
+    bool& m_RegistrationInProgress;
+};
+
+/** Lua stackの開始位置を保存し、破棄時にその位置へ戻す。 */
+class FLuaStackTopGuard {
+public:
+    /**
+     * 現在のstack位置を保存する。
+     *
+     * @param state 復元対象のLua状態。
+     */
+    explicit FLuaStackTopGuard(lua_State* state) noexcept : m_State(state), m_InitialTop(lua_gettop(state)) {}
+
+    /** 保存したstack位置へ戻す。 */
+    ~FLuaStackTopGuard() noexcept {
+        lua_settop(m_State, m_InitialTop);
+    }
+
+    /** コピーによる二重復元を禁止する。 */
+    FLuaStackTopGuard(const FLuaStackTopGuard&) = delete;
+
+    /** コピー代入による二重復元を禁止する。 */
+    FLuaStackTopGuard& operator=(const FLuaStackTopGuard&) = delete;
+
+    /** 保存したstack位置を返す。 */
+    int InitialTop() const noexcept {
+        return m_InitialTop;
+    }
+
+private:
+    /** 復元対象のLua状態。 */
+    lua_State* m_State = nullptr;
+
+    /** 登録開始時のstack位置。 */
+    int m_InitialTop = 0;
+};
+
 /**
- * Lua stack の 1 値を FScriptValue に変換する。
+ * native関数のclosureを作り、Luaグローバルへ公開する。
  *
- * @details Bool/Number/FString に対応し、それ以外の型はすべて Nil に落とす。
- * @param L Lua VM 状態。
- * @param idx 変換するスタックインデックス。
- * @return 変換した FScriptValue (FString は Lua 所有メモリを指し call 中のみ有効)。
+ * @param state 保護呼び出し中のLua状態。第1引数にFNativeRegistrationOperationを受け取る。
+ * @return Luaへ返す値の個数。
  */
-FScriptValue LuaToScriptValue(lua_State* L, int idx) noexcept {
-    FScriptValue sv{};
-    switch (lua_type(L, idx)) {
-        case LUA_TBOOLEAN:
-            sv.kind = EScriptValueKind::Bool;
-            sv.v.b  = lua_toboolean(L, idx) != 0;
-            break;
-        case LUA_TNUMBER:
-            sv.kind  = EScriptValueKind::Number;
-            sv.v.num = static_cast<f64>(lua_tonumber(L, idx));
-            break;
-        case LUA_TSTRING:
-            sv.kind = EScriptValueKind::String;
-            sv.v.str = lua_tostring(L, idx);  // Lua 所有、call 中のみ有効
-            break;
-        default:
-            sv.kind = EScriptValueKind::Nil;
-            break;
-    }
-    return sv;
-}
-
-/**
- * FScriptValue を Lua stack に push する。
- *
- * @details Bool/Number/FString/Handle を対応する Lua 値で積み、Nil はそれ以外も含め lua_pushnil。
- * @param L Lua VM 状態。
- * @param sv push する値。
- */
-void PushScriptValue(lua_State* L, const FScriptValue& sv) noexcept {
-    switch (sv.kind) {
-        case EScriptValueKind::Bool:    lua_pushboolean(L, sv.v.b ? 1 : 0);          break;
-        case EScriptValueKind::Number:  lua_pushnumber(L, static_cast<lua_Number>(sv.v.num)); break;
-        case EScriptValueKind::String: lua_pushstring(L, sv.v.str ? sv.v.str : ""); break;
-        case EScriptValueKind::Handle:  lua_pushinteger(L, static_cast<lua_Integer>(sv.v.handle)); break;
-        case EScriptValueKind::Nil:
-        default:                        lua_pushnil(L);                              break;
-    }
-}
-
-} // namespace
-
-/** native function trampoline 本体 (upvalue から FNativeReg を引いて C++ 関数を呼ぶ)。 */
-int FLuaVm::FImpl::NativeTrampoline(lua_State* L) noexcept {
-    const int reg_index = static_cast<int>(lua_tointeger(L, lua_upvalueindex(1)));
-    auto* impl = static_cast<FLuaVm::FImpl*>(lua_touserdata(L, lua_upvalueindex(2)));
-    if (!impl || reg_index < 0 ||
-        static_cast<usize>(reg_index) >= impl->m_Natives.Size()) {
-        return 0;
-    }
-    const FLuaVm::FImpl::FNativeReg& reg = impl->m_Natives[static_cast<usize>(reg_index)];
-    if (!reg.fn) return 0;
-
-    // Lua stack 上の引数を FScriptValue 配列に変換 (固定上限 16)。
-    constexpr int kMaxArgs = 16;
-    FScriptValue args[kMaxArgs];
-    int n = lua_gettop(L);
-    if (n > kMaxArgs) n = kMaxArgs;
-    for (int i = 0; i < n; ++i) {
-        args[i] = LuaToScriptValue(L, i + 1);
+int PublishNativeRegistration(lua_State* state) noexcept {
+    /** 公開するnative関数の入力。 */
+    auto* const operation = static_cast<FNativeRegistrationOperation*>(lua_touserdata(state, 1));
+    if (operation == nullptr || operation->implementation == nullptr || operation->function_name == nullptr || operation->trampoline == nullptr) {
+        return luaL_error(state, "invalid native registration operation");
     }
 
-    FScriptValue ret{};
-    FScriptCallFrame frame{};
-    frame.args      = args;
-    frame.arg_count = static_cast<u32>(n);
-    frame.ret       = &ret;
+    lua_pushglobaltable(state);
+    lua_pushstring(state, operation->function_name);
+    lua_rawget(state, -2);
+    operation->previous_global_ref = luaL_ref(state, LUA_REGISTRYINDEX);
+    lua_pop(state, 1);
 
-    reg.fn(*impl->m_Owner, frame, reg.user);
-
-    // ret が Nil 以外なら 1 値返す。
-    if (ret.kind != EScriptValueKind::Nil) {
-        PushScriptValue(L, ret);
-        return 1;
+    lua_pushinteger(state, operation->registration_index);
+    lua_pushlightuserdata(state, operation->implementation);
+    lua_pushinteger(state, operation->registration_id);
+    lua_pushcclosure(state, operation->trampoline, 3);
+    lua_pushvalue(state, -1);
+    lua_setglobal(state, operation->function_name);
+    lua_pushglobaltable(state);
+    lua_pushstring(state, operation->function_name);
+    lua_rawget(state, -2);
+    /** 大域表へ実際に保存された値と生成直後のLua関数が同じかを示す。 */
+    const bool is_published = lua_rawequal(state, -1, -3) != 0;
+    lua_pop(state, 3);
+    if (!is_published) {
+        return luaL_error(state, "native registration global was not published");
     }
     return 0;
 }
 
-/** Pimpl を確保し、所有者ポインタを自身に設定する。 */
-FLuaVm::FLuaVm() noexcept : FLuaVm(DefaultAllocator())
-{
+/**
+ * Lua公開失敗前の同名グローバルを直接書き戻す。
+ *
+ * @param state 保護呼び出し中のLua状態。第1引数にFNativeRegistrationOperationを受け取る。
+ * @return Luaへ返す値の個数。
+ */
+int RestoreNativeRegistrationGlobal(lua_State* state) noexcept {
+    /** 復元するnative関数の入力。 */
+    auto* const operation = static_cast<FNativeRegistrationOperation*>(lua_touserdata(state, 1));
+    if (operation == nullptr || operation->function_name == nullptr || operation->previous_global_ref == LUA_NOREF) {
+        return luaL_error(state, "invalid native registration rollback operation");
+    }
+
+    lua_pushglobaltable(state);
+    lua_pushstring(state, operation->function_name);
+    if (operation->previous_global_ref == LUA_REFNIL) {
+        lua_pushnil(state);
+    } else {
+        lua_rawgeti(state, LUA_REGISTRYINDEX, operation->previous_global_ref);
+    }
+    lua_rawset(state, -3);
+    lua_pop(state, 1);
+    return 0;
 }
 
+} // namespace
+
+/** Pimpl を確保し、所有者ポインタを自身に設定する。 */
+FLuaVm::FLuaVm() noexcept : FLuaVm(DefaultAllocator()) {}
+
 /** 指定 allocator で Pimpl 内の native function 登録簿を構築する。 */
-FLuaVm::FLuaVm(acs::FAllocator& allocator) noexcept
-{
-    m_Impl = new FImpl(allocator);
+/**
+ * @param allocator 登録情報の保存領域を確保する。
+ */
+FLuaVm::FLuaVm(acs::FAllocator& allocator) noexcept {
+    m_Impl = new FLuaVmImpl(allocator);
     m_Impl->m_Owner = this;
 }
+
+#if defined(ACS_SCRIPTING_TEST_HOOKS)
+/** 次回のnative関数登録へ最大の識別番号を割り当てる。 */
+void FLuaVm::SetNextNativeRegistrationIdToMaximumForTest() noexcept {
+    m_Impl->m_NextNativeRegistrationId = lua_vm_detail::kNativeRegistrationIdMaximum;
+}
+#endif
 
 /** Shutdown で lua_State を解放してから Pimpl を delete する。 */
 FLuaVm::~FLuaVm() noexcept {
@@ -207,8 +197,7 @@ acs::TResult<void> FLuaVm::Init() noexcept {
     if (m_Impl->m_L) return acs::Ok();  // 既に初期化済み
     m_Impl->m_L = luaL_newstate();
     if (!m_Impl->m_L) {
-        return ACS_ERR(Generic, script_err::kSub_NotInitialized,
-                       "luaL_newstate failed (out of memory)");
+        return ACS_ERR(Generic, script_err::kSub_NotInitialized, "luaL_newstate failed (out of memory)");
     }
     luaL_openlibs(m_Impl->m_L);  // base / string / table / math / os / io 等
     ACS_LOG_INFO("Lua 5.4 VM initialized (%s)", LUA_RELEASE);
@@ -227,19 +216,22 @@ void FLuaVm::Shutdown() noexcept {
     // 旧 state の registry ref を持ち越すと再 Init 後に別 state へ
     // luaL_unref してしまうため、未保持状態にリセットする。
     m_Impl->m_LastStringRef = LUA_NOREF;
+    m_Impl->m_NativeRegistrationInProgress = false;
+    // 番号枯渇後は再初期化しても古い番号空間を再利用しない。
+    if (m_Impl->m_NextNativeRegistrationId != 0) {
+        m_Impl->m_NextNativeRegistrationId = 1;
+    }
 }
 
 /** ソースを luaL_loadbuffer で parse し lua_pcall で即時実行する。 */
-acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len,
-                                      const char* chunk_name) noexcept {
+acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len, const char* chunk_name) noexcept {
     if (!m_Impl->m_L) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized, "Init() before LoadScript");
     }
     if (!source) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg, "source is null");
     }
-    const usize len = (source_len > 0) ? static_cast<usize>(source_len)
-                                       : std::strlen(source);
+    const usize len = (source_len > 0) ? static_cast<usize>(source_len) : std::strlen(source);
     const char* name = chunk_name ? chunk_name : "=(load)";
     // luaL_loadbuffer (parse) + lua_pcall (run)。
     if (luaL_loadbuffer(m_Impl->m_L, source, len, name) != LUA_OK) {
@@ -258,9 +250,7 @@ acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len,
 }
 
 /** グローバル関数を lua_pcall し、戻り文字列は registry に anchor して延命する。 */
-acs::TResult<void> FLuaVm::CallFunction(const char* function_name,
-                                        const FScriptValue* args, acs::u32 arg_count,
-                                        FScriptValue* ret_out) noexcept {
+acs::TResult<void> FLuaVm::CallFunction(const char* function_name, const FScriptValue* args, acs::u32 arg_count, FScriptValue* ret_out) noexcept {
     if (!m_Impl->m_L) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized, "Init() before CallFunction");
     }
@@ -315,27 +305,74 @@ acs::TResult<void> FLuaVm::CallFunction(const char* function_name,
     return acs::Ok();
 }
 
-/** native registry に登録し、index と FImpl* を upvalue に載せた trampoline closure を setglobal する。 */
-acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name,
-                                                  NativeFunction fn, void* user) noexcept {
+/** 登録番号と内部データを付けたLua関数を公開する。 */
+acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, NativeFunction fn, void* user) noexcept {
     if (!m_Impl->m_L) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized, "Init() before RegisterNativeFunction");
     }
     if (!function_name || function_name[0] == 0 || !fn) {
         return ACS_ERR(Generic, script_err::kSub_InvalidArg, "name/fn null");
     }
+    if (m_Impl->m_NativeRegistrationInProgress) {
+        return ACS_ERR(Generic, script_err::kSub_CallFailed, "FLuaVm::RegisterNativeFunction: reentrant registration rejected");
+    }
+    if (m_Impl->m_NextNativeRegistrationId == 0) {
+        return ACS_ERR(Generic, script_err::kSub_CallFailed, "FLuaVm::RegisterNativeFunction: registration identifiers exhausted");
+    }
+    /** 登録先のLua状態。 */
     lua_State* L = m_Impl->m_L;
-    // registry に追加し、その index を closure upvalue に。
+    /** 注入allocatorとLuaメタ関数からの再入を登録終了まで拒否する。 */
+    FNativeRegistrationGuard registration_guard(m_Impl->m_NativeRegistrationInProgress);
+    /** 成否にかかわらず呼び出し前のstack位置へ戻す。 */
+    FLuaStackTopGuard stack_guard(L);
+    if (lua_checkstack(L, 2) == 0) {
+        return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "FLuaVm::RegisterNativeFunction: Lua stack allocation failed");
+    }
+    /** 新しい登録情報の番号。 */
     const int reg_index = static_cast<int>(m_Impl->m_Natives.Size());
-    FImpl::FNativeReg reg;
+    /** 登録する関数と利用者情報。 */
+    FLuaVmImpl::FNativeReg reg;
     reg.fn   = fn;
     reg.user = user;
-    m_Impl->m_Natives.PushBack(reg);
+    reg.registration_id = m_Impl->m_NextNativeRegistrationId;
+    /** Lua公開処理へ渡す登録情報。 */
+    FNativeRegistrationOperation operation{m_Impl, function_name, &FLuaVmImpl::NativeTrampoline, reg_index, reg.registration_id, LUA_NOREF};
+    // 登録簿を変える前に、確保を伴わないC関数と軽量利用者ポインタを保護呼び出し用の2枠へ積む。
+    lua_pushcfunction(L, &PublishNativeRegistration);
+    lua_pushlightuserdata(L, &operation);
+    if (!m_Impl->m_Natives.TryPushBack(reg)) {
+        lua_pop(L, 2);
+        return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "FLuaVm::RegisterNativeFunction: registry allocation failed");
+    }
+    // Lua側へ関数が退避される可能性が生じるため、公開結果にかかわらず識別番号を消費する。
+    m_Impl->m_NextNativeRegistrationId = lua_vm_detail::AdvanceNativeRegistrationId(reg.registration_id);
 
-    lua_pushinteger(L, reg_index);                 // upvalue 1: registry index
-    lua_pushlightuserdata(L, m_Impl);              // upvalue 2: FImpl*
-    lua_pushcclosure(L, &FImpl::NativeTrampoline, 2);
-    lua_setglobal(L, function_name);
+    /** Lua公開処理の終了状態。 */
+    const int publish_status = lua_pcall(L, 1, 0, 0);
+    if (publish_status != LUA_OK) {
+        lua_settop(L, stack_guard.InitialTop());
+        m_Impl->m_Natives.PopBack();
+        /** 同名グローバルを書き戻した結果。 */
+        int rollback_status = LUA_OK;
+        if (operation.previous_global_ref != LUA_NOREF) {
+            lua_pushcfunction(L, &RestoreNativeRegistrationGlobal);
+            lua_pushlightuserdata(L, &operation);
+            rollback_status = lua_pcall(L, 1, 0, 0);
+            if (rollback_status != LUA_OK) {
+                lua_settop(L, stack_guard.InitialTop());
+            }
+        }
+        if (operation.previous_global_ref != LUA_NOREF && operation.previous_global_ref != LUA_REFNIL) {
+            luaL_unref(L, LUA_REGISTRYINDEX, operation.previous_global_ref);
+        }
+        if (publish_status == LUA_ERRMEM || rollback_status == LUA_ERRMEM) {
+            return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "FLuaVm::RegisterNativeFunction: Lua closure allocation failed");
+        }
+        return ACS_ERR(Generic, script_err::kSub_CallFailed, "FLuaVm::RegisterNativeFunction: Lua global publication failed");
+    }
+    if (operation.previous_global_ref != LUA_NOREF && operation.previous_global_ref != LUA_REFNIL) {
+        luaL_unref(L, LUA_REGISTRYINDEX, operation.previous_global_ref);
+    }
     return acs::Ok();
 }
 

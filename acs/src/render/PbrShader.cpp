@@ -2227,7 +2227,8 @@ TResult<void> FPbrShader::InitWithCompiledShadersInternal(
         TUniquePtr<IRhiPipeline> pipeline;
         TUniquePtr<IRhiPipeline> subsurface_mrt_pipeline;
         TUniquePtr<IRhiBuffer> frame_cb;
-        TArray<TUniquePtr<IRhiBuffer>> object_cbs;
+        /** per-object定数をまとめる未公開arena。 */
+        FTransientUploadArena object_arena;
         TUniquePtr<IRhiTexture> white;
         TUniquePtr<IRhiTexture> shadow_fb;
         TUniquePtr<IRhiTexture> normal_map_fb;
@@ -2249,24 +2250,10 @@ TResult<void> FPbrShader::InitWithCompiledShadersInternal(
         return Err<void>(r.Error());
     else candidates.frame_cb = Move(r.Value());
 
-    // Keep startup bounded, then grow this reusable pool from BeginFrame when
-    // an authored scene needs more slots.  Each slot remains distinct for the
-    // lifetime of a recorded command list, including MRT fallback passes.
-    if (!candidates.object_cbs.TryReserve(kInitialObjectBufferCapacity)) {
-        return ACS_ERR(
-            Render, 380, "PBR initial object-CB pool allocation failed");
-    }
-    for (u32 i = 0; i < kInitialObjectBufferCapacity; ++i) {
-        FBufferDesc ob{};
-        ob.size = CBSize<FObjectCbLayout>();
-        ob.usage = EBufferUsage::Uniform;
-        ob.cpu_writable = true;
-        if (auto r = CreateRhiBuffer(device, ob); r.IsErr())
-            return Err<void>(r.Error());
-        else if (!candidates.object_cbs.TryPushBack(Move(r.Value())))
-            return ACS_ERR(
-                Render, 381, "PBR initial object-CB pool publish failed");
-    }
+    // 64個の論理slotを一つの共有GPUページへまとめ、drawごとのresource生成を除く。
+    /** 共有object upload arenaの生成結果。 */
+    auto object_arena_result = candidates.object_arena.Init(device, CBSize<FObjectCbLayout>(), kInitialObjectBufferCapacity);
+    if (object_arena_result.IsErr()) return Err<void>(object_arena_result.Error());
     const auto constant_buffers_ready = FInitClock::now();
 
     // 1x1 白テクスチャ (albedo fallback)
@@ -2518,7 +2505,7 @@ TResult<void> FPbrShader::InitWithCompiledShadersInternal(
         m_SubsurfaceMrtPs = Move(shaders.pixel_subsurface_mrt);
     }
     m_FrameCb = Move(candidates.frame_cb);
-    m_ObjectCbs = Move(candidates.object_cbs);
+    m_ObjectArena = Move(candidates.object_arena);
     m_White = Move(candidates.white);
     m_ShadowFb = Move(candidates.shadow_fb);
     m_NormalMapFb = Move(candidates.normal_map_fb);
@@ -2536,7 +2523,7 @@ TResult<void> FPbrShader::InitWithCompiledShadersInternal(
     m_ObjectCbCursor = 0u;
     // The manual bind path may query before its first SetObject.
     m_CurrentObjectCb =
-        m_ObjectCbs.IsEmpty() ? kInvalidObjectBuffer : 0u;
+        m_ObjectArena.Capacity() == 0u ? kInvalidObjectBuffer : 0u;
     m_ObjectCapacityFailureLogged = false;
 
     // Non-owning texture bindings cannot cross RHI devices.  Preserve them for
@@ -2581,7 +2568,7 @@ void FPbrShader::Shutdown() noexcept {
     ClearSubstrateSurface();
     m_SubsurfaceMrtPipeline.Reset();
     m_Pipeline.Reset();
-    m_ObjectCbs.ReleaseStorage();
+    m_ObjectArena.Reset();
     m_FrameCb.Reset();
     m_ShadowFb.Reset();
     m_ShadowDepth = nullptr;
@@ -2624,44 +2611,14 @@ void FPbrShader::Shutdown() noexcept {
     m_ObjectCapacityFailureLogged = false;
 }
 
-bool FPbrShader::EnsureObjectCapacity(
-    u32 required_object_draws) noexcept {
-    if (required_object_draws <= m_ObjectCbs.Size()) return true;
-    if (m_ResourceDevice == nullptr) return false;
-
-    u32 target = static_cast<u32>(m_ObjectCbs.Size());
-    if (target < kInitialObjectBufferCapacity)
-        target = kInitialObjectBufferCapacity;
-    while (target < required_object_draws) {
-        const u32 growth = target > 1u ? target / 2u : 1u;
-        if (target > (~u32{0}) - growth) {
-            target = required_object_draws;
-        } else {
-            target += growth;
-        }
-    }
-
-    if (!m_ObjectCbs.TryReserve(target)) return false;
-    while (m_ObjectCbs.Size() < target) {
-        FBufferDesc description{};
-        description.size = CBSize<FObjectCbLayout>();
-        description.usage = EBufferUsage::Uniform;
-        description.cpu_writable = true;
-        auto created = CreateRhiBuffer(*m_ResourceDevice, description);
-        if (created.IsErr())
-            return m_ObjectCbs.Size() >= required_object_draws;
-        if (!m_ObjectCbs.TryPushBack(Move(created.Value())))
-            return m_ObjectCbs.Size() >= required_object_draws;
-    }
-    return true;
-}
-
 bool FPbrShader::BeginFrame(u32 required_object_draws) noexcept {
+    /** 必要容量の確保結果。 */
+    const bool capacity_ready = m_ObjectArena.BeginFrame(required_object_draws);
     m_ObjectCbCursor = 0u;
     m_CurrentObjectCb =
-        m_ObjectCbs.IsEmpty() ? kInvalidObjectBuffer : 0u;
+        m_ObjectArena.Capacity() == 0u ? kInvalidObjectBuffer : 0u;
     m_ObjectCapacityFailureLogged = false;
-    return EnsureObjectCapacity(required_object_draws);
+    return capacity_ready;
 }
 
 /** IBL テクスチャを記録し、3 つ揃っていれば IBL ambient を有効化する。 */
@@ -2979,27 +2936,6 @@ void FPbrShader::FlushFrameCB() noexcept {
 /** model と PBR/拡張パラメータから ObjectCBLayout を構築して object CB に書き込む。 */
 void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
-    if (m_ObjectCbCursor == kInvalidObjectBuffer ||
-        (m_ObjectCbCursor >= m_ObjectCbs.Size() &&
-         !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
-        if (!m_ObjectCapacityFailureLogged) {
-            ACS_LOG_WARN(
-                "FPbrShader: unable to grow per-frame object-CB pool "
-                "(required=%u, retained=%zu); remaining PBR draws are skipped",
-                m_ObjectCbCursor == kInvalidObjectBuffer
-                    ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
-                m_ObjectCbs.Size());
-            m_ObjectCapacityFailureLogged = true;
-        }
-        m_CurrentObjectCb = kInvalidObjectBuffer;
-        return;
-    }
-    m_CurrentObjectCb = m_ObjectCbCursor++;
-    IRhiBuffer* object_cb = m_ObjectCbs[m_CurrentObjectCb].Get();
-    if (!object_cb) {
-        m_CurrentObjectCb = kInvalidObjectBuffer;
-        return;
-    }
     FObjectCbLayout cb{};
     cb.model = model;
     const FMat4 normal_matrix = MakeSafeNormalMatrix(model);
@@ -3072,7 +3008,18 @@ void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
         m_SubstrateExpressionTextureMask;
     cb.substrate_expr_context =
         FVec4{m_SubstrateExpressionTime, 0, 0, 0};
-    object_cb->Update(&cb, sizeof(cb));
+    /** 今回の定数を保持する論理slice。 */
+    IRhiBuffer* const object_cb = m_ObjectArena.Upload(&cb, sizeof(cb));
+    if (object_cb == nullptr) {
+        if (!m_ObjectCapacityFailureLogged) {
+            ACS_LOG_WARN("FPbrShader: unable to grow shared object upload arena (required=%u, retained=%u); remaining PBR draws are skipped", m_ObjectCbCursor == kInvalidObjectBuffer ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u, m_ObjectArena.Capacity());
+            m_ObjectCapacityFailureLogged = true;
+        }
+        m_CurrentObjectCb = kInvalidObjectBuffer;
+        return;
+    }
+    m_ObjectCbCursor = m_ObjectArena.Used();
+    m_CurrentObjectCb = m_ObjectCbCursor - 1u;
 }
 
 /** clearcoat/anisotropy パラメータを member に格納する (次の SetObject で反映)。 */
@@ -3305,8 +3252,7 @@ void FPbrShader::ClearSubstrateSurface() noexcept {
 bool FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
                          FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                          IRhiTexture* albedo) noexcept {
-    if (!m_Pipeline || !m_FrameCb || m_ObjectCbs.IsEmpty() ||
-        !m_ObjectCbs[0] || !mesh.vertex_buffer || !mesh.index_buffer) {
+    if (!m_Pipeline || !m_FrameCb || m_ObjectArena.Capacity() == 0u || !m_ObjectArena.Get(0u) || !mesh.vertex_buffer || !mesh.index_buffer) {
         return false;
     }
     SetObject(model, base_color, metallic, roughness, ao);   // リングを次へ進め、現在バッファへ書込む
@@ -3323,18 +3269,8 @@ bool FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat
     return true;
 }
 
-bool FPbrShader::DrawMeshSubsurfaceMrt(
-    IRhiCommandList& cmd,
-    const FGpuMesh& mesh,
-    const FMat4& model,
-    FVec3 base_color,
-    f32 metallic,
-    f32 roughness,
-    f32 ao,
-    IRhiTexture* albedo) noexcept {
-    if (!m_SubsurfaceMrtPipeline || !m_FrameCb || m_ObjectCbs.IsEmpty() ||
-        !m_ObjectCbs[0] ||
-        !mesh.vertex_buffer || !mesh.index_buffer) {
+bool FPbrShader::DrawMeshSubsurfaceMrt(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, FVec3 base_color, f32 metallic, f32 roughness, f32 ao, IRhiTexture* albedo) noexcept {
+    if (!m_SubsurfaceMrtPipeline || !m_FrameCb || m_ObjectArena.Capacity() == 0u || !m_ObjectArena.Get(0u) || !mesh.vertex_buffer || !mesh.index_buffer) {
         return false;
     }
     SetObject(model, base_color, metallic, roughness, ao);

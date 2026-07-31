@@ -1,39 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 標準ライティングシェーダ（最大 4 灯 + Blinn-Phong スペキュラ）
-//
-// 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 +
-//       環境光 + 鏡面反射 + アルベドテクスチャで描画する。
-//
-// 使い方（単一ライトのお手軽版）:
-//   FStandardShader shd;
-//   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   if (!shd.BeginFrame(/* expected draws */ 1)) return;
-//   shd.SetFrame(camera.ViewProjection(), camera.Eye(),
-//                FVec3{-0.5f,-1,0.3f}, FVec3{1,1,1}, FVec3{0.1f,0.1f,0.15f});
-//
-// マルチライト版:
-//   FDirLight lights[2];
-//   lights[0].direction = FVec3{0.5f, -1, 0.3f}; lights[0].color = FVec3{1, 0.9f, 0.7f};
-//   lights[1].direction = FVec3{-0.4f, -0.6f, -0.8f}; lights[1].color = FVec3{0.3f, 0.4f, 0.6f};
-//   shd.SetLights(camera.ViewProjection(), camera.Eye(),
-//                 lights, 2, FVec3{0.1f, 0.1f, 0.15f});
-//
-// 簡単版 (1 関数で 1 体描画):
-//   shd.DrawMesh(*renderer.CommandList(), gm, model_mat,
-//                FVec3{1,1,1}, 0.5f, 64.0f, /*albedo=*/nullptr);
-//
-// 細かい制御版 (オブジェクト CB を上書きしないとき等):
-//   if (!shd.SetObject(model_mat, FVec3{1,1,1},
-//                      /*specular_strength=*/0.5f, /*shininess=*/64.0f)) return;
-//   auto* cl = renderer.CommandList();
-//   cl->SetPipeline(*shd.Pipeline());
-//   cl->SetConstantBuffer(0, *shd.PerFrameCB());
-//   // SetObject ごとに異なる CB になるため、各 draw の直前に再 bind する。
-//   cl->SetConstantBuffer(1, *shd.PerObjectCB());
-//   cl->SetTexture(0, my_texture_or_shd.DefaultWhiteTexture());
-//   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-//   cl->SetIndexBuffer (*gm.index_buffer);
-//   cl->DrawIndexed(gm.index_count);
 #pragma once
 
 #include "render/RenderAssets.h"   // FGpuMesh
@@ -50,6 +15,7 @@
 #include "render/IRhiBuffer.h"
 #include "render/IRhiTexture.h"
 #include "render/RhiTypes.h"
+#include "render/TransientUploadArena.h"
 
 namespace acs {
 
@@ -139,10 +105,15 @@ public:
     bool BeginFrame(u32 required_object_draws = 0u) noexcept;
 
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_ObjectCbs.Size());
+        return m_ObjectArena.Capacity();
     }
 
     u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
+
+    /** object定数を保持する実GPUバッファ数を返す。 */
+    u32 ObjectBufferPageCount() const noexcept {
+        return m_ObjectArena.GpuBufferCount();
+    }
 
     /**
      * カメラ + 1 灯の有向光源 + 環境光で Frame CB を更新する (マルチライト不要時の簡易 API)。
@@ -251,8 +222,8 @@ public:
      * @return Object 定数バッファ。
      */
     IRhiBuffer*    PerObjectCB()   const noexcept {
-        return m_CurrentObjectCb < m_ObjectCbs.Size()
-             ? m_ObjectCbs[m_CurrentObjectCb].Get()
+        return m_CurrentObjectCb < m_ObjectArena.Capacity()
+             ? m_ObjectArena.Get(m_CurrentObjectCb)
              : nullptr;
     }
 
@@ -288,9 +259,6 @@ public:
                   IRhiTexture* albedo    = nullptr) noexcept;
 
 private:
-    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
-
-    IRhiDevice* m_ResourceDevice = nullptr;
     /** キャッシュ済みの Frame 状態を Frame 定数バッファへ書き込む。 */
     void FlushFrameCB() noexcept;
 
@@ -306,19 +274,25 @@ private:
     /** Frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /**
-     * Object 定数バッファ (b1) の非ラップリング。
-     *
-     * Raw DX12 は command list の実行時に upload buffer を読むため、同じ CB を draw 間で
-     * 上書きすると全 draw が最後の model/material を参照する。BeginFrame だけが
-     * cursor を戻し、各 SetObject に固有の GPU address を割り当てる。
-     */
+    /** 最初の共有uploadページへ確保する論理object slot数。 */
     static constexpr u32     kInitialObjectBufferCapacity = 64u;
+
+    /** object slotが無効であることを表す番号。 */
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
-    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+
+    /** per-object定数を少数のGPUページへまとめるupload arena。 */
+    FTransientUploadArena    m_ObjectArena;
+
+    /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
+
+    /** 最後にSetObjectが書いた論理slot番号。 */
     u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+
+    /** 必要なフレーム容量を確保済みか。 */
     bool                     m_FrameCapacityReady = false;
+
+    /** 現フレームの容量不足を記録済みか。 */
     bool                     m_ObjectCapacityFailureLogged = false;
 
     /** デフォルトの 1x1 白テクスチャ。 */

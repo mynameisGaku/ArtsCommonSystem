@@ -1,12 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// TCP 接続（送信・受信）
-//
-// 使い方 (クライアント側):
-//   auto cr = FTcpConnection::Connect(FIpAddress::FromString("127.0.0.1"), 8080);
-//   if (cr.IsErr()) { ... }
-//   FTcpConnection& c = cr.Value();
-//   c.Send(data, size);
-//   isize n = c.Recv(buf, sizeof(buf));
 #pragma once
 
 #include "foundation/Types.h"
@@ -22,7 +14,8 @@ namespace acs {
  * クライアントは Connect で接続し、サーバ側は FTcpListener::Accept の戻り値から
  * FromAccepted 経由で構築される。Send/Recv でバイト列を送受信し、Close または
  * デストラクタで切断する。OS の SOCKET を単独所有する non-copy / move-only 型で、
- * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。
+ * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。同じ接続への呼び出しは
+ * 利用側で直列化し、接続を破棄するまで FNetwork の初期化を保つ。
  */
 class FTcpConnection {
 public:
@@ -88,20 +81,22 @@ public:
     /**
      * バッファを送信する。
      *
-     * @details 部分送信があり得る (要求サイズより少ないことがある)。未接続またはエラー時は -1。
+     * @details 部分送信があり得る。未接続、size が 1 以上で null、WinSock の長さ上限超過、OS エラーは -1。
+     * size が 0 なら領域を参照せず 0 を返す。
      * @param data 送信するデータの先頭ポインタ。
      * @param size 送信するバイト数。
-     * @return 実際に送れたバイト数。失敗時は -1。
+     * @return 実際に送れたバイト数。事前条件または OS 失敗時は -1。
      */
     isize Send(const void* data, usize size) noexcept;
 
     /**
      * バッファへ受信する。
      *
-     * @details 未接続またはエラー時は -1、相手が切断した場合は 0 を返す。
+     * @details 未接続、size が 1 以上で null、WinSock の長さ上限超過、OS エラーは -1。
+     * size が 0 なら OS を呼ばず 0 を返し、それ以外で 0 なら相手切断を示す。
      * @param buf 受信先バッファの先頭ポインタ。
      * @param size 受信先バッファのバイト数。
-     * @return 受信したバイト数 (0 は相手切断)。失敗時は -1。
+     * @return 受信したバイト数。size が 1 以上の呼出しで 0 は相手切断。失敗時は -1。
      */
     isize Recv(void* buf, usize size) noexcept;
 

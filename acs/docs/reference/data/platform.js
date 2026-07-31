@@ -203,7 +203,7 @@ ACS_REF.modules.push({
         { sig: "static TResult&lt;u64&gt; FileSize(const wchar_t* path)", ret: "バイト数 or エラー", desc: "ファイルサイズを取得する。" },
         { sig: "static bool Exists(const wchar_t* path)", ret: "存在するか", desc: "ファイルが存在すれば true。" },
         { sig: "static bool DirectoryExists(const wchar_t* path)", ret: "存在するか", desc: "ディレクトリが存在すれば true。" },
-        { sig: "static TResult&lt;void&gt; CreateDirectory(const wchar_t* path)", desc: "ディレクトリを作る（既存なら成功扱い、親ディレクトリも再帰的に作成）。" },
+        { sig: "static TResult&lt;void&gt; CreateDirectory(const wchar_t* path)", desc: "親を含めてディレクトリを作る。null/空はOS呼び出し前にIO:131で拒否し、既存対象は実ディレクトリだけ成功扱いにするため、同名の通常ファイルは変更せずエラーを返す。既存のドライブrootとUNC share rootも成功扱いを維持する。" },
         { sig: "static TResult&lt;void&gt; Delete(const wchar_t* path)", desc: "ファイルを削除する。" }
       ]
     },

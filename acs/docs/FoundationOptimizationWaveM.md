@@ -45,18 +45,49 @@ Reset 後に job を追加できる既存挙動とも矛盾しない。
 
 ## T70: hot atomic の cache-line 分離
 
-### 保留
+### 採用
 
 Wave I の実測対象は `FWorkerDeque` の owner-only `bottom` と stealer 更新の
 `top` であり、同 wave が二つを64B境界へ分離する。Wave M が同じ箇所を重複して
 変更する必要はない。
 
-`FPoolState` の `outstanding`、`queued_work`、`api_users` 等を一律
-`alignas(64)` にする案も精査したが、独立して競合しているという測定根拠がなく、
-owner state と診断 counter を大きく膨らませる。`FCompletionCounter` も共有する
-一つの値なので内部で分離する対象がない。根拠のない padding を入れず、Win64
-4B layout を維持した。新しい profiler 証跡で別 owner の二 atomic が同一 line
-上で競合すると確認できるまで T70 は `Deferred` とする。
+`FPoolState` の全atomicを一律に64B化せず、所有と更新経路が異なる次の三群だけを
+独立したcache lineへ置いた。
+
+- 実行制御: `running`、`accepting`
+- タスク流量: `outstanding`、`queued_work`、`external_queued_work`
+- API寿命: `api_users`、`active_submitters`
+
+`running` はworker loopが読み、タスク流量はsubmitterとworkerが更新し、API寿命は
+公開API入口と終了処理が更新する。実行制御とタスク流量の境界を64B整列し、API寿命は
+64B固定の`FApiLifetimeState`へまとめて`FPoolState`末尾へ置く。同じ所有群は近接した
+まま、別の所有群によるcache line無効化を分離する。末尾blockはsubmission queue、
+wake lock/condition variable、sleeping state、診断counterのいずれともlineを共有しない。
+`FPoolState`自体も64B境界へ整列して構築し、保持した元ポインタを終了時に解放する。
+blockのsizeと末尾配置、offset、同一line/別lineの関係はcompile-time assertで固定した。
+
+`FCompletionCounter` は共有する一値なので4Bを維持する。診断counterもhot pathの
+測定対象と別であり、shardや個別paddingを追加しない。公開API、task完了順、
+memory order、wake契約は変更していない。
+
+### 実測
+
+Releaseの既存 `acs_foundation_optimization_wave_i_bench` を4 workerで実行した。
+変更前はwarmup 10回後に50回、最終配置はwarmup 10回後に100回を計測した。1計測は
+16分割と128分割の`ParallelFor`を各200回実行する。
+
+| 配置 | 計測数 | median | mean | p90 |
+|---|---:|---:|---:|---:|
+| 変更前 | 50 | 15,831,600 ns | 15,825,888 ns | 16,530,200 ns |
+| 三所有群を完全分離 | 100 | 14,917,000 ns | 14,929,350 ns | 15,788,100 ns |
+| 削減率 | - | 5.8% | 5.7% | 4.5% |
+
+最終配置の独立した50回反復ではmedianが14,737,100 nsと15,073,450 nsだった。
+`api_users`境界だけでは15,103,350〜15,158,300 ns、`outstanding`境界だけでは
+15,686,200 nsであり、三群を完全に分けた構成だけを採用した。MSVC layout reportでは
+実行制御4,128、タスク流量4,160、submission4,176、wake4,208/4,216、
+sleeping4,224、API寿命4,416 byte offsetである。privateな単一owner stateはWin64
+Releaseで4,360 bytesから4,480 bytesへ120 bytes増える。この固定費はpoolごとに一回である。
 
 ## T71: allocation-free event snapshot の寿命固定
 
@@ -138,6 +169,10 @@ Win64 Release の実測値:
 | `FJobGraphCompletionDiagnostics` | 16B | 2個の `u64`、独立値型 |
 | `FJobGraph` | 4,032B | member 追加なし、既存上限を維持 |
 | `FAcpakReader` | 336B | hash owner 32B を明示的に許容 |
+
+非公開 `FPoolState` は4,480B / align 64である。公開ABIではなく、poolごとに一つだけ
+存在する。追加120Bは実測対象の所有群境界、末尾のAPI寿命専用line、整列前ポインタに
+限定する。
 
 ## T65〜T68: ハンドル・timer・入力記録
 
@@ -243,10 +278,14 @@ dotnet run --project acs\tools\acsbuild -- gen --root acs
 cmake -S acs\engine -B .wave-m-build -DACS_LAYOUT_ROOT=<worktree>\.wave-m-layout
 cmake --build .wave-m-build --config Debug --target acs_unit_tests acs_foundation_optimization_wave_m_tests acs_foundation_public_layout_tests --parallel 16
 cmake --build .wave-m-build --config Release --target acs_unit_tests acs_foundation_optimization_wave_m_tests acs_foundation_public_layout_tests --parallel 16
+cmake --build .wave-m-build --config Release --target acs_foundation_optimization_wave_i_bench --parallel 16
 ctest --test-dir .wave-m-build -C Debug --output-on-failure
 ctest --test-dir .wave-m-build -C Release --output-on-failure
+python acs\scripts\run_foundation_stress.py --executable <debug-wave-m-test> --iterations 100 --timeout-seconds 60
+python acs\scripts\run_foundation_stress.py --executable <release-wave-m-test> --iterations 100 --timeout-seconds 60
 node --check acs\docs\reference\data\assetpack.js
 node --check acs\docs\reference\data\container.js
+node --check acs\docs\reference\data\threading.js
 python acs\scripts\audit_reference_type_names.py --root acs
 python acs\scripts\audit_module_sources.py --root acs
 git diff --check
@@ -258,6 +297,8 @@ git diff --check
 - timer sparse word の訪問数、callback mutation、cancel、`Clear`
 - immutable view の正常 decode、truncation、CRC、span fail-closed、transactional load
 - JobGraph の一括予約回数、全job完了、Reset 後の再予約
+- ThreadPool owner三群のcache line境界、API寿命末尾専用block、64B整列allocation、
+  Debug/Release各100反復
 - event の追加・解除・nested Publish とslot再確保後のcallback寿命
 - `.acpak` の正規形、case-sensitive完全一致、hash collision確認、round-trip
 - C++規約、reference型名、module source登録、生成結果のdrift

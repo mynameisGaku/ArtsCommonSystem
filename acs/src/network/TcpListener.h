@@ -1,14 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// TCP リスナー（接続を待ち受ける側）
-//
-// 使い方 (サーバ側):
-//   auto lr = FTcpListener::Listen(FIpAddress::Any(), 8080);
-//   if (lr.IsErr()) { ... }
-//   FTcpListener& l = lr.Value();
-//   while (true) {
-//       auto cr = l.Accept();
-//       if (cr.IsOk()) HandleClient(Move(cr.Value()));
-//   }
 #pragma once
 
 #include "foundation/Types.h"
@@ -83,6 +73,13 @@ public:
      * @return 成功なら空の TResult、ioctlsocket 失敗ならエラー。
      */
     TResult<void> SetNonBlocking(bool enable) noexcept;
+
+    /**
+     * OS が割り当てたローカル IPv4 アドレスとポートを返す。
+     *
+     * @return 成功なら待ち受け先。無効なリスナーまたは WinSock 失敗ならエラー。
+     */
+    TResult<FIpAddress> LocalAddress() const noexcept;
 
     /** ソケットが開いていれば閉じて無効状態にする (多重呼び出し安全)。 */
     void Close() noexcept;

@@ -354,7 +354,8 @@ foreach ($cfg in $Configs) {
     }
     # mimalloc-static は _deps 配下に独自名 (mimalloc-debug.lib 等) で出力される。
     # acs_memory が mi_* を参照するため、acs.lib へ統合して consumer 側の
-    # リンク入力を増やさずに解決させる。
+    # 個別library入力を増やさずに解決させる。Windows token API は生成した
+    # acs.h の自動link契約から advapi32.lib を供給する。
     $mimalloc = Get-ChildItem (Join-Path $build "_deps\acs_mimalloc-build\$cfg") -Filter 'mimalloc*.lib' -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notmatch 'redirect' } | Select-Object -First 1
     if (-not $mimalloc) {

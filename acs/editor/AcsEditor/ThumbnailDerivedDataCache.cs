@@ -117,6 +117,7 @@ internal sealed class ThumbnailDerivedDataCache
     private readonly object _gate = new();
     private readonly string _projectRoot;
     private readonly string _cacheRoot;
+    private readonly DerivedDataCachePathPool _pathPool;
     private readonly long _maximumDiskBytes;
     private readonly int _maximumEntries;
     private readonly int _maximumReconcileEntryInspections;
@@ -148,6 +149,9 @@ internal sealed class ThumbnailDerivedDataCache
             Path.GetFullPath(projectRoot));
         _cacheRoot = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(cacheRoot));
+        _pathPool = new DerivedDataCachePathPool(
+            _cacheRoot,
+            EntryExtension);
         _maximumDiskBytes = maximumDiskBytes;
         _maximumEntries = maximumEntries;
         _maximumReconcileEntryInspections = (int)Math.Clamp(
@@ -242,14 +246,14 @@ internal sealed class ThumbnailDerivedDataCache
                 _ = ReconcileAndTrimCore(
                     cancellationToken);
             }
+            DerivedDataCachePath path = _pathPool.Intern(key);
             EnsureSafeDirectory(
-                EntryDirectory(key),
+                path.Directory,
                 createIfMissing: true);
-            string path = EntryPath(key);
-            EnsureSafeFileOrMissing(path);
-            if (!File.Exists(path))
+            EnsureSafeFileOrMissing(path.EntryPath);
+            if (!File.Exists(path.EntryPath))
             {
-                if (RemoveKnownEntry(path))
+                if (RemoveKnownEntry(path.EntryPath))
                 {
                     _ = ReconcileAndTrimCore(
                         cancellationToken);
@@ -262,7 +266,7 @@ internal sealed class ThumbnailDerivedDataCache
 
             try
             {
-                ReadEntryResult entry = ReadEntry(path, key);
+                ReadEntryResult entry = ReadEntry(path.EntryPath, key);
                 cancellationToken.ThrowIfCancellationRequested();
                 ImageSource image = DecodePayload(
                     entry.Payload,
@@ -270,14 +274,14 @@ internal sealed class ThumbnailDerivedDataCache
                 cancellationToken.ThrowIfCancellationRequested();
                 bool accountingMismatch =
                     !_entriesByPath.TryGetValue(
-                        path,
+                        path.EntryPath,
                         out ManagedEntry? known) ||
                     known.Length != entry.EntryLength;
                 DateTime touchedUtc = _utcNow();
-                if (!Touch(path, touchedUtc))
+                if (!Touch(path.EntryPath, touchedUtc))
                     accountingMismatch = true;
                 RegisterKnownEntry(
-                    path,
+                    path.EntryPath,
                     entry.EntryLength,
                     touchedUtc);
                 if (accountingMismatch)
@@ -292,8 +296,8 @@ internal sealed class ThumbnailDerivedDataCache
             }
             catch (InvalidDataException)
             {
-                DeleteManagedFile(path);
-                RemoveKnownEntry(path);
+                DeleteManagedFile(path.EntryPath);
+                RemoveKnownEntry(path.EntryPath);
                 _ = ReconcileAndTrimCore(
                     cancellationToken);
                 return new(
@@ -324,27 +328,26 @@ internal sealed class ThumbnailDerivedDataCache
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string directory = EntryDirectory(key);
-            EnsureSafeDirectory(directory, createIfMissing: true);
-            string path = EntryPath(key);
-            EnsureSafeFileOrMissing(path);
+            DerivedDataCachePath path = _pathPool.Intern(key);
+            EnsureSafeDirectory(path.Directory, createIfMissing: true);
+            EnsureSafeFileOrMissing(path.EntryPath);
             ReconcileForScheduledOrExternalChange(
-                path,
+                path.EntryPath,
                 HeaderBytes + payload.LongLength,
                 cancellationToken);
             WriteEntryAtomic(
-                path,
+                path.EntryPath,
                 key,
                 payload,
                 cancellationToken);
             _fileSystemCounters?.RecordAtomicPublication();
             RegisterKnownEntry(
-                path,
+                path.EntryPath,
                 HeaderBytes + payload.LongLength,
                 _utcNow());
             _ = TrimKnownEntriesToBudgetCore();
-            return _entriesByPath.ContainsKey(path) &&
-                   File.Exists(path);
+            return _entriesByPath.ContainsKey(path.EntryPath) &&
+                   File.Exists(path.EntryPath);
         }
     }
 
@@ -354,11 +357,27 @@ internal sealed class ThumbnailDerivedDataCache
             return ReconcileAndTrimCore();
     }
 
+    internal DerivedDataCachePathPoolDiagnostics
+        CapturePathDiagnostics()
+    {
+        lock (_gate)
+            return _pathPool.CaptureDiagnostics();
+    }
+
     internal string EntryPathForSelfTest(
         string contentHash,
         string kind,
-        int requestedEdge) =>
-        EntryPath(ComputeKey(contentHash, kind, requestedEdge));
+        int requestedEdge)
+    {
+        lock (_gate)
+        {
+            return _pathPool.Intern(
+                ComputeKey(
+                    contentHash,
+                    kind,
+                    requestedEdge)).EntryPath;
+        }
+    }
 
     internal static ImageSource DecodePayloadForSelfTest(
         byte[] payload,
@@ -964,17 +983,6 @@ internal sealed class ThumbnailDerivedDataCache
                 "Thumbnail cache raw layout is invalid.");
         }
     }
-
-    private string EntryDirectory(string key)
-    {
-        ValidateKey(key);
-        return Path.Combine(_cacheRoot, key[..2]);
-    }
-
-    private string EntryPath(string key) =>
-        Path.Combine(
-            EntryDirectory(key),
-            key + EntryExtension);
 
     private static void ValidateKey(string key)
     {

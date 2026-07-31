@@ -20,6 +20,7 @@
 #include "render/PipelineStateKeyCache.h"
 #include "render/RhiPipelineBindPolicy.h"
 #include "render/ShaderParameterLayoutMetadata.h"
+#include "render/TransientUploadArena.h"
 #include "asset/MeshAsset.h"
 #if WITH_RENDER_DX12_RAW
 #    include "render/Dx12/Dx12Buffer.h"
@@ -34,6 +35,8 @@
 #    include "render/Diligent/DiligentTexture.h"
 #endif
 #include "memory/UniquePtr.h"
+
+#include <limits>
 
 using namespace acs;
 
@@ -89,6 +92,57 @@ ACS_TEST(Render, DescriptorSlotPoolBatchesAndRecyclesTransactionally)
     EXPECT_EQ(recycled[3], 6);
     EXPECT_EQ(recycled[4], 7);
     EXPECT_EQ(slots.AvailableCount(), 0u);
+}
+
+ACS_TEST(Render, TransientUploadArenaRetainsStableSlicesAndRejectsSentinel)
+{
+    FDeviceConfig config{};
+    /** 実GPU arenaを検証するRHIデバイス生成結果。 */
+    auto device_result = CreateRhiDevice(config);
+    if (device_result.IsErr()) return;
+    /** 実GPU arenaを検証するRHIデバイス。 */
+    auto device = Move(device_result.Value());
+
+    FTransientUploadArena arena;
+    /** 四つの論理sliceを持つ初期ページ生成結果。 */
+    const auto init_result = arena.Init(*device, 48u, 4u);
+    EXPECT_TRUE(init_result.IsOk());
+    if (init_result.IsErr()) return;
+    EXPECT_EQ(arena.Capacity(), 4u);
+    EXPECT_EQ(arena.GpuBufferCount(), 1u);
+    EXPECT_EQ(arena.ReservedBytes(), static_cast<usize>(4u * FTransientUploadArena::AllocationAlignment()));
+
+    byte payload[48]{};
+    EXPECT_TRUE(arena.BeginFrame(4u));
+    /** 成長前に作った先頭slice。 */
+    IRhiBuffer* const first_slice = arena.Upload(payload, sizeof(payload));
+    /** 同じページにある二番目のslice。 */
+    IRhiBuffer* const second_slice = arena.Upload(payload, sizeof(payload));
+    EXPECT_TRUE(first_slice != nullptr);
+    EXPECT_TRUE(second_slice != nullptr);
+    if (first_slice == nullptr || second_slice == nullptr) return;
+    /** 成長後にも同一性を確認する先頭親バッファ。 */
+    IRhiBuffer* const first_parent = &first_slice->BindingBuffer();
+    EXPECT_TRUE(first_slice != second_slice);
+    EXPECT_TRUE(first_parent == &second_slice->BindingBuffer());
+    EXPECT_EQ(first_slice->BindingOffset(), static_cast<usize>(0u));
+    EXPECT_EQ(second_slice->BindingOffset(), FTransientUploadArena::AllocationAlignment());
+
+    EXPECT_TRUE(arena.BeginFrame(10u));
+    EXPECT_EQ(arena.Capacity(), 10u);
+    EXPECT_EQ(arena.GpuBufferCount(), 2u);
+    EXPECT_TRUE(first_slice == arena.Get(0u));
+    EXPECT_TRUE(first_parent == &arena.Get(0u)->BindingBuffer());
+    EXPECT_EQ(arena.Used(), 0u);
+
+    /** sentinel拒否前の保持容量。 */
+    const u32 retained_capacity = arena.Capacity();
+    /** sentinel拒否前の実GPUバッファ数。 */
+    const u32 retained_pages = arena.GpuBufferCount();
+    EXPECT_FALSE(arena.BeginFrame(std::numeric_limits<u32>::max()));
+    EXPECT_EQ(arena.Capacity(), retained_capacity);
+    EXPECT_EQ(arena.GpuBufferCount(), retained_pages);
+    EXPECT_EQ(arena.Used(), 0u);
 }
 
 ACS_TEST(Render, ShaderLayoutMetadataAndPipelineKeyCacheAreDeterministic)

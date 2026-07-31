@@ -1,39 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// PBR (Cook-Torrance BRDF) ライティングシェーダ — Metalness/Roughness workflow
-//
-// 用途: メッシュアセット (位置 + 法線 + UV) を、複数の有向光源 + 環境光 +
-//       PBR 反射モデル + アルベドテクスチャで描画する。
-//
-// FStandardShader (Blinn-Phong) と並走する形で導入。既存 FStandardShader を
-// 使ってる sample はそのまま、新規 sample (HelloPbr 等) で FPbrShader を選ぶ。
-//
-// 使い方:
-//   FPbrShader shd;
-//   shd.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
-//   shd.BeginFrame(/* expected object draws across every pass */ 1);
-//   shd.SetLights(camera.ViewProjection(), camera.Eye(),
-//                 lights, 1, ambient_color);
-//   shd.SetObject(model_mat, base_color, /*metallic=*/0.0f, /*roughness=*/0.5f,
-//                 /*ao=*/1.0f);
-//   cl->SetPipeline(*shd.Pipeline());
-//   cl->SetConstantBuffer(0, *shd.PerFrameCB());
-//   cl->SetConstantBuffer(1, *shd.PerObjectCB());
-//   cl->SetTexture(0, *shd.DefaultWhiteTexture());
-//   cl->SetVertexBuffer(*gm.vertex_buffer, gm.vertex_stride);
-//   cl->SetIndexBuffer(*gm.index_buffer);
-//   cl->DrawIndexed(gm.index_count);
-//
-// BRDF:
-//   ・GGX (Trowbridge-Reitz) normal distribution
-//   ・Smith joint geometry (Schlick-GGX approximation)
-//   ・Schlick Fresnel
-//   ・energy-conserving Lambertian diffuse
-//
-// material parameters:
-//   ・base_color: 非金属の albedo + 金属の reflectance tint
-//   ・metallic:   0 = dielectric (誘電体)、1 = metal
-//   ・roughness:  0 = mirror-smooth、1 = completely rough
-//   ・ao:         ambient occlusion (1 = no occlusion)
 #pragma once
 
 #include "render/RenderAssets.h"        // FGpuMesh
@@ -52,6 +17,7 @@
 #include "render/IRhiTexture.h"
 #include "render/RhiTypes.h"
 #include "render/SubstrateMaterial.h"
+#include "render/TransientUploadArena.h"
 
 namespace acs {
 
@@ -155,29 +121,27 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * Start one command-list frame and reserve immutable per-draw object CBs.
+     * command listのフレームを開始しdrawごとに独立するobject定数領域を予約する。
      *
-     * @details Call exactly once before recording any PBR draw for a frame.
-     * The cursor is deliberately not reset by SetLights: an MRT attempt and a
-     * later single-target fallback can therefore coexist in one command list
-     * without the fallback overwriting CB storage referenced by earlier draws.
-     * The pool persists across frames and grows geometrically when the hint (or
-     * a later SetObject) exceeds the current capacity.
-     *
-     * @param required_object_draws Upper bound for all PBR draws recorded in
-     * this frame, including fallback passes.
-     * @return true when the requested capacity is ready. Existing capacity
-     * remains usable if growth fails.
+     * @details PBR drawの記録前に一度呼ぶ。MRT失敗後のfallbackも同じarenaの後続sliceを
+     * 使うため、先に記録したdrawの定数を上書きしない。
+     * @param required_object_draws fallback passを含む今フレームのdraw上限。
+     * @return 必要容量を確保できた場合はtrue。失敗時も既存容量は利用できる。
      */
     bool BeginFrame(u32 required_object_draws = 0u) noexcept;
 
-    /** Number of reusable per-object constant buffers currently retained. */
+    /** 再利用可能な論理object定数slot数を返す。 */
     u32 ObjectBufferCapacity() const noexcept {
-        return static_cast<u32>(m_ObjectCbs.Size());
+        return m_ObjectArena.Capacity();
     }
 
-    /** Number of per-object slots consumed since the last BeginFrame. */
+    /** 直前のBeginFrame以降に消費したobject slot数を返す。 */
     u32 ObjectDrawCount() const noexcept { return m_ObjectCbCursor; }
+
+    /** 全論理slotを保持する実GPUバッファ数を返す。 */
+    u32 ObjectBufferPageCount() const noexcept {
+        return m_ObjectArena.GpuBufferCount();
+    }
 
     /**
      * 有向光源と camera・環境光を設定する (frame CB を更新)。
@@ -572,8 +536,8 @@ public:
      * @return object CB (b1、model・material 設定)。
      */
     IRhiBuffer*   PerObjectCB() const noexcept {
-        return m_CurrentObjectCb < m_ObjectCbs.Size()
-            ? m_ObjectCbs[m_CurrentObjectCb].Get() : nullptr;
+        return m_CurrentObjectCb < m_ObjectArena.Capacity()
+            ? m_ObjectArena.Get(m_CurrentObjectCb) : nullptr;
     }
 
     /**
@@ -629,10 +593,7 @@ private:
     /** 現在の member 値から frame CB レイアウトを構築して GPU に書き込む。 */
     void FlushFrameCB() noexcept;
 
-    /** Grow the persistent object-CB pool without invalidating existing slots. */
-    bool EnsureObjectCapacity(u32 required_object_draws) noexcept;
-
-    /** Device that owns the currently committed RHI resources (non-owning). */
+    /** 現在公開中のRHI資源を所有するdevice。 */
     IRhiDevice* m_ResourceDevice = nullptr;
 
     /** PBR 描画の頂点シェーダ。 */
@@ -653,21 +614,22 @@ private:
     /** per-frame 定数バッファ (b0)。 */
     TUniquePtr<IRhiBuffer>   m_FrameCb;
 
-    /**
-     * Persistent, growable per-object constant-buffer pool.
-     *
-     * A single frame-cycled CB cannot represent multiple recorded draws:
-     * later CPU updates would make every DrawIndexed observe the final object.
-     * Each draw therefore consumes a distinct buffer until the next BeginFrame.
-     * Pool storage survives frame resets and grows geometrically, removing
-     * the former 256-object visibility cliff without per-frame allocation
-     * churn.
-     */
+    /** 最初の共有uploadページへ確保する論理object slot数。 */
     static constexpr u32     kInitialObjectBufferCapacity = 64u;
+
+    /** object slotが無効であることを表す番号。 */
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
-    TArray<TUniquePtr<IRhiBuffer>> m_ObjectCbs;
+
+    /** per-object定数を少数のGPUページへまとめるupload arena。 */
+    FTransientUploadArena    m_ObjectArena;
+
+    /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
+
+    /** 最後にSetObjectが書いた論理slot番号。 */
     u32                      m_CurrentObjectCb = kInvalidObjectBuffer;
+
+    /** 現フレームの容量不足を記録済みか。 */
     bool                     m_ObjectCapacityFailureLogged = false;
 
     /** albedo fallback の 1x1 白テクスチャ。 */
