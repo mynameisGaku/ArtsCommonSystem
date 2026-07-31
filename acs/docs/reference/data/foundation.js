@@ -156,16 +156,35 @@ ACS_REF.modules.push({
     {
       name: "FLogger",
       kind: "クラス", header: "foundation/Log.h",
-      summary: "<b>非同期でスレッド安全</b>なロガー。<code>printf</code> 互換の書式で記録でき、専用の書き込みスレッドが裏でファイル/コンソールに出す。通常は <code>ACS_LOG_*</code> マクロ経由で使う。",
+      summary: "<b>非同期でスレッド安全</b>なロガー。<code>printf</code> 互換の書式で記録でき、専用の書き込みスレッドがファイル/コンソールと登録済み通知先へ出す。通常は <code>ACS_LOG_*</code> マクロ経由で使う。",
       when: "デバッグ出力・診断ログを残したい時。<code>Init</code> で一度設定し、各所では <code>ACS_LOG_INFO</code> 等を呼ぶだけ。",
       sample: "FLogConfig cfg;\ncfg.min_severity = ELogSeverity::Debug;\ncfg.file_path = L\"game.log\";\nFLogger::Init(cfg);\n\nACS_LOG_INFO(\"起動 %s build\", ACS_PLATFORM_NAME);\nACS_LOG_WARN(\"残り HP %d\", hp);\nFLogger::Shutdown();",
       members: [
         { sig: "static void Init(const FLogConfig& cfg)", desc: "ロガーを初期化する（多重呼び出しは無視）。" },
-        { sig: "static void Shutdown()", desc: "書き込みスレッドを止め、リソースを解放する。" },
+        { sig: "static void Shutdown()", desc: "書き込みスレッドと実行中 sink callback を待ってリソースを解放する。外部呼び出しの復帰後は非所有 user を破棄できる。" },
         { sig: "static void Flush()", desc: "未書き込みのレコードを全部出すまで待つ。" },
+        { sig: "static FLogSinkHandle SubscribeSink(LogSinkCallback callback, void* user)", desc: "非所有の通知先を最大4096件まで登録する。severity はレコード値、message は writer 所有の null終端コピーで callback 中だけ有効。保持時は複製し、user は成功した外部解除または Shutdown 復帰まで生存させる。" },
+        { sig: "static FLogSinkSubscription SubscribeSinkOwned(LogSinkCallback callback, void* user)", desc: "破棄時に自動解除する移動専用の購読を返す。" },
+        { sig: "static bool UnsubscribeSink(FLogSinkHandle handle)", desc: "通知先を解除する。callback 外で true を返した時点で実行中通知も終わり、非所有 user を破棄できる。" },
+        { sig: "static bool IsSinkSubscribed(FLogSinkHandle handle)", desc: "現在の Logger 世代で購読が有効かを返す。" },
+        { sig: "static u32 SinkCount()", desc: "現在有効な複数利用者向け通知先の数を返す。" },
+        { sig: "static bool TryCopySinkHandles(FLogSinkHandle* output, u32 capacity, u32& count)", desc: "共有 lock 内の登録順 snapshot を一括コピーする。0件でも output は非 null。容量・整列・桁あふれ・output と count のbyte重複が無効なら両出力を変更しない。" },
         { sig: "static void SetMinSeverity(ELogSeverity s)", desc: "出力する最小レベルを実行中に変更する（スレッドセーフ）。" },
         { sig: "static bool Enabled(ELogSeverity s)", desc: "そのレベルが出力対象かを返す（マクロが内部で使う）。" },
         { sig: "static u64 DroppedCount()", desc: "リング満杯で破棄したレコード総数。負荷時の取りこぼし確認用。" }
+      ]
+    },
+    {
+      name: "FLogSinkHandle / FLogSinkSubscription",
+      kind: "構造体 / クラス", header: "foundation/LogSinkHandle.h / foundation/LogSinkSubscription.h",
+      summary: "複数利用者向けログ通知先の世代付き識別子と、破棄時に解除する移動専用所有権。",
+      when: "エディタ、開発用表示、外部診断など複数の利用者が同じ <t>FLogger</t> のログを受け取る時。",
+      sample: "auto subscription = FLogger::SubscribeSinkOwned(\n    [](ELogSeverity severity, const char* message, void* user) noexcept {\n        ConsumeLog(user, severity, message);\n    }, context);\n// subscription の破棄時に自動解除",
+      members: [
+        { sig: "bool FLogSinkHandle::IsValid() const", desc: "枠番号と世代番号が有効範囲内かを返す。" },
+        { sig: "bool FLogSinkSubscription::IsValid() const", desc: "保持中の購読が現在も有効かを返す。" },
+        { sig: "bool FLogSinkSubscription::Reset()", desc: "保持中の購読を解除する。" },
+        { sig: "FLogSinkHandle FLogSinkSubscription::Handle() const", desc: "保持中の世代付きハンドルを返す。" }
       ]
     },
     {

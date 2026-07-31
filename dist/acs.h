@@ -286,6 +286,150 @@ static_assert(sizeof(usize) == sizeof(void*), "usize must match pointer size");
 #define ACS_STRINGIFY_INNER(x) #x
 #define ACS_STRINGIFY(x)       ACS_STRINGIFY_INNER(x)
 
+// ===================== foundation/LogSinkHandle.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+// ===================== foundation/GenerationHandleLayoutTraits.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+#include <cstddef>
+
+namespace acs {
+
+/**
+ * 世代付きハンドルの物理配置情報を公開する trait。
+ *
+ * @details 各ハンドル固有の無効値・生存判定・再利用規則は統一せず、ABI 監査に必要な
+ * identity と generation の位置・幅だけを特殊化側から提供する。
+ * @tparam T 検査対象のハンドル型。
+ */
+template<typename T>
+struct TGenerationHandleLayoutTraits {
+    /** 対象型に物理配置 trait が定義されているか。 */
+    static constexpr bool kAvailable = false;
+};
+
+} // namespace acs
+
+#include <cstddef>
+
+namespace acs {
+
+/** ログ購読枠と再利用世代を識別するハンドル。 */
+struct FLogSinkHandle {
+    /** 固定購読表内の枠番号。 */
+    u32 slot = 0xFFFFFFFFu;
+
+    /** 再利用された枠を見分ける世代番号。 */
+    u32 generation = 0;
+
+    /** 枠番号と世代番号が有効範囲内かを返す。 */
+    constexpr bool IsValid() const noexcept { return slot < 4096u && generation != 0u; }
+
+    /**
+     * 同じ購読を表すかを返す。
+     * @param other 比較するハンドル。
+     * @return 枠番号と世代番号が一致する場合は true。
+     */
+    constexpr bool operator==(const FLogSinkHandle& other) const noexcept {
+        return slot == other.slot && generation == other.generation;
+    }
+};
+
+/** FLogSinkHandle の世代付き物理配置契約。 */
+template<>
+struct TGenerationHandleLayoutTraits<FLogSinkHandle> {
+    /** 物理配置情報を利用できる。 */
+    static constexpr bool kAvailable = true;
+
+    /** 購読枠番号の byte 位置。 */
+    static constexpr usize kIdentityOffset = offsetof(FLogSinkHandle, slot);
+
+    /** 世代番号の byte 位置。 */
+    static constexpr usize kGenerationOffset = offsetof(FLogSinkHandle, generation);
+
+    /** 購読枠番号の byte 幅。 */
+    static constexpr usize kIdentityBytes = sizeof(FLogSinkHandle::slot);
+
+    /** 世代番号の byte 幅。 */
+    static constexpr usize kGenerationBytes = sizeof(FLogSinkHandle::generation);
+
+    /** 購読枠番号より前にある領域の byte 幅。 */
+    static constexpr usize kDomainPrefixBytes = 0u;
+
+    /** ハンドル全体の byte 幅。 */
+    static constexpr usize kStorageBytes = sizeof(FLogSinkHandle);
+
+    /** ハンドル全体の alignment。 */
+    static constexpr usize kStorageAlignment = alignof(FLogSinkHandle);
+};
+
+/** ログ購読を指さない無効なハンドル。 */
+inline constexpr FLogSinkHandle kInvalidLogSink{};
+
+} // namespace acs
+
+// ===================== foundation/LogSinkSubscription.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs {
+
+/** 破棄時に FLogger のログ購読を解除する移動専用所有権。 */
+class FLogSinkSubscription {
+public:
+    /** 購読を持たない空の所有権を作る。 */
+    FLogSinkSubscription() noexcept = default;
+
+    /** 保持中の購読を解除する。 */
+    ~FLogSinkSubscription() noexcept;
+
+    /** 購読の重複所有を防ぐためコピー構築を禁止する。 */
+    FLogSinkSubscription(const FLogSinkSubscription&) = delete;
+
+    /** 購読の重複所有を防ぐためコピー代入を禁止する。 */
+    FLogSinkSubscription& operator=(const FLogSinkSubscription&) = delete;
+
+    /**
+     * 購読の所有権を移す。
+     * @param other 移動元の所有権。
+     */
+    FLogSinkSubscription(FLogSinkSubscription&& other) noexcept;
+
+    /**
+     * 現在の購読を解除して所有権を移す。
+     * @param other 移動元の所有権。
+     * @return この所有権。
+     */
+    FLogSinkSubscription& operator=(FLogSinkSubscription&& other) noexcept;
+
+    /** 保持中の購読が現在の Logger 世代でも有効かを返す。 */
+    bool IsValid() const noexcept;
+
+    /** 保持中の購読を解除し、解除できたかを返す。 */
+    bool Reset() noexcept;
+
+    /** 保持中の購読ハンドルを返す。 */
+    FLogSinkHandle Handle() const noexcept { return m_Handle; }
+
+private:
+    /**
+     * 登録済みハンドルの所有権を作る。
+     * @param handle 所有する購読ハンドル。
+     */
+    explicit FLogSinkSubscription(FLogSinkHandle handle) noexcept : m_Handle(handle) {}
+
+    /** 解除対象を識別するハンドル。 */
+    FLogSinkHandle m_Handle{};
+
+    /** 所有権付き購読を生成する Logger。 */
+    friend class FLogger;
+};
+
+} // namespace acs
+
 // ===================== foundation/Move.h =====================
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
@@ -882,6 +1026,15 @@ enum class ELogSeverity : u8 {
     Off = 6,
 };
 
+/**
+ * 登録したログ通知先を呼ぶ関数型。
+ *
+ * severity は Write 時にレコードへ保存した値。message は writer が所有するリング内の
+ * null終端コピーで、この callback 中だけ有効。保持する場合は callback 中に複製する。
+ * user は非所有で、登録側が外部 UnsubscribeSink の成功または Shutdown の復帰まで生存させる。
+ */
+using LogSinkCallback = void (*)(ELogSeverity severity, const char* message, void* user) noexcept;
+
 namespace detail {
 
 /**
@@ -1038,6 +1191,8 @@ public:
     /**
      * ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。
      * sink callback 内からの呼び出しは、writer 自身の join を避けるため無視される。
+     * callback 外からの呼び出しは実行中の全 sink callback を待つため、復帰後は登録時の
+     * user と callback 所有物を破棄できる。
      */
     static void Shutdown() noexcept;
 
@@ -1065,9 +1220,72 @@ public:
      *          sink callback 自身から呼んだ場合は現在実行中の自身を待たず、後続レコード用の
      *          pointer だけを交換する。
      *          ロガーの初期化前または終了後に呼んだ場合は無視される。
-     * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
+     * @param sink レコード毎に呼ぶコールバック。severity はレコード値。message は writer が
+     *             所有する null終端コピーで callback 中だけ有効なため、保持時は複製する。
      */
     static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
+
+    /**
+     * 複数利用者向けのログ通知先を登録する。
+     *
+     * ロガー未初期化、callback が nullptr、固定4096枠の枯渇、または世代番号の
+     * 上限到達後は無効ハンドルを返す。user は非所有で、登録側が外部 UnsubscribeSink の
+     * 成功または Shutdown の復帰まで生存させる。
+     *
+     * @param callback writer スレッドから登録順に呼ぶ通知関数。
+     * @param user callback へそのまま渡す非所有ポインタ。
+     * @return 登録済み購読を識別するハンドル。失敗時は無効。
+     */
+    static FLogSinkHandle SubscribeSink(LogSinkCallback callback, void* user = nullptr) noexcept;
+
+    /**
+     * 破棄時に自動解除するログ通知先を登録する。
+     *
+     * @param callback writer スレッドから登録順に呼ぶ通知関数。
+     * @param user callback へそのまま渡す非所有ポインタ。
+     * @return 登録済み購読の移動専用所有権。失敗時は空。
+     */
+    static FLogSinkSubscription SubscribeSinkOwned(LogSinkCallback callback, void* user = nullptr) noexcept;
+
+    /**
+     * 指定したログ通知先を解除する。
+     *
+     * callback 外からの解除は実行中 callback の完了を待つ。callback 内からの
+     * 自身または後続の解除は待たず、現在の巡回から直ちに除外する。
+     * 外部呼び出しが true を返した後は、その購読の user と callback 所有物を破棄できる。
+     *
+     * @param handle 解除する購読ハンドル。
+     * @return 現在有効な購読を解除した場合は true。
+     */
+    static bool UnsubscribeSink(FLogSinkHandle handle) noexcept;
+
+    /**
+     * 指定したログ通知先が現在有効かを返す。
+     * @param handle 確認する購読ハンドル。
+     * @return 現在の Logger 世代に有効な場合は true。
+     */
+    static bool IsSinkSubscribed(FLogSinkHandle handle) noexcept;
+
+    /**
+     * 現在有効な複数利用者向けログ通知先の数を返す。
+     * @return 有効な購読数。未初期化時は 0。
+     */
+    static u32 SinkCount() noexcept;
+
+    /**
+     * 現在有効な購読ハンドルを登録順にコピーする。
+     *
+     * output は購読数が0でも非 null が必要。容量不足、整列違反、byte数・終端アドレスの
+     * 桁あふれ、または output の宣言範囲と output_count の4 byte領域が1 byteでも重なる場合は
+     * false を返し、output と output_count を変更しない。成功時だけ登録順 snapshot を書き、
+     * 最後に output_count を確定する。
+     *
+     * @param output ハンドルのコピー先。
+     * @param output_capacity output の要素数。
+     * @param output_count 成功時にコピーした要素数を受け取る変数。
+     * @return 全ハンドルをコピーできた場合は true。
+     */
+    static bool TryCopySinkHandles(FLogSinkHandle* output, u32 output_capacity, u32& output_count) noexcept;
 
     /**
      * 指定レベルが現在の設定で出力対象かを返す。
@@ -5466,29 +5684,6 @@ private:
 // ===================== ecs/Entity.h =====================
 // SPDX-License-Identifier: Apache-2.0
 
-
-// ===================== foundation/GenerationHandleLayoutTraits.h =====================
-// SPDX-License-Identifier: Apache-2.0
-
-
-#include <cstddef>
-
-namespace acs {
-
-/**
- * 世代付きハンドルの物理配置情報を公開する trait。
- *
- * @details 各ハンドル固有の無効値・生存判定・再利用規則は統一せず、ABI 監査に必要な
- * identity と generation の位置・幅だけを特殊化側から提供する。
- * @tparam T 検査対象のハンドル型。
- */
-template<typename T>
-struct TGenerationHandleLayoutTraits {
-    /** 対象型に物理配置 trait が定義されているか。 */
-    static constexpr bool kAvailable = false;
-};
-
-} // namespace acs
 
 namespace acs {
 

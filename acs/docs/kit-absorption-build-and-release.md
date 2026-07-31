@@ -19,7 +19,8 @@ Kit の機能は別の基盤として残さず、責務が同じものを ACS �
 | Ease の旧数値 ID | 統合中 | `FLegacyKitEaseIdCodec` で固定33値を正規 enum と相互変換し、独立レビュー、Debug/Release、直接・単一ヘッダ利用、配布物の検証後に完了へ移す |
 | Random snapshot | `GameFramework`へ責務統合 | 既存 `FRandom` の16byte配置、乱数列、消費順を保ち、定数時間snapshotと検査済みAPIを同じ型へ吸収する |
 | Fixed-step | `Timing`へ分離統合 | `FFixedStepClock`の値所有、48byte配置、固定境界、一括不変、Debug/Release、単一header、外部利用を同じclean treeで確認する |
-| Input options、Diagnostics | 未統合 | 既存モジュールとの責務比較後、機能単位で実装と試験を移す |
+| Input options | 未統合 | 既存モジュールとの責務比較後、機能単位で実装と試験を移す |
+| Diagnostics | 一部統合 | 複数ログ通知先は既存 `FLogger` へ吸収済み。履歴、category、統計、一括通知は責務比較と独立検証後に判定する |
 
 TypedEvent を含む各行は、作業ツリーに関連ファイルが存在するだけでは「吸収済み」へ変更しない。
 正式な完了判定は、対象差分と依存差分が同じ clean tree で検証された後に更新する。

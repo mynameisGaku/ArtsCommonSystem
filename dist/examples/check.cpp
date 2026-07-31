@@ -5,6 +5,7 @@
 
 static_assert(sizeof(acs::FTimerHandle) == 8u, "event タイマーハンドルは 8byte の独立型です");
 static_assert(sizeof(acs::game::FSceneTimerHandle) == 4u, "シーンタイマーハンドルは 4byte の packed 型です");
+static_assert(sizeof(acs::FLogSinkHandle) == 8u, "ログ購読ハンドルは枠番号と世代番号の 8byte 型です");
 
 /**
  * 配布ライブラリを経由したシーンタイマー発火を記録する。
@@ -16,6 +17,20 @@ void CountSceneTimerFire(void* user) noexcept
     /** 呼び出し側が所有する発火回数。 */
     auto& fire_count = *static_cast<acs::u32*>(user);
     ++fire_count;
+}
+
+/**
+ * 配布ライブラリを経由したログ購読通知を記録する。
+ *
+ * @param severity 通知されたログ重大度。
+ * @param message 通知されたnull終端本文。
+ * @param user acs::u32 のアドレス。
+ */
+void CountLogSink(acs::ELogSeverity severity, const char* message, void* user) noexcept
+{
+    /** 呼び出し側が所有する通知回数。 */
+    auto& notification_count = *static_cast<acs::u32*>(user);
+    if (severity == acs::ELogSeverity::Info && message != nullptr) ++notification_count;
 }
 
 /** 配布SDKのheader、外部symbol、基本計算を検証し、失敗時は1を返す。 */
@@ -66,6 +81,20 @@ int main()
     // 登録、発火、完了をまとめて確認する結果。
     const bool scene_timer_ok = scene_timer_handle.IsValid() && scene_timer_fire_count == 1u && !scene_timer.IsActive(scene_timer_handle);
 
-    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx scene_timer=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), scene_timer_fire_count);
-    return (sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && scene_timer_ok) ? 0 : 1;
+    // 配布ライブラリの複数ログ通知先を画面出力なしで検証する設定。
+    FLogConfig log_config{};
+    log_config.console = false;
+    log_config.debug_output = false;
+    FLogger::Init(log_config);
+    // ログ購読から受け取った通知回数。
+    u32 log_notification_count = 0u;
+    FLogSinkSubscription log_subscription = FLogger::SubscribeSinkOwned(&CountLogSink, &log_notification_count);
+    ACS_LOG_INFO("distribution log sink");
+    FLogger::Flush();
+    // 購読の有効性と通知到達をまとめて確認する結果。
+    const bool log_sink_ok = log_subscription.IsValid() && log_notification_count == 1u;
+    FLogger::Shutdown();
+
+    std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), scene_timer_fire_count, log_notification_count);
+    return (sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && scene_timer_ok && log_sink_ok) ? 0 : 1;
 }

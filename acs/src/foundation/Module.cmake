@@ -9,6 +9,7 @@ acs_module(
     SOURCES
         Assert.cpp
         Log.cpp
+        LogSinkSubscription.cpp
         Panic.cpp
         StackTrace.cpp
     HEADERS
@@ -21,6 +22,8 @@ acs_module(
         GenerationHandleLayoutTraits.h
         Limits.h
         Log.h
+        LogSinkHandle.h
+        LogSinkSubscription.h
         Move.h
         Panic.h
         Platform.h

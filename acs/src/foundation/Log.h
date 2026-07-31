@@ -3,6 +3,8 @@
 
 #include "foundation/Types.h"
 #include "foundation/Compiler.h"
+#include "foundation/LogSinkHandle.h"
+#include "foundation/LogSinkSubscription.h"
 #include "foundation/Move.h"
 #include "foundation/SourceLoc.h"
 #include "foundation/TypeTraits.h"
@@ -45,6 +47,15 @@ enum class ELogSeverity : u8 {
     /** 出力停止 (この値を最小レベルにすると何も出力しない)。 */
     Off = 6,
 };
+
+/**
+ * 登録したログ通知先を呼ぶ関数型。
+ *
+ * severity は Write 時にレコードへ保存した値。message は writer が所有するリング内の
+ * null終端コピーで、この callback 中だけ有効。保持する場合は callback 中に複製する。
+ * user は非所有で、登録側が外部 UnsubscribeSink の成功または Shutdown の復帰まで生存させる。
+ */
+using LogSinkCallback = void (*)(ELogSeverity severity, const char* message, void* user) noexcept;
 
 namespace detail {
 
@@ -202,6 +213,8 @@ public:
     /**
      * ライタースレッドを停止し、リング・ファイルなどのリソースを解放する (再 Init 可能になる)。
      * sink callback 内からの呼び出しは、writer 自身の join を避けるため無視される。
+     * callback 外からの呼び出しは実行中の全 sink callback を待つため、復帰後は登録時の
+     * user と callback 所有物を破棄できる。
      */
     static void Shutdown() noexcept;
 
@@ -229,9 +242,72 @@ public:
      *          sink callback 自身から呼んだ場合は現在実行中の自身を待たず、後続レコード用の
      *          pointer だけを交換する。
      *          ロガーの初期化前または終了後に呼んだ場合は無視される。
-     * @param sink レコード毎に呼ぶコールバック (message は null 終端)。
+     * @param sink レコード毎に呼ぶコールバック。severity はレコード値。message は writer が
+     *             所有する null終端コピーで callback 中だけ有効なため、保持時は複製する。
      */
     static void SetSink(void (*sink)(ELogSeverity severity, const char* message)) noexcept;
+
+    /**
+     * 複数利用者向けのログ通知先を登録する。
+     *
+     * ロガー未初期化、callback が nullptr、固定4096枠の枯渇、または世代番号の
+     * 上限到達後は無効ハンドルを返す。user は非所有で、登録側が外部 UnsubscribeSink の
+     * 成功または Shutdown の復帰まで生存させる。
+     *
+     * @param callback writer スレッドから登録順に呼ぶ通知関数。
+     * @param user callback へそのまま渡す非所有ポインタ。
+     * @return 登録済み購読を識別するハンドル。失敗時は無効。
+     */
+    static FLogSinkHandle SubscribeSink(LogSinkCallback callback, void* user = nullptr) noexcept;
+
+    /**
+     * 破棄時に自動解除するログ通知先を登録する。
+     *
+     * @param callback writer スレッドから登録順に呼ぶ通知関数。
+     * @param user callback へそのまま渡す非所有ポインタ。
+     * @return 登録済み購読の移動専用所有権。失敗時は空。
+     */
+    static FLogSinkSubscription SubscribeSinkOwned(LogSinkCallback callback, void* user = nullptr) noexcept;
+
+    /**
+     * 指定したログ通知先を解除する。
+     *
+     * callback 外からの解除は実行中 callback の完了を待つ。callback 内からの
+     * 自身または後続の解除は待たず、現在の巡回から直ちに除外する。
+     * 外部呼び出しが true を返した後は、その購読の user と callback 所有物を破棄できる。
+     *
+     * @param handle 解除する購読ハンドル。
+     * @return 現在有効な購読を解除した場合は true。
+     */
+    static bool UnsubscribeSink(FLogSinkHandle handle) noexcept;
+
+    /**
+     * 指定したログ通知先が現在有効かを返す。
+     * @param handle 確認する購読ハンドル。
+     * @return 現在の Logger 世代に有効な場合は true。
+     */
+    static bool IsSinkSubscribed(FLogSinkHandle handle) noexcept;
+
+    /**
+     * 現在有効な複数利用者向けログ通知先の数を返す。
+     * @return 有効な購読数。未初期化時は 0。
+     */
+    static u32 SinkCount() noexcept;
+
+    /**
+     * 現在有効な購読ハンドルを登録順にコピーする。
+     *
+     * output は購読数が0でも非 null が必要。容量不足、整列違反、byte数・終端アドレスの
+     * 桁あふれ、または output の宣言範囲と output_count の4 byte領域が1 byteでも重なる場合は
+     * false を返し、output と output_count を変更しない。成功時だけ登録順 snapshot を書き、
+     * 最後に output_count を確定する。
+     *
+     * @param output ハンドルのコピー先。
+     * @param output_capacity output の要素数。
+     * @param output_count 成功時にコピーした要素数を受け取る変数。
+     * @return 全ハンドルをコピーできた場合は true。
+     */
+    static bool TryCopySinkHandles(FLogSinkHandle* output, u32 output_capacity, u32& output_count) noexcept;
 
     /**
      * 指定レベルが現在の設定で出力対象かを返す。

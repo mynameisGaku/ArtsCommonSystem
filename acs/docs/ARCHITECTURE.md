@@ -107,7 +107,7 @@ acs/
 
 | サブシステム | 採用したもの | 理由 |
 |---|---|---|
-| FLogger | セルごとの Vyukov 有界 MPMC リング + writer スレッド | プロデューサのホットパスは CAS 1 回。writer がロックフリーに排出する。参考: 1024cores.net Vyukov MPMC, Quill async logger。 |
+| FLogger | セルごとの Vyukov 有界 MPMC リング + writer スレッド + 固定購読表 | プロデューサのホットパスは CAS 1 回。writer がロックフリーに排出し、4096枠の複数通知先を従来の単一通知先に続けて登録順で呼ぶ。詳細は [複数ログ通知先の契約](LogSinkSubscriptions.md) を参照。 |
 | FThreadPool | worker ごとの Chase-Lev SPMC deque + グローバル FMutex 投入 | 所有者の Push/Pop は通常ケースでアトミック操作なし。外部投入は FMutex 保護のフォールバックを通る。Steal は `Wait()` に参加してデッドロックを回避。参考: Chase & Lev SPAA 2005, enkiTS, Naughty Dog GDC 2015。 |
 | TAtomic | Win32 `_Interlocked*` 組み込み | `std::atomic` 不使用。ARM64 では接尾辞付き（`_acq` / `_rel`）、x64 ではフルフェンスをベースラインに。 |
 | THashMap | Robin Hood + 値の密配置 + 8-bit フィンガープリント | ankerl::unordered_dense レイアウト — 失敗ルックアップが最速、tombstone なし、連続イテレーション可。SIMD プロービングは v2 に延期。 |

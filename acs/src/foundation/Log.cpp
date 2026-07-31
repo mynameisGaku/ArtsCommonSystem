@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
+#include <new>
 
 namespace acs {
 
@@ -20,6 +21,12 @@ constexpr u32 kMinimumRingCapacity = 16;
 
 /** 異常な設定値による桁あふれと過大な常駐領域を防ぐ上限。 */
 constexpr u32 kMaximumRingCapacity = 1u << 16;
+
+/** 複数利用者向けログ通知先の固定上限。 */
+constexpr u32 kMaximumLogSinkCount = 4096u;
+
+/** 購読表の連結先が存在しないことを表す番号。 */
+constexpr u32 kInvalidLogSinkSlot = 0xFFFFFFFFu;
 
 /**
  * 1 ログレコードを保持する固定サイズスロット。
@@ -53,6 +60,45 @@ struct alignas(64) FCell {
 };
 
 static_assert(sizeof(FCell) % 64 == 0 || sizeof(FCell) >= 64, "Cell should be at least one cache line");
+
+/** 複数利用者向けログ通知先を保持する固定購読枠。 */
+struct FLogSinkSlot {
+    /** writer スレッドから呼ぶ通知関数。 */
+    LogSinkCallback callback = nullptr;
+
+    /** 通知関数へ渡す非所有ポインタ。 */
+    void* user = nullptr;
+
+    /** この枠の現在の世代番号。 */
+    u32 generation = 0;
+
+    /** 登録順連結の次枠。 */
+    u32 next = kInvalidLogSinkSlot;
+
+    /** 登録順連結の前枠。 */
+    u32 previous = kInvalidLogSinkSlot;
+
+    /** 未使用枠連結の次枠。 */
+    u32 next_free = kInvalidLogSinkSlot;
+
+    /** 現在実行中の callback 数。writer は1本だが解除待機との同期に使う。 */
+    u32 in_flight = 0;
+
+    /** 現在のハンドルで通知対象になっているか。 */
+    bool active = false;
+
+    /** 現在の巡回終了後に未使用枠へ戻すか。 */
+    bool recycle_pending = false;
+};
+
+/** 再初期化後も古いハンドルを拒否するため保持する枠別世代。 */
+struct FLogSinkGenerationState {
+    /** 最後に発行した世代番号。 */
+    u32 generation = 0;
+
+    /** 最大世代を使い切り、今後再利用しない枠か。 */
+    bool retired = false;
+};
 
 /**
  * ロガーのグローバル状態 (リング・カーソル・出力先・時刻較正をまとめる)。
@@ -115,6 +161,27 @@ struct FLoggerState {
     /** 追加のログシンク (コールバック)。EmitOne が各レコードで呼ぶ (null=無効)。 */
     void* volatile sink = nullptr;
 
+    /** VirtualAlloc で確保した複数利用者向け固定購読表。 */
+    FLogSinkSlot* sink_slots = nullptr;
+
+    /** 未使用購読枠の先頭番号。 */
+    u32 sink_free_head = kInvalidLogSinkSlot;
+
+    /** 登録順連結の先頭番号。 */
+    u32 sink_active_head = kInvalidLogSinkSlot;
+
+    /** 登録順連結の末尾番号。 */
+    u32 sink_active_tail = kInvalidLogSinkSlot;
+
+    /** 現在有効な複数利用者向け購読数。 */
+    u32 sink_active_count = 0;
+
+    /** 現在のレコードで固定した登録順連結を巡回中か。 */
+    bool sink_emit_active = false;
+
+    /** 巡回終了後に再利用する購読枠数。 */
+    u32 sink_recycle_pending_count = 0;
+
     /** QPC の周波数 (ティック → 秒の換算用)。 */
     LARGE_INTEGER qpc_freq{};
 
@@ -127,6 +194,9 @@ struct FLoggerState {
 
 /** ロガーのグローバル状態インスタンス。 */
 FLoggerState g_state;
+
+/** 枠の再利用と再初期化をまたいで保持する購読世代。 */
+FLogSinkGenerationState g_sink_generations[kMaximumLogSinkCount]{};
 
 /** ready フラグ: producer はこれが 1 のときだけ ring に触れる (全設定完了後に立てる)。 */
 volatile LONG g_inited = 0;
@@ -143,8 +213,31 @@ volatile LONG g_lifecycle_generation = 0;
 /** sink pointer の交換と callback 実行を世代境界で分離する。 */
 SRWLOCK g_sink_callback_lock = SRWLOCK_INIT;
 
+/** 複数利用者向け購読表の変更と callback 完了待機を直列化する。 */
+SRWLOCK g_sink_registry_lock = SRWLOCK_INIT;
+
+/** 外部解除を実行中 callback の完了時に起こす条件変数。 */
+CONDITION_VARIABLE g_sink_registry_cv = CONDITION_VARIABLE_INIT;
+
 /** sink 自身から SetSink を呼ぶ場合の自己待機を避ける。 */
 thread_local bool t_inside_sink_callback = false;
+
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+/** 次回の購読表確保だけを失敗させる試験用フラグ。 */
+volatile LONG g_fail_next_sink_registry_allocation = 0;
+
+/** 外部解除が callback 完了待機へ入ったことを通知する試験用 event。 */
+void* volatile g_unsubscribe_wait_event = nullptr;
+
+/** Shutdown が writer 終了待機へ入ることを通知する試験用 event。 */
+void* volatile g_shutdown_wait_event = nullptr;
+
+/** 購読一覧コピーが registry 共有 lock を得たことを通知する試験用 event。 */
+void* volatile g_copy_sink_handles_entered_event = nullptr;
+
+/** 購読一覧コピーの続行を許可する試験用 event。 */
+void* volatile g_copy_sink_handles_release_event = nullptr;
+#endif
 
 /** Write の全 return 経路で producer 数を確実に戻すスコープガード。 */
 struct FProducerGuard {
@@ -162,6 +255,315 @@ struct FRecordReservation {
     /** 単調増加するリング位置。 */
     LONG64 position = 0;
 };
+
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+/**
+ * 設定済みの試験用 Win32 event を通知する。
+ *
+ * @param event_storage event handle を保持するアトミック領域。
+ */
+void SignalLogSinkTestEvent(void* volatile* event_storage) noexcept
+{
+    /** 現在設定されている非所有 event handle。 */
+    void* const event_handle = ::_InterlockedCompareExchangePointer(event_storage, nullptr, nullptr);
+    if (event_handle != nullptr) ::SetEvent(static_cast<HANDLE>(event_handle));
+}
+
+/**
+ * 設定済みの試験用 Win32 event が通知されるまで待つ。
+ *
+ * @param event_storage event handle を保持するアトミック領域。
+ */
+void WaitForLogSinkTestEvent(void* volatile* event_storage) noexcept
+{
+    /** 現在設定されている非所有 event handle。 */
+    void* const event_handle = ::_InterlockedCompareExchangePointer(event_storage, nullptr, nullptr);
+    if (event_handle != nullptr) ::WaitForSingleObject(static_cast<HANDLE>(event_handle), INFINITE);
+}
+#endif
+
+/**
+ * 購読ハンドルのコピー先と件数出力先が安全な別領域かを検証する。
+ *
+ * @param output 宣言されたハンドル配列の先頭。
+ * @param output_capacity 宣言されたハンドル配列の要素数。
+ * @param output_count 成功件数を書き込む4 byte領域。
+ * @return 整列・桁あふれ・領域重複がなく、output が非 null の場合は true。
+ */
+bool ValidateSinkHandleCopyOutput(FLogSinkHandle* output, u32 output_capacity, u32& output_count) noexcept
+{
+    if (output == nullptr) return false;
+
+    /** コピー先先頭を桁あふれ検証に使う整数値へ変換したもの。 */
+    const uptr output_begin = reinterpret_cast<uptr>(output);
+    if (output_begin % alignof(FLogSinkHandle) != 0u) return false;
+
+    /** ポインタ幅で表せる最大アドレス。 */
+    constexpr uptr kMaximumAddress = ~uptr{0};
+    /** 1ハンドルが占める byte 数。 */
+    constexpr uptr kHandleBytes = sizeof(FLogSinkHandle);
+    if (static_cast<uptr>(output_capacity) > kMaximumAddress / kHandleBytes) return false;
+
+    /** 呼び出し側が宣言したコピー先全体の byte 数。 */
+    const uptr output_bytes = static_cast<uptr>(output_capacity) * kHandleBytes;
+    if (output_bytes > kMaximumAddress - output_begin) return false;
+    /** コピー先の終端直後アドレス。 */
+    const uptr output_end = output_begin + output_bytes;
+
+    /** 件数出力先の先頭アドレス。 */
+    const uptr count_begin = reinterpret_cast<uptr>(&output_count);
+    if (sizeof(output_count) > kMaximumAddress - count_begin) return false;
+    /** 件数出力先4 byte領域の終端直後アドレス。 */
+    const uptr count_end = count_begin + sizeof(output_count);
+
+    /** どちらかが相手より前で終わらなければ1 byte以上重複している。 */
+    return output_end <= count_begin || count_end <= output_begin;
+}
+
+/**
+ * 未使用購読枠を free list の先頭へ戻す。
+ *
+ * @param slot_index 戻す購読枠番号。
+ */
+void RecycleSinkSlot(u32 slot_index) noexcept
+{
+    FLogSinkSlot& slot = g_state.sink_slots[slot_index];
+    if (g_sink_generations[slot_index].retired) {
+        slot.recycle_pending = false;
+        return;
+    }
+    slot.callback = nullptr;
+    slot.user = nullptr;
+    slot.next = kInvalidLogSinkSlot;
+    slot.previous = kInvalidLogSinkSlot;
+    slot.next_free = g_state.sink_free_head;
+    slot.recycle_pending = false;
+    g_state.sink_free_head = slot_index;
+}
+
+/** 現在の巡回中に解除された全枠を安全に再利用可能へ戻す。 */
+void RecyclePendingSinkSlots() noexcept
+{
+    if (g_state.sink_recycle_pending_count == 0u) return;
+    for (u32 slot_index = 0; slot_index < kMaximumLogSinkCount; ++slot_index) {
+        FLogSinkSlot& slot = g_state.sink_slots[slot_index];
+        if (!slot.recycle_pending || slot.in_flight != 0u) continue;
+        RecycleSinkSlot(slot_index);
+    }
+    g_state.sink_recycle_pending_count = 0u;
+}
+
+/**
+ * 複数利用者向け固定購読表を確保して初期化する。
+ *
+ * @return 全4096枠を利用可能にした場合は true。確保失敗時は false。
+ */
+bool AllocateSinkRegistry() noexcept
+{
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+    if (::_InterlockedExchange(&g_fail_next_sink_registry_allocation, 0) != 0) return false;
+#endif
+    /** 固定購読表に必要な byte 数。 */
+    constexpr usize allocation_bytes = sizeof(FLogSinkSlot) * kMaximumLogSinkCount;
+    void* const memory = ::VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (memory == nullptr) return false;
+
+    g_state.sink_slots = static_cast<FLogSinkSlot*>(memory);
+    g_state.sink_free_head = kInvalidLogSinkSlot;
+    g_state.sink_active_head = kInvalidLogSinkSlot;
+    g_state.sink_active_tail = kInvalidLogSinkSlot;
+    g_state.sink_active_count = 0u;
+    g_state.sink_emit_active = false;
+    g_state.sink_recycle_pending_count = 0u;
+    for (u32 reverse_index = kMaximumLogSinkCount; reverse_index > 0u; --reverse_index) {
+        /** 先頭から登録できるよう逆順に free list へ積む枠番号。 */
+        const u32 slot_index = reverse_index - 1u;
+        new (&g_state.sink_slots[slot_index]) FLogSinkSlot{};
+        if (!g_sink_generations[slot_index].retired) RecycleSinkSlot(slot_index);
+    }
+    return true;
+}
+
+/** 固定購読表を無効化し、保持している仮想メモリを解放する。 */
+void ReleaseSinkRegistry() noexcept
+{
+    if (g_state.sink_slots == nullptr) return;
+    ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+    for (u32 slot_index = 0; slot_index < kMaximumLogSinkCount; ++slot_index) {
+        FLogSinkSlot& slot = g_state.sink_slots[slot_index];
+        if (slot.active && slot.generation == 0xFFFFFFFFu) g_sink_generations[slot_index].retired = true;
+        slot.active = false;
+        slot.~FLogSinkSlot();
+    }
+    g_state.sink_active_head = kInvalidLogSinkSlot;
+    g_state.sink_active_tail = kInvalidLogSinkSlot;
+    g_state.sink_active_count = 0u;
+    g_state.sink_emit_active = false;
+    g_state.sink_recycle_pending_count = 0u;
+    ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+    ::VirtualFree(g_state.sink_slots, 0, MEM_RELEASE);
+    g_state.sink_slots = nullptr;
+    g_state.sink_free_head = kInvalidLogSinkSlot;
+}
+
+/**
+ * lifecycle lock を保持済み、または writer callback 内から通知先を登録する。
+ *
+ * @param callback writer スレッドから呼ぶ通知関数。
+ * @param user 通知関数へ渡す非所有ポインタ。
+ * @return 登録済み購読ハンドル。失敗時は無効。
+ */
+FLogSinkHandle SubscribeSinkLocked(LogSinkCallback callback, void* user) noexcept
+{
+    if (callback == nullptr || ::_InterlockedExchangeAdd(&g_inited, 0) == 0) return {};
+    ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+    if (g_state.sink_slots == nullptr || g_state.sink_free_head == kInvalidLogSinkSlot) {
+        ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+        return {};
+    }
+
+    /** 今回登録する未使用枠番号。 */
+    const u32 slot_index = g_state.sink_free_head;
+    FLogSinkSlot& slot = g_state.sink_slots[slot_index];
+    g_state.sink_free_head = slot.next_free;
+    FLogSinkGenerationState& generation_state = g_sink_generations[slot_index];
+    if (generation_state.retired || generation_state.generation == 0xFFFFFFFFu) {
+        generation_state.retired = true;
+        ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+        return {};
+    }
+
+    ++generation_state.generation;
+    slot.callback = callback;
+    slot.user = user;
+    slot.generation = generation_state.generation;
+    slot.next = kInvalidLogSinkSlot;
+    slot.previous = g_state.sink_active_tail;
+    slot.next_free = kInvalidLogSinkSlot;
+    slot.in_flight = 0u;
+    slot.active = true;
+    slot.recycle_pending = false;
+    if (g_state.sink_active_tail != kInvalidLogSinkSlot) {
+        g_state.sink_slots[g_state.sink_active_tail].next = slot_index;
+    } else {
+        g_state.sink_active_head = slot_index;
+    }
+    g_state.sink_active_tail = slot_index;
+    ++g_state.sink_active_count;
+    const FLogSinkHandle handle{slot_index, slot.generation};
+    ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+    return handle;
+}
+
+/**
+ * lifecycle lock を保持済み、または writer callback 内から通知先を解除する。
+ *
+ * @param handle 解除する購読ハンドル。
+ * @param wait_for_callback 実行中 callback の完了を待つ場合は true。
+ * @return 有効な購読を解除した場合は true。
+ */
+bool UnsubscribeSinkLocked(FLogSinkHandle handle, bool wait_for_callback) noexcept
+{
+    if (!handle.IsValid() || g_state.sink_slots == nullptr) return false;
+    ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+    FLogSinkSlot& slot = g_state.sink_slots[handle.slot];
+    if (!slot.active || slot.generation != handle.generation) {
+        ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+        return false;
+    }
+
+    if (slot.previous != kInvalidLogSinkSlot) {
+        g_state.sink_slots[slot.previous].next = slot.next;
+    } else {
+        g_state.sink_active_head = slot.next;
+    }
+    if (slot.next != kInvalidLogSinkSlot) {
+        g_state.sink_slots[slot.next].previous = slot.previous;
+    } else {
+        g_state.sink_active_tail = slot.previous;
+    }
+    slot.active = false;
+    --g_state.sink_active_count;
+    if (slot.generation == 0xFFFFFFFFu) g_sink_generations[handle.slot].retired = true;
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+    if (wait_for_callback && slot.in_flight != 0u) SignalLogSinkTestEvent(&g_unsubscribe_wait_event);
+#endif
+    while (wait_for_callback && slot.in_flight != 0u) {
+        ::SleepConditionVariableSRW(&g_sink_registry_cv, &g_sink_registry_lock, INFINITE, 0);
+    }
+    if (g_state.sink_emit_active || slot.in_flight != 0u) {
+        slot.recycle_pending = true;
+        ++g_state.sink_recycle_pending_count;
+    } else {
+        RecycleSinkSlot(handle.slot);
+    }
+    ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+    return true;
+}
+
+/**
+ * 現在のレコードで巡回する登録順連結の両端を固定する。
+ *
+ * @param first 最初に確認する枠番号の出力先。
+ * @param last 最後に確認する枠番号の出力先。
+ */
+void BeginSinkEmission(u32& first, u32& last) noexcept
+{
+    ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+    g_state.sink_emit_active = true;
+    first = g_state.sink_active_head;
+    last = g_state.sink_active_tail;
+    ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+}
+
+/** 現在のレコードの巡回を終え、解除済み枠を再利用可能にする。 */
+void EndSinkEmission() noexcept
+{
+    ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+    g_state.sink_emit_active = false;
+    RecyclePendingSinkSlots();
+    ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+}
+
+/**
+ * 巡回開始時に固定した登録順の通知先を呼ぶ。
+ *
+ * @param first 最初に確認する枠番号。
+ * @param last 最後に確認する枠番号。
+ * @param severity 通知する重大度。
+ * @param message null終端されたログ本文。
+ */
+void EmitSubscribedSinks(u32 first, u32 last, ELogSeverity severity, const char* message) noexcept
+{
+    u32 slot_index = first;
+    while (slot_index != kInvalidLogSinkSlot) {
+        ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+        FLogSinkSlot& slot = g_state.sink_slots[slot_index];
+        /** callback 中の解除で連結が変わっても巡回を続けるため先に保存する次枠。 */
+        const u32 next_slot = slot.next;
+        /** 巡回開始時の末尾へ到達したか。 */
+        const bool reached_last = slot_index == last;
+        /** 解除されていない場合にだけ呼ぶ通知関数。 */
+        const LogSinkCallback callback = slot.active ? slot.callback : nullptr;
+        /** 通知関数へ渡す非所有ポインタ。 */
+        void* const user = slot.user;
+        if (callback != nullptr) ++slot.in_flight;
+        ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+
+        if (callback != nullptr) {
+            t_inside_sink_callback = true;
+            callback(severity, message, user);
+            t_inside_sink_callback = false;
+
+            ::AcquireSRWLockExclusive(&g_sink_registry_lock);
+            --slot.in_flight;
+            ::WakeAllConditionVariable(&g_sink_registry_cv);
+            ::ReleaseSRWLockExclusive(&g_sink_registry_lock);
+        }
+        if (reached_last) break;
+        slot_index = next_slot;
+    }
+}
 
 /**
  * 空きセルを確保し、共通のレコード情報を設定する。
@@ -253,6 +655,7 @@ void RollbackInitWithoutWriter() noexcept
         ::VirtualFree(g_state.ring, 0, MEM_RELEASE);
         g_state.ring = nullptr;
     }
+    ReleaseSinkRegistry();
 
     g_state.writer_thread = nullptr;
     ::_InterlockedExchangePointer(&g_state.sink, nullptr);
@@ -355,6 +758,12 @@ void FormatTimestamp(const LARGE_INTEGER& qpc, char* out, usize cap) noexcept
  */
 void EmitOne(const FCell& c) noexcept
 {
+    /** このレコードで通知する購読連結の先頭。 */
+    u32 first_subscribed_sink = kInvalidLogSinkSlot;
+    /** このレコードで通知する購読連結の末尾。 */
+    u32 last_subscribed_sink = kInvalidLogSinkSlot;
+    BeginSinkEmission(first_subscribed_sink, last_subscribed_sink);
+
     char ts[32];
     FormatTimestamp(c.timestamp, ts, sizeof(ts));
 
@@ -394,6 +803,10 @@ void EmitOne(const FCell& c) noexcept
         t_inside_sink_callback = false;
     }
     ::ReleaseSRWLockShared(&g_sink_callback_lock);
+
+    // 旧 SetSink を常に先に呼び、複数利用者向け通知先は登録順に続ける。
+    EmitSubscribedSinks(first_subscribed_sink, last_subscribed_sink, c.severity, c.message);
+    EndSinkEmission();
 }
 
 /**
@@ -514,6 +927,9 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
     g_state.dropped = 0;
     g_state.wake_signal_count = 0;
 
+    // 複数通知先は Logger lifecycle 内だけ有効で、固定4096枠を初期化時に一括確保する。
+    if (!AllocateSinkRegistry()) ::OutputDebugStringA("[acs::FLogger] WARNING: sink registry allocation failed\n");
+
     // 出力先ハンドル取得
     g_state.use_console = configuration.console;
     g_state.use_dbgout = configuration.debug_output;
@@ -591,6 +1007,9 @@ void FLogger::Shutdown() noexcept
     ::_InterlockedExchange(&g_state.running, 0);
     ::WakeAllConditionVariable(&g_state.wake_cv);
     if (g_state.writer_thread) {
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+        SignalLogSinkTestEvent(&g_shutdown_wait_event);
+#endif
         ::WaitForSingleObject(g_state.writer_thread, INFINITE);
         ::CloseHandle(g_state.writer_thread);
         g_state.writer_thread = nullptr;
@@ -605,6 +1024,7 @@ void FLogger::Shutdown() noexcept
     }
     // 再初期化後に破棄済みの利用側オブジェクトへ通知しない。
     ::_InterlockedExchangePointer(&g_state.sink, nullptr);
+    ReleaseSinkRegistry();
     ::ReleaseSRWLockExclusive(&g_lifecycle_lock);
 }
 
@@ -660,6 +1080,88 @@ void FLogger::SetSink(void (*sink)(ELogSeverity, const char*)) noexcept
         ::ReleaseSRWLockExclusive(&g_sink_callback_lock);
     }
     ::ReleaseSRWLockExclusive(&g_lifecycle_lock);
+}
+
+FLogSinkHandle FLogger::SubscribeSink(LogSinkCallback callback, void* user) noexcept
+{
+    if (callback == nullptr) return {};
+    if (t_inside_sink_callback) return SubscribeSinkLocked(callback, user);
+
+    ::AcquireSRWLockShared(&g_lifecycle_lock);
+    const FLogSinkHandle handle = SubscribeSinkLocked(callback, user);
+    ::ReleaseSRWLockShared(&g_lifecycle_lock);
+    return handle;
+}
+
+FLogSinkSubscription FLogger::SubscribeSinkOwned(LogSinkCallback callback, void* user) noexcept
+{
+    return FLogSinkSubscription(SubscribeSink(callback, user));
+}
+
+bool FLogger::UnsubscribeSink(FLogSinkHandle handle) noexcept
+{
+    if (!handle.IsValid()) return false;
+    if (t_inside_sink_callback) return UnsubscribeSinkLocked(handle, false);
+
+    ::AcquireSRWLockShared(&g_lifecycle_lock);
+    const bool removed = ::_InterlockedExchangeAdd(&g_inited, 0) != 0 && UnsubscribeSinkLocked(handle, true);
+    ::ReleaseSRWLockShared(&g_lifecycle_lock);
+    return removed;
+}
+
+bool FLogger::IsSinkSubscribed(FLogSinkHandle handle) noexcept
+{
+    if (!handle.IsValid()) return false;
+    if (!t_inside_sink_callback) ::AcquireSRWLockShared(&g_lifecycle_lock);
+    bool subscribed = false;
+    if (::_InterlockedExchangeAdd(&g_inited, 0) != 0 && g_state.sink_slots != nullptr) {
+        ::AcquireSRWLockShared(&g_sink_registry_lock);
+        const FLogSinkSlot& slot = g_state.sink_slots[handle.slot];
+        subscribed = slot.active && slot.generation == handle.generation;
+        ::ReleaseSRWLockShared(&g_sink_registry_lock);
+    }
+    if (!t_inside_sink_callback) ::ReleaseSRWLockShared(&g_lifecycle_lock);
+    return subscribed;
+}
+
+u32 FLogger::SinkCount() noexcept
+{
+    if (!t_inside_sink_callback) ::AcquireSRWLockShared(&g_lifecycle_lock);
+    u32 count = 0u;
+    if (::_InterlockedExchangeAdd(&g_inited, 0) != 0 && g_state.sink_slots != nullptr) {
+        ::AcquireSRWLockShared(&g_sink_registry_lock);
+        count = g_state.sink_active_count;
+        ::ReleaseSRWLockShared(&g_sink_registry_lock);
+    }
+    if (!t_inside_sink_callback) ::ReleaseSRWLockShared(&g_lifecycle_lock);
+    return count;
+}
+
+bool FLogger::TryCopySinkHandles(FLogSinkHandle* output, u32 output_capacity, u32& output_count) noexcept
+{
+    if (!ValidateSinkHandleCopyOutput(output, output_capacity, output_count)) return false;
+    if (!t_inside_sink_callback) ::AcquireSRWLockShared(&g_lifecycle_lock);
+    bool copied = false;
+    if (::_InterlockedExchangeAdd(&g_inited, 0) != 0 && g_state.sink_slots != nullptr) {
+        ::AcquireSRWLockShared(&g_sink_registry_lock);
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+        SignalLogSinkTestEvent(&g_copy_sink_handles_entered_event);
+        WaitForLogSinkTestEvent(&g_copy_sink_handles_release_event);
+#endif
+        const u32 count = g_state.sink_active_count;
+        if (count <= output_capacity) {
+            u32 copied_count = 0u;
+            for (u32 slot_index = g_state.sink_active_head; slot_index != kInvalidLogSinkSlot; slot_index = g_state.sink_slots[slot_index].next) {
+                const FLogSinkSlot& slot = g_state.sink_slots[slot_index];
+                output[copied_count++] = FLogSinkHandle{slot_index, slot.generation};
+            }
+            output_count = copied_count;
+            copied = true;
+        }
+        ::ReleaseSRWLockShared(&g_sink_registry_lock);
+    }
+    if (!t_inside_sink_callback) ::ReleaseSRWLockShared(&g_lifecycle_lock);
+    return copied;
 }
 
 bool FLogger::Enabled(ELogSeverity severity) noexcept
@@ -744,5 +1246,60 @@ void FLogger::WriteMessage(ELogSeverity severity, FSourceLoc location, const cha
     reservation.cell->message_len = static_cast<u16>(copy_length);
     PublishRecord(reservation);
 }
+
+#if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
+namespace log_sink_test_detail {
+
+/** 次回の FLogger::Init で購読表の確保だけを失敗させる。 */
+void FailNextSinkRegistryAllocation() noexcept
+{
+    ::_InterlockedExchange(&g_fail_next_sink_registry_allocation, 1);
+}
+
+/**
+ * 未初期化時の枠別世代を試験値へ置き換える。
+ * @param slot_index 変更する購読枠番号。
+ * @param generation 次回登録前の世代番号。
+ * @return 未初期化かつ有効な枠番号なら true。
+ */
+bool SetSinkGeneration(u32 slot_index, u32 generation) noexcept
+{
+    if (::_InterlockedExchangeAdd(&g_inited, 0) != 0 || slot_index >= kMaximumLogSinkCount) return false;
+    g_sink_generations[slot_index].generation = generation;
+    g_sink_generations[slot_index].retired = false;
+    return true;
+}
+
+/**
+ * 外部解除が callback 完了待機へ入ったことを通知する event を設定する。
+ * @param event_handle テスト側が所有する Win32 event handle。nullptr で解除。
+ */
+void SetUnsubscribeWaitEvent(void* event_handle) noexcept
+{
+    ::_InterlockedExchangePointer(&g_unsubscribe_wait_event, event_handle);
+}
+
+/**
+ * Shutdown が writer 終了待機へ入ることを通知する event を設定する。
+ * @param event_handle テスト側が所有する Win32 event handle。nullptr で解除。
+ */
+void SetShutdownWaitEvent(void* event_handle) noexcept
+{
+    ::_InterlockedExchangePointer(&g_shutdown_wait_event, event_handle);
+}
+
+/**
+ * 購読一覧コピーを registry 共有 lock 内で同期する event 対を設定する。
+ * @param entered_event 共有 lock 取得を通知する Win32 event handle。
+ * @param release_event コピー続行を許可する Win32 event handle。
+ */
+void SetCopySinkHandlesBarrierEvents(void* entered_event, void* release_event) noexcept
+{
+    ::_InterlockedExchangePointer(&g_copy_sink_handles_entered_event, entered_event);
+    ::_InterlockedExchangePointer(&g_copy_sink_handles_release_event, release_event);
+}
+
+} // namespace log_sink_test_detail
+#endif
 
 } // acs 名前空間

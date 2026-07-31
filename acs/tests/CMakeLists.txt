@@ -139,6 +139,25 @@ set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 
 acs_apply_compiler_options(acs_unit_tests)
 
+# Log の失敗注入と同期点は製品 acs_foundation に混ぜず、この専用実行ファイルだけで再コンパイルする。
+add_executable(acs_log_sink_registry_tests
+    main.cpp
+    log_sink_registry_tests.cpp
+    "${ACS_SOURCE_ROOT}/foundation/Log.cpp"
+    "${ACS_SOURCE_ROOT}/foundation/LogSinkSubscription.cpp"
+)
+set_target_properties(acs_log_sink_registry_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_log_sink_registry_tests)
+target_compile_definitions(acs_log_sink_registry_tests PRIVATE ACS_FOUNDATION_LOG_TEST_HOOKS=1)
+target_link_libraries(acs_log_sink_registry_tests PRIVATE
+    ACS::Foundation
+    ACS::Threading
+    ACS::Memory
+    ACS::Test
+)
+add_test(NAME ACS.LogSinkRegistry COMMAND acs_log_sink_registry_tests)
+set_tests_properties(ACS.LogSinkRegistry PROPERTIES LABELS "Foundation;Concurrency" TIMEOUT 60)
+
 # Randomの既存列、layout、検査済みKit吸収APIを独立して反復する。
 add_executable(acs_random_compatibility_tests
     main.cpp
