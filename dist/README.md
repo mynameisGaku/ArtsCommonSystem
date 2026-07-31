@@ -103,7 +103,7 @@ does not list individual libraries on its command line; `acs.h` supplies the
 
 ## What's included
 
-`acs.h` exposes the full **public** runtime API: `foundation`, `math`,
+`acs.h` exposes the full **public** runtime API: `foundation`, `math`, `timing`,
 `container`, `memory`, `threading`, `platform`, `ecs`, `event`, `collision`,
 `mvvm`, `asset` / `assetpack`, `audio`, `render` (the backend-agnostic `IRhi*`
 interfaces + `FRenderer` / `FSpriteBatch` / `FStandardShader` / `FPbrShader` …),

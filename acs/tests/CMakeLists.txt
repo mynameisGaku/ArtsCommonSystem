@@ -39,6 +39,7 @@ add_executable(acs_unit_tests
     behavior_tree_persistence_safety_tests.cpp
     easing_completeness_tests.cpp
     legacy_kit_ease_id_codec_tests.cpp
+    fixed_step_clock_tests.cpp
     easing_tween_integration_tests.cpp
     easing_tween_numeric_safety_tests.cpp
     easy_easing_facade_tests.cpp
@@ -476,6 +477,7 @@ target_link_libraries(acs_unit_tests PRIVATE
     ACS::Memory
     ACS::Container
     ACS::Math
+    ACS::Timing
     ACS::Ecs
     ACS::Event
     ACS::Mvvm
@@ -489,6 +491,21 @@ target_link_libraries(acs_unit_tests PRIVATE
     ACS::App
     ACS::Test
 )
+
+add_executable(acs_fixed_step_clock_tests
+    main.cpp
+    fixed_step_clock_tests.cpp
+)
+set_target_properties(acs_fixed_step_clock_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_fixed_step_clock_tests)
+target_link_libraries(acs_fixed_step_clock_tests PRIVATE
+    ACS::Foundation
+    ACS::Memory
+    ACS::Test
+    ACS::Timing
+)
+add_test(NAME ACS.FixedStepClock COMMAND acs_fixed_step_clock_tests)
+set_tests_properties(ACS.FixedStepClock PROPERTIES LABELS "Foundation;Timing" TIMEOUT 30)
 
 if(TARGET acs_third_party_diligent_core)
     # アダプタ契約テストだけが Diligent の IMemoryAllocator 定義を直接参照する。

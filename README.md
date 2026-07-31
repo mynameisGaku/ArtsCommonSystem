@@ -190,6 +190,7 @@ Root().AddChild(Move(player));
 | `Memory` | allocator・所有権・追跡 | `FAllocator`, `TUniquePtr<T>`, `TSharedPtr<T>`, `TObjectPtr<T>` |
 | `Container` | 配列・文字列・hash・view | `TArray<T>`, `FString`, `THashMap<K,V>`, `TSpan<T>` |
 | `Math` | vector・matrix・camera・衝突基本形状 | `FVec2`, `FMat4`, `FQuat`, `FCamera`, `FAabb3` |
+| `Timing` | 値所有の決定論的な固定更新変換 | `FFixedStepClock`, `FFixedStepClockSnapshot` |
 | `Platform` | window・input・file・time | `FWindow`, `FInput`, `FFileSystem`, `FFrameTimer` |
 | `Ecs` | entity / componentとquery | `FWorld`, `FEntityId`, `TQueryView`, `FEntityCommandBuffer` |
 | `Event` | pub/sub・message pipe・timer | `FMessageBroker`, `TMessagePipe<T>`, `FTimerManager` |
@@ -264,6 +265,7 @@ Root().AddChild(Move(player));
 - [`FoundationOptimizationWaveC.md`](acs/docs/FoundationOptimizationWaveC.md) — アセット/ECS/reflection/RHI の Wave C 最適化と Release 証跡
 - [`QUICKSTART.md`](acs/docs/QUICKSTART.md) — 初学者向けの導入
 - [`ProjectOperations.md`](acs/docs/ProjectOperations.md) — Windowsでのconfigure・build・test・配布・cleanの統一入口
+- [`FixedStepClock.md`](acs/docs/FixedStepClock.md) — 値所有の固定更新時計と一括処理の安全契約
 - [`LearningSamplesMigrationPlan.md`](acs/docs/LearningSamplesMigrationPlan.md) — 既存68サンプルを段階的な学習用サンプルへ全面移行する必須計画
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
 - [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド

@@ -20,6 +20,7 @@ window.ACS_NAV = {
       { id: "container",  label: "container",  page: "container.html" },
       { id: "memory",     label: "memory",     page: "memory.html" },
       { id: "math",       label: "math",       page: "math.html" },
+      { id: "timing",     label: "timing",     page: "timing.html" },
       { id: "threading",  label: "threading",  page: "threading.html" }
     ]},
     { label: "ランタイム", items: [

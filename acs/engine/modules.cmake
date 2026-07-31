@@ -26,6 +26,8 @@ acs_enable_module(Math REQUIRED
     FEATURES DIRECTXMATH AVX2 RUNTIME_DISPATCH
 )
 
+acs_enable_module(Timing REQUIRED)
+
 acs_enable_module(Test
     # テストフレームワーク（ship build では無効化推奨）
 )

@@ -4,8 +4,8 @@
 Windows / DirectX 12 向けのモジュール式 C++20 ゲームフレームワークです。
 ACS はランタイム基盤（型・スレッド・メモリ・コンテナ・数学）から始まり、
 現在はプラットフォーム・ECS・イベント・アセット・描画・音声・ネットワーク・
-UI までを含みます。現在は `src/*/Module.cmake` に **28 モジュール**を定義し、
-標準構成の21モジュールと構成時に選ぶ7個の任意backendに分けています。
+UI までを含みます。現在は `src/*/Module.cmake` に **29 モジュール**を定義し、
+標準構成の22モジュールと構成時に選ぶ7個の任意backendに分けています。
 
 ## 設計原則
 
@@ -55,6 +55,7 @@ acs/
 │   ├── memory/                 # FAllocator, FSystemAllocator/FLinearAllocator/FPoolAllocator/FArenaAllocator, TUniquePtr, TRc
 │   ├── container/              # TArray, FString, THashMap, Hash, TSpan
 │   ├── math/                   # FVec2/FVec3/FVec4, FMat4, FQuat, FCamera, Collision2D/3D, dispatch
+│   ├── timing/                 # FFixedStepClock, FFixedStepClockSnapshot, 固定更新の一括変換
 │   ├── test/                   # 小さなテストフレームワーク + EXPECT_* マクロ
 │   ├── platform/               # FWindow, FInput, FClock/FFrameTimer, FFileSystem, FStorage, FLocalization
 │   ├── ecs/                    # FWorld, FEntityId, TQueryView, FSystemScheduler
@@ -89,7 +90,7 @@ acs/
 おおまかには：
 
 - `Foundation` は何にも依存しない。
-- `Threading` / `Memory` / `Container` / `Math` / `Test` は `Foundation` の上に乗る。
+- `Threading` / `Memory` / `Container` / `Math` / `Timing` / `Test` は `Foundation` の上に乗る。
 - `Platform` / `Ecs` / `Event` が OS・エンティティ・メッセージング層を足す。
 - `Asset` と `Render` がコンテンツ読み込みとグラフィックスを提供する。
 - `App` がウィンドウ + レンダラ + ECS を `FApplication` ループにまとめる。
@@ -97,6 +98,8 @@ acs/
   `GameFramework` / `Collision` が標準構成の高水準機能を提供する。
 - `Network` の WinSock I/O 境界と 0 バイト通信は
   [NetworkSocketSafety.md](NetworkSocketSafety.md) の契約に従う。
+- `Timing` の固定更新時計は利用側が値所有し、GameFrameworkのシーン時間やWorld共有時計を置換しない。
+  一括処理と保存値の契約は[FixedStepClock.md](FixedStepClock.md)に従う。
 - `Steamworks` / `Scripting` / `MlOnnx` / `OpenXr` / `CrashWin` /
   `TelemetryFile` / `LocalMatch` は構成時に明示して有効化する任意backendである。
 
