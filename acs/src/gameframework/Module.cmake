@@ -246,6 +246,7 @@ set(_acsgen_gameframework_headers
     ProjectSettings.h
     ProjectileSystem.h
     Random.h
+    RandomSnapshot.h
     Reflect.h
     ReflectApply.h
     ReflectCatalog.h

@@ -139,6 +139,20 @@ set_target_properties(acs_unit_tests PROPERTIES FOLDER "Engine/Tests")
 
 acs_apply_compiler_options(acs_unit_tests)
 
+# Randomの既存列、layout、検査済みKit吸収APIを独立して反復する。
+add_executable(acs_random_compatibility_tests
+    main.cpp
+    random_compatibility_tests.cpp
+)
+set_target_properties(acs_random_compatibility_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_random_compatibility_tests)
+target_link_libraries(acs_random_compatibility_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.RandomCompatibility COMMAND acs_random_compatibility_tests)
+set_tests_properties(ACS.RandomCompatibility PROPERTIES LABELS "GameFramework;Compatibility" TIMEOUT 60)
+
 # 実機タイミングだけに依存せず、削減した呼び出し・起床回数を JSON で検証する。
 add_executable(acs_foundation_performance
     foundation_performance_main.cpp

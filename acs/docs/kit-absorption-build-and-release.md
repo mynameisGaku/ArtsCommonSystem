@@ -17,12 +17,33 @@ Kit の機能は別の基盤として残さず、責務が同じものを ACS �
 | TypedEvent | 統合中 | clean 統合作業中の typed-event 差分を独立レビューし、Debug/Release と配布物で閉じる |
 | Scene timer と Event timer | 責務分離済み | シーン寿命の `FSceneTimerHandle` は4byte、event寿命の `FTimerHandle` は8byteとして、所有者、保存値、0秒登録方針を別契約で固定する |
 | Ease の旧数値 ID | 統合中 | `FLegacyKitEaseIdCodec` で固定33値を正規 enum と相互変換し、独立レビュー、Debug/Release、直接・単一ヘッダ利用、配布物の検証後に完了へ移す |
-| Random snapshot | 未統合 | 既存 Random を正規実装として拡張し、乱数消費順と復元上限を固定する |
+| Random snapshot | `GameFramework`へ責務統合 | 既存 `FRandom` の16byte配置、乱数列、消費順を保ち、定数時間snapshotと検査済みAPIを同じ型へ吸収する |
 | Fixed-step | `Timing`へ分離統合 | `FFixedStepClock`の値所有、48byte配置、固定境界、一括不変、Debug/Release、単一header、外部利用を同じclean treeで確認する |
 | Input options、Diagnostics | 未統合 | 既存モジュールとの責務比較後、機能単位で実装と試験を移す |
 
 TypedEvent を含む各行は、作業ツリーに関連ファイルが存在するだけでは「吸収済み」へ変更しない。
 正式な完了判定は、対象差分と依存差分が同じ clean tree で検証された後に更新する。
+
+## Random の責務統合
+
+Kit のgame randomとACSの`acs::game::FRandom`は、seedから決定論的な値列を生成する同じ責務を持つ。
+別の`FRandomStream`、subsystem、mutex、thread-local値は追加せず、既存`FRandom`一つへ機能を吸収する。
+既存利用者が依存するxoshiro128**の4状態、`NextU32`列、16byte layout、
+`RangeInt`の成功値と1回消費は変更しない。
+
+Kit由来の偏り除去や入力検査は、既存の偏りを許容するAPIを置き換えず、
+`TryWeightedIndex`、`TryFillRangeIntUnbiased`、`TryShuffleIndicesUnbiased`という別名で公開する。
+検査済み配列APIは最大4,096要素で、pointer、alignment、address加算、乱数器自身との重なりを
+全て乱数消費前に確認し、失敗時は状態と出力を維持する。
+共有`Global()`は呼び出し側が単一threadへ閉じて使う。
+
+`FRandomSnapshot`は4状態を直接保持し、消費回数に依存せずO(1)で復元する。
+版、予約値、全0状態、標準FNV-1a 64bit検査値を復元前に確認する。
+この型のnative byte列は永続形式にせず、各fieldを明示したbyte順で符号化する。
+外部24byte保存値の利用実績がないため、旧Kit snapshot型や互換aliasは追加しない。
+
+完了判定には、Debug/Releaseの専用test、既存objectと新headerの直接利用、
+単一header利用、Kit random回帰、referenceと配布物の同一tree検証を含める。
 
 ## 監査対象
 

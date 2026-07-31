@@ -72,22 +72,42 @@ ACS_REF.modules.push({
     {
       name: "FRandom",
       kind: "クラス", header: "gameframework/Random.h",
-      summary: "<b>決定論的な<t>乱数生成器</t></b>(xoshiro128**)。同じ<t>シード</t>からは必ず同じ乱数列が出るので、<t>リプレイ</t>や再現に強い。<code>&lt;random&gt;</code> は使わない自前実装。",
+      summary: "<b>決定論的な<t>乱数生成器</t></b>(xoshiro128**)。既存の16byte状態と値列を保ったまま、Kitの同責務だったsnapshot・検査済み一括生成・偏り除去APIを統合する。",
       when: "敵の出現位置・ドロップ抽選・シャッフルなど、ゲーム中の乱数全般。再現性が欲しいなら<t>シード</t>を明示する。",
-      sample: "FRandom r(0x12345678ull);     // シード固定 = 毎回同じ結果\nf32 t = r.NextF32Unit();      // [0,1)\ni32 dice = r.RangeInt(1, 6);  // サイコロ\nFVec2 p = r.PointInCircle(50.0f);\nFRandom::Global().NextBool(); // 手軽な使い捨て",
+      sample: "FRandom r(0x12345678ull);\nFRandomSnapshot saved = r.CaptureSnapshot();\nu32 selected = 0;\nconst f32 weights[] = {1.0f, 2.0f, 3.0f};\nif (r.TryWeightedIndex(weights, 3, selected)) { /* 使用 */ }\nr.TryRestoreSnapshot(saved);",
       members: [
         { sig: "explicit FRandom(u64 seed)", desc: "<t>シード</t>を指定して作る。引数なしだと起動時刻ベース。" },
         { sig: "void Seed(u64 seed)", desc: "任意の u64 で再<t>シード</t>する。" },
         { sig: "u32 NextU32()", ret: "32bit 乱数", desc: "最下層の生の乱数を 1 個取り出す。" },
+        { sig: "bool TryDiscard(u64 draw_count)", ret: "成功したか", desc: "最大1,048,576個だけ列を進める。上限超過時は状態を維持する。" },
+        { sig: "FRandomSnapshot CaptureSnapshot() const", ret: "現在の再生位置", desc: "raw stateを改変検出付き値としてO(1)で取得する。" },
+        { sig: "bool TryRestoreSnapshot(const FRandomSnapshot& snapshot)", ret: "復元したか", desc: "版・予約値・全0状態・検査値を確認してO(1)で復元する。失敗時は状態を維持する。" },
         { sig: "f32 NextF32Unit()", ret: "[0,1) の小数", desc: "0 以上 1 未満の <code>f32</code>。確率判定や補間に。" },
-        { sig: "i32 RangeInt(i32 min, i32 max)", ret: "[min,max] の整数", desc: "両端を含む整数乱数。max&lt;min なら入れ替えて扱う。", sample: "i32 dmg = r.RangeInt(8, 12);" },
+        { sig: "i32 RangeInt(i32 min, i32 max)", ret: "[min,max] の整数", desc: "互換用の1回剰余方式。両端を含み、max&lt;minなら交換する。", sample: "i32 dmg = r.RangeInt(8, 12);" },
         { sig: "f32 RangeF32(f32 min, f32 max)", ret: "[min,max) の小数", desc: "範囲内の <code>f32</code> 乱数。" },
         { sig: "bool NextBool(f32 true_probability = 0.5f)", ret: "真偽値", desc: "指定確率で true を返す。" },
         { sig: "FVec2 PointInCircle(f32 radius = 1.0f)", ret: "円板内の点", desc: "半径 radius の円の内側に一様な点を返す。" },
         { sig: "FVec2 PointOnCircle(f32 radius = 1.0f)", ret: "円周上の点", desc: "円周上に一様な点を返す。" },
-        { sig: "void Shuffle<T>(TArray<T>& a)", desc: "配列をその場で<t>シャッフル</t>する (Fisher-Yates 法)。", sample: "r.Shuffle(deck);  // 山札を切る" },
-        { sig: "u32 WeightedChoice(const f32* weights, u32 count)", ret: "選ばれた index", desc: "重み付きで index を 1 つ選ぶ。レアリティ抽選などに。" },
-        { sig: "static FRandom& Global()", ret: "共有インスタンス", desc: "プロセス内で 1 個だけの手軽な乱数器。<b>スレッド安全ではない</b>。", when: "再現性を気にしない簡単な乱数が欲しい時。" }
+        { sig: "void Shuffle<T>(TArray<T>& values)", desc: "互換用の32bit剰余方式で配列をその場で並べ替える。", sample: "r.Shuffle(deck);" },
+        { sig: "u32 WeightedChoice(const f32* weights, u32 count)", ret: "選ばれた index", desc: "互換用の24bit重み抽選。新規処理は検査済み版を使う。" },
+        { sig: "bool TryWeightedIndex(const f32* weights, u32 count, u32& out_index)", ret: "成功したか", desc: "最大4,096個の有限・非負重みを全検査し、最大値正規化と53bit抽選を行う。失敗時は状態と出力を維持する。" },
+        { sig: "bool TryFillRangeF32(f32* values, u32 count, f32 min, f32 max)", ret: "成功したか", desc: "最大4,096個を有限な半開区間で埋める。0件はnull可、同値範囲は乱数を消費しない。" },
+        { sig: "bool TryFillRangeIntUnbiased(i32* values, u32 count, i32 min, i32 max)", ret: "成功したか", desc: "32bit棄却法で偏りのない整数列を生成する。i32全域にも対応する。" },
+        { sig: "bool TryShuffleIndicesUnbiased(u32* indices, u32 count)", ret: "成功したか", desc: "高位32bitから結合する64bit棄却法で最大4,096個のindexを並べ替える。" },
+        { sig: "static FRandom& Global()", ret: "共有インスタンス", desc: "プロセス内で1個の共有値。呼び出し側が単一threadへ閉じ、同期機構は暗黙に追加しない。" }
+      ]
+    },
+    {
+      name: "FRandomSnapshot",
+      kind: "構造体", header: "gameframework/RandomSnapshot.h",
+      summary: "<code>FRandom</code>の4状態を版・予約値・標準FNV-1a 64bit検査値と共に保持する32byte値型。標準layoutかつ単純copy可能だが、native byte列は保存形式ではない。",
+      when: "リプレイや決定論テストで同じ乱数位置へO(1)で戻す時。永続化では各fieldを明示的なbyte順で符号化する。",
+      members: [
+        { sig: "u32 version", desc: "保存形式の版。現行値は<code>kCurrentVersion</code>。" },
+        { sig: "u32 state0 / state1 / state2 / state3", desc: "xoshiro128**の4状態。全0は無効。" },
+        { sig: "u32 reserved", desc: "将来拡張用。現行版では0だけ有効。" },
+        { sig: "u64 signature", desc: "版、状態、予約値をlittle-endian順に畳み込んだ標準FNV-1a 64bit検査値。" },
+        { sig: "static constexpr u32 kCurrentVersion = 1", desc: "現行の保存形式版。" }
       ]
     },
     {

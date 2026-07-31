@@ -333,10 +333,14 @@ ACS 1.0 で削除する。削除条件はリポジトリ内と配布用 consumer
 - **`AudioDirector`** — `AudioEngine` の上のシーン対応層。ボリュームバス
   （Master/Bgm/Sfx）、BGM のシーンまたぎ持続・クロスフェード、名前付き SFX
   ワンショット、ダッキング。`Game` が所有しシーンをまたいで生存。
-- **`Random`** — ゲーム用 PRNG クラス（`xoshiro128**` + SplitMix64 シード）。
-  インスタンス化・シード可能・決定論的。int/float 範囲・bool・重み付き選択・
-  円内/円周上の点・`TArray` シャッフル・`RandomColor`。`Random::Global()` も提供。
-  `easy` の private xorshift を公開クラス化したもの。
+- **`FRandom`** — `xoshiro128**` と SplitMix64 seed による決定論的なゲーム用乱数器。
+  既存の値列、`sizeof(FRandom)==16`、`RangeInt` の1回消費を維持する。
+  Kit と同じ責務だった機能は、改変検出付き `FRandomSnapshot`、上限付き
+  `TryDiscard`、53bit重み抽選、検査済み配列生成、偏りのない整数生成と
+  index shuffleとしてこの型へ吸収した。既存の偏りを許容するAPIは互換性のため残し、
+  新しい偏り除去APIとは名前で区別する。`Global()` は呼び出し側が単一threadへ閉じ、
+  mutex、thread-local値、別subsystemを暗黙に追加しない。
+  `FRandomSnapshot` はfield単位で版を付けて符号化し、native byte列のまま保存しない。
 - **`TPool<T>`** — 弾/エフェクト用オブジェクトプール。世代付きハンドル
   （`EntityId` と同形）、固定/可変容量、live のみ反復、STL 非依存。
 - **`DebugOverlay`** — FPS/フレーム時間グラフ/シーンスタック表示/ライブ調整値。
