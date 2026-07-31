@@ -179,14 +179,37 @@ LF、相対path昇順、uppercase SHA-256で原子的に公開する。対象は
 Debug/Releaseの全libraryであり、consumerは構成directory全体の同一性を検証できる。
 単一構成だけを再生成した場合は既存manifestを失効させ、local stagingとして扱う。
 Debug/Releaseを同じ実行で再生成するまで`-Deploy`とnamed manifest公開は行えない。
-`-Deploy`はdrive root、source/build/distとの重複、配置先tree内のreparse pointを
-事前拒否し、`robocopy /MIR /XJ`でmanifest以外のpayloadを配置する。file集合、size、
+`-Deploy`はsource配布物を変更する前にdrive root、source/build/distとの物理的な重複、
+配置先tree内のreparse pointを事前拒否し、`robocopy /MIR /XJ`でmanifest以外のpayloadを
+配置する。既存pathはrootからvolume rootまで各ancestorのvolume serial・file ID、
+未作成pathは最深既存ancestor identityと正規化した残りcomponentで比較する。このため
+SUBST、localhost UNC、8.3短縮名経由でも同一path・ancestor・descendantを拒否し、
+descriptorまたはreparse検査に失敗した場合も変更前にfail-closedとなる。file集合、size、
 SHA-256の完全一致を確認した後だけmanifestを原子的に置換し、最後にpayloadとmanifestを
 再検証する。したがって、同size・同timestampの破損fileをrobocopyがskipした場合や
 junctionがある場合は旧manifestを変更せず失敗する。配布tree全体に`.exe`、`.obj`、
 `.pdb`、`.ilk`、一時file、正規28件以外の`.lib`など、正規file一覧にないものが
-残る場合も拒否する。`-SelfTest`はcanonical形式、改ざん、
-欠落、stale file、build成果物、reader lock、skip、junction、mirrorの拒否契約も確認する。
+残る場合も拒否する。`-SelfTest`はcanonical形式、改ざん、物理alias overlap、
+drive・UNC・extended・volume GUID rootのparent停止点、actual volume root直下、
+repositoryがdrive rootまたはその直下にある場合の利用可能なparent chainと
+canonical/alias root拒否、欠落、stale file、build成果物、reader lock、skip、
+junction、mirrorの拒否契約も確認する。SUBST drive rootのcheckoutではdirectory pinの
+物理final pathから実volumeを特定し、actual volume GUID root testを同じく完走させる。
+同じsource配布生成と同じdeploy先への並行writerは、親directoryとrootのvolume serial・
+file IDに基づくWindows global named mutexで待機せず拒否し、拒否時はpayloadとmanifestを
+変更しない。SUBST、localhost UNC、利用可能な8.3短縮名も同じ物理identityへ合流する。
+未作成deploy先は既存parent identityと残りpathを先に排他し、作成後のroot identity排他を
+重ねてから処理を続ける。mutexはkernel objectなのでlock fileを配布treeへ作らず、
+owner異常終了時はabandoned状態を回収する。処理中は配布rootのdirectory handleを
+delete共有なしで保持し、sourceとdeploy先が同じ物理directoryならmirror前に拒否する。
+lock取得後に外部processが未作成rootを先に作ってもensure後にroot identityを固定する。
+移行失敗時は既存payloadとmanifestを変えず、自己作成した空の通常directoryだけを戻す。
+未作成部分を持つ場合は既存ancestorごとのidentityと残りpathをすべて排他するため、
+複数階層を一度に作成しても作成前後のlockに隙間はなく、異なる物理rootは並行できる。
+これは同じscriptを使う協調writerの排他である。切替中も名前空間とidentityの両mutexを
+保持するが、このmutexに参加しない外部processが権限の許す範囲で親directoryを
+差し替えるTOCTOUまでは完全に防ぐ契約ではない。
+配布pathは信頼できるlocal filesystem上で使用すること。
 
 `run_distribution_consumer_smoke.py` creates its CMake source/build tree only
 under the operating-system temporary directory. It reuses

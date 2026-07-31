@@ -88,10 +88,44 @@ acs.cmd ide open --tests
 `dist`で構成を省略するとDebugとReleaseを生成し、named manifestを公開できます。
 `--config`を指定した単一構成生成はlocal staging専用で、`--deploy`とは併用できません。
 両構成を生成した配布物には、`acs.h`と全libraryのSHA-256を固定する
-`acs-distribution.sha256`が含まれます。`--deploy`はpayload検証後にだけmanifestを
-原子的に公開し、reparse pointを含む配置先を拒否します。
+`acs-distribution.sha256`が含まれます。`--deploy`はsource配布物を変更する前に配置先を
+検査し、payload検証後にだけmanifestを原子的に公開します。既存配置先はrootからvolume root
+まで各ancestorのvolume serial・file IDを固定し、未作成配置先は最深既存ancestorの同じ
+identityと正規化した残りcomponentで表します。この物理descriptorをrepository、`acs`、
+build、`dist`と比較するため、同一pathだけでなくancestor・descendantも拒否します。
+SUBST、localhost UNC、8.3短縮名から同じtreeを指した場合も拒否し、reparse検査または
+identity取得に失敗した場合は配布物を変更せずfail-closedにします。
+同じsource `dist`の生成と同じ配置先へのdeployは、親directoryのvolume serial・file IDと
+実体名、およびroot自体のvolume serial・file IDから作るglobal named mutexで排他します。
+SUBST、localhost UNC、利用可能な8.3短縮名など、同じ物理directoryを指すpath aliasも
+同じ排他へ合流します。未作成の配置先は既存parentと残りpathで先に排他し、作成後の
+root identity排他を重ねてから処理を続けます。別writerが所有中なら待機せず、payloadと
+manifestを変更する前に失敗します。異常終了したownerのmutexはWindowsのabandoned通知を
+確認して回収するため、stale lock fileは残りません。処理中は配布rootのdirectory handleも
+保持し、配布元と配置先の物理identityが同じ場合はmirror前に拒否します。
+lock取得後に外部processが未作成rootを先に作っても、ensure後は必ずroot identityを
+固定します。identity排他へ移行できなければ既存payloadとmanifestを変更せず、
+このprocessがcreate-onlyで作った空の通常directory chainだけをrollbackします。
+未作成部分を持つ場合は既存ancestorごとのidentityと残りpathをすべて排他するため、
+複数階層を一度に作成しても作成前後のlockに隙間はありません。異なる物理rootの
+生成・検証・mirrorは並行できます。
 単一構成だけを再生成した場合は既存manifestを失効させるため、Debug/Releaseを
 同じ実行で再生成するまで公開可能なSDKとして扱われません。
+drive、UNC、extended drive、extended UNC、volume GUIDのrootは末尾separatorを保持して
+ancestor walkを停止します。`-SelfTest`はactual volume GUID root直下のdescriptor、
+mutex、作成可能な環境でのensure・identity移行・cleanupも確認します。repositoryが
+drive rootまたはその直下でも利用可能なparent chainの範囲だけalias変換範囲を広げ、
+parentのないrootでは存在しないancestorの代わりにcanonical rootとalias rootの拒否を
+確認します。repository自体がSUBST drive rootにある場合はpinした物理final pathの
+volumeへ解決し、actual volume GUID rootのfull testも省略せず実行します。
+
+この排他は同じscriptを使う協調writerの契約です。ancestor名前空間排他からroot identity排他
+への切替中も両方を重ねて保持しますが、このmutexに参加しない外部processは権限が許す範囲で
+親directoryの名前空間を変更できます。このTOCTOU（検査と使用の間の変更）は、
+path APIと協調mutexだけでは完全に防げません。
+配布元と配置先は信頼できるlocal filesystem上に置き、他processによるdirectory操作を
+同時に行わないでください。reparse pointの事前・事後検査とroot identity照合は、この
+制約を検出可能な範囲でfail-closedにします。
 
 ```bat
 acs.cmd build -c release -t acs_unit_tests
