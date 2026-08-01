@@ -1,9 +1,10 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "entries": [
     {
       "path": "asset/Asset.h",
       "legacy": "acs::FAsset",
+      "legacy_path": "asset/Asset.h",
       "canonical": "acs::AAsset",
       "kind": "class",
       "prefix": "A"
@@ -11,6 +12,7 @@
     {
       "path": "asset/AssetPathInterner.h",
       "legacy": "acs::FAssetPathInterner",
+      "legacy_path": "asset/AssetPathInterner.h",
       "canonical": "acs::CAssetPathInterner",
       "kind": "class",
       "prefix": "C"
@@ -18,6 +20,7 @@
     {
       "path": "asset/AssetRegistry.h",
       "legacy": "acs::FAssetRegistry",
+      "legacy_path": "asset/AssetRegistry.h",
       "canonical": "acs::CAssetRegistry",
       "kind": "class",
       "prefix": "C"
@@ -25,6 +28,7 @@
     {
       "path": "asset/AudioAsset.h",
       "legacy": "acs::FAudioAsset",
+      "legacy_path": "asset/AudioAsset.h",
       "canonical": "acs::AAudioAsset",
       "kind": "class",
       "prefix": "A"
@@ -32,6 +36,7 @@
     {
       "path": "asset/AudioAsset.h",
       "legacy": "acs::FFlacAssetLoader",
+      "legacy_path": "asset/AudioAsset.h",
       "canonical": "acs::CFlacAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -39,6 +44,7 @@
     {
       "path": "asset/AudioAsset.h",
       "legacy": "acs::FMp3AssetLoader",
+      "legacy_path": "asset/AudioAsset.h",
       "canonical": "acs::CMp3AssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -46,6 +52,7 @@
     {
       "path": "asset/AudioAsset.h",
       "legacy": "acs::FOggAssetLoader",
+      "legacy_path": "asset/AudioAsset.h",
       "canonical": "acs::COggAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -53,6 +60,7 @@
     {
       "path": "asset/AudioAsset.h",
       "legacy": "acs::FWavAssetLoader",
+      "legacy_path": "asset/AudioAsset.h",
       "canonical": "acs::CWavAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -60,6 +68,7 @@
     {
       "path": "asset/BinaryAsset.h",
       "legacy": "acs::FBinaryAsset",
+      "legacy_path": "asset/BinaryAsset.h",
       "canonical": "acs::ABinaryAsset",
       "kind": "class",
       "prefix": "A"
@@ -67,6 +76,7 @@
     {
       "path": "asset/BinaryAsset.h",
       "legacy": "acs::FBinaryAssetLoader",
+      "legacy_path": "asset/BinaryAsset.h",
       "canonical": "acs::CBinaryAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -74,6 +84,7 @@
     {
       "path": "asset/ImageAsset.h",
       "legacy": "acs::FImageAsset",
+      "legacy_path": "asset/ImageAsset.h",
       "canonical": "acs::AImageAsset",
       "kind": "class",
       "prefix": "A"
@@ -81,6 +92,7 @@
     {
       "path": "asset/ImageAsset.h",
       "legacy": "acs::FImageAssetLoader",
+      "legacy_path": "asset/ImageAsset.h",
       "canonical": "acs::CImageAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -88,6 +100,7 @@
     {
       "path": "asset/MeshAsset.h",
       "legacy": "acs::FFbxAssetLoader",
+      "legacy_path": "asset/MeshAsset.h",
       "canonical": "acs::CFbxAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -95,6 +108,7 @@
     {
       "path": "asset/MeshAsset.h",
       "legacy": "acs::FGlbAssetLoader",
+      "legacy_path": "asset/MeshAsset.h",
       "canonical": "acs::CGlbAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -102,6 +116,7 @@
     {
       "path": "asset/MeshAsset.h",
       "legacy": "acs::FGltfAssetLoader",
+      "legacy_path": "asset/MeshAsset.h",
       "canonical": "acs::CGltfAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -109,6 +124,7 @@
     {
       "path": "asset/MeshAsset.h",
       "legacy": "acs::FMeshAsset",
+      "legacy_path": "asset/MeshAsset.h",
       "canonical": "acs::AMeshAsset",
       "kind": "class",
       "prefix": "A"
@@ -116,6 +132,7 @@
     {
       "path": "asset/MeshAsset.h",
       "legacy": "acs::FObjAssetLoader",
+      "legacy_path": "asset/MeshAsset.h",
       "canonical": "acs::CObjAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -123,6 +140,7 @@
     {
       "path": "asset/SkinnedMesh.h",
       "legacy": "acs::FAnimationPlayer",
+      "legacy_path": "asset/SkinnedMesh.h",
       "canonical": "acs::CAnimationPlayer",
       "kind": "class",
       "prefix": "C"
@@ -130,6 +148,7 @@
     {
       "path": "asset/SkinnedMesh.h",
       "legacy": "acs::FSkinnedMeshAsset",
+      "legacy_path": "asset/SkinnedMesh.h",
       "canonical": "acs::ASkinnedMeshAsset",
       "kind": "class",
       "prefix": "A"
@@ -137,6 +156,7 @@
     {
       "path": "asset/TextAsset.h",
       "legacy": "acs::FTextAsset",
+      "legacy_path": "asset/TextAsset.h",
       "canonical": "acs::ATextAsset",
       "kind": "class",
       "prefix": "A"
@@ -144,6 +164,7 @@
     {
       "path": "asset/TextAsset.h",
       "legacy": "acs::FTextAssetLoader",
+      "legacy_path": "asset/TextAsset.h",
       "canonical": "acs::CTextAssetLoader",
       "kind": "class",
       "prefix": "C"
@@ -151,6 +172,7 @@
     {
       "path": "assetpack/AcpakCrypto.h",
       "legacy": "acs::assetpack::FAcpakCrypto",
+      "legacy_path": "assetpack/AcpakCrypto.h",
       "canonical": "acs::assetpack::CAcpakCrypto",
       "kind": "class",
       "prefix": "C"
@@ -158,6 +180,7 @@
     {
       "path": "assetpack/AcpakGameBridge.h",
       "legacy": "acs::assetpack::FAcpakGameReader",
+      "legacy_path": "assetpack/AcpakGameBridge.h",
       "canonical": "acs::assetpack::CAcpakGameReader",
       "kind": "class",
       "prefix": "C"
@@ -165,6 +188,7 @@
     {
       "path": "assetpack/AcpakGameBridge.h",
       "legacy": "acs::assetpack::FAcpakGameWriter",
+      "legacy_path": "assetpack/AcpakGameBridge.h",
       "canonical": "acs::assetpack::CAcpakGameWriter",
       "kind": "class",
       "prefix": "C"
@@ -172,6 +196,7 @@
     {
       "path": "assetpack/AcpakLz4.h",
       "legacy": "acs::assetpack::FAcpakLz4",
+      "legacy_path": "assetpack/AcpakLz4.h",
       "canonical": "acs::assetpack::CAcpakLz4",
       "kind": "class",
       "prefix": "C"
@@ -179,6 +204,7 @@
     {
       "path": "assetpack/AcpakReader.h",
       "legacy": "acs::assetpack::FAcpakReader",
+      "legacy_path": "assetpack/AcpakReader.h",
       "canonical": "acs::assetpack::CAcpakReader",
       "kind": "class",
       "prefix": "C"
@@ -186,6 +212,7 @@
     {
       "path": "assetpack/AcpakWriter.h",
       "legacy": "acs::assetpack::FAcpakWriter",
+      "legacy_path": "assetpack/AcpakWriter.h",
       "canonical": "acs::assetpack::CAcpakWriter",
       "kind": "class",
       "prefix": "C"
@@ -193,6 +220,7 @@
     {
       "path": "audio/AudioEngine.h",
       "legacy": "acs::FAudioEngine",
+      "legacy_path": "audio/AudioEngine.h",
       "canonical": "acs::CAudioEngine",
       "kind": "class",
       "prefix": "C"
@@ -200,6 +228,7 @@
     {
       "path": "collision/MeshCollider.h",
       "legacy": "acs::FMeshCollider",
+      "legacy_path": "collision/MeshCollider.h",
       "canonical": "acs::CMeshCollider",
       "kind": "class",
       "prefix": "C"
@@ -207,6 +236,7 @@
     {
       "path": "collision/SpriteCollider.h",
       "legacy": "acs::FSpriteCollider",
+      "legacy_path": "collision/SpriteCollider.h",
       "canonical": "acs::CSpriteCollider",
       "kind": "class",
       "prefix": "C"
@@ -214,6 +244,7 @@
     {
       "path": "crashwin/WindowsCrashReporter.h",
       "legacy": "acs::crashwin::FWindowsCrashReporter",
+      "legacy_path": "crashwin/WindowsCrashReporter.h",
       "canonical": "acs::crashwin::CWindowsCrashReporter",
       "kind": "class",
       "prefix": "C"
@@ -221,6 +252,7 @@
     {
       "path": "ecs/ComponentRegistry.h",
       "legacy": "acs::FComponentRegistry",
+      "legacy_path": "ecs/ComponentRegistry.h",
       "canonical": "acs::CComponentRegistry",
       "kind": "class",
       "prefix": "C"
@@ -228,6 +260,7 @@
     {
       "path": "ecs/EntityCommandBuffer.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FEntityCommandBuffer",
       "kind": "class",
       "prefix": "F"
@@ -235,6 +268,7 @@
     {
       "path": "ecs/ParallelEntityCommandBuffer.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FParallelEntityCommandBuffer",
       "kind": "class",
       "prefix": "F"
@@ -242,6 +276,7 @@
     {
       "path": "ecs/RollbackBuffer.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FRollbackBuffer",
       "kind": "class",
       "prefix": "F"
@@ -249,6 +284,7 @@
     {
       "path": "ecs/SparseSet.h",
       "legacy": "acs::FSparseSetBase",
+      "legacy_path": "ecs/SparseSet.h",
       "canonical": "acs::ASparseSetBase",
       "kind": "class",
       "prefix": "A"
@@ -256,6 +292,7 @@
     {
       "path": "ecs/System.h",
       "legacy": "acs::FSystemScheduler",
+      "legacy_path": "ecs/System.h",
       "canonical": "acs::CSystemScheduler",
       "kind": "class",
       "prefix": "C"
@@ -263,6 +300,7 @@
     {
       "path": "ecs/World.h",
       "legacy": "acs::FWorld",
+      "legacy_path": "ecs/World.h",
       "canonical": "acs::CWorld",
       "kind": "class",
       "prefix": "C"
@@ -270,6 +308,7 @@
     {
       "path": "editor_abi/EditorCameraViewRequests.h",
       "legacy": "acs::editor_camera_view::FRegistry",
+      "legacy_path": "editor_abi/EditorCameraViewRequests.h",
       "canonical": "acs::editor_camera_view::CRegistry",
       "kind": "class",
       "prefix": "C"
@@ -277,6 +316,7 @@
     {
       "path": "editor_abi/EditorProfiler.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::editor_profiler::FCpuScope",
       "kind": "class",
       "prefix": "F"
@@ -284,6 +324,7 @@
     {
       "path": "editor_abi/EditorProfiler.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::editor_profiler::FRollingGpuQueryWindow",
       "kind": "class",
       "prefix": "F"
@@ -291,6 +332,7 @@
     {
       "path": "editor_abi/EditorProfiler.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::editor_profiler::FRollingPeak",
       "kind": "class",
       "prefix": "F"
@@ -298,6 +340,7 @@
     {
       "path": "event/MessageBroker.h",
       "legacy": "acs::FMessageBroker",
+      "legacy_path": "event/MessageBroker.h",
       "canonical": "acs::CMessageBroker",
       "kind": "class",
       "prefix": "C"
@@ -305,6 +348,7 @@
     {
       "path": "event/TimerManager.h",
       "legacy": "acs::FTimerManager",
+      "legacy_path": "event/TimerManager.h",
       "canonical": "acs::CTimerManager",
       "kind": "class",
       "prefix": "C"
@@ -312,6 +356,7 @@
     {
       "path": "foundation/Log.h",
       "legacy": "acs::FLogger",
+      "legacy_path": "foundation/Log.h",
       "canonical": "acs::CLogger",
       "kind": "class",
       "prefix": "C"
@@ -319,6 +364,7 @@
     {
       "path": "foundation/LogSinkSubscription.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FLogSinkSubscription",
       "kind": "class",
       "prefix": "F"
@@ -326,6 +372,7 @@
     {
       "path": "foundation/SourceLoc.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FSourceLoc",
       "kind": "class",
       "prefix": "F"
@@ -333,6 +380,7 @@
     {
       "path": "foundation/StackTrace.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FStackTrace",
       "kind": "class",
       "prefix": "F"
@@ -340,6 +388,7 @@
     {
       "path": "imgui/ImGuiContext.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FImGuiCtx",
       "kind": "class",
       "prefix": "F"
@@ -347,6 +396,7 @@
     {
       "path": "localmatch/LocalMatchmaker.h",
       "legacy": "acs::localmatch::FLocalMatchmaker",
+      "legacy_path": "localmatch/LocalMatchmaker.h",
       "canonical": "acs::localmatch::CLocalMatchmaker",
       "kind": "class",
       "prefix": "C"
@@ -354,6 +404,7 @@
     {
       "path": "math/Camera.h",
       "legacy": "acs::FCamera",
+      "legacy_path": "math/Camera.h",
       "canonical": "acs::CCamera",
       "kind": "class",
       "prefix": "C"
@@ -361,6 +412,7 @@
     {
       "path": "memory/AObject.h",
       "legacy": "acs::FObject",
+      "legacy_path": "memory/AObject.h",
       "canonical": "acs::AObject",
       "kind": "class",
       "prefix": "A"
@@ -368,6 +420,7 @@
     {
       "path": "memory/Allocator.h",
       "legacy": "acs::FAllocator",
+      "legacy_path": "memory/Allocator.h",
       "canonical": "acs::IAllocator",
       "kind": "class",
       "prefix": "I"
@@ -375,6 +428,7 @@
     {
       "path": "memory/ArenaAllocator.h",
       "legacy": "acs::FArenaAllocator",
+      "legacy_path": "memory/ArenaAllocator.h",
       "canonical": "acs::CArenaAllocator",
       "kind": "class",
       "prefix": "C"
@@ -382,6 +436,7 @@
     {
       "path": "memory/CrtDebugHeapDiagnostics.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FCrtDebugHeapProcessConfigurationScope",
       "kind": "class",
       "prefix": "F"
@@ -389,6 +444,7 @@
     {
       "path": "memory/CrtDebugHeapDiagnostics.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FCrtDebugHeapScope",
       "kind": "class",
       "prefix": "F"
@@ -396,6 +452,7 @@
     {
       "path": "memory/CrtDebugHeapDiagnostics.h",
       "legacy": "acs::FCrtDebugHeapDiagnostics",
+      "legacy_path": "memory/CrtDebugHeapDiagnostics.h",
       "canonical": "acs::CCrtDebugHeapDiagnostics",
       "kind": "class",
       "prefix": "C"
@@ -403,6 +460,7 @@
     {
       "path": "memory/LinearAllocator.h",
       "legacy": "acs::FLinearAllocator",
+      "legacy_path": "memory/LinearAllocator.h",
       "canonical": "acs::CLinearAllocator",
       "kind": "class",
       "prefix": "C"
@@ -410,6 +468,7 @@
     {
       "path": "memory/MemorySystem.h",
       "legacy": "acs::FMemorySystem",
+      "legacy_path": "memory/MemorySystem.h",
       "canonical": "acs::CMemorySystem",
       "kind": "class",
       "prefix": "C"
@@ -417,6 +476,7 @@
     {
       "path": "memory/MimallocAllocator.h",
       "legacy": "acs::FMimallocAllocator",
+      "legacy_path": "memory/MimallocAllocator.h",
       "canonical": "acs::CMimallocAllocator",
       "kind": "class",
       "prefix": "C"
@@ -424,6 +484,7 @@
     {
       "path": "memory/PoolAllocator.h",
       "legacy": "acs::FPoolAllocator",
+      "legacy_path": "memory/PoolAllocator.h",
       "canonical": "acs::CPoolAllocator",
       "kind": "class",
       "prefix": "C"
@@ -431,6 +492,7 @@
     {
       "path": "memory/RelocatableAllocator.h",
       "legacy": "acs::FRelocatableAllocator",
+      "legacy_path": "memory/RelocatableAllocator.h",
       "canonical": "acs::CRelocatableAllocator",
       "kind": "class",
       "prefix": "C"
@@ -438,6 +500,7 @@
     {
       "path": "memory/ShardedTlsf.h",
       "legacy": "acs::FShardedTlsfAllocator",
+      "legacy_path": "memory/ShardedTlsf.h",
       "canonical": "acs::CShardedTlsfAllocator",
       "kind": "class",
       "prefix": "C"
@@ -445,6 +508,7 @@
     {
       "path": "memory/SystemAllocator.h",
       "legacy": "acs::FSystemAllocator",
+      "legacy_path": "memory/SystemAllocator.h",
       "canonical": "acs::CSystemAllocator",
       "kind": "class",
       "prefix": "C"
@@ -452,6 +516,7 @@
     {
       "path": "memory/Tlsf.h",
       "legacy": "acs::FTlsfAllocator",
+      "legacy_path": "memory/Tlsf.h",
       "canonical": "acs::CTlsfAllocator",
       "kind": "class",
       "prefix": "C"
@@ -459,6 +524,7 @@
     {
       "path": "memory/VirtualMemory.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FVmReservation",
       "kind": "class",
       "prefix": "F"
@@ -466,6 +532,7 @@
     {
       "path": "mlonnx/OnnxMlRuntime.h",
       "legacy": "acs::mlonnx::FOnnxMlRuntime",
+      "legacy_path": "mlonnx/OnnxMlRuntime.h",
       "canonical": "acs::mlonnx::COnnxMlRuntime",
       "kind": "class",
       "prefix": "C"
@@ -473,6 +540,7 @@
     {
       "path": "mvvm/Command.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FCommand",
       "kind": "class",
       "prefix": "F"
@@ -480,6 +548,7 @@
     {
       "path": "mvvm/ViewModel.h",
       "legacy": "acs::FViewModel",
+      "legacy_path": "mvvm/ViewModel.h",
       "canonical": "acs::CViewModel",
       "kind": "class",
       "prefix": "C"
@@ -487,6 +556,7 @@
     {
       "path": "network/Network.h",
       "legacy": "acs::FNetwork",
+      "legacy_path": "network/Network.h",
       "canonical": "acs::CNetwork",
       "kind": "class",
       "prefix": "C"
@@ -494,6 +564,7 @@
     {
       "path": "network/TcpConnection.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FTcpConnection",
       "kind": "class",
       "prefix": "F"
@@ -501,6 +572,7 @@
     {
       "path": "network/TcpListener.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FTcpListener",
       "kind": "class",
       "prefix": "F"
@@ -508,6 +580,7 @@
     {
       "path": "network/UdpSocket.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FUdpSocket",
       "kind": "class",
       "prefix": "F"
@@ -515,6 +588,7 @@
     {
       "path": "openxr/KhronosOpenXrBridge.h",
       "legacy": "acs::openxr::FKhronosOpenXrBridge",
+      "legacy_path": "openxr/KhronosOpenXrBridge.h",
       "canonical": "acs::openxr::CKhronosOpenXrBridge",
       "kind": "class",
       "prefix": "C"
@@ -522,6 +596,7 @@
     {
       "path": "platform/FileSystem.h",
       "legacy": "acs::FFileSystem",
+      "legacy_path": "platform/FileSystem.h",
       "canonical": "acs::CFileSystem",
       "kind": "class",
       "prefix": "C"
@@ -529,6 +604,7 @@
     {
       "path": "platform/Input.h",
       "legacy": "acs::FInput",
+      "legacy_path": "platform/Input.h",
       "canonical": "acs::CInput",
       "kind": "class",
       "prefix": "C"
@@ -536,6 +612,7 @@
     {
       "path": "platform/Localization.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FLocalization",
       "kind": "class",
       "prefix": "F"
@@ -543,6 +620,7 @@
     {
       "path": "platform/Storage.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FStorage",
       "kind": "class",
       "prefix": "F"
@@ -550,6 +628,7 @@
     {
       "path": "platform/Time.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FFrameTimer",
       "kind": "class",
       "prefix": "F"
@@ -557,6 +636,7 @@
     {
       "path": "platform/Time.h",
       "legacy": "acs::FClock",
+      "legacy_path": "platform/Time.h",
       "canonical": "acs::CClock",
       "kind": "class",
       "prefix": "C"
@@ -564,6 +644,7 @@
     {
       "path": "platform/Window.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FWindow",
       "kind": "class",
       "prefix": "F"
@@ -571,6 +652,7 @@
     {
       "path": "render/Atmosphere.h",
       "legacy": "acs::FAtmosphere",
+      "legacy_path": "render/Atmosphere.h",
       "canonical": "acs::CAtmosphere",
       "kind": "class",
       "prefix": "C"
@@ -578,6 +660,7 @@
     {
       "path": "render/Atmosphere.h",
       "legacy": "acs::FSkyAtmosphere",
+      "legacy_path": "render/Atmosphere.h",
       "canonical": "acs::CSkyAtmosphere",
       "kind": "class",
       "prefix": "C"
@@ -585,6 +668,7 @@
     {
       "path": "render/Blit.h",
       "legacy": "acs::FBlit",
+      "legacy_path": "render/Blit.h",
       "canonical": "acs::CBlit",
       "kind": "class",
       "prefix": "C"
@@ -592,6 +676,7 @@
     {
       "path": "render/BurnEffect.h",
       "legacy": "acs::FBurnEffect",
+      "legacy_path": "render/BurnEffect.h",
       "canonical": "acs::CBurnEffect",
       "kind": "class",
       "prefix": "C"
@@ -599,6 +684,7 @@
     {
       "path": "render/DebugDraw.h",
       "legacy": "acs::FDebugDraw3D",
+      "legacy_path": "render/DebugDraw.h",
       "canonical": "acs::CDebugDraw3D",
       "kind": "class",
       "prefix": "C"
@@ -606,6 +692,7 @@
     {
       "path": "render/Diligent/DiligentBuffer.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDiligentBuffer",
       "kind": "class",
       "prefix": "F"
@@ -613,6 +700,7 @@
     {
       "path": "render/Diligent/DiligentCommandList.h",
       "legacy": "acs::FDiligentCommandList",
+      "legacy_path": "render/Diligent/DiligentCommandList.h",
       "canonical": "acs::CDiligentCommandList",
       "kind": "class",
       "prefix": "C"
@@ -620,6 +708,7 @@
     {
       "path": "render/Diligent/DiligentDevice.h",
       "legacy": "acs::FDiligentDevice",
+      "legacy_path": "render/Diligent/DiligentDevice.h",
       "canonical": "acs::CDiligentDevice",
       "kind": "class",
       "prefix": "C"
@@ -627,6 +716,7 @@
     {
       "path": "render/Diligent/DiligentMemoryAdapter.h",
       "legacy": "acs::FDiligentMemoryAdapter",
+      "legacy_path": "render/Diligent/DiligentMemoryAdapter.h",
       "canonical": "acs::CDiligentMemoryAdapter",
       "kind": "class",
       "prefix": "C"
@@ -634,6 +724,7 @@
     {
       "path": "render/Diligent/DiligentPipeline.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDiligentPipeline",
       "kind": "class",
       "prefix": "F"
@@ -641,6 +732,7 @@
     {
       "path": "render/Diligent/DiligentShader.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDiligentShader",
       "kind": "class",
       "prefix": "F"
@@ -648,6 +740,7 @@
     {
       "path": "render/Diligent/DiligentSwapchain.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDiligentSwapchain",
       "kind": "class",
       "prefix": "F"
@@ -655,6 +748,7 @@
     {
       "path": "render/Diligent/DiligentTexture.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDiligentTexture",
       "kind": "class",
       "prefix": "F"
@@ -662,6 +756,7 @@
     {
       "path": "render/Dx12/Dx12Buffer.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDx12Buffer",
       "kind": "class",
       "prefix": "F"
@@ -669,6 +764,7 @@
     {
       "path": "render/Dx12/Dx12CommandList.h",
       "legacy": "acs::FDx12CommandList",
+      "legacy_path": "render/Dx12/Dx12CommandList.h",
       "canonical": "acs::CDx12CommandList",
       "kind": "class",
       "prefix": "C"
@@ -676,6 +772,7 @@
     {
       "path": "render/Dx12/Dx12Device.h",
       "legacy": "acs::FDx12Device",
+      "legacy_path": "render/Dx12/Dx12Device.h",
       "canonical": "acs::CDx12Device",
       "kind": "class",
       "prefix": "C"
@@ -683,6 +780,7 @@
     {
       "path": "render/Dx12/Dx12Pipeline.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDx12Pipeline",
       "kind": "class",
       "prefix": "F"
@@ -690,6 +788,7 @@
     {
       "path": "render/Dx12/Dx12Shader.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDx12Shader",
       "kind": "class",
       "prefix": "F"
@@ -697,6 +796,7 @@
     {
       "path": "render/Dx12/Dx12Swapchain.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDx12Swapchain",
       "kind": "class",
       "prefix": "F"
@@ -704,6 +804,7 @@
     {
       "path": "render/Dx12/Dx12Texture.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FDx12Texture",
       "kind": "class",
       "prefix": "F"
@@ -711,6 +812,7 @@
     {
       "path": "render/Font.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FFont",
       "kind": "class",
       "prefix": "F"
@@ -718,6 +820,7 @@
     {
       "path": "render/Fxaa.h",
       "legacy": "acs::FFxaa",
+      "legacy_path": "render/Fxaa.h",
       "canonical": "acs::CFxaa",
       "kind": "class",
       "prefix": "C"
@@ -725,6 +828,7 @@
     {
       "path": "render/HiZ.h",
       "legacy": "acs::FHiZ",
+      "legacy_path": "render/HiZ.h",
       "canonical": "acs::CHiZ",
       "kind": "class",
       "prefix": "C"
@@ -732,6 +836,7 @@
     {
       "path": "render/Ibl.h",
       "legacy": "acs::FImageBasedLighting",
+      "legacy_path": "render/Ibl.h",
       "canonical": "acs::CImageBasedLighting",
       "kind": "class",
       "prefix": "C"
@@ -739,6 +844,7 @@
     {
       "path": "render/Light2D.h",
       "legacy": "acs::FBlobShadow",
+      "legacy_path": "render/Light2D.h",
       "canonical": "acs::CBlobShadow",
       "kind": "class",
       "prefix": "C"
@@ -746,6 +852,7 @@
     {
       "path": "render/Light2D.h",
       "legacy": "acs::FLighting2D",
+      "legacy_path": "render/Light2D.h",
       "canonical": "acs::CLighting2D",
       "kind": "class",
       "prefix": "C"
@@ -753,6 +860,7 @@
     {
       "path": "render/MotionVector.h",
       "legacy": "acs::FMotionVector",
+      "legacy_path": "render/MotionVector.h",
       "canonical": "acs::CMotionVector",
       "kind": "class",
       "prefix": "C"
@@ -760,6 +868,7 @@
     {
       "path": "render/Particles.h",
       "legacy": "acs::FParticleSystem",
+      "legacy_path": "render/Particles.h",
       "canonical": "acs::CParticleSystem",
       "kind": "class",
       "prefix": "C"
@@ -767,6 +876,7 @@
     {
       "path": "render/PbrShader.h",
       "legacy": "acs::FPbrShader",
+      "legacy_path": "render/PbrShader.h",
       "canonical": "acs::CPbrShader",
       "kind": "class",
       "prefix": "C"
@@ -774,6 +884,7 @@
     {
       "path": "render/PostProcess.h",
       "legacy": "acs::FPostProcess",
+      "legacy_path": "render/PostProcess.h",
       "canonical": "acs::CPostProcess",
       "kind": "class",
       "prefix": "C"
@@ -781,6 +892,7 @@
     {
       "path": "render/RefractionShader.h",
       "legacy": "acs::FRefractionShader",
+      "legacy_path": "render/RefractionShader.h",
       "canonical": "acs::CRefractionShader",
       "kind": "class",
       "prefix": "C"
@@ -788,6 +900,7 @@
     {
       "path": "render/RenderGraphTransientAlias.h",
       "legacy": "acs::FRenderGraphTransientAliasPlanner",
+      "legacy_path": "render/RenderGraphTransientAlias.h",
       "canonical": "acs::CRenderGraphTransientAliasPlanner",
       "kind": "class",
       "prefix": "C"
@@ -795,6 +908,7 @@
     {
       "path": "render/Renderer.h",
       "legacy": "acs::FRenderer",
+      "legacy_path": "render/Renderer.h",
       "canonical": "acs::CRenderer",
       "kind": "class",
       "prefix": "C"
@@ -802,6 +916,7 @@
     {
       "path": "render/ShadowMap.h",
       "legacy": "acs::FShadowMap",
+      "legacy_path": "render/ShadowMap.h",
       "canonical": "acs::CShadowMap",
       "kind": "class",
       "prefix": "C"
@@ -809,6 +924,7 @@
     {
       "path": "render/SkinnedShader.h",
       "legacy": "acs::FSkinnedShader",
+      "legacy_path": "render/SkinnedShader.h",
       "canonical": "acs::CSkinnedShader",
       "kind": "class",
       "prefix": "C"
@@ -816,6 +932,7 @@
     {
       "path": "render/Sky.h",
       "legacy": "acs::FSky",
+      "legacy_path": "render/Sky.h",
       "canonical": "acs::CSky",
       "kind": "class",
       "prefix": "C"
@@ -823,6 +940,7 @@
     {
       "path": "render/Sky.h",
       "legacy": "acs::FVolumetricClouds",
+      "legacy_path": "render/Sky.h",
       "canonical": "acs::CVolumetricClouds",
       "kind": "class",
       "prefix": "C"
@@ -830,6 +948,7 @@
     {
       "path": "render/SpriteBatch.h",
       "legacy": "acs::FSpriteBatch",
+      "legacy_path": "render/SpriteBatch.h",
       "canonical": "acs::CSpriteBatch",
       "kind": "class",
       "prefix": "C"
@@ -837,6 +956,7 @@
     {
       "path": "render/SpriteSortList.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FSpriteSortList",
       "kind": "class",
       "prefix": "F"
@@ -844,6 +964,7 @@
     {
       "path": "render/Ssao.h",
       "legacy": "acs::FSsao",
+      "legacy_path": "render/Ssao.h",
       "canonical": "acs::CSsao",
       "kind": "class",
       "prefix": "C"
@@ -851,6 +972,7 @@
     {
       "path": "render/Ssgi.h",
       "legacy": "acs::FSsgi",
+      "legacy_path": "render/Ssgi.h",
       "canonical": "acs::CSsgi",
       "kind": "class",
       "prefix": "C"
@@ -858,6 +980,7 @@
     {
       "path": "render/Ssr.h",
       "legacy": "acs::FSsr",
+      "legacy_path": "render/Ssr.h",
       "canonical": "acs::CSsr",
       "kind": "class",
       "prefix": "C"
@@ -865,6 +988,7 @@
     {
       "path": "render/StandardShader.h",
       "legacy": "acs::FStandardShader",
+      "legacy_path": "render/StandardShader.h",
       "canonical": "acs::CStandardShader",
       "kind": "class",
       "prefix": "C"
@@ -872,6 +996,7 @@
     {
       "path": "render/SubsurfaceScattering.h",
       "legacy": "acs::FSubsurfaceScattering",
+      "legacy_path": "render/SubsurfaceScattering.h",
       "canonical": "acs::CSubsurfaceScattering",
       "kind": "class",
       "prefix": "C"
@@ -879,6 +1004,7 @@
     {
       "path": "render/TransientUploadArena.h",
       "legacy": "acs::FTransientUploadArena",
+      "legacy_path": "render/TransientUploadArena.h",
       "canonical": "acs::CTransientUploadArena",
       "kind": "class",
       "prefix": "C"
@@ -886,6 +1012,7 @@
     {
       "path": "render/VertexScatter.h",
       "legacy": "acs::FVertexScatter",
+      "legacy_path": "render/VertexScatter.h",
       "canonical": "acs::CVertexScatter",
       "kind": "class",
       "prefix": "C"
@@ -893,6 +1020,7 @@
     {
       "path": "render/WaterSurface3D.h",
       "legacy": "acs::FWaterSurface3D",
+      "legacy_path": "render/WaterSurface3D.h",
       "canonical": "acs::CWaterSurface3D",
       "kind": "class",
       "prefix": "C"
@@ -900,6 +1028,7 @@
     {
       "path": "scripting/LuaVm.h",
       "legacy": "acs::scripting::FLuaVm",
+      "legacy_path": "scripting/LuaVm.h",
       "canonical": "acs::scripting::CLuaVm",
       "kind": "class",
       "prefix": "C"
@@ -907,6 +1036,7 @@
     {
       "path": "steamworks/SteamworksBridgeImpl.h",
       "legacy": "acs::steamworks::FSteamworksBridgeImpl",
+      "legacy_path": "steamworks/SteamworksBridgeImpl.h",
       "canonical": "acs::steamworks::CSteamworksBridgeImpl",
       "kind": "class",
       "prefix": "C"
@@ -914,6 +1044,7 @@
     {
       "path": "telemetryfile/FileTelemetryBackendClient.h",
       "legacy": "acs::telemetryfile::FFileTelemetryBackendClient",
+      "legacy_path": "telemetryfile/FileTelemetryBackendClient.h",
       "canonical": "acs::telemetryfile::CFileTelemetryBackendClient",
       "kind": "class",
       "prefix": "C"
@@ -921,6 +1052,7 @@
     {
       "path": "threading/ConditionVar.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FConditionVar",
       "kind": "class",
       "prefix": "F"
@@ -928,6 +1060,7 @@
     {
       "path": "threading/JobGraph.h",
       "legacy": "acs::FJobGraph",
+      "legacy_path": "threading/JobGraph.h",
       "canonical": "acs::CJobGraph",
       "kind": "class",
       "prefix": "C"
@@ -935,6 +1068,7 @@
     {
       "path": "threading/Mutex.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FMutex",
       "kind": "class",
       "prefix": "F"
@@ -942,6 +1076,7 @@
     {
       "path": "threading/RwLock.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FRwLock",
       "kind": "class",
       "prefix": "F"
@@ -949,6 +1084,7 @@
     {
       "path": "threading/Thread.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FThread",
       "kind": "class",
       "prefix": "F"
@@ -956,6 +1092,7 @@
     {
       "path": "threading/ThreadPool.h",
       "legacy": null,
+      "legacy_path": null,
       "canonical": "acs::FCompletionCounter",
       "kind": "class",
       "prefix": "F"
@@ -963,6 +1100,7 @@
     {
       "path": "threading/ThreadPool.h",
       "legacy": "acs::FThreadPool",
+      "legacy_path": "threading/ThreadPool.h",
       "canonical": "acs::CThreadPool",
       "kind": "class",
       "prefix": "C"
@@ -970,6 +1108,7 @@
     {
       "path": "timing/FixedStepClock.h",
       "legacy": "acs::timing::FFixedStepClock",
+      "legacy_path": "timing/FixedStepClock.h",
       "canonical": "acs::timing::CFixedStepClock",
       "kind": "class",
       "prefix": "C"
@@ -977,6 +1116,7 @@
     {
       "path": "ui/UiRenderer.h",
       "legacy": "acs::FUiInput",
+      "legacy_path": "ui/UiRenderer.h",
       "canonical": "acs::CUiInput",
       "kind": "class",
       "prefix": "C"
@@ -984,6 +1124,7 @@
     {
       "path": "ui/UiRenderer.h",
       "legacy": "acs::FUiRenderer",
+      "legacy_path": "ui/UiRenderer.h",
       "canonical": "acs::CUiRenderer",
       "kind": "class",
       "prefix": "C"
@@ -991,6 +1132,7 @@
     {
       "path": "ui/Widget.h",
       "legacy": "acs::FAnchorPanel",
+      "legacy_path": "ui/Widget.h",
       "canonical": "acs::AAnchorPanel",
       "kind": "class",
       "prefix": "A"
@@ -998,6 +1140,7 @@
     {
       "path": "ui/Widget.h",
       "legacy": "acs::FContainer",
+      "legacy_path": "ui/Widget.h",
       "canonical": "acs::AContainer",
       "kind": "class",
       "prefix": "A"
@@ -1005,6 +1148,7 @@
     {
       "path": "ui/Widget.h",
       "legacy": "acs::FStackPanel",
+      "legacy_path": "ui/Widget.h",
       "canonical": "acs::AStackPanel",
       "kind": "class",
       "prefix": "A"
@@ -1012,6 +1156,7 @@
     {
       "path": "ui/Widget.h",
       "legacy": "acs::FWidget",
+      "legacy_path": "ui/Widget.h",
       "canonical": "acs::AWidget",
       "kind": "class",
       "prefix": "A"
@@ -1019,6 +1164,7 @@
     {
       "path": "ui/Widgets.h",
       "legacy": "acs::FButton",
+      "legacy_path": "ui/Widgets.h",
       "canonical": "acs::AButton",
       "kind": "class",
       "prefix": "A"
@@ -1026,6 +1172,7 @@
     {
       "path": "ui/Widgets.h",
       "legacy": "acs::FCheckbox",
+      "legacy_path": "ui/Widgets.h",
       "canonical": "acs::ACheckbox",
       "kind": "class",
       "prefix": "A"
@@ -1033,6 +1180,7 @@
     {
       "path": "ui/Widgets.h",
       "legacy": "acs::FLabel",
+      "legacy_path": "ui/Widgets.h",
       "canonical": "acs::ALabel",
       "kind": "class",
       "prefix": "A"
@@ -1040,6 +1188,7 @@
     {
       "path": "ui/Widgets.h",
       "legacy": "acs::FSlider",
+      "legacy_path": "ui/Widgets.h",
       "canonical": "acs::ASlider",
       "kind": "class",
       "prefix": "A"
@@ -1047,6 +1196,7 @@
     {
       "path": "ui/Widgets.h",
       "legacy": "acs::FTextInput",
+      "legacy_path": "ui/Widgets.h",
       "canonical": "acs::ATextInput",
       "kind": "class",
       "prefix": "A"

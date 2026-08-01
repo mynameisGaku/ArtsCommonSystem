@@ -225,9 +225,9 @@ SCALAR_TYPE_NAMES = frozenset(
 )
 DETAIL_NAMESPACE_NAMES = frozenset({"detail", "internal", "private"})
 PUBLIC_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inl"})
-TYPE_ROLE_MIGRATION_SCHEMA_VERSION = 1
+TYPE_ROLE_MIGRATION_SCHEMA_VERSION = 2
 DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 150
-DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "B67E6469F430F7F21C15AC12F75B1A50F7AA40C76D338A23915ABB14E31D6E74"
+DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "2A8C41746F2F9FD2777A84A1869351766FCD384BF67A68FEBAADABE0C439CEA8"
 DEFAULT_TYPE_ROLE_MIGRATIONS = (
     Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migrations.json"
 )
@@ -236,7 +236,7 @@ DEFAULT_TYPE_ROLE_MIGRATIONS = (
 def _load_registered_type_role_migrations(
     path: Path = DEFAULT_TYPE_ROLE_MIGRATIONS,
     verify_default_baseline: bool = True,
-) -> tuple[tuple[Optional[str], str, str, str, str], ...]:
+) -> tuple[tuple[Optional[str], str, str, Optional[str], str, str], ...]:
     """正規型と一時的な旧名の固定契約を読み込む。"""
 
     # 監査器と同じ場所に置いた追跡済みregistryだけを読む。
@@ -287,36 +287,63 @@ def _load_registered_type_role_migrations(
     ):
         raise ValueError("type role migration registry does not match the fixed baseline")
 
-    # legacy、canonical、path、宣言種別、prefixの順で保持する。
-    entries: list[tuple[Optional[str], str, str, str, str]] = []
-    expected_fields = {"path", "legacy", "canonical", "kind", "prefix"}
+    # legacy、canonical、定義path、互換alias path、宣言種別、prefixの順で保持する。
+    entries: list[tuple[Optional[str], str, str, Optional[str], str, str]] = []
+    expected_fields = {"path", "legacy", "canonical", "legacy_path", "kind", "prefix"}
     qualified_name = re.compile(r"^[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*$")
+
+    def validate_public_header_path(value: object, field_name: str, index: int) -> str:
+        """registry内のrepo相対公開header pathを正規化せず検証する。"""
+
+        # 入力表記と完全一致するPOSIX pathだけを許可する。
+        normalized_path = PurePosixPath(value) if isinstance(value, str) else None
+        if (
+            not isinstance(value, str)
+            or not value
+            or normalized_path is None
+            or normalized_path.is_absolute()
+            or normalized_path.as_posix() != value
+            or any(part in {"", ".", ".."} for part in normalized_path.parts)
+            or "\\" in value
+            or ":" in value
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+            or normalized_path.suffix not in PUBLIC_HEADER_SUFFIXES
+        ):
+            raise ValueError(
+                f"type role migration entries[{index}] has an invalid {field_name}"
+            )
+        return value
+
     for index, raw_entry in enumerate(raw_entries):
         if not isinstance(raw_entry, dict) or set(raw_entry) != expected_fields:
             raise ValueError(f"type role migration entries[{index}] has an invalid schema")
-        path = raw_entry["path"]
+        # 正規型の定義先と旧名aliasの公開先を別々に保持する。
+        path = validate_public_header_path(raw_entry["path"], "path", index)
         legacy = raw_entry["legacy"]
         canonical = raw_entry["canonical"]
+        legacy_path_value = raw_entry["legacy_path"]
         kind = raw_entry["kind"]
         prefix = raw_entry["prefix"]
-        normalized_path = PurePosixPath(path) if isinstance(path, str) else None
-        if (
-            not isinstance(path, str)
-            or not path
-            or normalized_path is None
-            or normalized_path.is_absolute()
-            or normalized_path.as_posix() != path
-            or any(part in {"", ".", ".."} for part in normalized_path.parts)
-            or "\\" in path
-            or ":" in path
-            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in path)
-            or normalized_path.suffix not in PUBLIC_HEADER_SUFFIXES
-        ):
-            raise ValueError(f"type role migration entries[{index}] has an invalid path")
         if legacy is not None and (
             not isinstance(legacy, str) or qualified_name.fullmatch(legacy) is None
         ):
             raise ValueError(f"type role migration entries[{index}] has an invalid legacy name")
+        if legacy is None:
+            if legacy_path_value is not None:
+                raise ValueError(
+                    f"type role migration entries[{index}] cannot have legacy_path without legacy"
+                )
+            legacy_path = None
+        else:
+            if legacy_path_value is None:
+                raise ValueError(
+                    f"type role migration entries[{index}] requires legacy_path for legacy"
+                )
+            legacy_path = validate_public_header_path(
+                legacy_path_value,
+                "legacy_path",
+                index,
+            )
         if not isinstance(canonical, str) or qualified_name.fullmatch(canonical) is None:
             raise ValueError(f"type role migration entries[{index}] has an invalid canonical name")
         if kind not in {"class", "struct"} or prefix not in {"A", "C", "F", "I"}:
@@ -325,7 +352,7 @@ def _load_registered_type_role_migrations(
             raise ValueError(f"type role migration entries[{index}] prefix does not match canonical name")
         if legacy == canonical:
             raise ValueError(f"type role migration entries[{index}] cannot alias a type to itself")
-        entries.append((legacy, canonical, path, kind, prefix))
+        entries.append((legacy, canonical, path, legacy_path, kind, prefix))
 
     if entries != sorted(entries, key=lambda entry: (entry[2], entry[0] or "")):
         raise ValueError("type role migration entries must use ordinal path and legacy-name order")
@@ -339,7 +366,7 @@ def _load_registered_type_role_migrations(
 
 REGISTERED_TYPE_ROLE_MIGRATIONS = _load_registered_type_role_migrations()
 LEGACY_COMPATIBILITY_ALIASES = {
-    legacy: canonical for legacy, canonical, _, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+    legacy: canonical for legacy, canonical, _, _, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
     if legacy is not None
 }
 LEGACY_COMPATIBILITY_ALIASES.update({
@@ -348,8 +375,9 @@ LEGACY_COMPATIBILITY_ALIASES.update({
     "acs::EventTypeId": "acs::FEventTypeId",
 })
 LEGACY_COMPATIBILITY_PATHS = {
-    legacy: path for legacy, _, path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
-    if legacy is not None
+    legacy: legacy_path
+    for legacy, _, _, legacy_path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+    if legacy is not None and legacy_path is not None
 }
 LEGACY_COMPATIBILITY_PATHS.update({
     "acs::ComponentSignatureId": "ecs/ComponentId.h",
@@ -358,11 +386,11 @@ LEGACY_COMPATIBILITY_PATHS.update({
 })
 CANONICAL_OBJECT_AND_CLASS_TYPES = {
     canonical: (path, kind, prefix)
-    for _, canonical, path, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
+    for _, canonical, path, _, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
 }
 MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES = {
     canonical: (path, kind, prefix)
-    for legacy, canonical, path, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
+    for legacy, canonical, path, _, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
     if legacy is not None
 }
 FOUNDATION_PRIMITIVE_ALIASES = {
@@ -2793,6 +2821,7 @@ EventTypeId LegacyEventType = 0;
             {
                 "path": "z/ReviewedValue.h",
                 "legacy": None,
+                "legacy_path": None,
                 "canonical": "acs::FReviewedValue",
                 "kind": "struct",
                 "prefix": "F",
@@ -2806,10 +2835,38 @@ EventTypeId LegacyEventType = 0;
             None,
             "acs::FReviewedValue",
             "z/ReviewedValue.h",
+            None,
             "struct",
             "F",
         ):
             print("type role reviewed keep decision self-test failed", file=sys.stderr)
+            return False
+
+        split_registry_document = json.loads(json.dumps(default_registry_document))
+        split_registry_document["entries"].append(
+            {
+                "path": "z/SplitCanonical.h",
+                "legacy": "acs::FLegacySplit",
+                "legacy_path": "z/SplitForward.h",
+                "canonical": "acs::CSplitCanonical",
+                "kind": "class",
+                "prefix": "C",
+            }
+        )
+        split_entries = _load_registered_type_role_migrations(
+            write_registry_fixture("split-paths.json", split_registry_document),
+            False,
+        )
+        split_entry = (
+            "acs::FLegacySplit",
+            "acs::CSplitCanonical",
+            "z/SplitCanonical.h",
+            "z/SplitForward.h",
+            "class",
+            "C",
+        )
+        if split_entries[-1] != split_entry:
+            print("type role split path registry self-test failed", file=sys.stderr)
             return False
 
         self_alias_registry_document = json.loads(json.dumps(default_registry_document))
@@ -2854,6 +2911,74 @@ EventTypeId LegacyEventType = 0;
                 )
                 return False
 
+        # 旧名aliasの公開先にも定義pathと同じ正規化契約を適用する。
+        for case_index, invalid_path in enumerate(invalid_registry_paths):
+            invalid_document = json.loads(json.dumps(default_registry_document))
+            invalid_document["entries"][0]["legacy_path"] = invalid_path
+            invalid_registry_path = write_registry_fixture(
+                f"invalid-legacy-path-{case_index}.json",
+                invalid_document,
+            )
+            try:
+                _load_registered_type_role_migrations(invalid_registry_path, False)
+            except ValueError:
+                pass
+            else:
+                print(
+                    "type role migration invalid legacy_path self-test failed: "
+                    f"{invalid_path!r}",
+                    file=sys.stderr,
+                )
+                return False
+
+        missing_legacy_path_document = json.loads(json.dumps(default_registry_document))
+        missing_legacy_path_document["entries"][0].pop("legacy_path")
+        try:
+            _load_registered_type_role_migrations(
+                write_registry_fixture(
+                    "missing-legacy-path.json",
+                    missing_legacy_path_document,
+                ),
+                False,
+            )
+        except ValueError:
+            pass
+        else:
+            print("type role migration missing legacy_path self-test failed", file=sys.stderr)
+            return False
+
+        legacy_without_path_document = json.loads(json.dumps(default_registry_document))
+        legacy_without_path_document["entries"][0]["legacy_path"] = None
+        try:
+            _load_registered_type_role_migrations(
+                write_registry_fixture(
+                    "legacy-without-path.json",
+                    legacy_without_path_document,
+                ),
+                False,
+            )
+        except ValueError:
+            pass
+        else:
+            print("type role migration legacy without path self-test failed", file=sys.stderr)
+            return False
+
+        path_without_legacy_document = json.loads(json.dumps(default_registry_document))
+        path_without_legacy_document["entries"][0]["legacy"] = None
+        try:
+            _load_registered_type_role_migrations(
+                write_registry_fixture(
+                    "path-without-legacy.json",
+                    path_without_legacy_document,
+                ),
+                False,
+            )
+        except ValueError:
+            pass
+        else:
+            print("type role migration path without legacy self-test failed", file=sys.stderr)
+            return False
+
         bool_schema_document = json.loads(json.dumps(default_registry_document))
         bool_schema_document["schema_version"] = True
         try:
@@ -2869,7 +2994,7 @@ EventTypeId LegacyEventType = 0;
 
         duplicate_key_path = registry_root / "duplicate-key.json"
         duplicate_key_path.write_bytes(
-            b'{"schema_version":1,"schema_version":1,"entries":[]}\n'
+            b'{"schema_version":2,"schema_version":2,"entries":[]}\n'
         )
         try:
             _load_registered_type_role_migrations(duplicate_key_path, False)
@@ -3692,23 +3817,29 @@ EventTypeId LegacyEventType = 0;
             "ecs/ComponentId.h": "namespace acs { using FComponentTypeId=u32; using ComponentTypeId=FComponentTypeId; using FComponentSignatureId=u64; using ComponentSignatureId=FComponentSignatureId; }",
             "event/EventTypeId.h": "namespace acs { using FEventTypeId=u32; using EventTypeId=FEventTypeId; }",
         }
-        for legacy, canonical, expected_path, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
-            # 1つのheaderに複数の確定型があっても独立した宣言として組み立てる。
+        for legacy, canonical, expected_path, legacy_path, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
+            # 正規型の定義はcanonical pathだけへ置く。
             namespace = canonical.rsplit("::", 1)[0]
             canonical_name = canonical.rsplit("::", 1)[-1]
-            if legacy is None:
-                declaration = f"namespace {namespace} {{ {kind} {canonical_name} {{}}; }}"
-            else:
-                legacy_name = legacy.rsplit("::", 1)[-1]
-                declaration = (
-                    f"namespace {namespace} {{ {kind} {canonical_name} {{}}; "
-                    f"using {legacy_name}={canonical_name}; }}"
-                )
+            declaration = f"namespace {namespace} {{ {kind} {canonical_name} {{}}; }}"
             presence_sources[expected_path] = (
                 f"{presence_sources[expected_path]}\n{declaration}"
                 if expected_path in presence_sources
                 else declaration
             )
+            if legacy is not None and legacy_path is not None:
+                # 旧名aliasは循環しない公開forward headerへ分離できる。
+                legacy_namespace = legacy.rsplit("::", 1)[0]
+                legacy_name = legacy.rsplit("::", 1)[-1]
+                declaration = (
+                    f"namespace {legacy_namespace} {{ "
+                    f"using {legacy_name}={canonical_name}; }}"
+                )
+                presence_sources[legacy_path] = (
+                    f"{presence_sources[legacy_path]}\n{declaration}"
+                    if legacy_path in presence_sources
+                    else declaration
+                )
 
         def write_presence_tree(name: str, sources: dict[str, str]) -> Path:
             """必須aliasの変異を独立したsource treeへ保存する。"""
@@ -3724,6 +3855,60 @@ EventTypeId LegacyEventType = 0;
         if scan_tree(presence_root).violations:
             print("type role compatibility presence self-test failed", file=sys.stderr)
             return False
+
+        # loaderが返した分離path契約を実際のpresence監査へ接続する。
+        split_legacy, split_canonical, split_path, split_legacy_path, split_kind, split_prefix = (
+            split_entry
+        )
+        if split_legacy is None or split_legacy_path is None:
+            print("type role split path fixture pairing failed", file=sys.stderr)
+            return False
+        split_sources = dict(presence_sources)
+        split_sources[split_path] = (
+            f"namespace acs {{ {split_kind} {split_canonical.rsplit('::', 1)[-1]} {{}}; }}"
+        )
+        split_sources[split_legacy_path] = (
+            "namespace acs { class CSplitCanonical; using FLegacySplit=CSplitCanonical; }"
+        )
+        LEGACY_COMPATIBILITY_ALIASES[split_legacy] = split_canonical
+        LEGACY_COMPATIBILITY_PATHS[split_legacy] = split_legacy_path
+        CANONICAL_OBJECT_AND_CLASS_TYPES[split_canonical] = (
+            split_path,
+            split_kind,
+            split_prefix,
+        )
+        MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES[split_canonical] = (
+            split_path,
+            split_kind,
+            split_prefix,
+        )
+        try:
+            split_root = write_presence_tree("split-presence", split_sources)
+            if scan_tree(split_root).violations:
+                print("type role split path presence self-test failed", file=sys.stderr)
+                return False
+            wrong_split_sources = dict(split_sources)
+            wrong_split_sources["z/WrongSplitForward.h"] = wrong_split_sources.pop(
+                split_legacy_path
+            )
+            wrong_split_root = write_presence_tree("wrong-split-presence", wrong_split_sources)
+            wrong_split_violations = scan_tree(wrong_split_root).violations
+            if [
+                (item.rule, item.type_name)
+                for item in wrong_split_violations
+                if item.type_name == "FLegacySplit"
+            ] != [("ACS-R020d", "FLegacySplit")]:
+                print(
+                    "type role wrong legacy_path presence self-test failed: "
+                    f"{wrong_split_violations}",
+                    file=sys.stderr,
+                )
+                return False
+        finally:
+            LEGACY_COMPATIBILITY_ALIASES.pop(split_legacy, None)
+            LEGACY_COMPATIBILITY_PATHS.pop(split_legacy, None)
+            CANONICAL_OBJECT_AND_CLASS_TYPES.pop(split_canonical, None)
+            MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES.pop(split_canonical, None)
 
         def scan_presence_mutation(sources: dict[str, str]) -> FScanResult:
             """一つの共有treeへ変異を適用し、走査後に必ず基準内容へ戻す。"""
@@ -3892,15 +4077,18 @@ EventTypeId LegacyEventType = 0;
             "acs::EventTypeId": ("event/EventTypeId.h", "using EventTypeId=FEventTypeId;", "using EventTypeId=FComponentTypeId;"),
         }
         registered_canonical_names = [entry[1] for entry in REGISTERED_TYPE_ROLE_MIGRATIONS]
-        for legacy, canonical, expected_path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
+        for legacy, canonical, _, legacy_path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
             if legacy is None:
                 continue
+            if legacy_path is None:
+                print(f"type role legacy path pairing failed: {legacy}", file=sys.stderr)
+                return False
             # target swapは別の登録済み正規型へ向け、単なる未宣言名にしない。
             wrong_target = next(name for name in registered_canonical_names if name != canonical)
             legacy_name = legacy.rsplit("::", 1)[-1]
             canonical_name = canonical.rsplit("::", 1)[-1]
             legacy_declarations[legacy] = (
-                expected_path,
+                legacy_path,
                 f"using {legacy_name}={canonical_name};",
                 f"using {legacy_name}=::{wrong_target};",
             )
@@ -3937,7 +4125,7 @@ EventTypeId LegacyEventType = 0;
                 f"{kind} {canonical.rsplit('::', 1)[-1]} {{}};",
                 f"{'struct' if kind == 'class' else 'class'} {canonical.rsplit('::', 1)[-1]} {{}};",
             )
-            for _, canonical, expected_path, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+            for _, canonical, expected_path, _, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
         }
         for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(canonical_type_declarations.items())):
             namespace = qualified_name.rsplit("::", 1)[0]
