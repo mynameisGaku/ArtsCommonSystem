@@ -274,13 +274,13 @@ protected:
  * を返し (m_Initialized は false のまま)、pose / state は zero-initialized、
  * ActivePlatform() は Unknown、passthrough は非対応、Tick()/Shutdown() は副作用なし。
  */
-class FOpenXrBridgeStub final : public IOpenXrBridge {
+class COpenXrBridgeStub final : public IOpenXrBridge {
 public:
     /** stub を構築する (副作用なし)。 */
-    FOpenXrBridgeStub() noexcept = default;
+    COpenXrBridgeStub() noexcept = default;
 
     /** stub を破棄する (解放対象なし)。 */
-    ~FOpenXrBridgeStub() noexcept override = default;
+    ~COpenXrBridgeStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (XR backend 未統合)。
@@ -398,5 +398,8 @@ namespace xr_err {
     /** 「未実装」subcode (stub / backend 未統合のときに返される)。 */
     inline constexpr u16 kSub_NotImplemented = 99;
 } // namespace xr_err
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FOpenXrBridgeStub = COpenXrBridgeStub;
 
 } // namespace acs::game

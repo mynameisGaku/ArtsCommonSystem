@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — spriteatlas / FSpriteAtlasEditorPanel 実装
+// GameFramework Pillar — spriteatlas / ASpriteAtlasEditorPanel 実装
 //
-// 仕様の意図は FSpriteAtlasEditorPanel.h を参照。本ファイルでは:
-//   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
+// 仕様の意図は ASpriteAtlasEditorPanel.h を参照。本ファイルでは:
+//   ・AEditorPanel 基底 hook (OnInit / DrawUI) の override
 //   ・SetSpritePack / CurrentPack / SelectFrame / AddFrame / DeleteSelectedFrame
 //     の小粒な mutator/accessor
 //   ・toolbar / left frame list / center atlas viewport (placeholder + 矩形
@@ -132,7 +132,7 @@ inline ImVec2 AtlasToScreen(ImVec2 origin, f32 zoom, i32 x, i32 y) noexcept {
 } // anonymous namespace
 
 /** 内部 state を初期値へ完全リセットする (詳細はヘッダ宣言を参照)。 */
-void FSpriteAtlasEditorPanel::Init() noexcept {
+void ASpriteAtlasEditorPanel::Init() noexcept {
     m_Pack          = nullptr;
     m_Selected      = -1;
     m_Zoom          = 1.0f;
@@ -145,14 +145,14 @@ void FSpriteAtlasEditorPanel::Init() noexcept {
     }
     m_OwnedNameCount = 0;
 
-    // viewport 系 panel は dock 中央に置きたいことが多い (FModelViewerPanel と
+    // viewport 系 panel は dock 中央に置きたいことが多い (AModelViewerPanel と
     // 同方針)。
     m_Visible       = true;
     m_DockedTarget = true;
 }
 
 /** 内部 state を解放する (frame name pool / selection / FSpritePack* をクリア)。 */
-void FSpriteAtlasEditorPanel::Shutdown() noexcept {
+void ASpriteAtlasEditorPanel::Shutdown() noexcept {
     m_Pack          = nullptr;
     m_Selected      = -1;
     m_Zoom          = 1.0f;
@@ -164,7 +164,7 @@ void FSpriteAtlasEditorPanel::Shutdown() noexcept {
 }
 
 /** 編集対象 FSpritePack を注入し、selection を先頭 frame (無ければ -1) にリセットする。 */
-void FSpriteAtlasEditorPanel::SetSpritePack(acs::game::FSpritePack* pack) noexcept {
+void ASpriteAtlasEditorPanel::SetSpritePack(acs::game::FSpritePack* pack) noexcept {
     m_Pack = pack;
     // 新しい pack を渡されたら selection を 0 (= 最初の frame) にリセット
     // するのが UX 上自然 (Unity Sprite Editor も同様)。frame が無ければ -1。
@@ -176,17 +176,17 @@ void FSpriteAtlasEditorPanel::SetSpritePack(acs::game::FSpritePack* pack) noexce
 }
 
 /** 現在注入されている FSpritePack を返す (未注入なら nullptr)。 */
-acs::game::FSpritePack* FSpriteAtlasEditorPanel::CurrentPack() const noexcept {
+acs::game::FSpritePack* ASpriteAtlasEditorPanel::CurrentPack() const noexcept {
     return m_Pack;
 }
 
 /** 現在選択中の frame index を返す (未選択なら -1)。 */
-i32 FSpriteAtlasEditorPanel::SelectedFrameIndex() const noexcept {
+i32 ASpriteAtlasEditorPanel::SelectedFrameIndex() const noexcept {
     return m_Selected;
 }
 
 /** frame を選択する (範囲外 / pack 未注入は -1 に正規化)。 */
-void FSpriteAtlasEditorPanel::SelectFrame(i32 idx) noexcept {
+void ASpriteAtlasEditorPanel::SelectFrame(i32 idx) noexcept {
     if (m_Pack == nullptr) {
         m_Selected = -1;
         return;
@@ -200,7 +200,7 @@ void FSpriteAtlasEditorPanel::SelectFrame(i32 idx) noexcept {
 }
 
 /** default 64x64 の新規 frame を Frame_NN 名で FSpritePack に追加し、選択を移す。 */
-void FSpriteAtlasEditorPanel::AddFrame() noexcept {
+void ASpriteAtlasEditorPanel::AddFrame() noexcept {
     if (m_Pack == nullptr) return;
     if (m_OwnedNameCount >= kMaxOwnedFrames) return;  // name pool 上限
 
@@ -244,7 +244,7 @@ void FSpriteAtlasEditorPanel::AddFrame() noexcept {
  * 先頭ポインタ一致するか確認してから削除し、一致しない場合は no-op とする (「panel が知らない
  * frame は触らない」契約)。削除後は末尾 slot を空いた slot へ swap-fill して回収する。
  */
-void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
+void ASpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
     if (m_Pack == nullptr) return;
     const i32 count = static_cast<i32>(m_Pack->FrameCount());
     if (m_Selected < 0 || m_Selected >= count) return;
@@ -325,17 +325,17 @@ void FSpriteAtlasEditorPanel::DeleteSelectedFrame() noexcept {
 }
 
 /** atlas placeholder の表示倍率を返す。 */
-f32 FSpriteAtlasEditorPanel::ZoomLevel() const noexcept {
+f32 ASpriteAtlasEditorPanel::ZoomLevel() const noexcept {
     return m_Zoom;
 }
 
 /** atlas placeholder の表示倍率を [kMinZoom, kMaxZoom] にクランプして設定する。 */
-void FSpriteAtlasEditorPanel::SetZoomLevel(f32 z) noexcept {
+void ASpriteAtlasEditorPanel::SetZoomLevel(f32 z) noexcept {
     m_Zoom = ClampF32(z, kMinZoom, kMaxZoom);
 }
 
 /** Pivot preset を設定し、Custom 以外なら selected frame に pivot を即適用する。 */
-void FSpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
+void ASpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
     m_PivotPreset = p;
     // Custom 以外を選んだら selected frame に pivot を即適用する (toolbar 上で
     // toggle した瞬間に「揃う」UX)。Custom は inspector の slider が手動で
@@ -361,8 +361,8 @@ void FSpriteAtlasEditorPanel::SetPivotPreset(EPivotPreset p) noexcept {
 }
 
 /** Workspace 登録時に基底初期化を呼び、frame name pool 各行の終端 0 を確認する。 */
-void FSpriteAtlasEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
-    FEditorPanel::OnInit(workspace);
+void ASpriteAtlasEditorPanel::OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept {
+    AEditorPanel::OnInit(workspace);
     // name pool の終端 0 を全行で再確認 (= 多重 OnInit でも安全)。
     for (u32 i = 0; i < kMaxOwnedFrames; ++i) {
         m_DefaultFrameNamePool[i][kFrameNameMaxChars - 1] = '\0';
@@ -378,7 +378,7 @@ void FSpriteAtlasEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& w
  * 8 個 drag handle)、右 inspector (name / x / y / w / h SliderInt + pivot SliderFloat) を
  * 描く。IsVisible() が false なら早期 return する。
  */
-void FSpriteAtlasEditorPanel::DrawUI() noexcept {
+void ASpriteAtlasEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &m_Visible)) {

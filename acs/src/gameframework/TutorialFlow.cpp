@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FTutorialFlow 実装
+// GameFramework Pillar R — CTutorialFlow 実装
 //
 // 設計メモ:
 //   ・step.id と action_id の比較は <cstring> 不使用方針に従い、自前 StrEq を
@@ -34,11 +34,11 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-void FTutorialFlow::AddStep(const FTutorialStep& step) noexcept {
+void CTutorialFlow::AddStep(const FTutorialStep& step) noexcept {
     m_Steps.PushBack(step);
 }
 
-void FTutorialFlow::Start() noexcept {
+void CTutorialFlow::Start() noexcept {
     m_CurrentStep = 0;
     m_Completed    = false;
     if (m_Steps.Size() == 0) {
@@ -50,7 +50,7 @@ void FTutorialFlow::Start() noexcept {
     m_Active = true;
 }
 
-void FTutorialFlow::AdvanceStep() noexcept {
+void CTutorialFlow::AdvanceStep() noexcept {
     if (!m_Active) return;
     ++m_CurrentStep;
     if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) {
@@ -60,7 +60,7 @@ void FTutorialFlow::AdvanceStep() noexcept {
     }
 }
 
-void FTutorialFlow::NotifyAction(const char* action_id) noexcept {
+void CTutorialFlow::NotifyAction(const char* action_id) noexcept {
     if (!m_Active || action_id == nullptr) return;
     if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) return;
     const FTutorialStep& step = m_Steps[m_CurrentStep];
@@ -70,29 +70,29 @@ void FTutorialFlow::NotifyAction(const char* action_id) noexcept {
     }
 }
 
-void FTutorialFlow::Reset() noexcept {
+void CTutorialFlow::Reset() noexcept {
     m_CurrentStep = 0;
     m_Active       = false;
     m_Completed    = false;
 }
 
-void FTutorialFlow::Skip() noexcept {
+void CTutorialFlow::Skip() noexcept {
     if (m_Completed) return;     // 冪等: 2 度目は no-op
     m_Active    = false;
     m_Completed = true;
 }
 
-const FTutorialStep* FTutorialFlow::CurrentStep() const noexcept {
+const FTutorialStep* CTutorialFlow::CurrentStep() const noexcept {
     if (!m_Active) return nullptr;
     if (m_CurrentStep >= static_cast<u32>(m_Steps.Size())) return nullptr;
     return &m_Steps[m_CurrentStep];
 }
 
-u32 FTutorialFlow::StepCount() const noexcept {
+u32 CTutorialFlow::StepCount() const noexcept {
     return static_cast<u32>(m_Steps.Size());
 }
 
-void FTutorialFlow::Tick(f32 /*dt*/) noexcept {
+void CTutorialFlow::Tick(f32 /*dt*/) noexcept {
     // 内部 timer 無し (require_user_action のステップは NotifyAction
     // または AdvanceStep のみで進む)。hint 出現遅延 / auto-advance step
     // を入れる際にここで m_CurrentStep の elapsed を進める想定。

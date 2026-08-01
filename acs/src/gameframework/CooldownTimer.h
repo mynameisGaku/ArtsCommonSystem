@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCooldownTimer (スキル/アビリティ cooldown 管理)
+// GameFramework Pillar R — CCooldownTimer (スキル/アビリティ cooldown 管理)
 //
 // 複数の cooldown (スキル / アビリティ / 弾薬リロード等) を同時追跡する軽量
 // マネージャ。各 cooldown は `label` (デバッグ / UI 表示用) と `duration_sec`
@@ -8,7 +8,7 @@
 //
 // 使い方:
 //   class APlayer : public ANode {
-//       acs::game::FCooldownTimer m_Cd;
+//       acs::game::CCooldownTimer m_Cd;
 //       acs::game::FCooldownId   m_Fireball;
 //       acs::game::FCooldownId   m_Dash;
 //
@@ -31,7 +31,7 @@
 //   };
 //
 // 設計:
-//   ・**FCooldownId**: 24bit index + 8bit generation (FSceneTimer / FCollisionWorld2D
+//   ・**FCooldownId**: 24bit index + 8bit generation (CSceneTimer / CCollisionWorld2D
 //     と同じパターン)。Unregister 後の slot 再利用で stale 検出可能。
 //   ・**charged 状態**: `remaining <= 0` かつ `charged == true`。Tick 内で
 //     `remaining` が 0 を跨いだ瞬間に `charged` が false→true に遷移し、
@@ -153,25 +153,25 @@ using ReadyCallback = void(*)(void* user, FCooldownId id, const char* label) noe
  * 遷移して ReadyCallback を発火する。TryUse は charged のときだけ true を返し、即時 reload
  * を開始する。handle は 24bit index + 8bit generation で stale 検出する。
  */
-class FCooldownTimer {
+class CCooldownTimer {
 public:
     /** 空のマネージャを構築する。 */
-    FCooldownTimer() noexcept = default;
+    CCooldownTimer() noexcept = default;
 
     /** 破棄する。 */
-    ~FCooldownTimer() noexcept = default;
+    ~CCooldownTimer() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FCooldownTimer(const FCooldownTimer&)            = delete;
+    CCooldownTimer(const CCooldownTimer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCooldownTimer& operator=(const FCooldownTimer&) = delete;
+    CCooldownTimer& operator=(const CCooldownTimer&) = delete;
 
     /** ムーブ禁止。 */
-    FCooldownTimer(FCooldownTimer&&)                 = delete;
+    CCooldownTimer(CCooldownTimer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCooldownTimer& operator=(FCooldownTimer&&)      = delete;
+    CCooldownTimer& operator=(CCooldownTimer&&)      = delete;
 
     /**
      * 新しい cooldown を登録し、handle を返す。
@@ -348,5 +348,8 @@ private:
     /** callback に渡す不透明ポインタ。 */
     void*         _ready_user   = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCooldownTimer = CCooldownTimer;
 
 } // namespace acs::game

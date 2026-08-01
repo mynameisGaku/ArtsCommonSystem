@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — FModelViewerPanel 実装
+// GameFramework Pillar — AModelViewerPanel 実装
 //
-// 仕様の意図は FModelViewerPanel.h を参照。本ファイルでは:
-//   ・FEditorPanel 基底 hook (OnInit / DrawUI / OnAssetSelected) の override
+// 仕様の意図は AModelViewerPanel.h を参照。本ファイルでは:
+//   ・AEditorPanel 基底 hook (OnInit / DrawUI / OnAssetSelected) の override
 //   ・LoadModelAsset / ClearModel の asset path コピー保存
 //   ・Lighting / Background / Tonemap / Grid / FBone skeleton の getter/setter
 //   ・OnAssetSelected で .mdl/.fbx/.gltf/.glb/.obj を識別して LoadModelAsset
@@ -37,7 +37,7 @@ inline char ToLowerAscii(char c) noexcept {
  * UTF-8 path の末尾が ext に一致するかを返す (大文字小文字無視)。
  *
  * @details
- * FAssetBrowser::ClassifyByExtension の wchar_t 版と同じロジックを char 版で実装する。
+ * CAssetBrowser::ClassifyByExtension の wchar_t 版と同じロジックを char 版で実装する。
  * OnAssetSelected の引数が UTF-8 char* で来るため、ここで UTF-16 化せず直接 ASCII 比較
  * する (拡張子は ASCII 範囲しか出現しない前提)。
  * @param path 検査対象パス (終端 0 付き、nullptr は false)。
@@ -59,7 +59,7 @@ bool EndsWithIgnoreCaseAscii(const char* path, const char* ext) noexcept {
 /**
  * UTF-8 path が Mesh 拡張子に該当するかを返す。
  *
- * @details FAssetBrowser::ClassifyByExtension の Mesh 分類と一致させること。
+ * @details CAssetBrowser::ClassifyByExtension の Mesh 分類と一致させること。
  * @param path 検査対象パス (UTF-8、nullptr / 空文字は false)。
  * @return 拡張子が .mdl/.fbx/.gltf/.glb/.obj のいずれかなら true。
  */
@@ -77,7 +77,7 @@ bool IsMeshExtensionAscii(const char* path) noexcept {
  * UTF-8 src を UTF-16 dst にコピーする (終端 0 保証)。
  *
  * @details
- * FAssetBrowser.cpp の WideToUtf8 と対称な変換。MultiByteToWideChar を使うため
+ * CAssetBrowser.cpp の WideToUtf8 と対称な変換。MultiByteToWideChar を使うため
  * foundation/Platform.h 経由で Windows API が引かれる前提。src が nullptr / 空文字の場合や
  * 変換失敗時は dst[0] = L'\0' にする。
  * @param src 変換元 UTF-8 文字列。
@@ -99,7 +99,7 @@ void Utf8ToWide(const char* src, wchar_t* dst, int dst_cap) noexcept {
 /**
  * wchar_t 列の長さを返す (終端含まず)。
  *
- * @details FAssetBrowser.cpp の WLen と同等。
+ * @details CAssetBrowser.cpp の WLen と同等。
  * @param s 長さを測る文字列 (nullptr は 0)。
  * @return 終端を含まない wchar_t 数。
  */
@@ -127,9 +127,9 @@ const char* TonemapLabel(u32 mode) noexcept {
 
 } // anonymous namespace
 
-/** 内部 state をデフォルトに戻し FEditorCamera を 3D mode で初期化する。 */
-void FModelViewerPanel::Init() noexcept {
-    // FEditorCamera を 3D mode で完全初期化 (= target=origin, distance=10,
+/** 内部 state をデフォルトに戻し CEditorCamera を 3D mode で初期化する。 */
+void AModelViewerPanel::Init() noexcept {
+    // CEditorCamera を 3D mode で完全初期化 (= target=origin, distance=10,
     // pitch=-30° 等のデフォルト姿勢)。
     m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode3D);
 
@@ -152,15 +152,15 @@ void FModelViewerPanel::Init() noexcept {
     m_DockedTarget = true;
 }
 
-/** 内部 state を解放し FEditorCamera を Reset、asset path を空にする。 */
-void FModelViewerPanel::Shutdown() noexcept {
-    // FEditorCamera は POD だが明示 Reset で確定状態にする。
+/** 内部 state を解放し CEditorCamera を Reset、asset path を空にする。 */
+void AModelViewerPanel::Shutdown() noexcept {
+    // CEditorCamera は POD だが明示 Reset で確定状態にする。
     m_Camera.Reset();
     m_AssetPath[0] = L'\0';
 }
 
 /** asset path をコピーして内部バッファに保存する (null / 空文字なら ClearModel)。 */
-void FModelViewerPanel::LoadModelAsset(const wchar_t* asset_path) noexcept {
+void AModelViewerPanel::LoadModelAsset(const wchar_t* asset_path) noexcept {
     if (asset_path == nullptr || asset_path[0] == L'\0') {
         // 空 / null は ClearModel と同じ振る舞い (= 内部バッファ空文字化)。
         ClearModel();
@@ -176,119 +176,119 @@ void FModelViewerPanel::LoadModelAsset(const wchar_t* asset_path) noexcept {
 }
 
 /** 内部 asset path を空文字に戻し HasModel() を false にする。 */
-void FModelViewerPanel::ClearModel() noexcept {
+void AModelViewerPanel::ClearModel() noexcept {
     m_AssetPath[0] = L'\0';
 }
 
 /** model asset がセットされているか (asset path が空文字でないか) を返す。 */
-bool FModelViewerPanel::HasModel() const noexcept {
+bool AModelViewerPanel::HasModel() const noexcept {
     return m_AssetPath[0] != L'\0';
 }
 
 /** 現在の asset path を返す (未設定 / Clear 後も nullptr ではなく L"")。 */
-const wchar_t* FModelViewerPanel::CurrentAssetPath() const noexcept {
+const wchar_t* AModelViewerPanel::CurrentAssetPath() const noexcept {
     // 常に終端 wchar_t* を返す (空文字でも nullptr ではなく `m_AssetPath` を返す)。
     return m_AssetPath;
 }
 
-/** 内部 FEditorCamera への参照を返す。 */
-acs::game::editor_core::FEditorCamera& FModelViewerPanel::Camera() noexcept {
+/** 内部 CEditorCamera への参照を返す。 */
+acs::game::editor_core::CEditorCamera& AModelViewerPanel::Camera() noexcept {
     return m_Camera;
 }
 
 /** sun light direction を設定する (正規化は呼び出し側任せ)。 */
-void FModelViewerPanel::SetLightDirection(acs::FVec3 dir) noexcept {
+void AModelViewerPanel::SetLightDirection(acs::FVec3 dir) noexcept {
     // 正規化は呼び出し側 (renderer) 任せ。panel は raw 値で持つ。
     m_LightDir = dir;
 }
 
 /** sun light direction を返す。 */
-acs::FVec3 FModelViewerPanel::LightDirection() const noexcept {
+acs::FVec3 AModelViewerPanel::LightDirection() const noexcept {
     return m_LightDir;
 }
 
 /** sun light color を設定する。 */
-void FModelViewerPanel::SetLightColor(acs::FVec3 color) noexcept {
+void AModelViewerPanel::SetLightColor(acs::FVec3 color) noexcept {
     m_LightColor = color;
 }
 
 /** sun light color を返す。 */
-acs::FVec3 FModelViewerPanel::LightColor() const noexcept {
+acs::FVec3 AModelViewerPanel::LightColor() const noexcept {
     return m_LightColor;
 }
 
 /** IBL の有効/無効を設定する。 */
-void FModelViewerPanel::SetIblEnabled(bool b) noexcept {
+void AModelViewerPanel::SetIblEnabled(bool b) noexcept {
     m_IblEnabled = b;
 }
 
 /** IBL が有効かを返す。 */
-bool FModelViewerPanel::IsIblEnabled() const noexcept {
+bool AModelViewerPanel::IsIblEnabled() const noexcept {
     return m_IblEnabled;
 }
 
 /** tonemap mode を設定する (範囲外は無視して既存値を維持)。 */
-void FModelViewerPanel::SetToneMappingMode(u32 mode) noexcept {
+void AModelViewerPanel::SetToneMappingMode(u32 mode) noexcept {
     // 範囲外は黙って無視 (既存値維持)。理由は header の規約節参照。
     if (mode >= kToneMappingModeCount) return;
     m_TonemapMode = mode;
 }
 
 /** 現在の tonemap mode を返す。 */
-u32 FModelViewerPanel::ToneMappingMode() const noexcept {
+u32 AModelViewerPanel::ToneMappingMode() const noexcept {
     return m_TonemapMode;
 }
 
 /** viewport background color を設定する。 */
-void FModelViewerPanel::SetBackgroundColor(acs::FVec4 color) noexcept {
+void AModelViewerPanel::SetBackgroundColor(acs::FVec4 color) noexcept {
     m_BgColor = color;
 }
 
 /** viewport background color を返す。 */
-acs::FVec4 FModelViewerPanel::BackgroundColor() const noexcept {
+acs::FVec4 AModelViewerPanel::BackgroundColor() const noexcept {
     return m_BgColor;
 }
 
 /** grid を描くかを返す。 */
-bool FModelViewerPanel::ShowGrid() const noexcept {
+bool AModelViewerPanel::ShowGrid() const noexcept {
     return m_ShowGrid;
 }
 
 /** grid を描くかを設定する。 */
-void FModelViewerPanel::SetShowGrid(bool b) noexcept {
+void AModelViewerPanel::SetShowGrid(bool b) noexcept {
     m_ShowGrid = b;
 }
 
 /** bone skeleton を描くかを返す。 */
-bool FModelViewerPanel::ShowBoneSkeleton() const noexcept {
+bool AModelViewerPanel::ShowBoneSkeleton() const noexcept {
     return m_ShowBoneSkeleton;
 }
 
 /** bone skeleton を描くかを設定する。 */
-void FModelViewerPanel::SetShowBoneSkeleton(bool b) noexcept {
+void AModelViewerPanel::SetShowBoneSkeleton(bool b) noexcept {
     m_ShowBoneSkeleton = b;
 }
 
 /**
- * Workspace 登録時に基底実装を呼んでから FEditorCamera を 3D mode で再初期化する。
+ * Workspace 登録時に基底実装を呼んでから CEditorCamera を 3D mode で再初期化する。
  *
  * @details Init() が呼ばれていなくても Workspace 登録だけでパネルが動くようにする保険。
  */
-void FModelViewerPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
-    FEditorPanel::OnInit(workspace);
-    // FEditorCamera を 3D mode で初期化 (= 既に Init() を呼んでいた場合でも
+void AModelViewerPanel::OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept {
+    AEditorPanel::OnInit(workspace);
+    // CEditorCamera を 3D mode で初期化 (= 既に Init() を呼んでいた場合でも
     // 再初期化される。state は Init/Reset で安定するため副作用は無い)。
     m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode3D);
 }
 
 /**
- * FAssetBrowser からのファイル選択通知。Mesh 拡張子なら UTF-16 化して LoadModelAsset。
+ * CAssetBrowser からのファイル選択通知。Mesh 拡張子なら UTF-16 化して LoadModelAsset。
  *
  * @details nullptr / 空文字は「選択解除」とみなし、既存モデルを消さない (ClearModel しない)。
  */
-void FModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
+void AModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
     if (asset_path == nullptr || asset_path[0] == '\0') {
-        // nullptr / 空は「選択解除」(FEditorPanel 規約)。ClearModel しないことで
+        // nullptr / 空は「選択解除」(AEditorPanel 規約)。ClearModel しないことで
         // 「他 asset 選択時にビューポート上のモデルが消える」副作用を避ける。
         // モデルを明示的に消したい場合は呼び出し側で ClearModel() を呼ぶ。
         return;
@@ -315,7 +315,7 @@ void FModelViewerPanel::OnAssetSelected(const char* asset_path) noexcept {
  * Show Bone Skeleton / Reset Camera / Frame Model) を出す。viewport 領域は Drag & Drop
  * target も兼ね、ASSET_PATH payload を accept すると Mesh 拡張子のみ LoadModelAsset する。
  */
-void FModelViewerPanel::DrawUI() noexcept {
+void AModelViewerPanel::DrawUI() noexcept {
     if (!IsVisible()) {
         // SetVisible(false) で隠せる (close ボタン or プログラム的 hide)。
         return;
@@ -330,7 +330,7 @@ void FModelViewerPanel::DrawUI() noexcept {
     // 上部: asset path 表示 + Clear ボタン
     {
         // m_AssetPath (wchar_t) は ImGui に直接渡せないため、UTF-8 に変換して
-        // 表示する。FAssetBrowser.cpp の WideToUtf8 と同形のロジックを 1 度だけ
+        // 表示する。CAssetBrowser.cpp の WideToUtf8 と同形のロジックを 1 度だけ
         // 行う (毎フレーム呼ばれるが path 長は短く実用上問題ない)。
         char path_utf8[1024] = {};
         if (m_AssetPath[0] != L'\0') {
@@ -378,13 +378,13 @@ void FModelViewerPanel::DrawUI() noexcept {
                 ImGui::TextDisabled("(No model loaded. Drop an .mdl/.fbx/.gltf/.glb/.obj here)");
             }
 
-            // Drag & Drop target: FAssetBrowser からのドロップを受け取る。
-            // payload identifier は FAssetBrowser::kDragDropPayloadId と一致
+            // Drag & Drop target: CAssetBrowser からのドロップを受け取る。
+            // payload identifier は CAssetBrowser::kDragDropPayloadId と一致
             // ("ASSET_PATH") する。ImGui の仕様上、target の領域上で発火する。
             if (ImGui::BeginDragDropTarget()) {
                 const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH");
                 if (payload != nullptr && payload->Data != nullptr) {
-                    // payload data は wchar_t* 1 個 (= FAssetBrowser 仕様)。
+                    // payload data は wchar_t* 1 個 (= CAssetBrowser 仕様)。
                     const wchar_t* dropped = *static_cast<const wchar_t* const*>(payload->Data);
                     if (dropped != nullptr) {
                         // Mesh 拡張子のみ accept する (UTF-8 でも UTF-16 でも

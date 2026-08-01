@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FAssetBundle 実装 (FAssetRegistry 実接続)
+// GameFramework Pillar G — CAssetBundle 実装 (FAssetRegistry 実接続)
 //
 // BeginLoad(registry) で各 path を registry 経由で実ロードし、TSharedPtr<Asset> を Entry に
 // 保持する (同期 Load)。bundle が TSharedPtr を持つことで Unload まで生存を保証し、Unload /
 // bundle 破棄で TSharedPtr が drop → refcount 0 で実体解放 (GC 不要・決定的解放)。
 //   ・進捗計算は entries が空の場合 1.0 を返す (=「読むものが無いので即完了」)。
 //   ・同期 Load を採用 (シーン開始時の一括ロード用途)。ストリーミング/非同期分割は
-//     FStreamingDirector + LoadAsync 側で扱う (本 bundle は確定的な集合ロード)。
+//     CStreamingDirector + LoadAsync 側で扱う (本 bundle は確定的な集合ロード)。
 #include "gameframework/AssetBundle.h"
 #include "asset/AssetRegistry.h"
 
@@ -38,7 +38,7 @@ bool WidenPath(const char* utf8, wchar_t* out, int cap) noexcept
 }
 } // namespace
 
-void FAssetBundle::Add(const char* asset_path) noexcept
+void CAssetBundle::Add(const char* asset_path) noexcept
 {
     if (asset_path == nullptr) {
         ACS_LOG_WARN("FAssetBundle::Add: null path ignored");
@@ -55,7 +55,7 @@ void FAssetBundle::Add(const char* asset_path) noexcept
     m_Entries.PushBack(e);
 }
 
-void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
+void CAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
 {
     if (m_bBegun) {
         ACS_LOG_WARN("FAssetBundle::BeginLoad: already begun, ignored");
@@ -84,13 +84,13 @@ void FAssetBundle::BeginLoad(FAssetRegistry& registry) noexcept
     }
 }
 
-TSharedPtr<FAsset> FAssetBundle::GetAsset(u32 index) const noexcept
+TSharedPtr<FAsset> CAssetBundle::GetAsset(u32 index) const noexcept
 {
     if (index >= m_Entries.Size()) return TSharedPtr<FAsset>();
     return m_Entries[index].asset;
 }
 
-TSharedPtr<FAsset> FAssetBundle::FindAsset(const char* asset_path) const noexcept
+TSharedPtr<FAsset> CAssetBundle::FindAsset(const char* asset_path) const noexcept
 {
     if (!asset_path) return TSharedPtr<FAsset>();
     for (usize i = 0; i < m_Entries.Size(); ++i) {
@@ -108,7 +108,7 @@ TSharedPtr<FAsset> FAssetBundle::FindAsset(const char* asset_path) const noexcep
     return TSharedPtr<FAsset>();
 }
 
-f32 FAssetBundle::Progress() const noexcept
+f32 CAssetBundle::Progress() const noexcept
 {
     const usize n = m_Entries.Size();
     if (n == 0) {
@@ -129,7 +129,7 @@ f32 FAssetBundle::Progress() const noexcept
     return static_cast<f32>(done) / static_cast<f32>(n);
 }
 
-bool FAssetBundle::IsLoaded() const noexcept
+bool CAssetBundle::IsLoaded() const noexcept
 {
     const usize n = m_Entries.Size();
     if (n == 0) return true;     // 空 bundle は即 loaded
@@ -143,7 +143,7 @@ bool FAssetBundle::IsLoaded() const noexcept
     return true;
 }
 
-bool FAssetBundle::HasFailed() const noexcept
+bool CAssetBundle::HasFailed() const noexcept
 {
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -154,12 +154,12 @@ bool FAssetBundle::HasFailed() const noexcept
     return false;
 }
 
-u32 FAssetBundle::AssetCount() const noexcept
+u32 CAssetBundle::AssetCount() const noexcept
 {
     return static_cast<u32>(m_Entries.Size());
 }
 
-u32 FAssetBundle::LoadedCount() const noexcept
+u32 CAssetBundle::LoadedCount() const noexcept
 {
     u32 done = 0;
     const usize n = m_Entries.Size();
@@ -171,7 +171,7 @@ u32 FAssetBundle::LoadedCount() const noexcept
     return done;
 }
 
-void FAssetBundle::Unload() noexcept
+void CAssetBundle::Unload() noexcept
 {
     // m_Entries.Clear() で各 Entry が破棄され、保持していた TSharedPtr<Asset> が drop される。
     // 他 bundle / registry cache がまだ参照していれば refcount > 0 で実体は残り、最後の

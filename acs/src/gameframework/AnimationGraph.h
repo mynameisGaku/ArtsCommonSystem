@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FAnimationGraph
+// GameFramework Pillar L — CAnimationGraph
 //
 // 3D skeleton-anim 向けの state machine ベース blend graph。
-// FSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
+// CSpriteAnimator (= sprite frame index 計算) と FAnimationCurve (= 任意 f32 補間)
 // を補完する、「現在再生中の clip + 遷移ブレンド」を担う高次抽象。
 //
 // 役割分担:
-//   ・FSpriteAnimator  : sprite シートの frame index (2D 用)
+//   ・CSpriteAnimator  : sprite シートの frame index (2D 用)
 //   ・FAnimationCurve  : 任意 f32 を時間で滑らかに動かす汎用パス
 //   ・TStateMachine<T> : 汎用 FSM (関数ポインタ駆動)
-//   ・FAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
+//   ・CAnimationGraph  : 本ファイル — 3D skeleton clip の選択 + 状態間 blend
 //
 // 役割の境界:
 //   ・本クラスは「どの clip を / いつから / どの blend alpha で再生するか」
@@ -21,7 +21,7 @@
 //     メタ情報配列を値コピーで保持する。
 //
 // 使い方 (典型):
-//   FAnimationGraph g;
+//   CAnimationGraph g;
 //   g.Init();
 //   const u32 idle_clip = g.AddClip({ "Idle", 2.0f, true,  1.0f });
 //   const u32 walk_clip = g.AddClip({ "Walk", 1.2f, true,  1.0f });
@@ -72,7 +72,7 @@
 //     共有の場合はポインタ一致 fast path, 異なるバッファでも strcmp で機能)。
 //   ・**非コピー・非ムーブ**, 全 noexcept, STL 不使用, `<string>` 禁止。
 //
-// 参考: FSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
+// 参考: CSpriteAnimator (frame anim), FAnimationCurve (curve), TStateMachine<T> (FSM 基盤),
 //      FModelAnimationPanel (UI 連動可能)
 #pragma once
 
@@ -183,8 +183,8 @@ struct FAnimationTransition {
  * multi-graph 管理用 handle (現状未使用)。
  *
  * @details
- * 24bit index + 8bit gen を packed (Cooldown/FSceneTimer と同方針)。
- * FAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身別レイヤ) を
+ * 24bit index + 8bit gen を packed (Cooldown/CSceneTimer と同方針)。
+ * CAnimationGraph 単体使用想定だが、複数グラフ (= 上半身 / 下半身別レイヤ) を
  * 導入する際に再利用するため API として公開しておく。
  */
 struct FGraphHandle {
@@ -262,7 +262,7 @@ struct FGraphHandle {
  * state 側に持たせ、blend 中は previous_state と blend_alpha (0→1) を出力する。
  * 非コピー・非ムーブ、全 noexcept、STL 不使用。
  */
-class FAnimationGraph {
+class CAnimationGraph {
 public:
     /**
      * state 遷移直後 (新 state の OnEnter 相当) に発火する callback 型。
@@ -287,22 +287,22 @@ public:
                                     u32 clip_index) noexcept;
 
     /** 空のグラフを構築する (clip / state / transition なし)。 */
-    FAnimationGraph() noexcept = default;
+    CAnimationGraph() noexcept = default;
 
     /** 破棄する (内部 TArray が解放)。 */
-    ~FAnimationGraph() noexcept = default;
+    ~CAnimationGraph() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐ)。 */
-    FAnimationGraph(const FAnimationGraph&)            = delete;
+    CAnimationGraph(const CAnimationGraph&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAnimationGraph& operator=(const FAnimationGraph&) = delete;
+    CAnimationGraph& operator=(const CAnimationGraph&) = delete;
 
     /** ムーブ禁止 (ACS 規約)。 */
-    FAnimationGraph(FAnimationGraph&&)                 = delete;
+    CAnimationGraph(CAnimationGraph&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAnimationGraph& operator=(FAnimationGraph&&)      = delete;
+    CAnimationGraph& operator=(CAnimationGraph&&)      = delete;
 
     /**
      * 内部 state / clip / transition / param を全てクリアし callback を nullptr にする。
@@ -584,5 +584,8 @@ private:
     /** clip 終端到達時 callback に渡す不透明ポインタ。 */
     void*              m_ClipEndUser    = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAnimationGraph = CAnimationGraph;
 
 } // namespace acs::game

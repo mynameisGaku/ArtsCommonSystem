@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/O — FScoreSystem (スコア累積 + コンボ + マルチプライヤ)
+// GameFramework Pillar R/O — CScoreSystem (スコア累積 + コンボ + マルチプライヤ)
 //
 // アーケード / 高速アクション系で必要になる「スコア + コンボ計算 + マイル
 // ストン通知」を 1 か所にまとめた高レベルマネージャ。ヒット連鎖 (NotifyHit)
@@ -8,8 +8,8 @@
 // 次のヒットが無ければコンボはリセットされる。
 //
 // 設計位置付け:
-//   ・Pillar R/O のスコア / 進行系。FAchievementManager (実績) や
-//     FEconomyDirector (通貨) と並列のレイヤで、これら 3 つは
+//   ・Pillar R/O のスコア / 進行系。CAchievementManager (実績) や
+//     CEconomyDirector (通貨) と並列のレイヤで、これら 3 つは
 //     「ゲームプレイの数値報酬」を担当する。
 //   ・スコア値 (u64) は AAA でも 4e18 を超えない想定で十分。
 //     score * multiplier_x100 の中間計算で wrap しないよう、加算時に
@@ -19,7 +19,7 @@
 //     にクランプした関数を採用 (アーケード系で広く使われる線形上昇)。
 //
 // 使い方:
-//   FScoreSystem ss;
+//   CScoreSystem ss;
 //   ss.Init();
 //   ss.SetComboDuration(2.5f);                        // 任意
 //   ss.RegisterMilestone(10000);                      // スコア 10k 通過で通知
@@ -46,13 +46,13 @@
 //   ・**multiplier は ×100 整数で entry に記録**: FScoreEntry.multiplier_x100 は
 //     例えば 250 = 2.5x。倍率を f32 で持つと bit 完全一致が取れず、Replay /
 //     Telemetry での比較で偽差分が出るため整数化する。
-//   ・**所有しない const char* category**: FAchievementManager と同設計で
+//   ・**所有しない const char* category**: CAchievementManager と同設計で
 //     呼出側 (= ゲームコード or リソースバンドル) が long lifetime を保証する
 //     文字列リテラルを想定。Manager 側はコピーしない (STL <string> 禁止)。
-//   ・**entry log は capped append (max 100)**: FScoreSystem は履歴を内蔵保持
+//   ・**entry log は capped append (max 100)**: CScoreSystem は履歴を内蔵保持
 //     するが、メモリを線形に増やさないため上限 100。100 件超は最古を捨てる
 //     (= 末尾ベースの簡易リング)。詳細な分析が必要なら呼出側で Analytics に
-//     流す責務 (= FEconomyDirector の callback 設計と思想を合わせる)。
+//     流す責務 (= CEconomyDirector の callback 設計と思想を合わせる)。
 //   ・**HighScore は Reset() で保持 / ClearAll() で破棄**: ゲームセッション
 //     終了時に Reset で「累積スコアと combo は消すが best record は残す」と
 //     いう典型挙動を表現。ClearAll はテスト / セーブデータリセット用。
@@ -62,7 +62,7 @@
 //     件数は通常 5〜20 なので線形で十分。
 //   ・**MultiplierFn は C 関数ポインタ + noexcept**: STL <functional> 禁止。
 //     nullptr 指定で内部デフォルトに戻す。combo を入力に f32 倍率を返す。
-//   ・**MilestoneCallback は単一登録 + user pointer**: FEconomyDirector の
+//   ・**MilestoneCallback は単一登録 + user pointer**: CEconomyDirector の
 //     PurchaseCallback と同じ規約。複数 listener は呼出側で fan-out。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
@@ -70,7 +70,7 @@
 // 範囲外:
 //   ・永続化 (HighScore Save/Load) — Pillar J Serialize と統合予定。
 //     現状は SetHighScore() で外部から注入する手動 wiring。
-//   ・難易度補正 / グレード判定 — FDynamicDifficulty / FGameFlow と連携想定。
+//   ・難易度補正 / グレード判定 — CDynamicDifficulty / CGameFlow と連携想定。
 //   ・コンボ chain 種別 (perfect / good 等の品質スケール) — 必要になったら
 //     NotifyHit(quality) 引数を追加して倍率ファンクションに渡す形に拡張。
 #pragma once
@@ -112,7 +112,7 @@ struct FScoreEntry {
  * const char*、entry log は max 100 件の capped append。全 noexcept で非コピー・
  * 非ムーブ。
  */
-class FScoreSystem {
+class CScoreSystem {
 public:
     /**
      * コンボ数から倍率を算出する差し替え可能な関数型。
@@ -133,22 +133,22 @@ public:
     using MilestoneCallback = void(*)(void* user, u64 milestone, u64 current_score) noexcept;
 
     /** 空状態で構築する。 */
-    FScoreSystem()  noexcept = default;
+    CScoreSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FScoreSystem() noexcept = default;
+    ~CScoreSystem() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FScoreSystem(const FScoreSystem&)            = delete;
+    CScoreSystem(const CScoreSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScoreSystem& operator=(const FScoreSystem&) = delete;
+    CScoreSystem& operator=(const CScoreSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FScoreSystem(FScoreSystem&&)                 = delete;
+    CScoreSystem(CScoreSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FScoreSystem& operator=(FScoreSystem&&)      = delete;
+    CScoreSystem& operator=(CScoreSystem&&)      = delete;
 
     /**
      * 最初の状態に初期化する。
@@ -365,5 +365,8 @@ private:
     /** milestone コールバックに渡す user pointer (Manager は所有しない)。 */
     void*             m_OnMilestoneUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FScoreSystem = CScoreSystem;
 
 } // namespace acs::game

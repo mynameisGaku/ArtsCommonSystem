@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FHungerSystem (Survival ジャンルキット: 空腹/喉/疲労/睡眠)
+// GameFramework Pillar R/I — CHungerSystem (Survival ジャンルキット: 空腹/喉/疲労/睡眠)
 //
 // サバイバル系ゲーム (DayZ / The Long Dark / Don't Starve 等) で頻出する
 // 「複数 survivor (= プレイヤー / NPC) に対して、空腹・喉の渇き・疲労・正気度・
 // 体温などの生存統計値を秒単位で decay させ、critical 閾値を切ったら警告し、
-// 0 に達したら HP ダメージを FHealthSystem 経由で与える」マネージャ。
+// 0 に達したら HP ダメージを CHealthSystem 経由で与える」マネージャ。
 //
-// FHealthSystem との関係:
+// CHealthSystem との関係:
 //   ・本クラスは HP を直接管理しない。0 到達時の zero_damage_per_sec を
 //     DamageCallback で外部へ通知し、上位 (= GameDirector / SurvivalDirector)
-//     が FHealthSystem::ApplyDamage を呼ぶ「弱結合 bridge」を取る。
+//     が CHealthSystem::ApplyDamage を呼ぶ「弱結合 bridge」を取る。
 //   ・IsAlive(FSurvivorId) は本クラスの世界での生死判定 = 全 stat の何れかが
 //     0 ではない & HealthBridge が「HP > 0」を返すか否か。HealthBridge を
 //     セットしない場合は stat 部分だけで判定する。
 //
-// 設計選択 (Pillar R/I — FHungerSystem):
+// 設計選択 (Pillar R/I — CHungerSystem):
 //   ・**FSurvivorId は 24bit index + 8bit gen の packed handle**: FHealthId /
 //     FBuffOwnerId / FNodeId と同規約。`m_Packed == 0` を invalid とし gen は
 //     常に 1 以上で配る。AddSurvivor 後に RemoveSurvivor された slot を再利用
@@ -44,11 +44,11 @@
 //     で返す。UI のキャラ状態バー (= 「生存度メータ」) 表示用。
 //   ・**非コピー・非ムーブ**: 内部 TArray<FSurvivorSlot> がさらに TArray<FStatState>
 //     を持つ二段ネスト構造で、callback の発火タイミングで外部参照が破綻する
-//     可能性があるため。FGame / FScene 単位で 1 個保持の想定。
+//     可能性があるため。CGame / AScene 単位で 1 個保持の想定。
 //   ・**全 noexcept、STL 不使用、`<string>` 禁止**: ACS 規約。失敗は bool / 哨兵で表現。
 //
 // 使い方:
-//   FHungerSystem hs;
+//   CHungerSystem hs;
 //   hs.Init();
 //
 //   // 1) stat ごとに decay/critical/damage を config
@@ -60,7 +60,7 @@
 //   // 2) survivor を追加 (= 全 stat が max でスタート)
 //   FSurvivorId player = hs.AddSurvivor();
 //
-//   // 3) コールバックを attach (FHealthSystem への bridge)
+//   // 3) コールバックを attach (CHealthSystem への bridge)
 //   hs.SetOnCriticalCallback(&MyOnCritical, &game_ctx);
 //   hs.SetOnDamageCallback(&MyOnDamage, &game_ctx);
 //
@@ -141,7 +141,7 @@ struct FStatConfig {
     f32 critical_threshold = 20.0f;
 
     /**
-     * stat == 0 滞在中に 1 秒あたり FHealthSystem へ通知するダメージ量。
+     * stat == 0 滞在中に 1 秒あたり CHealthSystem へ通知するダメージ量。
      *
      * @details 0 以下なら通知しない (= 「不快なだけで死なない」stat 用)。
      */
@@ -240,7 +240,7 @@ struct FSurvivorId {
  * HP 自体は管理せず弱結合 bridge を取る。非コピー・非ムーブ (TArray<FSurvivorSlot> が
  * さらに TArray<FStatState> を持つ二段ネスト構造のため)。
  */
-class FHungerSystem {
+class CHungerSystem {
 public:
     /**
      * critical 状態の遷移を通知するコールバックの型。
@@ -259,7 +259,7 @@ public:
      *
      * @details
      * Tick 内で dt × zero_damage_per_sec を計算して呼ぶ。bridge 実装側はここで
-     * FHealthSystem::ApplyDamage を呼ぶ想定。1 フレで複数 stat 同時発火しうる。
+     * CHealthSystem::ApplyDamage を呼ぶ想定。1 フレで複数 stat 同時発火しうる。
      * @param user SetOnDamageCallback で渡したコンテキストポインタ。
      * @param id 対象 survivor の handle。
      * @param stat 0 に達した stat 種別。
@@ -269,22 +269,22 @@ public:
                                     f32 damage) noexcept;
 
     /** 空状態で構築する (stat config は Init で確保)。 */
-    FHungerSystem()  noexcept = default;
+    CHungerSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FHungerSystem() noexcept = default;
+    ~CHungerSystem() noexcept = default;
 
     /** コピー禁止 (内部の二段ネスト TArray の所有を曖昧にしないため)。 */
-    FHungerSystem(const FHungerSystem&)            = delete;
+    CHungerSystem(const CHungerSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FHungerSystem& operator=(const FHungerSystem&) = delete;
+    CHungerSystem& operator=(const CHungerSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FHungerSystem(FHungerSystem&&)                 = delete;
+    CHungerSystem(CHungerSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FHungerSystem& operator=(FHungerSystem&&)      = delete;
+    CHungerSystem& operator=(CHungerSystem&&)      = delete;
 
     /**
      * 7 stat 分の FStatConfig をデフォルト値で初期化する。
@@ -510,5 +510,8 @@ private:
     /** damage コールバックに渡す user ポインタ。 */
     void*                m_OnDamageUser    = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHungerSystem = CHungerSystem;
 
 } // namespace acs::game

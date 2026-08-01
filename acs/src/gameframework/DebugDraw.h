@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FDebugDraw (immediate-mode デバッグ図形バッファ)
+// GameFramework Pillar H — CDebugDraw (immediate-mode デバッグ図形バッファ)
 //
 // 1 フレーム分の線分プリミティブを蓄積するだけのバッファ。実描画は行わない。
 //
 // 設計選択:
-//   ・**描画と分離**: FDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
+//   ・**描画と分離**: CDebugDraw 自体はジオメトリ蓄積のみ。レンダラ非依存。
 //     描画システムが Lines() / LineCount() を読み取って FSpriteBatch 等で
 //     1 フレーム末にまとめて描画する想定。Pillar H の他の描画系（FSpriteBatch /
 //     particle system / 自前 DX12）どれでも消費できる。
@@ -22,7 +22,7 @@
 //     ゲーム全体で 1 インスタンス（Services 経由か static）を想定。
 //
 // 使い方:
-//   acs::game::FDebugDraw dd;
+//   acs::game::CDebugDraw dd;
 //   void Frame() {
 //       dd.Clear();
 //       dd.DrawAabb(player_aabb, FVec4{1,0,0,1});
@@ -37,6 +37,7 @@
 
 #include "container/Array.h"
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "math/Collision2D.h"
 #include "math/Vec.h"
 
@@ -52,7 +53,7 @@ namespace acs::game {
  * を読み取って FSpriteBatch 等でまとめて描画する。円は内部で線分列に分解して保持する。
  * 内部 TArray の誤コピー事故を防ぐため非コピー・非ムーブ。
  */
-class FDebugDraw {
+class CDebugDraw {
 public:
     /**
      * 描画システムが読み取る生バッファ要素 (ライン 1 本)。
@@ -71,22 +72,22 @@ public:
     };
 
     /** 空のバッファを構築する。 */
-    FDebugDraw() noexcept = default;
+    CDebugDraw() noexcept = default;
 
     /** 破棄する (内部 TArray が解放)。 */
-    ~FDebugDraw() noexcept = default;
+    ~CDebugDraw() noexcept = default;
 
     /** コピー禁止 (内部 TArray の誤コピーを防ぐため)。 */
-    FDebugDraw(const FDebugDraw&)            = delete;
+    CDebugDraw(const CDebugDraw&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDebugDraw& operator=(const FDebugDraw&) = delete;
+    CDebugDraw& operator=(const CDebugDraw&) = delete;
 
     /** ムーブ禁止 (所有移譲事故を防ぐため)。 */
-    FDebugDraw(FDebugDraw&&)                 = delete;
+    CDebugDraw(CDebugDraw&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDebugDraw& operator=(FDebugDraw&&)      = delete;
+    CDebugDraw& operator=(CDebugDraw&&)      = delete;
 
     /**
      * 任意 2 点間の線分を 1 本蓄積する。

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
+// CApplication 基底（継承して OnStart / OnUpdate / OnRender / OnShutdown を実装）
 //
 // 使い方:
-//   class FMyGame : public FApplication {
+//   class FMyGame : public CApplication {
 //   public:
 //       // フックは必ず noexcept override で宣言する
 //       // （基底のフックが noexcept のため。noexcept を省くとコンパイルエラー）
@@ -29,6 +29,7 @@
 #include "event/Timer.h"
 #include "event/MessageBroker.h"
 #include "app/AppConfig.h"
+#include "app/Forward.h"
 #include "memory/CrtDebugHeapDiagnostics.h"
 #include "subsystem/SubsystemCollection.h"
 
@@ -47,19 +48,19 @@ class FApplicationTestAccess;
  * 派生クラスは OnStart/OnUpdate/OnRender/OnShutdown/OnEvent を override してロジックと
  * 描画を書く。non-copy 型で、通常は ACS_DEFINE_MAIN マクロ経由でインスタンス化する。
  */
-class FApplication {
+class CApplication {
 public:
     /** 既定状態で構築する (サブシステムは Run で初期化)。 */
-    FApplication() noexcept = default;
+    CApplication() noexcept = default;
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FApplication() noexcept = default;
+    virtual ~CApplication() noexcept = default;
 
     /** コピー禁止 (エンジンサブシステムを単独所有するため)。 */
-    FApplication(const FApplication&) = delete;
+    CApplication(const CApplication&) = delete;
 
     /** コピー代入も禁止。 */
-    FApplication& operator=(const FApplication&) = delete;
+    CApplication& operator=(const CApplication&) = delete;
 
     /**
      * サブシステムを初期化し、メインループを最後まで回す。
@@ -168,7 +169,7 @@ public:
     }
 
     /** Application 寿命の Engine サブシステム群を返す。 */
-    FSubsystemCollection& EngineSubsystems() noexcept
+    CSubsystemCollection& EngineSubsystems() noexcept
     {
         return m_EngineSubsystems;
     }
@@ -262,7 +263,7 @@ protected:
 
 private:
     /**
-     * Run が起動したプロセス基盤だけを保持し、FApplication の全メンバより後に停止する。
+     * Run が起動したプロセス基盤だけを保持し、CApplication の全メンバより後に停止する。
      *
      * @details この型のインスタンスを最初のデータメンバに置くことで、派生メンバ、レンダラ、
      * ウィンドウ、基底コンテナの破棄後に FThreadPool、FMemorySystem、FLogger を停止できる。
@@ -340,7 +341,7 @@ private:
     CMessageBroker m_Events;
 
     /** Application が所有する Engine スコープのサブシステム群。 */
-    FSubsystemCollection m_EngineSubsystems;
+    CSubsystemCollection m_EngineSubsystems;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
     FFrameTimer m_FrameTimer;

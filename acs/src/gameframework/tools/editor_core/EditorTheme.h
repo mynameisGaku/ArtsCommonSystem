@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorTheme  (ImGui スタイル統一テーマ)
+// GameFramework Tools — editor_core / CEditorTheme  (ImGui スタイル統一テーマ)
 //
 // 役割:
-//   ACS の全エディタ panel (FHierarchyPanel / FInspectorPanel / FEditorToolbar /
-//   FParticleEditorPanel / ModelViewer / LevelEditor / AnimCurveEditor /
+//   ACS の全エディタ panel (AHierarchyPanel / AInspectorPanel / AEditorToolbar /
+//   AParticleEditorPanel / ModelViewer / LevelEditor / AnimCurveEditor /
 //   BehaviorTreeEditor 等) が共通で参照する **ImGui スタイル統一テーマ**。
 //   色パレット / spacing / font scale / corner radius を 1 ヶ所で管理し、
 //   起動時に `Init()` を呼ぶだけで全エディタが統一見た目になる。
 //
 // 使い方 (editor 起動コード):
-//   FEditorTheme theme;
+//   CEditorTheme theme;
 //   theme.Init();                              // default = Dark を ImGui に流す
 //   theme.ApplyPreset(EEditorThemePreset::DarkBlue);
 //   theme.SetFontScale(1.25f);                 // 高 DPI 対応
@@ -22,7 +22,7 @@
 // 設計選択:
 //   ・**ACS::FVec4 ベース、ImVec4 は .cpp 内変換のみ**: ヘッダから <imgui.h> を
 //     漏らさないことで、本ヘッダを include しても include order が壊れない
-//     (FInspectorPanel / FParticleEditorPanel と同パターン)。
+//     (AInspectorPanel / AParticleEditorPanel と同パターン)。
 //   ・**preset = 「色パレット定数 + spacing + corner」のスナップショット**:
 //     ApplyPreset は内部 `m_Colors` を上書きしたあと、`ApplyToImGui()` で
 //     ImGui::GetStyle() に流す。Custom はユーザが SetCustomColors した状態を
@@ -36,13 +36,13 @@
 //   ・**SetSpacing は ItemSpacing.y のみを操作する**: 縦詰めは「情報密度」を
 //     決める主軸。横 spacing は ItemSpacing.y * 0.5 比例で連動 (見た目バランス
 //     のための経験則、後述の ApplyToImGui で計算)。
-//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `FFxeditSerializer`
+//   ・**SaveTheme/LoadTheme は人間可読テキスト (`.acstheme`)**: `CFxeditSerializer`
 //     と同設計 (1 行 1 key=value、git diff 可能、magic + version)。バイナリで
 //     ない理由は「アーティストが直接編集してチームに共有」できることを優先。
 //     エラーは ACS_LOG_WARN で握る (戻り値 void = 「ベストエフォート」)。
 //   ・**DrawThemeSettingsUI は ImGui::Begin/End を自前で包む**: editor 設定 UI
-//     なので独立 window として出す。FEditorPanel 継承はせず、調整 UI 限定の
-//     シンプル window として動く (= FEditorPanel として workspace 登録するなら
+//     なので独立 window として出す。AEditorPanel 継承はせず、調整 UI 限定の
+//     シンプル window として動く (= AEditorPanel として workspace 登録するなら
 //     派生ラッパを別途用意する)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用**: ACS 規約 + 他
 //     editor_core 系コンポーネントと統一。`<string>` 禁止のためファイルパスは
@@ -220,25 +220,25 @@ struct FEditorThemePersistenceResult {
  * colors / font_scale / corner / spacing は人間可読の `.acstheme` テキストへ
  * 永続化できる。ImGui::GetStyle() への適用は global 副作用なので非コピー・非ムーブ。
  */
-class FEditorTheme {
+class CEditorTheme {
 public:
     /** 空状態で構築する (ImGui への適用は Init / ApplyPreset で行う)。 */
-    FEditorTheme() noexcept = default;
+    CEditorTheme() noexcept = default;
 
     /** 破棄する (特別な後始末なし)。 */
-    ~FEditorTheme() noexcept = default;
+    ~CEditorTheme() noexcept = default;
 
     /** コピー禁止 (ImGui スタイルへの適用は global 副作用で唯一性が崩れるため)。 */
-    FEditorTheme(const FEditorTheme&)            = delete;
+    CEditorTheme(const CEditorTheme&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorTheme& operator=(const FEditorTheme&) = delete;
+    CEditorTheme& operator=(const CEditorTheme&) = delete;
 
     /** ムーブ禁止 (workspace に 1 インスタンスのみ存在する設計)。 */
-    FEditorTheme(FEditorTheme&&)                 = delete;
+    CEditorTheme(CEditorTheme&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorTheme& operator=(FEditorTheme&&)      = delete;
+    CEditorTheme& operator=(CEditorTheme&&)      = delete;
 
     /**
      * default = Dark preset を ImGui::GetStyle() に流して初期化する。
@@ -420,5 +420,7 @@ private:
     /** ItemSpacing.y (情報密度の主軸)。 */
     f32                m_ItemSpacingY  = 4.0f;
 };
+
+using FEditorTheme = CEditorTheme;
 
 } // namespace acs::game::editor_core

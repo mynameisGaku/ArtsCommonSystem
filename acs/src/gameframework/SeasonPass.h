@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FSeasonPass (Battle Pass / Season tracker)
+// GameFramework Pillar O — CSeasonPass (Battle Pass / Season tracker)
 //
 // 期間限定シーズン (Battle Pass) の定義 + 累積 XP に対する tier 進行 + tier 報酬の
 // 請求状態を 1 クラスにまとめた小型マネージャ。シーズン開始 / 終了は wall-clock
@@ -12,23 +12,23 @@
 //     方針を継承)。loot box (中身がランダムで対価が確率に依存する仕組み) も
 //     倫理的に拒絶しており、本 API には乱数要素を一切持たせない (= 払うと
 //     必ず指定の cosmetic が得られる、固定 tier 方式に限定)。
-//   ・FSeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
+//   ・CSeasonPass 自体には強制機構を置かないが、`reward_id_*` は cosmetic 系
 //     entitlement / unlock を指すよう設計時に揃えること。
 //
 // 想定する位置付け:
-//   ・Pillar O (FEntitlementRegistry) との違い:
-//     - FEntitlementRegistry は「持っているかどうか」の権利フラグを保持する受動レジストリ。
-//     - FSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
+//   ・Pillar O (CEntitlementRegistry) との違い:
+//     - CEntitlementRegistry は「持っているかどうか」の権利フラグを保持する受動レジストリ。
+//     - CSeasonPass は「期間内に xp を稼ぐと tier が上がり、各 tier の報酬を請求
 //       できる」進行 + claim 状態の能動マネージャ。報酬 ID は entitlement 側に
 //       橋渡しする想定 (本クラスは ID を吐き出すだけ)。
-//   ・Pillar O (FProgression / FAchievementManager) との違い:
-//     - FProgression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
-//     - FAchievementManager は「永続実績」を扱い、SDK と双方向。
-//     - FSeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
+//   ・Pillar O (CProgression / CAchievementManager) との違い:
+//     - CProgression は「永続レベル / 累積 milestone」を扱う、シーズンを跨いだ進行。
+//     - CAchievementManager は「永続実績」を扱い、SDK と双方向。
+//     - CSeasonPass は「シーズン (start/end timestamp) で区切られたリセット可能な
 //       進行」を扱う。シーズン切替で完全リセットされる想定。
 //
 // 使い方:
-//   FSeasonPass sp;
+//   CSeasonPass sp;
 //
 //   FSeasonInfo info;
 //   info.season_id        = "season.spring_2026";
@@ -43,7 +43,7 @@
 //   sp.DefineTier({ 1, 250,  "cosmetic.frame_basic_t01", "cosmetic.skin_premium_t01" });
 //   // ...
 //
-//   // (任意) プレミアムパス購入が確定したら通知。FEntitlementRegistry 側で課金検証する。
+//   // (任意) プレミアムパス購入が確定したら通知。CEntitlementRegistry 側で課金検証する。
 //   sp.SetPremiumPass(true);
 //
 //   // ゲームプレイ中の xp 加算 + 毎フレームの時刻更新。
@@ -67,7 +67,7 @@
 //     インデックスとして扱う。重複 index は黙って弾く (no-op + WARN)。
 //     xp_threshold は単調増加であることが期待されるが、本クラスは強制しない
 //     (呼出側の責務)。
-//   ・**xp は u32 累積**: FProgression と同じ pattern。オーバーフロー時は max クランプ。
+//   ・**xp は u32 累積**: CProgression と同じ pattern。オーバーフロー時は max クランプ。
 //   ・**CurrentTier() は xp_threshold ベースの線形走査**: tier 件数は通常 50〜100
 //     のオーダーなので二分探索化は不要。`xp >= threshold` を満たす最大 tier_index
 //     を返す (どれも満たさなければ ~0u = 「未到達」)。
@@ -90,7 +90,7 @@
 //     「赤バッジ何個」表示に使う。
 //   ・**EndSeason は手動終了用**: timestamp 経過を待たずにシーズン完了させたい
 //     管理者操作 / デバッグ用。`m_CurrentTime = end_timestamp` を強制する。
-//   ・**永続化は範囲外**: FProgression と同じく、Save/Load は現状
+//   ・**永続化は範囲外**: CProgression と同じく、Save/Load は現状
 //     未実装。Pillar J Serialize 統合後に追加する。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有のみ。
@@ -180,25 +180,25 @@ enum class ESeasonStatus : u8 {
  * 自動遷移を行う。報酬は乱数要素を持たない固定 tier 方式で、扱う報酬は cosmetic のみを
  * 強く推奨する (pay-to-win / loot box を倫理的に拒絶する設計)。非コピー・非ムーブ。
  */
-class FSeasonPass {
+class CSeasonPass {
 public:
     /** 空のシーズンパスを構築する (シーズンは StartSeason で開始)。 */
-    FSeasonPass()  noexcept = default;
+    CSeasonPass()  noexcept = default;
 
     /** 破棄する。 */
-    ~FSeasonPass() noexcept = default;
+    ~CSeasonPass() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FSeasonPass(const FSeasonPass&)            = delete;
+    CSeasonPass(const CSeasonPass&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSeasonPass& operator=(const FSeasonPass&) = delete;
+    CSeasonPass& operator=(const CSeasonPass&) = delete;
 
     /** ムーブ禁止。 */
-    FSeasonPass(FSeasonPass&&)                 = delete;
+    CSeasonPass(CSeasonPass&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSeasonPass& operator=(FSeasonPass&&)      = delete;
+    CSeasonPass& operator=(CSeasonPass&&)      = delete;
 
     /**
      * シーズンを開始する (xp = 0、premium = false、既存 tier 定義は破棄)。
@@ -373,5 +373,8 @@ private:
     /** tier ごとの claim 状態 (m_Tiers と同 index で 1:1 対応)。 */
     TArray<FClaimState> m_Claims;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSeasonPass = CSeasonPass;
 
 } // namespace acs::game

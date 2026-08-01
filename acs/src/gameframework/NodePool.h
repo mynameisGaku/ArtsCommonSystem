@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FNodePool (ANode の generational pool)
+// GameFramework Pillar B — CNodePool (ANode の generational pool)
 //
 // シーン全体で唯一の `ANode*` レジストリ。`ANode` インスタンス自体は親の
 // `m_Children` (TObjectPtr<ANode>) が所有し続け、本 pool は **参照のみ** を
@@ -7,7 +7,7 @@
 // (= 既に Unregister されたハンドル) を提供する。
 //
 // 使い方:
-//   FNodePool pool;
+//   CNodePool pool;
 //   pool.Init(/*initial_capacity=*/512);
 //
 //   // ANode を新規生成して scene tree に attach した直後に登録:
@@ -27,13 +27,13 @@
 // 設計選択 (Pillar B):
 //   ・**non-owning**: 所有権は ANode の親 (=TObjectPtr<ANode>) 側にあり、本 pool
 //     は raw ポインタだけ持つ。TPool の破棄や ClearAll は ANode を delete しない。
-//   ・**FSlot = {ptr, gen, active}**: FCollisionWorld2D::FSlot と同じパターン。
+//   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
 //     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
 //   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
 //     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryPushBack。
 //   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
 //     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
-//     強制する (FCollisionWorld2D と完全に同じ挙動)。
+//     強制する (CCollisionWorld2D と完全に同じ挙動)。
 //   ・**24bit index = 16,777,216 slot 上限**: FNodeId の pack 仕様に従い、これを
 //     超える RegisterExistingNode は invalid FNodeId を返す (拒否)。実用上 1 シーン
 //     で 16M ANode を生成することはまずあり得ないが安全策として明示拒否。
@@ -52,7 +52,7 @@ namespace acs::game {
 
 class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼出のため)
 
-/** FNodePool への checked 登録が返す状態。 */
+/** CNodePool への checked 登録が返す状態。 */
 enum class ENodePoolRegisterError : u8 {
     None = 0,
     NullNode,
@@ -82,28 +82,28 @@ struct FNodePoolRegisterResult {
  * FSlot = {ptr, gen, active} 構成で、index 0 は invalid 用に予約、有効 slot は 1..N。
  * 空き slot は free stack で O(1) 再利用する。
  */
-class FNodePool {
+class CNodePool {
 public:
     /** 空の pool を構築する (slot 配列は Init / 初回 Register で確保)。 */
-    FNodePool()  noexcept = default;
+    CNodePool()  noexcept = default;
 
     /** 破棄する (ANode は非所有なので何も delete しない)。 */
-    ~FNodePool() noexcept = default;
+    ~CNodePool() noexcept = default;
 
     /** コピー禁止 (pool は scene が固定オブジェクトとして単独所有するため)。 */
-    FNodePool(const FNodePool&)            = delete;
+    CNodePool(const CNodePool&)            = delete;
 
     /** コピー代入も禁止。 */
-    FNodePool& operator=(const FNodePool&) = delete;
+    CNodePool& operator=(const CNodePool&) = delete;
 
     /** ムーブ禁止。 */
-    FNodePool(FNodePool&&)                 = delete;
+    CNodePool(CNodePool&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FNodePool& operator=(FNodePool&&)      = delete;
+    CNodePool& operator=(CNodePool&&)      = delete;
 
     /** Exchange complete registry state without allocation. */
-    void Swap(FNodePool& other) noexcept {
+    void Swap(CNodePool& other) noexcept {
         acs::Swap(m_Slots, other.m_Slots);
         acs::Swap(m_FreeIndices, other.m_FreeIndices);
         acs::Swap(m_ActiveCount, other.m_ActiveCount);
@@ -244,5 +244,8 @@ private:
     /** 現在 active な slot 数。 */
     u32         m_ActiveCount = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNodePool = CNodePool;
 
 } // namespace acs::game

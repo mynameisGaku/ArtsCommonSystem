@@ -4,12 +4,12 @@
 // 役割:
 //   パーティ / チーム / 全体チャンネルに対するボイスチャットの「シーム」インター
 //   フェース。実プロバイダは Steam Voice / EOS Voice / Unity Vivox / Discord
-//   FGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
+//   CGame SDK / Opus self-host のいずれでも良く、ゲーム側コードは `IVoiceChatBackend`
 //   経由でのみ参加者管理 / ミュート / 音量を扱う。SDK 統合はビルド時の選択で
 //   差し替える。
 //
 // 使い方 (典型例):
-//   class FGame {
+//   class CGame {
 //       acs::game::IVoiceChatBackend* m_Voice = nullptr;
 //
 //       void OnStart() noexcept override {
@@ -51,7 +51,7 @@
 //
 // 倫理 / 安全方針:
 //   ・**moderation は別モジュール**: 文字起こしによる NG ワード判定 / 通報導線は
-//     `FSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
+//     `CSocialModeration` (別 Pillar) が担当。本 system は技術的な mute/volume 管理のみ。
 //   ・**under-18 のデフォルト**: 未成年アカウントが既知の場合、呼び出し側で
 //     `SetLocalMute(true)` をかぶせる想定。本 system はフラグを持たず強制機構なし
 //     (プラットフォームごとに年齢推定 API が異なるため一律ルール化が危険)。
@@ -119,7 +119,7 @@ enum class EVoiceProvider : u8 {
     /** Unity Vivox (cross-platform 汎用)。 */
     Vivox       = 3,
 
-    /** Discord FGame SDK (Lobby Voice)。 */
+    /** Discord CGame SDK (Lobby Voice)。 */
     Discord     = 4,
 
     /** 自前 Opus codec + 専用サーバ。 */
@@ -134,7 +134,7 @@ enum class EVoiceProvider : u8 {
  * 意味論を区別する。同時に複数チャンネルへ join 可能 (Party + Global 同居 等)。
  */
 enum class EVoiceChannel : u8 {
-    /** パーティ内チャット (FPartySystem と紐づく)。 */
+    /** パーティ内チャット (CPartySystem と紐づく)。 */
     Party    = 0,
 
     /** チーム / 隊伍内チャット (試合中の同チーム)。 */
@@ -155,7 +155,7 @@ enum class EVoiceChannel : u8 {
  * 呼び出し側でコピーしない)。寿命は「次の Tick() を呼ぶまで」を保証する。
  */
 struct FVoiceParticipant {
-    /** SDK 固有 ID 文字列 (FPartySystem の player_id と同形式想定、非所有)。 */
+    /** SDK 固有 ID 文字列 (CPartySystem の player_id と同形式想定、非所有)。 */
     const char* user_id        = nullptr;
 
     /** 表示名 (UTF-8、寿命は SDK 側保証、非所有)。 */
@@ -337,7 +337,7 @@ public:
      *
      * @details
      * 実 SDK backend はマイク捕捉/再生を SDK 内部で行うため override せず、既定実装は
-     * NotImplemented を返す。`FVoiceChatLoopbackBackend` のみが本実装する。ローカル
+     * NotImplemented を返す。`CVoiceChatLoopbackBackend` のみが本実装する。ローカル
      * ミュート中は送信されない (capture は続くが route しない)。
      * @param ch 送信先チャンネル種別。
      * @param pcm sample_count 個の int16 サンプル (非所有、本呼び出し中のみ参照)。
@@ -396,13 +396,13 @@ public:
  * ACS_ERR(Generic, kSubVoiceNotImplemented, ...) を返し、IsAvailable() は常に false。
  * Shutdown() / Tick() は副作用なし。ISteamworksBridge と違い「未実装」を強調する。
  */
-class FVoiceChatBackendStub final : public IVoiceChatBackend {
+class CVoiceChatBackendStub final : public IVoiceChatBackend {
 public:
     /** デフォルト構築する。 */
-    FVoiceChatBackendStub() noexcept = default;
+    CVoiceChatBackendStub() noexcept = default;
 
     /** 破棄する (副作用なし)。 */
-    ~FVoiceChatBackendStub() noexcept override = default;
+    ~CVoiceChatBackendStub() noexcept override = default;
 
     /**
      * provider を記録するだけの初期化を行う。
@@ -524,20 +524,20 @@ IVoiceChatBackend& GetVoiceStub() noexcept;
  * 各チャンネル (Party/Team/Global/Custom) は独立した参加者テーブル + per-user 受信
  * キューを持ち、index 0 の participant をローカルユーザ (= 自分) として扱う。
  */
-class FVoiceChatLoopbackBackend final : public IVoiceChatBackend {
+class CVoiceChatLoopbackBackend final : public IVoiceChatBackend {
 public:
     /** DefaultAllocator を使って構築する。 */
-    FVoiceChatLoopbackBackend() noexcept;
+    CVoiceChatLoopbackBackend() noexcept;
 
     /**
      * 指定 allocator をチャンネル・参加者・受信キューに使って構築する。
      *
      * @param allocator 可変長状態の確保に使う allocator。
      */
-    explicit FVoiceChatLoopbackBackend(FAllocator& allocator) noexcept;
+    explicit CVoiceChatLoopbackBackend(FAllocator& allocator) noexcept;
 
     /** 破棄する。 */
-    ~FVoiceChatLoopbackBackend() noexcept override = default;
+    ~CVoiceChatLoopbackBackend() noexcept override = default;
 
     /**
      * backend を初期化し、全チャンネルの状態をリセットする。
@@ -863,6 +863,12 @@ private:
  * @details DI 不要で `m_Voice = &GetVoiceLoopback();` だけで本物の音声往復が動く。
  * @return 共有ループバック backend への参照。
  */
-FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept;
+CVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FVoiceChatBackendStub = CVoiceChatBackendStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FVoiceChatLoopbackBackend = CVoiceChatLoopbackBackend;
 
 } // namespace acs::game

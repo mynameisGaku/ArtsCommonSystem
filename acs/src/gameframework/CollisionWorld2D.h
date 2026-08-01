@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — FCollisionWorld2D + SpatialGrid
+// GameFramework Pillar F — CCollisionWorld2D + SpatialGrid
 //
 // 2D 衝突判定の高レベル API。形状 (FAabb2 / FCircle) を `FShapeId` で管理し、
 // 内部の SpatialGrid (一様グリッド broad-phase) で O(N + K) クエリ
@@ -7,7 +7,7 @@
 // 既存関数 (Intersect / Resolve / RaycastAabb / RaycastCircle) を再利用。
 //
 // 使い方:
-//   FCollisionWorld2D world;
+//   CCollisionWorld2D world;
 //   world.Init(/*cell_size=*/64.0f);
 //
 //   FShapeId player = world.AddCircle({ {0,0}, 16.0f });
@@ -38,6 +38,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
 #include "math/Collision2D.h"
 
@@ -115,19 +116,19 @@ struct FShapeId {
  * (K = 結果数)。narrow phase は math/Collision2D.h の既存関数を再利用する。
  * Add/Update/Remove で dirty フラグを立て、クエリ直前にグリッドを遅延再構築する。
  */
-class FCollisionWorld2D {
+class CCollisionWorld2D {
 public:
     /** 空状態で構築する (cell_size は Init まで既定 64)。 */
-    FCollisionWorld2D() noexcept = default;
+    CCollisionWorld2D() noexcept = default;
 
     /** 破棄する (slot / grid は TArray が解放)。 */
-    ~FCollisionWorld2D() noexcept = default;
+    ~CCollisionWorld2D() noexcept = default;
 
     /** コピー禁止。 */
-    FCollisionWorld2D(const FCollisionWorld2D&)            = delete;
+    CCollisionWorld2D(const CCollisionWorld2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCollisionWorld2D& operator=(const FCollisionWorld2D&) = delete;
+    CCollisionWorld2D& operator=(const CCollisionWorld2D&) = delete;
 
     /**
      * グリッドのセルサイズを設定する。

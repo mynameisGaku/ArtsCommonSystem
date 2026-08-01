@@ -748,7 +748,7 @@ EScene3DSerializeError PrepareComponents(
             return EScene3DSerializeError::InvalidComponentProperty;
         FParsedComponent& component = components[*component_index];
         const FTypeDesc* type =
-            FTypeRegistry::Get().FindByName(component.Instance->ReflectName());
+            CTypeRegistry::Get().FindByName(component.Instance->ReflectName());
         if (type == nullptr || type->fields == nullptr
             || property.Property >= type->field_count) {
             return EScene3DSerializeError::InvalidComponentProperty;
@@ -820,7 +820,7 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
 }
 
 FScene3DSaveResult TrySaveScene3DText(
-    const FScene3D& scene, char* out, u32 cap) noexcept {
+    const CScene3D& scene, char* out, u32 cap) noexcept {
     FScene3DSaveResult result{};
     TArray<const ANode*> nodes;
     TArray<i32> parents;
@@ -960,7 +960,7 @@ FScene3DSaveResult TrySaveScene3DText(
     return result;
 }
 
-u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept {
+u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept {
     const FScene3DSaveResult result = TrySaveScene3DText(scene, out, cap);
     return result.Succeeded() ? result.BytesWritten : 0u;
 }
@@ -1259,7 +1259,7 @@ FScene3DLoadResult ParseScene3DDocument(
 }
 
 FScene3DLoadResult CommitScene3DDocument(
-    FScene3D& scene, FParsedScene3DDocument& document,
+    CScene3D& scene, FParsedScene3DDocument& document,
     u32 dependencies_loaded) noexcept {
     FScene3DCameraState active_camera;
     u32 active_preferred_camera_count = 0u;
@@ -1282,7 +1282,7 @@ FScene3DLoadResult CommitScene3DDocument(
 
     // Build into a private graph. The caller's graph is not touched until the
     // full node/component/camera commit has succeeded.
-    FScene3D staged_scene;
+    CScene3D staged_scene;
     staged_scene.Clear();
     staged_scene.Root().RemoveAllComponents();
     staged_scene.Root().SetName(FStringView("Root"));
@@ -1843,7 +1843,7 @@ EScene3DSerializeError LoadLooseDependencies(const char* scene_path, FParsedScen
 } // namespace
 
 FScene3DLoadResult TryLoadScene3DText(
-    FScene3D& scene, const char* text, u32 size) noexcept {
+    CScene3D& scene, const char* text, u32 size) noexcept {
     FParsedScene3DDocument document;
     const FScene3DLoadResult parsed =
         ParseScene3DDocument(text, size, document);
@@ -1852,7 +1852,7 @@ FScene3DLoadResult TryLoadScene3DText(
 }
 
 FScene3DLoadResult TryLoadScene3DFile(
-    FScene3D& scene, const char* path) noexcept {
+    CScene3D& scene, const char* path) noexcept {
     if (path == nullptr)
         return LoadFailure(
             EScene3DSerializeError::NullInput, 0u, 0u, 0u, 0u);
@@ -1880,7 +1880,7 @@ FScene3DLoadResult TryLoadScene3DFile(
 }
 
 FScene3DLoadResult TryLoadScene3DAssetPack(
-    FScene3D& scene, IAssetPackReader& pack,
+    CScene3D& scene, IAssetPackReader& pack,
     const char* virtual_path) noexcept {
     if (!IsSafeVirtualAssetPath(virtual_path)) {
         return LoadFailure(
@@ -1921,7 +1921,7 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
         scene, document, dependencies_loaded);
 }
 
-bool LoadScene3DText(FScene3D& scene, const char* text) noexcept {
+bool LoadScene3DText(CScene3D& scene, const char* text) noexcept {
     if (text == nullptr) return false;
     u32 size = 0u;
     while (size <= kScene3DSerializeMaxInputBytes && text[size] != '\0') ++size;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio2D (2D 平面向け位置情報オーディオ)
+// GameFramework Pillar H — CSpatialAudio2D (2D 平面向け位置情報オーディオ)
 //
-// FSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
+// CSpatialAudio (3D) の 2D ゲーム特化版。3D の up/forward 三次元姿勢の代わりに
 // 「位置 (FVec2) + 向き角 (ラジアン)」だけで距離減衰 / 左右パンを算出する。
 // 計算は **純数学** で in-repo 完結し、外部依存 (HRTF IR 等) は持たない。
 //
@@ -18,14 +18,14 @@
 //   → 東 (+X) を向くと北 (+Y) は左 (pan<0)、南 (-Y) は右 (pan>0)。
 //   Y+ が下のスクリーン座標系を使う場合は angle の符号を反転して渡す。
 //
-// 使い方 (free function 直叩き — FScene が独自に source を持つ場合):
+// 使い方 (free function 直叩き — AScene が独自に source を持つ場合):
 //   const f32 d   = ComputeDistance2D(ear_pos, enemy_pos);
 //   const f32 vol = ComputeVolume2D(d, 20.0f, EAttenuationCurve::Linear);
 //   const f32 pan = ComputePan2D(ear_pos, ear_angle, enemy_pos);
 //   f32 l, r; ComputeConstantPowerStereo2D(pan, l, r);
 //
-// 使い方 (FSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
-//   acs::game::FSpatialAudio2D spatial;
+// 使い方 (CSpatialAudio2D マネージャ — listener 1 + source N を集中管理):
+//   acs::game::CSpatialAudio2D spatial;
 //   spatial.SetListener({{0,0}, 0.0f});
 //   u32 s = spatial.RegisterSource({5, 3}, 20.0f, EAttenuationCurve::Linear);
 //   spatial.UpdateSource(s, enemy.Pos());
@@ -60,7 +60,7 @@ struct FAudioListener2D {
  * 2D 平面上の 1 音源。FAudioSource3D の 2D 版。
  */
 struct FAudioSource2D {
-    /** FSpatialAudio2D が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
+    /** CSpatialAudio2D が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
     u32   source_id    = 0;
 
     /** 世界座標。 */
@@ -83,7 +83,7 @@ struct FAudioSource2D {
 };
 
 // =============================================================================
-// 純数学 free function 群 (state を持たない。FScene が独自に source 配列を持つ場合に直叩き)
+// 純数学 free function 群 (state を持たない。AScene が独自に source 配列を持つ場合に直叩き)
 // =============================================================================
 
 /**
@@ -183,33 +183,33 @@ ACS_FORCEINLINE void ComputeConstantPowerStereo2D(f32 pan, f32& left, f32& right
 }
 
 // =============================================================================
-// FSpatialAudio2D — listener 1 + source N の集中管理 (FSpatialAudio の 2D 版、header-only)
+// CSpatialAudio2D — listener 1 + source N の集中管理 (CSpatialAudio の 2D 版、header-only)
 // =============================================================================
 
 /**
- * 2D listener + source を集中管理する空間化レイヤ (FSpatialAudio の 2D 版)。
+ * 2D listener + source を集中管理する空間化レイヤ (CSpatialAudio の 2D 版)。
  *
  * @details
- * FScene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
+ * AScene 局所 instance としての所有を想定。1 listener + N source を AoS で保持し、
  * 毎フレーム distance / volume / pan を pull で取得する。source_id は単調増加で
  * 再利用しない (stale ID 検出が単純)。全メソッド inline (header-only)。
  */
-class FSpatialAudio2D {
+class CSpatialAudio2D {
 public:
     /** source 配列の初期容量。 */
     static constexpr u32 kInitialSourceCapacity = 16;
 
     /** source 配列を初期容量で Reserve して構築する。 */
-    FSpatialAudio2D() noexcept { m_Sources.Reserve(kInitialSourceCapacity); }
+    CSpatialAudio2D() noexcept { m_Sources.Reserve(kInitialSourceCapacity); }
 
     /** 破棄する。 */
-    ~FSpatialAudio2D() noexcept = default;
+    ~CSpatialAudio2D() noexcept = default;
 
     /** コピー禁止 (シーン局所 instance として単独所有)。 */
-    FSpatialAudio2D(const FSpatialAudio2D&)            = delete;
-    FSpatialAudio2D& operator=(const FSpatialAudio2D&) = delete;
-    FSpatialAudio2D(FSpatialAudio2D&&)                 = delete;
-    FSpatialAudio2D& operator=(FSpatialAudio2D&&)      = delete;
+    CSpatialAudio2D(const CSpatialAudio2D&)            = delete;
+    CSpatialAudio2D& operator=(const CSpatialAudio2D&) = delete;
+    CSpatialAudio2D(CSpatialAudio2D&&)                 = delete;
+    CSpatialAudio2D& operator=(CSpatialAudio2D&&)      = delete;
 
     /**
      * listener (耳位置 + 向き) を設定する。
@@ -354,5 +354,8 @@ private:
     /** 次に払い出す source_id (0 = 無効予約)。 */
     u32                    m_NextSourceId = 1;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSpatialAudio2D = CSpatialAudio2D;
 
 } // namespace acs::game

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBtActionRegistry
+// GameFramework Pillar — btedit / CBtActionRegistry
 //
 // ノードグラフの Action ノード (= 名前) を、実行時の関数ポインタへ解決するための
 // 名前→Fn テーブル。ゲーム側が起動時に Register("MoveToPlayer", &MoveToPlayer) のように
@@ -25,7 +25,7 @@ namespace acs::game::btedit {
  * @details ゲーム側がアクション関数を名前付きで登録し、グラフインタプリタが Action
  *          ノードの名前をキーに引いて呼ぶ。固定長 (kMax) で STL 不使用。
  */
-class FBtActionRegistry {
+class CBtActionRegistry {
 public:
     /** Action 関数の型 (FBtAction と同型: EBtStatus(*)(void* bb, f32 dt) noexcept)。 */
     using Fn = FBtAction::Fn;
@@ -37,7 +37,7 @@ public:
     static constexpr u32 kNameLen = 48u;
 
     /** 空のレジストリを構築する。 */
-    FBtActionRegistry() noexcept = default;
+    CBtActionRegistry() noexcept = default;
 
     /** 全登録を消す。 */
     void Clear() noexcept { m_Count = 0u; }
@@ -96,5 +96,7 @@ private:
     /** 登録数。 */
     u32  m_Count = 0u;
 };
+
+using FBtActionRegistry = CBtActionRegistry;
 
 } // namespace acs::game::btedit

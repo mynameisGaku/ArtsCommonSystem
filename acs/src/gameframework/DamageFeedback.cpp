@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FDamageFeedback 実装
+// GameFramework Pillar R — CDamageFeedback 実装
 //
-// 仕様の意図は FDamageFeedback.h を参照。本ファイルは純粋 state machine としての
+// 仕様の意図は CDamageFeedback.h を参照。本ファイルは純粋 state machine としての
 // 加算 / clamp / decay / death cam timer の実装に徹する。
 #include "gameframework/DamageFeedback.h"
 
@@ -22,7 +22,7 @@ constexpr f32 kDeathCamRate     = 0.5f;
 } // namespace
 
 /** 赤エッジを amount*0.1 加算 [0,1] clamp し、非零方向なら矢印を正規化更新する。 */
-void FDamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
+void CDamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
     if (amount <= 0.0f) {
         // 0 / 負ダメージは fail-safe で何もしない (回復扱いは別 API の責務)
         return;
@@ -45,7 +45,7 @@ void FDamageFeedback::TakeDamage(f32 amount, FVec2 source_direction) noexcept {
 }
 
 /** 赤エッジ・方向矢印を線形 decay し、death cam active 中は progress を 1 まで進める。 */
-void FDamageFeedback::Tick(f32 dt) noexcept {
+void CDamageFeedback::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // 赤エッジ decay
@@ -68,7 +68,7 @@ void FDamageFeedback::Tick(f32 dt) noexcept {
 }
 
 /** killer 位置を保存し、未 active のときのみ death cam を起動して progress を 0 に戻す。 */
-void FDamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
+void CDamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
     m_KillerPos = killer_pos;
     if (!m_DeathCamActive) {
         m_DeathCamActive = true;
@@ -77,13 +77,13 @@ void FDamageFeedback::TriggerDeathCam(FVec3 killer_pos) noexcept {
 }
 
 /** death cam を非 active にして progress を 0 に戻す (killer 位置は次 trigger で上書き)。 */
-void FDamageFeedback::ExitDeathCam() noexcept {
+void CDamageFeedback::ExitDeathCam() noexcept {
     m_DeathCamActive = false;
     m_DeathCamT      = 0.0f;
 }
 
 /** 赤エッジ・方向矢印・death cam・累積ダメージを含む全 state を初期値へ戻す。 */
-void FDamageFeedback::Reset() noexcept {
+void CDamageFeedback::Reset() noexcept {
     m_RedIntensity        = 0.0f;
     m_DirIntensity        = 0.0f;
     m_DirVec              = FVec2{0.0f, 0.0f};

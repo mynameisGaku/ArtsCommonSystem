@@ -10,7 +10,7 @@
 > 対象へ適用する。最大フィールド数 1,024、名前 255 bytes、値 16 bytes を境界とし、
 > `FIELD_TRANSIENT` と範囲外メタデータを実体メモリへ書き込まない。
 
-`acs::FApplication` の上に、ゲーム制作に必要な要素を**包括的に**載せるフレームワーク
+`acs::CApplication` の上に、ゲーム制作に必要な要素を**包括的に**載せるフレームワーク
 モジュール。本書は実装前の確定設計書。多エージェント技術ディスカッションを 2 巡
 （シーン基盤の精査 → 包括サブシステムの設計）行い統合した。
 
@@ -26,7 +26,7 @@
 ## 1. 目的と非目的
 
 ### 1.1 解決する課題
-`acs::FApplication` は `OnUpdate`/`OnRender` が単一で、(a) 画面/状態の切替、
+`acs::CApplication` は `OnUpdate`/`OnRender` が単一で、(a) 画面/状態の切替、
 (b) シーン内オブジェクトの表現、(c) ゲーム制作の定番部品（補間・カメラ・入力
 マップ・当たり判定・セーブ等）を何も持たない。GameFramework はこれらを
 **8 つのピラー**として体系的に提供する。
@@ -59,11 +59,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ ゲームコード   ユーザーの FScene / ANode 派生 / AComponent       │
+│ ゲームコード   ユーザーの AScene / ANode 派生 / AComponent       │
 ├─────────────────────────────────────────────────────────────────┤
 │ acs::game — GameFramework                                       │
-│  A. App & Scene ─ FGame · FScene · FSceneManager · FRenderContext│
-│                   FAppStateSlot · FSceneServices(取り付けハブ)   │
+│  A. App & Scene ─ CGame · AScene · CSceneManager · FRenderContext│
+│                   FAppStateSlot · CSceneServices(取り付けハブ)   │
 │  ┌───────────┬───────────┬──────────┬──────────┬──────────────┐ │
 │  │ B.オブジェ│ C.時間・  │ D.入力   │ E.カメラ │ F.物理・衝突 │ │
 │  │  クトモデル│  アニメ   │          │          │              │ │
@@ -85,29 +85,29 @@
 
 **依存方向は一方向**: GameFramework → エンジン（逆は無し）。各ピラーはピラー A と
 エンジンに依存してよいが、兄弟ピラーのヘッダは原則 include しない（実行時連携は
-コンポーネント・`FSceneServices`・`CMessageBroker` 経由）。
+コンポーネント・`CSceneServices`・`CMessageBroker` 経由）。
 
 ---
 
 ## 3. ピラー A — App & Scene（基盤。v3 で確定済み）
 
-`FGame`/`FScene`/`FSceneManager`/`FRenderContext`/`FAppStateSlot` と、GPU 安全なシーン破棄。
+`CGame`/`AScene`/`CSceneManager`/`FRenderContext`/`FAppStateSlot` と、GPU 安全なシーン破棄。
 v3 仕様の要点（詳細は本節末の確定事項）:
 
-- **`FScene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
-- **`FSceneManager`** — `TUniquePtr<FScene>` のスタック。`ChangeScene`/`PushScene`/
+- **`AScene`** — `OnEnter/OnUpdate/OnFixedUpdate/OnRender/OnExit/OnPause/OnResume/OnEvent`。
+- **`CSceneManager`** — `TUniquePtr<AScene>` のスタック。`ChangeScene`/`PushScene`/
   `PopScene`。遷移は遅延適用（1フレーム1遷移・後勝ち）。フェード遷移対応。
-- **`FGame : FApplication`** — フレームループから駆動。固定タイムステップ
+- **`CGame : CApplication`** — フレームループから駆動。固定タイムステップ
   （アキュムレータ + 暴走防止クランプ）・タイムスケール。`ACS_GAME_MAIN` でエントリ生成。
 - **GPU 遅延削除キュー** — 退場シーンを「フレームインフライト数+1（=3）」フレーム
   保持してから破棄。GPU が直前フレームで参照中のリソースの use-after-free を防ぐ。
-- **`FAppStateSlot`** — ユーザー定義の永続状態を `FGame` が型消去で1個保持する内部スロット。
-  利用側は `FGame::EmplaceAppState<T>()` / `AppState<T>()` で参照し、シーンをまたいで生存する。
+- **`FAppStateSlot`** — ユーザー定義の永続状態を `CGame` が型消去で1個保持する内部スロット。
+  利用側は `CGame::EmplaceAppState<T>()` / `AppState<T>()` で参照し、シーンをまたいで生存する。
 - **`FRenderContext`** — 全シーン共有の `FSpriteBatch` + 既定 `FFont`。シーン切替で
   パイプライン再構築しない。
 
-### 3.1 `FSceneServices` — 取り付けハブ（v4 の中心的追加）
-ピラー B〜H の多くは「シーンが 1 つだけ持つ singleton」。これを `FSceneServices`
+### 3.1 `CSceneServices` — 取り付けハブ（v4 の中心的追加）
+ピラー B〜H の多くは「シーンが 1 つだけ持つ singleton」。これを `CSceneServices`
 に束ね、シーンが**使うものだけ宣言**して遅延生成する:
 
 ```cpp
@@ -116,7 +116,7 @@ enum class ESvc : u32 {
     Ui=1<<4, Audio=1<<5, Events=1<<6, Debug=1<<7, Timers=1<<8,
     Default2D = Tweens|Input|Camera2D|Physics2D|Audio|Events|Debug|Timers,
 };
-class FSceneServices {
+class CSceneServices {
 public:
     FSceneClock&       Clock()     noexcept;
     FTweenManager&     Tweens()    noexcept;
@@ -129,22 +129,22 @@ public:
 };
 ```
 
-`FScene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
+`AScene` は `virtual ESvc WantedServices() const noexcept` を 1 つ override するだけ。
 メニュー画面は `ESvc::Ui|ESvc::Audio` のみ宣言し ECS/物理のコストを払わない。
-`FGame` が v3 で定めたシーム地点で `FSceneServices` を生成・tick する。
+`CGame` が v3 で定めたシーム地点で `CSceneServices` を生成・tick する。
 
 ### 3.2 取り付け機構
-1. **`FSceneServices` メンバ** — シーン単位のサービス（Clock/Tween/Sequence/Input/
-   Camera/Collision/Trigger）。`FGame` が自動で `dt` を供給。
-2. **`FGame` グローバルサービス** — シーンをまたいで生存（`FAssetRegistry`・
+1. **`CSceneServices` メンバ** — シーン単位のサービス（Clock/Tween/Sequence/Input/
+   Camera/Collision/Trigger）。`CGame` が自動で `dt` を供給。
+2. **`CGame` グローバルサービス** — シーンをまたいで生存（`FAssetRegistry`・
    `CAudioEngine` デバイス・`FSaveArchive`・`FSettings`・`FAppStateSlot`・`FDebugOverlay`）。
-3. **`FSubsystemCollection`** — Engine / GameInstance / World の owner 寿命で自動生成し、
+3. **`CSubsystemCollection`** — Engine / GameInstance / World の owner 寿命で自動生成し、
    段階別更新と逆順解体が必要な共有サービス。呼び出し側の正規入口は `acs` とし、実定義を含む
    旧 `acs::game` namespace はソース互換のため保持する。物理 namespace の統一は後続 wave で行う。
 
 サブシステム基盤の正規 namespace、仮想関数表、owner・frame context・factory の layout は
-更新され、x64 の `FSubsystem` は旧16 byteから24 byte、`FSubsystemCollection` は旧48 byteから
-80 byte、`FSpawn2DSubsystem` は旧24 byteから32 byteになる。旧 object / library との ABI 互換は
+更新され、x64 の `ASubsystem` は旧16 byteから24 byte、`CSubsystemCollection` は旧48 byteから
+80 byte、`ASpawn2DSubsystem` は旧24 byteから32 byteになる。旧 object / library との ABI 互換は
 ないため、ACS 本体と全 consumer を同じ revision から clean rebuild する。
 
 シーン内オブジェクトの表現はピラー B（ノードツリー）。バルク処理が要るシーンは
@@ -164,7 +164,7 @@ ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
 | 手で配置する階層的・個別ロジックのオブジェクト（プレイヤー・UI・ボス・扉）。数十〜数百 | system で一括更新する同種大量オブジェクト（弾・パーティクル・タイル）。数千 |
 | 親子 transform、ライフサイクル、コンポーネント合成 | 親子なしのフラットなデータ指向処理 |
 
-`FScene2D` は最低1個の root `ANode` を持つ。`FWorld` は利用側が必要な場合だけ
+`AScene2D` は最低1個の root `ANode` を持つ。`FWorld` は利用側が必要な場合だけ
 シーンのメンバとして構築し、フレームワークは両者の二重管理を暗黙に行わない。
 
 ### 4.2 `FTransform3D`・`ANode`
@@ -409,7 +409,7 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 | 1 | 既存エンジンをラップ、再実装しない | ECS/描画/音声/アセット等は既に高品質。重複は害 |
 | 2 | オブジェクトモデルは**ノードツリー主体**、ECS は群体用の併用ツール、ブリッジは一方向 | 手配置の階層オブジェクトにツリーが自然。ECS は既存を活かす。両者の所有権が衝突しない |
 | 3 | `SceneServices` + `WantedServices()` で取り付け | 「メニューに ECS/物理を強制しない」を保ちつつ全機能に到達可能 |
-| 4 | サブシステム取り付けは `SceneServices` / `Game` グローバル / owner-scoped `FSubsystemCollection` の 3 機構 | 局所サービス、ゲーム全体の既存サービス、明確な owner 寿命と更新を持つ共有サービスを責務で分離する |
+| 4 | サブシステム取り付けは `SceneServices` / `Game` グローバル / owner-scoped `CSubsystemCollection` の 3 機構 | 局所サービス、ゲーム全体の既存サービス、明確な owner 寿命と更新を持つ共有サービスを責務で分離する |
 | 5 | GPU リソースは遅延削除キュー（3 フレーム）で破棄 | シーン破棄時の use-after-free を構造的に排除（v3 確定） |
 | 6 | 階層変更・シーン遷移は遅延適用 | 走査中の自己破棄クラッシュを排除 |
 | 7 | RTTI 不使用の型識別（`ComponentKindOf<T>` カウンタ + virtual `Kind()`） | ACS 既存 `ComponentId` と同方式。`dynamic_cast` 不要 |

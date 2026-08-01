@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — FTurnManager (ターン進行 + アクションポイント)
+// GameFramework ジャンルキット — CTurnManager (ターン進行 + アクションポイント)
 //
 // SRPG / ローグライク / 戦略系に必須の「ターン制」基盤。複数 side (player /
 // enemy / 環境) を initiative 順に並べ、各 side が固有の AP (action point)
@@ -16,7 +16,7 @@
 //
 // 設計選択:
 //   ・**FTurnSideId** は 24bit index + 8bit gen の packed handle (FCooldownId /
-//     FSceneTimer / FCollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
+//     CSceneTimer / CCollisionWorld2D と同じパターン)。RemoveSide → 再 AddSide
 //     で slot が再利用されても、古い ID が stale として検出できる。
 //   ・**Side ストレージは AoS TArray**: side 数は通常 2〜8 程度、多くて十数
 //     なので AoS で十分。AP 更新が支配的なので cache 局所性も悪くない。
@@ -197,25 +197,25 @@ using RoundEndCallback = void(*)(void* user, u32 round) noexcept;
  * し、次ラウンドを即開始する。side は AoS の TArray に格納し、turn order は別の
  * TArray<u32> で保持して stable ID を保つ。非コピー・非ムーブ。
  */
-class FTurnManager {
+class CTurnManager {
 public:
     /** 空のターンマネージャを構築する (side 未登録、phase=Setup)。 */
-    FTurnManager() noexcept = default;
+    CTurnManager() noexcept = default;
 
     /** 破棄する。 */
-    ~FTurnManager() noexcept = default;
+    ~CTurnManager() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FTurnManager(const FTurnManager&)            = delete;
+    CTurnManager(const CTurnManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTurnManager& operator=(const FTurnManager&) = delete;
+    CTurnManager& operator=(const CTurnManager&) = delete;
 
     /** ムーブ禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FTurnManager(FTurnManager&&)                 = delete;
+    CTurnManager(CTurnManager&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTurnManager& operator=(FTurnManager&&)      = delete;
+    CTurnManager& operator=(CTurnManager&&)      = delete;
 
     /**
      * 全 side / turn order を捨て、phase=Setup, round=0 に初期化する。
@@ -455,5 +455,8 @@ private:
     /** ラウンド終了 callback に渡す context。 */
     void*             m_OnRoundEndUser  = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTurnManager = CTurnManager;
 
 } // namespace acs::game

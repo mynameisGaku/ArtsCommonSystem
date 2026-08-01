@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FNodePool 実装
+// GameFramework Pillar B — CNodePool 実装
 //
-// ヘッダの設計コメント (FNodePool.h) と FCollisionWorld2D.cpp の slot+gen pool
+// ヘッダの設計コメント (CNodePool.h) と CCollisionWorld2D.cpp の slot+gen pool
 // パターンに完全準拠する。所有権を持たないこと、index 0 予約、generation 0
 // スキップ、24bit index 上限の 4 点が正しさの肝。
 #include "gameframework/NodePool.h"
@@ -10,7 +10,7 @@
 namespace acs::game {
 
 /** 初期容量を予約する (index 0 dummy slot を確保し、配列を reserve する)。 */
-void FNodePool::Init(u32 initial_capacity) noexcept {
+void CNodePool::Init(u32 initial_capacity) noexcept {
     // index 0 は予約 (FNodeId{0,0} = invalid と衝突しない dummy slot)。
     // 既に Init 済 (= m_Slots.Size() > 0) の場合でも追加 reserve だけ行う。
     if (m_Slots.IsEmpty()) {
@@ -24,7 +24,7 @@ void FNodePool::Init(u32 initial_capacity) noexcept {
 }
 
 /** 空き slot を 1 つ取得する。失敗時は active slot と node を変更しない。 */
-ENodePoolRegisterError FNodePool::TryAcquireSlot(u32& out_index) noexcept {
+ENodePoolRegisterError CNodePool::TryAcquireSlot(u32& out_index) noexcept {
     out_index = 0u;
     // free stack から再利用 slot を取得
     if (!m_FreeIndices.IsEmpty()) {
@@ -48,7 +48,7 @@ ENodePoolRegisterError FNodePool::TryAcquireSlot(u32& out_index) noexcept {
     return ENodePoolRegisterError::None;
 }
 
-FNodePoolRegisterResult FNodePool::TryRegisterExistingNode(ANode* node) noexcept {
+FNodePoolRegisterResult CNodePool::TryRegisterExistingNode(ANode* node) noexcept {
     if (node == nullptr)
         return FNodePoolRegisterResult{FNodeId{}, ENodePoolRegisterError::NullNode};
 
@@ -85,14 +85,14 @@ FNodePoolRegisterResult FNodePool::TryRegisterExistingNode(ANode* node) noexcept
 }
 
 /** ANode を登録し、重複時は既存 Id、失敗時は invalid を返す。 */
-FNodeId FNodePool::RegisterExistingNode(ANode* node) noexcept {
+FNodeId CNodePool::RegisterExistingNode(ANode* node) noexcept {
     const FNodePoolRegisterResult result = TryRegisterExistingNode(node);
     return result.Succeeded() || result.Error == ENodePoolRegisterError::AlreadyRegistered
          ? result.Id : FNodeId{};
 }
 
 /** slot を free 化し、対応 ANode の Id を invalid に戻す (stale / 二重解放は安全)。 */
-void FNodePool::Unregister(FNodeId id) noexcept {
+void CNodePool::Unregister(FNodeId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Slots.Size()) return;   // 0 / 範囲外は無視
@@ -115,7 +115,7 @@ void FNodePool::Unregister(FNodeId id) noexcept {
 }
 
 /** Destroy 済みのノードを、ツリーから解放される前に一括 Unregister する。 */
-u32 FNodePool::PurgePendingDestroy() noexcept {
+u32 CNodePool::PurgePendingDestroy() noexcept {
     u32 purged = 0u;
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
         FSlot& s = m_Slots[i];
@@ -148,7 +148,7 @@ u32 FNodePool::PurgePendingDestroy() noexcept {
 }
 
 /** slot が active かつ generation 一致なら true を返す。 */
-bool FNodePool::IsValid(FNodeId id) const noexcept {
+bool CNodePool::IsValid(FNodeId id) const noexcept {
     if (!id.IsValid()) return false;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Slots.Size()) return false;
@@ -157,7 +157,7 @@ bool FNodePool::IsValid(FNodeId id) const noexcept {
 }
 
 /** id が有効なら対応する ANode* を、stale / invalid なら nullptr を返す。 */
-ANode* FNodePool::Get(FNodeId id) const noexcept {
+ANode* CNodePool::Get(FNodeId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Slots.Size()) return nullptr;
@@ -167,7 +167,7 @@ ANode* FNodePool::Get(FNodeId id) const noexcept {
 }
 
 /** node ポインタを線形探索して FNodeId を逆引きする (無ければ invalid)。 */
-FNodeId FNodePool::IdOf(ANode* node) const noexcept {
+FNodeId CNodePool::IdOf(ANode* node) const noexcept {
     if (node == nullptr) return FNodeId{};
     // index 0 は dummy なので 1 から走査。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
@@ -180,7 +180,7 @@ FNodeId FNodePool::IdOf(ANode* node) const noexcept {
 }
 
 /** 全 active slot を free 化し、各 ANode の Id を invalid に戻す (gen は維持)。 */
-void FNodePool::ClearAll() noexcept {
+void CNodePool::ClearAll() noexcept {
     const usize reusable_count = m_Slots.Size() > 0u ? m_Slots.Size() - 1u : 0u;
     const bool can_rebuild_free_list = m_FreeIndices.TryReserve(reusable_count);
     // 全 active slot を free 化、対応 node の Id を invalid に。

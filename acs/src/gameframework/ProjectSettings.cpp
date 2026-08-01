@@ -19,7 +19,7 @@ namespace {
  * ビルトイン設定スキーマ。
  *
  * @details カテゴリ/キー/型/既定値/説明。エディタの Project Settings ウィンドウは
- * このテーブル順に表示する。値の実体は FProjectSettings が文字列で保持する。
+ * このテーブル順に表示する。値の実体は CProjectSettings が文字列で保持する。
  * 項目を増やす場合はここに追記するだけでよい (UI / INI は自動追従)。
  */
 const FSettingDesc kSchema[] = {
@@ -318,7 +318,7 @@ const FSettingDesc* BuiltinSettingSchema(u32& out_count) noexcept {
     return kSchema;
 }
 
-void FProjectSettings::ResetToDefaults() noexcept {
+void CProjectSettings::ResetToDefaults() noexcept {
     (void)TryResetToDefaults();
 }
 
@@ -350,7 +350,7 @@ const char* FProjectSettingsLoadResult::ErrorName(EProjectSettingsLoadError erro
     return "Unknown";
 }
 
-FProjectSettingsLoadResult FProjectSettings::TryResetToDefaults() noexcept {
+FProjectSettingsLoadResult CProjectSettings::TryResetToDefaults() noexcept {
     FProjectSettingsLoadResult result{};
     u32 n = 0;
     const FSettingDesc* s = BuiltinSettingSchema(n);
@@ -382,13 +382,13 @@ FProjectSettingsLoadResult FProjectSettings::TryResetToDefaults() noexcept {
     return result;
 }
 
-bool FProjectSettings::LoadText(const char* text) noexcept {
+bool CProjectSettings::LoadText(const char* text) noexcept {
     bool terminated = false;
     const usize length = BoundedCStringLength(text, kProjectSettingsMaxTextBytes, terminated);
     return terminated && TryLoadText(text, length).Succeeded();
 }
 
-FProjectSettingsLoadResult FProjectSettings::TryLoadText(
+FProjectSettingsLoadResult CProjectSettings::TryLoadText(
     const char* text, usize text_size) noexcept {
     FProjectSettingsLoadResult result{};
     result.bytes_read = static_cast<u64>(text_size);
@@ -405,7 +405,7 @@ FProjectSettingsLoadResult FProjectSettings::TryLoadText(
         return result;
     }
 
-    FProjectSettings staged;
+    CProjectSettings staged;
     result = staged.TryResetToDefaults();
     result.bytes_read = static_cast<u64>(text_size);
     if (!result.Succeeded()) return result;
@@ -545,11 +545,11 @@ FProjectSettingsLoadResult FProjectSettings::TryLoadText(
     return result;
 }
 
-bool FProjectSettings::Load(const char* ini_path) noexcept {
+bool CProjectSettings::Load(const char* ini_path) noexcept {
     return TryLoadFile(ini_path).Succeeded();
 }
 
-FProjectSettingsLoadResult FProjectSettings::TryLoadFile(const char* ini_path) noexcept {
+FProjectSettingsLoadResult CProjectSettings::TryLoadFile(const char* ini_path) noexcept {
     FProjectSettingsLoadResult result{};
     bool terminated = false;
     const usize path_length =
@@ -628,7 +628,7 @@ FProjectSettingsLoadResult FProjectSettings::TryLoadFile(const char* ini_path) n
     return TryLoadText(buffer.Data(), buffer.Size());
 }
 
-u32 FProjectSettings::SerializeText(char* out, usize cap) const noexcept {
+u32 CProjectSettings::SerializeText(char* out, usize cap) const noexcept {
     if (out == nullptr || cap == 0) return 0;
     usize cur = 0;
     auto append = [&](const char* fmt, const char* a, const char* b) noexcept {
@@ -652,7 +652,7 @@ u32 FProjectSettings::SerializeText(char* out, usize cap) const noexcept {
     return static_cast<u32>(cur);
 }
 
-bool FProjectSettings::Save(const char* ini_path) const noexcept {
+bool CProjectSettings::Save(const char* ini_path) const noexcept {
     bool path_terminated = false;
     const usize path_length =
         BoundedCStringLength(ini_path, kProjectSettingsMaxPathBytes, path_terminated);
@@ -681,7 +681,7 @@ bool FProjectSettings::Save(const char* ini_path) const noexcept {
     return write_ok;
 }
 
-const FSettingEntry* FProjectSettings::Find(const char* cat, const char* key) const noexcept {
+const FSettingEntry* CProjectSettings::Find(const char* cat, const char* key) const noexcept {
     if (cat == nullptr || key == nullptr) return nullptr;
     bool category_terminated = false;
     bool key_terminated = false;
@@ -697,7 +697,7 @@ const FSettingEntry* FProjectSettings::Find(const char* cat, const char* key) co
     return nullptr;
 }
 
-bool FProjectSettings::Set(const char* cat, const char* key, const char* value) noexcept {
+bool CProjectSettings::Set(const char* cat, const char* key, const char* value) noexcept {
     bool value_terminated = value == nullptr;
     const usize value_length =
         value == nullptr ? 0u : BoundedCStringLength(value, 191u, value_terminated);
@@ -708,11 +708,11 @@ bool FProjectSettings::Set(const char* cat, const char* key, const char* value) 
     return true;
 }
 
-bool FProjectSettings::Add(const char* cat, const char* key, const char* value) noexcept {
+bool CProjectSettings::Add(const char* cat, const char* key, const char* value) noexcept {
     return TryAdd(cat, key, value);
 }
 
-bool FProjectSettings::TryAdd(const char* cat, const char* key, const char* value) noexcept {
+bool CProjectSettings::TryAdd(const char* cat, const char* key, const char* value) noexcept {
     if (cat == nullptr || cat[0] == '\0' || key == nullptr || key[0] == '\0') return false;
     bool category_terminated = false;
     bool key_terminated = false;
@@ -735,7 +735,7 @@ bool FProjectSettings::TryAdd(const char* cat, const char* key, const char* valu
     return m_Entries.TryPushBack(e);
 }
 
-bool FProjectSettings::Remove(const char* cat, const char* key) noexcept {
+bool CProjectSettings::Remove(const char* cat, const char* key) noexcept {
     if (Find(cat, key) == nullptr) return false;
     for (u32 i = 0; i < m_Entries.Size(); ++i) {
         FSettingEntry& e = m_Entries[i];
@@ -750,21 +750,21 @@ bool FProjectSettings::Remove(const char* cat, const char* key) noexcept {
     return false;
 }
 
-f32 FProjectSettings::GetFloat(const char* cat, const char* key, f32 def) const noexcept {
+f32 CProjectSettings::GetFloat(const char* cat, const char* key, f32 def) const noexcept {
     const FSettingEntry* e = Find(cat, key);
     if (e == nullptr || e->value[0] == '\0') return def;
     f32 value = 0.0f;
     return ParseFiniteFloat(e->value, value) == ENumberParseStatus::Ok ? value : def;
 }
 
-i32 FProjectSettings::GetInt(const char* cat, const char* key, i32 def) const noexcept {
+i32 CProjectSettings::GetInt(const char* cat, const char* key, i32 def) const noexcept {
     const FSettingEntry* e = Find(cat, key);
     if (e == nullptr || e->value[0] == '\0') return def;
     i32 value = 0;
     return ParseI32(e->value, value) == ENumberParseStatus::Ok ? value : def;
 }
 
-bool FProjectSettings::GetBool(const char* cat, const char* key, bool def) const noexcept {
+bool CProjectSettings::GetBool(const char* cat, const char* key, bool def) const noexcept {
     const FSettingEntry* e = Find(cat, key);
     if (e == nullptr || e->value[0] == '\0') return def;
     if (std::strcmp(e->value, "1") == 0 || IEquals(e->value, "true")) return true;
@@ -772,14 +772,14 @@ bool FProjectSettings::GetBool(const char* cat, const char* key, bool def) const
     return def;
 }
 
-FVec3 FProjectSettings::GetColor(const char* cat, const char* key, FVec3 def) const noexcept {
+FVec3 CProjectSettings::GetColor(const char* cat, const char* key, FVec3 def) const noexcept {
     const FSettingEntry* e = Find(cat, key);
     if (e == nullptr) return def;
     FVec3 value{};
     return ParseColor(e->value, value) == ENumberParseStatus::Ok ? value : def;
 }
 
-const char* FProjectSettings::GetString(const char* cat, const char* key, const char* def) const noexcept {
+const char* CProjectSettings::GetString(const char* cat, const char* key, const char* def) const noexcept {
     const FSettingEntry* e = Find(cat, key);
     return (e != nullptr) ? e->value : def;
 }

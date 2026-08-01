@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework メタ層 — FPrivacyDirector (GDPR / CCPA consent ハブ)
+// GameFramework メタ層 — CPrivacyDirector (GDPR / CCPA consent ハブ)
 //
 // 役割:
 //   ゲーム内で扱う個人情報・解析・広告・テレメトリといった
@@ -9,7 +9,7 @@
 //   on/off」「ポリシー版の追跡」「永続化」を共通基盤として提供する。
 //
 // 想定する典型フロー:
-//   FPrivacyDirector privacy;
+//   CPrivacyDirector privacy;
 //   privacy.Init(/*current_policy_version=*/2);
 //   privacy.LoadConsent(L"user/consent.bin");                 // 既存設定があれば復元
 //
@@ -26,7 +26,7 @@
 //   }
 //
 // 設計選択:
-//   ・**bit flag 中心**: FSceneServices と同じく EConsentCategory を bit OR で
+//   ・**bit flag 中心**: CSceneServices と同じく EConsentCategory を bit OR で
 //     合成する設計。「Analytics は ON だが Marketing は OFF」のような
 //     カテゴリ別 on/off が必須要件 (GDPR の granular consent) なので、
 //     enum class : u32 + operator|/& を提供する。
@@ -61,6 +61,7 @@
 
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 
 namespace acs::game {
 
@@ -146,25 +147,25 @@ struct FConsentStatus {
  * 共通基盤として提供する。アプリ全体で 1 個運用される想定で、consent 状態が分裂しない
  * よう non-copy / non-move。
  */
-class FPrivacyDirector {
+class CPrivacyDirector {
 public:
     /** 未初期化状態で構築する (Init を呼ぶまで mask は Required のみ)。 */
-    FPrivacyDirector()  noexcept = default;
+    CPrivacyDirector()  noexcept = default;
 
     /** 破棄する (保持するのは POD のみで特別な解放処理はない)。 */
-    ~FPrivacyDirector() noexcept = default;
+    ~CPrivacyDirector() noexcept = default;
 
     /** コピー禁止 (consent 状態の分裂を防ぐため)。 */
-    FPrivacyDirector(const FPrivacyDirector&)            = delete;
+    CPrivacyDirector(const CPrivacyDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPrivacyDirector& operator=(const FPrivacyDirector&) = delete;
+    CPrivacyDirector& operator=(const CPrivacyDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FPrivacyDirector(FPrivacyDirector&&)                 = delete;
+    CPrivacyDirector(CPrivacyDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPrivacyDirector& operator=(FPrivacyDirector&&)      = delete;
+    CPrivacyDirector& operator=(CPrivacyDirector&&)      = delete;
 
     /**
      * 現在のポリシー版を設定して director を初期化する。

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FProjectileSystem 実装
+// GameFramework Pillar I — CProjectileSystem 実装
 //
-// 仕様の意図は FProjectileSystem.h のヘッダコメントを参照。本ファイルでは:
+// 仕様の意図は CProjectileSystem.h のヘッダコメントを参照。本ファイルでは:
 //   ・固定容量 Slot pool の Acquire / Release (generational handle)
 //   ・def_id 名前引きでの ProjectileDef 取得
 //   ・Tick 内での物理積分 (semi-implicit Euler) + homing 向き補正
@@ -46,7 +46,7 @@ inline bool CStrEquals(const char* a, const char* b) noexcept {
  * max_concurrent == 0 は誤呼出しと見なし 256 を採用する (silently fail を避ける)。
  * @param max_concurrent 同時に存在できる弾の最大数 (0 は 256 に補正)。
  */
-void FProjectileSystem::Init(u32 max_concurrent) noexcept {
+void CProjectileSystem::Init(u32 max_concurrent) noexcept {
     if (m_Capacity != 0u) return;
     if (max_concurrent == 0u) max_concurrent = 256u;
 
@@ -75,7 +75,7 @@ void FProjectileSystem::Init(u32 max_concurrent) noexcept {
  * Spawn のたびに行うが m_Defs の数は通常 10〜30 程度なので線形探索で十分。
  * @param def 登録する弾定義。
  */
-void FProjectileSystem::RegisterDef(const FProjectileDef& def) noexcept {
+void CProjectileSystem::RegisterDef(const FProjectileDef& def) noexcept {
     if (def.id == nullptr) return;
     if (def.lifetime_sec <= 0.0f) return;
 
@@ -96,7 +96,7 @@ void FProjectileSystem::RegisterDef(const FProjectileDef& def) noexcept {
  * @param id 探す弾定義の id (nullptr なら nullptr を返す)。
  * @return 見つかった ProjectileDef へのポインタ (無ければ nullptr)。
  */
-const FProjectileDef* FProjectileSystem::FindDef(const char* id) const noexcept {
+const FProjectileDef* CProjectileSystem::FindDef(const char* id) const noexcept {
     if (id == nullptr) return nullptr;
     const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -113,7 +113,7 @@ const FProjectileDef* FProjectileSystem::FindDef(const char* id) const noexcept 
  * 失敗させ、フレーム落ちより弾が出ないことを優先する保守的ポリシー)。
  * @return 確保した slot の index (満杯なら kInvalidIdx)。
  */
-u32 FProjectileSystem::AcquireSlot() noexcept {
+u32 CProjectileSystem::AcquireSlot() noexcept {
     if (m_Capacity == 0u) return kInvalidIdx;
     // alive_count >= capacity の早期 return で満杯時の無駄ループを排除。
     if (m_AliveCount >= m_Capacity) return kInvalidIdx;
@@ -133,7 +133,7 @@ u32 FProjectileSystem::AcquireSlot() noexcept {
  * @param id 解決する弾ハンドル。
  * @return 対応する Slot へのポインタ (無効・stale なら nullptr)。
  */
-FProjectileSystem::FSlot* FProjectileSystem::FindSlot(FProjectileId id) noexcept {
+CProjectileSystem::FSlot* CProjectileSystem::FindSlot(FProjectileId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
@@ -150,7 +150,7 @@ FProjectileSystem::FSlot* FProjectileSystem::FindSlot(FProjectileId id) noexcept
  * @param id 解決する弾ハンドル。
  * @return 対応する Slot への const ポインタ (無効・stale なら nullptr)。
  */
-const FProjectileSystem::FSlot* FProjectileSystem::FindSlot(FProjectileId id) const noexcept {
+const CProjectileSystem::FSlot* CProjectileSystem::FindSlot(FProjectileId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
@@ -174,7 +174,7 @@ const FProjectileSystem::FSlot* FProjectileSystem::FindSlot(FProjectileId id) co
  * @param damage 命中時のダメージ量 (そのまま instance に保持)。
  * @return 発射した弾の FProjectileId (失敗時は invalid)。
  */
-FProjectileId FProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
+FProjectileId CProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velocity,
                                      u32 owner_id, f32 damage) noexcept {
     const FProjectileDef* def = FindDef(def_id);
     if (def == nullptr) return FProjectileId{};
@@ -214,7 +214,7 @@ FProjectileId FProjectileSystem::Spawn(const char* def_id, FVec2 pos, FVec2 velo
  * ことで古い handle が無効化される。stale handle は no-op。
  * @param id 削除する弾ハンドル。
  */
-void FProjectileSystem::Despawn(FProjectileId id) noexcept {
+void CProjectileSystem::Despawn(FProjectileId id) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     s->active            = false;
@@ -229,7 +229,7 @@ void FProjectileSystem::Despawn(FProjectileId id) noexcept {
  * @param id 取得する弾ハンドル。
  * @return 対応する ProjectileInstance への const ポインタ (無効・stale なら nullptr)。
  */
-const FProjectileInstance* FProjectileSystem::GetInstance(FProjectileId id) const noexcept {
+const FProjectileInstance* CProjectileSystem::GetInstance(FProjectileId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     return &s->inst;
@@ -244,10 +244,10 @@ const FProjectileInstance* FProjectileSystem::GetInstance(FProjectileId id) cons
  * @param out_count alive な弾の個数を受け取る出力引数。
  * @return alive 弾の連続スナップショット配列の先頭 (0 個なら nullptr)。
  */
-const FProjectileInstance* FProjectileSystem::AllAlive(u32& out_count) const noexcept {
+const FProjectileInstance* CProjectileSystem::AllAlive(u32& out_count) const noexcept {
     // 非 const 内部状態 (m_AliveSnapshot / m_SnapshotDirtySize) を lazy に
     // 再構築するため const_cast で書き換える。これは mutable cache の慣例。
-    auto* self = const_cast<FProjectileSystem*>(this);
+    auto* self = const_cast<CProjectileSystem*>(this);
 
     if (self->m_SnapshotDirtySize != self->m_AliveCount) {
         self->RebuildAliveSnapshot();
@@ -263,7 +263,7 @@ const FProjectileInstance* FProjectileSystem::AllAlive(u32& out_count) const noe
  *
  * @details m_SnapshotDirtySize = m_AliveCount にすることで次回 AllAlive を cache hit させる。
  */
-void FProjectileSystem::RebuildAliveSnapshot() noexcept {
+void CProjectileSystem::RebuildAliveSnapshot() noexcept {
     u32 written = 0u;
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
@@ -290,7 +290,7 @@ void FProjectileSystem::RebuildAliveSnapshot() noexcept {
  * 最後に snapshot を必ず再構築する。dt <= 0 / Init 前 (m_Capacity == 0) は no-op。
  * @param dt 経過秒 (0 以下は no-op)。
  */
-void FProjectileSystem::Tick(f32 dt) noexcept {
+void CProjectileSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_Capacity == 0u) return;
 
@@ -413,7 +413,7 @@ void FProjectileSystem::Tick(f32 dt) noexcept {
  * @param fn 命中判定関数 (nullptr で解除)。
  * @param user fn に渡される user pointer。
  */
-void FProjectileSystem::SetHitTestFn(HitTestFn fn, void* user) noexcept {
+void CProjectileSystem::SetHitTestFn(HitTestFn fn, void* user) noexcept {
     m_HitTestFn   = fn;
     m_HitTestUser = user;
 }
@@ -424,7 +424,7 @@ void FProjectileSystem::SetHitTestFn(HitTestFn fn, void* user) noexcept {
  * @param cb 命中時に呼ばれるコールバック (nullptr で解除)。
  * @param user cb に渡される user pointer。
  */
-void FProjectileSystem::SetOnHitCallback(HitCallback cb, void* user) noexcept {
+void CProjectileSystem::SetOnHitCallback(HitCallback cb, void* user) noexcept {
     m_OnHit      = cb;
     m_OnHitUser = user;
 }
@@ -435,7 +435,7 @@ void FProjectileSystem::SetOnHitCallback(HitCallback cb, void* user) noexcept {
  * @param cb 寿命切れ時に呼ばれるコールバック (nullptr で解除)。
  * @param user cb に渡される user pointer。
  */
-void FProjectileSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
+void CProjectileSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
     m_OnExpire      = cb;
     m_OnExpireUser = user;
 }
@@ -450,7 +450,7 @@ void FProjectileSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexc
  * @param id 対象の弾ハンドル。
  * @param target_pos 追尾先のワールド座標。
  */
-void FProjectileSystem::SetHomingTarget(FProjectileId id, FVec2 target_pos) noexcept {
+void CProjectileSystem::SetHomingTarget(FProjectileId id, FVec2 target_pos) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     const FProjectileDef* def = FindDef(s->inst.def_id);
@@ -466,7 +466,7 @@ void FProjectileSystem::SetHomingTarget(FProjectileId id, FVec2 target_pos) noex
  * gen は維持するため古い handle は次の Spawn 後に無効化される。callback / def 登録は
  * 維持する。サイレントな全消去。
  */
-void FProjectileSystem::ClearAll() noexcept {
+void CProjectileSystem::ClearAll() noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
         m_Slots[i].active            = false;

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FEconomyDirector (in-game 通貨 + shop 管理)
+// GameFramework Pillar O — CEconomyDirector (in-game 通貨 + shop 管理)
 //
 // 通貨残高 (soft / premium) + 固定価格 shop アイテム + 取引履歴 (callback) を
-// まとめた小型マネージャ。FEntitlementRegistry / FSeasonPass と一緒に Pillar O の
-// 「ストア / LiveOps 系」三兄弟を構成する。FEntitlementRegistry は「持っているか」、
-// FSeasonPass は「期間内に xp で進行」、FEconomyDirector は「通貨でアイテムを
+// まとめた小型マネージャ。CEntitlementRegistry / CSeasonPass と一緒に Pillar O の
+// 「ストア / LiveOps 系」三兄弟を構成する。CEntitlementRegistry は「持っているか」、
+// CSeasonPass は「期間内に xp で進行」、CEconomyDirector は「通貨でアイテムを
 // 直接購入する」を担当する。
 //
 // 倫理方針 (重要):
 //   ・本クラスは **cosmetic only** を強く推奨する。装備性能 / ダメージ倍率 /
 //     獲得経験値ブースター等、コア体験に影響するアイテムを通貨で売る設計は
 //     pay-to-win に直結するため、ACS としては明示的に反対する立場
-//     (FEntitlementRegistry / FSeasonPass の方針を継承)。FShopItem::cosmetic_only は
+//     (CEntitlementRegistry / CSeasonPass の方針を継承)。FShopItem::cosmetic_only は
 //     「この商品が cosmetic に閉じている」ことを開発者が宣言するフラグであり、
 //     強制機構ではない (Manager は値を保存して照会できるようにするだけ)。
 //   ・**loot box (中身がランダムで対価が確率に依存する仕組み) は明示的に拒絶**:
@@ -24,23 +24,23 @@
 //     閉じることを推奨する。
 //
 // 想定する位置付け:
-//   ・Pillar O (FEntitlementRegistry) との違い:
-//     - FEntitlementRegistry は「DLC / FSeasonPass / 引換コード」等の永続権利フラグ。
-//     - FEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
+//   ・Pillar O (CEntitlementRegistry) との違い:
+//     - CEntitlementRegistry は「DLC / CSeasonPass / 引換コード」等の永続権利フラグ。
+//     - CEconomyDirector は「ゲーム内通貨で売買される消費財 / cosmetic」を扱う。
 //       購入結果として cosmetic を解放する場合は、PurchaseCallback で
-//       FEntitlementRegistry::Add() を呼ぶ橋渡しを呼出側で実装する想定。
-//   ・Pillar O (FSeasonPass) との違い:
-//     - FSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
-//     - FEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
+//       CEntitlementRegistry::Add() を呼ぶ橋渡しを呼出側で実装する想定。
+//   ・Pillar O (CSeasonPass) との違い:
+//     - CSeasonPass は xp ベースの tier 進行 (時間と遊びで貯まる)。
+//     - CEconomyDirector は通貨ベースの即時購入 (払えば即時取得)。
 //   ・Pillar S (Storefront) との違い:
 //     - Storefront はリアル課金プラットフォーム (Steam / EOS / 家庭機 SDK) の
 //       購入トランザクション。
-//     - FEconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
+//     - CEconomyDirector はゲーム内通貨での売買のみを扱う。premium 通貨を
 //       リアル課金で得るフローは Pillar S 側で実装し、AddToBalance() で
 //       残高を増やしてもらう想定 (本クラスはストア非依存)。
 //
 // 使い方:
-//   FEconomyDirector ed;
+//   CEconomyDirector ed;
 //
 //   // 通貨定義。
 //   ed.RegisterCurrency({ "gold",    "Gold",    false });  // soft (ゲーム内獲得)
@@ -53,7 +53,7 @@
 //
 //   // 購入。
 //   if (ed.PurchaseItem("skin.knight_red")) {
-//       // 成功 → cosmetic 解放 (FEntitlementRegistry 側へ橋渡し)
+//       // 成功 → cosmetic 解放 (CEntitlementRegistry 側へ橋渡し)
 //   }
 //
 //   // (任意) 購入結果コールバック。
@@ -61,14 +61,14 @@
 //
 // 設計選択 (Pillar O):
 //   ・**通貨と残高は並行 TArray**: FCurrencyDef を TArray<FCurrencyDef> に、残高を
-//     TArray<u32> に同 index で 1:1 で持つ。FEntitlementRegistry の id 比較と同じく
+//     TArray<u32> に同 index で 1:1 で持つ。CEntitlementRegistry の id 比較と同じく
 //     const char* per-byte 線形検索。通貨種別はゲーム 1 セッションで通常 2〜5、
 //     多くても 10 を超えない想定なので線形で十分。
 //   ・**FShopItem は単一 TArray**: 商品数は AAA でも 100〜500 程度のオーダー、
 //     線形走査で十分。検索はすべて item_id 文字列。
 //   ・**所有しない const char***: id / display_name / currency_id すべて呼出側
 //     (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
-//     FEconomyDirector はコピーしない (STL <string> 禁止)。
+//     CEconomyDirector はコピーしない (STL <string> 禁止)。
 //   ・**price は u32**: 通貨残高も u32。AAA 級でも通常範囲を超えない。
 //     不足チェックは u32 同士の単純比較。
 //   ・**stock_remaining は u32**: ~0u (= 0xFFFFFFFF) を「無制限」の哨兵値として
@@ -82,8 +82,8 @@
 //     成功・失敗両方 (bool success) で通知し、UI の「購入失敗トースト」も
 //     コールバック側で出せるようにする。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterCurrency /
-//     RegisterItem は no-op (アセット二重ロード保護)。FEntitlementRegistry / FSeasonPass /
-//     FAchievementManager と同じパターン。
+//     RegisterItem は no-op (アセット二重ロード保護)。CEntitlementRegistry / CSeasonPass /
+//     CAchievementManager と同じパターン。
 //   ・**取引履歴は callback 経由のみ**: 履歴 TArray を内蔵してメモリを増やすより、
 //     呼出側 (= Analytics / Pillar T Community) でログ収集する設計。
 //     コア API は「現在の残高と在庫」だけを真実とし、過去ログは外部責務。
@@ -146,7 +146,7 @@ struct FShopItem {
  * 乱数要素を一切持たず、購入は「払えば必ず指定 cosmetic が得られる固定価格方式」に
  * 限定する (loot box / ガチャは扱わない)。全 noexcept、非コピー・非ムーブ。
  */
-class FEconomyDirector {
+class CEconomyDirector {
 public:
     /**
      * 購入結果コールバックの型 (STL <functional> 禁止のため C 関数ポインタ + user)。
@@ -159,22 +159,22 @@ public:
     using PurchaseCallback = void(*)(void* user, const char* item_id, bool success) noexcept;
 
     /** 空の director を構築する (通貨・商品なし)。 */
-    FEconomyDirector()  noexcept = default;
+    CEconomyDirector()  noexcept = default;
 
     /** デストラクタ (非所有 const char* のみ保持するため後始末不要)。 */
-    ~FEconomyDirector() noexcept = default;
+    ~CEconomyDirector() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FEconomyDirector(const FEconomyDirector&)            = delete;
+    CEconomyDirector(const CEconomyDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEconomyDirector& operator=(const FEconomyDirector&) = delete;
+    CEconomyDirector& operator=(const CEconomyDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FEconomyDirector(FEconomyDirector&&)                 = delete;
+    CEconomyDirector(CEconomyDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEconomyDirector& operator=(FEconomyDirector&&)      = delete;
+    CEconomyDirector& operator=(CEconomyDirector&&)      = delete;
 
     /**
      * 通貨を 1 種類登録する (残高 0 で初期化)。
@@ -311,5 +311,8 @@ private:
     /** 購入コールバックに渡す user コンテキスト (Manager は所有しない)。 */
     void*            m_OnPurchaseUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FEconomyDirector = CEconomyDirector;
 
 } // namespace acs::game

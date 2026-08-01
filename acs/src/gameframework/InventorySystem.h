@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O/G — FInventorySystem (アイテムスロット + stack 管理)
+// GameFramework Pillar O/G — CInventorySystem (アイテムスロット + stack 管理)
 //
 // プレイヤーのアイテムインベントリを「固定 slot 数 × stack 可能アイテム」モデルで
 // 表現する小型マネージャ。RPG / サバイバル / クラフト系で広く使われる「N 個の
 // スロットがあって、消費アイテムは max_stack まで重ねられる」スタイルを直接
-// サポートする。FEconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
-// FInventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
+// サポートする。CEconomyDirector が「通貨で買って消える」即時取引を担うのに対し、
+// CInventorySystem は「拾った / 報酬で得たアイテムを、プレイヤーが持ち歩く」状態を
 // 保持する責務を持つ。
 //
 // 想定する位置付け:
-//   ・Pillar O FEconomyDirector との違い:
-//     - FEconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
-//     - FInventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
+//   ・Pillar O CEconomyDirector との違い:
+//     - CEconomyDirector は「ゲーム内通貨 ↔ shop 商品」の即時購入トランザクション。
+//     - CInventorySystem は「プレイヤーが保持するアイテム」の slot ベース在庫。
 //       購入完了後に AddItem() を呼んでもらう橋渡し設計 (本クラスはストア非依存)。
-//   ・Pillar O FCharacterCustomizer との違い:
-//     - FCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
-//     - FInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
-//   ・Pillar O FEntitlementRegistry との違い:
-//     - FEntitlementRegistry は「DLC / FSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
-//     - FInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
+//   ・Pillar O CCharacterCustomizer との違い:
+//     - CCharacterCustomizer は cosmetic (見た目装着) — slot 単位で最大 1 つ、stack なし。
+//     - CInventorySystem は使用アイテム / 素材 / クエスト系 — stack あり、slot 数固定。
+//   ・Pillar O CEntitlementRegistry との違い:
+//     - CEntitlementRegistry は「DLC / CSeasonPass 等の永続権利フラグ」(持っているかの真偽)。
+//     - CInventorySystem は「個数を持つ消費可能アイテム」(stack 数を持つ)。
 //
 // 使い方:
-//   FInventorySystem inv;
+//   CInventorySystem inv;
 //   inv.Init(/*slot_count=*/ 30);
 //
 //   // 起動時にアイテム定義を一度ずつ登録。
@@ -43,7 +43,7 @@
 //
 // 設計選択 (Pillar O/G):
 //   ・**Item 定義は単一 TArray<FItemDef>**: アイテム数は AAA でも 500〜2000 のオーダー、
-//     線形走査で十分 (FEntitlementRegistry / FEconomyDirector と同じ判断)。
+//     線形走査で十分 (CEntitlementRegistry / CEconomyDirector と同じ判断)。
 //   ・**FInventorySlot data は固定長 TArray<FInventorySlot>**: Init(slot_count) で Resize し、
 //     以降は伸縮しない (= UI が想定する slot grid と一致)。slot 内 item_id == nullptr
 //     を「空 slot」として表す。
@@ -63,7 +63,7 @@
 //     user. 複数 listener が必要なら呼出側で fan-out。slot 内容が変わるたびに呼ぶ
 //     (Add / Remove / Move / Drop / ClearAll すべて。ClearAll は loop 防止のため呼ばない)。
 //   ・**重複登録は黙って弾く + WARN**: 同 id の 2 重 RegisterItem は no-op
-//     (アセット二重ロード保護)。FEconomyDirector / FEntitlementRegistry と同じパターン。
+//     (アセット二重ロード保護)。CEconomyDirector / CEntitlementRegistry と同じパターン。
 //   ・**Init は冪等に再構築**: 既に Init 済みでも slot_count を変更して呼べる
 //     (slot 数が違う場合は内容クリアして resize)。同じ slot_count なら no-op。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -73,7 +73,7 @@
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。slot 内容は起動毎にリセット。
 //   ・装備品の性能 / バフ — 本クラスは「持ってる個数」だけを真実とし、性能は別 Manager。
 //   ・アイテムカテゴリでのフィルタリング — UI 側で実装 (本クラスは AllSlots を提供)。
-//   ・craft / 合成 / 消費レシピ — 別 Manager (FCraftingSystem 等)。
+//   ・craft / 合成 / 消費レシピ — 別 Manager (CCraftingSystem 等)。
 //   ・サーバ側の在庫検証 — Pillar V Backend Services に委譲。
 //   ・重量制限 / encumbrance — 本クラスは slot 数固定のみ。重量制は別 Manager。
 //   ・並べ替え / 自動ソート — UI 側で MoveSlot を連打して実装可能。
@@ -95,7 +95,7 @@ enum class EItemCategory : u8 {
     /** ポーション / 食料 / 弾薬等の消費アイテム。 */
     Consumable = 0,
 
-    /** 装備品 (見た目 cosmetic は FCharacterCustomizer 側)。 */
+    /** 装備品 (見た目 cosmetic は CCharacterCustomizer 側)。 */
     Equipment  = 1,
 
     /** クラフト素材 / 鉱石 / ハーブ等。 */
@@ -152,7 +152,7 @@ struct FInventorySlot {
  * 固定 slot 数 × stack 可能アイテムモデルで、プレイヤーが持ち歩くアイテムを保持する。
  * 全 noexcept、非コピー・非ムーブ。const char* は非所有 (呼出側が長寿命を保証)。
  */
-class FInventorySystem {
+class CInventorySystem {
 public:
     /**
      * slot 変更通知コールバック (C 関数ポインタ + user)。
@@ -166,22 +166,22 @@ public:
     using ChangeCallback = void(*)(void* user, u32 slot_index, const char* item_id, u32 count) noexcept;
 
     /** 空状態 (slot 数 0) で構築する。 */
-    FInventorySystem()  noexcept = default;
+    CInventorySystem()  noexcept = default;
 
     /** 破棄する (内部 TArray が解放)。 */
-    ~FInventorySystem() noexcept = default;
+    ~CInventorySystem() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FInventorySystem(const FInventorySystem&)            = delete;
+    CInventorySystem(const CInventorySystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInventorySystem& operator=(const FInventorySystem&) = delete;
+    CInventorySystem& operator=(const CInventorySystem&) = delete;
 
     /** ムーブ禁止。 */
-    FInventorySystem(FInventorySystem&&)                 = delete;
+    CInventorySystem(CInventorySystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInventorySystem& operator=(FInventorySystem&&)      = delete;
+    CInventorySystem& operator=(CInventorySystem&&)      = delete;
 
     /**
      * slot 数を設定する (冪等に再構築)。
@@ -340,5 +340,8 @@ private:
     /** ChangeCallback に渡すユーザコンテキスト (Manager は所有しない)。 */
     void*          m_OnChangeUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FInventorySystem = CInventorySystem;
 
 } // namespace acs::game

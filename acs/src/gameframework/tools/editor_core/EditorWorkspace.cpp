@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorWorkspace 実装
+// GameFramework Tools — editor_core / CEditorWorkspace 実装
 //
-// 仕様の意図は FEditorWorkspace.h を参照。本ファイルでは:
-//   ・panel 登録 / 解除 / 探索 (TArray<FEditorPanel*> ベース)
+// 仕様の意図は CEditorWorkspace.h を参照。本ファイルでは:
+//   ・panel 登録 / 解除 / 探索 (TArray<AEditorPanel*> ベース)
 //   ・1 フレーム駆動 (OnFrameBegin → DockSpace → MenuBar → DrawUI)
 //   ・ImGui DockSpaceOverViewport の生成
 //   ・Window / Layout メニューの描画
 //   ・`.acslayout` 形式 (テキスト: magic + ImGui ini + per-panel state) の save/load
-//   ・FSelectionService 参照保管 + Broadcast の fan-out
+//   ・CSelectionService 参照保管 + Broadcast の fan-out
 // を実装する。全 noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 
 #include "gameframework/tools/editor_core/EditorWorkspace.h"
@@ -92,7 +92,7 @@ bool TryPosixAtomicReplace(
     constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, file_name);
     alignas(FFileRenameInfoEx)
         u8 storage[kPrefixBytes +
-                   (FEditorWorkspace::kMaxPersistencePathChars + 1u) *
+                   (CEditorWorkspace::kMaxPersistencePathChars + 1u) *
                        sizeof(wchar_t)]{};
     auto* info = reinterpret_cast<FFileRenameInfoEx*>(storage);
     const usize destination_bytes = destination_length * sizeof(wchar_t);
@@ -162,7 +162,7 @@ bool ParseUsizeToken(const FToken& token, usize& out) noexcept {
 /** panel title に許す byte 列かを検証する。内部の ASCII space だけを許可する。 */
 bool IsValidPanelTitleBytes(const char* title, usize length) noexcept {
     if (title == nullptr || length == 0u ||
-        length > FEditorWorkspace::kMaxPanelTitleBytes) {
+        length > CEditorWorkspace::kMaxPanelTitleBytes) {
         return false;
     }
     if (title[0] == ' ' || title[length - 1u] == ' ') return false;
@@ -176,7 +176,7 @@ bool IsValidPanelTitleBytes(const char* title, usize length) noexcept {
 bool IsValidPanelTitle(const char* title, usize& out_length) noexcept {
     out_length = 0u;
     if (title == nullptr) return false;
-    while (out_length <= FEditorWorkspace::kMaxPanelTitleBytes &&
+    while (out_length <= CEditorWorkspace::kMaxPanelTitleBytes &&
            title[out_length] != '\0') {
         ++out_length;
     }
@@ -200,7 +200,7 @@ bool IsPanelFieldSeparator(char c) noexcept {
  * @param p 判定する panel。
  * @return 登録対象として安全なら true。
  */
-static bool IsRegistrablePanel(const FEditorPanel* p) noexcept {
+static bool IsRegistrablePanel(const AEditorPanel* p) noexcept {
     if (p == nullptr) return false;
     if (p->Title() == nullptr) return false;
     return true;
@@ -223,7 +223,7 @@ static bool StrEqual(const char* a, const char* b) noexcept {
 }
 
 /** panel list / 参照 / フラグを default にリセットする。 */
-void FEditorWorkspace::Init() noexcept {
+void CEditorWorkspace::Init() noexcept {
     // 完全リセット: 登録 panel list を空に、参照 / フラグを default に。
     // 容量は保持 (Clear は size=0 にするだけ、capacity はそのまま)。
     m_Panels.Clear();
@@ -235,13 +235,13 @@ void FEditorWorkspace::Init() noexcept {
     m_EnableMenuBar            = true;
 }
 
-/** 全 panel に OnShutdown を呼び、list と FSelectionService 参照を解放する。 */
-void FEditorWorkspace::Shutdown() noexcept {
+/** 全 panel に OnShutdown を呼び、list と CSelectionService 参照を解放する。 */
+void CEditorWorkspace::Shutdown() noexcept {
     // 登録済み panel に OnShutdown を呼び、list を空にする。
     // 呼び出し順は登録順 (= Init / Tick と同じ順序で逆順にしない)。
     const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = m_Panels[i];
+        AEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
             p->OnShutdown();
         }
@@ -254,7 +254,7 @@ void FEditorWorkspace::Shutdown() noexcept {
 }
 
 /** panel を末尾に追加し、登録後に OnInit を呼ぶ (二重登録 / 上限超過は弾く)。 */
-void FEditorWorkspace::RegisterPanel(FEditorPanel* panel) noexcept {
+void CEditorWorkspace::RegisterPanel(AEditorPanel* panel) noexcept {
     if (!IsRegistrablePanel(panel)) {
         // null / Title() == nullptr の panel は silent no-op。
         // ログを出すと panel コンストラクト直後のリテラル静的初期化前に呼ばれた
@@ -280,7 +280,7 @@ void FEditorWorkspace::RegisterPanel(FEditorPanel* panel) noexcept {
 }
 
 /** OnShutdown を呼んでから panel を順序保存削除 (shift) する。 */
-void FEditorWorkspace::UnregisterPanel(FEditorPanel* panel) noexcept {
+void CEditorWorkspace::UnregisterPanel(AEditorPanel* panel) noexcept {
     if (panel == nullptr) return;
     const i32 idx = FindPanelIndex(panel);
     if (idx == kInvalidIndex) return;
@@ -291,7 +291,7 @@ void FEditorWorkspace::UnregisterPanel(FEditorPanel* panel) noexcept {
     panel->OnShutdown();
 
     // 順序保存削除 (shift)。RemoveAtSwap は使わない (= UI 表示順を保ちたい)。
-    // TArray に Erase API が無いため手書きシフト (= FParticleEditorPanel と同形)。
+    // TArray に Erase API が無いため手書きシフト (= AParticleEditorPanel と同形)。
     const usize sel = static_cast<usize>(idx);
     for (usize i = sel + 1; i < m_Panels.Size(); ++i) {
         m_Panels[i - 1] = m_Panels[i];
@@ -300,22 +300,22 @@ void FEditorWorkspace::UnregisterPanel(FEditorPanel* panel) noexcept {
 }
 
 /** 現在の登録 panel 数を返す。 */
-u32 FEditorWorkspace::PanelCount() const noexcept {
+u32 CEditorWorkspace::PanelCount() const noexcept {
     return static_cast<u32>(m_Panels.Size());
 }
 
 /** index 番目の panel を返す (範囲外は nullptr)。 */
-FEditorPanel* FEditorWorkspace::GetPanelByIndex(u32 i) const noexcept {
+AEditorPanel* CEditorWorkspace::GetPanelByIndex(u32 i) const noexcept {
     if (i >= static_cast<u32>(m_Panels.Size())) return nullptr;
     return m_Panels[static_cast<usize>(i)];
 }
 
 /** Title が strcmp 一致する panel を返す (なければ nullptr)。 */
-FEditorPanel* FEditorWorkspace::FindPanelByTitle(const char* title) const noexcept {
+AEditorPanel* CEditorWorkspace::FindPanelByTitle(const char* title) const noexcept {
     if (title == nullptr) return nullptr;
     const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = m_Panels[i];
+        AEditorPanel* p = m_Panels[i];
         if (p == nullptr) continue;
         if (StrEqual(p->Title(), title)) {
             return p;
@@ -325,21 +325,21 @@ FEditorPanel* FEditorWorkspace::FindPanelByTitle(const char* title) const noexce
 }
 
 /** Title 一致 panel の可視状態を反転する (未発見は no-op)。 */
-void FEditorWorkspace::TogglePanelVisible(const char* title) noexcept {
-    FEditorPanel* p = FindPanelByTitle(title);
+void CEditorWorkspace::TogglePanelVisible(const char* title) noexcept {
+    AEditorPanel* p = FindPanelByTitle(title);
     if (p == nullptr) return;
     p->SetVisible(!p->IsVisible());
 }
 
 /** OnFrameBegin → DockSpace → MenuBar → DrawUI の順で 1 フレーム駆動する。 */
-void FEditorWorkspace::TickAllPanels(f32 dt) noexcept {
+void CEditorWorkspace::TickAllPanels(f32 dt) noexcept {
     // 1) OnFrameBegin: 非 visible panel もバックグラウンド処理 (非同期 I/O,
     //    polling, animation timer 等) を進める可能性があるため、visibility を
     //    問わず全 panel に呼ぶ。
     {
         const usize n = m_Panels.Size();
         for (usize i = 0; i < n; ++i) {
-            FEditorPanel* p = m_Panels[i];
+            AEditorPanel* p = m_Panels[i];
             if (p != nullptr) {
                 p->OnFrameBegin(dt);
             }
@@ -363,7 +363,7 @@ void FEditorWorkspace::TickAllPanels(f32 dt) noexcept {
     {
         const usize n = m_Panels.Size();
         for (usize i = 0; i < n; ++i) {
-            FEditorPanel* p = m_Panels[i];
+            AEditorPanel* p = m_Panels[i];
             if (p != nullptr) {
                 p->DrawUI();
             }
@@ -372,7 +372,7 @@ void FEditorWorkspace::TickAllPanels(f32 dt) noexcept {
 }
 
 /** main viewport に DockSpace を貼る (docking 非対応 ImGui では no-op)。 */
-void FEditorWorkspace::DrawDockSpace() noexcept {
+void CEditorWorkspace::DrawDockSpace() noexcept {
 #if ACS_EDITOR_HAS_IMGUI_DOCK
     // ImGui::DockSpaceOverViewport は main viewport の client area 全体に
     // ID 0 / null viewport (= 自動でメインを選択) で DockSpace を貼る。
@@ -394,7 +394,7 @@ void FEditorWorkspace::DrawDockSpace() noexcept {
 }
 
 /** MainMenuBar に Window (panel toggle) / Layout (save / load) メニューを描画する。 */
-void FEditorWorkspace::DrawMenuBar() noexcept {
+void CEditorWorkspace::DrawMenuBar() noexcept {
     if (!ImGui::BeginMainMenuBar()) {
         return;
     }
@@ -406,7 +406,7 @@ void FEditorWorkspace::DrawMenuBar() noexcept {
             ImGui::TextDisabled("(no panels registered)");
         } else {
             for (usize i = 0; i < n; ++i) {
-                FEditorPanel* p = m_Panels[i];
+                AEditorPanel* p = m_Panels[i];
                 if (p == nullptr) continue;
                 const char* title = p->Title();
                 if (title == nullptr) continue;
@@ -473,7 +473,7 @@ const char* FEditorWorkspacePersistenceResult::ErrorName(
     return "Unknown";
 }
 
-FEditorWorkspacePersistenceResult FEditorWorkspace::TryParseLayoutText(
+FEditorWorkspacePersistenceResult CEditorWorkspace::TryParseLayoutText(
     const char* text, usize text_size) noexcept {
     FEditorWorkspacePersistenceResult result{};
     result.bytes_processed = static_cast<u64>(text_size);
@@ -491,7 +491,7 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TryParseLayoutText(
     }
 
     struct FPanelChange {
-        FEditorPanel* panel = nullptr;
+        AEditorPanel* panel = nullptr;
         bool visible = false;
         bool dock_target = false;
     };
@@ -713,7 +713,7 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TryParseLayoutText(
     return result;
 }
 
-FEditorWorkspacePersistenceResult FEditorWorkspace::TryLoadLayout(
+FEditorWorkspacePersistenceResult CEditorWorkspace::TryLoadLayout(
     const wchar_t* file_path) noexcept {
     FEditorWorkspacePersistenceResult result{};
     usize path_length = 0u;
@@ -812,7 +812,7 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TryLoadLayout(
     return result;
 }
 
-FEditorWorkspacePersistenceResult FEditorWorkspace::TrySaveLayout(
+FEditorWorkspacePersistenceResult CEditorWorkspace::TrySaveLayout(
     const wchar_t* file_path) noexcept {
     FEditorWorkspacePersistenceResult result{};
     usize path_length = 0u;
@@ -847,7 +847,7 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TrySaveLayout(
     }
     usize title_lengths[kMaxPanels]{};
     for (usize i = 0u; i < panel_count; ++i) {
-        const FEditorPanel* panel = m_Panels[i];
+        const AEditorPanel* panel = m_Panels[i];
         if (panel == nullptr || panel->Title() == nullptr) {
             result.error = EEditorWorkspacePersistenceError::InvalidTitle;
             return result;
@@ -892,7 +892,7 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TrySaveLayout(
         return result;
     }
     for (usize i = 0u; i < panel_count; ++i) {
-        const FEditorPanel* panel = m_Panels[i];
+        const AEditorPanel* panel = m_Panels[i];
         line_size = std::snprintf(
             line, sizeof(line), "PANEL %s %u %u\n",
             panel->Title(), panel->IsVisible() ? 1u : 0u,
@@ -982,7 +982,7 @@ FEditorWorkspacePersistenceResult FEditorWorkspace::TrySaveLayout(
     return result;
 }
 
-void FEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
+void CEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     const FEditorWorkspacePersistenceResult result = TrySaveLayout(file_path);
     if (!result.Succeeded()) {
@@ -993,7 +993,7 @@ void FEditorWorkspace::SaveLayout(const wchar_t* file_path) noexcept {
     }
 }
 
-void FEditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
+void CEditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     const FEditorWorkspacePersistenceResult result = TryLoadLayout(file_path);
     if (!result.Succeeded() &&
@@ -1005,26 +1005,26 @@ void FEditorWorkspace::LoadLayout(const wchar_t* file_path) noexcept {
     }
 }
 
-/** FSelectionService 参照を登録 / 解除する。 */
-void FEditorWorkspace::SetSelectionService(inspector::FSelectionService* svc) noexcept {
+/** CSelectionService 参照を登録 / 解除する。 */
+void CEditorWorkspace::SetSelectionService(inspector::CSelectionService* svc) noexcept {
     m_SelectionService = svc;
 }
 
-/** 現在登録されている FSelectionService を返す。 */
-inspector::FSelectionService* FEditorWorkspace::GetSelectionService() const noexcept {
+/** 現在登録されている CSelectionService を返す。 */
+inspector::CSelectionService* CEditorWorkspace::GetSelectionService() const noexcept {
     return m_SelectionService;
 }
 
 /** 全 panel に OnSelectionChanged を fan-out する (未注入時は no-op)。 */
-void FEditorWorkspace::BroadcastSelectionChanged() noexcept {
+void CEditorWorkspace::BroadcastSelectionChanged() noexcept {
     if (m_SelectionService == nullptr) {
-        // panel 側の OnSelectionChanged シグネチャが FSelectionService& 必須なので、
+        // panel 側の OnSelectionChanged シグネチャが CSelectionService& 必須なので、
         // 未注入時は呼べない。silent no-op (= editor 起動初期化中の呼出しも安全)。
         return;
     }
     const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = m_Panels[i];
+        AEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
             p->OnSelectionChanged(*m_SelectionService);
         }
@@ -1032,12 +1032,12 @@ void FEditorWorkspace::BroadcastSelectionChanged() noexcept {
 }
 
 /** 全 panel に OnAssetSelected を fan-out する (nullptr は選択解除として伝播)。 */
-void FEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
+void CEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
     // asset_path == nullptr は「選択解除」として panel に伝播する規約
-    // (FEditorPanel.h の OnAssetSelected コメント参照)。null チェックはしない。
+    // (AEditorPanel.h の OnAssetSelected コメント参照)。null チェックはしない。
     const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {
-        FEditorPanel* p = m_Panels[i];
+        AEditorPanel* p = m_Panels[i];
         if (p != nullptr) {
             p->OnAssetSelected(asset_path);
         }
@@ -1045,7 +1045,7 @@ void FEditorWorkspace::BroadcastAssetSelected(const char* asset_path) noexcept {
 }
 
 /** panel をポインタ完全一致で探索する (未ヒットは kInvalidIndex)。 */
-i32 FEditorWorkspace::FindPanelIndex(const FEditorPanel* panel) const noexcept {
+i32 CEditorWorkspace::FindPanelIndex(const AEditorPanel* panel) const noexcept {
     if (panel == nullptr) return kInvalidIndex;
     const usize n = m_Panels.Size();
     for (usize i = 0; i < n; ++i) {

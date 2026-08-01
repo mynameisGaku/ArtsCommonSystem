@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Reversible FScene host for legacy ACS3D editor documents.
+// Reversible AScene host for legacy ACS3D editor documents.
 #pragma once
 
 #include "foundation/Types.h"
@@ -26,7 +26,7 @@ class AMeshComponent3D;
 class AWaterSurface3DComponent;
 
 /**
- * Exact gameplay hit returned by FLegacyScene3DAdapter::RaycastWater.
+ * Exact gameplay hit returned by ALegacyScene3DAdapter::RaycastWater.
  *
  * @details Point and normal are expressed in world space. Distance is the
  * parameter on the caller's ray (`origin + direction * distance`), so callers
@@ -55,20 +55,20 @@ enum class ESceneProjectionMode : u8 {
 };
 
 /**
- * Standalone FScene bridge for the legacy `ACS3D v2` document adapter.
+ * Standalone AScene bridge for the legacy `ACS3D v2` document adapter.
  *
  * @details The owned graph is the same ANode/FTransform3D graph used by the editor. This class is
  * intentionally an adapter rather than a second permanent scene asset type: packages expose one
  * `main.acscene` bootstrap entry and choose the legacy .acscene/.acs3d reader from its validated
  * header. Sprite batching, Canvas/UI, and 2D physics stay on their dedicated runtime path.
  */
-class FLegacyScene3DAdapter : public FScene {
+class ALegacyScene3DAdapter : public AScene {
 public:
-    FLegacyScene3DAdapter() noexcept = default;
-    ~FLegacyScene3DAdapter() noexcept override;
+    ALegacyScene3DAdapter() noexcept = default;
+    ~ALegacyScene3DAdapter() noexcept override;
 
-    FLegacyScene3DAdapter(const FLegacyScene3DAdapter&) = delete;
-    FLegacyScene3DAdapter& operator=(const FLegacyScene3DAdapter&) = delete;
+    ALegacyScene3DAdapter(const ALegacyScene3DAdapter&) = delete;
+    ALegacyScene3DAdapter& operator=(const ALegacyScene3DAdapter&) = delete;
 
     /** Load a loose legacy ACS3D document and all of its mesh/material dependencies. */
     FScene3DLoadResult LoadFile(const char* path = "main.acscene") noexcept;
@@ -82,10 +82,10 @@ public:
         const char* virtual_path = "main.acscene") noexcept;
 
     /** Mutable canonical ANode graph used by gameplay components. */
-    FScene3D& Graph() noexcept { return m_Graph; }
+    CScene3D& Graph() noexcept { return m_Graph; }
 
     /** Read-only canonical ANode graph. */
-    const FScene3D& Graph() const noexcept { return m_Graph; }
+    const CScene3D& Graph() const noexcept { return m_Graph; }
 
     /** Last checked document/dependency result. */
     const FScene3DLoadResult& LoadResult() const noexcept { return m_LoadResult; }
@@ -324,7 +324,7 @@ private:
         return m_HdrShaders[m_HdrActiveSlot];
     }
 
-    FScene3D m_Graph;
+    CScene3D m_Graph;
     FScene3DLoadResult m_LoadResult{};
     FPbrShader m_HdrShaders[2];
     FPbrShader::FCompiledShaders m_HdrPendingShaders{};
@@ -415,5 +415,8 @@ private:
     bool m_GpuReady = false;
     bool m_GpuAttempted = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLegacyScene3DAdapter = ALegacyScene3DAdapter;
 
 } // namespace acs::game

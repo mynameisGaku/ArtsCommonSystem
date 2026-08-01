@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FDebugOverlay (state holder)
+// GameFramework Pillar H — CDebugOverlay (state holder)
 //
 // FPS / メモリ / シーン名 / カスタム watch をテキストで表示するための **状態保持
 // クラス**。実描画 (FSpriteBatch / ImGui / `acs::easy::DrawString` 等) は呼出し側の
@@ -7,8 +7,8 @@
 // しない (テスト / Headless 環境でも動作)。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FDebugOverlay m_Overlay;
+//   class FGameplayScene : public AScene {
+//       acs::game::CDebugOverlay m_Overlay;
 //       void OnEnter() noexcept override {
 //           m_Overlay.Init();
 //           m_Overlay.SetSceneName("Gameplay");
@@ -69,7 +69,7 @@ namespace acs::game {
  * 最小 / 最大を計測する。watch は label / value とも caller 所有のポインタを保持
  * するだけで複製しない。非コピー・非ムーブ。
  */
-class FDebugOverlay {
+class CDebugOverlay {
 public:
     /**
      * 1 行の watch エントリ。
@@ -86,22 +86,22 @@ public:
     };
 
     /** 空状態で構築する (内部バッファは Init で確保)。 */
-    FDebugOverlay() noexcept = default;
+    CDebugOverlay() noexcept = default;
 
     /** 破棄する (TArray が内部バッファを解放)。 */
-    ~FDebugOverlay() noexcept = default;
+    ~CDebugOverlay() noexcept = default;
 
     /** コピー禁止 (履歴 / watches の所有権を曖昧にしないため)。 */
-    FDebugOverlay(const FDebugOverlay&)            = delete;
+    CDebugOverlay(const CDebugOverlay&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDebugOverlay& operator=(const FDebugOverlay&) = delete;
+    CDebugOverlay& operator=(const CDebugOverlay&) = delete;
 
     /** ムーブ禁止 (履歴 / watches の所有権を曖昧にしないため)。 */
-    FDebugOverlay(FDebugOverlay&&)                 = delete;
+    CDebugOverlay(CDebugOverlay&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDebugOverlay& operator=(FDebugOverlay&&)      = delete;
+    CDebugOverlay& operator=(CDebugOverlay&&)      = delete;
 
     /**
      * 内部バッファを事前確保する。
@@ -249,5 +249,8 @@ private:
     /** 可視フラグ (false なら描画側が表示しない想定)。 */
     bool          m_Visible      = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDebugOverlay = CDebugOverlay;
 
 } // namespace acs::game

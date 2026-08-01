@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — FLevelEditorPanel 実装
+// GameFramework Pillar — ALevelEditorPanel 実装
 //
-// 仕様の意図は FLevelEditorPanel.h を参照。本ファイルでは:
-//   ・FEditorPanel 基底 hook (OnInit / DrawUI) の override
+// 仕様の意図は ALevelEditorPanel.h を参照。本ファイルでは:
+//   ・AEditorPanel 基底 hook (OnInit / DrawUI) の override
 //   ・SetTilemap / brush / layer / tile id / show grid / snap-to-grid のアクセサ
 //   ・ImGui canvas (InvisibleButton + ImDrawList) ベースの tilemap 描画 +
 //     マウス → world → tile 座標変換 + 4 ブラシ (Paint/Erase/Fill/Pick) の処理
@@ -176,9 +176,9 @@ void FloodFill(class FTilemap& map, u32 layer,
 
 } // anonymous namespace
 
-/** 内部 state をデフォルトに初期化する (FEditorCamera を 2D mode で Init)。 */
-void FLevelEditorPanel::Init() noexcept {
-    // FEditorCamera を 2D mode で完全初期化 (= position=origin, zoom=1.0)。
+/** 内部 state をデフォルトに初期化する (CEditorCamera を 2D mode で Init)。 */
+void ALevelEditorPanel::Init() noexcept {
+    // CEditorCamera を 2D mode で完全初期化 (= position=origin, zoom=1.0)。
     m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
     // tilemap 1 セル = 16 world unit が典型 (FTilemap.h default) なので、
     // base ortho size を「32 セル分 = 512」相当にしておくと初期表示で 32x32
@@ -200,9 +200,9 @@ void FLevelEditorPanel::Init() noexcept {
     m_DockedTarget = true;
 }
 
-/** 内部 state を全解放する (tilemap 参照解除 + FEditorCamera Reset)。 */
-void FLevelEditorPanel::Shutdown() noexcept {
-    // FEditorCamera は POD だが明示 Reset で確定状態にする。
+/** 内部 state を全解放する (tilemap 参照解除 + CEditorCamera Reset)。 */
+void ALevelEditorPanel::Shutdown() noexcept {
+    // CEditorCamera は POD だが明示 Reset で確定状態にする。
     m_Camera.Reset();
     m_Tilemap     = nullptr;
     m_SelectedX  = kNoCoord;
@@ -210,7 +210,7 @@ void FLevelEditorPanel::Shutdown() noexcept {
 }
 
 /** 編集対象の FTilemap を raw 参照でセットし、active_layer と selection を整える。 */
-void FLevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
+void ALevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
     m_Tilemap = tm;
     // active_layer を LayerCount() でクランプ (= 別 tilemap に切替えたら
     // 前 tilemap の layer 番号は無意味)。
@@ -228,43 +228,43 @@ void FLevelEditorPanel::SetTilemap(class FTilemap* tm) noexcept {
 }
 
 /** 現在編集対象の FTilemap を返す (未バインド時は nullptr)。 */
-class FTilemap* FLevelEditorPanel::CurrentTilemap() const noexcept {
+class FTilemap* ALevelEditorPanel::CurrentTilemap() const noexcept {
     return m_Tilemap;
 }
 
-/** 内部 FEditorCamera (Mode2D) への参照を返す。 */
-acs::game::editor_core::FEditorCamera& FLevelEditorPanel::Camera() noexcept {
+/** 内部 CEditorCamera (Mode2D) への参照を返す。 */
+acs::game::editor_core::CEditorCamera& ALevelEditorPanel::Camera() noexcept {
     return m_Camera;
 }
 
 /** 現在のブラシ種別を返す。 */
-EBrushKind FLevelEditorPanel::CurrentBrush() const noexcept {
+EBrushKind ALevelEditorPanel::CurrentBrush() const noexcept {
     return m_Brush;
 }
 
 /** ブラシ種別を設定する。 */
-void FLevelEditorPanel::SetCurrentBrush(EBrushKind b) noexcept {
+void ALevelEditorPanel::SetCurrentBrush(EBrushKind b) noexcept {
     m_Brush = b;
 }
 
 /** 現在ペイント中の tile id を返す。 */
-u16 FLevelEditorPanel::CurrentTileId() const noexcept {
+u16 ALevelEditorPanel::CurrentTileId() const noexcept {
     return m_CurrentTileId;
 }
 
 /** ペイントする tile id を設定する (kTileIdMax でクランプ)。 */
-void FLevelEditorPanel::SetCurrentTileId(u16 id) noexcept {
+void ALevelEditorPanel::SetCurrentTileId(u16 id) noexcept {
     if (id > kTileIdMax) id = kTileIdMax;
     m_CurrentTileId = id;
 }
 
 /** アクティブレイヤ番号を返す。 */
-u32 FLevelEditorPanel::ActiveLayer() const noexcept {
+u32 ALevelEditorPanel::ActiveLayer() const noexcept {
     return m_ActiveLayer;
 }
 
 /** アクティブレイヤ番号を設定する (tilemap バインド時は LayerCount でクランプ)。 */
-void FLevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
+void ALevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
     // tilemap がある場合は LayerCount でクランプ、無い場合はそのまま受け入れる
     // (後で SetTilemap でクランプされる)。
     if (m_Tilemap != nullptr) {
@@ -279,34 +279,34 @@ void FLevelEditorPanel::SetActiveLayer(u32 layer) noexcept {
 }
 
 /** grid 表示フラグを返す。 */
-bool FLevelEditorPanel::ShowGrid() const noexcept {
+bool ALevelEditorPanel::ShowGrid() const noexcept {
     return m_ShowGrid;
 }
 
 /** grid 表示フラグを設定する。 */
-void FLevelEditorPanel::SetShowGrid(bool b) noexcept {
+void ALevelEditorPanel::SetShowGrid(bool b) noexcept {
     m_ShowGrid = b;
 }
 
 /** snap-to-grid 表示フラグを返す。 */
-bool FLevelEditorPanel::SnapToGrid() const noexcept {
+bool ALevelEditorPanel::SnapToGrid() const noexcept {
     return m_SnapToGrid;
 }
 
 /** snap-to-grid 表示フラグを設定する。 */
-void FLevelEditorPanel::SetSnapToGrid(bool b) noexcept {
+void ALevelEditorPanel::SetSnapToGrid(bool b) noexcept {
     m_SnapToGrid = b;
 }
 
-/** Workspace 登録時の初期化フック (基底実装 + FEditorCamera を 2D mode で再初期化)。 */
-void FLevelEditorPanel::OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept {
-    FEditorPanel::OnInit(workspace);
+/** Workspace 登録時の初期化フック (基底実装 + CEditorCamera を 2D mode で再初期化)。 */
+void ALevelEditorPanel::OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept {
+    AEditorPanel::OnInit(workspace);
     m_Camera.Init(acs::game::editor_core::EEditorCameraMode::Mode2D);
     m_Camera.SetBaseOrthoSize(512.0f);
 }
 
 /** Toolbar + viewport canvas + inspector を 1 window レイアウトで描画する。 */
-void FLevelEditorPanel::DrawUI() noexcept {
+void ALevelEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &m_Visible)) {
@@ -420,7 +420,7 @@ void FLevelEditorPanel::DrawUI() noexcept {
         const ImGuiIO& io = ImGui::GetIO();
         const ImVec2 mouse = io.MousePos;
 
-        // FEditorCamera 状態を取得 (2D position と zoom)。
+        // CEditorCamera 状態を取得 (2D position と zoom)。
         const acs::game::editor_core::FEditorCameraState& cs = m_Camera.State();
         const f32 cam_x = cs.position.x;
         const f32 cam_y = cs.position.y;

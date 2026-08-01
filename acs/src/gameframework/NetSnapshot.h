@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FNetSnapshot
+// GameFramework Pillar M — CNetSnapshot
 //   server-authoritative snapshot ベースのネットコード seam
 //
 // 役割:
@@ -13,14 +13,14 @@
 //      Source / Halo / Valorant 等で採用されている定石)。
 //   3) **transport の差し替え**: 実 socket / Steam Datagram Relay / loopback
 //      テスト fake のいずれを使うかは INetTransport seam で抽象化し、本クラスは
-//      send/recv バイト列だけを扱う。FLockstep (deterministic input replay) と
+//      send/recv バイト列だけを扱う。CLockstep (deterministic input replay) と
 //      並ぶもう一つの netcode 流儀を提供する。
 //
-// FLockstep との対比:
-//   ・**FLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
+// CLockstep との対比:
+//   ・**CLockstep**: 全プレイヤーが同じ入力を受信し、同じ deterministic
 //     simulation を回す (=「結果」ではなく「入力」を配信する)。
 //     格闘ゲーム / RTS / GGPO 系で標準。
-//   ・**FNetSnapshot**: server が 1 体の authoritative simulation を回し、
+//   ・**CNetSnapshot**: server が 1 体の authoritative simulation を回し、
 //     client は受け取った snapshot を補間表示するだけ (=「結果」だけを配信)。
 //     FPS / TPS / MMORPG 系で標準。
 //   どちらを採用するかはジャンル次第。両方を seam として提供し、タイトル
@@ -30,7 +30,7 @@
 //   FNetSnapshotConfig cfg{ /*snapshot_rate_hz=*/30, /*buffer_capacity=*/64,
 //                          /*interpolation_delay_sec=*/0.1f,
 //                          /*max_payload_bytes=*/8192 };
-//   FNetSnapshot snap;
+//   CNetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Server, &transport);
 //
 //   // 毎 simulation tick:
@@ -40,7 +40,7 @@
 //   snap.CommitSnapshot(world.CurrentTick());  // ← Send まで実行
 //
 // 使い方 (client 側):
-//   FNetSnapshot snap;
+//   CNetSnapshot snap;
 //   snap.Init(cfg, ENetRole::Client, &transport);
 //
 //   // 毎フレーム:
@@ -83,7 +83,7 @@
 //     buffer_capacity (= 数十) なので O(N) で十分。
 //   ・**全 noexcept / STL 不使用 / TResult<T, FErrorCode>**: ACS 全体方針。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 オブジェクトの長寿命 (transport
-//     との結合関係を分裂させないため FLockstep / IBackendClient と同じ方針)。
+//     との結合関係を分裂させないため CLockstep / IBackendClient と同じ方針)。
 #pragma once
 
 #include "container/Array.h"
@@ -94,7 +94,7 @@
 namespace acs::game {
 
 /**
- * FNetSnapshot の動作役割。
+ * CNetSnapshot の動作役割。
  *
  * @details
  * role によって有効な API が変わる。送信側 (Server / ServerListener) は
@@ -164,7 +164,7 @@ struct FEntitySnapshot {
 };
 
 /**
- * FNetSnapshot のランタイム設定。
+ * CNetSnapshot のランタイム設定。
  *
  * @details
  * snapshot_rate_hz は server 側の Commit 頻度の目安で、本クラスは自動 throttle
@@ -286,10 +286,10 @@ public:
 };
 
 /**
- * FNetSnapshot + FNetTransportStub + FUdpTransport 共通のエラー subcode。
+ * CNetSnapshot + CNetTransportStub + CUdpTransport 共通のエラー subcode。
  *
  * @details
- * FErrorCode の subcode として使う。kSub_Wsa* 以降の FUdpTransport 固有コードでは
+ * FErrorCode の subcode として使う。kSub_Wsa* 以降の CUdpTransport 固有コードでは
  * os_error に WSAGetLastError() の値をそのまま載せる。
  */
 struct FNetSnapshotError {
@@ -354,28 +354,28 @@ struct FNetSnapshotError {
         /** UDP datagram が受信 buffer に収まらず切り詰められた。 */
         kSub_DatagramTruncated = 19,
 
-        /** FUdpTransport: WSAStartup 失敗。 */
+        /** CUdpTransport: WSAStartup 失敗。 */
         kSub_WsaStartup = 20,
 
-        /** FUdpTransport: socket() 失敗。 */
+        /** CUdpTransport: socket() 失敗。 */
         kSub_SocketCreate = 21,
 
-        /** FUdpTransport: ioctlsocket(FIONBIO) 失敗。 */
+        /** CUdpTransport: ioctlsocket(FIONBIO) 失敗。 */
         kSub_SetNonBlocking = 22,
 
-        /** FUdpTransport: bind() 失敗 (local port 衝突等)。 */
+        /** CUdpTransport: bind() 失敗 (local port 衝突等)。 */
         kSub_Bind = 23,
 
-        /** FUdpTransport: address 文字列が IPv4 dotted-quad として不正。 */
+        /** CUdpTransport: address 文字列が IPv4 dotted-quad として不正。 */
         kSub_BadAddress = 24,
 
-        /** FUdpTransport: sendto() 失敗 (WSAEWOULDBLOCK 以外)。 */
+        /** CUdpTransport: sendto() 失敗 (WSAEWOULDBLOCK 以外)。 */
         kSub_SendFailed = 25,
 
-        /** FUdpTransport: recvfrom() 失敗 (WSAEWOULDBLOCK 以外)。 */
+        /** CUdpTransport: recvfrom() 失敗 (WSAEWOULDBLOCK 以外)。 */
         kSub_RecvFailed = 26,
 
-        /** FUdpTransport: 既存 socket または WSA 参照の回収に失敗。 */
+        /** CUdpTransport: 既存 socket または WSA 参照の回収に失敗。 */
         kSub_CloseFailed = 27,
 
         /** stub: 未実装。 */
@@ -423,13 +423,13 @@ struct FNetSnapshotTickResult {
  * ビルドに混入したケースを QA で必ず検出できるよう、Connect / Send / Receive は
  * 必ず Err を返す (GetBackendStub() と同じ pattern)。
  */
-class FNetTransportStub final : public INetTransport {
+class CNetTransportStub final : public INetTransport {
 public:
     /** 既定構築。 */
-    FNetTransportStub() noexcept = default;
+    CNetTransportStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FNetTransportStub() noexcept override = default;
+    ~CNetTransportStub() noexcept override = default;
 
     /**
      * 常に kSub_NotImplemented を返す。
@@ -495,13 +495,13 @@ public:
 /**
  * プロセス共有の stub INetTransport を返す。
  *
- * @return 常に NotImplemented を返す FNetTransportStub への参照。
+ * @return 常に NotImplemented を返す CNetTransportStub への参照。
  */
 INetTransport& GetTransportStub() noexcept;
 
-/** FUdpTransport が共有する Winsock 資源の診断スナップショット。 */
+/** CUdpTransport が共有する Winsock 資源の診断スナップショット。 */
 struct FUdpTransportDiagnostics {
-    /** 現在 FUdpTransport 群が所有する WSAStartup 参照数。 */
+    /** 現在 CUdpTransport 群が所有する WSAStartup 参照数。 */
     u32 active_winsock_reference_count = 0;
 
     /** 再試行を待っている WSACleanup エラー。0 は保留なし。 */
@@ -533,15 +533,15 @@ struct FUdpTransportDiagnostics {
  * non-move (INetTransport 由来)。全公開操作はインスタンス単位の排他で直列化され、
  * Connect / Disconnect / Send / Receive を異なるスレッドから呼んでも所有状態を失わない。
  */
-class FUdpTransport final : public INetTransport {
+class CUdpTransport final : public INetTransport {
 public:
     /** 既定構築 (socket は未接続)。 */
-    FUdpTransport() noexcept = default;
+    CUdpTransport() noexcept = default;
 
     /** Disconnect を試み、未回収資源は共有回収処理へ移して再試行可能な状態で破棄する。 */
-    ~FUdpTransport() noexcept override;
+    ~CUdpTransport() noexcept override;
 
-    /** 全 FUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
+    /** 全 CUdpTransport が共有する Winsock 参照・解放失敗の現在値を返す。 */
     static FUdpTransportDiagnostics CaptureDiagnostics() noexcept;
 
     /**
@@ -677,25 +677,25 @@ private:
  * EncodeSnapshot / DecodeSnapshot (transport 非依存の static 純粋関数) が担う。1
  * セッション 1 オブジェクトで non-copy / non-move。
  */
-class FNetSnapshot {
+class CNetSnapshot {
 public:
     /** 既定構築 (Init まで未初期化)。 */
-    FNetSnapshot() noexcept = default;
+    CNetSnapshot() noexcept = default;
 
     /** 破棄する (transport は外部所有なので触らない)。 */
-    ~FNetSnapshot() noexcept = default;
+    ~CNetSnapshot() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクト)。 */
-    FNetSnapshot(const FNetSnapshot&) = delete;
+    CNetSnapshot(const CNetSnapshot&) = delete;
 
     /** コピー代入も禁止。 */
-    FNetSnapshot& operator=(const FNetSnapshot&) = delete;
+    CNetSnapshot& operator=(const CNetSnapshot&) = delete;
 
     /** ムーブ禁止。 */
-    FNetSnapshot(FNetSnapshot&&) = delete;
+    CNetSnapshot(CNetSnapshot&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FNetSnapshot& operator=(FNetSnapshot&&) = delete;
+    CNetSnapshot& operator=(CNetSnapshot&&) = delete;
 
     /**
      * 設定をコピーし ring buffer を確保して初期化する。
@@ -1007,5 +1007,14 @@ private:
     /** transport が Receive 契約に違反した回数。 */
     u32 m_TransportContractViolations = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNetSnapshot = CNetSnapshot;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNetTransportStub = CNetTransportStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FUdpTransport = CUdpTransport;
 
 } // namespace acs::game

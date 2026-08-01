@@ -2,7 +2,7 @@
 // =============================================================================
 // GameFramework — 3D シーン (ANode ツリー) のテキストシリアライズ
 // -----------------------------------------------------------------------------
-// FScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
+// CScene3D の階層 + 各ノードの FTransform3D (pos/euler/scale) + AMeshComponent3D
 // (prim/color/mesh path) を行ベースのテキストへ往復させる。editor_abi の 3D ビュー
 // ポートの scene3d_serialize/load_text が委譲する «正準フォーマット» (移行後)。
 //
@@ -21,11 +21,11 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
 
 namespace acs::game {
 
-class FScene3D;
 class IAssetPackReader;
 
 inline constexpr u32 kScene3DSerializeMaxInputBytes = 4u * 1024u * 1024u;
@@ -165,17 +165,17 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
  * RequiredBytes は終端 NUL を含み、BytesWritten は含まない。
  */
 FScene3DSaveResult TrySaveScene3DText(
-    const FScene3D& scene, char* out, u32 cap) noexcept;
+    const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
- * FScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
+ * CScene3D をテキストへ直列化する (root + 全子孫、構造 + transform + メッシュ記述)。
  *
  * @param scene 直列化するシーン。
  * @param out 出力バッファ (null 終端される)。
  * @param cap out の容量。
  * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
  */
-u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
+u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
  * size bytes のテキストを完全検証してから既存シーンを置き換える。
@@ -184,7 +184,7 @@ u32 SaveScene3DText(const FScene3D& scene, char* out, u32 cap) noexcept;
  * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
  */
 FScene3DLoadResult TryLoadScene3DText(
-    FScene3D& scene, const char* text, u32 size) noexcept;
+    CScene3D& scene, const char* text, u32 size) noexcept;
 
 /**
  * 旧 `.acs3d` 文書または canonical bootstrap を loose file から読み、
@@ -194,7 +194,7 @@ FScene3DLoadResult TryLoadScene3DText(
  * file の親ディレクトリを基準に解決し、失敗時に別の探索 root へ fallback しない。
  */
 FScene3DLoadResult TryLoadScene3DFile(
-    FScene3D& scene, const char* path) noexcept;
+    CScene3D& scene, const char* path) noexcept;
 
 /**
  * `.acpak` 内の canonical bootstrap と参照メッシュ/マテリアルを transactional に復元する。
@@ -203,11 +203,11 @@ FScene3DLoadResult TryLoadScene3DFile(
  * CRC/解凍失敗、unsupported mesh、壊れた material では loose file に fallback しない。
  */
 FScene3DLoadResult TryLoadScene3DAssetPack(
-    FScene3D& scene, IAssetPackReader& pack,
+    CScene3D& scene, IAssetPackReader& pack,
     const char* virtual_path = "main.acscene") noexcept;
 
 /**
- * SaveScene3DText のテキストから FScene3D を復元する (既存内容を置き換える)。
+ * SaveScene3DText のテキストから CScene3D を復元する (既存内容を置き換える)。
  *
  * @details
  * 互換用の NUL 終端 C 文字列 API。詳細結果と入力サイズ上限が必要なら
@@ -216,6 +216,6 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
  * @param text 直列化テキスト。
  * @return 解析が成立したら true (text==null は false)。
  */
-bool LoadScene3DText(FScene3D& scene, const char* text) noexcept;
+bool LoadScene3DText(CScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game

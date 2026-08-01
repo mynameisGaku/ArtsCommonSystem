@@ -63,7 +63,7 @@ void ATriggerComponent::HandleExit(ATriggerComponent* other) noexcept {
 }
 
 void ATriggerComponent::SDispatchEnter(void* user, FTriggerId self, FTriggerId other) noexcept {
-    auto* world = static_cast<FTriggerWorld2D*>(user);
+    auto* world = static_cast<CTriggerWorld2D*>(user);
     if (world == nullptr) return;
     auto* a = static_cast<ATriggerComponent*>(world->UserData(self));
     auto* b = static_cast<ATriggerComponent*>(world->UserData(other));
@@ -74,7 +74,7 @@ void ATriggerComponent::SDispatchEnter(void* user, FTriggerId self, FTriggerId o
 }
 
 void ATriggerComponent::SDispatchExit(void* user, FTriggerId self, FTriggerId other) noexcept {
-    auto* world = static_cast<FTriggerWorld2D*>(user);
+    auto* world = static_cast<CTriggerWorld2D*>(user);
     if (world == nullptr) return;
     auto* a = static_cast<ATriggerComponent*>(world->UserData(self));
     auto* b = static_cast<ATriggerComponent*>(world->UserData(other));

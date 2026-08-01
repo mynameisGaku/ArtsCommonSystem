@@ -6,7 +6,7 @@
 #include "gameframework/AssetPack.h"
 #include "gameframework/ComponentFactory.h"   // CreateComponentByName
 #include "gameframework/ReflectApply.h"        // ApplyFieldValue
-#include "gameframework/Reflect.h"             // FTypeRegistry / FTypeDesc
+#include "gameframework/Reflect.h"             // CTypeRegistry / FTypeDesc
 #include "gameframework/PrimitiveRenderer2D.h" // APrimitiveRenderer2D (builtin の typed setter)
 #include "gameframework/PolygonRenderer2D.h"   // APolygonRenderer2D (POLY 行の描画)
 #include "gameframework/Sprite2DComponent.h"   // ASprite2DComponent (SPRT 行の描画)
@@ -579,7 +579,7 @@ static FSceneBounds LoadAcsceneTextValidated(const char* text, ANode& root,
                             if (APrimitiveRenderer2D* pr = AsPrimitive(c)) {
                                 if (prop == 0) pr->SetShape(static_cast<APrimitiveRenderer2D::EShape>(static_cast<int>(v0)));
                             } else {
-                                const FTypeDesc* d = FTypeRegistry::Get().FindByName(c->ReflectName());
+                                const FTypeDesc* d = CTypeRegistry::Get().FindByName(c->ReflectName());
                                 if (d != nullptr && d->fields != nullptr && prop < d->field_count)
                                     ApplyFieldValue(static_cast<void*>(c), d->fields[prop], v);
                             }
@@ -1055,7 +1055,7 @@ ANode* SpawnPrefabFile(const char* path, ANode& parent) noexcept {
     return result.Succeeded() ? spawned : nullptr;
 }
 
-void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
+void BuildSceneRigidBodies(CRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
                            TArray<ANode*>& out_nodes, TArray<u32>& out_bodies) noexcept {
     for (u32 i = 0; i < reqs.Size(); ++i) {
         const FRigidBodyRequest& req = reqs[i];
@@ -1089,7 +1089,7 @@ void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>
     }
 }
 
-void StepSceneRigidBodies(FRigidWorld2D& world, const TArray<ANode*>& nodes,
+void StepSceneRigidBodies(CRigidWorld2D& world, const TArray<ANode*>& nodes,
                           const TArray<u32>& bodies, f32 dt, FVec2 gravity) noexcept {
     if (dt > 0.05f) dt = 0.05f;
     world.Step(dt, gravity);

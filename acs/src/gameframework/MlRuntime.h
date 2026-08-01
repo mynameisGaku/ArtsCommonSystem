@@ -39,7 +39,7 @@
 //
 // 本 header で提供するもの:
 //   ・`IMlRuntime` / `IUpscaler` の純粋仮想 interface 確定
-//   ・`FMlRuntimeStub` / `FUpscalerStub` の **失敗側を返すだけの stub 実装**
+//   ・`CMlRuntimeStub` / `CUpscalerStub` の **失敗側を返すだけの stub 実装**
 //   ・global stub アクセサ `GetMlRuntimeStub()` / `GetUpscalerStub()`
 //
 // 本 header の範囲外:
@@ -167,13 +167,13 @@ protected:
  * 失敗する」前提で正しくフォールバックを書けているかを検証するための実装。具象
  * backend が追加されると起動時に差し替わる。
  */
-class FMlRuntimeStub final : public IMlRuntime {
+class CMlRuntimeStub final : public IMlRuntime {
 public:
     /** stub を構築する。 */
-    FMlRuntimeStub() noexcept = default;
+    CMlRuntimeStub() noexcept = default;
 
     /** stub を破棄する (保持リソースなし)。 */
-    ~FMlRuntimeStub() noexcept override = default;
+    ~CMlRuntimeStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す。
@@ -324,13 +324,13 @@ protected:
  * (= ネイティブ描画) を書けるようにする placeholder。Init(Off) は成功、Init(非 Off) は
  * NotImplemented を返し、入出力サイズは常に 0。
  */
-class FUpscalerStub final : public IUpscaler {
+class CUpscalerStub final : public IUpscaler {
 public:
     /** Off 状態で stub を構築する。 */
-    FUpscalerStub() noexcept = default;
+    CUpscalerStub() noexcept = default;
 
     /** stub を破棄する (保持リソースなし)。 */
-    ~FUpscalerStub() noexcept override = default;
+    ~CUpscalerStub() noexcept override = default;
 
     /**
      * Off なら成功、それ以外は NotImplemented を返す。
@@ -387,7 +387,7 @@ private:
  * process 内で 1 個だけ存在する ML ランタイム stub への参照を返す。
  *
  * @details static 単一インスタンス (process lifetime)。スレッド安全性は呼び出し側責務。
- * @return 共有 FMlRuntimeStub への参照。
+ * @return 共有 CMlRuntimeStub への参照。
  */
 IMlRuntime& GetMlRuntimeStub() noexcept;
 
@@ -395,7 +395,7 @@ IMlRuntime& GetMlRuntimeStub() noexcept;
  * process 内で 1 個だけ存在する IUpscaler stub への参照を返す。
  *
  * @details static 単一インスタンス (process lifetime)。スレッド安全性は呼び出し側責務。
- * @return 共有 FUpscalerStub への参照。
+ * @return 共有 CUpscalerStub への参照。
  */
 IUpscaler&  GetUpscalerStub()  noexcept;
 
@@ -431,5 +431,11 @@ namespace ml_err {
     /** 無効引数 (nullptr / 無効ハンドル / in_count == 0 等)。 */
     inline constexpr u16 kSub_InvalidArg     = 1;
 } // namespace ml_err
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMlRuntimeStub = CMlRuntimeStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FUpscalerStub = CUpscalerStub;
 
 } // namespace acs::game

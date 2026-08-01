@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FSettings 実装と永続化境界。
+// GameFramework Pillar G — CSettings 実装と永続化境界。
 #include "gameframework/Settings.h"
 
 #include "foundation/Platform.h"
@@ -185,7 +185,7 @@ ESettingsPersistenceError ParseRecord(
     out_record.ValueLength = static_cast<usize>(end - out_record.Value);
 
     if (out_record.KeyLength == 0u) return ESettingsPersistenceError::EmptyKey;
-    if (out_record.KeyLength > FSettings::kMaxPersistenceKeyBytes) {
+    if (out_record.KeyLength > CSettings::kMaxPersistenceKeyBytes) {
         return ESettingsPersistenceError::KeyTooLong;
     }
     if (ContainsByte(out_record.Key, out_record.KeyLength, '\r') ||
@@ -216,7 +216,7 @@ ESettingsPersistenceError ParseRecord(
             }
             return ESettingsPersistenceError::InvalidBool;
         case ESettingKind::String:
-            if (out_record.ValueLength > FSettings::kMaxPersistenceStringBytes) {
+            if (out_record.ValueLength > CSettings::kMaxPersistenceStringBytes) {
                 return ESettingsPersistenceError::ValueTooLong;
             }
             if (ContainsByte(out_record.Value, out_record.ValueLength, '\r') ||
@@ -242,10 +242,10 @@ FSettingsPersistenceResult Failure(
 
 ESettingsPersistenceError TryAppendLimited(
     FString& output, FStringView value) noexcept {
-    if (output.Size() > FSettings::kMaxPersistenceBytes) {
+    if (output.Size() > CSettings::kMaxPersistenceBytes) {
         return ESettingsPersistenceError::OutputTooLarge;
     }
-    if (value.Size() > FSettings::kMaxPersistenceBytes - output.Size()) {
+    if (value.Size() > CSettings::kMaxPersistenceBytes - output.Size()) {
         return ESettingsPersistenceError::OutputTooLarge;
     }
     return output.TryAppend(value)
@@ -254,7 +254,7 @@ ESettingsPersistenceError TryAppendLimited(
 }
 
 ESettingsPersistenceError TryAppendLimited(FString& output, char value) noexcept {
-    if (output.Size() == FSettings::kMaxPersistenceBytes) {
+    if (output.Size() == CSettings::kMaxPersistenceBytes) {
         return ESettingsPersistenceError::OutputTooLarge;
     }
     return output.TryAppend(value)
@@ -446,7 +446,7 @@ const char* SettingsPersistenceErrorName(
     return "Unknown";
 }
 
-isize FSettings::FindIndex(const char* key) const noexcept {
+isize CSettings::FindIndex(const char* key) const noexcept {
     if (key == nullptr) return -1;
     const usize count = m_Entries.Size();
     for (usize i = 0u; i < count; ++i) {
@@ -455,7 +455,7 @@ isize FSettings::FindIndex(const char* key) const noexcept {
     return -1;
 }
 
-FSettings::FEntry& FSettings::UpsertEntry(const char* key) noexcept {
+CSettings::FEntry& CSettings::UpsertEntry(const char* key) noexcept {
     const isize index = FindIndex(key);
     if (index >= 0) return m_Entries[static_cast<usize>(index)];
     FEntry entry{};
@@ -464,56 +464,56 @@ FSettings::FEntry& FSettings::UpsertEntry(const char* key) noexcept {
     return m_Entries.Back();
 }
 
-void FSettings::SetF32(const char* key, f32 value) noexcept {
+void CSettings::SetF32(const char* key, f32 value) noexcept {
     if (key == nullptr) return;
     FEntry& entry = UpsertEntry(key);
     entry.kind = ESettingKind::F32;
     entry.value.f = value;
 }
 
-void FSettings::SetI32(const char* key, i32 value) noexcept {
+void CSettings::SetI32(const char* key, i32 value) noexcept {
     if (key == nullptr) return;
     FEntry& entry = UpsertEntry(key);
     entry.kind = ESettingKind::I32;
     entry.value.i = value;
 }
 
-void FSettings::SetBool(const char* key, bool value) noexcept {
+void CSettings::SetBool(const char* key, bool value) noexcept {
     if (key == nullptr) return;
     FEntry& entry = UpsertEntry(key);
     entry.kind = ESettingKind::Bool;
     entry.value.b = value;
 }
 
-void FSettings::SetString(const char* key, const char* value) noexcept {
+void CSettings::SetString(const char* key, const char* value) noexcept {
     if (key == nullptr) return;
     FEntry& entry = UpsertEntry(key);
     entry.kind = ESettingKind::String;
     entry.value.s = value;
 }
 
-f32 FSettings::GetF32(const char* key, f32 default_value) const noexcept {
+f32 CSettings::GetF32(const char* key, f32 default_value) const noexcept {
     const isize index = FindIndex(key);
     if (index < 0) return default_value;
     const FEntry& entry = m_Entries[static_cast<usize>(index)];
     return entry.kind == ESettingKind::F32 ? entry.value.f : default_value;
 }
 
-i32 FSettings::GetI32(const char* key, i32 default_value) const noexcept {
+i32 CSettings::GetI32(const char* key, i32 default_value) const noexcept {
     const isize index = FindIndex(key);
     if (index < 0) return default_value;
     const FEntry& entry = m_Entries[static_cast<usize>(index)];
     return entry.kind == ESettingKind::I32 ? entry.value.i : default_value;
 }
 
-bool FSettings::GetBool(const char* key, bool default_value) const noexcept {
+bool CSettings::GetBool(const char* key, bool default_value) const noexcept {
     const isize index = FindIndex(key);
     if (index < 0) return default_value;
     const FEntry& entry = m_Entries[static_cast<usize>(index)];
     return entry.kind == ESettingKind::Bool ? entry.value.b : default_value;
 }
 
-const char* FSettings::GetString(
+const char* CSettings::GetString(
     const char* key, const char* default_value) const noexcept {
     const isize index = FindIndex(key);
     if (index < 0) return default_value;
@@ -521,26 +521,26 @@ const char* FSettings::GetString(
     return entry.kind == ESettingKind::String ? entry.value.s : default_value;
 }
 
-bool FSettings::Has(const char* key) const noexcept {
+bool CSettings::Has(const char* key) const noexcept {
     return FindIndex(key) >= 0;
 }
 
-void FSettings::Remove(const char* key) noexcept {
+void CSettings::Remove(const char* key) noexcept {
     const isize index = FindIndex(key);
     if (index >= 0) m_Entries.RemoveAtSwap(static_cast<usize>(index));
 }
 
-void FSettings::Clear() noexcept {
+void CSettings::Clear() noexcept {
     m_Entries.Clear();
 }
 
-u32 FSettings::Count() const noexcept {
+u32 CSettings::Count() const noexcept {
     return m_Entries.Size() > 0xFFFFFFFFu
         ? 0xFFFFFFFFu
         : static_cast<u32>(m_Entries.Size());
 }
 
-FSettingsPersistenceResult FSettings::TrySave(
+FSettingsPersistenceResult CSettings::TrySave(
     const wchar_t* file_path) noexcept {
     const ESettingsPersistenceError path_error = ValidatePath(file_path);
     if (path_error != ESettingsPersistenceError::None) return Failure(path_error);
@@ -751,7 +751,7 @@ FSettingsPersistenceResult FSettings::TrySave(
     return result;
 }
 
-FSettingsPersistenceResult FSettings::TryLoad(
+FSettingsPersistenceResult CSettings::TryLoad(
     const wchar_t* file_path) noexcept {
     const ESettingsPersistenceError path_error = ValidatePath(file_path);
     if (path_error != ESettingsPersistenceError::None) return Failure(path_error);
@@ -990,7 +990,7 @@ FSettingsPersistenceResult FSettings::TryLoad(
     return result;
 }
 
-TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
+TResult<void> CSettings::Save(const wchar_t* file_path) noexcept {
     const FSettingsPersistenceResult result = TrySave(file_path);
     if (result) return Ok();
     const EErrCategory category =
@@ -1003,7 +1003,7 @@ TResult<void> FSettings::Save(const wchar_t* file_path) noexcept {
         result.OsError);
 }
 
-TResult<void> FSettings::Load(const wchar_t* file_path) noexcept {
+TResult<void> CSettings::Load(const wchar_t* file_path) noexcept {
     const FSettingsPersistenceResult result = TryLoad(file_path);
     if (result) return Ok();
     const EErrCategory category =

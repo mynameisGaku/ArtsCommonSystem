@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework のイージング関数と型付きイージングカタログ。
 //
-// 従来の直接関数は、FTweenManager と互換性のある `f32 (*)(f32) noexcept`
+// 従来の直接関数は、CTweenManager と互換性のある `f32 (*)(f32) noexcept`
 // シグネチャを維持する。直接呼び出しは全域関数であり、有限入力を [0,1] に
 // clamp、NaN を 0、無限大を符号に対応する端点へ写像する。
 // 無効入力を診断する必要がある場合は TryEvaluate を使用する。
@@ -14,7 +14,7 @@
 
 namespace acs::game::Easing {
 
-/** FTweenManager と互換性のあるイージング関数ポインタ。 */
+/** CTweenManager と互換性のあるイージング関数ポインタ。 */
 using EasingFn = f32 (*)(f32) noexcept;
 
 /**

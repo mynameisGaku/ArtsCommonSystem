@@ -267,7 +267,7 @@ EHotReloadResult ConvertNativeUtf16ToUtf8(
     const int need = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, w, wlen,
                                            nullptr, 0, nullptr, nullptr);
     if (need <= 0 ||
-        static_cast<usize>(need) > FHotReloadWatcher::kMaxPathBytes) {
+        static_cast<usize>(need) > CHotReloadWatcher::kMaxPathBytes) {
         return EHotReloadResult::OsError;
     }
     if (force_out_of_memory) {
@@ -327,14 +327,14 @@ EHotReloadResult ValidatePath(const char* path, usize& out_len) noexcept {
     if (path == nullptr || path[0] == '\0') {
         return EHotReloadResult::InvalidArgument;
     }
-    while (out_len <= FHotReloadWatcher::kMaxPathBytes && path[out_len] != '\0') {
+    while (out_len <= CHotReloadWatcher::kMaxPathBytes && path[out_len] != '\0') {
         const unsigned char c = static_cast<unsigned char>(path[out_len]);
         if (c < 0x20u) {
             return EHotReloadResult::InvalidArgument;
         }
         ++out_len;
     }
-    if (out_len > FHotReloadWatcher::kMaxPathBytes) {
+    if (out_len > CHotReloadWatcher::kMaxPathBytes) {
         return EHotReloadResult::PathTooLong;
     }
     const int converted = ::MultiByteToWideChar(
@@ -360,12 +360,12 @@ EHotReloadResult JoinNativePath(
         dir[dir.Size() - 1u] != '/' &&
         dir[dir.Size() - 1u] != '\\';
     const usize separator_bytes = needs_separator ? 1u : 0u;
-    if (dir.Size() > FHotReloadWatcher::kMaxPathBytes ||
-        rel_inout.Size() > FHotReloadWatcher::kMaxPathBytes ||
+    if (dir.Size() > CHotReloadWatcher::kMaxPathBytes ||
+        rel_inout.Size() > CHotReloadWatcher::kMaxPathBytes ||
         separator_bytes >
-            FHotReloadWatcher::kMaxPathBytes - dir.Size() ||
+            CHotReloadWatcher::kMaxPathBytes - dir.Size() ||
         rel_inout.Size() >
-            FHotReloadWatcher::kMaxPathBytes -
+            CHotReloadWatcher::kMaxPathBytes -
                 dir.Size() - separator_bytes) {
         return EHotReloadResult::OsError;
     }
@@ -433,9 +433,9 @@ void ResetHotReloadNativeFaultForTesting() noexcept {
 #endif
 
 // 空状態で構築する (FWatchEntry の完全型が見える本 TU で定義)。
-FHotReloadWatcher::FHotReloadWatcher() noexcept = default;
+CHotReloadWatcher::CHotReloadWatcher() noexcept = default;
 
-EHotReloadResult FHotReloadWatcher::HandleNativeOverflowCompletion(
+EHotReloadResult CHotReloadWatcher::HandleNativeOverflowCompletion(
     bool rearm_succeeded) noexcept {
     const EHotReloadResult result = rearm_succeeded
         ? EHotReloadResult::NativeOverflow
@@ -444,7 +444,7 @@ EHotReloadResult FHotReloadWatcher::HandleNativeOverflowCompletion(
     return result;
 }
 
-void FHotReloadWatcher::RecordDiagnosticFailure(
+void CHotReloadWatcher::RecordDiagnosticFailure(
     EHotReloadResult result, bool rejected_event,
     bool notification_lost) noexcept {
     if (result == EHotReloadResult::Success) {
@@ -463,12 +463,12 @@ void FHotReloadWatcher::RecordDiagnosticFailure(
 }
 
 // デストラクタ (FWatchEntry が完全型になる本 TU で実体化し Shutdown を呼ぶ)。
-FHotReloadWatcher::~FHotReloadWatcher() noexcept {
+CHotReloadWatcher::~CHotReloadWatcher() noexcept {
     Shutdown();
 }
 
 // 内部バッファを軽く予約する (OS watcher の起動は WatchDirectory が担う)。
-void FHotReloadWatcher::Init() noexcept {
+void CHotReloadWatcher::Init() noexcept {
     // 既に WatchDirectory 済みなら何もしない (多重 Init 安全)。実際の OS watcher
     // 起動 (CreateFileW + ReadDirectoryChangesW) は WatchDirectory が担う。
     // ここではバッファを軽く予約しておくだけ。
@@ -484,7 +484,7 @@ void FHotReloadWatcher::Init() noexcept {
 }
 
 // OS watcher を閉じ、監視 path / callback / pending event を全クリアする。
-void FHotReloadWatcher::Shutdown() noexcept {
+void CHotReloadWatcher::Shutdown() noexcept {
     // OS watcher ハンドルを閉じる (TUniquePtr<FWatchEntry> の dtor → Close())。
     // 発行中の ReadDirectoryChangesW は CancelIoEx + CloseHandle で取り消される。
     m_Watchers.Clear();
@@ -503,11 +503,11 @@ void FHotReloadWatcher::Shutdown() noexcept {
 }
 
 // ディレクトリを監視登録し、OS watcher (CreateFileW + 初回 read) を起動する。
-void FHotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noexcept {
+void CHotReloadWatcher::WatchDirectory(const char* dir_path, bool recursive) noexcept {
     (void)TryWatchDirectory(dir_path, recursive);
 }
 
-EHotReloadResult FHotReloadWatcher::TryWatchDirectory(
+EHotReloadResult CHotReloadWatcher::TryWatchDirectory(
     const char* dir_path, bool recursive) noexcept {
     usize path_len = 0u;
     const EHotReloadResult validation = ValidatePath(dir_path, path_len);
@@ -601,11 +601,11 @@ EHotReloadResult FHotReloadWatcher::TryWatchDirectory(
 }
 
 // ファイル path を監視 path リストに登録する (個別の OS watcher は持たない)。
-void FHotReloadWatcher::WatchFile(const char* file_path) noexcept {
+void CHotReloadWatcher::WatchFile(const char* file_path) noexcept {
     (void)TryWatchFile(file_path);
 }
 
-EHotReloadResult FHotReloadWatcher::TryWatchFile(const char* file_path) noexcept {
+EHotReloadResult CHotReloadWatcher::TryWatchFile(const char* file_path) noexcept {
     usize path_len = 0u;
     const EHotReloadResult validation = ValidatePath(file_path, path_len);
     if (validation != EHotReloadResult::Success) {
@@ -629,7 +629,7 @@ EHotReloadResult FHotReloadWatcher::TryWatchFile(const char* file_path) noexcept
 }
 
 // path に対応する OS watcher と監視 path 登録を除去する (未登録は no-op)。
-void FHotReloadWatcher::Unwatch(const char* path) noexcept {
+void CHotReloadWatcher::Unwatch(const char* path) noexcept {
     usize path_len = 0u;
     if (ValidatePath(path, path_len) != EHotReloadResult::Success) {
         return;
@@ -659,12 +659,12 @@ void FHotReloadWatcher::Unwatch(const char* path) noexcept {
 }
 
 // (cb, user) ペアを重複なしで callback リストに登録する。
-void FHotReloadWatcher::RegisterCallback(
+void CHotReloadWatcher::RegisterCallback(
     FHotReloadCallback cb, void* user) noexcept {
     (void)TryRegisterCallback(cb, user);
 }
 
-EHotReloadResult FHotReloadWatcher::TryRegisterCallback(
+EHotReloadResult CHotReloadWatcher::TryRegisterCallback(
     FHotReloadCallback cb, void* user) noexcept {
     if (cb == nullptr) {
         return EHotReloadResult::InvalidArgument;
@@ -687,7 +687,7 @@ EHotReloadResult FHotReloadWatcher::TryRegisterCallback(
         : EHotReloadResult::OutOfMemory;
 }
 
-EHotReloadResult FHotReloadWatcher::UnregisterCallback(
+EHotReloadResult CHotReloadWatcher::UnregisterCallback(
     FHotReloadCallback cb, void* user) noexcept {
     if (cb == nullptr) {
         return EHotReloadResult::InvalidArgument;
@@ -701,7 +701,7 @@ EHotReloadResult FHotReloadWatcher::UnregisterCallback(
     return EHotReloadResult::NotRegistered;
 }
 
-EHotReloadResult FHotReloadWatcher::TrySetDebounceSeconds(f32 seconds) noexcept {
+EHotReloadResult CHotReloadWatcher::TrySetDebounceSeconds(f32 seconds) noexcept {
     if (!std::isfinite(seconds) || seconds < 0.0f ||
         seconds > kMaxDebounceSeconds) {
         return EHotReloadResult::InvalidArgument;
@@ -710,11 +710,11 @@ EHotReloadResult FHotReloadWatcher::TrySetDebounceSeconds(f32 seconds) noexcept 
     return EHotReloadResult::Success;
 }
 
-f32 FHotReloadWatcher::DebounceSeconds() const noexcept {
+f32 CHotReloadWatcher::DebounceSeconds() const noexcept {
     return m_DebounceSeconds;
 }
 
-EHotReloadResult FHotReloadWatcher::TryEnqueueEvent(
+EHotReloadResult CHotReloadWatcher::TryEnqueueEvent(
     const char* file_path, u64 modified_timestamp, bool removed) noexcept {
     usize path_len = 0u;
     const EHotReloadResult validation = ValidatePath(file_path, path_len);
@@ -738,7 +738,7 @@ EHotReloadResult FHotReloadWatcher::TryEnqueueEvent(
     return result;
 }
 
-EHotReloadResult FHotReloadWatcher::TryQueueEvent(
+EHotReloadResult CHotReloadWatcher::TryQueueEvent(
     FString&& path, u64 timestamp, bool removed) noexcept {
     if (path.IsEmpty() || path.Size() > kMaxPathBytes) {
         return EHotReloadResult::InvalidArgument;
@@ -802,7 +802,7 @@ EHotReloadResult FHotReloadWatcher::TryQueueEvent(
     return EHotReloadResult::Success;
 }
 
-EHotReloadResult FHotReloadWatcher::ProcessNativeNotificationBuffer(
+EHotReloadResult CHotReloadWatcher::ProcessNativeNotificationBuffer(
     const void* bytes, usize byte_count, FStringView directory_path,
     bool force_conversion_out_of_memory) noexcept {
     EHotReloadResult aggregate = EHotReloadResult::Success;
@@ -881,11 +881,11 @@ EHotReloadResult FHotReloadWatcher::ProcessNativeNotificationBuffer(
 }
 
 // 各 watcher の完了を poll して event を積み、pending を callback へ FIFO で dispatch する。
-void FHotReloadWatcher::Tick(f32 dt) noexcept {
+void CHotReloadWatcher::Tick(f32 dt) noexcept {
     (void)TryTick(dt);
 }
 
-EHotReloadResult FHotReloadWatcher::TryTick(f32 dt) noexcept {
+EHotReloadResult CHotReloadWatcher::TryTick(f32 dt) noexcept {
     if (!std::isfinite(dt) || dt < 0.0f) {
         RecordDiagnosticFailure(
             EHotReloadResult::InvalidArgument, false, false);
@@ -1059,27 +1059,27 @@ EHotReloadResult FHotReloadWatcher::TryTick(f32 dt) noexcept {
 }
 
 // 監視登録された path の数を返す。
-u32 FHotReloadWatcher::WatchedCount() const noexcept {
+u32 CHotReloadWatcher::WatchedCount() const noexcept {
     return static_cast<u32>(m_WatchedPaths.Size());
 }
 
 // 未消費の pending event 数を返す。
-u32 FHotReloadWatcher::PendingEventCount() const noexcept {
+u32 CHotReloadWatcher::PendingEventCount() const noexcept {
     return static_cast<u32>(m_PendingEvents.Size());
 }
 
 // 診断値を allocation-free の値コピーとして取得する。
-FHotReloadDiagnostics FHotReloadWatcher::CaptureDiagnostics() const noexcept {
+FHotReloadDiagnostics CHotReloadWatcher::CaptureDiagnostics() const noexcept {
     return m_Diagnostics;
 }
 
 // 診断値だけを確認済み状態へ戻し、監視・callback・event queue は維持する。
-void FHotReloadWatcher::ClearDiagnostics() noexcept {
+void CHotReloadWatcher::ClearDiagnostics() noexcept {
     m_Diagnostics = FHotReloadDiagnostics{};
 }
 
 // pending event の先頭 1 件を FIFO で取り出して除去する (空なら false)。
-bool FHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
+bool CHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
     if (m_PendingEvents.Size() == 0 || m_EventPaths.Size() == 0) {
         return false;  // 空なら out は触らず false
     }
@@ -1106,7 +1106,7 @@ bool FHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent& out) noexcept {
 }
 
 // pending event 先頭 1 件を m_PendingEvents / m_EventPaths から lockstep で shift 除去する。
-void FHotReloadWatcher::RemoveFrontEventPair() noexcept {
+void CHotReloadWatcher::RemoveFrontEventPair() noexcept {
     if (m_PendingEvents.Size() > 0) {
         for (usize i = 1; i < m_PendingEvents.Size(); ++i) {
             m_PendingEvents[i - 1] = m_PendingEvents[i];
@@ -1122,7 +1122,7 @@ void FHotReloadWatcher::RemoveFrontEventPair() noexcept {
 }
 
 // pending event と所有 path 文字列を lockstep で全クリアする。
-void FHotReloadWatcher::ClearEvents() noexcept {
+void CHotReloadWatcher::ClearEvents() noexcept {
     // callback 内で ClearEvents 後に event を enqueue しても、開始時 event の残り枠で
     // 同じ TryTick に配信してはならない。現在 event の他 callback は完走させ、
     // 次 event へ進む外側 drain だけを停止する。
@@ -1141,7 +1141,7 @@ void FHotReloadWatcher::ClearEvents() noexcept {
 // 呼び出し側コードが #ifdef だらけにならないようにする。戻り値は安全な既定値 (0 / false)。
 // 診断を含む instance storage を追加しない契約も compile time で固定する。
 static_assert(
-    sizeof(FHotReloadWatcher) == 1u,
+    sizeof(CHotReloadWatcher) == 1u,
     "Shipping FHotReloadWatcher must remain storage-free");
 constexpr FHotReloadDiagnostics kShippingZeroDiagnostics{};
 static_assert(
@@ -1155,21 +1155,21 @@ static_assert(
     "Shipping hot reload diagnostics must remain a deterministic zero snapshot");
 
 // ship build の既定コンストラクタ (no-op)。
-FHotReloadWatcher::FHotReloadWatcher() noexcept = default;
+CHotReloadWatcher::CHotReloadWatcher() noexcept = default;
 
 // ship build のデストラクタ (no-op)。
-FHotReloadWatcher::~FHotReloadWatcher() noexcept {}
+CHotReloadWatcher::~CHotReloadWatcher() noexcept {}
 
 // ship build では監視を行わない (no-op)。
-void FHotReloadWatcher::Init() noexcept {}
+void CHotReloadWatcher::Init() noexcept {}
 
 // ship build では解放するものが無い (no-op)。
-void FHotReloadWatcher::Shutdown() noexcept {}
+void CHotReloadWatcher::Shutdown() noexcept {}
 
 // ship build ではディレクトリ監視を行わない (no-op)。
-void FHotReloadWatcher::WatchDirectory(const char*, bool) noexcept {}
+void CHotReloadWatcher::WatchDirectory(const char*, bool) noexcept {}
 
-EHotReloadResult FHotReloadWatcher::TryWatchDirectory(
+EHotReloadResult CHotReloadWatcher::TryWatchDirectory(
     const char* dir_path, bool) noexcept {
     return (dir_path != nullptr && dir_path[0] != '\0')
         ? EHotReloadResult::Success
@@ -1177,44 +1177,44 @@ EHotReloadResult FHotReloadWatcher::TryWatchDirectory(
 }
 
 // ship build ではファイル監視を行わない (no-op)。
-void FHotReloadWatcher::WatchFile(const char*) noexcept {}
+void CHotReloadWatcher::WatchFile(const char*) noexcept {}
 
-EHotReloadResult FHotReloadWatcher::TryWatchFile(const char* file_path) noexcept {
+EHotReloadResult CHotReloadWatcher::TryWatchFile(const char* file_path) noexcept {
     return (file_path != nullptr && file_path[0] != '\0')
         ? EHotReloadResult::Success
         : EHotReloadResult::InvalidArgument;
 }
 
 // ship build では監視解除するものが無い (no-op)。
-void FHotReloadWatcher::Unwatch(const char*) noexcept {}
+void CHotReloadWatcher::Unwatch(const char*) noexcept {}
 
 // ship build では callback を登録しない (no-op)。
-void FHotReloadWatcher::RegisterCallback(
+void CHotReloadWatcher::RegisterCallback(
     FHotReloadCallback, void*) noexcept {}
 
-EHotReloadResult FHotReloadWatcher::TryRegisterCallback(
+EHotReloadResult CHotReloadWatcher::TryRegisterCallback(
     FHotReloadCallback cb, void*) noexcept {
     return cb != nullptr
         ? EHotReloadResult::Success
         : EHotReloadResult::InvalidArgument;
 }
 
-EHotReloadResult FHotReloadWatcher::UnregisterCallback(
+EHotReloadResult CHotReloadWatcher::UnregisterCallback(
     FHotReloadCallback cb, void*) noexcept {
     return cb != nullptr
         ? EHotReloadResult::NotRegistered
         : EHotReloadResult::InvalidArgument;
 }
 
-EHotReloadResult FHotReloadWatcher::TrySetDebounceSeconds(f32 seconds) noexcept {
+EHotReloadResult CHotReloadWatcher::TrySetDebounceSeconds(f32 seconds) noexcept {
     return (seconds >= 0.0f && seconds <= kMaxDebounceSeconds)
         ? EHotReloadResult::Success
         : EHotReloadResult::InvalidArgument;
 }
 
-f32 FHotReloadWatcher::DebounceSeconds() const noexcept { return 0.0f; }
+f32 CHotReloadWatcher::DebounceSeconds() const noexcept { return 0.0f; }
 
-EHotReloadResult FHotReloadWatcher::TryEnqueueEvent(
+EHotReloadResult CHotReloadWatcher::TryEnqueueEvent(
     const char* file_path, u64, bool) noexcept {
     return (file_path != nullptr && file_path[0] != '\0')
         ? EHotReloadResult::Success
@@ -1222,33 +1222,33 @@ EHotReloadResult FHotReloadWatcher::TryEnqueueEvent(
 }
 
 // ship build では駆動しない (no-op)。
-void FHotReloadWatcher::Tick(f32) noexcept {}
+void CHotReloadWatcher::Tick(f32) noexcept {}
 
-EHotReloadResult FHotReloadWatcher::TryTick(f32 dt) noexcept {
+EHotReloadResult CHotReloadWatcher::TryTick(f32 dt) noexcept {
     return (dt >= 0.0f && (dt - dt) == 0.0f)
         ? EHotReloadResult::Success
         : EHotReloadResult::InvalidArgument;
 }
 
 // ship build の監視 path 数を返す。常に 0。
-u32  FHotReloadWatcher::WatchedCount() const noexcept { return 0; }
+u32  CHotReloadWatcher::WatchedCount() const noexcept { return 0; }
 
 // ship build の pending event 数を返す。常に 0。
-u32  FHotReloadWatcher::PendingEventCount() const noexcept { return 0; }
+u32  CHotReloadWatcher::PendingEventCount() const noexcept { return 0; }
 
 // ship build は診断 storage を持たず、常に決定的なゼロ snapshot を返す。
-FHotReloadDiagnostics FHotReloadWatcher::CaptureDiagnostics() const noexcept {
+FHotReloadDiagnostics CHotReloadWatcher::CaptureDiagnostics() const noexcept {
     return FHotReloadDiagnostics{};
 }
 
 // ship build には clear 対象の診断 storage が無い。
-void FHotReloadWatcher::ClearDiagnostics() noexcept {}
+void CHotReloadWatcher::ClearDiagnostics() noexcept {}
 
 // ship build の event 取り出しは常に失敗し、out には触れず false を返す。
-bool FHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent&) noexcept { return false; }
+bool CHotReloadWatcher::ConsumeNextEvent(FHotReloadEvent&) noexcept { return false; }
 
 // ship build では event を持たない (no-op)。
-void FHotReloadWatcher::ClearEvents() noexcept {}
+void CHotReloadWatcher::ClearEvents() noexcept {}
 
 #endif // ACS_GAME_SHIPPING
 

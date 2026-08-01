@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FScene2D - 2D ゲーム向けの実用的な基底 scene。
+// AScene2D - 2D ゲーム向けの実用的な基底 scene。
 //
 // 次の共通 2D stack を接続する:
-//   FSceneServices(Default2D | Camera2D | Physics2D)
+//   CSceneServices(Default2D | Camera2D | Physics2D)
 //   ルート ANode ツリー
 //   world と HUD の描画で共有する 1 つの FSpriteBatch
 //
@@ -10,6 +10,7 @@
 // OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を override する。
 #pragma once
 
+#include "gameframework/Forward.h"
 #include "gameframework/Scene.h"
 #include "gameframework/ANode.h"
 #include "render/SpriteBatch.h"
@@ -20,24 +21,24 @@ namespace acs::game {
  * 2D ゲーム向けの実用的なシーン基底クラス。
  *
  * @details
- * 共通の 2D スタック (FSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
+ * 共通の 2D スタック (CSceneServices(Default2D | Camera2D | Physics2D)、root ANode ツリー、
  * world/HUD 描画用の共有 FSpriteBatch) を配線する。利用者は root/update/render の定型
  * 処理を毎シーン書き直す代わりに OnReady/OnTick/OnFixedTick/OnDrawWorld/OnDrawHud を
  * override する。平面反射とステンシルマスクをオプションで有効化できる。
  */
-class FScene2D : public FScene {
+class AScene2D : public AScene {
 public:
     /** 空の 2D シーンを構築する (リソースは OnEnter/OnRender で遅延確保)。 */
-    FScene2D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
+    AScene2D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
 
     /** シーンを破棄する (GPU リソースは各メンバが解放)。 */
-    ~FScene2D() noexcept override = default;
+    ~AScene2D() noexcept override = default;
 
     /** コピー禁止 (ANode ツリーと GPU リソースを単独所有するため)。 */
-    FScene2D(const FScene2D&)            = delete;
+    AScene2D(const AScene2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScene2D& operator=(const FScene2D&) = delete;
+    AScene2D& operator=(const AScene2D&) = delete;
 
     /**
      * このシーンが要求するサービスを返す。
@@ -87,8 +88,8 @@ public:
      * 画面ピクセル座標をワールド座標へ変換する (マウスピッキング用)。
      *
      * @details
-     * 入力は左上原点の画面ピクセル (FInput::MousePos() の値)。FScene2D のレンダリング
-     * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、FCamera2D::ScreenToWorld
+     * 入力は左上原点の画面ピクセル (FInput::MousePos() の値)。AScene2D のレンダリング
+     * (ppu * camera zoom、camera 中心) と厳密に逆対応するので、CCamera2D::ScreenToWorld
      * (ppu 非考慮) ではなくこちらを使う。画面サイズは直近の OnRender でキャッシュした値を用いる。
      * @param screen_px 変換する画面ピクセル座標 (左上原点)。
      * @return 対応するワールド座標。
@@ -358,10 +359,3 @@ private:
 };
 
 } // namespace acs::game
-
-namespace acs {
-
-/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
-using game::FScene2D;
-
-} // namespace acs

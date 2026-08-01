@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar A — AppState
 //
-// シーン跨ぎで生存する型消去の永続状態スロット。FGame が 1 つ保持し、
+// シーン跨ぎで生存する型消去の永続状態スロット。CGame が 1 つ保持し、
 // 任意のシーンから `GetGame().AppState<T>()` で取り出せる。
 //
 // 使い方:
@@ -18,7 +18,7 @@
 //   ・RTTI 不使用。型 ID は `template static const int` のアドレスを使う
 //     (各 T インスタンス化で別アドレス = 一意 ID)。
 //   ・FAllocator はデフォルト固定。ACS の New/Delete を使う。
-//   ・1 FGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
+//   ・1 CGame あたり 1 個。複数の独立した状態が欲しい場合は struct にまとめる。
 //   ・wrong-type Get は nullptr を返す (例外なし、ACS 流)。
 #pragma once
 
@@ -33,7 +33,7 @@ namespace acs::game {
  * シーン跨ぎで生存する型消去の永続状態スロット。
  *
  * @details
- * FGame が 1 つ保持し、任意のシーンから GetGame().AppState<T>() で取り出せる。
+ * CGame が 1 つ保持し、任意のシーンから GetGame().AppState<T>() で取り出せる。
  * RTTI 不使用で型 ID は template static const int のアドレスを使い (T ごとに別アドレス)、
  * FAllocator は DefaultAllocator 固定。wrong-type Get は例外なしで nullptr を返す。
  */

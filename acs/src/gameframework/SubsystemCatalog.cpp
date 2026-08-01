@@ -12,21 +12,21 @@ namespace acs {
 namespace {
 
 /** ワールド用イベントバスを生成する。 */
-TUniquePtr<FSubsystem> CreateEventBusSubsystem() noexcept
+TUniquePtr<ASubsystem> CreateEventBusSubsystem() noexcept
 {
-    return MakeUnique<game::FEventBus>();
+    return MakeUnique<game::AEventBus>();
 }
 
 /** 2D プレハブ生成サブシステムを生成する。 */
-TUniquePtr<FSubsystem> CreateSpawn2DSubsystem() noexcept
+TUniquePtr<ASubsystem> CreateSpawn2DSubsystem() noexcept
 {
-    return MakeUnique<game::FSpawn2DSubsystem>();
+    return MakeUnique<game::ASpawn2DSubsystem>();
 }
 
 /** ワールド時計サブシステムを生成する。 */
-TUniquePtr<FSubsystem> CreateWorldClockSubsystem() noexcept
+TUniquePtr<ASubsystem> CreateWorldClockSubsystem() noexcept
 {
-    return MakeUnique<game::FWorldClockSubsystem>();
+    return MakeUnique<game::AWorldClockSubsystem>();
 }
 
 } // namespace
@@ -34,15 +34,15 @@ TUniquePtr<FSubsystem> CreateWorldClockSubsystem() noexcept
 bool AcsRegisterGameFrameworkSubsystems() noexcept
 {
     /** GameFramework 同梱型を保持する正規登録簿。 */
-    FSubsystemRegistry& Registry = FSubsystemRegistry::Get();
+    CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     const bool EventRegistered = Registry.TryRegisterActive(FSubsystemFactory{
-        SubsystemKindOf<game::FEventBus>(), ESubsystemScope::World, "FEventBus",
+        SubsystemKindOf<game::AEventBus>(), ESubsystemScope::World, "FEventBus",
         &CreateEventBusSubsystem, ESubsystemTickPhase::PreUpdate, 0});
     const bool SpawnRegistered = Registry.TryRegisterActive(FSubsystemFactory{
-        SubsystemKindOf<game::FSpawn2DSubsystem>(), ESubsystemScope::World, "FSpawn2DSubsystem",
+        SubsystemKindOf<game::ASpawn2DSubsystem>(), ESubsystemScope::World, "FSpawn2DSubsystem",
         &CreateSpawn2DSubsystem, ESubsystemTickPhase::None, 10});
     const bool ClockRegistered = Registry.TryRegisterActive(FSubsystemFactory{
-        SubsystemKindOf<game::FWorldClockSubsystem>(), ESubsystemScope::World, "FWorldClockSubsystem",
+        SubsystemKindOf<game::AWorldClockSubsystem>(), ESubsystemScope::World, "FWorldClockSubsystem",
         &CreateWorldClockSubsystem, ESubsystemTickPhase::PreUpdate, 20});
     return EventRegistered && SpawnRegistered && ClockRegistered;
 }

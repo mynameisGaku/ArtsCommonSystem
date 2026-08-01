@@ -54,7 +54,7 @@ void SyncTree(ANode& node) noexcept {
 
 } // namespace
 
-void StepRigidBodies(FRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept {
+void StepRigidBodies(CRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept {
     world.Step(dt, gravity);
     SyncTree(root);
 }

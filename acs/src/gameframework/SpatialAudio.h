@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSpatialAudio (3D positional + HRTF binaural seam)
+// GameFramework Pillar H — CSpatialAudio (3D positional + HRTF binaural seam)
 //
 // 3D 位置情報を持つ FAudioSource3D と単一の FAudioListener (= プレイヤ耳位置) から
 // 距離減衰 (attenuation) / 左右パン (stereo pan) を算出する音声空間化レイヤ。
 // HRTF (Head-Related Transfer Function) によるバイノーラル化は `IHrtfRenderer`
-// interface seam として隔離する。`FHrtfRendererStub` は constant-power stereo
+// interface seam として隔離する。`CHrtfRendererStub` は constant-power stereo
 // panning + 距離減衰を**実数学** (in-repo 完結) で行い、真のバイノーラル化
 // (KEMAR 256-tap convolution、~140KB の埋め込み impulse response) のみが seam
 // として残る (外部 IR データ必須のため別モジュールとして差し込む)。
 //
-// FAudioDirector との関係:
-//   FAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
-//   「2D 混音層」。本 FSpatialAudio は FAudioDirector の上に乗る「3D 空間化前段」で、
+// CAudioDirector との関係:
+//   CAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
+//   「2D 混音層」。本 CSpatialAudio は CAudioDirector の上に乗る「3D 空間化前段」で、
 //   listener / source を保持し、毎フレーム attenuation と pan を算出する。
 //   CAudioEngine と接続したとき、各 source を CAudioEngine voice に
-//   バインドして、FSpatialAudio が計算した volume * pan を per-voice に書き込む。
+//   バインドして、CSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
-//   class FWorldScene : public FScene {
-//       acs::game::FSpatialAudio m_Spatial;
+//   class FWorldScene : public AScene {
+//       acs::game::CSpatialAudio m_Spatial;
 //
 //       void OnEnter() noexcept override {
 //           // プレイヤ耳位置を listener として登録
@@ -69,7 +69,7 @@
 //   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
 //   ・複数 listener (split-screen)
 //   ・3D reverb (リバーブゾーン)
-//   ・CAudioEngine voice バインド (FAudioDirector と統合)
+//   ・CAudioEngine voice バインド (CAudioDirector と統合)
 #pragma once
 
 #include "foundation/Types.h"
@@ -99,7 +99,7 @@ struct FAudioListener {
  * 1 個の 3D 音源。
  */
 struct FAudioSource3D {
-    /** FSpatialAudio が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
+    /** CSpatialAudio が払い出す一意 ID (0 = 無効、1.. = 有効)。 */
     u32                source_id    = 0;
 
     /** 世界座標での位置。 */
@@ -218,13 +218,13 @@ protected:
  * source.curve に応じた距離減衰 (ComputeAttenuatedVolume と同式)。現状これが唯一の
  * IHrtfRenderer 実装で、IsHrtfEnabled() は false を返す (真の HRTF 効果のみ無い)。
  */
-class FHrtfRendererStub final : public IHrtfRenderer {
+class CHrtfRendererStub final : public IHrtfRenderer {
 public:
     /** 空状態で構築する。 */
-    FHrtfRendererStub() noexcept = default;
+    CHrtfRendererStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FHrtfRendererStub() noexcept override = default;
+    ~CHrtfRendererStub() noexcept override = default;
 
     /**
      * stub を初期化する (初回のみ HRTF off のログを出す)。
@@ -275,31 +275,31 @@ private:
  * 3D listener + source を集中管理する空間化レイヤ。
  *
  * @details
- * FScene 局所 instance としての所有を想定。1 listener + N source を保持し、
+ * AScene 局所 instance としての所有を想定。1 listener + N source を保持し、
  * 毎フレーム attenuation と pan を pull で取得できる API を提供する。
  */
-class FSpatialAudio {
+class CSpatialAudio {
 public:
     /** source 配列の初期容量 (Reserve のヒント)。 */
     static constexpr u32 kInitialSourceCapacity = 16;
 
     /** source 配列を初期容量で Reserve して構築する。 */
-    FSpatialAudio() noexcept;
+    CSpatialAudio() noexcept;
 
     /** 破棄する。 */
-    ~FSpatialAudio() noexcept = default;
+    ~CSpatialAudio() noexcept = default;
 
     /** コピー禁止 (シーン局所 instance として単独所有するため)。 */
-    FSpatialAudio(const FSpatialAudio&)            = delete;
+    CSpatialAudio(const CSpatialAudio&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpatialAudio& operator=(const FSpatialAudio&) = delete;
+    CSpatialAudio& operator=(const CSpatialAudio&) = delete;
 
     /** ムーブ禁止。 */
-    FSpatialAudio(FSpatialAudio&&)                 = delete;
+    CSpatialAudio(CSpatialAudio&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSpatialAudio& operator=(FSpatialAudio&&)      = delete;
+    CSpatialAudio& operator=(CSpatialAudio&&)      = delete;
 
     /**
      * listener (耳位置と向き) を設定する。
@@ -405,5 +405,11 @@ private:
     /** 次に払い出す source_id (0 = 無効予約)。 */
     u32               m_NextSourceId = 1;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHrtfRendererStub = CHrtfRendererStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSpatialAudio = CSpatialAudio;
 
 } // namespace acs::game

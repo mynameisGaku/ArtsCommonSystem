@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework — FRigidWorld2D 実装。詳細はヘッダ参照。
+// GameFramework — CRigidWorld2D 実装。詳細はヘッダ参照。
 // 線形インパルスベースの接触ソルバ + Baumgarte 位置補正。
 // =============================================================================
 #include "gameframework/RigidWorld2D.h"
@@ -292,7 +292,7 @@ bool SweptCircleVsStatic(FVec2 p0, FVec2 disp, f32 r,
 
 } // namespace
 
-u32 FRigidWorld2D::AllocBody(const FRigidBodyState& state) noexcept {
+u32 CRigidWorld2D::AllocBody(const FRigidBodyState& state) noexcept {
     ++m_ActiveCount;
     if (m_FreeList.Size() > 0) {                       // 削除済み slot を再利用
         const u32 idx = m_FreeList[m_FreeList.Size() - 1];
@@ -305,7 +305,7 @@ u32 FRigidWorld2D::AllocBody(const FRigidBodyState& state) noexcept {
     return static_cast<u32>(m_Bodies.Size() - 1);
 }
 
-void FRigidWorld2D::RemoveBody(u32 index) noexcept {
+void CRigidWorld2D::RemoveBody(u32 index) noexcept {
     if (index >= m_Bodies.Size() || !m_Bodies[index].active) return;
     m_Bodies[index].active   = false;     // tombstone
     m_Bodies[index].inv_mass = 0.0f;      // 念のため (万一処理されても不動)
@@ -313,7 +313,7 @@ void FRigidWorld2D::RemoveBody(u32 index) noexcept {
     if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
-u32 FRigidWorld2D::AddCircle(FVec2 pos, f32 radius, f32 mass, f32 restitution, f32 friction) noexcept {
+u32 CRigidWorld2D::AddCircle(FVec2 pos, f32 radius, f32 mass, f32 restitution, f32 friction) noexcept {
     FRigidBodyState b;
     b.pos = pos; b.radius = radius; b.is_circle = true;
     b.inv_mass = (mass > 0.0f) ? (1.0f / mass) : 0.0f;
@@ -324,7 +324,7 @@ u32 FRigidWorld2D::AddCircle(FVec2 pos, f32 radius, f32 mass, f32 restitution, f
     return AllocBody(b);
 }
 
-u32 FRigidWorld2D::AddDynamicAabb(FVec2 pos, FVec2 half, f32 mass, f32 restitution, f32 friction) noexcept {
+u32 CRigidWorld2D::AddDynamicAabb(FVec2 pos, FVec2 half, f32 mass, f32 restitution, f32 friction) noexcept {
     FRigidBodyState b;
     b.pos = pos; b.half = half; b.is_circle = false;
     b.inv_mass = (mass > 0.0f) ? (1.0f / mass) : 0.0f;
@@ -336,7 +336,7 @@ u32 FRigidWorld2D::AddDynamicAabb(FVec2 pos, FVec2 half, f32 mass, f32 restituti
     return AllocBody(b);
 }
 
-u32 FRigidWorld2D::AddStaticAabb(FVec2 center, FVec2 half, f32 restitution, f32 friction) noexcept {
+u32 CRigidWorld2D::AddStaticAabb(FVec2 center, FVec2 half, f32 restitution, f32 friction) noexcept {
     FRigidBodyState b;
     b.pos = center; b.half = half; b.is_circle = false;
     b.inv_mass = 0.0f;   // 静的
@@ -345,7 +345,7 @@ u32 FRigidWorld2D::AddStaticAabb(FVec2 center, FVec2 half, f32 restitution, f32 
     return AllocBody(b);
 }
 
-u32 FRigidWorld2D::AddPolygon(FVec2 pos, const FVec2* local_verts, u32 count, f32 mass,
+u32 CRigidWorld2D::AddPolygon(FVec2 pos, const FVec2* local_verts, u32 count, f32 mass,
                               f32 restitution, f32 friction) noexcept {
     FRigidBodyState b;
     b.pos = pos; b.is_circle = false;
@@ -384,21 +384,21 @@ u32 FRigidWorld2D::AddPolygon(FVec2 pos, const FVec2* local_verts, u32 count, f3
     return AllocBody(b);
 }
 
-u32 FRigidWorld2D::AddSensorCircle(FVec2 pos, f32 radius) noexcept {
+u32 CRigidWorld2D::AddSensorCircle(FVec2 pos, f32 radius) noexcept {
     FRigidBodyState b;
     b.pos = pos; b.radius = radius; b.is_circle = true;
     b.inv_mass = 0.0f; b.is_sensor = true;   // 静的・素通り
     return AllocBody(b);
 }
 
-u32 FRigidWorld2D::AddSensorAabb(FVec2 center, FVec2 half) noexcept {
+u32 CRigidWorld2D::AddSensorAabb(FVec2 center, FVec2 half) noexcept {
     FRigidBodyState b;
     b.pos = center; b.half = half; b.is_circle = false;
     b.inv_mass = 0.0f; b.is_sensor = true;
     return AllocBody(b);
 }
 
-void FRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
+void CRigidWorld2D::Step(f32 dt, FVec2 gravity) noexcept {
     if (dt <= 0.0f) return;
 
     // --- 1. 速度積分 (重力 + 減衰)。動的ボディのみ。 ---
@@ -610,14 +610,14 @@ bool RayAabb(FVec2 o, FVec2 d, const FRigidBodyState& b, f32& tOut, FVec2& n) no
 
 } // namespace
 
-i32 FRigidWorld2D::QueryPoint(FVec2 p) const noexcept {
+i32 CRigidWorld2D::QueryPoint(FVec2 p) const noexcept {
     for (u32 i = 0; i < m_Bodies.Size(); ++i) {
         if (m_Bodies[i].active && PointInBody(m_Bodies[i], p)) return static_cast<i32>(i);
     }
     return -1;
 }
 
-FRayHit2D FRigidWorld2D::Raycast(FVec2 origin, FVec2 dir, f32 max_dist) const noexcept {
+FRayHit2D CRigidWorld2D::Raycast(FVec2 origin, FVec2 dir, f32 max_dist) const noexcept {
     FRayHit2D best;
     const f32 dl = VLen(dir);
     if (dl < 1e-9f) return best;
@@ -638,7 +638,7 @@ FRayHit2D FRigidWorld2D::Raycast(FVec2 origin, FVec2 dir, f32 max_dist) const no
     return best;
 }
 
-u32 FRigidWorld2D::OverlapCircle(FVec2 center, f32 radius, u32* out_indices, u32 cap) const noexcept {
+u32 CRigidWorld2D::OverlapCircle(FVec2 center, f32 radius, u32* out_indices, u32 cap) const noexcept {
     u32 n = 0u;
     for (u32 i = 0; i < m_Bodies.Size(); ++i) {
         const FRigidBodyState& b = m_Bodies[i];
@@ -659,7 +659,7 @@ u32 FRigidWorld2D::OverlapCircle(FVec2 center, f32 radius, u32* out_indices, u32
     return n;
 }
 
-u32 FRigidWorld2D::OverlapBody(u32 index, u32* out_indices, u32 cap) const noexcept {
+u32 CRigidWorld2D::OverlapBody(u32 index, u32* out_indices, u32 cap) const noexcept {
     if (index >= m_Bodies.Size() || !m_Bodies[index].active) return 0u;
     const FRigidBodyState& s = m_Bodies[index];
     u32 n = 0u;

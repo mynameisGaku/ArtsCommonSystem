@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FGameFlow 実装
+// GameFramework 完成度システム v7 — CGameFlow 実装
 //
 // 設計メモ:
 //   ・遷移許可テーブルは「典型的なゲームフロー」を許可する保守的な集合。
@@ -31,7 +31,7 @@ namespace acs::game {
 namespace {
 
 /**
- * 経過時間を [0, 1] の進捗に正規化する (FFadeTransition.cpp と同形)。
+ * 経過時間を [0, 1] の進捗に正規化する (CFadeTransition.cpp と同形)。
  *
  * @details duration<=0 のときは即完了として 1.0 を返す。結果は [0, 1] にクランプされる。
  * @param elapsed フェーズ内での経過秒。
@@ -49,7 +49,7 @@ inline f32 SafeProgress(f32 elapsed, f32 duration) noexcept {
 } // namespace
 
 /** 典型的なゲームフローを許可する保守的な遷移テーブルを組み立てる。 */
-void FGameFlow::BuildTransitionTable() noexcept {
+void CGameFlow::BuildTransitionTable() noexcept {
     // 全 false で初期化 (default-init で既に 0 だが明示)。
     for (u32 i = 0; i < kFlowStateCount; ++i) {
         for (u32 j = 0; j < kFlowStateCount; ++j) {
@@ -112,7 +112,7 @@ void FGameFlow::BuildTransitionTable() noexcept {
 }
 
 /** state スロットと遷移テーブルを構築し、初期状態へ入って OnEnter を即発火する。 */
-void FGameFlow::Init(EFlowState initial_state) noexcept {
+void CGameFlow::Init(EFlowState initial_state) noexcept {
     // 既存スロットを破棄して再構築 (複数回 Init 対応)。
     _states.Clear();
     for (u32 i = 0; i < kFlowStateCount; ++i) {
@@ -142,7 +142,7 @@ void FGameFlow::Init(EFlowState initial_state) noexcept {
 }
 
 /** 現在 state から to への遷移が許可テーブルで許されているかを返す。 */
-bool FGameFlow::CanTransitionTo(EFlowState to) const noexcept {
+bool CGameFlow::CanTransitionTo(EFlowState to) const noexcept {
     if (!m_Initialized) return false;
     const u32 from_idx = IndexOf(m_Current);
     const u32 to_idx   = IndexOf(to);
@@ -152,7 +152,7 @@ bool FGameFlow::CanTransitionTo(EFlowState to) const noexcept {
 }
 
 /** 遷移を要求し fade フェーズを開始する (不正遷移 / 遷移中は no-op)。 */
-void FGameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
+void CGameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
     if (!m_Initialized) return;
     if (m_IsTransitioning) return;            // 進行中の追加要求は無視
     if (!CanTransitionTo(to)) return;          // 不正遷移は無視
@@ -179,7 +179,7 @@ void FGameFlow::RequestTransition(EFlowState to, f32 fade_sec) noexcept {
 }
 
 /** 指定 state の OnEnter コールバックを登録する (範囲外は no-op)。 */
-void FGameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept {
+void CGameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!m_Initialized) return;
     const u32 idx = IndexOf(state);
     if (idx >= kFlowStateCount) return;
@@ -189,7 +189,7 @@ void FGameFlow::SetOnEnterCallback(EFlowState state, StateCallback cb, void* use
 }
 
 /** 指定 state の OnExit コールバックを登録する (範囲外は no-op)。 */
-void FGameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user) noexcept {
+void CGameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user) noexcept {
     if (!m_Initialized) return;
     const u32 idx = IndexOf(state);
     if (idx >= kFlowStateCount) return;
@@ -199,7 +199,7 @@ void FGameFlow::SetOnExitCallback(EFlowState state, StateCallback cb, void* user
 }
 
 /** fade timer を進め、完了時に state を切り替えて exit/enter コールバックを発火する。 */
-void FGameFlow::Tick(f32 dt) noexcept {
+void CGameFlow::Tick(f32 dt) noexcept {
     if (!m_Initialized) return;
     if (!m_IsTransitioning) return;
     if (dt < 0.0f) dt = 0.0f;

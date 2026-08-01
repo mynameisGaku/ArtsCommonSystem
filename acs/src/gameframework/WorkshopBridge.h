@@ -37,7 +37,7 @@
 //   ・**ダウンロード進捗は同期 poll**: GetDownloadProgress(item_id) を毎フレーム
 //     呼んで [0, 1] を取得。-1 は「現在ダウンロード中ではない / 不明」を表す。
 //   ・**Stub は static singleton で取得**: ISteamworksBridge と同じく
-//     `GetWorkshopStub()` を提供。`FWorkshopBridgeStub::IsAvailable()` は
+//     `GetWorkshopStub()` を提供。`CWorkshopBridgeStub::IsAvailable()` は
 //     常に false を返し、UI 側で「Workshop 機能無効」表示の判定に使える。
 //   ・**実 SDK 実装はここでは作らない**: GoldenWorkshopBridge 等は Steamworks UGC
 //     API への依存を伴うため、本ファイルでは I/F + Stub のみ。
@@ -229,13 +229,13 @@ public:
  * download / query 系は ACS_ERR(Generic, kSubWorkshopNotImplemented) を返す。
  * GetDownloadProgress() は常に -1、Shutdown() / Tick() は副作用なし。
  */
-class FWorkshopBridgeStub final : public IWorkshopBridge {
+class CWorkshopBridgeStub final : public IWorkshopBridge {
 public:
     /** 未初期化状態の Stub を構築する。 */
-    FWorkshopBridgeStub() noexcept = default;
+    CWorkshopBridgeStub() noexcept = default;
 
     /** 何もせず破棄する。 */
-    ~FWorkshopBridgeStub() noexcept override = default;
+    ~CWorkshopBridgeStub() noexcept override = default;
 
     /**
      * 初期化済みフラグを立てる (常に成功)。
@@ -339,8 +339,11 @@ private:
  * 実 SDK 実装が DI される前のデフォルト。Meyer's singleton で構築するため
  * thread-safe。ISteamworksBridge は静的メンバ関数を使うが、Workshop 側は仕様に
  * 合わせて自由関数で公開する。
- * @return プロセス内で唯一の FWorkshopBridgeStub への参照。
+ * @return プロセス内で唯一の CWorkshopBridgeStub への参照。
  */
 IWorkshopBridge& GetWorkshopStub() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWorkshopBridgeStub = CWorkshopBridgeStub;
 
 } // namespace acs::game

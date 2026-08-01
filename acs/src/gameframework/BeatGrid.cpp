@@ -41,23 +41,23 @@ const char* BeatChartLoadResultName(EBeatChartLoadResult result) noexcept {
     return "Unknown";
 }
 
-FBeatGrid::FBeatGrid(FAllocator& allocator) noexcept
+CBeatGrid::CBeatGrid(FAllocator& allocator) noexcept
     : m_Notes(allocator), m_Judged(allocator), m_Holds(allocator) {
 }
 
-void FBeatGrid::BumpRevision() noexcept {
+void CBeatGrid::BumpRevision() noexcept {
     ++m_StateRevision;
     if (m_StateRevision == 0u) m_StateRevision = 1u;
 }
 
-void FBeatGrid::ClearActiveHolds() noexcept {
+void CBeatGrid::ClearActiveHolds() noexcept {
     for (usize i = 0; i < m_Holds.Size(); ++i) {
         m_Holds[i].active = false;
         m_Holds[i].head_judgement = EJudgement::Miss;
     }
 }
 
-void FBeatGrid::ResetRunState() noexcept {
+void CBeatGrid::ResetRunState() noexcept {
     m_CurrentTime = 0.0f;
     m_Playing = false;
     m_Paused = false;
@@ -73,12 +73,12 @@ void FBeatGrid::ResetRunState() noexcept {
     ClearActiveHolds();
 }
 
-void FBeatGrid::Init() noexcept {
+void CBeatGrid::Init() noexcept {
     BumpRevision();
     ResetRunState();
 }
 
-EBeatChartLoadResult FBeatGrid::TryLoadChart(
+EBeatChartLoadResult CBeatGrid::TryLoadChart(
     const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     if (count > kMaxBeatChartNotes) return EBeatChartLoadResult::TooManyNotes;
     if (count != 0u && notes == nullptr) return EBeatChartLoadResult::NullNotes;
@@ -140,12 +140,12 @@ EBeatChartLoadResult FBeatGrid::TryLoadChart(
     return EBeatChartLoadResult::Success;
 }
 
-void FBeatGrid::LoadChart(
+void CBeatGrid::LoadChart(
     const FBeatNote* notes, u32 count, f32 bpm) noexcept {
     (void)TryLoadChart(notes, count, bpm);
 }
 
-bool FBeatGrid::TrySetTimingWindows(
+bool CBeatGrid::TrySetTimingWindows(
     f32 perfect_ms, f32 great_ms, f32 good_ms) noexcept {
     if (!std::isfinite(perfect_ms) || !std::isfinite(great_ms)
         || !std::isfinite(good_ms) || perfect_ms < 0.0f
@@ -162,7 +162,7 @@ bool FBeatGrid::TrySetTimingWindows(
     return true;
 }
 
-void FBeatGrid::SetTimingWindows(
+void CBeatGrid::SetTimingWindows(
     f32 perfect_ms, f32 great_ms, f32 good_ms) noexcept {
     if (!std::isfinite(perfect_ms) || !std::isfinite(great_ms)
         || !std::isfinite(good_ms)) {
@@ -181,13 +181,13 @@ void FBeatGrid::SetTimingWindows(
     BumpRevision();
 }
 
-void FBeatGrid::Start() noexcept {
+void CBeatGrid::Start() noexcept {
     BumpRevision();
     ResetRunState();
     m_Playing = true;
 }
 
-void FBeatGrid::Stop() noexcept {
+void CBeatGrid::Stop() noexcept {
     BumpRevision();
     m_Playing = false;
     m_Paused = false;
@@ -195,28 +195,28 @@ void FBeatGrid::Stop() noexcept {
     ClearActiveHolds();
 }
 
-void FBeatGrid::Pause() noexcept {
+void CBeatGrid::Pause() noexcept {
     if (m_Playing && !m_Paused) {
         m_Paused = true;
         BumpRevision();
     }
 }
 
-void FBeatGrid::Resume() noexcept {
+void CBeatGrid::Resume() noexcept {
     if (m_Playing && m_Paused) {
         m_Paused = false;
         BumpRevision();
     }
 }
 
-EJudgement FBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
+EJudgement CBeatGrid::ClassifyDelta(f32 abs_delta_sec) const noexcept {
     if (abs_delta_sec <= m_PerfectWindowSec) return EJudgement::Perfect;
     if (abs_delta_sec <= m_GreatWindowSec) return EJudgement::Great;
     if (abs_delta_sec <= m_GoodWindowSec) return EJudgement::Good;
     return EJudgement::Miss;
 }
 
-usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
+usize CBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     const usize count = m_Notes.Size();
     usize best_index = count;
     f32 best_delta = 0.0f;
@@ -235,7 +235,7 @@ usize FBeatGrid::FindNearestNote(EBeatLane lane) const noexcept {
     return best_index;
 }
 
-usize FBeatGrid::FindNearestActiveHold(EBeatLane lane) const noexcept {
+usize CBeatGrid::FindNearestActiveHold(EBeatLane lane) const noexcept {
     const usize count = m_Notes.Size();
     usize best_index = count;
     f32 best_delta = 0.0f;
@@ -253,7 +253,7 @@ usize FBeatGrid::FindNearestActiveHold(EBeatLane lane) const noexcept {
     return best_index;
 }
 
-bool FBeatGrid::ApplyJudgement(
+bool CBeatGrid::ApplyJudgement(
     EBeatLane lane, EJudgement judgement) noexcept {
     switch (judgement) {
         case EJudgement::Perfect:
@@ -282,7 +282,7 @@ bool FBeatGrid::ApplyJudgement(
     return revision == m_StateRevision;
 }
 
-bool FBeatGrid::FireEndIfComplete() noexcept {
+bool CBeatGrid::FireEndIfComplete() noexcept {
     if (m_bEndedFired) return true;
     for (usize i = 0; i < m_Judged.Size(); ++i) {
         if (!m_Judged[i]) return true;
@@ -296,7 +296,7 @@ bool FBeatGrid::FireEndIfComplete() noexcept {
     return revision == m_StateRevision;
 }
 
-EJudgement FBeatGrid::PressLane(EBeatLane lane) noexcept {
+EJudgement CBeatGrid::PressLane(EBeatLane lane) noexcept {
     if (!m_Playing || !IsValidLane(lane)) return EJudgement::Miss;
 
     const usize index = FindNearestNote(lane);
@@ -317,7 +317,7 @@ EJudgement FBeatGrid::PressLane(EBeatLane lane) noexcept {
     return judgement;
 }
 
-EJudgement FBeatGrid::ReleaseLane(EBeatLane lane) noexcept {
+EJudgement CBeatGrid::ReleaseLane(EBeatLane lane) noexcept {
     if (!m_Playing || !IsValidLane(lane)) return EJudgement::Miss;
 
     const usize index = FindNearestActiveHold(lane);
@@ -337,7 +337,7 @@ EJudgement FBeatGrid::ReleaseLane(EBeatLane lane) noexcept {
     return final_judgement;
 }
 
-bool FBeatGrid::IsLaneHolding(EBeatLane lane) const noexcept {
+bool CBeatGrid::IsLaneHolding(EBeatLane lane) const noexcept {
     if (!IsValidLane(lane)) return false;
     for (usize i = 0; i < m_Holds.Size(); ++i) {
         if (m_Holds[i].active && m_Notes[i].lane == lane) return true;
@@ -345,7 +345,7 @@ bool FBeatGrid::IsLaneHolding(EBeatLane lane) const noexcept {
     return false;
 }
 
-u32 FBeatGrid::ActiveHoldCount() const noexcept {
+u32 CBeatGrid::ActiveHoldCount() const noexcept {
     u32 count = 0u;
     for (usize i = 0; i < m_Holds.Size(); ++i) {
         if (m_Holds[i].active) ++count;
@@ -353,7 +353,7 @@ u32 FBeatGrid::ActiveHoldCount() const noexcept {
     return count;
 }
 
-void FBeatGrid::Tick(f32 dt) noexcept {
+void CBeatGrid::Tick(f32 dt) noexcept {
     if (!m_Playing || m_Paused || !std::isfinite(dt) || dt <= 0.0f) {
         return;
     }
@@ -390,7 +390,7 @@ void FBeatGrid::Tick(f32 dt) noexcept {
     if (revision == m_StateRevision) (void)FireEndIfComplete();
 }
 
-f32 FBeatGrid::Accuracy() const noexcept {
+f32 CBeatGrid::Accuracy() const noexcept {
     if (m_TotalNotes == 0u) return 1.0f;
     const f32 weighted =
         static_cast<f32>(m_PerfectCount)
@@ -399,7 +399,7 @@ f32 FBeatGrid::Accuracy() const noexcept {
     return weighted / static_cast<f32>(m_TotalNotes);
 }
 
-void FBeatGrid::ClearAll() noexcept {
+void CBeatGrid::ClearAll() noexcept {
     BumpRevision();
     m_Notes.Clear();
     m_Judged.Clear();

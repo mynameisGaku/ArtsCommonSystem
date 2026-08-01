@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FAmbientDirector (Time-of-Day)
+// GameFramework Pillar Q — CAmbientDirector (Time-of-Day)
 //
 // 1 日の時刻 (0..24h) に応じて sky color / ambient color / sun direction を
 // キーフレーム間で線形補間する time-of-day ドライバ。レンダラ側 (FPbrShader /
@@ -7,8 +7,8 @@
 // pull するだけで一日の表情が出る。
 //
 // 使い方:
-//   class FWorldScene : public FScene {
-//       acs::game::FAmbientDirector m_Ambient;
+//   class FWorldScene : public AScene {
+//       acs::game::CAmbientDirector m_Ambient;
 //
 //       void OnEnter() noexcept override {
 //           m_Ambient.SetTimeOfDay(6.5f);     // 朝焼け開始
@@ -62,25 +62,25 @@ namespace acs::game {
  * するだけで一日の表情が出る。Tick(dt) でリアル秒を、AdvanceTime(dh) でゲーム時間を進め、
  * 換算は SetTimeScale() で行う。非コピー・非ムーブ。
  */
-class FAmbientDirector {
+class CAmbientDirector {
 public:
     /** 既定値で構築する (時刻 12:00、タイムスケール 1/60)。 */
-    FAmbientDirector() noexcept = default;
+    CAmbientDirector() noexcept = default;
 
     /** 破棄する (保持するのは値のみで後始末は不要)。 */
-    ~FAmbientDirector() noexcept = default;
+    ~CAmbientDirector() noexcept = default;
 
     /** コピー禁止。 */
-    FAmbientDirector(const FAmbientDirector&)            = delete;
+    CAmbientDirector(const CAmbientDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAmbientDirector& operator=(const FAmbientDirector&) = delete;
+    CAmbientDirector& operator=(const CAmbientDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FAmbientDirector(FAmbientDirector&&)                 = delete;
+    CAmbientDirector(CAmbientDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAmbientDirector& operator=(FAmbientDirector&&)      = delete;
+    CAmbientDirector& operator=(CAmbientDirector&&)      = delete;
 
     /**
      * 現在時刻を設定する。
@@ -197,5 +197,8 @@ private:
     /** リアル時間→ゲーム時間の換算係数 (既定 1/60 = リアル 1s で 1 game-min)。 */
     f32 m_TimeScale = 1.0f / 60.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAmbientDirector = CAmbientDirector;
 
 } // namespace acs::game

@@ -41,7 +41,7 @@
 namespace acs::game {
 
 /** stub: 初期化せず NotImplemented エラーを返す。 */
-TResult<void> FCrashReporterStub::Init(const char* product_id, const char* version) noexcept {
+TResult<void> CCrashReporterStub::Init(const char* product_id, const char* version) noexcept {
     (void)product_id;
     (void)version;
     return ACS_ERR(Generic, FCrashReporterError::kSub_NotImplemented,
@@ -50,12 +50,12 @@ TResult<void> FCrashReporterStub::Init(const char* product_id, const char* versi
 }
 
 /** stub: never-initialized 状態なので no-op。 */
-void FCrashReporterStub::Shutdown() noexcept {
+void CCrashReporterStub::Shutdown() noexcept {
     // stub は never-initialized 状態。no-op で安全に通す。
 }
 
 /** stub: 送信せず NotImplemented エラーを返す。 */
-TResult<void> FCrashReporterStub::ReportCrash(const FCrashContext& ctx) noexcept {
+TResult<void> CCrashReporterStub::ReportCrash(const FCrashContext& ctx) noexcept {
     (void)ctx;
     return ACS_ERR(Generic, FCrashReporterError::kSub_NotImplemented,
                    "ICrashReporterBackend::ReportCrash is not implemented "
@@ -63,7 +63,7 @@ TResult<void> FCrashReporterStub::ReportCrash(const FCrashContext& ctx) noexcept
 }
 
 /** stub: 送信せず NotImplemented エラーを返す。 */
-TResult<void> FCrashReporterStub::ReportError(const char* category, const char* message) noexcept {
+TResult<void> CCrashReporterStub::ReportError(const char* category, const char* message) noexcept {
     (void)category;
     (void)message;
     return ACS_ERR(Generic, FCrashReporterError::kSub_NotImplemented,
@@ -72,7 +72,7 @@ TResult<void> FCrashReporterStub::ReportError(const char* category, const char* 
 }
 
 /** stub: 追加せず NotImplemented エラーを返す。 */
-TResult<void> FCrashReporterStub::AddBreadcrumb(const char* category, const char* message) noexcept {
+TResult<void> CCrashReporterStub::AddBreadcrumb(const char* category, const char* message) noexcept {
     (void)category;
     (void)message;
     return ACS_ERR(Generic, FCrashReporterError::kSub_NotImplemented,
@@ -81,20 +81,20 @@ TResult<void> FCrashReporterStub::AddBreadcrumb(const char* category, const char
 }
 
 /** stub: ユーザー ID を保持しないので no-op。 */
-void FCrashReporterStub::SetUserId(const char* anonymous_id) noexcept {
+void CCrashReporterStub::SetUserId(const char* anonymous_id) noexcept {
     (void)anonymous_id;
     // stub はユーザー ID を保持しない。no-op。
 }
 
 /** stub: pump 対象がないので no-op。 */
-void FCrashReporterStub::Tick(f32 dt) noexcept {
+void CCrashReporterStub::Tick(f32 dt) noexcept {
     (void)dt;
     // stub には pump 対象なし。no-op。
 }
 
 /** function-local static で process-wide な stub singleton を返す (magic statics)。 */
 ICrashReporterBackend& GetCrashStub() noexcept {
-    static FCrashReporterStub s_instance;
+    static CCrashReporterStub s_instance;
     return s_instance;
 }
 
@@ -117,18 +117,18 @@ ICrashReporterBackend& GetDefaultCrashReporter() noexcept
 }
 
 /** 借用 backend を設定する (nullptr は Uninstall と同義、後勝ち)。 */
-void FCrashHandler::Install(ICrashReporterBackend* backend) noexcept {
+void CCrashHandler::Install(ICrashReporterBackend* backend) noexcept {
     // nullptr 受け入れは Uninstall と同義。多重 Install は最後の 1 個で上書き。
     m_Backend = backend;
 }
 
 /** 借用 backend 参照を外す (べき等)。 */
-void FCrashHandler::Uninstall() noexcept {
+void CCrashHandler::Uninstall() noexcept {
     m_Backend = nullptr;
 }
 
 /** backend があれば最小 context で ReportCrash を呼ぶ (nullptr なら no-op)。 */
-void FCrashHandler::NotifyCrash(const char* exception_type, const char* message) noexcept {
+void CCrashHandler::NotifyCrash(const char* exception_type, const char* message) noexcept {
     if (m_Backend == nullptr) {
         // 未 Install: 黙って no-op。クラッシュ報告経路で SEGV を起こさない。
         return;
@@ -142,7 +142,7 @@ void FCrashHandler::NotifyCrash(const char* exception_type, const char* message)
 }
 
 /** backend があれば breadcrumb を素通しする (nullptr なら no-op)。 */
-void FCrashHandler::AddBreadcrumb(const char* category, const char* message) noexcept {
+void CCrashHandler::AddBreadcrumb(const char* category, const char* message) noexcept {
     if (m_Backend == nullptr) {
         return;
     }

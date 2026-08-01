@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelInspectorPanel 実装
+// GameFramework Pillar — modelview / AModelInspectorPanel 実装
 //
-// 仕様の意図は FModelInspectorPanel.h を参照。本ファイルでは:
+// 仕様の意図は AModelInspectorPanel.h を参照。本ファイルでは:
 //   ・UpdateFromModel: summary + 3 配列の値コピーと has_model フラグ更新
 //   ・Clear / Init / Shutdown: 内部状態の初期化
 //   ・DrawUI: ImGui で 4 セクションを描画
@@ -40,7 +40,7 @@ static const char* SafeName(const char* name) noexcept {
 }
 
 /** 内部状態を空にする (summary はゼロ初期化、3 配列を Clear、has_model = false)。 */
-void FModelInspectorPanel::Init() noexcept {
+void AModelInspectorPanel::Init() noexcept {
     // m_Summary は値型 = ゼロ初期化に戻す。
     m_Summary    = FMeshSummary{};
     m_Submeshes.Clear();
@@ -50,7 +50,7 @@ void FModelInspectorPanel::Init() noexcept {
 }
 
 /** Init と同じ深さで内部状態を全 reset する (容量は destructor が解放)。 */
-void FModelInspectorPanel::Shutdown() noexcept {
+void AModelInspectorPanel::Shutdown() noexcept {
     // TArray は Clear で要素数 0。容量解放は panel 自身の destructor に任せ、
     // ここでは要素破棄のみで十分。
     m_Summary    = FMeshSummary{};
@@ -61,7 +61,7 @@ void FModelInspectorPanel::Shutdown() noexcept {
 }
 
 /** caller から渡された summary + 3 配列を値コピーで全置換し has_model = true にする。 */
-void FModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
+void AModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
                                           const FSubmeshInfo*        submeshes,
                                           u32                       submesh_count,
                                           const FBoneInfo*           bones,
@@ -103,7 +103,7 @@ void FModelInspectorPanel::UpdateFromModel(const FMeshSummary&        summary,
 }
 
 /** 表示内容を空に戻し "No model loaded" 状態にする。 */
-void FModelInspectorPanel::Clear() noexcept {
+void AModelInspectorPanel::Clear() noexcept {
     m_Summary    = FMeshSummary{};
     m_Submeshes.Clear();
     m_Bones.Clear();
@@ -112,7 +112,7 @@ void FModelInspectorPanel::Clear() noexcept {
 }
 
 /** bone_index を root とする部分木を TreeNode で再帰描画する (depth でガード)。 */
-void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
+void AModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept {
     if (depth >= kBoneRecursionLimit) {
         ImGui::TextDisabled("  (bone depth limit reached)");
         return;
@@ -166,7 +166,7 @@ void FModelInspectorPanel::DrawBoneRecursive(i32 bone_index, u32 depth) noexcept
 }
 
 /** ImGui::Begin("Model Info") + Summary / Submeshes / Bones / Animation Clips を描画する。 */
-void FModelInspectorPanel::DrawUI() noexcept {
+void AModelInspectorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &m_Visible)) {

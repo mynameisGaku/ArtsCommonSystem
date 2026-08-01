@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FFadeTransition 実装
+// CFadeTransition 実装
 #include "gameframework/FadeTransition.h"
 
 namespace acs::game {
@@ -24,7 +24,7 @@ inline f32 SafeProgress(f32 elapsed, f32 duration) noexcept {
 
 } // namespace
 
-void FFadeTransition::StartFade(EFadeKind kind,
+void CFadeTransition::StartFade(EFadeKind kind,
                                 f32 out_duration,
                                 f32 in_duration,
                                 f32 mid_pause) noexcept {
@@ -64,7 +64,7 @@ void FFadeTransition::StartFade(EFadeKind kind,
     }
 }
 
-void FFadeTransition::Cancel() noexcept {
+void CFadeTransition::Cancel() noexcept {
     m_Phase              = EFadePhase::Idle;
     m_Kind               = EFadeKind::None;
     m_Alpha              = 0.0f;
@@ -72,7 +72,7 @@ void FFadeTransition::Cancel() noexcept {
     m_MidPauseConsumed = false;
 }
 
-void FFadeTransition::Tick(f32 dt) noexcept {
+void CFadeTransition::Tick(f32 dt) noexcept {
     if (m_Phase == EFadePhase::Idle) return;
     if (dt < 0.0f) dt = 0.0f;
 

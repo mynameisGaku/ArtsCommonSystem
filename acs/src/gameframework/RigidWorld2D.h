@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar F — FRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
+// GameFramework Pillar F — CRigidWorld2D (2D 剛体ダイナミクス、線形インパルス)
 // -----------------------------------------------------------------------------
 // APhysicsBody2D (swept kinematic) とは別の「本物の剛体」。質量を持つ動的ボディが
 // 衝突時に**運動量を交換**する (跳ね返り / 積み重ね / 押し合い)。インパルスベースの
@@ -15,7 +15,7 @@
 //     すり抜けるトンネリングを、位置積分前のスウィープ (TOI クランプ) で防ぐ。既定 off。
 //
 // 使い方:
-//   FRigidWorld2D w;
+//   CRigidWorld2D w;
 //   u32 floor = w.AddStaticAabb({0, 10}, {10, 0.5f});      // 上端 y=9.5 の床
 //   u32 ball  = w.AddCircle({0, 0}, 0.5f, /*mass=*/1.0f, /*restitution=*/0.2f);
 //   for (...) w.Step(1.0f/60.0f, FVec2{0, 10});            // +Y=下: 重力は +Y
@@ -27,6 +27,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
 
 namespace acs::game {
@@ -75,9 +76,9 @@ struct FRayHit2D {
  * 2D 剛体ワールド。動的円ボディと静的 AABB を保持し、毎ステップで重力積分 →
  * 接触検出 → インパルス解決 → 位置補正を行う。空間クエリ (point / ray / overlap) も提供する。
  */
-class FRigidWorld2D {
+class CRigidWorld2D {
 public:
-    FRigidWorld2D() noexcept = default;
+    CRigidWorld2D() noexcept = default;
 
     /**
      * 動的な円ボディを追加する。

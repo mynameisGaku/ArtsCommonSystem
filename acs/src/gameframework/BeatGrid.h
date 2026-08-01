@@ -76,19 +76,19 @@ using BeatEndCallback = FBeatEndCallback;
  * ReleaseLane または Tick のタイムアウトで一度だけ確定する。先頭と末尾の判定は
  * 悪い方を採用し、末尾の Good 範囲より前の解放は即座に Miss とする。
  */
-class FBeatGrid {
+class CBeatGrid {
 public:
-    FBeatGrid() noexcept = default;
+    CBeatGrid() noexcept = default;
 
     /** 決定論的な確保失敗テストやサブシステム固有 allocator を利用可能にする。 */
-    explicit FBeatGrid(FAllocator& allocator) noexcept;
+    explicit CBeatGrid(FAllocator& allocator) noexcept;
 
-    ~FBeatGrid() noexcept = default;
+    ~CBeatGrid() noexcept = default;
 
-    FBeatGrid(const FBeatGrid&) = delete;
-    FBeatGrid& operator=(const FBeatGrid&) = delete;
-    FBeatGrid(FBeatGrid&&) = delete;
-    FBeatGrid& operator=(FBeatGrid&&) = delete;
+    CBeatGrid(const CBeatGrid&) = delete;
+    CBeatGrid& operator=(const CBeatGrid&) = delete;
+    CBeatGrid(CBeatGrid&&) = delete;
+    CBeatGrid& operator=(CBeatGrid&&) = delete;
 
     /** 譜面とコールバックを保持したまま再生状態とスコアをリセットする。 */
     void Init() noexcept;
@@ -227,5 +227,8 @@ private:
     /** Tick ループ中にコールバック起点の置換・リセットを検出する。 */
     u64 m_StateRevision = 1u;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBeatGrid = CBeatGrid;
 
 } // namespace acs::game

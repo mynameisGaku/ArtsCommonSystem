@@ -52,7 +52,7 @@ void ATilemapComponent::OnDraw(FRenderContext& rc) noexcept {
 }
 
 /** 指定レイヤの非空タイルを 1 タイル = 1 AABB で物理ワールドへ登録する。 */
-void ATilemapComponent::BuildCollision(FCollisionWorld2D& world, u32 layer,
+void ATilemapComponent::BuildCollision(CCollisionWorld2D& world, u32 layer,
                                        u32 collision_layer_bit) noexcept {
     const FTileId* data = m_Map.LayerData(layer);
     if (data == nullptr || !HasOwner()) return;

@@ -2,7 +2,7 @@
 // =============================================================================
 // GameFramework — エンジン同梱型のリフレクションカタログ (本体)
 // -----------------------------------------------------------------------------
-// 既存のエンジン型を「型ヘッダ非侵襲」で FTypeRegistry へ一括登録する単一の TU。
+// 既存のエンジン型を「型ヘッダ非侵襲」で CTypeRegistry へ一括登録する単一の TU。
 // 各型のヘッダを include し、ACS_REGISTER*（AcsTypeDescOf 特殊化を生成しない版）を
 // 並べるだけ。これにより editor / serializer / script / network が「型を知らずに」
 // FindByName / カテゴリ列挙 / factory でエンジン型を横断利用できる。
@@ -47,7 +47,7 @@
 #include "gameframework/InventorySystem.h"
 #include "gameframework/CooldownTimer.h"
 #include "gameframework/WaveSpawner.h"
-#include "gameframework/CombatStateMachine.h"   // FCombatStateMachine + ECombatState
+#include "gameframework/CombatStateMachine.h"   // CCombatStateMachine + ECombatState
 #include "gameframework/AssetBundle.h"           // FStreamingDirector が前方宣言で参照 (完全型化)
 #include "gameframework/AchievementManager.h"
 #include "gameframework/EffectSystem.h"
@@ -318,7 +318,7 @@ namespace acs::game {
 u32 AcsRegisterEngineTypes() noexcept {
     // この関数を呼ぶことで本 TU がリンクに含まれ、上の ACS_REGISTER* 自動登録子が
     // 静的初期化時に実行される。ここ自体は現在のレジストリ件数を返すだけ。
-    return FTypeRegistry::Get().Count();
+    return CTypeRegistry::Get().Count();
 }
 
 } // namespace acs::game

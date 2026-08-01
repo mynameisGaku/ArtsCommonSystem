@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FTweenManager
+// GameFramework Pillar C — CTweenManager
 //
 // 値書き戻し型 tween manager: 利用者の f32/FVec2/FVec3 変数のポインタを渡し、
-// FTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
+// CTweenManager が毎 Tick で補間して書き込む。コールバック不要 (= ACS の
 // std::function 非使用方針と整合)。Easing は関数ポインタで指定。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FTweenManager m_Tweens;
+//   class FGameplayScene : public AScene {
+//       acs::game::CTweenManager m_Tweens;
 //       acs::FVec3 m_Color{0, 0, 0};
 //
 //       void OnEnter() noexcept override {
@@ -67,19 +67,19 @@ struct FTweenHandle {
  * Handle は (index, generation) で stale 参照を検出する。完了時は浮動小数誤差を残さず
  * target に正確に to を書く。
  */
-class FTweenManager {
+class CTweenManager {
 public:
     /** 空の tween マネージャを構築する。 */
-    FTweenManager() noexcept = default;
+    CTweenManager() noexcept = default;
 
     /** 破棄する。 */
-    ~FTweenManager() noexcept = default;
+    ~CTweenManager() noexcept = default;
 
     /** コピー禁止 (進行中 tween の状態を単独所有するため)。 */
-    FTweenManager(const FTweenManager&)            = delete;
+    CTweenManager(const CTweenManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTweenManager& operator=(const FTweenManager&) = delete;
+    CTweenManager& operator=(const CTweenManager&) = delete;
 
     /**
      * f32 変数の tween を開始する。
@@ -172,7 +172,7 @@ public:
     /**
      * 全 tween を即座に完了させる (target に完了値 to を書く)。
      *
-     * @details FScene::OnExit 等で確実に状態を確定させたいときに使う。
+     * @details AScene::OnExit 等で確実に状態を確定させたいときに使う。
      */
     void CompleteAll() noexcept;
 
@@ -197,7 +197,7 @@ public:
     /**
      * 毎フレーム呼んで全 tween を進める。
      *
-     * @param dt ゲーム時間の経過秒 (FSceneClock::Dt() か FScene::OnUpdate の dt)。
+     * @param dt ゲーム時間の経過秒 (CSceneClock::Dt() か AScene::OnUpdate の dt)。
      * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
      * 補間演算が非有限になったフレームは target を変更しない。
      */
@@ -277,5 +277,8 @@ private:
     /** アクティブな tween 数。 */
     u32         m_ActiveCount = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTweenManager = CTweenManager;
 
 } // namespace acs::game

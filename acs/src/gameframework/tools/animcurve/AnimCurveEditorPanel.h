@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — animcurve / FAnimCurveEditorPanel
+// GameFramework Pillar — animcurve / AAnimCurveEditorPanel
 //
 // `acs::game::FAnimationCurve` (Hermite/Linear/Step + EWrapMode) を ImGui で
 // **対話的に編集する curve editor panel**。Unity AnimationCurve エディタ /
 // Unreal CurveEditor / Godot Curve のキー打ち + タンジェントドラッグの
-// 簡易版に相当。`editor_core::FEditorPanel` 基底に
-// 載せ、`FEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
+// 簡易版に相当。`editor_core::AEditorPanel` 基底に
+// 載せ、`CEditorWorkspace::RegisterPanel(&panel)` の 1 行で workspace に
 // 統合できる形にしている。
 //
 // 役割:
@@ -33,9 +33,9 @@
 //     等の API を呼ぶだけで、curve の利用文脈には関与しない。
 //
 // 使い方 (典型):
-//   FAnimCurveEditorPanel panel;
+//   AAnimCurveEditorPanel panel;
 //   panel.Init();
-//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
 //
 //   FAnimationCurve my_curve;
 //   my_curve.AddKeyHermite(0.0f, 0.0f, 0.0f, 1.0f);
@@ -55,9 +55,9 @@
 //   panel.Shutdown();
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
+//   ・**AEditorPanel 継承**: 共通基盤を利用する。Title = "Animation Curve Editor"、DrawUI override。
 //   ・**curve は raw pointer の非所有保持**: caller が own する設計
-//     (FParticleEditorPanel が FParticleEffectSystem を参照渡しで受けるのと
+//     (AParticleEditorPanel が FParticleEffectSystem を参照渡しで受けるのと
 //     同じ方針)。本 panel は curve の寿命に関与せず、`m_Curve == nullptr` 時は
 //     「(No curve bound)」を表示。
 //   ・**canvas は ImGui::InvisibleButton + GetWindowDrawList()**: ImGui の
@@ -67,7 +67,7 @@
 //     (典型の curve editor 横幅 ~1000px 想定)。それ以上は SIMD でも誤差
 //     範囲なので overkill。
 //   ・**選択中 key index は i32 (-1 = 未選択)**: `kNoKeySelected` を sentinel に
-//     する (FModelAnimationPanel の `kNoClipSelected` と同形)。
+//     する (AModelAnimationPanel の `kNoClipSelected` と同形)。
 //   ・**Tangent handle の長さは固定 px (= 約 30px)**: curve 形状で接線が
 //     画面外に飛ぶ事故を避けるため。実際の tangent 値 (= dy/dx) は curve に
 //     書き込むが、handle 描画位置だけは固定スケールで「短い棒」として出す。
@@ -75,8 +75,8 @@
 //     "Add Key Here" は click 位置の (time, value) を decode してそこに key
 //     追加。"Delete Selected" は `m_SelectedKeyIdx` が有効なら RemoveKey。
 //   ・**CurveChangeCallback は raw 関数ポインタ + void* user**: ACS は
-//     std::function 禁止。FParticleEditorPanel / FAssetBrowser と同形の C-style
-//     callback 規約 (FModelAnimationPanel の AnimationFrameCallback と同形)。
+//     std::function 禁止。AParticleEditorPanel / CAssetBrowser と同形の C-style
+//     callback 規約 (AModelAnimationPanel の AnimationFrameCallback と同形)。
 //     キー操作の都度発火する設計だが、drag 中は連続発火を避けるため
 //     「drag end (= マウス release)」のタイミングで 1 度だけ呼ぶ。
 //   ・**Toolbar の EWrapMode Combo は Pre / Post 個別**: FAnimationCurve API も
@@ -85,8 +85,8 @@
 //     curve.Duration() == 0 の場合は slider を disable して 0 表示。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FParticleEditorPanel /
-//     FModelViewerPanel / FModelInspectorPanel) と同形。
+//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AParticleEditorPanel /
+//     AModelViewerPanel / AModelInspectorPanel) と同形。
 //
 // 範囲外:
 //   ・複数 curve の同時編集 / レイヤ重ね (= timeline editor の役割)
@@ -116,22 +116,22 @@ namespace acs::game::animcurve {
  *
  * @details
  * Unity AnimationCurve エディタ / Unreal CurveEditor 相当のキー打ち +
- * タンジェントドラッグの簡易版。editor_core::FEditorPanel を継承し、
- * FEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
+ * タンジェントドラッグの簡易版。editor_core::AEditorPanel を継承し、
+ * CEditorWorkspace::RegisterPanel(&panel) で workspace に統合できる。
  * canvas 上に curve を kCurveSampleCount sample で線描画し、各 key を丸 marker、
  * Hermite key の in/out tangent を handle として描画して drag 編集できる。
  * 編集対象の FAnimationCurve は caller 所有 (SetCurve で raw 参照を渡す、寿命は
  * caller 責任) で、本 panel は curve を生成・破棄しない。全 noexcept・非コピー・
  * 非ムーブ・STL 不使用で、ImGui 依存は .cpp に閉じる。
  */
-class FAnimCurveEditorPanel : public acs::game::editor_core::FEditorPanel {
+class AAnimCurveEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /**
      * curve に変更があった時に呼ばれる callback 型 (raw 関数ポインタ + void* user)。
      *
      * @details
-     * ACS は std::function 禁止のため C-style callback 規約 (FParticleEditorPanel /
-     * FAssetBrowser と同形)。第 1 引数 user は SetOnChangeCallback に渡した不透明
+     * ACS は std::function 禁止のため C-style callback 規約 (AParticleEditorPanel /
+     * CAssetBrowser と同形)。第 1 引数 user は SetOnChangeCallback に渡した不透明
      * ポインタ、第 2 引数 curve は編集中の FAnimationCurve。キー追加 / 削除 /
      * interp 変更 / wrap mode 変更は即時 1 回発火し、drag は連続発火を避けて
      * drag end (= マウス release) で 1 度だけ発火する。
@@ -140,22 +140,22 @@ public:
         void (*)(void* user, acs::game::FAnimationCurve* curve) noexcept;
 
     /** curve 未バインドの空状態で構築する。 */
-    FAnimCurveEditorPanel() noexcept = default;
+    AAnimCurveEditorPanel() noexcept = default;
 
     /** 破棄する (curve は caller 所有なので何も解放しない)。 */
-    ~FAnimCurveEditorPanel() noexcept override = default;
+    ~AAnimCurveEditorPanel() noexcept override = default;
 
-    /** コピー禁止 (基底 FEditorPanel と同規約)。 */
-    FAnimCurveEditorPanel(const FAnimCurveEditorPanel&)            = delete;
+    /** コピー禁止 (基底 AEditorPanel と同規約)。 */
+    AAnimCurveEditorPanel(const AAnimCurveEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAnimCurveEditorPanel& operator=(const FAnimCurveEditorPanel&) = delete;
+    AAnimCurveEditorPanel& operator=(const AAnimCurveEditorPanel&) = delete;
 
     /** ムーブ禁止。 */
-    FAnimCurveEditorPanel(FAnimCurveEditorPanel&&)                 = delete;
+    AAnimCurveEditorPanel(AAnimCurveEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAnimCurveEditorPanel& operator=(FAnimCurveEditorPanel&&)      = delete;
+    AAnimCurveEditorPanel& operator=(AAnimCurveEditorPanel&&)      = delete;
 
     /**
      * 内部 state を初期値に戻す (curve 参照 / selection / dirty / callback を全クリア)。
@@ -273,5 +273,7 @@ private:
      */
     void NotifyChanged(bool immediate) noexcept;
 };
+
+using FAnimCurveEditorPanel = AAnimCurveEditorPanel;
 
 } // namespace acs::game::animcurve

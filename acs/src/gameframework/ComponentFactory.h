@@ -3,7 +3,7 @@
 // GameFramework — リフレクション名による Component 実体化 (ComponentFactory)
 // -----------------------------------------------------------------------------
 // 「反射名 → 生きた AComponent」を埋める enabling layer の要。reflection factory
-// (FTypeRegistry::Create) はエンジンアロケータ確保になったので、その生成物を
+// (CTypeRegistry::Create) はエンジンアロケータ確保になったので、その生成物を
 // ANode が所有できる TUniquePtr<AComponent> に安全に包んで返す。これにより
 // データ駆動のシーン復元 / Play モードが「型を知らずに」コンポーネントを取り付けられる。
 //

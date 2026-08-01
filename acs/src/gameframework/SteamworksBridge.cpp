@@ -24,7 +24,7 @@
 namespace acs::game {
 
 /** Stub を初期化済みにマークする (実 SDK と違い常に成功する)。 */
-TResult<void> FSteamworksBridgeStub::Init() noexcept {
+TResult<void> CSteamworksBridgeStub::Init() noexcept {
     // 多重 Init は明示的に許容する。実 SDK の SteamAPI_Init() は失敗時 false を
     // 返すが、Stub はテスト容易性のため常に成功。
     m_Initialized = true;
@@ -32,13 +32,13 @@ TResult<void> FSteamworksBridgeStub::Init() noexcept {
 }
 
 /** 初期化フラグを下ろす (Init() 前に呼んでも安全な no-op)。 */
-void FSteamworksBridgeStub::Shutdown() noexcept {
+void CSteamworksBridgeStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。
     m_Initialized = false;
 }
 
 /** 固定ダミーのローカルプレイヤー情報を返す (未初期化時は全フィールド空)。 */
-FPlayerIdentity FSteamworksBridgeStub::GetLocalPlayer() const noexcept {
+FPlayerIdentity CSteamworksBridgeStub::GetLocalPlayer() const noexcept {
     FPlayerIdentity id{};
     if (!m_Initialized) {
         // 未初期化時は全フィールド空のまま返す (Bridge は throw しない方針)。
@@ -53,7 +53,7 @@ FPlayerIdentity FSteamworksBridgeStub::GetLocalPlayer() const noexcept {
 }
 
 /** 実績解除は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexcept {
+TResult<void> CSteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexcept {
     (void)ach_id;  // 未使用引数 (Stub なので no-op)
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -64,7 +64,7 @@ TResult<void> FSteamworksBridgeStub::UnlockAchievement(const char* ach_id) noexc
 }
 
 /** リーダーボードへの送信は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i64 score) noexcept {
+TResult<void> CSteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i64 score) noexcept {
     (void)board_id;
     (void)score;
     if (!m_Initialized) {
@@ -76,7 +76,7 @@ TResult<void> FSteamworksBridgeStub::SetLeaderboardScore(const char* board_id, i
 }
 
 /** リーダーボードスコアの取得は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<i64> FSteamworksBridgeStub::GetLeaderboardScore(const char* board_id) noexcept {
+TResult<i64> CSteamworksBridgeStub::GetLeaderboardScore(const char* board_id) noexcept {
     (void)board_id;
     if (!m_Initialized) {
         return TResult<i64>(ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -87,12 +87,12 @@ TResult<i64> FSteamworksBridgeStub::GetLeaderboardScore(const char* board_id) no
 }
 
 /** Stub は callback pump を持たないので何もしない。 */
-void FSteamworksBridgeStub::Tick(f32 dt) noexcept {
+void CSteamworksBridgeStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は callback pump を持たないので何もしない
 }
 
 /** 整数 stat の設定は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::SetStat(const char* stat_name, i64 value) noexcept {
+TResult<void> CSteamworksBridgeStub::SetStat(const char* stat_name, i64 value) noexcept {
     (void)stat_name; (void)value;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -103,7 +103,7 @@ TResult<void> FSteamworksBridgeStub::SetStat(const char* stat_name, i64 value) n
 }
 
 /** 整数 stat の取得は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<i64> FSteamworksBridgeStub::GetStat(const char* stat_name) noexcept {
+TResult<i64> CSteamworksBridgeStub::GetStat(const char* stat_name) noexcept {
     (void)stat_name;
     if (!m_Initialized) {
         return TResult<i64>(ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -114,7 +114,7 @@ TResult<i64> FSteamworksBridgeStub::GetStat(const char* stat_name) noexcept {
 }
 
 /** 浮動小数 stat の設定は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::SetFloatStat(const char* stat_name, f32 value) noexcept {
+TResult<void> CSteamworksBridgeStub::SetFloatStat(const char* stat_name, f32 value) noexcept {
     (void)stat_name; (void)value;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -125,7 +125,7 @@ TResult<void> FSteamworksBridgeStub::SetFloatStat(const char* stat_name, f32 val
 }
 
 /** 浮動小数 stat の取得は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<f32> FSteamworksBridgeStub::GetFloatStat(const char* stat_name) noexcept {
+TResult<f32> CSteamworksBridgeStub::GetFloatStat(const char* stat_name) noexcept {
     (void)stat_name;
     if (!m_Initialized) {
         return TResult<f32>(ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -136,13 +136,13 @@ TResult<f32> FSteamworksBridgeStub::GetFloatStat(const char* stat_name) noexcept
 }
 
 /** Stub は何も所有していないので常に false を返す。 */
-bool FSteamworksBridgeStub::IsDlcOwned(u32 app_id) const noexcept {
+bool CSteamworksBridgeStub::IsDlcOwned(u32 app_id) const noexcept {
     (void)app_id;
     return false;  // Stub: 何も所有していない
 }
 
 /** RichPresence の設定は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::SetRichPresence(const char* key, const char* value) noexcept {
+TResult<void> CSteamworksBridgeStub::SetRichPresence(const char* key, const char* value) noexcept {
     (void)key; (void)value;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized,
@@ -153,18 +153,18 @@ TResult<void> FSteamworksBridgeStub::SetRichPresence(const char* key, const char
 }
 
 /** Stub はフレンドリストを持たないので常に 0 を返す。 */
-u32 FSteamworksBridgeStub::GetFriendCount() const noexcept {
+u32 CSteamworksBridgeStub::GetFriendCount() const noexcept {
     return 0;  // Stub: フレンドリスト無し
 }
 
 /** Stub はフレンドを持たないので常に空の FPlayerIdentity を返す。 */
-FPlayerIdentity FSteamworksBridgeStub::GetFriendByIndex(u32 index) const noexcept {
+FPlayerIdentity CSteamworksBridgeStub::GetFriendByIndex(u32 index) const noexcept {
     (void)index;
     return FPlayerIdentity{};  // Stub: 空
 }
 
 /** Cloud への書き込みは未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::CloudWriteFile(const char* path, const void* data, u32 size) noexcept {
+TResult<void> CSteamworksBridgeStub::CloudWriteFile(const char* path, const void* data, u32 size) noexcept {
     (void)path; (void)data; (void)size;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized, "CloudWriteFile before Init()");
@@ -173,7 +173,7 @@ TResult<void> FSteamworksBridgeStub::CloudWriteFile(const char* path, const void
 }
 
 /** Cloud からの読み出しは未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<u32> FSteamworksBridgeStub::CloudReadFile(const char* path, void* out_buf, u32 buf_size) noexcept {
+TResult<u32> CSteamworksBridgeStub::CloudReadFile(const char* path, void* out_buf, u32 buf_size) noexcept {
     (void)path; (void)out_buf; (void)buf_size;
     if (!m_Initialized) {
         return TResult<u32>(ACS_ERR(Generic, kSubSteamworksNotInitialized, "CloudReadFile before Init()"));
@@ -182,13 +182,13 @@ TResult<u32> FSteamworksBridgeStub::CloudReadFile(const char* path, void* out_bu
 }
 
 /** Stub は Cloud ファイルを持たないので常に false を返す。 */
-bool FSteamworksBridgeStub::CloudFileExists(const char* path) const noexcept {
+bool CSteamworksBridgeStub::CloudFileExists(const char* path) const noexcept {
     (void)path;
     return false;
 }
 
 /** Cloud からの削除は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::CloudDeleteFile(const char* path) noexcept {
+TResult<void> CSteamworksBridgeStub::CloudDeleteFile(const char* path) noexcept {
     (void)path;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized, "CloudDeleteFile before Init()");
@@ -197,18 +197,18 @@ TResult<void> FSteamworksBridgeStub::CloudDeleteFile(const char* path) noexcept 
 }
 
 /** Stub は容量情報を持たないので空き・総容量とも 0 を返す。 */
-void FSteamworksBridgeStub::CloudGetQuota(u64& out_available_bytes, u64& out_total_bytes) const noexcept {
+void CSteamworksBridgeStub::CloudGetQuota(u64& out_available_bytes, u64& out_total_bytes) const noexcept {
     out_available_bytes = 0;
     out_total_bytes     = 0;
 }
 
 /** Stub はサブスクライブ済み Workshop アイテムを持たないので常に 0 を返す。 */
-u32 FSteamworksBridgeStub::WorkshopGetSubscribedCount() const noexcept {
+u32 CSteamworksBridgeStub::WorkshopGetSubscribedCount() const noexcept {
     return 0;
 }
 
 /** Stub は Workshop アイテムを持たないので item_id=0 / install_path=nullptr を返す。 */
-void FSteamworksBridgeStub::WorkshopGetSubscribedItem(u32 index, u64& out_item_id,
+void CSteamworksBridgeStub::WorkshopGetSubscribedItem(u32 index, u64& out_item_id,
                                                      const char*& out_install_path) const noexcept {
     (void)index;
     out_item_id      = 0;
@@ -216,7 +216,7 @@ void FSteamworksBridgeStub::WorkshopGetSubscribedItem(u32 index, u64& out_item_i
 }
 
 /** ボイス録音開始は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::VoiceStartRecording() noexcept {
+TResult<void> CSteamworksBridgeStub::VoiceStartRecording() noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized, "VoiceStartRecording before Init()");
     }
@@ -224,18 +224,18 @@ TResult<void> FSteamworksBridgeStub::VoiceStartRecording() noexcept {
 }
 
 /** ボイス録音停止は副作用が無いので常に成功を返す。 */
-TResult<void> FSteamworksBridgeStub::VoiceStopRecording() noexcept {
+TResult<void> CSteamworksBridgeStub::VoiceStopRecording() noexcept {
     return Ok();  // 副作用無し
 }
 
 /** Stub は音声データを持たないので取得 byte 数 0 で成功を返す。 */
-TResult<u32> FSteamworksBridgeStub::VoiceGetCompressed(void* out_buf, u32 buf_size) noexcept {
+TResult<u32> CSteamworksBridgeStub::VoiceGetCompressed(void* out_buf, u32 buf_size) noexcept {
     (void)out_buf; (void)buf_size;
     return TResult<u32>(OkInit, 0u);  // データなし
 }
 
 /** Steam Input の初期化は未実装。Init() 前なら NotInitialized、それ以外は NotImplemented を返す。 */
-TResult<void> FSteamworksBridgeStub::InputInit() noexcept {
+TResult<void> CSteamworksBridgeStub::InputInit() noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubSteamworksNotInitialized, "InputInit before Init()");
     }
@@ -243,14 +243,14 @@ TResult<void> FSteamworksBridgeStub::InputInit() noexcept {
 }
 
 /** Stub は接続コントローラを持たないので常に 0 を返す。 */
-u32 FSteamworksBridgeStub::InputGetControllerCount() const noexcept {
+u32 CSteamworksBridgeStub::InputGetControllerCount() const noexcept {
     return 0;
 }
 
 /** プロセス共有の Stub singleton を返す (関数スコープ static で thread-safe 初期化)。 */
-FSteamworksBridgeStub& FSteamworksBridgeStub::GetStub() noexcept {
+CSteamworksBridgeStub& CSteamworksBridgeStub::GetStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FSteamworksBridgeStub m_Instance;
+    static CSteamworksBridgeStub m_Instance;
     return m_Instance;
 }
 
@@ -269,7 +269,7 @@ void SetSteamworksBridgeProvider(SteamworksBridgeProvider Provider) noexcept
 ISteamworksBridge& GetDefaultSteamworksBridge() noexcept
 {
     const SteamworksBridgeProvider Provider = g_SteamworksBridgeProvider.Load(EMemoryOrder::Acquire);
-    return Provider ? Provider() : FSteamworksBridgeStub::GetStub();
+    return Provider ? Provider() : CSteamworksBridgeStub::GetStub();
 }
 
 } // namespace acs::game

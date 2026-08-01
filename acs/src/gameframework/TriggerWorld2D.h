@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar F — FTriggerWorld2D (overlap tracking + events)
+// GameFramework Pillar F — CTriggerWorld2D (overlap tracking + events)
 //
-// FCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
+// CCollisionWorld2D とは独立に「重なりだけを監視するトリガ専用ワールド」。
 // 物理応答や押し戻し (Resolve) は行わず、毎フレーム全 trigger pair の重なり
 // 状態を更新し、前フレと比較して以下の 3 種類のイベントを発火する:
 //
@@ -10,7 +10,7 @@
 //   ・OnExit  : 前フレ重なり   → 今フレ非重なり (離れた overlap pair)
 //
 // 使い方:
-//   FTriggerWorld2D world;
+//   CTriggerWorld2D world;
 //   world.Init();
 //
 //   FTriggerId player = world.AddCircle({ {0,0}, 16.0f }, /*layer=*/0);
@@ -26,7 +26,7 @@
 //
 // 設計:
 //   ・**broad phase は O(N^2)**: 全 pair を直接比較。将来
-//     FCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
+//     CCollisionWorld2D と同じ SpatialGrid に置換し O(N + K) に下げる予定。
 //   ・**FTriggerId は FShapeId と同じ generational handle** (24bit index + 8bit gen)。
 //     remove → re-add で slot 再利用しても旧 handle は無効化される。
 //   ・**overlap pair は array で保持**: 前フレの状態は `TArray<FOverlapPair>` に
@@ -126,31 +126,31 @@ using TriggerEventCallback = void(*)(void* user, FTriggerId self, FTriggerId oth
  * 重なりだけを監視するトリガ専用ワールド (overlap tracking + events)。
  *
  * @details
- * FCollisionWorld2D とは独立に、物理応答や押し戻しは行わず、毎フレーム全 trigger
+ * CCollisionWorld2D とは独立に、物理応答や押し戻しは行わず、毎フレーム全 trigger
  * pair の重なり状態を更新して前フレと比較し OnEnter / OnStay / OnExit を発火する。
  * broad phase は O(N^2) 全 pair 直接比較。overlap pair は前フレ状態付きで配列保持し、
  * (was, now) の組合せでイベントを決める。コールバックは関数ポインタ + void* user で、
  * handle 安定性のため non-copy / non-move、全関数 noexcept。
  */
-class FTriggerWorld2D {
+class CTriggerWorld2D {
 public:
     /** 空のトリガワールドを構築する。 */
-    FTriggerWorld2D() noexcept = default;
+    CTriggerWorld2D() noexcept = default;
 
     /** 破棄する。 */
-    ~FTriggerWorld2D() noexcept = default;
+    ~CTriggerWorld2D() noexcept = default;
 
     /** コピー禁止 (handle 安定性のため)。 */
-    FTriggerWorld2D(const FTriggerWorld2D&)            = delete;
+    CTriggerWorld2D(const CTriggerWorld2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTriggerWorld2D& operator=(const FTriggerWorld2D&) = delete;
+    CTriggerWorld2D& operator=(const CTriggerWorld2D&) = delete;
 
     /** ムーブ禁止。 */
-    FTriggerWorld2D(FTriggerWorld2D&&)                 = delete;
+    CTriggerWorld2D(CTriggerWorld2D&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTriggerWorld2D& operator=(FTriggerWorld2D&&)      = delete;
+    CTriggerWorld2D& operator=(CTriggerWorld2D&&)      = delete;
 
     /** 初期化する (現状は状態を持たないが、将来の SpatialGrid 等のため API を予約)。 */
     void Init() noexcept;
@@ -362,5 +362,8 @@ private:
     /** m_OnExit に渡す任意ポインタ。 */
     void*                m_OnExitUser  = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTriggerWorld2D = CTriggerWorld2D;
 
 } // namespace acs::game

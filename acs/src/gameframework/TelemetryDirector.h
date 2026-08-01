@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar V — FTelemetryDirector (game analytics event 集約)
+// GameFramework Pillar V — CTelemetryDirector (game analytics event 集約)
 //
 // 役割:
 //   ゲームロジック側から「level_completed」「player_died」「item_purchased」等の
@@ -7,18 +7,18 @@
 //   一定間隔 (既定 5 秒) または明示 Flush() のタイミングで IBackendClient::
 //   SendTelemetry() を経由してサーバへまとめて送出する高レベル director。
 //
-//   FAchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
+//   CAchievementManager と同様に、低レイヤの IBackendClient は seam 注入で
 //   差し替え可能 (実装は HTTP/gRPC/Steam 等プロジェクト個別)。Backend 未 attach
 //   なら local pending queue に積むだけのオフラインモードで動作する
 //   (デバッグ / Demo build / 単体テスト用)。
 //
-//   GDPR / CCPA 要件: FPrivacyDirector の EConsentCategory::Telemetry が無ければ
+//   GDPR / CCPA 要件: CPrivacyDirector の EConsentCategory::Telemetry が無ければ
 //   TrackEvent() / Flush() はすべて no-op。consent 未取得状態で TrackEvent 経由
 //   の暗黙 opt-in を発生させない (consent dialogue 表示前の起動シーケンスでも
 //   安全に呼べる)。
 //
 // 使い方:
-//   FTelemetryDirector td;
+//   CTelemetryDirector td;
 //   td.Init(&my_backend, &my_privacy);
 //   td.EnableCategory("ui", false);                  // UI 系イベントは送らない
 //
@@ -55,7 +55,7 @@
 //     せず可変 TArray<FCategoryFilter> で持つ。件数は通常 10〜30 程度なので
 //     線形検索で十分。default は「未登録 = enabled」とし、明示的に false を
 //     設定したカテゴリだけ落とす (= explicit deny list)。
-//   ・**FPrivacyDirector attach optional**: nullptr 注入時は consent ガードを
+//   ・**CPrivacyDirector attach optional**: nullptr 注入時は consent ガードを
 //     スキップ (= 全イベント許可)。テスト / オフラインビルド用の逃げ道。
 //     production では必ず privacy を渡すこと。
 //   ・**非コピー・非ムーブ、全 noexcept**: 他 Director 系と統一。
@@ -72,6 +72,7 @@
 #include "foundation/Types.h"
 #include "foundation/Log.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 
 namespace acs::game {
 
@@ -79,8 +80,6 @@ namespace acs::game {
 // 芋づるで広がる。本ヘッダは公開 API のみ薄く保つ方針なので、interface /
 // class は forward declare に留めて、実体 include は .cpp 側で行う。
 class IBackendClient;
-class FPrivacyDirector;
-
 /**
  * analytics event の重要度ヒント。
  *
@@ -132,29 +131,29 @@ struct FTelemetryEvent {
  * @details
  * TrackEvent() で投入したイベントを内部 pending queue に積み、一定間隔または明示
  * Flush() のタイミングで IBackendClient::SendTelemetry() を経由して送出する。Backend
- * 未 attach ならオフラインモードで pending に積むだけ、FPrivacyDirector の Telemetry
+ * 未 attach ならオフラインモードで pending に積むだけ、CPrivacyDirector の Telemetry
  * consent が無ければ TrackEvent/Flush は no-op。アプリ全体で 1 個運用される想定のため
  * 非コピー・非ムーブ。
  */
-class FTelemetryDirector {
+class CTelemetryDirector {
 public:
     /** 空状態で構築する (Init で backend / privacy を注入)。 */
-    FTelemetryDirector()  noexcept = default;
+    CTelemetryDirector()  noexcept = default;
 
     /** 破棄する (pending queue は TArray が解放)。 */
-    ~FTelemetryDirector() noexcept = default;
+    ~CTelemetryDirector() noexcept = default;
 
     /** コピー禁止 (アプリ全体で単独運用するため)。 */
-    FTelemetryDirector(const FTelemetryDirector&)            = delete;
+    CTelemetryDirector(const CTelemetryDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTelemetryDirector& operator=(const FTelemetryDirector&) = delete;
+    CTelemetryDirector& operator=(const CTelemetryDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FTelemetryDirector(FTelemetryDirector&&)                 = delete;
+    CTelemetryDirector(CTelemetryDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTelemetryDirector& operator=(FTelemetryDirector&&)      = delete;
+    CTelemetryDirector& operator=(CTelemetryDirector&&)      = delete;
 
     /**
      * backend / privacy を注入して初期化する。
@@ -163,9 +162,9 @@ public:
      * 2 重 Init は backend / privacy 参照を上書きする。pending queue と統計カウンタは
      * 初期化せず、既存イベントを保持したまま backend を差し替える運用を許す。
      * @param backend 送信先の IBackendClient (寿命は呼出側が保証)。
-     * @param privacy consent ガードに使う FPrivacyDirector (nullptr 可 = ガードスキップ)。
+     * @param privacy consent ガードに使う CPrivacyDirector (nullptr 可 = ガードスキップ)。
      */
-    void Init(IBackendClient* backend, FPrivacyDirector* privacy = nullptr) noexcept;
+    void Init(IBackendClient* backend, CPrivacyDirector* privacy = nullptr) noexcept;
 
     /**
      * pending queue を空にし、backend / privacy 参照を切る。
@@ -300,7 +299,7 @@ private:
     IBackendClient*        m_Backend  = nullptr;
 
     /** consent ガード用の privacy director (optional 注入)。 */
-    FPrivacyDirector*       m_Privacy  = nullptr;
+    CPrivacyDirector*       m_Privacy  = nullptr;
 
     /** 送信成功した累計 event 件数。 */
     u32  m_SentCount     = 0;
@@ -317,5 +316,8 @@ private:
     /** Init 済みフラグ。 */
     bool m_Initialized    = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTelemetryDirector = CTelemetryDirector;
 
 } // namespace acs::game

@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FScriptHost / ScriptVmStub 実装
+// GameFramework Pillar N — CScriptHost / ScriptVmStub 実装
 //
 // 具象 scripting backend (Lua 5.4 / Wren / Python3) はいずれも
 // 未統合のため、本ファイルは:
 //   1. `ScriptVmStub` … 全 method NotImplemented を返す defensive stub
-//   2. `FScriptHost`   … vm を保持して native registry を集約する高レベル wrapper
+//   2. `CScriptHost`   … vm を保持して native registry を集約する高レベル wrapper
 // の 2 つだけを提供する。
 //
 // 上位層への効果:
 //   ・`ScriptVmStub` を叩いた瞬間に NotImplemented を返すので、scripting
 //     に依存したコードは day-0 で **必ず fallback パスを書く** ことを強制
 //     される (= 配布パッケージに Lua 同梱しないビルドでもゲームが起動できる)。
-//   ・`FScriptHost::LoadAndRun` は Win32 ファイル I/O を直接叩くが、読み込み
+//   ・`CScriptHost::LoadAndRun` は Win32 ファイル I/O を直接叩くが、読み込み
 //     成功後の処理は `IScriptVm::LoadScript` に丸投げするので、本ファイルは
 //     スクリプト構文に一切触らない (= backend 切り替えが純粋な差し替えになる)。
 //
 // 決定論ゾーン違反検出 (将来):
-//   `FGame::Tick()` の固定タイムステップ内で `CallFunction` が
-//   呼ばれたら debug build で assert する仕掛けを `FGame.cpp` 側に入れる予定。
+//   `CGame::Tick()` の固定タイムステップ内で `CallFunction` が
+//   呼ばれたら debug build で assert する仕掛けを `CGame.cpp` 側に入れる予定。
 //   本 stub では何も検出しないが、コメントとして契約を明示しておく。
 #include "gameframework/ScriptHost.h"
 
@@ -35,7 +35,7 @@ namespace {
  * 両者 nullptr 安全な C 文字列等価判定 (native registry の名前比較用)。
  *
  * @details
- * FModRegistry::IdEquals と同じ流儀で、<string.h> の strcmp を直接呼ばずヌルポインタ事故を
+ * CModRegistry::IdEquals と同じ流儀で、<string.h> の strcmp を直接呼ばずヌルポインタ事故を
  * 抑止する薄いラッパ。strlen に依存しないため NUL を含む短い名前にも安全。
  * @param a 比較する一方の文字列 (nullptr 可)。
  * @param b 比較するもう一方の文字列 (nullptr 可)。
@@ -77,7 +77,7 @@ bool TryGetBoundedLength(
 } // anonymous namespace
 
 /** Init の実装 (副作用ゼロで成功、initialized フラグを立てる)。 */
-TResult<void> FScriptVmStub::Init() noexcept {
+TResult<void> CScriptVmStub::Init() noexcept {
     // Stub は副作用ゼロで成功させる (= 起動シーケンスを通すため)。
     // 実際のスクリプト動作は LoadScript / CallFunction の段階で
     // NotImplemented として落とす。
@@ -86,13 +86,13 @@ TResult<void> FScriptVmStub::Init() noexcept {
 }
 
 /** Shutdown の実装 (no-op、initialized フラグを下げる)。 */
-void FScriptVmStub::Shutdown() noexcept {
+void CScriptVmStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init 前に呼ばれても安全。
     m_Initialized = false;
 }
 
 /** LoadScript の実装 (Init 前は kSub_NotInitialized、それ以外は kSub_NotImplemented)。 */
-TResult<void> FScriptVmStub::LoadScript(const char* /*source*/,
+TResult<void> CScriptVmStub::LoadScript(const char* /*source*/,
                                       u32         /*source_len*/,
                                       const char* /*chunk_name*/) noexcept {
     if (!m_Initialized) {
@@ -104,7 +104,7 @@ TResult<void> FScriptVmStub::LoadScript(const char* /*source*/,
 }
 
 /** CallFunction の実装 (Init 前は kSub_NotInitialized、それ以外は kSub_NotImplemented)。 */
-TResult<void> FScriptVmStub::CallFunction(const char* /*function_name*/,
+TResult<void> CScriptVmStub::CallFunction(const char* /*function_name*/,
                                         const FScriptValue* /*args*/, u32 /*arg_count*/,
                                         FScriptValue* /*ret_out*/) noexcept {
     if (!m_Initialized) {
@@ -116,7 +116,7 @@ TResult<void> FScriptVmStub::CallFunction(const char* /*function_name*/,
 }
 
 /** RegisterNativeFunction の実装 (Init 前は kSub_NotInitialized、それ以外は kSub_NotImplemented)。 */
-TResult<void> FScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
+TResult<void> CScriptVmStub::RegisterNativeFunction(const char* /*function_name*/,
                                                   NativeFunction /*fn*/,
                                                   void* /*user*/) noexcept {
     if (!m_Initialized) {
@@ -128,18 +128,18 @@ TResult<void> FScriptVmStub::RegisterNativeFunction(const char* /*function_name*
 }
 
 /** SetGlobalNumber の実装 (値の保存先が無いので no-op)。 */
-void FScriptVmStub::SetGlobalNumber(const char* /*name*/, f64 /*value*/) noexcept {
+void CScriptVmStub::SetGlobalNumber(const char* /*name*/, f64 /*value*/) noexcept {
     // 値を保存する場所が無いので no-op (= 後から GetGlobalNumber しても default
     // が返る)。上位コードは「stub では持続しない」前提で書く。
 }
 
 /** GetGlobalNumber の実装 (常に default_value を返す)。 */
-f64 FScriptVmStub::GetGlobalNumber(const char* /*name*/, f64 default_value) const noexcept {
+f64 CScriptVmStub::GetGlobalNumber(const char* /*name*/, f64 default_value) const noexcept {
     return default_value;
 }
 
 /** CollectGarbage の実装 (GC 対象が無いので no-op)。 */
-void FScriptVmStub::CollectGarbage() noexcept {
+void CScriptVmStub::CollectGarbage() noexcept {
     // GC の対象が存在しないので no-op。
 }
 
@@ -152,7 +152,7 @@ void FScriptVmStub::CollectGarbage() noexcept {
  * stub 自身が状態 (m_Initialized) を持つため複数スレッドから同時アクセスする呼び出し側は外部同期を取ること。
  */
 IScriptVm& GetVmStub() noexcept {
-    static FScriptVmStub instance;
+    static CScriptVmStub instance;
     return instance;
 }
 
@@ -175,7 +175,7 @@ IScriptVm& GetDefaultScriptVm() noexcept
 }
 
 /** Init の実装 (nullptr は Shutdown 相当、既存 vm があれば警告して上書きしキャッシュをクリア)。 */
-void FScriptHost::Init(IScriptVm* vm) noexcept {
+void CScriptHost::Init(IScriptVm* vm) noexcept {
     // nullptr 渡しは「明示的に切り離す」意味で許容する (= Shutdown 相当)。
     if (vm == nullptr) {
         Shutdown();
@@ -193,7 +193,7 @@ void FScriptHost::Init(IScriptVm* vm) noexcept {
 }
 
 /** Shutdown の実装 (vm 参照を切り native キャッシュをクリア、error callback は残す)。 */
-void FScriptHost::Shutdown() noexcept {
+void CScriptHost::Shutdown() noexcept {
     // vm 自体は所有していないので破棄しない。参照だけ切る。
     m_Vm = nullptr;
     m_Natives.Clear();
@@ -203,12 +203,12 @@ void FScriptHost::Shutdown() noexcept {
 }
 
 /** Vm の実装 (保持中の vm ポインタを返す)。 */
-IScriptVm* FScriptHost::Vm() const noexcept {
+IScriptVm* CScriptHost::Vm() const noexcept {
     return m_Vm;
 }
 
 /** 長さ付きsourceを検証してVMへロード・実行する。 */
-TResult<void> FScriptHost::LoadAndRunSource(const char* source,
+TResult<void> CScriptHost::LoadAndRunSource(const char* source,
                                             u32         source_len,
                                             const char* chunk_name) noexcept {
     if (m_Vm == nullptr) {
@@ -251,7 +251,7 @@ TResult<void> FScriptHost::LoadAndRunSource(const char* source,
 }
 
 /** LoadAndRun の実装 (Win32 でファイルを読み込み IScriptVm::LoadScript へ流す)。 */
-TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
+TResult<void> CScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     // 事前チェック。
     if (m_Vm == nullptr) {
         return ACS_ERR(Generic, script_err::kSub_NoVm,
@@ -264,7 +264,7 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
                        "FScriptHost::LoadAndRun: invalid file path");
     }
 
-    // Win32 で読み込み。FSaveArchive.cpp と同じ流儀 (CreateFileW + GetFileSizeEx + ReadFile)。
+    // Win32 で読み込み。CSaveArchive.cpp と同じ流儀 (CreateFileW + GetFileSizeEx + ReadFile)。
     HANDLE h = ::CreateFileW(file_path,
                              GENERIC_READ,
                              FILE_SHARE_READ | FILE_SHARE_DELETE,
@@ -324,7 +324,7 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
     u8* buf = static_cast<u8*>(raw);
 
     // chunk ループ (4 GiB 以上の script は実用上ありえないが、ReadFile が
-    // DWORD 単位なので一応分割で読む。FSaveArchive と同じ流儀)。
+    // DWORD 単位なので一応分割で読む。CSaveArchive と同じ流儀)。
     u8*   p         = buf;
     u64   remaining = size_u64;
     DWORD io_err    = 0;
@@ -401,7 +401,7 @@ TResult<void> FScriptHost::LoadAndRun(const wchar_t* file_path) noexcept {
 }
 
 /** CallGlobalFunction の実装 (引数を防御チェックして vm->CallFunction へ委譲)。 */
-TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
+TResult<void> CScriptHost::CallGlobalFunction(const char*        function_name,
                                             const FScriptValue* args,
                                             u32                arg_count,
                                             FScriptValue*       ret_out) noexcept {
@@ -462,7 +462,7 @@ TResult<void> FScriptHost::CallGlobalFunction(const char*        function_name,
 }
 
 /** RegisterNative の実装 (vm に登録しつつ内部キャッシュへ記録、同名は上書き、失敗時は追加しない)。 */
-TResult<void> FScriptHost::RegisterNative(const char*    function_name,
+TResult<void> CScriptHost::RegisterNative(const char*    function_name,
                                         NativeFunction fn,
                                         void*          user) noexcept {
     if (m_Vm == nullptr) {
@@ -536,7 +536,7 @@ TResult<void> FScriptHost::RegisterNative(const char*    function_name,
 }
 
 /** RegisterStandardBindings の実装 (現状プレースホルダ、vm 未設定なら警告して何もしない)。 */
-void FScriptHost::RegisterStandardBindings() noexcept {
+void CScriptHost::RegisterStandardBindings() noexcept {
     // 現状はプレースホルダ。将来的に以下のような binding 群を
     // 一括登録する設計:
     //   ・Log.Info / Log.Warn / Log.Error / Log.Debug
@@ -546,11 +546,11 @@ void FScriptHost::RegisterStandardBindings() noexcept {
     //   ・Audio.PlaySe / Audio.PlayBgm / Audio.StopBgm
     //   ・Scene.SpawnEntity / Scene.GetEntityById / Scene.Destroy
     //
-    // 各 Pillar が backend 側で「自分の binding」を `FScriptHost::RegisterNative`
+    // 各 Pillar が backend 側で「自分の binding」を `CScriptHost::RegisterNative`
     // で登録するインターフェースを別途持ち、ここはその dispatch を呼ぶだけに
     // 留める想定 (= 本 module が全 Pillar に依存しないようにする)。
     if (m_Vm == nullptr) {
-        // Init 前の呼び出しは事故 (FGame の startup 順序を疑え)。
+        // Init 前の呼び出しは事故 (CGame の startup 順序を疑え)。
         ACS_LOG_WARN("FScriptHost::RegisterStandardBindings: vm not initialized; skipping");
         return;
     }
@@ -559,12 +559,12 @@ void FScriptHost::RegisterStandardBindings() noexcept {
 }
 
 /** RegisteredNativeCount の実装 (内部キャッシュの件数を返す)。 */
-u32 FScriptHost::RegisteredNativeCount() const noexcept {
+u32 CScriptHost::RegisteredNativeCount() const noexcept {
     return static_cast<u32>(m_Natives.Size());
 }
 
 /** 登録済みnative functionを名前で取得する。 */
-bool FScriptHost::TryGetRegisteredNative(const char*     function_name,
+bool CScriptHost::TryGetRegisteredNative(const char*     function_name,
                                          NativeFunction& out_fn,
                                          void*&          out_user) const noexcept {
     u32 function_name_length = 0u;
@@ -585,13 +585,13 @@ bool FScriptHost::TryGetRegisteredNative(const char*     function_name,
 }
 
 /** SetOnErrorCallback の実装 (callback と user コンテキストを保存)。 */
-void FScriptHost::SetOnErrorCallback(ScriptErrorCallback cb, void* user) noexcept {
+void CScriptHost::SetOnErrorCallback(ScriptErrorCallback cb, void* user) noexcept {
     m_OnError      = cb;
     m_OnErrorUser = user;
 }
 
 /** FireError の実装 (callback 未設定なら no-op、設定済みなら通知)。 */
-void FScriptHost::FireError(const char* chunk_name, u32 line, const char* message) const noexcept {
+void CScriptHost::FireError(const char* chunk_name, u32 line, const char* message) const noexcept {
     if (m_OnError == nullptr) return;
     // callback は noexcept 必須 (= 例外伝搬しない、scripting backend 由来の
     // C スタックを traverse しないため)。

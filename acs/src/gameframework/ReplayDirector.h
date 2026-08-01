@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FReplayDirector (高レベル replay 再生システム)
+// GameFramework Pillar R — CReplayDirector (高レベル replay 再生システム)
 //
 // 役割:
-//   1) **ハイレベル replay コントローラ**: 低レベルの `FInputRecorder` (raw 入力)
-//      と `FLockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
-//      再生 / 一時停止 / 早送り / 巻き戻し」という FGame UI レベルの粒度で
+//   1) **ハイレベル replay コントローラ**: 低レベルの `CInputRecorder` (raw 入力)
+//      と `CLockstep` (deterministic input frame) を統合し、「録画開始 / 停止 /
+//      再生 / 一時停止 / 早送り / 巻き戻し」という CGame UI レベルの粒度で
 //      replay を扱う。アプリ側は本 director だけを通じて record/playback の
 //      ライフサイクルを管理し、低レベル詳細 (sample / frame の bit-precise
 //      layout や cursor 管理) に立ち入らない。
@@ -21,7 +21,7 @@
 //      cursor は実統合時に同期させる。
 //
 // 使い方 (想定):
-//   FReplayDirector dir;
+//   CReplayDirector dir;
 //   dir.Init();
 //
 //   // 録画開始
@@ -38,7 +38,7 @@
 //
 //   // ゲームループ (録画中):
 //   dir.Tick(dt);  // 内部で m_CurrentTick を進めるだけ。
-//                  // 入力 capture は FInputRecorder/FLockstep 側で別途行う想定。
+//                  // 入力 capture は CInputRecorder/CLockstep 側で別途行う想定。
 //
 //   // 録画停止
 //   dir.StopRecording();
@@ -51,22 +51,22 @@
 //   while (running) {
 //       dir.Tick(dt);
 //       float progress = dir.ProgressNormalized();  // [0, 1]
-//       // ... シミュレーションは FLockstep::ConsumeInput 経由で進める ...
+//       // ... シミュレーションは CLockstep::ConsumeInput 経由で進める ...
 //   }
 //
 // 設計選択:
-//   ・**FInputRecorder / FLockstep は forward decl**: 「ハイレベル
+//   ・**CInputRecorder / CLockstep は forward decl**: 「ハイレベル
 //      API シェイプ + state machine + tick 進行」を確定する。実際の
-//      sample/frame 連動 (Capture/ConsumeSample の自動呼び出し) は「FReplayDirector
+//      sample/frame 連動 (Capture/ConsumeSample の自動呼び出し) は「CReplayDirector
 //      が両者を所有」or「seam 経由で参照する」かを決めた上で接続する。本 header
 //      では .cpp 内で完結する forward decl のみ。
 //   ・**EReplayMode の 4 状態**: Idle / Recording / Playback / Paused。
-//      FInputRecorder の ERecorderMode と FLockstep の ENetMode と異なり、UI が
+//      CInputRecorder の ERecorderMode と CLockstep の ENetMode と異なり、UI が
 //      Pause/Resume を必要とするので Paused を専用状態として持つ。Paused
 //      からの遷移は Resume (→ Playback) と Stop (→ Idle) のみ。
 //   ・**FReplayMetadata は trivially-copyable POD**: `const char*` 文字列は
 //      呼び出し側が寿命を保証する static / 長寿命 buffer を渡す規約
-//      (FSettings / FAccessibilityProfile と同じ STL 不使用方針)。
+//      (CSettings / FAccessibilityProfile と同じ STL 不使用方針)。
 //      acs::FString への置換は検討するが、現状は raw pointer。
 //   ・**SetPlaybackSpeed は範囲 clamp**: 0 < speed <= 16 の範囲外は最寄りの
 //      有効値に丸める。負値や 0 は Paused を別 API で扱うため認めない。
@@ -75,33 +75,31 @@
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //   ・**コピー / ムーブ禁止**: 1 セッション 1 director の長寿命オブジェクト。
 //      録画中の state が分裂すると replay のメタデータ整合が崩れるため、
-//      FLockstep / FInputRecorder / FSettings と同じ方針で最初から非コピー・
+//      CLockstep / CInputRecorder / CSettings と同じ方針で最初から非コピー・
 //      非ムーブで固定する。
 //
 // 範囲外:
-//   ・実 FInputRecorder / FLockstep の自動連動 (現状は state machine のみ)
+//   ・実 CInputRecorder / CLockstep の自動連動 (現状は state machine のみ)
 //   ・SaveReplay / LoadReplay の実 I/O (現状は stub。.acsr + sidecar
 //      metadata .json or .meta file の bit-precise layout は別途確定)
 //   ・複数 replay の同時ロード / 並列再生
 //   ・スクラブバー UI コンポーネント (本クラスは progress 値を返すのみ)
-//   ・録画中のサムネイル自動撮影 (FPhotoMode 経由で別途)
+//   ・録画中のサムネイル自動撮影 (CPhotoMode 経由で別途)
 //   ・ネットワーク replay 共有 (StorefrontBridge 経由で別途)
 #pragma once
 
 #include "container/String.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 
 namespace acs::game {
 
-class FInputRecorder;
-class FLockstep;
-
 /**
- * FReplayDirector の動作モード。
+ * CReplayDirector の動作モード。
  *
  * @details
- * FInputRecorder の ERecorderMode と FLockstep の ENetMode を統合し、UI が要求する
+ * CInputRecorder の ERecorderMode と CLockstep の ENetMode を統合し、UI が要求する
  * Pause/Resume を加えた 4 状態。遷移は Idle→Recording→Idle / Idle→Playback→Idle /
  * Playback↔Paused / Paused→Idle で、Recording から Playback への直接遷移は禁止
  * (一旦 Stop を挟む)。
@@ -146,7 +144,7 @@ struct FReplayMetadata {
     /** プレイヤー名 (任意。null 可)。 */
     const char* player_name    = nullptr;
 
-    /** FLockstep checksum の hex 文字列 (16 文字)。 */
+    /** CLockstep checksum の hex 文字列 (16 文字)。 */
     const char* checksum_hex   = nullptr;
 };
 
@@ -172,34 +170,34 @@ inline constexpr u32 kReplayChecksumHexBytes = 16u;
  * 低レベルの入力録画と lockstep を統合するハイレベル replay コントローラ。
  *
  * @details
- * FInputRecorder (raw 入力) と FLockstep (deterministic input frame) を非所有
+ * CInputRecorder (raw 入力) と CLockstep (deterministic input frame) を非所有
  * ポインタで束ね、録画 / 再生 / 一時停止 / 倍速 / Seek を UI 粒度で扱う。1 セッション
  * 1 オブジェクトの想定で、録画 state の分裂を防ぐためコピー / ムーブ禁止。
  */
-class FReplayDirector {
+class CReplayDirector {
 public:
     /** 空状態 (Idle / tick 0 / speed 1.0) で構築する。 */
-    FReplayDirector()  noexcept = default;
+    CReplayDirector()  noexcept = default;
 
     /** デストラクタ (非所有 source は解放しない)。 */
-    ~FReplayDirector() noexcept = default;
+    ~CReplayDirector() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 director の長寿命オブジェクト)。 */
-    FReplayDirector(const FReplayDirector&)            = delete;
+    CReplayDirector(const CReplayDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FReplayDirector& operator=(const FReplayDirector&) = delete;
+    CReplayDirector& operator=(const CReplayDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FReplayDirector(FReplayDirector&&)                 = delete;
+    CReplayDirector(CReplayDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FReplayDirector& operator=(FReplayDirector&&)      = delete;
+    CReplayDirector& operator=(CReplayDirector&&)      = delete;
 
     /**
      * SaveReplay / LoadReplay / 状態遷移が返すエラー subcode。
      *
-     * @details FErrorCode.subcode に格納される (TSaveSlot / FLockstep / FInputRecorder と同 pattern)。
+     * @details FErrorCode.subcode に格納される (TSaveSlot / CLockstep / CInputRecorder と同 pattern)。
      */
     enum ESubCode : u16 {
         /** SaveReplay / LoadReplay の file_path == nullptr。 */
@@ -267,7 +265,7 @@ public:
      * @param recorder raw 入力の供給元 / 復元先 (null 可)。
      * @param lockstep deterministic input frame の供給元 / 復元先 (null 可)。
      */
-    void SetSources(FInputRecorder* recorder, FLockstep* lockstep) noexcept;
+    void SetSources(CInputRecorder* recorder, CLockstep* lockstep) noexcept;
 
     /**
      * 録画を開始する (checked APIへ委譲し、metadata文字列をowned copyする)。
@@ -435,10 +433,10 @@ private:
     u32            m_TickRateHz     = 60;
 
     /** raw 入力 (.acsr blob) の供給元 / 復元先 (非所有)。 */
-    FInputRecorder* m_Recorder = nullptr;
+    CInputRecorder* m_Recorder = nullptr;
 
     /** deterministic input frame (.acsl blob) の供給元 / 復元先 (非所有)。 */
-    FLockstep*      m_Lockstep = nullptr;
+    CLockstep*      m_Lockstep = nullptr;
 
     /** LoadReplay で復元した game_version の所有バッファ。 */
     FString m_GameVersionOwned;

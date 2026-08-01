@@ -18,6 +18,7 @@ acs_module(
         ApplicationSubsystemCatalog.h
         AssetSubsystem.h
         EntryPoint.h
+        Forward.h
         Sample.h
         TimerSubsystem.h
     PUBLIC_DEPS

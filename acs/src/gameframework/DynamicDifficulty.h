@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
+// GameFramework Pillar U — CDynamicDifficulty (DDA: Dynamic Difficulty Adjustment)
 //
 // プレイヤーの実プレイスタッツ (死亡 / 撃破 / リトライ / クリア時間 / パワー
 // アップ取得) を追跡し、それを元に「Easy / Normal / Hard / VeryHard / Adaptive」
@@ -13,12 +13,12 @@
 //     非可換性を含むため、固定タイムステップでの再現性は保証しない。replay /
 //     netcode 同期に乗せるなら `Adaptive` 以外 (Easy/Normal/Hard/VeryHard) を
 //     使うか、難易度値そのものを replay に記録する運用を取ること。
-//   ・FDamageFeedback / FProgression と独立: DDA は「乗数を提供する純粋 state
+//   ・CDamageFeedback / CProgression と独立: DDA は「乗数を提供する純粋 state
 //     holder」で、ゲーム側の戦闘ロジックが乗数を pull して使う構造。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FDynamicDifficulty m_Dda;
+//   class FGameplayScene : public AScene {
+//       acs::game::CDynamicDifficulty m_Dda;
 //       void OnEnter() noexcept override {
 //           m_Dda.Init(acs::game::EDifficultyLevel::Adaptive);
 //       }
@@ -47,7 +47,7 @@
 //      target_difficulty = 1.0 - skill
 //      → skill が高いほど高難易度に寄せる。
 //      重み (w_k / w_c / w_r / w_d) は内部で固定。
-//   ・**smooth lerp は FCamera2D と同じ framerate-independent**:
+//   ・**smooth lerp は CCamera2D と同じ framerate-independent**:
 //      `t = 1 - exp(-rate * dt)` で dt 不変。rate = 0.5 で約 1.4 秒で 50% 詰める
 //      ゆっくり追従。プレイヤーが「急にゲームが楽になった/難しくなった」と
 //      感じない速度に意図的に抑える。
@@ -65,7 +65,7 @@
 //     は exponential moving average (EMA) で「直近のクリア時間」を反映。
 //     全レベル全平均ではなく直近に重み付け、で skill 変動に追従しやすく。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。インスタンス
-//     1 個前提 (FScene のメンバ持ち回り)。
+//     1 個前提 (AScene のメンバ持ち回り)。
 //   ・**STL 不使用 / `<string>` 不使用**: ACS 規約。
 //
 // 範囲外:
@@ -133,25 +133,25 @@ struct FPlayerSkillStats {
  * から連続難易度 [0,1] を framerate-independent な smooth lerp で目標へ寄せ、敵 HP /
  * 敵ダメージ / 敵速度 / player HP の各乗数を返す。インスタンス 1 個前提の非コピー・非ムーブ型。
  */
-class FDynamicDifficulty {
+class CDynamicDifficulty {
 public:
     /** Normal 相当の初期状態で構築する (本格的な初期化は Init)。 */
-    FDynamicDifficulty()  noexcept = default;
+    CDynamicDifficulty()  noexcept = default;
 
     /** 破棄する。 */
-    ~FDynamicDifficulty() noexcept = default;
+    ~CDynamicDifficulty() noexcept = default;
 
-    /** コピー禁止 (FScene が単独所有する想定)。 */
-    FDynamicDifficulty(const FDynamicDifficulty&)            = delete;
+    /** コピー禁止 (AScene が単独所有する想定)。 */
+    CDynamicDifficulty(const CDynamicDifficulty&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDynamicDifficulty& operator=(const FDynamicDifficulty&) = delete;
+    CDynamicDifficulty& operator=(const CDynamicDifficulty&) = delete;
 
     /** ムーブ禁止。 */
-    FDynamicDifficulty(FDynamicDifficulty&&)                 = delete;
+    CDynamicDifficulty(CDynamicDifficulty&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDynamicDifficulty& operator=(FDynamicDifficulty&&)      = delete;
+    CDynamicDifficulty& operator=(CDynamicDifficulty&&)      = delete;
 
     /**
      * 統計を初期化して base_level に切り替える。
@@ -306,5 +306,8 @@ private:
     /** average_completion_time の EMA 係数 (新値 30% / 旧値 70%)。 */
     static constexpr f32 kCompletionTimeEmaAlpha = 0.3f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDynamicDifficulty = CDynamicDifficulty;
 
 } // namespace acs::game

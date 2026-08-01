@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ASpriteAnimComponent — FSpriteAnimator (時間→frame index) を ASprite2DComponent
+// ASpriteAnimComponent — CSpriteAnimator (時間→frame index) を ASprite2DComponent
 // (UV サブ矩形) に橋渡しする AComponent。同じ ANode に付いた ASprite2DComponent
 // の UV を毎フレーム書き換えてスプライトシートアニメを再生する。
 //
@@ -23,7 +23,7 @@
 //     (add 順依存) ため、最初の OnUpdate で遅延 lookup する (add 順非依存)。
 //   ・frame index → UV は m_FrameUvs に事前計算して持つ。InitGrid はグリッドを
 //     計算、BeginFrames/AddFrameUv/EndFrames は任意 UV 列を積む。
-//   ・FSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
+//   ・CSpriteAnimator が時間管理 (Loop/PingPong/Once、frame event) を担う。
 #pragma once
 
 #include "gameframework/AComponent.h"
@@ -36,7 +36,7 @@ namespace acs::game {
 class ASprite2DComponent;
 
 /**
- * 時間→frame index の FSpriteAnimator を sibling の ASprite2DComponent に橋渡しする AComponent。
+ * 時間→frame index の CSpriteAnimator を sibling の ASprite2DComponent に橋渡しする AComponent。
  *
  * @details
  * 同じ ANode に付いた ASprite2DComponent の UV サブ矩形を毎フレーム書き換えて
@@ -125,9 +125,9 @@ public:
     /**
      * 下位 animator への参照を返す (frame event 登録など直接操作用)。
      *
-     * @return 内部 FSpriteAnimator への参照。
+     * @return 内部 CSpriteAnimator への参照。
      */
-    FSpriteAnimator& Animator() noexcept { return m_Anim; }
+    CSpriteAnimator& Animator() noexcept { return m_Anim; }
 
     /**
      * 描画先の ASprite2DComponent を要求する (RequireComponent、無ければ自動追加)。
@@ -148,7 +148,7 @@ private:
     void ApplyCurrentFrame() noexcept;
 
     /** 時間→frame index を管理する下位 animator。 */
-    FSpriteAnimator     m_Anim;
+    CSpriteAnimator     m_Anim;
 
     /** frame index → UV サブ矩形 {u0,v0,u1,v1} の事前計算テーブル。 */
     TArray<FVec4>       m_FrameUvs;

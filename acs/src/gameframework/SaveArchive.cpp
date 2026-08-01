@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSaveArchive 実装 (Win32 I/O + CRC32)
+// CSaveArchive 実装 (Win32 I/O + CRC32)
 //
-// FSaveArchive.h で宣言した 4 メソッド (WriteToFile / ReadFromFile /
+// CSaveArchive.h で宣言した 4 メソッド (WriteToFile / ReadFromFile /
 // PeekVersion / PeekPayloadSize) の本体。Win32 ファイル API を直接叩いて
 // `.acssave` の bit-precise format を読み書きする。
 //
@@ -10,7 +10,7 @@
 //     (Yield / CreateFile / GetMessage 等のマクロ汚染対策はここで吸収済)。
 //   ・CRC32 ルーチンは assetpack/FAcpakReader.cpp / FAcpakWriter.cpp と同じ実装
 //     (poly 0xEDB88320, init/xorout 0xFFFFFFFF, table 256 entry)。link 単位を
-//     独立させたい (assetpack を依存に持たないテストビルドでも FSaveArchive を
+//     独立させたい (assetpack を依存に持たないテストビルドでも CSaveArchive を
 //     使えるように) ため、ここでも単独に持つ。
 //   ・little-endian 読み書きは MemCopy 経由で strict-aliasing 違反を避ける。
 //     ACS 対応プラットフォームは Win/x64 と ARM64 (LE) のみ前提。
@@ -27,7 +27,7 @@
 namespace acs::game {
 
 /** header 先頭に置く magic バイト列 "ACSSAVE\0" の実体。 */
-const u8 FSaveArchive::kMagicBytes[FSaveArchive::kMagicSize] = {
+const u8 CSaveArchive::kMagicBytes[CSaveArchive::kMagicSize] = {
     'A', 'C', 'S', 'S', 'A', 'V', 'E', '\0'
 };
 
@@ -220,10 +220,10 @@ TResult<void> ValidatePathArgument(const wchar_t* path) noexcept {
     }
 
     usize chars = 0;
-    while (chars <= FSaveArchive::kMaxPathChars && path[chars] != L'\0') {
+    while (chars <= CSaveArchive::kMaxPathChars && path[chars] != L'\0') {
         ++chars;
     }
-    if (chars > FSaveArchive::kMaxPathChars) {
+    if (chars > CSaveArchive::kMaxPathChars) {
         return ACS_ERR(IO, SubU16(ESaveArchiveSubCode::kSubPathTooLong),
                        "FSaveArchive: path exceeds safety limit");
     }
@@ -429,7 +429,7 @@ bool ParseHeader(const u8* header_buf,
                  u32&      out_version,
                  u64&      out_payload_size,
                  u32&      out_crc32) noexcept {
-    if (MemCmp(header_buf, FSaveArchive::kMagicBytes, FSaveArchive::kMagicSize) != 0) {
+    if (MemCmp(header_buf, CSaveArchive::kMagicBytes, CSaveArchive::kMagicSize) != 0) {
         return false;
     }
     out_version      = ReadU32LE(header_buf + 8);
@@ -476,7 +476,7 @@ TResult<HANDLE> OpenForRead(const wchar_t* file_path) noexcept {
  * `<path>.tmp.<pid>.<tid>` を FlushFileBuffers/CloseHandle してから、同一ディレクトリ内で
  * MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) する。最終置換まで既存ファイルは触らない。
  */
-TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
+TResult<void> CSaveArchive::WriteToFile(const wchar_t* file_path,
                                        u32            version,
                                        const void*    payload,
                                        u64            payload_size) noexcept {
@@ -608,7 +608,7 @@ TResult<void> FSaveArchive::WriteToFile(const wchar_t* file_path,
  * version 検査 → 容量検査 → 一時領域へ payload 読込 → CRC 検証 → 出力 commit の順で進む。
  * 最後の commit より前に失敗した場合、呼び出し側の out_payload は一切変更しない。
  */
-TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
+TResult<u32> CSaveArchive::ReadFromFile(const wchar_t* file_path,
                                       void*          out_payload,
                                       u64            out_capacity,
                                       u32            expected_version,
@@ -730,7 +730,7 @@ TResult<u32> FSaveArchive::ReadFromFile(const wchar_t* file_path,
 }
 
 /** header (24B) のみ読み、payload を読まずに version を返す。 */
-TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
+TResult<u32> CSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
     const auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
@@ -765,7 +765,7 @@ TResult<u32> FSaveArchive::PeekVersion(const wchar_t* file_path) noexcept {
  * header の申告値をそのまま信じず、安全上限と実ファイルサイズの完全一致を検証して返す。
  * 改竄された巨大値や末尾へのデータ付加を、呼び出し側が確保する前に拒否する。
  */
-TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
+TResult<u64> CSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     const auto open_r = OpenForRead(file_path);
     if (open_r.IsErr()) return open_r.Error();
     HANDLE h = open_r.Value();
@@ -814,7 +814,7 @@ TResult<u64> FSaveArchive::PeekPayloadSize(const wchar_t* file_path) noexcept {
     return TResult<u64>(OkInit, payload_size);
 }
 
-TResult<FSaveArchiveMetadata> FSaveArchive::ValidateFile(
+TResult<FSaveArchiveMetadata> CSaveArchive::ValidateFile(
     const wchar_t* file_path) noexcept {
     const auto open_result = OpenForRead(file_path);
     if (open_result.IsErr()) return open_result.Error();

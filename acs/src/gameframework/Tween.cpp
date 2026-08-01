@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FTween / FTweenManager 実装
+// GameFramework Pillar C — FTween / CTweenManager 実装
 #include "gameframework/Tween.h"
 
 #include <cmath>
@@ -24,7 +24,7 @@ bool IsFiniteTweenValue(FVec3 value) noexcept {
 
 } // namespace
 
-u32 FTweenManager::AcquireSlot() noexcept {
+u32 CTweenManager::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (= 一定 Tick 後の FTween 群はキャッシュ局所性高い)
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         if (!m_Slots[i].active) {
@@ -36,7 +36,7 @@ u32 FTweenManager::AcquireSlot() noexcept {
     return static_cast<u32>(m_Slots.Size()) - 1u;
 }
 
-void FTweenManager::FillCommon(FSlot& s, void* target, f32 duration,
+void CTweenManager::FillCommon(FSlot& s, void* target, f32 duration,
                                Easing::EasingFn ease) noexcept {
     s.target   = target;
     s.elapsed  = 0.0f;
@@ -48,7 +48,7 @@ void FTweenManager::FillCommon(FSlot& s, void* target, f32 duration,
     if (s.generation == 0u) s.generation = 1u;
 }
 
-FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
+FTweenHandle CTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
     if (!IsFiniteTweenValue(duration)
@@ -70,12 +70,12 @@ FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
     return FTweenHandle{idx, s.generation};
 }
 
-FTweenHandle FTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
+FTweenHandle CTweenManager::Tween(f32* target, f32 from, f32 to, f32 duration,
                                  Easing::EEasingType ease) noexcept {
     return Tween(target, from, to, duration, Easing::GetFunction(ease));
 }
 
-FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+FTweenHandle CTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
     if (!IsFiniteTweenValue(duration)
@@ -97,12 +97,12 @@ FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 durat
     return FTweenHandle{idx, s.generation};
 }
 
-FTweenHandle FTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
+FTweenHandle CTweenManager::Tween(FVec2* target, FVec2 from, FVec2 to, f32 duration,
                                  Easing::EEasingType ease) noexcept {
     return Tween(target, from, to, duration, Easing::GetFunction(ease));
 }
 
-FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+FTweenHandle CTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                                  Easing::EasingFn ease) noexcept {
     if (target == nullptr) return {};
     if (!IsFiniteTweenValue(duration)
@@ -124,12 +124,12 @@ FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 durat
     return FTweenHandle{idx, s.generation};
 }
 
-FTweenHandle FTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
+FTweenHandle CTweenManager::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
                                  Easing::EEasingType ease) noexcept {
     return Tween(target, from, to, duration, Easing::GetFunction(ease));
 }
 
-void FTweenManager::Cancel(FTweenHandle h) noexcept {
+void CTweenManager::Cancel(FTweenHandle h) noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return;
     FSlot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
@@ -139,7 +139,7 @@ void FTweenManager::Cancel(FTweenHandle h) noexcept {
     if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
-void FTweenManager::CompleteAll() noexcept {
+void CTweenManager::CompleteAll() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         FSlot& s = m_Slots[i];
         if (!s.active) continue;
@@ -156,7 +156,7 @@ void FTweenManager::CompleteAll() noexcept {
     m_ActiveCount = 0;
 }
 
-void FTweenManager::CancelAll() noexcept {
+void CTweenManager::CancelAll() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         m_Slots[i].active = false;
         m_Slots[i].kind   = EKind::None;
@@ -165,17 +165,17 @@ void FTweenManager::CancelAll() noexcept {
     m_ActiveCount = 0;
 }
 
-bool FTweenManager::IsActive(FTweenHandle h) const noexcept {
+bool CTweenManager::IsActive(FTweenHandle h) const noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
     const FSlot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
 
-u32 FTweenManager::ActiveCount() const noexcept {
+u32 CTweenManager::ActiveCount() const noexcept {
     return m_ActiveCount;
 }
 
-void FTweenManager::Tick(f32 dt) noexcept {
+void CTweenManager::Tick(f32 dt) noexcept {
     if (m_ActiveCount == 0 || dt <= 0.0f || !std::isfinite(dt)) return;
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         FSlot& s = m_Slots[i];

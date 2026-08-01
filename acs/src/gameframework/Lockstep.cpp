@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FLockstep 実装
+// GameFramework Pillar M — CLockstep 実装
 //
 // 設計メモ:
 //   ・ConsumeInput は m_ReplayCursor から線形走査する。記録順 = tick 昇順を
@@ -54,7 +54,7 @@ constexpr u32 kFooterSize     = 4u;
  * CRC32 lookup table を遅延初期化して返す (poly 0xEDB88320, init/xorout 0xFFFFFFFF)。
  *
  * @details
- * FSaveArchive / assetpack と同一実装 (link 単位を独立させるためここでも単独に持つ)。
+ * CSaveArchive / assetpack と同一実装 (link 単位を独立させるためここでも単独に持つ)。
  * Meyer's singleton で thread-safe に table を初期化する。
  * @return 256 要素の CRC32 lookup table。
  */
@@ -99,7 +99,7 @@ u32 ComputeCrc32(const void* data, u64 size) noexcept {
 /**
  * u32 を little-endian バイト列として書き込む (strict-aliasing 安全)。
  *
- * @details FSaveArchive と同じく MemCopy 経由でバイトコピーする。ホスト側も LE 前提。
+ * @details CSaveArchive と同じく MemCopy 経由でバイトコピーする。ホスト側も LE 前提。
  * @param dst 書き込み先 (4 byte)。
  * @param v 書き込む値。
  */
@@ -181,7 +181,7 @@ inline f32 F32FromBits(u32 bits) noexcept {
 
 } // namespace
 
-void FLockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
+void CLockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
     m_Mode          = mode;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止。
     m_TickRateHz  = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
@@ -191,7 +191,7 @@ void FLockstep::Init(ENetMode mode, u32 tick_rate_hz) noexcept {
     // 完全リセットしたい場合は呼び出し側で Clear() を併用する。
 }
 
-void FLockstep::RecordInput(const FInputFrame& frame) noexcept {
+void CLockstep::RecordInput(const FInputFrame& frame) noexcept {
     // Replay モード中は記録しない (上書きを防ぐ)。
     if (m_Mode == ENetMode::Replay) {
         return;
@@ -203,14 +203,14 @@ void FLockstep::RecordInput(const FInputFrame& frame) noexcept {
     m_CurrentTick = frame.tick + 1u;
 }
 
-void FLockstep::StartReplay() noexcept {
+void CLockstep::StartReplay() noexcept {
     m_Mode          = ENetMode::Replay;
     m_ReplayCursor = 0;
     m_CurrentTick  = 0;
     // m_Frames はそのまま。Local で記録した内容を頭から再生する。
 }
 
-bool FLockstep::ConsumeInput(u32 tick, u32 player_id, FInputFrame& out) noexcept {
+bool CLockstep::ConsumeInput(u32 tick, u32 player_id, FInputFrame& out) noexcept {
     // Replay モード以外では取り出しを禁止する (誤用検知)。
     if (m_Mode != ENetMode::Replay) {
         return false;
@@ -236,11 +236,11 @@ bool FLockstep::ConsumeInput(u32 tick, u32 player_id, FInputFrame& out) noexcept
     return false;
 }
 
-u32 FLockstep::InputCount() const noexcept {
+u32 CLockstep::InputCount() const noexcept {
     return static_cast<u32>(m_Frames.Size());
 }
 
-u64 FLockstep::ComputeChecksum() const noexcept {
+u64 CLockstep::ComputeChecksum() const noexcept {
     u64 h = kFnvOffsetBasis;
     const usize n = m_Frames.Size();
     for (usize i = 0; i < n; ++i) {
@@ -256,7 +256,7 @@ u64 FLockstep::ComputeChecksum() const noexcept {
     return h;
 }
 
-void FLockstep::Clear() noexcept {
+void CLockstep::Clear() noexcept {
     m_Frames.Clear();
     m_CurrentTick  = 0;
     m_ReplayCursor = 0;
@@ -264,7 +264,7 @@ void FLockstep::Clear() noexcept {
 }
 
 /** frames を [magic][version][tick_rate_hz][frame_count][frames][crc32] レイアウトで buffer に書き出す。 */
-TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
+TResult<void> CLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
@@ -324,12 +324,12 @@ TResult<void> FLockstep::SaveToBuffer(u8* buffer, u32 size, u32& out_written) no
 }
 
 /** buffer を解釈・検証 (magic / version / size / crc32) して frames を復元する (置換セマンティクス)。 */
-TResult<void> FLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> CLockstep::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     return TryLoadFromBuffer(buffer, size);
 }
 
 /** 全検証とstaging成功後にだけframesを置換するchecked load。 */
-TResult<void> FLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> CLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
                        "FLockstep::LoadFromBuffer: buffer is null");
@@ -421,7 +421,7 @@ TResult<void> FLockstep::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept 
 }
 
 /** loaded persistent stateだけをno-fail swapし、modeは各instanceで維持する。 */
-void FLockstep::SwapLoadedState(FLockstep& other) noexcept
+void CLockstep::SwapLoadedState(CLockstep& other) noexcept
 {
     u32 value = m_TickRateHz;
     m_TickRateHz = other.m_TickRateHz;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputRecorder 実装
+// GameFramework Pillar D — CInputRecorder 実装
 //
 // StartRecording / StopRecording / StartReplay / StopReplay /
 // Capture / ConsumeSample / SampleCount / Clear / SaveToBuffer / LoadFromBuffer
@@ -12,7 +12,7 @@
 //     Recording 中に StartReplay を呼ぶと黙って Replaying に切り替わる (cursor
 //     はリセット)。逆も同様。録画と再生が同時並行することはない。
 //   ・ConsumeSample は m_Cursor から線形走査。記録順 = tick 昇順を仮定すれば
-//     cursor 前進で amortised O(1)。FLockstep::ConsumeInput と同じ pattern。
+//     cursor 前進で amortised O(1)。CLockstep::ConsumeInput と同じ pattern。
 //   ・key_codes_changed / key_states は struct 定義時にデフォルト初期化済みなので
 //     Capture 側は値コピーのみ。InputSample の sizeof は環境依存 (FVec2 = 8 B,
 //     padding 込みで 28〜32 B) だが、本クラスは内部で sizeof に依存しないため
@@ -22,7 +22,7 @@
 //     layout は header 16B + samples (1 sample = 29B、field 単位 LE) + footer 4B。
 //     1 sample = tick(4) + key_codes_changed(8) + key_states(8) + mouse_pos.x(4) +
 //     mouse_pos.y(4) + mouse_button_states(1) = 29B。CRC32 は samples 部のみを
-//     対象に計算し footer に置く (FSaveArchive / assetpack と同一の
+//     対象に計算し footer に置く (CSaveArchive / assetpack と同一の
 //     poly 0xEDB88320 実装)。InputSample 自体の memcpy には頼らず、ABI 非依存。
 #include "gameframework/InputRecorder.h"
 #include "gameframework/InputRecordingFormat.h"
@@ -33,10 +33,10 @@
 namespace acs::game {
 
 /** Recording モードへ切り替え、tick / cursor をリセットする (既存 samples は保持)。 */
-void FInputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
+void CInputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
     m_Mode = ERecorderMode::Recording;
     // tick_rate_hz == 0 は意味を成さないので最低 1 に丸める。0 除算防止 +
-    // FLockstep::Init と同じ規約。
+    // CLockstep::Init と同じ規約。
     m_TickRateHz = (tick_rate_hz == 0) ? 1u : tick_rate_hz;
     m_CurrentTick = 0;
     m_Cursor       = 0;
@@ -45,14 +45,14 @@ void FInputRecorder::StartRecording(u32 tick_rate_hz) noexcept {
 }
 
 /** Idle へ戻す (samples / tick_rate_hz は保持)。 */
-void FInputRecorder::StopRecording() noexcept {
+void CInputRecorder::StopRecording() noexcept {
     // Idle に戻すだけで samples / tick_rate_hz は保持。直後に SaveToBuffer を
     // 呼ぶ想定。Capture/ConsumeSample 双方の no-op 条件を兼ねる。
     m_Mode = ERecorderMode::Idle;
 }
 
 /** Replaying モードへ切り替え、cursor / current_tick を 0 にする (samples は保持)。 */
-void FInputRecorder::StartReplay() noexcept {
+void CInputRecorder::StartReplay() noexcept {
     m_Mode         = ERecorderMode::Replaying;
     m_Cursor       = 0;
     m_CurrentTick = 0;
@@ -60,13 +60,13 @@ void FInputRecorder::StartReplay() noexcept {
 }
 
 /** Idle へ戻す (再度 StartReplay すれば cursor は 0 から再開)。 */
-void FInputRecorder::StopReplay() noexcept {
+void CInputRecorder::StopReplay() noexcept {
     // Idle に戻すだけ。再度 StartReplay すれば cursor は 0 から再開する。
     m_Mode = ERecorderMode::Idle;
 }
 
 /** Recording 中のみ sample を末尾に蓄積し、current_tick を s.tick + 1 へ進める。 */
-void FInputRecorder::Capture(const FInputSample& s) noexcept {
+void CInputRecorder::Capture(const FInputSample& s) noexcept {
     // Recording モード以外では記録しない (Idle / Replaying 中の誤呼び出しを許容)。
     // 黙って no-op にする理由: ゲームループから無条件に Capture を呼べる設計に
     // しておくと、上位層の if 分岐が不要になり録画開始/停止だけで切り替えできる。
@@ -75,12 +75,12 @@ void FInputRecorder::Capture(const FInputSample& s) noexcept {
     }
     m_Samples.PushBack(s);
     // m_CurrentTick は「次に書き込む tick」のヒント。連続 tick 想定で
-    // sample.tick + 1 に進める。FLockstep::RecordInput と同じ方針。
+    // sample.tick + 1 に進める。CLockstep::RecordInput と同じ方針。
     m_CurrentTick = s.tick + 1u;
 }
 
 /** Replaying 中に cursor から線形走査し、指定 tick の sample を取り出す (amortised O(1))。 */
-bool FInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
+bool CInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
     // Replaying モード以外では取り出しを禁止する (誤用検知)。
     if (m_Mode != ERecorderMode::Replaying) {
         return false;
@@ -92,7 +92,7 @@ bool FInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
         const FInputSample& s = m_Samples[i];
         if (s.tick == tick) {
             out = s;
-            // 次回検索開始位置を更新。FLockstep と異なり同 tick 内に複数 sample が
+            // 次回検索開始位置を更新。CLockstep と異なり同 tick 内に複数 sample が
             // 入る想定はない (1 tick = 1 sample = 1 raw input snapshot) ため、
             // 単純に i + 1 を採用する。
             m_Cursor       = static_cast<u32>(i + 1u);
@@ -106,12 +106,12 @@ bool FInputRecorder::ConsumeSample(u32 tick, FInputSample& out) noexcept {
 }
 
 /** 蓄積済み sample 数を返す。 */
-u32 FInputRecorder::SampleCount() const noexcept {
+u32 CInputRecorder::SampleCount() const noexcept {
     return static_cast<u32>(m_Samples.Size());
 }
 
 /** 全 sample を破棄し cursor / current_tick を 0 に戻す (Mode / tick_rate は保持)。 */
-void FInputRecorder::Clear() noexcept {
+void CInputRecorder::Clear() noexcept {
     m_Samples.Clear();
     m_CurrentTick = 0;
     m_Cursor       = 0;
@@ -130,7 +130,7 @@ void FInputRecorder::Clear() noexcept {
  * @param out_written 実際に書き込んだバイト数の書き込み先。
  * @return 成功なら Ok。buffer が null なら kSub_NullBuffer、容量不足なら kSub_BufferTooSmall。
  */
-TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
+TResult<void> CInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_written) noexcept {
     out_written = 0;
     if (buffer == nullptr) {
         return ACS_ERR(IO, kSub_NullBuffer,
@@ -194,12 +194,12 @@ TResult<void> FInputRecorder::SaveToBuffer(u8* buffer, u32 size, u32& out_writte
  * @return 成功なら Ok。null は kSub_NullBuffer、サイズ不整合は kSub_BadSize、magic /
  *         version / crc 不一致はそれぞれ kSub_BadMagic / kSub_BadVersion / kSub_BadCrc。
  */
-TResult<void> FInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> CInputRecorder::LoadFromBuffer(const u8* buffer, u32 size) noexcept {
     return TryLoadFromBuffer(buffer, size);
 }
 
 /** 全検証とstaging成功後にだけsamplesを置換するchecked load。 */
-TResult<void> FInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
+TResult<void> CInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noexcept {
     /** allocation 前に全入力を検証する immutable zero-copy view。 */
     TResult<FInputRecordingView> view_result = FInputRecordingView::Decode(TSpan<const u8>(buffer, size));
     if (view_result.IsErr()) return view_result.Error();
@@ -228,7 +228,7 @@ TResult<void> FInputRecorder::TryLoadFromBuffer(const u8* buffer, u32 size) noex
 }
 
 /** loaded persistent stateだけをno-fail swapし、modeは各instanceで維持する。 */
-void FInputRecorder::SwapLoadedState(FInputRecorder& other) noexcept
+void CInputRecorder::SwapLoadedState(CInputRecorder& other) noexcept
 {
     u32 value = m_TickRateHz;
     m_TickRateHz = other.m_TickRateHz;

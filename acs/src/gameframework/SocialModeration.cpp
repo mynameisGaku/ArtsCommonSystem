@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FSocialModeration 実装
+// GameFramework Pillar T — CSocialModeration 実装
 //
 // ローカルブロックリストと通報キューの管理は完全実装。実 SDK 呼び出し
 // (Steam ISteamUser::ReportPlayer / EOS / PSN / Xbox / NSO) は seam として未接続で、
 // SubmitReport は queue に積むだけ、FlushReports は queue を空にして成功扱い。
-// これにより呼び出し側 (FGame / UI) は本 system を通常通り使い始めることができ、
+// これにより呼び出し側 (CGame / UI) は本 system を通常通り使い始めることができ、
 // Pillar S = Storefront 実装到着時に bridge 経由で実プラットフォームに接続する。
 //
 // 設計メモ:
@@ -14,9 +14,9 @@
 //     ハッシュ化のコストを上回らない。
 //   ・通報送信は backend 接続後に「送信成功 → queue から削除」の挙動になる。
 //     現状は SubmitReport が必ず queue に積み、FlushReports で全件成功扱い。
-//   ・文字列比較は FPartySystem と同じ StrEq (<cstring> も避ける ACS 規約)。
+//   ・文字列比較は CPartySystem と同じ StrEq (<cstring> も避ける ACS 規約)。
 //   ・空 user_id (nullptr) は防御的に弾く: SDK 取得失敗時の nullptr 流入で list を
-//     壊さないため (Pillar O FEntitlement / FPartySystem.AddFriend と同じポリシー)。
+//     壊さないため (Pillar O FEntitlement / CPartySystem.AddFriend と同じポリシー)。
 #include "gameframework/SocialModeration.h"
 
 namespace acs::game {
@@ -44,13 +44,13 @@ bool StrEq(const char* a, const char* b) noexcept {
 } // namespace
 
 /** 永続化 block list のロード / SDK 接続を行う seam (現状は no-op)。 */
-void FSocialModeration::Init() noexcept {
+void CSocialModeration::Init() noexcept {
     // 永続化された block list のロード / FSteamworksBridge への接続を行う seam。
     // 現状では no-op (TArray はデフォルト初期化済み)。
 }
 
 /** block list を線形走査し user_id が含まれるかを返す (nullptr は false)。 */
-bool FSocialModeration::FindBlocked(const char* user_id) const noexcept {
+bool CSocialModeration::FindBlocked(const char* user_id) const noexcept {
     if (user_id == nullptr) return false;
     const usize n = m_Blocked.Size();
     for (usize i = 0; i < n; ++i) {
@@ -60,9 +60,9 @@ bool FSocialModeration::FindBlocked(const char* user_id) const noexcept {
 }
 
 /** user_id をブロック登録する (nullptr / 既登録は no-op)。 */
-void FSocialModeration::BlockUser(const char* user_id) noexcept {
+void CSocialModeration::BlockUser(const char* user_id) noexcept {
     if (user_id == nullptr) {
-        // SDK 取得失敗時の nullptr 流入で list を壊さない (FPartySystem.AddFriend と同じ)。
+        // SDK 取得失敗時の nullptr 流入で list を壊さない (CPartySystem.AddFriend と同じ)。
         return;
     }
     if (FindBlocked(user_id)) {
@@ -83,7 +83,7 @@ void FSocialModeration::BlockUser(const char* user_id) noexcept {
 }
 
 /** user_id のブロックを解除する (nullptr / 未登録は no-op、順序非保持)。 */
-void FSocialModeration::UnblockUser(const char* user_id) noexcept {
+void CSocialModeration::UnblockUser(const char* user_id) noexcept {
     if (user_id == nullptr) return;
     const usize n = m_Blocked.Size();
     for (usize i = 0; i < n; ++i) {
@@ -101,23 +101,23 @@ void FSocialModeration::UnblockUser(const char* user_id) noexcept {
 }
 
 /** user_id がブロック済みかを返す (nullptr は false)。 */
-bool FSocialModeration::IsBlocked(const char* user_id) const noexcept {
+bool CSocialModeration::IsBlocked(const char* user_id) const noexcept {
     return FindBlocked(user_id);
 }
 
 /** ブロック済みユーザー数を返す。 */
-u32 FSocialModeration::BlockedCount() const noexcept {
+u32 CSocialModeration::BlockedCount() const noexcept {
     return static_cast<u32>(m_Blocked.Size());
 }
 
 /** ブロックエントリ配列の先頭を返し、件数を out_count に書き戻す。 */
-const FBlockEntry* FSocialModeration::AllBlocked(u32& out_count) const noexcept {
+const FBlockEntry* CSocialModeration::AllBlocked(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Blocked.Size());
     return m_Blocked.Data();
 }
 
 /** 通報を backend へ同期送信する seam (現状は常に未受理 = false を返す)。 */
-bool FSocialModeration::TrySubmitToBackend(const FReportRecord& rep) noexcept {
+bool CSocialModeration::TrySubmitToBackend(const FReportRecord& rep) noexcept {
     (void)rep;  // 現状では未使用 (seam の引数だけ確定させておく)。
     // seam: 実ネットワーク送信本体。
     // backend 未接続なら受理しない → 呼び出し側 (SubmitReport / FlushReports) が
@@ -135,7 +135,7 @@ bool FSocialModeration::TrySubmitToBackend(const FReportRecord& rep) noexcept {
 }
 
 /** 通報を受け付ける (同期送信を試み、未受理なら pending queue に保持)。 */
-TResult<void> FSocialModeration::SubmitReport(const FReportRecord& rep) noexcept {
+TResult<void> CSocialModeration::SubmitReport(const FReportRecord& rep) noexcept {
     if (rep.reported_user_id == nullptr) {
         // 通報対象が空なら審査側で識別不能 (必須項目)。Generic + subcode 1。
         return ACS_ERR(Generic, 1, "FSocialModeration::SubmitReport: reported_user_id is null");
@@ -156,29 +156,29 @@ TResult<void> FSocialModeration::SubmitReport(const FReportRecord& rep) noexcept
 }
 
 /** 未送信の保留通報数を返す。 */
-u32 FSocialModeration::PendingReportCount() const noexcept {
+u32 CSocialModeration::PendingReportCount() const noexcept {
     return static_cast<u32>(m_PendingReports.Size());
 }
 
 /** これまでに送信受理された通報の累計数を返す。 */
-u32 FSocialModeration::DeliveredReportCount() const noexcept {
+u32 CSocialModeration::DeliveredReportCount() const noexcept {
     return m_Delivered;
 }
 
 /** backend 接続状態を切り替える seam (自動フラッシュはしない)。 */
-void FSocialModeration::SetBackendConnected(bool connected) noexcept {
+void CSocialModeration::SetBackendConnected(bool connected) noexcept {
     // Pillar S 側が SDK 接続完了 / 切断時に呼ぶ seam。接続状態を切り替えるだけで
     // 自動フラッシュはしない (フラッシュ契機は呼び出し側が FlushReports で制御)。
     m_BackendConnected = connected;
 }
 
 /** backend が接続済みかを返す。 */
-bool FSocialModeration::IsBackendConnected() const noexcept {
+bool CSocialModeration::IsBackendConnected() const noexcept {
     return m_BackendConnected;
 }
 
 /** 保留通報を順に再送し、残件があれば集約エラーを返す (順序保持の安定圧縮)。 */
-TResult<void> FSocialModeration::FlushReports() noexcept {
+TResult<void> CSocialModeration::FlushReports() noexcept {
     // 未送信通報を queue 先頭から順に seam へ流す local state machine。
     // 受理された分だけ前方に詰め直さず「残す側」を後ろから前へ走査して
     // RemoveAtSwap で抜く設計だと順序が崩れ、通報の時系列が乱れる。通報は
@@ -214,7 +214,7 @@ TResult<void> FSocialModeration::FlushReports() noexcept {
 }
 
 /** ローカル state (block list / pending queue) を消去する (累計値・接続状態は保持)。 */
-void FSocialModeration::ClearLocalState() noexcept {
+void CSocialModeration::ClearLocalState() noexcept {
     // テスト / アカウント切り替え / セーブデータ削除時に呼ぶ。SDK 同期は
     // 行わない (ローカル state のみ消去するため、SDK 側のブロック設定は
     // 別途 UnblockUser を呼ぶか、SDK 自身の管理画面から消す必要がある)。

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FDamageFeedback (Polish & GameFeel)
+// GameFramework Pillar R — CDamageFeedback (Polish & GameFeel)
 //
 // プレイヤーがダメージを受けたときの視覚フィードバックを集中管理する
 // state holder。FPS / アクション系で必須の 3 要素を一箇所で扱う:
@@ -8,8 +8,8 @@
 //   3) death cam (致命傷 → killer をズームアウトで映す演出)
 //
 // 設計選択:
-//   ・**FDamageFeedback 自身は描画しない / カメラを動かさない**:
-//      FEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
+//   ・**CDamageFeedback 自身は描画しない / カメラを動かさない**:
+//      CEffectSystem と同じ「副作用ゼロ / 純粋 state machine」方針。
 //      ・赤エッジ → 描画パイプ末尾の overlay が ScreenEdgeRedIntensity() を
 //                  vignette mask に掛けて加算 blend。
 //      ・方向矢印 → UI 層が HasDirectionalIndicator() / DirectionalIndicator()
@@ -35,12 +35,12 @@
 //      赤フェード残骸 / 矢印 / death cam を一括クリア。
 //
 // 非コピー・非ムーブ:
-//   FGame / FScene のメンバとして 1 インスタンスだけ存在する想定。state が
+//   CGame / AScene のメンバとして 1 インスタンスだけ存在する想定。state が
 //   重複すると death cam の trigger 整合性が壊れるので機械的に禁止。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       FDamageFeedback m_Dmg;
+//   class FGameplayScene : public AScene {
+//       CDamageFeedback m_Dmg;
 //       void OnPlayerHit(f32 amount, FVec2 attacker_pos) noexcept {
 //           const FVec2 to_player = player.Position() - attacker_pos;
 //           m_Dmg.TakeDamage(amount, to_player);
@@ -55,7 +55,7 @@
 //
 // 範囲外:
 //   ・血しぶき・画面割れ等の SFX 連携
-//   ・low HP 時の心拍音 / 視野狭窄 (FAudioDirector / 別 overlay と連携)
+//   ・low HP 時の心拍音 / 視野狭窄 (CAudioDirector / 別 overlay と連携)
 //   ・death cam の cinematic curve (今は線形)
 #pragma once
 
@@ -75,25 +75,25 @@ namespace acs::game {
  * 上書き、death cam は明示的な trigger/exit で制御する。state 重複を避けるため
  * 非コピー・非ムーブ。
  */
-class FDamageFeedback {
+class CDamageFeedback {
 public:
     /** 全 state を初期値 (フィードバックなし) で構築する。 */
-    FDamageFeedback() noexcept = default;
+    CDamageFeedback() noexcept = default;
 
     /** 破棄する。 */
-    ~FDamageFeedback() noexcept = default;
+    ~CDamageFeedback() noexcept = default;
 
     /** コピー禁止 (state 重複で death cam の整合性が壊れるため)。 */
-    FDamageFeedback(const FDamageFeedback&)            = delete;
+    CDamageFeedback(const CDamageFeedback&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDamageFeedback& operator=(const FDamageFeedback&) = delete;
+    CDamageFeedback& operator=(const CDamageFeedback&) = delete;
 
     /** ムーブ禁止。 */
-    FDamageFeedback(FDamageFeedback&&)                 = delete;
+    CDamageFeedback(CDamageFeedback&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDamageFeedback& operator=(FDamageFeedback&&)      = delete;
+    CDamageFeedback& operator=(CDamageFeedback&&)      = delete;
 
     /**
      * ダメージを 1 件受け取り、赤エッジ強度を加算し方向矢印を更新する。
@@ -202,5 +202,8 @@ private:
     /** 累積ダメージ総量。Reset で 0 に戻る。最近のダメージ密度を読む将来拡張用フック。 */
     f32 m_RecentDamageTotal = 0.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDamageFeedback = CDamageFeedback;
 
 } // namespace acs::game

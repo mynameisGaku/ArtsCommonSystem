@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FSceneTimer 実装
+// GameFramework Pillar H — CSceneTimer 実装
 //
 // 設計メモ:
-//  ・slot 再利用は線形走査 (FTween/FSequenceRunner と同じ方針)。Scene あたりの
+//  ・slot 再利用は線形走査 (FTween/CSequenceRunner と同じ方針)。Scene あたりの
 //    timer 数は数十〜数百が想定なので O(N) で十分。
 //  ・generation は u8 (0 = 未使用, 1〜255 が有効)。255 で wrap して 1 に戻す
 //    (0 にすると IsValid が常に false になり stale 検知不能になるため)。
@@ -39,7 +39,7 @@ static_assert(FSceneTimerHandle::Pack(kLastIssuedSceneTimerIndex, kLastSceneTime
 } // namespace
 
 /** inactive slot を再利用するか末尾に追加して空きスロット index を返す (上限到達で kMaxIndex)。 */
-u32 FSceneTimer::AcquireSlot() noexcept {
+u32 CSceneTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用 (キャッシュ局所性 + index 上限 24bit 保護)
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -58,12 +58,12 @@ u32 FSceneTimer::AcquireSlot() noexcept {
 }
 
 /** index と gen を packed handle にまとめて返す。 */
-FSceneTimerHandle FSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
+FSceneTimerHandle CSceneTimer::MakeHandle(u32 index, u8 gen) const noexcept {
     return FSceneTimerHandle::Pack(index, gen);
 }
 
 /** delay_sec 後に 1 回だけ cb(user) を呼ぶ one-shot timer を登録する (不正引数は invalid handle)。 */
-FSceneTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
+FSceneTimerHandle CSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (delay_sec <= 0.0f) return {};
 
@@ -89,7 +89,7 @@ FSceneTimerHandle FSceneTimer::SetTimeout(f32 delay_sec, TimerCallback cb, void*
 }
 
 /** period_sec ごとに cb(user) を繰り返す interval timer を登録する (不正引数は invalid handle)。 */
-FSceneTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
+FSceneTimerHandle CSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, void* user) noexcept {
     if (cb == nullptr) return {};
     if (period_sec <= 0.0f) return {};
 
@@ -113,7 +113,7 @@ FSceneTimerHandle FSceneTimer::SetInterval(f32 period_sec, TimerCallback cb, voi
 }
 
 /** h が active なら停止して true を返す (stale / 完了済みは false)。 */
-bool FSceneTimer::Cancel(FSceneTimerHandle h) noexcept {
+bool CSceneTimer::Cancel(FSceneTimerHandle h) noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= m_Entries.Size()) return false;
@@ -128,7 +128,7 @@ bool FSceneTimer::Cancel(FSceneTimerHandle h) noexcept {
 }
 
 /** 全 active timer を停止する (コールバックは呼ばない)。 */
-void FSceneTimer::CancelAll() noexcept {
+void CSceneTimer::CancelAll() noexcept {
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
         FTimerEntry& e = m_Entries[i];
@@ -141,7 +141,7 @@ void FSceneTimer::CancelAll() noexcept {
 }
 
 /** h が現在も有効な active timer を指しているかを返す。 */
-bool FSceneTimer::IsActive(FSceneTimerHandle h) const noexcept {
+bool CSceneTimer::IsActive(FSceneTimerHandle h) const noexcept {
     if (!h.IsValid()) return false;
     const u32 idx = h.Index();
     if (idx >= m_Entries.Size()) return false;
@@ -150,7 +150,7 @@ bool FSceneTimer::IsActive(FSceneTimerHandle h) const noexcept {
 }
 
 /** dt 進めて満了した timer を登録順に発火する (Interval は大 dt で carry 連続発火)。 */
-void FSceneTimer::Tick(f32 dt) noexcept {
+void CSceneTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_ActiveCount == 0u) return;
 

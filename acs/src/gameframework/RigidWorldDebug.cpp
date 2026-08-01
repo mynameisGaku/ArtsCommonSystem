@@ -9,7 +9,7 @@
 
 namespace acs::game {
 
-void DebugDrawRigidWorld(const FRigidWorld2D& world, FDebugDraw& dd,
+void DebugDrawRigidWorld(const CRigidWorld2D& world, CDebugDraw& dd,
                          FVec4 color, FVec4 vel_color, f32 vel_scale) noexcept {
     // slot を 0 から走査 (Body は slot 数を超えると nullptr)。非アクティブは飛ばす。
     for (u32 i = 0; ; ++i) {

@@ -12,7 +12,7 @@ namespace acs::game {
  * @details 親が入力内で先行する通常経路は stack を使って線形時間で評価する。
  * 順序が不正な要素だけ scalar 判定へ戻り、結果の互換性を維持する。
  */
-class FHierarchyVisibilityBatch {
+class CHierarchyVisibilityBatch {
 public:
     /**
      * 単一 node の継承可視性を評価する。
@@ -63,5 +63,8 @@ private:
     /** scalar fallback 件数。 */
     u32 m_ScalarFallbackCount = 0u;
 };
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FHierarchyVisibilityBatch = CHierarchyVisibilityBatch;
 
 } // namespace acs::game

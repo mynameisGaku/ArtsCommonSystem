@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FDialogueSystem
+// GameFramework 完成度システム v7 — CDialogueSystem
 //
 // シナリオ / NPC 会話 / イベントシーンで使うダイアログ駆動 state holder。
 // 1 行ずつテキストを送り出し、タイプライタ演出と分岐選択肢を扱う。
@@ -26,7 +26,7 @@
 //   ・**非コピー・非ムーブ**: state holder の唯一性 (現在行 / タイプ進行) を
 //     担保するため。
 //
-// 参考: FSpriteAnimator (frame-based progression), FSequence (action 連鎖)
+// 参考: CSpriteAnimator (frame-based progression), FSequence (action 連鎖)
 #pragma once
 
 #include "foundation/Types.h"
@@ -72,25 +72,25 @@ struct FDialogueChoice {
  * 「選択肢を提示中か」だけを保持する。auto-advance は system 共通の delay で、
  * 選択肢が登録されている line では抑止される。非コピー・非ムーブ。
  */
-class FDialogueSystem {
+class CDialogueSystem {
 public:
     /** 空状態で構築する。 */
-    FDialogueSystem() noexcept = default;
+    CDialogueSystem() noexcept = default;
 
     /** 破棄する。 */
-    ~FDialogueSystem() noexcept = default;
+    ~CDialogueSystem() noexcept = default;
 
     /** コピー禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueSystem(const FDialogueSystem&)            = delete;
+    CDialogueSystem(const CDialogueSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDialogueSystem& operator=(const FDialogueSystem&) = delete;
+    CDialogueSystem& operator=(const CDialogueSystem&) = delete;
 
     /** ムーブ禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueSystem(FDialogueSystem&&)                 = delete;
+    CDialogueSystem(CDialogueSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDialogueSystem& operator=(FDialogueSystem&&)      = delete;
+    CDialogueSystem& operator=(CDialogueSystem&&)      = delete;
 
     /**
      * 行を末尾に追加する。
@@ -303,5 +303,8 @@ private:
     /** 現在行の選択肢を消費済みか (ChooseOption で true 化)。 */
     bool m_bChoicesConsumed   = true;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDialogueSystem = CDialogueSystem;
 
 } // namespace acs::game

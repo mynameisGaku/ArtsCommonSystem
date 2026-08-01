@@ -173,7 +173,7 @@ void Drawer_ColorRGBA(const FPropertyContext& ctx) noexcept {
  *
  * @details
  * data_ptr は null 終端 char[] (容量 kTextInputBufferSize) を想定。ImGui 側で path を
- * 直接編集できるほか、別 panel (FAssetBrowser) から "ASSET_PATH" payload で drag-drop
+ * 直接編集できるほか、別 panel (CAssetBrowser) から "ASSET_PATH" payload で drag-drop
  * されるとバッファに strncpy で書き戻す。
  * @param ctx 描画パラメータ。
  */
@@ -184,22 +184,22 @@ void Drawer_AssetPath(const FPropertyContext& ctx) noexcept {
     // PropertyDrawerRegistry::kTextInputBufferSize 長を持つ前提で固定値を渡す。
     const bool changed = ImGui::InputText(SafeLabel(ctx.label),
                                           buf,
-                                          FPropertyDrawerRegistry::kTextInputBufferSize);
+                                          CPropertyDrawerRegistry::kTextInputBufferSize);
     DrawTooltip(ctx.tooltip);
 
-    // Drag-drop 受け口: FAssetBrowser 側が "ASSET_PATH" payload (= 文字列バイト列)
+    // Drag-drop 受け口: CAssetBrowser 側が "ASSET_PATH" payload (= 文字列バイト列)
     // を SetDragDropPayload した場合、その文字列をバッファに書き戻す。
     // payload size は null 終端を含むかは sender 側次第。安全のため strncpy で
     // 末尾 null を保証する。
     bool dropped = false;
     if (ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload =
-            ImGui::AcceptDragDropPayload(FPropertyDrawerRegistry::kAssetPathPayloadId);
+            ImGui::AcceptDragDropPayload(CPropertyDrawerRegistry::kAssetPathPayloadId);
         if (payload != nullptr && payload->Data != nullptr && payload->DataSize > 0) {
             const char* src = static_cast<const char*>(payload->Data);
             // strncpy で書き戻し + 末尾 null 確実化。
-            std::strncpy(buf, src, FPropertyDrawerRegistry::kTextInputBufferSize - 1);
-            buf[FPropertyDrawerRegistry::kTextInputBufferSize - 1] = '\0';
+            std::strncpy(buf, src, CPropertyDrawerRegistry::kTextInputBufferSize - 1);
+            buf[CPropertyDrawerRegistry::kTextInputBufferSize - 1] = '\0';
             dropped = true;
         }
         ImGui::EndDragDropTarget();
@@ -248,7 +248,7 @@ void Drawer_TextInput(const FPropertyContext& ctx) noexcept {
     char* buf = static_cast<char*>(ctx.data_ptr);
     const bool changed = ImGui::InputText(SafeLabel(ctx.label),
                                           buf,
-                                          FPropertyDrawerRegistry::kTextInputBufferSize);
+                                          CPropertyDrawerRegistry::kTextInputBufferSize);
     DrawTooltip(ctx.tooltip);
     if (changed && ctx.out_changed != nullptr) {
         *ctx.out_changed = true;
@@ -258,7 +258,7 @@ void Drawer_TextInput(const FPropertyContext& ctx) noexcept {
 } // namespace
 
 /** 既存登録を破棄して bundled drawer 9 種を自動登録する。 */
-void FPropertyDrawerRegistry::Init() noexcept {
+void CPropertyDrawerRegistry::Init() noexcept {
     // 既存登録を全て破棄 (多重 Init を許容)。
     m_Entries.Clear();
 
@@ -278,21 +278,21 @@ void FPropertyDrawerRegistry::Init() noexcept {
 }
 
 /** 全 drawer 登録を破棄する。 */
-void FPropertyDrawerRegistry::Shutdown() noexcept {
+void CPropertyDrawerRegistry::Shutdown() noexcept {
     // 全 drawer 登録を破棄。Init での bundled 再注入は呼び出し側で `Init()` を
     // 呼び直す責務 (= Shutdown は state を空に倒すだけ)。
     m_Entries.Clear();
 }
 
 /** 全 drawer 登録を破棄して空に戻す (Shutdown と同義)。 */
-void FPropertyDrawerRegistry::ClearAll() noexcept {
+void CPropertyDrawerRegistry::ClearAll() noexcept {
     // Shutdown と同義 (= ImGui 等のグローバル状態は触らないため等価)。
     // 別名 API として残しているのは Init/Shutdown/ClearAll の対称性を取るため。
     m_Entries.Clear();
 }
 
 /** name 一致のエントリを線形探索する (未ヒットは -1)。 */
-isize FPropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
+isize CPropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
     if (type_name == nullptr || type_name[0] == '\0') return -1;
     const usize n = m_Entries.Size();
     for (usize i = 0; i < n; ++i) {
@@ -304,7 +304,7 @@ isize FPropertyDrawerRegistry::FindIndex(const char* type_name) const noexcept {
 }
 
 /** type_name + DrawerFn を後勝ちで登録 / 上書きする (不正引数は no-op)。 */
-void FPropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) noexcept {
+void CPropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn) noexcept {
     // null / 空文字 / null fn は全部 no-op (= 呼び出し側ミスを silent に弾く)。
     if (type_name == nullptr || type_name[0] == '\0' || fn == nullptr) return;
 
@@ -326,7 +326,7 @@ void FPropertyDrawerRegistry::RegisterDrawer(const char* type_name, DrawerFn fn)
 }
 
 /** type_name 一致の登録 1 件を末尾 swap で解除する (順序非保持)。 */
-void FPropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
+void CPropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
     const isize idx = FindIndex(type_name);
     if (idx < 0) return;
     // 末尾 swap で O(1) 削除 (順序非保持)。RegisterDrawer で再登録すれば
@@ -335,12 +335,12 @@ void FPropertyDrawerRegistry::UnregisterDrawer(const char* type_name) noexcept {
 }
 
 /** type_name に対応する drawer が登録済みかを返す。 */
-bool FPropertyDrawerRegistry::HasDrawer(const char* type_name) const noexcept {
+bool CPropertyDrawerRegistry::HasDrawer(const char* type_name) const noexcept {
     return FindIndex(type_name) >= 0;
 }
 
 /** type_name の drawer を ctx で呼ぶ (該当ありで true、未登録で false)。 */
-bool FPropertyDrawerRegistry::DrawProperty(const char* type_name,
+bool CPropertyDrawerRegistry::DrawProperty(const char* type_name,
                                           const FPropertyContext& ctx) const noexcept {
     const isize idx = FindIndex(type_name);
     if (idx < 0) return false;
@@ -355,12 +355,12 @@ bool FPropertyDrawerRegistry::DrawProperty(const char* type_name,
 }
 
 /** 登録済み drawer 数を返す。 */
-u32 FPropertyDrawerRegistry::DrawerCount() const noexcept {
+u32 CPropertyDrawerRegistry::DrawerCount() const noexcept {
     return static_cast<u32>(m_Entries.Size());
 }
 
 /** index 番目の drawer name を返す (範囲外は nullptr)。 */
-const char* FPropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
+const char* CPropertyDrawerRegistry::DrawerName(u32 index) const noexcept {
     if (static_cast<usize>(index) >= m_Entries.Size()) return nullptr;
     return m_Entries[static_cast<usize>(index)].name;
 }

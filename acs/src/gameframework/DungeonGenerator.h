@@ -16,7 +16,7 @@
 //   cfg.seed              = 0xDEADBEEFu;
 //   cfg.max_depth         = 5;
 //
-//   FDungeonGenerator gen;
+//   CDungeonGenerator gen;
 //   gen.Generate(cfg);
 //
 //   // 描画ループ
@@ -135,28 +135,28 @@ struct FDungeonGenConfig {
  *
  * @details
  * 全体領域を再帰的に 2 分割してリーフごとに 1 部屋を置き、兄弟リーフ間を L 字廊下で
- * 接続する。生成結果は row-major のタイルグリッドと部屋配列として保持する。FScene が
+ * 接続する。生成結果は row-major のタイルグリッドと部屋配列として保持する。AScene が
  * 所有する想定の非コピー・非ムーブ型。
  */
-class FDungeonGenerator {
+class CDungeonGenerator {
 public:
     /** 空状態で構築する (グリッド・部屋は Generate で生成)。 */
-    FDungeonGenerator() noexcept  = default;
+    CDungeonGenerator() noexcept  = default;
 
     /** 破棄する (グリッド・部屋配列は TArray が解放)。 */
-    ~FDungeonGenerator() noexcept = default;
+    ~CDungeonGenerator() noexcept = default;
 
     /** コピー禁止 (大きな配列の暗黙複製を防ぐ)。 */
-    FDungeonGenerator(const FDungeonGenerator&)            = delete;
+    CDungeonGenerator(const CDungeonGenerator&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDungeonGenerator& operator=(const FDungeonGenerator&) = delete;
+    CDungeonGenerator& operator=(const CDungeonGenerator&) = delete;
 
-    /** ムーブ禁止 (FScene が単独所有する想定)。 */
-    FDungeonGenerator(FDungeonGenerator&&)                 = delete;
+    /** ムーブ禁止 (AScene が単独所有する想定)。 */
+    CDungeonGenerator(CDungeonGenerator&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDungeonGenerator& operator=(FDungeonGenerator&&)      = delete;
+    CDungeonGenerator& operator=(CDungeonGenerator&&)      = delete;
 
     /**
      * config に従ってダンジョン全体を再生成する (既存状態は完全破棄)。
@@ -272,5 +272,8 @@ private:
     /** 直近 Generate の seed (FindRandomFloor 等で再利用)。 */
     u32              m_Seed   = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDungeonGenerator = CDungeonGenerator;
 
 } // namespace acs::game

@@ -1,48 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / FModelViewerPanel
+// GameFramework Pillar — ModelViewer / AModelViewerPanel
 //
 // 3D model の表示と asset 切替を行う **メインビューポート**。editor 共通基盤
-// (`editor_core::FEditorPanel` / `FEditorCamera` / `FEditorWorkspace` /
-// `FAssetBrowser`) を継承する panel。
+// (`editor_core::AEditorPanel` / `CEditorCamera` / `CEditorWorkspace` /
+// `CAssetBrowser`) を継承する panel。
 //
 // 役割:
 //   ・3D model viewport の host (ImGui::Begin "Model Viewport" 1 window)
 //   ・カレント asset path の保持 + 切替 (`LoadModelAsset` / `ClearModel`)
-//   ・FEditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
+//   ・CEditorCamera (3D orbit) を内包し、panel 内で操作 / Reset / Frame
 //   ・Lighting (sun dir + sun color + IBL toggle + tonemap mode) パラメータの
 //     設定 ImGui controls
 //   ・Background color / Grid / FBone skeleton 表示の切替
-//   ・FAssetBrowser からのファイル選択通知 (`OnAssetSelected`) を受けて
+//   ・CAssetBrowser からのファイル選択通知 (`OnAssetSelected`) を受けて
 //     mesh / model 拡張子なら自動 LoadModelAsset
 //
 // 役割分担 (ModelViewer 全体):
-//   ・本 panel (FModelViewerPanel)         : 3D viewport + 表示パラメータ UI
-//   ・FModelInspectorPanel                  : モデルのメタ情報 (vertex/index 数,
+//   ・本 panel (AModelViewerPanel)         : 3D viewport + 表示パラメータ UI
+//   ・AModelInspectorPanel                  : モデルのメタ情報 (vertex/index 数,
 //                                            material list, bone count 等)
-//   ・FModelMaterialPanel                   : material slot 編集 (basecolor /
+//   ・AModelMaterialPanel                   : material slot 編集 (basecolor /
 //                                            metallic / roughness 等)
-//   ・FModelAnimationPanel                  : animation clip 切替 + 再生 / pause
+//   ・AModelAnimationPanel                  : animation clip 切替 + 再生 / pause
 //   ・ModelViewportRenderer                 : 実際の 3D 描画 (FPbrShader + FShadowMap +
 //                                            IBL + Tonemap) を持つ別クラス。本 panel
 //                                            は描画パラメータの保管だけを担う。
 //
 // 使い方 (典型):
-//   FModelViewerPanel viewer;
+//   AModelViewerPanel viewer;
 //   viewer.Init();
-//   workspace.RegisterPanel(&viewer);  // FEditorPanel として登録
+//   workspace.RegisterPanel(&viewer);  // AEditorPanel として登録
 //
 //   // 毎フレーム TickAllPanels(dt) の中で OnFrameBegin + DrawUI が呼ばれる。
 //
-//   // FAssetBrowser からファイル選択時:
+//   // CAssetBrowser からファイル選択時:
 //   workspace.BroadcastAssetSelected("models/hero.mdl");
-//   // → FModelViewerPanel::OnAssetSelected が呼ばれ、自動 LoadModelAsset。
+//   // → AModelViewerPanel::OnAssetSelected が呼ばれ、自動 LoadModelAsset。
 //
 //   // 終了時:
 //   workspace.UnregisterPanel(&viewer);
 //   viewer.Shutdown();
 //
 // 設計選択 (ModelViewer):
-//   ・**FEditorPanel 継承**: Title / DrawUI /
+//   ・**AEditorPanel 継承**: Title / DrawUI /
 //     OnInit / OnAssetSelected を override。OnInit では基底実装 (`Workspace()`
 //     ポインタ保持) を必ず呼ぶ。
 //   ・**3D viewport を「数値パラメータ + ImGui controls」だけにする**:
@@ -51,15 +51,15 @@
 //     「FCamera state + light params + background + toggle 群」の保管 + UI のみ。
 //     こうしておけば panel 単体テストや、別の renderer (= raymarched preview /
 //     OBJ thumbnail) への差し替えが容易。
-//   ・**FEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
+//   ・**CEditorCamera を内包 (値メンバ)**: 各 panel が独自 camera を持つ Unity
 //     SceneView 風モデル。Camera() アクセサで参照を返し、renderer が
 //     ViewMatrix / ProjectionMatrix を取り出して使う。
-//   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: FAssetBrowser
+//   ・**asset path は wchar_t バッファ (kMaxPathChars = 512)**: CAssetBrowser
 //     と同じ規約。STL の std::wstring は使えないため、固定長で保持。
-//     寿命管理を panel 側で完結させるため、コピー保存する (= FAssetBrowser の
+//     寿命管理を panel 側で完結させるため、コピー保存する (= CAssetBrowser の
 //     pointer 寿命 = 次の Refresh まで、には依存しない)。
 //   ・**OnAssetSelected で拡張子フィルタ**: `.mdl` / `.fbx` / `.gltf` / `.glb` /
-//     `.obj` が Mesh asset とみなされる (FAssetBrowser::ClassifyByExtension の
+//     `.obj` が Mesh asset とみなされる (CAssetBrowser::ClassifyByExtension の
 //     Mesh 分類と一致)。それ以外の拡張子は無視 (= asset path は ASCII UTF-8 だが
 //     panel 内では wchar_t に正規化して持つ)。
 //   ・**ImGui controls の DrawUI 配置**: 単一 "Model Viewport" window 内に
@@ -75,73 +75,66 @@
 //     通常 1.0 だが、screenshot 用に alpha 0 もあり得る。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。文字列は wchar_t 固定長バッファのみ。
-//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (FHierarchyPanel / FInspectorPanel /
-//     FParticleEditorPanel) と同形。
+//   ・**ImGui ヘッダは .cpp 限定**: 他 panel (AHierarchyPanel / AInspectorPanel /
+//     AParticleEditorPanel) と同形。
 //   ・本 panel から forward decl で他 panel を受ける必要はない
 //     (Workspace 経由で疎結合)。
 //
 // 範囲外 (別 panel):
 //   ・PBR 描画 (FPbrShader / FShadowMap / IBL) の実呼出 = ModelViewportRenderer
-//   ・material slot 編集 = FModelMaterialPanel
-//   ・bone hierarchy 表示 = FModelInspectorPanel
-//   ・animation timeline = FModelAnimationPanel
-//   ・grid / gizmo の実描画 = FEditorGizmo
-//   ・camera preset (Front / Top / Side) = FEditorCamera
-//   ・undo / redo = FUndoStack 統合 (OnUndo / OnRedo hook)
+//   ・material slot 編集 = AModelMaterialPanel
+//   ・bone hierarchy 表示 = AModelInspectorPanel
+//   ・animation timeline = AModelAnimationPanel
+//   ・grid / gizmo の実描画 = CEditorGizmo
+//   ・camera preset (Front / Top / Side) = CEditorCamera
+//   ・undo / redo = CUndoStack 統合 (OnUndo / OnRedo hook)
 #pragma once
 
 #include "foundation/Types.h"
-#include "math/Vec.h"
+#include "gameframework/Forward.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"
 #include "gameframework/tools/editor_core/EditorCamera.h"
-
-namespace acs::game::editor_core {
-// FEditorWorkspace / FAssetBrowser は EditorPanel.h から forward-decl で受ける。
-// 本ヘッダで AssetBrowser.h を include しないことで、編集中ファイルの依存を
-// 最小化する (= FAssetBrowser のヘッダ変更で FModelViewerPanel 利用側が再ビルドを
-// 強いられないようにする)。
-class FEditorWorkspace;
-} // namespace acs::game::editor_core
+#include "math/Vec.h"
 
 namespace acs::game::modelview {
 
 /**
- * 3D model viewport + 表示パラメータ UI を提供する panel (FEditorPanel 派生)。
+ * 3D model viewport + 表示パラメータ UI を提供する panel (AEditorPanel 派生)。
  *
  * @details
- * 3D model の表示と asset 切替を行うメインビューポート。FEditorCamera (3D orbit) を
+ * 3D model の表示と asset 切替を行うメインビューポート。CEditorCamera (3D orbit) を
  * 内包し、Lighting (sun dir / color / IBL / tonemap)・Background・Grid・bone skeleton
  * 表示の数値パラメータと ImGui controls を保持する。実際の 3D 描画 (FPbrShader /
  * FShadowMap / IBL) は外部の ModelViewportRenderer が CurrentAssetPath() や各パラメータを
- * 見て担当し、本 panel は値の保管と UI のみを担う。FAssetBrowser からのファイル選択
+ * 見て担当し、本 panel は値の保管と UI のみを担う。CAssetBrowser からのファイル選択
  * (OnAssetSelected) を受けて mesh / model 拡張子なら自動 LoadModelAsset する。
  */
-class FModelViewerPanel : public acs::game::editor_core::FEditorPanel {
+class AModelViewerPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空のパネルを構築する (state は Init で確定)。 */
-    FModelViewerPanel() noexcept = default;
+    AModelViewerPanel() noexcept = default;
 
     /** パネルを破棄する。 */
-    ~FModelViewerPanel() noexcept override = default;
+    ~AModelViewerPanel() noexcept override = default;
 
-    /** コピー禁止 (内部 FEditorCamera + asset path バッファの所有を曖昧にしないため)。 */
-    FModelViewerPanel(const FModelViewerPanel&)            = delete;
+    /** コピー禁止 (内部 CEditorCamera + asset path バッファの所有を曖昧にしないため)。 */
+    AModelViewerPanel(const AModelViewerPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelViewerPanel& operator=(const FModelViewerPanel&) = delete;
+    AModelViewerPanel& operator=(const AModelViewerPanel&) = delete;
 
-    /** ムーブ禁止 (ACS 規約 + 基底 FEditorPanel 規約)。 */
-    FModelViewerPanel(FModelViewerPanel&&)                 = delete;
+    /** ムーブ禁止 (ACS 規約 + 基底 AEditorPanel 規約)。 */
+    AModelViewerPanel(AModelViewerPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelViewerPanel& operator=(FModelViewerPanel&&)      = delete;
+    AModelViewerPanel& operator=(AModelViewerPanel&&)      = delete;
 
     /**
      * パネルを初期化する。
      *
      * @details
-     * 内部 state をデフォルトに戻し、FEditorCamera を 3D mode で Init、asset path を
-     * 空にする。Workspace への登録は別途 FEditorWorkspace::RegisterPanel(&this) で行い
+     * 内部 state をデフォルトに戻し、CEditorCamera を 3D mode で Init、asset path を
+     * 空にする。Workspace への登録は別途 CEditorWorkspace::RegisterPanel(&this) で行い
      * (= OnInit 経由で Workspace ポインタが保存される)、多重 Init 可 (= 完全リセット)。
      */
     void Init() noexcept;
@@ -150,7 +143,7 @@ public:
      * 内部 state を全解放する。
      *
      * @details
-     * FEditorCamera は POD だが念のため Reset でデフォルト state にする。OnShutdown とは
+     * CEditorCamera は POD だが念のため Reset でデフォルト state にする。OnShutdown とは
      * 別物で、Workspace から外す前に panel 単体で reset したい場合の API。多重 Shutdown 可。
      */
     void Shutdown() noexcept;
@@ -169,7 +162,7 @@ public:
      * 内部 asset path を空文字に戻し HasModel() を false にする。
      *
      * @details
-     * FEditorCamera 状態 / Lighting / Background は保持する (= モデルを切替えても視点と
+     * CEditorCamera 状態 / Lighting / Background は保持する (= モデルを切替えても視点と
      * 照明が維持される、Unity SceneView と同じ挙動)。
      */
     void ClearModel() noexcept;
@@ -189,14 +182,14 @@ public:
     const wchar_t* CurrentAssetPath() const noexcept;
 
     /**
-     * 内部 FEditorCamera への参照を返す。
+     * 内部 CEditorCamera への参照を返す。
      *
      * @details
      * 呼出側 (renderer / panel 内 UI) が HandleMouseInput / Tick / ViewMatrix 等を呼ぶ。
      * 寿命は本 panel と同一。
-     * @return 内部 FEditorCamera への参照。
+     * @return 内部 CEditorCamera への参照。
      */
-    acs::game::editor_core::FEditorCamera& Camera() noexcept;
+    acs::game::editor_core::CEditorCamera& Camera() noexcept;
 
     /**
      * sun light direction を設定する。
@@ -320,10 +313,10 @@ public:
     /**
      * Workspace への登録時に呼ばれる初期化フック。
      *
-     * @details 基底実装で Workspace ポインタを保存し、本クラスでは FEditorCamera を 3D mode で Init し直す保険を行う。
-     * @param workspace 登録先の FEditorWorkspace。
+     * @details 基底実装で Workspace ポインタを保存し、本クラスでは CEditorCamera を 3D mode で Init し直す保険を行う。
+     * @param workspace 登録先の CEditorWorkspace。
      */
-    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept override;
 
     /**
      * ImGui window を描画する (viewport プレースホルダ + control bar)。
@@ -335,7 +328,7 @@ public:
     void DrawUI() noexcept override;
 
     /**
-     * FAssetBrowser からのファイル選択通知フック。
+     * CAssetBrowser からのファイル選択通知フック。
      *
      * @details
      * 拡張子が Mesh 相当 (.mdl/.fbx/.gltf/.glb/.obj) なら自動 LoadModelAsset し、それ以外
@@ -347,7 +340,7 @@ public:
     /**
      * asset path 用バッファ長 (wchar_t 単位、終端含む)。
      *
-     * @details FAssetBrowser::kMaxPathChars と同値にして相互運用しやすくする (= 同じ規約)。
+     * @details CAssetBrowser::kMaxPathChars と同値にして相互運用しやすくする (= 同じ規約)。
      */
     static constexpr u32 kMaxAssetPathChars = 512u;
 
@@ -356,7 +349,7 @@ public:
 
 private:
     /** 3D viewport camera (orbit / pan / dolly)。Init() で Mode3D に初期化。 */
-    acs::game::editor_core::FEditorCamera m_Camera {};
+    acs::game::editor_core::CEditorCamera m_Camera {};
 
     /** 現在のモデル asset path (UTF-16)。未設定時は先頭が L'\0'、コピー所有。 */
     wchar_t m_AssetPath[kMaxAssetPathChars] = {};
@@ -382,5 +375,7 @@ private:
     /** bone skeleton 表示フラグ。 */
     bool      m_ShowBoneSkeleton  = false;
 };
+
+using FModelViewerPanel = AModelViewerPanel;
 
 } // namespace acs::game::modelview

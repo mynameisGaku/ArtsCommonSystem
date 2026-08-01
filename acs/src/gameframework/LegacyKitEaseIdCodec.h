@@ -10,13 +10,13 @@ namespace acs::game {
  * 旧形式のイージング数値 ID と ACS の正規型を相互変換する。
  * 数式は保持せず、失敗時は出力引数を変更しない。
  */
-class FLegacyKitEaseIdCodec final {
+class CLegacyKitEaseIdCodec final {
 public:
     /** 旧形式で固定された有効 ID 数。 */
     static constexpr i32 kLegacyIdCount = 33;
 
     /** 状態を持たない変換型の生成を禁止する。 */
-    FLegacyKitEaseIdCodec() = delete;
+    CLegacyKitEaseIdCodec() = delete;
 
     /**
      * 旧形式の数値 ID を ACS の正規型へ変換する。
@@ -36,5 +36,8 @@ public:
      */
     static bool TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLegacyKitEaseIdCodec = CLegacyKitEaseIdCodec;
 
 } // namespace acs::game

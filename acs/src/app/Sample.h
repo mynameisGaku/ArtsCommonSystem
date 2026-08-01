@@ -6,7 +6,7 @@
 //     一掃して、サンプルが「何を見せたいか」だけに集中できるようにする。
 //
 // 使用例 (HelloHelloMVVM 等):
-//   class FMyApp : public FApplication {
+//   class FMyApp : public CApplication {
 //       void OnStart() noexcept override {
 //           ACS_SAMPLE_INIT(m_Imgui.Init(GetWindow(), GetRenderer()));
 //           ACS_SAMPLE_INIT(m_Shader.Init(*GetRenderer().Device(),
@@ -30,10 +30,10 @@
 #include "foundation/Types.h"
 #include "foundation/Result.h"
 #include "foundation/Log.h"
+#include "app/Forward.h"
 
 namespace acs {
 
-class FApplication;
 class FFont;
 class IRhiDevice;
 
@@ -70,7 +70,7 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
  *
  * @details
  * 「Init を呼んで失敗したら Quit して return」を 1 行で書くためのヘルパ。Quit() を
- * 参照するため FApplication のメンバ関数 (戻り値 void) の中からのみ使える。
+ * 参照するため CApplication のメンバ関数 (戻り値 void) の中からのみ使える。
  * @param expr TResult を返す初期化式。
  */
 #define ACS_SAMPLE_INIT(expr)                                                      \
@@ -89,7 +89,7 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
  *
  * @details
  * 行内の一意な一時名 (__LINE__ 連結) に受けてから Move して name に束縛する。
- * ACS_SAMPLE_INIT 同様 FApplication のメンバ関数からのみ使える。
+ * ACS_SAMPLE_INIT 同様 CApplication のメンバ関数からのみ使える。
  * @param name 取り出した値を束縛するローカル変数名。
  * @param expr TResult を返す式。
  */

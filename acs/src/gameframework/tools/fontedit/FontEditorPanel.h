@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — fontedit / FFontEditorPanel
+// GameFramework Pillar — fontedit / AFontEditorPanel
 //
 // 複数 font face の **fallback chain** (= プライマリ + ラテン補助 + CJK 補助 +
 // emoji/symbol 補助 …) を ImGui ベースで対話的に編集 + プレビューする
-// **エディタパネル**。`editor_core::FEditorPanel` 基底に載せ、
-// `FEditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
+// **エディタパネル**。`editor_core::AEditorPanel` 基底に載せ、
+// `CEditorWorkspace::RegisterPanel(&panel)` 1 行で workspace に統合できる形にする。
 //
 // 役割:
 //   ・font face リスト (= fallback 優先順位付き) の add / remove / reorder
@@ -28,9 +28,9 @@
 //      だけ確認できる" 簡易プレビューに留める。
 //
 // 使い方 (典型):
-//   FFontEditorPanel panel;
+//   AFontEditorPanel panel;
 //   panel.Init();
-//   workspace.RegisterPanel(&panel);   // FEditorPanel として登録
+//   workspace.RegisterPanel(&panel);   // AEditorPanel として登録
 //
 //   FFontFaceInfo primary{};
 //   primary.file_path      = L"assets/fonts/NotoSansJP-Regular.otf";
@@ -52,7 +52,7 @@
 //   panel.Shutdown();
 //
 // 設計選択 (FontEditor):
-//   ・**FEditorPanel 継承**: 共通基盤を dogfood (FSpriteAtlasEditorPanel と
+//   ・**AEditorPanel 継承**: 共通基盤を dogfood (ASpriteAtlasEditorPanel と
 //     同形)。Title = "Font Editor"、
 //     DrawUI / OnInit を override。OnInit では基底実装を必ず呼ぶ。
 //   ・**FFontFaceInfo は POD**: `wchar_t* file_path` (Windows API 由来 path、
@@ -69,7 +69,7 @@
 //     いう意図情報を別途持ちたいケース (= 永続化、UI 表示) があるので、struct
 //     に索引フィールドを残す。Add/Move のたびに本 panel が `fallback_index = i`
 //     を再書き込みする (= TArray index と同期)。
-//   ・**選択 face は単一 (i32)**、-1 = 未選択。FSpriteAtlasEditorPanel と同形。
+//   ・**選択 face は単一 (i32)**、-1 = 未選択。ASpriteAtlasEditorPanel と同形。
 //   ・**Preview text は `char[256]`**: ImGui::InputText に渡す固定バッファ。
 //     256 byte ≒ 85 utf-8 漢字相当 (3 byte/char) で、preview 用途には十分。
 //     ヘッダ末尾の kPreviewTextCapacity で定義。
@@ -84,7 +84,7 @@
 //     十分)。kMaxFontFaces で定義。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**:
 //     ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FSpriteAtlasEditorPanel
+//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / ASpriteAtlasEditorPanel
 //     と同形 (header から imgui.h を出さない)。
 //
 // 範囲外:
@@ -98,12 +98,8 @@
 
 #include "container/Array.h"
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "gameframework/tools/editor_core/EditorPanel.h"
-
-namespace acs::game::editor_core {
-// FEditorWorkspace は EditorPanel.h から forward-decl 経由で受ける。
-class FEditorWorkspace;
-} // namespace acs::game::editor_core
 
 namespace acs::game::fontedit {
 
@@ -141,30 +137,30 @@ struct FFontFaceInfo {
  * 複数 font face の fallback chain を ImGui で編集 + プレビューするエディタパネル。
  *
  * @details
- * editor_core::FEditorPanel 基底に載せ、FEditorWorkspace::RegisterPanel 1 行で
+ * editor_core::AEditorPanel 基底に載せ、CEditorWorkspace::RegisterPanel 1 行で
  * workspace に統合できる。font face リスト (= fallback 優先順位付き) の add /
  * remove / reorder と各 face のメタ情報編集、任意 utf-8 テキストの擬似プレビュー、
  * 0x20-0xFF の char range グリッド描画を担う。非コピー / 非ムーブ / 全 noexcept。
  */
-class FFontEditorPanel : public acs::game::editor_core::FEditorPanel {
+class AFontEditorPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /** 空のパネルを構築する (state は Init で初期化)。 */
-    FFontEditorPanel() noexcept = default;
+    AFontEditorPanel() noexcept = default;
 
-    /** 派生関係なし。基底 FEditorPanel を正しく破棄するデストラクタ。 */
-    ~FFontEditorPanel() noexcept override = default;
+    /** 派生関係なし。基底 AEditorPanel を正しく破棄するデストラクタ。 */
+    ~AFontEditorPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray + 静的 preview バッファの所有を曖昧にしないため)。 */
-    FFontEditorPanel(const FFontEditorPanel&)            = delete;
+    AFontEditorPanel(const AFontEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFontEditorPanel& operator=(const FFontEditorPanel&) = delete;
+    AFontEditorPanel& operator=(const AFontEditorPanel&) = delete;
 
     /** ムーブ禁止 (他 panel 群と同形、ACS 規約)。 */
-    FFontEditorPanel(FFontEditorPanel&&)                 = delete;
+    AFontEditorPanel(AFontEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFontEditorPanel& operator=(FFontEditorPanel&&)      = delete;
+    AFontEditorPanel& operator=(AFontEditorPanel&&)      = delete;
 
     /**
      * 内部 state を初期状態にリセットする (多重呼び出し = 完全リセット)。
@@ -289,9 +285,9 @@ public:
      * Workspace 登録時に呼ばれる初期化フック。
      *
      * @details 基底実装で Workspace ポインタを保存し、本クラスでは preview バッファの終端 0 を確定する。
-     * @param workspace 登録先の FEditorWorkspace。
+     * @param workspace 登録先の CEditorWorkspace。
      */
-    void OnInit(acs::game::editor_core::FEditorWorkspace& workspace) noexcept override;
+    void OnInit(acs::game::editor_core::CEditorWorkspace& workspace) noexcept override;
 
     /**
      * 毎フレームの UI 描画フック。
@@ -333,5 +329,7 @@ private:
     /** preview font size (px)。 */
     f32 m_PreviewSize = 24.0f;
 };
+
+using FFontEditorPanel = AFontEditorPanel;
 
 } // namespace acs::game::fontedit

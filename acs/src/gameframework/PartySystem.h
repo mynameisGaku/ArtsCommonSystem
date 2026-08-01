@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FPartySystem (パーティ state machine + フレンドリスト seam)
+// GameFramework Pillar T — CPartySystem (パーティ state machine + フレンドリスト seam)
 //
 // 役割:
 //   1〜N 人のローカルプレイヤーをまとめた「パーティ」状態と、簡易フレンドリストを
 //   ゲームロジック側から扱う窓口。マッチング前のロビー、Co-op 入室前の集合場所、
 //   ストアでのフレンド表示などを単一の API で扱う。実プラットフォーム接続は
 //   Pillar S = Storefront 側 (`ISteamworksBridge` / EOS / PSN / Xbox / NSO) が
-//   アダプタとなり、結果を本 system に流し込む。FPartySystem 自体は **プラット
+//   アダプタとなり、結果を本 system に流し込む。CPartySystem 自体は **プラット
 //   フォーム非依存**。
 //
 // 設計上の倫理方針 (cross-platform party + 児童保護):
@@ -22,7 +22,7 @@
 //     ごとに年齢推定 API が異なるため一律ルール化が危険)。
 //
 // 使い方 (典型例):
-//   FPartySystem ps;
+//   CPartySystem ps;
 //   ps.AddFriend({ "steam:76561198000000001", "alice",  true,  true  });
 //   ps.AddFriend({ "epic:abc123",              "bob",    false, false });
 //
@@ -65,7 +65,7 @@ namespace acs::game {
  *
  * @details
  * platform_id / display_name は両方 const char* 非所有で、寿命は呼び出し側が保証する
- * (文字列リテラル or 永続バッファ、Pillar O FEntitlementRegistry と同じポリシー)。
+ * (文字列リテラル or 永続バッファ、Pillar O CEntitlementRegistry と同じポリシー)。
  */
 struct FFriend {
     /** SDK 固有のユーザー識別子 (例 "steam:..." / "epic:..." / PSN account_id)。 */
@@ -133,25 +133,25 @@ enum class EPartyState : u8 {
  * 別レイヤが担当し、Joining / Leaving は Tick で仮想完了する。文字列はすべて const char*
  * 非所有で寿命は呼び出し側が保証する。
  */
-class FPartySystem {
+class CPartySystem {
 public:
     /** 空状態 (Solo) で構築する。 */
-    FPartySystem()  noexcept = default;
+    CPartySystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FPartySystem() noexcept = default;
+    ~CPartySystem() noexcept = default;
 
     /** コピー禁止 (長寿命 1 個運用で state 分裂を避けるため)。 */
-    FPartySystem(const FPartySystem&)            = delete;
+    CPartySystem(const CPartySystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPartySystem& operator=(const FPartySystem&) = delete;
+    CPartySystem& operator=(const CPartySystem&) = delete;
 
     /** ムーブ禁止。 */
-    FPartySystem(FPartySystem&&)                 = delete;
+    CPartySystem(CPartySystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPartySystem& operator=(FPartySystem&&)      = delete;
+    CPartySystem& operator=(CPartySystem&&)      = delete;
 
     /**
      * 新規パーティを作成する (Solo 状態のみ受理)。
@@ -321,5 +321,8 @@ private:
     /** フレンドリスト。 */
     TArray<FFriend>      m_Friends;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPartySystem = CPartySystem;
 
 } // namespace acs::game

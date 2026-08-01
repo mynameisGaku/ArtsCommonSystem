@@ -52,14 +52,14 @@ FVec2 SteerArrive(FVec2 pos, FVec2 vel, FVec2 target, FSteerParams p, f32 slow_r
     return SteerToward(desired, vel, p.max_force);
 }
 
-void FPathFollower::SetPath(const FVec2* points, u32 count, f32 arrive_radius) noexcept {
+void CPathFollower::SetPath(const FVec2* points, u32 count, f32 arrive_radius) noexcept {
     m_Points       = points;
     m_Count        = count;
     m_Index        = 0u;
     m_ArriveRadius = (arrive_radius > 0.0f) ? arrive_radius : 0.5f;
 }
 
-FVec2 FPathFollower::Steer(FVec2 pos, FVec2 vel, FSteerParams p, bool& done) noexcept {
+FVec2 CPathFollower::Steer(FVec2 pos, FVec2 vel, FSteerParams p, bool& done) noexcept {
     // 到達済み waypoint を消化する。
     while (m_Points != nullptr && m_Index < m_Count
            && Len(Sub(m_Points[m_Index], pos)) <= m_ArriveRadius) {

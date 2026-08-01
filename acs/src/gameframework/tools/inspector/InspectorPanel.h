@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorPanel
+// GameFramework Pillar K — AInspectorPanel
 //
-// `FInspectorSeam` 経由で公開された `IInspectableProvider` の `FInspectableObject`
+// `CInspectorSeam` 経由で公開された `IInspectableProvider` の `FInspectableObject`
 // を ImGui ベースの field widget として描画 / 編集する UI パネル。シーンビュー
-// (FHierarchyPanel) で選択された ANode に対して、紐づく provider
+// (AHierarchyPanel) で選択された ANode に対して、紐づく provider
 // の field 配列を表示する。
 //
 // 役割分担:
 //   ・本パネルは **描画と編集 widget の構築** のみを担当。Provider 自体の登録 /
-//     破棄 / 値の永続化は呼び出し側 (FInspectorSeam owner) の責務。値の変更
+//     破棄 / 値の永続化は呼び出し側 (CInspectorSeam owner) の責務。値の変更
 //     通知は `FieldChangeCallback` で外部 (undo / dirty tracker / 永続化) に
 //     委譲する。
-//   ・`FSelectionService` (別エージェントで実装中) に依存する。本パネルは
+//   ・`CSelectionService` (別エージェントで実装中) に依存する。本パネルは
 //     forward-decl のみで受け、ポインタ経由で「現在の選択 FNodeId」を取得する。
-//     FSelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
+//     CSelectionService 未設定時は `DrawUI` の引数 `selected_id` を採用する。
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 dirty / selected_id / callback 状態を持つ
@@ -24,11 +24,11 @@
 //     コンテナは持たない (Provider 自身が `FInspectableField[]` を所有)。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
 //     gameframework 上位レイヤから include しても include order が壊れない
-//     ようにする (FParticleEditorPanel と同じパターン)。
+//     ようにする (AParticleEditorPanel と同じパターン)。
 //   ・**FieldChangeCallback は raw 関数ポインタ + void***: ACS は STL の
 //     std::function を使えないため、C スタイルの callback 規約に揃える
-//     (FParticleEditorPanel / Input.h と同形)。
-//   ・**`FInspectorSeam::GetProvider(FNodeId)` を仮定**: FNodeId → Provider の
+//     (AParticleEditorPanel / Input.h と同形)。
+//   ・**`CInspectorSeam::GetProvider(FNodeId)` を仮定**: FNodeId → Provider の
 //     resolve は seam 側 API を前提に呼び出す。実 seam の `GetProvider(u32)`
 //     との overload 共存を想定。
 //
@@ -53,13 +53,9 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "gameframework/InspectorSeam.h"  // EFieldKind / FInspectableField / FInspectableObject
 #include "gameframework/NodeId.h"
-
-namespace acs::game {
-/** field provider を公開する seam (本ヘッダは include 済みだが仕様一貫性のため宣言を残す)。 */
-class FInspectorSeam;
-}
 
 #include "gameframework/tools/editor_core/EditorPanel.h"
 
@@ -70,20 +66,18 @@ namespace acs::game::inspector {
  *
  * @details 本パネルが使う最小 API は `FNodeId CurrentSelection() const noexcept` のみで、.cpp 側で実装ヘッダを include する。
  */
-class FSelectionService;
-
 /**
  * 選択ノードの FInspectableObject を ImGui field widget として描画・編集するパネル。
  *
  * @details
- * `FInspectorSeam` 経由で公開された `IInspectableProvider` を解決し、その field 配列を
+ * `CInspectorSeam` 経由で公開された `IInspectableProvider` を解決し、その field 配列を
  * EFieldKind に応じた ImGui widget (Checkbox / InputInt / SliderFloat / DragFloatN /
  * ColorEdit / InputText / Combo 等) で描画する。描画と編集 widget 構築のみを担当し、
  * 値の永続化や undo は FieldChangeCallback 経由で外部へ委譲する。選択 FNodeId は注入
- * された FSelectionService から取得する。editor_core::FEditorPanel を継承し、全 API は
+ * された CSelectionService から取得する。editor_core::AEditorPanel を継承し、全 API は
  * noexcept・STL 不使用・ImGui 依存は .cpp に閉じる。
  */
-class FInspectorPanel : public ::acs::game::editor_core::FEditorPanel {
+class AInspectorPanel : public ::acs::game::editor_core::AEditorPanel {
 public:
     /**
      * field 変更通知の関数ポインタ型。
@@ -99,22 +93,22 @@ public:
                                          EFieldKind kind) noexcept;
 
     /** 空状態で構築する (seam / selection なし)。 */
-    FInspectorPanel() noexcept = default;
+    AInspectorPanel() noexcept = default;
 
-    /** 破棄する (外部所有の seam / FSelectionService / callback は解放しない)。 */
-    ~FInspectorPanel() noexcept = default;
+    /** 破棄する (外部所有の seam / CSelectionService / callback は解放しない)。 */
+    ~AInspectorPanel() noexcept = default;
 
     /** コピー禁止 (内部 dirty / selection / callback 状態の所有を曖昧にしないため)。 */
-    FInspectorPanel(const FInspectorPanel&)            = delete;
+    AInspectorPanel(const AInspectorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInspectorPanel& operator=(const FInspectorPanel&) = delete;
+    AInspectorPanel& operator=(const AInspectorPanel&) = delete;
 
     /** ムーブ禁止 (同上の所有規約)。 */
-    FInspectorPanel(FInspectorPanel&&)                 = delete;
+    AInspectorPanel(AInspectorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInspectorPanel& operator=(FInspectorPanel&&)      = delete;
+    AInspectorPanel& operator=(AInspectorPanel&&)      = delete;
 
     /** 内部状態 (selection / dirty) を初期値に戻して初期化する (多重 Init 可)。 */
     void Init() noexcept;
@@ -123,18 +117,18 @@ public:
     void Shutdown() noexcept;
 
     /**
-     * provider lookup に使う FInspectorSeam を設定する。
+     * provider lookup に使う CInspectorSeam を設定する。
      *
      * @param seam field provider を引く seam (nullptr で未設定)。
      */
-    void SetInspectorSeam(class FInspectorSeam* seam) noexcept { m_InspectorSeam = seam; }
+    void SetInspectorSeam(CInspectorSeam* seam) noexcept { m_InspectorSeam = seam; }
 
     /**
-     * 設定済みの FInspectorSeam を返す。
+     * 設定済みの CInspectorSeam を返す。
      *
      * @return seam ポインタ (未設定なら nullptr)。
      */
-    class FInspectorSeam* InspectorSeamPtr() const noexcept { return m_InspectorSeam; }
+    CInspectorSeam* InspectorSeamPtr() const noexcept { return m_InspectorSeam; }
 
     /**
      * このパネルのウィンドウタイトルを返す。
@@ -147,7 +141,7 @@ public:
      * メイン ImGui window を描画する。
      *
      * @details
-     * `Begin("Inspector")` で 1 window を出す。選択 FNodeId は FSelectionService の
+     * `Begin("Inspector")` で 1 window を出す。選択 FNodeId は CSelectionService の
      * CurrentSelection() を採用し、無効なら "(Nothing selected)" を表示して return する。
      * Provider は `seam.GetProviderForNode(node_id)` で解決し、nullptr なら案内を表示する。
      * 各 Provider オブジェクトを type/instance ヘッダ + field 配列で描画し、編集が起きたら
@@ -156,12 +150,12 @@ public:
     void DrawUI() noexcept override;
 
     /**
-     * FSelectionService を登録する。
+     * CSelectionService を登録する。
      *
      * @details 保持期間は呼び出し側責務 (non-owning)。
      * @param svc 選択を取得する selection サービス (nullptr で解除)。
      */
-    void SetSelectionService(FSelectionService* svc) noexcept;
+    void SetSelectionService(CSelectionService* svc) noexcept;
 
     /**
      * 直近の DrawUI で何らかの field が編集されたかを返す。
@@ -194,11 +188,11 @@ private:
     /** 現在の選択 FNodeId キャッシュ (DrawUI で更新、デバッグ表示用)。 */
     FNodeId               m_CurrentSelection {};
 
-    /** 選択取得用の FSelectionService (non-owning、未注入なら nullptr)。 */
-    FSelectionService*    m_SelectionService = nullptr;
+    /** 選択取得用の CSelectionService (non-owning、未注入なら nullptr)。 */
+    CSelectionService*    m_SelectionService = nullptr;
 
-    /** provider lookup に使う FInspectorSeam (SetInspectorSeam で設定)。 */
-    class FInspectorSeam* m_InspectorSeam    = nullptr;
+    /** provider lookup に使う CInspectorSeam (SetInspectorSeam で設定)。 */
+    CInspectorSeam*       m_InspectorSeam    = nullptr;
 
     /** 直近フレームで field 変更が起きたかのフラグ (IsAnyFieldDirty / ClearDirtyFlag で読み書き)。 */
     bool                 m_Dirty             = false;
@@ -209,5 +203,7 @@ private:
     /** callback に渡すユーザポインタ。 */
     void*                m_OnChangeUser    = nullptr;
 };
+
+using FInspectorPanel = AInspectorPanel;
 
 } // namespace acs::game::inspector

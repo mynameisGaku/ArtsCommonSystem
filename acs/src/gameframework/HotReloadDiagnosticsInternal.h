@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FHotReloadWatcher の native 失敗経路を決定論的に検証するための内部 API。
+// CHotReloadWatcher の native 失敗経路を決定論的に検証するための内部 API。
 #pragma once
 
 #include "foundation/Types.h"

@@ -2,8 +2,8 @@
 // GameFramework Pillar G — AssetPack 実装 (Stub のみ)
 //
 // 本 .cpp では `IAssetPackReader` / `IAssetPackWriter` の I/F 自体は提供せず、
-// AssetPack モジュール未統合ビルドでも常に使える `FAssetPackReaderStub` /
-// `FAssetPackWriterStub` のみを実装する。実 AES-256-GCM (Windows CNG / bcrypt) +
+// AssetPack モジュール未統合ビルドでも常に使える `CAssetPackReaderStub` /
+// `CAssetPackWriterStub` のみを実装する。実 AES-256-GCM (Windows CNG / bcrypt) +
 // LZ4 圧縮を伴う `GoldenAssetPackReader` / `GoldenAssetPackWriter` は重い暗号 /
 // 圧縮依存を含むため、別モジュール (`ACS::AssetPack` = `src/assetpack/`)
 // で独立に実装し、本ファイルには持ち込まない。
@@ -42,40 +42,40 @@ TResult<void> IAssetPackReader::ReadFiles(const FAssetPackReadRequest* Requests,
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<void> FAssetPackReaderStub::Mount(const char* pack_path) noexcept {
+TResult<void> CAssetPackReaderStub::Mount(const char* pack_path) noexcept {
     (void)pack_path;  // 未使用引数 (Stub なので no-op)
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "FAssetPackReaderStub: Mount is not implemented (link real AssetPack module)");
 }
 
 /** 副作用なしの no-op stub 実装。 */
-void FAssetPackReaderStub::Unmount() noexcept {
+void CAssetPackReaderStub::Unmount() noexcept {
     // Mount に成功し得ない Stub では何もすることがない。
     // Mount() 前に呼ばれても安全 (no-op)。
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<u32> FAssetPackReaderStub::FileCount() noexcept {
+TResult<u32> CAssetPackReaderStub::FileCount() noexcept {
     return TResult<u32>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                "FAssetPackReaderStub: FileCount is not implemented (link real AssetPack module)"));
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<const char*> FAssetPackReaderStub::FileName(u32 index) noexcept {
+TResult<const char*> CAssetPackReaderStub::FileName(u32 index) noexcept {
     (void)index;
     return TResult<const char*>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                        "FAssetPackReaderStub: FileName is not implemented (link real AssetPack module)"));
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<u64> FAssetPackReaderStub::FileSize(const char* name) noexcept {
+TResult<u64> CAssetPackReaderStub::FileSize(const char* name) noexcept {
     (void)name;
     return TResult<u64>(ACS_ERR(Generic, kSubAssetPackNotImplemented,
                                "FAssetPackReaderStub: FileSize is not implemented (link real AssetPack module)"));
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<void> FAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
+TResult<void> CAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u64 buffer_size) noexcept {
     (void)name;
     (void)out_buffer;
     (void)buffer_size;
@@ -84,14 +84,14 @@ TResult<void> FAssetPackReaderStub::ReadFile(const char* name, u8* out_buffer, u
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<void> FAssetPackWriterStub::BeginPack(const char* output_path) noexcept {
+TResult<void> CAssetPackWriterStub::BeginPack(const char* output_path) noexcept {
     (void)output_path;
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "FAssetPackWriterStub: BeginPack is not implemented (link real AssetPack module)");
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<void> FAssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
+TResult<void> CAssetPackWriterStub::AddFile(const char* virtual_name, const u8* data, u64 size) noexcept {
     (void)virtual_name;
     (void)data;
     (void)size;
@@ -100,7 +100,7 @@ TResult<void> FAssetPackWriterStub::AddFile(const char* virtual_name, const u8* 
 }
 
 /** NotImplemented を返す stub 実装。 */
-TResult<void> FAssetPackWriterStub::FinishPack() noexcept {
+TResult<void> CAssetPackWriterStub::FinishPack() noexcept {
     return ACS_ERR(Generic, kSubAssetPackNotImplemented,
                    "FAssetPackWriterStub: FinishPack is not implemented (link real AssetPack module)");
 }
@@ -108,13 +108,13 @@ TResult<void> FAssetPackWriterStub::FinishPack() noexcept {
 /** 既定 stub の Reader (Meyer's singleton) を返す。 */
 IAssetPackReader& GetReaderStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FAssetPackReaderStub m_Instance;
+    static CAssetPackReaderStub m_Instance;
     return m_Instance;
 }
 
 /** 既定 stub の Writer (Meyer's singleton) を返す。 */
 IAssetPackWriter& GetWriterStub() noexcept {
-    static FAssetPackWriterStub m_Instance;
+    static CAssetPackWriterStub m_Instance;
     return m_Instance;
 }
 

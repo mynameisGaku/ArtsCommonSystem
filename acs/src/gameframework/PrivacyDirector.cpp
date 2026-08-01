@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework メタ層 — FPrivacyDirector 実装
+// GameFramework メタ層 — CPrivacyDirector 実装
 //
 // consent 状態は bit flag (EConsentCategory) を 1 個の u32 にまとめて持つ。
 // Grant/Revoke は単純な OR / AND-NOT で、複合カテゴリ (Analytics | Marketing)
@@ -14,7 +14,7 @@
 // ConsentStatus 構造体単体 (POD として完結している)。
 #include "gameframework/PrivacyDirector.h"
 
-#include "gameframework/SaveSlot.h"   // TSaveSlot<T> (FSaveArchive 経由の永続化)
+#include "gameframework/SaveSlot.h"   // TSaveSlot<T> (CSaveArchive 経由の永続化)
 
 namespace acs::game {
 
@@ -53,7 +53,7 @@ static constexpr EConsentCategory AndNot(EConsentCategory a, EConsentCategory b)
 }
 
 /** 現在のポリシー版を記録し director を初期化済みにする。 */
-void FPrivacyDirector::Init(u32 current_policy_version) noexcept {
+void CPrivacyDirector::Init(u32 current_policy_version) noexcept {
     m_CurrentPolicyVersion = current_policy_version;
     m_Initialized            = true;
     // _status / m_bInitialConsentShown は LoadConsent() で上書きされる想定。
@@ -61,33 +61,33 @@ void FPrivacyDirector::Init(u32 current_policy_version) noexcept {
 }
 
 /** 指定カテゴリの同意 bit を立てる (OR)。 */
-void FPrivacyDirector::GrantConsent(EConsentCategory cat) noexcept {
+void CPrivacyDirector::GrantConsent(EConsentCategory cat) noexcept {
     // OR で bit を立てる。複合 (Analytics | Marketing) もそのまま受理。
     // Required(=0) を渡されても OR で変化なしなので分岐不要。
     _status.granted_mask = _status.granted_mask | cat;
 }
 
 /** 指定カテゴリの同意 bit を落とす (& ~cat)。 */
-void FPrivacyDirector::RevokeConsent(EConsentCategory cat) noexcept {
+void CPrivacyDirector::RevokeConsent(EConsentCategory cat) noexcept {
     // & ~cat で bit を落とす。Required(=0) は ~0 = 全 bit になるため
     // 「Required を revoke」要求は実質 no-op。明示判定はせず数学に任せる。
     _status.granted_mask = AndNot(_status.granted_mask, cat);
 }
 
 /** Required を除く全カテゴリを ON にする ("Accept All" 相当)。 */
-void FPrivacyDirector::GrantAll() noexcept {
+void CPrivacyDirector::GrantAll() noexcept {
     // Required を除く全カテゴリを ON。"Accept All" ボタン相当。
     _status.granted_mask = kAllCategories;
 }
 
 /** 全カテゴリを OFF (Required のみ) にする ("Reject All" 相当)。 */
-void FPrivacyDirector::RevokeAll() noexcept {
+void CPrivacyDirector::RevokeAll() noexcept {
     // 全カテゴリ OFF (= Required のみ)。"Reject All" ボタン相当。
     _status.granted_mask = EConsentCategory::Required;
 }
 
 /** 指定カテゴリの全 bit が同意済みかを返す (Required は常に true)。 */
-bool FPrivacyDirector::HasConsent(EConsentCategory cat) const noexcept {
+bool CPrivacyDirector::HasConsent(EConsentCategory cat) const noexcept {
     // Required (=0) は仕様により常に true (法的同意不要のカテゴリ)。
     // GDPR/CCPA でも「サービス提供に必要不可欠な処理」は同意なしで許される
     // ため、ローカルセーブ等を Required で分類するとこの分岐に乗る。
@@ -101,12 +101,12 @@ bool FPrivacyDirector::HasConsent(EConsentCategory cat) const noexcept {
 }
 
 /** 現在同意済みのカテゴリ mask を返す。 */
-EConsentCategory FPrivacyDirector::GrantedMask() const noexcept {
+EConsentCategory CPrivacyDirector::GrantedMask() const noexcept {
     return _status.granted_mask;
 }
 
 /** 初回 consent ダイアログの提示が必要かを返す (Init 前は保守的に true)。 */
-bool FPrivacyDirector::RequiresInitialConsent() const noexcept {
+bool CPrivacyDirector::RequiresInitialConsent() const noexcept {
     // Init() 前は判定不能なので「要・表示」を返す保守側にしておく
     // (= ダイアログを必ず出してから先に進ませる)。
     if (!m_Initialized) return true;
@@ -114,12 +114,12 @@ bool FPrivacyDirector::RequiresInitialConsent() const noexcept {
 }
 
 /** 初回ダイアログを提示済みとしてマークする。 */
-void FPrivacyDirector::MarkInitialConsentShown() noexcept {
+void CPrivacyDirector::MarkInitialConsentShown() noexcept {
     m_bInitialConsentShown = true;
 }
 
 /** 保存済みポリシー版が現在より古いかを返す (Init 前は保守的に false)。 */
-bool FPrivacyDirector::IsPolicyOutdated() const noexcept {
+bool CPrivacyDirector::IsPolicyOutdated() const noexcept {
     // 保存済み policy_version が「現在」より古ければ再同意が必要。
     // Init() 前は current が 0 のままなので、未初期化なら常に false (= 古くない)。
     // この保守側により Init() 忘れで誤ったダイアログを出す事故を防ぐ。
@@ -128,17 +128,17 @@ bool FPrivacyDirector::IsPolicyOutdated() const noexcept {
 }
 
 /** 保存されていたポリシー版を返す。 */
-u32 FPrivacyDirector::StoredPolicyVersion() const noexcept {
+u32 CPrivacyDirector::StoredPolicyVersion() const noexcept {
     return _status.policy_version;
 }
 
 /** Init() に渡された現在のポリシー版を返す。 */
-u32 FPrivacyDirector::CurrentPolicyVersion() const noexcept {
+u32 CPrivacyDirector::CurrentPolicyVersion() const noexcept {
     return m_CurrentPolicyVersion;
 }
 
 /** 全状態を初期化前に戻す (テスト・デバッグ用)。 */
-void FPrivacyDirector::Reset() noexcept {
+void CPrivacyDirector::Reset() noexcept {
     // テスト用。本番フローでは呼ばない。
     _status                 = FConsentStatus{};
     m_CurrentPolicyVersion = 0;
@@ -147,7 +147,7 @@ void FPrivacyDirector::Reset() noexcept {
 }
 
 /** 現在の同意状態を .acssave バイナリでローカル保存する。 */
-TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
+TResult<void> CPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
                        "FPrivacyDirector::SaveConsent received null path");
@@ -163,7 +163,7 @@ TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
     _status.policy_version = m_CurrentPolicyVersion;
 
     // ConsentStatus は POD (enum / u64 / u32 のみ) なので TSaveSlot にそのまま
-    // 委譲できる。Save 内部で FSaveArchive が 24B header + payload + CRC32 を
+    // 委譲できる。Save 内部で CSaveArchive が 24B header + payload + CRC32 を
     // little-endian で書き出す。
     TSaveSlot<FConsentStatus> slot;
     slot.Init(file_path);
@@ -171,7 +171,7 @@ TResult<void> FPrivacyDirector::SaveConsent(const wchar_t* file_path) noexcept {
 }
 
 /** 保存済みの同意状態を復元する (ファイル無しは初回起動扱いで Ok)。 */
-TResult<void> FPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
+TResult<void> CPrivacyDirector::LoadConsent(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_BadPath,
                        "FPrivacyDirector::LoadConsent received null path");

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel 実装
+// GameFramework Pillar — btedit / ABehaviorTreeEditorPanel 実装
 //
-// 仕様の意図は FBehaviorTreeEditorPanel.h を参照。本ファイルでは:
+// 仕様の意図は ABehaviorTreeEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / Reset / autorun & step 制御
 //   ・メタミラー (AddNode / SetNodeStatus / ClearNodes / NodeStatus)
 //   ・履歴 ring buffer 操作 (kHistorySize 固定)
@@ -9,7 +9,7 @@
 //   ・DrawTreeRecursive: parent_id → 子線形走査の再帰展開
 // を実装する。すべて noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/btedit/BehaviorTreeEditorPanel.h"
-#include "gameframework/tools/btedit/BtGuardNodes.h"   // FBtConditionNode / FBtCompareNode (bake)
+#include "gameframework/tools/btedit/BtGuardNodes.h"   // ABtConditionNode / ABtCompareNode (bake)
 #include "foundation/Move.h"
 #include "foundation/Platform.h"
 
@@ -131,7 +131,7 @@ static const char* SafeName(const char* name) noexcept {
  * @return kInvalidId でなく id < node_count なら true。
  */
 static bool IsValidId(u32 id, usize node_count) noexcept {
-    if (id == FBehaviorTreeEditorPanel::kInvalidId) return false;
+    if (id == ABehaviorTreeEditorPanel::kInvalidId) return false;
     return static_cast<usize>(id) < node_count;
 }
 
@@ -260,7 +260,7 @@ struct FGraphTextBuilder {
 
     bool Append(const char* bytes, usize length) noexcept {
         if (Error != EBtGraphPersistenceError::None) return false;
-        if (length > FBehaviorTreeEditorPanel::kMaxGraphTextBytes - Text.Size()) {
+        if (length > ABehaviorTreeEditorPanel::kMaxGraphTextBytes - Text.Size()) {
             Error = EBtGraphPersistenceError::InputTooLarge;
             return false;
         }
@@ -350,7 +350,7 @@ static FBtGraphPersistenceResult WriteGraphAtomically(
     const char* path, const char* bytes, usize byte_count) noexcept {
     constexpr u32 kOpenAttempts = 32u;
     constexpr usize kTemporaryPathBytes =
-        FBehaviorTreeEditorPanel::kMaxGraphPathBytes + 96u;
+        ABehaviorTreeEditorPanel::kMaxGraphPathBytes + 96u;
     char temporary_path[kTemporaryPathBytes]{};
 
 #if ACS_PLATFORM_WINDOWS
@@ -528,7 +528,7 @@ const char* FBtGraphPersistenceResult::ErrorName(
  * Success=緑 (0.2,1.0,0.3)、Failure=赤 (1.0,0.3,0.3)、Running=黄 (1.0,1.0,0.3) に固定。
  * 完全飽和ではなく落ち着いた色味にする (ダーク背景でも明るすぎず、ライト背景でも沈まないトーン)。
  */
-void FBehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept {
+void ABehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcept {
     if (out_rgba == nullptr) return;
     switch (s) {
         case EBtStatus::Success:
@@ -542,7 +542,7 @@ void FBehaviorTreeEditorPanel::StatusColor(EBtStatus s, f32 out_rgba[4]) noexcep
 }
 
 /** メタミラー / 履歴 / selection / step counter を初期化する (callback は維持)。 */
-void FBehaviorTreeEditorPanel::Init() noexcept {
+void ABehaviorTreeEditorPanel::Init() noexcept {
     // メタミラー / 履歴 / selection / step counter を全 reset。
     m_Nodes.Clear();
     m_History.Clear();
@@ -560,7 +560,7 @@ void FBehaviorTreeEditorPanel::Init() noexcept {
 }
 
 /** メタミラー / 履歴 / callback を全てクリアする (多重 Shutdown 可)。 */
-void FBehaviorTreeEditorPanel::Shutdown() noexcept {
+void ABehaviorTreeEditorPanel::Shutdown() noexcept {
     // 多重 Shutdown 可。TArray は Clear() で要素破棄 + 容量保持。
     m_Nodes.Clear();
     m_History.Clear();
@@ -577,7 +577,7 @@ void FBehaviorTreeEditorPanel::Shutdown() noexcept {
 }
 
 /** 観察対象の BT を差し替え、Reset() で実行状態を初期化する (メタミラーは維持)。 */
-void FBehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
+void ABehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
     m_Tree = tree;
     // 観察対象が変わったので step counter / 履歴 / 全 status を初期化する。
     // メタミラー (m_Nodes) は触らない (= 同構造で別インスタンスを観察する用途に
@@ -586,7 +586,7 @@ void FBehaviorTreeEditorPanel::SetTree(FBehaviorTree* tree) noexcept {
 }
 
 /** step counter / history / 全 node の last_status を初期状態に戻す。 */
-void FBehaviorTreeEditorPanel::Reset() noexcept {
+void ABehaviorTreeEditorPanel::Reset() noexcept {
     m_StepCount   = 0;
     m_HistoryHead = 0;
     for (usize i = 0; i < m_History.Size(); ++i) {
@@ -599,14 +599,14 @@ void FBehaviorTreeEditorPanel::Reset() noexcept {
 }
 
 /** kStepDt (0.016 秒) 固定で 1 tick 進める。 */
-void FBehaviorTreeEditorPanel::StepOnce() noexcept {
+void ABehaviorTreeEditorPanel::StepOnce() noexcept {
     // 0.016 sec (= 60 fps の 1 frame) を仕様で固定。Step は常に同じ dt で進めることで
     // ユーザが "今のステップ数 * 1/60 秒進んだ" と即座に解釈できるようにする。
     TickInternal(kStepDt);
 }
 
 /** 実 BT を dt で 1 tick 進め、root status を履歴に push、step counter を +1 する。 */
-void FBehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
+void ABehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
     // レジストリ設定済みなら「グラフを直接インタプリト」して実行 (no-code 実行)。
     if (m_Registry != nullptr) { TickGraph(dt); return; }
     if (m_Tree == nullptr) return;
@@ -644,7 +644,7 @@ void FBehaviorTreeEditorPanel::TickInternal(f32 dt) noexcept {
 }
 
 /** autorun が ON のときだけ実 dt で 1 tick 進める (0 dt は無視)。 */
-void FBehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
+void ABehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
     // autorun ON のときだけ毎フレーム 1 tick 進める。実 dt を渡すことで
     // ゲームの fps に追従させる (Step は 0.016 固定だが autorun は別)。
     if (!m_Autorun) return;
@@ -654,7 +654,7 @@ void FBehaviorTreeEditorPanel::OnFrameBegin(f32 dt) noexcept {
 }
 
 /** 選択 node を設定する (範囲外 / kInvalidId は「未選択」に正規化)。 */
-void FBehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
+void ABehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) {
         m_Selected = kInvalidId;
         return;
@@ -663,7 +663,7 @@ void FBehaviorTreeEditorPanel::SelectNode(u32 node_id) noexcept {
 }
 
 /** 新規 node をメタミラーに追加し、払い出した id を返す (上限到達は kInvalidId)。 */
-u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept {
+u32 ABehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent_id) noexcept {
     if (m_Nodes.Size() >= static_cast<usize>(kMaxNodes)) {
         // 上限到達は silent fail (= kInvalidId 返却で通知)。
         return kInvalidId;
@@ -689,13 +689,13 @@ u32 FBehaviorTreeEditorPanel::AddNode(EBtKind kind, const char* name, u32 parent
 }
 
 /** 指定 node の last_status を更新する (範囲外は no-op)。 */
-void FBehaviorTreeEditorPanel::SetNodeStatus(u32 node_id, EBtStatus status) noexcept {
+void ABehaviorTreeEditorPanel::SetNodeStatus(u32 node_id, EBtStatus status) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return;
     m_Nodes[static_cast<usize>(node_id)].last_status = status;
 }
 
 /** Decorator node の変換 op を設定する (範囲外 / Decorator 以外は no-op で false)。 */
-bool FBehaviorTreeEditorPanel::SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op) noexcept {
+bool ABehaviorTreeEditorPanel::SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return false;
     FNodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
     if (n.kind != EBtKind::Decorator) return false;
@@ -704,7 +704,7 @@ bool FBehaviorTreeEditorPanel::SetNodeDecoratorOp(u32 node_id, EBtDecoratorOp op
 }
 
 /** Decorator node の動作モードを設定する (範囲外 / Decorator 以外は no-op で false)。 */
-bool FBehaviorTreeEditorPanel::SetNodeDecoratorMode(u32 node_id, EBtDecoMode mode) noexcept {
+bool ABehaviorTreeEditorPanel::SetNodeDecoratorMode(u32 node_id, EBtDecoMode mode) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return false;
     FNodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
     if (n.kind != EBtKind::Decorator) return false;
@@ -713,7 +713,7 @@ bool FBehaviorTreeEditorPanel::SetNodeDecoratorMode(u32 node_id, EBtDecoMode mod
 }
 
 /** Decorator node を Compare モードにし、比較条件 (var op rhs) を設定する。 */
-bool FBehaviorTreeEditorPanel::SetNodeCompare(u32 node_id, const char* var, EBtCompareOp op, f32 rhs) noexcept {
+bool ABehaviorTreeEditorPanel::SetNodeCompare(u32 node_id, const char* var, EBtCompareOp op, f32 rhs) noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return false;
     FNodeMeta& n = m_Nodes[static_cast<usize>(node_id)];
     if (n.kind != EBtKind::Decorator) return false;
@@ -725,7 +725,7 @@ bool FBehaviorTreeEditorPanel::SetNodeCompare(u32 node_id, const char* var, EBtC
 }
 
 /** メタミラーを全削除し selection を解除する (history / step counter / autorun は維持)。 */
-void FBehaviorTreeEditorPanel::ClearNodes() noexcept {
+void ABehaviorTreeEditorPanel::ClearNodes() noexcept {
     m_Nodes.Clear();
     m_Selected = kInvalidId;
     m_DragNode = kInvalidId;
@@ -735,13 +735,13 @@ void FBehaviorTreeEditorPanel::ClearNodes() noexcept {
 }
 
 /** 指定 id の node の last_status を返す (範囲外は Failure)。 */
-EBtStatus FBehaviorTreeEditorPanel::NodeStatus(u32 node_id) const noexcept {
+EBtStatus ABehaviorTreeEditorPanel::NodeStatus(u32 node_id) const noexcept {
     if (!IsValidId(node_id, m_Nodes.Size())) return EBtStatus::Failure;
     return m_Nodes[static_cast<usize>(node_id)].last_status;
 }
 
 /** step tick 用の callback とユーザポインタを登録する (nullptr で解除)。 */
-void FBehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) noexcept {
+void ABehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) noexcept {
     m_StepCb   = cb;
     m_StepUser = user;
 }
@@ -754,7 +754,7 @@ void FBehaviorTreeEditorPanel::SetOnStepCallback(StepCallback cb, void* user) no
  * Action (= leaf) は ImGuiTreeNodeFlags_Leaf を付ける。ImGuiTreeNodeFlags_OpenOnArrow で
  * 「矢印クリックで展開、ラベルクリックで選択」にする (Unity Hierarchy と同形)。
  */
-void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcept {
+void ABehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcept {
     if (depth >= kTreeRecursionLimit) {
         ImGui::TextDisabled("  (tree depth limit reached)");
         return;
@@ -831,13 +831,13 @@ void FBehaviorTreeEditorPanel::DrawTreeRecursive(u32 node_id, u32 depth) noexcep
 }
 
 /** node の表示名 (エディタ名 ename を優先、無ければ name)。 */
-const char* FBehaviorTreeEditorPanel::DisplayName(const FNodeMeta& n) const noexcept {
+const char* ABehaviorTreeEditorPanel::DisplayName(const FNodeMeta& n) const noexcept {
     if (n.ename[0] != '\0') return n.ename;
     return SafeName(n.name);
 }
 
 /** maybe_ancestor が node の祖先 (自分自身含む) かを返す。 */
-bool FBehaviorTreeEditorPanel::IsAncestor(u32 maybe_ancestor, u32 node) const noexcept {
+bool ABehaviorTreeEditorPanel::IsAncestor(u32 maybe_ancestor, u32 node) const noexcept {
     u32 cur = node;
     for (u32 guard = 0; guard < kTreeRecursionLimit; ++guard) {
         if (cur == maybe_ancestor) return true;
@@ -854,7 +854,7 @@ constexpr f32 kRowH = 98.0f;    // 階層間の縦間隔 (world)
 }
 
 /** tree 構造から x,y を自動配置する (Reingold-Tilford 風の簡易 tidy layout)。 */
-void FBehaviorTreeEditorPanel::AutoLayout() noexcept {
+void ABehaviorTreeEditorPanel::AutoLayout() noexcept {
     // 再帰は関数ポインタにできないので明示スタックではなく素朴な再帰ヘルパをラムダ無しで。
     // m_Nodes を直接触る member 再帰を below の static 関数に委譲する代わり、ここで完結させる。
     f32 next_leaf = 0.0f;
@@ -890,7 +890,7 @@ void FBehaviorTreeEditorPanel::AutoLayout() noexcept {
 }
 
 /** エディタからノードを追加する (グラフ上に配置、再レイアウトはしない)。 */
-u32 FBehaviorTreeEditorPanel::AddNodeGraph(EBtKind kind, u32 parent_id, f32 wx, f32 wy) noexcept {
+u32 ABehaviorTreeEditorPanel::AddNodeGraph(EBtKind kind, u32 parent_id, f32 wx, f32 wy) noexcept {
     if (m_Nodes.Size() >= static_cast<usize>(kMaxNodes)) return kInvalidId;
     if (parent_id != kInvalidId && !IsValidId(parent_id, m_Nodes.Size())) parent_id = kInvalidId;
 
@@ -922,7 +922,7 @@ u32 FBehaviorTreeEditorPanel::AddNodeGraph(EBtKind kind, u32 parent_id, f32 wx, 
 }
 
 /** ノードを tombstone 削除し、子を祖父へ付け替える。 */
-void FBehaviorTreeEditorPanel::DeleteNodeGraph(u32 id) noexcept {
+void ABehaviorTreeEditorPanel::DeleteNodeGraph(u32 id) noexcept {
     if (!IsValidId(id, m_Nodes.Size())) return;
     const u32 gp = m_Nodes[static_cast<usize>(id)].parent_id;
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
@@ -936,7 +936,7 @@ void FBehaviorTreeEditorPanel::DeleteNodeGraph(u32 id) noexcept {
 }
 
 /** id の生存子を x 座標 (左→右) 順に集める。 */
-u32 FBehaviorTreeEditorPanel::CollectChildrenSorted(u32 id, u32* out, u32 cap) const noexcept {
+u32 ABehaviorTreeEditorPanel::CollectChildrenSorted(u32 id, u32* out, u32 cap) const noexcept {
     u32 cnt = 0;
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
         if (!m_Nodes[i].alive || m_Nodes[i].parent_id != id) continue;
@@ -953,7 +953,7 @@ u32 FBehaviorTreeEditorPanel::CollectChildrenSorted(u32 id, u32* out, u32 cap) c
 }
 
 /** グラフ 1 ノードを再帰インタプリト (selector/sequence/action 意味論)。 */
-EBtStatus FBehaviorTreeEditorPanel::TickGraphNode(u32 id, f32 dt, u32 guard) noexcept {
+EBtStatus ABehaviorTreeEditorPanel::TickGraphNode(u32 id, f32 dt, u32 guard) noexcept {
     if (guard >= kTreeRecursionLimit || !IsValidId(id, m_Nodes.Size())) return EBtStatus::Failure;
     if (!m_Nodes[static_cast<usize>(id)].alive) return EBtStatus::Failure;
 
@@ -963,7 +963,7 @@ EBtStatus FBehaviorTreeEditorPanel::TickGraphNode(u32 id, f32 dt, u32 guard) noe
     EBtStatus result;
     if (BtKindIsLeaf(kind)) {
         // Action / Task はともにレジストリ解決した関数を呼ぶ末端 leaf (種別は表示上の区別)。
-        FBtActionRegistry::Fn fn = (m_Registry != nullptr)
+        CBtActionRegistry::Fn fn = (m_Registry != nullptr)
             ? m_Registry->Find(DisplayName(m_Nodes[static_cast<usize>(id)])) : nullptr;
         result = (fn != nullptr) ? fn(m_GraphBb, dt) : EBtStatus::Failure;  // 未解決は Failure
     } else if (kind == EBtKind::Decorator) {
@@ -980,7 +980,7 @@ EBtStatus FBehaviorTreeEditorPanel::TickGraphNode(u32 id, f32 dt, u32 guard) noe
             // 条件ガード: 条件 true のときだけ子を実行し、その結果を返す。false は子をスキップして Failure。
             bool pass = false;
             if (dn.decoMode == EBtDecoMode::Condition) {
-                FBtConditionRegistry::Fn cf =
+                CBtConditionRegistry::Fn cf =
                     (m_CondReg != nullptr) ? m_CondReg->Find(DisplayName(dn)) : nullptr;
                 pass = (cf != nullptr) ? cf(m_GraphBb) : false; // 未解決は false (ガードで止まる)
             } else { // EBtDecoMode::Compare
@@ -1020,7 +1020,7 @@ EBtStatus FBehaviorTreeEditorPanel::TickGraphNode(u32 id, f32 dt, u32 guard) noe
 }
 
 /** メタミラーのグラフを 1 tick 直接インタプリトする。 */
-EBtStatus FBehaviorTreeEditorPanel::TickGraph(f32 dt) noexcept {
+EBtStatus ABehaviorTreeEditorPanel::TickGraph(f32 dt) noexcept {
     m_VisitSeq = 0u;
     for (usize i = 0; i < m_Nodes.Size(); ++i) m_Nodes[i].visit_order = 0u;  // フロークリア
 
@@ -1040,11 +1040,11 @@ EBtStatus FBehaviorTreeEditorPanel::TickGraph(f32 dt) noexcept {
 }
 
 /** グラフをテキストファイルへ保存する (生存ノードを id 圧縮して書く)。 */
-bool FBehaviorTreeEditorPanel::SaveGraph(const char* path) const noexcept {
+bool ABehaviorTreeEditorPanel::SaveGraph(const char* path) const noexcept {
     return TrySaveGraph(path).Succeeded();
 }
 
-FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TrySaveGraph(
+FBtGraphPersistenceResult ABehaviorTreeEditorPanel::TrySaveGraph(
     const char* path) const noexcept {
     if (path == nullptr) {
         return GraphFailure(EBtGraphPersistenceError::NullArgument);
@@ -1254,7 +1254,7 @@ FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TrySaveGraph(
 }
 
 /** メタミラー 1 ノードを実行可能な FBtNode へ再帰変換する。 */
-TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard) const noexcept {
+TUniquePtr<FBtNode> ABehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard) const noexcept {
     if (guard >= kTreeRecursionLimit || !IsValidId(id, m_Nodes.Size())) return TUniquePtr<FBtNode>();
     const FNodeMeta& n = m_Nodes[static_cast<usize>(id)];
     if (!n.alive) return TUniquePtr<FBtNode>();
@@ -1281,30 +1281,30 @@ TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard
                 d->SetChild(Move(child));
                 return d;
             } else if (n.decoMode == EBtDecoMode::Condition) {
-                FBtConditionNode::Fn cf = (m_CondReg != nullptr) ? m_CondReg->Find(DisplayName(n)) : nullptr;
-                auto d = MakeUnique<FBtConditionNode>(cf);
+                ABtConditionNode::Fn cf = (m_CondReg != nullptr) ? m_CondReg->Find(DisplayName(n)) : nullptr;
+                auto d = MakeUnique<ABtConditionNode>(cf);
                 d->SetChild(Move(child));
                 return d;
             } else { // EBtDecoMode::Compare
                 // 変数解決はインタプリタと同順: 動的 BB (名前) を優先、無ければ offset スキーマ。
-                TUniquePtr<FBtCompareNode> d;
+                TUniquePtr<ABtCompareNode> d;
                 if (m_DynBb != nullptr && m_DynBb->Has(n.var)) {
-                    d = MakeUnique<FBtCompareNode>(n.var, n.cmpOp, n.cmpRhs);          // dynamic
+                    d = MakeUnique<ABtCompareNode>(n.var, n.cmpOp, n.cmpRhs);          // dynamic
                 } else if (m_Schema != nullptr) {
                     const u32 vi = m_Schema->IndexOf(n.var);
                     if (vi != FBtBlackboardSchema::kInvalid) {
-                        d = MakeUnique<FBtCompareNode>(m_Schema->OffsetAt(vi), m_Schema->TypeAt(vi),
+                        d = MakeUnique<ABtCompareNode>(m_Schema->OffsetAt(vi), m_Schema->TypeAt(vi),
                                                        n.cmpOp, n.cmpRhs);             // schema
                     }
                 }
-                if (!d) d = MakeUnique<FBtCompareNode>(n.var, n.cmpOp, n.cmpRhs);      // 未解決→dynamic名 (Failure)
+                if (!d) d = MakeUnique<ABtCompareNode>(n.var, n.cmpOp, n.cmpRhs);      // 未解決→dynamic名 (Failure)
                 d->SetChild(Move(child));
                 return d;
             }
         }
         case EBtKind::Action:
         case EBtKind::Task: {
-            FBtActionRegistry::Fn fn = (m_Registry != nullptr) ? m_Registry->Find(DisplayName(n)) : nullptr;
+            CBtActionRegistry::Fn fn = (m_Registry != nullptr) ? m_Registry->Find(DisplayName(n)) : nullptr;
             return MakeUnique<FBtAction>(fn);   // fn 未解決でも FBtAction が Failure を返す
         }
     }
@@ -1312,7 +1312,7 @@ TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeNode(u32 id, u32 guard
 }
 
 /** 現在のグラフを実行可能な FBehaviorTree ノードツリーへ bake する。 */
-TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeTree() const noexcept {
+TUniquePtr<FBtNode> ABehaviorTreeEditorPanel::BuildRuntimeTree() const noexcept {
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
         if (m_Nodes[i].alive && m_Nodes[i].parent_id == kInvalidId) {
             return BuildRuntimeNode(static_cast<u32>(i), 0u);   // root は先頭の親なしノード
@@ -1322,12 +1322,12 @@ TUniquePtr<FBtNode> FBehaviorTreeEditorPanel::BuildRuntimeTree() const noexcept 
 }
 
 /** テキストファイルからグラフを読み込む (既存はクリア)。 */
-bool FBehaviorTreeEditorPanel::LoadGraph(const char* path) noexcept {
+bool ABehaviorTreeEditorPanel::LoadGraph(const char* path) noexcept {
     return TryLoadGraph(path).Succeeded();
 }
 
 #if 0
-bool FBehaviorTreeEditorPanel::LoadGraphLegacy(const char* path) noexcept {
+bool ABehaviorTreeEditorPanel::LoadGraphLegacy(const char* path) noexcept {
     if (path == nullptr) return false;
     std::FILE* f = std::fopen(path, "rb");
     if (f == nullptr) return false;
@@ -1422,7 +1422,7 @@ bool FBehaviorTreeEditorPanel::LoadGraphLegacy(const char* path) noexcept {
 }
 #endif
 
-FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TryParseGraphText(
+FBtGraphPersistenceResult ABehaviorTreeEditorPanel::TryParseGraphText(
     const char* text, usize text_size) noexcept {
     if (text == nullptr) {
         return GraphFailure(EBtGraphPersistenceError::NullArgument);
@@ -1956,7 +1956,7 @@ FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TryParseGraphText(
     return result;
 }
 
-FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TryLoadGraph(
+FBtGraphPersistenceResult ABehaviorTreeEditorPanel::TryLoadGraph(
     const char* path) noexcept {
     if (path == nullptr) {
         return GraphFailure(EBtGraphPersistenceError::NullArgument);
@@ -2035,7 +2035,7 @@ FBtGraphPersistenceResult FBehaviorTreeEditorPanel::TryLoadGraph(
 }
 
 /** 「ノード追加」メニュー項目群を描画する (popup / submenu から共通利用)。 */
-void FBehaviorTreeEditorPanel::DrawAddMenu(u32 parent, f32 wx, f32 wy) noexcept {
+void ABehaviorTreeEditorPanel::DrawAddMenu(u32 parent, f32 wx, f32 wy) noexcept {
     if (ImGui::MenuItem("Selector")) AddNodeGraph(EBtKind::Selector, parent, wx, wy);
     if (ImGui::MenuItem("Sequence")) AddNodeGraph(EBtKind::Sequence, parent, wx, wy);
 
@@ -2099,7 +2099,7 @@ void FBehaviorTreeEditorPanel::DrawAddMenu(u32 parent, f32 wx, f32 wy) noexcept 
 }
 
 /** ノードグラフ canvas を描画 + 操作する。 */
-void FBehaviorTreeEditorPanel::DrawGraph() noexcept {
+void ABehaviorTreeEditorPanel::DrawGraph() noexcept {
     ImGuiIO& io = ImGui::GetIO();
     ImVec2 size = ImGui::GetContentRegionAvail();
     if (size.x < 80.0f) size.x = 80.0f;
@@ -2361,7 +2361,7 @@ constexpr u32 kMaxUndo = 64u;
 } // namespace
 
 /** 現在のグラフ状態 (ノード + 動的 BB) を out へコピーする。 */
-void FBehaviorTreeEditorPanel::CaptureSnapshot(FGraphSnapshot& out) const noexcept {
+void ABehaviorTreeEditorPanel::CaptureSnapshot(FGraphSnapshot& out) const noexcept {
     out.nodes.Clear();
     out.nodes.Reserve(m_Nodes.Size());
     for (usize i = 0; i < m_Nodes.Size(); ++i) out.nodes.PushBack(m_Nodes[i]);   // NodeMeta 値コピー
@@ -2370,7 +2370,7 @@ void FBehaviorTreeEditorPanel::CaptureSnapshot(FGraphSnapshot& out) const noexce
 }
 
 /** スナップショットから現在のグラフ状態を復元する。 */
-void FBehaviorTreeEditorPanel::RestoreSnapshot(const FGraphSnapshot& s) noexcept {
+void ABehaviorTreeEditorPanel::RestoreSnapshot(const FGraphSnapshot& s) noexcept {
     m_Nodes.Clear();
     m_Nodes.Reserve(s.nodes.Size());
     for (usize i = 0; i < s.nodes.Size(); ++i) m_Nodes.PushBack(s.nodes[i]);
@@ -2401,7 +2401,7 @@ void FBehaviorTreeEditorPanel::RestoreSnapshot(const FGraphSnapshot& s) noexcept
 }
 
 /** 現在のグラフ状態の変更検出用シグネチャ。 */
-u64 FBehaviorTreeEditorPanel::GraphSignature() const noexcept {
+u64 ABehaviorTreeEditorPanel::GraphSignature() const noexcept {
     u64 h = 1469598103934665603ull;
     h = SigMix(h, static_cast<u64>(m_Nodes.Size()));
     for (usize i = 0; i < m_Nodes.Size(); ++i) {
@@ -2434,7 +2434,7 @@ u64 FBehaviorTreeEditorPanel::GraphSignature() const noexcept {
 }
 
 /** 現在の baseline を undo stack へ積み、baseline を現在状態へ更新する。 */
-void FBehaviorTreeEditorPanel::CommitBaseline() noexcept {
+void ABehaviorTreeEditorPanel::CommitBaseline() noexcept {
     m_UndoStack.PushBack(Move(m_UndoBaseline));   // 直前の確定状態を保存
     CaptureSnapshot(m_UndoBaseline);              // 新しい baseline = 現在
     m_BaselineSig = GraphSignature();
@@ -2448,7 +2448,7 @@ void FBehaviorTreeEditorPanel::CommitBaseline() noexcept {
 }
 
 /** 毎フレーム呼び、編集が確定したら baseline を undo stack へ積む。 */
-void FBehaviorTreeEditorPanel::UpdateUndoTracking() noexcept {
+void ABehaviorTreeEditorPanel::UpdateUndoTracking() noexcept {
     if (!m_UndoInit) {
         CaptureSnapshot(m_UndoBaseline);
         m_BaselineSig = GraphSignature();
@@ -2462,7 +2462,7 @@ void FBehaviorTreeEditorPanel::UpdateUndoTracking() noexcept {
 }
 
 /** 現在のグラフ状態を undo 履歴へ明示的にコミットする (チェックポイント)。 */
-void FBehaviorTreeEditorPanel::PushUndoCheckpoint() noexcept {
+void ABehaviorTreeEditorPanel::PushUndoCheckpoint() noexcept {
     if (!m_UndoInit) {   // 初回は baseline 初期化のみ
         CaptureSnapshot(m_UndoBaseline);
         m_BaselineSig = GraphSignature();
@@ -2473,7 +2473,7 @@ void FBehaviorTreeEditorPanel::PushUndoCheckpoint() noexcept {
 }
 
 /** 1 手戻す。 */
-void FBehaviorTreeEditorPanel::Undo() noexcept {
+void ABehaviorTreeEditorPanel::Undo() noexcept {
     if (m_UndoStack.IsEmpty()) return;
     FGraphSnapshot cur; CaptureSnapshot(cur);
     m_RedoStack.PushBack(Move(cur));                                 // 現在 → redo
@@ -2485,7 +2485,7 @@ void FBehaviorTreeEditorPanel::Undo() noexcept {
 }
 
 /** 1 手やり直す。 */
-void FBehaviorTreeEditorPanel::Redo() noexcept {
+void ABehaviorTreeEditorPanel::Redo() noexcept {
     if (m_RedoStack.IsEmpty()) return;
     FGraphSnapshot cur; CaptureSnapshot(cur);
     m_UndoStack.PushBack(Move(cur));                                 // 現在 → undo
@@ -2497,7 +2497,7 @@ void FBehaviorTreeEditorPanel::Redo() noexcept {
 }
 
 /** toolbar + history graph + 左 tree view + 右 node inspector を描画する。 */
-void FBehaviorTreeEditorPanel::DrawUI() noexcept {
+void ABehaviorTreeEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     // ノードグラフが見えるよう十分な初期サイズを与える (ユーザが変えたら保存値を尊重)。

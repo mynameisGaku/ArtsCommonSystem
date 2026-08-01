@@ -214,7 +214,7 @@ public:
     /**
      * 水面より上のシーンを映す平面反射を設定する。
      *
-     * @details FScene2D::SetReflectionEnabled(true) が前提で、RT が rc に配線されていなければ無視される。
+     * @details AScene2D::SetReflectionEnabled(true) が前提で、RT が rc に配線されていなければ無視される。
      * @param enable true で反射を有効化。
      * @param tint 反射の色味。
      * @param alpha 反射の強さ。

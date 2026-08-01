@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — FAssetBrowser 実装
+// GameFramework Pillar K (editor_core) — CAssetBrowser 実装
 //
-// 仕様の意図は FAssetBrowser.h を参照。本ファイルでは:
+// 仕様の意図は CAssetBrowser.h を参照。本ファイルでは:
 //   ・FindFirstFileW / FindNextFileW で assets/ 配下を列挙
 //   ・拡張子 lookup で EAssetKind 推定
 //   ・ImGui を使った左 tree + 右 list の 2 ペインレイアウト
@@ -12,7 +12,7 @@
 #include "foundation/Platform.h"
 
 // <windows.h> マクロ汚染対策: `SetCurrentDirectory` がデフォルトで
-// `SetCurrentDirectoryW` に macro 展開され、FAssetBrowser::SetCurrentDirectory
+// `SetCurrentDirectoryW` に macro 展開され、CAssetBrowser::SetCurrentDirectory
 // メソッドの定義側と衝突する。本 .cpp ではメソッド名を維持するため undef。
 #ifdef SetCurrentDirectory
 #undef SetCurrentDirectory
@@ -166,7 +166,7 @@ const char* KindTag(EAssetKind k) noexcept {
 } // anonymous namespace
 
 /** root_directory を記録し pool を Reserve して初回 Refresh を実行する。 */
-void FAssetBrowser::Init(const wchar_t* root_directory) noexcept {
+void CAssetBrowser::Init(const wchar_t* root_directory) noexcept {
     // m_RootDirectory にコピー (空 / nullptr は既定 L"assets")。
     const wchar_t* src = (root_directory != nullptr && root_directory[0] != L'\0')
                             ? root_directory : L"assets";
@@ -194,7 +194,7 @@ void FAssetBrowser::Init(const wchar_t* root_directory) noexcept {
 }
 
 /** pool / TArray / ディレクトリ文字列 / callback を全クリアする。 */
-void FAssetBrowser::Shutdown() noexcept {
+void CAssetBrowser::Shutdown() noexcept {
     m_Entries.Clear();
     m_PathPool.Clear();
     m_NamePool.Clear();
@@ -210,12 +210,12 @@ void FAssetBrowser::Shutdown() noexcept {
 }
 
 /** current_directory 配下を再列挙する (RebuildEntries への委譲)。 */
-void FAssetBrowser::Refresh() noexcept {
+void CAssetBrowser::Refresh() noexcept {
     RebuildEntries();
 }
 
 /** Win32 列挙で m_Entries / pool を作り直し、offset を絶対 pointer へ解決する。 */
-void FAssetBrowser::RebuildEntries() noexcept {
+void CAssetBrowser::RebuildEntries() noexcept {
     // 既存 entry / pool を全クリア (容量は維持)。pointer は全て無効化される。
     m_Entries.Clear();
     m_PathPool.Clear();
@@ -326,23 +326,23 @@ void FAssetBrowser::RebuildEntries() noexcept {
 }
 
 /** current directory の entry 件数を返す。 */
-u32 FAssetBrowser::EntryCount() const noexcept {
+u32 CAssetBrowser::EntryCount() const noexcept {
     return static_cast<u32>(m_Entries.Size());
 }
 
 /** index 番目の entry を返す (範囲外は nullptr)。 */
-const FAssetEntry* FAssetBrowser::GetEntry(u32 index) const noexcept {
+const FAssetEntry* CAssetBrowser::GetEntry(u32 index) const noexcept {
     if (index >= m_Entries.Size()) return nullptr;
     return &m_Entries[static_cast<usize>(index)];
 }
 
 /** 現在表示中のディレクトリ (root 相対) を返す。 */
-const wchar_t* FAssetBrowser::CurrentDirectory() const noexcept {
+const wchar_t* CAssetBrowser::CurrentDirectory() const noexcept {
     return m_CurrentDirectory;
 }
 
 /** path がディレクトリとして存在すれば current_directory を切り替えて Refresh する。 */
-void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
+void CAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
     // path == nullptr / 空文字 → ルート (current_directory を空文字に)
     if (path == nullptr || path[0] == L'\0') {
         m_CurrentDirectory[0] = L'\0';
@@ -372,7 +372,7 @@ void FAssetBrowser::SetCurrentDirectory(const wchar_t* path) noexcept {
 }
 
 /** 選択中 entry の path を返す (未選択 / 範囲外は nullptr)。 */
-const wchar_t* FAssetBrowser::SelectedAssetPath() const noexcept {
+const wchar_t* CAssetBrowser::SelectedAssetPath() const noexcept {
     if (m_SelectedIndex < 0) return nullptr;
     const u32 idx = static_cast<u32>(m_SelectedIndex);
     if (idx >= m_Entries.Size()) return nullptr;
@@ -380,7 +380,7 @@ const wchar_t* FAssetBrowser::SelectedAssetPath() const noexcept {
 }
 
 /** 選択中 entry の kind を返す (未選択 / 範囲外は EAssetKind::Unknown)。 */
-EAssetKind FAssetBrowser::SelectedAssetKind() const noexcept {
+EAssetKind CAssetBrowser::SelectedAssetKind() const noexcept {
     if (m_SelectedIndex < 0) return EAssetKind::Unknown;
     const u32 idx = static_cast<u32>(m_SelectedIndex);
     if (idx >= m_Entries.Size()) return EAssetKind::Unknown;
@@ -388,24 +388,24 @@ EAssetKind FAssetBrowser::SelectedAssetKind() const noexcept {
 }
 
 /** 選択変更通知 callback と user ポインタを登録する。 */
-void FAssetBrowser::SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept {
+void CAssetBrowser::SetOnAssetSelectedCallback(AssetSelectedCallback cb, void* user) noexcept {
     m_OnSelectedCb   = cb;
     m_OnSelectedUser = user;
 }
 
 /** ダブルクリック通知 callback と user ポインタを登録する。 */
-void FAssetBrowser::SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept {
+void CAssetBrowser::SetOnAssetDoubleClickedCallback(AssetDoubleClickedCallback cb, void* user) noexcept {
     m_OnDoubleClickedCb   = cb;
     m_OnDoubleClickedUser = user;
 }
 
 /** kind フィルタを設定する (Unknown でフィルタ解除)。 */
-void FAssetBrowser::SetFilterByKind(EAssetKind kind) noexcept {
+void CAssetBrowser::SetFilterByKind(EAssetKind kind) noexcept {
     m_FilterKind = kind;
 }
 
 /** 拡張子を順に照合して EAssetKind を推定する (大文字小文字無視)。 */
-EAssetKind FAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
+EAssetKind CAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
     if (path == nullptr || path[0] == L'\0') return EAssetKind::Unknown;
 
     // Texture
@@ -455,7 +455,7 @@ EAssetKind FAssetBrowser::ClassifyByExtension(const wchar_t* path) noexcept {
 }
 
 /** root_directory に sub を結合して out_buf へ書き込む (separator を補う)。 */
-void FAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap) const noexcept {
+void CAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize cap) const noexcept {
     if (out_buf == nullptr || cap == 0) return;
     out_buf[0] = L'\0';
 
@@ -481,7 +481,7 @@ void FAssetBrowser::BuildFullPath(const wchar_t* sub, wchar_t* out_buf, usize ca
 }
 
 /** m_PathPool に wchar_t 文字列を追記し、必要なら先に Reserve して offset を返す。 */
-usize FAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
+usize CAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = WLen(src) + 1u;  // 終端 0 含む
 
@@ -504,7 +504,7 @@ usize FAssetBrowser::AppendPathOffset(const wchar_t* src) noexcept {
 }
 
 /** m_NamePool に UTF-8 文字列を追記し、必要なら先に Reserve して offset を返す。 */
-usize FAssetBrowser::AppendNameOffset(const char* src) noexcept {
+usize CAssetBrowser::AppendNameOffset(const char* src) noexcept {
     if (src == nullptr) return 0;
     const usize len = std::strlen(src) + 1u;
 
@@ -524,7 +524,7 @@ usize FAssetBrowser::AppendNameOffset(const char* src) noexcept {
 }
 
 /** ツールバー + 左 tree + 右 list を 1 つの ImGui window に描画する。 */
-void FAssetBrowser::DrawUI() noexcept {
+void CAssetBrowser::DrawUI() noexcept {
     if (!ImGui::Begin("Asset Browser")) {
         ImGui::End();
         return;
@@ -628,7 +628,7 @@ void FAssetBrowser::DrawUI() noexcept {
  * @param rel_dir assets/ ルートからの相対パス (空文字でルート)。
  * @param depth 現在の再帰深度 (32 で打ち切り)。
  */
-void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept {
+void CAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcept {
     if (depth >= 32u) {
         ImGui::TextDisabled("(depth limit)");
         return;
@@ -726,7 +726,7 @@ void FAssetBrowser::DrawTreeRecursive(const wchar_t* rel_dir, u32 depth) noexcep
 }
 
 /** current directory の各 entry を kind フィルタ越しに行描画し、選択 / DnD / ダブルクリックを処理する。 */
-void FAssetBrowser::DrawList() noexcept {
+void CAssetBrowser::DrawList() noexcept {
     ImGui::Text("Entries: %u%s",
                 static_cast<unsigned>(m_Entries.Size()),
                 (m_FilterKind == EAssetKind::Unknown) ? "" : " (filtered)");

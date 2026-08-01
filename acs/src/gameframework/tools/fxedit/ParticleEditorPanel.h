@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — in-game ParticleEditor
 //
-// `FParticleEffectSystem` (gameframework/ParticleEffectSystem.h) の emitter
+// `CParticleEffectSystem` (gameframework/ParticleEffectSystem.h) の emitter
 // パラメータを ImGui で実機編集するためのツール用パネル。Editor / DevTool
 // ビルドからのみ使われる前提で、retail ビルドからは #ifdef で消す想定。
 //
@@ -19,7 +19,7 @@
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FParticleEmitterDef>` の所有を
-//     曖昧にしない。ACS の他 system (FInspectorSeam, FParticleEffectSystem 等)
+//     曖昧にしない。ACS の他 system (FInspectorSeam, CParticleEffectSystem 等)
 //     と同じ規約。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range 等を no-op /
 //     null で表現。
@@ -53,7 +53,7 @@
 //   └─────────────────────────────────────────────────────────────┘
 //
 // 注意:
-//   ・`FParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
+//   ・`CParticleEffectSystem::CreateEmitter()` 等の真の `FEmitterHandle` 管理
 //     とは独立 (editor 内では index 管理)。これは
 //       「編集中に handle を持ち続けると、emitter 削除のたびに gen が変わって
 //        editor 側の参照が壊れる」
@@ -79,12 +79,12 @@ namespace acs::game::fxedit {
  * ImGui ベースの emitter property editor パネル。
  *
  * @details
- * `FParticleEffectSystem` の emitter パラメータ (FParticleEmitterDef) を実機編集する
- * editor_core::FEditorPanel 派生のツールパネル。emitter list の編集 (Add/Remove/
+ * `CParticleEffectSystem` の emitter パラメータ (FParticleEmitterDef) を実機編集する
+ * editor_core::AEditorPanel 派生のツールパネル。emitter list の編集 (Add/Remove/
  * Duplicate) のみを担い、emitter handle や particle pool への反映と Save/Load の実体は
  * 呼び出し側 / callback に委譲する。非コピー・非ムーブ・全 noexcept・STL 不使用。
  */
-class FParticleEditorPanel : public ::acs::game::editor_core::FEditorPanel {
+class AParticleEditorPanel : public ::acs::game::editor_core::AEditorPanel {
 public:
     /**
      * Save callback 型。
@@ -103,22 +103,22 @@ public:
     using LoadCallback = void (*)(void* user, FParticleEmitterDef* defs, u32& inout_count) noexcept;
 
     /** 空のパネルを構築する (emitter list は空、未選択)。 */
-    FParticleEditorPanel() noexcept = default;
+    AParticleEditorPanel() noexcept = default;
 
     /** 破棄する (内部 TArray が emitter list を解放)。 */
-    ~FParticleEditorPanel() noexcept = default;
+    ~AParticleEditorPanel() noexcept = default;
 
     /** コピー禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FParticleEditorPanel(const FParticleEditorPanel&)            = delete;
+    AParticleEditorPanel(const AParticleEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleEditorPanel& operator=(const FParticleEditorPanel&) = delete;
+    AParticleEditorPanel& operator=(const AParticleEditorPanel&) = delete;
 
     /** ムーブ禁止。 */
-    FParticleEditorPanel(FParticleEditorPanel&&)                 = delete;
+    AParticleEditorPanel(AParticleEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FParticleEditorPanel& operator=(FParticleEditorPanel&&)      = delete;
+    AParticleEditorPanel& operator=(AParticleEditorPanel&&)      = delete;
 
     /**
      * emitter list を空に戻し selection を解除する (完全リセット)。
@@ -137,26 +137,26 @@ public:
     /**
      * read-only の target system を設定する (active particle 数表示用)。
      *
-     * @param system 紐付ける FParticleEffectSystem (nullptr で解除)。
+     * @param system 紐付ける CParticleEffectSystem (nullptr で解除)。
      */
-    void SetTargetSystem(class FParticleEffectSystem* system) noexcept { m_TargetSystem = system; }
+    void SetTargetSystem(CParticleEffectSystem* system) noexcept { m_TargetSystem = system; }
 
     /**
      * 現在の target system を返す。
      *
-     * @return 設定済みの FParticleEffectSystem (未設定なら nullptr)。
+     * @return 設定済みの CParticleEffectSystem (未設定なら nullptr)。
      */
-    class FParticleEffectSystem* TargetSystem() const noexcept { return m_TargetSystem; }
+    CParticleEffectSystem* TargetSystem() const noexcept { return m_TargetSystem; }
 
     /**
-     * パネルのタイトルを返す (FEditorPanel override)。
+     * パネルのタイトルを返す (AEditorPanel override)。
      *
      * @return "Particle Editor"。
      */
     const char* Title() const noexcept override { return "Particle Editor"; }
 
     /**
-     * メイン ImGui window を描画する (FEditorPanel override)。
+     * メイン ImGui window を描画する (AEditorPanel override)。
      *
      * @details
      * `Begin("Particle Editor")` から始まる単一 window で、左に emitter list、右に
@@ -289,7 +289,9 @@ private:
     void*         m_LoadUser    = nullptr;
 
     /** read-only target (active particle count 表示用、nullptr で "(no system attached)")。 */
-    class FParticleEffectSystem* m_TargetSystem = nullptr;
+    CParticleEffectSystem* m_TargetSystem = nullptr;
 };
+
+using FParticleEditorPanel = AParticleEditorPanel;
 
 } // namespace acs::game::fxedit

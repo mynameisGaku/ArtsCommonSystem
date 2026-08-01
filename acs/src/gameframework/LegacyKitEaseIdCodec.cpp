@@ -60,7 +60,7 @@ constexpr FAcsToLegacyTable BuildAcsToLegacy() noexcept {
     return result;
 }
 
-static_assert(kLegacyToAcsCount == static_cast<usize>(FLegacyKitEaseIdCodec::kLegacyIdCount));
+static_assert(kLegacyToAcsCount == static_cast<usize>(CLegacyKitEaseIdCodec::kLegacyIdCount));
 static_assert(AreMappedTypesValid());
 static_assert(AreMappedTypesUnique());
 
@@ -69,7 +69,7 @@ constexpr auto kAcsToLegacy = BuildAcsToLegacy();
 
 } // namespace
 
-bool FLegacyKitEaseIdCodec::TryDecode(i32 legacy_id, Easing::EEasingType& out_type) noexcept {
+bool CLegacyKitEaseIdCodec::TryDecode(i32 legacy_id, Easing::EEasingType& out_type) noexcept {
     if (legacy_id < 0 || legacy_id >= kLegacyIdCount) return false;
 
     /** 確認済み ID を対応表へ渡す位置。 */
@@ -78,7 +78,7 @@ bool FLegacyKitEaseIdCodec::TryDecode(i32 legacy_id, Easing::EEasingType& out_ty
     return true;
 }
 
-bool FLegacyKitEaseIdCodec::TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept {
+bool CLegacyKitEaseIdCodec::TryEncode(Easing::EEasingType type, i32& out_legacy_id) noexcept {
     /** 正規型を逆引き表へ渡す位置。 */
     const usize type_index = static_cast<usize>(type);
     if (type_index >= kAcsEasingTypeCount) return false;

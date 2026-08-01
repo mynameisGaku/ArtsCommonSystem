@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (Card FGame) — FDeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
+// GameFramework ジャンルキット (Card CGame) — CDeckSystem (デッキ / 手札 / 捨札 / 除外 / シャッフル)
 //
 // 1 プレイヤーぶんのカードゲーム状態を「デッキ + 手札 + 捨札 + 除外 (exile)」の 4 ゾーン
 // モデルで保持する小型マネージャ。Magic: the Gathering / Hearthstone / Slay the Spire 等
@@ -7,7 +7,7 @@
 //
 // 想定する位置付け:
 //   ・**1 プレイヤー = 1 instance**: 対戦相手や複数 AI プレイヤーが居る場合は
-//     `FDeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
+//     `CDeckSystem` を人数分作って並べる (本クラス自体は 1 人分のローカル状態のみ)。
 //   ・**カード定義 (FCardDef) と場の identity (FCardId) を分離**:
 //     - `FCardDef` = 「Lightning Bolt とはどんなカードか」(コスト / レアリティ / 説明文)。
 //        起動時に RegisterCard() で 1 回だけ登録、以後 immutable。
@@ -22,7 +22,7 @@
 //     リプレイ / テストを再現可能にする。seed=0 のときは FRandom::Global() で時刻ベース seed。
 //
 // 使い方:
-//   FDeckSystem deck;
+//   CDeckSystem deck;
 //
 //   // 起動時にカード定義を登録。
 //   deck.RegisterCard({ "card.bolt",  "Lightning Bolt", /*cost*/1, /*rarity*/2,
@@ -49,7 +49,7 @@
 //
 // 設計選択 (card game kit ベース):
 //   ・**FCardDef 登録は単一 TArray<FCardDef>**: カード種別は AAA でも 500〜2000 枚オーダー、
-//     線形走査で十分 (Inventory / FEconomyDirector と同じ判断)。重複登録は WARN で no-op。
+//     線形走査で十分 (Inventory / CEconomyDirector と同じ判断)。重複登録は WARN で no-op。
 //   ・**所有しない const char***: id / display_name / description / art_path / card_type すべて
 //     呼出側 (= ゲームコード or リソースバンドル) が長寿命を保証する文字列リテラル想定。
 //     deck / hand / discard / exile の `const char*` 要素は `m_Cards[].id` を直接指す (= リテラル参照、非所有)。
@@ -80,7 +80,7 @@
 // 範囲外:
 //   ・「同じカードが場で個別効果を持つ」(MtG カウンタ等) — FCardId の gen を使う拡張で対応予定。
 //   ・サーチ / scry / look-at-top-N 等の peek 系操作 — 別 API として追加可能。
-//   ・複数プレイヤーをまたぐ効果 — FGameFlow / 対戦 Manager の責務。
+//   ・複数プレイヤーをまたぐ効果 — CGameFlow / 対戦 Manager の責務。
 //   ・MtG 形式の「ライブラリ枚数を見せる UI」以外の高度 API — 必要に応じて拡張。
 //   ・永続化 (Save/Load) — Pillar J Serialize と統合。
 #pragma once
@@ -192,7 +192,7 @@ struct FCardId {
  * は RegisterCard で登録、各ゾーンは m_Cards[].id を指す非所有 const char* を保持する。
  * Shuffle は Fisher-Yates (FRandom) で seed 指定により決定論再現可能。非コピー・非ムーブ。
  */
-class FDeckSystem {
+class CDeckSystem {
 public:
     /**
      * カードがプレイされたときに呼ばれる callback の型。
@@ -204,22 +204,22 @@ public:
     using PlayCallback = void(*)(void* user, const char* card_id, u32 hand_index) noexcept;
 
     /** 空状態で構築する。 */
-    FDeckSystem()  noexcept = default;
+    CDeckSystem()  noexcept = default;
 
     /** 破棄する (TArray が内部バッファを解放、const char* は非所有なので Free 不要)。 */
-    ~FDeckSystem() noexcept = default;
+    ~CDeckSystem() noexcept = default;
 
     /** コピー禁止。 */
-    FDeckSystem(const FDeckSystem&)            = delete;
+    CDeckSystem(const CDeckSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDeckSystem& operator=(const FDeckSystem&) = delete;
+    CDeckSystem& operator=(const CDeckSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FDeckSystem(FDeckSystem&&)                 = delete;
+    CDeckSystem(CDeckSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDeckSystem& operator=(FDeckSystem&&)      = delete;
+    CDeckSystem& operator=(CDeckSystem&&)      = delete;
 
     /**
      * カード定義を登録する (起動時に 1 度ずつ)。
@@ -389,5 +389,8 @@ private:
     /** callback に渡すコンテキスト (Manager は所有しない)。 */
     void*        m_OnPlayUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDeckSystem = CDeckSystem;
 
 } // namespace acs::game

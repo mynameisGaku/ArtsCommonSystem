@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FPauseDirector (統合 pause 管理)
+// GameFramework Pillar A — CPauseDirector (統合 pause 管理)
 //
 // 役割:
 //   ゲーム全体の "pause" 状態を一元管理する director。
@@ -8,16 +8,16 @@
 //     ・OS / システムメニュー表示 (SystemMenu)
 //     ・ウィンドウフォーカス喪失   (FocusLost)
 //     ・カットシーン再生中         (Cinematic)
-//     ・FPhotoMode 中               (PhotoMode)
+//     ・CPhotoMode 中               (PhotoMode)
 //     ・ネットワーク同期待ち       (NetworkSync)
 //   これらを単純な on/off bool で管理すると、片方が解除されたら resume
 //   してしまい「メニュー閉じたらフォーカス喪失中なのに動き出した」等の
-//   バグを生む。FPauseDirector は **bit OR された EPauseReason mask** を
+//   バグを生む。CPauseDirector は **bit OR された EPauseReason mask** を
 //   持ち、「mask が完全に 0 になるまでは pause」という stack 的挙動で
 //   この問題を回避する。
 //
 // 想定する典型フロー:
-//   FPauseDirector pause;
+//   CPauseDirector pause;
 //   pause.SetNormalTimeScale(1.0f);
 //
 //   // ユーザがメニューを開いた
@@ -37,7 +37,7 @@
 //   game.SetTimeScale(pause.EffectiveTimeScale());  // 1.0f に復帰
 //
 // 設計選択:
-//   ・**bit flag 中心**: FPrivacyDirector / FSceneServices と同じく
+//   ・**bit flag 中心**: CPrivacyDirector / CSceneServices と同じく
 //     enum class : u32 + operator|/& で複合 reason を表現する。
 //     None (= 0) は「pause 中ではない」を表す特異値で、Pause(None) /
 //     Resume(None) は no-op (OR/AND-NOT で数学的に変化なし)。
@@ -45,9 +45,9 @@
 //     "落ちた瞬間" にだけ発火する。同じ reason の重複 Pause/Resume では
 //     呼ばれない。caller はパッシブ UI 更新やオーディオ ducking 等に
 //     使える。
-//   ・**caller が時間操作を行う**: FPhotoMode と同じく EffectiveTimeScale()
-//     は値を返すだけ。実際の `FGame::SetTimeScale(...)` は外側のゲーム
-//     コードが呼ぶ。GameFramework モジュールから FGame への依存を切る
+//   ・**caller が時間操作を行う**: CPhotoMode と同じく EffectiveTimeScale()
+//     は値を返すだけ。実際の `CGame::SetTimeScale(...)` は外側のゲーム
+//     コードが呼ぶ。GameFramework モジュールから CGame への依存を切る
 //     (Pillar 規約)。
 //   ・**NormalTimeScale 分離**: slow-motion 演出 (= 通常時 0.5x など) と
 //     pause を直交管理するため、「pause 解除時に戻る scale」を別保持。
@@ -55,7 +55,7 @@
 //   ・**非コピー・非ムーブ**: アプリ全体で 1 個運用される director なので、
 //     値渡しでスタック状態が分裂しないよう移動コンストラクタも禁止。
 //   ・**全 noexcept**: ACS 規約 (TResult<T,E> + 例外なし) に従う。
-//     ただし FPauseDirector は失敗し得る I/O を持たないので TResult は使わず
+//     ただし CPauseDirector は失敗し得る I/O を持たないので TResult は使わず
 //     全 API を noexcept void / 値返しで構成する。
 //
 // 範囲外:
@@ -75,7 +75,7 @@ namespace acs::game {
  *
  * @details
  * 各 reason は独立に on/off でき、同時に複数立ち得る (e.g. UserMenu と FocusLost が
- * 同時)。FPauseDirector は OR された mask を持ち、mask が 0 になるまで pause を維持する。
+ * 同時)。CPauseDirector は OR された mask を持ち、mask が 0 になるまで pause を維持する。
  * operator| / operator& で複合 reason を表現する。
  */
 enum class EPauseReason : u32 {
@@ -94,7 +94,7 @@ enum class EPauseReason : u32 {
     /** カットシーン再生中。 */
     Cinematic   = 1u << 3,
 
-    /** FPhotoMode 中。 */
+    /** CPhotoMode 中。 */
     PhotoMode    = 1u << 4,
 
     /** ネットワーク同期待ち。 */
@@ -149,25 +149,25 @@ using PauseEventCallback = void(*)(void* user, EPauseReason reason, bool paused)
  * stack 的挙動を提供する。アプリ全体で 1 個運用される想定で、状態の唯一性を担保するため
  * 非コピー・非ムーブ。time scale は値を返すだけで、実際の時間操作は caller が行う。
  */
-class FPauseDirector {
+class CPauseDirector {
 public:
     /** 空状態 (pause 理由なし、NormalTimeScale = 1.0) で構築する。 */
-    FPauseDirector()  noexcept = default;
+    CPauseDirector()  noexcept = default;
 
     /** 破棄する。 */
-    ~FPauseDirector() noexcept = default;
+    ~CPauseDirector() noexcept = default;
 
     /** コピー禁止 (state holder の唯一性を担保するため)。 */
-    FPauseDirector(const FPauseDirector&)            = delete;
+    CPauseDirector(const CPauseDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPauseDirector& operator=(const FPauseDirector&) = delete;
+    CPauseDirector& operator=(const CPauseDirector&) = delete;
 
     /** ムーブ禁止 (状態の分裂を防ぐため)。 */
-    FPauseDirector(FPauseDirector&&)                 = delete;
+    CPauseDirector(CPauseDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPauseDirector& operator=(FPauseDirector&&)      = delete;
+    CPauseDirector& operator=(CPauseDirector&&)      = delete;
 
     /**
      * 指定 reason の bit を立てて pause する (OR)。
@@ -222,7 +222,7 @@ public:
     void Clear() noexcept;
 
     /**
-     * caller が `FGame::SetTimeScale(...)` に渡すべき実効 time scale を返す。
+     * caller が `CGame::SetTimeScale(...)` に渡すべき実効 time scale を返す。
      *
      * @return pause 中 (= IsPaused()) なら 0.0f、非 pause なら NormalTimeScale。
      */
@@ -279,5 +279,8 @@ private:
     /** callback 呼び出し時に渡すコンテキストポインタ。 */
     void*              m_CallbackUser     = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPauseDirector = CPauseDirector;
 
 } // namespace acs::game

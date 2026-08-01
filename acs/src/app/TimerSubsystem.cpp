@@ -7,7 +7,7 @@
 namespace acs {
 
 /** Application owner を検証し、既存タイマー管理器を非所有で結び付ける。 */
-bool FTimerSubsystem::OnOwnerAssigned() noexcept
+bool ATimerSubsystem::OnOwnerAssigned() noexcept
 {
     m_Timers = nullptr;
     if (OwnerKind() == ESubsystemOwnerKind::Unknown) return true;
@@ -16,19 +16,19 @@ bool FTimerSubsystem::OnOwnerAssigned() noexcept
     }
 
     // 検証済みの Application owner。
-    FApplication* const application = static_cast<FApplication*>(Owner());
+    CApplication* const application = static_cast<CApplication*>(Owner());
     m_Timers = &application->GetTimers();
     return true;
 }
 
 /** 終了する Engine スコープから非所有参照を外す。 */
-void FTimerSubsystem::OnDeinitialize() noexcept
+void ATimerSubsystem::OnDeinitialize() noexcept
 {
     m_Timers = nullptr;
 }
 
 /** PreUpdate で非スケール時間を既存タイマー管理器へ渡す。 */
-void FTimerSubsystem::OnTickFrame(const FSubsystemFrameContext& context) noexcept
+void ATimerSubsystem::OnTickFrame(const FSubsystemFrameContext& context) noexcept
 {
     if (m_Timers == nullptr) {
         return;

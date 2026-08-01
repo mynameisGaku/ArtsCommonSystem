@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / FSequenceRunner 実装
+// GameFramework Pillar C — FSequence / CSequenceRunner 実装
 #include "gameframework/Sequence.h"
 #include "foundation/Move.h"
 
@@ -119,7 +119,7 @@ FSequence& FSequence::Tween(FVec3* target, FVec3 from, FVec3 to, f32 duration,
 }
 
 /** 空きスロットを再利用優先で確保する (無ければ末尾に追加)。 */
-u32 FSequenceRunner::AcquireSlot() noexcept {
+u32 CSequenceRunner::AcquireSlot() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         if (!m_Slots[i].active) return i;
     }
@@ -128,7 +128,7 @@ u32 FSequenceRunner::AcquireSlot() noexcept {
 }
 
 /** シーケンスをスロットに格納して実行開始する。 */
-FSeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
+FSeqHandle CSequenceRunner::Start(FSequence seq) noexcept {
     if (seq.Actions().Size() == 0) return {};
     const u32 idx = AcquireSlot();
     FSlot& s = m_Slots[idx];
@@ -146,7 +146,7 @@ FSeqHandle FSequenceRunner::Start(FSequence seq) noexcept {
 }
 
 /** ハンドルが指すスロットを非アクティブ化する。 */
-void FSequenceRunner::Cancel(FSeqHandle h) noexcept {
+void CSequenceRunner::Cancel(FSeqHandle h) noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return;
     FSlot& s = m_Slots[h.index];
     if (s.generation != h.generation || !s.active) return;
@@ -154,20 +154,20 @@ void FSequenceRunner::Cancel(FSeqHandle h) noexcept {
     if (m_ActiveCount > 0) --m_ActiveCount;
 }
 
-void FSequenceRunner::CancelAll() noexcept {
+void CSequenceRunner::CancelAll() noexcept {
     for (u32 i = 0; i < m_Slots.Size(); ++i) {
         m_Slots[i].active = false;
     }
     m_ActiveCount = 0;
 }
 
-bool FSequenceRunner::IsActive(FSeqHandle h) const noexcept {
+bool CSequenceRunner::IsActive(FSeqHandle h) const noexcept {
     if (!h.IsValid() || h.index >= m_Slots.Size()) return false;
     const FSlot& s = m_Slots[h.index];
     return s.active && s.generation == h.generation;
 }
 
-void FSequenceRunner::AdvanceToNext(FSlot& s) noexcept {
+void CSequenceRunner::AdvanceToNext(FSlot& s) noexcept {
     ++s.action_idx;
     s.action_elapsed = 0.0f;
     s.call_fired     = false;
@@ -185,7 +185,7 @@ void FSequenceRunner::AdvanceToNext(FSlot& s) noexcept {
     }
 }
 
-void FSequenceRunner::FinishAction(FSlot& /*s*/, const FSeqAction& act) noexcept {
+void CSequenceRunner::FinishAction(FSlot& /*s*/, const FSeqAction& act) noexcept {
     // 完了時に最終値を正確に書く (浮動小数誤差を残さない)
     switch (act.kind) {
     case FSeqAction::EKind::TweenF:
@@ -201,7 +201,7 @@ void FSequenceRunner::FinishAction(FSlot& /*s*/, const FSeqAction& act) noexcept
     }
 }
 
-void FSequenceRunner::Tick(f32 dt) noexcept {
+void CSequenceRunner::Tick(f32 dt) noexcept {
     if (m_ActiveCount == 0 || dt <= 0.0f || !std::isfinite(dt)) return;
 
     for (u32 i = 0; i < m_Slots.Size(); ++i) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FAudioDirector
+// GameFramework Pillar H — CAudioDirector
 //
-// シーン跨ぎで生存する「音声指揮層」。FSceneServices ではなく FGame (or app)
+// シーン跨ぎで生存する「音声指揮層」。CSceneServices ではなく CGame (or app)
 // に持たせる前提 (BGM はシーン切替で途切れないため、シーン局所では困る)。
 //
 // 機能:
@@ -12,7 +12,7 @@
 //   ・Pause / Resume / StopAll
 //   ・Tick(dt) で内部 timer (クロスフェード / ダッキング) を進行
 //   ・**IAudioBackend 接続**: `SetBackend(IAudioBackend*)` で
-//     `FXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
+//     `CXAudio2Backend` 等の concrete backend を差し込むと、実音再生 + master /
 //     pause / stop / Tick を backend に delegate する。backend == nullptr のとき
 //     は state-only 動作 (= 無音、ログ警告も出さない)。
 //   ・**clip 直接再生 API**: `PlayBgmClip(const FAudioClipDesc&,
@@ -32,7 +32,7 @@
 //   ・**name は所有しない**: `const char*` を保持 = ROM の文字列リテラル前提。
 //     将来 FStringView / Asset Handle に置き換える。
 //   ・**backend は所有しない**: `IAudioBackend*` は raw ptr。呼び出し側が
-//     `FXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
+//     `CXAudio2Backend` 等を所有し、SetBackend(nullptr) で先に切ってから
 //     backend の Shutdown を呼ぶ責任を負う (二重解放回避)。
 //   ・**Pause/Resume/StopAll/SetMasterVolume は backend に forward**: backend
 //     が存在すれば実音にも反映される。volume バス変更 (SetBgmVolume 等) は
@@ -48,6 +48,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "gameframework/audio_backend/IAudioBackend.h"
 
 namespace acs { class FAssetRegistry; }
@@ -61,10 +62,10 @@ namespace acs::game {
  * 3 段ボリュームバス (Master / Bgm / Sfx)、BGM クロスフェード、SFX one-shot ring、
  * ダッキングを state machine で持つ。SetBackend で IAudioBackend を差すと実音再生に
  * delegate し、backend == nullptr のときは state-only (無音) で動く。name → clip 解決は
- * SetAssetRegistry した registry を通じて行う。FGame (or app) に持たせ、Tick(dt) で
+ * SetAssetRegistry した registry を通じて行う。CGame (or app) に持たせ、Tick(dt) で
  * 内部タイマを進行させる。
  */
-class FAudioDirector {
+class CAudioDirector {
 public:
     /** SFX one-shot の最大同時発音数 (超過時は最古を上書き)。 */
     static constexpr u32 kMaxSfxVoices = 32;
@@ -73,16 +74,16 @@ public:
     static constexpr f32 kDuckFadeWindow = 0.1f;
 
     /** SFX ring を固定容量で予約して構築する。 */
-    FAudioDirector() noexcept;
+    CAudioDirector() noexcept;
 
     /** 破棄する (backend / registry は非所有なので解放しない)。 */
-    ~FAudioDirector() noexcept = default;
+    ~CAudioDirector() noexcept = default;
 
     /** コピー禁止 (内部 state を単独所有するため)。 */
-    FAudioDirector(const FAudioDirector&)            = delete;
+    CAudioDirector(const CAudioDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAudioDirector& operator=(const FAudioDirector&) = delete;
+    CAudioDirector& operator=(const CAudioDirector&) = delete;
 
     /**
      * Master ボリュームを設定する。
@@ -196,7 +197,7 @@ public:
     /**
      * 毎フレーム呼んで内部タイマ (クロスフェード / ダッキング) を進行させる。
      *
-     * @details Pause 中は dt を消費しない (state 凍結)。FGame / FSceneManager から呼ぶ。
+     * @details Pause 中は dt を消費しない (state 凍結)。CGame / CSceneManager から呼ぶ。
      * @param dt 前フレームからの経過秒。
      */
     void Tick(f32 dt) noexcept;
@@ -216,7 +217,7 @@ public:
     f32 EffectiveSfxVolume() const noexcept;
 
     /**
-     * concrete backend (FXAudio2Backend 等) を差し込む。
+     * concrete backend (CXAudio2Backend 等) を差し込む。
      *
      * @details
      * nullptr で切断。切断時に既存 BGM/SFX voice を backend->StopAllVoices で停止する責任は
@@ -368,7 +369,7 @@ private:
      * 実音再生先の backend (非所有 raw ptr)。
      *
      * @details
-     * nullptr 時は state-only 動作 (無音)。FXAudio2Backend 等を呼び出し側で所有し
+     * nullptr 時は state-only 動作 (無音)。CXAudio2Backend 等を呼び出し側で所有し
      * SetBackend で差し込む。Pause/Resume/StopAll/Tick/SetMasterVolume を本層から forward する。
      */
     IAudioBackend* m_Backend = nullptr;

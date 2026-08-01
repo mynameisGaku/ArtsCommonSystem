@@ -9,10 +9,10 @@
 namespace acs {
 
 /** owner の寿命に従って生成・更新・破棄される共有サービスの基底。 */
-class FSubsystem {
+class ASubsystem {
 public:
     /** 派生を基底ポインタから破棄する。 */
-    virtual ~FSubsystem() noexcept;
+    virtual ~ASubsystem() noexcept;
 
     /**
      * owner 割り当て後、初期化 callback より前に責務を検証する。
@@ -68,6 +68,9 @@ private:
     FSubsystemOwner m_Owner{};
 };
 
+/** 旧公開名を正規サブシステム基底型へ接続する互換別名。 */
+using FSubsystem = ASubsystem;
+
 /** RTTI を使わず、同じ link image 内で型ごとに一意な ID を返す。 */
 template<typename T>
 const void* SubsystemKindOf() noexcept
@@ -79,7 +82,7 @@ const void* SubsystemKindOf() noexcept
 
 } // namespace acs
 
-/** FSubsystem 派生へ型 ID と診断名を実装する。 */
+/** ASubsystem 派生へ型 ID と診断名を実装する。 */
 #define ACS_SUBSYSTEM_KIND(T)                              \
     const void* Kind() const noexcept override             \
     {                                                       \

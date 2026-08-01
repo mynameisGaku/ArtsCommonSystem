@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — FEditorCamera (editor_core 共通基盤)
+// GameFramework Pillar — CEditorCamera (editor_core 共通基盤)
 //
 // ModelViewer (3D) / LevelEditor (2D top-down) / TilemapEditor (2D) / 各種
 // viewport editor が共有する **camera コントローラ**。1 個のクラスで 2D と 3D
@@ -7,7 +7,7 @@
 // 3D orbit / 2D pan-zoom が成立するようにする。
 //
 // 使い方:
-//   acs::game::editor_core::FEditorCamera cam;
+//   acs::game::editor_core::CEditorCamera cam;
 //   cam.Init(EEditorCameraMode::Mode3D);
 //
 //   // 毎フレームの editor tick:
@@ -16,7 +16,7 @@
 //   FMat4 view = cam.ViewMatrix();
 //   FMat4 proj = cam.ProjectionMatrix(aspect, 0.1f, 1000.0f);
 //
-//   // 選択へ寄せる (将来 FSelectionService + bounds 計算経由):
+//   // 選択へ寄せる (将来 CSelectionService + bounds 計算経由):
 //   cam.FrameToBoundingSphere(node_center, node_radius);
 //
 // 設計選択 (editor_core):
@@ -47,7 +47,7 @@
 // 将来拡張余地:
 //   ・preset (Top/Front/Side/3-quarter 等の標準視点を 1 ボタン)
 //   ・camera lock (Y 軸固定で yaw のみ自由 = ARPG style)
-//   ・focus to selection (現選択 FNodeId にカメラを向ける、FSelectionService 経由)
+//   ・focus to selection (現選択 FNodeId にカメラを向ける、CSelectionService 経由)
 //   ・camera shake disable (FPhotoMode 同様、editor では shake 抑止)
 //   ・rotation 2D (FCamera2D と等価の axis 回転)
 //   ・FPS フリールック (orbit ではなく eye 中心の look-around)
@@ -71,7 +71,7 @@ enum class EEditorCameraMode : u8 {
 };
 
 /**
- * FEditorCamera の内部 state (公開のため struct で外出し)。
+ * CEditorCamera の内部 state (公開のため struct で外出し)。
  *
  * @details
  * editor 側で「現在の position / target」等を直接覗きたいユースケース (debug overlay /
@@ -114,25 +114,25 @@ struct FEditorCameraState {
  * independent な指数補間で raw target / zoom へ追従させる。全 noexcept / 非コピー / 非ムーブ /
  * STL 不使用で、内部 state は POD のみ。
  */
-class FEditorCamera {
+class CEditorCamera {
 public:
     /** mode 未確定のまま構築する (Init で初期化する)。 */
-    FEditorCamera() noexcept = default;
+    CEditorCamera() noexcept = default;
 
     /** デストラクタ (state は POD のみで解放処理なし)。 */
-    ~FEditorCamera() noexcept = default;
+    ~CEditorCamera() noexcept = default;
 
     /** コピー禁止 (内部 state の所有を曖昧にしないため)。 */
-    FEditorCamera(const FEditorCamera&)            = delete;
+    CEditorCamera(const CEditorCamera&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorCamera& operator=(const FEditorCamera&) = delete;
+    CEditorCamera& operator=(const CEditorCamera&) = delete;
 
     /** ムーブ禁止。 */
-    FEditorCamera(FEditorCamera&&)                 = delete;
+    CEditorCamera(CEditorCamera&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorCamera& operator=(FEditorCamera&&)      = delete;
+    CEditorCamera& operator=(CEditorCamera&&)      = delete;
 
     /**
      * 指定モードで完全初期化する (Reset 相当 + mode 設定)。
@@ -370,5 +370,7 @@ private:
     /** 2D の zoom_2d=1 時の表示幅 (world units)。 */
     f32               m_BaseOrthoSize  = 20.0f;
 };
+
+using FEditorCamera = CEditorCamera;
 
 } // namespace acs::game::editor_core

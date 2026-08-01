@@ -3,9 +3,9 @@
 
 namespace acs {
 
-FSubsystem::~FSubsystem() noexcept = default;
+ASubsystem::~ASubsystem() noexcept = default;
 
-void FSubsystem::OnTickFrame(const FSubsystemFrameContext& context) noexcept
+void ASubsystem::OnTickFrame(const FSubsystemFrameContext& context) noexcept
 {
     OnTick(context.scaled_delta_seconds);
 }

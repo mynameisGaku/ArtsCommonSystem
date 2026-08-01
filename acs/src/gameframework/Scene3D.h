@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — FScene3D
+// GameFramework Pillar B — CScene3D
 //
-// 3D シーングラフの実用コンテナ (FScene2D の軽量 3D 版)。root ANode ツリーを所有し、
+// 3D シーングラフの実用コンテナ (AScene2D の軽量 3D 版)。root ANode ツリーを所有し、
 // update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
 // 別途このツリーを走査して AMeshComponent3D 等を読む (本クラスは GPU 非依存)。
 //
-// 注: 本クラスは FScene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
+// 注: 本クラスは AScene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
 //     コンテナとして独立させている。3D レンダーパイプラインがエンジンに入った段階で
 //     描画フックを «末尾に追加» する。
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/StringView.h"
+#include "gameframework/Forward.h"
 #include "math/Collision3D.h"   // FRay3 / FAabb3 (Raycast)
 #include "gameframework/ANode.h"
 #include "gameframework/NodePool.h"
@@ -19,7 +20,7 @@
 
 namespace acs::game {
 
-/** FScene3D::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
+/** CScene3D::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
 enum class EScene3DSpawnError : u8 {
     None = 0,
     InvalidParent,
@@ -43,35 +44,35 @@ struct FScene3DSpawnResult {
 };
 
 /**
- * 3D シーングラフを所有・駆動する実用コンテナ (FScene2D の軽量 3D 版)。
+ * 3D シーングラフを所有・駆動する実用コンテナ (AScene2D の軽量 3D 版)。
  *
  * @details
  * root ANode ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
  * 構造変更 (destroy/reparent) を解決する。名前によるノード検索とノード数集計を提供する。
  * 描画は外部の 3D レンダラがツリーを走査して行う (本クラスは GPU 非依存)。
  */
-class FScene3D {
+class CScene3D {
 public:
     /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
-    FScene3D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
+    CScene3D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
         m_Pool.Init(256);
         m_Pool.RegisterExistingNode(m_Root.Get());   // root にも有効な FNodeId を振る
     }
 
     /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
-    ~FScene3D() noexcept = default;
+    ~CScene3D() noexcept = default;
 
     /** コピー禁止 (ANode ツリーを単独所有するため)。 */
-    FScene3D(const FScene3D&)            = delete;
+    CScene3D(const CScene3D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScene3D& operator=(const FScene3D&) = delete;
+    CScene3D& operator=(const CScene3D&) = delete;
 
     /** ムーブ禁止。 */
-    FScene3D(FScene3D&&)                 = delete;
+    CScene3D(CScene3D&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FScene3D& operator=(FScene3D&&)      = delete;
+    CScene3D& operator=(CScene3D&&)      = delete;
 
     /**
      * Atomically exchange complete scene ownership.
@@ -79,7 +80,7 @@ public:
      * Used by checked loaders to build a replacement graph off to the side
      * and publish it only after every allocation and component commit succeeds.
      */
-    void SwapContents(FScene3D& other) noexcept {
+    void SwapContents(CScene3D& other) noexcept {
         m_Root.Swap(other.m_Root);
         m_Pool.Swap(other.m_Pool);
     }
@@ -226,7 +227,7 @@ private:
     TObjectPtr<ANode> m_Root;
 
     /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
-    FNodePool m_Pool;
+    CNodePool m_Pool;
 };
 
 } // namespace acs::game

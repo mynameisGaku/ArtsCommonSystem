@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — FCraftingSystem (レシピ + 素材消費 + 成果物生成)
+// GameFramework ジャンルキット — CCraftingSystem (レシピ + 素材消費 + 成果物生成)
 //
 // サバイバル / クラフト系ジャンル (Minecraft, Valheim, Subnautica, Terraria 等) の中核を
 // なす「素材を消費して時間経過後に成果物を得る」クラフト挙動を、レシピ登録 + 進行タイマ +
 // インベントリ adapter callback だけで扱う小型マネージャ。
 //
 // 想定する位置付け:
-//   ・Pillar O FInventorySystem との違い:
-//     - FInventorySystem は「持っているアイテムの slot 在庫」を保持する。
-//     - FCraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
-//       素材の消費 / 成果物の付与は FInventorySystem 等への callback 経由で行う
+//   ・Pillar O CInventorySystem との違い:
+//     - CInventorySystem は「持っているアイテムの slot 在庫」を保持する。
+//     - CCraftingSystem は「レシピ定義 + 現在クラフト中の進行状態」を保持し、
+//       素材の消費 / 成果物の付与は CInventorySystem 等への callback 経由で行う
 //       (= 在庫表現に非依存。テストでは fake adapter を差し込める)。
-//   ・Pillar O FEconomyDirector との違い:
-//     - FEconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
-//     - FCraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
+//   ・Pillar O CEconomyDirector との違い:
+//     - CEconomyDirector は「通貨で即座に商品を購入」する取引マネージャ。
+//     - CCraftingSystem は「素材で時間をかけて成果物を生成」する production マネージャ。
 //       時間 (craft_duration_sec) と前提条件 (workbench / level) を持つ点が決定的に違う。
-//   ・Pillar G FHealthSystem / FBuffSystem との関係:
-//     - 直接の依存はないが、料理レシピが FBuffSystem の食事バフを与える等の連携は、
+//   ・Pillar G CHealthSystem / CBuffSystem との関係:
+//     - 直接の依存はないが、料理レシピが CBuffSystem の食事バフを与える等の連携は、
 //       CompleteCallback 経由で呼出側が組む想定 (本クラスは何も知らない)。
 //
 // 使い方:
-//   FCraftingSystem cs;
+//   CCraftingSystem cs;
 //
 //   // レシピ定義 (素材配列は呼出側が長寿命を保証する static / global 想定)。
 //   static const FIngredient kIronAxeIngredients[] = {
@@ -54,15 +54,15 @@
 //
 // 設計選択 (ジャンルキット survival / crafting):
 //   ・**レシピは単一 TArray<FCraftRecipe>**: ジャンルキット規模 (200〜500 recipe) で
-//     線形検索で十分。FEconomyDirector / FInventorySystem と同じ判断。
+//     線形検索で十分。CEconomyDirector / CInventorySystem と同じ判断。
 //   ・**FIngredient 配列は非所有**: FCraftRecipe::ingredients は呼出側が長寿命を保証する
 //     生バッファ (static / global 配列、リソースバンドル) を指す。文字列 id も同様
 //     (Manager は何もコピーしない。STL <string> 禁止 / <vector> 禁止)。
 //   ・**Inventory adapter は C 関数ポインタ + user**: STL <functional> 禁止のため。
-//     在庫表現に依存しない設計 (FInventorySystem を直接保持しないので、テストで
+//     在庫表現に依存しない設計 (CInventorySystem を直接保持しないので、テストで
 //     fake adapter を差し込める / 別 inventory システムにも繋げる)。
 //   ・**同時クラフトは 1 件のみ**: 「ワークベンチに 1 つ載せて待つ」スタイルに統一。
-//     並列クラフトキューが必要なゲームは、FCraftingSystem を複数インスタンス保持する
+//     並列クラフトキューが必要なゲームは、CCraftingSystem を複数インスタンス保持する
 //     (= ベンチ毎 / プレイヤー毎)。Manager が queue を内蔵すると複雑化するため意図的に省く。
 //   ・**ingredient 消費はクラフト「開始」時**: 中断時の返却を容易にするため、StartCraft
 //     時点で全 ingredient を一括消費し、CancelCraft で同じ量を grant し戻す
@@ -78,7 +78,7 @@
 //     スキップする (= 同 Manager をプロトタイピング段階で使いやすくする)。
 //     StartCraft の consume は adapter があるときだけ呼ぶ。
 //   ・**required_workbench は nullptr / "" で「不要」**: 素手で作れる recipe を表現可能。
-//   ・**重複登録は黙って弾く + WARN**: FEconomyDirector / FInventorySystem と同パターン。
+//   ・**重複登録は黙って弾く + WARN**: CEconomyDirector / CInventorySystem と同パターン。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //   ・**STL 不使用、`<string>` 禁止**: const char* 非所有 + acs::TArray のみ。
 #pragma once
@@ -92,7 +92,7 @@ namespace acs::game {
  * レシピ 1 件分の素材エントリ。
  */
 struct FIngredient {
-    /** 素材アイテム id (FInventorySystem の item_id と一致する想定。文字列リテラル、非所有)。 */
+    /** 素材アイテム id (CInventorySystem の item_id と一致する想定。文字列リテラル、非所有)。 */
     const char* item_id = nullptr;
 
     /** 必要個数。0 は「実質常に満たす」素材として扱う。 */
@@ -109,7 +109,7 @@ struct FCraftRecipe {
     /** UI 表示名 (非所有)。 */
     const char*       display_name       = nullptr;
 
-    /** 成果物の item_id (FInventorySystem の item_id 想定)。 */
+    /** 成果物の item_id (CInventorySystem の item_id 想定)。 */
     const char*       result_item_id     = nullptr;
 
     /** 1 回のクラフトで得られる成果物の個数 (1 以上)。 */
@@ -158,7 +158,7 @@ enum class ECraftStatus : u8 {
  * 一括消費し、CancelCraft で grant し戻す。完了は Tick 内で判定し grant + CompleteCallback を
  * 発火、Status() は次の StartCraft / ClearAll まで Completed を保持する。
  */
-class FCraftingSystem {
+class CCraftingSystem {
 public:
     /**
      * 在庫の現個数を取得する adapter の型。
@@ -201,22 +201,22 @@ public:
                                       const char* result_item_id, u32 result_count) noexcept;
 
     /** 空のマネージャを構築する。 */
-    FCraftingSystem()  noexcept = default;
+    CCraftingSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FCraftingSystem() noexcept = default;
+    ~CCraftingSystem() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FCraftingSystem(const FCraftingSystem&)            = delete;
+    CCraftingSystem(const CCraftingSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCraftingSystem& operator=(const FCraftingSystem&) = delete;
+    CCraftingSystem& operator=(const CCraftingSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FCraftingSystem(FCraftingSystem&&)                 = delete;
+    CCraftingSystem(CCraftingSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCraftingSystem& operator=(FCraftingSystem&&)      = delete;
+    CCraftingSystem& operator=(CCraftingSystem&&)      = delete;
 
     /**
      * レシピを登録する (起動時に 1 度ずつ)。
@@ -408,5 +408,8 @@ private:
     /** 現在クラフトの残り秒数 (Tick で減算。完了 / Cancel で 0)。 */
     f32 m_CurrentRemainingSec         = 0.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCraftingSystem = CCraftingSystem;
 
 } // namespace acs::game

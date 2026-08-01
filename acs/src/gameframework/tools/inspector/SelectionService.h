@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — SceneInspector / FSelectionService
+// GameFramework Pillar — SceneInspector / CSelectionService
 //
-// 現在「選択されている FNodeId」を全 editor panel (FHierarchyPanel /
-// FInspectorPanel / FEditorToolbar / SceneView 等) で共有するための **ハブ**。
+// 現在「選択されている FNodeId」を全 editor panel (AHierarchyPanel /
+// AInspectorPanel / AEditorToolbar / SceneView 等) で共有するための **ハブ**。
 // 1 個のシングルなインスタンスを editor 起動コードが所有し、各 panel が
 // `RegisterCallback` で選択変更を購読する形を取る。
 //
 // 使い方:
-//   acs::game::inspector::FSelectionService sel;
+//   acs::game::inspector::CSelectionService sel;
 //   sel.Init();
 //
 //   // panel A: コールバックで自分の描画状態を更新
 //   static void OnSelChanged(void* user, FNodeId from, FNodeId to) noexcept {
-//       auto* self = static_cast<FHierarchyPanel*>(user);
+//       auto* self = static_cast<AHierarchyPanel*>(user);
 //       self->ScrollTo(to);
 //   }
 //   sel.RegisterCallback(&OnSelChanged, &hierarchy);
@@ -47,6 +47,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "gameframework/NodeId.h"
 
 namespace acs::game::inspector {
@@ -71,25 +72,25 @@ using SelectionChangeCallback = void (*)(void* user, FNodeId from, FNodeId to) n
  * multi-select は範囲外。FNodeId のみを扱い、選択対象が生きているか / どの FScene に
  * 属するかの検証は購読側の責務。non-copy / non-move、全 noexcept、STL 不使用。
  */
-class FSelectionService {
+class CSelectionService {
 public:
     /** 空状態で構築する (現選択は invalid、callback list は空)。 */
-    FSelectionService() noexcept = default;
+    CSelectionService() noexcept = default;
 
     /** 破棄する (内部 TArray が callback list を解放)。 */
-    ~FSelectionService() noexcept = default;
+    ~CSelectionService() noexcept = default;
 
     /** コピー禁止 (内部 callback 配列の所有を曖昧にしないため)。 */
-    FSelectionService(const FSelectionService&)            = delete;
+    CSelectionService(const CSelectionService&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSelectionService& operator=(const FSelectionService&) = delete;
+    CSelectionService& operator=(const CSelectionService&) = delete;
 
     /** ムーブ禁止。 */
-    FSelectionService(FSelectionService&&)                 = delete;
+    CSelectionService(CSelectionService&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSelectionService& operator=(FSelectionService&&)      = delete;
+    CSelectionService& operator=(CSelectionService&&)      = delete;
 
     /**
      * 現選択を invalid に、callback list を空に戻して初期化する。

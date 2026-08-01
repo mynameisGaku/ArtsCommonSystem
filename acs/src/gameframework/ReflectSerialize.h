@@ -24,7 +24,7 @@
 #pragma once
 
 #include "foundation/Types.h"
-#include "gameframework/Reflect.h"   // FTypeDesc / FTypeId / EFieldKind / FTypeRegistry
+#include "gameframework/Reflect.h"   // FTypeDesc / FTypeId / EFieldKind / CTypeRegistry
 
 namespace acs::game {
 
@@ -91,7 +91,7 @@ FReflectSerializeResult TrySerializeReflected(
 /**
  * 反射メタデータに従って obj を buf[0..cap) へ直列化する。
  *
- * @param d   反射記述子 (FTypeRegistry から得る)。
+ * @param d   反射記述子 (CTypeRegistry から得る)。
  * @param obj 直列化するインスタンスの先頭ポインタ。
  * @param buf 出力バッファ。
  * @param cap buf の容量 (バイト)。
@@ -127,7 +127,7 @@ u32 DeserializeReflected(const FTypeDesc* d, void* obj, const u8* data, u32 size
  * @param size        data のバイト数。
  * @param out_type_id 生成した型の id を返す (破棄に使う、非 null 推奨)。
  * @return 生成・完全復元したインスタンス (失敗 nullptr)。破損時は生成物を内部で破棄する。
- *         破棄は FTypeRegistry::Get().Destroy(*out_type_id, p)。
+ *         破棄は CTypeRegistry::Get().Destroy(*out_type_id, p)。
  */
 void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept;
 

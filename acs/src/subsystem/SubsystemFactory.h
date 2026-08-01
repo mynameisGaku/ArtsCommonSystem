@@ -9,7 +9,7 @@
 namespace acs {
 
 /** 1 つのサブシステムを生成する非捕捉関数。 */
-using FSubsystemCreateFn = TUniquePtr<FSubsystem> (*)();
+using FSubsystemCreateFn = TUniquePtr<ASubsystem> (*)();
 
 /** サブシステム型の生成条件と決定順序を表す登録値。 */
 struct FSubsystemFactory {

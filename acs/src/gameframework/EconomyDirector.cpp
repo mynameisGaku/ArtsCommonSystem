@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FEconomyDirector 実装
+// GameFramework Pillar O — CEconomyDirector 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
 //   ・通貨 id / item_id は const char* per-byte 線形検索 (FEntitlement と同設計)。
@@ -11,7 +11,7 @@
 //   ・コールバックは `m_OnPurchase != nullptr` のときだけ呼ぶ。
 //     失敗時 (item_id 不明等) でも呼出側 UI で失敗トーストを出したいので、
 //     `item_id != nullptr` のときは success=false でも呼ぶ設計。
-//   ・WARN は FEntitlement / FSeasonPass / FAchievementManager と同じ Log.h 経由。
+//   ・WARN は FEntitlement / CSeasonPass / CAchievementManager と同じ Log.h 経由。
 #include "gameframework/EconomyDirector.h"
 #include "foundation/Log.h"
 
@@ -48,7 +48,7 @@ constexpr u32 kMaxBalance = ~static_cast<u32>(0);
 } // namespace
 
 /** currency_id に対応するスロット index を線形検索する (未発見は kNotFound)。 */
-u32 FEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
+u32 CEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
     if (currency_id == nullptr) return kNotFound;
     const usize n = m_Currencies.Size();
     for (usize i = 0; i < n; ++i) {
@@ -58,7 +58,7 @@ u32 FEconomyDirector::FindCurrencySlot(const char* currency_id) const noexcept {
 }
 
 /** item_id に対応するスロット index を線形検索する (未発見は kNotFound)。 */
-u32 FEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
+u32 CEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
     if (item_id == nullptr) return kNotFound;
     const usize n = m_Items.Size();
     for (usize i = 0; i < n; ++i) {
@@ -68,7 +68,7 @@ u32 FEconomyDirector::FindItemSlot(const char* item_id) const noexcept {
 }
 
 /** 通貨を登録し残高を 0 で初期化する (id == nullptr / 同 id 重複は no-op)。 */
-void FEconomyDirector::RegisterCurrency(const FCurrencyDef& def) noexcept {
+void CEconomyDirector::RegisterCurrency(const FCurrencyDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
@@ -84,21 +84,21 @@ void FEconomyDirector::RegisterCurrency(const FCurrencyDef& def) noexcept {
 }
 
 /** 指定通貨の残高を amount に上書きする (未登録通貨は no-op)。 */
-void FEconomyDirector::SetBalance(const char* currency_id, u32 amount) noexcept {
+void CEconomyDirector::SetBalance(const char* currency_id, u32 amount) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return;
     m_Balances[slot] = amount;
 }
 
 /** 指定通貨の残高を返す (未登録通貨は 0)。 */
-u32 FEconomyDirector::GetBalance(const char* currency_id) const noexcept {
+u32 CEconomyDirector::GetBalance(const char* currency_id) const noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return 0;
     return m_Balances[slot];
 }
 
 /** 指定通貨に delta を加算する (u32 上限でクランプ。未登録通貨は false)。 */
-bool FEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept {
+bool CEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return false;
 
@@ -113,7 +113,7 @@ bool FEconomyDirector::AddToBalance(const char* currency_id, u32 delta) noexcept
 }
 
 /** 指定通貨から delta を減算する (残高不足 / 未登録通貨は変更せず false)。 */
-bool FEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noexcept {
+bool CEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noexcept {
     const u32 slot = FindCurrencySlot(currency_id);
     if (slot == kNotFound) return false;
 
@@ -124,7 +124,7 @@ bool FEconomyDirector::DeductFromBalance(const char* currency_id, u32 delta) noe
 }
 
 /** 商品を登録する (item_id == nullptr / 同 id 重複は no-op、未登録通貨参照でも受理)。 */
-void FEconomyDirector::RegisterItem(const FShopItem& item) noexcept {
+void CEconomyDirector::RegisterItem(const FShopItem& item) noexcept {
     // defensive: item_id == nullptr は意味を持たないので静かに弾く。
     if (item.item_id == nullptr) return;
 
@@ -149,7 +149,7 @@ void FEconomyDirector::RegisterItem(const FShopItem& item) noexcept {
  * @param item_id 購入する商品 id。
  * @return 購入成功なら true。
  */
-bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
+bool CEconomyDirector::PurchaseItem(const char* item_id) noexcept {
     // nullptr は完全 no-op (コールバックも呼ばない)。
     if (item_id == nullptr) return false;
 
@@ -209,32 +209,32 @@ bool FEconomyDirector::PurchaseItem(const char* item_id) noexcept {
 }
 
 /** item_id に対応する商品を返す (未発見は nullptr)。 */
-const FShopItem* FEconomyDirector::FindItem(const char* item_id) const noexcept {
+const FShopItem* CEconomyDirector::FindItem(const char* item_id) const noexcept {
     const u32 slot = FindItemSlot(item_id);
     if (slot == kNotFound) return nullptr;
     return &m_Items[slot];
 }
 
 /** 登録済み商品数を返す。 */
-u32 FEconomyDirector::ItemCount() const noexcept {
+u32 CEconomyDirector::ItemCount() const noexcept {
     return static_cast<u32>(m_Items.Size());
 }
 
 /** 全商品配列の生ポインタを返す (out_count に件数を書き込む)。 */
-const FShopItem* FEconomyDirector::AllItems(u32& out_count) const noexcept {
+const FShopItem* CEconomyDirector::AllItems(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Items.Size());
     return m_Items.Data();
 }
 
 /** 購入結果コールバックと user ポインタを設定する (cb == nullptr で detach)。 */
-void FEconomyDirector::SetOnPurchaseCallback(PurchaseCallback cb, void* user) noexcept {
+void CEconomyDirector::SetOnPurchaseCallback(PurchaseCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     m_OnPurchase      = cb;
     m_OnPurchaseUser = user;
 }
 
 /** 通貨・残高・商品・コールバックを全てリセットする。 */
-void FEconomyDirector::ClearAll() noexcept {
+void CEconomyDirector::ClearAll() noexcept {
     m_Currencies.Clear();
     m_Balances.Clear();
     m_Items.Clear();

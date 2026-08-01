@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FReplayDirector 実装
+// GameFramework Pillar R — CReplayDirector 実装
 //
 // Init / StartRecording / StopRecording / StartPlayback /
 // PausePlayback / ResumePlayback / StopPlayback /
 // SetPlaybackSpeed / SeekToTick / Tick / ProgressNormalized / SaveReplay /
-// LoadReplay をすべて本実装する。SaveReplay / LoadReplay は FInputRecorder /
-// FLockstep の SaveToBuffer / LoadFromBuffer を束ねた container を扱う。
+// LoadReplay をすべて本実装する。SaveReplay / LoadReplay は CInputRecorder /
+// CLockstep の SaveToBuffer / LoadFromBuffer を束ねた container を扱う。
 //
 // 設計メモ:
 //   ・Mode 遷移は明示的: Idle → (StartRecording) → Recording → (StopRecording) → Idle
@@ -16,7 +16,7 @@
 //     遷移は kSub_BadMode で拒否 (一旦 Stop を挟むことを強制)。
 //   ・Tick(dt) は録画中と再生中で意味が変わる:
 //     - Recording: m_TickRateHz * dt 分の tick を m_CurrentTick に加算する。
-//       実際の入力 capture は FInputRecorder / FLockstep 側で別途行う。
+//       実際の入力 capture は CInputRecorder / CLockstep 側で別途行う。
 //     - Playback: dt * m_PlaybackSpeed を accumulator に貯め、tick_rate_hz 単位
 //       で m_CurrentTick に加算する。duration_ticks に達したら自動 Stop。
 //   ・SetPlaybackSpeed は { 0.25, 0.5, 1, 2, 4, 8, 16 } 等を想定するが、
@@ -30,21 +30,21 @@
 //     直後 / metadata 未設定の安全側)。
 //
 // SaveReplay / LoadReplay (本実装):
-//   ・単一 container ファイル (.acsr 拡張子想定) に metadata + FInputRecorder の
-//     .acsr blob + FLockstep の .acsl blob をまとめて書き出す。低レベル blob 自体は
-//     FInputRecorder::SaveToBuffer / FLockstep::SaveToBuffer の real な直列化を
+//   ・単一 container ファイル (.acsr 拡張子想定) に metadata + CInputRecorder の
+//     .acsr blob + CLockstep の .acsl blob をまとめて書き出す。低レベル blob 自体は
+//     CInputRecorder::SaveToBuffer / CLockstep::SaveToBuffer の real な直列化を
 //     そのまま使い、本クラスは「container header + metadata + 2 blob + CRC32」を
 //     被せるだけにする (二重 framing で各 blob は独立に検証可能なまま)。
-//   ・Win32 I/O は FSaveArchive / FSettings と同流儀: `.tmp` に書いて
+//   ・Win32 I/O は CSaveArchive / CSettings と同流儀: `.tmp` に書いて
 //     FlushFileBuffers → MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) で atomic
 //     rename。途中失敗でも本ファイルは旧内容のまま。
-//   ・byte codec は NetSnapshot.cpp / FSaveArchive.cpp と同じ LE MemCopy helper +
+//   ・byte codec は NetSnapshot.cpp / CSaveArchive.cpp と同じ LE MemCopy helper +
 //     CRC32 (poly 0xEDB88320) を file-local に複製する (gameframework は assetpack を
 //     依存に持たないため link 単位を独立させる方針)。
 #include "gameframework/ReplayDirector.h"
 
-#include "gameframework/InputRecorder.h"  // FInputRecorder::SaveToBuffer / LoadFromBuffer / SampleCount
-#include "gameframework/Lockstep.h"       // FLockstep::SaveToBuffer / LoadFromBuffer / InputCount
+#include "gameframework/InputRecorder.h"  // CInputRecorder::SaveToBuffer / LoadFromBuffer / SampleCount
+#include "gameframework/Lockstep.h"       // CLockstep::SaveToBuffer / LoadFromBuffer / InputCount
 
 #include "foundation/Platform.h"  // <windows.h> (CreateFileW / WriteFile / ReadFile / MoveFileExW)
 #include "foundation/Move.h"
@@ -439,7 +439,7 @@ bool ReadAll(HANDLE h, void* dst, u64 size, DWORD& err) noexcept {
 } // namespace
 
 /** 録画 / 再生 state を初期値に戻す (source 結線と owned 文字列は保持)。 */
-void FReplayDirector::Init() noexcept {
+void CReplayDirector::Init() noexcept {
     m_Mode             = EReplayMode::Idle;
     m_Metadata         = FReplayMetadata{};   // 全 field を default に戻す
     m_CurrentTick     = 0;
@@ -452,7 +452,7 @@ void FReplayDirector::Init() noexcept {
 }
 
 /** 非所有の recorder / lockstep ポインタを保持する (寿命は呼び出し側責務)。 */
-void FReplayDirector::SetSources(FInputRecorder* recorder, FLockstep* lockstep) noexcept {
+void CReplayDirector::SetSources(CInputRecorder* recorder, CLockstep* lockstep) noexcept {
     // 非所有ポインタをそのまま保持する (寿命は呼び出し側責務)。nullptr 許容:
     // 片方だけ注入する / どちらも注入しない構成でも container は valid。
     m_Recorder = recorder;
@@ -460,12 +460,12 @@ void FReplayDirector::SetSources(FInputRecorder* recorder, FLockstep* lockstep) 
 }
 
 /** Idle から Recording へ遷移し metadata をコピーする (それ以外は kSub_BadMode)。 */
-TResult<void> FReplayDirector::StartRecording(const FReplayMetadata& meta) noexcept {
+TResult<void> CReplayDirector::StartRecording(const FReplayMetadata& meta) noexcept {
     return TryStartRecording(meta);
 }
 
 /** metadataをbounded owned copyへstageしてから録画を開始する。 */
-TResult<void> FReplayDirector::TryStartRecording(const FReplayMetadata& meta) noexcept {
+TResult<void> CReplayDirector::TryStartRecording(const FReplayMetadata& meta) noexcept {
     // Idle 以外からの直接遷移は禁止。Recording 中の再開や Playback 中の
     // 切り替えは意図しない上書きが起こりやすいため、明示的な Stop を強制する。
     if (m_Mode != EReplayMode::Idle) {
@@ -512,7 +512,7 @@ TResult<void> FReplayDirector::TryStartRecording(const FReplayMetadata& meta) no
 }
 
 /** Recording から Idle へ遷移し duration_ticks を確定する (それ以外は kSub_BadMode)。 */
-TResult<void> FReplayDirector::StopRecording() noexcept {
+TResult<void> CReplayDirector::StopRecording() noexcept {
     // Recording 以外からの呼び出しは誤用扱い。Playback 中に StopRecording を
     // 呼んでしまった場合に黙って Idle にすると metadata が壊れるため明示エラー。
     if (m_Mode != EReplayMode::Recording) {
@@ -528,7 +528,7 @@ TResult<void> FReplayDirector::StopRecording() noexcept {
 }
 
 /** Idle から Playback へ遷移し tick を 0 にリセットする (それ以外は kSub_BadMode)。 */
-TResult<void> FReplayDirector::StartPlayback() noexcept {
+TResult<void> CReplayDirector::StartPlayback() noexcept {
     if (m_Mode != EReplayMode::Idle) {
         return ACS_ERR(Generic, kSub_BadMode,
                        "FReplayDirector::StartPlayback: must be Idle");
@@ -542,7 +542,7 @@ TResult<void> FReplayDirector::StartPlayback() noexcept {
 }
 
 /** Playback から Paused へ遷移する (それ以外は no-op)。 */
-void FReplayDirector::PausePlayback() noexcept {
+void CReplayDirector::PausePlayback() noexcept {
     // Playback 以外では no-op (Paused 中の再 Pause / Idle 中の誤呼び出しを許容)。
     if (m_Mode == EReplayMode::Playback) {
         m_Mode = EReplayMode::Paused;
@@ -550,7 +550,7 @@ void FReplayDirector::PausePlayback() noexcept {
 }
 
 /** Paused から Playback へ遷移する (それ以外は no-op)。 */
-void FReplayDirector::ResumePlayback() noexcept {
+void CReplayDirector::ResumePlayback() noexcept {
     // Paused 以外では no-op。
     if (m_Mode == EReplayMode::Paused) {
         m_Mode = EReplayMode::Playback;
@@ -558,7 +558,7 @@ void FReplayDirector::ResumePlayback() noexcept {
 }
 
 /** Playback / Paused から Idle へ遷移する (それ以外は冪等に no-op)。 */
-void FReplayDirector::StopPlayback() noexcept {
+void CReplayDirector::StopPlayback() noexcept {
     // Playback / Paused → Idle。Recording / Idle 中の呼び出しは黙って no-op
     // (Stop は冪等であってほしい UX)。
     if (m_Mode == EReplayMode::Playback || m_Mode == EReplayMode::Paused) {
@@ -568,14 +568,14 @@ void FReplayDirector::StopPlayback() noexcept {
 }
 
 /** 再生倍速を clamp して設定する (accumulator は保持してジャンプを防ぐ)。 */
-void FReplayDirector::SetPlaybackSpeed(f32 speed) noexcept {
+void CReplayDirector::SetPlaybackSpeed(f32 speed) noexcept {
     m_PlaybackSpeed = ClampSpeed(speed);
     // accumulator はそのまま。速度変更時に sub-tick の dt を捨てると
     // 再生が微妙にジャンプするのを防ぐ。
 }
 
 /** tick を duration_ticks 上限で clamp して current_tick にジャンプする (mode は不変)。 */
-void FReplayDirector::SeekToTick(u32 tick) noexcept {
+void CReplayDirector::SeekToTick(u32 tick) noexcept {
     // duration_ticks を上限に clamp。LoadReplay 前 (duration = 0) の seek は
     // 0 に張り付くが、これは UI のスクラブバーで「録画されていない」状態を
     // 明示するため意図通り。
@@ -585,7 +585,7 @@ void FReplayDirector::SeekToTick(u32 tick) noexcept {
 }
 
 /** current_tick / duration_ticks を [0, 1] で返す (duration 0 なら 0.0)。 */
-f32 FReplayDirector::ProgressNormalized() const noexcept {
+f32 CReplayDirector::ProgressNormalized() const noexcept {
     const u32 d = m_Metadata.duration_ticks;
     if (d == 0) {
         return 0.0f;  // 録画開始直後 / metadata 未設定の安全側
@@ -597,7 +597,7 @@ f32 FReplayDirector::ProgressNormalized() const noexcept {
 }
 
 /** 現在 mode に応じて tick を進め、再生終了時は自動的に Idle へ落とす。 */
-void FReplayDirector::Tick(f32 dt) noexcept {
+void CReplayDirector::Tick(f32 dt) noexcept {
     // 異常な dt (NaN / 負) はゲームループの早期 frame skip / pause からの復帰時に
     // 紛れ込みやすい。0 でガードして無視する。
     if (!(dt > 0.0f && dt <= 60.0f)) {
@@ -606,7 +606,7 @@ void FReplayDirector::Tick(f32 dt) noexcept {
 
     if (m_Mode == EReplayMode::Recording) {
         // 録画中: tick_rate_hz * dt 分だけ m_CurrentTick を進める。
-        // 実入力 capture は FInputRecorder / FLockstep 側で別途行う前提なので、
+        // 実入力 capture は CInputRecorder / CLockstep 側で別途行う前提なので、
         // ここは単純な tick カウンタの前進のみ。
         m_TickAccumulator += dt * static_cast<f32>(m_TickRateHz);
         if (m_TickAccumulator >= 1.0f) {
@@ -652,12 +652,12 @@ void FReplayDirector::Tick(f32 dt) noexcept {
 }
 
 /** metadata + 2 blob を container body に組み立て、`.tmp` 経由で atomic write する。 */
-TResult<void> FReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
+TResult<void> CReplayDirector::SaveReplay(const wchar_t* file_path) noexcept {
     return TrySaveReplay(file_path);
 }
 
 /** 上限付きcontainerを一意tempへ書き、flush/close後にatomic replaceする。 */
-TResult<void> FReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept {
+TResult<void> CReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
                        "FReplayDirector::TrySaveReplay: file_path is null");
@@ -835,12 +835,12 @@ TResult<void> FReplayDirector::TrySaveReplay(const wchar_t* file_path) noexcept 
 }
 
 /** container を全読みして magic/version/CRC を検証し、metadata と source blob を復元する。 */
-TResult<void> FReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
+TResult<void> CReplayDirector::LoadReplay(const wchar_t* file_path) noexcept {
     return TryLoadReplay(file_path);
 }
 
 /** file snapshotを全検証・stageし、成功時だけdirector stateへcommitする。 */
-TResult<void> FReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept {
+TResult<void> CReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO, kSub_NullPath,
                        "FReplayDirector::TryLoadReplay: file_path is null");
@@ -1044,12 +1044,12 @@ TResult<void> FReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
         m_Recorder != nullptr ? *m_Recorder->m_Samples.GetAllocator() : DefaultAllocator();
     FAllocator& lockstep_allocator =
         m_Lockstep != nullptr ? *m_Lockstep->m_Frames.GetAllocator() : DefaultAllocator();
-    FInputRecorder staged_recorder(recorder_allocator);
-    FLockstep staged_lockstep(lockstep_allocator);
+    CInputRecorder staged_recorder(recorder_allocator);
+    CLockstep staged_lockstep(lockstep_allocator);
     if (commit_recorder) {
         TResult<void> source_result = staged_recorder.TryLoadFromBuffer(input_blob_ptr, input_blob_size);
         if (source_result.IsErr()) {
-            if (source_result.Error().subcode == FInputRecorder::kSub_Oom) {
+            if (source_result.Error().subcode == CInputRecorder::kSub_Oom) {
                 return ACS_ERR(Memory, kSub_Oom,
                                "FReplayDirector::TryLoadReplay: recorder staging allocation failed");
             }
@@ -1060,7 +1060,7 @@ TResult<void> FReplayDirector::TryLoadReplay(const wchar_t* file_path) noexcept 
     if (commit_lockstep) {
         TResult<void> source_result = staged_lockstep.TryLoadFromBuffer(lockstep_blob_ptr, lockstep_blob_size);
         if (source_result.IsErr()) {
-            if (source_result.Error().subcode == FLockstep::kSub_Oom) {
+            if (source_result.Error().subcode == CLockstep::kSub_Oom) {
                 return ACS_ERR(Memory, kSub_Oom,
                                "FReplayDirector::TryLoadReplay: lockstep staging allocation failed");
             }

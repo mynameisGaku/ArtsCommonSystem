@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット — FCraftingSystem 実装
+// GameFramework ジャンルキット — CCraftingSystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
-//   ・recipe_id / item_id は const char* per-byte 線形検索 (FEntitlement / FEconomyDirector /
-//     FInventorySystem と同設計)。レシピ件数 (200〜500) なら線形で十分。
+//   ・recipe_id / item_id は const char* per-byte 線形検索 (FEntitlement / CEconomyDirector /
+//     CInventorySystem と同設計)。レシピ件数 (200〜500) なら線形で十分。
 //   ・StartCraft は「ingredient 一括消費 → Crafting 遷移」の 1 動作にまとめる。
 //     consume が途中失敗したケースを救済するため、消費した数を覚えておいて巻き戻し、
 //     atomic に「全成功 or 全部もとのまま」を保証する。
@@ -59,7 +59,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 } // namespace
 
 /** recipe_id を per-byte 線形検索して index を返す (未検出は kNotFound)。 */
-u32 FCraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
+u32 CCraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
     if (recipe_id == nullptr) return kNotFound;
     const usize n = m_Recipes.Size();
     for (usize i = 0; i < n; ++i) {
@@ -69,7 +69,7 @@ u32 FCraftingSystem::FindRecipeSlot(const char* recipe_id) const noexcept {
 }
 
 /** レシピを検証・補正してコピー登録する (重複は WARN で無視)。 */
-void FCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
+void CCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
     // defensive: recipe_id == nullptr は意味を持たないので静かに弾く。
     if (recipe.recipe_id == nullptr) return;
 
@@ -105,25 +105,25 @@ void FCraftingSystem::RegisterRecipe(const FCraftRecipe& recipe) noexcept {
 }
 
 /** recipe_id で単一レシピを引く (未登録は nullptr)。 */
-const FCraftRecipe* FCraftingSystem::FindRecipe(const char* recipe_id) const noexcept {
+const FCraftRecipe* CCraftingSystem::FindRecipe(const char* recipe_id) const noexcept {
     const u32 slot = FindRecipeSlot(recipe_id);
     if (slot == kNotFound) return nullptr;
     return &m_Recipes[slot];
 }
 
 /** 登録済みレシピ件数を返す。 */
-u32 FCraftingSystem::RecipeCount() const noexcept {
+u32 CCraftingSystem::RecipeCount() const noexcept {
     return static_cast<u32>(m_Recipes.Size());
 }
 
 /** 全レシピの連続バッファと件数を返す。 */
-const FCraftRecipe* FCraftingSystem::AllRecipes(u32& out_count) const noexcept {
+const FCraftRecipe* CCraftingSystem::AllRecipes(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Recipes.Size());
     return m_Recipes.Data();
 }
 
 /** インベントリ adapter (query / consume / grant + user) をまとめて設定する。 */
-void FCraftingSystem::SetInventoryAdapter(InventoryQueryFn   query,
+void CCraftingSystem::SetInventoryAdapter(InventoryQueryFn   query,
                                         InventoryConsumeFn consume,
                                         InventoryGrantFn   grant,
                                         void*              user) noexcept {
@@ -134,7 +134,7 @@ void FCraftingSystem::SetInventoryAdapter(InventoryQueryFn   query,
 }
 
 /** recipe / workbench / level / ingredient を side effect なしで事前判定する。 */
-bool FCraftingSystem::CanCraft(const char* recipe_id,
+bool CCraftingSystem::CanCraft(const char* recipe_id,
                               const char* current_workbench,
                               u32         player_level) const noexcept {
     const u32 slot = FindRecipeSlot(recipe_id);
@@ -166,7 +166,7 @@ bool FCraftingSystem::CanCraft(const char* recipe_id,
 }
 
 /** ingredient を atomic に一括 consume して Crafting へ遷移する。 */
-bool FCraftingSystem::StartCraft(const char* recipe_id,
+bool CCraftingSystem::StartCraft(const char* recipe_id,
                                 const char* current_workbench,
                                 u32         player_level) noexcept {
     // 既に Crafting 中は上書き不可 (= 並列クラフト禁止、明示的に CancelCraft が必要)。
@@ -221,7 +221,7 @@ bool FCraftingSystem::StartCraft(const char* recipe_id,
 }
 
 /** Crafting 中の ingredient を grant し戻して Cancelled へ確定させる。 */
-void FCraftingSystem::CancelCraft() noexcept {
+void CCraftingSystem::CancelCraft() noexcept {
     if (_status != ECraftStatus::Crafting) return;
     if (m_CurrentRecipe == nullptr) {
         // 不整合 (Crafting なのに recipe が nullptr) — defensive に Idle に戻す。
@@ -249,12 +249,12 @@ void FCraftingSystem::CancelCraft() noexcept {
 }
 
 /** 現在のクラフト状態を返す。 */
-ECraftStatus FCraftingSystem::Status() const noexcept {
+ECraftStatus CCraftingSystem::Status() const noexcept {
     return _status;
 }
 
 /** クラフト進行率 [0,1] を返す (Crafting 以外は 0、即時完了 recipe は 1.0)。 */
-f32 FCraftingSystem::CraftProgress() const noexcept {
+f32 CCraftingSystem::CraftProgress() const noexcept {
     if (_status != ECraftStatus::Crafting) return 0.0f;
     if (m_CurrentDurationSec <= 0.0f) return 1.0f;  // 即時完了 recipe
     const f32 done = m_CurrentDurationSec - m_CurrentRemainingSec;
@@ -265,19 +265,19 @@ f32 FCraftingSystem::CraftProgress() const noexcept {
 }
 
 /** 残り秒数を返す (Crafting 以外は 0)。 */
-f32 FCraftingSystem::CraftRemainingSec() const noexcept {
+f32 CCraftingSystem::CraftRemainingSec() const noexcept {
     if (_status != ECraftStatus::Crafting) return 0.0f;
     return m_CurrentRemainingSec;
 }
 
 /** 現在のクラフト対象 recipe_id を返す (未開始は nullptr)。 */
-const char* FCraftingSystem::CurrentRecipeId() const noexcept {
+const char* CCraftingSystem::CurrentRecipeId() const noexcept {
     if (m_CurrentRecipe == nullptr) return nullptr;
     return m_CurrentRecipe->recipe_id;
 }
 
 /** 残り秒数を進め、0 到達で成果物 grant + CompleteCallback + Completed 遷移。 */
-void FCraftingSystem::Tick(f32 dt) noexcept {
+void CCraftingSystem::Tick(f32 dt) noexcept {
     if (_status != ECraftStatus::Crafting) return;
     if (dt <= 0.0f)                       return;
     if (m_CurrentRecipe == nullptr) {
@@ -314,14 +314,14 @@ void FCraftingSystem::Tick(f32 dt) noexcept {
 }
 
 /** 完了 callback を設定する (nullptr で detach)。 */
-void FCraftingSystem::SetOnCompleteCallback(CompleteCallback cb, void* user) noexcept {
+void CCraftingSystem::SetOnCompleteCallback(CompleteCallback cb, void* user) noexcept {
     // nullptr で detach は明示的に許可。
     m_OnComplete      = cb;
     m_OnCompleteUser = user;
 }
 
 /** レシピ + 状態 + adapter + callback をすべて初期化する。 */
-void FCraftingSystem::ClearAll() noexcept {
+void CCraftingSystem::ClearAll() noexcept {
     m_Recipes.Clear();
     m_Query            = nullptr;
     m_Consume          = nullptr;

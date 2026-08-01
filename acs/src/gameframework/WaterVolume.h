@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FWaterVolume (浮力 + 水域判定)
+// GameFramework Pillar Q — CWaterVolume (浮力 + 水域判定)
 //
 // AABB で定義された 2D 水域を複数登録し、点が水中に居るかの query と、
 // 物体に掛かる浮力 + drag を世界座標 force ベクトルとして返す。
-// APhysicsBody2D / FEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
+// APhysicsBody2D / CEffectSystem 側は本クラスを参照することで「浮く」「沈む」「水流
 // 抵抗」といった水中挙動を組み立てられる。水面演出 (波 / splash 粒子) はレンダラ
 // 側で `FWaterVolumeInfo::surface_y` と `water_color` を pull して描画する想定。
 //
 // 使い方:
-//   acs::game::FWaterVolume water;
+//   acs::game::CWaterVolume water;
 //
 //   // 池を 1 つ登録
 //   acs::game::FWaterVolumeInfo pond{
@@ -55,7 +55,7 @@ namespace acs::game {
 /**
  * 1 つの水域の幾何 + パラメータ。
  *
- * @details FWaterVolume::AddVolume / UpdateVolume で値渡しされる。
+ * @details CWaterVolume::AddVolume / UpdateVolume で値渡しされる。
  */
 struct FWaterVolumeInfo {
     /** AABB 中心 (world)。 */
@@ -78,7 +78,7 @@ struct FWaterVolumeInfo {
 };
 
 /**
- * FWaterVolume を識別する packed 32bit handle (generational)。
+ * CWaterVolume を識別する packed 32bit handle (generational)。
  *
  * @details レイアウトは FShapeId と同一 (low24=index, high8=generation)。
  */
@@ -147,25 +147,25 @@ struct FWaterVolumeId {
  * 簡易モデルで、複数 volume が重なる場合は全 volume の寄与を加算する。handle 安定性
  * のため非コピー・非ムーブ。
  */
-class FWaterVolume {
+class CWaterVolume {
 public:
     /** 空状態で構築する。 */
-    FWaterVolume() noexcept = default;
+    CWaterVolume() noexcept = default;
 
     /** 破棄する。 */
-    ~FWaterVolume() noexcept = default;
+    ~CWaterVolume() noexcept = default;
 
     /** コピー禁止 (handle 安定性のため)。 */
-    FWaterVolume(const FWaterVolume&)            = delete;
+    CWaterVolume(const CWaterVolume&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWaterVolume& operator=(const FWaterVolume&) = delete;
+    CWaterVolume& operator=(const CWaterVolume&) = delete;
 
     /** ムーブ禁止 (handle 安定性のため)。 */
-    FWaterVolume(FWaterVolume&&)                 = delete;
+    CWaterVolume(CWaterVolume&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWaterVolume& operator=(FWaterVolume&&)      = delete;
+    CWaterVolume& operator=(CWaterVolume&&)      = delete;
 
     /**
      * info の値を内部 slot に複製して volume を登録する。
@@ -282,5 +282,8 @@ private:
     /** m_PackedCache が古くなっているか (Add/Update/Remove で true になる)。 */
     mutable bool                   m_CacheDirty = true;
 };
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FWaterVolume = CWaterVolume;
 
 } // namespace acs::game

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 // QueryLightなどでFVec2/FVec3を使う。
 #include "math/Vec.h"
 // ACS object基底のAObjectを使う。
@@ -13,7 +14,6 @@ namespace acs::game {
 
 class ANode;
 class FRenderContext;
-class FSceneServices;
 
 /**
  * 型 T ごとに一意なコンポーネント種別 ID を返す (RTTI 不使用)。
@@ -80,7 +80,7 @@ public:
     virtual const void* Kind() const noexcept = 0;
 
     /**
-     * リフレクション登録名 (= クラス名) を返す。インスタンス→FTypeRegistry の橋渡し。
+     * リフレクション登録名 (= クラス名) を返す。インスタンス→CTypeRegistry の橋渡し。
      *
      * @details
      * Kind() は per-process の void* タグで実行をまたいで安定せず、FTypeId (名前ハッシュ)
@@ -123,7 +123,7 @@ public:
      * 固定刻み update フック (物理・決定論ロジック)。
      *
      * @details
-     * FGame の fixed-step accumulator から FScene 経由で呼ばれ、同フレームで複数回
+     * CGame の fixed-step accumulator から AScene 経由で呼ばれ、同フレームで複数回
      * (catch-up) または 0 回 (slow-down clamp) 呼ばれ得る。既定 no-op。
      * @param fixed_dt 固定刻みの秒。
      */
@@ -154,9 +154,9 @@ public:
      * OnAttach の後・services が存在するときだけ発火する。ここで
      * `services.Input()/Physics()/Camera()` の参照をキャッシュしておけば、OnUpdate は
      * 分岐なしで使える。既定 no-op。1 コンポーネントにつき高々 1 回 (二重発火しない)。
-     * @param services 配線済みの FSceneServices。
+     * @param services 配線済みの CSceneServices。
      */
-    virtual void OnAttachServices(FSceneServices& /*services*/) noexcept {}
+    virtual void OnAttachServices(CSceneServices& /*services*/) noexcept {}
 
     /**
      * detach (owner 破棄) 直前に 1 回呼ばれる後始末フック。
@@ -211,11 +211,11 @@ public:
     virtual bool WantsAtomicSubtree() const noexcept { return false; }
 
     /**
-     * owner ツリーに配線された FSceneServices を返す (未配線なら nullptr)。
+     * owner ツリーに配線された CSceneServices を返す (未配線なら nullptr)。
      *
      * @return 配線済み services ポインタ (owner 未設定/未配線は nullptr)。
      */
-    FSceneServices* SceneServices() const noexcept;
+    CSceneServices* SceneServices() const noexcept;
 
     /**
      * services が配線済みかを返す。
@@ -229,18 +229,18 @@ public:
      *
      * @return World スコープのコレクション (GameInstance → Engine へフォールバック)。
      */
-    FSubsystemCollection* Subsystems() const noexcept;
+    CSubsystemCollection* Subsystems() const noexcept;
 
     /**
      * 型でサブシステムを取得する (World → GameInstance → Engine の順に検索)。
      *
      * @details オブジェクト同士のやり取り(スコア加算・イベント送出 等)はこれ経由で行う。
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T*(未配線/未登録なら nullptr)。
      */
     template<typename T>
     T* GetSubsystem() const noexcept {
-        FSubsystemCollection* s = Subsystems();
+        CSubsystemCollection* s = Subsystems();
         return (s != nullptr) ? s->Get<T>() : nullptr;
     }
 
@@ -249,7 +249,7 @@ public:
      *
      * @param svc 配線された services (nullptr なら何もしない)。
      */
-    void _MaybeAttachServices(FSceneServices* svc) noexcept {
+    void _MaybeAttachServices(CSceneServices* svc) noexcept {
         if (svc != nullptr && !m_ServicesAttached) {
             m_ServicesAttached = true;
             OnAttachServices(*svc);
@@ -308,8 +308,6 @@ using game::FLightDesc2D;
 using game::ANode;
 /** component描画コンテキストをトップレベルから参照する正規入口。 */
 using game::FRenderContext;
-/** component用シーンサービスをトップレベルから参照する正規入口。 */
-using game::FSceneServices;
 /** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
 using game::AComponent;
 

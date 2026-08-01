@@ -5,7 +5,7 @@
 // を保持する軽量参照ホルダに、FSpriteBatch / FFont / 共通シェーダを足して
 // 「シーン切替でパイプライン再構築しない」を実現する。
 //
-// FScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
+// AScene 側はこれを OnRender(rc) で受け取り、必要なら rc.Cmd()/Width()/Height()
 // から描画コマンドを発行する。素の RHI を直接叩いてもよいし、ユーザーが自分の
 // FSpriteBatch を持ってもよい。
 #pragma once
@@ -29,7 +29,7 @@ namespace acs::game {
  * @details
  * 現フレームの IRhiCommandList と画面サイズを保持する軽量参照ホルダ。FSpriteBatch /
  * FFont / 反射テクスチャ / world→screen 変換などをまとめ、シーン切替でパイプラインを
- * 再構築せずに描画できるようにする。FScene 側は OnRender(rc) でこれを受け取り、
+ * 再構築せずに描画できるようにする。AScene 側は OnRender(rc) でこれを受け取り、
  * rc.Cmd()/Width()/Height() から描画コマンドを発行する。
  */
 class FRenderContext {
@@ -47,9 +47,9 @@ public:
     FRenderContext& operator=(const FRenderContext&) = delete;
 
     /**
-     * フレーム冒頭で FGame が呼び、描画リソースを配線する。
+     * フレーム冒頭で CGame が呼び、描画リソースを配線する。
      *
-     * @details m_Font はこの後 FGame が _SetFont で配線する (game 寿命で共有)。
+     * @details m_Font はこの後 CGame が _SetFont で配線する (game 寿命で共有)。
      * @param r 描画に使う FRenderer。
      * @param cl 現フレームのコマンドリスト。
      * @param w 画面の幅 (px)。
@@ -67,7 +67,7 @@ public:
         m_SceneColorCapturePass = false;
         m_WaterDepthCapturePass = false;
         m_StencilMaskActive = false;
-        // m_Font は FGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
+        // m_Font は CGame が _BeginFrame 後に _SetFont で配線する (game 寿命で共有)。
     }
 
     /** フレーム終端で per-frame 参照をクリアする (コマンドリスト等を無効化)。 */
@@ -122,7 +122,7 @@ public:
     /**
      * 現パス用の 2D 描画バッチを配線する。
      *
-     * @details FScene2D または独自ホストが設定する。コンポーネントは FSpriteBatch を
+     * @details AScene2D または独自ホストが設定する。コンポーネントは FSpriteBatch を
      * 自前で持たずに HasSprites()/Sprites() で利用できる。
      * @param sb 配線する FSpriteBatch (nullptr で解除)。
      */
@@ -145,7 +145,7 @@ public:
     /**
      * 全シーン共有の UI フォントを配線する。
      *
-     * @details FGame がロードして毎フレーム配線する。OnDrawHud から
+     * @details CGame がロードして毎フレーム配線する。OnDrawHud から
      * sb.DrawString(rc.GetFont(), ...) でテキストを描ける。
      * @param f 配線するフォント (読込失敗時は nullptr で配線され HasFont()==false)。
      */
@@ -168,7 +168,7 @@ public:
     /**
      * 反射用シーンテクスチャを配線する。
      *
-     * @details FScene2D が world をオフスクリーン RT に焼いて配線する。水が per-vertex
+     * @details AScene2D が world をオフスクリーン RT に焼いて配線する。水が per-vertex
      * 鏡像 UV でこれをサンプルし planar reflection を出す。
      * @param tex 配線する反射テクスチャ (nullptr で解除)。
      */

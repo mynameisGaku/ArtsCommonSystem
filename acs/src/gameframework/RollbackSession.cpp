@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FRollbackSession 実装
+// GameFramework — CRollbackSession 実装
 //
 // 設計メモ:
 //   ・入力台帳と状態履歴は同じ長さ (history_length) の同位相リング。tick %
@@ -28,7 +28,7 @@ bool SameEffectiveInput(const FInputFrame& a, const FInputFrame& b) noexcept
 
 } // namespace
 
-bool FRollbackSession::Init(FWorld* world, const FRollbackSessionConfig& config) noexcept
+bool CRollbackSession::Init(FWorld* world, const FRollbackSessionConfig& config) noexcept
 {
     // 再 Init に備えて先に未初期化状態へ戻す (失敗時もこの状態で返す)。
     m_World = nullptr;
@@ -62,7 +62,7 @@ bool FRollbackSession::Init(FWorld* world, const FRollbackSessionConfig& config)
     return true;
 }
 
-void FRollbackSession::Reset(u32 start_tick) noexcept
+void CRollbackSession::Reset(u32 start_tick) noexcept
 {
     if (!IsInitialized()) return;
     m_History.InvalidateAll();
@@ -73,7 +73,7 @@ void FRollbackSession::Reset(u32 start_tick) noexcept
     m_DirtyTick      = kNoDirtyTick;
 }
 
-void FRollbackSession::EnsureSlot(u32 tick) noexcept
+void CRollbackSession::EnsureSlot(u32 tick) noexcept
 {
     const u32 idx = tick % m_HistoryLength;
     if (m_SlotTick[idx] == tick) return;
@@ -82,7 +82,7 @@ void FRollbackSession::EnsureSlot(u32 tick) noexcept
     for (u32 p = 0; p < m_PlayerCount; ++p) m_Confirmed[base + p] = 0;
 }
 
-bool FRollbackSession::SubmitInput(const FInputFrame& frame) noexcept
+bool CRollbackSession::SubmitInput(const FInputFrame& frame) noexcept
 {
     if (!IsInitialized()) return false;
     if (frame.player_id >= m_PlayerCount) return false;
@@ -120,7 +120,7 @@ bool FRollbackSession::SubmitInput(const FInputFrame& frame) noexcept
     return true;
 }
 
-void FRollbackSession::GatherInputs(u32 tick) noexcept
+void CRollbackSession::GatherInputs(u32 tick) noexcept
 {
     const u32 idx  = tick % m_HistoryLength;
     const u32 base = idx * m_PlayerCount;
@@ -147,7 +147,7 @@ void FRollbackSession::GatherInputs(u32 tick) noexcept
     }
 }
 
-void FRollbackSession::AdvanceConfirmedFloor() noexcept
+void CRollbackSession::AdvanceConfirmedFloor() noexcept
 {
     while (m_ConfirmedFloor < m_CurrentTick) {
         const u32 idx = m_ConfirmedFloor % m_HistoryLength;
@@ -167,7 +167,7 @@ void FRollbackSession::AdvanceConfirmedFloor() noexcept
     }
 }
 
-bool FRollbackSession::ResimulateIfNeeded() noexcept
+bool CRollbackSession::ResimulateIfNeeded() noexcept
 {
     if (m_DirtyTick == kNoDirtyTick) return true;
 
@@ -190,7 +190,7 @@ bool FRollbackSession::ResimulateIfNeeded() noexcept
     return true;
 }
 
-bool FRollbackSession::AdvanceTick() noexcept
+bool CRollbackSession::AdvanceTick() noexcept
 {
     if (!IsInitialized() || m_SimFn == nullptr) return false;
 

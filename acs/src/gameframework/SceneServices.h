@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneServices
+// GameFramework Pillar A — CSceneServices
 //
-// シーンが必要なサービス (FSceneClock / FTweenManager / FSequenceRunner / FInputMap)
-// を bit flag (`ESvc`) で宣言、FSceneServices が遅延 alloc して保持する取り付けハブ。
-// FGame/FSceneManager が自動で tick + scene 切替に追従。
+// シーンが必要なサービス (CSceneClock / FTweenManager / CSequenceRunner / FInputMap)
+// を bit flag (`ESvc`) で宣言、CSceneServices が遅延 alloc して保持する取り付けハブ。
+// CGame/CSceneManager が自動で tick + scene 切替に追従。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D;  // Clock | Tweens | Sequences | Input
@@ -35,10 +35,11 @@
 //
 // 範囲外 (本クラスでは持たない):
 //   ・Audio / Events / Debug / Timers / Ui の各サービス
-//     (該当 Pillar 実装時に ESvc enum と FSceneServices に追加)。
+//     (該当 Pillar 実装時に ESvc enum と CSceneServices に追加)。
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "memory/UniquePtr.h"
 #include "gameframework/Clock.h"
 #include "gameframework/Tween.h"
@@ -53,28 +54,28 @@ namespace acs::game {
 /**
  * シーンが要求するサービスを宣言する bit flag。
  *
- * @details WantedServices() でこのマスクを返すと、FSceneServices が該当サービスだけを遅延 alloc する。
+ * @details WantedServices() でこのマスクを返すと、CSceneServices が該当サービスだけを遅延 alloc する。
  */
 enum class ESvc : u32 {
     /** サービスを一切要求しない。 */
     None       = 0,
 
-    /** FSceneClock (時間スケール付き dt)。 */
+    /** CSceneClock (時間スケール付き dt)。 */
     Clock      = 1u << 0,
 
     /** FTweenManager (補間アニメーション)。 */
     Tweens     = 1u << 1,
 
-    /** FSequenceRunner (時系列スクリプト)。 */
+    /** CSequenceRunner (時系列スクリプト)。 */
     Sequences  = 1u << 2,
 
     /** FInputMap (アクションへの入力束ね)。 */
     Input      = 1u << 3,
 
-    /** FCamera2D (2D カメラ)。 */
+    /** CCamera2D (2D カメラ)。 */
     Camera2D    = 1u << 4,
 
-    /** FCollisionWorld2D (2D 衝突)。 */
+    /** CCollisionWorld2D (2D 衝突)。 */
     Physics2D  = 1u << 5,
 
     /** FTriggerWorld2D (overlap enter/stay/exit イベント)。 */
@@ -124,9 +125,9 @@ constexpr bool SvcHas(ESvc mask, ESvc flag) noexcept {
  * constructor で wanted bit を見て該当サービスだけ TUniquePtr<T> を作る。未要求のサービスは null
  * のままで、accessor 呼出は ACS_CHECK で検出する (Release でも停止)。tick は 2 phase 構成で、PreUpdate (Clock 進行)
  * → scene.OnUpdate → PostUpdate (Tweens/Sequences/Camera/Triggers tick) の順に駆動される。
- * FGame/FSceneManager がフレームごとに自動で tick + scene 切替に追従する。
+ * CGame/CSceneManager がフレームごとに自動で tick + scene 切替に追従する。
  */
-class FSceneServices {
+class CSceneServices {
 public:
     /**
      * wanted bit を見て該当サービスを alloc する。
@@ -134,16 +135,16 @@ public:
      * @details 未要求のサービスは null のまま。Physics2D / Triggers は alloc 後に Init も呼ぶ。
      * @param wanted 要求するサービスの bit mask。
      */
-    explicit FSceneServices(ESvc wanted) noexcept;
+    explicit CSceneServices(ESvc wanted) noexcept;
 
     /** サービスを破棄する (各サービスは TUniquePtr が解放)。 */
-    ~FSceneServices() noexcept = default;
+    ~CSceneServices() noexcept = default;
 
     /** コピー禁止 (サービスを単独所有するため)。 */
-    FSceneServices(const FSceneServices&)            = delete;
+    CSceneServices(const CSceneServices&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneServices& operator=(const FSceneServices&) = delete;
+    CSceneServices& operator=(const CSceneServices&) = delete;
 
     /**
      * 構築時に要求されたサービスマスクを返す。
@@ -161,12 +162,12 @@ public:
     bool Has(ESvc s) const noexcept { return SvcHas(m_Wanted, s); }
 
     /**
-     * FSceneClock への参照を返す。
+     * CSceneClock への参照を返す。
      *
      * @details ESvc::Clock が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return クロックサービスへの参照。
      */
-    FSceneClock&          Clock()     noexcept;
+    CSceneClock&          Clock()     noexcept;
 
     /**
      * FTweenManager への参照を返す。
@@ -177,12 +178,12 @@ public:
     FTweenManager&        Tweens()    noexcept;
 
     /**
-     * FSequenceRunner への参照を返す。
+     * CSequenceRunner への参照を返す。
      *
      * @details ESvc::Sequences が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return sequence サービスへの参照。
      */
-    FSequenceRunner&      Sequences() noexcept;
+    CSequenceRunner&      Sequences() noexcept;
 
     /**
      * FInputMap への参照を返す。
@@ -193,20 +194,20 @@ public:
     FInputMap&            Input()     noexcept;
 
     /**
-     * FCamera2D への参照を返す。
+     * CCamera2D への参照を返す。
      *
      * @details ESvc::Camera2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return カメラサービスへの参照。
      */
-    acs::game::FCamera2D& Camera()    noexcept;
+    acs::game::CCamera2D& Camera()    noexcept;
 
     /**
-     * FCollisionWorld2D への参照を返す。
+     * CCollisionWorld2D への参照を返す。
      *
      * @details ESvc::Physics2D が要求されていなければ ACS_CHECK で停止する (Release でも nullptr 参照せず停止)。
      * @return 物理サービスへの参照。
      */
-    FCollisionWorld2D&    Physics()   noexcept;
+    CCollisionWorld2D&    Physics()   noexcept;
 
     /**
      * FTriggerWorld2D への参照を返す。
@@ -242,7 +243,7 @@ public:
     f32  _ScaledDt(f32 raw_dt) const noexcept;
 
 private:
-    friend class FSceneManager;
+    friend class CSceneManager;
 
     /** 要求された全サービスが生成済みかを返す。 */
     bool IsReady() const noexcept;
@@ -251,22 +252,22 @@ private:
     ESvc                       m_Wanted = ESvc::None;
 
     /** クロックサービス (未要求なら null)。 */
-    TUniquePtr<FSceneClock>     m_Clock;
+    TUniquePtr<CSceneClock>     m_Clock;
 
     /** tween サービス (未要求なら null)。 */
     TUniquePtr<FTweenManager>   m_Tweens;
 
     /** sequence サービス (未要求なら null)。 */
-    TUniquePtr<FSequenceRunner> m_Sequences;
+    TUniquePtr<CSequenceRunner> m_Sequences;
 
     /** 入力サービス (未要求なら null)。 */
     TUniquePtr<FInputMap>       m_Input;
 
     /** カメラサービス (未要求なら null)。 */
-    TUniquePtr<acs::game::FCamera2D> m_Camera;
+    TUniquePtr<acs::game::CCamera2D> m_Camera;
 
     /** 物理サービス (未要求なら null)。 */
-    TUniquePtr<FCollisionWorld2D>    m_Physics;
+    TUniquePtr<CCollisionWorld2D>    m_Physics;
 
     /** トリガサービス (未要求なら null)。 */
     TUniquePtr<FTriggerWorld2D>      m_Triggers;
@@ -278,7 +279,5 @@ namespace acs {
 
 /** Scene が要求する service 集合のビット列挙をトップレベルへ公開する。 */
 using game::ESvc;
-/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
-using game::FSceneServices;
 
 } // namespace acs

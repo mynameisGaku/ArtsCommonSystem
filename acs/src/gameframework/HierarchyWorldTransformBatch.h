@@ -13,7 +13,7 @@ namespace acs::game {
  * sibling は SoA batch で合成し、失敗時は部分結果を公開しない。成功後の再評価は
  * 確保済み容量を再利用する。
  */
-class FHierarchyWorldTransformBatch {
+class CHierarchyWorldTransformBatch {
 public:
     /**
      * root 自身を除く subtree を DFS pre-order で評価する。
@@ -55,5 +55,8 @@ private:
     /** DFS pre-order の計算結果。 */
     TArray<FTransform3D> m_Transforms;
 };
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FHierarchyWorldTransformBatch = CHierarchyWorldTransformBatch;
 
 } // namespace acs::game

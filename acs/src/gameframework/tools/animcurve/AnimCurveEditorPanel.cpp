@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — animcurve / FAnimCurveEditorPanel 実装
+// GameFramework Pillar — animcurve / AAnimCurveEditorPanel 実装
 //
-// 仕様の意図は FAnimCurveEditorPanel.h を参照。本ファイルでは:
+// 仕様の意図は AAnimCurveEditorPanel.h を参照。本ファイルでは:
 //   ・Init / Shutdown / SetCurve / dirty / callback: 状態管理
 //   ・DrawUI: ImGui で
 //       - Toolbar (Interp Combo / WrapMode Combo / Add Key / Clear /
@@ -214,7 +214,7 @@ static i32 ReplaceKeyAtNewTime(FAnimationCurve& curve, u32 old_idx,
 }
 
 /** 内部 state を初期値に戻す。 */
-void FAnimCurveEditorPanel::Init() noexcept {
+void AAnimCurveEditorPanel::Init() noexcept {
     m_Curve            = nullptr;
     m_SelectedKeyIdx = kNoKeySelected;
     m_Dirty            = false;
@@ -227,7 +227,7 @@ void FAnimCurveEditorPanel::Init() noexcept {
 }
 
 /** 内部 state を全解放する。 */
-void FAnimCurveEditorPanel::Shutdown() noexcept {
+void AAnimCurveEditorPanel::Shutdown() noexcept {
     m_Curve            = nullptr;
     m_SelectedKeyIdx = kNoKeySelected;
     m_Dirty            = false;
@@ -240,7 +240,7 @@ void FAnimCurveEditorPanel::Shutdown() noexcept {
 }
 
 /** 編集対象の curve をセットし selection / dirty をリセットする。 */
-void FAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
+void AAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
     m_Curve            = curve;
     m_SelectedKeyIdx = kNoKeySelected;
     m_Dirty            = false;
@@ -249,29 +249,29 @@ void FAnimCurveEditorPanel::SetCurve(FAnimationCurve* curve) noexcept {
 }
 
 /** 現在バインド中の curve を返す。 */
-FAnimationCurve* FAnimCurveEditorPanel::CurrentCurve() const noexcept {
+FAnimationCurve* AAnimCurveEditorPanel::CurrentCurve() const noexcept {
     return m_Curve;
 }
 
 /** dirty flag を返す。 */
-bool FAnimCurveEditorPanel::IsDirty() const noexcept {
+bool AAnimCurveEditorPanel::IsDirty() const noexcept {
     return m_Dirty;
 }
 
 /** dirty flag を false に戻す。 */
-void FAnimCurveEditorPanel::ClearDirty() noexcept {
+void AAnimCurveEditorPanel::ClearDirty() noexcept {
     m_Dirty = false;
 }
 
 /** 変更通知 callback と user ポインタを登録する。 */
-void FAnimCurveEditorPanel::SetOnChangeCallback(CurveChangeCallback cb,
+void AAnimCurveEditorPanel::SetOnChangeCallback(CurveChangeCallback cb,
                                                void* user) noexcept {
     m_OnChangeCb   = cb;
     m_OnChangeUser = user;
 }
 
 /** dirty を立て、immediate なら callback を即時発火する。 */
-void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
+void AAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
     m_Dirty = true;
     if (immediate && m_OnChangeCb != nullptr) {
         m_OnChangeCb(m_OnChangeUser, m_Curve);
@@ -279,7 +279,7 @@ void FAnimCurveEditorPanel::NotifyChanged(bool immediate) noexcept {
 }
 
 /** ImGui で toolbar + canvas を描画する。 */
-void FAnimCurveEditorPanel::DrawUI() noexcept {
+void AAnimCurveEditorPanel::DrawUI() noexcept {
     if (!IsVisible()) return;
 
     if (!ImGui::Begin(Title(), &m_Visible)) {

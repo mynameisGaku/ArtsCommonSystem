@@ -8,7 +8,7 @@
 namespace acs::game {
 
 /** 子を SoA 合成し、pre-order 維持のため逆順 stack へ積む。 */
-bool FHierarchyWorldTransformBatch::PushChildrenReverse(ANode* parent, const FTransform3D& parent_world, usize expected_count) noexcept {
+bool CHierarchyWorldTransformBatch::PushChildrenReverse(ANode* parent, const FTransform3D& parent_world, usize expected_count) noexcept {
     if (parent == nullptr) return true;
     /** 一度に合成する child 数。 */
     constexpr u32 kBatchWidth = 16u;
@@ -56,7 +56,7 @@ bool FHierarchyWorldTransformBatch::PushChildrenReverse(ANode* parent, const FTr
 }
 
 /** root 配下を非再帰 pre-order で一括合成する。 */
-bool FHierarchyWorldTransformBatch::Evaluate(ANode* root, usize expected_count) noexcept {
+bool CHierarchyWorldTransformBatch::Evaluate(ANode* root, usize expected_count) noexcept {
     Clear();
     if (root == nullptr) return expected_count == 0u;
     if (!m_Pending.TryReserve(expected_count) || !m_Transforms.TryReserve(expected_count) || !PushChildrenReverse(root, root->World(), expected_count)) {
@@ -80,7 +80,7 @@ bool FHierarchyWorldTransformBatch::Evaluate(ANode* root, usize expected_count) 
 }
 
 /** 結果と pending stack を空に戻す。 */
-void FHierarchyWorldTransformBatch::Clear() noexcept {
+void CHierarchyWorldTransformBatch::Clear() noexcept {
     m_Pending.Clear();
     m_Transforms.Clear();
 }

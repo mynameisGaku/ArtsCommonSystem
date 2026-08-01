@@ -14,7 +14,7 @@ TUniquePtr<AComponent> CreateComponentByName(const char* name) noexcept {
     if (name == nullptr) return TUniquePtr<AComponent>();
     AcsRegisterEngineTypes();   // カタログ登録を確定 (冪等)
 
-    FTypeRegistry& reg = FTypeRegistry::Get();
+    CTypeRegistry& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindByName(name);
     if (d == nullptr || d->category != ETypeCategory::Component)
         return TUniquePtr<AComponent>();                 // 未登録 / 非 Component

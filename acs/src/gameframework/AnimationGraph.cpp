@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FAnimationGraph 実装
+// GameFramework Pillar L — CAnimationGraph 実装
 //
 // アルゴリズム概要:
 //   Tick(dt):
@@ -31,7 +31,7 @@
 //     alpha で fade-in」する想定。前状態を含めた true cross-fade は
 //     previous_local_time を別途保持する形に拡張できる。
 //   ・state node 0 個での Tick / Reset は no-op。各 API は debug ビルドでも
-//     crash させない方針 (= FSpriteAnimator / FCooldownTimer と同方針)。
+//     crash させない方針 (= CSpriteAnimator / CCooldownTimer と同方針)。
 #include "gameframework/AnimationGraph.h"
 
 #include <cstring>   // strcmp
@@ -58,7 +58,7 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 } // namespace
 
-void FAnimationGraph::Init() noexcept {
+void CAnimationGraph::Init() noexcept {
     m_Clips.Clear();
     _state_nodes.Clear();
     m_Transitions.Clear();
@@ -80,7 +80,7 @@ void FAnimationGraph::Init() noexcept {
     m_ClipEndUser    = nullptr;
 }
 
-void FAnimationGraph::Shutdown() noexcept {
+void CAnimationGraph::Shutdown() noexcept {
     m_Clips.Clear();
     _state_nodes.Clear();
     m_Transitions.Clear();
@@ -94,21 +94,21 @@ void FAnimationGraph::Shutdown() noexcept {
     m_ClipEndedFired = false;
 }
 
-u32 FAnimationGraph::AddClip(const FAnimationClipBinding& clip) noexcept {
+u32 CAnimationGraph::AddClip(const FAnimationClipBinding& clip) noexcept {
     m_Clips.PushBack(clip);
     return static_cast<u32>(m_Clips.Size()) - 1u;
 }
 
-u32 FAnimationGraph::ClipCount() const noexcept {
+u32 CAnimationGraph::ClipCount() const noexcept {
     return static_cast<u32>(m_Clips.Size());
 }
 
-const FAnimationClipBinding* FAnimationGraph::GetClip(u32 i) const noexcept {
+const FAnimationClipBinding* CAnimationGraph::GetClip(u32 i) const noexcept {
     if (i >= m_Clips.Size()) return nullptr;
     return &m_Clips[i];
 }
 
-void FAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
+void CAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
     // 既存 ID と同じ node なら後勝ち上書き (重複 ID を許容しない)
     const usize n = _state_nodes.Size();
     for (usize i = 0; i < n; ++i) {
@@ -131,29 +131,29 @@ void FAnimationGraph::AddStateNode(const FAnimationStateNode& node) noexcept {
     }
 }
 
-u32 FAnimationGraph::StateNodeCount() const noexcept {
+u32 CAnimationGraph::StateNodeCount() const noexcept {
     return static_cast<u32>(_state_nodes.Size());
 }
 
-const FAnimationStateNode* FAnimationGraph::GetStateNode(u32 i) const noexcept {
+const FAnimationStateNode* CAnimationGraph::GetStateNode(u32 i) const noexcept {
     if (i >= _state_nodes.Size()) return nullptr;
     return &_state_nodes[i];
 }
 
-void FAnimationGraph::AddTransition(const FAnimationTransition& trans) noexcept {
+void CAnimationGraph::AddTransition(const FAnimationTransition& trans) noexcept {
     m_Transitions.PushBack(trans);
 }
 
-u32 FAnimationGraph::TransitionCount() const noexcept {
+u32 CAnimationGraph::TransitionCount() const noexcept {
     return static_cast<u32>(m_Transitions.Size());
 }
 
-const FAnimationTransition* FAnimationGraph::GetTransition(u32 i) const noexcept {
+const FAnimationTransition* CAnimationGraph::GetTransition(u32 i) const noexcept {
     if (i >= m_Transitions.Size()) return nullptr;
     return &m_Transitions[i];
 }
 
-void FAnimationGraph::SetParam(const char* name, f32 value) noexcept {
+void CAnimationGraph::SetParam(const char* name, f32 value) noexcept {
     if (name == nullptr) return;
 
     const usize n = m_Params.Size();
@@ -169,7 +169,7 @@ void FAnimationGraph::SetParam(const char* name, f32 value) noexcept {
     m_Params.PushBack(p);
 }
 
-f32 FAnimationGraph::GetParam(const char* name) const noexcept {
+f32 CAnimationGraph::GetParam(const char* name) const noexcept {
     if (name == nullptr) return 0.0f;
     const usize n = m_Params.Size();
     for (usize i = 0; i < n; ++i) {
@@ -180,7 +180,7 @@ f32 FAnimationGraph::GetParam(const char* name) const noexcept {
     return 0.0f;
 }
 
-void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexcept {
+void CAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexcept {
     // 同 state への明示的遷移は no-op (= 意図せぬ self-loop による再 enter を
     // 防ぐ; どうしても再 enter したい場合は一旦別 state を経由する設計に)
     if (m_HasCurrent && target_state == m_CurrentState) return;
@@ -188,7 +188,7 @@ void FAnimationGraph::TriggerTransition(EAnimationGraphState target_state) noexc
     m_bTriggerPending = true;
 }
 
-f32 FAnimationGraph::CurrentBlendAlpha() const noexcept {
+f32 CAnimationGraph::CurrentBlendAlpha() const noexcept {
     if (m_BlendDuration <= 0.0f) return 1.0f;       // 即時切替の場合
     if (m_BlendTimer    <= 0.0f) return 1.0f;       // blend 完了
     // blend_timer は「残時間」: alpha = 1 - (残 / 全)
@@ -199,14 +199,14 @@ f32 FAnimationGraph::CurrentBlendAlpha() const noexcept {
     return a;
 }
 
-u32 FAnimationGraph::CurrentClipIndex() const noexcept {
+u32 CAnimationGraph::CurrentClipIndex() const noexcept {
     if (!m_HasCurrent) return 0u;
     const u32 idx = FindStateNodeIndex(m_CurrentState);
     if (idx == kInvalidIndex) return 0u;
     return _state_nodes[idx].clip_index;
 }
 
-u32 FAnimationGraph::FindStateNodeIndex(EAnimationGraphState id) const noexcept {
+u32 CAnimationGraph::FindStateNodeIndex(EAnimationGraphState id) const noexcept {
     const usize n = _state_nodes.Size();
     for (usize i = 0; i < n; ++i) {
         if (_state_nodes[i].id == id) return static_cast<u32>(i);
@@ -214,7 +214,7 @@ u32 FAnimationGraph::FindStateNodeIndex(EAnimationGraphState id) const noexcept 
     return kInvalidIndex;
 }
 
-void FAnimationGraph::DoTransition(EAnimationGraphState target) noexcept {
+void CAnimationGraph::DoTransition(EAnimationGraphState target) noexcept {
     const u32 target_idx = FindStateNodeIndex(target);
     if (target_idx == kInvalidIndex) return;   // 未登録 state への遷移は無視
 
@@ -233,7 +233,7 @@ void FAnimationGraph::DoTransition(EAnimationGraphState target) noexcept {
     }
 }
 
-bool FAnimationGraph::AdvanceLocalTime(f32 dt) noexcept {
+bool CAnimationGraph::AdvanceLocalTime(f32 dt) noexcept {
     const u32 idx = FindStateNodeIndex(m_CurrentState);
     if (idx == kInvalidIndex) return false;
 
@@ -268,7 +268,7 @@ bool FAnimationGraph::AdvanceLocalTime(f32 dt) noexcept {
     return ended;
 }
 
-bool FAnimationGraph::EvaluateTransitions() noexcept {
+bool CAnimationGraph::EvaluateTransitions() noexcept {
     const usize n = m_Transitions.Size();
     for (usize i = 0; i < n; ++i) {
         const FAnimationTransition& t = m_Transitions[i];
@@ -292,7 +292,7 @@ bool FAnimationGraph::EvaluateTransitions() noexcept {
     return false;
 }
 
-void FAnimationGraph::Tick(f32 dt) noexcept {
+void CAnimationGraph::Tick(f32 dt) noexcept {
     if (dt <= 0.0f)            return;
     if (_state_nodes.IsEmpty()) return;
     if (!m_HasCurrent)         return;
@@ -326,7 +326,7 @@ void FAnimationGraph::Tick(f32 dt) noexcept {
     EvaluateTransitions();
 }
 
-void FAnimationGraph::Reset() noexcept {
+void CAnimationGraph::Reset() noexcept {
     if (_state_nodes.IsEmpty()) {
         m_HasCurrent      = false;
         m_LocalTime       = 0.0f;
@@ -350,12 +350,12 @@ void FAnimationGraph::Reset() noexcept {
     m_HasCurrent      = true;
 }
 
-void FAnimationGraph::SetOnStateEnterCallback(StateEnterCallback cb, void* user) noexcept {
+void CAnimationGraph::SetOnStateEnterCallback(StateEnterCallback cb, void* user) noexcept {
     _state_enter_cb   = cb;
     _state_enter_user = user;
 }
 
-void FAnimationGraph::SetOnClipEndCallback(ClipEndCallback cb, void* user) noexcept {
+void CAnimationGraph::SetOnClipEndCallback(ClipEndCallback cb, void* user) noexcept {
     m_ClipEndCb   = cb;
     m_ClipEndUser = user;
 }

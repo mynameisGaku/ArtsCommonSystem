@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FLocalizationDirector (i18n 文字列辞書)
+// GameFramework 完成度システム v7 — CLocalizationDirector (i18n 文字列辞書)
 //
 // 「ロケール + 文字列 ID」を「翻訳済みの const char*」に解決する小型ストア。
 // UI ラベル / セリフ / メニュー文言 / エラーメッセージ等を、ゲームロジックから
@@ -7,7 +7,7 @@
 // パーツの 1 つ。
 //
 // 使い方:
-//   FLocalizationDirector loc;
+//   CLocalizationDirector loc;
 //   loc.RegisterString(ELocale::En, "ui.title",      "Adventure of Claude");
 //   loc.RegisterString(ELocale::Ja, "ui.title",      "クロードの冒険");
 //   loc.RegisterString(ELocale::En, "ui.start",      "Start");
@@ -48,13 +48,14 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 
 namespace acs::game {
 
 /**
  * ロケール識別子 (市場想定の主要 11 言語 + Default(=En))。
  *
- * @details 値は将来の永続化 (FSettings) との互換性のため u32 で連番固定。新規追加は末尾 append。
+ * @details 値は将来の永続化 (CSettings) との互換性のため u32 で連番固定。新規追加は末尾 append。
  */
 enum class ELocale : u32 {
     /** English。 */
@@ -102,25 +103,25 @@ enum class ELocale : u32 {
  * key / value とも非所有 const char* で寿命は呼び出し側保証。Get は現 locale → Default(En) →
  * key 自身の 3 段フォールバックで解決する。エントリは線形探索で引く。非コピー・非ムーブ、全 noexcept。
  */
-class FLocalizationDirector {
+class CLocalizationDirector {
 public:
     /** 空のストアを構築する (current locale = Default)。 */
-    FLocalizationDirector()  noexcept = default;
+    CLocalizationDirector()  noexcept = default;
 
     /** 破棄する。 */
-    ~FLocalizationDirector() noexcept = default;
+    ~CLocalizationDirector() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクト運用で翻訳ずれを避けるため)。 */
-    FLocalizationDirector(const FLocalizationDirector&)            = delete;
+    CLocalizationDirector(const CLocalizationDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLocalizationDirector& operator=(const FLocalizationDirector&) = delete;
+    CLocalizationDirector& operator=(const CLocalizationDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FLocalizationDirector(FLocalizationDirector&&)                 = delete;
+    CLocalizationDirector(CLocalizationDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLocalizationDirector& operator=(FLocalizationDirector&&)      = delete;
+    CLocalizationDirector& operator=(CLocalizationDirector&&)      = delete;
 
     /**
      * 現在の取得対象ロケールを切り替える (UI 言語切替で呼ばれる)。

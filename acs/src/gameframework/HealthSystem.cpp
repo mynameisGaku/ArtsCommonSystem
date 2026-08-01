@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FHealthSystem 実装
+// GameFramework Pillar R/I — CHealthSystem 実装
 //
 // slot+gen パターンで複数 entity の HP / 死亡 / 復活 / 無敵時間を管理する。
 // DeathCallback は is_alive=false の確定後に発火するため、callback 内で同
@@ -9,14 +9,14 @@
 namespace acs::game {
 
 /** 値を [lo, hi] に clamp する。 */
-f32 FHealthSystem::Clamp(f32 v, f32 lo, f32 hi) noexcept {
+f32 CHealthSystem::Clamp(f32 v, f32 lo, f32 hi) noexcept {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
 /** 空き slot を線形検索し、無ければ末尾を拡張してインデックスを返す。 */
-u32 FHealthSystem::AcquireSlot() noexcept {
+u32 CHealthSystem::AcquireSlot() noexcept {
     // index 0 を invalid 予約として残す (dummy slot)。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
         if (!m_Slots[i].active) return i;
@@ -29,7 +29,7 @@ u32 FHealthSystem::AcquireSlot() noexcept {
 }
 
 /** id が有効 (範囲内 + active + generation 一致) なら slot を返す。 */
-FHealthSystem::FSlot* FHealthSystem::FindSlot(FHealthId id) noexcept {
+CHealthSystem::FSlot* CHealthSystem::FindSlot(FHealthId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= m_Slots.Size()) return nullptr;
@@ -40,7 +40,7 @@ FHealthSystem::FSlot* FHealthSystem::FindSlot(FHealthId id) noexcept {
 }
 
 /** id が有効なら slot を返す (const 版)。 */
-const FHealthSystem::FSlot* FHealthSystem::FindSlot(FHealthId id) const noexcept {
+const CHealthSystem::FSlot* CHealthSystem::FindSlot(FHealthId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0 || idx >= m_Slots.Size()) return nullptr;
@@ -51,7 +51,7 @@ const FHealthSystem::FSlot* FHealthSystem::FindSlot(FHealthId id) const noexcept
 }
 
 /** 空き slot を確保し full HP・生存状態で entity を登録して ID を返す。 */
-FHealthId FHealthSystem::Spawn(f32 max_hp) noexcept {
+FHealthId CHealthSystem::Spawn(f32 max_hp) noexcept {
     if (max_hp <= 0.0f) max_hp = 1.0f;   // 0 以下は防御的に 1 HP
 
     const u32 idx = AcquireSlot();
@@ -73,7 +73,7 @@ FHealthId FHealthSystem::Spawn(f32 max_hp) noexcept {
 }
 
 /** slot を active=false にして entity を破棄する (generation は次の Spawn で進む)。 */
-void FHealthSystem::Despawn(FHealthId id) noexcept {
+void CHealthSystem::Despawn(FHealthId id) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     // generation はそのままで active=false に。次の Spawn で gen が +1 されて
@@ -87,7 +87,7 @@ void FHealthSystem::Despawn(FHealthId id) noexcept {
 }
 
 /** HP を減算し、0 以下なら死亡確定 → DeathCallback 発火。致死なら true。 */
-bool FHealthSystem::ApplyDamage(FHealthId id, f32 amount, EDamageType type) noexcept {
+bool CHealthSystem::ApplyDamage(FHealthId id, f32 amount, EDamageType type) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return false;
     if (!s->state.is_alive) return false;   // 既に死亡 → no-op
@@ -113,7 +113,7 @@ bool FHealthSystem::ApplyDamage(FHealthId id, f32 amount, EDamageType type) noex
 }
 
 /** HP を加算し max_hp で clamp する (is_alive は変動させない)。 */
-void FHealthSystem::Heal(FHealthId id, f32 amount) noexcept {
+void CHealthSystem::Heal(FHealthId id, f32 amount) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     if (amount <= 0.0f) return;
@@ -126,7 +126,7 @@ void FHealthSystem::Heal(FHealthId id, f32 amount) noexcept {
 }
 
 /** 無敵タイマを設定する (既存より長い場合のみ延長、0 以下で即解除)。 */
-void FHealthSystem::SetInvulnerable(FHealthId id, f32 duration_sec) noexcept {
+void CHealthSystem::SetInvulnerable(FHealthId id, f32 duration_sec) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     if (duration_sec <= 0.0f) {
@@ -145,7 +145,7 @@ void FHealthSystem::SetInvulnerable(FHealthId id, f32 duration_sec) noexcept {
 }
 
 /** 死亡中の entity を hp_fraction (最低 1 HP) で復活させる。 */
-void FHealthSystem::Revive(FHealthId id, f32 hp_fraction) noexcept {
+void CHealthSystem::Revive(FHealthId id, f32 hp_fraction) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     if (s->state.is_alive) return;   // 生存中は no-op
@@ -162,7 +162,7 @@ void FHealthSystem::Revive(FHealthId id, f32 hp_fraction) noexcept {
 }
 
 /** HP 上限を更新し、refill 指定なら current_hp も揃える (is_alive は据置)。 */
-void FHealthSystem::SetMaxHp(FHealthId id, f32 new_max, bool refill) noexcept {
+void CHealthSystem::SetMaxHp(FHealthId id, f32 new_max, bool refill) noexcept {
     FSlot* s = FindSlot(id);
     if (s == nullptr) return;
     if (new_max <= 0.0f) new_max = 1.0f;
@@ -182,21 +182,21 @@ void FHealthSystem::SetMaxHp(FHealthId id, f32 new_max, bool refill) noexcept {
 }
 
 /** id が有効なら HP 状態への const 参照を返す (無効なら nullptr)。 */
-const FHealthState* FHealthSystem::GetState(FHealthId id) const noexcept {
+const FHealthState* CHealthSystem::GetState(FHealthId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return nullptr;
     return &s->state;
 }
 
 /** 現在 HP を返す (無効 id なら 0.0)。 */
-f32 FHealthSystem::GetCurrentHp(FHealthId id) const noexcept {
+f32 CHealthSystem::GetCurrentHp(FHealthId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return 0.0f;
     return s->state.current_hp;
 }
 
 /** current_hp / max_hp を返す (無効 id or max_hp<=0 なら 0.0)。 */
-f32 FHealthSystem::GetHpFraction(FHealthId id) const noexcept {
+f32 CHealthSystem::GetHpFraction(FHealthId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return 0.0f;
     if (s->state.max_hp <= 0.0f) return 0.0f;
@@ -204,21 +204,21 @@ f32 FHealthSystem::GetHpFraction(FHealthId id) const noexcept {
 }
 
 /** 生存中かを返す (無効 id なら false)。 */
-bool FHealthSystem::IsAlive(FHealthId id) const noexcept {
+bool CHealthSystem::IsAlive(FHealthId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return false;
     return s->state.is_alive;
 }
 
 /** 無敵中かを返す (無効 id なら false)。 */
-bool FHealthSystem::IsInvulnerable(FHealthId id) const noexcept {
+bool CHealthSystem::IsInvulnerable(FHealthId id) const noexcept {
     const FSlot* s = FindSlot(id);
     if (s == nullptr) return false;
     return s->state.invulnerable;
 }
 
 /** active かつ is_alive な entity を数えて返す。 */
-u32 FHealthSystem::AliveCount() const noexcept {
+u32 CHealthSystem::AliveCount() const noexcept {
     u32 count = 0;
     const usize n = m_Slots.Size();
     // index 0 は dummy なので 1 から走査。
@@ -230,7 +230,7 @@ u32 FHealthSystem::AliveCount() const noexcept {
 }
 
 /** 全 active entity の invuln_timer を減算し、0 到達で無敵を解除する。 */
-void FHealthSystem::Tick(f32 dt) noexcept {
+void CHealthSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
@@ -247,13 +247,13 @@ void FHealthSystem::Tick(f32 dt) noexcept {
 }
 
 /** 死亡時コールバックと user ポインタを設定する。 */
-void FHealthSystem::SetOnDeathCallback(DeathCallback cb, void* user) noexcept {
+void CHealthSystem::SetOnDeathCallback(DeathCallback cb, void* user) noexcept {
     m_OnDeath      = cb;
     m_OnDeathUser = user;
 }
 
 /** slot 配列をクリアして全 entity を破棄する (callback は保持)。 */
-void FHealthSystem::ClearAll() noexcept {
+void CHealthSystem::ClearAll() noexcept {
     m_Slots.Clear();
     m_EntityCount = 0;
     // callback は保持 (ClearAll は entity 全消去のみ、ディレクタ結線は維持)。

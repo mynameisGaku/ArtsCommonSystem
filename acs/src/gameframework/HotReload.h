@@ -58,7 +58,7 @@ enum class EHotReloadResult : u8 {
 // 結果値に対応する安定した診断名を返す。未知値は "Unknown"。
 const char* HotReloadResultName(EHotReloadResult result) noexcept;
 
-// FHotReloadWatcher の通知パイプライン診断スナップショット。
+// CHotReloadWatcher の通知パイプライン診断スナップショット。
 //
 // 全カウンタは最大値で飽和し、折り返さない。last_failure と
 // authoritative_rescan_required は sticky であり、成功した後続操作では解除されない。
@@ -93,7 +93,7 @@ struct FHotReloadDiagnostics {
 
 // hot reload コールバックの型。
 //
-// ACS 規約により全 noexcept、関数ポインタのみ採用 (FDevConsole 等と同規約)。
+// ACS 規約により全 noexcept、関数ポインタのみ採用 (CDevConsole 等と同規約)。
 // user は Register 時に渡したコンテキストポインタ (this 想定)。
 // ev はイベントの詳細を表し、呼び出しスコープ中のみ有効。
 using FHotReloadCallback =
@@ -117,7 +117,7 @@ struct FWatchEntry;
 // Ship build (ACS_GAME_SHIPPING 定義時) では全 public メソッドが no-op になり、
 // event は 1 つも届かない (dev tool を Ship build で完全に消す方針)。所有する
 // watch・callback・event コンテナの一意性を保つため非コピー・非ムーブ。
-class FHotReloadWatcher {
+class CHotReloadWatcher {
 public:
     // 信頼できない editor 入力による queue の無制限増加を防ぐ上限。
     static constexpr u32 kMaxWatchedPaths   = 256u;
@@ -131,25 +131,25 @@ public:
     //
     // FWatchEntry の完全型が見える `.cpp` で定義し、コンストラクタの
     // 失敗後始末が不完全型の TUniquePtr 破棄を外部 TU で実体化しないようにする。
-    FHotReloadWatcher() noexcept;
+    CHotReloadWatcher() noexcept;
 
     // 破棄する (out-of-line)。
     //
     // TUniquePtr<FWatchEntry> の解放には完全型が要るが FWatchEntry は `.cpp` でのみ
     // 完全になるため、デストラクタは out-of-line で定義する (ship build では空)。
-    ~FHotReloadWatcher() noexcept;
+    ~CHotReloadWatcher() noexcept;
 
     // コピー禁止 (所有する watch・callback・event 状態を一意に保つため)。
-    FHotReloadWatcher(const FHotReloadWatcher&)            = delete;
+    CHotReloadWatcher(const CHotReloadWatcher&)            = delete;
 
     // コピー代入も禁止。
-    FHotReloadWatcher& operator=(const FHotReloadWatcher&) = delete;
+    CHotReloadWatcher& operator=(const CHotReloadWatcher&) = delete;
 
     // ムーブ禁止。
-    FHotReloadWatcher(FHotReloadWatcher&&)                 = delete;
+    CHotReloadWatcher(CHotReloadWatcher&&)                 = delete;
 
     // ムーブ代入も禁止。
-    FHotReloadWatcher& operator=(FHotReloadWatcher&&)      = delete;
+    CHotReloadWatcher& operator=(CHotReloadWatcher&&)      = delete;
 
     // 内部バッファを予約する。OS watcher は開かない。多重呼び出し可。
     void Init() noexcept;
@@ -343,5 +343,8 @@ private:
     FHotReloadDiagnostics m_Diagnostics{};
 #endif
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FHotReloadWatcher = CHotReloadWatcher;
 
 } // namespace acs::game

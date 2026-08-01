@@ -2,7 +2,7 @@
 // GameFramework Pillar F — APhysicsBody2D
 //
 // kinematic 物理 body の AComponent。velocity + acceleration + gravity を
-// 統合し、FCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
+// 統合し、CCollisionWorld2D に登録された他の shape と衝突したら **軸独立で**
 // blocking する (X 軸試行 → overlap なら velocity.x=0 / x 移動キャンセル、
 // 同様に Y 軸)。剛体ソルバではなく「2D プラットフォーマー / トップダウン用の
 // swept kinematic」。
@@ -41,7 +41,7 @@ namespace acs::game {
  * kinematic 物理 body を表す AComponent。
  *
  * @details
- * velocity + acceleration + gravity を毎フレーム統合し、FCollisionWorld2D に登録された
+ * velocity + acceleration + gravity を毎フレーム統合し、CCollisionWorld2D に登録された
  * 他 shape と衝突したら停止する。既定の collide-and-slide では望む変位だけ動かしてから
  * 貫通を MTV で押し出し、押し出し法線方向の速度成分を消して面に沿って滑る。slide=false の
  * ときは X / Y を独立に試して overlap なら軸ごとに止める旧来の軸独立 block。剛体ソルバでは
@@ -56,7 +56,7 @@ public:
      *
      * @param world shape 登録・overlap クエリに使う衝突ワールド (参照を保持)。
      */
-    explicit APhysicsBody2D(FCollisionWorld2D& world) noexcept : m_World(&world) {}
+    explicit APhysicsBody2D(CCollisionWorld2D& world) noexcept : m_World(&world) {}
 
     /**
      * 形状を円に設定する (再設定で上書き)。
@@ -178,7 +178,7 @@ private:
     FConvexPoly2 WorldPoly(FVec2 pos) const noexcept;
 
     /** shape 登録・overlap クエリに使う衝突ワールド (非所有)。 */
-    FCollisionWorld2D* m_World  = nullptr;
+    CCollisionWorld2D* m_World  = nullptr;
 
     /** 現在の形状種別。 */
     EShapeKind         m_Kind   = EShapeKind::None;

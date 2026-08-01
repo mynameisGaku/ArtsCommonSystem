@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FNetSnapshot 実装
+// GameFramework Pillar M — CNetSnapshot 実装
 //
 // 構成:
 //   1) NetTransportStub: 常に NotImplemented を返す null-object transport。
-//   2) FNetSnapshot:
+//   2) CNetSnapshot:
 //      ・Init / Shutdown: ring buffer / pending list / 統計値の初期化と解放。
 //      ・AddEntitySnapshot / CommitSnapshot: server 側で 1 frame 分の state を
 //        積み、1 つの payload に concat して transport.Send。
@@ -27,7 +27,7 @@
 //     encode/decode は seam に依存しない real な byte serialization になっている。
 //   ・LE 固定。MemCopy 経由で strict-aliasing 安全。
 //   ・CRC32 は Zlib / PNG 規約 (poly 0xEDB88320, init/xorout 0xFFFFFFFF)。
-//     FSaveArchive.cpp / FLockstep.cpp と同一の file-local ComputeCrc32 を持つ
+//     CSaveArchive.cpp / CLockstep.cpp と同一の file-local ComputeCrc32 を持つ
 //     (gameframework は assetpack を依存に持たないため link 単位を独立させる)。
 //   ・全 noexcept。エラーは内部で握り潰す (transport.Send 失敗は packet
 //     loss と等価扱い)。INetTransport API は TResult<T> だが、上位の
@@ -42,7 +42,7 @@
 #include "memory/Memory.h"   // MemCopy / MemSet
 #include "threading/ScopedLock.h"
 
-// ---- 実 Winsock2 UDP transport (FUdpTransport) 用 ---------------------------
+// ---- 実 Winsock2 UDP transport (CUdpTransport) 用 ---------------------------
 // <winsock2.h> は <windows.h> より先に include しないと winsock(1) と衝突する
 // ため、明示的に先頭で取り込む。header (NetSnapshot.h) には漏らさない (uptr /
 // raw octets で socket / endpoint を保持しているため)。
@@ -135,7 +135,7 @@ constexpr u32 kFrameFixedOverhead = kMagicSize + kVersionSize + kHeaderWireSize 
 /**
  * CRC32 ルックアップテーブルを返す (poly 0xEDB88320、Meyer's singleton で初期化)。
  *
- * @details FSaveArchive / FLockstep と同一実装 (gameframework は link 単位を独立させる)。
+ * @details CSaveArchive / CLockstep と同一実装 (gameframework は link 単位を独立させる)。
  * @return 256 要素の CRC32 テーブル先頭。
  */
 const u32* GetCrc32Table() noexcept
@@ -208,10 +208,10 @@ void ReadHeader(const u8* src, FSnapshotHeader& h) noexcept
 }
 
 /**
- * WSAStartup のプロセス内参照数と lifecycle lock (FUdpTransport 用)。
+ * WSAStartup のプロセス内参照数と lifecycle lock (CUdpTransport 用)。
  *
  * @details
- * 複数の FUdpTransport / 他モジュールの Winsock 利用と共存できるよう「初回のみ
+ * 複数の CUdpTransport / 他モジュールの Winsock 利用と共存できるよう「初回のみ
  * WSAStartup、最後の解放で WSACleanup」とする。gameframework は Network を依存に
  * 持たないため file-local に独立した参照数を持つ (OS 側でも ref-count されるため
  * 共存しても安全)。
@@ -834,7 +834,7 @@ bool ResetUdpTransportDiagnosticsForTesting() noexcept
 } // namespace internal
 
 /** 常に kSub_NotImplemented を返す (stub が本番に混入したケースを QA で検出可能に)。 */
-TResult<void> FNetTransportStub::Connect(const char* address, u16 port) noexcept
+TResult<void> CNetTransportStub::Connect(const char* address, u16 port) noexcept
 {
     (void)address;
     (void)port;
@@ -844,13 +844,13 @@ TResult<void> FNetTransportStub::Connect(const char* address, u16 port) noexcept
 }
 
 /** never-connected なので no-op。 */
-void FNetTransportStub::Disconnect() noexcept
+void CNetTransportStub::Disconnect() noexcept
 {
     // stub は never-connected。no-op で安全に通す。
 }
 
 /** 常に kSub_NotImplemented を返す。 */
-TResult<void> FNetTransportStub::Send(const void* data, u32 size) noexcept
+TResult<void> CNetTransportStub::Send(const void* data, u32 size) noexcept
 {
     (void)data;
     (void)size;
@@ -860,7 +860,7 @@ TResult<void> FNetTransportStub::Send(const void* data, u32 size) noexcept
 }
 
 /** 常に kSub_NotImplemented を返す。 */
-TResult<u32> FNetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept
+TResult<u32> CNetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept
 {
     (void)out_buffer;
     (void)capacity;
@@ -872,12 +872,12 @@ TResult<u32> FNetTransportStub::Receive(void* out_buffer, u32 capacity) noexcept
 /** プロセス共有の stub を返す (function-local static で thread-safe 初期化)。 */
 INetTransport& GetTransportStub() noexcept
 {
-    static FNetTransportStub s_instance;
+    static CNetTransportStub s_instance;
     return s_instance;
 }
 
 /** socket と WSA 参照の解放を試み、残存時は共有回収処理へ所有権を移して破棄する。 */
-FUdpTransport::~FUdpTransport() noexcept
+CUdpTransport::~CUdpTransport() noexcept
 {
     bool cleanup_outstanding = false;
     u32 cleanup_error = 0;
@@ -905,8 +905,8 @@ FUdpTransport::~FUdpTransport() noexcept
     }
 }
 
-/** 全 FUdpTransport が共有する Winsock 資源状態を一貫した時点で取得する。 */
-FUdpTransportDiagnostics FUdpTransport::CaptureDiagnostics() noexcept
+/** 全 CUdpTransport が共有する Winsock 資源状態を一貫した時点で取得する。 */
+FUdpTransportDiagnostics CUdpTransport::CaptureDiagnostics() noexcept
 {
     FUdpTransportDiagnostics diagnostics{};
     ::AcquireSRWLockShared(&g_winsock_lifecycle_lock);
@@ -922,7 +922,7 @@ FUdpTransportDiagnostics FUdpTransport::CaptureDiagnostics() noexcept
 }
 
 /** 共有回収処理へ移された socket / WSA 参照を明示的に drain する。 */
-TResult<void> FUdpTransport::DrainDeferredResources() noexcept
+TResult<void> CUdpTransport::DrainDeferredResources() noexcept
 {
     FPendingWinsockFailureReports reports{};
     u32 first_error = 0;
@@ -963,28 +963,28 @@ TResult<void> FUdpTransport::DrainDeferredResources() noexcept
 }
 
 /** bind する local port を次回 Connect 用に設定する。 */
-void FUdpTransport::SetLocalPort(u16 local_port) noexcept
+void CUdpTransport::SetLocalPort(u16 local_port) noexcept
 {
     FScopedLock state_lock(m_StateLock);
     m_LocalPort = local_port;
 }
 
 /** 設定済みの local port を返す。 */
-u16 FUdpTransport::LocalPort() const noexcept
+u16 CUdpTransport::LocalPort() const noexcept
 {
     FScopedLock state_lock(m_StateLock);
     return m_LocalPort;
 }
 
 /** 完全に bind 済みで送受信可能な状態かを返す。 */
-bool FUdpTransport::IsConnected() const noexcept
+bool CUdpTransport::IsConnected() const noexcept
 {
     FScopedLock state_lock(m_StateLock);
     return m_State == EState::Established;
 }
 
 /** WSAStartup → socket 生成 → 非ブロッキング化 → bind → remote endpoint 保持。 */
-TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
+TResult<void> CUdpTransport::Connect(const char* address, u16 port) noexcept
 {
     if (address == nullptr) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_BadArgument, "FUdpTransport::Connect: address is null");
@@ -1068,7 +1068,7 @@ TResult<void> FUdpTransport::Connect(const char* address, u16 port) noexcept
 }
 
 /** instance lock 保持下で socket と WSA 参照を回収する。 */
-u32 FUdpTransport::DisconnectLocked() noexcept
+u32 CUdpTransport::DisconnectLocked() noexcept
 {
     u32 first_error = 0;
 
@@ -1107,14 +1107,14 @@ u32 FUdpTransport::DisconnectLocked() noexcept
 }
 
 /** closesocket + WSACleanup (ref を戻す)。多重 / 未接続呼出は no-op。 */
-void FUdpTransport::Disconnect() noexcept
+void CUdpTransport::Disconnect() noexcept
 {
     FScopedLock state_lock(m_StateLock);
     (void)DisconnectLocked();
 }
 
 /** remote endpoint へ 1 datagram を sendto() する (境界保持、1 Send = 1 packet)。 */
-TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept
+TResult<void> CUdpTransport::Send(const void* data, u32 size) noexcept
 {
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
@@ -1155,7 +1155,7 @@ TResult<void> FUdpTransport::Send(const void* data, u32 size) noexcept
 }
 
 /** 非ブロッキング recvfrom() で 1 datagram を取り出す (受信なしは 0 byte 成功)。 */
-TResult<u32> FUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept
+TResult<u32> CUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept
 {
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
@@ -1198,7 +1198,7 @@ TResult<u32> FUdpTransport::Receive(void* out_buffer, u32 capacity) noexcept
 }
 
 /** recv 待ちバイト数を ioctlsocket(FIONREAD) で問い合わせる (失敗 / 未接続は 0)。 */
-u32 FUdpTransport::PendingBytesIn() const noexcept
+u32 CUdpTransport::PendingBytesIn() const noexcept
 {
     FScopedLock state_lock(m_StateLock);
     if (m_State != EState::Established || m_Socket == kInvalidSocket) {
@@ -1212,7 +1212,7 @@ u32 FUdpTransport::PendingBytesIn() const noexcept
 }
 
 /** 1 frame の総バイト数を返す (u64 で加算 → u32 上限超えは clamp)。 */
-u32 FNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept
+u32 CNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept
 {
     const u64 total = static_cast<u64>(kFrameFixedOverhead) + static_cast<u64>(payload_size);
     // payload_size は呼出側で max_payload_bytes 以下に制限済み。理論上の
@@ -1224,7 +1224,7 @@ u32 FNetSnapshot::EncodedSnapshotSize(u32 payload_size) noexcept
 }
 
 /** header + payload を frame wire layout で out_buffer に直列化する (CRC を footer に付与)。 */
-TResult<void> FNetSnapshot::EncodeSnapshot(const FSnapshotHeader& header, const u8* payload, u32 payload_size,
+TResult<void> CNetSnapshot::EncodeSnapshot(const FSnapshotHeader& header, const u8* payload, u32 payload_size,
                                            u8* out_buffer, u32 out_capacity, u32& out_written) noexcept
 {
     out_written = 0;
@@ -1287,7 +1287,7 @@ TResult<void> FNetSnapshot::EncodeSnapshot(const FSnapshotHeader& header, const 
 }
 
 /** frame bytes を magic / version / size / CRC32 で検証し、header + payload を復元する。 */
-TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshotHeader& out_header,
+TResult<void> CNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshotHeader& out_header,
                                            TArray<u8>& out_payload) noexcept
 {
     if (buffer == nullptr) {
@@ -1366,7 +1366,7 @@ TResult<void> FNetSnapshot::DecodeSnapshot(const u8* buffer, u32 size, FSnapshot
 }
 
 /** 設定をコピーし ring buffer を確保する (Standalone 以外で nullptr transport は stub に差替)。 */
-void FNetSnapshot::Init(const FNetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept
+void CNetSnapshot::Init(const FNetSnapshotConfig& config, ENetRole role, INetTransport* transport) noexcept
 {
     FNetSnapshotConfig normalized = config;
     if (normalized.snapshot_rate_hz == 0) normalized.snapshot_rate_hz = 30;
@@ -1387,7 +1387,7 @@ void FNetSnapshot::Init(const FNetSnapshotConfig& config, ENetRole role, INetTra
 }
 
 /** 設定と ring allocation が成功してから state を一括置換する checked 初期化。 */
-TResult<void> FNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole role,
+TResult<void> CNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole role,
                                    INetTransport* transport) noexcept
 {
     if (!IsValidNetRole(role) || config.snapshot_rate_hz == 0 || config.snapshot_rate_hz > 1000u ||
@@ -1428,7 +1428,7 @@ TResult<void> FNetSnapshot::TryInit(const FNetSnapshotConfig& config, ENetRole r
 }
 
 /** ring buffer / pending / scratch を解放する (transport は外部所有なので触らない)。 */
-void FNetSnapshot::Shutdown() noexcept
+void CNetSnapshot::Shutdown() noexcept
 {
     m_RingBuffer.Clear();
     m_PendingEntities.Clear();
@@ -1448,19 +1448,19 @@ void FNetSnapshot::Shutdown() noexcept
 }
 
 /** ring buffer に貯まっている snapshot 件数を返す。 */
-u32 FNetSnapshot::BufferedSnapshotCount() const noexcept
+u32 CNetSnapshot::BufferedSnapshotCount() const noexcept
 {
     return m_RingCount;
 }
 
 /** server 側で 1 entity 分の state を pending list にコピーして積む (Client/Standalone は no-op)。 */
-void FNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data, u32 data_size) noexcept
+void CNetSnapshot::AddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data, u32 data_size) noexcept
 {
     (void)TryAddEntitySnapshot(entity_id, component_mask, data, data_size);
 }
 
 /** 失敗時に pending state を維持する entity 追加。 */
-TResult<void> FNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data,
+TResult<void> CNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_mask, const void* data,
                                                 u32 data_size) noexcept
 {
     if (m_Role != ENetRole::Server && m_Role != ENetRole::ServerListener) {
@@ -1497,7 +1497,7 @@ TResult<void> FNetSnapshot::TryAddEntitySnapshot(u32 entity_id, u32 component_ma
 }
 
 /** pending list を 1 payload に concat し、frame を構築して best-effort 送信する。 */
-void FNetSnapshot::CommitSnapshot(u32 tick) noexcept
+void CNetSnapshot::CommitSnapshot(u32 tick) noexcept
 {
     if (TryCommitSnapshot(tick).IsErr()) {
         // 互換 API は従来どおり best-effort で 1 tick 分を消費する。
@@ -1507,7 +1507,7 @@ void FNetSnapshot::CommitSnapshot(u32 tick) noexcept
 }
 
 /** state を成功時だけ commit する checked snapshot 送信。 */
-TResult<void> FNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
+TResult<void> CNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
 {
     if (m_Role != ENetRole::Server && m_Role != ENetRole::ServerListener) {
         return ACS_ERR(IO, FNetSnapshotError::kSub_WrongRole,
@@ -1614,13 +1614,13 @@ TResult<void> FNetSnapshot::TryCommitSnapshot(u32 tick) noexcept
 }
 
 /** transport.Receive を pump し、検証成功した snapshot を ring buffer に積む。 */
-void FNetSnapshot::Tick(f32 dt) noexcept
+void CNetSnapshot::Tick(f32 dt) noexcept
 {
     (void)TryTick(dt);
 }
 
 /** message 単位で完全検証後に ring へ commit する checked receive pump。 */
-FNetSnapshotTickResult FNetSnapshot::TryTick(f32 dt) noexcept
+FNetSnapshotTickResult CNetSnapshot::TryTick(f32 dt) noexcept
 {
     (void)dt;
     FNetSnapshotTickResult result{};
@@ -1707,7 +1707,7 @@ FNetSnapshotTickResult FNetSnapshot::TryTick(f32 dt) noexcept
 }
 
 /** 最新 snapshot を payload walk して EntitySnapshot view に流す (float lerp は未実装)。 */
-bool FNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, FEntitySnapshot* out_snapshots, u32 max_count,
+bool CNetSnapshot::TryGetInterpolatedSnapshot(f32 client_time_sec, FEntitySnapshot* out_snapshots, u32 max_count,
                                               u32& out_actual_count) noexcept
 {
     out_actual_count = 0;

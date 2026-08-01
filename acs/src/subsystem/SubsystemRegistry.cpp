@@ -5,23 +5,23 @@
 
 namespace acs {
 
-FSubsystemRegistry& FSubsystemRegistry::Get() noexcept
+CSubsystemRegistry& CSubsystemRegistry::Get() noexcept
 {
     /** この link image が所有する登録簿。 */
-    static FSubsystemRegistry Instance;
+    static CSubsystemRegistry Instance;
     return Instance;
 }
 
-FSubsystemRegistry::FSubsystemRegistry() noexcept : m_Entries(m_Allocator)
+CSubsystemRegistry::CSubsystemRegistry() noexcept : m_Entries(m_Allocator)
 {
 }
 
-bool FSubsystemRegistry::TryRegister(const FSubsystemFactory& factory) noexcept
+bool CSubsystemRegistry::TryRegister(const FSubsystemFactory& factory) noexcept
 {
     return RegisterSource(factory, nullptr);
 }
 
-bool FSubsystemRegistry::TryRegisterActive(const FSubsystemFactory& factory) noexcept
+bool CSubsystemRegistry::TryRegisterActive(const FSubsystemFactory& factory) noexcept
 {
     if (!TryRegister(factory)) return false;
     for (usize Index = 0u; Index < m_Entries.Size(); ++Index) {
@@ -32,27 +32,27 @@ bool FSubsystemRegistry::TryRegisterActive(const FSubsystemFactory& factory) noe
     return false;
 }
 
-void FSubsystemRegistry::Register(const FSubsystemFactory& factory) noexcept
+void CSubsystemRegistry::Register(const FSubsystemFactory& factory) noexcept
 {
     (void)TryRegister(factory);
 }
 
-bool FSubsystemRegistry::Unregister(const FSubsystemFactory& factory) noexcept
+bool CSubsystemRegistry::Unregister(const FSubsystemFactory& factory) noexcept
 {
     return UnregisterSource(factory, nullptr);
 }
 
-u32 FSubsystemRegistry::Count() const noexcept
+u32 CSubsystemRegistry::Count() const noexcept
 {
     return static_cast<u32>(m_Entries.Size());
 }
 
-const FSubsystemFactory& FSubsystemRegistry::At(u32 index) const noexcept
+const FSubsystemFactory& CSubsystemRegistry::At(u32 index) const noexcept
 {
     return m_Entries[index].sources[0].factory;
 }
 
-bool FSubsystemRegistry::TrySnapshot(TArray<FSubsystemFactory>& output) const noexcept
+bool CSubsystemRegistry::TrySnapshot(TArray<FSubsystemFactory>& output) const noexcept
 {
     TArray<FSubsystemFactory> Staged(*output.GetAllocator());
     if (!Staged.TryReserve(m_Entries.Size())) return false;
@@ -63,7 +63,7 @@ bool FSubsystemRegistry::TrySnapshot(TArray<FSubsystemFactory>& output) const no
     return true;
 }
 
-bool FSubsystemRegistry::StrEq(const char* left, const char* right) noexcept
+bool CSubsystemRegistry::StrEq(const char* left, const char* right) noexcept
 {
     if (left == nullptr || right == nullptr) return left == right;
     while (*left != '\0' && *left == *right) {
@@ -73,7 +73,7 @@ bool FSubsystemRegistry::StrEq(const char* left, const char* right) noexcept
     return *left == *right;
 }
 
-bool FSubsystemRegistry::SameImplementation(
+bool CSubsystemRegistry::SameImplementation(
     const FSubsystemFactory& left, const FSubsystemFactory& right) noexcept
 {
     return left.kind == right.kind && left.scope == right.scope &&
@@ -81,7 +81,7 @@ bool FSubsystemRegistry::SameImplementation(
            left.order == right.order && StrEq(left.name, right.name);
 }
 
-bool FSubsystemRegistry::RegisterSource(
+bool CSubsystemRegistry::RegisterSource(
     const FSubsystemFactory& factory, const void* token) noexcept
 {
     if (!IsValidSubsystemFactory(factory)) return false;
@@ -108,7 +108,7 @@ bool FSubsystemRegistry::RegisterSource(
     return m_Entries.TryPushBack(Entry);
 }
 
-bool FSubsystemRegistry::UnregisterSource(
+bool CSubsystemRegistry::UnregisterSource(
     const FSubsystemFactory& factory, const void* token) noexcept
 {
     for (usize EntryIndex = 0u; EntryIndex < m_Entries.Size(); ++EntryIndex) {
@@ -145,15 +145,15 @@ bool FSubsystemRegistry::UnregisterSource(
     return false;
 }
 
-FSubsystemAutoRegister::FSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept
-    : m_Factory(factory), m_Registered(FSubsystemRegistry::Get().RegisterSource(m_Factory, this))
+CSubsystemAutoRegister::CSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept
+    : m_Factory(factory), m_Registered(CSubsystemRegistry::Get().RegisterSource(m_Factory, this))
 {
 }
 
-FSubsystemAutoRegister::~FSubsystemAutoRegister() noexcept
+CSubsystemAutoRegister::~CSubsystemAutoRegister() noexcept
 {
     if (m_Registered) {
-        (void)FSubsystemRegistry::Get().UnregisterSource(m_Factory, this);
+        (void)CSubsystemRegistry::Get().UnregisterSource(m_Factory, this);
     }
 }
 

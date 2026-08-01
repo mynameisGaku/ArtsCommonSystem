@@ -6,7 +6,7 @@
 //   Crashpad / Backtrace.io / BugSnag 等) へ最低限の context を吐き出すための
 //   **抽象 seam**。ACS 本体は具象な HTTP/IPC スタックを抱え込まず、
 //   `ICrashReporterBackend` インターフェイスと NotImplemented を返すだけの
-//   `FCrashReporterStub` のみを提供する。
+//   `CCrashReporterStub` のみを提供する。
 //
 //   ・タイトル側 (acs::FApplication) は ICrashReporterBackend* を持ち、
 //   ・実装 (CrashReporterSentry, CrashReporterCrashpad 等) はプロジェクト個別に
@@ -30,7 +30,7 @@
 // 設計選択:
 //   ・**stub interface のみ**: 本ヘッダ + .cpp は ICrashReporterBackend を
 //     **抽象 interface として宣言** し、合わせて **常に NotImplemented を返す
-//     FCrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
+//     CCrashReporterStub** を提供するだけ。ACS 本体がリンク時に「最低 1 実装が
 //     居る」を保証するための fallback。
 //   ・**TResult<T, FErrorCode>**: 例外不使用方針。送信失敗・未初期化・引数不正は
 //     すべて FErrorCode で伝搬。上位層は `if (r.IsErr()) { /* swallow */ }` で
@@ -222,13 +222,13 @@ public:
  * 全 API が NotImplemented を返す defensive stub。Init() ですら成功扱いにしないことで、
  * 本番ビルドに stub が紛れ込んだ場合に QA 工程で検出可能にする。
  */
-class FCrashReporterStub final : public ICrashReporterBackend {
+class CCrashReporterStub final : public ICrashReporterBackend {
 public:
     /** stub を構築する。 */
-    FCrashReporterStub() noexcept = default;
+    CCrashReporterStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FCrashReporterStub() noexcept override = default;
+    ~CCrashReporterStub() noexcept override = default;
 
     /**
      * 常に NotImplemented エラーを返す (初期化しない)。
@@ -333,25 +333,25 @@ ICrashReporterBackend& GetDefaultCrashReporter() noexcept;
  * backend == nullptr の状態 (Install 前 / Uninstall 後) では全 API が no-op になる
  * (二次クラッシュ防止)。
  */
-class FCrashHandler {
+class CCrashHandler {
 public:
     /** backend 未設定状態で構築する。 */
-    FCrashHandler() noexcept = default;
+    CCrashHandler() noexcept = default;
 
     /** 破棄する (backend の所有権は持たないため解放しない)。 */
-    ~FCrashHandler() noexcept = default;
+    ~CCrashHandler() noexcept = default;
 
     /** コピー禁止。 */
-    FCrashHandler(const FCrashHandler&)            = delete;
+    CCrashHandler(const CCrashHandler&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCrashHandler& operator=(const FCrashHandler&) = delete;
+    CCrashHandler& operator=(const CCrashHandler&) = delete;
 
     /** ムーブ禁止。 */
-    FCrashHandler(FCrashHandler&&)                 = delete;
+    CCrashHandler(CCrashHandler&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCrashHandler& operator=(FCrashHandler&&)      = delete;
+    CCrashHandler& operator=(CCrashHandler&&)      = delete;
 
     /**
      * 使用する backend を設定する (寿命を借りるだけ)。
@@ -386,5 +386,11 @@ private:
     /** 借用中の backend (非所有。未設定なら nullptr)。 */
     ICrashReporterBackend* m_Backend = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCrashHandler = CCrashHandler;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCrashReporterStub = CCrashReporterStub;
 
 } // namespace acs::game

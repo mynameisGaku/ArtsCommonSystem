@@ -2,12 +2,12 @@
 // =============================================================================
 // GameFramework Pillar F — ARigidBody2D (剛体ボディ・コンポーネント)
 // -----------------------------------------------------------------------------
-// FRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
+// CRigidWorld2D の剛体を ANode に結びつける AComponent。owner ノードに attach
 // すると共有ワールドへ円/箱ボディを登録し、物理ステップ後にボディ位置を owner の
 // Local 位置へ書き戻す。これで「ノードに付けたら落ちて衝突する」がゲームから書ける。
 //
 // 使い方:
-//   FRigidWorld2D world;
+//   CRigidWorld2D world;
 //   world.AddStaticAabb({0, 12}, {20, 0.5f});             // 床
 //   auto crate = NewObject<ANode>();
 //   crate->SetPosition2D(FVec2{0, 0});
@@ -37,7 +37,7 @@ namespace acs::game {
 class ANode;
 
 /**
- * FRigidWorld2D の剛体を owner ノードに結びつける AComponent。
+ * CRigidWorld2D の剛体を owner ノードに結びつける AComponent。
  *
  * @details
  * ctor で共有ワールドを受け取り、SetCircle/SetBox で owner の現在位置にボディを登録する。
@@ -51,7 +51,7 @@ public:
      * 共有ワールドを指定して構築する (AddComponent<ARigidBody2D>(world))。
      * @param world このボディが属する剛体ワールド。
      */
-    explicit ARigidBody2D(FRigidWorld2D& world) noexcept : m_World(&world) {}
+    explicit ARigidBody2D(CRigidWorld2D& world) noexcept : m_World(&world) {}
 
     /**
      * 円ボディとしてワールドへ登録する (owner の現在 Local 位置で)。
@@ -104,7 +104,7 @@ public:
     }
 
 private:
-    FRigidWorld2D* m_World      = nullptr;
+    CRigidWorld2D* m_World      = nullptr;
     u32            m_BodyIndex  = 0u;
     bool           m_Registered = false;
 };
@@ -118,6 +118,6 @@ private:
  * @param dt 時間刻み (秒)。
  * @param gravity 重力加速度。
  */
-void StepRigidBodies(FRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept;
+void StepRigidBodies(CRigidWorld2D& world, ANode& root, f32 dt, FVec2 gravity) noexcept;
 
 } // namespace acs::game

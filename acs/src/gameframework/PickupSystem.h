@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FPickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
+// GameFramework Pillar R/I — CPickupSystem (ドロップアイテム = Health/Coin/Powerup 等)
 //
 // 世界に配置された「拾える物」を管理する小型マネージャ。HP オーブ / 通貨 / ジェム /
 // 弾薬箱 / パワーアップ / 鍵などを統一的に扱い、プレイヤー位置との距離による
@@ -11,14 +11,14 @@
 //     - 「持ち物」(Inventory) は別 Manager。本クラスは「世界に転がっている拾取」を
 //       Pickup として表現し、拾うと PickupCallback で呼出側へ通知する。
 //     - 呼出側はコールバックを受けて Inventory に AddItem する / HP を回復する /
-//       通貨残高 (FEconomyDirector::AddToBalance) を増やす等を行う。
+//       通貨残高 (CEconomyDirector::AddToBalance) を増やす等を行う。
 //   ・Pillar F (Collision) との違い:
-//     - FCollisionWorld2D は汎用 broad-phase shape クエリ。
-//     - FPickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
+//     - CCollisionWorld2D は汎用 broad-phase shape クエリ。
+//     - CPickupSystem は「Circle 形状の pickup を専用に高速処理する」軽量サブセット。
 //       broad-phase は持たず O(N) で player との距離判定 (典型 N=10〜100)。
 //
 // 使い方:
-//   FPickupSystem ps;
+//   CPickupSystem ps;
 //   ps.Init();
 //
 //   FPickupInfo info{};
@@ -38,7 +38,7 @@
 //   ps.Tick(dt, player_pos, /*magnet_strength=*/200.0f);
 //
 // 設計選択:
-//   ・**FPickupId**: 32bit packed = 24bit index + 8bit generation。FCollisionWorld2D の
+//   ・**FPickupId**: 32bit packed = 24bit index + 8bit generation。CCollisionWorld2D の
 //     FShapeId / FNodeId と同じパターン。slot 再利用しても古い handle は無効化される。
 //   ・**FSlot TArray**: 内部 `TArray<FSlot>` に固定。index 0 は予約 (= invalid)。
 //     Spawn 時に inactive slot を線形検索 (典型 N が小さいので十分)、無ければ
@@ -65,7 +65,7 @@
 //
 // 範囲外:
 //   ・broad-phase / 空間分割: pickup 数は小規模想定 (10〜100)。万を超える場合は
-//     FCollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
+//     CCollisionWorld2D 側に shape を登録して overlap クエリする設計を検討。
 //   ・物理ベース吸引 (加速度 / 速度減衰): 必要なら呼出側で magnet_strength を
 //     pickup 毎に変えるラッパを作る。
 //   ・kind の拡張: enum に新しい値を追加する場合、SpawnRandomAt の既定値テーブルも
@@ -114,7 +114,7 @@ enum class EPickupKind : u8 {
  * 拾取アイテムの generational handle。
  *
  * @details 32bit packed = 下位 24bit index + 上位 8bit generation。0 = invalid。
- * FCollisionWorld2D の FShapeId / ANode の FNodeId と同じパターンで、slot を再利用しても
+ * CCollisionWorld2D の FShapeId / ANode の FNodeId と同じパターンで、slot を再利用しても
  * 古い handle は generation 不一致で無効化される。
  */
 struct FPickupId {
@@ -205,7 +205,7 @@ struct FPickupInfo {
  * handle (FPickupId) を管理し、拾取/失効時に C 関数ポインタ + user のコールバックで通知する。
  * 非コピー・非ムーブ、全 noexcept、STL 不使用。
  */
-class FPickupSystem {
+class CPickupSystem {
 public:
     /**
      * 拾取コールバックの型 (STL <functional> 禁止のため C 関数ポインタ + user)。
@@ -228,22 +228,22 @@ public:
     using ExpireCallback = void(*)(void* user, FPickupId id) noexcept;
 
     /** 空の状態で構築する (slot なし、コールバック未設定)。 */
-    FPickupSystem()  noexcept = default;
+    CPickupSystem()  noexcept = default;
 
     /** デストラクタ。 */
-    ~FPickupSystem() noexcept = default;
+    ~CPickupSystem() noexcept = default;
 
     /** コピー禁止。 */
-    FPickupSystem(const FPickupSystem&)            = delete;
+    CPickupSystem(const CPickupSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPickupSystem& operator=(const FPickupSystem&) = delete;
+    CPickupSystem& operator=(const CPickupSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FPickupSystem(FPickupSystem&&)                 = delete;
+    CPickupSystem(CPickupSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPickupSystem& operator=(FPickupSystem&&)      = delete;
+    CPickupSystem& operator=(CPickupSystem&&)      = delete;
 
     /** 初期化する (複数回呼び出し可。再 Init は ClearAll と等価)。 */
     void Init() noexcept;
@@ -379,5 +379,8 @@ private:
     /** 寿命切れコールバックへ渡す user コンテキスト。 */
     void*           m_OnExpireUser  = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPickupSystem = CPickupSystem;
 
 } // namespace acs::game

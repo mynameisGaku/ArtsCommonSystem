@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FModRegistry 実装
+// GameFramework Pillar N — CModRegistry 実装
 //
 // 「メタデータの登録・列挙・並び替え」だけを担う。実際の `.acpak` mount /
 // hook 適用は AssetPack 統合と Lua 5.4 統合で埋める予定で、本ファイルは未実装。
@@ -10,14 +10,14 @@
 namespace acs::game {
 
 /** 2 つの id 文字列が等しいかを返す (両者 nullptr / 同一ポインタも安全に判定)。 */
-bool FModRegistry::IdEquals(const char* a, const char* b) noexcept {
+bool CModRegistry::IdEquals(const char* a, const char* b) noexcept {
     if (a == b)                 return true;       // 同一ポインタ (or 両 nullptr)
     if (a == nullptr || b == nullptr) return false;
     return std::strcmp(a, b) == 0;
 }
 
 /** ModInfo を登録する。id == nullptr / 同 id 重複は警告して無視する。 */
-void FModRegistry::Register(const FModInfo& info) noexcept {
+void CModRegistry::Register(const FModInfo& info) noexcept {
     if (info.id == nullptr) {
         // id 無しは管理不能 (Find/Enable で参照できない) ので拒否。
         ACS_LOG_WARN("FModRegistry::Register: skipped entry with null id (name=%s)",
@@ -41,7 +41,7 @@ void FModRegistry::Register(const FModInfo& info) noexcept {
 }
 
 /** mod_id に一致する Mod の enabled を true にする。見つかれば true。 */
-bool FModRegistry::Enable(const char* mod_id) noexcept {
+bool CModRegistry::Enable(const char* mod_id) noexcept {
     for (u32 i = 0; i < m_Mods.Size(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].enabled = true;
@@ -53,7 +53,7 @@ bool FModRegistry::Enable(const char* mod_id) noexcept {
 }
 
 /** mod_id に一致する Mod の enabled を false にする。見つかれば true。 */
-bool FModRegistry::Disable(const char* mod_id) noexcept {
+bool CModRegistry::Disable(const char* mod_id) noexcept {
     for (u32 i = 0; i < m_Mods.Size(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].enabled = false;
@@ -65,7 +65,7 @@ bool FModRegistry::Disable(const char* mod_id) noexcept {
 }
 
 /** mod_id に一致する Mod の load_order を変更する (未登録 id は no-op)。 */
-void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
+void CModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
     for (u32 i = 0; i < m_Mods.Size(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) {
             m_Mods[i].load_order = order;
@@ -76,12 +76,12 @@ void FModRegistry::SetLoadOrder(const char* mod_id, i32 order) noexcept {
 }
 
 /** 登録済み Mod の個数を返す。 */
-u32 FModRegistry::Count() const noexcept {
+u32 CModRegistry::Count() const noexcept {
     return static_cast<u32>(m_Mods.Size());
 }
 
 /** mod_id に一致する Mod を返す (見つからなければ nullptr)。 */
-const FModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
+const FModInfo* CModRegistry::Find(const char* mod_id) const noexcept {
     for (u32 i = 0; i < m_Mods.Size(); ++i) {
         if (IdEquals(m_Mods[i].id, mod_id)) return &m_Mods[i];
     }
@@ -89,12 +89,12 @@ const FModInfo* FModRegistry::Find(const char* mod_id) const noexcept {
 }
 
 /** 登録済み Mod の生バッファ先頭を返す (長さは Count())。 */
-const FModInfo* FModRegistry::All() const noexcept {
+const FModInfo* CModRegistry::All() const noexcept {
     return m_Mods.Data();
 }
 
 /** load_order 昇順に安定 insertion sort する (同値は登録順を保つ)。 */
-void FModRegistry::SortByLoadOrder() noexcept {
+void CModRegistry::SortByLoadOrder() noexcept {
     // Insertion sort: N (= mod 数) は実用上 < 64 と想定。安定 sort なので
     // 同 load_order は登録順を保ち、UI の見え方に予測可能性が出る。
     const u32 n = static_cast<u32>(m_Mods.Size());
@@ -110,7 +110,7 @@ void FModRegistry::SortByLoadOrder() noexcept {
 }
 
 /** 全 Mod を削除する。 */
-void FModRegistry::Clear() noexcept {
+void CModRegistry::Clear() noexcept {
     // enabled な Mod に対する Disable 相当の hook 解除は未実装。現状は単純クリア。
     m_Mods.Clear();
 }

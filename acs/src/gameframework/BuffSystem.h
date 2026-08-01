@@ -179,7 +179,7 @@ struct FBuffOwnerId {
  * AllBuffsOfOwner で列挙して行う。owner は generational handle で管理し、buff は owner
  * ごとの AoS 配列に持つ。非コピー・非ムーブ (AllBuffsOfOwner が生バッファを返すため)。
  */
-class FBuffSystem {
+class CBuffSystem {
 public:
     /**
      * tick 発火時に呼ぶコールバック型 (Regen / Poison / Burn 用)。
@@ -206,22 +206,22 @@ public:
     using ExpireCallback = void(*)(void* user, FBuffOwnerId owner, const char* buff_id) noexcept;
 
     /** 空のシステムを構築する。 */
-    FBuffSystem()  noexcept = default;
+    CBuffSystem()  noexcept = default;
 
     /** 破棄する。 */
-    ~FBuffSystem() noexcept = default;
+    ~CBuffSystem() noexcept = default;
 
     /** コピー禁止 (AllBuffsOfOwner が生バッファを返すため実体アドレスを固定する)。 */
-    FBuffSystem(const FBuffSystem&)            = delete;
+    CBuffSystem(const CBuffSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBuffSystem& operator=(const FBuffSystem&) = delete;
+    CBuffSystem& operator=(const CBuffSystem&) = delete;
 
     /** ムーブ禁止 (内部実体アドレスを固定する)。 */
-    FBuffSystem(FBuffSystem&&)                 = delete;
+    CBuffSystem(CBuffSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FBuffSystem& operator=(FBuffSystem&&)      = delete;
+    CBuffSystem& operator=(CBuffSystem&&)      = delete;
 
     /**
      * バフ定義を registry に登録する。
@@ -427,5 +427,8 @@ private:
     /** 期限切れコールバックに渡すコンテキスト (非所有)。 */
     void*            m_OnExpireUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBuffSystem = CBuffSystem;
 
 } // namespace acs::game

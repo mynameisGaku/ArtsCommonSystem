@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FAssetBundle (シーンスコープのアセット集合非同期ロード)
+// GameFramework Pillar G — CAssetBundle (シーンスコープのアセット集合非同期ロード)
 //
 // 役割:
 //   シーンが「このシーンで使う N 個のアセット」をまとめて宣言し、BeginLoad() で
@@ -7,8 +7,8 @@
 //   個別 path の FAssetFuture を散在管理する代わりに 1 つの bundle で扱える。
 //
 // 使い方 (典型例):
-//   class FGameplayScene : public FScene {
-//       acs::game::FAssetBundle m_Bundle;
+//   class FGameplayScene : public AScene {
+//       acs::game::CAssetBundle m_Bundle;
 //       void OnEnter() noexcept override {
 //           m_Bundle.Add("textures/hero.png");
 //           m_Bundle.Add("audio/bgm.ogg");
@@ -38,6 +38,7 @@
 #include "foundation/Types.h"
 #include "foundation/Log.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "memory/SharedPtr.h"
 #include "asset/Asset.h"
 
@@ -50,11 +51,11 @@ namespace acs::game {
  *
  * @details
  * ライフサイクルは Add* → BeginLoad → (poll Progress/IsLoaded) → ... → Unload。
- * FScene にメンバとして埋め込み、内部 TSharedPtr<FAsset> の保持で Unload まで実体の
+ * AScene にメンバとして埋め込み、内部 TSharedPtr<FAsset> の保持で Unload まで実体の
  * 生存を保証する。BeginLoad 後の Add はロード開始後の集合変更が未定義になるのを
  * 避けるため無視する。
  */
-class FAssetBundle {
+class CAssetBundle {
 public:
     /** bundle 内の各 asset の進捗状態。 */
     enum class ELoadStatus : u8 {
@@ -72,22 +73,22 @@ public:
     };
 
     /** 空の bundle を構築する (asset 未登録、未ロード)。 */
-    FAssetBundle() noexcept = default;
+    CAssetBundle() noexcept = default;
 
     /** bundle を破棄する (内部 TSharedPtr が drop し refcount を落とす)。 */
-    ~FAssetBundle() noexcept = default;
+    ~CAssetBundle() noexcept = default;
 
-    /** コピー禁止 (内部 TArray 規約。bundle は FScene に単独所有させる)。 */
-    FAssetBundle(const FAssetBundle&)            = delete;
+    /** コピー禁止 (内部 TArray 規約。bundle は AScene に単独所有させる)。 */
+    CAssetBundle(const CAssetBundle&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAssetBundle& operator=(const FAssetBundle&) = delete;
+    CAssetBundle& operator=(const CAssetBundle&) = delete;
 
     /**
      * bundle に asset パスを追加する (実体ロードはまだ走らず BeginLoad で開始)。
      *
      * @details
-     * path 文字列は呼び出し側が FAssetBundle 寿命中ずっと有効に保つ必要がある
+     * path 文字列は呼び出し側が CAssetBundle 寿命中ずっと有効に保つ必要がある
      * (string literal を想定。動的文字列は渡す側で保持する)。BeginLoad 後の Add は
      * no-op (警告ログのみ)。
      * @param asset_path 追加する asset の仮想パス (借用、コピーしない)。
@@ -98,7 +99,7 @@ public:
      * 登録済み全 path を registry 経由で同期ロードし、結果を各 entry に保持する。
      *
      * @details
-     * registry は app が所有するもの (FApplication::GetAssets() / FGame 経由) を渡し、
+     * registry は app が所有するもの (FApplication::GetAssets() / CGame 経由) を渡し、
      * RegisterDefaultLoaders() 済みであること。FAssetRegistry::Load は同期なので戻った
      * 時点で各 entry は Loaded / Failed 確定。多重呼び出しは no-op (警告のみ)。
      * @param registry ロードに使う app 所有の asset レジストリ。
@@ -161,7 +162,7 @@ public:
      *
      * @details
      * 内部 TSharedPtr を drop して refcount を落とす。シーン破棄前に呼ぶと決定的な
-     * タイミングで解放できる (デストラクタ任せでも良いが FScene::OnExit で明示するのが推奨)。
+     * タイミングで解放できる (デストラクタ任せでも良いが AScene::OnExit で明示するのが推奨)。
      */
     void Unload() noexcept;
 

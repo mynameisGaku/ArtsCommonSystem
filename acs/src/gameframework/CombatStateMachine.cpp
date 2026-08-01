@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCombatStateMachine 実装
+// GameFramework Pillar R — CCombatStateMachine 実装
 //
 // state machine + threat level smoothing + enemy awareness tracking を完全実装。
 // 外部ディレクタ (Music / Ambient / UI) との結線は OnStateChange callback で
@@ -10,7 +10,7 @@
 namespace acs::game {
 
 /** 値を [0,1] にクランプする。 */
-f32 FCombatStateMachine::Clamp01(f32 v) noexcept {
+f32 CCombatStateMachine::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
@@ -24,7 +24,7 @@ f32 FCombatStateMachine::Clamp01(f32 v) noexcept {
  * Peaceful=0.00 (平穏) / Alert=0.30 (緊張) / Engaged=0.70 (戦闘) /
  * BossFight=1.00 (ボス戦) / Victory=0.40 (勝利直後) / Retreat=0.20 (撤退)。
  */
-f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
+f32 CCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
     switch (state) {
         case ECombatState::Peaceful:  return 0.0f;
         case ECombatState::Alert:     return 0.3f;
@@ -37,12 +37,12 @@ f32 FCombatStateMachine::DefaultThreatTarget(ECombatState state) noexcept {
 }
 
 /** Peaceful 状態で構築し、敵配列を reserve する。 */
-FCombatStateMachine::FCombatStateMachine() noexcept {
+CCombatStateMachine::CCombatStateMachine() noexcept {
     m_Enemies.Reserve(kEnemyReserveHint);
 }
 
 /** state を Peaceful に、awareness を全クリアして再初期化する (callback は保持)。 */
-void FCombatStateMachine::Init() noexcept {
+void CCombatStateMachine::Init() noexcept {
     _state             = ECombatState::Peaceful;
     m_ThreatTarget     = DefaultThreatTarget(ECombatState::Peaceful);
     m_ThreatCurrent    = 0.0f;
@@ -53,14 +53,14 @@ void FCombatStateMachine::Init() noexcept {
 }
 
 /** callback も含めて完全な初期状態に戻す。 */
-void FCombatStateMachine::Reset() noexcept {
+void CCombatStateMachine::Reset() noexcept {
     Init();
     m_Callback      = nullptr;
     m_CallbackUser = nullptr;
 }
 
 /** EnemyAwareness を id で線形探索する (無ければ m_Enemies.Size() を返す)。 */
-usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
+usize CCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
     const usize n = m_Enemies.Size();
     for (usize i = 0; i < n; ++i) {
         if (m_Enemies[i].enemy_id == enemy_id) return i;
@@ -69,7 +69,7 @@ usize FCombatStateMachine::FindEnemy(u32 enemy_id) const noexcept {
 }
 
 /** is_engaged=true な敵の数を返す。 */
-u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
+u32 CCombatStateMachine::EngagedEnemyCount() const noexcept {
     u32 count = 0;
     const usize n = m_Enemies.Size();
     for (usize i = 0; i < n; ++i) {
@@ -79,12 +79,12 @@ u32 FCombatStateMachine::EngagedEnemyCount() const noexcept {
 }
 
 /** state が Engaged または BossFight なら true。 */
-bool FCombatStateMachine::IsInCombat() const noexcept {
+bool CCombatStateMachine::IsInCombat() const noexcept {
     return _state == ECombatState::Engaged || _state == ECombatState::BossFight;
 }
 
 /** 内部 state を遷移させ、必要なら callback を発火する。 */
-void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
+void CCombatStateMachine::TransitionTo(ECombatState next) noexcept {
     if (next == _state) return;  // no-op (callback 不発火)
     const ECombatState prev = _state;
     _state = next;
@@ -106,7 +106,7 @@ void FCombatStateMachine::TransitionTo(ECombatState next) noexcept {
 }
 
 /** 敵検出を通知する (Peaceful なら Alert へ遷移)。 */
-void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
+void CCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
     // awareness レコードを upsert (新規 or 1.0 へ上書き)。is_engaged は据置 —
     // 既に交戦中の敵を再検出しても engaged 状態を解除しない。
     const usize idx = FindEnemy(enemy_id);
@@ -129,7 +129,7 @@ void FCombatStateMachine::NotifyEnemyDetected(u32 enemy_id) noexcept {
 }
 
 /** 交戦開始を通知する (Engaged へ遷移、BossFight 中は据置)。 */
-void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
+void CCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
     // 該当敵を is_engaged=true に。未登録なら新規追加 (awareness=1.0)。
     const usize idx = FindEnemy(enemy_id);
     if (idx >= m_Enemies.Size()) {
@@ -151,7 +151,7 @@ void FCombatStateMachine::NotifyCombatStarted(u32 enemy_id) noexcept {
 }
 
 /** 1 敵分の交戦解消を通知する (残敵 0 で Victory / Retreat へ遷移)。 */
-void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept {
+void CCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept {
     // 該当敵を engaged から外す。awareness は 0 に落として「忘れた」扱いに。
     // (= 次フレーム以降の NotifyEnemyDetected で再 alert 可能)
     const usize idx = FindEnemy(enemy_id);
@@ -173,7 +173,7 @@ void FCombatStateMachine::NotifyCombatEnded(u32 enemy_id, bool victory) noexcept
 }
 
 /** ボス遭遇を通知する (どの state からでも BossFight へ割り込み遷移)。 */
-void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
+void CCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
     // ボスを engaged 一覧に upsert (awareness=1, is_engaged=true)。
     const usize idx = FindEnemy(boss_id);
     if (idx >= m_Enemies.Size()) {
@@ -199,7 +199,7 @@ void FCombatStateMachine::NotifyBossEncountered(u32 boss_id) noexcept {
 }
 
 /** ボス撃破を通知する (残 engaged 敵で Engaged / Victory へ復帰)。 */
-void FCombatStateMachine::NotifyBossDefeated() noexcept {
+void CCombatStateMachine::NotifyBossDefeated() noexcept {
     // BossFight 以外で呼ばれたら警告 + no-op (誤用検出)。
     if (_state != ECombatState::BossFight) {
         ACS_LOG_WARN("FCombatStateMachine::NotifyBossDefeated: not in BossFight (state=%u)",
@@ -229,7 +229,7 @@ void FCombatStateMachine::NotifyBossDefeated() noexcept {
 }
 
 /** 毎フレーム呼んで脅威レベルを target へ指数減衰で追従させる driver。 */
-void FCombatStateMachine::Tick(f32 dt) noexcept {
+void CCombatStateMachine::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // Engaged 中はドリフトを target に加算: 戦闘が長引くほど脅威感が上がる。
@@ -256,7 +256,7 @@ void FCombatStateMachine::Tick(f32 dt) noexcept {
 }
 
 /** state 遷移 callback を登録する (cb==nullptr で解除)。 */
-void FCombatStateMachine::SetOnStateChangeCallback(StateChangeCallback cb, void* user) noexcept {
+void CCombatStateMachine::SetOnStateChangeCallback(StateChangeCallback cb, void* user) noexcept {
     m_Callback      = cb;
     m_CallbackUser = user;
 }

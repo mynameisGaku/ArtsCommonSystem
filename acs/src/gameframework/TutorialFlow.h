@@ -1,30 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FTutorialFlow
+// GameFramework Pillar R — CTutorialFlow
 //
 // 役割:
 //   連続する「チュートリアルステップ」を順序付きで表示・完了判定し、ユーザー操作
 //   または明示的な前進指示に応じて次ステップへ進めるシンプルな state machine。
 //   描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
-//   (UI レイヤ / FScene) が CurrentStep() を見て自前で描く。
+//   (UI レイヤ / AScene) が CurrentStep() を見て自前で描く。
 //
 // 設計上の方針:
 //   ・**FSequence との棲み分け**: FSequence は時間ベースの自動進行 (cutscene 等)。
-//     FTutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
+//     CTutorialFlow は「ユーザーが action を達成したら進む」という能動的進行で、
 //     timer ベースではない (require_user_action=true の間は dt をいくら積んでも
 //     自動 advance しない)。require_user_action=false なら表示後に AdvanceStep
 //     を呼ぶだけで素直に次へ進む (ガイダンス表示 → OK ボタンなど)。
 //   ・**所有しない const char***: ACS 規約通り <string> 禁止。id / message /
 //     highlight_target は文字列リテラル or 長寿命バッファを想定し、寿命は呼び
 //     出し側が保証する。
-//   ・**非コピー・非ムーブ**: チュートリアルは通常 FScene につき 1 個の長寿命
+//   ・**非コピー・非ムーブ**: チュートリアルは通常 AScene につき 1 個の長寿命
 //     オブジェクトで、誤コピーで state 分裂すると詰むため最初から禁止。
 //   ・**Skip は不可逆**: Skip() を呼ぶと m_Completed=true / m_Active=false に
 //     遷移し、Reset() しない限りどの query も終了扱い。誤って 2 度目を呼ばれ
 //     ても no-op になるよう冪等。
 //
 // 使い方:
-//   class FTutorialScene : public FScene {
-//       FTutorialFlow m_Tut;
+//   class FTutorialScene : public AScene {
+//       CTutorialFlow m_Tut;
 //       void OnEnter() noexcept override {
 //           m_Tut.AddStep({"move",  "WASD で移動してみよう", "player", true});
 //           m_Tut.AddStep({"jump",  "SPACE でジャンプ",       "player", true});
@@ -75,31 +75,31 @@ struct FTutorialStep {
  *
  * @details
  * 描画は行わず、現在ステップへの const ポインタを公開するだけ。表示は呼び出し側
- * (UI レイヤ / FScene) が CurrentStep() を見て自前で描く。時間ベースで自動進行する
+ * (UI レイヤ / AScene) が CurrentStep() を見て自前で描く。時間ベースで自動進行する
  * FSequence と異なり「ユーザーが action を達成したら進む」能動的進行で、
  * require_user_action=true の間は dt をいくら積んでも自動 advance しない。
  * 全フィールドは非所有 const char* (寿命は呼び出し側保証)。非コピー・非ムーブ。
  * Skip は不可逆で冪等。
  */
-class FTutorialFlow {
+class CTutorialFlow {
 public:
     /** 空のチュートリアルフローを構築する (ステップ未登録)。 */
-    FTutorialFlow()  noexcept = default;
+    CTutorialFlow()  noexcept = default;
 
     /** 破棄する。 */
-    ~FTutorialFlow() noexcept = default;
+    ~CTutorialFlow() noexcept = default;
 
-    /** コピー禁止 (state 分裂を避けるため。通常は FScene につき 1 個の長寿命オブジェクト)。 */
-    FTutorialFlow(const FTutorialFlow&)            = delete;
+    /** コピー禁止 (state 分裂を避けるため。通常は AScene につき 1 個の長寿命オブジェクト)。 */
+    CTutorialFlow(const CTutorialFlow&)            = delete;
 
     /** コピー代入も禁止。 */
-    FTutorialFlow& operator=(const FTutorialFlow&) = delete;
+    CTutorialFlow& operator=(const CTutorialFlow&) = delete;
 
     /** ムーブ禁止 (state 分裂を避けるため)。 */
-    FTutorialFlow(FTutorialFlow&&)                 = delete;
+    CTutorialFlow(CTutorialFlow&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FTutorialFlow& operator=(FTutorialFlow&&)      = delete;
+    CTutorialFlow& operator=(CTutorialFlow&&)      = delete;
 
     /**
      * ステップを末尾に追加する。
@@ -203,5 +203,8 @@ private:
     /** 完了済みフラグ。 */
     bool                m_Completed    = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTutorialFlow = CTutorialFlow;
 
 } // namespace acs::game

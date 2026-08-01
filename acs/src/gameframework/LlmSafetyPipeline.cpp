@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FLlmSafetyPipeline 実装
+// GameFramework Pillar U — CLlmSafetyPipeline 実装
 //
 // 各ルールの実装状況:
 //   ・InputValidation: 空 / 長すぎる入力 (> 8KB) を Refused
@@ -404,7 +404,7 @@ constexpr u32 kMaxOutputBytes = kFilteredBufSize - 1u;
 
 } // namespace
 
-void FLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
+void CLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
     m_Rules            = rules;
     m_RefusedCount    = 0;
     m_FilteredCount   = 0;
@@ -412,20 +412,20 @@ void FLlmSafetyPipeline::Init(ESafetyRule rules) noexcept {
     ACS_LOG_DEBUG("FLlmSafetyPipeline: Init (rules=0x%08X)", static_cast<u32>(rules));
 }
 
-void FLlmSafetyPipeline::SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept {
+void CLlmSafetyPipeline::SetTokenBudget(u32 max_input_tokens, u32 max_output_tokens) noexcept {
     m_MaxInputTokens  = max_input_tokens;
     m_MaxOutputTokens = max_output_tokens;
 }
 
-void FLlmSafetyPipeline::SetCharacterAnchor(const char* system_prompt) noexcept {
+void CLlmSafetyPipeline::SetCharacterAnchor(const char* system_prompt) noexcept {
     m_CharacterAnchor = system_prompt;  // 非所有 (寿命は呼び出し側)
 }
 
-bool FLlmSafetyPipeline::IsRuleEnabled(ESafetyRule rule) const noexcept {
+bool CLlmSafetyPipeline::IsRuleEnabled(ESafetyRule rule) const noexcept {
     return SafetyHas(m_Rules, rule);
 }
 
-void FLlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
+void CLlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
     if (enable) {
         m_Rules = m_Rules | rule;
     } else {
@@ -434,13 +434,13 @@ void FLlmSafetyPipeline::EnableRule(ESafetyRule rule, bool enable) noexcept {
     }
 }
 
-void FLlmSafetyPipeline::Reset() noexcept {
+void CLlmSafetyPipeline::Reset() noexcept {
     m_RefusedCount    = 0;
     m_FilteredCount   = 0;
     m_CharacterAnchor = nullptr;
 }
 
-FSafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
+FSafetyResult CLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept {
     FSafetyResult r{};
     const u32 len = StrLen(user_text);
     r.input_tokens = EstimateTokens(len);
@@ -491,7 +491,7 @@ FSafetyResult FLlmSafetyPipeline::ValidateInput(const char* user_text) noexcept 
     return r;
 }
 
-FSafetyResult FLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept {
+FSafetyResult CLlmSafetyPipeline::FilterOutput(const char* llm_response) noexcept {
     FSafetyResult r{};
     const u32 len = StrLen(llm_response);
     r.output_tokens = EstimateTokens(len);

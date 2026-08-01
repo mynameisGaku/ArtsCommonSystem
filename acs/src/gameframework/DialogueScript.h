@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (visual novel) — FDialogueScript
+// GameFramework ジャンルキット (visual novel) — CDialogueScript
 //
 // VN 風のシーンスクリプトを再生するための state holder。
 // 「セリフ → ポートレート表示 → BGM 切替 → 選択肢 → ジャンプ」といった
@@ -12,8 +12,8 @@
 //   ・Say で「次へ」入力待ち (AwaitingInput) / Choice で選択待ち (AwaitingChoice) /
 //     Wait で時間経過待ち (Playing 継続 + 内部タイマ)
 //   ・実描画 / 音 / 入力には触らない: 各 op 種別は callback で外部に通知し、
-//     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (FScene / UI 層 /
-//     FAudioDirector) の責任とする (FDialogueSystem / FCinematicsDirector と
+//     ポートレート切替 / BGM 再生 / 選択肢 UI 表示は caller (AScene / UI 層 /
+//     CAudioDirector) の責任とする (CDialogueSystem / CCinematicsDirector と
 //     同じ「副作用ゼロ + callback 駆動」方針)。
 //
 // 設計選択:
@@ -37,12 +37,12 @@
 //        SelectChoice(idx) で jump_label に飛ぶ。
 //   ・**callback は kind 別に分ける**: Say / Show・Hide / Background /
 //     PlayBgm・StopBgm / PlaySe / ChoicePresent / End の 6 種に分割。
-//     FCinematicsDirector と同じく汎用 1 個に集約しない方針。
+//     CCinematicsDirector と同じく汎用 1 個に集約しない方針。
 //   ・**Wait op は AwaitingInput には遷移しない**: arg_f 秒経過で自動進行。
 //     Say op の末尾で AwaitingInput になり、Advance() で次へ進む契約。
 //   ・**非コピー・非ムーブ**: 現在 op_index / state の唯一性を担保するため。
 //
-// 参考: FDialogueSystem (タイプライタ + 選択肢)、FCinematicsDirector (timeline)
+// 参考: CDialogueSystem (タイプライタ + 選択肢)、CCinematicsDirector (timeline)
 #pragma once
 
 #include "foundation/Types.h"
@@ -178,25 +178,25 @@ using EndCallback           = void(*)(void* user, const char* script_id) noexcep
  * なり、EndScene / 末尾到達で Finished に遷移する。文字列は所有せず、非コピー・
  * 非ムーブ。
  */
-class FDialogueScript {
+class CDialogueScript {
 public:
     /** 空状態で構築する。 */
-    FDialogueScript() noexcept = default;
+    CDialogueScript() noexcept = default;
 
     /** 破棄する。 */
-    ~FDialogueScript() noexcept = default;
+    ~CDialogueScript() noexcept = default;
 
     /** コピー禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueScript(const FDialogueScript&)            = delete;
+    CDialogueScript(const CDialogueScript&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDialogueScript& operator=(const FDialogueScript&) = delete;
+    CDialogueScript& operator=(const CDialogueScript&) = delete;
 
     /** ムーブ禁止 (進行状態の唯一性を担保するため)。 */
-    FDialogueScript(FDialogueScript&&)                 = delete;
+    CDialogueScript(CDialogueScript&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDialogueScript& operator=(FDialogueScript&&)      = delete;
+    CDialogueScript& operator=(CDialogueScript&&)      = delete;
 
     /**
      * 進行状態を既定値に戻す。
@@ -518,5 +518,8 @@ private:
     /** End callback に渡す文脈ポインタ。 */
     void* m_EndUser          = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDialogueScript = CDialogueScript;
 
 } // namespace acs::game

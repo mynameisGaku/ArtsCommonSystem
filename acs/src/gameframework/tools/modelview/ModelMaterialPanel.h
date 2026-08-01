@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelMaterialPanel
+// GameFramework Pillar — modelview / AModelMaterialPanel
 //
 // ModelViewer の中で、現在 load された model の各 submesh / material slot に
 // 対して PBR マテリアル (base color / metallic / roughness / normal strength /
@@ -14,28 +14,28 @@
 //     `FMaterialOverride` を見て行う。これにより:
 //       (1) shader / pipeline の選択 (FPbrShader / FStandardShader / FSkinnedShader
 //           / FRefractionShader 等) は ModelViewer 本体が責任を持てる
-//       (2) FUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
+//       (2) CUndoStack へ「override 1 件分」を atomic に push できる粒度を提供
 //     できる。
 //   ・slot 数の管理 (= model load 時に呼ばれる `SetMaterialSlotCount`) も
 //     ModelViewer 本体が責任を持つ。本パネルは「slot N 個」という事実だけを
 //     知って override TArray を resize する。
 //
 // 設計選択 (ModelViewer):
-//   ・**FEditorPanel 基底を継承**: `editor_core::FEditorPanel`
+//   ・**AEditorPanel 基底を継承**: `editor_core::AEditorPanel`
 //     のライフサイクル (OnInit / OnShutdown / OnFrameBegin / DrawUI / WantsFocus
 //     等) を全て継承する。Workspace への登録 → 自動 dispatch が可能。
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FMaterialOverride>` + callback 状態の
-//     所有を曖昧にしない (= FEditorPanel の規約と同形、ACS 規約)。
+//     所有を曖昧にしない (= AEditorPanel の規約と同形、ACS 規約)。
 //   ・**全 noexcept**: ACS 規約。範囲外 index は no-op、nullptr 取得は nullptr
 //     return。例外は投げない。
 //   ・**STL 不使用 / `<string>` 禁止**: override list は `acs::TArray<FMaterialOverride>`。
 //     文字列は ImGui に渡すリテラル / スタック char[] のみ。
 //   ・**ImGui ヘッダは .cpp に閉じ込め**: header からは imgui 依存を漏らさず、
-//     FInspectorPanel / FParticleEditorPanel と同パターン。
+//     AInspectorPanel / AParticleEditorPanel と同パターン。
 //   ・**MaterialChangeCallback は raw 関数ポインタ + void***: ACS は STL の
 //     std::function を使えないため、C スタイル callback 規約に揃える
-//     (FInspectorPanel / FParticleEditorPanel と同形)。`override` 全体を 1 つの
-//     コピーとして渡すことで、外部 (FUndoStack / 永続化) が
+//     (AInspectorPanel / AParticleEditorPanel と同形)。`override` 全体を 1 つの
+//     コピーとして渡すことで、外部 (CUndoStack / 永続化) が
 //     「変更前 → 変更後」の 1 件分を atomic に扱える。
 //   ・**`is_overridden` フラグ**: 「ユーザーが触ったかどうか」を slot 単位で
 //     保持する。false の slot は ModelViewer 側で「元の material そのまま」と
@@ -69,7 +69,7 @@
 //
 // 将来拡張余地:
 //   ・texture override (BaseColorMap / NormalMap / ORM / Emissive 等の path swap、
-//     FAssetBrowser からの drag-drop 連動)。`FMaterialOverride` に
+//     CAssetBrowser からの drag-drop 連動)。`FMaterialOverride` に
 //     `const char* base_color_path` 等を追加し、外部 callback で texture 差替を行う。
 //   ・material preset library (= `.acs_matpreset` 1 ファイルに 1 set を保存し、
 //     load / save / apply するボタン群)
@@ -83,7 +83,7 @@
 // 範囲外 (本パネルでは持たない):
 //   ・実 shader への constant buffer write (= 外部 callback 受け側)
 //   ・texture リソースの load / 解放 (= AssetManager 責務)
-//   ・FUndoStack 統合 (= 外部 callback 経由で push してもらう)
+//   ・CUndoStack 統合 (= 外部 callback 経由で push してもらう)
 //   ・material asset の永続化フォーマット (= MaterialPreset 等)
 #pragma once
 
@@ -170,7 +170,7 @@ struct FMaterialOverride {
 };
 
 /**
- * PBR material を slot 単位で live 編集する ImGui パネル (FEditorPanel 派生)。
+ * PBR material を slot 単位で live 編集する ImGui パネル (AEditorPanel 派生)。
  *
  * @details
  * 現在 load された model の各 submesh / material slot に対して base color / metallic /
@@ -178,7 +178,7 @@ struct FMaterialOverride {
  * FMaterialOverride として保持する。実 shader への反映 (constant buffer write) は
  * 行わず、MaterialChangeCallback 経由で呼び出し側に override 1 件分を通知する。
  */
-class FModelMaterialPanel : public editor_core::FEditorPanel {
+class AModelMaterialPanel : public editor_core::AEditorPanel {
 public:
     /**
      * override 1 件分の変更通知 callback の型。
@@ -186,7 +186,7 @@ public:
      * @details
      * user は SetOnMaterialChangeCallback の第二引数で渡したポインタがそのまま戻る
      * (closure 代替)。渡される override は本パネルが保持している最新コピーで、callback
-     * 受け側で const& として参照後すぐ消費するか、値コピーして FUndoStack に積む。
+     * 受け側で const& として参照後すぐ消費するか、値コピーして CUndoStack に積む。
      * @param user SetOnMaterialChangeCallback で登録した任意ポインタ。
      * @param slot_index 変更があった slot 番号。
      * @param override 変更後の override (最新コピー)。
@@ -196,22 +196,22 @@ public:
                                             const FMaterialOverride& override) noexcept;
 
     /** 空のパネルを構築する (slot list は空、callback 未登録)。 */
-    FModelMaterialPanel() noexcept = default;
+    AModelMaterialPanel() noexcept = default;
 
     /** パネルを破棄する (override list は TArray が解放)。 */
-    ~FModelMaterialPanel() noexcept override = default;
+    ~AModelMaterialPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray + callback 状態の所有を曖昧にしないため)。 */
-    FModelMaterialPanel(const FModelMaterialPanel&)            = delete;
+    AModelMaterialPanel(const AModelMaterialPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelMaterialPanel& operator=(const FModelMaterialPanel&) = delete;
+    AModelMaterialPanel& operator=(const AModelMaterialPanel&) = delete;
 
-    /** ムーブ禁止 (FEditorPanel 基底と同規約)。 */
-    FModelMaterialPanel(FModelMaterialPanel&&)                 = delete;
+    /** ムーブ禁止 (AEditorPanel 基底と同規約)。 */
+    AModelMaterialPanel(AModelMaterialPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelMaterialPanel& operator=(FModelMaterialPanel&&)      = delete;
+    AModelMaterialPanel& operator=(AModelMaterialPanel&&)      = delete;
 
     /**
      * パネルを初期化する (Workspace 登録前 / 単独利用時)。
@@ -360,5 +360,7 @@ private:
     /** callback に渡す任意ポインタ。 */
     void*                   m_OnChangeUser = nullptr;
 };
+
+using FModelMaterialPanel = AModelMaterialPanel;
 
 } // namespace acs::game::modelview

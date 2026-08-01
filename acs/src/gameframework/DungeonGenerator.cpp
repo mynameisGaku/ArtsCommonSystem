@@ -76,7 +76,7 @@ inline u32 PartitionH(const FBspNode& n) noexcept { return n.y1 - n.y0 + 1u; }
 
 } // namespace
 
-void FDungeonGenerator::Clear() noexcept {
+void CDungeonGenerator::Clear() noexcept {
     m_Grid.Clear();
     m_Rooms.Clear();
     m_Width  = 0;
@@ -84,41 +84,41 @@ void FDungeonGenerator::Clear() noexcept {
     m_Seed   = 0;
 }
 
-ETileKind FDungeonGenerator::At(u32 x, u32 y) const noexcept {
+ETileKind CDungeonGenerator::At(u32 x, u32 y) const noexcept {
     if (x >= m_Width || y >= m_Height) return ETileKind::Wall;
     return m_Grid[static_cast<usize>(y) * static_cast<usize>(m_Width) + static_cast<usize>(x)];
 }
 
-void FDungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
+void CDungeonGenerator::SetTile(u32 x, u32 y, ETileKind kind) noexcept {
     if (x >= m_Width || y >= m_Height) return;
     m_Grid[static_cast<usize>(y) * static_cast<usize>(m_Width) + static_cast<usize>(x)] = kind;
 }
 
-const FRoom* FDungeonGenerator::GetRoom(u32 index) const noexcept {
+const FRoom* CDungeonGenerator::GetRoom(u32 index) const noexcept {
     if (index >= m_Rooms.Size()) return nullptr;
     return &m_Rooms[index];
 }
 
-const FRoom* FDungeonGenerator::AllRooms(u32& out_count) const noexcept {
+const FRoom* CDungeonGenerator::AllRooms(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Rooms.Size());
     if (out_count == 0u) return nullptr;
     return m_Rooms.Data();
 }
 
-void FDungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
+void CDungeonGenerator::GetRoomCenter(u32 room_index, u32& out_x, u32& out_y) const noexcept {
     if (room_index >= m_Rooms.Size()) { out_x = 0; out_y = 0; return; }
     const FRoom& r = m_Rooms[room_index];
     out_x = r.x + r.w / 2u;
     out_y = r.y + r.h / 2u;
 }
 
-bool FDungeonGenerator::IsWalkable(u32 x, u32 y) const noexcept {
+bool CDungeonGenerator::IsWalkable(u32 x, u32 y) const noexcept {
     const ETileKind k = At(x, y);
     return k == ETileKind::Floor || k == ETileKind::Door
         || k == ETileKind::Corridor || k == ETileKind::Stairs;
 }
 
-u32 FDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
+u32 CDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     out_x = 0; out_y = 0;
     if (m_Width == 0u || m_Height == 0u) return 0u;
     // 仕様: 試行回数 100。const メソッドなので一時 FRandom をローカルに作る
@@ -135,7 +135,7 @@ u32 FDungeonGenerator::FindRandomFloor(u32& out_x, u32& out_y) const noexcept {
     return 0u;
 }
 
-void FDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
+void CDungeonGenerator::Generate(const FDungeonGenConfig& config) noexcept {
     // 1. 設定 sanitize: 不正値はサイレントに安全な既定にフォールバック。
     u32 width  = config.width  != 0u ? config.width  : 64u;
     u32 height = config.height != 0u ? config.height : 48u;

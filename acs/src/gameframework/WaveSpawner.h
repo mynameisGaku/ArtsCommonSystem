@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L/R — FWaveSpawner (敵 wave スポーン管理)
+// GameFramework Pillar L/R — CWaveSpawner (敵 wave スポーン管理)
 //
 // 連続する複数の wave をキュー管理し、各 wave に紐づく複数の FSpawnRule を
 // 時間軸上で順次発火させる。残数管理 → wave clear → intermission → 次 wave →
 // 全 wave 完了の state machine を内包する。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FWaveSpawner m_Waves;
+//   class FGameplayScene : public AScene {
+//       acs::game::CWaveSpawner m_Waves;
 //
 //       static void OnSpawn(void* self, const char* enemy_id, acs::FVec2 pos) noexcept {
 //           auto* s = static_cast<FGameplayScene*>(self);
@@ -127,7 +127,7 @@ struct FWaveDef {
  * 敵 1 体出現時の callback 型。
  *
  * @details
- * caller (= FScene 側) が実 entity を生成して NodeGraph に放り込む想定。
+ * caller (= AScene 側) が実 entity を生成して NodeGraph に放り込む想定。
  * enemy_id は FSpawnRule の literal そのものをそのまま渡す。
  * @param user SetOnSpawnCallback で登録した user ポインタ。
  * @param enemy_id 出現させる敵の識別子。
@@ -152,31 +152,31 @@ using WaveStateChangeCallback = void(*)(void* user, u32 wave_index, EWaveState f
  * @details
  * 各 wave に紐づく複数の FSpawnRule を並列評価し、残数管理 → wave clear →
  * intermission → 次 wave → 全 wave 完了を線形に進める。non-copy / non-move で
- * FScene 等に値メンバとして持たせる想定。Tick(dt) で駆動し、敵撃破は
+ * AScene 等に値メンバとして持たせる想定。Tick(dt) で駆動し、敵撃破は
  * NotifyEnemyKilled で通知する。
  */
-class FWaveSpawner {
+class CWaveSpawner {
 public:
     /** 想定 wave 数 (= reserve hint)。多めに見ても 16 で十分、それ超えは自動拡張。 */
     static constexpr u32 kWaveReserveHint = 16u;
 
     /** 空状態で構築する (wave queue は kWaveReserveHint で予約)。 */
-    FWaveSpawner() noexcept;
+    CWaveSpawner() noexcept;
 
     /** 破棄する (TArray が内部リソースを解放)。 */
-    ~FWaveSpawner() noexcept = default;
+    ~CWaveSpawner() noexcept = default;
 
     /** コピー禁止 (進行状態を単独所有するため)。 */
-    FWaveSpawner(const FWaveSpawner&)            = delete;
+    CWaveSpawner(const CWaveSpawner&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWaveSpawner& operator=(const FWaveSpawner&) = delete;
+    CWaveSpawner& operator=(const CWaveSpawner&) = delete;
 
     /** ムーブ禁止 (callback の user ポインタ等の参照安定性を保つため)。 */
-    FWaveSpawner(FWaveSpawner&&)                 = delete;
+    CWaveSpawner(CWaveSpawner&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWaveSpawner& operator=(FWaveSpawner&&)      = delete;
+    CWaveSpawner& operator=(CWaveSpawner&&)      = delete;
 
     /**
      * state を Idle に戻し、現 wave index / timer / 各 wave の発火カウンタをリセットする。
@@ -375,7 +375,7 @@ private:
      *
      * @details spawn callback はユーザーコードで、再入 (AddWave の realloc /
      * Init / Clear) で m_Waves への参照を無効化し得る。走査中は本リストに積み、
- * 参照を手放してからまとめて発火する (FBuffSystem と同じ規約)。
+ * 参照を手放してからまとめて発火する (CBuffSystem と同じ規約)。
      */
     struct FPendingSpawn {
         /** 発火する敵 id (rule 由来、caller 所有文字列)。 */
@@ -400,5 +400,8 @@ private:
     /** wave state 遷移 callback に渡す user ポインタ。 */
     void*                   _state_cb_user      = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWaveSpawner = CWaveSpawner;
 
 } // namespace acs::game

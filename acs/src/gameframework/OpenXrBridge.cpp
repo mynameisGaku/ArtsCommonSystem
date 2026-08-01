@@ -37,30 +37,30 @@
 namespace acs::game {
 
 /** 常に NotImplemented を返す (platform は使わず、m_Initialized は false のまま)。 */
-TResult<void> FOpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
+TResult<void> COpenXrBridgeStub::Init(EXrPlatform platform) noexcept {
     (void)platform;  // stub は platform 自動検出も特定指定も実装していない
     return ACS_ERR(Generic, xr_err::kSub_NotImplemented,
                    "OpenXrBridgeStub::Init: XR backend not integrated (Phase X-1 stub)");
 }
 
 /** m_Initialized を false に戻すだけの no-op (解放対象なし)。 */
-void FOpenXrBridgeStub::Shutdown() noexcept {
+void COpenXrBridgeStub::Shutdown() noexcept {
     m_Initialized = false;
 }
 
 /** dt を受け取って捨てるだけの no-op (XR イベントポンプを持たない)。 */
-void FOpenXrBridgeStub::Tick(f32 dt) noexcept {
+void COpenXrBridgeStub::Tick(f32 dt) noexcept {
     (void)dt;
 }
 
 /** on を無視する no-op (passthrough 非対応のため安全に捨てる)。 */
-void FOpenXrBridgeStub::SetPassthrough(bool on) noexcept {
+void COpenXrBridgeStub::SetPassthrough(bool on) noexcept {
     (void)on;
 }
 
 /** 関数内 static で遅延構築する共有 stub への参照を返す (Meyers singleton)。 */
 IOpenXrBridge& GetXrStub() noexcept {
-    static FOpenXrBridgeStub instance;
+    static COpenXrBridgeStub instance;
     return instance;
 }
 

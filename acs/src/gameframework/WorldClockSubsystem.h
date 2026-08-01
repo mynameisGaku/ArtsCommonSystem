@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FWorldClockSubsystem (World スコープの経過時間・フレーム時計)
+// GameFramework — AWorldClockSubsystem (World スコープの経過時間・フレーム時計)
 //
 // World サブシステム。シーン開始からの経過秒・フレーム数・直近 dt を OnTick で自動集計し、
-// ワールド内のどこからでも GetSubsystem<FWorldClockSubsystem>() で参照できる共有サービス。
+// ワールド内のどこからでも GetSubsystem<AWorldClockSubsystem>() で参照できる共有サービス。
 // «時間» に依存するゲームロジック (クールダウン、アニメ位相、経過時間 UI 等) が、個別に
 // dt を積むのではなく単一の権威ある時計を引けるようにする。
 //
-//   auto* clock = GetSubsystem<acs::game::FWorldClockSubsystem>();
+//   auto* clock = GetSubsystem<acs::game::AWorldClockSubsystem>();
 //   const f64 t = clock->ElapsedSeconds();
 //
 // dt は «そのスコープのスケール済み» 値 (World はシーンと同じスケール済み dt)。ポーズ/スロー
@@ -18,6 +18,10 @@
 
 namespace acs::game {
 
+class AWorldClockSubsystem;
+/** 旧公開名を正規ワールド時計サブシステム型へ接続する互換別名。 */
+using FWorldClockSubsystem = AWorldClockSubsystem;
+
 /**
  * シーン開始からの経過時間・フレーム数・直近 dt を集計する World サブシステム。
  *
@@ -25,7 +29,7 @@ namespace acs::game {
  * f64 で累積する。dt はスコープのスケール済み値なので、ポーズ (dt=0) やスローモーションにも
  * 自然に追従する。
  */
-class FWorldClockSubsystem : public FSubsystem {
+class AWorldClockSubsystem : public ASubsystem {
 public:
     ACS_GAME_SUBSYSTEM_KIND(FWorldClockSubsystem)
 
@@ -91,6 +95,8 @@ private:
 namespace acs {
 
 /** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::AWorldClockSubsystem;
+/** 旧公開名を正規ワールド時計サブシステム型へ接続する互換別名。 */
 using game::FWorldClockSubsystem;
 
 } // namespace acs

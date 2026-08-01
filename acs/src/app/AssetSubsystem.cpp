@@ -7,7 +7,7 @@
 namespace acs {
 
 /** Application owner を検証し、既存アセット登録簿を非所有で結び付ける。 */
-bool FAssetSubsystem::OnOwnerAssigned() noexcept
+bool AAssetSubsystem::OnOwnerAssigned() noexcept
 {
     m_Assets = nullptr;
     if (OwnerKind() == ESubsystemOwnerKind::Unknown) return true;
@@ -16,13 +16,13 @@ bool FAssetSubsystem::OnOwnerAssigned() noexcept
     }
 
     // 検証済みの Application owner。
-    FApplication* const application = static_cast<FApplication*>(Owner());
+    CApplication* const application = static_cast<CApplication*>(Owner());
     m_Assets = &application->GetAssets();
     return true;
 }
 
 /** 終了する Engine スコープから非所有参照を外す。 */
-void FAssetSubsystem::OnDeinitialize() noexcept
+void AAssetSubsystem::OnDeinitialize() noexcept
 {
     m_Assets = nullptr;
 }

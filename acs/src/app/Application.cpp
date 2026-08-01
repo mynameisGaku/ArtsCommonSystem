@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FApplication 実装
+// CApplication 実装
 #include "app/Application.h"
 #include "app/ApplicationSubsystemCatalog.h"
 #include "app/AssetSubsystem.h"
@@ -73,7 +73,7 @@ public:
     {
         if (!active) return;
         // SetErrorMode is process-wide. Preserve the caller's mode so a
-        // reusable FApplication instance (and every early-return path below)
+        // reusable CApplication instance (and every early-return path below)
         // cannot leak smoke-only dialog suppression into a later normal run.
         m_PreviousMode = ::SetErrorMode(
             SEM_FAILCRITICALERRORS |
@@ -102,12 +102,12 @@ private:
 
 } // 無名名前空間
 
-FApplication::FRuntimeFoundationLifetime::~FRuntimeFoundationLifetime() noexcept
+CApplication::FRuntimeFoundationLifetime::~FRuntimeFoundationLifetime() noexcept
 {
     Release();
 }
 
-void FApplication::FRuntimeFoundationLifetime::InitializeLogger(const FLogConfig& config) noexcept
+void CApplication::FRuntimeFoundationLifetime::InitializeLogger(const FLogConfig& config) noexcept
 {
     if (!lifetime_active) {
         // Run 前から存在する DbgHelp 状態は外部所有として扱い、終了時にも残す。
@@ -123,7 +123,7 @@ void FApplication::FRuntimeFoundationLifetime::InitializeLogger(const FLogConfig
     InitializeMemoryDiagnostics();
 }
 
-void FApplication::FRuntimeFoundationLifetime::InitializeMemoryDiagnostics() noexcept
+void CApplication::FRuntimeFoundationLifetime::InitializeMemoryDiagnostics() noexcept
 {
     if (!FCrtDebugHeapDiagnostics::IsSupported() || CrtHeapScope.IsActive()) {
         return;
@@ -158,7 +158,7 @@ void FApplication::FRuntimeFoundationLifetime::InitializeMemoryDiagnostics() noe
     }
 }
 
-TResult<void> FApplication::FRuntimeFoundationLifetime::InitializeMemorySystem(const FMemorySystemConfig& config) noexcept
+TResult<void> CApplication::FRuntimeFoundationLifetime::InitializeMemorySystem(const FMemorySystemConfig& config) noexcept
 {
     if (FMemorySystem::Get(ESegment::Default) != nullptr) return Ok();
     const auto result = FMemorySystem::Init(config);
@@ -166,7 +166,7 @@ TResult<void> FApplication::FRuntimeFoundationLifetime::InitializeMemorySystem(c
     return result;
 }
 
-TResult<void> FApplication::FRuntimeFoundationLifetime::InitializeThreadPool(u32 worker_count) noexcept
+TResult<void> CApplication::FRuntimeFoundationLifetime::InitializeThreadPool(u32 worker_count) noexcept
 {
     if (FThreadPool::WorkerCount() != 0) return Ok();
     const auto result = FThreadPool::Init(worker_count);
@@ -174,7 +174,7 @@ TResult<void> FApplication::FRuntimeFoundationLifetime::InitializeThreadPool(u32
     return result;
 }
 
-void FApplication::FRuntimeFoundationLifetime::Release() noexcept
+void CApplication::FRuntimeFoundationLifetime::Release() noexcept
 {
     if (thread_pool_owned) {
         FThreadPool::Shutdown();
@@ -202,9 +202,9 @@ void FApplication::FRuntimeFoundationLifetime::Release() noexcept
 // 1) Input サブシステムに流して状態を更新
 // 2) アプリ派生クラスの OnEvent も呼ぶ
 // 3) リサイズ時は FRenderer にも通知
-void FApplication::EventBridge(void* user_data, const FEvent& event) noexcept
+void CApplication::EventBridge(void* user_data, const FEvent& event) noexcept
 {
-    FApplication* const app = static_cast<FApplication*>(user_data);
+    CApplication* const app = static_cast<CApplication*>(user_data);
     FInput::OnEvent(event);
     if (app->m_RendererFailurePending) return;
     if (event.type == EEventType::WindowResize && !app->m_Window.IsMinimized()) {
@@ -216,7 +216,7 @@ void FApplication::EventBridge(void* user_data, const FEvent& event) noexcept
     app->OnEvent(event);
 }
 
-int FApplication::Run(const FAppConfig& configuration) noexcept
+int CApplication::Run(const FAppConfig& configuration) noexcept
 {
     if (m_RunActive) return 5;
     m_RunActive = true;
@@ -314,8 +314,8 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     // Application 所有の既存サービスを Engine サブシステムとして公開する。
     const bool application_subsystems_registered = AcsRegisterApplicationSubsystems();
     const bool engine_subsystems_initialized = application_subsystems_registered && m_EngineSubsystems.TryInitialize(ESubsystemScope::Engine, nullptr, FSubsystemOwner{this, ESubsystemOwnerKind::Application});
-    FTimerSubsystem* const timer_subsystem = GetSubsystem<FTimerSubsystem>();
-    FAssetSubsystem* const asset_subsystem = GetSubsystem<FAssetSubsystem>();
+    ATimerSubsystem* const timer_subsystem = GetSubsystem<ATimerSubsystem>();
+    AAssetSubsystem* const asset_subsystem = GetSubsystem<AAssetSubsystem>();
     if (!engine_subsystems_initialized || timer_subsystem == nullptr || asset_subsystem == nullptr ||
         timer_subsystem->GetTimers() != &m_Timers || asset_subsystem->GetAssets() != &m_Assets) {
         ACS_LOG_ERROR("FApplication: Engine subsystem initialization failed");
@@ -412,7 +412,7 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
 
     // 実行中に既定アロケータから生成された所有物を、MemorySystem より先に解放する。
     // 特に World の SparseSet、MessageBroker の Channel、Asset の共有参照は
-    // FApplication 構築時ではなく OnStart 中に生成されるため、この順序が必要になる。
+    // CApplication 構築時ではなく OnStart 中に生成されるため、この順序が必要になる。
     m_Timers.Clear();
     m_Events.Clear();
     m_World.Clear();

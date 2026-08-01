@@ -56,9 +56,9 @@
 //     `GetAssetLockingStub()` / `GetBuildFarmStub()` を提供。実 SDK 未統合の
 //     ビルドでも `m_Locks = &GetAssetLockingStub();` だけでコンパイル可能。
 //   ・**実 (ローカル) 実装を同梱**: 外部 SDK (P4 / Jenkins) を必要としない
-//     ローカル本実装を 2 つ提供する。`FLocalFileAssetLocking` = オンディスクの
+//     ローカル本実装を 2 つ提供する。`CLocalFileAssetLocking` = オンディスクの
 //     サイドカー lock ファイル (CreateFileW CREATE_NEW の原子性で協調ロック) を
-//     使う実ロック、`FLocalBuildRunner` = CreateProcessW で実際にローカルの
+//     使う実ロック、`CLocalBuildRunner` = CreateProcessW で実際にローカルの
 //     ビルドコマンドを起動し終了コードを回収する「サイズ 1 の実ビルドファーム」。
 //     `GetLocalFileAssetLocking()` / `GetLocalBuildRunner()` で取得する。
 //     これらは stub ではなく、実際に動作する本実装である。
@@ -312,13 +312,13 @@ public:
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。コピー/ムーブは基底 I/F で delete 済みのため本クラスも自然に non-copy。
  */
-class FAssetLockingStub final : public IAssetLockingBackend {
+class CAssetLockingStub final : public IAssetLockingBackend {
 public:
     /** 既定構築。 */
-    FAssetLockingStub() noexcept = default;
+    CAssetLockingStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FAssetLockingStub() noexcept override = default;
+    ~CAssetLockingStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (no-op stub)。
@@ -361,13 +361,13 @@ public:
  * IsConnected() は常に false、各操作は ACS_ERR(Generic, kSub_NotImplemented, ...) を
  * 返す。
  */
-class FBuildFarmStub final : public IBuildFarmBackend {
+class CBuildFarmStub final : public IBuildFarmBackend {
 public:
     /** 既定構築。 */
-    FBuildFarmStub() noexcept = default;
+    CBuildFarmStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FBuildFarmStub() noexcept override = default;
+    ~CBuildFarmStub() noexcept override = default;
 
     /**
      * 常に NotImplemented を返す (no-op stub)。
@@ -417,7 +417,7 @@ public:
  * trailing data・期限切れらしき lock は安全側に倒して自動削除しない。
  */
 
-/** FLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
+/** CLocalFileAssetLocking の機械判定可能な安定エラー。値は永続ログ/API 用に固定する。 */
 enum class ELocalAssetLockError : u16 {
     None              = 0,
     BadArgument       = 1500,
@@ -464,7 +464,7 @@ struct FLocalAssetLockResult {
 /** ログ/telemetry 用の安定した ASCII error 名を返す。 */
 const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept;
 
-class FLocalFileAssetLocking final : public IAssetLockingBackend {
+class CLocalFileAssetLocking final : public IAssetLockingBackend {
 public:
     /** path バッファの最大長 (NUL 含む)。MAX_PATH 級 + 余裕。 */
     static constexpr int kMaxPathChars = 1024;
@@ -479,10 +479,10 @@ public:
     static constexpr int kMaxHeldLocks = 64;
 
     /** 既定構築。 */
-    FLocalFileAssetLocking() noexcept = default;
+    CLocalFileAssetLocking() noexcept = default;
 
     /** 破棄する。 */
-    ~FLocalFileAssetLocking() noexcept override = default;
+    ~CLocalFileAssetLocking() noexcept override = default;
 
     /**
      * checked API を使って `<asset_path>.lock` を原子的・永続的に取得する互換 API。
@@ -599,7 +599,7 @@ private:
  * 固定長バッファへコピーしてから渡す。branch / commit_sha は情報のみ。ジョブは固定長
  * テーブル (kMaxJobs 件) で管理し、build_id は 1 始まりの連番 (0 は無効予約)。STL 非依存。
  */
-class FLocalBuildRunner final : public IBuildFarmBackend {
+class CLocalBuildRunner final : public IBuildFarmBackend {
 public:
     /** 同時追跡できるビルドジョブ数。 */
     static constexpr int kMaxJobs        = 32;
@@ -611,10 +611,10 @@ public:
     static constexpr int kMaxArtifactLen = 1024;
 
     /** 既定構築。 */
-    FLocalBuildRunner() noexcept = default;
+    CLocalBuildRunner() noexcept = default;
 
     /** 追跡中のプロセス HANDLE をすべて閉じて破棄する (プロセス自体は kill しない)。 */
-    ~FLocalBuildRunner() noexcept override;
+    ~CLocalBuildRunner() noexcept override;
 
     /**
      * command_line (UTF-16, 書き換え可能) を起動し、終了まで待って終了コードを得る (同期、seam 非経由)。
@@ -728,7 +728,7 @@ private:
  * 依存ゼロのデフォルト実装で、常に NotImplemented を返す。本体側 (タイトル / エディタ)
  * はまずこれを使ってリンクを通し、具象実装に切り替える際は IAssetLockingBackend* を持つ
  * メンバ変数に PerforceAssetLocking 等を差し替える。
- * @return プロセス共有の FAssetLockingStub への参照。
+ * @return プロセス共有の CAssetLockingStub への参照。
  */
 IAssetLockingBackend& GetAssetLockingStub() noexcept;
 
@@ -736,7 +736,7 @@ IAssetLockingBackend& GetAssetLockingStub() noexcept;
  * プロセス共有の stub IBuildFarmBackend を返す。
  *
  * @details 依存ゼロのデフォルト実装で、常に NotImplemented を返す。
- * @return プロセス共有の FBuildFarmStub への参照。
+ * @return プロセス共有の CBuildFarmStub への参照。
  */
 IBuildFarmBackend& GetBuildFarmStub() noexcept;
 
@@ -746,16 +746,28 @@ IBuildFarmBackend& GetBuildFarmStub() noexcept;
  * @details
  * 外部 SDK に依存しないオンディスク本実装。stub と差し替えて `m_Locks =
  * &GetLocalFileAssetLocking();` のように使う process-wide singleton。
- * @return プロセス共有の FLocalFileAssetLocking への参照。
+ * @return プロセス共有の CLocalFileAssetLocking への参照。
  */
-FLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept;
+CLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept;
 
 /**
  * プロセス共有の実 IBuildFarmBackend (ローカル CreateProcessW) を返す。
  *
  * @details 外部 SDK に依存しないローカルプロセス本実装の process-wide singleton。
- * @return プロセス共有の FLocalBuildRunner への参照。
+ * @return プロセス共有の CLocalBuildRunner への参照。
  */
-FLocalBuildRunner& GetLocalBuildRunner() noexcept;
+CLocalBuildRunner& GetLocalBuildRunner() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetLockingStub = CAssetLockingStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBuildFarmStub = CBuildFarmStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLocalBuildRunner = CLocalBuildRunner;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLocalFileAssetLocking = CLocalFileAssetLocking;
 
 } // namespace acs::game

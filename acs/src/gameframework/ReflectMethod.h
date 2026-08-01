@@ -54,14 +54,14 @@ struct FReflectMethod {
     u32          flags;                              ///< EMethodFlags の OR。
 };
 
-struct FMethodAutoRegister;
+struct CMethodAutoRegister;
 
 /** 反射メソッドのグローバル登録簿(ACS_REGISTER_METHOD が登録)。 */
-class FMethodRegistry {
+class CMethodRegistry {
 public:
     /** 単一インスタンス(初回呼び出しで遅延構築)。 */
-    static FMethodRegistry& Get() noexcept {
-        static FMethodRegistry s_instance;
+    static CMethodRegistry& Get() noexcept {
+        static CMethodRegistry s_instance;
         return s_instance;
     }
 
@@ -123,7 +123,7 @@ public:
     }
 
 private:
-    friend struct FMethodAutoRegister;
+    friend struct CMethodAutoRegister;
 
     /** 同じ owner+name へ同時登録できる module/source 数。 */
     static constexpr u32 kMaxSourcesPerMethod = 8;
@@ -139,7 +139,7 @@ private:
     };
 
     /** process lifetime の登録簿が一時的な DefaultAllocator を捕捉しないようにする。 */
-    FMethodRegistry() noexcept : m_Entries(m_Allocator)
+    CMethodRegistry() noexcept : m_Entries(m_Allocator)
     {
     }
 
@@ -223,19 +223,19 @@ private:
 };
 
 /** ACS_REGISTER_METHOD が生成する自動登録ヘルパ。 */
-struct FMethodAutoRegister {
-    explicit FMethodAutoRegister(const FReflectMethod& method) noexcept : m_Method(method)
+struct CMethodAutoRegister {
+    explicit CMethodAutoRegister(const FReflectMethod& method) noexcept : m_Method(method)
     {
-        FMethodRegistry::Get().RegisterSource(m_Method, this);
+        CMethodRegistry::Get().RegisterSource(m_Method, this);
     }
 
-    ~FMethodAutoRegister() noexcept
+    ~CMethodAutoRegister() noexcept
     {
-        (void)FMethodRegistry::Get().UnregisterSource(m_Method, this);
+        (void)CMethodRegistry::Get().UnregisterSource(m_Method, this);
     }
 
-    FMethodAutoRegister(const FMethodAutoRegister&) = delete;
-    FMethodAutoRegister& operator=(const FMethodAutoRegister&) = delete;
+    CMethodAutoRegister(const CMethodAutoRegister&) = delete;
+    CMethodAutoRegister& operator=(const CMethodAutoRegister&) = delete;
 
 private:
     FReflectMethod m_Method{};
@@ -250,7 +250,7 @@ private:
  * @return 見つかって呼べたら true。
  */
 inline bool InvokeMethodByName(FTypeId owner, void* obj, const char* name) noexcept {
-    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || m->invoke == nullptr || obj == nullptr) return false;
     m->invoke(obj);
     return true;
@@ -267,7 +267,7 @@ inline bool InvokeMethodByName(FTypeId owner, void* obj, const char* name) noexc
  * @return 見つかって呼べたら true。
  */
 inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, const char* arg) noexcept {
-    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || obj == nullptr) return false;
     if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
@@ -290,13 +290,19 @@ inline bool InvokeMethodByNameArg(FTypeId owner, void* obj, const char* name, co
 inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
                                   const char* arg, char* out, int outcap) noexcept {
     if (out != nullptr && outcap > 0) out[0] = '\0';
-    const FReflectMethod* m = FMethodRegistry::Get().Find(owner, name);
+    const FReflectMethod* m = CMethodRegistry::Get().Find(owner, name);
     if (m == nullptr || obj == nullptr) return false;
     if (m->retKind != METHOD_ARG_NONE && m->invokeRet != nullptr) { m->invokeRet(obj, arg != nullptr ? arg : "", out, outcap); return true; }
     if (m->argKind != METHOD_ARG_NONE && m->invokeArg != nullptr) { m->invokeArg(obj, arg != nullptr ? arg : ""); return true; }
     if (m->invoke != nullptr) { m->invoke(obj); return true; }
     return false;
 }
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMethodAutoRegister = CMethodAutoRegister;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMethodRegistry = CMethodRegistry;
 
 } // namespace acs::game
 
@@ -332,7 +338,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
  *  acs::game 内型もグローバルなユーザー型も解決される)。 */
 #define ACS_REGISTER_METHOD(Type, method, flags)                                     \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rm_, __LINE__) {        \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rm_, __LINE__) {        \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 ACS_RMETHOD_THUNK(Type, method), nullptr, nullptr,                   \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_NONE,           \
@@ -342,7 +348,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
 /** 単一引数(f32 / i32 / const char*)メソッドを登録する。argKind に応じてサンクを選ぶ。 */
 #define ACS_REGISTER_METHOD_F32(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, ACS_RMETHOD_THUNK_F32(Type, method), nullptr,               \
                 ::acs::game::METHOD_ARG_F32, ::acs::game::METHOD_ARG_NONE,            \
@@ -350,7 +356,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_I32(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, ACS_RMETHOD_THUNK_I32(Type, method), nullptr,               \
                 ::acs::game::METHOD_ARG_I32, ::acs::game::METHOD_ARG_NONE,            \
@@ -358,7 +364,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_STR(Type, method, flags)                                 \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rma_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, ACS_RMETHOD_THUNK_STR(Type, method), nullptr,               \
                 ::acs::game::METHOD_ARG_STR, ::acs::game::METHOD_ARG_NONE,            \
@@ -368,7 +374,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
 /** 戻り値あり(引数なし)メソッドを登録する。retKind に結果型を入れ invokeRet を持つ。 */
 #define ACS_REGISTER_METHOD_RET_F32(Type, method, flags)                             \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, nullptr, ACS_RMETHOD_THUNK_RET_F32(Type, method),           \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_F32,            \
@@ -376,7 +382,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_RET_I32(Type, method, flags)                             \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, nullptr, ACS_RMETHOD_THUNK_RET_I32(Type, method),           \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_I32,            \
@@ -384,7 +390,7 @@ inline bool InvokeMethodByNameRet(FTypeId owner, void* obj, const char* name,
     } }
 #define ACS_REGISTER_METHOD_RET_STR(Type, method, flags)                             \
     namespace acs::game { namespace {                                                 \
-        const ::acs::game::FMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
+        const ::acs::game::CMethodAutoRegister ACS_RCAT(s_acs_rmr_, __LINE__) {       \
             ::acs::game::FReflectMethod{ ::acs::game::AcsTypeHash(#Type), #method,    \
                 nullptr, nullptr, ACS_RMETHOD_THUNK_RET_STR(Type, method),           \
                 ::acs::game::METHOD_ARG_NONE, ::acs::game::METHOD_ARG_STR,            \

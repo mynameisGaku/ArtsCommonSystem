@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FPickupSystem 実装
+// GameFramework Pillar R/I — CPickupSystem 実装
 //
 // 設計上のポイント (ヘッダの設計コメントと対応):
-//   ・slot+gen pattern: FCollisionWorld2D と統一。index 0 は予約。
+//   ・slot+gen pattern: CCollisionWorld2D と統一。index 0 は予約。
 //   ・Tick の処理順は「lifetime 進行 → 磁石 → 拾取判定」。lifetime expire と
 //     pickup 拾取が同フレームに起こり得るが、lifetime expire を先に処理することで
 //     「期限切れと同時に拾った」エッジケースを ExpireCallback に倒す。
@@ -67,7 +67,7 @@ constexpr FKindDefaults kKindDefaults[8] = {
 } // namespace
 
 /** 初期化する (再 Init は ClearAll と等価)。 */
-void FPickupSystem::Init() noexcept {
+void CPickupSystem::Init() noexcept {
     // 再 Init は ClearAll と等価 (ヘッダの仕様コメントと対応)。
     ClearAll();
 }
@@ -79,12 +79,12 @@ void FPickupSystem::Init() noexcept {
  * 置き、無ければ末尾に PushBack する。
  * @return 確保した slot の index。
  */
-u32 FPickupSystem::AcquireSlot() noexcept {
+u32 CPickupSystem::AcquireSlot() noexcept {
     // index 0 は予約 (= invalid)。i >= 1 から線形検索で inactive slot を探す。
     for (u32 i = 1; i < m_Slots.Size(); ++i) {
         if (!m_Slots[i].active) return i;
     }
-    // 初回は dummy slot を 0 番に置く (FCollisionWorld2D と同パターン)。
+    // 初回は dummy slot を 0 番に置く (CCollisionWorld2D と同パターン)。
     if (m_Slots.IsEmpty()) {
         m_Slots.PushBack({});
     }
@@ -99,7 +99,7 @@ u32 FPickupSystem::AcquireSlot() noexcept {
  * @param info 登録する pickup の定義。
  * @return 新規 PickupId。
  */
-FPickupId FPickupSystem::Spawn(const FPickupInfo& info) noexcept {
+FPickupId CPickupSystem::Spawn(const FPickupInfo& info) noexcept {
     const u32 idx = AcquireSlot();
     FSlot& s = m_Slots[idx];
     s.info   = info;
@@ -116,7 +116,7 @@ FPickupId FPickupSystem::Spawn(const FPickupInfo& info) noexcept {
  *
  * @param id 消滅させる pickup の handle。
  */
-void FPickupSystem::Despawn(FPickupId id) noexcept {
+void CPickupSystem::Despawn(FPickupId id) noexcept {
     if (!id.IsValid()) return;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return;
@@ -133,7 +133,7 @@ void FPickupSystem::Despawn(FPickupId id) noexcept {
  * @param player_pos プレイヤーの世界座標。
  * @param magnet_strength 磁石による吸引速度 (world unit / sec)。
  */
-void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept {
+void CPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept {
     const usize n = m_Slots.Size();
     // index 0 は予約なのでスキップ。
     for (usize i = 1; i < n; ++i) {
@@ -196,7 +196,7 @@ void FPickupSystem::Tick(f32 dt, FVec2 player_pos, f32 magnet_strength) noexcept
 }
 
 /** active pickup の総数を返す。 */
-u32 FPickupSystem::AlivePickupCount() const noexcept {
+u32 CPickupSystem::AlivePickupCount() const noexcept {
     return m_AliveCount;
 }
 
@@ -206,7 +206,7 @@ u32 FPickupSystem::AlivePickupCount() const noexcept {
  * @param id 取得する pickup の handle。
  * @return PickupInfo へのポインタ (無効 id / 既消滅は nullptr)。
  */
-const FPickupInfo* FPickupSystem::GetPickup(FPickupId id) const noexcept {
+const FPickupInfo* CPickupSystem::GetPickup(FPickupId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
@@ -221,7 +221,7 @@ const FPickupInfo* FPickupSystem::GetPickup(FPickupId id) const noexcept {
  * @param cb 拾取時に呼ぶコールバック (nullptr で detach)。
  * @param user コールバックへ渡すコンテキスト。
  */
-void FPickupSystem::SetOnPickupCallback(PickupCallback cb, void* user) noexcept {
+void CPickupSystem::SetOnPickupCallback(PickupCallback cb, void* user) noexcept {
     m_OnPickup      = cb;
     m_OnPickupUser = user;
 }
@@ -232,7 +232,7 @@ void FPickupSystem::SetOnPickupCallback(PickupCallback cb, void* user) noexcept 
  * @param cb 失効時に呼ぶコールバック (nullptr で detach)。
  * @param user コールバックへ渡すコンテキスト。
  */
-void FPickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
+void CPickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept {
     m_OnExpire      = cb;
     m_OnExpireUser = user;
 }
@@ -246,7 +246,7 @@ void FPickupSystem::SetOnExpireCallback(ExpireCallback cb, void* user) noexcept 
  * @param center スポーン中心の世界座標。
  * @param spread_radius 散布半径。
  */
-void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius) noexcept {
+void CPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_radius) noexcept {
     // kind の index を範囲 clamp (enum 拡張時の保険)。
     u8 ki = static_cast<u8>(kind);
     if (ki >= 8u) ki = 7u;  // Custom にフォールバック
@@ -274,7 +274,7 @@ void FPickupSystem::SpawnRandomAt(EPickupKind kind, FVec2 center, f32 spread_rad
  *
  * @param kind 消滅させる pickup の種別。
  */
-void FPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
+void CPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
         FSlot& s = m_Slots[i];
@@ -291,7 +291,7 @@ void FPickupSystem::DespawnAllOfKind(EPickupKind kind) noexcept {
  * @param kind 数える pickup の種別。
  * @return 該当する active pickup 数。
  */
-u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
+u32 CPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
     u32 count = 0;
     const usize n = m_Slots.Size();
     for (usize i = 1; i < n; ++i) {
@@ -303,7 +303,7 @@ u32 FPickupSystem::CountOfKind(EPickupKind kind) const noexcept {
 }
 
 /** 全 slot を破棄し alive 数を 0 にする (コールバック設定は維持)。 */
-void FPickupSystem::ClearAll() noexcept {
+void CPickupSystem::ClearAll() noexcept {
     m_Slots.Clear();
     m_AliveCount = 0;
     // コールバック設定は維持 (ヘッダ仕様コメントと対応)。

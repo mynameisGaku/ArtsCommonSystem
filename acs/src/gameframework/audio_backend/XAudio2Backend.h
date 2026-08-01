@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FXAudio2Backend (Windows 用 IAudioBackend 実装)
+// GameFramework Pillar H — CXAudio2Backend (Windows 用 IAudioBackend 実装)
 //
 // 役割:
 //   `IAudioBackend` の concrete 実装 = Win32 XAudio2 (Windows SDK 同梱) を
-//   叩いて実音声を出す。`FAudioDirector::SetBackend(&xaudio2)` で差し込んで
+//   叩いて実音声を出す。`CAudioDirector::SetBackend(&xaudio2)` で差し込んで
 //   使う。
 //
 // 使い方 (典型例):
-//   class FGame {
-//       acs::game::FXAudio2Backend m_Audio;
-//       acs::game::FAudioDirector  m_Director;
+//   class CGame {
+//       acs::game::CXAudio2Backend m_Audio;
+//       acs::game::CAudioDirector  m_Director;
 //
 //       TResult<void> OnStart() noexcept override {
 //           ACS_TRY(m_Audio.Init(64));      // 同時発音 64 voice
@@ -41,7 +41,7 @@
 //     自然回収する。回収しないと kMaxVoices 回再生でスロット枯渇する。
 //
 // 範囲外:
-//   ・3D positional / spatial (Pillar FSpatialAudio 担当、別 backend)
+//   ・3D positional / spatial (Pillar CSpatialAudio 担当、別 backend)
 //   ・stream 再生 / 動的バッファ供給
 //   ・wav/ogg/mp3 デコード (raw PCM を渡す前提)
 #pragma once
@@ -65,32 +65,32 @@ inline constexpr u64 kXAudio2BackendResidentBufferBudgetBytes = 512ull * 1024ull
  * Win32 XAudio2 を叩いて実音声を出す IAudioBackend の Windows 実装。
  *
  * @details
- * `FAudioDirector::SetBackend(&xaudio2)` で差し込んで使う。pimpl で `<xaudio2.h>`
+ * `CAudioDirector::SetBackend(&xaudio2)` で差し込んで使う。pimpl で `<xaudio2.h>`
  * (+ COM) の重ヘッダを .cpp に閉じ込め、固定容量 voice pool を `Init(max_voices)`
  * で確保する。voice handle は ABI を 32bit に保ったプロセス通算チケットで一意化し、
  * slot 再利用時の use-after-free をハンドル不一致で no-op 化して防ぐ。一発再生は Tick で
  * `BuffersQueued == 0` を見て自然回収される。COM MTA の寿命は cookie で保持するため、
  * Init と異なるスレッドから Shutdown またはデストラクタを実行できる。
  */
-class FXAudio2Backend final : public IAudioBackend {
+class CXAudio2Backend final : public IAudioBackend {
 public:
     /** 空状態で構築する (実リソースは Init で確保)。 */
-    FXAudio2Backend() noexcept;
+    CXAudio2Backend() noexcept;
 
     /** Shutdown を呼んで全 voice・COM・pimpl を解放する。 */
-    ~FXAudio2Backend() noexcept override;
+    ~CXAudio2Backend() noexcept override;
 
     /** コピー禁止 (COM ハンドルの二重解放を避けるため)。 */
-    FXAudio2Backend(const FXAudio2Backend&)            = delete;
+    CXAudio2Backend(const CXAudio2Backend&)            = delete;
 
     /** コピー代入も禁止。 */
-    FXAudio2Backend& operator=(const FXAudio2Backend&) = delete;
+    CXAudio2Backend& operator=(const CXAudio2Backend&) = delete;
 
     /** ムーブ禁止 (長寿命オブジェクトとして単独所有するため)。 */
-    FXAudio2Backend(FXAudio2Backend&&)                 = delete;
+    CXAudio2Backend(CXAudio2Backend&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FXAudio2Backend& operator=(FXAudio2Backend&&)      = delete;
+    CXAudio2Backend& operator=(CXAudio2Backend&&)      = delete;
 
     /**
      * COM・XAudio2 エンジン・マスタリングボイス・voice pool を確保する。
@@ -226,5 +226,8 @@ private:
     /** pimpl 本体 (Init で確保、Shutdown で解放。未 init は nullptr)。 */
     FImpl* m_Impl = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FXAudio2Backend = CXAudio2Backend;
 
 } // namespace acs::game

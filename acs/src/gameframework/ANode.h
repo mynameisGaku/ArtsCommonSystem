@@ -2,6 +2,7 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "foundation/Move.h"
 #include "memory/UniquePtr.h"
 #include "memory/ObjectPtr.h"
@@ -18,8 +19,6 @@
 namespace acs::game {
 
 class FRenderContext;
-// ノードheaderを軽く保つため、非所有ポインタで参照する。
-class FSceneServices;
 // 使用する効果プリセット。値は描画materialへ反映する。
 struct FMaterial2D;
 
@@ -96,7 +95,7 @@ public:
      * 固定刻み update フック (物理・決定論ロジック)。
      *
      * @details
-     * 同フレームで 0..max_fixed_steps 回呼ばれる。FGame::SetFixedTimeStep が 0 のとき
+     * 同フレームで 0..max_fixed_steps 回呼ばれる。CGame::SetFixedTimeStep が 0 のとき
      * (= 固定 update 無効) は呼ばれない。
      * @param fixed_dt 固定刻みの秒 (SetFixedTimeStep で指定した値)。
      */
@@ -673,39 +672,39 @@ public:
     // --------------------------------------------- services / subsystems
 
     /**
-     * ツリーに配線された FSceneServices を返す (root まで遡る。未配線なら nullptr)。
+     * ツリーに配線された CSceneServices を返す (root まで遡る。未配線なら nullptr)。
      *
-     * @return 配線済み FSceneServices ポインタ (未配線は nullptr)。
+     * @return 配線済み CSceneServices ポインタ (未配線は nullptr)。
      */
-    FSceneServices* SceneServices() const noexcept;
+    CSceneServices* SceneServices() const noexcept;
 
     /** services ポインタを設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSceneServices(FSceneServices* svc) noexcept { m_Services = svc; }
+    void _SetSceneServices(CSceneServices* svc) noexcept { m_Services = svc; }
 
     /**
      * ツリーに配線された World サブシステム束を返す (root まで遡る。未配線なら nullptr)。
      *
-     * @return 配線済み FSubsystemCollection (未配線は nullptr)。
+     * @return 配線済み CSubsystemCollection (未配線は nullptr)。
      */
-    FSubsystemCollection* Subsystems() const noexcept;
+    CSubsystemCollection* Subsystems() const noexcept;
 
     /** サブシステム束を設定する (内部用。root ノードでのみ意味を持つ)。 */
-    void _SetSubsystems(FSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
+    void _SetSubsystems(CSubsystemCollection* subs) noexcept { m_Subsystems = subs; }
 
     /**
      * 型でサブシステムを取得する (root のコレクションから解決)。
      *
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T* (未配線/未登録なら nullptr)。
      */
     template<typename T>
     T* GetSubsystem() const noexcept {
-        FSubsystemCollection* s = Subsystems();
+        CSubsystemCollection* s = Subsystems();
         return (s != nullptr) ? s->Get<T>() : nullptr;
     }
 
     /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-    void _ActivateServices(FSceneServices& svc) noexcept;
+    void _ActivateServices(CSceneServices& svc) noexcept;
 
     // ------------------------------------------------------------ ツリー実行
 
@@ -791,7 +790,7 @@ private:
      * 遅延 Reparent 先の寿命を監視する、割り当て不要の侵入型 observer。
      *
      * @details
-     * ANode は NewObject 所有だけでなく FScene root の値所有も正式に許すため、
+     * ANode は NewObject 所有だけでなく AScene root の値所有も正式に許すため、
      * TWeakObjectPtr だけでは全対象を監視できない。observer を対象側のリストへ
      * 接続し、対象のデストラクタから無効化することで両方を stale-safe に扱う。
      */
@@ -837,7 +836,7 @@ private:
     u32 SubtreeHeight() const noexcept;
 
     /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
-    void _ActivateSubtreeServices(FSceneServices* svc) noexcept;
+    void _ActivateSubtreeServices(CSceneServices* svc) noexcept;
 
     /** ローカル transform (真値。world は親から合成)。 */
     FTransform3D m_Local{};
@@ -897,10 +896,10 @@ private:
     i32 m_SelfOccluder = -1;
 
     /** ツリー root に配線される services (root のみ設定、子は walk-to-root)。 */
-    FSceneServices* m_Services = nullptr;
+    CSceneServices* m_Services = nullptr;
 
     /** ツリー root に配線されるサブシステム束 (root のみ設定)。 */
-    FSubsystemCollection* m_Subsystems = nullptr;
+    CSubsystemCollection* m_Subsystems = nullptr;
 };
 
 } // namespace acs::game
@@ -913,8 +912,6 @@ using game::EAddChildResult;
 using game::kNodeMaxTreeDepth;
 /** node描画コンテキストをトップレベルから参照する正規入口。 */
 using game::FRenderContext;
-/** node用シーンサービスをトップレベルから参照する正規入口。 */
-using game::FSceneServices;
 /** nodeへ設定する2D materialをトップレベルから参照する正規入口。 */
 using game::FMaterial2D;
 /** GameFramework 内の実装型をトップレベルから参照する正規入口。 */

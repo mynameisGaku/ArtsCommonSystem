@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — editor_core / FEditorGizmo
+// GameFramework Pillar — editor_core / CEditorGizmo
 //
 // 役割:
 //   選択中の ANode の FTransform3D を viewport 上で直接ドラッグ操作する
@@ -9,7 +9,7 @@
 //   操作系を最小集合で再実装したもの。
 //
 // 使い方 (典型):
-//   acs::game::editor_core::FEditorGizmo gizmo;
+//   acs::game::editor_core::CEditorGizmo gizmo;
 //   gizmo.Init();
 //   gizmo.SetMode(EGizmoMode::Translate);
 //   gizmo.SetSpace(EGizmoSpace::World);
@@ -33,11 +33,11 @@
 //       node.SetWorldScale(scl);
 //   }
 //
-//   // 3) DrawGizmo: FDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
-//   //    FDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
+//   // 3) DrawGizmo: CDebugDraw 経由で軸 / 平面 / ハンドルを描く (描画は外部の
+//   //    CDebugDraw 消費側が ImGui / 自前 LineRenderer 等に転写する)。
 //   gizmo.DrawGizmo(debug_draw, pos, rot, scl);
 //
-//   // 4) drag 終了時に FUndoStack へ push したい場合:
+//   // 4) drag 終了時に CUndoStack へ push したい場合:
 //   gizmo.SetOnManipulateCallback(&MyEditor::OnGizmoDelta, &editor);
 //
 // 設計選択:
@@ -47,7 +47,7 @@
 //     既に確立した方針)。
 //   ・**FGizmoState を struct として公開**: テストや editor 上の inspector で
 //     「今 drag 中か」「どの軸が hot か」を読み取れるよう公開する。書き換えは
-//     FEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
+//     CEditorGizmo 内部からのみ行うが、struct 全体を public にしておけば
 //     外部から ImGui::Text で覗くのが楽 (= debug / replay 性が高い)。
 //   ・**ProcessInput → Manipulate → DrawGizmo の 3 段**: input 取得 / 値更新 /
 //     描画を完全に分離する。これにより:
@@ -56,7 +56,7 @@
 //         動画キャプチャ) が可能
 //   ・**raw 関数ポインタ callback**: ACS は std::function を使えないため、
 //     ManipulateCallback は C スタイル `void(*)(void*, ...) noexcept` で揃える
-//     (Input.h / FInspectorPanel と同形)。
+//     (Input.h / AInspectorPanel と同形)。
 //   ・**snap は Shift モディファイア前提**: SetSnap*(step) で step > 0 を渡すと
 //     drag 中の Shift で snap が有効になる。step == 0 で snap 無効 (default)。
 //     Shift キー検出は ProcessInput の呼び出し側で行い、本クラスは「snap step が
@@ -79,7 +79,7 @@
 //   ・**scale モードは axis-aligned**: 軸ハンドルで「その軸方向の uniform scale
 //     倍率」を計算。XY/XZ/YZ 平面 + ScreenAlign は scale モードでは hit を取らない
 //     (= 各軸ごとの非一様 scale を意図的に強制、Unity と同じ)。
-//   ・**DrawGizmo は FDebugDraw (FVec2 ベース) に出力**: FDebugDraw は 2D
+//   ・**DrawGizmo は CDebugDraw (FVec2 ベース) に出力**: CDebugDraw は 2D
 //     ラインバッファ。本ヘッダでは「Z 軸を捨てて XY 平面に
 //     射影する」simple projection を採用する (= 2D top-down view を想定)。
 //   ・**全 noexcept / 非コピー / 非ムーブ / STL 不使用 / `<string>` 禁止**:
@@ -93,11 +93,8 @@
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
-
-namespace acs::game {
-class FDebugDraw;        // 前方宣言 — .cpp で gameframework/DebugDraw.h を include
-}
 
 namespace acs::game::editor_core {
 
@@ -178,7 +175,7 @@ enum class EGizmoAxis : u8 {
  * gizmo の現フレームの操作状態 (POD、テストで覗ける)。
  *
  * @details
- * 公開フィールドだが、書き換えは FEditorGizmo 内部からのみ行うこと。
+ * 公開フィールドだが、書き換えは CEditorGizmo 内部からのみ行うこと。
  * drag_start_world は drag 開始時のワールド空間ヒット点 (delta 計算の基点)。
  */
 struct FGizmoState {
@@ -202,7 +199,7 @@ struct FGizmoState {
  * drag 終了時に外部へ delta を通知する callback 型。
  *
  * @details
- * drag 完了時に 1 度だけ呼ばれる (= FUndoStack に FMoveNodeCommand 等を push する
+ * drag 完了時に 1 度だけ呼ばれる (= CUndoStack に AMoveNodeCommand 等を push する
  * 適切なタイミング)。delta の意味はモード依存で、Translate は world space の
  * 移動量、Rotate は euler 角度の差分 (radians)、Scale は scale 倍率の差分
  * (1.0 を基準) を表す。user は SetOnManipulateCallback の第二引数で渡した
@@ -218,30 +215,30 @@ using ManipulateCallback = void (*)(void* user, EGizmoMode mode, acs::FVec3 delt
  *
  * @details
  * 1 個のインスタンスを editor が所有し、選択中 ANode の transform を毎フレーム
- * 流し込む。ハンドル本体は POD 状態のみで、レンダリングは FDebugDraw 経由
+ * 流し込む。ハンドル本体は POD 状態のみで、レンダリングは CDebugDraw 経由
  * (= レンダラ非依存)。ProcessInput → Manipulate → DrawGizmo の 3 段で入力取得 /
  * 値更新 / 描画を完全に分離し、translate / rotate / scale の各モードで X/Y/Z 軸
  * ハンドルと平面ハンドルを提供する。
  */
-class FEditorGizmo {
+class CEditorGizmo {
 public:
     /** 空状態で構築する (state は default、ハンドル形状は既定値)。 */
-    FEditorGizmo() noexcept  = default;
+    CEditorGizmo() noexcept  = default;
 
     /** 破棄する (所有リソースなし)。 */
-    ~FEditorGizmo() noexcept = default;
+    ~CEditorGizmo() noexcept = default;
 
     /** コピー禁止 (editor 内で 1 個だけ生存させる前提)。 */
-    FEditorGizmo(const FEditorGizmo&)            = delete;
+    CEditorGizmo(const CEditorGizmo&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorGizmo& operator=(const FEditorGizmo&) = delete;
+    CEditorGizmo& operator=(const CEditorGizmo&) = delete;
 
     /** ムーブ禁止 (editor 内で 1 個だけ生存させる前提)。 */
-    FEditorGizmo(FEditorGizmo&&)                 = delete;
+    CEditorGizmo(CEditorGizmo&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorGizmo& operator=(FEditorGizmo&&)      = delete;
+    CEditorGizmo& operator=(CEditorGizmo&&)      = delete;
 
     /**
      * 初期化する。
@@ -373,10 +370,10 @@ public:
                     acs::FVec3& inout_scale) noexcept;
 
     /**
-     * FDebugDraw 経由で軸 line + ハンドルを描く。
+     * CDebugDraw 経由で軸 line + ハンドルを描く。
      *
      * @details
-     * 実描画は dd の消費側責務。FDebugDraw が 2D (FVec2) なので Z 軸は XY 平面へ
+     * 実描画は dd の消費側責務。CDebugDraw が 2D (FVec2) なので Z 軸は XY 平面へ
      * 射影される (top-down view)。描画色は X=赤 / Y=緑 / Z=青 / 平面=半透明黄色 /
      * 選択中 hot=白ハイライト。
      * @param dd 軸・ハンドルの line を積む先のデバッグ描画バッファ。
@@ -384,7 +381,7 @@ public:
      * @param rotation_euler 軸ベースを構築するための euler 回転 (Local space で使用)。
      * @param scale 対象のスケール (描画には未使用、引数のみ)。
      */
-    void DrawGizmo(FDebugDraw& dd,
+    void DrawGizmo(CDebugDraw& dd,
                    acs::FVec3 position,
                    acs::FVec3 rotation_euler,
                    acs::FVec3 scale) noexcept;
@@ -562,5 +559,7 @@ private:
     /** callback に渡すユーザポインタ。 */
     void*              m_CbUser = nullptr;
 };
+
+using FEditorGizmo = CEditorGizmo;
 
 } // namespace acs::game::editor_core

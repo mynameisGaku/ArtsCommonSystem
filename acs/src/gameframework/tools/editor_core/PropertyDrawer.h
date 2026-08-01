@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Tools — editor_core / PropertyDrawer
 //
-// **カスタム field drawer の登録レジストリ**。FInspectorPanel は EFieldKind
+// **カスタム field drawer の登録レジストリ**。AInspectorPanel は EFieldKind
 // 9 種を hardcode の `switch` で扱っているが、それを超える「ゲーム固有 /
 // エディタ拡張型」の field 表示 (`Curve`, `Gradient`, `AssetPath`,
 // `NodeIdSelector`, `KeyCombo`, ...) を後付けで追加できるようにするための拡張点。
@@ -13,11 +13,11 @@
 //       ImGui::ProgressBar(hp->Ratio(), ImVec2(-1, 0));
 //       if (ctx.out_changed) *ctx.out_changed = false;
 //   }
-//   FPropertyDrawerRegistry reg;
+//   CPropertyDrawerRegistry reg;
 //   reg.Init();                                   // bundled drawer も含めて初期化
 //   reg.RegisterDrawer("Health", &DrawHealth);
 //
-//   // FInspectorPanel や任意の editor panel から:
+//   // AInspectorPanel や任意の editor panel から:
 //   FPropertyContext ctx { /* data_ptr / label / tooltip / min/max / ... */ };
 //   if (!reg.DrawProperty(field_type_name, ctx)) {
 //       // 未登録 type → 既存 EFieldKind switch のフォールバックへ
@@ -33,10 +33,10 @@
 //     `DrawerFn` シグネチャが変わらないように構造体束ねを採用。
 //   ・**bundled drawer 群を `Init()` で自動登録**: "F32Slider" / "Vec2Drag" /
 //     "Vec3Drag" / "Vec4Drag" / "ColorRGB" / "ColorRGBA" / "AssetPath" /
-//     "EnumCombo" / "TextInput" の 9 種。FInspectorPanel の hardcode switch と
+//     "EnumCombo" / "TextInput" の 9 種。AInspectorPanel の hardcode switch と
 //     重複するが、こちらは registry 経由で書き換え / 拡張可能。
 //   ・**`AssetPath` の drag-drop payload id は "ASSET_PATH"** (リテラル定数)。
-//     FAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
+//     CAssetBrowser panel が drag-source 側で同 id の payload を SetDragDrop
 //     することで、textbox に drop すると path が書き戻される。
 //   ・**非コピー / 非ムーブ**: 内部 `TArray<FEntry>` の所有を曖昧にしない (ACS 規約)。
 //   ・**全 noexcept / STL 不使用 / ImGui include 可**: ACS 規約に準拠。
@@ -51,13 +51,13 @@
 //   ・**per-game カスタム drawer**: ゲーム固有型 (`class FHealth`, `class FWeaponSlot`,
 //     `class FStatBlock`) を inspector 上で美麗表示する目的。ゲーム側コードが
 //     `RegisterDrawer("Health", ...)` を起動時に呼ぶだけで反映される。
-//   ・**`NodeIdSelector`**: FHierarchyPanel と連動して "現在の選択を取得" or
-//     "Selectable な node 一覧から Combo で選択" する drawer。FSelectionService
+//   ・**`NodeIdSelector`**: AHierarchyPanel と連動して "現在の選択を取得" or
+//     "Selectable な node 一覧から Combo で選択" する drawer。CSelectionService
 //     を参照するため drawer 側 closure (= `FPropertyContext` に user_data を
 //     拡張) が必要になる予定。
 //
 // 範囲外:
-//   ・FInspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
+//   ・AInspectorPanel との実統合 (= EFieldKind hardcode switch の置き換え)。
 //   ・drawer の優先度 / 上書きルール (現状は **後勝ち**: 同 name を Register
 //     したら旧 fn を置き換える)。
 //   ・drawer 描画失敗時の例外伝播 (ACS は no-exception、drawer 内で完結)。
@@ -116,32 +116,32 @@ using DrawerFn = void (*)(const FPropertyContext& ctx) noexcept;
  * type_name (const char* literal) → DrawerFn のカスタム field drawer 登録レジストリ。
  *
  * @details
- * FInspectorPanel の hardcode switch を超える「ゲーム固有 / エディタ拡張型」の field
+ * AInspectorPanel の hardcode switch を超える「ゲーム固有 / エディタ拡張型」の field
  * 表示を後付けで追加できる拡張点。type_name は登録元が永続所有するリテラル文字列を
  * 想定し本 registry はコピー所有しない (比較は per-byte ループ)。Init() で bundled
  * drawer 9 種 ("F32Slider" / "Vec2Drag" / "Vec3Drag" / "Vec4Drag" / "ColorRGB" /
  * "ColorRGBA" / "AssetPath" / "EnumCombo" / "TextInput") を自動登録する。内部
  * TArray<FEntry> の所有を曖昧にしないため非コピー・非ムーブ。
  */
-class FPropertyDrawerRegistry {
+class CPropertyDrawerRegistry {
 public:
     /** 空状態で構築する (bundled drawer の登録は Init で行う)。 */
-    FPropertyDrawerRegistry() noexcept = default;
+    CPropertyDrawerRegistry() noexcept = default;
 
     /** 破棄する (drawer は関数ポインタ参照のみで所有しない)。 */
-    ~FPropertyDrawerRegistry() noexcept = default;
+    ~CPropertyDrawerRegistry() noexcept = default;
 
     /** コピー禁止 (内部 TArray<FEntry> の所有を曖昧にしないため)。 */
-    FPropertyDrawerRegistry(const FPropertyDrawerRegistry&)            = delete;
+    CPropertyDrawerRegistry(const CPropertyDrawerRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPropertyDrawerRegistry& operator=(const FPropertyDrawerRegistry&) = delete;
+    CPropertyDrawerRegistry& operator=(const CPropertyDrawerRegistry&) = delete;
 
     /** ムーブ禁止。 */
-    FPropertyDrawerRegistry(FPropertyDrawerRegistry&&)                 = delete;
+    CPropertyDrawerRegistry(CPropertyDrawerRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPropertyDrawerRegistry& operator=(FPropertyDrawerRegistry&&)      = delete;
+    CPropertyDrawerRegistry& operator=(CPropertyDrawerRegistry&&)      = delete;
 
     /**
      * 既存登録を全て破棄したうえで bundled drawer 9 種を自動登録する。
@@ -245,5 +245,7 @@ private:
     /** 登録エントリ群 (bundled 9 種 + ゲーム拡張分、少数想定で線形探索)。 */
     TArray<FEntry> m_Entries;
 };
+
+using FPropertyDrawerRegistry = CPropertyDrawerRegistry;
 
 } // namespace acs::game::editor_core

@@ -5,12 +5,12 @@
 // クリック移動 RPG など、グリッドベースの AI 動作に汎用に使える。
 //
 // 使い方:
-//   FNavGrid nav;
+//   CNavGrid nav;
 //   nav.Init(32, 24);
 //   nav.SetWalkable(5, 10, false);                // 壁を 1 マス置く
 //   nav.SetAllowDiagonal(true);                   // 8 方向許可 (既定は 4 方向)
 //
-//   TArray<FNavGrid::FPathPoint> path;
+//   TArray<CNavGrid::FPathPoint> path;
 //   if (nav.FindPath(/*start=*/0, 0, /*goal=*/20, 15, path)) {
 //       // path[0] = start, path[Size()-1] = goal の連続セル列
 //   }
@@ -32,6 +32,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 
 namespace acs::game {
 
@@ -43,7 +44,7 @@ namespace acs::game {
  * (対角 cost sqrt(2)) で A* を解く。open set は線形最小値走査、closed / g / f /
  * came_from も 1D 配列で持つ。一時バッファはメンバに保持し FindPath 毎に reset する。
  */
-class FNavGrid {
+class CNavGrid {
 public:
     /**
      * 経路の 1 セルを表すグリッド座標。
@@ -57,22 +58,22 @@ public:
     };
 
     /** 空状態で構築する (グリッドは Init で確保)。 */
-    FNavGrid() noexcept = default;
+    CNavGrid() noexcept = default;
 
     /** 破棄する。 */
-    ~FNavGrid() noexcept = default;
+    ~CNavGrid() noexcept = default;
 
-    /** コピー禁止 (FScene / AI モジュールのメンバとして固定の場所に置く想定)。 */
-    FNavGrid(const FNavGrid&)            = delete;
+    /** コピー禁止 (AScene / AI モジュールのメンバとして固定の場所に置く想定)。 */
+    CNavGrid(const CNavGrid&)            = delete;
 
     /** コピー代入も禁止。 */
-    FNavGrid& operator=(const FNavGrid&) = delete;
+    CNavGrid& operator=(const CNavGrid&) = delete;
 
     /** ムーブ禁止。 */
-    FNavGrid(FNavGrid&&)                 = delete;
+    CNavGrid(CNavGrid&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FNavGrid& operator=(FNavGrid&&)      = delete;
+    CNavGrid& operator=(CNavGrid&&)      = delete;
 
     /**
      * width * height のグリッドを全 cell walkable で初期化する。

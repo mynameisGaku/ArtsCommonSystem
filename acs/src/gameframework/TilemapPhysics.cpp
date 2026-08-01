@@ -9,7 +9,7 @@
 
 namespace acs::game {
 
-u32 BuildRigidColliders(const FTilemap& map, u32 layer, FRigidWorld2D& world,
+u32 BuildRigidColliders(const FTilemap& map, u32 layer, CRigidWorld2D& world,
                         f32 restitution, f32 friction) noexcept {
     const u32 w  = map.Width();
     const u32 h  = map.Height();

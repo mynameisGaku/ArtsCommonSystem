@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R/I — FHungerSystem 実装
+// GameFramework Pillar R/I — CHungerSystem 実装
 //
 // slot+gen パターンで複数 survivor の生存統計値 (空腹/喉/疲労/正気/体温/Custom1/2)
 // を管理する。Tick で decay + critical 跨ぎ検出 + zero 到達時の HP ダメージ通知を
@@ -9,21 +9,21 @@
 namespace acs::game {
 
 /** 値を [lo, hi] に制限して返す。 */
-f32 FHungerSystem::Clamp(f32 v, f32 lo, f32 hi) noexcept {
+f32 CHungerSystem::Clamp(f32 v, f32 lo, f32 hi) noexcept {
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
 /** stat enum を array index に変換する (範囲外は ~0u で哨兵)。 */
-u32 FHungerSystem::StatIndex(ESurvivalStat stat) noexcept {
+u32 CHungerSystem::StatIndex(ESurvivalStat stat) noexcept {
     const u32 idx = static_cast<u32>(stat);
     if (idx >= kSurvivalStatCount) return ~0u;
     return idx;
 }
 
 /** survivor handle から slot を解決する (gen 一致 + in_use + 範囲チェック、non-const)。 */
-FHungerSystem::FSurvivorSlot* FHungerSystem::ResolveSurvivor(FSurvivorId id) noexcept {
+CHungerSystem::FSurvivorSlot* CHungerSystem::ResolveSurvivor(FSurvivorId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Survivors.Size()) return nullptr;
@@ -34,7 +34,7 @@ FHungerSystem::FSurvivorSlot* FHungerSystem::ResolveSurvivor(FSurvivorId id) noe
 }
 
 /** survivor handle から slot を解決する (gen 一致 + in_use + 範囲チェック、const)。 */
-const FHungerSystem::FSurvivorSlot* FHungerSystem::ResolveSurvivor(FSurvivorId id) const noexcept {
+const CHungerSystem::FSurvivorSlot* CHungerSystem::ResolveSurvivor(FSurvivorId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx == 0u || idx >= m_Survivors.Size()) return nullptr;
@@ -45,7 +45,7 @@ const FHungerSystem::FSurvivorSlot* FHungerSystem::ResolveSurvivor(FSurvivorId i
 }
 
 /** 既存 survivor / config を全破棄し、7 stat 分の default config と dummy slot を確保する。 */
-void FHungerSystem::Init() noexcept {
+void CHungerSystem::Init() noexcept {
     // 既存 survivor / config を全破棄して再初期化する。
     m_Survivors.Clear();
     m_SurvivorCount = 0u;
@@ -61,7 +61,7 @@ void FHungerSystem::Init() noexcept {
 }
 
 /** stat 種別の config を sanitize (負値 / max 超過を補正) して上書きする。 */
-void FHungerSystem::ConfigureStat(ESurvivalStat stat, const FStatConfig& config) noexcept {
+void CHungerSystem::ConfigureStat(ESurvivalStat stat, const FStatConfig& config) noexcept {
     const u32 idx = StatIndex(stat);
     if (idx == ~0u) return;
     if (m_Configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
@@ -81,7 +81,7 @@ void FHungerSystem::ConfigureStat(ESurvivalStat stat, const FStatConfig& config)
 }
 
 /** 空き slot を再利用または末尾拡張で確保し、全 stat を max で初期化して handle を返す。 */
-FSurvivorId FHungerSystem::AddSurvivor() noexcept {
+FSurvivorId CHungerSystem::AddSurvivor() noexcept {
     if (m_Configs.Size() < kSurvivalStatCount) return FSurvivorId{};   // Init 未呼び出し
 
     // 空き slot を線形検索 (index 0 は dummy なので 1 から)。
@@ -119,7 +119,7 @@ FSurvivorId FHungerSystem::AddSurvivor() noexcept {
 }
 
 /** slot を解放して in_use=false にし、active 数を 1 減らす (gen は次回確保で進む)。 */
-void FHungerSystem::RemoveSurvivor(FSurvivorId id) noexcept {
+void CHungerSystem::RemoveSurvivor(FSurvivorId id) noexcept {
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
 
@@ -131,7 +131,7 @@ void FHungerSystem::RemoveSurvivor(FSurvivorId id) noexcept {
 }
 
 /** stat に amount を加算し clamp(0, max) する。 */
-void FHungerSystem::RestoreStat(FSurvivorId id, ESurvivalStat stat, f32 amount) noexcept {
+void CHungerSystem::RestoreStat(FSurvivorId id, ESurvivalStat stat, f32 amount) noexcept {
     if (amount <= 0.0f) return;
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
@@ -143,7 +143,7 @@ void FHungerSystem::RestoreStat(FSurvivorId id, ESurvivalStat stat, f32 amount) 
 }
 
 /** stat から amount を減算し clamp(0, max) する (callback は Tick に委ねる)。 */
-void FHungerSystem::DrainStat(FSurvivorId id, ESurvivalStat stat, f32 amount) noexcept {
+void CHungerSystem::DrainStat(FSurvivorId id, ESurvivalStat stat, f32 amount) noexcept {
     if (amount <= 0.0f) return;
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
@@ -156,7 +156,7 @@ void FHungerSystem::DrainStat(FSurvivorId id, ESurvivalStat stat, f32 amount) no
 }
 
 /** stat を value で絶対設定し clamp(0, max) する。 */
-void FHungerSystem::SetStat(FSurvivorId id, ESurvivalStat stat, f32 value) noexcept {
+void CHungerSystem::SetStat(FSurvivorId id, ESurvivalStat stat, f32 value) noexcept {
     FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return;
     const u32 sidx = StatIndex(stat);
@@ -167,7 +167,7 @@ void FHungerSystem::SetStat(FSurvivorId id, ESurvivalStat stat, f32 value) noexc
 }
 
 /** stat の現在値を返す (解決失敗 / 範囲外は 0.0f)。 */
-f32 FHungerSystem::GetStat(FSurvivorId id, ESurvivalStat stat) const noexcept {
+f32 CHungerSystem::GetStat(FSurvivorId id, ESurvivalStat stat) const noexcept {
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return 0.0f;
     const u32 sidx = StatIndex(stat);
@@ -176,7 +176,7 @@ f32 FHungerSystem::GetStat(FSurvivorId id, ESurvivalStat stat) const noexcept {
 }
 
 /** stat の is_critical フラグを返す (解決失敗 / 範囲外は false)。 */
-bool FHungerSystem::IsCritical(FSurvivorId id, ESurvivalStat stat) const noexcept {
+bool CHungerSystem::IsCritical(FSurvivorId id, ESurvivalStat stat) const noexcept {
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return false;
     const u32 sidx = StatIndex(stat);
@@ -185,14 +185,14 @@ bool FHungerSystem::IsCritical(FSurvivorId id, ESurvivalStat stat) const noexcep
 }
 
 /** 全 stat のうち 1 個でも非 0 なら生存とみなす (HealthBridge は将来拡張)。 */
-bool FHungerSystem::IsAlive(FSurvivorId id) const noexcept {
+bool CHungerSystem::IsAlive(FSurvivorId id) const noexcept {
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return false;
 
     // 全 stat が 0 では無い (= どれか 1 個でも 0 なら「生存だが瀕死状態」だが
     // 「生きてはいる」)。仕様文「全 stat が 0 ではない」を素直に解釈し、
     // 「全 stat が 0 だったら死亡」と解釈する (= 全ての生存パラメータが
-    // 尽きたら FHungerSystem の世界では死亡扱い)。HealthBridge 未実装の現状
+    // 尽きたら CHungerSystem の世界では死亡扱い)。HealthBridge 未実装の現状
     // では stat 部分のみで判定する。
     bool any_nonzero = false;
     const usize n = s->stats.Size();
@@ -207,7 +207,7 @@ bool FHungerSystem::IsAlive(FSurvivorId id) const noexcept {
 }
 
 /** 有効 max を持つ全 stat の (current / max) を [0,1] で平均して返す。 */
-f32 FHungerSystem::OverallSurvivalHealth(FSurvivorId id) const noexcept {
+f32 CHungerSystem::OverallSurvivalHealth(FSurvivorId id) const noexcept {
     const FSurvivorSlot* s = ResolveSurvivor(id);
     if (s == nullptr) return 0.0f;
 
@@ -228,7 +228,7 @@ f32 FHungerSystem::OverallSurvivalHealth(FSurvivorId id) const noexcept {
 }
 
 /** 全 survivor × 全 stat に decay を適用し、critical 跨ぎと zero ダメージを callback 通知する。 */
-void FHungerSystem::Tick(f32 dt) noexcept {
+void CHungerSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_Configs.Size() < kSurvivalStatCount) return;   // Init 未呼び出し防御
 
@@ -277,19 +277,19 @@ void FHungerSystem::Tick(f32 dt) noexcept {
 }
 
 /** critical コールバックと user ポインタを設定する。 */
-void FHungerSystem::SetOnCriticalCallback(CriticalCallback cb, void* user) noexcept {
+void CHungerSystem::SetOnCriticalCallback(CriticalCallback cb, void* user) noexcept {
     m_OnCritical      = cb;
     m_OnCriticalUser = user;
 }
 
 /** damage コールバックと user ポインタを設定する。 */
-void FHungerSystem::SetOnDamageCallback(DamageCallback cb, void* user) noexcept {
+void CHungerSystem::SetOnDamageCallback(DamageCallback cb, void* user) noexcept {
     m_OnDamage      = cb;
     m_OnDamageUser = user;
 }
 
 /** 全 survivor + stat config を default に戻し dummy slot を再確保する (callback は保持)。 */
-void FHungerSystem::ClearAll() noexcept {
+void CHungerSystem::ClearAll() noexcept {
     // 全 survivor + stat config を default に戻し、index 0 dummy を再確保。
     m_Survivors.Clear();
     m_Configs.Clear();

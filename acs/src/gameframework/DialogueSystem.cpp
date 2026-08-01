@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FDialogueSystem 実装
+// GameFramework 完成度システム v7 — CDialogueSystem 実装
 //
 // 状態遷移:
 //   NotStarted -> (Start) -> Typing -> (タイプ完了) -> Idle
@@ -19,12 +19,12 @@
 namespace acs::game {
 
 /** 末尾に会話行を 1 行追加する。 */
-void FDialogueSystem::AddLine(const FDialogueLine& line) noexcept {
+void CDialogueSystem::AddLine(const FDialogueLine& line) noexcept {
     m_Lines.PushBack(line);
 }
 
 /** 指定行に選択肢を紐づける (同 line への重複登録は無視)。 */
-void FDialogueSystem::AddChoices(u32 at_line_index,
+void CDialogueSystem::AddChoices(u32 at_line_index,
                                 const FDialogueChoice* choices, u32 count) noexcept {
     if (choices == nullptr || count == 0u) return;
     if (at_line_index >= static_cast<u32>(m_Lines.Size())) return;
@@ -45,7 +45,7 @@ void FDialogueSystem::AddChoices(u32 at_line_index,
 }
 
 /** 会話を開始し先頭行へ入る (行が無ければ非アクティブのまま)。 */
-void FDialogueSystem::Start() noexcept {
+void CDialogueSystem::Start() noexcept {
     if (m_Lines.Size() == 0) {
         // 行が無い場合は何もしない (caller は IsActive()==false を見て検知)
         m_Active    = false;
@@ -58,7 +58,7 @@ void FDialogueSystem::Start() noexcept {
 }
 
 /** 次行へ進める (タイプ未完・選択肢提示中は無視)。 */
-void FDialogueSystem::AdvanceLine() noexcept {
+void CDialogueSystem::AdvanceLine() noexcept {
     if (!m_Active) return;
     if (m_Typing)  return;                 // タイプ未完では進めない
     if (HasChoicesPending()) return;      // 選択肢提示中は進めない (要 ChooseOption)
@@ -68,7 +68,7 @@ void FDialogueSystem::AdvanceLine() noexcept {
 }
 
 /** タイプライタ演出を打ち切り現在行を即座に全表示する。 */
-void FDialogueSystem::SkipTypewriter() noexcept {
+void CDialogueSystem::SkipTypewriter() noexcept {
     if (!m_Active) return;
     if (!m_Typing) return;
     m_VisibleChars = CurrentLineLength();
@@ -78,7 +78,7 @@ void FDialogueSystem::SkipTypewriter() noexcept {
 }
 
 /** 提示中の選択肢を 1 つ選び、その分岐先行へ遷移する。 */
-void FDialogueSystem::ChooseOption(u32 choice_index) noexcept {
+void CDialogueSystem::ChooseOption(u32 choice_index) noexcept {
     if (!m_Active) return;
     if (!HasChoicesPending()) return;
 
@@ -94,7 +94,7 @@ void FDialogueSystem::ChooseOption(u32 choice_index) noexcept {
 }
 
 /** 全行・選択肢・進行状態をクリアして初期状態に戻す。 */
-void FDialogueSystem::Reset() noexcept {
+void CDialogueSystem::Reset() noexcept {
     m_Lines.Clear();
     m_ChoicesAt.Clear();
     m_AllChoices.Clear();
@@ -109,7 +109,7 @@ void FDialogueSystem::Reset() noexcept {
 }
 
 /** 現在行に未消費の選択肢が提示待ちかを返す。 */
-bool FDialogueSystem::HasChoicesPending() const noexcept {
+bool CDialogueSystem::HasChoicesPending() const noexcept {
     if (!m_Active)         return false;
     if (m_Typing)          return false;    // タイプ完了するまで提示しない
     if (m_bChoicesConsumed) return false;
@@ -117,21 +117,21 @@ bool FDialogueSystem::HasChoicesPending() const noexcept {
 }
 
 /** 現在表示中の会話行を返す (非アクティブ・範囲外なら nullptr)。 */
-const FDialogueLine* FDialogueSystem::CurrentLine() const noexcept {
+const FDialogueLine* CDialogueSystem::CurrentLine() const noexcept {
     if (!m_Active) return nullptr;
     if (m_CurrentLineIndex >= static_cast<u32>(m_Lines.Size())) return nullptr;
     return &m_Lines[m_CurrentLineIndex];
 }
 
 /** 現在提示中の選択肢の個数を返す (提示中でなければ 0)。 */
-u32 FDialogueSystem::ChoiceCount() const noexcept {
+u32 CDialogueSystem::ChoiceCount() const noexcept {
     if (!HasChoicesPending()) return 0;
     const FChoicesAt* rec = FindChoicesForCurrent();
     return rec ? rec->choice_count : 0;
 }
 
 /** 現在提示中の選択肢配列の先頭を返す (提示中でなければ nullptr)。 */
-const FDialogueChoice* FDialogueSystem::Choices() const noexcept {
+const FDialogueChoice* CDialogueSystem::Choices() const noexcept {
     if (!HasChoicesPending()) return nullptr;
     const FChoicesAt* rec = FindChoicesForCurrent();
     if (rec == nullptr) return nullptr;
@@ -140,7 +140,7 @@ const FDialogueChoice* FDialogueSystem::Choices() const noexcept {
 }
 
 /** 毎フレーム呼び、タイプライタ進行と auto-advance を処理する。 */
-void FDialogueSystem::Tick(f32 dt) noexcept {
+void CDialogueSystem::Tick(f32 dt) noexcept {
     if (!m_Active) return;
     if (dt <= 0.0f) return;
 
@@ -181,12 +181,12 @@ void FDialogueSystem::Tick(f32 dt) noexcept {
 }
 
 /** auto-advance までの待ち秒を設定する (0 以下で auto-advance 無効)。 */
-void FDialogueSystem::SetAutoAdvanceDelay(f32 delay_sec) noexcept {
+void CDialogueSystem::SetAutoAdvanceDelay(f32 delay_sec) noexcept {
     m_AutoAdvanceDelay = delay_sec > 0.0f ? delay_sec : 0.0f;
 }
 
 /** 現在行に紐づく選択肢レコードを線形検索で返す (無ければ nullptr)。 */
-const FDialogueSystem::FChoicesAt* FDialogueSystem::FindChoicesForCurrent() const noexcept {
+const CDialogueSystem::FChoicesAt* CDialogueSystem::FindChoicesForCurrent() const noexcept {
     for (usize i = 0; i < m_ChoicesAt.Size(); ++i) {
         if (m_ChoicesAt[i].line_index == m_CurrentLineIndex) {
             return &m_ChoicesAt[i];
@@ -196,14 +196,14 @@ const FDialogueSystem::FChoicesAt* FDialogueSystem::FindChoicesForCurrent() cons
 }
 
 /** 現在行のテキスト長 (文字数) を返す (行・テキストが無ければ 0)。 */
-u32 FDialogueSystem::CurrentLineLength() const noexcept {
+u32 CDialogueSystem::CurrentLineLength() const noexcept {
     const FDialogueLine* line = CurrentLine();
     if (line == nullptr || line->text == nullptr) return 0;
     return static_cast<u32>(::strlen(line->text));
 }
 
 /** 指定行に入って表示状態を初期化する (範囲外なら完了扱い)。 */
-void FDialogueSystem::EnterLine(u32 new_index) noexcept {
+void CDialogueSystem::EnterLine(u32 new_index) noexcept {
     // 範囲外 (= 末尾の先 or ChooseOption が UINT32_MAX を返した) なら終了
     if (new_index >= static_cast<u32>(m_Lines.Size())) {
         m_Active             = false;

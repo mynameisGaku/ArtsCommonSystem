@@ -20,7 +20,7 @@ public:
      * 外部バイト列を全検証して zero-copy view を作る。
      *
      * @param bytes 所有権を借用する `.acsr` 全体。
-     * @return 成功時は検証済み view、失敗時は FInputRecorder と同じ subcode。
+     * @return 成功時は検証済み view、失敗時は CInputRecorder と同じ subcode。
      */
     static TResult<FInputRecordingView> Decode(TSpan<const u8> bytes) noexcept;
 

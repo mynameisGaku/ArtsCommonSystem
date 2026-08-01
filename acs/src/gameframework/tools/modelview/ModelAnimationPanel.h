@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — ModelViewer / FModelAnimationPanel
+// GameFramework Pillar — ModelViewer / AModelAnimationPanel
 //
 // ModelViewer 内で、ロード済みモデルに含まれる **animation clip の再生制御 +
-// timeline 表示** を行う panel。共通基盤の `editor_core::FEditorPanel`
+// timeline 表示** を行う panel。共通基盤の `editor_core::AEditorPanel`
 // を継承し、ImGui ベースの control 群 (clip dropdown / Play / Pause / Stop /
 // time slider / Loop checkbox / Speed slider / BlendWeight slider) を提供する。
 //
 // 役割分担 (ModelViewer 全体):
-//   ・FModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
-//   ・FModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
-//   ・FModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
-//   ・FModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
+//   ・AModelViewerPanel    : 3D viewport + Lighting / Background / Grid / FBone toggle
+//   ・AModelInspectorPanel : mesh 統計 (vertex/index/material/bone count)
+//   ・AModelMaterialPanel  : material slot 編集 (basecolor / metallic / roughness)
+//   ・AModelAnimationPanel : 本 panel — animation clip の再生制御 + timeline
 //
 // 役割:
 //   ・ロード済みモデルが持つ animation clip 一覧を保持 (`SetClips`)
@@ -30,7 +30,7 @@
 //     コピー所有 (= FAnimationClipBinding 配列を TArray<>); pointer は持たない。
 //
 // 使い方 (典型):
-//   FModelAnimationPanel anim;
+//   AModelAnimationPanel anim;
 //   anim.Init();
 //   workspace.RegisterPanel(&anim);
 //
@@ -48,8 +48,8 @@
 //   anim.Tick(dt);          // m_CurrentTime += dt * speed (Playing 中のみ)
 //   // → callback 内で FAnimationPlayer::SetTime(clip_index, time_sec) を呼ぶ
 //
-// 設計選択 (FModelAnimationPanel):
-//   ・**FEditorPanel 継承**: Title / DrawUI を override。
+// 設計選択 (AModelAnimationPanel):
+//   ・**AEditorPanel 継承**: Title / DrawUI を override。
 //     OnInit は基底実装 (`Workspace()` ポインタ保持) のみで十分 (= 本 panel は
 //     workspace に直接問い合わせる対象が無いため override 不要)。
 //   ・**clip リストは値コピーで保持**: `SetClips` 渡しの `FAnimationClipBinding`
@@ -61,7 +61,7 @@
 //   ・**Tick (dt) を panel 内に持つ**: FSpriteAnimator と同設計 — DrawUI は
 //     ImGui 描画専任、時刻進行は別 hook (= Workspace の OnFrameBegin 経由 or
 //     FSample 側が明示的に Tick) に分離してテスト容易性を確保。本 panel の
-//     FEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
+//     AEditorPanel::OnFrameBegin は override せず、呼出側が Tick(dt) を直接
 //     呼ぶ規約 (= Workspace の dt と animation の dt は分離したい場面用)。
 //   ・**duration 到達時の挙動**: clip の `is_looping` または `m_LoopOverride`
 //     が true なら wrap (= `m_CurrentTime = fmodf(t, dur)`)、そうでなければ
@@ -77,13 +77,13 @@
 //     渡して final pose に blend する想定)。複数 clip blending を
 //     入れる際に「複数 layer の weight」を扱う primary slot として再利用する。
 //   ・**AnimationFrameCallback は raw 関数ポインタ + void* user**: ACS は
-//     std::function 禁止。FParticleEditorPanel / FAssetBrowser と同形の C-style
+//     std::function 禁止。AParticleEditorPanel / CAssetBrowser と同形の C-style
 //     callback 規約。Tick 終端で 1 度発火、引数は (user, clip_index, time_sec)。
 //     未設定 (nullptr) なら no-op。
-//   ・**非コピー / 非ムーブ**: 基底 FEditorPanel と同じ規約 + 内部
+//   ・**非コピー / 非ムーブ**: 基底 AEditorPanel と同じ規約 + 内部
 //     `TArray<FAnimationClipBinding>` の所有を曖昧にしない。
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
-//   ・**ImGui ヘッダは .cpp 限定**: FParticleEditorPanel / FModelViewerPanel と
+//   ・**ImGui ヘッダは .cpp 限定**: AParticleEditorPanel / AModelViewerPanel と
 //     同形 (= ヘッダから ImGui 依存を漏らさない)。
 //
 // 範囲外 (別 panel):
@@ -144,41 +144,41 @@ struct FAnimationClipBinding {
  * animation clip の再生制御 + timeline UI を提供する ModelViewer 用 panel。
  *
  * @details
- * editor_core::FEditorPanel を継承し、clip 選択 dropdown / Play / Pause / Stop /
+ * editor_core::AEditorPanel を継承し、clip 選択 dropdown / Play / Pause / Stop /
  * Time slider / Loop checkbox / Speed slider / BlendWeight slider を ImGui で描画する。
  * clip メタ情報は SetClips で値コピー所有し、Tick(dt) で Playing 中の時刻を進めて
  * 終端で OnFrameCallback を発火する。実際の bone palette 計算や GPU 反映は呼出側
  * (renderer + FAnimationPlayer) に委譲し、本 panel は時刻進行と UI control のみを持つ。
  */
-class FModelAnimationPanel : public acs::game::editor_core::FEditorPanel {
+class AModelAnimationPanel : public acs::game::editor_core::AEditorPanel {
 public:
     /**
      * Tick 終端で 1 度呼ばれる callback 型 (user, clip_index, time_sec)。
      *
      * @details
      * ACS は std::function 禁止のため raw 関数ポインタ + void* user 規約
-     * (FParticleEditorPanel / FAssetBrowser と同形)。noexcept 必須。
+     * (AParticleEditorPanel / CAssetBrowser と同形)。noexcept 必須。
      */
     using AnimationFrameCallback =
         void (*)(void* user, u32 clip_index, f32 time_sec) noexcept;
 
     /** 空状態で構築する (clip なし / Stopped / time 0)。 */
-    FModelAnimationPanel() noexcept = default;
+    AModelAnimationPanel() noexcept = default;
 
     /** 破棄する (内部 TArray は ~TArray が解放)。 */
-    ~FModelAnimationPanel() noexcept override = default;
+    ~AModelAnimationPanel() noexcept override = default;
 
-    /** コピー禁止 (基底 FEditorPanel と同規約)。 */
-    FModelAnimationPanel(const FModelAnimationPanel&)            = delete;
+    /** コピー禁止 (基底 AEditorPanel と同規約)。 */
+    AModelAnimationPanel(const AModelAnimationPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelAnimationPanel& operator=(const FModelAnimationPanel&) = delete;
+    AModelAnimationPanel& operator=(const AModelAnimationPanel&) = delete;
 
     /** ムーブ禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FModelAnimationPanel(FModelAnimationPanel&&)                 = delete;
+    AModelAnimationPanel(AModelAnimationPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelAnimationPanel& operator=(FModelAnimationPanel&&)      = delete;
+    AModelAnimationPanel& operator=(AModelAnimationPanel&&)      = delete;
 
     /**
      * 内部 state を完全にデフォルトへ戻す (多重 Init 可)。
@@ -404,5 +404,7 @@ private:
     /** m_OnFrameCb の第 1 引数に渡す任意ポインタ。 */
     void*                  m_OnFrameUser = nullptr;
 };
+
+using FModelAnimationPanel = AModelAnimationPanel;
 
 } // namespace acs::game::modelview

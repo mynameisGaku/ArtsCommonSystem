@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FGame 実装
+// CGame 実装
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
 #include "gameframework/SubsystemCatalog.h"
@@ -13,29 +13,29 @@
 
 namespace acs::game {
 
-FGame::FGame() noexcept
+CGame::CGame() noexcept
 {
     m_BuiltinCatalogReady = AcsRegisterGameFrameworkSubsystems();
 }
 
 /** 起動時に InitialScene() を push して即時適用する。 */
-void FGame::OnStart() noexcept {
+void CGame::OnStart() noexcept {
     m_BuiltinCatalogReady = AcsRegisterGameFrameworkSubsystems();
     if (!m_BuiltinCatalogReady) {
         ACS_LOG_ERROR("FGame: builtin subsystem registration failed");
         Quit();
         return;
     }
-    // GameInstance は FApplication 所有の Engine を親にし、最初の World より先に初期化する。
+    // GameInstance は CApplication 所有の Engine を親にし、最初の World より先に初期化する。
     if (!m_GameInstanceSubsystems.TryInitialize(
-            ESubsystemScope::GameInstance, &FApplication::EngineSubsystems(),
+            ESubsystemScope::GameInstance, &CApplication::EngineSubsystems(),
             FSubsystemOwner{this, ESubsystemOwnerKind::Game})) {
         ACS_LOG_ERROR("FGame: GameInstance subsystem initialization failed");
         Quit();
         return;
     }
 
-    TUniquePtr<FScene> first = InitialScene();
+    TUniquePtr<AScene> first = InitialScene();
     if (!first) {
         ACS_LOG_ERROR("FGame::InitialScene() returned null — Quit");
         Quit();
@@ -50,7 +50,7 @@ void FGame::OnStart() noexcept {
 }
 
 /** フェード進行と固定 / 可変タイムステップ update を毎フレーム駆動する。 */
-void FGame::OnUpdate(f32 dt) noexcept {
+void CGame::OnUpdate(f32 dt) noexcept {
     // フェード遷移は実時間で進める (time_scale / pause の影響を受けない)。
     // 暗転 (MidPause) になった瞬間に次 Scene へ差し替え、そのまま fade-in する。
     if (m_Fade.IsActive()) {
@@ -97,7 +97,7 @@ void FGame::OnUpdate(f32 dt) noexcept {
 }
 
 /** 初回呼び出しで default UI フォントを 1 回だけ遅延ロードする。 */
-void FGame::EnsureUiFont() noexcept {
+void CGame::EnsureUiFont() noexcept {
     if (m_UiFontTried) return;
     IRhiDevice* dev = GetRenderer().Device();
     if (dev == nullptr) return;     // device 未準備 → 次フレーム再試行
@@ -110,7 +110,7 @@ void FGame::EnsureUiFont() noexcept {
 }
 
 /** フレームを開始し、シーン描画の上にフェード幕を重ねて終了する。 */
-void FGame::OnRender() noexcept {
+void CGame::OnRender() noexcept {
     IRhiCommandList* cl = GetRenderer().CommandList();
     IRhiSwapchain*   sc = GetRenderer().Swapchain();
     if (!cl || !sc) return;
@@ -124,7 +124,7 @@ void FGame::OnRender() noexcept {
 }
 
 /** 初回呼び出しでフェード overlay 用 SpriteBatch を 1 回だけ遅延 init する。 */
-void FGame::EnsureOverlay() noexcept {
+void CGame::EnsureOverlay() noexcept {
     if (m_OverlayTried) return;
     IRhiDevice* dev = GetRenderer().Device();
     if (dev == nullptr) return;
@@ -137,7 +137,7 @@ void FGame::EnsureOverlay() noexcept {
 }
 
 /** 進行中フェードの色と alpha で画面全体を覆う quad を描く。 */
-void FGame::DrawFadeOverlay() noexcept {
+void CGame::DrawFadeOverlay() noexcept {
     if (!m_Fade.IsActive()) return;
     EnsureOverlay();
     if (!m_OverlayReady) return;
@@ -153,23 +153,23 @@ void FGame::DrawFadeOverlay() noexcept {
 }
 
 /** 次 Scene を保留し FadeInOut を開始する (暗転中に切替)。 */
-void FGame::TransitionTo(TUniquePtr<FScene> next, f32 out_sec, f32 in_sec) noexcept {
+void CGame::TransitionTo(TUniquePtr<AScene> next, f32 out_sec, f32 in_sec) noexcept {
     if (!next) return;
     m_PendingScene = Move(next);
     m_Fade.StartFade(EFadeKind::FadeInOut, out_sec, in_sec, 0.0f);
 }
 
 /** 全シーンを shutdown し、サブシステムと UI フォント・overlay リソースを解放する。 */
-void FGame::OnShutdown() noexcept {
+void CGame::OnShutdown() noexcept {
     m_Scenes._ShutdownAll();                  // 各シーンが OnExit で World サブシステムを解体
-    // Engine は FApplication がこの hook の復帰後に解体する。
+    // Engine は CApplication がこの hook の復帰後に解体する。
     m_GameInstanceSubsystems.Deinitialize();
     if (m_UiFontReady) m_UiFont.Shutdown();
     if (m_OverlayReady) m_Overlay.Shutdown();
 }
 
-/** 受け取ったイベントを FSceneManager にディスパッチする。 */
-void FGame::OnEvent(const FEvent& e) noexcept {
+/** 受け取ったイベントを CSceneManager にディスパッチする。 */
+void CGame::OnEvent(const FEvent& e) noexcept {
     m_Scenes._DispatchEvent(e);
 }
 

@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FProgression (XP / Level / Milestones / Unlocks)
+// GameFramework 完成度システム v7 — CProgression (XP / Level / Milestones / Unlocks)
 //
 // 「累計 XP を加算するとレベルが上がり、所定の XP 閾値を越えると Milestone を
 // 達成 → コンテンツが Unlock される」というジャンルを問わず広く使われる進行
 // システムを 1 クラスにまとめた小型マネージャ。
 //
 // 想定する位置付け:
-//   ・Pillar S (FAchievementManager) との違い:
+//   ・Pillar S (CAchievementManager) との違い:
 //     - Achievement は「最終的に解除/未解除の 2 値フラグ」を管理する SDK 連動装置。
 //       Storefront 配信プラットフォームへ片方向送信する責務まで含む。
-//     - FProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
+//     - CProgression は「累積 XP に対してレベルとマイルストーンが線形に増える」
 //       純粋にゲーム内で完結する進行カウンタ。プラットフォーム SDK には依存しない。
 //   ・Unlock 連携:
-//     - 各 FMilestoneDef に `unlock_content_id` を持たせる。FProgression 自身は
+//     - 各 FMilestoneDef に `unlock_content_id` を持たせる。CProgression 自身は
 //       コンテンツ解放の実体を持たず、達成時に MilestoneCallback でゲーム側へ通知する。
-//       受け取った側が FEntitlementRegistry / ContentManager / FAchievementManager
+//       受け取った側が CEntitlementRegistry / ContentManager / CAchievementManager
 //       に橋渡しする責務。
 //
 // 使い方:
-//   FProgression p;
+//   CProgression p;
 //
 //   // 起動時にゲーム側でマイルストーンを 1 度ずつ登録。
 //   p.RegisterMilestone({ "ms.level_5",  "Lv.5 到達",   31,   "content.weapon_b" });
@@ -51,21 +51,21 @@
 //     - XP <= 0 → Level 0、XP=1 → Level 1、XP=3 → 2、XP=7 → 3、XP=15 → 4、…
 //     - 必要なら将来 `SetLevelCurve(callback)` で差し替え可能だが、今は YAGNI。
 //   ・**FMilestoneDef / FMilestoneState を別配列で持つ**:
-//     - FAchievementManager と同じ pattern。Def は immutable な定義 (id /
+//     - CAchievementManager と同じ pattern。Def は immutable な定義 (id /
 //       display_name / required_xp / unlock_content_id)、FMilestoneState は実行時の
 //       達成状態 (id / achieved / achieved_timestamp)。1:1 対応で同 index を共有。
 //   ・**所有しない const char***:
 //     - id / display_name / unlock_content_id は呼出側 (ゲームコード or リソース
 //       バンドル) が保証する static lifetime の文字列リテラルを想定。
-//       FProgression 側ではコピーしない (STL <string> 禁止方針)。
+//       CProgression 側ではコピーしない (STL <string> 禁止方針)。
 //   ・**重複登録は黙って弾く**:
 //     - 同 id を 2 度 RegisterMilestone しても 2 回目は no-op。
-//       他 Manager 系 (FEntitlementRegistry / Achievement) と同じ防御方針。
+//       他 Manager 系 (CEntitlementRegistry / Achievement) と同じ防御方針。
 //   ・**線形検索**:
 //     - Milestone 件数は 1 タイトルで通常 10〜100 程度。TArray<T> の per-byte
 //       文字列比較 + 線形走査で十分。
 //   ・**MilestoneCallback は関数ポインタ + user data**:
-//     - FTriggerWorld2D / FSceneTimer と同じ pattern。`std::function` は STL 禁止
+//     - CTriggerWorld2D / CSceneTimer と同じ pattern。`std::function` は STL 禁止
 //       方針で使えないので、`void(*)(void*,...)` で固定。1 種類のみ (達成時)
 //       なので命名は `MilestoneCallback`。
 //   ・**全 noexcept、非コピー・非ムーブ**:
@@ -75,7 +75,7 @@
 //
 // 範囲外:
 //   ・XP 倍率・経験値テーブル差し替え (今はハードコード log2 ベース)
-//   ・SDK 統合 (Steamworks 等は FAchievementManager 側で扱う)
+//   ・SDK 統合 (Steamworks 等は CAchievementManager 側で扱う)
 //   ・seasonal reset / prestige system (別 API として追加検討)
 #pragma once
 
@@ -86,10 +86,10 @@
 namespace acs::game {
 
 /**
- * FProgression の永続化固有エラー subcode。
+ * CProgression の永続化固有エラー subcode。
  *
  * @details
- * FSaveArchive の subcode はそのまま伝搬し、FProgression payload 内部 schema の検証失敗だけを
+ * CSaveArchive の subcode はそのまま伝搬し、CProgression payload 内部 schema の検証失敗だけを
  * 200番台で表す。
  */
 enum class EProgressionPersistenceSubCode : u32 {
@@ -155,33 +155,33 @@ using MilestoneCallback = void(*)(void* user, const char* milestone_id) noexcept
  *
  * @details
  * AwardXp で累計 XP を加算するとレベルが floor(log2(xp+1)) で上がり、所定の閾値を
- * 越えると milestone が達成され、登録済み callback でゲーム側へ通知する。FProgression
+ * 越えると milestone が達成され、登録済み callback でゲーム側へ通知する。CProgression
  * 自身はコンテンツ解放の実体を持たず、プラットフォーム SDK にも依存しない。
  * FMilestoneDef (immutable 定義) と FMilestoneState (実行時状態) を同 index で
  * 1:1 に持つ。全 noexcept、非コピー・非ムーブ、STL 不使用 (文字列は const char* 非所有)。
  */
-class FProgression {
+class CProgression {
 public:
     /** 保存・復元できる milestone 件数の安全上限。 */
     static constexpr u32 kMaxPersistedMilestones = 4096u;
 
     /** 空状態で構築する (XP=0、milestone なし)。 */
-    FProgression()  noexcept = default;
+    CProgression()  noexcept = default;
 
     /** 破棄する (非所有文字列のみ保持するため何もしない)。 */
-    ~FProgression() noexcept = default;
+    ~CProgression() noexcept = default;
 
     /** コピー禁止 (進捗が分裂するのを防ぐため)。 */
-    FProgression(const FProgression&)            = delete;
+    CProgression(const CProgression&)            = delete;
 
     /** コピー代入も禁止。 */
-    FProgression& operator=(const FProgression&) = delete;
+    CProgression& operator=(const CProgression&) = delete;
 
     /** ムーブ禁止 (進捗が分裂するのを防ぐため)。 */
-    FProgression(FProgression&&)                 = delete;
+    CProgression(CProgression&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FProgression& operator=(FProgression&&)      = delete;
+    CProgression& operator=(CProgression&&)      = delete;
 
     /**
      * マイルストーン定義を登録する (起動時に 1 度ずつ)。
@@ -279,7 +279,7 @@ public:
      * 累計 XP と達成済み milestone を保存する。
      *
      * @details
-     * FSaveArchive バイナリ (CRC32、256 MiB上限、atomic replace) で書き出す。
+     * CSaveArchive バイナリ (CRC32、256 MiB上限、atomic replace) で書き出す。
      * milestone は id の FNV-1a hash をキーにするので登録順に非依存。件数・サイズの
      * overflow と一時buffer確保をchecked処理し、失敗時は既存保存ファイルを保持する。
      * @param file_path 書き出し先のファイルパス。
@@ -323,5 +323,8 @@ private:
     /** 達成時 callback に渡す user data。 */
     void*             m_OnAchievedUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FProgression = CProgression;
 
 } // namespace acs::game

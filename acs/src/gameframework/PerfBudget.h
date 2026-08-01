@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework meta — FPerfBudget (CPU/メモリ予算追跡)
+// GameFramework meta — CPerfBudget (CPU/メモリ予算追跡)
 //
 // フレーム時間 (ms) とメモリ確保量 (bytes) の **予算超過追跡**を行う state holder。
 // カテゴリ単位で予算を定義し、毎フレーム実測値を記録 → 集計し、各カテゴリ・フレーム
-// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (FDebugOverlay / ImGui /
+// 全体の超過状態を問い合わせ可能にする。実 UI 描画 (CDebugOverlay / ImGui /
 // `acs::easy::DrawString` 等) は呼出し側責務。
 //
 // 使い方:
-//   acs::game::FPerfBudget m_Budget;
+//   acs::game::CPerfBudget m_Budget;
 //   void OnInit() noexcept {
 //       m_Budget.SetFrameBudget(16.67f);                // 60fps
 //       m_Budget.DefineCategory("Render", 8.0f, 64u*1024u*1024u);
@@ -27,10 +27,10 @@
 //   ・**state holder のみ**: 計測 (QueryPerformanceCounter / FAllocator hook 等) は
 //     呼出し側責務。本クラスは値の保持・集計・予算判定だけを行う。
 //   ・**category は line-key 検索**: `const char*` を pointer 同一 → strcmp の順で
-//     線形走査。FDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
+//     線形走査。CDebugOverlay watches と同じ規約。category 数は通常 10〜50 程度を想定
 //     し、O(N) 走査で十分高速。
 //   ・**frame 履歴**: 直近 60 frame の合計 ms 値を循環バッファで保持。AverageFrameMs
-//     は履歴の算術平均、LastFrameMs は最新値。FDebugOverlay と同じパターン。
+//     は履歴の算術平均、LastFrameMs は最新値。CDebugOverlay と同じパターン。
 //   ・**spent_ms は BeginFrame でリセット、spent_bytes は累積**:
 //     - spent_ms は per-frame 時間なので 1 frame 単位で 0 リセット。
 //     - spent_bytes は (alloc / free) の差分累積 (現在保持中の合計)。EndFrame でも
@@ -88,25 +88,25 @@ struct FBudgetEntry {
  * category は line-key (pointer 同一 → strcmp) で線形検索する。frame 履歴は直近 60 frame の
  * 合計 ms を循環バッファで保持する。所有権を曖昧にしないため非コピー・非ムーブ。
  */
-class FPerfBudget {
+class CPerfBudget {
 public:
     /** 空状態 (category なし、frame 予算なし) で構築する。 */
-    FPerfBudget() noexcept = default;
+    CPerfBudget() noexcept = default;
 
     /** 破棄する。 */
-    ~FPerfBudget() noexcept = default;
+    ~CPerfBudget() noexcept = default;
 
     /** コピー禁止 (履歴 / category の所有権を曖昧にしないため)。 */
-    FPerfBudget(const FPerfBudget&)            = delete;
+    CPerfBudget(const CPerfBudget&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPerfBudget& operator=(const FPerfBudget&) = delete;
+    CPerfBudget& operator=(const CPerfBudget&) = delete;
 
     /** ムーブ禁止。 */
-    FPerfBudget(FPerfBudget&&)                 = delete;
+    CPerfBudget(CPerfBudget&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPerfBudget& operator=(FPerfBudget&&)      = delete;
+    CPerfBudget& operator=(CPerfBudget&&)      = delete;
 
     /**
      * 目標フレーム時間 (ms) を設定する。
@@ -224,7 +224,7 @@ public:
     void Reset() noexcept;
 
 private:
-    /** frame 履歴循環バッファのサンプル数 (FDebugOverlay と整合)。 */
+    /** frame 履歴循環バッファのサンプル数 (CDebugOverlay と整合)。 */
     static constexpr u32 kFrameHistoryCap = 60u;
 
     /**
@@ -257,5 +257,8 @@ private:
     /** 直近 EndFrame で frame 合計 ms が予算超過していたか。 */
     bool m_FrameOverBudget   = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPerfBudget = CPerfBudget;
 
 } // namespace acs::game

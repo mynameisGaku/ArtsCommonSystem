@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCinematicsDirector (timeline-based cutscene)
+// GameFramework Pillar R — CCinematicsDirector (timeline-based cutscene)
 //
 // タイムライン上に並べた keyframe を時間順に発火していく cutscene driver。
 // ストーリーシーン / オープニング / ボス導入演出 / イベントムービー等で
@@ -7,11 +7,11 @@
 // 1 つのタイムラインとして宣言的に組み立てるための薄い state holder。
 //
 // 設計選択 (Pillar R):
-//   ・**FCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
-//      FDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
+//   ・**CCinematicsDirector 自身は描画 / カメラ / 音 を直接いじらない**:
+//      CDamageFeedback と同じ「副作用ゼロ / pull or callback」方針。発火は
 //      関数ポインタ + void* user で type-erase した callback 経由で行い、
-//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (FScene / UI 層 /
-//      FAudioDirector) の責任。これで GameFramework から FRenderer / FCamera /
+//      実際のカメラ移動 / ダイアログ起動 / BGM 切替は caller (AScene / UI 層 /
+//      CAudioDirector) の責任。これで GameFramework から FRenderer / FCamera /
 //      Audio / Dialogue への直接依存を切る。
 //   ・**FTimelineKeyframe は POD union**: STL の variant は使えないので、
 //      payload を C 風 union で持つ。各 track kind が必要なフィールドだけを
@@ -38,11 +38,11 @@
 //   ・**Skip 中の callback 発火**: Skip は「残り全 keyframe を即座に発火」を
 //      意味するので、Skip 内で callback を呼ぶ。発火順は time 昇順を維持。
 //   ・**非コピー・非ムーブ**: state の唯一性 (現在 m_Time / m_LastFiredIndex)
-//      を担保するため機械的に禁止。FScene にメンバとして 1 個埋め込む想定。
+//      を担保するため機械的に禁止。AScene にメンバとして 1 個埋め込む想定。
 //
 // 使い方:
-//   class FOpeningScene : public FScene {
-//       FCinematicsDirector m_Cine;
+//   class FOpeningScene : public AScene {
+//       CCinematicsDirector m_Cine;
 //       void OnEnter() noexcept override {
 //           FTimelineKeyframe kf;
 //           kf.time_sec = 0.0f;
@@ -70,13 +70,14 @@
 //
 // 範囲外:
 //   ・並列タイムライン (現状は単一タイムラインのみ、複数を別 Director で運用)
-//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で FTweenManager に任せる)
+//   ・keyframe の補間 / カーブ (現状は単発発火、補間は callback 側で CTweenManager に任せる)
 //   ・タイムラインの巻き戻し / scrub (オーサリング用、ランタイムには不要)
-//   ・条件分岐タイムライン (FDialogueSystem の choices で代用)
+//   ・条件分岐タイムライン (CDialogueSystem の choices で代用)
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
 
 namespace acs::game {
@@ -125,7 +126,7 @@ struct FTimelineKeyframe {
             /** 目標 zoom 倍率 (1.0 = 等倍)。 */
             f32  zoom;
 
-            /** カメラ移動にかける秒数 (caller が FTweenManager 等で消化)。 */
+            /** カメラ移動にかける秒数 (caller が CTweenManager 等で消化)。 */
             f32  duration;
         } camera;
 
@@ -140,7 +141,7 @@ struct FTimelineKeyframe {
             /** BGM トラック ID (literal / バンドル参照、所有しない)。 */
             const char* music_id;
 
-            /** フェード秒数 (caller が FAudioDirector に渡す)。 */
+            /** フェード秒数 (caller が CAudioDirector に渡す)。 */
             f32         fade;
         } music;
 
@@ -204,25 +205,25 @@ using EventCallbackFn    = void(*)(void* user, u32 event_id) noexcept;
  * Tick で経過時刻に達した keyframe を 1 度だけ発火する。Skip は残り全部を一気に
  * 発火する。state の唯一性のため非コピー・非ムーブ。
  */
-class FCinematicsDirector {
+class CCinematicsDirector {
 public:
     /** 空のタイムラインで構築する (停止状態、keyframe なし)。 */
-    FCinematicsDirector() noexcept = default;
+    CCinematicsDirector() noexcept = default;
 
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
-    ~FCinematicsDirector() noexcept = default;
+    ~CCinematicsDirector() noexcept = default;
 
     /** コピー禁止 (state の唯一性を機械的に担保)。 */
-    FCinematicsDirector(const FCinematicsDirector&)            = delete;
+    CCinematicsDirector(const CCinematicsDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCinematicsDirector& operator=(const FCinematicsDirector&) = delete;
+    CCinematicsDirector& operator=(const CCinematicsDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FCinematicsDirector(FCinematicsDirector&&)                 = delete;
+    CCinematicsDirector(CCinematicsDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCinematicsDirector& operator=(FCinematicsDirector&&)      = delete;
+    CCinematicsDirector& operator=(CCinematicsDirector&&)      = delete;
 
     /**
      * keyframe を追加する。
@@ -237,7 +238,7 @@ public:
     /**
      * 全 keyframe と再生状態を破棄する。
      *
-     * @details FScene::OnExit 等で使う。
+     * @details AScene::OnExit 等で使う。
      */
     void Clear() noexcept;
 

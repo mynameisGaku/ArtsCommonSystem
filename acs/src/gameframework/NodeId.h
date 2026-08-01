@@ -15,7 +15,7 @@
 //
 // 設計選択 (なぜこの形か):
 //   ・**RTTI / dynamic_cast 不使用**: ACS は STL / 例外 / RTTI 禁止。型情報は
-//     呼び出し側 (FScene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
+//     呼び出し側 (AScene 等) が別 array で持つ責務。FNodeId は純粋に「どの slot
 //     のどの世代か」だけを表現する POD handle。
 //   ・**24bit index = 約 16M slot で十分**: 2D ゲームのシーングラフで同時存在
 //     する ANode 数は実用上 10K 〜 100K オーダー。16M (= 16,777,216) なら数桁
@@ -33,7 +33,7 @@
 //
 // 注意:
 //   ・index が 24bit を超える値で構築された場合、上位 bit は黙って捨てられる
-//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (FNodePool 等)
+//     (`& 0x00FFFFFFu`)。これは FShapeId と完全に同じ挙動。生成側 (CNodePool 等)
 //     で assert / TResult<E> を入れて 16M 越えを検出する責務。
 #pragma once
 

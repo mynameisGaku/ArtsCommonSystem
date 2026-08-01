@@ -178,21 +178,21 @@ ANode& ANode::AddChild(TObjectPtr<ANode> child) noexcept {
     return *this;
 }
 
-/** root まで遡って配線済み FSceneServices を返す (m_Parent と同じ非所有規約)。 */
-FSceneServices* ANode::SceneServices() const noexcept {
+/** root まで遡って配線済み CSceneServices を返す (m_Parent と同じ非所有規約)。 */
+CSceneServices* ANode::SceneServices() const noexcept {
     const ANode* n = this;
     while (n->m_Parent != nullptr) n = n->m_Parent;
     return n->m_Services;
 }
 
 /** root に services を設定し、subtree 全コンポーネントの OnAttachServices を一度発火する。 */
-void ANode::_ActivateServices(FSceneServices& svc) noexcept {
+void ANode::_ActivateServices(CSceneServices& svc) noexcept {
     m_Services = &svc;                 // root にのみ設定 (子は walk-to-root で解決)
     _ActivateSubtreeServices(&svc);
 }
 
 /** subtree を DFS し各コンポーネントの OnAttachServices をガード付きで発火する。 */
-void ANode::_ActivateSubtreeServices(FSceneServices* svc) noexcept {
+void ANode::_ActivateSubtreeServices(CSceneServices* svc) noexcept {
     for (u32 i = 0; i < m_Components.Size(); ++i) {
         if (m_Components[i]) m_Components[i]->_MaybeAttachServices(svc);
     }
@@ -202,7 +202,7 @@ void ANode::_ActivateSubtreeServices(FSceneServices* svc) noexcept {
 }
 
 /** root まで遡って配線済み World サブシステム束を返す (services と同じ非所有規約)。 */
-FSubsystemCollection* ANode::Subsystems() const noexcept {
+CSubsystemCollection* ANode::Subsystems() const noexcept {
     const ANode* n = this;
     while (n->m_Parent != nullptr) n = n->m_Parent;
     return n->m_Subsystems;
@@ -221,7 +221,7 @@ ANode* ANode::FindBySerialId(i32 id) noexcept {
 }
 
 /** コンポーネント → owner ツリーの services 解決 (owner 未設定なら nullptr)。 */
-FSceneServices* AComponent::SceneServices() const noexcept {
+CSceneServices* AComponent::SceneServices() const noexcept {
     return (m_Owner != nullptr) ? m_Owner->SceneServices() : nullptr;
 }
 
@@ -231,7 +231,7 @@ bool AComponent::HasSceneServices() const noexcept {
 }
 
 /** コンポーネント → owner ツリーの World サブシステム束を解決 (owner 未設定なら nullptr)。 */
-FSubsystemCollection* AComponent::Subsystems() const noexcept {
+CSubsystemCollection* AComponent::Subsystems() const noexcept {
     return (m_Owner != nullptr) ? m_Owner->Subsystems() : nullptr;
 }
 

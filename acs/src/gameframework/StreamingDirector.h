@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar P (Scale-Stream) — FStreamingDirector (大規模シーン chunk streaming)
+// GameFramework Pillar P (Scale-Stream) — CStreamingDirector (大規模シーン chunk streaming)
 //
 // 役割:
 //   オープンワールド / 広大なステージで全アセットを常駐させられない場合に、
 //   ビューア (カメラ) 位置を中心とした矩形範囲のチャンク (cx, cy) だけを
-//   load 状態に保ち、範囲外を unload する。FCollisionWorld2D の SpatialGrid と
+//   load 状態に保ち、範囲外を unload する。CCollisionWorld2D の SpatialGrid と
 //   思想は似ているが、こちらは「アセットの load/unload」を扱う上位レイヤ。
 //
 // 使い方 (典型例):
-//   acs::game::FStreamingDirector dir;
+//   acs::game::CStreamingDirector dir;
 //   dir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);
 //   dir.SetMaxConcurrentLoads(4);
 //   // 毎フレーム:
@@ -23,12 +23,12 @@
 //   ・view_radius_chunks=2 は ビューアチャンクを中心に 5x5 (= (2*2+1)^2 = 25 個)。
 //   ・状態遷移: Unloaded → Queued → Loading → Loaded → Unloading → Unloaded。
 //     Tick() で「同時 Loading 数 ≤ max_concurrent_loads」を保ちつつキューを進める。
-//   ・実アセットロード: 1 chunk = 1 FAssetBundle。SetAssetRegistry() で app 所有の
+//   ・実アセットロード: 1 chunk = 1 CAssetBundle。SetAssetRegistry() で app 所有の
 //     FAssetRegistry を差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、
 //     bundle.Progress()/IsLoaded() で実完了を判定、Unloading で bundle.Unload() する。
 //     registry が未設定 (nullptr) のときは simulated load time = 0.5s/chunk の
 //     フォールバックで進行する (ヘッドレステスト / registry を持たない用途向け)。
-//   ・Pillar G の FAssetBundle と二段構え: FStreamingDirector が各チャンクの FAssetBundle
+//   ・Pillar G の CAssetBundle と二段構え: CStreamingDirector が各チャンクの CAssetBundle
 //     を保有し、チャンクごとのアセット集合 (パス) を SetChunkPathFormat() で決める。
 //   ・非コピー・非ムーブ (内部 TArray 規約 / 単一所有を強制)。
 //   ・全 API noexcept、STL 不使用 (acs::TArray<FChunkInfo> で管理)。
@@ -37,14 +37,13 @@
 #include "foundation/Types.h"
 #include "container/Array.h"
 #include "container/String.h"
+#include "gameframework/Forward.h"
 #include "memory/UniquePtr.h"
 #include "math/Vec.h"
 
 namespace acs { class FAssetRegistry; }
 
 namespace acs::game {
-
-class FAssetBundle;
 
 /**
  * チャンクの 2D 整数座標 (cx, cy)。
@@ -122,34 +121,34 @@ enum class EChunkState : u8 {
  * ライフサイクルは Init() → 毎フレーム SetViewerPos + Tick → ClearAll() (シーン終了時)。
  * Tick() は (1) 範囲内チャンクを Queued に挿入、(2) Loading 上限内で
  * Queued→Loading→Loaded を進行、(3) 範囲外の Loaded を Unloading→Unloaded に遷移、を
- * 行う。SetAssetRegistry() で実 FAssetRegistry を差すと各チャンクが 1 FAssetBundle を
+ * 行う。SetAssetRegistry() で実 FAssetRegistry を差すと各チャンクが 1 CAssetBundle を
  * 実ロードし、未設定時は simulated load time でフォールバックする。non-copy / non-move。
  */
-class FStreamingDirector {
+class CStreamingDirector {
 public:
     /** 空状態で構築する (設定は Init で行う)。 */
-    FStreamingDirector() noexcept = default;
+    CStreamingDirector() noexcept = default;
 
     /**
      * 全チャンクを破棄する。
      *
      * @details
-     * TUniquePtr<FAssetBundle> の破棄に FAssetBundle の完全型が必要なため、本体は
+     * TUniquePtr<CAssetBundle> の破棄に CAssetBundle の完全型が必要なため、本体は
      * .cpp 側で定義する (ヘッダのみ include する TU で不完全型 delete を避ける)。
      */
-    ~FStreamingDirector() noexcept;
+    ~CStreamingDirector() noexcept;
 
     /** コピー禁止 (内部 TArray と単一所有を強制するため)。 */
-    FStreamingDirector(const FStreamingDirector&)            = delete;
+    CStreamingDirector(const CStreamingDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FStreamingDirector& operator=(const FStreamingDirector&) = delete;
+    CStreamingDirector& operator=(const CStreamingDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FStreamingDirector(FStreamingDirector&&)                 = delete;
+    CStreamingDirector(CStreamingDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FStreamingDirector& operator=(FStreamingDirector&&)      = delete;
+    CStreamingDirector& operator=(CStreamingDirector&&)      = delete;
 
     /**
      * チャンクサイズと保持半径を設定する。
@@ -166,8 +165,8 @@ public:
      * 実アセットロード用の registry を差し込む。
      *
      * @details
-     * app 所有 (FApplication::GetAssets() / FGame 経由、非所有 raw ptr)。設定すると各
-     * チャンクが Loading に入るとき FAssetBundle::BeginLoad(*registry) を発行し、進捗/
+     * app 所有 (FApplication::GetAssets() / CGame 経由、非所有 raw ptr)。設定すると各
+     * チャンクが Loading に入るとき CAssetBundle::BeginLoad(*registry) を発行し、進捗/
      * 完了を bundle から取得する。nullptr を渡す (= 未設定) と simulated load time
      * フォールバックで動作する。既に Loading 中のチャンクには影響しない (次に Loading へ
      * 昇格するものから適用)。
@@ -250,7 +249,7 @@ public:
      * 指定チャンクを強制的に Unloaded にする (デバッグ / メモリ圧追従用)。
      *
      * @details
-     * Loading 中でも即座に破棄する (bundle.Unload で TSharedPtr を drop。FAssetBundle は
+     * Loading 中でも即座に破棄する (bundle.Unload で TSharedPtr を drop。CAssetBundle は
      * 同期ロードなので「進行中の async load」は無く、cancel 不要で即時解放できる)。範囲
      * 内にあれば次 Tick() で再び Queued に戻る点に注意。
      * @param id 強制 unload するチャンク ID。
@@ -268,7 +267,7 @@ private:
      * elapsed は simulated フォールバック時の Loading 中のみ意味を持つ (registry 接続時は
      * bundle 進捗を見るので未使用、Loaded 到達後はリセットされる)。bundle は registry
      * 接続時のみ生成される (MakeUnique で遅延生成し、Unloading で破棄)。path は bundle が
-     * const char* を借用するため FChunkInfo が所有する必要がある (FAssetBundle::Add は
+     * const char* を借用するため FChunkInfo が所有する必要がある (CAssetBundle::Add は
      * 文字列を借用するだけ = bundle より長寿命であること)。FString / TUniquePtr メンバを
      * 持つため FChunkInfo はムーブのみ可 (コピー不可) で、TArray の swap-erase / Grow は
      * Move 経路を使うこと。
@@ -287,7 +286,7 @@ private:
         FString                path;
 
         /** チャンクの実アセットロード単位 (registry 接続時のみ生成、非接続時は null)。 */
-        TUniquePtr<FAssetBundle> bundle;
+        TUniquePtr<CAssetBundle> bundle;
     };
 
     /**
@@ -370,5 +369,8 @@ private:
      */
     TArray<FChunkInfo> m_Chunks;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FStreamingDirector = CStreamingDirector;
 
 } // namespace acs::game

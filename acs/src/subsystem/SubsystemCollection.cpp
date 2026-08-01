@@ -32,12 +32,12 @@ bool StringEquals(const char* Left, const char* Right) noexcept
 
 } // namespace
 
-FSubsystemCollection::~FSubsystemCollection() noexcept
+CSubsystemCollection::~CSubsystemCollection() noexcept
 {
     Deinitialize();
 }
 
-bool FSubsystemCollection::IsValidOwner(ESubsystemScope scope, const FSubsystemOwner& owner) noexcept
+bool CSubsystemCollection::IsValidOwner(ESubsystemScope scope, const FSubsystemOwner& owner) noexcept
 {
     if (owner.kind == ESubsystemOwnerKind::Unknown) return true;
     if (owner.pointer == nullptr) return false;
@@ -53,13 +53,13 @@ bool FSubsystemCollection::IsValidOwner(ESubsystemScope scope, const FSubsystemO
     return false;
 }
 
-bool FSubsystemCollection::HasInvalidParent(ESubsystemScope scope, const FSubsystemCollection* parent) const noexcept
+bool CSubsystemCollection::HasInvalidParent(ESubsystemScope scope, const CSubsystemCollection* parent) const noexcept
 {
     if (parent == nullptr) return false;
     /** 現在検査中のchild scope。 */
     ESubsystemScope ChildScope = scope;
     /** scope階層を上る非所有カーソル。 */
-    const FSubsystemCollection* Current = parent;
+    const CSubsystemCollection* Current = parent;
     /** Engineまでの最大2段を超えるchainを拒否する。 */
     u32 Depth = 0u;
     while (Current != nullptr) {
@@ -80,21 +80,21 @@ bool FSubsystemCollection::HasInvalidParent(ESubsystemScope scope, const FSubsys
     return false;
 }
 
-bool FSubsystemCollection::ParentMatches(ESubsystemScope scope, const FSubsystemCollection* parent,
+bool CSubsystemCollection::ParentMatches(ESubsystemScope scope, const CSubsystemCollection* parent,
                                          u64 lifecycle_generation) const noexcept
 {
     if (parent == nullptr) return lifecycle_generation == 0u;
     return !HasInvalidParent(scope, parent) && parent->m_LifecycleGeneration == lifecycle_generation;
 }
 
-bool FSubsystemCollection::HasInvalidCommittedParent(ESubsystemScope scope,
-                                                     const FSubsystemCollection* parent) const noexcept
+bool CSubsystemCollection::HasInvalidCommittedParent(ESubsystemScope scope,
+                                                     const CSubsystemCollection* parent) const noexcept
 {
     if (parent == nullptr) return false;
     /** 現在検査中のchild scope。 */
     ESubsystemScope ChildScope = scope;
     /** scope階層を上る非所有カーソル。 */
-    const FSubsystemCollection* Current = parent;
+    const CSubsystemCollection* Current = parent;
     /** Engineまでの最大2段を超えるchainを拒否する。 */
     u32 Depth = 0u;
     while (Current != nullptr) {
@@ -117,24 +117,24 @@ bool FSubsystemCollection::HasInvalidCommittedParent(ESubsystemScope scope,
     return false;
 }
 
-bool FSubsystemCollection::CommittedParentMatches() const noexcept
+bool CSubsystemCollection::CommittedParentMatches() const noexcept
 {
     if (m_Parent == nullptr) return m_ParentGeneration == 0u;
     return !HasInvalidCommittedParent(m_Scope, m_Parent) && m_Parent->m_LifecycleGeneration == m_ParentGeneration;
 }
 
-bool FSubsystemCollection::IsLogicallyActive() const noexcept
+bool CSubsystemCollection::IsLogicallyActive() const noexcept
 {
     return m_State == EState::Active || (m_State == EState::Ticking && !m_DeinitializeRequested);
 }
 
-bool FSubsystemCollection::EntryLess(const FEntry& left, const FEntry& right) noexcept
+bool CSubsystemCollection::EntryLess(const FEntry& left, const FEntry& right) noexcept
 {
     if (left.order != right.order) return left.order < right.order;
     return StringLess(left.name, right.name);
 }
 
-bool FSubsystemCollection::TryInitialize(ESubsystemScope scope, FSubsystemCollection* parent,
+bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollection* parent,
                                          FSubsystemOwner owner) noexcept
 {
     if (m_State == EState::Active || m_State == EState::Ticking) {
@@ -149,7 +149,7 @@ bool FSubsystemCollection::TryInitialize(ESubsystemScope scope, FSubsystemCollec
     /** 初期化開始時点のparent lifecycle世代。 */
     const u64 ParentGeneration = parent != nullptr ? parent->m_LifecycleGeneration : 0u;
     /** 失敗時に戻す旧parent。 */
-    FSubsystemCollection* const PreviousParent = m_Parent;
+    CSubsystemCollection* const PreviousParent = m_Parent;
     /** 失敗時に戻す旧scope。 */
     const ESubsystemScope PreviousScope = m_Scope;
     /** 失敗時に戻す旧owner descriptor。 */
@@ -180,7 +180,7 @@ bool FSubsystemCollection::TryInitialize(ESubsystemScope scope, FSubsystemCollec
     {
         /** 初期化開始時点の factory 一覧。以降の登録変更から分離する。 */
         TArray<FSubsystemFactory> Factories(*m_Subsystems.GetAllocator());
-        if (!FSubsystemRegistry::Get().TrySnapshot(Factories)) return false;
+        if (!CSubsystemRegistry::Get().TrySnapshot(Factories)) return false;
         if (m_DeinitializeRequested || !ParentMatches(scope, parent, ParentGeneration)) return false;
 
         // create前に全factoryと決定順序キーを検証し、static初期化順への依存を拒否する。
@@ -307,17 +307,17 @@ bool FSubsystemCollection::TryInitialize(ESubsystemScope scope, FSubsystemCollec
     return true;
 }
 
-bool FSubsystemCollection::TryInitialize(ESubsystemScope scope, FSubsystemCollection* parent, void* owner) noexcept
+bool CSubsystemCollection::TryInitialize(ESubsystemScope scope, CSubsystemCollection* parent, void* owner) noexcept
 {
     return TryInitialize(scope, parent, FSubsystemOwner{owner, ESubsystemOwnerKind::Unknown});
 }
 
-void FSubsystemCollection::Initialize(ESubsystemScope scope, FSubsystemCollection* parent, void* owner) noexcept
+void CSubsystemCollection::Initialize(ESubsystemScope scope, CSubsystemCollection* parent, void* owner) noexcept
 {
     (void)TryInitialize(scope, parent, owner);
 }
 
-void FSubsystemCollection::ClearOwners() noexcept
+void CSubsystemCollection::ClearOwners() noexcept
 {
     for (usize Index = 0u; Index < m_Subsystems.Size(); ++Index) {
         if (m_Subsystems[Index].instance) {
@@ -326,7 +326,7 @@ void FSubsystemCollection::ClearOwners() noexcept
     }
 }
 
-void FSubsystemCollection::TeardownVisibleEntries() noexcept
+void CSubsystemCollection::TeardownVisibleEntries() noexcept
 {
     m_State = EState::Deinitializing;
     while (m_VisibleCount > 0u) {
@@ -342,7 +342,7 @@ void FSubsystemCollection::TeardownVisibleEntries() noexcept
     m_Subsystems.ReleaseStorage();
 }
 
-void FSubsystemCollection::Deinitialize() noexcept
+void CSubsystemCollection::Deinitialize() noexcept
 {
     if (m_State == EState::Uninitialized || m_State == EState::Deinitializing) return;
     if (m_State == EState::Initializing || m_State == EState::Ticking) {
@@ -359,7 +359,7 @@ void FSubsystemCollection::Deinitialize() noexcept
     ++m_LifecycleGeneration;
 }
 
-void FSubsystemCollection::TickFrame(const FSubsystemFrameContext& context) noexcept
+void CSubsystemCollection::TickFrame(const FSubsystemFrameContext& context) noexcept
 {
     if (m_State == EState::Active && !CommittedParentMatches()) {
         Deinitialize();
@@ -394,7 +394,7 @@ void FSubsystemCollection::TickFrame(const FSubsystemFrameContext& context) noex
     if (ShouldDeinitialize) Deinitialize();
 }
 
-void FSubsystemCollection::Tick(f32 delta_seconds) noexcept
+void CSubsystemCollection::Tick(f32 delta_seconds) noexcept
 {
     /** 旧 API の更新前コンテキスト。 */
     const FSubsystemFrameContext PreContext{delta_seconds, delta_seconds, 0u, ESubsystemTickPhase::PreUpdate};
@@ -406,7 +406,7 @@ void FSubsystemCollection::Tick(f32 delta_seconds) noexcept
     TickFrame(PostContext);
 }
 
-FSubsystem* FSubsystemCollection::GetByKind(const void* kind) const noexcept
+ASubsystem* CSubsystemCollection::GetByKind(const void* kind) const noexcept
 {
     if (kind == nullptr) return nullptr;
     /** commit済みparentを安全に辿れるか。 */
@@ -421,7 +421,7 @@ FSubsystem* FSubsystemCollection::GetByKind(const void* kind) const noexcept
     return m_Parent != nullptr && ParentAvailable ? m_Parent->GetByKind(kind) : nullptr;
 }
 
-bool FSubsystemCollection::IsInitialized() const noexcept
+bool CSubsystemCollection::IsInitialized() const noexcept
 {
     return IsLogicallyActive() && CommittedParentMatches();
 }

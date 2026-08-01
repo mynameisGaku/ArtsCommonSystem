@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar P (Scale-Stream) — FStreamingDirector 実装 (FAssetBundle 実接続)
+// GameFramework Pillar P (Scale-Stream) — CStreamingDirector 実装 (CAssetBundle 実接続)
 //
 // chunk state machine + 範囲内/外判定 + Loading 上限 に加え、実 asset load を
-// チャンクごとの FAssetBundle で行う。SetAssetRegistry() で app 所有の FAssetRegistry を
+// チャンクごとの CAssetBundle で行う。SetAssetRegistry() で app 所有の FAssetRegistry を
 // 差し込むと、Loading 遷移時に bundle.BeginLoad(registry) を発行し、bundle.Progress() /
 // IsLoaded() で完了を判定、Unloading で bundle.Unload() する。registry 未設定 (nullptr)
 // のときは simulated load time = 0.5s/chunk のフォールバックで動作する。
@@ -14,8 +14,8 @@
 //   ・Loading の同時上限は Promote 時点でのみチェック。既に Loading 中のチャンクが
 //     その後の Tick() で進行することは妨げない (= 完了優先で枠を空ける方針)。
 //   ・Unloading → Unloaded は同フレーム内で即遷移させる (bundle.Unload を発行してから
-//     TArray から除去)。FAssetBundle は同期 Load なので Unload も即時で完結する。
-//   ・FChunkInfo は FString / TUniquePtr<FAssetBundle> を持つためムーブのみ可。TArray の
+//     TArray から除去)。CAssetBundle は同期 Load なので Unload も即時で完結する。
+//   ・FChunkInfo は FString / TUniquePtr<CAssetBundle> を持つためムーブのみ可。TArray の
 //     swap-erase は RemoveAtSwap (内部 Move 代入) を使い、コピー代入を避ける。
 #include "gameframework/StreamingDirector.h"
 #include "gameframework/AssetBundle.h"   // 実 asset load 単位 (BeginLoad/Progress/IsLoaded/Unload)
@@ -24,30 +24,30 @@
 
 namespace acs::game {
 
-FStreamingDirector::~FStreamingDirector() noexcept {
-    // TArray<FChunkInfo> の破棄で各 FChunkInfo::bundle (TUniquePtr<FAssetBundle>) が
-    // drop される。ここは FAssetBundle 完全型が見えている TU なので不完全型 delete に
+CStreamingDirector::~CStreamingDirector() noexcept {
+    // TArray<FChunkInfo> の破棄で各 FChunkInfo::bundle (TUniquePtr<CAssetBundle>) が
+    // drop される。ここは CAssetBundle 完全型が見えている TU なので不完全型 delete に
     // ならない (= dtor をヘッダで = default にしない理由)。
     // 各 bundle の Unload は TSharedPtr<Asset> drop で暗黙に行われるため明示呼び出しは不要。
 }
 
-void FStreamingDirector::Init(f32 chunk_size, i32 view_radius_chunks) noexcept {
+void CStreamingDirector::Init(f32 chunk_size, i32 view_radius_chunks) noexcept {
     m_ChunkSize  = chunk_size > 0.0f ? chunk_size : 100.0f;
     m_ViewRadius = view_radius_chunks >= 0 ? view_radius_chunks : 2;
     // m_MaxConcurrentLoads / m_ViewerPos / m_Chunks は触らない
     // (Init を「設定値の更新」用途でも呼べるようにするため)。
 }
 
-void FStreamingDirector::SetViewerPos(FVec2 pos) noexcept {
+void CStreamingDirector::SetViewerPos(FVec2 pos) noexcept {
     m_ViewerPos = pos;
 }
 
-void FStreamingDirector::SetMaxConcurrentLoads(u32 n) noexcept {
+void CStreamingDirector::SetMaxConcurrentLoads(u32 n) noexcept {
     // 0 だと永遠に Queued から脱出できないので 1 にクランプ。
     m_MaxConcurrentLoads = n > 0 ? n : 1;
 }
 
-void FStreamingDirector::SetChunkPathFormat(const char* fmt) noexcept {
+void CStreamingDirector::SetChunkPathFormat(const char* fmt) noexcept {
     if (fmt == nullptr || fmt[0] == 0) {
         // 空指定は既定フォーマットに戻す。
         m_ChunkPathFormat.Clear();
@@ -57,7 +57,7 @@ void FStreamingDirector::SetChunkPathFormat(const char* fmt) noexcept {
     m_ChunkPathFormat.Append(FStringView(fmt));
 }
 
-FStreamingDirector::FChunkInfo* FStreamingDirector::Find(FChunkId id) noexcept {
+CStreamingDirector::FChunkInfo* CStreamingDirector::Find(FChunkId id) noexcept {
     const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].id == id) return &m_Chunks[i];
@@ -65,7 +65,7 @@ FStreamingDirector::FChunkInfo* FStreamingDirector::Find(FChunkId id) noexcept {
     return nullptr;
 }
 
-const FStreamingDirector::FChunkInfo* FStreamingDirector::Find(FChunkId id) const noexcept {
+const CStreamingDirector::FChunkInfo* CStreamingDirector::Find(FChunkId id) const noexcept {
     const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].id == id) return &m_Chunks[i];
@@ -73,7 +73,7 @@ const FStreamingDirector::FChunkInfo* FStreamingDirector::Find(FChunkId id) cons
     return nullptr;
 }
 
-FChunkId FStreamingDirector::ViewerChunk() const noexcept {
+FChunkId CStreamingDirector::ViewerChunk() const noexcept {
     // chunk_size は Init で正値にクランプ済 → 0 除算なし。
     const f32 inv = 1.0f / m_ChunkSize;
     const i32 cx  = static_cast<i32>(Floor(m_ViewerPos.x * inv));
@@ -81,7 +81,7 @@ FChunkId FStreamingDirector::ViewerChunk() const noexcept {
     return FChunkId{cx, cy};
 }
 
-bool FStreamingDirector::InRange(FChunkId id) const noexcept {
+bool CStreamingDirector::InRange(FChunkId id) const noexcept {
     const FChunkId v = ViewerChunk();
     const i32 dx = id.cx - v.cx;
     const i32 dy = id.cy - v.cy;
@@ -93,7 +93,7 @@ bool FStreamingDirector::InRange(FChunkId id) const noexcept {
     return mx <= m_ViewRadius;
 }
 
-void FStreamingDirector::EnqueueInRange() noexcept {
+void CStreamingDirector::EnqueueInRange() noexcept {
     const FChunkId v = ViewerChunk();
     for (i32 dy = -m_ViewRadius; dy <= m_ViewRadius; ++dy) {
         for (i32 dx = -m_ViewRadius; dx <= m_ViewRadius; ++dx) {
@@ -109,11 +109,11 @@ void FStreamingDirector::EnqueueInRange() noexcept {
     }
 }
 
-void FStreamingDirector::BeginChunkLoad(FChunkInfo& c) noexcept {
+void CStreamingDirector::BeginChunkLoad(FChunkInfo& c) noexcept {
     // registry 未接続なら実ロードはしない (simulated 経路で elapsed が進む)。
     if (m_Registry == nullptr) return;
 
-    // チャンクパスを組み立てる。FAssetBundle::Add は const char* を「借用」するため、
+    // チャンクパスを組み立てる。CAssetBundle::Add は const char* を「借用」するため、
     // bundle が借用するポインタは bundle 寿命中ずっと不変アドレスでなければならない。
     // FChunkInfo は TArray 内で move される (Grow / RemoveAtSwap) が、FString が SSO の
     // 場合 move でインラインバッファのアドレスが変わり、bundle の借用ポインタが dangling
@@ -127,7 +127,7 @@ void FStreamingDirector::BeginChunkLoad(FChunkInfo& c) noexcept {
     c.path.AppendFormat(fmt, c.id.cx, c.id.cy);
 
     // bundle を遅延生成 (Unloading で破棄 → 再 Loading で作り直し)。
-    c.bundle = MakeUnique<FAssetBundle>();
+    c.bundle = MakeUnique<CAssetBundle>();
     if (!c.bundle) {
         // 生成失敗 (確保不能) は simulated 経路へフォールバック。
         ACS_LOG_WARN("FStreamingDirector::BeginChunkLoad: bundle 生成失敗 (%d,%d)",
@@ -139,7 +139,7 @@ void FStreamingDirector::BeginChunkLoad(FChunkInfo& c) noexcept {
     c.bundle->BeginLoad(*m_Registry);
 }
 
-void FStreamingDirector::PromoteQueuedToLoading() noexcept {
+void CStreamingDirector::PromoteQueuedToLoading() noexcept {
     // 現在 Loading 中のチャンクをカウント。
     u32 loading_now = 0;
     const usize n = m_Chunks.Size();
@@ -156,7 +156,7 @@ void FStreamingDirector::PromoteQueuedToLoading() noexcept {
         m_Chunks[i].state   = EChunkState::Loading;
         m_Chunks[i].elapsed = 0.0f;
         // registry 接続時は bundle.BeginLoad を発行 (同期ロード)。非接続時は no-op で
-        // simulated time 経路に乗る。FAssetBundle::BeginLoad は同期だが、bundle.IsLoaded()
+        // simulated time 経路に乗る。CAssetBundle::BeginLoad は同期だが、bundle.IsLoaded()
         // ポーリングで一貫した状態遷移を保つ (失敗 entry も「完了」として Loaded に進む)。
         BeginChunkLoad(m_Chunks[i]);
         ++loading_now;
@@ -164,7 +164,7 @@ void FStreamingDirector::PromoteQueuedToLoading() noexcept {
     }
 }
 
-void FStreamingDirector::Tick(f32 dt) noexcept {
+void CStreamingDirector::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;   // 時間巻き戻し防止 (pause からの再開等)
 
     // 1. 範囲内チャンクを Queued として追加 (未登録分のみ)。
@@ -179,7 +179,7 @@ void FStreamingDirector::Tick(f32 dt) noexcept {
         case EChunkState::Loading: {
             if (c.bundle) {
                 // registry 接続: bundle の集約進捗で完了を判定する。
-                // FAssetBundle::BeginLoad は同期ロードのため、Loading に入った直後の
+                // CAssetBundle::BeginLoad は同期ロードのため、Loading に入った直後の
                 // 本フレームで IsLoaded() == true になるのが通常 (失敗 entry も完了扱い)。
                 // 将来 bundle を非同期化しても、この polling ループはそのまま機能する。
                 if (c.bundle->IsLoaded()) {
@@ -241,12 +241,12 @@ void FStreamingDirector::Tick(f32 dt) noexcept {
     PromoteQueuedToLoading();
 }
 
-EChunkState FStreamingDirector::GetState(FChunkId id) const noexcept {
+EChunkState CStreamingDirector::GetState(FChunkId id) const noexcept {
     const FChunkInfo* c = Find(id);
     return c != nullptr ? c->state : EChunkState::Unloaded;
 }
 
-u32 FStreamingDirector::LoadedCount() const noexcept {
+u32 CStreamingDirector::LoadedCount() const noexcept {
     u32 n = 0;
     const usize sz = m_Chunks.Size();
     for (usize i = 0; i < sz; ++i) {
@@ -255,7 +255,7 @@ u32 FStreamingDirector::LoadedCount() const noexcept {
     return n;
 }
 
-u32 FStreamingDirector::LoadingCount() const noexcept {
+u32 CStreamingDirector::LoadingCount() const noexcept {
     u32 n = 0;
     const usize sz = m_Chunks.Size();
     for (usize i = 0; i < sz; ++i) {
@@ -264,9 +264,9 @@ u32 FStreamingDirector::LoadingCount() const noexcept {
     return n;
 }
 
-void FStreamingDirector::ForceUnload(FChunkId id) noexcept {
+void CStreamingDirector::ForceUnload(FChunkId id) noexcept {
     // swap-erase で即破棄。Loading 中だった場合も bundle.Unload で TSharedPtr を即 drop する
-    // (FAssetBundle は同期ロードなので「進行中の async load」は存在しない)。
+    // (CAssetBundle は同期ロードなので「進行中の async load」は存在しない)。
     const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {
         if (m_Chunks[i].id == id) {
@@ -279,9 +279,9 @@ void FStreamingDirector::ForceUnload(FChunkId id) noexcept {
     ACS_LOG_TRACE("FStreamingDirector::ForceUnload: chunk (%d,%d) not found", id.cx, id.cy);
 }
 
-void FStreamingDirector::ClearAll() noexcept {
+void CStreamingDirector::ClearAll() noexcept {
     // 全チャンクの bundle を Unload してから破棄する (Loaded/Loading 問わず TSharedPtr を drop)。
-    // FChunkInfo のデストラクタ (TUniquePtr<FAssetBundle> drop) でも実体は解放されるが、
+    // FChunkInfo のデストラクタ (TUniquePtr<CAssetBundle> drop) でも実体は解放されるが、
     // Unload を明示することで registry refcount を決定的タイミングで落とす。
     const usize n = m_Chunks.Size();
     for (usize i = 0; i < n; ++i) {

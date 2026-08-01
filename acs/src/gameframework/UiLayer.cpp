@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FUiLayer 実装
+// GameFramework Pillar H — CUiLayer 実装
 //
 // state holder を完全実装する。実 `acs::ui` FWidget tree 構築 / 描画 /
 // hit-test / event 配送は seam として未接続で、Init / Tick / HandleInput の中身は
@@ -33,7 +33,7 @@ constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 
 } // namespace
 
-void FUiLayer::Init() noexcept {
+void CUiLayer::Init() noexcept {
     if (m_Initialized) {
         // 冪等性確保。重複 Init はログのみで何もしない (Shutdown 経由せず再 Init
         // するケースもあり得るが、現状は警告レベルではなく Debug で記録)。
@@ -48,7 +48,7 @@ void FUiLayer::Init() noexcept {
     ACS_LOG_DEBUG("FUiLayer::Init: ready");
 }
 
-void FUiLayer::Shutdown() noexcept {
+void CUiLayer::Shutdown() noexcept {
     if (!m_Initialized) {
         // 未初期化での Shutdown は no-op (冪等)。
         return;
@@ -59,14 +59,14 @@ void FUiLayer::Shutdown() noexcept {
     ACS_LOG_DEBUG("FUiLayer::Shutdown: state cleared");
 }
 
-void FUiLayer::Tick(f32 /*dt*/) noexcept {
+void CUiLayer::Tick(f32 /*dt*/) noexcept {
     if (!m_Initialized) return;
     // just_pressed は IsButtonPressed の consume-on-read で消費する方式にしたため、
     // Tick で一括クリアはしない (OnEvent→OnUpdate のフレーム順で this-frame の
     // クリックを誤って消さないため)。将来 layout 再計算 / animation 更新をここに。
 }
 
-void FUiLayer::HandleInput(const acs::FEvent& event) noexcept {
+void CUiLayer::HandleInput(const acs::FEvent& event) noexcept {
     if (!m_Initialized) return;
     switch (event.type) {
         case acs::EEventType::MouseMoved: {
@@ -109,7 +109,7 @@ void FUiLayer::HandleInput(const acs::FEvent& event) noexcept {
 }
 
 // (x,y) を含む最前面 (= 最後に追加) の visible なボタンの handle。無ければ 0。
-u32 FUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
+u32 CUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
     for (u32 i = static_cast<u32>(m_Widgets.Size()); i > 0; --i) {
         const FWidgetEntry& e = m_Widgets[i - 1];
         if (e.kind == EWidgetKind::Button && e.visible
@@ -121,7 +121,7 @@ u32 FUiLayer::HitTopButton(f32 x, f32 y) const noexcept {
     return 0;
 }
 
-void FUiLayer::Draw(FRenderContext& rc) const noexcept {
+void CUiLayer::Draw(FRenderContext& rc) const noexcept {
     if (!rc.HasSprites()) return;
     FSpriteBatch& sb = rc.Sprites();
     const bool has_font = rc.HasFont();
@@ -146,11 +146,11 @@ void FUiLayer::Draw(FRenderContext& rc) const noexcept {
     }
 }
 
-u32 FUiLayer::WidgetCount() const noexcept {
+u32 CUiLayer::WidgetCount() const noexcept {
     return static_cast<u32>(m_Widgets.Size());
 }
 
-u32 FUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept {
+u32 CUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noexcept {
     if (!m_Initialized) {
         // Init せずに使われたら warn (Scene 側の OnEnter で Init 漏れ検出)。
         ACS_LOG_WARN("FUiLayer::AddButton called before Init (ignored)");
@@ -168,7 +168,7 @@ u32 FUiLayer::AddButton(const char* label, acs::FVec2 pos, acs::FVec2 size) noex
     return e.handle;
 }
 
-u32 FUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
+u32 CUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
     if (!m_Initialized) {
         ACS_LOG_WARN("FUiLayer::AddText called before Init (ignored)");
         return 0;
@@ -185,7 +185,7 @@ u32 FUiLayer::AddText(const char* text, acs::FVec2 pos) noexcept {
     return e.handle;
 }
 
-bool FUiLayer::IsButtonPressed(u32 handle) const noexcept {
+bool CUiLayer::IsButtonPressed(u32 handle) const noexcept {
     const u32 idx = FindIndex(handle);
     if (idx == kInvalidIndex) return false;
     const FWidgetEntry& e = m_Widgets[idx];
@@ -198,7 +198,7 @@ bool FUiLayer::IsButtonPressed(u32 handle) const noexcept {
     return true;
 }
 
-void FUiLayer::SetVisible(u32 handle, bool visible) noexcept {
+void CUiLayer::SetVisible(u32 handle, bool visible) noexcept {
     const u32 idx = FindIndex(handle);
     if (idx == kInvalidIndex) {
         ACS_LOG_WARN("FUiLayer::SetVisible: invalid handle %u", handle);
@@ -207,7 +207,7 @@ void FUiLayer::SetVisible(u32 handle, bool visible) noexcept {
     m_Widgets[idx].visible = visible;
 }
 
-void FUiLayer::Remove(u32 handle) noexcept {
+void CUiLayer::Remove(u32 handle) noexcept {
     const u32 idx = FindIndex(handle);
     if (idx == kInvalidIndex) {
         // 削除で invalid を渡すケースは「既に消されたものを再度消す」など
@@ -225,14 +225,14 @@ void FUiLayer::Remove(u32 handle) noexcept {
     m_Widgets.PopBack();
 }
 
-void FUiLayer::Clear() noexcept {
+void CUiLayer::Clear() noexcept {
     m_Widgets.Clear();
     // m_NextHandle はリセットしない: Clear 後も以前の handle が外部に残っている
     // 可能性があり、再利用すると意図しないヒットが起こり得る。Shutdown まで
     // 単調増加を維持する。
 }
 
-u32 FUiLayer::FindIndex(u32 handle) const noexcept {
+u32 CUiLayer::FindIndex(u32 handle) const noexcept {
     if (handle == 0) return kInvalidIndex;
     for (u32 i = 0; i < m_Widgets.Size(); ++i) {
         if (m_Widgets[i].handle == handle) return i;

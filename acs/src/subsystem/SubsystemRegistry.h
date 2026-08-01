@@ -8,13 +8,13 @@
 
 namespace acs {
 
-struct FSubsystemAutoRegister;
+struct CSubsystemAutoRegister;
 
 /** owner thread から利用する、同一 link image 内のサブシステム登録簿。 */
-class FSubsystemRegistry {
+class CSubsystemRegistry {
 public:
     /** 同一 link image 内の process lifetime 登録簿を返す。 */
-    static FSubsystemRegistry& Get() noexcept;
+    static CSubsystemRegistry& Get() noexcept;
 
     /**
      * 手動 factory の登録を試みる。
@@ -45,7 +45,7 @@ public:
     bool TrySnapshot(TArray<FSubsystemFactory>& output) const noexcept;
 
 private:
-    friend struct FSubsystemAutoRegister;
+    friend struct CSubsystemAutoRegister;
 
     /** 同じ kind へ同時登録できる module/source 数。 */
     static constexpr u32 kMaxSourcesPerFactory = 8u;
@@ -67,10 +67,10 @@ private:
     };
 
     /** process lifetime allocator へ登録簿を接続する。 */
-    FSubsystemRegistry() noexcept;
+    CSubsystemRegistry() noexcept;
 
-    FSubsystemRegistry(const FSubsystemRegistry&) = delete;
-    FSubsystemRegistry& operator=(const FSubsystemRegistry&) = delete;
+    CSubsystemRegistry(const CSubsystemRegistry&) = delete;
+    CSubsystemRegistry& operator=(const CSubsystemRegistry&) = delete;
 
     /** null を含む C 文字列を比較する。 */
     static bool StrEq(const char* left, const char* right) noexcept;
@@ -92,16 +92,19 @@ private:
     TArray<FFactoryEntry> m_Entries;
 };
 
+/** 旧公開名を正規サブシステム登録簿型へ接続する互換別名。 */
+using FSubsystemRegistry = CSubsystemRegistry;
+
 /** マクロによる登録元を寿命終了時に解除する補助値。 */
-struct FSubsystemAutoRegister {
+struct CSubsystemAutoRegister {
     /** factory を token 付きで登録する。 */
-    explicit FSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept;
+    explicit CSubsystemAutoRegister(const FSubsystemFactory& factory) noexcept;
 
     /** 登録に成功した factory を解除する。 */
-    ~FSubsystemAutoRegister() noexcept;
+    ~CSubsystemAutoRegister() noexcept;
 
-    FSubsystemAutoRegister(const FSubsystemAutoRegister&) = delete;
-    FSubsystemAutoRegister& operator=(const FSubsystemAutoRegister&) = delete;
+    CSubsystemAutoRegister(const CSubsystemAutoRegister&) = delete;
+    CSubsystemAutoRegister& operator=(const CSubsystemAutoRegister&) = delete;
 
 private:
     /** 解除時に照合する factory 値。 */
@@ -110,15 +113,18 @@ private:
     bool m_Registered = false;
 };
 
+/** 旧公開名を正規サブシステム自動登録型へ接続する互換別名。 */
+using FSubsystemAutoRegister = CSubsystemAutoRegister;
+
 } // namespace acs
 
 /** phase と order を明示してサブシステム factory を自動登録する。 */
 #define ACS_REGISTER_SUBSYSTEM_EX(T, SCOPE, PHASE, ORDER)                                      \
     namespace acs::game {                                                                        \
     namespace {                                                                                  \
-    const ::acs::FSubsystemAutoRegister g_AcsSubsysReg_##T{::acs::FSubsystemFactory{             \
+    const ::acs::CSubsystemAutoRegister g_AcsSubsysReg_##T{::acs::FSubsystemFactory{             \
         ::acs::SubsystemKindOf<T>(), (SCOPE), #T,                                                \
-        []() noexcept -> ::acs::TUniquePtr<::acs::FSubsystem> { return ::acs::MakeUnique<T>(); }, \
+        []() noexcept -> ::acs::TUniquePtr<::acs::ASubsystem> { return ::acs::MakeUnique<T>(); }, \
         (PHASE), (ORDER)}};                                                                       \
     }                                                                                            \
     }

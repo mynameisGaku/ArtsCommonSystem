@@ -7,8 +7,12 @@ namespace acs {
 
 class CTimerManager;
 
-/** FApplication が所有するタイマー管理器を Engine スコープへ公開するアダプター。 */
-class FTimerSubsystem final : public FSubsystem {
+class ATimerSubsystem;
+/** 旧公開名を正規タイマーサブシステム型へ接続する互換別名。 */
+using FTimerSubsystem = ATimerSubsystem;
+
+/** CApplication が所有するタイマー管理器を Engine スコープへ公開するアダプター。 */
+class ATimerSubsystem final : public ASubsystem {
 public:
     ACS_SUBSYSTEM_KIND(FTimerSubsystem)
 
@@ -34,7 +38,7 @@ public:
     }
 
 private:
-    /** FApplication が所有するタイマー管理器への非所有参照。 */
+    /** CApplication が所有するタイマー管理器への非所有参照。 */
     CTimerManager* m_Timers = nullptr;
 };
 

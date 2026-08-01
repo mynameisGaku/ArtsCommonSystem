@@ -2,7 +2,7 @@
 // GameFramework Pillar C — FAnimationCurve
 //
 // 編集可能な「時間→値」補間曲線。Unity AnimationCurve / Unreal FRichCurve に相当。
-// FSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
+// CSpriteAnimator が「frame index 計算」だけを担うのと違い、FAnimationCurve は
 // 任意の f32 を時間で滑らかに変化させる汎用パスを提供する。
 //
 // 用途:
@@ -32,9 +32,9 @@
 //     時に segment 長 dt で乗算してスケールするので、key 間隔を変えても曲線形が
 //     直感的に保てる (Unity の Tangent と同セマンティクス)。
 //   ・EWrapMode = {Clamp, Loop, PingPong} の前後別指定。Loop / PingPong は
-//     FSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
+//     CSpriteAnimator と同じ折り返し方式で実装し、長時間呼び出しでも f32 精度を
 //     失わないよう time → 内部正規化 time の段階で fold する。
-//   ・FSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
+//   ・CSpriteAnimator と同様に「ランタイム状態を不意に複製しないため非コピー・
 //     非ムーブ」。曲線を共有したい場合は FAnimationCurve を 1 つ作って参照渡しする。
 #pragma once
 
@@ -159,7 +159,7 @@ public:
     /** コピー代入も禁止。 */
     FAnimationCurve& operator=(const FAnimationCurve&) = delete;
 
-    /** ムーブ禁止 (FSpriteAnimator と同方針)。 */
+    /** ムーブ禁止 (CSpriteAnimator と同方針)。 */
     FAnimationCurve(FAnimationCurve&&)                 = delete;
 
     /** ムーブ代入も禁止。 */

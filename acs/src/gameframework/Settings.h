@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar G — FSettings (型付きゲーム設定)
+// GameFramework Pillar G — CSettings (型付きゲーム設定)
 //
 // 音量・解像度・キーバインド等の「ゲームを跨いで永続化したい設定値」を
 // 型付き key-value で保持する小型ストア。FInputMap (Pillar D) のキーコンフィグや
 // AudioMixer の音量、Display の解像度・ウィンドウモード等の永続化先として使う。
 //
 // 使い方:
-//   FSettings s;
+//   CSettings s;
 //   s.SetF32 ("audio.master",   0.8f);
 //   s.SetI32 ("display.width",  1920);
 //   s.SetBool("display.vsync",  true);
@@ -142,7 +142,7 @@ const char* SettingsPersistenceErrorName(ESettingsPersistenceError error) noexce
  * string 値は非所有 const char* (寿命は呼び出し側が保証) で、コピー・ムーブ禁止。
  * Save/Load は INI 風 `<tag>:<key>=<value>` テキスト (UTF-8 / LF) で読み書きする。
  */
-class FSettings {
+class CSettings {
 public:
     /** 受け入れ・出力可能な settings document の最大サイズ (4 MiB)。 */
     static constexpr usize kMaxPersistenceBytes = 4u * 1024u * 1024u;
@@ -160,22 +160,22 @@ public:
     static constexpr usize kMaxPersistenceStringBytes = 4096u;
 
     /** 空のストアを構築する (エントリなし)。 */
-    FSettings()  noexcept = default;
+    CSettings()  noexcept = default;
 
     /** デストラクタ (エントリ・文字列プールは TArray/FString が解放)。 */
-    ~FSettings() noexcept = default;
+    ~CSettings() noexcept = default;
 
     /** コピー禁止 (1 セッション 1 オブジェクトでの同期ずれを防ぐため)。 */
-    FSettings(const FSettings&)            = delete;
+    CSettings(const CSettings&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSettings& operator=(const FSettings&) = delete;
+    CSettings& operator=(const CSettings&) = delete;
 
     /** ムーブ禁止。 */
-    FSettings(FSettings&&)                 = delete;
+    CSettings(CSettings&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSettings& operator=(FSettings&&)      = delete;
+    CSettings& operator=(CSettings&&)      = delete;
 
     /**
      * f32 値を書き込む (同名 key は上書き、key == nullptr は no-op)。
@@ -384,5 +384,8 @@ private:
      */
     TArray<FString> m_StringPool;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSettings = CSettings;
 
 } // namespace acs::game

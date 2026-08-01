@@ -194,7 +194,7 @@ target_link_libraries(acs_subsystem_lifecycle_tests PRIVATE
 add_test(NAME ACS.SubsystemLifecycle COMMAND acs_subsystem_lifecycle_tests)
 set_tests_properties(ACS.SubsystemLifecycle PROPERTIES LABELS "Subsystem;GameFramework;Lifecycle" TIMEOUT 60)
 
-# catalog関数を直接呼ばず、static libraryのFGame anchorだけでbuiltin登録を検証する。
+# catalog関数を直接呼ばず、static libraryのCGame anchorだけでbuiltin登録を検証する。
 add_executable(acs_subsystem_static_link_tests
     main.cpp
     subsystem_static_link_tests.cpp
@@ -211,6 +211,8 @@ set_tests_properties(ACS.SubsystemStaticLink PROPERTIES LABELS "Subsystem;GameFr
 # canonical top-level headerと旧GameFramework forwarding名を単独consumerで固定する。
 add_executable(acs_subsystem_canonical_header_tests
     main.cpp
+    app_forward_header_compile_tests.cpp
+    gameframework_forward_header_compile_tests.cpp
     subsystem_acomponent_header_compile_tests.cpp
     subsystem_anode_header_compile_tests.cpp
     subsystem_canonical_header_tests.cpp
@@ -227,7 +229,7 @@ target_link_libraries(acs_subsystem_canonical_header_tests PRIVATE
 add_test(NAME ACS.SubsystemCanonicalHeaders COMMAND acs_subsystem_canonical_header_tests)
 set_tests_properties(ACS.SubsystemCanonicalHeaders PROPERTIES LABELS "Subsystem;Compatibility" TIMEOUT 60)
 
-# FApplication所有のEngine adapterが既存実体identityとphaseを保つ。
+# CApplication所有のEngine adapterが既存実体identityとphaseを保つ。
 add_executable(acs_application_subsystem_tests
     main.cpp
     application_subsystem_tests.cpp

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FDebugDraw 実装
+// GameFramework Pillar H — CDebugDraw 実装
 //
 // ヘッダの「設計選択」を参照。ここではジオメトリ生成のみで I/O 副作用を持たない。
 // 各 Draw* は内部 TArray に Line を PushBack するだけ。
@@ -12,12 +12,12 @@
 namespace acs::game {
 
 /** 任意 2 点間の線分を 1 本バッファへ積む。 */
-void FDebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
+void CDebugDraw::DrawLine(FVec2 a, FVec2 b, FVec4 color) noexcept {
     m_Lines.PushBack(FLine{a, b, color});
 }
 
 /** AABB の 4 隅を 4 辺の線分に分解して積む。 */
-void FDebugDraw::DrawAabb(const FAabb2& a, FVec4 color) noexcept {
+void CDebugDraw::DrawAabb(const FAabb2& a, FVec4 color) noexcept {
     // 4 隅 → 4 辺。
     //   tl --- tr
     //    |     |
@@ -35,7 +35,7 @@ void FDebugDraw::DrawAabb(const FAabb2& a, FVec4 color) noexcept {
 }
 
 /** 円を segments 本の線分に分解した近似輪郭を積む (segments<3 は 3 に丸める)。 */
-void FDebugDraw::DrawCircle(const FCircle& c, FVec4 color, u32 segments) noexcept {
+void CDebugDraw::DrawCircle(const FCircle& c, FVec4 color, u32 segments) noexcept {
     // 縮退ガード: 3 角形未満は形にならない。
     if (segments < 3u) segments = 3u;
 
@@ -55,7 +55,7 @@ void FDebugDraw::DrawCircle(const FCircle& c, FVec4 color, u32 segments) noexcep
 }
 
 /** 中心 pos の "+" 記号を横線・縦線の 2 本として積む (size は片側長)。 */
-void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
+void CDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
     // "+" 記号: 横線（左右）+ 縦線（上下）。size は片側長。
     const f32 h = size;
     m_Lines.PushBack(FLine{FVec2{pos.x - h, pos.y}, FVec2{pos.x + h, pos.y}, color});
@@ -63,7 +63,7 @@ void FDebugDraw::DrawCross(FVec2 pos, f32 size, FVec4 color) noexcept {
 }
 
 /** a→b の矢印: 軸 1 本 + 矢じり 2 本 (b から後方へ ±約23°)。 */
-void FDebugDraw::DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len) noexcept {
+void CDebugDraw::DrawArrow(FVec2 a, FVec2 b, FVec4 color, f32 head_len) noexcept {
     m_Lines.PushBack(FLine{a, b, color});   // 軸
     const FVec2 dv{ b.x - a.x, b.y - a.y };
     const f32   len = std::sqrt(dv.x * dv.x + dv.y * dv.y);

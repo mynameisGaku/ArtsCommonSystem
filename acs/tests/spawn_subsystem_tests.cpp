@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// gameframework: FSpawn2DSubsystem の検証 (GPU 非依存)。
-//   ・Owner()(= FScene2D)経由でシーン root へプレハブを生成し、指定位置へ配置する
+// gameframework: ASpawn2DSubsystem の検証 (GPU 非依存)。
+//   ・Owner()(= AScene2D)経由でシーン root へプレハブを生成し、指定位置へ配置する
 //   ・= サブシステムが «世界に手が届く»(Owner コンテキスト)の実証
-//   ・owner 未設定(FScene2D でない)なら nullptr
+//   ・owner 未設定(AScene2D でない)なら nullptr
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -26,12 +26,12 @@ const char* kBullet =
     "SEL -1 0\n";
 } // namespace
 
-// Owner(FScene2D)の root へプレハブを生成し、指定位置に配置する。
+// Owner(AScene2D)の root へプレハブを生成し、指定位置に配置する。
 ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
-    FScene2D scene;
+    AScene2D scene;
     EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
-    FSpawn2DSubsystem* spawner = scene.GetSubsystem<FSpawn2DSubsystem>();
+    ASpawn2DSubsystem* spawner = scene.GetSubsystem<ASpawn2DSubsystem>();
     EXPECT_TRUE(spawner != nullptr);
     if (spawner == nullptr) return;
 
@@ -50,9 +50,9 @@ ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     EXPECT_EQ(scene.Root().ChildCount(), before + 2u);
 }
 
-// owner が FScene2D でない(未設定)なら nullptr で安全。
+// owner が AScene2D でない(未設定)なら nullptr で安全。
 ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
-    FSpawn2DSubsystem orphan;                          // owner 未設定
+    ASpawn2DSubsystem orphan;                          // owner 未設定
     EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);
     EXPECT_TRUE(orphan.SpawnPrefabText(nullptr, FVec2{ 0.0f, 0.0f }) == nullptr);
 
@@ -65,9 +65,9 @@ ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
 ACS_TEST(SpawnSubsystem, PlainSceneOwnerIsSafe)
 {
     EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
-    FScene scene;
+    AScene scene;
     EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
-    FSpawn2DSubsystem* const spawner = scene.GetSubsystem<FSpawn2DSubsystem>();
+    ASpawn2DSubsystem* const spawner = scene.GetSubsystem<ASpawn2DSubsystem>();
     EXPECT_TRUE(spawner != nullptr);
     if (spawner != nullptr) {
         EXPECT_TRUE(spawner->SpawnPrefabText(kBullet, FVec2{0.0f, 0.0f}) == nullptr);

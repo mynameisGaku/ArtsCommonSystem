@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCameraStack 実装
+// GameFramework Pillar E — CCameraStack 実装
 #include "gameframework/CameraStack.h"
 
 #include "foundation/Log.h"
@@ -8,13 +8,13 @@
 namespace acs::game {
 
 /** 2 つの FVec2 を進捗 t で線形補間する。 */
-FVec2 FCameraStack::LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept {
+FVec2 CCameraStack::LerpVec2(FVec2 a, FVec2 b, f32 t) noexcept {
     return FVec2{Lerp(a.x, b.x, t), Lerp(a.y, b.y, t)};
 }
 
 /** 2 つの zoom を対数空間で補間する (入力は下限 0.001 にクランプ)。 */
-f32 FCameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
-    // 光学的に自然な中点 → 対数空間で線形補間。zoom <= 0 ガード (FCamera2D 側で
+f32 CCameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
+    // 光学的に自然な中点 → 対数空間で線形補間。zoom <= 0 ガード (CCamera2D 側で
     // 0.001 にクランプされているはずだが、防御的に Abs を取ってから扱う)。
     const f32 sa = a > 0.001f ? a : 0.001f;
     const f32 sb = b > 0.001f ? b : 0.001f;
@@ -22,7 +22,7 @@ f32 FCameraStack::LerpZoom(f32 a, f32 b, f32 t) noexcept {
 }
 
 /** 2 つの角度を最短角経路で補間する。 */
-f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
+f32 CCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
     // 差分を [-π, π] に正規化してから lerp (= 最短角経路)。
     f32 d = b - a;
     while (d >  kPi) d -= kTwoPi;
@@ -31,7 +31,7 @@ f32 FCameraStack::LerpAngle(f32 a, f32 b, f32 t) noexcept {
 }
 
 /** カメラを top に push し、旧 top からの補間を開始する。 */
-void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
+void CCameraStack::PushCamera(CCamera2D& cam, f32 blend_duration) noexcept {
     // Pop フェード中に Push が来た場合 (後勝ち契約): フェードアウト中の top は
     // 除去が確定済みなので、新 top の下に埋もれて永久残留する前にここで確定
     // させる (Tick の pop 完了処理と同じ後始末)。放置すると Tick は top しか
@@ -61,7 +61,7 @@ void FCameraStack::PushCamera(FCamera2D& cam, f32 blend_duration) noexcept {
 }
 
 /** top をフェードアウト状態に切り替える (実際の除去は Tick で行う)。 */
-void FCameraStack::PopCamera(f32 blend_duration) noexcept {
+void CCameraStack::PopCamera(f32 blend_duration) noexcept {
     if (m_Entries.Size() <= 1) {
         ACS_LOG_WARN("FCameraStack::PopCamera on stack of size %u (need >=2) — ignored",
                      static_cast<u32>(m_Entries.Size()));
@@ -76,13 +76,13 @@ void FCameraStack::PopCamera(f32 blend_duration) noexcept {
 }
 
 /** 現在 active なカメラ (= 最上層) を返す (空なら nullptr)。 */
-FCamera2D* FCameraStack::Active() const noexcept {
+CCamera2D* CCameraStack::Active() const noexcept {
     if (m_Entries.IsEmpty()) return nullptr;
     return m_Entries.Back().cam;
 }
 
 /** top が補間途中かどうかを返す。 */
-bool FCameraStack::IsBlending() const noexcept {
+bool CCameraStack::IsBlending() const noexcept {
     if (m_Entries.IsEmpty()) return false;
     const FCameraEntry& top = m_Entries.Back();
     // 「blend 中」= top が補間途中。下層が無いと (= 1 枚だけだと) blending
@@ -93,19 +93,19 @@ bool FCameraStack::IsBlending() const noexcept {
 }
 
 /** top の blend 進捗 [0,1] を返す (非 blend 時は 1)。 */
-f32 FCameraStack::BlendProgress() const noexcept {
+f32 CCameraStack::BlendProgress() const noexcept {
     if (m_Entries.IsEmpty()) return 1.0f;
     const f32 t = m_Entries.Back().blend_t;
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
 /** スタックを空にする。 */
-void FCameraStack::Clear() noexcept {
+void CCameraStack::Clear() noexcept {
     m_Entries.Clear();
 }
 
 /** 描画に使う実 view center を返す (blend 中は下層との線形補間)。 */
-FVec2 FCameraStack::EffectivePosition() const noexcept {
+FVec2 CCameraStack::EffectivePosition() const noexcept {
     if (m_Entries.IsEmpty()) return FVec2{0.0f, 0.0f};
     const FCameraEntry& top = m_Entries.Back();
     const FVec2 top_pos = top.cam->EffectiveViewCenter();
@@ -122,7 +122,7 @@ FVec2 FCameraStack::EffectivePosition() const noexcept {
 }
 
 /** 描画に使う実 zoom を返す (blend 中は下層との対数補間)。 */
-f32 FCameraStack::EffectiveZoom() const noexcept {
+f32 CCameraStack::EffectiveZoom() const noexcept {
     if (m_Entries.IsEmpty()) return 1.0f;
     const FCameraEntry& top = m_Entries.Back();
     const f32 top_z = top.cam->Zoom();
@@ -136,7 +136,7 @@ f32 FCameraStack::EffectiveZoom() const noexcept {
 }
 
 /** 描画に使う実 rotation を返す (blend 中は下層との最短角補間)。 */
-f32 FCameraStack::EffectiveRotation() const noexcept {
+f32 CCameraStack::EffectiveRotation() const noexcept {
     if (m_Entries.IsEmpty()) return 0.0f;
     const FCameraEntry& top = m_Entries.Back();
     const f32 top_r = top.cam->Rotation();
@@ -150,11 +150,11 @@ f32 FCameraStack::EffectiveRotation() const noexcept {
 }
 
 /** blend timer を進め、active な 2 層を tick し、pop 完了時に top を除去する。 */
-void FCameraStack::Tick(f32 dt) noexcept {
+void CCameraStack::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     if (m_Entries.IsEmpty()) return;
 
-    // 1) active な 2 層 (top と、blend 中なら下層) だけ FCamera2D::Tick を呼ぶ。
+    // 1) active な 2 層 (top と、blend 中なら下層) だけ CCamera2D::Tick を呼ぶ。
     //    blend 中でなければ top のみ。下層を独自に動かしたい場合は user 側で
     //    個別 Tick できるので、ここでは「描画に絡む層」のみ tick で十分。
     FCameraEntry& top = m_Entries[m_Entries.Size() - 1u];

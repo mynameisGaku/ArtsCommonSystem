@@ -16,13 +16,13 @@
 //   defs[0].color_end         = {1.0f, 0.2f, 0.0f};
 //   const char* names[]       = {"fire", "smoke"};
 //
-//   acs::game::fxedit::FFxeditSerializer::Save(L"data/effects/fireball.fxedit",
+//   acs::game::fxedit::CFxeditSerializer::Save(L"data/effects/fireball.fxedit",
 //                                              defs, names, 2);
 //
 //   // ロード側:
 //   acs::game::FParticleEmitterDef loaded[16] = {};
 //   char                          name_buf[16 * 32] = {};
-//   auto r = acs::game::fxedit::FFxeditSerializer::Load(
+//   auto r = acs::game::fxedit::CFxeditSerializer::Load(
 //       L"data/effects/fireball.fxedit", loaded, name_buf, sizeof(name_buf), 16);
 //   if (r.IsOk()) { u32 n = r.Value(); /* n 個ロード成功 */ }
 //
@@ -145,25 +145,25 @@ struct FFxeditSerializeResult {
  * コピー・ムーブを禁止しておく (誤って実体化されるのを防ぐ)。emitter 群を人間可読 /
  * git diff 可能なテキスト (`ACS_FXEDIT` v1) で書き出し・復元する。
  */
-class FFxeditSerializer {
+class CFxeditSerializer {
 public:
     /** 構築禁止 (state を持たない static ユーティリティのため)。 */
-    FFxeditSerializer()                                   = delete;
+    CFxeditSerializer()                                   = delete;
 
     /** 破棄禁止 (実体化しないため)。 */
-    ~FFxeditSerializer()                                  = delete;
+    ~CFxeditSerializer()                                  = delete;
 
     /** コピー禁止。 */
-    FFxeditSerializer(const FFxeditSerializer&)            = delete;
+    CFxeditSerializer(const CFxeditSerializer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFxeditSerializer& operator=(const FFxeditSerializer&) = delete;
+    CFxeditSerializer& operator=(const CFxeditSerializer&) = delete;
 
     /** ムーブ禁止。 */
-    FFxeditSerializer(FFxeditSerializer&&)                 = delete;
+    CFxeditSerializer(CFxeditSerializer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFxeditSerializer& operator=(FFxeditSerializer&&)      = delete;
+    CFxeditSerializer& operator=(CFxeditSerializer&&)      = delete;
 
     /** 先頭行に必ず付ける magic 文字列。 */
     static constexpr const char* kMagic            = "ACS_FXEDIT";
@@ -362,6 +362,8 @@ public:
      */
     static const char* SkipWhitespace(const char* p) noexcept;
 };
+
+using FFxeditSerializer = CFxeditSerializer;
 
 } // namespace fxedit
 } // namespace acs::game

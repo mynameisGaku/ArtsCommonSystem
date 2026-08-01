@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FEventBus (ワールド内オブジェクト間の疎結合な通信)
+// GameFramework — AEventBus (ワールド内オブジェクト間の疎結合な通信)
 //
 // 「名前付きイベントの pub/sub」を提供する World サブシステム。発火側と購読側が
 // «互いを知らずに» やり取りできる(プレイヤー死亡・スコア加算・ドア開放 等)。
@@ -10,19 +10,20 @@
 //
 // 使い方:
 //   // 購読 (例: コンポーネントの OnAttach で)
-//   auto* bus = GetSubsystem<acs::game::FEventBus>();
-//   m_Sub = bus->Subscribe(acs::game::FEventBus::Id("PlayerDied"),
+//   auto* bus = GetSubsystem<acs::game::AEventBus>();
+//   m_Sub = bus->Subscribe(acs::game::AEventBus::Id("PlayerDied"),
 //       [](void* self, const void* payload) noexcept {
 //           static_cast<MyComp*>(self)->OnPlayerDied();
 //       }, this);
 //   // 発火 (どこからでも)
-//   bus->Publish(acs::game::FEventBus::Id("PlayerDied"));
+//   bus->Publish(acs::game::AEventBus::Id("PlayerDied"));
 //   // 解除 (OnDetach 等で)
 //   bus->Unsubscribe(m_Sub);
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "gameframework/Subsystem.h"
 #include "gameframework/Reflect.h"   // AcsTypeHash (イベント名 → 安定 ID)
 
@@ -31,7 +32,7 @@ namespace acs::game {
 /**
  * 名前付きイベントの pub/sub を行う World サブシステム(オブジェクト間の疎結合通信)。
  */
-class FEventBus : public FSubsystem {
+class AEventBus : public ASubsystem {
 public:
     ACS_GAME_SUBSYSTEM_KIND(FEventBus)
 
@@ -47,7 +48,7 @@ public:
     /**
      * イベント ev を購読する。発火時に fn(listener, payload) が呼ばれる。
      *
-     * @param ev       購読するイベント ID(FEventBus::Id("...") )。
+     * @param ev       購読するイベント ID(AEventBus::Id("...") )。
      * @param fn       ハンドラ(captureless。null は無視)。
      * @param listener ハンドラへ渡すコンテキスト(通常は this)。
      * @return 解除用ハンドル(>=0)。失敗で -1。
@@ -92,10 +93,3 @@ private:
 };
 
 } // namespace acs::game
-
-namespace acs {
-
-/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
-using game::FEventBus;
-
-} // namespace acs

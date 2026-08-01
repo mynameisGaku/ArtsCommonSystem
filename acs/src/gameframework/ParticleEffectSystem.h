@@ -106,7 +106,7 @@ struct FParticle {
  * emitter を指す 24bit index + 8bit gen を packed した opaque handle。
  *
  * @details
- * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。FSceneTimer 等と同一規約。
+ * m_Packed == 0 を invalid と定義 (gen は常に 1 以上で配る)。CSceneTimer 等と同一規約。
  * slot 再利用後の stale 参照は IsValid + 内部の gen 一致で検出する。
  */
 struct FEmitterHandle {
@@ -165,25 +165,25 @@ struct FEmitterHandle {
  * 描画 API は一切呼ばず AllParticles() で生バッファを渡すのみ (描画戦略は user 側)。
  * 乱数は内部 LCG、寿命切れは active flag を落として pool へ返却する。
  */
-class FParticleEffectSystem {
+class CParticleEffectSystem {
 public:
     /** 空状態で構築する (pool は Init で確保)。 */
-    FParticleEffectSystem() noexcept = default;
+    CParticleEffectSystem() noexcept = default;
 
     /** 破棄する (pool は TArray が解放)。 */
-    ~FParticleEffectSystem() noexcept = default;
+    ~CParticleEffectSystem() noexcept = default;
 
     /** コピー禁止 (AllParticles() が内部 buffer の生ポインタを返すため)。 */
-    FParticleEffectSystem(const FParticleEffectSystem&)            = delete;
+    CParticleEffectSystem(const CParticleEffectSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleEffectSystem& operator=(const FParticleEffectSystem&) = delete;
+    CParticleEffectSystem& operator=(const CParticleEffectSystem&) = delete;
 
     /** ムーブ禁止 (実体アドレスが変わると外部参照が破綻するため)。 */
-    FParticleEffectSystem(FParticleEffectSystem&&)                 = delete;
+    CParticleEffectSystem(CParticleEffectSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FParticleEffectSystem& operator=(FParticleEffectSystem&&)      = delete;
+    CParticleEffectSystem& operator=(CParticleEffectSystem&&)      = delete;
 
     /**
      * pool 上限を確定して初期化する。
@@ -362,5 +362,8 @@ private:
     /** LCG の state (golden ratio で初期化)。 */
     u32             m_RngState        = 0x9E3779B9u;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FParticleEffectSystem = CParticleEffectSystem;
 
 } // namespace acs::game

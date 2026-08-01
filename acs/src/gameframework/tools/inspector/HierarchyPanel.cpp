@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — SceneInspector / FHierarchyPanel 実装
+// GameFramework Tools — SceneInspector / AHierarchyPanel 実装
 //
-// 仕様の意図は FHierarchyPanel.h を参照。本ファイルでは:
+// 仕様の意図は AHierarchyPanel.h を参照。本ファイルでは:
 //   ・root_node を起点に ANode ツリーを再帰描画 (ImGui::TreeNodeEx)
-//   ・各ノードクリックで selection 切替 (FSelectionService 経由 or 内部 fallback)
+//   ・各ノードクリックで selection 切替 (CSelectionService 経由 or 内部 fallback)
 //   ・右クリックで context menu (Delete / Duplicate / Reparent target 設定)
 //   ・Drag & Drop で reparent (BeginDragDropSource / BeginDragDropTarget)
 //   ・折りたたみ状態を FNodeId キーで永続化
@@ -46,19 +46,19 @@ static void FormatNodeLabel(char* buf, usize buf_size,
     }
 }
 
-/** 折りたたみマップを空にし selection を解除して初期化する (FSelectionService / callback は維持)。 */
-void FHierarchyPanel::Init() noexcept {
+/** 折りたたみマップを空にし selection を解除して初期化する (CSelectionService / callback は維持)。 */
+void AHierarchyPanel::Init() noexcept {
     m_CollapsedMap.Clear();
     m_SelectedId         = FNodeId{};
     m_SelectedNode       = nullptr;
     m_ReparentTarget     = nullptr;
     m_bCollapseAllPending = false;
-    // FSelectionService は外部所有 (non-owning)、callback は外部 API なので
+    // CSelectionService は外部所有 (non-owning)、callback は外部 API なので
     // Init で触らない (= Set 状態を維持)。
 }
 
 /** 折りたたみマップ・selection・callback を全て解除して後始末する。 */
-void FHierarchyPanel::Shutdown() noexcept {
+void AHierarchyPanel::Shutdown() noexcept {
     m_CollapsedMap.Clear();
     m_SelectedId         = FNodeId{};
     m_SelectedNode       = nullptr;
@@ -70,15 +70,15 @@ void FHierarchyPanel::Shutdown() noexcept {
 }
 
 /**
- * FSelectionService を注入し、内部 selection キャッシュを seam 側の現選択に同期する。
+ * CSelectionService を注入し、内部 selection キャッシュを seam 側の現選択に同期する。
  *
  * @details
  * ANode* は FNodeId から逆引きできないため nullptr に戻し、次の DrawUI 走査で再キャッシュする。
  * @param svc 共有する selection サービス (nullptr で内部 selection モードに戻る)。
  */
-void FHierarchyPanel::SetSelectionService(FSelectionService* svc) noexcept {
+void AHierarchyPanel::SetSelectionService(CSelectionService* svc) noexcept {
     m_SelectionService = svc;
-    // FSelectionService 注入直後、internal cache を seam 側の現選択に同期して
+    // CSelectionService 注入直後、internal cache を seam 側の現選択に同期して
     // おく (= 既に何か選択されていた場合に表示を合わせる)。ANode* は
     // FNodeId からは逆引きできないので nullptr に戻す (= 次の DrawUI 走査で
     // ヒットしたら再キャッシュする)。
@@ -91,10 +91,10 @@ void FHierarchyPanel::SetSelectionService(FSelectionService* svc) noexcept {
 /**
  * 現在の選択ノードの FNodeId を返す。
  *
- * @details FSelectionService 注入時はそちらの CurrentSelection() を、未注入なら内部 m_SelectedId を返す。
+ * @details CSelectionService 注入時はそちらの CurrentSelection() を、未注入なら内部 m_SelectedId を返す。
  * @return 選択中ノードの FNodeId (未選択は無効値)。
  */
-FNodeId FHierarchyPanel::SelectedNodeId() const noexcept {
+FNodeId AHierarchyPanel::SelectedNodeId() const noexcept {
     if (m_SelectionService != nullptr) {
         return m_SelectionService->CurrentSelection();
     }
@@ -104,17 +104,17 @@ FNodeId FHierarchyPanel::SelectedNodeId() const noexcept {
 /**
  * 選択を `node` に切り替える。
  *
- * @details 内部キャッシュ (m_SelectedNode / m_SelectedId) を更新し、FSelectionService 注入時はそちらにも反映する。
+ * @details 内部キャッシュ (m_SelectedNode / m_SelectedId) を更新し、CSelectionService 注入時はそちらにも反映する。
  * @param node 選択するノード (nullptr で選択解除)。
  */
-void FHierarchyPanel::SelectNode(ANode* node) noexcept {
+void AHierarchyPanel::SelectNode(ANode* node) noexcept {
     m_SelectedNode = node;
     if (node != nullptr) {
         m_SelectedId = node->Id();
     } else {
         m_SelectedId = FNodeId{};
     }
-    // FSelectionService がいれば反映 (callback 発火は seam 側責務)。
+    // CSelectionService がいれば反映 (callback 発火は seam 側責務)。
     if (m_SelectionService != nullptr) {
         if (node != nullptr) {
             m_SelectionService->SelectNode(node->Id());
@@ -125,14 +125,14 @@ void FHierarchyPanel::SelectNode(ANode* node) noexcept {
 }
 
 /** 折りたたみマップを空にして全 TreeNode を展開状態にする (default expanded 扱い)。 */
-void FHierarchyPanel::ExpandAll() noexcept {
+void AHierarchyPanel::ExpandAll() noexcept {
     // 折りたたみマップを空にする = 全 FNodeId が "default expanded" 扱い。
     m_CollapsedMap.Clear();
     m_bCollapseAllPending = false;
 }
 
 /** 遅延適用フラグを立て、次回 DrawUI の走査で全 TreeNode を折りたたむ。 */
-void FHierarchyPanel::CollapseAll() noexcept {
+void AHierarchyPanel::CollapseAll() noexcept {
     // DrawUI で各ノード走査時に既存エントリを true に立てる。ここでは
     // 単にフラグを立てるだけ (ノードを 1 つも DrawUI 内で見ていない時点での
     // CollapseAll は意味が無く、DrawUI 内で適用するのが安全)。
@@ -147,9 +147,9 @@ void FHierarchyPanel::CollapseAll() noexcept {
  * 境界で reap される。selection は解除し、reparent target に同ノードが指定されていれば dangling
  * 回避のため clear する。
  */
-void FHierarchyPanel::DeleteSelected() noexcept {
+void AHierarchyPanel::DeleteSelected() noexcept {
     // selection の ANode* は DrawUI 走査中にキャッシュされている前提
-    // (FSelectionService 注入時も同様)。キャッシュが無ければ no-op。
+    // (CSelectionService 注入時も同様)。キャッシュが無ければ no-op。
     ANode* target = m_SelectedNode;
     if (target == nullptr) return;
     target->Destroy();  // フレーム境界で reap される
@@ -171,7 +171,7 @@ void FHierarchyPanel::DeleteSelected() noexcept {
  * @param cb 呼ぶ callback (nullptr で解除)。
  * @param user callback に渡すユーザポインタ。
  */
-void FHierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
+void AHierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
                                                  void* user) noexcept {
     m_RightClickCb   = cb;
     m_RightClickUser = user;
@@ -183,7 +183,7 @@ void FHierarchyPanel::SetOnNodeRightClickCallback(NodeRightClickCallback cb,
  * @param id 調べるノードの FNodeId。
  * @return 折りたたみ済みなら true (エントリ無しは展開扱いで false)。
  */
-bool FHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
+bool AHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
     for (u32 i = 0; i < m_CollapsedMap.Size(); ++i) {
         if (m_CollapsedMap[i].id == id) return m_CollapsedMap[i].collapsed;
     }
@@ -197,7 +197,7 @@ bool FHierarchyPanel::IsCollapsed(FNodeId id) const noexcept {
  * @param id 対象ノードの FNodeId。
  * @param c true で折りたたみ、false で展開。
  */
-void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
+void AHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
     for (u32 i = 0; i < m_CollapsedMap.Size(); ++i) {
         if (m_CollapsedMap[i].id == id) {
             m_CollapsedMap[i].collapsed = c;
@@ -227,7 +227,7 @@ void FHierarchyPanel::SetCollapsed(FNodeId id, bool c) noexcept {
  * @param node 描画する対象ノード。
  * @param depth 再帰の深さ (上限ガードおよび簡易ラベル表示に使う)。
  */
-void FHierarchyPanel::DrawNodeRecursive(ANode& node, u32 depth) noexcept {
+void AHierarchyPanel::DrawNodeRecursive(ANode& node, u32 depth) noexcept {
     // depth 上限ガード (ACS の ANode は構造的に木構造で循環不能だが、防衛策)。
     if (depth >= 64u) {
         ImGui::TextDisabled("(depth limit reached)");
@@ -294,7 +294,7 @@ void FHierarchyPanel::DrawNodeRecursive(ANode& node, u32 depth) noexcept {
     }
 
     // クリックで selection 切替。ItemClicked() は左クリック + 同フレーム検知。
-    // 既選択を再クリックは no-op (FSelectionService 側で重複弾く)。
+    // 既選択を再クリックは no-op (CSelectionService 側で重複弾く)。
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left)
         && !ImGui::IsItemToggledOpen()) {
         SelectNode(&node);
@@ -409,7 +409,7 @@ void FHierarchyPanel::DrawNodeRecursive(ANode& node, u32 depth) noexcept {
  * スクロール可能な子 region として root から DrawNodeRecursive でツリーを描画する。root
  * 未設定時は案内メッセージのみ表示する。末尾で CollapseAll の遅延適用フラグを下ろす。
  */
-void FHierarchyPanel::DrawUI() noexcept {
+void AHierarchyPanel::DrawUI() noexcept {
     // SetRootNode で事前 set された m_RootNode を root に描画。null なら
     // "(no root set)" メッセージ表示。
     if (!ImGui::Begin("Scene Hierarchy")) {

@@ -7,7 +7,13 @@
 #include "app/TimerSubsystem.h"
 #include "subsystem/SubsystemRegistry.h"
 
+#include <cstring>
+#include <type_traits>
+
 using namespace acs;
+
+static_assert(std::is_same_v<FTimerSubsystem, ATimerSubsystem>);
+static_assert(std::is_same_v<FAssetSubsystem, AAssetSubsystem>);
 
 namespace {
 
@@ -20,7 +26,7 @@ void CountTimerFire(void* User) noexcept
 /** 現在有効なfactoryをkindで検索する。 */
 const FSubsystemFactory* FindActiveFactory(const void* Kind) noexcept
 {
-    FSubsystemRegistry& Registry = FSubsystemRegistry::Get();
+    CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
     for (u32 Index = 0u; Index < Registry.Count(); ++Index) {
         if (Registry.At(Index).kind == Kind) return &Registry.At(Index);
     }
@@ -32,7 +38,7 @@ const FSubsystemFactory* FindActiveFactory(const void* Kind) noexcept
 ACS_TEST(ApplicationSubsystem, AdaptersKeepLegacyIdentityAndPhase)
 {
     AcsRegisterApplicationSubsystems();
-    FApplication Application;
+    CApplication Application;
     FTimerManager* const LegacyTimers = &Application.GetTimers();
     FAssetRegistry* const LegacyAssets = &Application.GetAssets();
     EXPECT_TRUE(Application.EngineSubsystems().TryInitialize(
@@ -42,11 +48,17 @@ ACS_TEST(ApplicationSubsystem, AdaptersKeepLegacyIdentityAndPhase)
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&Application, ESubsystemOwnerKind::Application}));
 
-    FTimerSubsystem* const Timer = Application.GetSubsystem<FTimerSubsystem>();
-    FAssetSubsystem* const Asset = Application.GetSubsystem<FAssetSubsystem>();
+    ATimerSubsystem* const Timer = Application.GetSubsystem<ATimerSubsystem>();
+    AAssetSubsystem* const Asset = Application.GetSubsystem<AAssetSubsystem>();
+    FTimerSubsystem* const LegacyTimerAlias = Timer;
+    FAssetSubsystem* const LegacyAssetAlias = Asset;
     EXPECT_TRUE(Timer != nullptr);
     EXPECT_TRUE(Asset != nullptr);
+    EXPECT_TRUE(LegacyTimerAlias == Timer);
+    EXPECT_TRUE(LegacyAssetAlias == Asset);
     if (Timer == nullptr || Asset == nullptr) return;
+    EXPECT_TRUE(std::strcmp(Timer->Name(), "FTimerSubsystem") == 0);
+    EXPECT_TRUE(std::strcmp(Asset->Name(), "FAssetSubsystem") == 0);
     EXPECT_TRUE(Timer->GetTimers() == LegacyTimers);
     EXPECT_TRUE(Asset->GetAssets() == LegacyAssets);
 
@@ -60,7 +72,7 @@ ACS_TEST(ApplicationSubsystem, AdaptersKeepLegacyIdentityAndPhase)
     EXPECT_EQ(FireCount, 1u);
 
     Application.EngineSubsystems().Deinitialize();
-    EXPECT_TRUE(Application.GetSubsystem<FTimerSubsystem>() == nullptr);
+    EXPECT_TRUE(Application.GetSubsystem<ATimerSubsystem>() == nullptr);
     EXPECT_TRUE(&Application.GetTimers() == LegacyTimers);
     EXPECT_TRUE(&Application.GetAssets() == LegacyAssets);
 }
@@ -68,10 +80,11 @@ ACS_TEST(ApplicationSubsystem, AdaptersKeepLegacyIdentityAndPhase)
 ACS_TEST(ApplicationSubsystem, CatalogRejectsShadowMetadataAndRecovers)
 {
     EXPECT_TRUE(AcsRegisterApplicationSubsystems());
-    FSubsystemRegistry& Registry = FSubsystemRegistry::Get();
-    const FSubsystemFactory* const Active = FindActiveFactory(SubsystemKindOf<FTimerSubsystem>());
+    CSubsystemRegistry& Registry = CSubsystemRegistry::Get();
+    const FSubsystemFactory* const Active = FindActiveFactory(SubsystemKindOf<ATimerSubsystem>());
     EXPECT_TRUE(Active != nullptr);
     if (Active == nullptr) return;
+    EXPECT_TRUE(std::strcmp(Active->name, "FTimerSubsystem") == 0);
 
     const FSubsystemFactory Expected = *Active;
     EXPECT_TRUE(Registry.Unregister(Expected));
@@ -80,14 +93,14 @@ ACS_TEST(ApplicationSubsystem, CatalogRejectsShadowMetadataAndRecovers)
     EXPECT_TRUE(Registry.TryRegister(Shadow));
     EXPECT_TRUE(!AcsRegisterApplicationSubsystems());
     const FSubsystemFactory* const ShadowActive =
-        FindActiveFactory(SubsystemKindOf<FTimerSubsystem>());
+        FindActiveFactory(SubsystemKindOf<ATimerSubsystem>());
     EXPECT_TRUE(ShadowActive != nullptr);
     if (ShadowActive != nullptr) EXPECT_EQ(ShadowActive->phase, ESubsystemTickPhase::None);
 
     EXPECT_TRUE(Registry.Unregister(Shadow));
     EXPECT_TRUE(AcsRegisterApplicationSubsystems());
     const FSubsystemFactory* const Restored =
-        FindActiveFactory(SubsystemKindOf<FTimerSubsystem>());
+        FindActiveFactory(SubsystemKindOf<ATimerSubsystem>());
     EXPECT_TRUE(Restored != nullptr);
     if (Restored != nullptr) EXPECT_EQ(Restored->phase, ESubsystemTickPhase::PreUpdate);
 }
@@ -96,32 +109,32 @@ ACS_TEST(ApplicationSubsystem, LegacyEngineOwnersKeepAdaptersInert)
 {
     EXPECT_TRUE(AcsRegisterApplicationSubsystems());
 
-    FSubsystemCollection Inert;
+    CSubsystemCollection Inert;
     Inert.Initialize(ESubsystemScope::Engine);
     EXPECT_TRUE(Inert.IsInitialized());
-    FTimerSubsystem* const InertTimer = Inert.Get<FTimerSubsystem>();
-    FAssetSubsystem* const InertAsset = Inert.Get<FAssetSubsystem>();
+    ATimerSubsystem* const InertTimer = Inert.Get<ATimerSubsystem>();
+    AAssetSubsystem* const InertAsset = Inert.Get<AAssetSubsystem>();
     EXPECT_TRUE(InertTimer != nullptr);
     EXPECT_TRUE(InertAsset != nullptr);
     if (InertTimer != nullptr) EXPECT_TRUE(InertTimer->GetTimers() == nullptr);
     if (InertAsset != nullptr) EXPECT_TRUE(InertAsset->GetAssets() == nullptr);
-    FApplication TypedApplication;
+    CApplication TypedApplication;
     EXPECT_TRUE(!Inert.TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&TypedApplication, ESubsystemOwnerKind::Application}));
 
-    FApplication Application;
-    FSubsystemCollection LegacyOwned;
+    CApplication Application;
+    CSubsystemCollection LegacyOwned;
     LegacyOwned.Initialize(ESubsystemScope::Engine, nullptr, &Application);
     EXPECT_TRUE(LegacyOwned.IsInitialized());
-    FTimerSubsystem* const Timer = LegacyOwned.Get<FTimerSubsystem>();
-    FAssetSubsystem* const Asset = LegacyOwned.Get<FAssetSubsystem>();
+    ATimerSubsystem* const Timer = LegacyOwned.Get<ATimerSubsystem>();
+    AAssetSubsystem* const Asset = LegacyOwned.Get<AAssetSubsystem>();
     EXPECT_TRUE(Timer != nullptr);
     EXPECT_TRUE(Asset != nullptr);
     if (Timer != nullptr) EXPECT_TRUE(Timer->GetTimers() == nullptr);
     if (Asset != nullptr) EXPECT_TRUE(Asset->GetAssets() == nullptr);
 
-    FSubsystemCollection WrongTypedOwner;
+    CSubsystemCollection WrongTypedOwner;
     EXPECT_TRUE(!WrongTypedOwner.TryInitialize(
         ESubsystemScope::Engine, nullptr,
         FSubsystemOwner{&Application, ESubsystemOwnerKind::Game}));
@@ -132,7 +145,7 @@ ACS_TEST(ApplicationSubsystem, InitializedCollectionReinitializeRequiresExactOwn
 {
     int FirstOwner = 0;
     int SecondOwner = 0;
-    FSubsystemCollection Collection;
+    CSubsystemCollection Collection;
     const FSubsystemOwner Owner{&FirstOwner, ESubsystemOwnerKind::Game};
     EXPECT_TRUE(Collection.TryInitialize(ESubsystemScope::GameInstance, nullptr, Owner));
     const usize InitialCount = Collection.Count();

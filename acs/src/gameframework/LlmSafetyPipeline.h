@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar U — FLlmSafetyPipeline (LLM 入出力安全パイプ)
+// GameFramework Pillar U — CLlmSafetyPipeline (LLM 入出力安全パイプ)
 //
 // 役割:
 //   LLM NPC のセリフ生成経路 (= 決定論ゾーンの外側) に対して、入力検証 /
@@ -14,7 +14,7 @@
 //
 // 設計判断:
 //   ・**bit flag で個別 on/off**: シーン (チュートリアル / 児童向け / 大人向け) ごとに
-//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/FSceneServices と
+//     PII redaction だけ無効化したい等の要望に応えるため、ESvc/CSceneServices と
 //     同じ「mask で機能宣言」スタイルに揃える。
 //   ・**決定論的ルールベース実装**: jailbreak / refusal は keyword 一致、PII は
 //     手書き char スキャナ (`<regex>` 不使用) で実装。常に同じ入力に同じ判定を
@@ -25,7 +25,7 @@
 //     は呼び出しごとに内部の static thread_local バッファを指す。次回呼び出しで
 //     上書きされるため、呼び出し側は **使い終わるまでに必ずコピー or 消費** すること。
 //   ・**決定論ゾーン外宣言**: LLM 推論自体が非決定論なので、本パイプラインも
-//     `FGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
+//     `CGame::Tick()` 固定ステップ内で呼ばないこと (= UI スレッド / セリフ表示
 //     コールバックから呼ぶ前提)。IMlRuntime と同じ契約。
 //
 // 範囲外 (ML 分類器の差し込み口として残す seam):
@@ -165,25 +165,25 @@ struct FSafetyResult {
  * 典型使用は Init → SetTokenBudget → SetCharacterAnchor のあと、ValidateInput で
  * ユーザー入力を検証し、LLM 生成結果を FilterOutput で検証 / フィルタする。
  */
-class FLlmSafetyPipeline {
+class CLlmSafetyPipeline {
 public:
     /** 既定値で構築する (rules=Default、未初期化状態)。 */
-    FLlmSafetyPipeline() noexcept = default;
+    CLlmSafetyPipeline() noexcept = default;
 
     /** 破棄する。 */
-    ~FLlmSafetyPipeline() noexcept = default;
+    ~CLlmSafetyPipeline() noexcept = default;
 
     /** コピー禁止 (state を 1 箇所にとどめるため)。 */
-    FLlmSafetyPipeline(const FLlmSafetyPipeline&)            = delete;
+    CLlmSafetyPipeline(const CLlmSafetyPipeline&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLlmSafetyPipeline& operator=(const FLlmSafetyPipeline&) = delete;
+    CLlmSafetyPipeline& operator=(const CLlmSafetyPipeline&) = delete;
 
     /** ムーブ禁止。 */
-    FLlmSafetyPipeline(FLlmSafetyPipeline&&)                 = delete;
+    CLlmSafetyPipeline(CLlmSafetyPipeline&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLlmSafetyPipeline& operator=(FLlmSafetyPipeline&&)      = delete;
+    CLlmSafetyPipeline& operator=(CLlmSafetyPipeline&&)      = delete;
 
     /**
      * パイプラインを初期化する。
@@ -295,5 +295,8 @@ private:
     /** Init 済みフラグ。 */
     bool        m_Initialized         = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLlmSafetyPipeline = CLlmSafetyPipeline;
 
 } // namespace acs::game

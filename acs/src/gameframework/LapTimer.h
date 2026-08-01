@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar (ジャンルキット: Racing) — FLapTimer
+// GameFramework Pillar (ジャンルキット: Racing) — CLapTimer
 //
 // 複数 racer のラップ時間計測 + 順位算出を一元管理する高レベル API。
 // チェックポイント順序検証、ベストラップ更新、フィニッシュ判定 (= total_laps
@@ -8,7 +8,7 @@
 // `GetStats` / `PositionOf` / `GetLeader` を読むだけで成立する。
 //
 // 使い方:
-//   FLapTimer lt;
+//   CLapTimer lt;
 //   lt.Init(/*total_laps=*/3, /*checkpoints_per_lap=*/4);
 //   FRacerId player = lt.AddRacer("Player");
 //   FRacerId rival  = lt.AddRacer("Rival");
@@ -34,7 +34,7 @@
 //   const auto* s = lt.GetStats(player);
 //
 // 設計選択:
-//   ・**FRacerId は 24bit idx + 8bit gen の packed u32**: FHealthSystem / ANode
+//   ・**FRacerId は 24bit idx + 8bit gen の packed u32**: CHealthSystem / ANode
 //     と同パターン。AddRacer → RemoveRacer → AddRacer で slot 再利用しても
 //     古い handle は generation 不一致で弾かれる。0 は invalid 予約 (index 0
 //     dummy slot)。
@@ -64,7 +64,7 @@
 //   ・周回別 split (各 checkpoint 通過時刻の累積差分) — 現状は 1 lap 単位の time
 //     だけ記録する。UI 上で詳細 split を出したくなったら `FLapRecord` に
 //     TArray<f32> sector_times を追加する。
-//   ・rubberband AI / handicap — FDynamicDifficulty 側で別途。
+//   ・rubberband AI / handicap — CDynamicDifficulty 側で別途。
 //   ・順位変動の onPositionChanged callback — UI 側で前フレームを保持して
 //     差分検出する方が柔軟と判断 (Manager 内蔵しない)。
 #pragma once
@@ -215,25 +215,25 @@ using FinishCallback = void(*)(void* user, FRacerId id, f32 final_time, u32 fina
  * PositionOf / GetLeader を読むだけで成立する。順位は要求時に全 active racer を
  * 線形比較して算出する。全 noexcept、非コピー・非ムーブ。
  */
-class FLapTimer {
+class CLapTimer {
 public:
     /** 空の状態で構築する (total_laps=1, checkpoints_per_lap=1, Stopped)。 */
-    FLapTimer()  noexcept = default;
+    CLapTimer()  noexcept = default;
 
     /** 破棄する。 */
-    ~FLapTimer() noexcept = default;
+    ~CLapTimer() noexcept = default;
 
     /** コピー禁止 (race state を 1 箇所にとどめるため)。 */
-    FLapTimer(const FLapTimer&)            = delete;
+    CLapTimer(const CLapTimer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLapTimer& operator=(const FLapTimer&) = delete;
+    CLapTimer& operator=(const CLapTimer&) = delete;
 
     /** ムーブ禁止。 */
-    FLapTimer(FLapTimer&&)                 = delete;
+    CLapTimer(CLapTimer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLapTimer& operator=(FLapTimer&&)      = delete;
+    CLapTimer& operator=(CLapTimer&&)      = delete;
 
     /**
      * レース定義を設定し、racer 一覧は維持したまま race state を Stopped に戻す。
@@ -494,5 +494,8 @@ private:
     /** レース完了 callback に渡す user ポインタ。 */
     void*          m_OnFinishUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLapTimer = CLapTimer;
 
 } // namespace acs::game

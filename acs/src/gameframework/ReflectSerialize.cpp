@@ -184,7 +184,7 @@ u32 SerializeReflected(const FTypeDesc* d, const void* obj, u8* buf, u32 cap) no
 u32 SerializeByName(const char* type_name, const void* obj, u8* buf, u32 cap) noexcept {
     if (type_name == nullptr) return 0u;
     AcsRegisterEngineTypes();
-    const FTypeDesc* d = FTypeRegistry::Get().FindByName(type_name);
+    const FTypeDesc* d = CTypeRegistry::Get().FindByName(type_name);
     return SerializeReflected(d, obj, buf, cap);
 }
 
@@ -281,7 +281,7 @@ void* CreateFromBytes(const u8* data, u32 size, FTypeId* out_type_id) noexcept {
     std::memcpy(&tid,   data + 4u, 4u);
 
     AcsRegisterEngineTypes();
-    FTypeRegistry& reg = FTypeRegistry::Get();
+    CTypeRegistry& reg = CTypeRegistry::Get();
     const FTypeDesc* d = reg.FindById(tid);
     if (d == nullptr) return nullptr;
     void* obj = reg.CreateById(tid);

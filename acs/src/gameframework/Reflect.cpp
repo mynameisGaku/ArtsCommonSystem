@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework — FTypeRegistry 実装 (統一リフレクション / 型レジストリ)
+// GameFramework — CTypeRegistry 実装 (統一リフレクション / 型レジストリ)
 // -----------------------------------------------------------------------------
-// Reflect.h で宣言した FTypeRegistry の本体。固定長 (kMax) 配列に FTypeDesc*
+// Reflect.h で宣言した CTypeRegistry の本体。固定長 (kMax) 配列に FTypeDesc*
 // (静的寿命・非所有) を貯め、名前 / ID / カテゴリで横断検索し、ファクトリで生成する。
-// 全 ACS_REFLECT* 型は静的初期化時に FTypeAutoRegister 経由でここへ登録される。
+// 全 ACS_REFLECT* 型は静的初期化時に CTypeAutoRegister 経由でここへ登録される。
 //
 // 規約: no-STL container / no-exceptions / 全 noexcept。同 ID は列挙上 1 件のまま登録元を追跡する。
 // =============================================================================
@@ -12,14 +12,14 @@
 
 namespace acs::game {
 
-FTypeRegistry& FTypeRegistry::Get() noexcept {
+CTypeRegistry& CTypeRegistry::Get() noexcept {
     // Meyers singleton: 最初の Get() で 1 度だけ構築。静的初期化順序問題を避けるため、
-    // 自動登録 (FTypeAutoRegister) からの Register も必ずこの関数経由で実体を得る。
-    static FTypeRegistry s_Instance;
+    // 自動登録 (CTypeAutoRegister) からの Register も必ずこの関数経由で実体を得る。
+    static CTypeRegistry s_Instance;
     return s_Instance;
 }
 
-bool FTypeRegistry::Register(const FTypeDesc* d) noexcept {
+bool CTypeRegistry::Register(const FTypeDesc* d) noexcept {
     if (d == nullptr) return false;
 
     // 同じ ID の記述子は列挙上 1 型のまま、登録元だけを固定長で保持する。
@@ -43,7 +43,7 @@ bool FTypeRegistry::Register(const FTypeDesc* d) noexcept {
     return true;
 }
 
-bool FTypeRegistry::Unregister(const FTypeDesc* descriptor) noexcept
+bool CTypeRegistry::Unregister(const FTypeDesc* descriptor) noexcept
 {
     if (descriptor == nullptr) return false;
 
@@ -88,7 +88,7 @@ bool FTypeRegistry::Unregister(const FTypeDesc* descriptor) noexcept
     return false;
 }
 
-const FTypeDesc* FTypeRegistry::FindByName(const char* name) const noexcept {
+const FTypeDesc* CTypeRegistry::FindByName(const char* name) const noexcept {
     if (name == nullptr) return nullptr;
     for (u32 i = 0; i < m_Count; ++i) {
         if (m_Types[i]->name != nullptr && std::strcmp(m_Types[i]->name, name) == 0)
@@ -97,14 +97,14 @@ const FTypeDesc* FTypeRegistry::FindByName(const char* name) const noexcept {
     return nullptr;
 }
 
-const FTypeDesc* FTypeRegistry::FindById(FTypeId id) const noexcept {
+const FTypeDesc* CTypeRegistry::FindById(FTypeId id) const noexcept {
     for (u32 i = 0; i < m_Count; ++i) {
         if (m_Types[i]->id == id) return m_Types[i];
     }
     return nullptr;
 }
 
-u32 FTypeRegistry::CountOfCategory(ETypeCategory cat) const noexcept {
+u32 CTypeRegistry::CountOfCategory(ETypeCategory cat) const noexcept {
     u32 n = 0;
     for (u32 i = 0; i < m_Count; ++i) {
         if (m_Types[i]->category == cat) ++n;
@@ -112,7 +112,7 @@ u32 FTypeRegistry::CountOfCategory(ETypeCategory cat) const noexcept {
     return n;
 }
 
-const FTypeDesc* FTypeRegistry::AtOfCategory(ETypeCategory cat, u32 nth) const noexcept {
+const FTypeDesc* CTypeRegistry::AtOfCategory(ETypeCategory cat, u32 nth) const noexcept {
     u32 seen = 0;
     for (u32 i = 0; i < m_Count; ++i) {
         if (m_Types[i]->category != cat) continue;
@@ -122,19 +122,19 @@ const FTypeDesc* FTypeRegistry::AtOfCategory(ETypeCategory cat, u32 nth) const n
     return nullptr;
 }
 
-void* FTypeRegistry::Create(const char* name) const noexcept {
+void* CTypeRegistry::Create(const char* name) const noexcept {
     const FTypeDesc* d = FindByName(name);
     if (d == nullptr || d->construct == nullptr) return nullptr;
     return d->construct();
 }
 
-void* FTypeRegistry::CreateById(FTypeId id) const noexcept {
+void* CTypeRegistry::CreateById(FTypeId id) const noexcept {
     const FTypeDesc* d = FindById(id);
     if (d == nullptr || d->construct == nullptr) return nullptr;
     return d->construct();
 }
 
-void FTypeRegistry::Destroy(FTypeId id, void* obj) const noexcept {
+void CTypeRegistry::Destroy(FTypeId id, void* obj) const noexcept {
     if (obj == nullptr) return;
     const FTypeDesc* d = FindById(id);
     if (d != nullptr && d->destruct != nullptr) d->destruct(obj);

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FPartySystem 実装
+// GameFramework Pillar T — CPartySystem 実装
 //
 // state machine + メンバ/フレンドリスト管理は完全実装。実 SDK 呼び出し
 // (FSteamworksBridge / EOS / PSN / Xbox / NSO) は seam として未接続で、Joining /
-// Leaving は Tick で仮想完了する。これにより呼び出し側 (FGame / Scene) は本 system を
+// Leaving は Tick で仮想完了する。これにより呼び出し側 (CGame / Scene) は本 system を
 // 通常通り使い始めることができ、bridge を差し替えるだけで実プラットフォーム動作する設計。
 //
 // 設計メモ:
@@ -43,7 +43,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 
 } // namespace
 
-void FPartySystem::EmplaceSelfAsLeader() noexcept {
+void CPartySystem::EmplaceSelfAsLeader() noexcept {
     // 実装時は FSteamworksBridge::GetLocalPlayerId() / GetLocalDisplayName()
     // から取得して入れ替える。現状は固定文字列リテラル (寿命無限) を使用。
     FPartyMember self{};
@@ -54,7 +54,7 @@ void FPartySystem::EmplaceSelfAsLeader() noexcept {
     m_Members.PushBack(self);
 }
 
-TResult<void> FPartySystem::CreateParty(const char* party_name) noexcept {
+TResult<void> CPartySystem::CreateParty(const char* party_name) noexcept {
     if (_state != EPartyState::Solo) {
         // 既にパーティ所属中 / 状態遷移中での再要求は許可しない。先に LeaveParty を
         // 完了させること。Generic + subcode 1 = "invalid state for CreateParty"。
@@ -73,7 +73,7 @@ TResult<void> FPartySystem::CreateParty(const char* party_name) noexcept {
     return Ok();
 }
 
-TResult<void> FPartySystem::JoinParty(const char* party_id) noexcept {
+TResult<void> CPartySystem::JoinParty(const char* party_id) noexcept {
     if (_state != EPartyState::Solo) {
         return ACS_ERR(Generic, 3, "FPartySystem::JoinParty: not in Solo state");
     }
@@ -88,7 +88,7 @@ TResult<void> FPartySystem::JoinParty(const char* party_id) noexcept {
     return Ok();
 }
 
-TResult<void> FPartySystem::LeaveParty() noexcept {
+TResult<void> CPartySystem::LeaveParty() noexcept {
     if (_state != EPartyState::InParty) {
         // Joining / Leaving / Solo からの離脱は no-op ではなくエラーで返す
         // (上位レイヤで状態整合を取れていない時に気付けるように)。
@@ -100,7 +100,7 @@ TResult<void> FPartySystem::LeaveParty() noexcept {
     return Ok();
 }
 
-TResult<void> FPartySystem::InviteFriend(const char* friend_id) noexcept {
+TResult<void> CPartySystem::InviteFriend(const char* friend_id) noexcept {
     if (_state != EPartyState::InParty) {
         return ACS_ERR(Generic, 6, "FPartySystem::InviteFriend: not in InParty state");
     }
@@ -118,15 +118,15 @@ TResult<void> FPartySystem::InviteFriend(const char* friend_id) noexcept {
     return Ok();
 }
 
-u32 FPartySystem::MemberCount() const noexcept {
+u32 CPartySystem::MemberCount() const noexcept {
     return static_cast<u32>(m_Members.Size());
 }
 
-const FPartyMember* FPartySystem::Members() const noexcept {
+const FPartyMember* CPartySystem::Members() const noexcept {
     return m_Members.Data();
 }
 
-u32 FPartySystem::FindMember(const char* player_id) const noexcept {
+u32 CPartySystem::FindMember(const char* player_id) const noexcept {
     if (player_id == nullptr) return kInvalidIndex;
     const usize n = m_Members.Size();
     for (usize i = 0; i < n; ++i) {
@@ -137,18 +137,18 @@ u32 FPartySystem::FindMember(const char* player_id) const noexcept {
     return kInvalidIndex;
 }
 
-bool FPartySystem::HasMember(const char* player_id) const noexcept {
+bool CPartySystem::HasMember(const char* player_id) const noexcept {
     return FindMember(player_id) != kInvalidIndex;
 }
 
-const FPartyMember* FPartySystem::GetMember(u32 index) const noexcept {
+const FPartyMember* CPartySystem::GetMember(u32 index) const noexcept {
     // kInvalidIndex を含む範囲外は安全に nullptr (FindMember の戻り値を
     // チェック無しで渡しても落ちないように)。
     if (static_cast<usize>(index) >= m_Members.Size()) return nullptr;
     return &m_Members[index];
 }
 
-TResult<void> FPartySystem::AddMember(const FPartyMember& member) noexcept {
+TResult<void> CPartySystem::AddMember(const FPartyMember& member) noexcept {
     if (member.player_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で roster を壊さない。Generic+8。
         return ACS_ERR(Generic, 8, "FPartySystem::AddMember: player_id is null");
@@ -162,7 +162,7 @@ TResult<void> FPartySystem::AddMember(const FPartyMember& member) noexcept {
     return Ok();
 }
 
-bool FPartySystem::RemoveMember(const char* player_id) noexcept {
+bool CPartySystem::RemoveMember(const char* player_id) noexcept {
     const u32 idx = FindMember(player_id);
     if (idx == kInvalidIndex) {
         // nullptr / 不在は no-op。呼び出し側でリトライ判定しやすいよう false。
@@ -178,7 +178,7 @@ bool FPartySystem::RemoveMember(const char* player_id) noexcept {
     return true;
 }
 
-void FPartySystem::Tick(f32 dt) noexcept {
+void CPartySystem::Tick(f32 dt) noexcept {
     // Solo / InParty では時間進行は不要 (将来 idle 検出を入れる場合はここを拡張)。
     if (_state == EPartyState::Joining) {
         m_PendingTimer += dt;
@@ -206,7 +206,7 @@ void FPartySystem::Tick(f32 dt) noexcept {
     }
 }
 
-void FPartySystem::AddFriend(const FFriend& f) noexcept {
+void CPartySystem::AddFriend(const FFriend& f) noexcept {
     if (f.platform_id == nullptr) {
         // SDK 取得失敗時の nullptr 流入で list を壊さない (Pillar O と同じ防御)。
         return;
@@ -216,13 +216,13 @@ void FPartySystem::AddFriend(const FFriend& f) noexcept {
     m_Friends.PushBack(f);
 }
 
-u32 FPartySystem::FriendCount() const noexcept {
+u32 CPartySystem::FriendCount() const noexcept {
     // Pillar O FEntitlement と同じく u32 範囲で十分 (現実的に friend list は
     // SDK 制限内: 大規模 SNS の Steam で 2000、PSN で 2000、Xbox で 1000 等)。
     return static_cast<u32>(m_Friends.Size());
 }
 
-const FFriend* FPartySystem::Friends() const noexcept {
+const FFriend* CPartySystem::Friends() const noexcept {
     return m_Friends.Data();
 }
 

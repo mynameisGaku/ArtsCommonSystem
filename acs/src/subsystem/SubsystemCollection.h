@@ -13,16 +13,16 @@
 namespace acs {
 
 /** 1 owner スコープのサブシステムを決定順序で所有・更新する。 */
-class FSubsystemCollection {
+class CSubsystemCollection {
 public:
     /** 未初期化の空コレクションを構築する。 */
-    FSubsystemCollection() noexcept = default;
+    CSubsystemCollection() noexcept = default;
 
     /** 初期化済み要素を逆順に終了して破棄する。 */
-    ~FSubsystemCollection() noexcept;
+    ~CSubsystemCollection() noexcept;
 
-    FSubsystemCollection(const FSubsystemCollection&) = delete;
-    FSubsystemCollection& operator=(const FSubsystemCollection&) = delete;
+    CSubsystemCollection(const CSubsystemCollection&) = delete;
+    CSubsystemCollection& operator=(const CSubsystemCollection&) = delete;
 
     /**
      * 登録 snapshot から対象スコープを全生成し、owner 検証後に初期化する。
@@ -33,17 +33,17 @@ public:
      */
     bool TryInitialize(
         ESubsystemScope scope,
-        FSubsystemCollection* parent = nullptr,
+        CSubsystemCollection* parent = nullptr,
         FSubsystemOwner owner = {}) noexcept;
 
     /** 種別を持たない旧 owner ポインタで初期化を試みる互換 API。 */
     bool TryInitialize(
-        ESubsystemScope scope, FSubsystemCollection* parent, void* owner) noexcept;
+        ESubsystemScope scope, CSubsystemCollection* parent, void* owner) noexcept;
 
     /** 失敗結果を破棄する旧初期化 API。 */
     void Initialize(
         ESubsystemScope scope,
-        FSubsystemCollection* parent = nullptr,
+        CSubsystemCollection* parent = nullptr,
         void* owner = nullptr) noexcept;
 
     /** 初期化済み要素を逆順に終了する。callback 中の要求は callback 後へ延期する。 */
@@ -59,7 +59,7 @@ public:
     void Tick(f32 delta_seconds) noexcept;
 
     /** 自スコープの可視要素、続いて parent から種別 ID を検索する。 */
-    FSubsystem* GetByKind(const void* kind) const noexcept;
+    ASubsystem* GetByKind(const void* kind) const noexcept;
 
     /** 自スコープから parent の順に派生型を検索する。 */
     template<typename T>
@@ -106,7 +106,7 @@ private:
     /** 所有実体と更新順序をまとめる内部要素。 */
     struct FEntry {
         /** サブシステム実体。 */
-        TUniquePtr<FSubsystem> instance{};
+        TUniquePtr<ASubsystem> instance{};
         /** factory生成時に一度だけ照合した種別。 */
         const void* kind = nullptr;
         /** 自動更新する段階。 */
@@ -123,15 +123,15 @@ private:
 
     /** parent が自分または循環済み chain を含むか判定する。 */
     bool HasInvalidParent(
-        ESubsystemScope scope, const FSubsystemCollection* parent) const noexcept;
+        ESubsystemScope scope, const CSubsystemCollection* parent) const noexcept;
 
     /** commit済みchainがcallback中を含め論理的に有効か判定する。 */
     bool HasInvalidCommittedParent(
-        ESubsystemScope scope, const FSubsystemCollection* parent) const noexcept;
+        ESubsystemScope scope, const CSubsystemCollection* parent) const noexcept;
 
     /** parentのscope、Active状態、lifecycle世代が開始時点と一致するか判定する。 */
     bool ParentMatches(
-        ESubsystemScope scope, const FSubsystemCollection* parent,
+        ESubsystemScope scope, const CSubsystemCollection* parent,
         u64 lifecycle_generation) const noexcept;
 
     /** commit済みparentが同じActive lifecycleを保つか判定する。 */
@@ -149,7 +149,7 @@ private:
     /** 所有するサブシステムと決定順序。 */
     TArray<FEntry> m_Subsystems;
     /** 上位スコープの非所有コレクション。 */
-    FSubsystemCollection* m_Parent = nullptr;
+    CSubsystemCollection* m_Parent = nullptr;
     /** callback から安全に参照できる先頭要素数。 */
     u32 m_VisibleCount = 0u;
     /** このコレクションの owner 寿命スコープ。 */
@@ -166,7 +166,10 @@ private:
     u64 m_ParentGeneration = 0u;
 };
 
-static_assert(sizeof(FSubsystemCollection) == 80u);
-static_assert(alignof(FSubsystemCollection) == 8u);
+/** 旧公開名を正規サブシステム集合型へ接続する互換別名。 */
+using FSubsystemCollection = CSubsystemCollection;
+
+static_assert(sizeof(CSubsystemCollection) == 80u);
+static_assert(alignof(CSubsystemCollection) == 8u);
 
 } // namespace acs

@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCombatStateMachine (戦闘フェーズ + 脅威レベル)
+// GameFramework Pillar R — CCombatStateMachine (戦闘フェーズ + 脅威レベル)
 //
 // シーン全体の "combat phase" を 6 状態の有限オートマトンで追跡し、敵検出 /
 // 戦闘開始 / 終了 / ボス出現 / ボス撃破 / リトリート / 勝利の主要遷移を一元化
-// する。FMusicDirector / FAmbientDirector / FDamageFeedback と同列の上位ディレクタ
-// で、FGame または FSceneServices が 1 個保持して毎フレーム Tick する想定。
+// する。CMusicDirector / CAmbientDirector / CDamageFeedback と同列の上位ディレクタ
+// で、CGame または CSceneServices が 1 個保持して毎フレーム Tick する想定。
 //
-// FMusicDirector との関係:
-//   ・FMusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
-//     を保持する。FCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
+// CMusicDirector との関係:
+//   ・CMusicDirector は「BGM 状態 (Silent/Calm/Tension/Combat/Victory/GameOver)」
+//     を保持する。CCombatStateMachine の状態は厳密に 1:1 ではなく、ゲームロジック
 //     視点 (Peaceful / Alert / Engaged / BossFight / Victory / Retreat) で
 //     抽象化されている。
-//   ・上位 (FGame / FScene) が「ECombatState → EMusicState」マッピングを定義し、
-//     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
+//   ・上位 (CGame / AScene) が「ECombatState → EMusicState」マッピングを定義し、
+//     OnStateChange callback の中で CMusicDirector::SetState を呼ぶ運用を想定。
 //     本クラスは CAudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
@@ -45,7 +45,7 @@
 //     is_engaged の上書きで idempotent。
 //   ・**Retreat への自動遷移は持たない**: Engaged → Retreat は明示的に
 //     NotifyCombatEnded(victory=false) でのみ起きる。タイマーや距離ベースの
-//     自動撤退判定は AI や FScene 側のロジックに委譲。
+//     自動撤退判定は AI や AScene 側のロジックに委譲。
 //   ・**callback は呼び出し中の Notify は受け付ける**: 再入安全 (state 更新を
 //     先に行ってから callback を呼ぶ実装)。callback 内で別 Notify* を呼ぶと
 //     state が連鎖更新される — これは仕様上許容 (デバウンスは caller 側で)。
@@ -90,7 +90,7 @@ enum class ECombatState : u8 {
 };
 
 /**
- * 1 敵分の認識情報 (FCombatStateMachine が内部 TArray で保持)。
+ * 1 敵分の認識情報 (CCombatStateMachine が内部 TArray で保持)。
  */
 struct FEnemyAwareness {
     /** ゲーム側で割り振る一意 ID (FNodeId などをそのまま渡せる)。 */
@@ -125,7 +125,7 @@ using StateChangeCallback = void(*)(void* user, ECombatState from, ECombatState 
  * を FEnemyAwareness の TArray で並列追跡し、OnStateChange callback で外部ディレクタ
  * (Music / Ambient / UI) と疎結合に連動する (本クラスは下位リソースを直接知らない)。
  */
-class FCombatStateMachine {
+class CCombatStateMachine {
 public:
     /** ECombatState の総数 (debug / table sizing 用に公開)。 */
     static constexpr u32 kStateCount = 6;
@@ -134,27 +134,27 @@ public:
     static constexpr u32 kEnemyReserveHint = 16;
 
     /** Peaceful 状態で構築し、敵配列を reserve する。 */
-    FCombatStateMachine() noexcept;
+    CCombatStateMachine() noexcept;
 
     /** 破棄する。 */
-    ~FCombatStateMachine() noexcept = default;
+    ~CCombatStateMachine() noexcept = default;
 
     /** コピー禁止。 */
-    FCombatStateMachine(const FCombatStateMachine&)            = delete;
+    CCombatStateMachine(const CCombatStateMachine&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCombatStateMachine& operator=(const FCombatStateMachine&) = delete;
+    CCombatStateMachine& operator=(const CCombatStateMachine&) = delete;
 
     /** ムーブ禁止。 */
-    FCombatStateMachine(FCombatStateMachine&&)                 = delete;
+    CCombatStateMachine(CCombatStateMachine&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCombatStateMachine& operator=(FCombatStateMachine&&)      = delete;
+    CCombatStateMachine& operator=(CCombatStateMachine&&)      = delete;
 
     /**
      * state を Peaceful に、awareness を全クリアして再初期化する (callback は保持)。
      *
-     * @details コンストラクタ後の再初期化用 (FScene 再 enter 時など)。
+     * @details コンストラクタ後の再初期化用 (AScene 再 enter 時など)。
      */
     void Init() noexcept;
 
@@ -250,7 +250,7 @@ public:
      *
      * @details
      * ThreatLevel を m_ThreatTarget へ指数減衰で追従させる。Engaged 中は時間ドリフト
-     * (最大 +0.3) を target に加算する。FSceneServices / FGame から毎フレーム呼ぶ。
+     * (最大 +0.3) を target に加算する。CSceneServices / CGame から毎フレーム呼ぶ。
      * @param dt このフレームの実経過秒 (負値は 0 にクランプ)。
      */
     void Tick(f32 dt) noexcept;
@@ -323,5 +323,8 @@ private:
     /** callback に引き回すユーザコンテキスト。 */
     void*               m_CallbackUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCombatStateMachine = CCombatStateMachine;
 
 } // namespace acs::game

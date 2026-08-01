@@ -15,8 +15,8 @@
 //     `ActiveKind()` を見て低解像度描画 → 拡大の path に切り替える。
 //
 // 決定論ゾーン違反検出 (将来):
-//   Phase U-2 で、`FGame::Tick()` の固定タイムステップ内で `RunInference` が
-//   呼ばれたら debug build で assert する仕掛けを `FGame.cpp` 側に入れる予定。
+//   Phase U-2 で、`CGame::Tick()` の固定タイムステップ内で `RunInference` が
+//   呼ばれたら debug build で assert する仕掛けを `CGame.cpp` 側に入れる予定。
 //   本 stub では何も検出しないが、コメントとして契約を明示しておく。
 #include "gameframework/MlRuntime.h"
 #include "threading/Atomic.h"
@@ -25,27 +25,27 @@ namespace acs::game {
 
 // NotImplemented 専用カテゴリは無いため、TSaveSlot.h と同じ「Generic + subcode 99」の
 // 規約で ACS_ERR を返す (message は静的文字列リテラル)。
-TResult<void> FMlRuntimeStub::Init() noexcept {
+TResult<void> CMlRuntimeStub::Init() noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::Init: ML backend not integrated (Phase U-1 stub)");
 }
 
-void FMlRuntimeStub::Shutdown() noexcept {
+void CMlRuntimeStub::Shutdown() noexcept {
     // 何も保持していないので no-op。Init が常に失敗する以上、ここに来ても
     // 解放対象は存在しない。
 }
 
-TResult<FMlModelHandle> FMlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
+TResult<FMlModelHandle> CMlRuntimeStub::LoadModel(const char* /*model_path*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::LoadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-TResult<void> FMlRuntimeStub::UnloadModel(FMlModelHandle /*h*/) noexcept {
+TResult<void> CMlRuntimeStub::UnloadModel(FMlModelHandle /*h*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
                    "MlRuntimeStub::UnloadModel: ML backend not integrated (Phase U-1 stub)");
 }
 
-TResult<void> FMlRuntimeStub::RunInference(FMlModelHandle /*h*/,
+TResult<void> CMlRuntimeStub::RunInference(FMlModelHandle /*h*/,
                                          const f32* /*inputs*/,  u32 /*in_count*/,
                                          f32*       /*outputs*/, u32 /*out_count*/) noexcept {
     return ACS_ERR(Generic, ml_err::kSub_NotImplemented,
@@ -54,7 +54,7 @@ TResult<void> FMlRuntimeStub::RunInference(FMlModelHandle /*h*/,
 
 // Off への Init は「無効化を選んだ」状態として成功扱い。それ以外
 // (FSR / DLSS / XeSS / Custom) は SDK 未統合なので NotImplemented。
-TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
+TResult<void> CUpscalerStub::Init(EUpscalerKind k) noexcept {
     if (k == EUpscalerKind::Off) {
         m_Kind = EUpscalerKind::Off;
         return Ok();
@@ -71,18 +71,18 @@ TResult<void> FUpscalerStub::Init(EUpscalerKind k) noexcept {
  * @return process lifetime の MlRuntimeStub への参照。
  */
 IMlRuntime& GetMlRuntimeStub() noexcept {
-    static FMlRuntimeStub instance;
+    static CMlRuntimeStub instance;
     return instance;
 }
 
 /**
- * 共有 FUpscalerStub への参照を返す (関数内 static の Meyers singleton)。
+ * 共有 CUpscalerStub への参照を返す (関数内 static の Meyers singleton)。
  *
  * @details C++11 以降の magic statics で初期化は thread-safe だが、stub 自身の状態 (m_Kind) への同時アクセスは呼び出し側責務。
- * @return process lifetime の FUpscalerStub への参照。
+ * @return process lifetime の CUpscalerStub への参照。
  */
 IUpscaler& GetUpscalerStub() noexcept {
-    static FUpscalerStub instance;
+    static CUpscalerStub instance;
     return instance;
 }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar J — FPrefabSystem
+// GameFramework Pillar J — CPrefabSystem
 //
 // 名前付きの ANode ツリーテンプレート (= 「Prefab」) を関数ポインタファクトリ
 // として登録し、ID または名前から `acs::TObjectPtr<ANode>` を spawn する軽量
@@ -15,10 +15,10 @@
 //   }
 //
 //   // 2) 登録
-//   FPrefabSystem prefabs;
+//   CPrefabSystem prefabs;
 //   FPrefabId enemy_id = prefabs.Register("Enemy", &SpawnEnemy);
 //
-//   // 3) spawn (FScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
+//   // 3) spawn (AScene 側からは ID 経由 / Mod 側からは名前経由 が想定)
 //   auto a = prefabs.Spawn(enemy_id);
 //   auto b = prefabs.SpawnByName("Enemy");
 //
@@ -27,7 +27,7 @@
 //     (STL 不使用、heap 割り当てなしの callback)。closure を渡したい場合は
 //     呼び出し側が context 構造体を `user_data` 経由で寄越す。
 //   ・**`<string>` 禁止 / `const char*` で受ける**: 文字列の所有権はクライアント
-//     側 (string literal か、別途寿命管理された永続バッファ)。FPrefabSystem は
+//     側 (string literal か、別途寿命管理された永続バッファ)。CPrefabSystem は
 //     ポインタを保管するだけで複製しない。これを忘れた使用は文字列が dangling
 //     になり得るので、コメントで強く注意する。
 //   ・**24bit idx + 8bit gen の packed handle**: `FNodeId` / `FShapeId` と完全に
@@ -42,7 +42,7 @@
 //     type は不要 (TObjectPtr の宣言上の forward 互換、`.cpp` 側は触らない)。
 //     factory 関数の中身は呼び出し側 cpp が `ANode.h` を include する責務。
 //   ・**非コピー / 非ムーブ**: 登録された factory ポインタを別所有者に渡す事故
-//     を排除。プロジェクト中 FPrefabSystem は通常 FScene/FGame に 1 個。
+//     を排除。プロジェクト中 CPrefabSystem は通常 AScene/CGame に 1 個。
 #pragma once
 
 #include "foundation/Types.h"
@@ -97,7 +97,7 @@ struct FPrefabId {
     /**
      * handle が invalid でないかを返す。
      *
-     * @details m_Packed == 0 のみ invalid。登録済 slot に存在するかは FPrefabSystem 側で別途検証する。
+     * @details m_Packed == 0 のみ invalid。登録済 slot に存在するかは CPrefabSystem 側で別途検証する。
      * @return invalid でなければ true。
      */
     bool IsValid() const noexcept { return m_Packed != 0; }
@@ -136,31 +136,31 @@ using PrefabFactoryFn = TObjectPtr<ANode>(*)(void* user_data) noexcept;
  * 1 セッション内で通常数十〜数百件の登録を想定し、線形走査ベース。登録された factory
  * ポインタの所有移譲を抑止するため non-copy / non-move。
  */
-class FPrefabSystem {
+class CPrefabSystem {
 public:
     /** 空のレジストリを構築する。 */
-    FPrefabSystem() noexcept = default;
+    CPrefabSystem() noexcept = default;
 
     /** レジストリを破棄する (factory ポインタは保管するだけなので解放処理はない)。 */
-    ~FPrefabSystem() noexcept = default;
+    ~CPrefabSystem() noexcept = default;
 
     /** コピー禁止 (登録された factory ポインタの所有移譲を抑止)。 */
-    FPrefabSystem(const FPrefabSystem&)            = delete;
+    CPrefabSystem(const CPrefabSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPrefabSystem& operator=(const FPrefabSystem&) = delete;
+    CPrefabSystem& operator=(const CPrefabSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FPrefabSystem(FPrefabSystem&&)                 = delete;
+    CPrefabSystem(CPrefabSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPrefabSystem& operator=(FPrefabSystem&&)      = delete;
+    CPrefabSystem& operator=(CPrefabSystem&&)      = delete;
 
     /**
      * 新規 Prefab を登録して FPrefabId を返す。
      *
      * @details
-     * name は永続文字列を渡すこと (string literal か別バッファ管理)。FPrefabSystem は複製せず
+     * name は永続文字列を渡すこと (string literal か別バッファ管理)。CPrefabSystem は複製せず
      * ポインタを保管する。nullptr / 空文字 / factory == nullptr は弾いて invalid を返す。
      * 同名既存があっても新規 entry を作って別 ID を返す (上書きしない。FindByName は登録順で
      * 最初に見つけたものを返す)。
@@ -266,5 +266,8 @@ private:
     /** 現在 active な登録数。 */
     u32                m_ActiveCount = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPrefabSystem = CPrefabSystem;
 
 } // namespace acs::game

@@ -11,8 +11,12 @@ using ::acs::FSubsystemCreateFn;
 /** 旧 GameFramework factory 名を正規型へ転送する。 */
 using ::acs::FSubsystemFactory;
 /** 旧 GameFramework 登録簿名を正規型へ転送する。 */
+using ::acs::CSubsystemRegistry;
+/** 旧登録簿名を GameFramework 名前空間でも利用できるようにする。 */
 using ::acs::FSubsystemRegistry;
 /** 旧 GameFramework 自動登録補助名を正規型へ転送する。 */
+using ::acs::CSubsystemAutoRegister;
+/** 旧自動登録名を GameFramework 名前空間でも利用できるようにする。 */
 using ::acs::FSubsystemAutoRegister;
 
 } // namespace acs::game

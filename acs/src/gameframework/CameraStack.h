@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCameraStack
+// GameFramework Pillar E — CCameraStack
 //
-// 複数 `FCamera2D` を **virtual camera スタック**として保持し、最上層 (= top) を
+// 複数 `CCamera2D` を **virtual camera スタック**として保持し、最上層 (= top) を
 // active として扱う Cinemachine 風スイッチャ。Push/Pop の遷移は **線形補間**で
 // 古 top → 新 top の position/zoom/rotation をブレンドし、描画側は Effective*
 // アクセサで「いまフレームでカメラがどこを写しているか」を取得する。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       acs::game::FCamera2D  m_FollowCam;     // プレイヤー追従カメラ
-//       acs::game::FCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
-//       acs::game::FCameraStack m_Stack;
+//   class FGameplayScene : public AScene {
+//       acs::game::CCamera2D  m_FollowCam;     // プレイヤー追従カメラ
+//       acs::game::CCamera2D  m_CinematicCam;  // 演出用カメラ (固定 or 別追従)
+//       acs::game::CCameraStack m_Stack;
 //       void OnEnter() noexcept override {
 //           m_Stack.PushCamera(m_FollowCam);                // 初期 top
 //       }
@@ -32,8 +32,8 @@
 //   };
 //
 // 設計選択 (Pillar E):
-//   ・**virtual camera スタック**: FCamera2D は user が own。FCameraStack は
-//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= FScene 内
+//   ・**virtual camera スタック**: CCamera2D は user が own。CCameraStack は
+//     **non-owning pointer** だけを持つ。寿命管理は呼び出し側責任 (= AScene 内
 //     のメンバ変数として持つのが典型)。
 //   ・**最大 4 layer**: 想定用途は「平常 / 演出 / カットイン / メニュー」程度。
 //     深く積む必要はないので static 上限 4。超えたら警告して無視。
@@ -49,12 +49,12 @@
 //     人間が「ちょうど中間」と感じる補間にする。zoom <= 0 は 0.001 にクランプ。
 //   ・**rotation は最短角補間**: ±π を跨ぐ場合に最短経路で回るよう、差分を
 //     [-π, π] に正規化してから lerp。
-//   ・**Tick**: 上から順に **active な 2 層**だけ FCamera2D::Tick を呼ぶ
+//   ・**Tick**: 上から順に **active な 2 層**だけ CCamera2D::Tick を呼ぶ
 //     (= スタックに積まれているが blend に絡まない下層は止めておく)。これに
 //     より「下層カメラがプレイヤーを追ってずれていく」事故を防ぐ。下層を
 //     生かしておきたいケースは呼び出し側で個別 Tick すれば良い。
 //   ・**非コピー・非ムーブ**: 内部 TArray が non-owning ptr を持つだけだが、
-//     FSceneManager と同じく「state holder は move されない」方針で統一。
+//     CSceneManager と同じく「state holder は move されない」方針で統一。
 #pragma once
 
 #include "container/Array.h"
@@ -65,33 +65,33 @@
 namespace acs::game {
 
 /**
- * 複数の FCamera2D を virtual camera スタックとして保持し、最上層を active とする切替器。
+ * 複数の CCamera2D を virtual camera スタックとして保持し、最上層を active とする切替器。
  *
  * @details
  * Cinemachine 風スイッチャ。Push/Pop の遷移は直近 2 層を補間 (position/zoom/rotation) し、
  * 描画側は Effective* アクセサで現在のカメラ値を取得する。zoom は対数補間、rotation は
- * 最短角補間。FCamera2D は user が own し、本クラスは non-owning ポインタのみを最大 4 層持つ
- * (非コピー・非ムーブ)。Tick は active な 2 層だけ FCamera2D::Tick を呼ぶ。
+ * 最短角補間。CCamera2D は user が own し、本クラスは non-owning ポインタのみを最大 4 層持つ
+ * (非コピー・非ムーブ)。Tick は active な 2 層だけ CCamera2D::Tick を呼ぶ。
  */
-class FCameraStack {
+class CCameraStack {
 public:
     /** 空のスタックを構築する。 */
-    FCameraStack() noexcept = default;
+    CCameraStack() noexcept = default;
 
     /** 破棄する (カメラ実体は所有しないので解放しない)。 */
-    ~FCameraStack() noexcept = default;
+    ~CCameraStack() noexcept = default;
 
     /** コピー禁止 (state holder は move/copy されない方針)。 */
-    FCameraStack(const FCameraStack&)            = delete;
+    CCameraStack(const CCameraStack&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCameraStack& operator=(const FCameraStack&) = delete;
+    CCameraStack& operator=(const CCameraStack&) = delete;
 
     /** ムーブ禁止。 */
-    FCameraStack(FCameraStack&&)                 = delete;
+    CCameraStack(CCameraStack&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCameraStack& operator=(FCameraStack&&)      = delete;
+    CCameraStack& operator=(CCameraStack&&)      = delete;
 
     /**
      * カメラを top に push し、旧 top から補間しながら切り替える。
@@ -101,7 +101,7 @@ public:
      * @param cam push する非所有カメラ。
      * @param blend_duration 旧 top からの補間にかける秒数。
      */
-    void PushCamera(FCamera2D& cam, f32 blend_duration = 0.5f) noexcept;
+    void PushCamera(CCamera2D& cam, f32 blend_duration = 0.5f) noexcept;
 
     /**
      * top を pop する。
@@ -117,7 +117,7 @@ public:
      *
      * @return top のカメラ (空なら nullptr)。
      */
-    FCamera2D* Active() const noexcept;
+    CCamera2D* Active() const noexcept;
 
     /**
      * blend 中かどうかを返す。
@@ -170,7 +170,7 @@ public:
     /**
      * スタックを 1 フレーム進める。
      *
-     * @details blend timer を進め、active な 2 層 (top と blend 中なら下層) の FCamera2D::Tick を
+     * @details blend timer を進め、active な 2 層 (top と blend 中なら下層) の CCamera2D::Tick を
      * 呼ぶ。pop の blend が完了したフレームで実際に top を取り除く。
      * @param dt 経過秒 (負値は 0 にクランプ)。
      */
@@ -185,7 +185,7 @@ private:
      */
     struct FCameraEntry {
         /** このエントリが指す非所有カメラ。 */
-        FCamera2D* cam            = nullptr;
+        CCamera2D* cam            = nullptr;
 
         /** blend の経過進捗 [0,1]。1 = blend 完了。 */
         f32       blend_t        = 1.0f;
@@ -230,5 +230,8 @@ private:
     /** カメラエントリの配列 (Back() が top = active)。 */
     TArray<FCameraEntry> m_Entries;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCameraStack = CCameraStack;
 
 } // namespace acs::game

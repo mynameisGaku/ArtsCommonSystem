@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FPhotoMode 実装
+// GameFramework Pillar R — CPhotoMode 実装
 //
 // 本ファイルは状態遷移ロジックのみを持つ。「実際に time scale を 0 にする」
 // 「実際にカメラを動かす」「実際にフィルタを LUT で適用する」のは
-// caller (FGame / Scene / ポストプロセスパス) の責務。
+// caller (CGame / Scene / ポストプロセスパス) の責務。
 #include "gameframework/PhotoMode.h"
 
 namespace acs::game {
@@ -16,7 +16,7 @@ namespace acs::game {
  * ズーム・回転・撮影 flag をリセットする。フィルタは最後の選択を保持する。
  * @param current_time_scale Enter 時点の time scale (復元用に保存する)。
  */
-void FPhotoMode::Enter(f32 current_time_scale) noexcept {
+void CPhotoMode::Enter(f32 current_time_scale) noexcept {
     if (m_Active) {
         return;  // 二重 Enter ガード (m_SavedTimeScale を上書きしない)
     }
@@ -35,7 +35,7 @@ void FPhotoMode::Enter(f32 current_time_scale) noexcept {
  * @details active=false にして撮影 flag を落とすだけ。time scale 復元は caller が行う。
  * カメラ offset / zoom / rot は保持され、次回 Enter でリセットされる。
  */
-void FPhotoMode::Exit() noexcept {
+void CPhotoMode::Exit() noexcept {
     m_Active          = false;
     m_bCapturePending = false;
 }
@@ -45,7 +45,7 @@ void FPhotoMode::Exit() noexcept {
  *
  * @param delta 加算するオフセット (world units)。
  */
-void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
+void CPhotoMode::MoveCamera(FVec2 delta) noexcept {
     if (!m_Active) return;
     m_Offset.x += delta.x;
     m_Offset.y += delta.y;
@@ -59,7 +59,7 @@ void FPhotoMode::MoveCamera(FVec2 delta) noexcept {
  * 0.1 未満は LOD / 深度バッファ精度が、10.0 超は被写界深度ボケが破綻するため。
  * @param zoom_delta ズーム倍率への加算量。
  */
-void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
+void CPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
     if (!m_Active) return;
     m_ZoomMult += zoom_delta;
     if (m_ZoomMult < 0.1f)  m_ZoomMult = 0.1f;
@@ -73,7 +73,7 @@ void FPhotoMode::ZoomCamera(f32 zoom_delta) noexcept {
  * 挙動は変わらない。
  * @param rad_delta 加算する回転量 (ラジアン)。
  */
-void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
+void CPhotoMode::RotateCamera(f32 rad_delta) noexcept {
     if (!m_Active) return;
     m_Rot += rad_delta;
 }
@@ -85,7 +85,7 @@ void FPhotoMode::RotateCamera(f32 rad_delta) noexcept {
  * 呼んでも 1 枚しか撮影されない。
  * @return 撮影リクエストが立っていれば true。
  */
-bool FPhotoMode::ConsumeCaptureRequest() noexcept {
+bool CPhotoMode::ConsumeCaptureRequest() noexcept {
     if (!m_Active) return false;
     if (!m_bCapturePending) return false;
     m_bCapturePending = false;

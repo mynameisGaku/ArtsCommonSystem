@@ -7,12 +7,12 @@
 // SDK 等) との結合はビルド時の選択で差し替える。
 //
 // 使い方:
-//   class FGame {
+//   class CGame {
 //       acs::game::ISteamworksBridge* m_Social = nullptr;
 //
 //       void OnStart() noexcept override {
 //           // 出荷ビルドでは GoldenSteamworksBridge を DI、開発ビルドでは Stub。
-//           m_Social = &acs::game::FSteamworksBridgeStub::GetStub();
+//           m_Social = &acs::game::CSteamworksBridgeStub::GetStub();
 //           (void)m_Social->Init();
 //       }
 //       void OnTick(f32 dt) noexcept override {
@@ -41,8 +41,8 @@
 //     畳み込む。ゲーム側は dt を毎フレーム渡すだけで、コールバックポンプの存在を
 //     意識しなくて良い。
 //   ・**Stub は static singleton で取得**: 依存ゼロのデフォルト実装として
-//     `FSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
-//     `m_Social = &FSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
+//     `CSteamworksBridgeStub::GetStub()` を提供。実 SDK 未統合のビルドでも
+//     `m_Social = &CSteamworksBridgeStub::GetStub();` だけでコンパイル可能。
 //   ・**実 SDK 実装はここでは作らない**: GoldenSteamworksBridge 等は Steamworks SDK
 //     ヘッダ / ライブラリへの依存を伴うため、本ファイルでは I/F + Stub のみ。
 //
@@ -355,13 +355,13 @@ public:
  * 返す。Achievement / Leaderboard 等の機能系は ACS_ERR(Generic,
  * kSubSteamworksNotImplemented) を返し、Shutdown() / Tick() は副作用を持たない。
  */
-class FSteamworksBridgeStub final : public ISteamworksBridge {
+class CSteamworksBridgeStub final : public ISteamworksBridge {
 public:
     /** 未初期化状態の Stub を構築する。 */
-    FSteamworksBridgeStub() noexcept = default;
+    CSteamworksBridgeStub() noexcept = default;
 
     /** Stub を破棄する (副作用なし)。 */
-    ~FSteamworksBridgeStub() noexcept override = default;
+    ~CSteamworksBridgeStub() noexcept override = default;
 
     /**
      * 初期化済みフラグを立てて常に成功を返す。
@@ -589,7 +589,7 @@ public:
      * @details 実 SDK 実装が DI される前のデフォルト Bridge として使う。
      * @return プロセス唯一の Stub インスタンスへの参照。
      */
-    static FSteamworksBridgeStub& GetStub() noexcept;
+    static CSteamworksBridgeStub& GetStub() noexcept;
 
 private:
     /** 初期化済みフラグ (Init で true、Shutdown で false)。 */
@@ -618,8 +618,11 @@ void SetSteamworksBridgeProvider(SteamworksBridgeProvider provider) noexcept;
 /**
  * 既定 ISteamworksBridge を返す。
  *
- * @return provider 登録済みならその実 Bridge、未登録なら FSteamworksBridgeStub::GetStub()。
+ * @return provider 登録済みならその実 Bridge、未登録なら CSteamworksBridgeStub::GetStub()。
  */
 ISteamworksBridge& GetDefaultSteamworksBridge() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSteamworksBridgeStub = CSteamworksBridgeStub;
 
 } // namespace acs::game

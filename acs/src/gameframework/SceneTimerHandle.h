@@ -6,7 +6,7 @@
 namespace acs::game {
 
 /**
- * FSceneTimer が管理するタイマーを識別する 32bit の世代付きハンドル。
+ * CSceneTimer が管理するタイマーを識別する 32bit の世代付きハンドル。
  *
  * @details 下位 24bit にスロット番号、上位 8bit に世代番号を保持する。
  * m_Packed == 0 を無効値とし、スロット再利用後の古い参照は世代番号で拒否する。
@@ -75,7 +75,7 @@ struct FSceneTimerHandle {
  *
  * @details ACS 0.x の移行期間だけ残し、ACS 1.0 で削除する。削除条件は、リポジトリ内の
  * 実利用と配布用 consumer の旧名利用が 0 件になり、移行案内を 1 release 継続したこと。
- * 型名変更で FSceneTimer の修飾シンボルが変わるため binary ABI は維持しない。既存 consumer は
+ * 型名変更で CSceneTimer の修飾シンボルが変わるため binary ABI は維持しない。既存 consumer は
  * ACS ライブラリと同時に再ビルドする必要がある。新規コードでは FSceneTimerHandle を使う。
  */
 using FTimerHandle [[deprecated("ACS 1.0 で削除予定です。FSceneTimerHandle を使用してください。")]] = FSceneTimerHandle;

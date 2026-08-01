@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FGameFlow (高レベルゲームフロー state machine)
+// GameFramework 完成度システム v7 — CGameFlow (高レベルゲームフロー state machine)
 //
 // 役割:
 //   タイトル / メインメニュー / ゲームプレイ / ポーズ / 設定 / GameOver 等、ゲーム
-//   全体のフロー状態を保持する 1 シングルトン的 state machine。FSceneManager より
+//   全体のフロー状態を保持する 1 シングルトン的 state machine。CSceneManager より
 //   1 段上のレイヤで、「いまユーザーがゲームのどの段階に居るか」を識別する。
 //
-// FSceneManager との棲み分け:
-//   ・FSceneManager は描画用 FScene のスタックを管理する低レベル機構
+// CSceneManager との棲み分け:
+//   ・CSceneManager は描画用 AScene のスタックを管理する低レベル機構
 //     (push / pop / change + 退場 ring buffer + fixed_dt)。
-//   ・FGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
+//   ・CGameFlow は「ゲームとしての論理状態」を管理する高レベル state machine。
 //     状態ごとの enter / exit コールバックでサウンド切替や Save 書き出し等の
-//     副作用を発火し、実描画はコールバックの中で FSceneManager を呼び分ける。
-//   ・両者は独立。FGameFlow は FSceneManager に依存しない (テスト容易性のため)。
+//     副作用を発火し、実描画はコールバックの中で CSceneManager を呼び分ける。
+//   ・両者は独立。CGameFlow は CSceneManager に依存しない (テスト容易性のため)。
 //
 // 設計選択:
 //   ・**enum EFlowState (10 状態固定)**: ゲームの抽象状態を列挙。動的追加なし。
@@ -24,22 +24,22 @@
 //   ・**遷移テーブル**: 不正遷移 (例: Gameplay → Splash) を防ぐため、from →
 //     to の可否を 10x10 の bool テーブルで持つ。Init() 時に組み立てる。
 //   ・**コールバックは関数ポインタ + void* user**: ACS 規約に従い std::function
-//     不使用。Pillar Q FCinematicsDirector / FHotReloadWatcher と同形。1 state につき
+//     不使用。Pillar Q CCinematicsDirector / CHotReloadWatcher と同形。1 state につき
 //     最大 enter / exit 1 個ずつ。
 //   ・**fade 量は state holder のみ**: FadeProgress() を [0, 1] で返す。描画は
 //     呼び出し側が FSpriteBatch で fullscreen overlay を被せる責任。
-//     FFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
-//   ・**非コピー・非ムーブ**: FGame に 1 個持つ長寿命オブジェクト。state 分裂
+//     CFadeTransition と独立 (シーン内 fade と画面間 fade を別レイヤで扱える)。
+//   ・**非コピー・非ムーブ**: CGame に 1 個持つ長寿命オブジェクト。state 分裂
 //     を避けるため最初から禁止。
 //
 // 範囲外 (将来拡張):
 //   ・state ごとの transient state (例: Loading の進捗値) — 必要なら呼び出し側
 //     が AppState で別途持つ
 //   ・遷移履歴の back stack — Pop 系 API は持たず、要求は常に「to 指定」
-//   ・並列 fade (画面内 fade) — FScene 単位の FFadeTransition が独立して動く
+//   ・並列 fade (画面内 fade) — AScene 単位の CFadeTransition が独立して動く
 //
 // 使い方:
-//   acs::game::FGameFlow flow;
+//   acs::game::CGameFlow flow;
 //   flow.SetOnEnterCallback(EFlowState::Gameplay, &FMyApp::OnGameplayEnter, this);
 //   flow.Init(EFlowState::Splash);
 //   // ... 毎フレーム:
@@ -128,9 +128,9 @@ struct FFlowTransition {
  * 遷移は RequestTransition で要求し Tick で適用する 2 段階方式で、fade_out → 旧 state
  * の OnExit → state 切替 → 新 state の OnEnter → fade_in と進む。状態ごとの enter/exit
  * コールバックは関数ポインタ + void* user で登録する (std::function 不使用)。不正遷移は
- * 10x10 の許可テーブルで弾く。FSceneManager とは独立した非コピー・非ムーブ型。
+ * 10x10 の許可テーブルで弾く。CSceneManager とは独立した非コピー・非ムーブ型。
  */
-class FGameFlow {
+class CGameFlow {
 public:
     /**
      * 状態遷移コールバックの関数ポインタ型。
@@ -142,22 +142,22 @@ public:
     using StateCallback = void(*)(void* user, EFlowState entered_state) noexcept;
 
     /** 未初期化状態で構築する (Init を呼ぶまで遷移系 API は no-op)。 */
-    FGameFlow()  noexcept = default;
+    CGameFlow()  noexcept = default;
 
     /** 破棄する。 */
-    ~FGameFlow() noexcept = default;
+    ~CGameFlow() noexcept = default;
 
-    /** コピー禁止 (FGame に 1 個持つ長寿命オブジェクトで state 分裂を避けるため)。 */
-    FGameFlow(const FGameFlow&)            = delete;
+    /** コピー禁止 (CGame に 1 個持つ長寿命オブジェクトで state 分裂を避けるため)。 */
+    CGameFlow(const CGameFlow&)            = delete;
 
     /** コピー代入も禁止。 */
-    FGameFlow& operator=(const FGameFlow&) = delete;
+    CGameFlow& operator=(const CGameFlow&) = delete;
 
     /** ムーブ禁止。 */
-    FGameFlow(FGameFlow&&)                 = delete;
+    CGameFlow(CGameFlow&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FGameFlow& operator=(FGameFlow&&)      = delete;
+    CGameFlow& operator=(CGameFlow&&)      = delete;
 
     /**
      * state スロットと遷移許可テーブルを構築し、初期状態へ入る。
@@ -322,5 +322,8 @@ private:
     /** fade overlay の不透明度 [0, 1]。 */
     f32 m_FadeProgress = 0.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FGameFlow = CGameFlow;
 
 } // namespace acs::game

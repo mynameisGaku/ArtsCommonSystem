@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// FEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
+// CEntitlementRegistry — DLC / シーズンパス / コスメティック等の権利チェック
 //
 // プレイヤーが「持っているかどうか」をゲームロジック側から問い合わせる窓口。
 // DLC、シーズンパス、バトルパス、コスメティックパック、グッズ同梱の引換コード等の
 // **権利情報** (entitlement) をローカルに保持し、ストアからの取得結果や
 // プラットフォーム SDK (Pillar S = Steamworks / EOS / 各家庭機 SDK) の問い合わせ結果を
-// Add() で流し込んでもらう想定。FEntitlementRegistry 自体は **ストア非依存** であり、
+// Add() で流し込んでもらう想定。CEntitlementRegistry 自体は **ストア非依存** であり、
 // 配信プラットフォームに紐付かない (Pillar S 側がアダプタ層になる)。
 //
 // 設計上の倫理方針 (LiveOps と pay-to-win の境界):
@@ -17,7 +17,7 @@
 //     redeem フローは Pillar S 側で実装し、ここには結果だけが流れてくる。
 //
 // 使い方:
-//   FEntitlementRegistry reg;
+//   CEntitlementRegistry reg;
 //   reg.Add({ "dlc.expansion_1",  EEntitlementKind::Dlc,           true  });
 //   reg.Add({ "cosmetic.hat_red", EEntitlementKind::CosmeticPack,  true  });
 //
@@ -94,25 +94,25 @@ struct FEntitlementInfo {
  * IsActive()/HasAny() でゲームロジックから所持判定を行う。Pillar S (ストア SDK)
  * 側のアダプタが取得結果を Add() で流し込む想定。非コピー・非ムーブ。
  */
-class FEntitlementRegistry {
+class CEntitlementRegistry {
 public:
     /** 空のレジストリを構築する。 */
-    FEntitlementRegistry()  noexcept = default;
+    CEntitlementRegistry()  noexcept = default;
 
     /** 破棄する (保持していた権利情報を解放)。 */
-    ~FEntitlementRegistry() noexcept = default;
+    ~CEntitlementRegistry() noexcept = default;
 
     /** コピー禁止 (通常 1 つの長寿命オブジェクトで運用するため)。 */
-    FEntitlementRegistry(const FEntitlementRegistry&)            = delete;
+    CEntitlementRegistry(const CEntitlementRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEntitlementRegistry& operator=(const FEntitlementRegistry&) = delete;
+    CEntitlementRegistry& operator=(const CEntitlementRegistry&) = delete;
 
     /** ムーブ禁止 (entitlement の分裂を防ぐため)。 */
-    FEntitlementRegistry(FEntitlementRegistry&&)                 = delete;
+    CEntitlementRegistry(CEntitlementRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEntitlementRegistry& operator=(FEntitlementRegistry&&)      = delete;
+    CEntitlementRegistry& operator=(CEntitlementRegistry&&)      = delete;
 
     /**
      * 新規 entitlement を登録する。
@@ -172,5 +172,8 @@ private:
     /** 登録済み権利情報の配列。 */
     TArray<FEntitlementInfo> m_Infos;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FEntitlementRegistry = CEntitlementRegistry;
 
 } // namespace acs::game

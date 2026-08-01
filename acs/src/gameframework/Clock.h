@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSceneClock
+// GameFramework Pillar C — CSceneClock
 //
-// FScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
-// per-clock time_scale を持つ軽量値型 (40 byte 程度)。FTweenManager/FSequence/カスタム
+// AScene 単位の時間トラッカ。scaled / unscaled 時間、frame count、pause/resume、
+// per-clock time_scale を持つ軽量値型 (40 byte 程度)。CTweenManager/FSequence/カスタム
 // タイマー等が共通の時間軸として参照する。
 //
 // 命名: `acs::FClock` (platform/Time.h、ハイレベル時間 API) との衝突を避けるため
-// `FSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
+// `CSceneClock`。役割は「シーンの感じる時間 = pause/slow-mo を反映する論理時間」。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //   public:
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Clock.Tick(dt);
-//           // m_Clock.Dt() を FTweenManager 等の更新に渡す
+//           // m_Clock.Dt() を CTweenManager 等の更新に渡す
 //       }
 //       void OnPause()  noexcept override { m_Clock.Pause();  }
 //       void OnResume() noexcept override { m_Clock.Resume(); }
 //   private:
-//       acs::game::FSceneClock m_Clock;
+//       acs::game::CSceneClock m_Clock;
 //   };
 //
-// FGame の FApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
-// (slow-mo・pause・スピードランナーの倍速モード等) は FSceneClock を経由する。
+// CGame の FApplication::DeltaTime() は常にリアル時間。シーンの感じる「時間」
+// (slow-mo・pause・スピードランナーの倍速モード等) は CSceneClock を経由する。
 #pragma once
 
 #include "foundation/Types.h"
@@ -30,18 +30,18 @@
 namespace acs::game {
 
 /**
- * FScene 単位の時間トラッカ (scaled / unscaled 時間と frame count を持つ軽量値型)。
+ * AScene 単位の時間トラッカ (scaled / unscaled 時間と frame count を持つ軽量値型)。
  *
  * @details
  * scaled 時間は time_scale と pause を反映する「シーンが感じる論理時間」、unscaled
- * 時間は常に進む実時間。pause / resume / per-clock time_scale を持ち、FTweenManager や
+ * 時間は常に進む実時間。pause / resume / per-clock time_scale を持ち、CTweenManager や
  * FSequence、カスタムタイマーが共通の時間軸として参照する。FApplication::DeltaTime()
  * の実時間とは別に、slow-mo・pause・倍速モードを反映した時間を提供する。
  */
-class FSceneClock {
+class CSceneClock {
 public:
     /** 既定状態 (time_scale=1, 非 pause, 時刻 0) で構築する。 */
-    FSceneClock() noexcept = default;
+    CSceneClock() noexcept = default;
 
     /**
      * 1 フレーム分の dt を流して時刻を進める。
@@ -158,5 +158,8 @@ private:
     /** 一時停止フラグ (true で scaled 系が止まる)。 */
     bool m_Paused          = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneClock = CSceneClock;
 
 } // namespace acs::game

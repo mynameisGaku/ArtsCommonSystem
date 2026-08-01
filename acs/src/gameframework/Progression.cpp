@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework 完成度システム v7 — FProgression 実装
+// GameFramework 完成度システム v7 — CProgression 実装
 //
-// FAchievementManager / FEntitlement と同じ「Def + State の並行 TArray」pattern。
+// CAchievementManager / FEntitlement と同じ「Def + State の並行 TArray」pattern。
 // id 比較は STL <cstring> も避けて per-byte ループを自前で書く (FEntitlement
-// / FSettings と同じ StrEq pattern)。
+// / CSettings と同じ StrEq pattern)。
 //
 // レベル計算 (floor(log2(xp + 1))) は浮動小数 log2 を使わずに、上位ビット位置
 // を整数ループで走査する形で実装する。プラットフォーム固有の intrinsic
@@ -38,7 +38,7 @@ bool StrEq(const char* a, const char* b) noexcept {
     return *a == '\0' && *b == '\0';
 }
 
-/** FSaveArchive payload の schema バージョン (レイアウト変更時に bump)。 */
+/** CSaveArchive payload の schema バージョン (レイアウト変更時に bump)。 */
 constexpr u32 kProgressionSaveVersion = 1u;
 
 /**
@@ -64,7 +64,7 @@ u32 HashId(const char* id) noexcept {
 /**
  * u32 を little-endian で 4 バイトへ書き込む。
  *
- * @details FSaveArchive と同じ LE 規約。シフトで書くのでホスト endianness 非依存。
+ * @details CSaveArchive と同じ LE 規約。シフトで書くのでホスト endianness 非依存。
  * @param p 書き込み先の4バイト。
  * @param v 書き出す u32 値。
  */
@@ -135,7 +135,7 @@ constexpr usize kHeaderPart = 8;
  */
 constexpr u64 kMaxLoadPayloadBytes =
     static_cast<u64>(kHeaderPart)
-    + static_cast<u64>(FProgression::kMaxPersistedMilestones)
+    + static_cast<u64>(CProgression::kMaxPersistedMilestones)
         * static_cast<u64>(kEntrySize);
 
 /** enum class を FErrorCode.subcode の u16 へ安全に縮約する。 */
@@ -162,7 +162,7 @@ u32 Floor_Log2_NonZero(u32 v) noexcept {
 } // namespace
 
 /** id に一致する Def の index を線形探索する (見つからなければ -1)。 */
-isize FProgression::FindIndex(const char* id) const noexcept {
+isize CProgression::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return -1;
     const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -172,10 +172,10 @@ isize FProgression::FindIndex(const char* id) const noexcept {
 }
 
 /** milestone 定義を登録し、対応する State を 1:1 で追加する (id 重複は no-op)。 */
-void FProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
+void CProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (アセット欠損時等の保険)。
     if (def.id == nullptr) return;
-    // 同 id の 2 重登録は no-op (FAchievementManager / FModRegistry と同じ防御)。
+    // 同 id の 2 重登録は no-op (CAchievementManager / CModRegistry と同じ防御)。
     if (FindIndex(def.id) >= 0) return;
 
     if (m_Defs.Size() != m_States.Size()) {
@@ -221,7 +221,7 @@ void FProgression::RegisterMilestone(const FMilestoneDef& def) noexcept {
 }
 
 /** 累計 XP を加算し (オーバーフローはクランプ)、未達成 milestone の達成判定を行う。 */
-void FProgression::AwardXp(u32 amount) noexcept {
+void CProgression::AwardXp(u32 amount) noexcept {
     if (amount == 0) return;
 
     // u32 オーバーフロー防御: amount を加算しても u32 範囲を超えそうなら
@@ -262,12 +262,12 @@ void FProgression::AwardXp(u32 amount) noexcept {
 }
 
 /** 現在の累計 XP を返す。 */
-u32 FProgression::CurrentXp() const noexcept {
+u32 CProgression::CurrentXp() const noexcept {
     return m_Xp;
 }
 
 /** 累計 XP から floor(log2(xp + 1)) でレベルを算出する。 */
-u32 FProgression::CurrentLevel() const noexcept {
+u32 CProgression::CurrentLevel() const noexcept {
     // floor(log2(xp + 1))。
     //   xp = 0   → log2(1)  = 0
     //   xp = 1   → log2(2)  = 1
@@ -285,20 +285,20 @@ u32 FProgression::CurrentLevel() const noexcept {
 }
 
 /** 指定 id の milestone が達成済みかを返す (未登録なら false)。 */
-bool FProgression::IsMilestoneAchieved(const char* id) const noexcept {
+bool CProgression::IsMilestoneAchieved(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return false;
     return m_States[static_cast<usize>(idx)].achieved;
 }
 
 /** 登録済み milestone の総数を返す。 */
-u32 FProgression::MilestoneCount() const noexcept {
+u32 CProgression::MilestoneCount() const noexcept {
     // 件数は通常 u32 範囲を超えない (タイトル 1 つで通常 10〜100)。
     return static_cast<u32>(m_Defs.Size());
 }
 
 /** 達成済み milestone の数を数えて返す。 */
-u32 FProgression::AchievedCount() const noexcept {
+u32 CProgression::AchievedCount() const noexcept {
     u32 count = 0;
     const usize n = m_States.Size();
     for (usize i = 0; i < n; ++i) {
@@ -308,20 +308,20 @@ u32 FProgression::AchievedCount() const noexcept {
 }
 
 /** 指定 id の milestone 状態へのポインタを返す (未登録なら nullptr)。 */
-const FMilestoneState* FProgression::GetState(const char* id) const noexcept {
+const FMilestoneState* CProgression::GetState(const char* id) const noexcept {
     const isize idx = FindIndex(id);
     if (idx < 0) return nullptr;
     return &m_States[static_cast<usize>(idx)];
 }
 
 /** 全 milestone 状態の配列先頭を返し、件数を out_count に書き戻す。 */
-const FMilestoneState* FProgression::AllStates(u32& out_count) const noexcept {
+const FMilestoneState* CProgression::AllStates(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_States.Size());
     return m_States.Data();
 }
 
 /** XP を 0 に戻し全 milestone を未達成に戻す (定義配列は保持)。 */
-void FProgression::ResetProgress() noexcept {
+void CProgression::ResetProgress() noexcept {
     m_Xp = 0;
     // 定義配列 (m_Defs) は保持。State 側だけ未達成に戻す。
     const usize n = m_States.Size();
@@ -332,13 +332,13 @@ void FProgression::ResetProgress() noexcept {
 }
 
 /** milestone 達成時に呼ぶコールバックとユーザーポインタを登録する。 */
-void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
+void CProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexcept {
     m_OnAchieved      = cb;
     m_OnAchievedUser = user;
 }
 
 /**
- * 進行状況を FSaveArchive 経由でバイナリファイルに保存する。
+ * 進行状況を CSaveArchive 経由でバイナリファイルに保存する。
  *
  * @details
  * payload レイアウト (すべて little-endian、schema version = kProgressionSaveVersion):
@@ -355,13 +355,13 @@ void FProgression::SetOnAchievedCallback(MilestoneCallback cb, void* user) noexc
  *     +5   3   pad                 ゼロ詰め (timestamp の 8byte 整列用)
  *     +8   8   achieved_timestamp  Clock::MillisSinceStartup() の値
  *
- * header / magic / CRC32 / atomic replace は FSaveArchive が担う。id は文字列
+ * header / magic / CRC32 / atomic replace は CSaveArchive が担う。id は文字列
  * ではなく FNV-1a hash で書き出すことで、リテラルの提示順やアドレスに依存しない安定キーで
  * Load 時に突き合わせできる。
  * @param file_path 保存先ファイルパス。
  * @return 成功なら空の TResult、null パス / I/O 失敗ならエラー。
  */
-TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
+TResult<void> CProgression::Save(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
@@ -400,7 +400,7 @@ TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
     }
     const usize payload_size = kHeaderPart + n * kEntrySize;
     if (payload_size > static_cast<usize>(kMaxLoadPayloadBytes) ||
-        payload_size > static_cast<usize>(FSaveArchive::kMaxPayloadSize)) {
+        payload_size > static_cast<usize>(CSaveArchive::kMaxPayloadSize)) {
         return ACS_ERR(Asset,
                        ProgressionSub(
                            EProgressionPersistenceSubCode::kSubMilestoneLimitExceeded),
@@ -429,7 +429,7 @@ TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
         WriteU64LE(entry + 8, st.achieved_timestamp);
     }
 
-    return FSaveArchive::WriteToFile(file_path,
+    return CSaveArchive::WriteToFile(file_path,
                                      kProgressionSaveVersion,
                                      payload.Data(),
                                      static_cast<u64>(payload_size));
@@ -444,7 +444,7 @@ TResult<void> FProgression::Save(const wchar_t* file_path) noexcept {
  * @param file_path 読み込み元ファイルパス。
  * @return 成功なら空の TResult、null パス / 破損 / I/O 失敗ならエラー。
  */
-TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
+TResult<void> CProgression::Load(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
@@ -452,7 +452,7 @@ TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     }
 
     // payload サイズを先読みしてバッファを確保する。
-    const auto size_r = FSaveArchive::PeekPayloadSize(file_path);
+    const auto size_r = CSaveArchive::PeekPayloadSize(file_path);
     if (size_r.IsErr()) return size_r.Error();
     const u64 payload_size = size_r.Value();
 
@@ -482,7 +482,7 @@ TResult<void> FProgression::Load(const wchar_t* file_path) noexcept {
     }
 
     u64 actual_size = 0;
-    const auto rd = FSaveArchive::ReadFromFile(file_path,
+    const auto rd = CSaveArchive::ReadFromFile(file_path,
                                                payload.Data(),
                                                payload_size,
                                                kProgressionSaveVersion,

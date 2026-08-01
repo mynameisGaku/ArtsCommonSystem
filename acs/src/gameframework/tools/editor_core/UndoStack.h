@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FUndoStack
+// GameFramework Tools — editor_core / CUndoStack
 //
 // 役割:
-//   全エディタが共有する undo / redo の中央ハブ。FEditorCommand 派生インスタンス
+//   全エディタが共有する undo / redo の中央ハブ。AEditorCommand 派生インスタンス
 //   を所有して、Push で 1 操作分を実行・登録し、Undo / Redo でユーザ操作を巻き
 //   戻し / やり直しする。連続 drag 等の merge も Push 時にこちらで判定する。
 //
 // 使い方:
-//   acs::game::editor_core::FUndoStack stack;
+//   acs::game::editor_core::CUndoStack stack;
 //   stack.Init(64);
 //
 //   // 1 操作: Push に所有権を渡す
 //   auto command =
-//       acs::MakeUnique<acs::game::editor_core::FMoveNodeCommand>(
+//       acs::MakeUnique<acs::game::editor_core::AMoveNodeCommand>(
 //           &node, old_pos, new_pos);
 //   stack.Push(acs::Move(command));
 //
@@ -21,17 +21,17 @@
 //   }
 //
 // 設計選択:
-//   ・**TUniquePtr<FEditorCommand> を 2 本の TArray に積む**: undo / redo の
+//   ・**TUniquePtr<AEditorCommand> を 2 本の TArray に積む**: undo / redo の
 //     LIFO スタック。基底ポインタなので polymorphic dispatch (virtual Execute /
 //     Undo / Description) で派生型を意識せず巻き戻せる。
 //   ・**Push で所有権を奪う**: TUniquePtr の確保元を保ったまま Move する経路を
 //     標準とし、既定アロケータ由来の既存コード向けに raw pointer 経路も残す。
 //     m_UndoStack に TUniquePtr のまま積むため、代入 / pop でも生成時の確保元へ
 //     自動的に返される。
-//   ・**Push 内で Execute も実行**: GUI コードが「new FEditorCommand → Push」
+//   ・**Push 内で Execute も実行**: GUI コードが「new AEditorCommand → Push」
 //     しか書かなくて済む (= Execute 忘れを構造的に防ぐ)。Redo 経路でも
-//     FEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
-//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は FUndoStack 側
+//     AEditorCommand::Execute() を呼ぶので、Execute は何度呼ばれても idempotent
+//     な実装にしておく必要がある (Undo を挟まずに連続 Execute は CUndoStack 側
 //     で排除済み)。
 //   ・**Push は redo stack をクリア**: Undo 後に new edit が来た時点で
 //     "redo の未来" は破棄される (Git の reset --hard 相当)。branched history
@@ -59,7 +59,7 @@
 //   ・branched history (git のような分岐 undo): Push で redo stack を破棄せず
 //     branch ツリーに移し替える。
 //   ・serialization (.acsundo): undo stack 内容をテキスト or バイナリで save。
-//     FEditorCommand 派生に virtual Serialize / Deserialize を追加することで
+//     AEditorCommand 派生に virtual Serialize / Deserialize を追加することで
 //     対応する。
 //   ・"Undo to here" (history list で n 個まとめて undo): n 個 pop を 1 個ずつ
 //     回せば実現できるので公開 API 不要。
@@ -67,11 +67,10 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "memory/UniquePtr.h"
 
 namespace acs::game::editor_core {
-
-class FEditorCommand;
 
 /**
  * Push / Undo / Redo 後の副反応を editor 側へ通知するコールバック型。
@@ -88,36 +87,36 @@ class FEditorCommand;
  * @param is_redo Redo 経路なら true、Push / Undo 経路は false。
  */
 using CommandExecutedCallback =
-    void (*)(void* user, const class FEditorCommand* cmd, bool is_redo) noexcept;
+    void (*)(void* user, const AEditorCommand* cmd, bool is_redo) noexcept;
 
 /**
  * 全エディタが共有する undo / redo の中央ハブ。
  *
  * @details
- * FEditorCommand 派生インスタンスを 2 本の LIFO スタック (undo / redo) に
+ * AEditorCommand 派生インスタンスを 2 本の LIFO スタック (undo / redo) に
  * TUniquePtr で所有し、Push で 1 操作分を実行・登録、Undo / Redo で巻き戻し /
  * やり直しする。連続 drag 等の merge も Push 時にここで判定する。非コピー /
  * 非ムーブ、全 noexcept、STL 不使用 (acs::TArray + acs::TUniquePtr)。
  */
-class FUndoStack {
+class CUndoStack {
 public:
     /** 空のスタックを構築する (上限は default 64、Init で再設定可)。 */
-    FUndoStack() noexcept  = default;
+    CUndoStack() noexcept  = default;
 
     /** 破棄する (全 cmd は TUniquePtr の dtor で自動 delete される)。 */
-    ~FUndoStack() noexcept = default;
+    ~CUndoStack() noexcept = default;
 
     /** コピー禁止 (command の所有権を単独で持つため)。 */
-    FUndoStack(const FUndoStack&)            = delete;
+    CUndoStack(const CUndoStack&)            = delete;
 
     /** コピー代入も禁止。 */
-    FUndoStack& operator=(const FUndoStack&) = delete;
+    CUndoStack& operator=(const CUndoStack&) = delete;
 
     /** ムーブ禁止。 */
-    FUndoStack(FUndoStack&&)                 = delete;
+    CUndoStack(CUndoStack&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FUndoStack& operator=(FUndoStack&&)      = delete;
+    CUndoStack& operator=(CUndoStack&&)      = delete;
 
     /**
      * 履歴を空にして上限を設定する (多重 Init 安全)。
@@ -142,7 +141,7 @@ public:
      * 最後に callback を (cb_user, スタック top, is_redo=false) で発火する。
      * @param cmd 積む command (所有権が移る。nullptr は no-op)。
      */
-    void Push(class FEditorCommand* cmd) noexcept;
+    void Push(AEditorCommand* cmd) noexcept;
 
     /**
      * 解放元を保持した command を 1 件積む。
@@ -151,7 +150,7 @@ public:
      * このオーバーロードへ Move することで生成時の解放元を維持できる。
      * @param command 積む command。所有権が移る。空なら no-op。
      */
-    void Push(TUniquePtr<FEditorCommand> command) noexcept;
+    void Push(TUniquePtr<AEditorCommand> command) noexcept;
 
     /**
      * 生ポインタとその確保元を明示して command を 1 件積む。
@@ -159,7 +158,7 @@ public:
      * @param command 積む command。所有権が移る。nullptr は no-op。
      * @param allocator command を解放するアロケータ。
      */
-    void Push(class FEditorCommand* command, FAllocator& allocator) noexcept;
+    void Push(AEditorCommand* command, FAllocator& allocator) noexcept;
 
     /**
      * undo を 1 件巻き戻す。
@@ -249,10 +248,10 @@ private:
     void DropOldestIfOverflow() noexcept;
 
     /** undo の LIFO スタック (command の所有権を持つ)。 */
-    TArray<TUniquePtr<FEditorCommand>> m_UndoStack {};
+    TArray<TUniquePtr<AEditorCommand>> m_UndoStack {};
 
     /** redo の LIFO スタック (Push のたびに Clear される)。 */
-    TArray<TUniquePtr<FEditorCommand>> m_RedoStack {};
+    TArray<TUniquePtr<AEditorCommand>> m_RedoStack {};
 
     /** undo stack に積める件数の上限。 */
     u32                             m_MaxHistory = 64;
@@ -263,5 +262,7 @@ private:
     /** callback へ渡すユーザコンテキスト。 */
     void*                           m_CbUser     = nullptr;
 };
+
+using FUndoStack = CUndoStack;
 
 } // namespace acs::game::editor_core

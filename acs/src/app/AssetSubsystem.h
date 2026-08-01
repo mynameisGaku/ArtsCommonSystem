@@ -7,8 +7,12 @@ namespace acs {
 
 class FAssetRegistry;
 
-/** FApplication が所有するアセット登録簿を Engine スコープへ公開するアダプター。 */
-class FAssetSubsystem final : public FSubsystem {
+class AAssetSubsystem;
+/** 旧公開名を正規アセットサブシステム型へ接続する互換別名。 */
+using FAssetSubsystem = AAssetSubsystem;
+
+/** CApplication が所有するアセット登録簿を Engine スコープへ公開するアダプター。 */
+class AAssetSubsystem final : public ASubsystem {
 public:
     ACS_SUBSYSTEM_KIND(FAssetSubsystem)
 
@@ -31,7 +35,7 @@ public:
     }
 
 private:
-    /** FApplication が所有するアセット登録簿への非所有参照。 */
+    /** CApplication が所有するアセット登録簿への非所有参照。 */
     FAssetRegistry* m_Assets = nullptr;
 };
 

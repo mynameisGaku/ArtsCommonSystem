@@ -15,7 +15,7 @@
 //     EditorVisible/Scriptable/Abstract/Instantiable のビット OR。
 //   ・**Enum 反射** … 列挙体は value↔name を持つ (editor コンボ/シリアライズ/スクリプト)。
 //   ・既存の TypeInfo.h (TU ローカル・コンパイル時のみ) を補完し、グローバル自動登録の
-//     FTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
+//     CTypeRegistry を提供。フィールド種別は InspectorSeam.h の EFieldKind を共通利用。
 //
 // 使い方:
 //   struct FHealth { acs::f32 hp; acs::f32 max_hp; bool alive; };
@@ -28,7 +28,7 @@
 //   ACS_REFLECT_ENUM(EWeapon,
 //       ACS_EVAL(EWeapon, Sword), ACS_EVAL(EWeapon, Bow), ACS_EVAL(EWeapon, Staff))
 //
-//   auto& reg = acs::game::FTypeRegistry::Get();
+//   auto& reg = acs::game::CTypeRegistry::Get();
 //   const auto* d = reg.FindByName("FHealth");      // 名前で型
 //   void* obj     = reg.Create("FHealth");          // factory 生成
 //   reg.Destroy(d->id, obj);
@@ -208,13 +208,13 @@ template<class T> constexpr u32 AcsAutoTraits() noexcept {
  * (kMax) で STL 不使用。エディタ・シリアライザ・スクリプト束縛・ネットワークなどが
  * 「型を知らずに」横断的に使うための単一の真実点。
  */
-class FTypeRegistry {
+class CTypeRegistry {
 public:
     /** 登録できる型数の上限。 */
     static constexpr u32 kMax = 2048u;
 
     /** プロセス唯一のレジストリを返す (Meyers singleton)。 */
-    static FTypeRegistry& Get() noexcept;
+    static CTypeRegistry& Get() noexcept;
 
     /**
      * 型を登録する (ACS_REFLECT* の自動登録から呼ばれる)。
@@ -269,7 +269,7 @@ private:
     /** 同じ型 ID に保持できる独立した記述子の上限。 */
     static constexpr u32 kMaxSourcesPerType = 8u;
 
-    FTypeRegistry() noexcept = default;
+    CTypeRegistry() noexcept = default;
     const FTypeDesc* m_Types[kMax] = {};
     const FTypeDesc* m_Sources[kMax][kMaxSourcesPerType] = {};
     u8 m_SourceCounts[kMax] = {};
@@ -277,21 +277,21 @@ private:
 };
 
 /** ACS_REFLECT* が生成する自動登録ヘルパ。登録元の寿命終了時に同じ記述子だけを解除する。 */
-struct FTypeAutoRegister {
-    explicit FTypeAutoRegister(const FTypeDesc* descriptor) noexcept : m_Descriptor(descriptor)
+struct CTypeAutoRegister {
+    explicit CTypeAutoRegister(const FTypeDesc* descriptor) noexcept : m_Descriptor(descriptor)
     {
-        FTypeRegistry::Get().Register(m_Descriptor);
+        CTypeRegistry::Get().Register(m_Descriptor);
     }
 
-    ~FTypeAutoRegister() noexcept
+    ~CTypeAutoRegister() noexcept
     {
         if (m_Descriptor != nullptr) {
-            (void)FTypeRegistry::Get().Unregister(m_Descriptor);
+            (void)CTypeRegistry::Get().Unregister(m_Descriptor);
         }
     }
 
-    FTypeAutoRegister(const FTypeAutoRegister&) = delete;
-    FTypeAutoRegister& operator=(const FTypeAutoRegister&) = delete;
+    CTypeAutoRegister(const CTypeAutoRegister&) = delete;
+    CTypeAutoRegister& operator=(const CTypeAutoRegister&) = delete;
 
 private:
     const FTypeDesc* m_Descriptor = nullptr;
@@ -299,6 +299,12 @@ private:
 
 /** 型 T の FTypeDesc を返す (ACS_REFLECT* が特殊化する。未反射型は nullptr)。 */
 template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return nullptr; }
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTypeAutoRegister = CTypeAutoRegister;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTypeRegistry = CTypeRegistry;
 
 } // namespace acs::game
 
@@ -426,7 +432,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
                                     sizeof(::acs::game::FReflectField) - 1u),                       \
             nullptr, 0u,                                                                             \
             &::acs::game::AcsConstruct<Type>, &::acs::game::AcsDestruct<Type>, nullptr };           \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_rr_, Type){                  \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_rr_, Type){                  \
             &ACS_RCAT(s_acs_rd_, Type) };                                                       \
         template<> inline const ::acs::game::FTypeDesc* AcsTypeDescOf<Type>() noexcept {            \
             return &ACS_RCAT(s_acs_rd_, Type); }                                                \
@@ -454,7 +460,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
             static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_ev_, Type)) /                          \
                                     sizeof(::acs::game::FEnumValue) - 1u),                          \
             nullptr, nullptr, nullptr };                                                            \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_er_, Type){                  \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_er_, Type){                  \
             &ACS_RCAT(s_acs_ed_, Type) };                                                       \
         template<> inline const ::acs::game::FTypeDesc* AcsTypeDescOf<Type>() noexcept {            \
             return &ACS_RCAT(s_acs_ed_, Type); }                                                \
@@ -504,7 +510,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
                                     sizeof(::acs::game::FReflectField) - 1u),                       \
             nullptr, 0u,                                                                             \
             &::acs::game::AcsConstruct<Type>, &::acs::game::AcsDestruct<Type>, nullptr };           \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_gr_, Type){                  \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_gr_, Type){                  \
             &ACS_RCAT(s_acs_gd_, Type) };                                                       \
     } // namespace acs::game
 
@@ -524,7 +530,7 @@ template<class T> inline const FTypeDesc* AcsTypeDescOf() noexcept { return null
             static_cast<::acs::u32>(sizeof(ACS_RCAT(s_acs_gv_, Type)) /                          \
                                     sizeof(::acs::game::FEnumValue) - 1u),                          \
             nullptr, nullptr, nullptr };                                                            \
-        inline const ::acs::game::FTypeAutoRegister ACS_RCAT(s_acs_gvr_, Type){                 \
+        inline const ::acs::game::CTypeAutoRegister ACS_RCAT(s_acs_gvr_, Type){                 \
             &ACS_RCAT(s_acs_gve_, Type) };                                                      \
     } // namespace acs::game
 

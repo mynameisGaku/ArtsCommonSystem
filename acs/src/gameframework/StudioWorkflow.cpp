@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar W — FStudioWorkflow stub 実装 (FAssetLockingStub / FBuildFarmStub)
+// GameFramework Pillar W — FStudioWorkflow stub 実装 (CAssetLockingStub / CBuildFarmStub)
 //
 // 本ファイルは FStudioWorkflow.h で宣言した 2 つの interface に対し、
 // 「常に NotImplemented を返すだけ」の defensive stub を提供する。
@@ -31,7 +31,7 @@
 namespace acs::game {
 
 /** stub: 常に NotImplemented を返す (具象アセットロックバックエンドを link せよ)。 */
-TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
+TResult<void> CAssetLockingStub::LockAsset(const char* asset_path, const char* user) noexcept {
     (void)asset_path;
     (void)user;
     return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
@@ -40,7 +40,7 @@ TResult<void> FAssetLockingStub::LockAsset(const char* asset_path, const char* u
 }
 
 /** stub: 常に NotImplemented を返す。 */
-TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
+TResult<void> CAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
     (void)asset_path;
     return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                    "IAssetLockingBackend::UnlockAsset is not implemented "
@@ -48,7 +48,7 @@ TResult<void> FAssetLockingStub::UnlockAsset(const char* asset_path) noexcept {
 }
 
 /** stub: 常に NotImplemented を返す。 */
-TResult<FAssetLockInfo> FAssetLockingStub::QueryLock(const char* asset_path) noexcept {
+TResult<FAssetLockInfo> CAssetLockingStub::QueryLock(const char* asset_path) noexcept {
     (void)asset_path;
     return TResult<FAssetLockInfo>(
         ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
@@ -57,7 +57,7 @@ TResult<FAssetLockInfo> FAssetLockingStub::QueryLock(const char* asset_path) noe
 }
 
 /** stub: 常に NotImplemented を返す (具象ビルドファームバックエンドを link せよ)。 */
-TResult<u64> FBuildFarmStub::SubmitBuild(const FBuildRequest& req) noexcept {
+TResult<u64> CBuildFarmStub::SubmitBuild(const FBuildRequest& req) noexcept {
     (void)req;
     return TResult<u64>(
         ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
@@ -66,7 +66,7 @@ TResult<u64> FBuildFarmStub::SubmitBuild(const FBuildRequest& req) noexcept {
 }
 
 /** stub: 常に NotImplemented を返す。 */
-TResult<IBuildFarmBackend::FBuildResult> FBuildFarmStub::PollBuild(u64 build_id) noexcept {
+TResult<IBuildFarmBackend::FBuildResult> CBuildFarmStub::PollBuild(u64 build_id) noexcept {
     (void)build_id;
     return TResult<IBuildFarmBackend::FBuildResult>(
         ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
@@ -75,7 +75,7 @@ TResult<IBuildFarmBackend::FBuildResult> FBuildFarmStub::PollBuild(u64 build_id)
 }
 
 /** stub: 常に NotImplemented を返す。 */
-TResult<void> FBuildFarmStub::CancelBuild(u64 build_id) noexcept {
+TResult<void> CBuildFarmStub::CancelBuild(u64 build_id) noexcept {
     (void)build_id;
     return ACS_ERR(Generic, FStudioWorkflowError::kSub_NotImplemented,
                    "IBuildFarmBackend::CancelBuild is not implemented "
@@ -201,7 +201,7 @@ int U64ToDec(u64 v, char* out, int cap) noexcept {
 }
 
 struct FParsedLocalLock {
-    char                 owner[FLocalFileAssetLocking::kMaxUserChars] = {};
+    char                 owner[CLocalFileAssetLocking::kMaxUserChars] = {};
     FLocalAssetLockToken token = {};
     u64                  lock_time = 0;
 };
@@ -227,17 +227,17 @@ bool BoundedLength(const char* value, int capacity, int& out_length) noexcept {
 
 bool IsStrictUtf8(const char* value, int length) noexcept {
     if (value == nullptr || length <= 0) return false;
-    wchar_t scratch[FLocalFileAssetLocking::kMaxPathChars] = {};
-    if (length >= FLocalFileAssetLocking::kMaxPathChars) return false;
+    wchar_t scratch[CLocalFileAssetLocking::kMaxPathChars] = {};
+    if (length >= CLocalFileAssetLocking::kMaxPathChars) return false;
     const int got = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value, length,
                                            scratch,
-                                           FLocalFileAssetLocking::kMaxPathChars);
+                                           CLocalFileAssetLocking::kMaxPathChars);
     return got > 0;
 }
 
 ELocalAssetLockError ValidateOwner(const char* owner, int& out_length) noexcept {
     if (owner == nullptr || owner[0] == '\0') return ELocalAssetLockError::BadArgument;
-    if (!BoundedLength(owner, FLocalFileAssetLocking::kMaxUserChars, out_length)) {
+    if (!BoundedLength(owner, CLocalFileAssetLocking::kMaxUserChars, out_length)) {
         return ELocalAssetLockError::OwnerTooLong;
     }
     for (int i = 0; i < out_length; ++i) {
@@ -256,7 +256,7 @@ ELocalAssetLockError MakeStrictLockPath(const char* asset_path,
         return ELocalAssetLockError::BadArgument;
     }
     int path_length = 0;
-    if (!BoundedLength(asset_path, FLocalFileAssetLocking::kMaxPathChars,
+    if (!BoundedLength(asset_path, CLocalFileAssetLocking::kMaxPathChars,
                        path_length)) {
         return ELocalAssetLockError::PathTooLong;
     }
@@ -369,7 +369,7 @@ bool ParseLockRecord(const char* raw, int length,
     while (at < length && raw[at] != '\n') {
         const unsigned char c = static_cast<unsigned char>(raw[at]);
         if (c == 0 || c < 0x20u || c == 0x7fu ||
-            owner_length >= FLocalFileAssetLocking::kMaxUserChars - 1) {
+            owner_length >= CLocalFileAssetLocking::kMaxUserChars - 1) {
             return false;
         }
         parsed.owner[owner_length++] = raw[at++];
@@ -427,14 +427,14 @@ FLocalAssetLockResult ReadStrictLockRecord(const wchar_t* lock_path,
         return LocalLockError(ELocalAssetLockError::SizeFailed, error);
     }
     if (size.QuadPart <= 0 ||
-        size.QuadPart > FLocalFileAssetLocking::kMaxRecordBytes) {
+        size.QuadPart > CLocalFileAssetLocking::kMaxRecordBytes) {
         ::CloseHandle(handle);
-        return LocalLockError(size.QuadPart > FLocalFileAssetLocking::kMaxRecordBytes
+        return LocalLockError(size.QuadPart > CLocalFileAssetLocking::kMaxRecordBytes
                                   ? ELocalAssetLockError::RecordTooLarge
                                   : ELocalAssetLockError::CorruptRecord);
     }
 
-    char raw[FLocalFileAssetLocking::kMaxRecordBytes] = {};
+    char raw[CLocalFileAssetLocking::kMaxRecordBytes] = {};
     DWORD total = 0;
     const DWORD expected = static_cast<DWORD>(size.QuadPart);
     while (total < expected) {
@@ -551,7 +551,7 @@ const char* LocalAssetLockErrorName(ELocalAssetLockError error) noexcept {
 }
 
 FLocalAssetLockResult
-FLocalFileAssetLocking::TryLockAsset(const char* asset_path,
+CLocalFileAssetLocking::TryLockAsset(const char* asset_path,
                                      const char* user) noexcept {
     wchar_t lock_path[kMaxPathChars] = {};
     const ELocalAssetLockError path_error =
@@ -632,7 +632,7 @@ FLocalFileAssetLocking::TryLockAsset(const char* asset_path,
 }
 
 FLocalAssetLockResult
-FLocalFileAssetLocking::TryUnlockAsset(const char* asset_path,
+CLocalFileAssetLocking::TryUnlockAsset(const char* asset_path,
                                        const char* user,
                                        FLocalAssetLockToken token) noexcept {
     wchar_t lock_path[kMaxPathChars] = {};
@@ -692,7 +692,7 @@ FLocalFileAssetLocking::TryUnlockAsset(const char* asset_path,
 }
 
 FLocalAssetLockResult
-FLocalFileAssetLocking::TryQueryLock(const char* asset_path,
+CLocalFileAssetLocking::TryQueryLock(const char* asset_path,
                                      FAssetLockInfo& out_info) noexcept {
     wchar_t lock_path[kMaxPathChars] = {};
     const ELocalAssetLockError path_error =
@@ -722,7 +722,7 @@ FLocalFileAssetLocking::TryQueryLock(const char* asset_path,
     return result;
 }
 
-TResult<void> FLocalFileAssetLocking::LockAsset(const char* asset_path,
+TResult<void> CLocalFileAssetLocking::LockAsset(const char* asset_path,
                                                 const char* user) noexcept {
     const FLocalAssetLockResult result = TryLockAsset(asset_path, user);
     if (result.Succeeded()) return Ok();
@@ -731,7 +731,7 @@ TResult<void> FLocalFileAssetLocking::LockAsset(const char* asset_path,
                       result.os_error);
 }
 
-TResult<void> FLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexcept {
+TResult<void> CLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexcept {
     wchar_t validated_path[kMaxPathChars] = {};
     const ELocalAssetLockError validation =
         MakeStrictLockPath(asset_path, validated_path, kMaxPathChars);
@@ -763,7 +763,7 @@ TResult<void> FLocalFileAssetLocking::UnlockAsset(const char* asset_path) noexce
                       result.os_error);
 }
 
-TResult<void> FLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
+TResult<void> CLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
                                                     const char* user) noexcept {
     wchar_t validated_path[kMaxPathChars] = {};
     const ELocalAssetLockError path_validation =
@@ -803,7 +803,7 @@ TResult<void> FLocalFileAssetLocking::UnlockAssetAs(const char* asset_path,
 }
 
 TResult<FAssetLockInfo>
-FLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
+CLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
     FAssetLockInfo info{};
     const FLocalAssetLockResult result = TryQueryLock(asset_path, info);
     if (result.Succeeded()) return TResult<FAssetLockInfo>(OkInit, info);
@@ -814,7 +814,7 @@ FLocalFileAssetLocking::QueryLock(const char* asset_path) noexcept {
 }
 
 /** 追跡中のプロセス HANDLE をすべて閉じて破棄する (プロセス自体は kill しない)。 */
-FLocalBuildRunner::~FLocalBuildRunner() noexcept {
+CLocalBuildRunner::~CLocalBuildRunner() noexcept {
     // 追跡中のプロセス HANDLE をすべて閉じる (プロセス自体は kill しない)。
     for (int i = 0; i < kMaxJobs; ++i) {
         if (m_Jobs[i].m_BuildId != 0) {
@@ -824,7 +824,7 @@ FLocalBuildRunner::~FLocalBuildRunner() noexcept {
 }
 
 /** build_id でジョブを引く (無ければ nullptr)。 */
-FLocalBuildRunner::FJob* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
+CLocalBuildRunner::FJob* CLocalBuildRunner::FindJob(u64 build_id) noexcept {
     if (build_id == 0) return nullptr;
     for (int i = 0; i < kMaxJobs; ++i) {
         if (m_Jobs[i].m_BuildId == build_id) return &m_Jobs[i];
@@ -833,7 +833,7 @@ FLocalBuildRunner::FJob* FLocalBuildRunner::FindJob(u64 build_id) noexcept {
 }
 
 /** プロセス HANDLE を閉じてスロットを空きに戻す。 */
-void FLocalBuildRunner::CloseJob(FJob& job) noexcept {
+void CLocalBuildRunner::CloseJob(FJob& job) noexcept {
     if (job.m_Process != nullptr) {
         ::CloseHandle(static_cast<HANDLE>(job.m_Process));
         job.m_Process = nullptr;
@@ -846,7 +846,7 @@ void FLocalBuildRunner::CloseJob(FJob& job) noexcept {
 }
 
 /** command_line を CreateProcessW で起動し、完了まで待って終了コードを回収する。 */
-TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
+TResult<void> CLocalBuildRunner::RunBuild(const wchar_t* command_line,
                                           u32&           out_exit_code,
                                           u32            timeout_ms) noexcept {
     out_exit_code = 0;
@@ -913,7 +913,7 @@ TResult<void> FLocalBuildRunner::RunBuild(const wchar_t* command_line,
 }
 
 /** command_line を UTF-8 で受け、UTF-16 へ変換して RunBuild に委譲する。 */
-TResult<void> FLocalBuildRunner::RunBuildUtf8(const char* command_line,
+TResult<void> CLocalBuildRunner::RunBuildUtf8(const char* command_line,
                                               u32&        out_exit_code,
                                               u32         timeout_ms) noexcept {
     out_exit_code = 0;
@@ -926,7 +926,7 @@ TResult<void> FLocalBuildRunner::RunBuildUtf8(const char* command_line,
 }
 
 /** preset を起動コマンドラインとして解釈し、非同期にビルドジョブを起動する。 */
-TResult<u64> FLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
+TResult<u64> CLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
     // preset を「起動するコマンドライン」として解釈する (ローカルファーム規約)。
     if (req.preset == nullptr || req.preset[0] == '\0') {
         return TResult<u64>(
@@ -986,7 +986,7 @@ TResult<u64> FLocalBuildRunner::SubmitBuild(const FBuildRequest& req) noexcept {
 
 /** ジョブの完了状態を非ブロッキングに確認し、結果を返す。 */
 TResult<IBuildFarmBackend::FBuildResult>
-FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
+CLocalBuildRunner::PollBuild(u64 build_id) noexcept {
     if (build_id == 0) {
         return TResult<FBuildResult>(
             ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
@@ -1053,7 +1053,7 @@ FLocalBuildRunner::PollBuild(u64 build_id) noexcept {
 }
 
 /** 進行中のジョブを kill してスロットを解放する。 */
-TResult<void> FLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
+TResult<void> CLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
     if (build_id == 0) {
         return ACS_ERR(IO, FStudioWorkflowError::kSub_BadArgument,
                        "FLocalBuildRunner::CancelBuild: build_id == 0 is reserved/invalid");
@@ -1083,25 +1083,25 @@ TResult<void> FLocalBuildRunner::CancelBuild(u64 build_id) noexcept {
 
 /** function-local static で process-wide singleton の stub locking backend を返す。 */
 IAssetLockingBackend& GetAssetLockingStub() noexcept {
-    static FAssetLockingStub s_instance;
+    static CAssetLockingStub s_instance;
     return s_instance;
 }
 
 /** function-local static で process-wide singleton の stub build farm backend を返す。 */
 IBuildFarmBackend& GetBuildFarmStub() noexcept {
-    static FBuildFarmStub s_instance;
+    static CBuildFarmStub s_instance;
     return s_instance;
 }
 
 /** function-local static で process-wide singleton の実ローカル locking backend を返す。 */
-FLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept {
-    static FLocalFileAssetLocking s_instance;
+CLocalFileAssetLocking& GetLocalFileAssetLocking() noexcept {
+    static CLocalFileAssetLocking s_instance;
     return s_instance;
 }
 
 /** function-local static で process-wide singleton の実ローカル build runner を返す。 */
-FLocalBuildRunner& GetLocalBuildRunner() noexcept {
-    static FLocalBuildRunner s_instance;
+CLocalBuildRunner& GetLocalBuildRunner() noexcept {
+    static CLocalBuildRunner s_instance;
     return s_instance;
 }
 

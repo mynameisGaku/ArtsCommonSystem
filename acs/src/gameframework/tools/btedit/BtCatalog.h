@@ -4,10 +4,10 @@
 // ノードグラフを「コードを書かずに組む → ロード時にソースコードの関数/変数へ結ぶ」
 // no-code オーサリングを成立させるための 2 つの軽量カタログを提供する。
 //
-//   ・FBtConditionRegistry … Condition デコレーター用。名前 → bool(*)(void* bb)。
+//   ・CBtConditionRegistry … Condition デコレーター用。名前 → bool(*)(void* bb)。
 //     ゲーム側が `Register("CanSeePlayer", &CanSeePlayer)` で登録し、エディタ/
 //     インタプリタが Condition ノードの名前をキーに引いて評価する (true なら子を
-//     実行、false なら子をスキップして Failure)。FBtActionRegistry の bool 版。
+//     実行、false なら子をスキップして Failure)。CBtActionRegistry の bool 版。
 //
 //   ・FBtBlackboardSchema … 比較条件 (variable <op> constant) 用。ブラックボードの
 //     フィールドを「名前 + 型 + バイトオフセット」で宣言するスキーマ。ゲーム側が
@@ -15,7 +15,7 @@
 //     エディタは変数候補をドロップダウン表示でき、インタプリタはロード時に解決した
 //     オフセットで BtCompareVar により値を読んで定数と比較する。
 //
-// 設計選択: FBtActionRegistry と同形 (STL 不使用 / 例外なし / 固定長配列 / name は
+// 設計選択: CBtActionRegistry と同形 (STL 不使用 / 例外なし / 固定長配列 / name は
 // 内部バッファへコピー / 全 noexcept)。
 #pragma once
 
@@ -33,7 +33,7 @@ namespace acs::game::btedit {
  * @details ゲーム側が条件関数 (bool(*)(void* bb)) を名前付きで登録し、グラフ
  *          インタプリタが Condition ノードの名前をキーに引いて評価する。
  */
-class FBtConditionRegistry {
+class CBtConditionRegistry {
 public:
     /** 条件関数の型 (blackboard を受け取り bool を返す)。 */
     using Fn = bool(*)(void* blackboard) noexcept;
@@ -45,7 +45,7 @@ public:
     static constexpr u32 kNameLen = 48u;
 
     /** 空のレジストリを構築する。 */
-    FBtConditionRegistry() noexcept = default;
+    CBtConditionRegistry() noexcept = default;
 
     /** 全登録を消す。 */
     void Clear() noexcept { m_Count = 0u; }
@@ -375,5 +375,7 @@ private:
     /** 変数数。 */
     u32 m_Count = 0u;
 };
+
+using FBtConditionRegistry = CBtConditionRegistry;
 
 } // namespace acs::game::btedit

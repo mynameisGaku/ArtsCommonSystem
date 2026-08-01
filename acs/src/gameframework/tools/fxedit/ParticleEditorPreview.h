@@ -21,8 +21,8 @@
 //     即座に preview に反映される。
 //
 // 設計選択 (FDebugOverlay と同 Pillar の延長線上):
-//   ・**FParticleEffectSystem を所有しない**: preview はあくまで「外部の
-//     FParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
+//   ・**CParticleEffectSystem を所有しない**: preview はあくまで「外部の
+//     CParticleEffectSystem 上に 1 個 emitter を立てる」スタイル。テスト時には
 //     fake system を渡せるし、in-game ツール時には本番 system を共有できる。
 //   ・**def の copy を内部保持**: 編集中 def を caller のポインタ経由でも、
 //     内部 snapshot 経由でも参照できる。`RecreatePreviewEmitter(system, def)`
@@ -54,32 +54,32 @@ namespace acs::game::fxedit {
  * 編集中 emitter の preview canvas + stats を提供する in-game ツール。
  *
  * @details
- * 外部の FParticleEffectSystem 上に preview emitter を 1 個立て、ImGui sub-window で
+ * 外部の CParticleEffectSystem 上に preview emitter を 1 個立て、ImGui sub-window で
  * Burst ボタン・active particle 数・pool 使用率・spawn 座標・auto-emit toggle・
  * frame budget (平均 fps) を表示する。編集中の FParticleEmitterDef が変わったら
  * RecreatePreviewEmitter で即時再生成し、UI 上の値変更を preview に反映する。
- * FParticleEffectSystem は所有せず、内部に FEmitterHandle と def snapshot、
+ * CParticleEffectSystem は所有せず、内部に FEmitterHandle と def snapshot、
  * 60-frame の fps 履歴 ring を保持する non-copy / non-move 型。
  */
-class FParticleEditorPreview {
+class CParticleEditorPreview {
 public:
     /** 空状態で構築する (リソースは Init で確保)。 */
-    FParticleEditorPreview() noexcept = default;
+    CParticleEditorPreview() noexcept = default;
 
     /** 破棄する (preview emitter の Destroy は行わない。Shutdown 参照)。 */
-    ~FParticleEditorPreview() noexcept = default;
+    ~CParticleEditorPreview() noexcept = default;
 
     /** コピー禁止 (FEmitterHandle / 履歴バッファの所有権を曖昧にしないため)。 */
-    FParticleEditorPreview(const FParticleEditorPreview&)            = delete;
+    CParticleEditorPreview(const CParticleEditorPreview&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleEditorPreview& operator=(const FParticleEditorPreview&) = delete;
+    CParticleEditorPreview& operator=(const CParticleEditorPreview&) = delete;
 
     /** ムーブ禁止 (DestroyEmitter のタイミングを明確に保つため)。 */
-    FParticleEditorPreview(FParticleEditorPreview&&)                 = delete;
+    CParticleEditorPreview(CParticleEditorPreview&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FParticleEditorPreview& operator=(FParticleEditorPreview&&)      = delete;
+    CParticleEditorPreview& operator=(CParticleEditorPreview&&)      = delete;
 
     /**
      * frame budget ring (60 frame) を事前確保し、内部状態を初期化する。
@@ -111,7 +111,7 @@ public:
      * @param dt 前フレームからの経過秒。
      * @param system stats 取得元のパーティクルシステム。
      */
-    void Tick(f32 dt, class FParticleEffectSystem& system) noexcept;
+    void Tick(f32 dt, CParticleEffectSystem& system) noexcept;
 
     /**
      * preview window を ImGui で描画する。
@@ -123,7 +123,7 @@ public:
      * @param system 操作対象のパーティクルシステム。
      * @param def 表示・再生成に使う編集中の emitter 定義 (nullptr 可)。
      */
-    void DrawUI(class FParticleEffectSystem& system, const struct FParticleEmitterDef* def) noexcept;
+    void DrawUI(CParticleEffectSystem& system, const struct FParticleEmitterDef* def) noexcept;
 
     /**
      * 編集中 def で preview emitter を即時再生成する。
@@ -135,7 +135,7 @@ public:
      * @param system emitter を生成するパーティクルシステム。
      * @param def 再生成元の emitter 定義 (nullptr なら no-op)。
      */
-    void RecreatePreviewEmitter(class FParticleEffectSystem& system,
+    void RecreatePreviewEmitter(CParticleEffectSystem& system,
                                 const struct FParticleEmitterDef* def) noexcept;
 
     /**
@@ -144,7 +144,7 @@ public:
      * @details handle が invalid のときは no-op (まだ Recreate していないケース)。
      * @param system Burst を発行するパーティクルシステム。
      */
-    void TriggerBurst(class FParticleEffectSystem& system) noexcept;
+    void TriggerBurst(CParticleEffectSystem& system) noexcept;
 
     /**
      * preview emitter を破棄し、system の particle pool を全消去する。
@@ -154,7 +154,7 @@ public:
      * invalid 化される (次回 Recreate で再生成が必要)。
      * @param system 破棄・全消去の対象パーティクルシステム。
      */
-    void StopAll(class FParticleEffectSystem& system) noexcept;
+    void StopAll(CParticleEffectSystem& system) noexcept;
 
     /**
      * 現在の spawn 座標 (preview canvas 上の出生座標) を返す。
@@ -183,7 +183,7 @@ public:
     /**
      * pool 容量を返す。
      *
-     * @return pool 容量 (= FParticleEffectSystem::AllParticles の out_count)。
+     * @return pool 容量 (= CParticleEffectSystem::AllParticles の out_count)。
      */
     u32  MaxParticleCount()    const noexcept { return m_LastCapacity; }
 
@@ -245,5 +245,7 @@ private:
     /** fps 履歴 ring が一巡して満杯になったかどうか。 */
     bool       m_bFpsFilled = false;
 };
+
+using FParticleEditorPreview = CParticleEditorPreview;
 
 } // namespace acs::game::fxedit

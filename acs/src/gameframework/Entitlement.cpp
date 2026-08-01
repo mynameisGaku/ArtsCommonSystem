@@ -33,7 +33,7 @@ bool StrEq(const char* a, const char* b) noexcept {
 } // namespace
 
 /** entitlement を登録する (id == nullptr は静かに弾く)。 */
-void FEntitlementRegistry::Add(FEntitlementInfo info) noexcept {
+void CEntitlementRegistry::Add(FEntitlementInfo info) noexcept {
     // id == nullptr は意味を持たないので静かに弾く (DLC 一覧取得が失敗した
     // 時のフォールバック流入で nullptr が来ても registry を壊さない)。
     if (info.id == nullptr) return;
@@ -41,7 +41,7 @@ void FEntitlementRegistry::Add(FEntitlementInfo info) noexcept {
 }
 
 /** 指定 id の entitlement が登録済みか (active は問わない) を返す。 */
-bool FEntitlementRegistry::Has(const char* id) const noexcept {
+bool CEntitlementRegistry::Has(const char* id) const noexcept {
     if (id == nullptr) return false;
     const usize n = m_Infos.Size();
     for (usize i = 0; i < n; ++i) {
@@ -51,7 +51,7 @@ bool FEntitlementRegistry::Has(const char* id) const noexcept {
 }
 
 /** 指定 id の entitlement が登録済みかつ active かを返す。 */
-bool FEntitlementRegistry::IsActive(const char* id) const noexcept {
+bool CEntitlementRegistry::IsActive(const char* id) const noexcept {
     if (id == nullptr) return false;
     const usize n = m_Infos.Size();
     for (usize i = 0; i < n; ++i) {
@@ -62,7 +62,7 @@ bool FEntitlementRegistry::IsActive(const char* id) const noexcept {
 }
 
 /** 指定 kind の active な entitlement を 1 件でも持っているかを返す。 */
-bool FEntitlementRegistry::HasAny(EEntitlementKind k) const noexcept {
+bool CEntitlementRegistry::HasAny(EEntitlementKind k) const noexcept {
     const usize n = m_Infos.Size();
     for (usize i = 0; i < n; ++i) {
         const FEntitlementInfo& e = m_Infos[i];
@@ -72,19 +72,19 @@ bool FEntitlementRegistry::HasAny(EEntitlementKind k) const noexcept {
 }
 
 /** 登録済み entitlement をすべて破棄する。 */
-void FEntitlementRegistry::Clear() noexcept {
+void CEntitlementRegistry::Clear() noexcept {
     m_Infos.Clear();
 }
 
 /** 登録済み entitlement の件数を返す。 */
-u32 FEntitlementRegistry::Count() const noexcept {
+u32 CEntitlementRegistry::Count() const noexcept {
     // TArray<T>::Size() は usize (= size_t) を返す。entitlement 件数は
     // 現実的に u32 範囲を超えないので、上位ビットを切り捨てる cast で十分。
     return static_cast<u32>(m_Infos.Size());
 }
 
 /** 登録済み entitlement の生バッファ先頭を返す (Count() 件の連続領域)。 */
-const FEntitlementInfo* FEntitlementRegistry::AllInfos() const noexcept {
+const FEntitlementInfo* CEntitlementRegistry::AllInfos() const noexcept {
     return m_Infos.Data();
 }
 

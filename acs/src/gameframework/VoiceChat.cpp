@@ -3,7 +3,7 @@
 //
 // 本 .cpp では `IVoiceChatBackend` の I/F 自体は提供せず、Steam Voice / EOS Voice
 // / Vivox / Discord / OpusSelf 各 SDK 未統合ビルドでも常に使える
-// `FVoiceChatBackendStub` のみを実装する。実 SDK を使う backend は SDK ヘッダ /
+// `CVoiceChatBackendStub` のみを実装する。実 SDK を使う backend は SDK ヘッダ /
 // ライブラリ依存を含むため、別モジュール (将来の `acs_voice_vivox` 等) で独立に
 // 実装し、本ファイルには持ち込まない。
 //
@@ -28,19 +28,19 @@
 namespace acs::game {
 
 /** DefaultAllocator を使うループバック backend を構築する。 */
-FVoiceChatLoopbackBackend::FVoiceChatLoopbackBackend() noexcept : FVoiceChatLoopbackBackend(DefaultAllocator())
+CVoiceChatLoopbackBackend::CVoiceChatLoopbackBackend() noexcept : CVoiceChatLoopbackBackend(DefaultAllocator())
 {
 }
 
 /** 指定 allocator を全チャンネルの可変長状態へ固定して構築する。 */
-FVoiceChatLoopbackBackend::FVoiceChatLoopbackBackend(FAllocator& allocator) noexcept
+CVoiceChatLoopbackBackend::CVoiceChatLoopbackBackend(FAllocator& allocator) noexcept
     : m_Allocator(&allocator),
       m_Channels{FChannel(allocator), FChannel(allocator), FChannel(allocator), FChannel(allocator)}
 {
 }
 
 /** provider を記録し m_Initialized を立てる (実 SDK 接続はしない)。 */
-TResult<void> FVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
+TResult<void> CVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
     // provider 選択は記録するが、Stub は SDK 接続を行わないので IsAvailable は
     // false のまま。多重 Init は明示的に許容 (テスト容易性のため)。
     m_Provider = p;
@@ -49,14 +49,14 @@ TResult<void> FVoiceChatBackendStub::Init(EVoiceProvider p) noexcept {
 }
 
 /** 状態を完全に初期値へ戻す (Init() 前に呼んでも安全)。 */
-void FVoiceChatBackendStub::Shutdown() noexcept {
+void CVoiceChatBackendStub::Shutdown() noexcept {
     // Init() 前に呼ばれても安全。状態は完全に初期値に戻す。
     m_Provider = EVoiceProvider::None;
     m_Initialized = false;
 }
 
 /** チャンネル参加 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<void> FVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
+TResult<void> CVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     (void)ch;
     (void)channel_id;
     if (!m_Initialized) {
@@ -68,7 +68,7 @@ TResult<void> FVoiceChatBackendStub::JoinChannel(EVoiceChannel ch, const char* c
 }
 
 /** チャンネル離脱 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<void> FVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
+TResult<void> CVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
     (void)ch;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -79,7 +79,7 @@ TResult<void> FVoiceChatBackendStub::LeaveChannel(EVoiceChannel ch) noexcept {
 }
 
 /** ローカルミュート (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<void> FVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
+TResult<void> CVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
     (void)muted;
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -90,7 +90,7 @@ TResult<void> FVoiceChatBackendStub::SetLocalMute(bool muted) noexcept {
 }
 
 /** 参加者ミュート (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<void> FVoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
+TResult<void> CVoiceChatBackendStub::SetParticipantMute(const char* user_id, bool muted) noexcept {
     (void)user_id;
     (void)muted;
     if (!m_Initialized) {
@@ -102,7 +102,7 @@ TResult<void> FVoiceChatBackendStub::SetParticipantMute(const char* user_id, boo
 }
 
 /** 参加者音量設定 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<void> FVoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
+TResult<void> CVoiceChatBackendStub::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
     (void)user_id;
     (void)volume;
     if (!m_Initialized) {
@@ -114,7 +114,7 @@ TResult<void> FVoiceChatBackendStub::SetParticipantVolume(const char* user_id, f
 }
 
 /** Stub では誰も join していない扱いで常に 0 を返す。 */
-u32 FVoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
+u32 CVoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
     (void)ch;
     // Stub は誰も join していない扱い。UI 側は 0 をそのまま「参加者なし」表示に
     // 反映できる。TResult を返さない設計なので未初期化との区別は意図的に省略。
@@ -122,7 +122,7 @@ u32 FVoiceChatBackendStub::ParticipantCount(EVoiceChannel ch) noexcept {
 }
 
 /** 参加者取得 (未初期化なら NotInitialized、それ以外は NotImplemented)。 */
-TResult<FVoiceParticipant> FVoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
+TResult<FVoiceParticipant> CVoiceChatBackendStub::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     (void)ch;
     (void)index;
     if (!m_Initialized) {
@@ -136,19 +136,19 @@ TResult<FVoiceParticipant> FVoiceChatBackendStub::GetParticipant(EVoiceChannel c
 }
 
 /** Stub は event pump を持たないので何もしない。 */
-void FVoiceChatBackendStub::Tick(f32 dt) noexcept {
+void CVoiceChatBackendStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は event pump を持たないので何もしない
 }
 
 /** Stub backend の Meyer's singleton を返す。 */
 IVoiceChatBackend& GetVoiceStub() noexcept {
     // C++11 以降、関数スコープ static の初期化は thread-safe。
-    static FVoiceChatBackendStub m_Instance;
+    static CVoiceChatBackendStub m_Instance;
     return m_Instance;
 }
 
 /** int16 PCM を magic+seq+count 付き framing に encode する (header+payload)。 */
-u32 FVoiceChatLoopbackBackend::EncodeFrame(const i16* pcm, u32 sample_count, u32 sequence,
+u32 CVoiceChatLoopbackBackend::EncodeFrame(const i16* pcm, u32 sample_count, u32 sequence,
                                            u8* out, u32 out_capacity) noexcept {
     if (out == nullptr) return 0;
     if (sample_count > kVoiceMaxFrameSamples) return 0;
@@ -173,7 +173,7 @@ u32 FVoiceChatLoopbackBackend::EncodeFrame(const i16* pcm, u32 sample_count, u32
 }
 
 /** framed バイト列を検証して int16 PCM を復元する (破損は FrameCorrupt)。 */
-TResult<u32> FVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
+TResult<u32> CVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
                                                     i16* out, u32 out_capacity) noexcept {
     if (in == nullptr || in_size < sizeof(FVoiceFrameHeader)) {
         return TResult<u32>(ACS_ERR(Generic, kSubVoiceFrameCorrupt,
@@ -208,7 +208,7 @@ TResult<u32> FVoiceChatLoopbackBackend::DecodeFrame(const u8* in, u32 in_size,
 }
 
 /** ch 内で user_id を線形検索する (見つからなければ size を返す)。 */
-u32 FVoiceChatLoopbackBackend::FindParticipant(const FChannel& c, const char* user_id) const noexcept {
+u32 CVoiceChatLoopbackBackend::FindParticipant(const FChannel& c, const char* user_id) const noexcept {
     if (user_id == nullptr) return static_cast<u32>(c.participants.Size());
     const FStringView want(user_id);
     for (usize i = 0; i < c.participants.Size(); ++i) {
@@ -218,7 +218,7 @@ u32 FVoiceChatLoopbackBackend::FindParticipant(const FChannel& c, const char* us
 }
 
 /** 1 フレームを encode して participant の rx_frames 末尾に append する。 */
-void FVoiceChatLoopbackBackend::EnqueueFrame(FLoopParticipant& p, const i16* pcm, u32 sample_count) noexcept {
+void CVoiceChatLoopbackBackend::EnqueueFrame(FLoopParticipant& p, const i16* pcm, u32 sample_count) noexcept {
     // この参加者の受信キュー末尾に 1 frame を append する。sequence は送信元
     // (= ローカル) ではなく「キュー所有者から見た到着順」として next_seq を使う。
     u8 staging[sizeof(FVoiceFrameHeader) + kVoiceMaxFrameSamples * sizeof(i16)];
@@ -233,7 +233,7 @@ void FVoiceChatLoopbackBackend::EnqueueFrame(FLoopParticipant& p, const i16* pcm
 }
 
 /** provider を記録し全チャンネルの状態をリセットする。 */
-TResult<void> FVoiceChatLoopbackBackend::Init(EVoiceProvider p) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::Init(EVoiceProvider p) noexcept {
     m_Provider     = p;
     m_Initialized  = true;
     m_LocalMuted   = false;
@@ -250,7 +250,7 @@ TResult<void> FVoiceChatLoopbackBackend::Init(EVoiceProvider p) noexcept {
 }
 
 /** 状態を初期値へ戻し全チャンネルをクリアする。 */
-void FVoiceChatLoopbackBackend::Shutdown() noexcept {
+void CVoiceChatLoopbackBackend::Shutdown() noexcept {
     m_Provider     = EVoiceProvider::None;
     m_Initialized  = false;
     m_LocalMuted   = false;
@@ -265,7 +265,7 @@ void FVoiceChatLoopbackBackend::Shutdown() noexcept {
 }
 
 /** joined フラグを立て channel_id を保持する。 */
-TResult<void> FVoiceChatLoopbackBackend::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::JoinChannel(EVoiceChannel ch, const char* channel_id) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::JoinChannel called before Init()");
@@ -280,7 +280,7 @@ TResult<void> FVoiceChatLoopbackBackend::JoinChannel(EVoiceChannel ch, const cha
 }
 
 /** joined を下ろし参加者・キュー・channel_id を破棄する。 */
-TResult<void> FVoiceChatLoopbackBackend::LeaveChannel(EVoiceChannel ch) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::LeaveChannel(EVoiceChannel ch) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::LeaveChannel called before Init()");
@@ -294,7 +294,7 @@ TResult<void> FVoiceChatLoopbackBackend::LeaveChannel(EVoiceChannel ch) noexcept
 }
 
 /** ローカルミュートフラグを設定する (送信抑止)。 */
-TResult<void> FVoiceChatLoopbackBackend::SetLocalMute(bool muted) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::SetLocalMute(bool muted) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::SetLocalMute called before Init()");
@@ -304,7 +304,7 @@ TResult<void> FVoiceChatLoopbackBackend::SetLocalMute(bool muted) noexcept {
 }
 
 /** 指定 user を全チャンネル横断で mute する。 */
-TResult<void> FVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id, bool muted) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id, bool muted) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::SetParticipantMute called before Init()");
@@ -331,7 +331,7 @@ TResult<void> FVoiceChatLoopbackBackend::SetParticipantMute(const char* user_id,
 }
 
 /** 指定 user の音量を全チャンネル横断で 0.0〜2.0 に clamp して設定する。 */
-TResult<void> FVoiceChatLoopbackBackend::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::SetParticipantVolume(const char* user_id, f32 volume) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::SetParticipantVolume called before Init()");
@@ -362,7 +362,7 @@ TResult<void> FVoiceChatLoopbackBackend::SetParticipantVolume(const char* user_i
 }
 
 /** join 済みチャンネルの参加者数を返す (未 join は 0)。 */
-u32 FVoiceChatLoopbackBackend::ParticipantCount(EVoiceChannel ch) noexcept {
+u32 CVoiceChatLoopbackBackend::ParticipantCount(EVoiceChannel ch) noexcept {
     if (!m_Initialized) return 0;
     const FChannel& c = Chan(ch);
     if (!c.joined) return 0;
@@ -370,7 +370,7 @@ u32 FVoiceChatLoopbackBackend::ParticipantCount(EVoiceChannel ch) noexcept {
 }
 
 /** index 番目の参加者を VoiceParticipant に詰めて返す。 */
-TResult<FVoiceParticipant> FVoiceChatLoopbackBackend::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
+TResult<FVoiceParticipant> CVoiceChatLoopbackBackend::GetParticipant(EVoiceChannel ch, u32 index) noexcept {
     if (!m_Initialized) {
         return TResult<FVoiceParticipant>(
             ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -399,14 +399,14 @@ TResult<FVoiceParticipant> FVoiceChatLoopbackBackend::GetParticipant(EVoiceChann
 }
 
 /** ループバックは event pump を持たないので何もしない。 */
-void FVoiceChatLoopbackBackend::Tick(f32 dt) noexcept {
+void CVoiceChatLoopbackBackend::Tick(f32 dt) noexcept {
     // ループバックは event pump を持たないが、I/F 契約 (毎フレーム呼ぶ) は守る。
     // 将来 jitter buffer の経時 drain 等を入れる余地として dt を受ける。
     (void)dt;
 }
 
 /** 参加者を ch に追加する (既存 user は表示名のみ更新する冪等扱い)。 */
-TResult<void> FVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const char* user_id,
+TResult<void> CVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const char* user_id,
                                                         const char* display_name) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -439,7 +439,7 @@ TResult<void> FVoiceChatLoopbackBackend::AddParticipant(EVoiceChannel ch, const 
 }
 
 /** 参加者を swap-remove で取り除き pump_target を補正する。 */
-TResult<void> FVoiceChatLoopbackBackend::RemoveParticipant(EVoiceChannel ch, const char* user_id) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::RemoveParticipant(EVoiceChannel ch, const char* user_id) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::RemoveParticipant called before Init()");
@@ -464,7 +464,7 @@ TResult<void> FVoiceChatLoopbackBackend::RemoveParticipant(EVoiceChannel ch, con
 }
 
 /** pump 対象を指定 user の index に切り替える。 */
-TResult<void> FVoiceChatLoopbackBackend::SetPumpTarget(EVoiceChannel ch, const char* user_id) noexcept {
+TResult<void> CVoiceChatLoopbackBackend::SetPumpTarget(EVoiceChannel ch, const char* user_id) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
                        "FVoiceChatLoopbackBackend::SetPumpTarget called before Init()");
@@ -480,7 +480,7 @@ TResult<void> FVoiceChatLoopbackBackend::SetPumpTarget(EVoiceChannel ch, const c
 }
 
 /** rx_frames を header 単位に辿り、溜まっているフレーム数を数える。 */
-u32 FVoiceChatLoopbackBackend::PendingFrameCount(EVoiceChannel ch, const char* user_id) noexcept {
+u32 CVoiceChatLoopbackBackend::PendingFrameCount(EVoiceChannel ch, const char* user_id) noexcept {
     if (!m_Initialized) return 0;
     FChannel& c = Chan(ch);
     const u32 idx = FindParticipant(c, user_id);
@@ -505,7 +505,7 @@ u32 FVoiceChatLoopbackBackend::PendingFrameCount(EVoiceChannel ch, const char* u
 }
 
 /** RMS/peak を算出し、ミュートでなければ自分以外の全参加者へ enqueue する。 */
-TResult<void> FVoiceChatLoopbackBackend::PushLocalFrame(EVoiceChannel ch, const i16* pcm,
+TResult<void> CVoiceChatLoopbackBackend::PushLocalFrame(EVoiceChannel ch, const i16* pcm,
                                                         u32 sample_count) noexcept {
     if (!m_Initialized) {
         return ACS_ERR(Generic, kSubVoiceNotInitialized,
@@ -567,7 +567,7 @@ TResult<void> FVoiceChatLoopbackBackend::PushLocalFrame(EVoiceChannel ch, const 
 }
 
 /** float [-1,1] を対称量子化で int16 化し PushLocalFrame に合流する。 */
-TResult<void> FVoiceChatLoopbackBackend::PushLocalFrameF32(EVoiceChannel ch, const f32* pcm,
+TResult<void> CVoiceChatLoopbackBackend::PushLocalFrameF32(EVoiceChannel ch, const f32* pcm,
                                                            u32 sample_count) noexcept {
     if (sample_count > kVoiceMaxFrameSamples) {
         return ACS_ERR(Generic, kSubVoiceBadArgument,
@@ -593,7 +593,7 @@ TResult<void> FVoiceChatLoopbackBackend::PushLocalFrameF32(EVoiceChannel ch, con
 }
 
 /** pump 対象の受信キューを decode・gain して N-way mix し out へ clamp 書き込む。 */
-u32 FVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity) noexcept {
+u32 CVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 out_capacity) noexcept {
     if (!m_Initialized || out == nullptr || out_capacity == 0) return 0;
     FChannel& c = Chan(ch);
     if (!c.joined) return 0;
@@ -667,7 +667,7 @@ u32 FVoiceChatLoopbackBackend::PumpMixedOutput(EVoiceChannel ch, i16* out, u32 o
 }
 
 /** ループバック backend の Meyer's singleton を返す。 */
-FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
+CVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
     struct FVoiceLoopbackState {
         FVoiceLoopbackState() noexcept : backend(allocator)
         {
@@ -675,7 +675,7 @@ FVoiceChatLoopbackBackend& GetVoiceLoopback() noexcept {
 
         // backend を先に破棄してから allocator を破棄する宣言順にする。
         FSystemAllocator allocator;
-        FVoiceChatLoopbackBackend backend;
+        CVoiceChatLoopbackBackend backend;
     };
     static FVoiceLoopbackState s_state;
     return s_state.backend;

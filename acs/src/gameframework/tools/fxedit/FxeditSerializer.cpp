@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Tools — `.fxedit` テキストシリアライザ実装
 //
-// テキスト形式の詳細仕様は FFxeditSerializer.h を参照。
+// テキスト形式の詳細仕様は CFxeditSerializer.h を参照。
 //
 // 実装の主な決定:
 //   ・I/O は Win32 handle を直接使い、完全 read と durable atomic replace を保証する。
@@ -136,10 +136,10 @@ bool AppendNameLine(TArray<char>& out,
     char line[96];
     const char* safe_name = name != nullptr ? name : "";
     // 簡素化のため、name 内の `"` は `'` に置き換える防御。
-    char sanitized[FFxeditSerializer::kMaxEmitterName + 1];
+    char sanitized[CFxeditSerializer::kMaxEmitterName + 1];
     usize j = 0;
     for (usize i = 0;
-         safe_name[i] != '\0' && j < FFxeditSerializer::kMaxEmitterName;
+         safe_name[i] != '\0' && j < CFxeditSerializer::kMaxEmitterName;
          ++i) {
         char c = safe_name[i];
         if (!IsAsciiPrintable(c) || c == '"') c = '_';
@@ -200,7 +200,7 @@ u32 ParseMagicLine(const char* line) noexcept {
     const char* p = line;
     // 先頭の空白スキップ。
     while (*p == ' ' || *p == '\t') ++p;
-    const char* magic = FFxeditSerializer::kMagic;
+    const char* magic = CFxeditSerializer::kMagic;
     usize mlen = 0;
     while (magic[mlen] != '\0') ++mlen;
     if (std::strncmp(p, magic, mlen) != 0) return 0;
@@ -407,8 +407,8 @@ EFxeditSerializeError ValidateEmitterDef(const FParticleEmitterDef& def) noexcep
 EFxeditSerializeError ValidateEmitterName(const char* name) noexcept {
     if (name == nullptr) return EFxeditSerializeError::None;
     const usize length =
-        StrLenBounded(name, FFxeditSerializer::kMaxEmitterName + 1u);
-    if (length > FFxeditSerializer::kMaxEmitterName) {
+        StrLenBounded(name, CFxeditSerializer::kMaxEmitterName + 1u);
+    if (length > CFxeditSerializer::kMaxEmitterName) {
         return EFxeditSerializeError::NameTooLong;
     }
     for (usize i = 0u; i < length; ++i) {
@@ -421,24 +421,24 @@ EFxeditSerializeError ValidateEmitterName(const char* name) noexcept {
 
 u16 LegacySubCode(EFxeditSerializeError error) noexcept {
     switch (error) {
-        case EFxeditSerializeError::None: return FFxeditSerializer::kSub_OK;
+        case EFxeditSerializeError::None: return CFxeditSerializer::kSub_OK;
         case EFxeditSerializeError::NullArgument:
         case EFxeditSerializeError::PathTooLong:
-            return FFxeditSerializer::kSub_NullArgs;
+            return CFxeditSerializer::kSub_NullArgs;
         case EFxeditSerializeError::TooManyEmitters:
-            return FFxeditSerializer::kSub_TooManyEmitters;
+            return CFxeditSerializer::kSub_TooManyEmitters;
         case EFxeditSerializeError::BufferTooSmall:
-            return FFxeditSerializer::kSub_BufferOverflow;
+            return CFxeditSerializer::kSub_BufferOverflow;
         case EFxeditSerializeError::BadMagic:
-            return FFxeditSerializer::kSub_BadMagic;
+            return CFxeditSerializer::kSub_BadMagic;
         case EFxeditSerializeError::UnsupportedVersion:
-            return FFxeditSerializer::kSub_BadVersion;
+            return CFxeditSerializer::kSub_BadVersion;
         case EFxeditSerializeError::FileNotFound:
-            return FFxeditSerializer::kSub_FileNotFound;
+            return CFxeditSerializer::kSub_FileNotFound;
         case EFxeditSerializeError::AllocationFailure:
-            return FFxeditSerializer::kSub_AllocationFailure;
+            return CFxeditSerializer::kSub_AllocationFailure;
         case EFxeditSerializeError::AtomicReplaceFailed:
-            return FFxeditSerializer::kSub_AtomicReplace;
+            return CFxeditSerializer::kSub_AtomicReplace;
         case EFxeditSerializeError::FileOpenFailed:
         case EFxeditSerializeError::FileSizeFailed:
         case EFxeditSerializeError::FileChanged:
@@ -446,9 +446,9 @@ u16 LegacySubCode(EFxeditSerializeError error) noexcept {
         case EFxeditSerializeError::FileWriteFailed:
         case EFxeditSerializeError::FileFlushFailed:
         case EFxeditSerializeError::FileCloseFailed:
-            return FFxeditSerializer::kSub_IOFailure;
+            return CFxeditSerializer::kSub_IOFailure;
         default:
-            return FFxeditSerializer::kSub_ValidationFailed;
+            return CFxeditSerializer::kSub_ValidationFailed;
     }
 }
 
@@ -491,7 +491,7 @@ bool TryPosixAtomicReplace(
     constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, file_name);
     alignas(FFileRenameInfoEx)
         u8 storage[kPrefixBytes +
-                   (FFxeditSerializer::kMaxPathChars + 1u) * sizeof(wchar_t)]{};
+                   (CFxeditSerializer::kMaxPathChars + 1u) * sizeof(wchar_t)]{};
     auto* info = reinterpret_cast<FFileRenameInfoEx*>(storage);
     const usize destination_bytes = destination_length * sizeof(wchar_t);
     info->flags = kRenameReplaceIfExists | kRenamePosixSemantics;
@@ -519,14 +519,14 @@ bool TryPosixAtomicReplace(
 } // namespace
 
 /** ' ' / '\t' / '\r' / '\n' を読み飛ばす (NUL で停止)。 */
-const char* FFxeditSerializer::SkipWhitespace(const char* p) noexcept {
+const char* CFxeditSerializer::SkipWhitespace(const char* p) noexcept {
     if (p == nullptr) return nullptr;
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') ++p;
     return p;
 }
 
 /** "<key> v0 [v1] [v2] [v3]" を構文解析する (空スロットは 0.0f)。 */
-bool FFxeditSerializer::ParseLine(const char*  line,
+bool CFxeditSerializer::ParseLine(const char*  line,
                                  const char*& out_key,
                                  f32&         out_v0,
                                  f32&         out_v1,
@@ -557,7 +557,7 @@ bool FFxeditSerializer::ParseLine(const char*  line,
 }
 
 /** 先頭の非空行で magic + version を検査し、version を返す (失敗時 0)。 */
-u32 FFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcept {
+u32 CFxeditSerializer::ParseHeaderVersion(const char* text, u32 text_len) noexcept {
     if (text == nullptr || text_len == 0u) return 0u;
     if (std::memchr(text, '\0', text_len) != nullptr) return 0u;
     char line[kMaxLineLength + 1];
@@ -608,7 +608,7 @@ const char* FFxeditSerializeResult::ErrorName(EFxeditSerializeError error) noexc
     return "Unknown";
 }
 
-FFxeditSerializeResult FFxeditSerializer::TryParseText(
+FFxeditSerializeResult CFxeditSerializer::TryParseText(
     const char* text,
     usize text_size,
     FParticleEmitterDef* out_defs,
@@ -899,7 +899,7 @@ FFxeditSerializeResult FFxeditSerializer::TryParseText(
     return result;
 }
 
-FFxeditSerializeResult FFxeditSerializer::TryLoad(
+FFxeditSerializeResult CFxeditSerializer::TryLoad(
     const wchar_t* file_path,
     FParticleEmitterDef* out_defs,
     char* out_name_buffer,
@@ -1001,7 +1001,7 @@ FFxeditSerializeResult FFxeditSerializer::TryLoad(
     return result;
 }
 
-FFxeditSerializeResult FFxeditSerializer::TrySave(
+FFxeditSerializeResult CFxeditSerializer::TrySave(
     const wchar_t* file_path,
     const FParticleEmitterDef* defs,
     const char* const* names,
@@ -1172,7 +1172,7 @@ FFxeditSerializeResult FFxeditSerializer::TrySave(
     return result;
 }
 
-TResult<void, FErrorCode> FFxeditSerializer::Save(
+TResult<void, FErrorCode> CFxeditSerializer::Save(
     const wchar_t* file_path,
     const FParticleEmitterDef* defs,
     const char* const* names,
@@ -1184,7 +1184,7 @@ TResult<void, FErrorCode> FFxeditSerializer::Save(
         "FFxeditSerializer::Save: checked save failed", result.os_error);
 }
 
-TResult<u32, FErrorCode> FFxeditSerializer::Load(
+TResult<u32, FErrorCode> CFxeditSerializer::Load(
     const wchar_t* file_path,
     FParticleEmitterDef* out_defs,
     char* out_name_buffer,

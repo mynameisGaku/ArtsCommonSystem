@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSequence / FSequenceRunner
+// GameFramework Pillar C — FSequence / CSequenceRunner
 //
 // 時間付きアクションの連鎖 (cutscene / 出現ウェーブ / scripted UI 等)。
 //   `seq.Wait(0.5f).Call(my_fn, user).Tween(&x, 0, 100, 1.0f).Loop(0)`
-// のようなビルダーで定義し、FSequenceRunner::Start(Move(seq)) で実行開始。
+// のようなビルダーで定義し、CSequenceRunner::Start(Move(seq)) で実行開始。
 //
 // 設計選択:
 //   ・パラレル合成 (`Parallel(sub)`) は未実装。複数 FSequence を Runner に
 //     並列で Start すれば事実上のパラレルになる。
 //   ・コールバックは `void(*)(void*)` 関数ポインタ。ACS 規約 (std::function 不使用)。
-//   ・tween 処理は FSequence 内蔵 (FTweenManager に委譲しない) — sequence の進行
+//   ・tween 処理は FSequence 内蔵 (CTweenManager に委譲しない) — sequence の進行
 //     時間と一体化させたいため。完了時は最終値を正確に書く。
 //
 // 使い方:
-//   class FTitleScene : public FScene {
-//       FSequenceRunner m_Seqs;
+//   class FTitleScene : public AScene {
+//       CSequenceRunner m_Seqs;
 //       FVec3 m_LogoColor;
 //       void OnEnter() noexcept override {
 //           FSequence s;
@@ -112,7 +112,7 @@ struct FSeqAction {
  * 時間付きアクションの連鎖を builder パターンで構築するシーケンス。
  *
  * @details
- * Wait / Call / FTween を連鎖して定義し、FSequenceRunner::Start に Move して実行する。
+ * Wait / Call / FTween を連鎖して定義し、CSequenceRunner::Start に Move して実行する。
  * non-copy だが move 可能 (Runner が所有権を奪うため)。
  */
 class FSequence {
@@ -292,19 +292,19 @@ struct FSeqHandle {
  * Start で FSequence の所有権を奪ってスロットに格納し、毎フレーム Tick で全スロットを
  * 進める。スロットは世代付きで再利用される。非コピー。
  */
-class FSequenceRunner {
+class CSequenceRunner {
 public:
     /** 空のランナーを構築する。 */
-    FSequenceRunner() noexcept = default;
+    CSequenceRunner() noexcept = default;
 
     /** 破棄する。 */
-    ~FSequenceRunner() noexcept = default;
+    ~CSequenceRunner() noexcept = default;
 
     /** コピー禁止。 */
-    FSequenceRunner(const FSequenceRunner&)            = delete;
+    CSequenceRunner(const CSequenceRunner&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSequenceRunner& operator=(const FSequenceRunner&) = delete;
+    CSequenceRunner& operator=(const CSequenceRunner&) = delete;
 
     /**
      * FSequence の所有権を奪って実行を開始する。
@@ -322,7 +322,7 @@ public:
      */
     void Cancel(FSeqHandle h) noexcept;
 
-    /** 全シーケンスを破棄する (FScene::OnExit などで使う)。 */
+    /** 全シーケンスを破棄する (AScene::OnExit などで使う)。 */
     void CancelAll() noexcept;
 
     /**
@@ -343,7 +343,7 @@ public:
     /**
      * 全シーケンスを 1 フレーム進める。
      *
-     * @details FScene::OnUpdate から FSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
+     * @details AScene::OnUpdate から CSceneClock::Dt() を渡して毎フレーム呼ぶ想定。
      * @param dt 前フレームからの経過秒。
      * @note 非有限の dt は無視し、easing の非有限な戻り値は Linear にフォールバックする。
      * 補間演算が非有限になったフレームは target を変更しない。
@@ -405,5 +405,8 @@ private:
     /** 実行中スロット数。 */
     u32         m_ActiveCount = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSequenceRunner = CSequenceRunner;
 
 } // namespace acs::game

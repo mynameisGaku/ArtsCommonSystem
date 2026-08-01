@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — FAchievementManager (実績の定義 + 進捗 + Storefront 統合)
+// GameFramework Pillar S — CAchievementManager (実績の定義 + 進捗 + Storefront 統合)
 //
 // ゲームロジック側から「ボス撃破、隠しエンディング到達、累計 100km 歩いた」等の
 // 進捗を Achievement に流し込み、max_progress に達したら自動 unlock + プラット
@@ -9,7 +9,7 @@
 // オフラインモードで動作する (テスト / Demo build 用)。
 //
 // 使い方:
-//   FAchievementManager am;
+//   CAchievementManager am;
 //
 //   // ゲーム起動時に全実績を 1 度だけ登録 (= 定義)。
 //   am.RegisterAchievement({ "ACH_BOSS_01",       "First Boss",   "...", 1,    false });
@@ -17,7 +17,7 @@
 //   am.RegisterAchievement({ "ACH_SECRET_ENDING", "True Ending",  "...", 1,    true  });
 //
 //   // (任意) Storefront SDK を attach。null で detach 可。
-//   am.AttachSteamworks(&acs::game::FSteamworksBridgeStub::GetStub());
+//   am.AttachSteamworks(&acs::game::CSteamworksBridgeStub::GetStub());
 //
 //   // ゲームロジック内で進捗更新。
 //   am.IncrementProgress("ACH_WALK_100KM", 1);     // 1km 歩いた
@@ -51,7 +51,7 @@
 //   ・**unlock_timestamp は起動からの ms**: 永続化 (Pillar J Serialize) と合わせ
 //     て使う想定だが、「起動以降のみ意味を持つ」相対時間で十分。
 //   ・**重複登録は黙って弾く**: 同 id を 2 度 RegisterAchievement しても 2 回目は
-//     no-op。アセット二重ロード時の安全側挙動 (FModRegistry と揃える)。
+//     no-op。アセット二重ロード時の安全側挙動 (CModRegistry と揃える)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
 //
 // 範囲外:
@@ -130,25 +130,25 @@ struct FAchievementProgress {
  * を別 TArray に 1:1 で持ち、id の線形検索で参照する。Bridge 未 attach 時はローカル進捗のみ
  * 追跡するオフラインモードで動作する。全 noexcept・非コピー・非ムーブ。
  */
-class FAchievementManager {
+class CAchievementManager {
 public:
     /** 空のマネージャを構築する (実績は RegisterAchievement で登録)。 */
-    FAchievementManager()  noexcept = default;
+    CAchievementManager()  noexcept = default;
 
     /** 破棄する (実績配列は TArray が解放、Bridge は所有しないため触らない)。 */
-    ~FAchievementManager() noexcept = default;
+    ~CAchievementManager() noexcept = default;
 
     /** コピー禁止 (Manager は唯一の状態 holder として扱うため)。 */
-    FAchievementManager(const FAchievementManager&)            = delete;
+    CAchievementManager(const CAchievementManager&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAchievementManager& operator=(const FAchievementManager&) = delete;
+    CAchievementManager& operator=(const CAchievementManager&) = delete;
 
     /** ムーブ禁止。 */
-    FAchievementManager(FAchievementManager&&)                 = delete;
+    CAchievementManager(CAchievementManager&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAchievementManager& operator=(FAchievementManager&&)      = delete;
+    CAchievementManager& operator=(CAchievementManager&&)      = delete;
 
     /**
      * 実績定義を登録する (起動時に 1 度ずつ呼ぶ)。
@@ -289,5 +289,8 @@ private:
     /** Bridge 注入用 raw ポインタ (所有しない、寿命は呼出側責務)。 */
     ISteamworksBridge* m_Bridge = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAchievementManager = CAchievementManager;
 
 } // namespace acs::game

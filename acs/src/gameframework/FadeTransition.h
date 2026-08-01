@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FFadeTransition — シーン切替フェード演出の state holder
+// CFadeTransition — シーン切替フェード演出の state holder
 //
 // シーン切替時のフェード演出を司る **state holder**。描画自体は行わず、
 // 現在の overlay alpha / color と phase だけを提供する。ユーザー側で
@@ -8,8 +8,8 @@
 // フラッシュ・クロスフェードが成立する。
 //
 // 使い方:
-//   class FTitleScene : public FScene {
-//       acs::game::FFadeTransition m_Fade;
+//   class FTitleScene : public AScene {
+//       acs::game::CFadeTransition m_Fade;
 //       void OnEnter() noexcept override {
 //           // 画面が黒から徐々に明けるフェードイン
 //           m_Fade.StartFade(EFadeKind::FadeIn, /*out=*/0.0f, /*in=*/0.5f);
@@ -110,25 +110,25 @@ enum class EFadePhase : u32 {
  * ユーザー側で fullscreen quad を「色 = OverlayColor()、alpha = OverlayAlpha()」で
  * 描くことでフェードイン・アウト・クロスフェードが成立する。非コピー・非ムーブ。
  */
-class FFadeTransition {
+class CFadeTransition {
 public:
     /** Idle 状態で構築する。 */
-    FFadeTransition() noexcept = default;
+    CFadeTransition() noexcept = default;
 
     /** 破棄する。 */
-    ~FFadeTransition() noexcept = default;
+    ~CFadeTransition() noexcept = default;
 
     /** コピー禁止 (state holder なので所有権移転に意味がないため)。 */
-    FFadeTransition(const FFadeTransition&)            = delete;
+    CFadeTransition(const CFadeTransition&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFadeTransition& operator=(const FFadeTransition&) = delete;
+    CFadeTransition& operator=(const CFadeTransition&) = delete;
 
     /** ムーブ禁止。 */
-    FFadeTransition(FFadeTransition&&)                 = delete;
+    CFadeTransition(CFadeTransition&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFadeTransition& operator=(FFadeTransition&&)      = delete;
+    CFadeTransition& operator=(CFadeTransition&&)      = delete;
 
     /**
      * フェードを開始する。
@@ -240,5 +240,8 @@ private:
     /** MidPause を 1 Tick 観測済みか (mid_pause=0 でも 1 Tick 保証用)。 */
     bool m_MidPauseConsumed = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFadeTransition = CFadeTransition;
 
 } // namespace acs::game

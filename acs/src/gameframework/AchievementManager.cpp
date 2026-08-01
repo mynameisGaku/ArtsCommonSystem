@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar S — FAchievementManager 実装
+// GameFramework Pillar S — CAchievementManager 実装
 //
 // 設計上のポイント:
 //   ・id 比較は const char* per-byte 比較。STL <string> / <cstring> 不使用。
@@ -46,7 +46,7 @@ constexpr u32 kNotFound = ~static_cast<u32>(0);
 } // namespace
 
 /** id 文字列を全実績から線形検索し、index か kNotFound を返す。 */
-u32 FAchievementManager::FindIndex(const char* id) const noexcept {
+u32 CAchievementManager::FindIndex(const char* id) const noexcept {
     if (id == nullptr) return kNotFound;
     const usize n = m_Defs.Size();
     for (usize i = 0; i < n; ++i) {
@@ -56,7 +56,7 @@ u32 FAchievementManager::FindIndex(const char* id) const noexcept {
 }
 
 /** 内部 unlock 共通処理 (進捗を max に固定し、timestamp 記録と Bridge 送信を行う)。 */
-void FAchievementManager::UnlockInternal(u32 index) noexcept {
+void CAchievementManager::UnlockInternal(u32 index) noexcept {
     // 呼出側で index 有効性は保証済 (FindIndex から流れてくる) だが、
     // 念のため範囲チェック (Reset 等経由のレースに備える保険)。
     if (static_cast<usize>(index) >= m_Progress.Size()) return;
@@ -82,7 +82,7 @@ void FAchievementManager::UnlockInternal(u32 index) noexcept {
 }
 
 /** 実績定義を登録する (重複 id / nullptr は弾き、max_progress=0 は 1 に丸める)。 */
-void FAchievementManager::RegisterAchievement(const FAchievementDef& def) noexcept {
+void CAchievementManager::RegisterAchievement(const FAchievementDef& def) noexcept {
     // defensive: id == nullptr は意味を持たないので静かに弾く。
     if (def.id == nullptr) return;
 
@@ -108,7 +108,7 @@ void FAchievementManager::RegisterAchievement(const FAchievementDef& def) noexce
 }
 
 /** 進捗を絶対値で設定し、max 到達なら自動 unlock する。 */
-void FAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
+void CAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
 
@@ -125,7 +125,7 @@ void FAchievementManager::SetProgress(const char* id, u32 progress) noexcept {
 }
 
 /** 進捗を delta 加算し、オーバーフロー / 上限超過を max にクランプして自動 unlock する。 */
-void FAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept {
+void CAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
 
@@ -149,14 +149,14 @@ void FAchievementManager::IncrementProgress(const char* id, u32 delta) noexcept 
 }
 
 /** id を検索して即時 unlock する (見つからなければ no-op)。 */
-void FAchievementManager::Unlock(const char* id) noexcept {
+void CAchievementManager::Unlock(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
     UnlockInternal(idx);
 }
 
 /** 単一実績の進捗を初期化する (Bridge 側のリセットは行わない)。 */
-void FAchievementManager::Reset(const char* id) noexcept {
+void CAchievementManager::Reset(const char* id) noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return;
     FAchievementProgress& p = m_Progress[idx];
@@ -167,7 +167,7 @@ void FAchievementManager::Reset(const char* id) noexcept {
 }
 
 /** 全実績の進捗を初期化する。 */
-void FAchievementManager::ResetAll() noexcept {
+void CAchievementManager::ResetAll() noexcept {
     const usize n = m_Progress.Size();
     for (usize i = 0; i < n; ++i) {
         FAchievementProgress& p = m_Progress[i];
@@ -178,26 +178,26 @@ void FAchievementManager::ResetAll() noexcept {
 }
 
 /** 実績が unlock 済みかを返す (id が無ければ false)。 */
-bool FAchievementManager::IsUnlocked(const char* id) const noexcept {
+bool CAchievementManager::IsUnlocked(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return false;
     return m_Progress[idx].unlocked;
 }
 
 /** 実績の現在進捗を返す (id が無ければ 0)。 */
-u32 FAchievementManager::GetProgress(const char* id) const noexcept {
+u32 CAchievementManager::GetProgress(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return 0;
     return m_Progress[idx].current_progress;
 }
 
 /** 登録済み実績の総数を返す。 */
-u32 FAchievementManager::TotalCount() const noexcept {
+u32 CAchievementManager::TotalCount() const noexcept {
     return static_cast<u32>(m_Progress.Size());
 }
 
 /** unlock 済み実績の数を数えて返す。 */
-u32 FAchievementManager::UnlockedCount() const noexcept {
+u32 CAchievementManager::UnlockedCount() const noexcept {
     u32 c = 0;
     const usize n = m_Progress.Size();
     for (usize i = 0; i < n; ++i) {
@@ -207,26 +207,26 @@ u32 FAchievementManager::UnlockedCount() const noexcept {
 }
 
 /** 単一実績の状態ポインタを返す (id が無ければ nullptr)。 */
-const FAchievementProgress* FAchievementManager::GetState(const char* id) const noexcept {
+const FAchievementProgress* CAchievementManager::GetState(const char* id) const noexcept {
     const u32 idx = FindIndex(id);
     if (idx == kNotFound) return nullptr;
     return &m_Progress[idx];
 }
 
 /** 全実績状態の生バッファを返し、件数を out_count に書き出す。 */
-const FAchievementProgress* FAchievementManager::AllStates(u32& out_count) const noexcept {
+const FAchievementProgress* CAchievementManager::AllStates(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Progress.Size());
     return m_Progress.Data();
 }
 
 /** Storefront SDK ブリッジを attach / detach する (nullptr で detach)。 */
-void FAchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
+void CAchievementManager::AttachSteamworks(ISteamworksBridge* bridge) noexcept {
     // nullptr で detach は明示的に許可 (オフラインモードへ戻す)。
     m_Bridge = bridge;
 }
 
 /** 毎フレーム更新フック (現状は完全に no-op の予約点)。 */
-void FAchievementManager::Tick(f32 dt) noexcept {
+void CAchievementManager::Tick(f32 dt) noexcept {
     // 現状は完全 no-op。「累計時間系実績」を内蔵する場合の予約点。
     (void)dt;
 }

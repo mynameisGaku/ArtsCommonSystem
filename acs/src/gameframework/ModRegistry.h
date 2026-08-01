@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FModRegistry (Mod 読み込み順管理)
+// GameFramework Pillar N — CModRegistry (Mod 読み込み順管理)
 //
 // ユーザー Mod (= 追加コンテンツパック) の登録・有効化・並び順管理を行う薄い
 // レジストリ。各 Mod は `.acpak` (Pillar G AssetPack 形式) を 1 つ伴うことが
@@ -7,7 +7,7 @@
 // (後勝ち = load_order 大きい方が前段の同名アセットを上書き) 想定。
 //
 // 使い方:
-//   FModRegistry mr;
+//   CModRegistry mr;
 //   FModInfo a{};
 //   a.id         = "core";
 //   a.name       = "Core Pack";
@@ -107,25 +107,25 @@ struct FModInfo {
  * 所有せず呼び出し側の寿命に依存する。1 ゲーム寿命に 1 インスタンスのみを想定し
  * non-copy / non-move とする。
  */
-class FModRegistry {
+class CModRegistry {
 public:
     /** 空のレジストリを構築する。 */
-    FModRegistry() noexcept = default;
+    CModRegistry() noexcept = default;
 
     /** 破棄する (内部 TArray が解放される)。 */
-    ~FModRegistry() noexcept = default;
+    ~CModRegistry() noexcept = default;
 
     /** コピー禁止 (active な Registry を一意にするため)。 */
-    FModRegistry(const FModRegistry&)            = delete;
+    CModRegistry(const CModRegistry&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModRegistry& operator=(const FModRegistry&) = delete;
+    CModRegistry& operator=(const CModRegistry&) = delete;
 
     /** ムーブ禁止。 */
-    FModRegistry(FModRegistry&&)                 = delete;
+    CModRegistry(CModRegistry&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModRegistry& operator=(FModRegistry&&)      = delete;
+    CModRegistry& operator=(CModRegistry&&)      = delete;
 
     /**
      * Mod を内部リストの末尾に登録する。
@@ -207,5 +207,8 @@ private:
     /** 登録済み Mod の配列 (登録順、SortByLoadOrder で並べ替え)。 */
     TArray<FModInfo> m_Mods;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FModRegistry = CModRegistry;
 
 } // namespace acs::game

@@ -23,14 +23,14 @@
 //   slot.Save(profile);
 //
 // 設計方針:
-//   ・**バイナリ format**: FSaveArchive (`.acssave`、24B header + payload + crc) に
+//   ・**バイナリ format**: CSaveArchive (`.acssave`、24B header + payload + crc) に
 //     委譲する。詳細は gameframework/SaveArchive.h を参照。
 //   ・**スキーマ進化耐性**: T を直接 memcpy で書く current design は schema 固定
-//     な T 専用。FSaveArchive の version パラメータを使って schema 変更を検知できる
+//     な T 専用。CSaveArchive の version パラメータを使って schema 変更を検知できる
 //     (デフォルト version=1)。version 不一致時は FErrorCode.subcode に
 //     ESaveArchiveSubCode::kSubMigrationNeeded が入る。
 //   ・**例外なし**: 全 noexcept、エラーは TResult<T, FErrorCode> で伝搬する。
-//   ・**STL 不使用**: container 依存も無し。ファイル I/O は FSaveArchive 経由
+//   ・**STL 不使用**: container 依存も無し。ファイル I/O は CSaveArchive 経由
 //     (Win32 直叩き) に委譲。
 #pragma once
 
@@ -48,9 +48,9 @@ namespace acs::game {
  * 単一の trivially-copyable な POD/struct T を 1 ファイルに永続化するセーブスロット。
  *
  * @details
- * `.acssave` バイナリ形式 (FSaveArchive、24B header + payload + crc) に保存・復元を
+ * `.acssave` バイナリ形式 (CSaveArchive、24B header + payload + crc) に保存・復元を
  * 委譲する。タイトル画面の continue/new game 判定、オプション設定、進捗データ等の
- * 土台となる。T は trivially_copyable かつ FSaveArchive の payload 安全上限以下で
+ * 土台となる。T は trivially_copyable かつ CSaveArchive の payload 安全上限以下で
  * あることをコンパイル時に検証する。例外なし (全 noexcept)、STL 不使用、
  * ファイルパスは非所有ポインタで保持する。
  * @tparam T 永続化する trivially-copyable な POD/struct 型。
@@ -60,7 +60,7 @@ class TSaveSlot {
 public:
     static_assert(IsTriviallyCopyableV<T>,
                   "TSaveSlot<T> requires a trivially-copyable payload type");
-    static_assert(sizeof(T) <= FSaveArchive::kMaxPayloadSize,
+    static_assert(sizeof(T) <= CSaveArchive::kMaxPayloadSize,
                   "TSaveSlot<T> payload exceeds FSaveArchive safety limit");
 
     /** 空状態で構築する (ファイルパス未設定)。 */
@@ -113,11 +113,11 @@ public:
         }
 
         usize path_chars = 0;
-        while (path_chars <= FSaveArchive::kMaxPathChars &&
+        while (path_chars <= CSaveArchive::kMaxPathChars &&
                file_path[path_chars] != L'\0') {
             ++path_chars;
         }
-        if (path_chars > FSaveArchive::kMaxPathChars) {
+        if (path_chars > CSaveArchive::kMaxPathChars) {
             return ACS_ERR(
                 IO,
                 static_cast<u16>(ESaveArchiveSubCode::kSubPathTooLong),
@@ -141,12 +141,12 @@ public:
     }
 
     /**
-     * data を `.acssave` 形式で保存する (FSaveArchive::WriteToFile 経由)。
+     * data を `.acssave` 形式で保存する (CSaveArchive::WriteToFile 経由)。
      *
      * @details
      * version は呼び出し側が schema 進化を判定するためのタグ。schema を変えたら version
      * を増やすと、旧データ読み込み時に ESaveArchiveSubCode::kSubMigrationNeeded が返って
-     * migrate しやすい。書き込みは FSaveArchive の同一ディレクトリ一時ファイルと
+     * migrate しやすい。書き込みは CSaveArchive の同一ディレクトリ一時ファイルと
      * atomic replace を継承し、途中失敗でも既存slotを保持する。
      * @param data 保存する T の値。
      * @param version スキーマバージョンタグ (既定 1)。
@@ -155,13 +155,13 @@ public:
     TResult<void> Save(const T& data, u32 version = 1u) noexcept;
 
     /**
-     * ファイルから読み出して T を返す (FSaveArchive::ReadFromFile 経由)。
+     * ファイルから読み出して T を返す (CSaveArchive::ReadFromFile 経由)。
      *
      * @details
      * expected_version != header.version の場合は
      * Err(Asset, ESaveArchiveSubCode::kSubMigrationNeeded) を返す。型サイズ不一致、
      * CRC不一致、I/O失敗を含む全失敗で値は返さない。呼び出し側は
-     * FSaveArchive::PeekVersion で旧 version を取り直して migrate するパスに分岐できる。
+     * CSaveArchive::PeekVersion で旧 version を取り直して migrate するパスに分岐できる。
      * @param expected_version 期待するスキーマバージョン (既定 1)。
      * @return 成功なら読み出した T、未初期化 / 検証失敗 / version 不一致ならエラー。
      */
@@ -209,7 +209,7 @@ namespace detail {
  *
  * @details
  * テンプレート化された TSaveSlot<T> がここを呼ぶ形にして、T ごとにオブジェクトコードが
- * 膨らまないようにする。中身は FSaveArchive::WriteToFile への薄いラッパ。
+ * 膨らまないようにする。中身は CSaveArchive::WriteToFile への薄いラッパ。
  * @param file_path 書き込み先の wide パス (nullptr なら未初期化エラー)。
  * @param version スキーマバージョンタグ。
  * @param payload 書き込むペイロード先頭ポインタ。
@@ -225,7 +225,7 @@ TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
  * SaveSlot.cpp 側に置く非テンプレート読み込みヘルパ (`.acssave` から payload を読む)。
  *
  * @details
- * FSaveArchive::ReadFromFile への薄いラッパで、header.payload_size が payload_size と
+ * CSaveArchive::ReadFromFile への薄いラッパで、header.payload_size が payload_size と
  * 完全一致することも追加検証する。一時bufferへ読み込んで検証後にだけpayload_outへ
  * 反映するため、全失敗で出力は不変。version 不一致は kSubMigrationNeeded で伝搬する。
  * @param file_path 読み込み元の wide パス (nullptr なら未初期化エラー)。

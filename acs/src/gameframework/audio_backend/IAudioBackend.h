@@ -2,8 +2,8 @@
 // GameFramework Pillar H — IAudioBackend (実音声再生 seam)
 //
 // 役割:
-//   `FAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
-//   Windows では `FXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
+//   `CAudioDirector` から見た「実際に音を出す層」の純粋仮想インターフェース。
+//   Windows では `CXAudio2Backend`、それ以外プラットフォーム (将来) では別実装
 //   (CoreAudio / ALSA / OpenAL / WebAudio …) で差し替える。
 //
 // 設計選択:
@@ -15,7 +15,7 @@
 //     を回避)。
 //   ・**Tick(dt)**: 再生完了済 voice の slot 解放を backend 側に畳み込む。
 //     ゲーム側は dt を渡すだけで一発再生の自然回収を任せられる。
-//   ・**所有しない pcm_data**: clip データは FAudioDirector / asset layer 側で
+//   ・**所有しない pcm_data**: clip データは CAudioDirector / asset layer 側で
 //     管理。backend は PlayOneShot 中に内部コピー (XAudio2 はバッファを保持
 //     しないと一発再生中に消えると爆ぜる)。
 //   ・**コピー / ムーブ禁止**: backend は 1 個の長寿命オブジェクト。誤コピー
@@ -23,7 +23,7 @@
 //   ・**STL 不使用 / 全 noexcept**: ACS 全体方針。
 //
 // 範囲外:
-//   ・3D positional / spatial / HRTF (Pillar FSpatialAudio 担当)
+//   ・3D positional / spatial / HRTF (Pillar CSpatialAudio 担当)
 //   ・submix bus / DSP chain / reverb
 //   ・wav/ogg/mp3 デコード (今回は Pcm16 raw bytes 入力前提、Wav 形式は
 //     別 loader と組合せる)
@@ -104,7 +104,7 @@ struct FAudioClipDesc {
  * @details
  * 全 0 (= m_Packed == 0) は無効ハンドル (kInvalidAudioVoice) を意味する。
  * index + generation 形式を使う独自 backend 向けの互換コンストラクタを残しつつ、
- * FXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
+ * CXAudio2Backend は 8bit generation の早期衝突を避けるため 32bit 全体を
  * プロセス通算の不透明チケットとして扱う。呼び出し側は値を分解せず保持して返す。
  */
 struct FAudioVoiceHandle {
@@ -179,11 +179,11 @@ static_assert(sizeof(FAudioVoiceHandle) == sizeof(u32), "AudioVoiceHandle must r
 inline constexpr FAudioVoiceHandle kInvalidAudioVoice {};
 
 /**
- * FAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
+ * CAudioDirector から見た「実際に音を出す層」の純粋仮想インターフェース。
  *
  * @details
- * FXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
- * 吸収する。`FAudioDirector::SetBackend(IAudioBackend*)` で差し込み、FAudioDirector は
+ * CXAudio2Backend / 将来の CoreAudioBackend / NullAudioBackend (テスト用) 等の差を
+ * 吸収する。`CAudioDirector::SetBackend(IAudioBackend*)` で差し込み、CAudioDirector は
  * backend が nullptr のとき無音 (no-op) で動作する。
  */
 class IAudioBackend {

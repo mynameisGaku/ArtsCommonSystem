@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — btedit / FBehaviorTreeEditorPanel
+// GameFramework Pillar — btedit / ABehaviorTreeEditorPanel
 //
 // `gameframework/BehaviorTree.h` (Pillar L) の BT を **可視化 + ライブデバッグ**
 // するための ImGui パネル。Unity の Behavior Designer / Unreal の Behavior Tree
@@ -27,8 +27,8 @@
 //     panel は `tree->Tick` を直接呼ばず、callback だけを呼ぶ (= 排他)。
 //
 // 設計選択:
-//   ・**FEditorPanel 継承**: editor_core 基底に乗せる。
-//     FEditorWorkspace に登録するだけで自動 dispatch される。Title は
+//   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
+//     CEditorWorkspace に登録するだけで自動 dispatch される。Title は
 //     "Behavior Tree Editor"。
 //   ・**メタミラー方式 (前述)**: BehaviorTree.h の API を改造しないために採用。
 //     panel 内に `TArray<FNodeMeta>` を持ち、AddNode で順次積む。FNodeId は 0 から
@@ -44,7 +44,7 @@
 //     `TArray<u8>` で各要素は EBtStatus の生値 (0/1/2)。`m_HistoryHead` が次に
 //     書き込む位置 (circular)。Reset でクリア。ImGui::PlotLines に float buffer を
 //     一度展開して渡す。
-//   ・**SelectedNodeId は u32 (-1 = none)**: FParticleEditorPanel の `m_Selected:i32`
+//   ・**SelectedNodeId は u32 (-1 = none)**: AParticleEditorPanel の `m_Selected:i32`
 //     と違って u32 を採用する理由は FNodeId 自体が u32 ベース (= AddNode 払い出し
 //     も u32)。none signal は `static_cast<u32>(-1) = 0xFFFFFFFF` で表現。
 //   ・**Autorun**: 毎フレーム OnFrameBegin で 1 tick 進める toggle。ImGui 上では
@@ -56,8 +56,8 @@
 //     で直接 Tick する fallback。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。
 //     name は `const char*` リテラル / 永続文字列を想定 (panel は所有しない)。
-//   ・**ImGui ヘッダは .cpp に閉じる**: FParticleEditorPanel / FInspectorPanel /
-//     FModelInspectorPanel と同形。
+//   ・**ImGui ヘッダは .cpp に閉じる**: AParticleEditorPanel / AInspectorPanel /
+//     AModelInspectorPanel と同形。
 //
 // ImGui レイアウト (DrawUI):
 //   ┌────────────── "Behavior Tree Editor" window ─────────────────┐
@@ -220,10 +220,10 @@ struct FBtGraphPersistenceResult {
  * panel から覗けないため、ユーザが AddNode で「親 id・kind・表示名」を push する
  * メタデータミラー方式を採る。各 node の last_status は SetNodeStatus で push してもらい、
  * StepOnce / autorun で BT を 1 tick 進めて root status を history ring に積む。
- * FEditorPanel 継承で FEditorWorkspace に登録すれば自動 dispatch される。
+ * AEditorPanel 継承で CEditorWorkspace に登録すれば自動 dispatch される。
  * 非コピー / 非ムーブ / 全 noexcept / STL 不使用で、name は非所有の永続文字列を想定する。
  */
-class FBehaviorTreeEditorPanel : public editor_core::FEditorPanel {
+class ABehaviorTreeEditorPanel : public editor_core::AEditorPanel {
 public:
     /**
      * panel が 1 tick 進めたい時に呼ばれる関数ポインタ型。
@@ -245,22 +245,22 @@ public:
     static constexpr u32 kInvalidId   = 0xFFFFFFFFu;
 
     /** 空状態で構築する (メタミラー・履歴は Init で確保)。 */
-    FBehaviorTreeEditorPanel() noexcept = default;
+    ABehaviorTreeEditorPanel() noexcept = default;
 
     /** 破棄する (TArray が内部リソースを解放)。 */
-    ~FBehaviorTreeEditorPanel() noexcept override = default;
+    ~ABehaviorTreeEditorPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FBehaviorTreeEditorPanel(const FBehaviorTreeEditorPanel&)            = delete;
+    ABehaviorTreeEditorPanel(const ABehaviorTreeEditorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBehaviorTreeEditorPanel& operator=(const FBehaviorTreeEditorPanel&) = delete;
+    ABehaviorTreeEditorPanel& operator=(const ABehaviorTreeEditorPanel&) = delete;
 
     /** ムーブ禁止 (内部 TArray の所有を曖昧にしないため)。 */
-    FBehaviorTreeEditorPanel(FBehaviorTreeEditorPanel&&)                 = delete;
+    ABehaviorTreeEditorPanel(ABehaviorTreeEditorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FBehaviorTreeEditorPanel& operator=(FBehaviorTreeEditorPanel&&)      = delete;
+    ABehaviorTreeEditorPanel& operator=(ABehaviorTreeEditorPanel&&)      = delete;
 
     /**
      * 初期化する。
@@ -444,7 +444,7 @@ public:
      *          表示名をキーに registry から関数を引いて呼ぶ。null で従来動作に戻る。
      * @param reg アクションレジストリ (非所有、null で解除)。
      */
-    void SetActionRegistry(const FBtActionRegistry* reg) noexcept { m_Registry = reg; }
+    void SetActionRegistry(const CBtActionRegistry* reg) noexcept { m_Registry = reg; }
 
     /**
      * Condition デコレーター用の bool 関数レジストリを設定する (no-code 条件を有効化)。
@@ -452,7 +452,7 @@ public:
      * @details Condition モードの Decorator が、ノード名をキーに bool 関数を引いて子をガードする。
      * @param reg 条件レジストリ (非所有、null で解除)。
      */
-    void SetConditionRegistry(const FBtConditionRegistry* reg) noexcept { m_CondReg = reg; }
+    void SetConditionRegistry(const CBtConditionRegistry* reg) noexcept { m_CondReg = reg; }
 
     /**
      * 比較条件用の blackboard スキーマを設定する (変数リンクを有効化)。
@@ -476,7 +476,7 @@ public:
     void SetDynamicBlackboard(FBtBlackboard* bb) noexcept { m_DynBb = bb; }
 
     /** 設定済みの Condition レジストリを返す (UI 用、未設定は nullptr)。 */
-    const FBtConditionRegistry* ConditionRegistry() const noexcept { return m_CondReg; }
+    const CBtConditionRegistry* ConditionRegistry() const noexcept { return m_CondReg; }
 
     /** 設定済みの blackboard スキーマを返す (UI 用、未設定は nullptr)。 */
     const FBtBlackboardSchema* BlackboardSchema() const noexcept { return m_Schema; }
@@ -545,8 +545,8 @@ public:
      *
      * @details
      * メタミラーを walk し、Selector/Sequence/Action(Task)/Decorator(Transform) は core
-     * ランタイムノードへ、Condition/Compare デコレーターは btedit の FBtConditionNode /
-     * FBtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
+     * ランタイムノードへ、Condition/Compare デコレーターは btedit の ABtConditionNode /
+     * ABtCompareNode へ変換した 1 本のツリーを構築して返す。Action/Condition 名は
      * 設定済みレジストリ (SetActionRegistry / SetConditionRegistry) で解決し、Compare の
      * 変数は実行時に FBtBlackboard 名前アクセスで解決する。返り値を FBehaviorTree::SetRoot
      * に渡せば、エディタ外 (通常のゲームループ) で `bt.Tick(&blackboard, dt)` として走らせられる。
@@ -861,10 +861,10 @@ private:
 
     // ===== no-code 実行 / 実行フロー可視化 =====
     /** Action 名→関数のレジストリ (非所有、非 null でグラフ直接実行モード)。 */
-    const FBtActionRegistry* m_Registry = nullptr;
+    const CBtActionRegistry* m_Registry = nullptr;
 
     /** Condition 名→bool 関数のレジストリ (非所有、Condition デコレーター用)。 */
-    const FBtConditionRegistry* m_CondReg = nullptr;
+    const CBtConditionRegistry* m_CondReg = nullptr;
 
     /** blackboard 変数スキーマ (非所有、offset 参照型。Compare / 変数候補提示用)。 */
     const FBtBlackboardSchema* m_Schema = nullptr;
@@ -894,5 +894,7 @@ private:
     /** baseline 初期化済みか (最初の DrawUI で 1 度キャプチャ)。 */
     bool m_UndoInit    = false;
 };
+
+using FBehaviorTreeEditorPanel = ABehaviorTreeEditorPanel;
 
 } // namespace acs::game::btedit

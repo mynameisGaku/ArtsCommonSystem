@@ -23,18 +23,18 @@
 //     のような追加変更はプリセット適用後に個別 setter で行う想定。
 //   ・**POD struct + class wrapper**: FAccessibilitySettings は値オブジェクト
 //     としてコピー可能 (UI から渡されたスナップショットを Set() で受け取れる)。
-//     FAccessibilityProfile は非コピー・非ムーブ (FGame / FScene のメンバとして
+//     FAccessibilityProfile は非コピー・非ムーブ (CGame / AScene のメンバとして
 //     1 インスタンスのみ存在する設計)。
 //   ・**screen_shake_scale / flash_intensity_scale は [0, 1] 推奨だが clamp しない**:
 //     1.0 = フル、0.0 = 完全カット。1.0 を超える値も技術的には許可するが、
 //     UI 側で 0..1 に制限する想定。
 //
 // 非コピー・非ムーブ:
-//   FAccessibilityProfile は FGame のメンバとして 1 インスタンスのみ存在する
+//   FAccessibilityProfile は CGame のメンバとして 1 インスタンスのみ存在する
 //   想定。複製可能にすると「どの Profile が真か」の同期ずれが発生する。
 //
 // 範囲外:
-//   ・永続化 (FSettings 経由で Save / Load する想定、本クラスは値保持のみ)
+//   ・永続化 (CSettings 経由で Save / Load する想定、本クラスは値保持のみ)
 //   ・change notification (オブザーバ pattern)
 //   ・地域別法令準拠 (EAA / Section 508 / 韓国 KWCAG) の自動検証
 //   ・カスタムプリセット (ユーザー定義 preset の名前付き保存)
@@ -187,7 +187,7 @@ enum class EPreset : u8 {
  * @details
  * 色覚補正・モーション低減・字幕・スクリーンリーダ・片手操作などの設定値を 1 つ保持する。
  * 本クラスは値を持つだけで、実際の機能適用 (色覚 LUT 差し替え・字幕表示・TTS 発話) は
- * caller (FRenderer / UI / TTS バックエンド) の責務。FGame のメンバとして 1 インスタンスのみ
+ * caller (FRenderer / UI / TTS バックエンド) の責務。CGame のメンバとして 1 インスタンスのみ
  * 存在する設計のため非コピー・非ムーブ。
  */
 class FAccessibilityProfile {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I/R — FWeaponSystem (武器切替 + 弾薬 + 連射制御)
+// GameFramework Pillar I/R — CWeaponSystem (武器切替 + 弾薬 + 連射制御)
 //
 // 1 entity (= 1 player or 1 NPC) ぶんの武器ロードアウト / 弾薬 / 発射制御を
 // まとめた小型マネージャ。`Tick(dt)` で内部時計を進め、`fire_rate_per_sec` /
@@ -8,16 +8,16 @@
 //
 // 想定する位置付け:
 //   ・Pillar I (Combat) と Pillar R (Skills/Cooldowns) の橋渡し。武器毎の
-//     fire rate は FCooldownTimer と同等の役目だが、武器切替 / マガジン /
-//     reserve ammo / スプレッド / ペレット数 を一体で持つため、FCooldownTimer
+//     fire rate は CCooldownTimer と同等の役目だが、武器切替 / マガジン /
+//     reserve ammo / スプレッド / ペレット数 を一体で持つため、CCooldownTimer
 //     とは別 API として独立させる。
 //   ・FireCallback で「弾を出せ」のイベントだけを通知し、実際の projectile
-//     spawn / damage 適用は呼出側 (= Pillar I FCombatStateMachine や独自
-//     Projectile manager) で行う設計。FWeaponSystem は時系列と弾薬数の管理に
+//     spawn / damage 適用は呼出側 (= Pillar I CCombatStateMachine や独自
+//     Projectile manager) で行う設計。CWeaponSystem は時系列と弾薬数の管理に
 //     責務を限定する。
 //
 // 使い方:
-//   acs::game::FWeaponSystem ws;
+//   acs::game::CWeaponSystem ws;
 //
 //   // 武器定義 (文字列リテラルは caller 側で長寿命を保証)。
 //   ws.RegisterWeapon({ "pistol", "9mm Pistol",
@@ -150,7 +150,7 @@ struct FWeaponDef {
 /**
  * 現在装備中武器のランタイム状態。
  *
- * @details 主に UI 表示 / デバッグ用の snapshot。内部更新は FWeaponSystem が行う。
+ * @details 主に UI 表示 / デバッグ用の snapshot。内部更新は CWeaponSystem が行う。
  */
 struct FWeaponState {
     /** 装備中武器の id (= 内部 m_CurrentDef->id と同値)。 */
@@ -204,25 +204,25 @@ using ReloadCallback = void(*)(void* user, const char* weapon_id) noexcept;
  * 完了は callback で通知し、実際の projectile spawn / damage 適用は呼出側に委ねる。
  * non-copy / non-move で、callback の user ポインタとの参照競合を防ぐ。
  */
-class FWeaponSystem {
+class CWeaponSystem {
 public:
     /** 空状態で構築する (武器未登録、装備なし)。 */
-    FWeaponSystem()  noexcept = default;
+    CWeaponSystem()  noexcept = default;
 
     /** 破棄する (TArray が内部リソースを解放)。 */
-    ~FWeaponSystem() noexcept = default;
+    ~CWeaponSystem() noexcept = default;
 
     /** コピー禁止 (callback の self ポインタとの競合を防ぐため)。 */
-    FWeaponSystem(const FWeaponSystem&)            = delete;
+    CWeaponSystem(const CWeaponSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWeaponSystem& operator=(const FWeaponSystem&) = delete;
+    CWeaponSystem& operator=(const CWeaponSystem&) = delete;
 
     /** ムーブ禁止 (内部配列を指す m_CurrentDef ポインタの安定性を保つため)。 */
-    FWeaponSystem(FWeaponSystem&&)                 = delete;
+    CWeaponSystem(CWeaponSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWeaponSystem& operator=(FWeaponSystem&&)      = delete;
+    CWeaponSystem& operator=(CWeaponSystem&&)      = delete;
 
     /**
      * 武器定義を登録し、対応する reserve スロットを 0 で初期化する。
@@ -421,5 +421,8 @@ private:
     /** reload 完了 callback に渡すコンテキスト。 */
     void*          m_OnReloadUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWeaponSystem = CWeaponSystem;
 
 } // namespace acs::game

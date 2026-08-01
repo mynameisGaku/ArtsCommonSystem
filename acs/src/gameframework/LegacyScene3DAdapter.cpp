@@ -443,11 +443,11 @@ FSceneRenderFeatures ScanSceneRenderFeatures(
 
 } // namespace
 
-FLegacyScene3DAdapter::~FLegacyScene3DAdapter() noexcept {
+ALegacyScene3DAdapter::~ALegacyScene3DAdapter() noexcept {
     JoinCpuCompileWorkers();
 }
 
-FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(const char* path) noexcept {
+FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(const char* path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DFile(m_Graph, path);
     if (m_LoadResult.Succeeded()) {
@@ -457,7 +457,7 @@ FScene3DLoadResult FLegacyScene3DAdapter::LoadFile(const char* path) noexcept {
     return m_LoadResult;
 }
 
-FScene3DLoadResult FLegacyScene3DAdapter::LoadText(
+FScene3DLoadResult ALegacyScene3DAdapter::LoadText(
     const char* text, u32 size) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
     m_LoadResult = TryLoadScene3DText(m_Graph, text, size);
@@ -468,7 +468,7 @@ FScene3DLoadResult FLegacyScene3DAdapter::LoadText(
     return m_LoadResult;
 }
 
-FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(
+FScene3DLoadResult ALegacyScene3DAdapter::LoadAssetPack(
     IAssetPackReader& pack,
     const char* virtual_path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
@@ -480,7 +480,7 @@ FScene3DLoadResult FLegacyScene3DAdapter::LoadAssetPack(
     return m_LoadResult;
 }
 
-void FLegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
+void ALegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
     m_HasExplicitCameraOverride = false;
     // The loaded graph supersedes every authored-camera cache from the
     // previous scene. Starting from a clean state also ensures a no-camera
@@ -493,7 +493,7 @@ void FLegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
     m_UseAuthoredCamera = RefreshAuthoredCameraPose();
 }
 
-bool FLegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
+bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
     if (m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0) {
         const ANode* node =
             m_Graph.Root().FindBySerialId(m_ActiveCameraNodeId);
@@ -539,11 +539,11 @@ bool FLegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
     return true;
 }
 
-u32 FLegacyScene3DAdapter::CameraCount() const noexcept {
+u32 ALegacyScene3DAdapter::CameraCount() const noexcept {
     return CountCamerasRecursive(m_Graph.Root());
 }
 
-bool FLegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
+bool ALegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
     if (stable_id == nullptr || stable_id[0] == '\0') return false;
     const ANode* node =
         FindCameraByStableIdRecursive(m_Graph.Root(), stable_id);
@@ -565,7 +565,7 @@ bool FLegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
+bool ALegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
     const ANode* node = m_Graph.Root().FindBySerialId(node_id);
     const ACameraComponent3D* component =
         node != nullptr ? FindCamera(*node) : nullptr;
@@ -585,12 +585,12 @@ bool FLegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::ClearActiveCameraOverride() noexcept {
+bool ALegacyScene3DAdapter::ClearActiveCameraOverride() noexcept {
     m_HasExplicitCameraOverride = false;
     return RefreshAuthoredCameraPose();
 }
 
-void FLegacyScene3DAdapter::FrameScene() noexcept {
+void ALegacyScene3DAdapter::FrameScene() noexcept {
     FVec3 minimum{FLT_MAX, FLT_MAX, FLT_MAX};
     FVec3 maximum{-FLT_MAX, -FLT_MAX, -FLT_MAX};
     bool found = false;
@@ -631,7 +631,7 @@ void FLegacyScene3DAdapter::FrameScene() noexcept {
     UpdateCameraView();
 }
 
-bool FLegacyScene3DAdapter::RaycastWater(
+bool ALegacyScene3DAdapter::RaycastWater(
     const FRay3& ray,
     FWaterRaycastHit& out_hit,
     f32 max_distance) const noexcept {
@@ -703,7 +703,7 @@ bool FLegacyScene3DAdapter::RaycastWater(
     return true;
 }
 
-bool FLegacyScene3DAdapter::AddWaterDisturbance(
+bool ALegacyScene3DAdapter::AddWaterDisturbance(
     FNodeId surface,
     FVec3 world_point,
     f32 radius,
@@ -722,7 +722,7 @@ bool FLegacyScene3DAdapter::AddWaterDisturbance(
         world_point, radius, strength);
 }
 
-bool FLegacyScene3DAdapter::AddWaterWake(
+bool ALegacyScene3DAdapter::AddWaterWake(
     FNodeId surface,
     FVec3 world_point,
     FVec3 world_velocity,
@@ -742,7 +742,7 @@ bool FLegacyScene3DAdapter::AddWaterWake(
         world_point, world_velocity, radius, strength);
 }
 
-void FLegacyScene3DAdapter::OnEnter() noexcept {
+void ALegacyScene3DAdapter::OnEnter() noexcept {
     GetGame().SetClearColor(0.025f, 0.035f, 0.055f, 1.0f);
     // Keep lighting, visible sky, fog and water reflection on one authored
     // environment. The simple FSky cloud layer stays disabled here: the
@@ -772,11 +772,11 @@ void FLegacyScene3DAdapter::OnEnter() noexcept {
     if (!RefreshAuthoredCameraPose()) FrameScene();
 }
 
-void FLegacyScene3DAdapter::OnExit() noexcept {
+void ALegacyScene3DAdapter::OnExit() noexcept {
     DrainAndReleaseGpu();
 }
 
-void FLegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
+void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_Time += dt;
     // Interaction lifetime is simulation state. It advances even while the
     // renderer is hidden, still compiling, resized, or using opaque fallback.
@@ -818,11 +818,11 @@ void FLegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     UpdateCameraView();
 }
 
-void FLegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept {
+void ALegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept {
     m_Graph.FixedUpdate(fixed_dt);
 }
 
-void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
+void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
     RefreshAuthoredCameraPose();
     if (!EnsureGpu(context)) return;
     UpdateCameraProjection(context.Width(), context.Height());
@@ -1001,7 +1001,7 @@ void FLegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         command_list, *swapchain, renderer.CurrentBuffer(), m_PostParams);
 }
 
-bool FLegacyScene3DAdapter::DrawPbrScene(
+bool ALegacyScene3DAdapter::DrawPbrScene(
     FRenderContext& context,
     FPbrShader& shader,
     const FWaterDraw* excluded_water,
@@ -1115,7 +1115,7 @@ bool FLegacyScene3DAdapter::DrawPbrScene(
     return draws_valid;
 }
 
-bool FLegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
+bool ALegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     if (m_GpuReady) return true;
     if (m_GpuAttempted) return false;
     IRhiDevice* device = context.GetRenderer().Device();
@@ -1141,7 +1141,7 @@ bool FLegacyScene3DAdapter::EnsureGpu(FRenderContext& context) noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::EnsureHdrFrameResources(
+bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
     IRhiDevice& device,
     u32 width,
     u32 height,
@@ -1158,7 +1158,7 @@ bool FLegacyScene3DAdapter::EnsureHdrFrameResources(
     const FSceneRenderFeatures scene_features =
         ScanSceneRenderFeatures(m_Graph.Root());
     const bool scene_has_water = scene_features.has_water;
-    // FScene3D has no mutation revision yet. Scan alongside the existing
+    // CScene3D has no mutation revision yet. Scan alongside the existing
     // water feature query so retained Graph references, visibility changes
     // and runtime material edits take effect on the very next frame.
     m_SsssRequested = scene_features.needs_subsurface_mrt;
@@ -1391,10 +1391,10 @@ bool FLegacyScene3DAdapter::EnsureHdrFrameResources(
         && m_HdrShaderGpuState == EShaderGpuState::Ready;
 }
 
-void FLegacyScene3DAdapter::SkyCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::SkyCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     auto result = FSky::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
@@ -1409,10 +1409,10 @@ void FLegacyScene3DAdapter::SkyCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::WaterCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::WaterCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     auto result = FWaterSurface3D::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
@@ -1427,10 +1427,10 @@ void FLegacyScene3DAdapter::WaterCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     bool succeeded = false;
     auto shaders = FPbrShader::CompileShadersCpu(false);
     if (shaders.IsErr()) {
@@ -1463,10 +1463,10 @@ void FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     bool succeeded = false;
     auto shaders = FPbrShader::CompileShadersCpu(true);
     if (shaders.IsErr()) {
@@ -1502,10 +1502,10 @@ void FLegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     auto shaders = FSubsurfaceScattering::CompileShadersCpu();
     bool succeeded = false;
     if (shaders.IsErr()) {
@@ -1539,10 +1539,10 @@ void FLegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::PostCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::PostCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     auto result = FPostProcess::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
@@ -1557,10 +1557,10 @@ void FLegacyScene3DAdapter::PostCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::BlitCpuCompileWorkerEntry(
+void ALegacyScene3DAdapter::BlitCpuCompileWorkerEntry(
     void* user) noexcept {
     auto& runtime =
-        *static_cast<FLegacyScene3DAdapter*>(user);
+        *static_cast<ALegacyScene3DAdapter*>(user);
     auto result = FBlit::CompileShadersCpu();
     const bool succeeded = result.IsOk();
     if (succeeded) {
@@ -1575,7 +1575,7 @@ void FLegacyScene3DAdapter::BlitCpuCompileWorkerEntry(
         succeeded ? 2 : -1, std::memory_order_release);
 }
 
-bool FLegacyScene3DAdapter::BeginSkyCpuCompilation() noexcept {
+bool ALegacyScene3DAdapter::BeginSkyCpuCompilation() noexcept {
     if (m_SkyCompileWorker.Joinable()
         || m_SkyCompileWorkerState.load(
                std::memory_order_acquire) != 0) {
@@ -1589,7 +1589,7 @@ bool FLegacyScene3DAdapter::BeginSkyCpuCompilation() noexcept {
     FThreadConfig config{};
     config.name = L"ACS runtime sky compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::SkyCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::SkyCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_SkyCompileWorkerState.store(0, std::memory_order_release);
@@ -1607,7 +1607,7 @@ bool FLegacyScene3DAdapter::BeginSkyCpuCompilation() noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::BeginWaterCpuCompilation() noexcept {
+bool ALegacyScene3DAdapter::BeginWaterCpuCompilation() noexcept {
     if (m_WaterCompileWorker.Joinable()
         || m_WaterCompileWorkerState.load(
                std::memory_order_acquire) != 0) {
@@ -1621,7 +1621,7 @@ bool FLegacyScene3DAdapter::BeginWaterCpuCompilation() noexcept {
     FThreadConfig config{};
     config.name = L"ACS runtime water compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::WaterCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::WaterCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_WaterCompileWorkerState.store(0, std::memory_order_release);
@@ -1639,7 +1639,7 @@ bool FLegacyScene3DAdapter::BeginWaterCpuCompilation() noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::BeginHdrPbrCpuCompilation(
+bool ALegacyScene3DAdapter::BeginHdrPbrCpuCompilation(
     IRhiDevice& device,
     EFormat rt_format,
     EFormat depth_format) noexcept {
@@ -1656,7 +1656,7 @@ bool FLegacyScene3DAdapter::BeginHdrPbrCpuCompilation(
     FThreadConfig config{};
     config.name = L"ACS runtime HDR PBR compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::HdrPbrCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_HdrCompileWorkerState.store(0, std::memory_order_release);
@@ -1675,7 +1675,7 @@ bool FLegacyScene3DAdapter::BeginHdrPbrCpuCompilation(
     return true;
 }
 
-bool FLegacyScene3DAdapter::BeginHdrSsssCpuCompilation(
+bool ALegacyScene3DAdapter::BeginHdrSsssCpuCompilation(
     IRhiDevice& device,
     EFormat rt_format,
     EFormat depth_format) noexcept {
@@ -1692,7 +1692,7 @@ bool FLegacyScene3DAdapter::BeginHdrSsssCpuCompilation(
     FThreadConfig config{};
     config.name = L"ACS runtime SSSS PBR compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::HdrSsssCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_HdrSsssCompileWorkerState.store(
@@ -1712,7 +1712,7 @@ bool FLegacyScene3DAdapter::BeginHdrSsssCpuCompilation(
     return true;
 }
 
-bool FLegacyScene3DAdapter::BeginSubsurfaceCpuCompilation(
+bool ALegacyScene3DAdapter::BeginSubsurfaceCpuCompilation(
     IRhiDevice& device) noexcept {
     if (m_SsssCompileWorker.Joinable()
         || m_SsssCompileWorkerState.load(
@@ -1725,7 +1725,7 @@ bool FLegacyScene3DAdapter::BeginSubsurfaceCpuCompilation(
     FThreadConfig config{};
     config.name = L"ACS runtime SSSS compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::SubsurfaceCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_SsssCompileWorkerState.store(0, std::memory_order_release);
@@ -1744,7 +1744,7 @@ bool FLegacyScene3DAdapter::BeginSubsurfaceCpuCompilation(
     return true;
 }
 
-bool FLegacyScene3DAdapter::BeginPostCpuCompilation() noexcept {
+bool ALegacyScene3DAdapter::BeginPostCpuCompilation() noexcept {
     if (m_PostCompileWorker.Joinable()
         || m_PostCompileWorkerState.load(
                std::memory_order_acquire) != 0) {
@@ -1754,7 +1754,7 @@ bool FLegacyScene3DAdapter::BeginPostCpuCompilation() noexcept {
     FThreadConfig config{};
     config.name = L"ACS runtime post compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::PostCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::PostCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_PostCompileWorkerState.store(0, std::memory_order_release);
@@ -1772,7 +1772,7 @@ bool FLegacyScene3DAdapter::BeginPostCpuCompilation() noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::BeginBlitCpuCompilation() noexcept {
+bool ALegacyScene3DAdapter::BeginBlitCpuCompilation() noexcept {
     if (m_BlitCompileWorker.Joinable()
         || m_BlitCompileWorkerState.load(
                std::memory_order_acquire) != 0) {
@@ -1782,7 +1782,7 @@ bool FLegacyScene3DAdapter::BeginBlitCpuCompilation() noexcept {
     FThreadConfig config{};
     config.name = L"ACS runtime blit compile";
     auto worker = FThread::Spawn(
-        &FLegacyScene3DAdapter::BlitCpuCompileWorkerEntry,
+        &ALegacyScene3DAdapter::BlitCpuCompileWorkerEntry,
         this, config);
     if (worker.IsErr()) {
         m_BlitCompileWorkerState.store(0, std::memory_order_release);
@@ -1800,7 +1800,7 @@ bool FLegacyScene3DAdapter::BeginBlitCpuCompilation() noexcept {
     return true;
 }
 
-bool FLegacyScene3DAdapter::TryClaimGpuCommit(
+bool ALegacyScene3DAdapter::TryClaimGpuCommit(
     EGpuCommitSubsystem& frame_commit,
     EGpuCommitSubsystem subsystem) noexcept {
     if (frame_commit != EGpuCommitSubsystem::None) return false;
@@ -1808,7 +1808,7 @@ bool FLegacyScene3DAdapter::TryClaimGpuCommit(
     return true;
 }
 
-void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(
+void ALegacyScene3DAdapter::AdvanceHdrPbrInitialization(
     IRhiDevice& device,
     EGpuCommitSubsystem& frame_commit) noexcept {
     if (m_HdrShaderGpuState == EShaderGpuState::CpuCompiling) {
@@ -1876,7 +1876,7 @@ void FLegacyScene3DAdapter::AdvanceHdrPbrInitialization(
         "LegacyScene3DAdapter: HDR PBR renderer is ready");
 }
 
-void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(
+void ALegacyScene3DAdapter::AdvanceHdrSsssInitialization(
     IRhiDevice& device,
     EGpuCommitSubsystem& frame_commit,
     bool scene_needs_subsurface) noexcept {
@@ -2028,7 +2028,7 @@ void FLegacyScene3DAdapter::AdvanceHdrSsssInitialization(
         "is ready");
 }
 
-void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(
+void ALegacyScene3DAdapter::AdvanceSubsurfaceInitialization(
     IRhiDevice& device,
     u32 width,
     u32 height,
@@ -2173,7 +2173,7 @@ void FLegacyScene3DAdapter::AdvanceSubsurfaceInitialization(
         "are ready; full-resolution targets remain staged");
 }
 
-void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(
+void ALegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(
     IRhiDevice& device,
     u32 width,
     u32 height,
@@ -2316,7 +2316,7 @@ void FLegacyScene3DAdapter::EnsureSubsurfaceAuxTargets(
     m_SsssPendingAuxHeight = 0u;
 }
 
-void FLegacyScene3DAdapter::AdvancePostInitialization(
+void ALegacyScene3DAdapter::AdvancePostInitialization(
     IRhiDevice& device, u32 width, u32 height,
     EFormat swapchain_format,
     EGpuCommitSubsystem& frame_commit) noexcept {
@@ -2392,7 +2392,7 @@ void FLegacyScene3DAdapter::AdvancePostInitialization(
         "LegacyScene3DAdapter: HDR post renderer is ready");
 }
 
-void FLegacyScene3DAdapter::AdvanceBlitInitialization(
+void ALegacyScene3DAdapter::AdvanceBlitInitialization(
     IRhiDevice& device,
     EGpuCommitSubsystem& frame_commit,
     bool requested) noexcept {
@@ -2446,7 +2446,7 @@ void FLegacyScene3DAdapter::AdvanceBlitInitialization(
         "LegacyScene3DAdapter: HDR blit renderer is ready");
 }
 
-void FLegacyScene3DAdapter::AdvanceSkyInitialization(
+void ALegacyScene3DAdapter::AdvanceSkyInitialization(
     IRhiDevice& device,
     EGpuCommitSubsystem& frame_commit) noexcept {
     if (m_SkyGpuState == ESkyGpuState::CpuCompiling) {
@@ -2498,7 +2498,7 @@ void FLegacyScene3DAdapter::AdvanceSkyInitialization(
         "LegacyScene3DAdapter: HDR sky renderer is ready");
 }
 
-void FLegacyScene3DAdapter::AdvanceWaterInitialization(
+void ALegacyScene3DAdapter::AdvanceWaterInitialization(
     IRhiDevice& device,
     EGpuCommitSubsystem& frame_commit,
     bool scene_has_water) noexcept {
@@ -2570,7 +2570,7 @@ void FLegacyScene3DAdapter::AdvanceWaterInitialization(
     }
 }
 
-u32 FLegacyScene3DAdapter::CollectWaterDraws(
+u32 ALegacyScene3DAdapter::CollectWaterDraws(
     FWaterDraw (&draws)[FWaterSurface3D::kMaxTrackedSurfaces],
     IRhiTexture* depth,
     u32 width,
@@ -2632,7 +2632,7 @@ u32 FLegacyScene3DAdapter::CollectWaterDraws(
     return count;
 }
 
-void FLegacyScene3DAdapter::DrawWaterScene(
+void ALegacyScene3DAdapter::DrawWaterScene(
     FRenderContext& context,
     const FWaterDraw* water_draws,
     u32 water_count,
@@ -2663,7 +2663,7 @@ void FLegacyScene3DAdapter::DrawWaterScene(
     }
 }
 
-void FLegacyScene3DAdapter::DrawWaterFallback(
+void ALegacyScene3DAdapter::DrawWaterFallback(
     FRenderContext& context,
     const FWaterDraw* water_draws,
     u32 water_count) noexcept {
@@ -2692,7 +2692,7 @@ void FLegacyScene3DAdapter::DrawWaterFallback(
     }
 }
 
-bool FLegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
+bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     m_CustomMeshes.Clear();
     if (!m_CustomMeshes.TryReserve(m_Graph.NodeCount()))
         return false;
@@ -2720,7 +2720,7 @@ bool FLegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     return true;
 }
 
-void FLegacyScene3DAdapter::DrainAndReleaseGpu() noexcept {
+void ALegacyScene3DAdapter::DrainAndReleaseGpu() noexcept {
     // A raw-DX12 startup worker may own in-flight resource/PSO creation.
     // Join before the owner-thread queue drain, then release every resource.
     // This same barrier is required by public live reload: command lists from
@@ -2731,7 +2731,7 @@ void FLegacyScene3DAdapter::DrainAndReleaseGpu() noexcept {
     ReleaseGpu();
 }
 
-void FLegacyScene3DAdapter::ReleaseGpu() noexcept {
+void ALegacyScene3DAdapter::ReleaseGpu() noexcept {
     JoinCpuCompileWorkers();
     m_HdrPendingShaders = {};
     m_HdrSsssPendingShaders = {};
@@ -2793,7 +2793,7 @@ void FLegacyScene3DAdapter::ReleaseGpu() noexcept {
     m_GpuAttempted = false;
 }
 
-void FLegacyScene3DAdapter::JoinCpuCompileWorkers() noexcept {
+void ALegacyScene3DAdapter::JoinCpuCompileWorkers() noexcept {
     m_HdrCompileWorker.Join();
     m_HdrCompileDevice = nullptr;
     m_HdrCompileWorkerState.store(0, std::memory_order_release);
@@ -2814,7 +2814,7 @@ void FLegacyScene3DAdapter::JoinCpuCompileWorkers() noexcept {
     m_WaterCompileWorkerState.store(0, std::memory_order_release);
 }
 
-void FLegacyScene3DAdapter::UpdateCameraProjection(
+void ALegacyScene3DAdapter::UpdateCameraProjection(
     u32 width,
     u32 height) noexcept {
     const f32 safe_width = width > 0u ? static_cast<f32>(width) : 1.0f;
@@ -2848,7 +2848,7 @@ void FLegacyScene3DAdapter::UpdateCameraProjection(
     }
 }
 
-void FLegacyScene3DAdapter::UpdateCameraView() noexcept {
+void ALegacyScene3DAdapter::UpdateCameraView() noexcept {
     if (m_UseAuthoredCamera) {
         m_Camera.SetLookAt(
             m_AuthoredCamera.Position,
@@ -2864,7 +2864,7 @@ void FLegacyScene3DAdapter::UpdateCameraView() noexcept {
     m_Camera.SetLookAt(m_Target - forward * m_Distance, m_Target);
 }
 
-const FGpuMesh* FLegacyScene3DAdapter::GpuMeshFor(
+const FGpuMesh* ALegacyScene3DAdapter::GpuMeshFor(
     const AMeshComponent3D& component) const noexcept {
     switch (component.Primitive()) {
     case EMeshPrimitive3D::Cube: return &m_Cube;

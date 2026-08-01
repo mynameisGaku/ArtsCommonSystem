@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar E — FCamera2D
+// GameFramework Pillar E — CCamera2D
 //
 // 2D カメラ: position / zoom / rotation、target 追従 (指数 smoothing)、
 // screen shake (trauma 方式)、world↔screen 座標変換、world boundary clamping。
-// FSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
+// CSceneServices 経由で自動 tick (`ESvc::Camera2D` を WantedServices に含める)。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //   public:
 //       ESvc WantedServices() const noexcept override {
 //           return ESvc::Default2D | ESvc::Camera2D;
@@ -47,21 +47,21 @@ namespace acs::game {
  * target 追従は framerate independent な指数 smoothing (1 - exp(-smoothing * dt))、
  * screen shake は Eiserloh trauma 方式 (trauma² * amplitude * noise)、bounds clamp は
  * SetBounds の rect 内に position を抑える。EffectiveViewCenter() = position + shake_offset を
- * レンダラーが view 設定に使う。FSceneServices 経由で PostUpdate に自動 tick される。
+ * レンダラーが view 設定に使う。CSceneServices 経由で PostUpdate に自動 tick される。
  */
-class FCamera2D {
+class CCamera2D {
 public:
     /** 既定値 (原点・zoom 1・無回転・追従/bounds 無し) で構築する。 */
-    FCamera2D() noexcept = default;
+    CCamera2D() noexcept = default;
 
     /** 破棄する。 */
-    ~FCamera2D() noexcept = default;
+    ~CCamera2D() noexcept = default;
 
     /** コピー禁止 (Services が単一インスタンスとして tick するため)。 */
-    FCamera2D(const FCamera2D&)            = delete;
+    CCamera2D(const CCamera2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCamera2D& operator=(const FCamera2D&) = delete;
+    CCamera2D& operator=(const CCamera2D&) = delete;
 
     /**
      * カメラ位置 (= shake 前の view center) を返す。
@@ -351,5 +351,8 @@ private:
     /** デッドゾーンが有効かどうか。 */
     bool m_HasDeadzone     = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCamera2D = CCamera2D;
 
 } // namespace acs::game

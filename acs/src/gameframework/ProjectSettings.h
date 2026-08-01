@@ -51,7 +51,7 @@ struct FSettingEntry {
     bool         builtin      = false;     ///< false=ユーザー定義 (削除可)。
 };
 
-/** FProjectSettings INI の解析・ファイル読み込みで返す安定したエラー種別。 */
+/** CProjectSettings INI の解析・ファイル読み込みで返す安定したエラー種別。 */
 enum class EProjectSettingsLoadError : u8 {
     None = 0,
     NullArgument,
@@ -77,7 +77,7 @@ enum class EProjectSettingsLoadError : u8 {
     AllocationFailure,
 };
 
-/** FProjectSettings の checked load 結果。失敗時は設定ストアを変更しない。 */
+/** CProjectSettings の checked load 結果。失敗時は設定ストアを変更しない。 */
 struct FProjectSettingsLoadResult {
     EProjectSettingsLoadError error = EProjectSettingsLoadError::None;
     u32 line = 0;
@@ -103,7 +103,7 @@ inline constexpr usize kProjectSettingsMaxPathBytes = 1023u;
  * 未知のキーをユーザー定義として取り込む。値は全て文字列で保持し、型付き Get*
  * でパースして返す (パース失敗は既定値)。
  */
-class FProjectSettings {
+class CProjectSettings {
 public:
     /** ビルトインスキーマの全項目を既定値で再構築する (ユーザー定義は消える)。 */
     void ResetToDefaults() noexcept;
@@ -213,5 +213,8 @@ private:
  * @return スキーマ配列の先頭 (静的寿命)。
  */
 const FSettingDesc* BuiltinSettingSchema(u32& out_count) noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FProjectSettings = CProjectSettings;
 
 } // namespace acs::game

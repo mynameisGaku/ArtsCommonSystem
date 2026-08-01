@@ -144,7 +144,7 @@ void WaitForBackendLifecycleTestGate() noexcept
 } // namespace
 
 /** XAudio2 と COM MTA cookie と voice pool を保持する pimpl。 */
-struct FXAudio2Backend::FImpl {
+struct CXAudio2Backend::FImpl {
     /** XAudio2 エンジン。 */
     IXAudio2* XAudio2 = nullptr;
 
@@ -183,10 +183,10 @@ struct FXAudio2Backend::FImpl {
 
 namespace {
 
-void DestroySlot(FXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexcept;
+void DestroySlot(CXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexcept;
 
 /** mutex 取得済みの pimpl から全 voice を解放する。 */
-void StopAllVoicesLocked(FXAudio2Backend::FImpl& Implementation) noexcept
+void StopAllVoicesLocked(CXAudio2Backend::FImpl& Implementation) noexcept
 {
     for (u32 Index = 0u; Index < Implementation.MaxVoices; ++Index)
     {
@@ -241,7 +241,7 @@ bool FillWaveFormat(const FAudioClipDesc& Clip, WAVEFORMATEX& WaveFormat) noexce
 }
 
 /** voice と保持中の PCM コピーを完全に破棄する。 */
-void DestroySlot(FXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexcept
+void DestroySlot(CXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexcept
 {
     if (Slot.Voice != nullptr)
     {
@@ -272,7 +272,7 @@ void DestroySlot(FXAudio2Backend::FImpl& Implementation, FVoiceSlot& Slot) noexc
 }
 
 /** mutex 取得済みの pool から指定ハンドルを探す。 */
-FVoiceSlot* FindVoiceSlot(FXAudio2Backend::FImpl& Implementation,
+FVoiceSlot* FindVoiceSlot(CXAudio2Backend::FImpl& Implementation,
                           FAudioVoiceHandle Voice) noexcept
 {
     for (u32 Index = 0u; Index < Implementation.MaxVoices; ++Index)
@@ -287,7 +287,7 @@ FVoiceSlot* FindVoiceSlot(FXAudio2Backend::FImpl& Implementation,
 }
 
 /** mutex 取得済みの pimpl で一発またはループ再生を開始する。 */
-FAudioVoiceHandle PlayInternal(FXAudio2Backend::FImpl& Implementation,
+FAudioVoiceHandle PlayInternal(CXAudio2Backend::FImpl& Implementation,
                               const FAudioClipDesc& Clip,
                               f32 Volume,
                               f32 Pitch,
@@ -422,19 +422,19 @@ FAudioVoiceHandle PlayInternal(FXAudio2Backend::FImpl& Implementation,
 
 } // namespace
 
-FXAudio2Backend::FXAudio2Backend() noexcept = default;
+CXAudio2Backend::CXAudio2Backend() noexcept = default;
 
-FXAudio2Backend::~FXAudio2Backend() noexcept
+CXAudio2Backend::~CXAudio2Backend() noexcept
 {
     Shutdown();
 }
 
-bool FXAudio2Backend::IsShutdownRequested() const noexcept
+bool CXAudio2Backend::IsShutdownRequested() const noexcept
 {
     return m_ShutdownRequests.Load(EMemoryOrder::Acquire) != 0u;
 }
 
-TResult<void> FXAudio2Backend::Init(u32 MaxVoices) noexcept
+TResult<void> CXAudio2Backend::Init(u32 MaxVoices) noexcept
 {
     if (IsShutdownRequested())
     {
@@ -506,7 +506,7 @@ TResult<void> FXAudio2Backend::Init(u32 MaxVoices) noexcept
     return Ok();
 }
 
-void FXAudio2Backend::Shutdown() noexcept
+void CXAudio2Backend::Shutdown() noexcept
 {
     FScopedBackendShutdownRequest ShutdownRequest(m_ShutdownRequests);
     FScopedExclusiveLock LifecycleLock(m_LifecycleLock);
@@ -517,7 +517,7 @@ void FXAudio2Backend::Shutdown() noexcept
     ShutdownUnlocked();
 }
 
-void FXAudio2Backend::ShutdownUnlocked() noexcept
+void CXAudio2Backend::ShutdownUnlocked() noexcept
 {
     FImpl* const Implementation = m_Impl;
     {
@@ -564,7 +564,7 @@ void FXAudio2Backend::ShutdownUnlocked() noexcept
     m_Impl = nullptr;
 }
 
-bool FXAudio2Backend::IsInitialized() const noexcept
+bool CXAudio2Backend::IsInitialized() const noexcept
 {
     if (IsShutdownRequested())
     {
@@ -584,7 +584,7 @@ bool FXAudio2Backend::IsInitialized() const noexcept
     return Implementation->bInitialized;
 }
 
-FAudioVoiceHandle FXAudio2Backend::PlayOneShot(const FAudioClipDesc& Clip,
+FAudioVoiceHandle CXAudio2Backend::PlayOneShot(const FAudioClipDesc& Clip,
                                               f32 Volume,
                                               f32 Pitch) noexcept
 {
@@ -606,7 +606,7 @@ FAudioVoiceHandle FXAudio2Backend::PlayOneShot(const FAudioClipDesc& Clip,
     return PlayInternal(*Implementation, Clip, Volume, Pitch, false);
 }
 
-FAudioVoiceHandle FXAudio2Backend::PlayLooped(const FAudioClipDesc& Clip,
+FAudioVoiceHandle CXAudio2Backend::PlayLooped(const FAudioClipDesc& Clip,
                                              f32 Volume,
                                              f32 Pitch) noexcept
 {
@@ -628,7 +628,7 @@ FAudioVoiceHandle FXAudio2Backend::PlayLooped(const FAudioClipDesc& Clip,
     return PlayInternal(*Implementation, Clip, Volume, Pitch, true);
 }
 
-void FXAudio2Backend::StopVoice(FAudioVoiceHandle Voice) noexcept
+void CXAudio2Backend::StopVoice(FAudioVoiceHandle Voice) noexcept
 {
     if (IsShutdownRequested() || !Voice.IsValid())
     {
@@ -661,7 +661,7 @@ void FXAudio2Backend::StopVoice(FAudioVoiceHandle Voice) noexcept
     }
 }
 
-void FXAudio2Backend::SetVoiceVolume(FAudioVoiceHandle Voice, f32 Volume) noexcept
+void CXAudio2Backend::SetVoiceVolume(FAudioVoiceHandle Voice, f32 Volume) noexcept
 {
     if (IsShutdownRequested() || !Voice.IsValid())
     {
@@ -690,7 +690,7 @@ void FXAudio2Backend::SetVoiceVolume(FAudioVoiceHandle Voice, f32 Volume) noexce
     Slot->Voice->SetVolume(ClampVolume(Volume));
 }
 
-void FXAudio2Backend::StopAllVoices() noexcept
+void CXAudio2Backend::StopAllVoices() noexcept
 {
     if (IsShutdownRequested())
     {
@@ -710,7 +710,7 @@ void FXAudio2Backend::StopAllVoices() noexcept
     StopAllVoicesLocked(*Implementation);
 }
 
-u32 FXAudio2Backend::ActiveVoiceCount() const noexcept
+u32 CXAudio2Backend::ActiveVoiceCount() const noexcept
 {
     if (IsShutdownRequested())
     {
@@ -733,7 +733,7 @@ u32 FXAudio2Backend::ActiveVoiceCount() const noexcept
     return Implementation->ActiveVoiceCount;
 }
 
-void FXAudio2Backend::Tick(f32 DeltaSeconds) noexcept
+void CXAudio2Backend::Tick(f32 DeltaSeconds) noexcept
 {
     (void)DeltaSeconds;
     if (IsShutdownRequested())
@@ -777,7 +777,7 @@ void FXAudio2Backend::Tick(f32 DeltaSeconds) noexcept
     }
 }
 
-void FXAudio2Backend::SetMasterVolume(f32 Volume) noexcept
+void CXAudio2Backend::SetMasterVolume(f32 Volume) noexcept
 {
     if (IsShutdownRequested())
     {
@@ -801,7 +801,7 @@ void FXAudio2Backend::SetMasterVolume(f32 Volume) noexcept
 }
 
 #if defined(ACS_XAUDIO2_BACKEND_TEST_HOOKS)
-TResult<void> FXAudio2Backend::InitializeLifecycleTestState() noexcept
+TResult<void> CXAudio2Backend::InitializeLifecycleTestState() noexcept
 {
     if (IsShutdownRequested())
     {
@@ -832,19 +832,19 @@ TResult<void> FXAudio2Backend::InitializeLifecycleTestState() noexcept
     return Ok();
 }
 
-void FXAudio2Backend::ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
+void CXAudio2Backend::ConfigureLifecycleOperationTestGate(TAtomic<u32>* Entered,
                                                           TAtomic<u32>* Release) noexcept
 {
     g_BackendLifecycleTestRelease.Store(Release, EMemoryOrder::Release);
     g_BackendLifecycleTestEntered.Store(Entered, EMemoryOrder::Release);
 }
 
-bool FXAudio2Backend::IsShutdownRequestedForTesting() const noexcept
+bool CXAudio2Backend::IsShutdownRequestedForTesting() const noexcept
 {
     return IsShutdownRequested();
 }
 
-bool FXAudio2Backend::HasLifecycleStateForTesting() const noexcept
+bool CXAudio2Backend::HasLifecycleStateForTesting() const noexcept
 {
     FScopedSharedLock LifecycleLock(m_LifecycleLock);
     return m_Impl != nullptr;

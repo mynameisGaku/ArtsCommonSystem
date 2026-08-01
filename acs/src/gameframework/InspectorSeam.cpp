@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorSeam 実装
+// GameFramework Pillar K — CInspectorSeam 実装
 //
 // 設計のポイント:
 //   ・Provider レジストリは線形 `TArray<Provider*>`。想定の登録数は
@@ -12,17 +12,17 @@
 
 namespace acs::game {
 
-void FInspectorSeam::Init() noexcept {
+void CInspectorSeam::Init() noexcept {
     // 現状は何もしない (予約点)。
     // 多重呼び出し可: 何度呼んでも副作用なし。
 }
 
-void FInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
+void CInspectorSeam::RegisterProvider(IInspectableProvider* provider) noexcept {
     // node 紐付けなし = invalid FNodeId で登録 (GetProviderForNode の対象外)。
     RegisterProviderForNode(FNodeId{}, provider);
 }
 
-void FInspectorSeam::RegisterProviderForNode(FNodeId node_id,
+void CInspectorSeam::RegisterProviderForNode(FNodeId node_id,
                                              IInspectableProvider* provider) noexcept {
     if (provider == nullptr) {
         // nullptr は無視 (呼び出し側の境界条件を吸収する)。
@@ -40,7 +40,7 @@ void FInspectorSeam::RegisterProviderForNode(FNodeId node_id,
     m_NodeIds.PushBack(node_id);
 }
 
-void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept {
+void CInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept {
     if (provider == nullptr) {
         // nullptr は no-op (Register と対称)。
         return;
@@ -67,11 +67,11 @@ void FInspectorSeam::UnregisterProvider(IInspectableProvider* provider) noexcept
     // ミスを致命化しない)。
 }
 
-u32 FInspectorSeam::ProviderCount() const noexcept {
+u32 CInspectorSeam::ProviderCount() const noexcept {
     return static_cast<u32>(m_Providers.Size());
 }
 
-IInspectableProvider* FInspectorSeam::GetProvider(u32 index) const noexcept {
+IInspectableProvider* CInspectorSeam::GetProvider(u32 index) const noexcept {
     if (index >= m_Providers.Size()) {
         // 範囲外は nullptr を返す (TArray::operator[] の ASSERT を避ける防御)。
         return nullptr;
@@ -79,7 +79,7 @@ IInspectableProvider* FInspectorSeam::GetProvider(u32 index) const noexcept {
     return m_Providers[index];
 }
 
-IInspectableProvider* FInspectorSeam::GetProviderForNode(FNodeId node_id) const noexcept {
+IInspectableProvider* CInspectorSeam::GetProviderForNode(FNodeId node_id) const noexcept {
     if (!node_id.IsValid()) {
         // invalid id (= 未紐付け sentinel) では引かない。RegisterProvider 由来の
         // 紐付けなし provider (m_NodeIds[i] == invalid) を誤ヒットさせないため。
@@ -95,7 +95,7 @@ IInspectableProvider* FInspectorSeam::GetProviderForNode(FNodeId node_id) const 
     return nullptr;
 }
 
-void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept {
+void CInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 field_index) noexcept {
     if (provider_index >= m_Providers.Size()) {
         // 範囲外は no-op。UI 側のリストと本体側の登録が一瞬ずれることがあるため
         // 防御的にチェックする。
@@ -111,7 +111,7 @@ void FInspectorSeam::NotifyFieldChanged(u32 provider_index, u32 obj_index, u32 f
     prov->OnFieldChanged(obj_index, field_index);
 }
 
-void FInspectorSeam::ClearAll() noexcept {
+void CInspectorSeam::ClearAll() noexcept {
     // Provider は non-owning なので破棄せず、配列だけ空にする。
     // 容量は保持 (Reserve 状態を保つ ≒ 次回再登録時のアロケーション節約)。
     // parallel array なので node_id 側も必ず一緒に空にする。

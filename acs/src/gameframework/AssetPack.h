@@ -198,13 +198,13 @@ public:
  * ACS_ERR(Generic, kSubAssetPackNotImplemented) を返す。Unmount() は副作用なし、
  * IsMounted() は常に false。
  */
-class FAssetPackReaderStub final : public IAssetPackReader {
+class CAssetPackReaderStub final : public IAssetPackReader {
 public:
     /** 既定構築する。 */
-    FAssetPackReaderStub() noexcept = default;
+    CAssetPackReaderStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FAssetPackReaderStub() noexcept override = default;
+    ~CAssetPackReaderStub() noexcept override = default;
 
     /**
      * NotImplemented を返す (stub)。
@@ -263,13 +263,13 @@ public:
  *
  * @details 全 API が NotImplemented (kSubAssetPackNotImplemented) を返す。
  */
-class FAssetPackWriterStub final : public IAssetPackWriter {
+class CAssetPackWriterStub final : public IAssetPackWriter {
 public:
     /** 既定構築する。 */
-    FAssetPackWriterStub() noexcept = default;
+    CAssetPackWriterStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FAssetPackWriterStub() noexcept override = default;
+    ~CAssetPackWriterStub() noexcept override = default;
 
     /**
      * NotImplemented を返す (stub)。
@@ -300,14 +300,14 @@ public:
 /**
  * 既定 stub の Reader (Meyer's singleton) を返す。
  *
- * @return プロセス共有の FAssetPackReaderStub 参照。
+ * @return プロセス共有の CAssetPackReaderStub 参照。
  */
 IAssetPackReader& GetReaderStub() noexcept;
 
 /**
  * 既定 stub の Writer (Meyer's singleton) を返す。
  *
- * @return プロセス共有の FAssetPackWriterStub 参照。
+ * @return プロセス共有の CAssetPackWriterStub 参照。
  */
 IAssetPackWriter& GetWriterStub() noexcept;
 
@@ -352,5 +352,11 @@ void SetAssetPackWriterProvider(AssetPackWriterProvider provider) noexcept;
  * @return provider 登録済みならその実装、未登録なら GetWriterStub()。
  */
 IAssetPackWriter& GetDefaultAssetPackWriter() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetPackReaderStub = CAssetPackReaderStub;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetPackWriterStub = CAssetPackWriterStub;
 
 } // namespace acs::game

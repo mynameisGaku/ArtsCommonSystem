@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FPhotoMode (Polish & GameFeel)
+// GameFramework Pillar R — CPhotoMode (Polish & GameFeel)
 //
 // プレイヤーが任意の瞬間で「ゲーム時間を停止して景色を撮影する」モード。
 // 近年の AAA タイトル (Horizon / God of War / Spider-Man など) で
@@ -14,22 +14,22 @@
 //
 // 設計選択:
 //   ・**caller が時間操作を行う**: Enter() / Exit() は本クラスの状態を
-//     変えるだけ。実際の `FGame::SetTimeScale(0)` 呼び出しは外側の
+//     変えるだけ。実際の `CGame::SetTimeScale(0)` 呼び出しは外側の
 //     ゲームコードが SavedTimeScale() を見て行う。これにより
-//     GameFramework モジュールから FGame への依存を切る (Pillar 規約)。
+//     GameFramework モジュールから CGame への依存を切る (Pillar 規約)。
 //   ・**capture flag は poll-and-consume**: 描画側が 1 フレームの末尾で
 //     `ConsumeCaptureRequest()` を呼んで rear (= 落とす)。連打しても
 //     1 フレームに 1 枚しか保存しない自然な仕様。
 //   ・**zoom clamp [0.1, 10.0]**: 1/10 〜 10 倍。これより外は被写界深度や
 //     LOD が破綻するので機械的に clamp。
 //   ・**rotation は累積 radians**: 元のゲームカメラ rotation に **加算** する
-//     用途。FCamera2D::Rotation() と直接競合しない設計。
+//     用途。CCamera2D::Rotation() と直接競合しない設計。
 //   ・**filter は enum のみ持つ**: 実 LUT / シェーダパラメータの解決は
 //     ポストプロセスパスの責務。本クラスは「どのフィルタが選ばれているか」
 //     だけを保持する。
 //
 // 非コピー・非ムーブ:
-//   FPhotoMode は FGame / FScene のメンバとして 1 インスタンスだけ存在する
+//   CPhotoMode は CGame / AScene のメンバとして 1 インスタンスだけ存在する
 //   想定。複製可能にすると saved_time_scale 等の整合性管理が破綻する。
 //
 // 範囲外:
@@ -50,11 +50,11 @@ namespace acs::game {
  * @details
  * active フラグ・カメラ自由操作オフセット (pan / zoom / rotation)・色フィルタ種別・
  * 撮影リクエスト flag・Enter 時の time scale 保存値だけを保持する。実際の時間停止や
- * カメラ移動・フィルタ適用は caller (FGame / FScene / ポストプロセスパス) が状態を見て
- * 行うため、GameFramework から FGame への依存を持たない。state holder の唯一性を保つ
+ * カメラ移動・フィルタ適用は caller (CGame / AScene / ポストプロセスパス) が状態を見て
+ * 行うため、GameFramework から CGame への依存を持たない。state holder の唯一性を保つ
  * ため非コピー・非ムーブ。
  */
-class FPhotoMode {
+class CPhotoMode {
 public:
     /**
      * 色フィルタの種別。
@@ -80,22 +80,22 @@ public:
     };
 
     /** 非アクティブ状態で構築する (フィルタ None、オフセット 0)。 */
-    FPhotoMode() noexcept = default;
+    CPhotoMode() noexcept = default;
 
     /** デストラクタ。 */
-    ~FPhotoMode() noexcept = default;
+    ~CPhotoMode() noexcept = default;
 
     /** コピー禁止 (state holder の唯一性を担保するため)。 */
-    FPhotoMode(const FPhotoMode&)            = delete;
+    CPhotoMode(const CPhotoMode&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPhotoMode& operator=(const FPhotoMode&) = delete;
+    CPhotoMode& operator=(const CPhotoMode&) = delete;
 
     /** ムーブ禁止 (state holder の唯一性を担保するため)。 */
-    FPhotoMode(FPhotoMode&&)                 = delete;
+    CPhotoMode(CPhotoMode&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPhotoMode& operator=(FPhotoMode&&)      = delete;
+    CPhotoMode& operator=(CPhotoMode&&)      = delete;
 
     /**
      * 撮影モードに入る。
@@ -103,7 +103,7 @@ public:
      * @details
      * 二重 Enter は no-op (保存値を上書きしない)。現在の time_scale を保存し、カメラ
      * オフセット・ズーム・回転・撮影 flag をリセットする。フィルタは前回値を保持する。
-     * 実際に `FGame::SetTimeScale(0)` を呼ぶのは caller の責任。
+     * 実際に `CGame::SetTimeScale(0)` を呼ぶのは caller の責任。
      * @param current_time_scale Enter 時点の time scale (Exit 後の復元用に保存される)。
      */
     void Enter(f32 current_time_scale = 1.0f) noexcept;
@@ -195,7 +195,7 @@ public:
     /**
      * Enter 時に保存した time scale を返す。
      *
-     * @details caller が Exit 後に `FGame::SetTimeScale(photo.SavedTimeScale())` で
+     * @details caller が Exit 後に `CGame::SetTimeScale(photo.SavedTimeScale())` で
      * 復元する用。
      * @return Enter 時点の time scale。
      */
@@ -223,5 +223,8 @@ private:
     /** Enter 時に保存した time scale (Exit 後の復元用)。 */
     f32        m_SavedTimeScale  = 1.0f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPhotoMode = CPhotoMode;
 
 } // namespace acs::game

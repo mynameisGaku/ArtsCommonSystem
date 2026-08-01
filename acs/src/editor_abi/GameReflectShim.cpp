@@ -90,7 +90,7 @@ struct FGamePlayScene {
     TObjectPtr<ANode>        root;
     TArray<ANode*>          nodes;     // 非所有 (tree が所有)
     // services は root «より後» に宣言 = 破棄は逆順 → tree (services を借用) が先に壊れ、借用先 services が後。
-    TUniquePtr<FSceneServices> services;
+    TUniquePtr<CSceneServices> services;
 };
 } // namespace
 
@@ -103,7 +103,7 @@ GR_API void* acs_game_scene_create() noexcept {
         // Default2D(Clock/Tweens/Sequences/Input) + Camera2D + Physics2D。services は DLL 内で生成・所有
         // → cross-DLL 安全。root に配線しておくと、以降 add_component 時に各コンポーネントの
         //   OnAttachServices がガード付きで即発火する (services は walk-to-root で解決できる)。
-        s->services = MakeUnique<FSceneServices>(ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D);
+        s->services = MakeUnique<CSceneServices>(ESvc::Default2D | ESvc::Camera2D | ESvc::Physics2D);
         if (s->root && s->services) s->root->_SetSceneServices(s->services.Get());
     }
     return s;

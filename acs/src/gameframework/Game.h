@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
-// FGame — FSceneManager を駆動するゲーム基底クラス
+// CGame — CSceneManager を駆動するゲーム基底クラス
 //
-// FApplication を継承し、FSceneManager を駆動する基底。利用者は派生クラスで
-// InitialScene() を override して最初の FScene を返すだけでよい。
+// CApplication を継承し、CSceneManager を駆動する基底。利用者は派生クラスで
+// InitialScene() を override して最初の AScene を返すだけでよい。
 //
 // 使い方:
-//   class FMyGame : public acs::FGame {
+//   class FMyGame : public acs::CGame {
 //   protected:
-//       acs::TUniquePtr<acs::FScene> InitialScene() noexcept override {
+//       acs::TUniquePtr<acs::AScene> InitialScene() noexcept override {
 //           return acs::MakeUnique<FTitleScene>();
 //       }
 //   };
 //   ACS_GAME_MAIN(FMyGame)
 //
-// FSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
-// AppState 型消去永続状態 + FScene への dt は time_scale 乗算済を渡す。
-// OnPause/OnResume は FSceneManager 側で配線済 (Push/Pop 時)。
+// CSceneManager 駆動 + FRenderContext 配線。固定タイムステップ accumulator +
+// AppState 型消去永続状態 + AScene への dt は time_scale 乗算済を渡す。
+// OnPause/OnResume は CSceneManager 側で配線済 (Push/Pop 時)。
 #pragma once
 
 #include "app/Application.h"
@@ -23,6 +23,7 @@
 #include "foundation/Move.h"
 #include "render/Font.h"
 #include "render/SpriteBatch.h"
+#include "gameframework/Forward.h"
 #include "gameframework/SceneManager.h"
 #include "gameframework/RenderContext.h"
 #include "gameframework/AppState.h"
@@ -31,36 +32,34 @@
 
 namespace acs::game {
 
-class FScene;
-
 /**
- * FApplication を継承し FSceneManager を駆動するゲーム基底クラス。
+ * CApplication を継承し CSceneManager を駆動するゲーム基底クラス。
  *
  * @details
- * 利用者は派生クラスで InitialScene() を override し最初の FScene を返すだけでよい。
+ * 利用者は派生クラスで InitialScene() を override し最初の AScene を返すだけでよい。
  * 固定タイムステップ accumulator、AppState による型消去の永続状態、フェード付き
- * シーン遷移を提供する。FScene に渡す dt は time_scale 乗算済み。
+ * シーン遷移を提供する。AScene に渡す dt は time_scale 乗算済み。
  */
-class FGame : public FApplication {
+class CGame : public CApplication {
 public:
     /** 既定状態で構築する。 */
-    FGame() noexcept;
+    CGame() noexcept;
 
     /** 破棄する。 */
-    ~FGame() noexcept override = default;
+    ~CGame() noexcept override = default;
 
     /** コピー禁止。 */
-    FGame(const FGame&)            = delete;
+    CGame(const CGame&)            = delete;
 
     /** コピー代入も禁止。 */
-    FGame& operator=(const FGame&) = delete;
+    CGame& operator=(const CGame&) = delete;
 
     /**
      * シーンマネージャへの参照を返す。
      *
-     * @return FSceneManager への参照。
+     * @return CSceneManager への参照。
      */
-    FSceneManager&  Scenes()        noexcept { return m_Scenes; }
+    CSceneManager&  Scenes()        noexcept { return m_Scenes; }
 
     /**
      * レンダーコンテキストへの参照を返す。
@@ -72,7 +71,7 @@ public:
     /**
      * 時間スケールを設定する。
      *
-     * @details FScene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
+     * @details AScene::OnUpdate / OnFixedUpdate に渡る dt に乗算される。負値は 0 にクランプ。
      * @param s 新しい時間スケール。
      */
     void SetTimeScale(f32 s) noexcept { m_TimeScale = s < 0.0f ? 0.0f : s; }
@@ -131,41 +130,41 @@ public:
      * フェード付きシーン遷移を行う。
      *
      * @details
-     * fade-out → (暗転中に) FScene 切替 → fade-in を 1 行で行う。フェードは
+     * fade-out → (暗転中に) AScene 切替 → fade-in を 1 行で行う。フェードは
      * time_scale の影響を受けない実時間で進む (ポーズ中でも遷移は進む)。遷移演出は
-     * FGame が描画するので、切替先 FScene 側で重ねてフェードしないこと。
-     * @param next 遷移先の FScene (所有権が移る)。
+     * CGame が描画するので、切替先 AScene 側で重ねてフェードしないこと。
+     * @param next 遷移先の AScene (所有権が移る)。
      * @param out_sec fade-out の秒数。
      * @param in_sec fade-in の秒数。
      */
-    void TransitionTo(TUniquePtr<FScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
+    void TransitionTo(TUniquePtr<AScene> next, f32 out_sec = 0.3f, f32 in_sec = 0.3f) noexcept;
 
     /**
      * 進行中のフェード状態への参照を返す。
      *
-     * @return overlay alpha/color・phase を参照できる FFadeTransition への参照。
+     * @return overlay alpha/color・phase を参照できる CFadeTransition への参照。
      */
-    FFadeTransition& Fade() noexcept { return m_Fade; }
+    CFadeTransition& Fade() noexcept { return m_Fade; }
 
     /**
      * GameInstance スコープのサブシステム束を返す(Engine スコープへフォールバックする)。
      *
-     * @details FScene の World サブシステム束はこれを parent にする。
+     * @details AScene の World サブシステム束はこれを parent にする。
      * @return GameInstance スコープのコレクション。
      */
-    FSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
+    CSubsystemCollection& GameInstanceSubsystems() noexcept { return m_GameInstanceSubsystems; }
 
     /**
      * Engine スコープ(アプリ全体寿命)のサブシステム束を返す。
      *
      * @return Engine スコープのコレクション。
      */
-    FSubsystemCollection& EngineSubsystems() noexcept { return FApplication::EngineSubsystems(); }
+    CSubsystemCollection& EngineSubsystems() noexcept { return CApplication::EngineSubsystems(); }
 
     /**
      * 型でサブシステムを取得する(GameInstance → Engine の順に検索)。
      *
-     * @tparam T FSubsystem 派生型。
+     * @tparam T ASubsystem 派生型。
      * @return T*(未登録なら nullptr)。
      */
     template<typename T>
@@ -173,11 +172,11 @@ public:
 
 protected:
     /**
-     * 最初に push される FScene を返す (派生クラスで実装必須)。
+     * 最初に push される AScene を返す (派生クラスで実装必須)。
      *
-     * @return 起動時に push する初期 FScene。
+     * @return 起動時に push する初期 AScene。
      */
-    virtual TUniquePtr<FScene> InitialScene() noexcept = 0;
+    virtual TUniquePtr<AScene> InitialScene() noexcept = 0;
 
     /**
      * 起動時フック。InitialScene() を push して即時適用する。
@@ -209,7 +208,7 @@ protected:
     void OnShutdown() noexcept override;
 
     /**
-     * イベントフック。受け取ったイベントを FSceneManager に流す。
+     * イベントフック。受け取ったイベントを CSceneManager に流す。
      *
      * @details 派生がさらに override する場合は基底を呼ぶこと。
      * @param e ディスパッチするイベント。
@@ -227,12 +226,12 @@ private:
     void DrawFadeOverlay() noexcept;
 
     /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
-    FSubsystemCollection m_GameInstanceSubsystems;
+    CSubsystemCollection m_GameInstanceSubsystems;
 
-    /** シーンマネージャ (FScene の push/pop/切替を管理)。 */
-    FSceneManager  m_Scenes;
+    /** シーンマネージャ (AScene の push/pop/切替を管理)。 */
+    CSceneManager  m_Scenes;
 
-    /** FScene 描画に渡すレンダーコンテキスト。 */
+    /** AScene 描画に渡すレンダーコンテキスト。 */
     FRenderContext m_RenderCtx;
 
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
@@ -251,10 +250,10 @@ private:
     bool          m_UiFontTried = false;
 
     /** シーン遷移フェードの状態。 */
-    FFadeTransition   m_Fade;
+    CFadeTransition   m_Fade;
 
-    /** 暗転中に差し替える次 FScene。 */
-    TUniquePtr<FScene> m_PendingScene;
+    /** 暗転中に差し替える次 AScene。 */
+    TUniquePtr<AScene> m_PendingScene;
 
     /** フェード overlay 描画用の FSpriteBatch。 */
     FSpriteBatch      m_Overlay;
@@ -265,7 +264,7 @@ private:
     /** overlay FSpriteBatch の init を試行済みか (再試行抑止)。 */
     bool              m_OverlayTried = false;
 
-    /** 時間スケール (FScene の dt に乗算)。 */
+    /** 時間スケール (AScene の dt に乗算)。 */
     f32           m_TimeScale       = 1.0f;
 
     /** 固定 step の長さ (秒、0 以下で無効)。 */
@@ -279,12 +278,3 @@ private:
 };
 
 } // namespace acs::game
-
-namespace acs {
-
-/** FGameが所有するsceneをトップレベルから参照する正規入口。 */
-using game::FScene;
-/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
-using game::FGame;
-
-} // namespace acs

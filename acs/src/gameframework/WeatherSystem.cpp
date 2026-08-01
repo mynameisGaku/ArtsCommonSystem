@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FWeatherSystem 実装
+// GameFramework Pillar Q — CWeatherSystem 実装
 //
 // 8 種の天候を 1 つの LUT (KindParams テーブル) で表現し、current/target を
 // 線形補間する。Tick で transition_t を進行し、1.0 到達時に current = target に
@@ -20,7 +20,7 @@ namespace acs::game {
  * Storm/Sandstorm=1)、fog_density (霧密度倍率、Fog で大)。並びは EWeatherKind の
  * 数値順 (Clear=0 .. Sandstorm=7) と一致させる。
  */
-static const FWeatherSystem::FKindParams kParamsTable[8] = {
+static const CWeatherSystem::FKindParams kParamsTable[8] = {
     // Clear      晴天: 何も足さず、何も引かない基準値
     { 1.00f, 0.00f, FVec3{1.00f, 1.00f, 1.00f}, 0.10f, 1.00f },
     // Cloudy     曇り: 全体的に少しトーン落ち、わずかに灰青寄りに
@@ -40,7 +40,7 @@ static const FWeatherSystem::FKindParams kParamsTable[8] = {
 };
 
 /** 天候種別に対応する修飾パラメータを LUT から引く (範囲外は Clear にフォールバック)。 */
-const FWeatherSystem::FKindParams& FWeatherSystem::Params(EWeatherKind k) noexcept {
+const CWeatherSystem::FKindParams& CWeatherSystem::Params(EWeatherKind k) noexcept {
     // 範囲外は Clear にフォールバック (將来の enum 拡張で size > 8 となる場合の
     // 安全網)。現状の enum 定義では決して走らない。
     const u32 idx = static_cast<u32>(k);
@@ -49,7 +49,7 @@ const FWeatherSystem::FKindParams& FWeatherSystem::Params(EWeatherKind k) noexce
 }
 
 /** 目標天候を設定し、遷移を開始する (同一天候は即完了、duration<=0 は即時切替)。 */
-void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
+void CWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noexcept {
     // 同一天候: 既にその天候なので即完了状態に揃える。
     if (kind == m_Current && m_TransitionT >= 1.0f) {
         m_Target              = kind;
@@ -83,7 +83,7 @@ void FWeatherSystem::SetWeather(EWeatherKind kind, f32 transition_duration) noex
 }
 
 /** 遷移を 1 フレーム分進め、完了時に current を target へスナップする。 */
-void FWeatherSystem::Tick(f32 dt) noexcept {
+void CWeatherSystem::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
     // 既に完了状態なら何もしない (浮動小数の累積ドリフトを避ける)。
@@ -107,7 +107,7 @@ void FWeatherSystem::Tick(f32 dt) noexcept {
 }
 
 /** 初期化直後の状態 (Clear、遷移完了、風向き東) へ戻す。 */
-void FWeatherSystem::Reset() noexcept {
+void CWeatherSystem::Reset() noexcept {
     m_Current             = EWeatherKind::Clear;
     m_Target              = EWeatherKind::Clear;
     m_TransitionDuration = 0.0f;
@@ -117,35 +117,35 @@ void FWeatherSystem::Reset() noexcept {
 }
 
 /** ambient 輝度倍率を current → target の線形補間で返す。 */
-f32 FWeatherSystem::AmbientLightMultiplier() const noexcept {
+f32 CWeatherSystem::AmbientLightMultiplier() const noexcept {
     const FKindParams& a = Params(m_Current);
     const FKindParams& b = Params(m_Target);
     return Lerp(a.ambient_mult, b.ambient_mult, m_TransitionT);
 }
 
 /** 粒子密度倍率を current → target の線形補間で返す。 */
-f32 FWeatherSystem::ParticleDensity() const noexcept {
+f32 CWeatherSystem::ParticleDensity() const noexcept {
     const FKindParams& a = Params(m_Current);
     const FKindParams& b = Params(m_Target);
     return Lerp(a.particle_density, b.particle_density, m_TransitionT);
 }
 
 /** sky tint 乗算係数を current → target の線形補間で返す。 */
-FVec3 FWeatherSystem::SkyTintMultiplier() const noexcept {
+FVec3 CWeatherSystem::SkyTintMultiplier() const noexcept {
     const FKindParams& a = Params(m_Current);
     const FKindParams& b = Params(m_Target);
     return Lerp(a.sky_tint, b.sky_tint, m_TransitionT);
 }
 
 /** 風の強さ [0,1] を current → target の線形補間で返す。 */
-f32 FWeatherSystem::WindStrength() const noexcept {
+f32 CWeatherSystem::WindStrength() const noexcept {
     const FKindParams& a = Params(m_Current);
     const FKindParams& b = Params(m_Target);
     return Lerp(a.wind_strength, b.wind_strength, m_TransitionT);
 }
 
 /** 霧密度倍率を current → target の線形補間で返す。 */
-f32 FWeatherSystem::FogDensityMultiplier() const noexcept {
+f32 CWeatherSystem::FogDensityMultiplier() const noexcept {
     const FKindParams& a = Params(m_Current);
     const FKindParams& b = Params(m_Target);
     return Lerp(a.fog_density, b.fog_density, m_TransitionT);

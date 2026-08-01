@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FUiLayer (acs::ui::FWidget tree を FScene に繋ぐ glue)
+// GameFramework Pillar H — CUiLayer (acs::ui::FWidget tree を AScene に繋ぐ glue)
 //
 // 役割:
 //   既存の `acs::ui` FWidget システム (Widget.h / Widgets.h / UiRenderer.h) は
-//   retained-mode UI として強力だが、ゲームコード側 (FScene) から直接触るには
-//   ボイラープレートが多い。FUiLayer は **FScene のライフサイクル (Init / Tick /
+//   retained-mode UI として強力だが、ゲームコード側 (AScene) から直接触るには
+//   ボイラープレートが多い。CUiLayer は **AScene のライフサイクル (Init / Tick /
 //   HandleInput / Shutdown) と FWidget tree を結ぶ薄い層** で、典型的なゲーム UI
 //   (ボタン / テキスト表示) を最小 API で扱えるようにする。
 //
@@ -14,8 +14,8 @@
 //   など) を改善する位置付け。
 //
 // 使い方 (典型例):
-//   class FTitleScene : public FScene {
-//       FUiLayer m_Ui;
+//   class FTitleScene : public AScene {
+//       CUiLayer m_Ui;
 //       u32     m_PlayBtn = 0;
 //       void OnEnter() noexcept override {
 //           m_Ui.Init();
@@ -42,7 +42,7 @@
 //     0 は invalid handle 予約。
 //   ・**const char* 非所有**: 規約通り <string> 不使用。label / text の寿命は
 //     呼び出し側 (文字列リテラル or 長寿命バッファ) が保証する。Pillar T
-//     FPartySystem / Pillar O FEntitlementRegistry と同方針。
+//     CPartySystem / Pillar O CEntitlementRegistry と同方針。
 //   ・**コピー / ムーブ禁止**: UI 状態を持つ長寿命オブジェクト。誤コピーで state
 //     が分裂すると詰むため非コピー・非ムーブ。
 //   ・**全 noexcept**: ACS 全体方針。Init / Shutdown は冪等で再呼び出し安全。
@@ -73,7 +73,7 @@ namespace game {
 class FRenderContext;
 
 /**
- * FUiLayer が扱う widget の種類。
+ * CUiLayer が扱う widget の種類。
  *
  * @details 現状はボタンとテキストのみ (FSlider / FCheckbox / FTextInput は範囲外)。
  */
@@ -121,38 +121,38 @@ struct FWidgetEntry {
 };
 
 /**
- * acs::ui の FWidget tree を FScene のライフサイクルに繋ぐ薄い glue 層。
+ * acs::ui の FWidget tree を AScene のライフサイクルに繋ぐ薄い glue 層。
  *
  * @details
- * FScene の Init / Tick / HandleInput / Shutdown と FWidget tree を結び、典型的なゲーム UI
+ * AScene の Init / Tick / HandleInput / Shutdown と FWidget tree を結び、典型的なゲーム UI
  * (ボタン / テキスト表示) を最小 API で扱えるようにする。現状は実 FWidget 生成 / 描画 /
  * ヒットテストは未接続の state holder で、ハンドル付きの FWidgetEntry を TArray で保持し、
  * 追加・削除・可視性・押下クエリは完全動作する。ハンドルは u32 単調増加で再利用しない
  * (0 は invalid 予約)。const char* は非所有 (寿命は呼び出し側保証)。非コピー・非ムーブ、
  * 全 noexcept、Init / Shutdown は冪等。
  */
-class FUiLayer {
+class CUiLayer {
 public:
     /** 空の UI レイヤを構築する (widget 未登録、未初期化)。 */
-    FUiLayer()  noexcept = default;
+    CUiLayer()  noexcept = default;
 
     /** 破棄する。 */
-    ~FUiLayer() noexcept = default;
+    ~CUiLayer() noexcept = default;
 
     /** コピー禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
-    FUiLayer(const FUiLayer&)            = delete;
+    CUiLayer(const CUiLayer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FUiLayer& operator=(const FUiLayer&) = delete;
+    CUiLayer& operator=(const CUiLayer&) = delete;
 
     /** ムーブ禁止 (state holder。誤コピーで widget 状態が分裂しないため)。 */
-    FUiLayer(FUiLayer&&)                 = delete;
+    CUiLayer(CUiLayer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FUiLayer& operator=(FUiLayer&&)      = delete;
+    CUiLayer& operator=(CUiLayer&&)      = delete;
 
     /**
-     * UI レイヤを初期化する (FScene::OnEnter から呼ぶ)。
+     * UI レイヤを初期化する (AScene::OnEnter から呼ぶ)。
      *
      * @details
      * FWidget tree の root を確保する (現状は stub、実装時は acs::ui::FContainer を root として
@@ -160,11 +160,11 @@ public:
      */
     void Init() noexcept;
 
-    /** 全 widget をクリアし root を解放する (FScene::OnExit から呼ぶ。冪等)。 */
+    /** 全 widget をクリアし root を解放する (AScene::OnExit から呼ぶ。冪等)。 */
     void Shutdown() noexcept;
 
     /**
-     * UI 状態を更新する (FScene::OnUpdate から呼ぶ)。
+     * UI 状態を更新する (AScene::OnUpdate から呼ぶ)。
      *
      * @details
      * 現状は just_pressed フラグの伝搬ハンドリングのみ。実装時に acs::ui::FWidget::Layout
@@ -174,7 +174,7 @@ public:
     void Tick(f32 dt) noexcept;
 
     /**
-     * マウスイベントを処理する (FScene::OnEvent から呼ぶ)。
+     * マウスイベントを処理する (AScene::OnEvent から呼ぶ)。
      *
      * @details
      * MouseMoved はカーソル位置を記録して hover 状態を更新、MouseButtonPressed は
@@ -185,7 +185,7 @@ public:
     void HandleInput(const acs::FEvent& event) noexcept;
 
     /**
-     * 登録 widget を描画する (FScene::OnDrawHud から呼ぶ)。
+     * 登録 widget を描画する (AScene::OnDrawHud から呼ぶ)。
      *
      * @details
      * rc の FSpriteBatch + FFont で描画する (ボタンは hover/押下で色変化、Text はラベル)。
@@ -290,6 +290,9 @@ private:
     /** Init 済みフラグ。 */
     bool               m_Initialized = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FUiLayer = CUiLayer;
 
 } // namespace game
 } // namespace acs

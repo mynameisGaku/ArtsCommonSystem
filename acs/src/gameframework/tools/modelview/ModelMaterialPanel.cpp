@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelMaterialPanel 実装
+// GameFramework Pillar — modelview / AModelMaterialPanel 実装
 //
-// 仕様の意図は FModelMaterialPanel.h を参照。本ファイルでは:
+// 仕様の意図は AModelMaterialPanel.h を参照。本ファイルでは:
 //   ・slot list (TArray<MaterialOverride>) の resize / reset / accessor
 //   ・ImGui (CollapsingHeader + ColorEdit / SliderFloat / Button) によるレンダ
 //   ・field 変更検知時の callback 発火
@@ -61,7 +61,7 @@ static inline void ResetOverrideToDefault(FMaterialOverride& o) noexcept {
 }
 
 /** slot list を空に戻す (callback は維持。状態リセット責務)。 */
-void FModelMaterialPanel::Init() noexcept {
+void AModelMaterialPanel::Init() noexcept {
     // slot list を空に戻す (= 多重 Init 時の状態リセット)。
     // 容量は破棄せず再利用 (= 再 Init / model 再 load のアロケーション節約)。
     m_Overrides.Clear();
@@ -69,7 +69,7 @@ void FModelMaterialPanel::Init() noexcept {
 }
 
 /** slot list を空にし callback も解除する (全状態リセット)。 */
-void FModelMaterialPanel::Shutdown() noexcept {
+void AModelMaterialPanel::Shutdown() noexcept {
     // TArray はデストラクタで自然解放されるが、明示 Clear することで
     // 「多重 Shutdown 後の状態」を確定させる。
     m_Overrides.Clear();
@@ -78,7 +78,7 @@ void FModelMaterialPanel::Shutdown() noexcept {
 }
 
 /** slot list を count 個 (kMaxSlots clamp) に resize し default 値 + slot_index を書く。 */
-void FModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
+void AModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
     // 上限 clamp: 不正な model でも UI が無限長 list を作らないように。
     if (count > kMaxSlots) {
         count = kMaxSlots;
@@ -104,7 +104,7 @@ void FModelMaterialPanel::SetMaterialSlotCount(u32 count) noexcept {
 }
 
 /** 1 slot を default に戻し callback を発火する (範囲外は no-op)。 */
-void FModelMaterialPanel::ResetSlot(u32 slot_index) noexcept {
+void AModelMaterialPanel::ResetSlot(u32 slot_index) noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) {
         // 範囲外は no-op (= 仕様)。
@@ -114,12 +114,12 @@ void FModelMaterialPanel::ResetSlot(u32 slot_index) noexcept {
     ResetOverrideToDefault(o);
     // slot_index フィールドは保守的に再設定 (= 万一外部が壊していても回復)。
     o.slot_index = slot_index;
-    // 外部 (FUndoStack / shader CB) に「default に戻した」イベントを通知する。
+    // 外部 (CUndoStack / shader CB) に「default に戻した」イベントを通知する。
     FireChangeCallback(slot_index);
 }
 
 /** 全 slot を ResetSlot で 1 件ずつ default に戻す (callback も slot 数だけ発火)。 */
-void FModelMaterialPanel::ResetAll() noexcept {
+void AModelMaterialPanel::ResetAll() noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     for (u32 i = 0; i < count; ++i) {
         // ResetSlot を直接呼ぶと callback が slot 数だけ発火する仕様
@@ -129,7 +129,7 @@ void FModelMaterialPanel::ResetAll() noexcept {
 }
 
 /** 指定 slot が override 中かを返す (範囲外は false)。 */
-bool FModelMaterialPanel::IsSlotOverridden(u32 slot_index) const noexcept {
+bool AModelMaterialPanel::IsSlotOverridden(u32 slot_index) const noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) {
         return false;
@@ -138,7 +138,7 @@ bool FModelMaterialPanel::IsSlotOverridden(u32 slot_index) const noexcept {
 }
 
 /** 指定 slot の override を const ポインタで返す (範囲外は nullptr)。 */
-const FMaterialOverride* FModelMaterialPanel::GetOverride(u32 slot_index) const noexcept {
+const FMaterialOverride* AModelMaterialPanel::GetOverride(u32 slot_index) const noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) {
         return nullptr;
@@ -147,7 +147,7 @@ const FMaterialOverride* FModelMaterialPanel::GetOverride(u32 slot_index) const 
 }
 
 /** 指定 slot の override を可変ポインタで返す (範囲外は nullptr)。 */
-FMaterialOverride* FModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexcept {
+FMaterialOverride* AModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexcept {
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) {
         return nullptr;
@@ -156,19 +156,19 @@ FMaterialOverride* FModelMaterialPanel::GetOverrideMutable(u32 slot_index) noexc
 }
 
 /** 現在の slot 数を返す。 */
-u32 FModelMaterialPanel::SlotCount() const noexcept {
+u32 AModelMaterialPanel::SlotCount() const noexcept {
     return static_cast<u32>(m_Overrides.Size());
 }
 
 /** material 変更通知 callback と user ポインタを設定する。 */
-void FModelMaterialPanel::SetOnMaterialChangeCallback(MaterialChangeCallback cb,
+void AModelMaterialPanel::SetOnMaterialChangeCallback(MaterialChangeCallback cb,
                                                      void* user) noexcept {
     m_OnChangeCb   = cb;
     m_OnChangeUser = user;
 }
 
 /** 指定 slot の現在値で変更 callback を発火する (callback 未設定 / 範囲外は no-op)。 */
-void FModelMaterialPanel::FireChangeCallback(u32 slot_index) noexcept {
+void AModelMaterialPanel::FireChangeCallback(u32 slot_index) noexcept {
     if (m_OnChangeCb == nullptr) return;
     const u32 count = static_cast<u32>(m_Overrides.Size());
     if (!IsValidSlot(slot_index, count)) return;
@@ -178,8 +178,8 @@ void FModelMaterialPanel::FireChangeCallback(u32 slot_index) noexcept {
 }
 
 /** ImGui window (slot 数 + Reset All + 各 slot の override 編集 UI) を描画する。 */
-void FModelMaterialPanel::DrawUI() noexcept {
-    // FEditorPanel 規約: !IsVisible() なら早期 return (描画スキップ)。
+void AModelMaterialPanel::DrawUI() noexcept {
+    // AEditorPanel 規約: !IsVisible() なら早期 return (描画スキップ)。
     if (!IsVisible()) {
         return;
     }
@@ -297,7 +297,7 @@ void FModelMaterialPanel::DrawUI() noexcept {
             // Emissive (RGB)。
             // ColorEdit3 は f32[3] を期待。FVec3 は alignas(16) + 末尾 m_Pad を持つ
             // が、x/y/z は連続 f32 なので &o.emissive.x を 3 要素として安全に渡せる
-            // (FInspectorPanel と同パターン)。
+            // (AInspectorPanel と同パターン)。
             if (ImGui::ColorEdit3("Emissive", &o.emissive.x)) {
                 o.is_overridden = true;
                 changed         = true;

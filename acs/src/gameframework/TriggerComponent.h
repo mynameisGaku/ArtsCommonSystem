@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// ATriggerComponent — ANode を FTriggerWorld2D に橋渡しし、overlap の
+// ATriggerComponent — ANode を CTriggerWorld2D に橋渡しし、overlap の
 // enter / exit を「コンポーネント単位」で受け取れるようにする AComponent。
 //
-// FTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
+// CTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
 // コンポーネントは各 trigger に自分自身 (this) を user data として紐付け、world の
 // global コールバックを静的ディスパッチャに差し替えて id→component を逆引きする。
 // これにより player / pickup / hazard などを各ノードのハンドラで個別に処理できる。
@@ -25,10 +25,10 @@
 //       // self が mask に合致する other に触れた
 //   }, this);
 //
-// layer / mask 規約 (FCollisionWorld2D と同じ bitmask):
+// layer / mask 規約 (CCollisionWorld2D と同じ bitmask):
 //   ・layer = 自分が属するレイヤ。mask = 自分が反応したいレイヤ。
 //   ・this は「other.layer & this.mask != 0」のときだけ自分のハンドラが発火する。
-//     (幾何 overlap 判定自体は FTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
+//     (幾何 overlap 判定自体は CTriggerWorld2D が全 pair で行い、フィルタは本層で適用)
 #pragma once
 
 #include "gameframework/AComponent.h"
@@ -38,11 +38,11 @@
 namespace acs::game {
 
 /**
- * ANode を FTriggerWorld2D に橋渡しし、overlap の enter / exit をコンポーネント
+ * ANode を CTriggerWorld2D に橋渡しし、overlap の enter / exit をコンポーネント
  * 単位で受け取れるようにする AComponent。
  *
  * @details
- * FTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
+ * CTriggerWorld2D 自体は world 全体で 1 組のコールバックしか持たないため、本
  * コンポーネントは各 trigger に自分自身を user data として紐付け、world の global
  * コールバックを静的ディスパッチャに差し替えて id→component を逆引きする。これに
  * より player / pickup / hazard などを各ノードのハンドラで個別に処理できる。layer
@@ -63,7 +63,7 @@ public:
      * @param layer 自分が属するレイヤ bit (既定 kAllLayers)。
      * @param mask 反応したい相手のレイヤ bitmask (既定 kAllLayers)。
      */
-    explicit ATriggerComponent(FTriggerWorld2D& world,
+    explicit ATriggerComponent(CTriggerWorld2D& world,
                                u32 layer = kAllLayers,
                                u32 mask  = kAllLayers) noexcept
         : m_World(&world), m_Layer(layer), m_Mask(mask) {}
@@ -218,7 +218,7 @@ private:
     static void SDispatchExit (void* user, FTriggerId self, FTriggerId other) noexcept;
 
     /** 所属するトリガワールド。 */
-    FTriggerWorld2D* m_World = nullptr;
+    CTriggerWorld2D* m_World = nullptr;
 
     /** world に登録した自身の trigger id (未登録なら invalid)。 */
     FTriggerId       m_Id;

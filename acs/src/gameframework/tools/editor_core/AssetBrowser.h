@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K (editor_core) — FAssetBrowser (editor 共通基盤)
+// GameFramework Pillar K (editor_core) — CAssetBrowser (editor 共通基盤)
 //
 // プロジェクト `assets/` 配下のファイルツリーを ImGui で参照 + 各種 panel
 // (ModelViewer / TilemapEditor / ParticleEditor 等) に Drag & Drop 経由で
@@ -16,7 +16,7 @@
 //     表示の足がかりにする。
 //
 // 使い方:
-//   FAssetBrowser browser;
+//   CAssetBrowser browser;
 //   browser.Init(L"assets");
 //   // 毎フレーム
 //   browser.DrawUI();
@@ -33,7 +33,7 @@
 //
 // 設計選択:
 //   ・**非コピー / 非ムーブ**: 内部 TArray<FAssetEntry> + 文字列バッファ pool の
-//     所有を曖昧にしない (FHierarchyPanel / FInspectorPanel と同じ規約)。
+//     所有を曖昧にしない (AHierarchyPanel / AInspectorPanel と同じ規約)。
 //   ・**全 noexcept**: ACS 規約。エラーは index out-of-range / 列挙失敗を
 //     no-op (= 空ツリー) で表現する。
 //   ・**STL 不使用**: ファイル列挙結果は `acs::TArray<FAssetEntry>`、文字列は
@@ -41,7 +41,7 @@
 //     の生存期間を TPool の clear/再生成で揃え、FAssetEntry はオフセットではなく
 //     stabilize された pointer をそのまま持つ。再 Refresh で全部使い直す)。
 //   ・**ImGui ヘッダは .cpp 側のみ**: ヘッダから imgui 依存を漏らさない方針
-//     (FParticleEditorPanel / FHierarchyPanel と同じ)。
+//     (AParticleEditorPanel / AHierarchyPanel と同じ)。
 //   ・**FFileSystem 経由ではなく FindFirstFileW を .cpp 内で直接使う**: 現状
 //     `platform/FileSystem.h` にはディレクトリ列挙 API が無い (ReadAllBytes /
 //     FileSize / Exists のみ)。将来 FFileSystem に `EnumerateDirectory` が
@@ -52,7 +52,7 @@
 //     推奨 (Hierarchy の ANode* 受け渡しと同じパターン)。pointer 寿命は
 //     「次の Refresh まで」(= 文字列 pool が再生成されない間) を保証する。
 //   ・**callback は raw 関数ポインタ + void* user**: ACS は std::function を
-//     使えないため、FParticleEditorPanel / FInspectorPanel と同形の C スタイル
+//     使えないため、AParticleEditorPanel / AInspectorPanel と同形の C スタイル
 //     callback を提供。
 //   ・**EAssetKind は拡張子 lookup の 1 階層**: `.png/.jpg/.tga` → Texture、
 //     `.mdl/.fbx/.gltf/.glb` → Mesh、`.ttf/.otf` → Font、`.wav/.ogg/.mp3` →
@@ -130,7 +130,7 @@ enum class EAssetKind : u8 {
  * 列挙された 1 件のディレクトリ / ファイルを表すエントリ。
  *
  * @details
- * path / short_name は FAssetBrowser の内部 pool 内のメモリを参照する。寿命は
+ * path / short_name は CAssetBrowser の内部 pool 内のメモリを参照する。寿命は
  * 「次の Refresh() を呼ぶまで」のみ有効 (= 次回再列挙時に pool がクリアされ pointer は
  * 無効化される)。コピーして保存する必要があれば利用側でバッファに退避すること。
  */
@@ -164,7 +164,7 @@ struct FAssetEntry {
  * 全 noexcept、STL 不使用で、文字列は内部 pool に積み FAssetEntry はそこへの pointer を持つ
  * (寿命は次の Refresh まで)。ImGui / Win32 列挙依存は .cpp 側に閉じる。
  */
-class FAssetBrowser {
+class CAssetBrowser {
 public:
     /**
      * アセット選択変更を通知する callback の型。
@@ -191,22 +191,22 @@ public:
                                                  EAssetKind kind) noexcept;
 
     /** 空状態で構築する (列挙は Init で行う)。 */
-    FAssetBrowser() noexcept = default;
+    CAssetBrowser() noexcept = default;
 
     /** デストラクタ (pool / TArray は各自のデストラクタが解放)。 */
-    ~FAssetBrowser() noexcept = default;
+    ~CAssetBrowser() noexcept = default;
 
     /** コピー禁止 (内部 TArray / pool / callback 状態の所有を曖昧にしないため)。 */
-    FAssetBrowser(const FAssetBrowser&)            = delete;
+    CAssetBrowser(const CAssetBrowser&)            = delete;
 
     /** コピー代入も禁止。 */
-    FAssetBrowser& operator=(const FAssetBrowser&) = delete;
+    CAssetBrowser& operator=(const CAssetBrowser&) = delete;
 
     /** ムーブ禁止。 */
-    FAssetBrowser(FAssetBrowser&&)                 = delete;
+    CAssetBrowser(CAssetBrowser&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FAssetBrowser& operator=(FAssetBrowser&&)      = delete;
+    CAssetBrowser& operator=(CAssetBrowser&&)      = delete;
 
     /**
      * root_directory を assets/ ルートとして記録し初回 Refresh を実行する。
@@ -424,5 +424,7 @@ private:
     /** 右 list ペイン (current_directory の m_Entries) を描画する。 */
     void DrawList() noexcept;
 };
+
+using FAssetBrowser = CAssetBrowser;
 
 } // namespace acs::game::editor_core

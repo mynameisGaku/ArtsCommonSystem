@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCooldownTimer 実装
+// GameFramework Pillar R — CCooldownTimer 実装
 //
 // 設計メモ:
-//  ・slot 再利用は線形走査 (FSceneTimer / FCollisionWorld2D と同方針)。アクター 1
+//  ・slot 再利用は線形走査 (CSceneTimer / CCollisionWorld2D と同方針)。アクター 1
 //    体あたりの cooldown 数はせいぜい数〜数十、システム全体でも数百以下が想定
 //    なので O(N) で十分。
 //  ・generation は u8 (0=未使用、1〜255 が有効)。255 で wrap して 1 に戻す
@@ -20,7 +20,7 @@
 namespace acs::game {
 
 /** inactive な slot を再利用し、なければ末尾に追加して index を返す。 */
-u32 FCooldownTimer::AcquireSlot() noexcept {
+u32 CCooldownTimer::AcquireSlot() noexcept {
     // 既存の inactive slot を再利用
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
@@ -37,12 +37,12 @@ u32 FCooldownTimer::AcquireSlot() noexcept {
 }
 
 /** index と generation を packed して CooldownId を作る。 */
-FCooldownId FCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
+FCooldownId CCooldownTimer::MakeId(u32 index, u8 gen) const noexcept {
     return FCooldownId::Pack(index, gen);
 }
 
 /** handle を解決し、slot active + gen 一致なら slot を返す。 */
-FCooldownTimer::FSlot* FCooldownTimer::Resolve(FCooldownId id) noexcept {
+CCooldownTimer::FSlot* CCooldownTimer::Resolve(FCooldownId id) noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
@@ -52,7 +52,7 @@ FCooldownTimer::FSlot* FCooldownTimer::Resolve(FCooldownId id) noexcept {
 }
 
 /** handle を解決し、slot active + gen 一致なら const slot を返す。 */
-const FCooldownTimer::FSlot* FCooldownTimer::Resolve(FCooldownId id) const noexcept {
+const CCooldownTimer::FSlot* CCooldownTimer::Resolve(FCooldownId id) const noexcept {
     if (!id.IsValid()) return nullptr;
     const u32 idx = id.Index();
     if (idx >= m_Slots.Size()) return nullptr;
@@ -62,7 +62,7 @@ const FCooldownTimer::FSlot* FCooldownTimer::Resolve(FCooldownId id) const noexc
 }
 
 /** cooldown を登録し、reload 中扱いの slot を確保して handle を返す。 */
-FCooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
+FCooldownId CCooldownTimer::Register(const char* label, f32 duration_sec) noexcept {
     if (duration_sec <= 0.0f) return {};
 
     const u32 idx = AcquireSlot();
@@ -85,7 +85,7 @@ FCooldownId FCooldownTimer::Register(const char* label, f32 duration_sec) noexce
 }
 
 /** slot をクリアして active 解除する (gen は次 Acquire で進む)。 */
-void FCooldownTimer::Unregister(FCooldownId id) noexcept {
+void CCooldownTimer::Unregister(FCooldownId id) noexcept {
     FSlot* s = Resolve(id);
     if (s == nullptr) return;
 
@@ -99,7 +99,7 @@ void FCooldownTimer::Unregister(FCooldownId id) noexcept {
 }
 
 /** charged なら remaining を duration に戻して消費し true を返す。 */
-bool FCooldownTimer::TryUse(FCooldownId id) noexcept {
+bool CCooldownTimer::TryUse(FCooldownId id) noexcept {
     FSlot* s = Resolve(id);
     if (s == nullptr) return false;
     if (!s->charged) return false;
@@ -111,13 +111,13 @@ bool FCooldownTimer::TryUse(FCooldownId id) noexcept {
 }
 
 /** cooldown が charged かを返す (stale handle は false)。 */
-bool FCooldownTimer::IsCharged(FCooldownId id) const noexcept {
+bool CCooldownTimer::IsCharged(FCooldownId id) const noexcept {
     const FSlot* s = Resolve(id);
     return s != nullptr && s->charged;
 }
 
 /** 残り cooldown 秒数を返す (charged / stale は 0)。 */
-f32 FCooldownTimer::Remaining(FCooldownId id) const noexcept {
+f32 CCooldownTimer::Remaining(FCooldownId id) const noexcept {
     const FSlot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
     if (s->charged) return 0.0f;
@@ -125,7 +125,7 @@ f32 FCooldownTimer::Remaining(FCooldownId id) const noexcept {
 }
 
 /** cooldown 進行率 [0,1] を返す (charged は 1.0、stale は 0)。 */
-f32 FCooldownTimer::Progress(FCooldownId id) const noexcept {
+f32 CCooldownTimer::Progress(FCooldownId id) const noexcept {
     const FSlot* s = Resolve(id);
     if (s == nullptr) return 0.0f;
     if (s->charged) return 1.0f;
@@ -138,7 +138,7 @@ f32 FCooldownTimer::Progress(FCooldownId id) const noexcept {
 }
 
 /** 即時 charged にし、false→true 遷移なら ReadyCallback を発火する。 */
-void FCooldownTimer::ForceReady(FCooldownId id) noexcept {
+void CCooldownTimer::ForceReady(FCooldownId id) noexcept {
     FSlot* s = Resolve(id);
     if (s == nullptr) return;
     const bool was_charged = s->charged;
@@ -151,7 +151,7 @@ void FCooldownTimer::ForceReady(FCooldownId id) noexcept {
 }
 
 /** cooldown を duration にリセットして reload 中 (charged=false) に戻す。 */
-void FCooldownTimer::Reset(FCooldownId id) noexcept {
+void CCooldownTimer::Reset(FCooldownId id) noexcept {
     FSlot* s = Resolve(id);
     if (s == nullptr) return;
     s->remaining = s->duration;
@@ -159,7 +159,7 @@ void FCooldownTimer::Reset(FCooldownId id) noexcept {
 }
 
 /** cooldown 長を変更し、必要なら remaining を new_duration にクランプする。 */
-void FCooldownTimer::SetDuration(FCooldownId id, f32 new_duration_sec) noexcept {
+void CCooldownTimer::SetDuration(FCooldownId id, f32 new_duration_sec) noexcept {
     if (new_duration_sec <= 0.0f) return;
     FSlot* s = Resolve(id);
     if (s == nullptr) return;
@@ -173,7 +173,7 @@ void FCooldownTimer::SetDuration(FCooldownId id, f32 new_duration_sec) noexcept 
 }
 
 /** 全 active slot をクリアして active 解除し、件数を 0 にする。 */
-void FCooldownTimer::ClearAll() noexcept {
+void CCooldownTimer::ClearAll() noexcept {
     const usize n = m_Slots.Size();
     for (usize i = 0; i < n; ++i) {
         FSlot& s = m_Slots[i];
@@ -188,7 +188,7 @@ void FCooldownTimer::ClearAll() noexcept {
 }
 
 /** 全 cooldown の remaining を進め、0 到達で charged 遷移 + callback 発火。 */
-void FCooldownTimer::Tick(f32 dt) noexcept {
+void CCooldownTimer::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_ActiveCount == 0u) return;
 

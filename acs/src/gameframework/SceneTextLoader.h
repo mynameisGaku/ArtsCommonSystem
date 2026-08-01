@@ -12,7 +12,7 @@
 //         NFLG <id> <visible> <enabled> <sortLayer> /
 //         SPRT <id> <path> / MAT <id> <path>。
 //
-// 使い方 (FScene2D 派生の OnReady から):
+// 使い方 (AScene2D 派生の OnReady から):
 //   SetPixelsPerUnit(1.0f);
 //   FSceneBounds b = LoadAcsceneFile("main.acscene", Root());
 //   if (b.valid) { Services().Camera().SetPosition(b.Center()); /* zoom はフレーム後合わせる */ }
@@ -31,7 +31,7 @@ namespace acs::game {
 class ANode;
 class IAssetPackReader;
 
-/** ARigidBody2D を持つノードの剛体パラメータ (シーン側で FRigidWorld2D に積む)。 */
+/** ARigidBody2D を持つノードの剛体パラメータ (シーン側で CRigidWorld2D に積む)。 */
 struct FRigidBodyRequest {
     ANode* node        = nullptr;
     int      bodyType    = 1;       // 0=Static, 1=Dynamic
@@ -257,7 +257,7 @@ void LoadSceneMaterialTexturesFromAssetPack(
     TArray<TUniquePtr<IRhiTexture>>& out_textures) noexcept;
 
 /**
- * 剛体要求から FRigidWorld2D にボディを積む (editor の物理 Play と同じ形状/サイズ規約)。
+ * 剛体要求から CRigidWorld2D にボディを積む (editor の物理 Play と同じ形状/サイズ規約)。
  *
  * @details circle: radius=base*0.5*max(scale)。box: half=base*0.5*scale。polygon: ローカル頂点に
  * scale を焼き込む。Static は質量 0。動的ボディだけ out_nodes/out_bodies に記録 (毎フレーム書き戻し用)。
@@ -266,7 +266,7 @@ void LoadSceneMaterialTexturesFromAssetPack(
  * @param out_nodes 動的ボディの対応ノード (書き戻し先)。
  * @param out_bodies 動的ボディの index。
  */
-void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
+void BuildSceneRigidBodies(CRigidWorld2D& world, const TArray<FRigidBodyRequest>& reqs,
                            TArray<ANode*>& out_nodes, TArray<u32>& out_bodies) noexcept;
 
 /**
@@ -278,7 +278,7 @@ void BuildSceneRigidBodies(FRigidWorld2D& world, const TArray<FRigidBodyRequest>
  * @param dt 時間刻み。
  * @param gravity 重力 (+Y=下、ピクセルスケールなら ~900)。
  */
-void StepSceneRigidBodies(FRigidWorld2D& world, const TArray<ANode*>& nodes,
+void StepSceneRigidBodies(CRigidWorld2D& world, const TArray<ANode*>& nodes,
                           const TArray<u32>& bodies, f32 dt, FVec2 gravity) noexcept;
 
 /**

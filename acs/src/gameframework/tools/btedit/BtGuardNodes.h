@@ -8,20 +8,23 @@
 // FBtNode のサブクラスとして「条件ガードノード」を定義する。これらは core FBtNode を
 // 継承するので、core の composite と混在した 1 本のツリーを構成できる。
 //
-//   FBtConditionNode : 条件 bool 関数が true のときだけ子を実行 (= Condition デコレーター)
-//   FBtCompareNode   : 動的ブラックボード変数の比較が true のときだけ子を実行 (= Compare デコレーター)
+//   ABtConditionNode : 条件 bool 関数が true のときだけ子を実行 (= Condition デコレーター)
+//   ABtCompareNode   : 動的ブラックボード変数の比較が true のときだけ子を実行 (= Compare デコレーター)
 //
 // blackboard は FBtBlackboard* 前提 (bake は動的ブラックボードモデル)。core 層に
 // FBtBlackboard 依存を持ち込まないため、これらは btedit 層に置く。
 #pragma once
 
 #include "gameframework/BehaviorTree.h"
-#include "gameframework/tools/btedit/BtCatalog.h"   // FBtConditionRegistry::Fn / FBtBlackboard
+#include "gameframework/tools/btedit/BtCatalog.h"   // CBtConditionRegistry::Fn / FBtBlackboard
 #include "memory/UniquePtr.h"
 
 #include <cstdio>    // std::snprintf
 
 namespace acs::game::btedit {
+
+class ABtConditionNode;
+using FBtConditionNode = ABtConditionNode;
 
 /**
  * 条件 bool 関数で子をガードする FBtNode (bake された Condition デコレーター)。
@@ -29,22 +32,22 @@ namespace acs::game::btedit {
  * @details fn(bb) が true のときだけ子を Tick し、その結果を返す。false (または fn 未設定)
  *          なら子を実行せず Failure。
  */
-class FBtConditionNode : public FBtNode {
+class ABtConditionNode : public FBtNode {
 public:
     ACS_RTTI(FBtConditionNode, FBtNode)
 
-    /** 条件関数の型 (FBtConditionRegistry と同型: bool(*)(void*) noexcept)。 */
-    using Fn = FBtConditionRegistry::Fn;
+    /** 条件関数の型 (CBtConditionRegistry と同型: bool(*)(void*) noexcept)。 */
+    using Fn = CBtConditionRegistry::Fn;
 
     /**
      * 条件関数を指定して構築する。
      *
      * @param fn 評価する条件関数 (nullptr なら常に Failure)。
      */
-    explicit FBtConditionNode(Fn fn) noexcept : m_Fn(fn) {}
+    explicit ABtConditionNode(Fn fn) noexcept : m_Fn(fn) {}
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtConditionNode() noexcept override = default;
+    ~ABtConditionNode() noexcept override = default;
 
     /** ガードする子を設定する。 */
     void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }
@@ -63,6 +66,9 @@ private:
     TUniquePtr<FBtNode> m_Child;
 };
 
+class ABtCompareNode;
+using FBtCompareNode = ABtCompareNode;
+
 /**
  * 変数と定数の比較で子をガードする FBtNode (bake された Compare デコレーター)。
  *
@@ -77,7 +83,7 @@ private:
  * 注意: 1 本の baked ツリーは単一の blackboard モデルで tick すること
  * (dynamic なら FBtBlackboard、schema なら対応する raw 構造体)。
  */
-class FBtCompareNode : public FBtNode {
+class ABtCompareNode : public FBtNode {
 public:
     ACS_RTTI(FBtCompareNode, FBtNode)
 
@@ -88,7 +94,7 @@ public:
      * @param op 比較演算子。
      * @param rhs 比較定数 (右辺)。
      */
-    FBtCompareNode(const char* var, EBtCompareOp op, f32 rhs) noexcept
+    ABtCompareNode(const char* var, EBtCompareOp op, f32 rhs) noexcept
         : m_Op(op), m_Rhs(rhs), m_UseSchema(false), m_Offset(0u), m_Type(EBtVarType::F32) {
         std::snprintf(m_Var, sizeof(m_Var), "%s", (var != nullptr) ? var : "");
     }
@@ -101,13 +107,13 @@ public:
      * @param op 比較演算子。
      * @param rhs 比較定数 (右辺)。
      */
-    FBtCompareNode(u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept
+    ABtCompareNode(u32 offset, EBtVarType type, EBtCompareOp op, f32 rhs) noexcept
         : m_Op(op), m_Rhs(rhs), m_UseSchema(true), m_Offset(offset), m_Type(type) {
         m_Var[0] = '\0';
     }
 
     /** 破棄する (子は TUniquePtr が解放)。 */
-    ~FBtCompareNode() noexcept override = default;
+    ~ABtCompareNode() noexcept override = default;
 
     /** ガードする子を設定する。 */
     void SetChild(TUniquePtr<FBtNode> child) noexcept { m_Child = Move(child); }

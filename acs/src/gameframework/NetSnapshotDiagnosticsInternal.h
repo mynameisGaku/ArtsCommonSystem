@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FUdpTransport の失敗経路を決定論的に検証するための内部 API。
+// CUdpTransport の失敗経路を決定論的に検証するための内部 API。
 #pragma once
 
 #include "foundation/Types.h"

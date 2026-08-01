@@ -14,25 +14,25 @@ using TimerCallback = void(*)(void* user) noexcept;
  *
  * @details 所有するシーンが Tick を呼び、破棄時は登録済みタイマーも破棄する。
  */
-class FSceneTimer {
+class CSceneTimer {
 public:
     /** 空のタイマー管理を構築する。 */
-    FSceneTimer() noexcept = default;
+    CSceneTimer() noexcept = default;
 
     /** 破棄する (active timer は呼ばずに捨てる)。 */
-    ~FSceneTimer() noexcept = default;
+    ~CSceneTimer() noexcept = default;
 
     /** コピー禁止 (発火中の self 参照との競合を防ぐため)。 */
-    FSceneTimer(const FSceneTimer&)            = delete;
+    CSceneTimer(const CSceneTimer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneTimer& operator=(const FSceneTimer&) = delete;
+    CSceneTimer& operator=(const CSceneTimer&) = delete;
 
     /** ムーブ禁止。 */
-    FSceneTimer(FSceneTimer&&)                 = delete;
+    CSceneTimer(CSceneTimer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSceneTimer& operator=(FSceneTimer&&)      = delete;
+    CSceneTimer& operator=(CSceneTimer&&)      = delete;
 
     /**
      * delay_sec 後に cb(user) を 1 回だけ実行するタイマーを登録する。
@@ -138,5 +138,8 @@ private:
     /** 現在 active なタイマーの数。 */
     u32               m_ActiveCount = 0u;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneTimer = CSceneTimer;
 
 } // namespace acs::game

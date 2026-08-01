@@ -9,11 +9,11 @@ namespace acs {
 enum class ESubsystemOwnerKind : u8 {
     /** 旧 API または種別を保証できない owner。 */
     Unknown = 0,
-    /** アプリケーション寿命を所有する FApplication。 */
+    /** アプリケーション寿命を所有する CApplication。 */
     Application = 1,
-    /** ゲームセッション寿命を所有する FGame。 */
+    /** ゲームセッション寿命を所有する CGame。 */
     Game = 2,
-    /** ワールド寿命を所有する FScene。 */
+    /** ワールド寿命を所有する AScene。 */
     Scene = 3,
 };
 

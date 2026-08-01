@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar Q — FWeatherSystem (天候モード)
+// GameFramework Pillar Q — CWeatherSystem (天候モード)
 //
 // 役割:
-//   FAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
+//   CAmbientDirector (時刻補間) と直交する「天候」状態を保持し、現在天候 →
 //   ターゲット天候への線形遷移と、各天候に対応する描画 / lighting 修飾係数
 //   (ambient 倍率 / 粒子密度 / sky tint / 風 / 霧密度) を提供する。
-//   レンダラ / FEffectSystem / FParticleSystem 側は毎フレーム本クラスから係数を
+//   レンダラ / CEffectSystem / FParticleSystem 側は毎フレーム本クラスから係数を
 //   pull するだけで天候表情を反映できる。
 //
 // 使い方:
-//   class FWorldScene : public FScene {
-//       acs::game::FWeatherSystem m_Weather;
+//   class FWorldScene : public AScene {
+//       acs::game::CWeatherSystem m_Weather;
 //
 //       void OnEnter() noexcept override {
 //           m_Weather.SetWeather(acs::game::EWeatherKind::Clear);
@@ -43,7 +43,7 @@
 //   ・WindDirection は天候とは独立: 「南風が雨を運ぶ」「無風の雪」など表現が
 //     衝突するため、wind 方向はユーザーが任意に設定可能 (天候は強さのみ決める)。
 //     デフォルトは (1, 0) = 東向き。
-//   ・ambient/sky 修飾は乗算: FAmbientDirector の出力に「天候による調整」を
+//   ・ambient/sky 修飾は乗算: CAmbientDirector の出力に「天候による調整」を
 //     掛けるだけで時刻 × 天候の合成が完了する設計。Storm/Sandstorm 時は
 //     ambient を 0.5 倍に暗くするなど。
 #pragma once
@@ -90,29 +90,29 @@ enum class EWeatherKind : u8 {
  * 天候モードを保持し、現在 → 目標天候の線形遷移と描画修飾係数を提供するシステム。
  *
  * @details
- * FAmbientDirector (時刻補間) と直交し、天候ごとの ambient 倍率 / 粒子密度 /
+ * CAmbientDirector (時刻補間) と直交し、天候ごとの ambient 倍率 / 粒子密度 /
  * sky tint / 風強さ / 霧密度を 1 つの LUT から引いて current/target 間で Lerp する。
- * non-copy / non-move で FScene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
+ * non-copy / non-move で AScene 等に値メンバとして持たせ、Tick(dt) で遷移を進める。
  */
-class FWeatherSystem {
+class CWeatherSystem {
 public:
     /** 既定状態 (Clear、遷移完了済み、風向き東) で構築する。 */
-    FWeatherSystem() noexcept = default;
+    CWeatherSystem() noexcept = default;
 
     /** 破棄する (リソースなし)。 */
-    ~FWeatherSystem() noexcept = default;
+    ~CWeatherSystem() noexcept = default;
 
     /** コピー禁止 (Manager 系と統一)。 */
-    FWeatherSystem(const FWeatherSystem&)            = delete;
+    CWeatherSystem(const CWeatherSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWeatherSystem& operator=(const FWeatherSystem&) = delete;
+    CWeatherSystem& operator=(const CWeatherSystem&) = delete;
 
     /** ムーブ禁止 (Manager 系と統一)。 */
-    FWeatherSystem(FWeatherSystem&&)                 = delete;
+    CWeatherSystem(CWeatherSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWeatherSystem& operator=(FWeatherSystem&&)      = delete;
+    CWeatherSystem& operator=(CWeatherSystem&&)      = delete;
 
     /**
      * 目標天候を設定し、遷移を開始する。
@@ -258,5 +258,8 @@ private:
     /** 風向きベクトル (天候とは独立、既定は東向き)。 */
     FVec2 m_WindDir{1.0f, 0.0f};
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWeatherSystem = CWeatherSystem;
 
 } // namespace acs::game

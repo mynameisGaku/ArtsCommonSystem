@@ -4,7 +4,7 @@
 // -----------------------------------------------------------------------------
 // エージェントの「目標へ向かう/止まる/逃げる/経路を辿る」操舵力を計算する純関数群。
 // 利用側が pos/vel を保持し、戻りの操舵力で速度を更新する (本モジュールは状態を持たない)。
-// FNavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
+// CNavGrid/TilemapNav の waypoint 列と組み合わせて敵 AI の移動を駆動する。
 //
 // 使い方:
 //   FSteerParams sp{ .max_speed = 4.0f, .max_force = 8.0f };
@@ -39,9 +39,9 @@ FVec2 SteerArrive(FVec2 pos, FVec2 vel, FVec2 target, FSteerParams p, f32 slow_r
  *
  * @details 状態 (現在 index) は m_Index で保持する non-pure。points は外部所有 (寿命に注意)。
  */
-class FPathFollower {
+class CPathFollower {
 public:
-    FPathFollower() noexcept = default;
+    CPathFollower() noexcept = default;
 
     /**
      * 追従する waypoint 列を設定する (index リセット)。
@@ -71,5 +71,8 @@ private:
     u32          m_Index        = 0u;
     f32          m_ArriveRadius = 0.5f;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPathFollower = CPathFollower;
 
 } // namespace acs::game

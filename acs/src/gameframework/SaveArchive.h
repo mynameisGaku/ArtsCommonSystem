@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// GameFramework Pillar J — FSaveArchive (低レベル `.acssave` バイナリ I/O)
+// GameFramework Pillar J — CSaveArchive (低レベル `.acssave` バイナリ I/O)
 // -----------------------------------------------------------------------------
 // 役割:
 //   ユーザー定義 POD を 1 つのファイル (`.acssave`) に「タグ付きバイナリ」で
@@ -37,13 +37,13 @@
 // 使い方:
 //   // 書き込み
 //   FPlayerProfile p = MakeProfile();
-//   auto wr = FSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
+//   auto wr = CSaveArchive::WriteToFile(L"profile.acssave", 1u, &p, sizeof(p));
 //   if (wr.IsErr()) { /* 報告 */ }
 //
 //   // 読み込み
 //   FPlayerProfile p{};
 //   u64 actual_size = 0;
-//   auto rd = FSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
+//   auto rd = CSaveArchive::ReadFromFile(L"profile.acssave", &p, sizeof(p), 1u,
 //                                       actual_size);
 //   if (rd.IsErr()) {
 //       if (rd.Error().subcode ==
@@ -64,7 +64,7 @@
 namespace acs::game {
 
 /**
- * FSaveArchive の各 API が返すエラー subcode (FErrorCode.subcode に格納)。
+ * CSaveArchive の各 API が返すエラー subcode (FErrorCode.subcode に格納)。
  *
  * @details
  * 上位層が switch 分岐できるよう固定 u32 値を割り当てる。既存値の再利用は禁止。
@@ -128,7 +128,7 @@ struct FSaveArchiveMetadata {
  * の後に payload バイト列が続く little-endian フォーマット。状態を持たない static 関数の
  * 集合体で、Win32 ファイル API を直接叩く。全 API noexcept でエラーは TResult で伝搬する。
  */
-class FSaveArchive {
+class CSaveArchive {
 public:
     /** magic バイト列のサイズ (ASCII "ACSSAVE\0" の 8 バイト)。 */
     static constexpr usize kMagicSize  = 8;
@@ -152,22 +152,22 @@ public:
     static const u8 kMagicBytes[kMagicSize];
 
     /** インスタンス化禁止 (state を持たない static 関数の集合)。 */
-    FSaveArchive()                              = delete;
+    CSaveArchive()                              = delete;
 
     /** デストラクタも禁止 (非インスタンス)。 */
-    ~FSaveArchive()                             = delete;
+    ~CSaveArchive()                             = delete;
 
     /** コピー禁止。 */
-    FSaveArchive(const FSaveArchive&)            = delete;
+    CSaveArchive(const CSaveArchive&)            = delete;
 
     /** ムーブ禁止。 */
-    FSaveArchive(FSaveArchive&&)                 = delete;
+    CSaveArchive(CSaveArchive&&)                 = delete;
 
     /** コピー代入も禁止。 */
-    FSaveArchive& operator=(const FSaveArchive&) = delete;
+    CSaveArchive& operator=(const CSaveArchive&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FSaveArchive& operator=(FSaveArchive&&)      = delete;
+    CSaveArchive& operator=(CSaveArchive&&)      = delete;
 
     /**
      * payload を `.acssave` 1 ファイル (header + payload + CRC32) に保存する。
@@ -243,5 +243,8 @@ public:
     static TResult<FSaveArchiveMetadata> ValidateFile(
         const wchar_t* file_path) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSaveArchive = CSaveArchive;
 
 } // namespace acs::game

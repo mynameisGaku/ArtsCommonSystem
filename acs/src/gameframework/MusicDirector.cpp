@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FMusicDirector 実装
+// GameFramework Pillar H — CMusicDirector 実装
 //
 // state machine + transition / stinger pending 管理を完全実装し、
-// SetAudioDirector で結線された実 FAudioDirector へ BGM/SFX を delegate する。
+// SetAudioDirector で結線された実 CAudioDirector へ BGM/SFX を delegate する。
 // 未結線 (m_Audio == nullptr) のときは state-only で動作する (無音、crash しない)。
 #include "gameframework/MusicDirector.h"
 #include "gameframework/AudioDirector.h"
@@ -11,14 +11,14 @@
 namespace acs::game {
 
 /** 値を [0, 1] にクランプする。 */
-f32 FMusicDirector::Clamp01(f32 v) noexcept {
+f32 CMusicDirector::Clamp01(f32 v) noexcept {
     if (v < 0.0f) return 0.0f;
     if (v > 1.0f) return 1.0f;
     return v;
 }
 
 /** 現在 state / intensity に合う track を選び、結線済みなら BGM 再生へ流す。 */
-void FMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
+void CMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
     if (m_Audio == nullptr) return;  // state-only 動作 (無音、crash しない)
 
     const usize idx = FindTrackForState(m_TargetState, m_Intensity);
@@ -32,7 +32,7 @@ void FMusicDirector::RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept {
 }
 
 /** track 配列を事前確保し、各 state の index を 0 で初期化する。 */
-FMusicDirector::FMusicDirector() noexcept {
+CMusicDirector::CMusicDirector() noexcept {
     // 想定登録数で track 配列を事前確保 (拡張時の reallocation を抑える)。
     m_Tracks.Reserve(kTrackReserveHint);
     for (u32 i = 0; i < kStateCount; ++i) {
@@ -42,7 +42,7 @@ FMusicDirector::FMusicDirector() noexcept {
 }
 
 /** 指定 state の連続区間末尾に track を挿入し、state インデックスを更新する。 */
-void FMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept {
+void CMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) noexcept {
     if (track.asset_path == nullptr) {
         ACS_LOG_WARN("FMusicDirector::RegisterTrack: asset_path=nullptr → ignored");
         return;
@@ -82,13 +82,13 @@ void FMusicDirector::RegisterTrack(EMusicState state, const FMusicTrack& track) 
 }
 
 /** state インデックスの再構築 hook (現状は逐次更新のため空)。 */
-void FMusicDirector::RebuildStateIndex() noexcept {
+void CMusicDirector::RebuildStateIndex() noexcept {
     // 現状は RegisterTrack 内で逐次更新しており、明示再構築は不要。
     // 将来 UnregisterTrack を導入する際の hook 用に空関数として残す。
 }
 
 /** 指定 state 内で intensity に合う track index を返す (なければ fallback)。 */
-usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
+usize CMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) return m_Tracks.Size();
     const u32 first = _state_first[state_idx];
@@ -115,7 +115,7 @@ usize FMusicDirector::FindTrackForState(EMusicState state, f32 intensity) const 
 }
 
 /** current → state へクロスフェード開始 (即時切替・同一 state 再要求を処理)。 */
-void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
+void CMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     const u32 state_idx = static_cast<u32>(state);
     if (state_idx >= kStateCount) {
         ACS_LOG_WARN("FMusicDirector::SetState: invalid state=%u → ignored", state_idx);
@@ -147,18 +147,18 @@ void FMusicDirector::SetState(EMusicState state, f32 transition_sec) noexcept {
     m_TransitionElapsed   = 0.0f;
     m_TransitionProgress  = 0.0f;
     // 結線済みなら新 target の track を同じ fade 長で BGM クロスフェード開始。
-    // (FAudioDirector 側が実際のゲイン補間を行うため、本層 Tick での progress
+    // (CAudioDirector 側が実際のゲイン補間を行うため、本層 Tick での progress
     //  進行とは独立に低レイヤで滑らかに遷移する)
     RouteCurrentTrackToAudio(transition_sec);
 }
 
 /** current != target かつ progress < 1 なら true。 */
-bool FMusicDirector::IsTransitioning() const noexcept {
+bool CMusicDirector::IsTransitioning() const noexcept {
     return m_CurrentState != m_TargetState && m_TransitionProgress < 1.0f;
 }
 
 /** intensity を [0, 1] にクランプして設定する (範囲外は警告)。 */
-void FMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
+void CMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
     const f32 c = Clamp01(intensity_0_to_1);
     if (c != intensity_0_to_1) {
         ACS_LOG_WARN("FMusicDirector::SetIntensity: out-of-range %.3f → clamped to %.3f",
@@ -168,7 +168,7 @@ void FMusicDirector::SetIntensity(f32 intensity_0_to_1) noexcept {
 }
 
 /** pending stinger を更新し、結線済みなら即時に SFX を重ね再生する。 */
-void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
+void CMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
     if (asset_path == nullptr) {
         ACS_LOG_WARN("FMusicDirector::PlayStinger: asset_path=nullptr → ignored");
         return;
@@ -195,7 +195,7 @@ void FMusicDirector::PlayStinger(const char* asset_path, f32 volume) noexcept {
 }
 
 /** 保持中の stinger を取り出し、pending=false に戻す。 */
-const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
+const char* CMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
     if (!m_StingerPending) {
         out_volume = 0.0f;
         return nullptr;
@@ -209,12 +209,12 @@ const char* FMusicDirector::ConsumeStinger(f32& out_volume) noexcept {
 }
 
 /** クロスフェードの進捗を進め、完了したら current を target に snap する。 */
-void FMusicDirector::Tick(f32 dt) noexcept {
+void CMusicDirector::Tick(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
 
-    // 実 BGM/SFX のゲイン補間・クロスフェード進行は FAudioDirector 側で行われる。
+    // 実 BGM/SFX のゲイン補間・クロスフェード進行は CAudioDirector 側で行われる。
     // 本層は state machine (current↔target の遷移進捗) のみを進める。
-    // FAudioDirector::Tick は所有者 (FGame / app) が直接呼ぶ規約のため、ここから
+    // CAudioDirector::Tick は所有者 (CGame / app) が直接呼ぶ規約のため、ここから
     // 二重に forward はしない (timer の二重進行を避ける)。
 
     // クロスフェード進行。current == target なら何もしない (定常状態)。
@@ -240,7 +240,7 @@ void FMusicDirector::Tick(f32 dt) noexcept {
 }
 
 /** state を Silent に即時切替し、stinger を破棄して実 BGM も停止する。 */
-void FMusicDirector::Stop() noexcept {
+void CMusicDirector::Stop() noexcept {
     m_CurrentState        = EMusicState::Silent;
     m_TargetState         = EMusicState::Silent;
     m_TransitionDuration  = 0.0f;
@@ -259,14 +259,14 @@ void FMusicDirector::Stop() noexcept {
 }
 
 /** 現在 state で intensity に合致する track を返す。 */
-const FMusicTrack* FMusicDirector::CurrentTrack() const noexcept {
+const FMusicTrack* CMusicDirector::CurrentTrack() const noexcept {
     const usize idx = FindTrackForState(m_CurrentState, m_Intensity);
     if (idx >= m_Tracks.Size()) return nullptr;
     return &m_Tracks[idx];
 }
 
 /** 遷移先 state 側の track を返す (遷移していなければ nullptr)。 */
-const FMusicTrack* FMusicDirector::TargetTrack() const noexcept {
+const FMusicTrack* CMusicDirector::TargetTrack() const noexcept {
     if (m_CurrentState == m_TargetState) return nullptr;
     const usize idx = FindTrackForState(m_TargetState, m_Intensity);
     if (idx >= m_Tracks.Size()) return nullptr;

@@ -3,16 +3,16 @@
 //
 // このファイルは TSaveSlot.h で宣言した `detail::SaveSlot_*` 群の本体を実装する。
 // テンプレート毎にコードが複製されないよう、bit-precise な I/O ロジックは
-// すべてここに集約する (Save/Load は FSaveArchive::WriteToFile / ReadFromFile
+// すべてここに集約する (Save/Load は CSaveArchive::WriteToFile / ReadFromFile
 // に委譲、Exists/Delete は acs::FileSystem に委譲)。
 //
 // 設計の流れ:
-//   Save  → CheckInitialized → FSaveArchive::WriteToFile (header + payload + crc)
-//   Load  → CheckInitialized → FSaveArchive::ReadFromFile (verify + copy)
+//   Save  → CheckInitialized → CSaveArchive::WriteToFile (header + payload + crc)
+//   Load  → CheckInitialized → CSaveArchive::ReadFromFile (verify + copy)
 //   Exists → FileSystem::Exists
 //   Delete → CheckInitialized → FileSystem::Exists (べき等) → FileSystem::Delete
 //
-// 「未初期化 (Init() 未呼出)」を表す internal subcode は、FSaveArchive の
+// 「未初期化 (Init() 未呼出)」を表す internal subcode は、CSaveArchive の
 // ESaveArchiveSubCode に該当値が無いため独自に 100 番台で持つ。
 #include "gameframework/SaveSlot.h"
 
@@ -29,7 +29,7 @@ namespace {
 /**
  * 未初期化を示す独自 subcode (ESaveArchiveSubCode と衝突しない値域)。
  *
- * @details 値は FSaveArchive の予約済み subcode と別空間にし、上位層が区別できるようにする。
+ * @details 値は CSaveArchive の予約済み subcode と別空間にし、上位層が区別できるようにする。
  */
 constexpr u16 kSubSlotNotInitialized = 100u;
 
@@ -53,28 +53,28 @@ inline TResult<void> CheckInitialized(const wchar_t* file_path,
 
 } // namespace
 
-/** SaveSlot_SaveBytes の実装 (CheckInitialized 後に FSaveArchive::WriteToFile へ委譲)。 */
+/** SaveSlot_SaveBytes の実装 (CheckInitialized 後に CSaveArchive::WriteToFile へ委譲)。 */
 TResult<void> SaveSlot_SaveBytes(const wchar_t* file_path,
                                 u32            version,
                                 const void*    payload,
                                 usize          payload_size) noexcept {
     ACS_TRY(CheckInitialized(file_path, "Save"));
-    if (payload_size > static_cast<usize>(FSaveArchive::kMaxPayloadSize)) {
+    if (payload_size > static_cast<usize>(CSaveArchive::kMaxPayloadSize)) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubPayloadTooLarge),
                        "TSaveSlot::Save: payload exceeds FSaveArchive safety limit");
     }
-    return FSaveArchive::WriteToFile(file_path,
+    return CSaveArchive::WriteToFile(file_path,
                                     version,
                                     payload,
                                     static_cast<u64>(payload_size));
 }
 
 /**
- * SaveSlot_LoadBytes の実装 (CheckInitialized 後に FSaveArchive::ReadFromFile へ委譲)。
+ * SaveSlot_LoadBytes の実装 (CheckInitialized 後に CSaveArchive::ReadFromFile へ委譲)。
  *
  * @details
- * version 不一致を含む FSaveArchive の診断はそのまま伝搬する。読み込み先には一時bufferを
+ * version 不一致を含む CSaveArchive の診断はそのまま伝搬する。読み込み先には一時bufferを
  * 使い、CRC検証と型サイズ完全一致の後にだけ payload_out へ反映する。したがって
  * detail helper を直接使う場合も、失敗時に対象objectを部分更新しない。
  */
@@ -89,7 +89,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
                        static_cast<u16>(ESaveArchiveSubCode::kSubInvalidArgument),
                        "TSaveSlot::Load: output is null but payload size is non-zero");
     }
-    if (payload_size > static_cast<usize>(FSaveArchive::kMaxPayloadSize)) {
+    if (payload_size > static_cast<usize>(CSaveArchive::kMaxPayloadSize)) {
         return ACS_ERR(IO,
                        static_cast<u16>(ESaveArchiveSubCode::kSubPayloadTooLarge),
                        "TSaveSlot::Load: payload exceeds FSaveArchive safety limit");
@@ -103,7 +103,7 @@ TResult<void> SaveSlot_LoadBytes(const wchar_t* file_path,
     }
 
     u64 actual_payload_size = 0;
-    const auto r = FSaveArchive::ReadFromFile(file_path,
+    const auto r = CSaveArchive::ReadFromFile(file_path,
                                               temporary.Data(),
                                               static_cast<u64>(payload_size),
                                               expected_version,

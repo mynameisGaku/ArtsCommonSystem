@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorTheme 実装
+// GameFramework Tools — editor_core / CEditorTheme 実装
 //
-// 仕様詳細は FEditorTheme.h を参照。本ファイルでは:
+// 仕様詳細は CEditorTheme.h を参照。本ファイルでは:
 //   ・preset 種別ごとの色テーブル定義 (Dark / DarkBlue / Light / HighContrast /
 //     Sepia / Custom)
 //   ・ACS::FVec4 → ImVec4 の橋渡し + ImGui::GetStyle() への適用
 //   ・ImGui font_scale / corner_radius / spacing の流し込み
 //   ・DrawThemeSettingsUI: preset combo + ColorEdit4 群 + Save/Load ボタン
-//   ・SaveTheme / LoadTheme: `.acstheme` テキスト I/O (FFxeditSerializer と
+//   ・SaveTheme / LoadTheme: `.acstheme` テキスト I/O (CFxeditSerializer と
 //     同設計、1 行 1 key=value、magic + version、git diff フレンドリー)
 // を実装する。全 noexcept、STL 不使用、ImGui 依存はこの .cpp に閉じる。
 #include "gameframework/tools/editor_core/EditorTheme.h"
@@ -149,7 +149,7 @@ bool TryPosixAtomicReplace(
     constexpr usize kPrefixBytes = offsetof(FFileRenameInfoEx, file_name);
     alignas(FFileRenameInfoEx)
         u8 storage[kPrefixBytes +
-                   (FEditorTheme::kMaxPersistencePathChars + 1u) *
+                   (CEditorTheme::kMaxPersistencePathChars + 1u) *
                        sizeof(wchar_t)]{};
     auto* info = reinterpret_cast<FFileRenameInfoEx*>(storage);
     const usize destination_bytes = destination_length * sizeof(wchar_t);
@@ -282,7 +282,7 @@ bool IsUnitColor(const FVec4& value) noexcept {
  * @param preset カラーを得たい preset 種別。
  * @param out 書き込み先のカラーパレット (Custom では不変)。
  */
-void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
+void CEditorTheme::FillPresetColors(EEditorThemePreset       preset,
                                    FEditorThemeColors&       out) noexcept {
     switch (preset) {
         case EEditorThemePreset::Dark: {
@@ -374,7 +374,7 @@ void FEditorTheme::FillPresetColors(EEditorThemePreset       preset,
 }
 
 /** 既定 (Dark preset + 標準 metric) で初期化し ImGui に流す。 */
-void FEditorTheme::Init() noexcept {
+void CEditorTheme::Init() noexcept {
     m_Preset         = EEditorThemePreset::Dark;
     m_FontScale     = 1.0f;
     m_CornerRadius  = 3.0f;
@@ -384,7 +384,7 @@ void FEditorTheme::Init() noexcept {
 }
 
 /** preset を適用する (Custom 以外は既定色で m_Colors を上書きしてから ImGui に流す)。 */
-void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
+void CEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
     m_Preset = preset;
     // Custom 以外なら m_Colors を上書き。Custom は SetCustomColors 経由で
     // 設定された値を保持したまま現値を再適用する (= preset 切替で Custom に
@@ -396,14 +396,14 @@ void FEditorTheme::ApplyPreset(EEditorThemePreset preset) noexcept {
 }
 
 /** 任意のカラーパレットを設定して preset を Custom に切り替え ImGui に流す。 */
-void FEditorTheme::SetCustomColors(const FEditorThemeColors& colors) noexcept {
+void CEditorTheme::SetCustomColors(const FEditorThemeColors& colors) noexcept {
     m_Colors = colors;
     m_Preset = EEditorThemePreset::Custom;
     ApplyToImGui();
 }
 
 /** global font scale を設定する (<=0 は無視、上限 4.0 で clamp、ImGui IO に反映)。 */
-void FEditorTheme::SetFontScale(f32 scale) noexcept {
+void CEditorTheme::SetFontScale(f32 scale) noexcept {
     // <= 0 は無視 (= no-op)。0 倍は ImGui を壊す。
     if (scale <= 0.0f) return;
     // 上限 4.0 で safety clamp (典型用途は 1.0 〜 2.0)。
@@ -419,7 +419,7 @@ void FEditorTheme::SetFontScale(f32 scale) noexcept {
 }
 
 /** 全 ImGui corner radius (window/frame/popup/grab/tab/scrollbar/child) を統一する。 */
-void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
+void CEditorTheme::SetRoundedCorners(f32 radius) noexcept {
     if (radius < 0.0f) radius = 0.0f;
     m_CornerRadius = radius;
     if (HasImGuiContext()) {
@@ -435,7 +435,7 @@ void FEditorTheme::SetRoundedCorners(f32 radius) noexcept {
 }
 
 /** ItemSpacing.y を設定する (x は y の 0.5 倍に連動、情報密度の主軸)。 */
-void FEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
+void CEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
     if (item_spacing_y < 0.0f) item_spacing_y = 0.0f;
     m_ItemSpacingY = item_spacing_y;
     if (HasImGuiContext()) {
@@ -446,7 +446,7 @@ void FEditorTheme::SetSpacing(f32 item_spacing_y) noexcept {
 }
 
 /** m_Colors と各 metric (corner/spacing/font) を ImGui::GetStyle() / IO に流し込む。 */
-void FEditorTheme::ApplyToImGui() noexcept {
+void CEditorTheme::ApplyToImGui() noexcept {
     if (!HasImGuiContext()) return;
 
     ImGuiStyle& s    = ImGui::GetStyle();
@@ -522,7 +522,7 @@ void FEditorTheme::ApplyToImGui() noexcept {
 }
 
 /** Theme 設定ウィンドウを描画する (preset combo + ColorEdit4 群 + metric slider + Save/Load)。 */
-void FEditorTheme::DrawThemeSettingsUI() noexcept {
+void CEditorTheme::DrawThemeSettingsUI() noexcept {
     if (!HasImGuiContext()) return;
 
     if (!ImGui::Begin("Theme Settings")) {
@@ -611,7 +611,7 @@ void FEditorTheme::DrawThemeSettingsUI() noexcept {
  * @param file_path 書き出し先のファイルパス (nullptr は no-op)。
  */
 #if 0
-void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
+void CEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
 
     // 1 カラー = 約 50B (`key %.3f %.3f %.3f %.3f\n` = 5 + 6*4 + 1)。
@@ -687,7 +687,7 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
  * 未知キー / 解析失敗キーは黙ってスキップする (前方互換)。
  * @param file_path 読み込み元のファイルパス (nullptr は no-op)。
  */
-void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
+void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     if (!FFileSystem::Exists(file_path)) {
         ACS_LOG_WARN("FEditorTheme::LoadTheme: file not found");
@@ -867,7 +867,7 @@ const char* FEditorThemePersistenceResult::ErrorName(
     return "Unknown";
 }
 
-FEditorThemePersistenceResult FEditorTheme::TryParseThemeText(
+FEditorThemePersistenceResult CEditorTheme::TryParseThemeText(
     const char* text, usize text_size) noexcept {
     FEditorThemePersistenceResult result{};
     result.bytes_processed = static_cast<u64>(text_size);
@@ -1065,7 +1065,7 @@ FEditorThemePersistenceResult FEditorTheme::TryParseThemeText(
     return result;
 }
 
-FEditorThemePersistenceResult FEditorTheme::TryLoadTheme(
+FEditorThemePersistenceResult CEditorTheme::TryLoadTheme(
     const wchar_t* file_path) noexcept {
     FEditorThemePersistenceResult result{};
     usize path_length = 0u;
@@ -1164,7 +1164,7 @@ FEditorThemePersistenceResult FEditorTheme::TryLoadTheme(
     return result;
 }
 
-FEditorThemePersistenceResult FEditorTheme::TrySaveTheme(
+FEditorThemePersistenceResult CEditorTheme::TrySaveTheme(
     const wchar_t* file_path) noexcept {
     FEditorThemePersistenceResult result{};
     usize path_length = 0u;
@@ -1305,7 +1305,7 @@ FEditorThemePersistenceResult FEditorTheme::TrySaveTheme(
     return result;
 }
 
-void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
+void CEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     const FEditorThemePersistenceResult result = TrySaveTheme(file_path);
     if (!result.Succeeded()) {
@@ -1316,7 +1316,7 @@ void FEditorTheme::SaveTheme(const wchar_t* file_path) noexcept {
     }
 }
 
-void FEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
+void CEditorTheme::LoadTheme(const wchar_t* file_path) noexcept {
     if (file_path == nullptr) return;
     const FEditorThemePersistenceResult result = TryLoadTheme(file_path);
     if (!result.Succeeded()) {

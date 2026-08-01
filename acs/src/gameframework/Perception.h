@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar L — FPerception (NPC sight / hearing sense)
+// GameFramework Pillar L — CPerception (NPC sight / hearing sense)
 //
 // NPC が複数 target (player / 他の NPC / 音源等) を「視覚」「聴覚」で
-// 検知できるかを判定するための最小モジュール。FBehaviorTree の leaf や
+// 検知できるかを判定するための最小モジュール。CBehaviorTree の leaf や
 // blackboard の値ソースとして使う想定で、本体は単純な幾何判定の集約。
 //
 // 視覚判定 (sight):
@@ -28,11 +28,11 @@
 //     Tick の hot path に Cos を入れない。
 //   ・visible / audible は Tick 内でまとめて更新し、結果を FPerceptionTarget に
 //     書き戻す。これにより IsTargetVisible / IsTargetAudible は O(N) lookup。
-//   ・非コピー・非ムーブ — FScene / Actor のメンバとして固定の場所に置く想定。
+//   ・非コピー・非ムーブ — AScene / Actor のメンバとして固定の場所に置く想定。
 //   ・全 noexcept、STL 不使用。
 //
 // 使い方:
-//   acs::game::FPerception perc;
+//   acs::game::CPerception perc;
 //   acs::game::FSenseConfig cfg;
 //   cfg.sight_range   = 10.0f;
 //   cfg.sight_fov_rad = acs::kPi * 0.5f;   // 90 度
@@ -93,29 +93,29 @@ struct FPerceptionTarget {
  *
  * @details
  * eye 位置 / forward / config と複数 target を保持し、Tick で全 target の visible/audible
- * フラグを再計算する。FBehaviorTree の leaf や blackboard の値ソースとして使う想定。
- * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。FScene/Actor
+ * フラグを再計算する。CBehaviorTree の leaf や blackboard の値ソースとして使う想定。
+ * target は線形管理 (N が小さい想定)、cos(fov/2) は SetConfig でキャッシュする。AScene/Actor
  * のメンバとして固定位置に置く想定で非コピー・非ムーブ。
  */
-class FPerception {
+class CPerception {
 public:
     /** 空状態 (config なし、target なし、forward = +X) で構築する。 */
-    FPerception() noexcept = default;
+    CPerception() noexcept = default;
 
     /** 破棄する。 */
-    ~FPerception() noexcept = default;
+    ~CPerception() noexcept = default;
 
     /** コピー禁止 (固定位置に置く state holder のため)。 */
-    FPerception(const FPerception&)            = delete;
+    CPerception(const CPerception&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPerception& operator=(const FPerception&) = delete;
+    CPerception& operator=(const CPerception&) = delete;
 
     /** ムーブ禁止。 */
-    FPerception(FPerception&&)                 = delete;
+    CPerception(CPerception&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FPerception& operator=(FPerception&&)      = delete;
+    CPerception& operator=(CPerception&&)      = delete;
 
     /**
      * 感覚パラメータを差し替える。
@@ -235,5 +235,8 @@ private:
     /** 知覚対象の配列 (線形管理)。 */
     TArray<FPerceptionTarget> m_Targets;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FPerception = CPerception;
 
 } // namespace acs::game

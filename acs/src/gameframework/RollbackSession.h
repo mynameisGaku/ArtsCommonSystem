@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework — FRollbackSession (rollback netcode の統合層)
+// GameFramework — CRollbackSession (rollback netcode の統合層)
 //
 // 役割:
 //   ecs::FRollbackBuffer (状態履歴) と自前の入力台帳を束ね、GGPO 風の
@@ -7,12 +7,12 @@
 //   ループを 1 クラスで回せるようにする。レイヤ関係:
 //     ・FWorld::CopyFrom     … 状態の複製プリミティブ (ecs)
 //     ・FRollbackBuffer      … 直近 N tick の状態履歴リング (ecs)
-//     ・FRollbackSession     … 入力台帳 + 予測 + 再シミュレーション制御 (本クラス)
-//   FLockstep は「全入力確定済み」前提の入力リプレイ層で、本クラスとは別物
+//     ・CRollbackSession     … 入力台帳 + 予測 + 再シミュレーション制御 (本クラス)
+//   CLockstep は「全入力確定済み」前提の入力リプレイ層で、本クラスとは別物
 //   (決定論検証の ComputeChecksum は併用できる)。
 //
 // 使い方 (2P 対戦の典型):
-//   FRollbackSession session;
+//   CRollbackSession session;
 //   FRollbackSessionConfig cfg;
 //   cfg.player_count   = 2;
 //   cfg.history_length = 8;      // 8 tick まで巻き戻せる
@@ -43,8 +43,8 @@
 //   ・**コピー / ムーブ禁止**: FWorld* と履歴を抱える長寿命オブジェクト。
 //
 // 範囲外:
-//   ・ネットワーク送受信 / シリアライズ (FInputFrame の I/O は FLockstep 参照)
-//   ・desync 検出 (FLockstep::ComputeChecksum や FWorld 側 checksum を併用)
+//   ・ネットワーク送受信 / シリアライズ (FInputFrame の I/O は CLockstep 参照)
+//   ・desync 検出 (CLockstep::ComputeChecksum や FWorld 側 checksum を併用)
 //   ・可変 tick rate / フレームスキップ制御
 #pragma once
 
@@ -56,7 +56,7 @@
 namespace acs::game {
 
 /**
- * FRollbackSession の初期化パラメータ。
+ * CRollbackSession の初期化パラメータ。
  */
 struct FRollbackSessionConfig {
     /** プレイヤー数 (1..kMaxRollbackPlayers)。 */
@@ -74,7 +74,7 @@ struct FRollbackSessionConfig {
     u32 max_prediction = 0;
 };
 
-/** FRollbackSession が扱えるプレイヤー数の上限。 */
+/** CRollbackSession が扱えるプレイヤー数の上限。 */
 inline constexpr u32 kMaxRollbackPlayers = 8;
 
 /**
@@ -86,7 +86,7 @@ inline constexpr u32 kMaxRollbackPlayers = 8;
  * いつでも (past tick でも) 投入でき、予測と食い違っていた場合のみ次の AdvanceTick
  * 冒頭で自動的に巻き戻して再実行する。non-copy / non-move 型。
  */
-class FRollbackSession {
+class CRollbackSession {
 public:
     /**
      * 1 tick 分のシミュレーションを進める決定論コールバック。
@@ -101,22 +101,22 @@ public:
                                u32 input_count, void* user);
 
     /** 未初期化状態で構築する。使用前に Init を呼ぶ。 */
-    FRollbackSession() noexcept = default;
+    CRollbackSession() noexcept = default;
 
     /** 破棄する (FWorld は非所有なので触らない)。 */
-    ~FRollbackSession() noexcept = default;
+    ~CRollbackSession() noexcept = default;
 
     /** コピー禁止 (FWorld* と履歴を抱える長寿命オブジェクト)。 */
-    FRollbackSession(const FRollbackSession&)            = delete;
+    CRollbackSession(const CRollbackSession&)            = delete;
 
     /** コピー代入も禁止。 */
-    FRollbackSession& operator=(const FRollbackSession&) = delete;
+    CRollbackSession& operator=(const CRollbackSession&) = delete;
 
     /** ムーブ禁止。 */
-    FRollbackSession(FRollbackSession&&)                 = delete;
+    CRollbackSession(CRollbackSession&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FRollbackSession& operator=(FRollbackSession&&)      = delete;
+    CRollbackSession& operator=(CRollbackSession&&)      = delete;
 
     /**
      * セッションを初期化する (再 Init 可、既存の履歴は破棄)。
@@ -273,5 +273,8 @@ private:
     /** GatherInputs が組み立てる 1 tick 分の入力 (player_id 昇順)。 */
     TArray<FInputFrame> m_TickInputs;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FRollbackSession = CRollbackSession;
 
 } // namespace acs::game

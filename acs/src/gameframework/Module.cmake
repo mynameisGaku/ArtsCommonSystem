@@ -198,6 +198,7 @@ set(_acsgen_gameframework_headers
     EventBus.h
     FadeTransition.h
     Follow2DComponent.h
+    Forward.h
     Game.h
     GameFlow.h
     GameFramework.h

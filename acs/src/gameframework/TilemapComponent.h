@@ -17,6 +17,7 @@
 #pragma once
 
 #include "gameframework/AComponent.h"
+#include "gameframework/Forward.h"
 #include "gameframework/Tilemap.h"
 #include "math/Vec.h"
 
@@ -25,8 +26,6 @@ class IRhiTexture;
 }
 
 namespace acs::game {
-
-class FCollisionWorld2D;
 
 /**
  * FTilemap のデータを ANode 上で描画する AComponent。
@@ -95,9 +94,9 @@ public:
      * owner が無い、または layer が範囲外で LayerData が nullptr の場合は何もしない。
      * @param world 登録先の 2D 衝突ワールド。
      * @param layer ソリッド化するレイヤ index。
- * @param collision_layer_bit FCollisionWorld2D のレイヤ bitmask。
+ * @param collision_layer_bit CCollisionWorld2D のレイヤ bitmask。
      */
-    void BuildCollision(FCollisionWorld2D& world, u32 layer, u32 collision_layer_bit) noexcept;
+    void BuildCollision(CCollisionWorld2D& world, u32 layer, u32 collision_layer_bit) noexcept;
 
     /**
      * 全レイヤの非空タイルを FSpriteBatch へ描画する。

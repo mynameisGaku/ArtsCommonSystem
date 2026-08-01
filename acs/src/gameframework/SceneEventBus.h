@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar A — FSceneEventBus
+// GameFramework Pillar A — CSceneEventBus
 //
-// シーン内 component / system 間の type-erased pub/sub。同一 FScene に居る
+// シーン内 component / system 間の type-erased pub/sub。同一 AScene に居る
 // オブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
 // メッセージング層。FActionId と同じ compile-time FNV-1a hash で event 名を
 // u32 に畳み、ハンドラは関数ポインタ + void* user で type-erase する
@@ -10,7 +10,7 @@
 // 使い方:
 //   class AEnemySpawner : public AComponent {
 //   public:
-//       void BindEvents(FSceneEventBus& events) noexcept {
+//       void BindEvents(CSceneEventBus& events) noexcept {
 //           m_Events = &events;
 //           m_Sub = events.Subscribe(
 //               FEventId("PlayerDied"), &OnPlayerDied, this);
@@ -25,11 +25,11 @@
 //                                const void* /*payload*/, u32 /*size*/) noexcept {
 //           static_cast<AEnemySpawner*>(user)->FreezeSpawning();
 //       }
-//       FSceneEventBus* m_Events = nullptr;
+//       CSceneEventBus* m_Events = nullptr;
 //       u32 m_Sub = 0;
 //   };
 //
-//   // FScene 等が所有する bus を BindEvents で明示注入し、別 component から publish:
+//   // AScene 等が所有する bus を BindEvents で明示注入し、別 component から publish:
 //   FPlayerDiedPayload p{ pos, cause };
 //   events.Publish(FEventId("PlayerDied"), &p, sizeof(p));
 //
@@ -48,7 +48,7 @@
 //     走査中の参照が無効化されるため、Publish の走査は size を最初に
 //     キャプチャしてその範囲のみ呼ぶ。Publish 中に追加された subscriber は
 //     次回以降の Publish で初めて呼ばれる (一般的な pub/sub セマンティクス)。
-//   ・**非コピー / 非ムーブ**: FScene にメンバとして埋め込む前提、所有権の
+//   ・**非コピー / 非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
 #pragma once
 
@@ -133,31 +133,31 @@ using HandlerFn = void(*)(void* user, const void* payload, u32 payload_size) noe
  * シーン内 component / system 間の type-erased pub/sub バス。
  *
  * @details
- * 同一 FScene のオブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
+ * 同一 AScene のオブジェクト同士が「相手の存在」を知らずに通知をやり取りするための薄い
  * メッセージング層。FEventId (compile-time FNV-1a ハッシュ) で event を識別し、ハンドラは
  * 関数ポインタ + void* user で type-erase する。Subscribe ごとにユニークな u32 handle を
  * 払い出し、Unsubscribe は FEntry を mark-inactive するのみで物理削除しないため、Publish 中の
- * Subscribe / Unsubscribe を安全に行える。FScene に埋め込む前提の非コピー・非ムーブ型。
+ * Subscribe / Unsubscribe を安全に行える。AScene に埋め込む前提の非コピー・非ムーブ型。
  */
-class FSceneEventBus {
+class CSceneEventBus {
 public:
     /** 空のイベントバスを構築する。 */
-    FSceneEventBus() noexcept = default;
+    CSceneEventBus() noexcept = default;
 
     /** イベントバスを破棄する。 */
-    ~FSceneEventBus() noexcept = default;
+    ~CSceneEventBus() noexcept = default;
 
-    /** コピー禁止 (FScene にメンバとして埋め込む前提)。 */
-    FSceneEventBus(const FSceneEventBus&)            = delete;
+    /** コピー禁止 (AScene にメンバとして埋め込む前提)。 */
+    CSceneEventBus(const CSceneEventBus&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneEventBus& operator=(const FSceneEventBus&) = delete;
+    CSceneEventBus& operator=(const CSceneEventBus&) = delete;
 
     /** ムーブ禁止 (所有権の ambiguity を持ち込まないため)。 */
-    FSceneEventBus(FSceneEventBus&&)                 = delete;
+    CSceneEventBus(CSceneEventBus&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSceneEventBus& operator=(FSceneEventBus&&)      = delete;
+    CSceneEventBus& operator=(CSceneEventBus&&)      = delete;
 
     /**
      * 指定 event にハンドラを登録する。
@@ -199,7 +199,7 @@ public:
      */
     u32 SubscriberCount(FEventId id) const noexcept;
 
-    /** 全 subscription を破棄する (FScene::OnExit 等で使う)。 */
+    /** 全 subscription を破棄する (AScene::OnExit 等で使う)。 */
     void ClearAll() noexcept;
 
 private:
@@ -231,5 +231,8 @@ private:
     /** 次に払い出す handle (0 は invalid 予約)。 */
     u32          m_NextHandle = 1u;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneEventBus = CSceneEventBus;
 
 } // namespace acs::game

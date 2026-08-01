@@ -4,11 +4,10 @@
 #include "container/Array.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
 
 namespace acs::game {
-
-class FReplayDirector;
 
 /** 1 recorderへ読み込めるsample件数上限。 */
 inline constexpr u32 kInputRecorderMaximumSamples = 1'000'000u;
@@ -46,10 +45,10 @@ struct FInputSample {
 };
 
 /**
- * FInputRecorder の動作モード。
+ * CInputRecorder の動作モード。
  *
  * @details
- * FLockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
+ * CLockstep の ENetMode と異なり、ネットコードは扱わず「録画もしない・録画する・
  * 再生する」の 3 状態のみで完結する。モード切替時は state を Clear せず、
  * cursor だけリセットする (録画した内容をそのまま StartReplay で再生する想定)。
  */
@@ -70,31 +69,31 @@ enum class ERecorderMode : u8 {
  * @details
  * 1 セッション 1 オブジェクトの想定。コピー / ムーブ禁止で誤分裂を防ぐ。
  */
-class FInputRecorder {
+class CInputRecorder {
 public:
     /** 空状態 (Idle、samples なし) で構築する。 */
-    FInputRecorder()  noexcept = default;
+    CInputRecorder()  noexcept = default;
 
     /** 破棄する (samples は TArray が解放)。 */
-    ~FInputRecorder() noexcept = default;
+    ~CInputRecorder() noexcept = default;
 
     /** コピー禁止 (録画 state の分裂を防ぐため)。 */
-    FInputRecorder(const FInputRecorder&)            = delete;
+    CInputRecorder(const CInputRecorder&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInputRecorder& operator=(const FInputRecorder&) = delete;
+    CInputRecorder& operator=(const CInputRecorder&) = delete;
 
     /** ムーブ禁止。 */
-    FInputRecorder(FInputRecorder&&)                 = delete;
+    CInputRecorder(CInputRecorder&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInputRecorder& operator=(FInputRecorder&&)      = delete;
+    CInputRecorder& operator=(CInputRecorder&&)      = delete;
 
     /**
      * SaveToBuffer / LoadFromBuffer が返す共通エラー subcode。
      *
      * @details
-     * TSaveSlot / FLockstep / IBackendClient と同じ pattern。上位層が switch で
+     * TSaveSlot / CLockstep / IBackendClient と同じ pattern。上位層が switch で
      * 分岐できるよう enum 風に固定値を割り当てる。
      */
     enum ESubCode : u16 {
@@ -238,13 +237,13 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class FReplayDirector;
+    friend class CReplayDirector;
 
     /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit FInputRecorder(FAllocator& allocator) noexcept : m_Samples(allocator) {}
+    explicit CInputRecorder(FAllocator& allocator) noexcept : m_Samples(allocator) {}
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(FInputRecorder& other) noexcept;
+    void SwapLoadedState(CInputRecorder& other) noexcept;
 
     /** 現在の動作モード。 */
     ERecorderMode       m_Mode          = ERecorderMode::Idle;

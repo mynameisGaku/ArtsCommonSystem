@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorWorkspace
+// GameFramework Tools — editor_core / CEditorWorkspace
 //
-// 複数の `FEditorPanel` (ModelViewer / AnimCurveEditor / BehaviorTreeEditor /
+// 複数の `AEditorPanel` (ModelViewer / AnimCurveEditor / BehaviorTreeEditor /
 // LevelEditor / SpriteAtlasEditor / FontEditor / CinematicsTimelineEditor 等) を
 // 統括する **ワークスペース**。panel 群を 1 つの editor アプリケーションとして
 // まとめて配線するための中央 hub。
@@ -13,13 +13,13 @@
 //   ・ImGui DockSpace の作成 + Window メニュー (panel toggle list)
 //   ・レイアウト永続化 (ImGui ini + per-panel state を `.acslayout` 1 ファイル)
 //   ・選択 / asset 選択イベントの全 panel への broadcast
-//   ・FSelectionService の保管点 (非所有)
+//   ・CSelectionService の保管点 (非所有)
 //
 // 使い方 (典型):
-//   acs::game::editor_core::FEditorWorkspace ws;
+//   acs::game::editor_core::CEditorWorkspace ws;
 //   ws.Init();
 //
-//   ws.SetSelectionService(&selection);   // FSelectionService を注入
+//   ws.SetSelectionService(&selection);   // CSelectionService を注入
 //   ws.RegisterPanel(&hierarchy_panel);    // 各 panel は caller 所有
 //   ws.RegisterPanel(&inspector_panel);
 //   ws.RegisterPanel(&model_viewer);
@@ -37,13 +37,13 @@
 // 設計選択:
 //   ・**panel は raw pointer の非所有保持**: caller が own する (= caller が
 //     panel の lifetime を制御する) ことで、panel の動的生成 / scope-stack 配置
-//     の両方を許容する。FParticleEditorPanel / FEditorToolbar と同形。
-//   ・**`acs::TArray<FEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
+//     の両方を許容する。AParticleEditorPanel / AEditorToolbar と同形。
+//   ・**`acs::TArray<AEditorPanel*>` で順序保持**: dispatch 順 / Window メニュー
 //     の表示順 = 登録順。登録順以外のソートはしない。
 //   ・**`UnregisterPanel` は順序保存削除**: Window メニューの並びがフレーム間で
-//     ぶれないよう、swap-remove ではなく shift 削除。FSelectionService の
+//     ぶれないよう、swap-remove ではなく shift 削除。CSelectionService の
 //     RemoveAtSwap とは方針を変える (UI 表示順の体験を優先)。
-//   ・**Title はリテラル文字列を期待**: `FEditorPanel::Title()` の規約 (リテラル /
+//   ・**Title はリテラル文字列を期待**: `AEditorPanel::Title()` の規約 (リテラル /
 //     静的領域) に依存する。`FindPanelByTitle` は strcmp 比較。
 //   ・**ImGui::DockSpaceOverViewport**: 「メインビューポート全体に central dock
 //     node を持つ」最小構成。central node 内で float window 動作させたい panel は
@@ -66,7 +66,7 @@
 //     fan-out: 戻り値は無く、panel 側で必要に応じて自身に反映する。null safe。
 //   ・**非コピー / 非ムーブ / 全 noexcept / STL 不使用**: ACS 規約。
 //   ・**ImGui ヘッダは .cpp 側のみ include**: header からは imgui 依存を漏らさず、
-//     FParticleEditorPanel / FInspectorPanel と同方針。
+//     AParticleEditorPanel / AInspectorPanel と同方針。
 //
 // 範囲外 (本クラスでは持たない):
 //   ・panel の生成 / 破棄 (= caller 責務)
@@ -75,24 +75,7 @@
 
 #include "container/Array.h"
 #include "foundation/Types.h"
-
-namespace acs::game::editor_core {
-
-// 同 namespace の FEditorPanel は forward-decl のみで受ける。
-// 本ヘッダから EditorPanel.h を include しないことで、利用側 (sample / 上位
-// editor アプリ) が「workspace と panel 群」を疎結合にビルド単位として
-// 扱えるようにする (panel 派生クラスのヘッダ変更が workspace 自身の再ビルド
-// 要否に影響しない)。
-class FEditorPanel;
-
-} // namespace acs::game::editor_core
-
-namespace acs::game::inspector {
-// FSelectionService。SetSelectionService / Get... API の引数型として forward-decl
-// のみで受ける。本 workspace は FSelectionService の API を直接呼ばない
-// (= broadcast 時に panel 側へ参照を渡すだけ)。
-class FSelectionService;
-} // namespace acs::game::inspector
+#include "gameframework/Forward.h"
 
 namespace acs::game::editor_core {
 
@@ -146,38 +129,38 @@ struct FEditorWorkspacePersistenceResult {
 };
 
 /**
- * 複数の FEditorPanel を統括するワークスペース hub。
+ * 複数の AEditorPanel を統括するワークスペース hub。
  *
  * @details
  * 登録 panel のリスト管理 (RegisterPanel / FindPanelByTitle / UnregisterPanel)、
  * 毎フレームの main loop coordination (OnFrameBegin → DockSpace → MenuBar →
  * DrawUI)、ImGui DockSpace と Window / Layout メニューの描画、レイアウトの
  * `.acslayout` 永続化、選択 / asset 選択イベントの全 panel への broadcast を担う。
- * panel は raw pointer の非所有保持で順序 = 登録順 = dispatch 順。FSelectionService
+ * panel は raw pointer の非所有保持で順序 = 登録順 = dispatch 順。CSelectionService
  * も非所有参照で保持する。所有 / 参照関係を曖昧にしないため非コピー・非ムーブ。
  */
-class FEditorWorkspace {
+class CEditorWorkspace {
 public:
     /** 空状態で構築する (初期化は Init で行う)。 */
-    FEditorWorkspace() noexcept = default;
+    CEditorWorkspace() noexcept = default;
 
     /** 破棄する (登録 panel は非所有なので解放しない)。 */
-    ~FEditorWorkspace() noexcept = default;
+    ~CEditorWorkspace() noexcept = default;
 
-    /** コピー禁止 (panel リストと FSelectionService 参照の所有関係を曖昧にしないため)。 */
-    FEditorWorkspace(const FEditorWorkspace&)            = delete;
+    /** コピー禁止 (panel リストと CSelectionService 参照の所有関係を曖昧にしないため)。 */
+    CEditorWorkspace(const CEditorWorkspace&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorWorkspace& operator=(const FEditorWorkspace&) = delete;
+    CEditorWorkspace& operator=(const CEditorWorkspace&) = delete;
 
     /** ムーブ禁止。 */
-    FEditorWorkspace(FEditorWorkspace&&)                 = delete;
+    CEditorWorkspace(CEditorWorkspace&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorWorkspace& operator=(FEditorWorkspace&&)      = delete;
+    CEditorWorkspace& operator=(CEditorWorkspace&&)      = delete;
 
     /**
-     * panel list を空、FSelectionService を nullptr、設定値を default にして初期化する。
+     * panel list を空、CSelectionService を nullptr、設定値を default にして初期化する。
      *
      * @details
      * 多重 Init 可 (完全リセットとして使える)。登録 panel に OnShutdown を呼ばずに
@@ -189,7 +172,7 @@ public:
      * 登録済み全 panel に OnShutdown を呼んでから list を解放する。
      *
      * @details
-     * FSelectionService 参照も解除する。動作フラグ類は再 Init で同じ host 設定を
+     * CSelectionService 参照も解除する。動作フラグ類は再 Init で同じ host 設定を
      * 引き継げるよう意図的にリセットしない。多重 Shutdown 可。
      */
     void Shutdown() noexcept;
@@ -202,7 +185,7 @@ public:
      * kMaxPanels 到達後も silent no-op。
      * @param panel 登録する panel (非所有)。
      */
-    void RegisterPanel(FEditorPanel* panel) noexcept;
+    void RegisterPanel(AEditorPanel* panel) noexcept;
 
     /**
      * panel を登録解除して OnShutdown を呼ぶ。
@@ -210,7 +193,7 @@ public:
      * @details 順序保存削除 (shift)。未登録 / nullptr は no-op。
      * @param panel 登録解除する panel。
      */
-    void UnregisterPanel(FEditorPanel* panel) noexcept;
+    void UnregisterPanel(AEditorPanel* panel) noexcept;
 
     /**
      * 現在の登録 panel 数を返す。
@@ -225,7 +208,7 @@ public:
      * @param i panel のインデックス。
      * @return i 番目の panel (範囲外なら nullptr)。
      */
-    FEditorPanel* GetPanelByIndex(u32 i) const noexcept;
+    AEditorPanel* GetPanelByIndex(u32 i) const noexcept;
 
     /**
      * Title が完全一致する panel を返す。
@@ -234,7 +217,7 @@ public:
      * @param title 探す panel の Title (nullptr なら nullptr)。
      * @return 一致した panel (なければ nullptr)。
      */
-    FEditorPanel* FindPanelByTitle(const char* title) const noexcept;
+    AEditorPanel* FindPanelByTitle(const char* title) const noexcept;
 
     /**
      * Title が完全一致する panel の可視状態を反転する。
@@ -313,27 +296,27 @@ public:
         const char* text, usize text_size) noexcept;
 
     /**
-     * FSelectionService 参照を登録 / 解除する。
+     * CSelectionService 参照を登録 / 解除する。
      *
      * @details
      * caller 所有 (non-owning)。注入されると BroadcastSelectionChanged 経由で各 panel の
-     * OnSelectionChanged の引数として渡される。FSelectionService 側の callback 購読は
+     * OnSelectionChanged の引数として渡される。CSelectionService 側の callback 購読は
      * panel が独自に行う (本 workspace は購読しない)。
-     * @param svc 登録する FSelectionService (nullptr で解除)。
+     * @param svc 登録する CSelectionService (nullptr で解除)。
      */
-    void SetSelectionService(inspector::FSelectionService* svc) noexcept;
+    void SetSelectionService(inspector::CSelectionService* svc) noexcept;
 
     /**
-     * 現在登録されている FSelectionService を返す。
+     * 現在登録されている CSelectionService を返す。
      *
-     * @return 登録済み FSelectionService (未注入時は nullptr)。
+     * @return 登録済み CSelectionService (未注入時は nullptr)。
      */
-    inspector::FSelectionService* GetSelectionService() const noexcept;
+    inspector::CSelectionService* GetSelectionService() const noexcept;
 
     /**
      * 全 panel に OnSelectionChanged を呼ぶ。
      *
-     * @details FSelectionService 未注入時は no-op (callback シグネチャ上、参照が必要なため)。
+     * @details CSelectionService 未注入時は no-op (callback シグネチャ上、参照が必要なため)。
      */
     void BroadcastSelectionChanged() noexcept;
 
@@ -342,7 +325,7 @@ public:
      *
      * @details
      * asset_path は本 workspace では保持せず呼び出しごとに pass-through する
-     * (FAssetBrowser 所有想定)。nullptr 渡しは "選択解除" として全 panel に伝播する。
+     * (CAssetBrowser 所有想定)。nullptr 渡しは "選択解除" として全 panel に伝播する。
      * @param asset_path 選択された asset のパス (nullptr で選択解除)。
      */
     void BroadcastAssetSelected(const char* asset_path) noexcept;
@@ -412,16 +395,16 @@ private:
      * @param panel 探す panel (nullptr なら kInvalidIndex)。
      * @return 見つかったインデックス、ヒットしなければ kInvalidIndex。
      */
-    i32 FindPanelIndex(const FEditorPanel* panel) const noexcept;
+    i32 FindPanelIndex(const AEditorPanel* panel) const noexcept;
 
     /** FindPanelIndex が未ヒット時に返す番兵値。 */
     static constexpr i32 kInvalidIndex = -1;
 
     /** 登録 panel 群 (raw pointer / 非所有、順序 = 登録順 = dispatch 順)。 */
-    TArray<FEditorPanel*>          m_Panels;
+    TArray<AEditorPanel*>          m_Panels;
 
-    /** FSelectionService (non-owning、未注入時 nullptr)。 */
-    inspector::FSelectionService* m_SelectionService          = nullptr;
+    /** CSelectionService (non-owning、未注入時 nullptr)。 */
+    inspector::CSelectionService* m_SelectionService          = nullptr;
 
     /** central node 内 docking 無効化フラグ。 */
     bool                         m_NoDockingInCentralNode = false;

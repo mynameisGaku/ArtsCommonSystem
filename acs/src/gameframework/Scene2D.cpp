@@ -20,15 +20,15 @@
 namespace acs::game {
 
 /** World サブシステムを root へ公開し、2D 専用生成先を型付きで接続する。 */
-void FScene2D::_OnWorldSubsystemsReady() noexcept
+void AScene2D::_OnWorldSubsystemsReady() noexcept
 {
     m_Root->_SetSubsystems(_WorldSubsystemsPtr());
-    FSpawn2DSubsystem* const Spawner = GetSubsystem<FSpawn2DSubsystem>();
+    ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
     if (Spawner != nullptr) Spawner->BindTargetRoot(m_Root.Get());
 }
 
 /** シーン入場時に root へ services を配線し、派生の初期化フック OnReady を呼ぶ。 */
-void FScene2D::OnEnter() noexcept {
+void AScene2D::OnEnter() noexcept {
     // OnReady より «前» に配線 → OnReady 中に AddComponent された分は SceneServices() が解決でき
     // 即時 OnAttachServices 発火する。OnReady 後の _ActivateServices は配線前に在ったものへの catch-up。
     if (HasServices()) m_Root->_SetSceneServices(_ServicesOrNull());
@@ -37,7 +37,7 @@ void FScene2D::OnEnter() noexcept {
 }
 
 /** シーン退場時に構造変更を解決し、物理・トゥイーン・スプライトバッチを後始末する。 */
-void FScene2D::OnExit() noexcept {
+void AScene2D::OnExit() noexcept {
     m_Root->ResolveStructuralChanges();
     if (HasServices()) {
         Services().Physics().ClearAll();
@@ -52,21 +52,21 @@ void FScene2D::OnExit() noexcept {
 }
 
 /** 毎フレーム OnTick → root の UpdateTree → 構造変更解決を実行する。 */
-void FScene2D::OnUpdate(f32 dt) noexcept {
+void AScene2D::OnUpdate(f32 dt) noexcept {
     OnTick(dt);
     m_Root->UpdateTree(dt);
     m_Root->ResolveStructuralChanges();
 }
 
 /** 固定刻みで OnFixedTick → root の FixedUpdateTree → 構造変更解決を実行する。 */
-void FScene2D::OnFixedUpdate(f32 fixed_dt) noexcept {
+void AScene2D::OnFixedUpdate(f32 fixed_dt) noexcept {
     OnFixedTick(fixed_dt);
     m_Root->FixedUpdateTree(fixed_dt);
     m_Root->ResolveStructuralChanges();
 }
 
 /** 共有 FSpriteBatch を遅延初期化する (成功で true)。 */
-bool FScene2D::EnsureSpriteBatch(FRenderContext& rc) noexcept {
+bool AScene2D::EnsureSpriteBatch(FRenderContext& rc) noexcept {
     if (m_SpritesReady) return true;
     FRenderer& renderer = rc.GetRenderer();
     IRhiDevice* device = renderer.Device();
@@ -81,7 +81,7 @@ bool FScene2D::EnsureSpriteBatch(FRenderContext& rc) noexcept {
 }
 
 /** 反射オフスクリーン pass 専用の別 FSpriteBatch を遅延初期化する (成功で true)。 */
-bool FScene2D::EnsureSceneSprites(FRenderContext& rc) noexcept {
+bool AScene2D::EnsureSceneSprites(FRenderContext& rc) noexcept {
     // 反射のオフスクリーン pass 専用の SpriteBatch。オフスクリーン pass と
     // 合成 pass で同一バッチを使うと、頂点/定数バッファがフレーム内で上書きし
     // 合い、オフスクリーン pass の遅延 draw が合成 pass のデータを読んでしまう
@@ -101,7 +101,7 @@ bool FScene2D::EnsureSceneSprites(FRenderContext& rc) noexcept {
 }
 
 /** 水面深度捕捉 pass 専用の別 FSpriteBatch を遅延初期化する (成功で true)。 */
-bool FScene2D::EnsureWaterDepthSprites(FRenderContext& rc) noexcept {
+bool AScene2D::EnsureWaterDepthSprites(FRenderContext& rc) noexcept {
     // scene-color pass と同じバッチを使うと、同一フレーム内の VB/CB 更新が先行 draw の
     // 内容を上書きする。depth pass も独立バッチにして GPU 実行まで各データを保持する。
     if (m_WaterDepthSpritesReady) return true;
@@ -118,11 +118,11 @@ bool FScene2D::EnsureWaterDepthSprites(FRenderContext& rc) noexcept {
 }
 
 /** 画面ピクセル座標をワールド座標へ変換する (camera 中心・zoom・ppu を逆適用)。 */
-FVec2 FScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
+FVec2 AScene2D::ScreenToWorld(FVec2 screen_px) noexcept {
     FVec2 vc{0.0f, 0.0f};
     f32   zoom = 1.0f;
     if (HasServices()) {
-        FCamera2D& cam = Services().Camera();
+        CCamera2D& cam = Services().Camera();
         vc   = cam.EffectiveViewCenter();
         zoom = cam.Zoom();
     }
@@ -225,9 +225,9 @@ static void CollectLightsAndOccluders(ANode& node,
 }
 
 /** camera view を設定し、ライトを収集してから root を DrawTree、OnDrawWorld を呼ぶ。 */
-void FScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
+void AScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
     FSpriteBatch& sb = rc.Sprites();   // 現パスに配線されたバッチ (通常 or 反射 RT 用)
-    FCamera2D& cam = Services().Camera();
+    CCamera2D& cam = Services().Camera();
     const FVec2 center = cam.EffectiveViewCenter();
     sb.SetView(center.x, center.y, m_PixelsPerUnit * cam.Zoom());
     // lit スプライト (PBR マテリアル) 用に 2D ライト + 影オクルーダーを収集する。
@@ -246,7 +246,7 @@ void FScene2D::DrawWorldPass(FRenderContext& rc) noexcept {
 }
 
 /** 画面中心の view を設定し OnDrawHud を呼ぶ (カメラ非依存の HUD 描画)。 */
-void FScene2D::DrawHudPass(FRenderContext& rc) noexcept {
+void AScene2D::DrawHudPass(FRenderContext& rc) noexcept {
     FSpriteBatch& sb = rc.Sprites();
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
@@ -254,7 +254,7 @@ void FScene2D::DrawHudPass(FRenderContext& rc) noexcept {
 }
 
 /** 反射用に world を焼くオフスクリーン RT を遅延作成・再作成する (成功で true)。 */
-bool FScene2D::EnsureSceneRt(FRenderContext& rc) noexcept {
+bool AScene2D::EnsureSceneRt(FRenderContext& rc) noexcept {
     const u32 w = rc.Width(), h = rc.Height();
     if (w == 0 || h == 0) return false;
     if (m_SceneRt && m_RtW == w && m_RtH == h) return true;
@@ -272,7 +272,7 @@ bool FScene2D::EnsureSceneRt(FRenderContext& rc) noexcept {
 }
 
 /** TopDown 水メッシュの正規化水深を保持するカラー RT を遅延作成する (成功で true)。 */
-bool FScene2D::EnsureWaterDepthRt(FRenderContext& rc) noexcept {
+bool AScene2D::EnsureWaterDepthRt(FRenderContext& rc) noexcept {
     const u32 w = rc.Width(), h = rc.Height();
     if (w == 0 || h == 0) return false;
     if (m_WaterDepthRt && m_WaterDepthW == w && m_WaterDepthH == h) return true;
@@ -297,7 +297,7 @@ bool FScene2D::EnsureWaterDepthRt(FRenderContext& rc) noexcept {
 }
 
 /** マスク用の stencil 付き深度バッファ (D24S8) を遅延作成・再作成する (成功で true)。 */
-bool FScene2D::EnsureStencilBuffer(FRenderContext& rc) noexcept {
+bool AScene2D::EnsureStencilBuffer(FRenderContext& rc) noexcept {
     const u32 w = rc.Width(), h = rc.Height();
     if (w == 0 || h == 0) return false;
     if (m_StencilBuf && m_StencilW == w && m_StencilH == h) return true;
@@ -315,12 +315,12 @@ bool FScene2D::EnsureStencilBuffer(FRenderContext& rc) noexcept {
 }
 
 /** 反射/ステンシル設定に応じて単一〜複数パスでシーンを描画する。 */
-void FScene2D::OnRender(FRenderContext& rc) noexcept {
+void AScene2D::OnRender(FRenderContext& rc) noexcept {
     if (!EnsureSpriteBatch(rc)) return;
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
     m_ScreenH = rc.Height();
     FSpriteBatch& sb = m_Sprites;
-    FCamera2D& cam = Services().Camera();
+    CCamera2D& cam = Services().Camera();
     const FVec2 center = cam.EffectiveViewCenter();
     const f32 scale = m_PixelsPerUnit * cam.Zoom();
     rc._SetView2D(center, scale);   // 反射等の world→screen 投影用に配線
@@ -397,7 +397,7 @@ void FScene2D::OnRender(FRenderContext& rc) noexcept {
         DrawHudPass(rc);
         rc._SetSpriteBatch(nullptr);
         sb.End();
-        // EndRenderToSwapchain は FGame/Renderer の EndFrame が行う。
+        // EndRenderToSwapchain は CGame/Renderer の EndFrame が行う。
     } else if (stencil) {
         // stencil のみ: スワップチェーンを stencil 付きで再バインド (バリアはガード済)。
         if (sc) cl.BeginRenderToSwapchain(*sc, renderer.CurrentBuffer(), cc, stencil);

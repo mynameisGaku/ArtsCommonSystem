@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework ジャンルキット (puzzle / match-3) — FMatchGrid
+// GameFramework ジャンルキット (puzzle / match-3) — CMatchGrid
 //
 // `Bejeweled` / `Candy Crush` 系 match-3 パズルのコアロジックを担う 2D グリッド。
 // セルは「色 (1..color_count)」「special 種別 (Normal / Bomb / Lightning /
@@ -13,7 +13,7 @@
 //      返却値は除去総数。chain level も内部カウンタで保持し連鎖判定に使える。
 //
 // 使い方:
-//   FMatchGrid g;
+//   CMatchGrid g;
 //   g.Init(8, 8, /*color_count=*/5);
 //   g.FillRandom(0xC0FFEEULL);            // 初期マッチが残らない決定論埋め
 //   g.SetOnClearCallback(&MyClearFx, &fx); // VFX / SFX hook
@@ -126,7 +126,7 @@ enum class ESpecialKind : u8 {
  * stable まで反復する。セルは row-major の 1D 配列 1 本で保持し、全 noexcept /
  * 非コピー・非ムーブ。
  */
-class FMatchGrid {
+class CMatchGrid {
 public:
     /**
      * 消去 1 個ごとに呼ばれる callback の型 (VFX / SFX / score hook 用)。
@@ -140,22 +140,22 @@ public:
     using ClearCallback = void(*)(void* user, u32 x, u32 y, u8 color, ESpecialKind special) noexcept;
 
     /** 空 (サイズ 0) のグリッドを構築する。 */
-    FMatchGrid() noexcept = default;
+    CMatchGrid() noexcept = default;
 
     /** 破棄する (セル配列は TArray が解放)。 */
-    ~FMatchGrid() noexcept = default;
+    ~CMatchGrid() noexcept = default;
 
     /** コピー禁止。 */
-    FMatchGrid(const FMatchGrid&)            = delete;
+    CMatchGrid(const CMatchGrid&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMatchGrid& operator=(const FMatchGrid&) = delete;
+    CMatchGrid& operator=(const CMatchGrid&) = delete;
 
     /** ムーブ禁止。 */
-    FMatchGrid(FMatchGrid&&)                 = delete;
+    CMatchGrid(CMatchGrid&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FMatchGrid& operator=(FMatchGrid&&)      = delete;
+    CMatchGrid& operator=(CMatchGrid&&)      = delete;
 
     /**
      * グリッドを (width x height) で初期化する。
@@ -359,5 +359,8 @@ private:
     /** 消去 callback に渡す opaque ポインタ。 */
     void*           m_OnClearUser = nullptr;
 };
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FMatchGrid = CMatchGrid;
 
 } // namespace acs::game

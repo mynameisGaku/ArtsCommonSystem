@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar H — FMusicDirector (適応 BGM + Stinger)
+// GameFramework Pillar H — CMusicDirector (適応 BGM + Stinger)
 //
-// FAudioDirector が「低レイヤの mixer / クロスフェード」を担うのに対し、
-// 本 FMusicDirector は「ゲームプレイ状態 (戦闘 / 平穏 / 勝利 ...) を BGM へ
-// マッピングする上位レイヤ」である。両者はシーン跨ぎ生存で、FGame (or app)
+// CAudioDirector が「低レイヤの mixer / クロスフェード」を担うのに対し、
+// 本 CMusicDirector は「ゲームプレイ状態 (戦闘 / 平穏 / 勝利 ...) を BGM へ
+// マッピングする上位レイヤ」である。両者はシーン跨ぎ生存で、CGame (or app)
 // 側が同列に保持する想定 (BGM 状態はシーン切替で途切れない方が自然)。
 //
 // 機能:
@@ -13,13 +13,13 @@
 //   ・SetIntensity(0..1) で「同じ状態内での激しさ」を表現
 //     (Combat 内で 0.2 = 探索的、0.9 = 高激戦、など intensity range で track 分岐)
 //   ・PlayStinger() で「BGM を停めずに重ねる一発もの SFX」(ボス出現 / 達成等)
-//     実演奏は FAudioDirector::PlaySfx に流す (本クラスは pending 情報も保持)
+//     実演奏は CAudioDirector::PlaySfx に流す (本クラスは pending 情報も保持)
 //   ・Tick(dt) で transition / stinger timer を進行
 //
 // 設計選択:
-//   ・**CAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
+//   ・**CAudioEngine 直叩きしない**: 実際の再生は CAudioDirector に委ね、本クラスは
 //     「どの track を、どのゲインで鳴らすべきか」を決める state machine に徹する。
-//     SetAudioDirector(FAudioDirector*) で結線すると、SetState → PlayBgm、
+//     SetAudioDirector(CAudioDirector*) で結線すると、SetState → PlayBgm、
 //     PlayStinger → PlaySfx、Stop → StopBgm を実 director へ delegate する。
 //     未結線 (nullptr) のときは従来通り state-only で動作する (無音、crash しない)。
 //   ・**state -> track 配列は SoA で分離**: `m_Tracks` は全 track をフラットに
@@ -37,15 +37,14 @@
 //   ・**Stinger は単一バッファ**: 1 個分だけ「次に演奏すべき stinger」を保持し、
 //     ConsumeStinger() で取り出すまでは pending=true。複数同時投入は警告 +
 //     最新を採用 (BGM 上に重ねる前提なので、多重スタックは認知的にノイズ)。
-//   ・**name / asset_path は所有しない**: FAudioDirector と同様に文字列リテラル前提。
+//   ・**name / asset_path は所有しない**: CAudioDirector と同様に文字列リテラル前提。
 #pragma once
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 
 namespace acs::game {
-
-class FAudioDirector;
 
 /**
  * 適応 BGM の状態。
@@ -104,11 +103,11 @@ struct FMusicTrack {
  * EMusicState (Silent / Calm / Tension / Combat / Victory / GameOver) を track 配列に
  * マッピングし、SetState で状態クロスフェード、SetIntensity で同状態内の激しさを
  * 表現する。PlayStinger は BGM を停めずに一発 SFX を重ねる。実再生は
- * SetAudioDirector で結線した FAudioDirector へ delegate し、未結線時は state-only
+ * SetAudioDirector で結線した CAudioDirector へ delegate し、未結線時は state-only
  * で動作する (無音、crash しない)。1 インスタンスをシーン跨ぎで保持する想定の
  * non-copy / non-move 型。
  */
-class FMusicDirector {
+class CMusicDirector {
 public:
     /** EMusicState の総数 (enum 末尾追加時はここを増やす)。 */
     static constexpr u32 kStateCount = 6;
@@ -117,22 +116,22 @@ public:
     static constexpr u32 kTrackReserveHint = 16;
 
     /** track 配列を事前確保し state インデックスを初期化して構築する。 */
-    FMusicDirector() noexcept;
+    CMusicDirector() noexcept;
 
     /** 破棄する (内部 TArray が解放される。m_Audio は非所有なので触らない)。 */
-    ~FMusicDirector() noexcept = default;
+    ~CMusicDirector() noexcept = default;
 
     /** コピー禁止 (シーン跨ぎの単一インスタンスを保つため)。 */
-    FMusicDirector(const FMusicDirector&)            = delete;
+    CMusicDirector(const CMusicDirector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMusicDirector& operator=(const FMusicDirector&) = delete;
+    CMusicDirector& operator=(const CMusicDirector&) = delete;
 
     /** ムーブ禁止。 */
-    FMusicDirector(FMusicDirector&&)                 = delete;
+    CMusicDirector(CMusicDirector&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FMusicDirector& operator=(FMusicDirector&&)      = delete;
+    CMusicDirector& operator=(CMusicDirector&&)      = delete;
 
     /**
      * 指定 state に track を登録する。
@@ -152,7 +151,7 @@ public:
      * @details
      * transition_sec <= 0 は即時切替 (progress=1 にスナップ)。同一 state の再要求は
      * 遷移中でなければ no-op (現行 BGM 継続)。結線済みなら新 state の track を
-     * FAudioDirector へ流す。
+     * CAudioDirector へ流す。
      * @param state 遷移先の state。
      * @param transition_sec クロスフェード秒数 (既定 2.0、0 以下で即時)。
      */
@@ -207,7 +206,7 @@ public:
      * @details
      * asset_path == nullptr / volume <= 0 は警告 + 無視。既に pending stinger がある
      * 場合は上書き (最新を採用)。pending 情報は ConsumeStinger 用に常に保持し、
-     * 結線済みなら即時に FAudioDirector::PlaySfx へ流す。
+     * 結線済みなら即時に CAudioDirector::PlaySfx へ流す。
      * @param asset_path 鳴らす SFX アセットのパス (所有しない)。
      * @param volume 再生ゲイン (既定 1.0、0 以下で無視)。
      */
@@ -229,27 +228,27 @@ public:
     const char* ConsumeStinger(f32& out_volume) noexcept;
 
     /**
-     * 実再生を委ねる低レイヤ FAudioDirector を結線する。
+     * 実再生を委ねる低レイヤ CAudioDirector を結線する。
      *
      * @details
      * 結線後は SetState → PlayBgm、PlayStinger → PlaySfx、Stop → StopBgm を実
      * director へ delegate する。nullptr で切断すると state-only 動作に戻る。
      * 呼び出し側が director を所有する (本クラスは非所有 raw ptr で保持)。
-     * @param audio 結線する FAudioDirector (nullptr で切断)。
+     * @param audio 結線する CAudioDirector (nullptr で切断)。
      */
-    void           SetAudioDirector(FAudioDirector* audio) noexcept { m_Audio = audio; }
+    void           SetAudioDirector(CAudioDirector* audio) noexcept { m_Audio = audio; }
 
     /**
-     * 結線済みの FAudioDirector を返す。
+     * 結線済みの CAudioDirector を返す。
      *
-     * @return 結線中の FAudioDirector (未結線なら nullptr)。
+     * @return 結線中の CAudioDirector (未結線なら nullptr)。
      */
-    FAudioDirector* GetAudioDirector() const noexcept { return m_Audio; }
+    CAudioDirector* GetAudioDirector() const noexcept { return m_Audio; }
 
     /**
      * 毎フレーム呼んで transition / stinger timer を進める。
      *
-     * @details FSceneServices / FGame から呼ぶ。state machine の遷移進捗のみを進める。
+     * @details CSceneServices / CGame から呼ぶ。state machine の遷移進捗のみを進める。
      * @param dt 前フレームからの経過実秒。
      */
     void Tick(f32 dt) noexcept;
@@ -311,7 +310,7 @@ private:
      * @details
      * track 未登録なら StopBgm を呼ぶ。未結線 (m_Audio == nullptr) なら no-op
      * (state-only)。
-     * @param fade_in_sec FAudioDirector へ渡すクロスフェード秒 (即時切替なら 0)。
+     * @param fade_in_sec CAudioDirector へ渡すクロスフェード秒 (即時切替なら 0)。
      */
     void RouteCurrentTrackToAudio(f32 fade_in_sec) noexcept;
 
@@ -352,7 +351,10 @@ private:
     bool        m_StingerPending = false;
 
     /** 実再生を委ねる低レイヤ director (非所有 raw ptr。nullptr で state-only)。 */
-    FAudioDirector* m_Audio = nullptr;
+    CAudioDirector* m_Audio = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMusicDirector = CMusicDirector;
 
 } // namespace acs::game

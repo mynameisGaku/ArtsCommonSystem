@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar — in-game ParticleEditor 実装
 //
-// 仕様の意図は FParticleEditorPanel.h を参照。本ファイルでは:
+// 仕様の意図は AParticleEditorPanel.h を参照。本ファイルでは:
 //   ・emitter list の Add / Remove / Duplicate (= editor 側 index 管理)
 //   ・ImGui を使った 2 カラムレイアウトの描画
 //   ・Save / Load callback の forward
@@ -42,7 +42,7 @@ static bool IsValidIndex(i32 index, u32 count) noexcept {
 }
 
 /** emitter list を空に戻し selection と dirty を解除する (callback は保持)。 */
-void FParticleEditorPanel::Init() noexcept {
+void AParticleEditorPanel::Init() noexcept {
     // 完全リセット: 既存登録があれば破棄して 0 件状態にする。
     // 多重 Init を許容するため、m_Emitters.Clear() で実体は解放せず
     // 容量だけ保持 (= 次回再構築のアロケーション節約)。
@@ -55,7 +55,7 @@ void FParticleEditorPanel::Init() noexcept {
 }
 
 /** emitter list を解放し selection / dirty / callback をすべてクリアする。 */
-void FParticleEditorPanel::Shutdown() noexcept {
+void AParticleEditorPanel::Shutdown() noexcept {
     // TArray はデストラクタで解放されるが、明示的に Clear することで
     // 多重 Shutdown / 再 Init の確定状態を作る。
     m_Emitters.Clear();
@@ -70,7 +70,7 @@ void FParticleEditorPanel::Shutdown() noexcept {
 }
 
 /** 「火花っぽい」プリセットの emitter を 1 件追加し、新規 emitter を選択する。 */
-void FParticleEditorPanel::AddEmitter() noexcept {
+void AParticleEditorPanel::AddEmitter() noexcept {
     if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) {
         // 上限到達は silent no-op (UI からは Add ボタンが見えていても安全)。
         return;
@@ -96,7 +96,7 @@ void FParticleEditorPanel::AddEmitter() noexcept {
 }
 
 /** 選択中 emitter を順序保存しつつ削除し、selection を更新する。 */
-void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
+void AParticleEditorPanel::RemoveSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(m_Emitters.Size());
     if (!IsValidIndex(m_Selected, count)) return;
 
@@ -123,7 +123,7 @@ void FParticleEditorPanel::RemoveSelectedEmitter() noexcept {
 }
 
 /** 選択中 emitter を直後に複製挿入し、selection を複製先へ移す。 */
-void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
+void AParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
     const u32 count = static_cast<u32>(m_Emitters.Size());
     if (!IsValidIndex(m_Selected, count)) return;
     if (m_Emitters.Size() >= static_cast<usize>(kMaxEmitters)) return;
@@ -158,7 +158,7 @@ void FParticleEditorPanel::DuplicateSelectedEmitter() noexcept {
 }
 
 /** 選択 index を設定する (範囲外 / 負値は -1 に正規化)。 */
-void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
+void AParticleEditorPanel::SelectEmitter(i32 index) noexcept {
     const u32 count = static_cast<u32>(m_Emitters.Size());
     if (index < 0) {
         m_Selected = -1;
@@ -172,37 +172,37 @@ void FParticleEditorPanel::SelectEmitter(i32 index) noexcept {
 }
 
 /** 現在の emitter 数を返す。 */
-u32 FParticleEditorPanel::EmitterCount() const noexcept {
+u32 AParticleEditorPanel::EmitterCount() const noexcept {
     return static_cast<u32>(m_Emitters.Size());
 }
 
 /** index 番目の emitter def を返す (read-only、範囲外は nullptr)。 */
-const FParticleEmitterDef* FParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
+const FParticleEmitterDef* AParticleEditorPanel::GetEmitterDef(i32 index) const noexcept {
     if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
 /** index 番目の emitter def を返す (mutable、範囲外は nullptr)。 */
-FParticleEmitterDef* FParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
+FParticleEmitterDef* AParticleEditorPanel::GetEmitterDefMutable(i32 index) noexcept {
     if (!IsValidIndex(index, static_cast<u32>(m_Emitters.Size()))) return nullptr;
     return &m_Emitters[static_cast<usize>(index)];
 }
 
 /** Save callback とユーザポインタを登録する (nullptr で解除)。 */
-void FParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
+void AParticleEditorPanel::SetSaveCallback(SaveCallback cb, void* user) noexcept {
     m_SaveCb   = cb;
     m_SaveUser = user;
 }
 
 /** Load callback とユーザポインタを登録する (nullptr で解除)。 */
-void FParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
+void AParticleEditorPanel::SetLoadCallback(LoadCallback cb, void* user) noexcept {
     m_LoadCb   = cb;
     m_LoadUser = user;
 }
 
 /** メイン ImGui window を 2 カラム (emitter list + properties) で描画する。 */
-void FParticleEditorPanel::DrawUI() noexcept {
-    // FEditorPanel 継承で no-param DrawUI 化。target system は
+void AParticleEditorPanel::DrawUI() noexcept {
+    // AEditorPanel 継承で no-param DrawUI 化。target system は
     // SetTargetSystem() で事前に set 想定 (nullptr のときは live particle
     // 数を "(no system)" 表示)。
     if (!ImGui::Begin("Particle Editor")) {

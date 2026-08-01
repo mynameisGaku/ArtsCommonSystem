@@ -41,7 +41,7 @@
 //   ・非コピー・非ムーブ (state を 1 箇所にとどめる)
 //
 // 参考:
-//   ・FLlmSafetyPipeline (text validation pattern)
+//   ・CLlmSafetyPipeline (text validation pattern)
 //   ・ISteamworksBridge   (seam + Stub singleton pattern)
 #pragma once
 
@@ -198,13 +198,13 @@ public:
  * SDK 無しで肌色比率 heuristic (Kovac et al.) を使い、露出度から verdict/rating を判定する
  * (size==0 / nullptr は BadArgument)。Tick / IsAvailable は no-op (常に true)。
  */
-class FContentModeratorStub final : public IContentModerator {
+class CContentModeratorStub final : public IContentModerator {
 public:
     /** 既定構築する。 */
-    FContentModeratorStub() noexcept = default;
+    CContentModeratorStub() noexcept = default;
 
     /** 破棄する。 */
-    ~FContentModeratorStub() noexcept override = default;
+    ~CContentModeratorStub() noexcept override = default;
 
     /**
      * テキストを NG ワード辞書で判定する。
@@ -273,8 +273,11 @@ private:
  * 全コードで共有できる Stub の static singleton を返す。
  *
  * @details 実 SDK 実装が DI される前のデフォルト。ISteamworksBridge::GetStub() と同じ規約。
- * @return 共有 FContentModeratorStub への参照。
+ * @return 共有 CContentModeratorStub への参照。
  */
 IContentModerator& GetModeratorStub() noexcept;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FContentModeratorStub = CContentModeratorStub;
 
 } // namespace acs::game

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// GameFramework Pillar A — FSceneCommandQueue (deferred command queue / editor 連携)
+// GameFramework Pillar A — CSceneCommandQueue (deferred command queue / editor 連携)
 //
 // 走査中 (OnUpdate / OnDraw) に発火された「シーン構造変更」等の要求をフレーム末
-// で順次実行するための遅延実行キュー。`FSceneManager` の `_ApplyPending` と同じ
+// で順次実行するための遅延実行キュー。`CSceneManager` の `_ApplyPending` と同じ
 // 哲学 (= 走査中の構造変更を避け、安全なフレーム境界で適用する) を、より粒度の
 // 細かいコマンド単位に拡張したもの。editor から「ノード追加」「コンポーネント
 // 差し替え」等を OnUpdate のループ走査中に呼んでも、Flush 時に integrity を
 // 保ったまま適用される。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
-//       FSceneCommandQueue m_Cmds;
+//   class FGameplayScene : public AScene {
+//       CSceneCommandQueue m_Cmds;
 //
 //       void OnUpdate(f32 dt) noexcept override {
 //           // 走査中に node 削除を要求しても安全 (Flush でまとめて実行)
@@ -27,18 +27,18 @@
 //           // ImGui ボタン処理中などからも安全に enqueue できる
 //       }
 //
-//       // フレーム末に FGame / FScene 側で 1 回 Flush する。
+//       // フレーム末に CGame / AScene 側で 1 回 Flush する。
 //       static void DeleteSelected(void* self) noexcept { /* ... */ }
 //       static void RefreshUi    (void* self) noexcept { /* ... */ }
 //   };
 //
 // 設計選択 (Pillar A polish):
 //   ・**deferred 実行**: 走査中の構造変更を避けるため、Flush までは実行しない。
-//     `FSceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
+//     `CSceneManager` の pending op (1 個) と違い、複数 command を保持・優先度
 //     付きで順序付け実行する。
 //   ・**function pointer + void* user**: ACS 規約 (std::function 不使用、heap
 //     allocation / RTTI / 例外を持ち込まない)。
-//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (FDebugOverlay
+//   ・**const char* label**: 文字列リテラル前提、本クラスは複製しない (CDebugOverlay
 //     の watch 列と同じ方針)。同一性比較は pointer 一致 → fallback で strcmp。
 //     `<string>` 禁止 (STL 不使用)。
 //   ・**priority 昇順実行**: 同 priority 内では Enqueue 順 (= 安定ソート)。
@@ -48,11 +48,11 @@
 //   ・**EnqueueIfAbsent (denounce)**: 同 label の既存 command があれば no-op。
 //     入力連打 / リサイズイベント連発で同じ作業が積み上がるのを防ぐ。
 //   ・**Cancel**: label 一致の全 command を削除 (one_shot/repeating 両方)。
-//   ・**Flush 中の Enqueue 安全性**: FSceneEventBus と同じく、走査 size を最初に
+//   ・**Flush 中の Enqueue 安全性**: CSceneEventBus と同じく、走査 size を最初に
 //     スナップショットして固定範囲のみ実行する。Flush 中に追加された command は
 //     次回 Flush で初めて実行される。Flush 中に同 slot が PushBack で再 alloc を
 //     起こしても、fn / user / one_shot を local にコピーしてから呼ぶことで安全。
-//   ・**非コピー・非ムーブ**: FScene にメンバとして埋め込む前提、所有権の
+//   ・**非コピー・非ムーブ**: AScene にメンバとして埋め込む前提、所有権の
 //     ambiguity を持ち込まない。
 //   ・**STL 不使用 / 全 noexcept**: ACS 規約。`acs::TArray<FCommandRecord>` で持つ。
 //
@@ -60,7 +60,7 @@
 //   ・スレッドセーフ (現状は同一スレッド前提、editor が別スレッドから enqueue する
 //     なら mutex を内蔵するか SPSC ring に置き換える必要あり)
 //   ・command 履歴 / undo (editor の undo stack は別レイヤで持つべき)
-//   ・cross-scene broadcast (FSceneEventBus と同じく FScene を越えるのは将来課題)
+//   ・cross-scene broadcast (CSceneEventBus と同じく AScene を越えるのは将来課題)
 
 #include "foundation/Types.h"
 #include "container/InlineArray.h"
@@ -103,29 +103,29 @@ struct FCommandRecord {
  *
  * @details
  * OnUpdate / OnDraw の走査中に editor 等が「ノード追加」「コンポーネント差し替え」を
- * 要求しても、Flush 時に integrity を保ったまま priority 昇順で適用する。FSceneManager の
+ * 要求しても、Flush 時に integrity を保ったまま priority 昇順で適用する。CSceneManager の
  * 単一 pending op と違い複数 command を保持し、one_shot/repeating・denounce・cancel を持つ。
  * 非コピー・非ムーブで、関数ポインタ + void* user により STL を使わず全 noexcept で実装する。
  */
-class FSceneCommandQueue {
+class CSceneCommandQueue {
 public:
     /** 空のキューを構築する。 */
-    FSceneCommandQueue() noexcept = default;
+    CSceneCommandQueue() noexcept = default;
 
     /** キューを破棄する (保留 command の callback は呼ばない)。 */
-    ~FSceneCommandQueue() noexcept = default;
+    ~CSceneCommandQueue() noexcept = default;
 
     /** コピー禁止 (発火中の参照との競合を防ぐため)。 */
-    FSceneCommandQueue(const FSceneCommandQueue&)            = delete;
+    CSceneCommandQueue(const CSceneCommandQueue&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSceneCommandQueue& operator=(const FSceneCommandQueue&) = delete;
+    CSceneCommandQueue& operator=(const CSceneCommandQueue&) = delete;
 
-    /** ムーブ禁止 (FScene 埋め込み前提、所有権の曖昧さを持ち込まない)。 */
-    FSceneCommandQueue(FSceneCommandQueue&&)                 = delete;
+    /** ムーブ禁止 (AScene 埋め込み前提、所有権の曖昧さを持ち込まない)。 */
+    CSceneCommandQueue(CSceneCommandQueue&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSceneCommandQueue& operator=(FSceneCommandQueue&&)      = delete;
+    CSceneCommandQueue& operator=(CSceneCommandQueue&&)      = delete;
 
     /**
      * 末尾に command を追加する。
@@ -191,7 +191,7 @@ public:
     /**
      * 全 command を破棄する (callback は呼ばない)。
      *
-     * @details FScene::OnExit 等で使う。
+     * @details AScene::OnExit 等で使う。
      */
     void ClearAll() noexcept;
 
@@ -207,5 +207,8 @@ private:
     static constexpr usize kInlineCommandCapacity = 16u;
     TInlineArray<FCommandRecord, kInlineCommandCapacity> m_Records;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSceneCommandQueue = CSceneCommandQueue;
 
 } // namespace acs::game

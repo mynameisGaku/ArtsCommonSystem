@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework — In-game ParticleEditor: Preview canvas + stats 実装
 //
-// 仕様は FParticleEditorPreview.h を参照。本ファイルでは:
+// 仕様は CParticleEditorPreview.h を参照。本ファイルでは:
 //   ・preview emitter の作成 / 再作成 / 破棄
 //   ・ImGui sub-window 描画 (Burst / stats / spawn pos / auto-emit / frame budget)
 //   ・frame budget 60-frame ring
@@ -34,7 +34,7 @@ inline bool HasPreview(FEmitterHandle h) noexcept {
 } // anonymous namespace
 
 /** 60 frame 履歴を事前確保し、stats と handle をリセットする。 */
-void FParticleEditorPreview::Init() noexcept {
+void CParticleEditorPreview::Init() noexcept {
     // 60 frame 履歴を事前確保 (毎 Tick の reallocation 回避)。
     m_FpsHistory.Clear();
     m_FpsHistory.Reserve(kFpsHistoryCap);
@@ -49,7 +49,7 @@ void FParticleEditorPreview::Init() noexcept {
 }
 
 /** preview handle と stats / 履歴をクリアする (emitter の Destroy は行わない)。 */
-void FParticleEditorPreview::Shutdown() noexcept {
+void CParticleEditorPreview::Shutdown() noexcept {
     // system を持っていないため preview emitter の Destroy は行わない。
     // 明示的に止めたい呼出し側は Shutdown 前に StopAll(system) を呼ぶこと。
     m_PreviewHandle    = {};
@@ -65,13 +65,13 @@ void FParticleEditorPreview::Shutdown() noexcept {
  * stats (capacity / active 数) と frame budget ring を更新する。
  *
  * @details
- * dt <= 0 の場合は履歴汚染を避けるため fps を push しない。FParticleEffectSystem::Tick
+ * dt <= 0 の場合は履歴汚染を避けるため fps を push しない。CParticleEffectSystem::Tick
  * は呼ばない (= 呼出し側の責務)。active count は system の getter から、capacity は
  * AllParticles の out_count 経由で取得する。
  * @param dt 前フレームからの経過秒。
  * @param system stats を取得する対象の particle system。
  */
-void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcept {
+void CParticleEditorPreview::Tick(f32 dt, CParticleEffectSystem& system) noexcept {
     // stats 更新 (capacity / active 数)。
     u32 cap = 0u;
     (void)system.AllParticles(cap);
@@ -106,7 +106,7 @@ void FParticleEditorPreview::Tick(f32 dt, FParticleEffectSystem& system) noexcep
  * @param system 操作対象の particle system。
  * @param def 現在選択中の emitter def (nullptr なら未選択表示)。
  */
-void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
+void CParticleEditorPreview::DrawUI(CParticleEffectSystem& system,
                                    const FParticleEmitterDef* def) noexcept {
     if (!ImGui::Begin("Particle Preview")) {
         ImGui::End();
@@ -203,7 +203,7 @@ void FParticleEditorPreview::DrawUI(FParticleEffectSystem& system,
  * @param system emitter を生成する対象の particle system。
  * @param def 反映する emitter def (nullptr なら no-op)。
  */
-void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& system,
+void CParticleEditorPreview::RecreatePreviewEmitter(CParticleEffectSystem& system,
                                                    const FParticleEmitterDef* def) noexcept {
     if (def == nullptr) return;
 
@@ -227,11 +227,11 @@ void FParticleEditorPreview::RecreatePreviewEmitter(FParticleEffectSystem& syste
  * preview emitter に対し 1 回の burst を発火する。
  *
  * @details
- * handle が invalid のとき (= まだ Recreate していない) は no-op。FParticleEffectSystem::Burst
+ * handle が invalid のとき (= まだ Recreate していない) は no-op。CParticleEffectSystem::Burst
  * が handle 検証と burst_count の floor 切り捨てを行う。
  * @param system burst を発火する対象の particle system。
  */
-void FParticleEditorPreview::TriggerBurst(FParticleEffectSystem& system) noexcept {
+void CParticleEditorPreview::TriggerBurst(CParticleEffectSystem& system) noexcept {
     if (!HasPreview(m_PreviewHandle)) return;
     system.Burst(m_PreviewHandle);
 }
@@ -244,7 +244,7 @@ void FParticleEditorPreview::TriggerBurst(FParticleEffectSystem& system) noexcep
  * される (= 次回 Recreate で再生成が必要)。
  * @param system 全消去する対象の particle system。
  */
-void FParticleEditorPreview::StopAll(FParticleEffectSystem& system) noexcept {
+void CParticleEditorPreview::StopAll(CParticleEffectSystem& system) noexcept {
     if (HasPreview(m_PreviewHandle)) {
         system.DestroyEmitter(m_PreviewHandle);
         m_PreviewHandle = {};
@@ -259,7 +259,7 @@ void FParticleEditorPreview::StopAll(FParticleEffectSystem& system) noexcept {
  * @details system reference を受け取らないため内部値だけ更新し、次の Tick / Recreate 時に反映される。
  * @param pos 新しい spawn 位置。
  */
-void FParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
+void CParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
     m_SpawnPos = pos;
     // system reference は受け取らない API なので、内部値だけ更新。次の Tick /
     // Recreate 時に反映される。
@@ -271,7 +271,7 @@ void FParticleEditorPreview::SetSpawnPos(FVec2 pos) noexcept {
  * @details system reference を受け取らないため内部値だけ更新し、Recreate 時か DrawUI 経由で反映される。
  * @param b auto-emit を有効にするなら true。
  */
-void FParticleEditorPreview::SetAutoEmit(bool b) noexcept {
+void CParticleEditorPreview::SetAutoEmit(bool b) noexcept {
     m_AutoEmit = b;
     // system reference は受け取らない API。Recreate 時か DrawUI 経由で反映される。
 }
@@ -282,7 +282,7 @@ void FParticleEditorPreview::SetAutoEmit(bool b) noexcept {
  * @details 履歴が空のときは 0。少数フレームでも有効分だけで平均する。
  * @return 平均 fps、履歴が空なら 0.0f。
  */
-f32 FParticleEditorPreview::GraphFps() const noexcept {
+f32 CParticleEditorPreview::GraphFps() const noexcept {
     const usize n = m_FpsHistory.Size();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;

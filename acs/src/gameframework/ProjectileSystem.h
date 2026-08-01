@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
+// GameFramework Pillar I — CProjectileSystem (弾丸 / 投射物 プール + 衝突判定)
 //
 // 弾丸 / ロケット / 矢 / 魔法弾 / 手榴弾 などの「飛んでいって何かに当たる」系
-// オブジェクトを固定容量プールで管理する。FWeaponSystem.FireCallback と組み合わせ
+// オブジェクトを固定容量プールで管理する。CWeaponSystem.FireCallback と組み合わせ
 // て発射 → 飛翔 → 命中 / 寿命切れ までを一元的に扱えるよう設計してある。
 //
 // 設計選択:
@@ -18,11 +18,11 @@
 //     Spawn 時に def_id (const char*) で名前引きする。これにより
 //       - 多数の弾を発射しても per-instance memory が小さい (def はポインタで参照)
 //       - 同種の弾の挙動を一括変更できる (テスト / バランス調整時に有利)
-//       - FWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
+//       - CWeaponSystem / EnemyAI / Player を疎結合に保てる (def_id 文字列のみで連携)
 //     名前比較は ConstStringPointerEquals (アドレス一致優先) を使うが、同一文字
 //     リテラルなら基本同アドレスにマージされるためコストは O(1) 期待。
-//   ・**HitTest は callback で外部委譲**: FProjectileSystem 自身は FCollisionWorld2D /
-//     FTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
+//   ・**HitTest は callback で外部委譲**: CProjectileSystem 自身は CCollisionWorld2D /
+//     CTriggerWorld2D / 独自空間検索のどれを使うかを知らない。HitTestFn を登録し、
 //     Tick 内で各 alive projectile に対して呼び出す。true 返却で「命中した」と判
 //     定し、hit_count を進める。これにより:
 //       - テスト時は dummy fn で常に false を返せる (= headless 動作可)
@@ -36,7 +36,7 @@
 //     は別レイヤに分離する。
 //   ・**owner_id / damage は instance に持つ**: def には共通パラメータのみを置き、
 //     誰が撃ったか / どれだけのダメージか は spawn 毎に変化する値として instance
-//     側に保持する。HitCallback でこれらを取り出し FHealthSystem.ApplyDamage に
+//     側に保持する。HitCallback でこれらを取り出し CHealthSystem.ApplyDamage に
 //     繋ぐ想定。
 //   ・**非コピー・非ムーブ**: 固定 pool の生ポインタを AllAlive で外部に返すため、
 //     ムーブで実体アドレスが変わると外部参照が破綻する。明示的に削除。
@@ -44,7 +44,7 @@
 //     no-op で表現。文字列は const char* + アドレス一致比較で扱う。
 //
 // 使い方:
-//   FProjectileSystem ps;
+//   CProjectileSystem ps;
 //   ps.Init(256);
 //
 //   FProjectileDef bullet{};
@@ -66,10 +66,10 @@
 //                                /*owner=*/player_node_id,
 //                                /*damage=*/15.0f);
 //
-//   // hit test を登録 (FCollisionWorld2D 経由など):
+//   // hit test を登録 (CCollisionWorld2D 経由など):
 //   ps.SetHitTestFn([](void* user, const FProjectileInstance& p,
 //                      u32& out_target, f32& out_dmg) noexcept -> bool {
-//       auto* cw = static_cast<FCollisionWorld2D*>(user);
+//       auto* cw = static_cast<CCollisionWorld2D*>(user);
 //       // ... overlap check ... out_target = enemy_node_id; out_dmg = p.damage;
 //       return hit_found;
 //   }, &collision_world);
@@ -84,7 +84,7 @@
 //   ps.Tick(dt);
 //
 // 範囲外:
-//   ・チャージ shot / spread (n-way) - FWeaponSystem 側が複数 Spawn する形で対応
+//   ・チャージ shot / spread (n-way) - CWeaponSystem 側が複数 Spawn する形で対応
 //   ・3D 弾道 (現状 FVec2 のみ)
 //   ・反射 / 跳弾 (壁衝突で velocity 反転) - HitCallback 内で manual に再 Spawn
 //   ・複雑な誘導 (proportional navigation など)
@@ -261,7 +261,7 @@ using HitTestFn = bool(*)(void* user, const FProjectileInstance& proj,
 /**
  * 命中コールバック型。
  *
- * @details HitTestFn が true を返した直後に発火する。この中で FHealthSystem.ApplyDamage /
+ * @details HitTestFn が true を返した直後に発火する。この中で CHealthSystem.ApplyDamage /
  * VFX 生成 / SE 再生 を行う想定。引数は user、proj_id、def_id (弾種識別子)、
  * target_id (HitTestFn の out_hit_target_id)、damage (out_damage_dealt)。
  */
@@ -286,25 +286,25 @@ using ExpireCallback = void(*)(void* user, FProjectileId proj_id, const char* de
  * hit_count が貫通上限に達するか lifetime を超えると despawn する。AllAlive() が内部
  * buffer の生ポインタを返すため非コピー・非ムーブ。全 noexcept、STL 不使用。
  */
-class FProjectileSystem {
+class CProjectileSystem {
 public:
     /** 空状態で構築する (pool は Init で確保)。 */
-    FProjectileSystem() noexcept = default;
+    CProjectileSystem() noexcept = default;
 
     /** 破棄する (pool は TArray が解放)。 */
-    ~FProjectileSystem() noexcept = default;
+    ~CProjectileSystem() noexcept = default;
 
     /** コピー禁止 (内部 buffer の生ポインタを外部に返すため)。 */
-    FProjectileSystem(const FProjectileSystem&)            = delete;
+    CProjectileSystem(const CProjectileSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FProjectileSystem& operator=(const FProjectileSystem&) = delete;
+    CProjectileSystem& operator=(const CProjectileSystem&) = delete;
 
     /** ムーブ禁止 (実体アドレスが変わると外部参照が破綻するため)。 */
-    FProjectileSystem(FProjectileSystem&&)                 = delete;
+    CProjectileSystem(CProjectileSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FProjectileSystem& operator=(FProjectileSystem&&)      = delete;
+    CProjectileSystem& operator=(CProjectileSystem&&)      = delete;
 
     /**
      * pool を確保して初期化する。
@@ -525,5 +525,8 @@ private:
     /** AcquireSlot が満杯を表すために返す番兵 index。 */
     static constexpr u32 kInvalidIdx = 0xFFFFFFFFu;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FProjectileSystem = CProjectileSystem;
 
 } // namespace acs::game

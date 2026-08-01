@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FInspectorSeam
+// GameFramework Pillar K — CInspectorSeam
 //
 // reflection-driven debug inspector の「シーム (seam)」インターフェース。
-// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / FCamera / FSettings 等) が
+// ゲーム内の任意のオブジェクト (FPlayer / FEnemy / FCamera / CSettings 等) が
 // 自身のフィールドを `IInspectableProvider` 経由で公開し、上位レイヤ
 // (ImGui / ACS::Ui / 外部 DevTool) がそれを描画 / 編集する形を取る。
 //
@@ -25,7 +25,7 @@
 //   };
 //
 //   // 起動時:
-//   FInspectorSeam inspector;
+//   CInspectorSeam inspector;
 //   inspector.Init();
 //   inspector.RegisterProvider(&player);
 //
@@ -40,16 +40,16 @@
 //   }
 //
 // 設計選択:
-//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `FInspectorSeam` 本体は
+//   ・**シーム化 (= I/F + 集中点) で UI と切り離す**: `CInspectorSeam` 本体は
 //     Provider レジストリだけを持ち、ImGui / Ui 描画は別レイヤから
 //     呼ぶ。Ship build では Provider 登録自体を #ifdef で消す前提。
 //   ・**Provider は non-owning**: ゲーム側の生存期間に従う。RegisterProvider 後に
 //     Provider を destruct する場合は呼び出し側で必ず Unregister すること。
-//     `FInspectorSeam::ClearAll()` でも Provider は破棄しない。
+//     `CInspectorSeam::ClearAll()` でも Provider は破棄しない。
 //   ・**field は POD 4-tuple**: name + kind + data ポインタ + (enum 専用) ラベル配列。
 //     描画側は kind で switch し、data を該当型にキャストして表示 / 編集する。
 //   ・**fields 配列は Provider 所有**: `GetObject()` の戻り値が指す `fields` は
-//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。FInspectorSeam は
+//     Provider が永続所有する (static 配列 / メンバ配列 を想定)。CInspectorSeam は
 //     コピーしない。
 //   ・**OnFieldChanged は通知のみ**: UI 側で値を書き換えた後に呼ばれる。Provider は
 //     再バリデーション (clamp / 派生値の再計算 / dirty flag) をここで行う。
@@ -60,6 +60,7 @@
 
 #include "foundation/Types.h"
 #include "container/Array.h"
+#include "gameframework/Forward.h"
 #include "gameframework/NodeId.h"  // FNodeId (node-keyed provider lookup 用)
 
 namespace acs::game {
@@ -108,7 +109,7 @@ enum class EFieldKind : u8 {
  *
  * @details
  * Provider が `FInspectableObject` 経由で配列を返す 1 件。配列の寿命は
- * Provider が保持する (static / メンバ)。FInspectorSeam はコピーしない。
+ * Provider が保持する (static / メンバ)。CInspectorSeam はコピーしない。
  */
 struct FInspectableField {
     /** フィールド表示名 (caller 所有、リテラル想定)。 */
@@ -208,25 +209,25 @@ public:
  * 描画レイヤ (ImGui or ACS::Ui) はこのインスタンスから ProviderCount() /
  * GetProvider() を回して描画する。
  */
-class FInspectorSeam {
+class CInspectorSeam {
 public:
     /** 空のレジストリで構築する。 */
-    FInspectorSeam() noexcept = default;
+    CInspectorSeam() noexcept = default;
 
     /** 破棄する (Provider は non-owning なので破棄しない)。 */
-    ~FInspectorSeam() noexcept = default;
+    ~CInspectorSeam() noexcept = default;
 
     /** コピー禁止 (内部 TArray<Provider*> の所有を曖昧にしないため)。 */
-    FInspectorSeam(const FInspectorSeam&)            = delete;
+    CInspectorSeam(const CInspectorSeam&)            = delete;
 
     /** コピー代入も禁止。 */
-    FInspectorSeam& operator=(const FInspectorSeam&) = delete;
+    CInspectorSeam& operator=(const CInspectorSeam&) = delete;
 
     /** ムーブ禁止。 */
-    FInspectorSeam(FInspectorSeam&&)                 = delete;
+    CInspectorSeam(CInspectorSeam&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FInspectorSeam& operator=(FInspectorSeam&&)      = delete;
+    CInspectorSeam& operator=(CInspectorSeam&&)      = delete;
 
     /**
      * 初期化する (多重呼び出し可)。

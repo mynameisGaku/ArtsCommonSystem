@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Tools — editor_core / FEditorCommand
+// GameFramework Tools — editor_core / AEditorCommand
 //
 // 役割:
-//   ACS の全エディタ (FHierarchyPanel / FInspectorPanel / ParticleEditor /
+//   ACS の全エディタ (AHierarchyPanel / AInspectorPanel / ParticleEditor /
 //   SceneInspector ほか将来追加される LevelEditor / TimelineEditor 等) が共有
 //   する **undo/redo の原子単位**。Command パターンの GoF 古典に沿い、
-//   1 操作 = 1 FEditorCommand 派生インスタンスとして表現する。
+//   1 操作 = 1 AEditorCommand 派生インスタンスとして表現する。
 //
 // 使い方:
-//   class FMoveNodeCommand : public FEditorCommand { ... };  // header 下に inline 例
+//   class AMoveNodeCommand : public AEditorCommand { ... };  // header 下に inline 例
 //
 //   // editor 側:
-//   acs::TUniquePtr<FMoveNodeCommand> cmd = acs::MakeUnique<FMoveNodeCommand>(
+//   acs::TUniquePtr<AMoveNodeCommand> cmd = acs::MakeUnique<AMoveNodeCommand>(
 //       &node, old_pos, new_pos);
 //   undo_stack.Push(acs::Move(cmd));   // 確保元ごと所有権を渡す + Execute 実行
 //
 // 設計選択:
-//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<FEditorCommand>` で
-//     FUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
+//   ・**純粋抽象 + virtual dtor**: ベース型を `TUniquePtr<AEditorCommand>` で
+//     CUndoStack に持たせるため、polymorphic delete が必要。全 noexcept は
 //     ACS 規約。
 //   ・**非コピー / 非ムーブ**: 「実行済み command を後から複製」は意味的に怪しい
 //     (二重 Undo 等の事故源)。意図的な複製は派生クラス側で factory を用意する。
@@ -31,15 +31,16 @@
 //     ものを保つ)。これで Undo 1 回で連続 drag 全体を巻き戻せる。
 //
 // 将来拡張余地:
-//   ・transaction (BeginGroup / EndGroup): FUndoStack 側で複数 FEditorCommand
-//     を 1 件として束ねる `CommandGroup : FEditorCommand` を派生で実装する。
+//   ・transaction (BeginGroup / EndGroup): CUndoStack 側で複数 AEditorCommand
+//     を 1 件として束ねる `CommandGroup : AEditorCommand` を派生で実装する。
 //   ・branched history: undo 後に new edit が来た時に redo stack を破棄するの
-//     ではなく分岐として保存する。FEditorCommand 側に変更は不要。
+//     ではなく分岐として保存する。AEditorCommand 側に変更は不要。
 //   ・serialization: `virtual void Serialize(Writer&) const` を後付け可能。
 //     既存派生は default = no-op で問題ない。
 #pragma once
 
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "gameframework/ANode.h"
 #include "math/Vec.h"
 
@@ -49,31 +50,31 @@ namespace acs::game::editor_core {
  * 全エディタが共有する undo/redo の原子単位 (純粋抽象)。
  *
  * @details
- * Command パターンの GoF 古典に沿い、1 操作 = 1 FEditorCommand 派生インスタンス
+ * Command パターンの GoF 古典に沿い、1 操作 = 1 AEditorCommand 派生インスタンス
  * として表現する。派生クラスは Execute / Undo / Description を必ず override する。
  * CanMerge / MergeWith は default で merge 拒否であり、連続 drag をまとめたい派生
- * のみ override する。ベース型を `TUniquePtr<FEditorCommand>` で FUndoStack に
+ * のみ override する。ベース型を `TUniquePtr<AEditorCommand>` で CUndoStack に
  * 持たせるため virtual dtor を持ち、複製事故を防ぐため非コピー / 非ムーブとする。
  */
-class FEditorCommand {
+class AEditorCommand {
 public:
     /** 空の command を構築する。 */
-    FEditorCommand() noexcept          = default;
+    AEditorCommand() noexcept          = default;
 
     /** 派生クラスを polymorphic delete するための仮想デストラクタ。 */
-    virtual ~FEditorCommand() noexcept = default;
+    virtual ~AEditorCommand() noexcept = default;
 
     /** コピー禁止 (実行済み command の複製は二重 Undo 等の事故源になるため)。 */
-    FEditorCommand(const FEditorCommand&)            = delete;
+    AEditorCommand(const AEditorCommand&)            = delete;
 
     /** コピー代入も禁止。 */
-    FEditorCommand& operator=(const FEditorCommand&) = delete;
+    AEditorCommand& operator=(const AEditorCommand&) = delete;
 
-    /** ムーブ禁止 (FUndoStack が TUniquePtr で単独所有するため)。 */
-    FEditorCommand(FEditorCommand&&)                 = delete;
+    /** ムーブ禁止 (CUndoStack が TUniquePtr で単独所有するため)。 */
+    AEditorCommand(AEditorCommand&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FEditorCommand& operator=(FEditorCommand&&)      = delete;
+    AEditorCommand& operator=(AEditorCommand&&)      = delete;
 
     /**
      * RTTI を使わずに command の種類を識別するための tag を返す。
@@ -90,8 +91,8 @@ public:
      * 「Do」操作を実行する。
      *
      * @details
-     * FUndoStack::Push 直後と Redo 経路の両方から呼ばれる。Undo を挟まずに同じ
-     * command を 2 回 Execute することは FUndoStack が排除する。
+     * CUndoStack::Push 直後と Redo 経路の両方から呼ばれる。Undo を挟まずに同じ
+     * command を 2 回 Execute することは CUndoStack が排除する。
      */
     virtual void Execute() noexcept = 0;
 
@@ -122,12 +123,12 @@ public:
      * @param next 直後に Push されようとしている command。
      * @return マージ可能なら true。
      */
-    virtual bool CanMerge(const FEditorCommand& /*next*/) const noexcept {
+    virtual bool CanMerge(const AEditorCommand& /*next*/) const noexcept {
         return false;
     }
 
     /**
-     * CanMerge が true を返した直後に FUndoStack から呼ばれ、next を取り込む。
+     * CanMerge が true を返した直後に CUndoStack から呼ばれ、next を取り込む。
      *
      * @details
      * next の「new 値」を自分に取り込み (= 自分の new 値を next の new 値で上書きし)、
@@ -135,11 +136,11 @@ public:
      * default は no-op (CanMerge が false なので呼ばれない想定)。
      * @param next マージ元となる直後の command。
      */
-    virtual void MergeWith(const FEditorCommand& /*next*/) noexcept {}
+    virtual void MergeWith(const AEditorCommand& /*next*/) noexcept {}
 };
 
 /**
- * ANode の position を変更する FEditorCommand 派生サンプル。
+ * ANode の position を変更する AEditorCommand 派生サンプル。
  *
  * @details
  * 教科書的な使用例で、連続 drag を 1 件にまとめる CanMerge 実装も持つ。マージ規約は、
@@ -149,7 +150,7 @@ public:
  * 対象が dangling だと UB になるため、editor 側で Destroy 時に undo stack を Clear する等の
  * ハイレベルポリシーで防ぐ。
  */
-class FMoveNodeCommand : public FEditorCommand {
+class AMoveNodeCommand : public AEditorCommand {
 public:
     /**
      * 移動対象と前後の position を保持して構築する。
@@ -158,7 +159,7 @@ public:
      * @param old_pos 変更前の位置 (Undo で復元する値)。
      * @param new_pos 変更後の位置 (Execute で適用する値)。
      */
-    FMoveNodeCommand(ANode* target, FVec2 old_pos, FVec2 new_pos) noexcept
+    AMoveNodeCommand(ANode* target, FVec2 old_pos, FVec2 new_pos) noexcept
         : m_Target(target), m_OldPos(old_pos), m_NewPos(new_pos) {}
 
     /** 対象ノードの local position を new_pos に設定する。 */
@@ -188,25 +189,25 @@ public:
      * この派生型を一意に識別する kind tag を返す。
      *
      * @details next 側も同じアドレスを返せば同一派生型と確定できる (= RTTI 不要のポインタ比較)。
-     * @return FMoveNodeCommand 固有の静的アドレス。
+     * @return AMoveNodeCommand 固有の静的アドレス。
      */
     const void* Kind() const noexcept override { return KindTag(); }
 
     /**
-     * 同一 target に対する連続 FMoveNodeCommand のみマージを許可する。
+     * 同一 target に対する連続 AMoveNodeCommand のみマージを許可する。
      *
      * @details Kind tag と target ポインタが両方一致するときだけ merge を認める。
      * @param next 直後に Push されようとしている command。
      * @return next が同型かつ同一 target なら true。
      */
-    bool CanMerge(const FEditorCommand& next) const noexcept override {
+    bool CanMerge(const AEditorCommand& next) const noexcept override {
         // 型 (Kind tag) と対象 (target ポインタ) が両方一致するときだけ merge。
         if (next.Kind() != KindTag()) {
             return false;
         }
-        // ここまでくれば next は FMoveNodeCommand と確定 (Kind tag は static アドレス
+        // ここまでくれば next は AMoveNodeCommand と確定 (Kind tag は static アドレス
         // で派生クラスを一意に識別している)。安全に static_cast 可能。
-        const FMoveNodeCommand& nxt = static_cast<const FMoveNodeCommand&>(next);
+        const AMoveNodeCommand& nxt = static_cast<const AMoveNodeCommand&>(next);
         return nxt.m_Target == m_Target;
     }
 
@@ -216,12 +217,12 @@ public:
      * @details new 値だけ更新し、old 値 (= 連続 drag の始点) は保持する。防御的に Kind を再確認する。
      * @param next マージ元の command (CanMerge を通過済みの前提)。
      */
-    void MergeWith(const FEditorCommand& next) noexcept override {
-        // CanMerge を経ているのが FUndoStack 側の前提だが、防御的に再確認する。
+    void MergeWith(const AEditorCommand& next) noexcept override {
+        // CanMerge を経ているのが CUndoStack 側の前提だが、防御的に再確認する。
         if (next.Kind() != KindTag()) {
             return;
         }
-        const FMoveNodeCommand& nxt = static_cast<const FMoveNodeCommand&>(next);
+        const AMoveNodeCommand& nxt = static_cast<const AMoveNodeCommand&>(next);
         // new 値だけ更新し、old 値 (= 連続 drag の始点) は保持する。
         m_NewPos = nxt.m_NewPos;
     }
@@ -254,7 +255,7 @@ private:
      * @details
      * 内容は使わず、アドレスだけが ID。function-local static にすることで、ヘッダ多重
      * include + 複数 TU 跨ぎで「同一アドレス」を保証する (C++11 以降の保証)。
-     * @return FMoveNodeCommand を識別する静的アドレス。
+     * @return AMoveNodeCommand を識別する静的アドレス。
      */
     static const void* KindTag() noexcept {
         static const char kTag = 0;
@@ -270,5 +271,7 @@ private:
     /** 変更後の位置 (Execute で適用)。 */
     FVec2    m_NewPos {};
 };
+
+using FMoveNodeCommand = AMoveNodeCommand;
 
 } // namespace acs::game::editor_core

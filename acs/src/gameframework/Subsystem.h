@@ -16,6 +16,8 @@ using ::acs::ESubsystemTickPhase;
 /** 旧 GameFramework 更新 context 名を正規型へ転送する。 */
 using ::acs::FSubsystemFrameContext;
 /** 旧 GameFramework 基底名を正規型へ転送する。 */
+using ::acs::ASubsystem;
+/** 旧基底名を GameFramework 名前空間でも利用できるようにする。 */
 using ::acs::FSubsystem;
 /** 旧 GameFramework 種別 ID 関数を正規関数へ転送する。 */
 using ::acs::SubsystemKindOf;

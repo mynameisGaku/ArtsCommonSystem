@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar M — FLockstep (deterministic input replay)
+// GameFramework Pillar M — CLockstep (deterministic input replay)
 //
 // 役割:
-//   1) **FLockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
+//   1) **CLockstep ネットコード** の入力レイヤ: 1 tick = 1 フレーム分の入力を
 //      `FInputFrame` として記録 / 配信し、全クライアントが同一順序で入力を消費
 //      することで決定論的なシミュレーションを実現する土台。
 //   2) **入力リプレイ**: Local 中に記録した入力列をそのまま Replay モードで
@@ -12,7 +12,7 @@
 //      bit 単位で検出する。
 //
 // 使い方 (想定):
-//   FLockstep ls;
+//   CLockstep ls;
 //   ls.Init(ENetMode::Local, /*tick_rate_hz=*/60);
 //
 //   // ゲームループ (Local 中):
@@ -46,9 +46,9 @@
 //     buttons, axis.x bits, axis.y bits) を u64 に畳み込む。決定論検証 + replay
 //     hash として使う。FNV-1a は STL 不使用で実装が 5 行、衝突は同期ずれ検知用途
 //     としては十分。
-//   ・**コピー / ムーブ禁止**: FLockstep は通常 1 セッションに 1 個 (グローバル所有)
+//   ・**コピー / ムーブ禁止**: CLockstep は通常 1 セッションに 1 個 (グローバル所有)
 //     の長寿命オブジェクト。誤って値渡しされて state が分裂すると replay の
-//     同期ずれが起きるため、FSettings / FPartySystem と同じく最初から非コピー・
+//     同期ずれが起きるため、CSettings / CPartySystem と同じく最初から非コピー・
 //     非ムーブで固定する。
 //   ・**全 noexcept**: ACS 全体方針。エラーは `TResult<T, FErrorCode>` で伝搬する。
 //
@@ -73,11 +73,10 @@
 #include "container/Array.h"
 #include "foundation/Result.h"
 #include "foundation/Types.h"
+#include "gameframework/Forward.h"
 #include "math/Vec.h"
 
 namespace acs::game {
-
-class FReplayDirector;
 
 /** 1 lockstepへ読み込めるframe件数上限。 */
 inline constexpr u32 kLockstepMaximumFrames = 1'000'000u;
@@ -111,7 +110,7 @@ struct FInputFrame {
  * 入力レイヤの動作モード。
  *
  * @details
- * FLockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モードを
+ * CLockstep は同一クラスで「単独プレイ」「ネット対戦」「リプレイ再生」の 3 モードを
  * 扱う。モード切替時は state を Clear せず cursor だけリセットする (Local 中に記録した
  * frames を StartReplay で再生する用途を想定)。
  */
@@ -134,25 +133,25 @@ enum class ENetMode : u8 {
  * 同一順序で入力を消費することで決定論的シミュレーションの土台を作る。1 セッション
  * 1 オブジェクトの想定で、誤分裂を防ぐためコピー / ムーブを禁止する。
  */
-class FLockstep {
+class CLockstep {
 public:
     /** 空の Local モード状態で構築する。 */
-    FLockstep()  noexcept = default;
+    CLockstep()  noexcept = default;
 
     /** 破棄する (記録した frames は TArray が解放)。 */
-    ~FLockstep() noexcept = default;
+    ~CLockstep() noexcept = default;
 
     /** コピー禁止 (state 分裂による replay 同期ずれを防ぐため)。 */
-    FLockstep(const FLockstep&)            = delete;
+    CLockstep(const CLockstep&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLockstep& operator=(const FLockstep&) = delete;
+    CLockstep& operator=(const CLockstep&) = delete;
 
     /** ムーブ禁止 (長寿命の単独所有オブジェクトのため)。 */
-    FLockstep(FLockstep&&)                 = delete;
+    CLockstep(CLockstep&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLockstep& operator=(FLockstep&&)      = delete;
+    CLockstep& operator=(CLockstep&&)      = delete;
 
     /**
      * 永続化 API が返すエラー subcode。
@@ -298,13 +297,13 @@ public:
     TResult<void> TryLoadFromBuffer(const u8* buffer, u32 size) noexcept;
 
 private:
-    friend class FReplayDirector;
+    friend class CReplayDirector;
 
     /** ReplayDirector staging用にtargetと同じallocatorを注入する。 */
-    explicit FLockstep(FAllocator& allocator) noexcept : m_Frames(allocator) {}
+    explicit CLockstep(FAllocator& allocator) noexcept : m_Frames(allocator) {}
 
     /** ReplayDirectorが複数sourceを一括commitするためのno-fail state swap。 */
-    void SwapLoadedState(FLockstep& other) noexcept;
+    void SwapLoadedState(CLockstep& other) noexcept;
 
     /** 現在の動作モード。 */
     ENetMode           m_Mode          = ENetMode::Local;

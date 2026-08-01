@@ -6,7 +6,7 @@
 #include "gameframework/ANode.h"
 #include "gameframework/AComponent.h"
 #include "gameframework/Transform3D.h"
-#include "gameframework/Reflect.h"            // FTypeRegistry / FTypeDesc
+#include "gameframework/Reflect.h"            // CTypeRegistry / FTypeDesc
 #include "gameframework/ReflectSerialize.h"   // SerializeByName / DeserializeReflected
 #include "gameframework/ComponentFactory.h"   // CreateComponentByName
 #include "container/Array.h"
@@ -160,7 +160,7 @@ ESceneSerializeError MeasureNode(const ANode* node, u32& required_bytes,
         const u32 payload_length =
             SerializeByName(name, component, payload, sizeof(payload));
         if (payload_length == 0u) {
-            return FTypeRegistry::Get().FindByName(name) == nullptr
+            return CTypeRegistry::Get().FindByName(name) == nullptr
                  ? ESceneSerializeError::InvalidComponentName
                  : ESceneSerializeError::ComponentPayloadLimitExceeded;
         }
@@ -212,7 +212,7 @@ ESceneSerializeError WriteNode(FWriter& w, const ANode* n, i32 parent_index) noe
         u8 cbuf[kSceneSerializeMaxComponentPayloadBytes];
         const u32 clen = SerializeByName(nm, comp, cbuf, sizeof(cbuf));
         if (clen == 0u) {
-            return FTypeRegistry::Get().FindByName(nm) == nullptr
+            return CTypeRegistry::Get().FindByName(nm) == nullptr
                  ? ESceneSerializeError::InvalidComponentName
                  : ESceneSerializeError::ComponentPayloadLimitExceeded;
         }
@@ -423,7 +423,7 @@ FSceneLoadResult TryLoadNodeTree(const u8* data, u32 size) noexcept {
             TUniquePtr<AComponent> comp = CreateComponentByName(cname);
             if (comp.Get() != nullptr) {
                 AComponent* cp = comp.Get();
-                const FTypeDesc* cd = FTypeRegistry::Get().FindByName(cname);
+                const FTypeDesc* cd = CTypeRegistry::Get().FindByName(cname);
                 if (cd == nullptr || clen == 0u) {
                     return LoadFailure(ESceneSerializeError::InvalidComponentPayload,
                                        r.cur, version);

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework meta — FPerfBudget 実装
+// GameFramework meta — CPerfBudget 実装
 //
 // state holder のみ。計測 (タイマ / FAllocator hook) は呼出し側責務。詳細は
-// FPerfBudget.h 参照。
+// CPerfBudget.h 参照。
 #include "gameframework/PerfBudget.h"
 
 #include <cstring>   // strcmp
 
 namespace acs::game {
 
-usize FPerfBudget::FindCategoryIndex(const char* category) const noexcept {
+usize CPerfBudget::FindCategoryIndex(const char* category) const noexcept {
     if (category == nullptr) return m_Categories.Size();
     // pointer 同一 → strcmp の順。リテラル運用なら pointer 同一の高速 path で抜ける。
     for (usize i = 0; i < m_Categories.Size(); ++i) {
@@ -20,7 +20,7 @@ usize FPerfBudget::FindCategoryIndex(const char* category) const noexcept {
     return m_Categories.Size();
 }
 
-void FPerfBudget::SetFrameBudget(f32 ms) noexcept {
+void CPerfBudget::SetFrameBudget(f32 ms) noexcept {
     // 負値 / NaN を 0 (= 判定無効) に正規化。
     // NaN は自分自身と比較できない性質を使って弾く。
     if (!(ms > 0.0f)) {
@@ -30,7 +30,7 @@ void FPerfBudget::SetFrameBudget(f32 ms) noexcept {
     }
 }
 
-void FPerfBudget::DefineCategory(const char* category, f32 budget_ms, u32 budget_bytes) noexcept {
+void CPerfBudget::DefineCategory(const char* category, f32 budget_ms, u32 budget_bytes) noexcept {
     if (category == nullptr) return;
     // budget 側は負値を 0 に clamp (上限 0 = 「常に超過扱い」になるが、それも仕様)。
     const f32 safe_budget_ms = (budget_ms > 0.0f) ? budget_ms : 0.0f;
@@ -51,7 +51,7 @@ void FPerfBudget::DefineCategory(const char* category, f32 budget_ms, u32 budget
     m_Categories.PushBack(e);
 }
 
-void FPerfBudget::RecordTimeMs(const char* category, f32 elapsed_ms) noexcept {
+void CPerfBudget::RecordTimeMs(const char* category, f32 elapsed_ms) noexcept {
     if (category == nullptr) return;
     // 負値 / NaN は無視 (NaN は自身との比較が false なので !(>0) で弾ける)。
     if (!(elapsed_ms > 0.0f)) return;
@@ -60,7 +60,7 @@ void FPerfBudget::RecordTimeMs(const char* category, f32 elapsed_ms) noexcept {
     m_Categories[idx].spent_ms += elapsed_ms;
 }
 
-void FPerfBudget::RecordMemoryAlloc(const char* category, u32 bytes) noexcept {
+void CPerfBudget::RecordMemoryAlloc(const char* category, u32 bytes) noexcept {
     if (category == nullptr || bytes == 0u) return;
     const usize idx = FindCategoryIndex(category);
     if (idx >= m_Categories.Size()) return;
@@ -74,7 +74,7 @@ void FPerfBudget::RecordMemoryAlloc(const char* category, u32 bytes) noexcept {
     }
 }
 
-void FPerfBudget::RecordMemoryFree(const char* category, u32 bytes) noexcept {
+void CPerfBudget::RecordMemoryFree(const char* category, u32 bytes) noexcept {
     if (category == nullptr || bytes == 0u) return;
     const usize idx = FindCategoryIndex(category);
     if (idx >= m_Categories.Size()) return;
@@ -87,14 +87,14 @@ void FPerfBudget::RecordMemoryFree(const char* category, u32 bytes) noexcept {
     }
 }
 
-void FPerfBudget::BeginFrame() noexcept {
+void CPerfBudget::BeginFrame() noexcept {
     // spent_ms のみ 0 にリセット。spent_bytes は累積保持 (現在保持中の量)。
     for (usize i = 0; i < m_Categories.Size(); ++i) {
         m_Categories[i].spent_ms = 0.0f;
     }
 }
 
-void FPerfBudget::EndFrame() noexcept {
+void CPerfBudget::EndFrame() noexcept {
     // 全 category の spent_ms 合計を取り、frame 履歴に push。
     f32 total = 0.0f;
     for (usize i = 0; i < m_Categories.Size(); ++i) {
@@ -109,7 +109,7 @@ void FPerfBudget::EndFrame() noexcept {
         m_FrameOverBudget = false;
     }
 
-    // 循環バッファ書き込み (FDebugOverlay と同じパターン)。
+    // 循環バッファ書き込み (CDebugOverlay と同じパターン)。
     if (m_FrameHistory.Capacity() < kFrameHistoryCap) {
         m_FrameHistory.Reserve(kFrameHistoryCap);
     }
@@ -127,7 +127,7 @@ void FPerfBudget::EndFrame() noexcept {
     }
 }
 
-bool FPerfBudget::IsOverBudget(const char* category) const noexcept {
+bool CPerfBudget::IsOverBudget(const char* category) const noexcept {
     if (category == nullptr) return false;
     const usize idx = FindCategoryIndex(category);
     if (idx >= m_Categories.Size()) return false;
@@ -138,7 +138,7 @@ bool FPerfBudget::IsOverBudget(const char* category) const noexcept {
     return ms_over || bytes_over;
 }
 
-f32 FPerfBudget::AverageFrameMs() const noexcept {
+f32 CPerfBudget::AverageFrameMs() const noexcept {
     const usize n = m_FrameHistory.Size();
     if (n == 0u) return 0.0f;
     f32 sum = 0.0f;
@@ -146,17 +146,17 @@ f32 FPerfBudget::AverageFrameMs() const noexcept {
     return sum / static_cast<f32>(n);
 }
 
-u32 FPerfBudget::CategoryCount() const noexcept {
+u32 CPerfBudget::CategoryCount() const noexcept {
     return static_cast<u32>(m_Categories.Size());
 }
 
-const FBudgetEntry* FPerfBudget::AllCategories(u32& out_count) const noexcept {
+const FBudgetEntry* CPerfBudget::AllCategories(u32& out_count) const noexcept {
     out_count = static_cast<u32>(m_Categories.Size());
     if (m_Categories.Size() == 0u) return nullptr;
     return m_Categories.Data();
 }
 
-void FPerfBudget::Reset() noexcept {
+void CPerfBudget::Reset() noexcept {
     m_Categories.Clear();
     m_FrameHistory.Clear();
     m_FrameIndex        = 0u;

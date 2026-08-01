@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar K — FDevConsole
+// GameFramework Pillar K — CDevConsole
 //
 // `~` (チルダ) で開く開発用テキストコマンドコンソールの **state コンテナ**。
 // 描画 / 入力ハンドリング (ImGui ウィンドウ、IME、オートコンプリート UI 等) は
@@ -33,7 +33,7 @@
 //   ・cvar (別クラス)
 //
 // 使い方:
-//   FDevConsole con;
+//   CDevConsole con;
 //   con.RegisterCommand("quit", &FMyApp::QuitCmd, this, "exit the application");
 //   con.RegisterCommand("help", &FMyApp::HelpCmd, this, "list commands");
 //   ...
@@ -77,33 +77,33 @@ using CommandFn = void(*)(void* user, u32 argc, const FConsoleArg* args) noexcep
  * 開閉トグル状態だけを提供する。履歴 / ログは内部所有のヒープバッファに copy し、固定
  * キャップ 100 行で最古を drop する。非コピー・非ムーブ。
  */
-class FDevConsole {
+class CDevConsole {
 public:
     /** 空状態で構築する。 */
-    FDevConsole() noexcept : FDevConsole(DefaultAllocator())
+    CDevConsole() noexcept : CDevConsole(DefaultAllocator())
     {
     }
 
     /** 履歴・ログ・内部配列の確保元を明示して構築する。 */
-    explicit FDevConsole(FAllocator& allocator) noexcept
+    explicit CDevConsole(FAllocator& allocator) noexcept
         : m_Allocator(&allocator), m_Commands(allocator), m_History(allocator), m_Log(allocator)
     {
     }
 
     /** 履歴 / ログのヒープバッファを Free して破棄する。 */
-    ~FDevConsole() noexcept;
+    ~CDevConsole() noexcept;
 
     /** コピー禁止 (履歴 / ログが所有するヒープバッファの所有権を曖昧にしないため)。 */
-    FDevConsole(const FDevConsole&)            = delete;
+    CDevConsole(const CDevConsole&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDevConsole& operator=(const FDevConsole&) = delete;
+    CDevConsole& operator=(const CDevConsole&) = delete;
 
     /** ムーブ禁止 (履歴 / ログが所有するヒープバッファの所有権を曖昧にしないため)。 */
-    FDevConsole(FDevConsole&&)                 = delete;
+    CDevConsole(CDevConsole&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FDevConsole& operator=(FDevConsole&&)      = delete;
+    CDevConsole& operator=(CDevConsole&&)      = delete;
 
     /**
      * コマンドを登録する。
@@ -276,5 +276,8 @@ private:
     /** 開閉状態 (true で開いている)。 */
     bool               _open = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FDevConsole = CDevConsole;
 
 } // namespace acs::game

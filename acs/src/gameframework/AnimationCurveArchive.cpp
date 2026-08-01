@@ -156,14 +156,14 @@ const char* FAnimationCurveArchiveResult::ErrorName(
     return kArchiveErrorLookup.Name(error);
 }
 
-u64 FAnimationCurveArchive::EncodedSize(
+u64 CAnimationCurveArchive::EncodedSize(
     const FAnimationCurve& curve) noexcept {
     return static_cast<u64>(kHeaderSize) +
            static_cast<u64>(kKeyRecordSize) *
                static_cast<u64>(curve.KeyCount());
 }
 
-FAnimationCurveArchiveResult FAnimationCurveArchive::Encode(
+FAnimationCurveArchiveResult CAnimationCurveArchive::Encode(
     const FAnimationCurve& curve,
     void* out_bytes,
     u64 out_capacity,
@@ -220,7 +220,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Encode(
     return result;
 }
 
-FAnimationCurveArchiveResult FAnimationCurveArchive::Decode(
+FAnimationCurveArchiveResult CAnimationCurveArchive::Decode(
     const void* bytes,
     u64 size,
     FAnimationCurve& out_curve) noexcept {
@@ -339,7 +339,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::Decode(
     return result;
 }
 
-FAnimationCurveArchiveResult FAnimationCurveArchive::SaveToFile(
+FAnimationCurveArchiveResult CAnimationCurveArchive::SaveToFile(
     const wchar_t* file_path,
     const FAnimationCurve& curve) noexcept {
     if (file_path == nullptr || file_path[0] == L'\0') {
@@ -361,7 +361,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::SaveToFile(
         Encode(curve, encoded.Data(), required_size, encoded_size);
     if (!result.Succeeded()) return result;
 
-    const TResult<void> persisted = FSaveArchive::WriteToFile(
+    const TResult<void> persisted = CSaveArchive::WriteToFile(
         file_path, kFileEnvelopeVersion,
         encoded.Data(), encoded_size);
     if (persisted.IsErr()) {
@@ -371,7 +371,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::SaveToFile(
     return result;
 }
 
-FAnimationCurveArchiveResult FAnimationCurveArchive::LoadFromFile(
+FAnimationCurveArchiveResult CAnimationCurveArchive::LoadFromFile(
     const wchar_t* file_path,
     FAnimationCurve& out_curve) noexcept {
     if (file_path == nullptr || file_path[0] == L'\0') {
@@ -381,7 +381,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::LoadFromFile(
     }
 
     const TResult<u64> size_result =
-        FSaveArchive::PeekPayloadSize(file_path);
+        CSaveArchive::PeekPayloadSize(file_path);
     if (size_result.IsErr()) {
         return MakePersistenceFailure(size_result.Error(), 0u);
     }
@@ -404,7 +404,7 @@ FAnimationCurveArchiveResult FAnimationCurveArchive::LoadFromFile(
         return result;
     }
     u64 actual_size = 0u;
-    const TResult<u32> loaded = FSaveArchive::ReadFromFile(
+    const TResult<u32> loaded = CSaveArchive::ReadFromFile(
         file_path, encoded.Data(), payload_size,
         kFileEnvelopeVersion, actual_size);
     if (loaded.IsErr()) {

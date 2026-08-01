@@ -1,30 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
-// FCameraShakePresets
+// CCameraShakePresets
 //
-// FCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
+// CCamera2D (= IShakeTarget) に対して「爆発 / 地震 / 着弾」等のジャンル別
 // shake パラメータを 1 行で流し込む薄い preset ライブラリ。Eiserloh trauma
 // 方式 (Camera2D.h を参照) の amplitude / decay_rate / frequency / 適正
 // duration を、ゲームコードに magic number を書かずに済むよう名前付きで
 // 提供する。
 //
 // 使い方:
-//   class FGameplayScene : public FScene {
+//   class FGameplayScene : public AScene {
 //       void OnEnter() noexcept override {
-//           // FCamera2D が IShakeTarget を派生していれば直接渡せる:
-//           // FCameraShakePresets::ApplyPreset(Services().Camera(),
+//           // CCamera2D が IShakeTarget を派生していれば直接渡せる:
+//           // CCameraShakePresets::ApplyPreset(Services().Camera(),
 //           //                                 EShakePreset::ExplosionLarge);
 //       }
 //   };
 //
 //   // カスタム preset 登録:
-//   FCameraShakePresets presets;
+//   CCameraShakePresets presets;
 //   presets.RegisterCustomPreset("BossSlam",
 //       FShakeParams{0.7f, 1.0f, 0.8f, 18.0f, 1.2f});
 //   presets.ApplyCustomByName(target, "BossSlam");
 //
 // 設計選択:
-//   ・**IShakeTarget seam**: FCameraShakePresets は FCamera2D に直接依存しない。
-//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、FCamera2D が
+//   ・**IShakeTarget seam**: CCameraShakePresets は CCamera2D に直接依存しない。
+//     trauma を吸う側を `IShakeTarget` 抽象で受けることで、CCamera2D が
 //     IShakeTarget を派生していなくても spec として正しい形を維持できる。
 //     テスト用の MockShakeTarget でユニットテストも書ける。
 //   ・**preset 値は static const 関数で配る**: 単純な定数なので constexpr
@@ -32,13 +32,13 @@
 //     を見越して関数経由に統一。コンパイラは余裕で fold する。
 //   ・**Custom preset は名前 + FShakeParams を TArray に保持**: 件数は典型 0〜
 //     20 程度なので線形検索。const char* は呼び出し側が保証する static
-//     lifetime 想定 (FAchievementManager / FEntitlementRegistry と同設計、STL <string>
+//     lifetime 想定 (CAchievementManager / CEntitlementRegistry と同設計、STL <string>
 //     不使用)。
 //   ・**ApplyPreset は trauma を AddShake で「加算」する**: SetShake* で
 //     amplitude / decay を上書きしたあと、trauma を AddShake で累積する。
 //     これによりトリガーが重なった時 (= 連続ヒット) trauma 蓄積で派手になる
 //     Eiserloh 流の挙動を維持する。
-//   ・**duration_hint は FCameraShakePresets 自身は使わない**: 単なる "この
+//   ・**duration_hint は CCameraShakePresets 自身は使わない**: 単なる "この
 //     trauma + decay だと約何秒で減衰しきる" の参考値。caller が UI 演出や
 //     SFX と尺合わせするためのヒント。decay の逆算式は trauma / decay_rate
 //     (秒)。
@@ -46,7 +46,7 @@
 //
 // 範囲外:
 //   ・preset 間 blending (爆発中に地震が来た時、別軸で合成する等)
-//   ・directional shake (現状は等方ノイズ、方向ベクトルは FCamera2D 拡張で)
+//   ・directional shake (現状は等方ノイズ、方向ベクトルは CCamera2D 拡張で)
 //   ・perlin/curl-noise ベース shake (現状は sin/cos 直流回避 noise)
 //   ・preset の JSON 等からの読み込み (現状は C++ 即値ベース)
 #pragma once
@@ -94,7 +94,7 @@ enum class EShakePreset : u8 {
  *
  * @details
  * trauma を AddShake、amplitude を SetShakeAmplitude、decay_rate を SetShakeDecayRate に流す。
- * frequency と duration_hint は FCamera2D 側 API には現状反映されない (frequency は将来の
+ * frequency と duration_hint は CCamera2D 側 API には現状反映されない (frequency は将来の
  * SetShakeFrequency 化のための予約、duration_hint は caller のヒント)。
  */
 struct FShakeParams {
@@ -107,7 +107,7 @@ struct FShakeParams {
     /** SetShakeDecayRate に渡す減衰量 (trauma を 1 秒で 1.0 → 0.0 にする値)。 */
     f32 decay_rate     = 1.0f;
 
-    /** 主要振動周波数 (FCamera2D 拡張予約。現状 API には反映されない)。 */
+    /** 主要振動周波数 (CCamera2D 拡張予約。現状 API には反映されない)。 */
     f32 frequency      = 25.0f;
 
     /** 約何秒で減衰しきるかの目安 (= trauma / decay_rate)。caller のヒント。 */
@@ -118,8 +118,8 @@ struct FShakeParams {
  * shake パラメータの流し込み先となる純粋仮想インターフェース。
  *
  * @details
- * FCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
- * テスト用 mock も同じ I/F を実装することで FCameraShakePresets を FCamera2D に直接依存させない。
+ * CCamera2D がこれを派生する (AddShake / SetShakeAmplitude / SetShakeDecayRate と同シグネチャ)。
+ * テスト用 mock も同じ I/F を実装することで CCameraShakePresets を CCamera2D に直接依存させない。
  */
 class IShakeTarget {
 public:
@@ -171,25 +171,25 @@ public:
  * 提供する。組み込み preset は static 関数で配り、カスタム preset は名前 + FShakeParams を
  * TArray に保持して線形検索する (名前は caller の static lifetime 想定)。非コピー・非ムーブ。
  */
-class FCameraShakePresets {
+class CCameraShakePresets {
 public:
     /** 空のプリセットライブラリを構築する。 */
-    FCameraShakePresets()  noexcept = default;
+    CCameraShakePresets()  noexcept = default;
 
     /** 破棄する。 */
-    ~FCameraShakePresets() noexcept = default;
+    ~CCameraShakePresets() noexcept = default;
 
     /** コピー禁止 (他 preset/manager 系と統一)。 */
-    FCameraShakePresets(const FCameraShakePresets&)            = delete;
+    CCameraShakePresets(const CCameraShakePresets&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCameraShakePresets& operator=(const FCameraShakePresets&) = delete;
+    CCameraShakePresets& operator=(const CCameraShakePresets&) = delete;
 
     /** ムーブ禁止。 */
-    FCameraShakePresets(FCameraShakePresets&&)                 = delete;
+    CCameraShakePresets(CCameraShakePresets&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCameraShakePresets& operator=(FCameraShakePresets&&)      = delete;
+    CCameraShakePresets& operator=(CCameraShakePresets&&)      = delete;
 
     /**
      * 組み込み preset の FShakeParams を返す。
@@ -257,5 +257,8 @@ private:
     /** 登録済みカスタムプリセットの配列。 */
     TArray<FCustomEntry> m_Customs;
 };
+
+/** 旧名を使う既存ソースとの互換alias。 */
+using FCameraShakePresets = CCameraShakePresets;
 
 } // namespace acs::game

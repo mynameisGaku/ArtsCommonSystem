@@ -4,7 +4,7 @@
 // 「1 枚の atlas テクスチャ + その中に並ぶ複数 frame の矩形」を持つだけのデータ層。
 // 描画 API・asset loader には触れない。利用者は AtlasTexturePath() で texture を
 // 自前ロードし、FindFrame("Idle_03") で矩形と pivot を取り出し、ComputeUv で
-// [0, 1] UV を得る。FSpriteAnimator (時間→index) と組み合わせて animation を再生する。
+// [0, 1] UV を得る。CSpriteAnimator (時間→index) と組み合わせて animation を再生する。
 //
 // 使い方:
 //   FSpritePack pack;
@@ -28,7 +28,7 @@
 //
 // 設計判断:
 //   ・Pillar G (asset/IO の data layout) と Pillar Q (視覚世界, atlas) の交差点に
-//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の FAssetBundle
+//     位置するモジュール。テクスチャの所有 / ロードは責務外 (Pillar G の CAssetBundle
 //     / AssetPack 側) で、FSpritePack は「矩形と名前の辞書」に徹する。
 //   ・name は `const char*` 借用 (caller 所有 = 文字列リテラルまたは別所有の
 //     永続バッファ前提)。`<string>` 禁止に従い ACS 規約と整合。比較は pointer
@@ -36,7 +36,7 @@
 //   ・非コピー・非ムーブ: frame 配列を不意に複製しないため。所有権を明示したい
 //     場合は Init/AddFrame を再呼出しすることで上書き or 別 instance を作る。
 //   ・ComputeUv は atlas_width/atlas_height が 0 の場合に 0 除算を避け {0,0,0,0}
-//     を返す。FSpriteAnimator と同様、不正状態でも crash しないことを優先。
+//     を返す。CSpriteAnimator と同様、不正状態でも crash しないことを優先。
 //   ・RemoveFrame は順序非保持の swap remove (= 内部 TArray::RemoveAtSwap 相当)。
 //     animation はインデックスではなく名前で参照する前提なので順序破壊は許容。
 #pragma once
@@ -82,7 +82,7 @@ struct FSpriteFrame {
 /**
  * atlas 全体のメタ情報。
  *
- * @details texture そのものは別モジュール (FAssetBundle 等) が所有する。
+ * @details texture そのものは別モジュール (CAssetBundle 等) が所有する。
  */
 struct FSpritePackInfo {
     /** atlas テクスチャのパス (caller 所有)。 */
@@ -143,7 +143,7 @@ const char* SpritePackLoadErrorName(ESpritePackLoadError error) noexcept;
  * @details
  * 描画 API・asset loader には触れず「矩形と名前の辞書」に徹する。利用者は
  * AtlasTexturePath() で texture を自前ロードし、FindFrame() で矩形と pivot を取り出し、
- * ComputeUv() で [0,1] UV を得て FSpriteAnimator と組み合わせて再生する。frame 名は
+ * ComputeUv() で [0,1] UV を得て CSpriteAnimator と組み合わせて再生する。frame 名は
  * const char* 借用 (caller 所有) で、比較は pointer 同一 → strcmp の順に評価する。
  */
 class FSpritePack {

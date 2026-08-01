@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Genre Kit (Platformer) — FCheckpointSystem
+// GameFramework Genre Kit (Platformer) — CCheckpointSystem
 //
 // プラットフォーマー (and 派生ジャンル) の心臓部である「チェックポイント =
 // 死亡時に戻る復活ポイント」を 1 クラスにまとめた小型マネージャ。
@@ -7,19 +7,19 @@
 // 1 つ保持して TriggerRespawn() で復活先座標 + level index を引き出す。
 //
 // 想定する位置付け:
-//   ・Pillar R/I (FHealthSystem) との連携:
-//     - FHealthSystem の DeathCallback で「死亡 → FCheckpointSystem.TriggerRespawn」
-//       を叩くのが定型パターン。FCheckpointSystem 自体は HP の状態は持たず、
+//   ・Pillar R/I (CHealthSystem) との連携:
+//     - CHealthSystem の DeathCallback で「死亡 → CCheckpointSystem.TriggerRespawn」
+//       を叩くのが定型パターン。CCheckpointSystem 自体は HP の状態は持たず、
 //       「どこに復活させるか」だけを管理する責務に絞っている。
 //   ・Pillar S (TSaveSlot) との連携:
 //     - 「現在 active な checkpoint id + unlocked id 群」をセーブする想定。
 //       本クラス自体は I/O を持たず、外部から照会される。
-//   ・FProgression / FEconomyDirector との違い:
+//   ・CProgression / CEconomyDirector との違い:
 //     - 進行系の累計値 (XP / 通貨) ではなく、ステージ内の「リスポーン拠点」を
 //       1 つだけ active に保つ単純な座標マネージャ。
 //
 // 使い方:
-//   FCheckpointSystem cps;
+//   CCheckpointSystem cps;
 //
 //   // レベルロード時に 1 度ずつ配置を登録。
 //   FCheckpointInfo cp1{};
@@ -57,7 +57,7 @@
 //   cps.UnlockCheckpoint("cp.stage1.secret");
 //   cps.ActivateCheckpoint("cp.stage1.secret");
 //
-//   // 死亡時 (FHealthSystem の DeathCallback 内)
+//   // 死亡時 (CHealthSystem の DeathCallback 内)
 //   acs::FVec2 pos; u32 lv;
 //   if (cps.TriggerRespawn(pos, lv)) {
 //       // pos に player を移動、lv のレベルをロードし直す
@@ -83,22 +83,22 @@
 //     ClearAll で初期化される (Save/Load 連携は外部から照会可能)。
 //   ・**active checkpoint は 1 つだけ**: 「複数同時 active」は本クラスの責務外
 //     (= ジャンルキットを超える概念)。最新の Activate が常に勝つ。
-//   ・**callback は関数ポインタ + user**: FProgression / FHealthSystem と同パターン。
+//   ・**callback は関数ポインタ + user**: CProgression / CHealthSystem と同パターン。
 //     Activate / Respawn の 2 系統を用意し、UI トースト演出と sound trigger を
 //     ゲーム側で素直に分離できるようにする。
 //   ・**LastSpawnLevelIndex**: TriggerRespawn の後でも level_index を取れる
 //     ように getter を分離。レベルロード中に out_param が消えるエッジで使う。
-//   ・**全 noexcept、非コピー・非ムーブ**: FGame / FScene 単位で 1 個保持される
+//   ・**全 noexcept、非コピー・非ムーブ**: CGame / AScene 単位で 1 個保持される
 //     想定。Save/Load も id ベースで再現するので所有権移動は要らない。
 //   ・**STL 不使用、<string> 禁止**: ACS 全体方針。文字列は const char* 非所有のみ。
 //
 // 範囲外 (将来 Phase で):
-//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は FGameFlow と組み合わせて
+//   ・ボス挑戦専用 checkpoint (HP 回復 + 敵リセット) は CGameFlow と組み合わせて
 //     ゲーム側で表現する。本クラスは座標 + level index のみ。
 //   ・TSaveSlot 経由の永続化は外部 (TSaveSlot<PlatformerSaveData>) で実装。
 //     本クラスからは CurrentCheckpoint() / IsUnlocked() で id を引き出すだけ。
 //   ・自動 checkpoint (移動量で勝手に発火) は Trigger 側の設計問題なので
-//     FCinematicsDirector / FTriggerWorld2D 側で組む。
+//     CCinematicsDirector / CTriggerWorld2D 側で組む。
 #pragma once
 
 #include "container/Array.h"
@@ -218,29 +218,29 @@ using RespawnCallback  = void(*)(void* user, const char* checkpoint_id, FVec2 sp
  * @details
  * 配置済み checkpoint を string id で識別し、現在 active な 1 つだけを保持して
  * TriggerRespawn() で復活先座標 + level index を引き出す。HP 状態は持たず
- * 「どこに復活させるか」のみを管理する責務に絞る (FHealthSystem の DeathCallback
+ * 「どこに復活させるか」のみを管理する責務に絞る (CHealthSystem の DeathCallback
  * から叩く想定)。one_way / requires_unlock のフラグを Activate 時に評価し、不正な
  * 遷移は false 返却で弾く。文字列は const char* 非所有、I/O は持たない。
  */
-class FCheckpointSystem {
+class CCheckpointSystem {
 public:
     /** 空の状態で構築する (checkpoint なし、active なし)。 */
-    FCheckpointSystem()  noexcept = default;
+    CCheckpointSystem()  noexcept = default;
 
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
-    ~FCheckpointSystem() noexcept = default;
+    ~CCheckpointSystem() noexcept = default;
 
-    /** コピー禁止 (FGame / FScene 単位で 1 個保持する想定)。 */
-    FCheckpointSystem(const FCheckpointSystem&)            = delete;
+    /** コピー禁止 (CGame / AScene 単位で 1 個保持する想定)。 */
+    CCheckpointSystem(const CCheckpointSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCheckpointSystem& operator=(const FCheckpointSystem&) = delete;
+    CCheckpointSystem& operator=(const CCheckpointSystem&) = delete;
 
     /** ムーブ禁止。 */
-    FCheckpointSystem(FCheckpointSystem&&)                 = delete;
+    CCheckpointSystem(CCheckpointSystem&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCheckpointSystem& operator=(FCheckpointSystem&&)      = delete;
+    CCheckpointSystem& operator=(CCheckpointSystem&&)      = delete;
 
     /**
      * checkpoint を 1 件登録する。
@@ -486,5 +486,8 @@ private:
     /** Respawn callback に渡すコンテキスト。 */
     void*                m_OnRespawnUser  = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCheckpointSystem = CCheckpointSystem;
 
 } // namespace acs::game

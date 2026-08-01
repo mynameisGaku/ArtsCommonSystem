@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar N — FScriptHost (Lua / Wren / Python scripting seam)
+// GameFramework Pillar N — CScriptHost (Lua / Wren / Python scripting seam)
 //
 // 役割:
 //   Pillar N (Modding / Scripting) のうち、ゲームロジックを動的に拡張するための
 //   スクリプトランタイム (Lua 5.4 / Wren / Python3 / 自前 VM 等) を **interface
-//   seam** として隔離する。`FModRegistry` が「Mod の有効化と並び順」を管理する
-//   メタデータレイヤであるのに対し、`FScriptHost` は「実際にスクリプトを load /
+//   seam** として隔離する。`CModRegistry` が「Mod の有効化と並び順」を管理する
+//   メタデータレイヤであるのに対し、`CScriptHost` は「実際にスクリプトを load /
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
@@ -21,15 +21,15 @@
 //   2. **テスト容易性**:
 //      `IScriptVm` の純粋仮想ポインタを差し替えるだけで mock backend に置換
 //      でき、CI で Lua ライブラリを持たないマシンでも上位層 (native 関数登録 /
-//      FScriptHost ワークフロー) の試験を回せる。
+//      CScriptHost ワークフロー) の試験を回せる。
 //   3. **決定論ゾーンの隔離**:
 //      Pillar B/C/F (sim / collision / physics) は固定タイムステップで
 //      決定論を保証する。スクリプト実行 (= GC / JIT / native callback) は
-//      決定論を保証できないので、`FScriptHost` を呼ぶのは「決定論を捨ててよい所」
+//      決定論を保証できないので、`CScriptHost` を呼ぶのは「決定論を捨ててよい所」
 //      (UI / イベントトリガー / カットシーン / Mod hook) に限定する規約を
 //      API レベルで強制する (= 本 header の呼び出し位置で発見できる)。
 //   4. **defensive な未統合フォールバック**:
-//      実 Lua backend が同梱されないビルドでも、`FScriptVmStub` が
+//      実 Lua backend が同梱されないビルドでも、`CScriptVmStub` が
 //      `kSub_NotImplemented` を返すことで、Mod / scripting に依存する path が
 //      「常にスクリプト無し」状態でも安全に動く前提を強制できる。
 //
@@ -38,16 +38,16 @@
 //     CallFunction / RegisterNativeFunction / GetGlobal / SetGlobal / GC)
 //   ・タグ付き union 風 POD `FScriptValue` + `FScriptCallFrame` + `NativeFunction`
 //     による backend 中立な値受け渡し
-//   ・`FScriptVmStub` (全 method NotImplemented を返す defensive 実装)
+//   ・`CScriptVmStub` (全 method NotImplemented を返す defensive 実装)
 //   ・global stub アクセサ `GetVmStub()`
-//   ・`FScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
+//   ・`CScriptHost` 高レベルラッパ (vm を保持 + native 関数 registry + file load
 //     + 標準 binding 一括登録)
 //
 // ACS 規約遵守:
 //   ・STL 不使用 / `<string>` 不使用 (文字列は `const char*` のみ)
 //   ・例外不使用、エラーは `TResult<T, FErrorCode>` で伝搬
 //   ・全 noexcept
-//   ・`FScriptHost` / `FScriptVmStub` は シングルトン / 単一所有運用前提で
+//   ・`CScriptHost` / `CScriptVmStub` は シングルトン / 単一所有運用前提で
 //     コピー / ムーブ禁止
 #pragma once
 
@@ -62,7 +62,7 @@ namespace acs::game {
  *
  * @details
  * IScriptVm::Language() が返す。複数 backend を同時運用する場合 (例: UI ロジックは
- * Lua、ML 推論 hook だけ Python) に、FScriptHost 側で 1 個の vm を選択するための
+ * Lua、ML 推論 hook だけ Python) に、CScriptHost 側で 1 個の vm を選択するための
  * 判定に使う。Lua54 推奨。
  */
 enum class EScriptLanguage : u8 {
@@ -206,7 +206,7 @@ namespace script_err {
     /** ファイルパスがnull、空、長すぎる、またはNUL終端されていない。 */
     inline constexpr u16 kSub_InvalidPath    = 26;
 
-    /** FScriptHost::Init 未呼出 (vm 未設定)。 */
+    /** CScriptHost::Init 未呼出 (vm 未設定)。 */
     inline constexpr u16 kSub_NoVm           = 30;
 
     /** 関数名が空、長すぎる、またはNUL終端されていない。 */
@@ -369,13 +369,13 @@ protected:
  * LoadScript / CallFunction / RegisterNativeFunction は kSub_NotImplemented を返す。
  * SetGlobalNumber / GetGlobalNumber / CollectGarbage は no-op、MemoryUsageBytes は常に 0。
  */
-class FScriptVmStub final : public IScriptVm {
+class CScriptVmStub final : public IScriptVm {
 public:
     /** 空状態で構築する。 */
-    FScriptVmStub() noexcept = default;
+    CScriptVmStub() noexcept = default;
 
     /** 破棄する (no-op)。 */
-    ~FScriptVmStub() noexcept override = default;
+    ~CScriptVmStub() noexcept override = default;
 
     /**
      * Init を no-op 成功させる (起動シーケンスを通すため)。
@@ -464,8 +464,8 @@ private:
 /**
  * process 内で 1 個だけ存在する静的 stub への参照を返す (Meyers singleton)。
  *
- * @details FGame / FScene 側からのスクリプト問い合わせはこれを通る。
- * @return 共有 FScriptVmStub インスタンスへの参照。
+ * @details CGame / AScene 側からのスクリプト問い合わせはこれを通る。
+ * @return 共有 CScriptVmStub インスタンスへの参照。
  */
 IScriptVm& GetVmStub() noexcept;
 
@@ -508,11 +508,11 @@ IScriptVm& GetDefaultScriptVm() noexcept;
  * LoadAndRun(file_path) で Win32 ファイル読み込み → LoadScript の一括ヘルパを、
  * RegisterStandardBindings で標準 binding (Log / Math / Time / Input / Audio 等) の一括登録 API を
  * 提供し、script 実行中エラーを上位 UI / ログに通知する ScriptErrorCallback を保持する。
- * vm の生成 / 破棄は呼び出し側 (= FGame / FScene) が責任を持ち、FScriptHost は raw ポインタを保持する
+ * vm の生成 / 破棄は呼び出し側 (= CGame / AScene) が責任を持ち、CScriptHost は raw ポインタを保持する
  * だけで Shutdown でも delete しない (stub singleton をそのまま差し込んでも安全)。「現在 active な
  * スクリプト窓口は 1 つ」という規約を担保するため non-copy / non-move。
  */
-class FScriptHost {
+class CScriptHost {
 public:
     /**
      * script 実行中の error / load error を上位に通知する callback の signature。
@@ -529,22 +529,22 @@ public:
                                         const char* message) noexcept;
 
     /** 空状態で構築する (vm 未設定)。 */
-    FScriptHost() noexcept = default;
+    CScriptHost() noexcept = default;
 
     /** 破棄する (vm を所有しないので参照を持つだけ)。 */
-    ~FScriptHost() noexcept = default;
+    ~CScriptHost() noexcept = default;
 
     /** コピー禁止 (active なスクリプト窓口は 1 つの規約のため)。 */
-    FScriptHost(const FScriptHost&)            = delete;
+    CScriptHost(const CScriptHost&)            = delete;
 
     /** コピー代入も禁止。 */
-    FScriptHost& operator=(const FScriptHost&) = delete;
+    CScriptHost& operator=(const CScriptHost&) = delete;
 
     /** ムーブ禁止。 */
-    FScriptHost(FScriptHost&&)                 = delete;
+    CScriptHost(CScriptHost&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FScriptHost& operator=(FScriptHost&&)      = delete;
+    CScriptHost& operator=(CScriptHost&&)      = delete;
 
     /**
      * 使用する VM を差し込む。
@@ -706,5 +706,11 @@ private:
     /** エラー callback の第 1 引数に渡すコンテキストポインタ。 */
     void*                m_OnErrorUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FScriptHost = CScriptHost;
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FScriptVmStub = CScriptVmStub;
 
 } // namespace acs::game

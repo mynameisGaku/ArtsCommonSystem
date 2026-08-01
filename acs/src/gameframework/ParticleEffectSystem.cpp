@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar I — FParticleEffectSystem 実装
+// GameFramework Pillar I — CParticleEffectSystem 実装
 //
-// 仕様の意図は FParticleEffectSystem.h を参照。本ファイルでは:
+// 仕様の意図は CParticleEffectSystem.h を参照。本ファイルでは:
 //   ・generational emitter slot の Acquire / Release
 //   ・particle pool の `m_NextFree` カーソル走査
 //   ・accumulator 方式の連続放出
@@ -21,7 +21,7 @@ namespace acs::game {
  * 二度目以降の呼び出しは no-op (固定容量ポリシー: 走行中の resize は禁止)。
  * max_particles == 0 は誤呼出しと見なし 1024 を採用する (silently fail を避ける)。
  */
-void FParticleEffectSystem::Init(u32 max_particles) noexcept {
+void CParticleEffectSystem::Init(u32 max_particles) noexcept {
     if (m_Capacity != 0u) return;                  // 既に初期化済み
     if (max_particles == 0u) max_particles = 1024u;
 
@@ -42,7 +42,7 @@ void FParticleEffectSystem::Init(u32 max_particles) noexcept {
  * 24bit index 上限到達時は kInvalidIdx を返す (caller 側で invalid handle 化)。
  * emitter 数は通常 10〜100 程度なので線形探索で十分。
  */
-u32 FParticleEffectSystem::AcquireEmitterSlot() noexcept {
+u32 CParticleEffectSystem::AcquireEmitterSlot() noexcept {
     const usize n = m_Emitters.Size();
     for (usize i = 0; i < n; ++i) {
         if (!m_Emitters[i].in_use) {
@@ -63,7 +63,7 @@ u32 FParticleEffectSystem::AcquireEmitterSlot() noexcept {
  * lifetime_sec <= 0 の def は無効 (放出しても直ちに死ぬため)。gen を 1 進め、0 に
  * ラップしたら 1 に戻す (0 は IsValid==false なので handle として配れない)。
  */
-FEmitterHandle FParticleEffectSystem::CreateEmitter(const FParticleEmitterDef& def, FVec2 pos) noexcept {
+FEmitterHandle CParticleEffectSystem::CreateEmitter(const FParticleEmitterDef& def, FVec2 pos) noexcept {
     if (def.lifetime_sec <= 0.0f) return {};
 
     const u32 idx = AcquireEmitterSlot();
@@ -92,7 +92,7 @@ FEmitterHandle FParticleEffectSystem::CreateEmitter(const FParticleEmitterDef& d
  * invalid / 範囲外 / gen mismatch / in_use==false は no-op。gen 一致チェックで
  * DestroyEmitter 後に同 slot が別 emitter に化けても古い handle で誤上書きしない。
  */
-void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept {
+void CParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
@@ -108,7 +108,7 @@ void FParticleEffectSystem::SetEmitterPosition(FEmitterHandle h, FVec2 pos) noex
  * invalid / 範囲外 / gen mismatch / in_use==false は no-op。非 active 化時は
  * emit_accum をリセットし、再 active 時の急な大量放出を避ける。
  */
-void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noexcept {
+void CParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
@@ -129,7 +129,7 @@ void FParticleEffectSystem::SetEmitterActive(FEmitterHandle h, bool active) noex
  * pool 空き数で自然にクランプ (EmitOne 側で満杯時は no-op)。emitter が in_use なら
  * active に関わらず発火し、死亡時の最後の一吹きを非 active 状態でも使えるようにする。
  */
-void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
+void CParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
@@ -155,7 +155,7 @@ void FParticleEffectSystem::Burst(FEmitterHandle h) noexcept {
  * slot を in_use=false に戻すだけで、放出済 particle はそのまま寿命まで生きる。
  * gen は維持し、次の AcquireEmitterSlot で +1 して払い出す。
  */
-void FParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
+void CParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
     if (!h.IsValid()) return;
     const u32 idx = h.Index();
     if (idx >= m_Emitters.Size()) return;
@@ -176,7 +176,7 @@ void FParticleEffectSystem::DestroyEmitter(FEmitterHandle h) noexcept {
  * m_ActiveParticles >= m_Capacity の早期 return で満杯時は即時 fail する。found 時に
  * m_NextFree を次 slot へ進め、ring buffer 的局所性で次回呼出を O(1) に近づける。
  */
-u32 FParticleEffectSystem::AcquireParticleSlot() noexcept {
+u32 CParticleEffectSystem::AcquireParticleSlot() noexcept {
     if (m_Capacity == 0u) return kInvalidIdx;
     if (m_ActiveParticles >= m_Capacity) return kInvalidIdx;
 
@@ -205,7 +205,7 @@ u32 FParticleEffectSystem::AcquireParticleSlot() noexcept {
  * [speed_min, speed_max] の一様乱数、position は emitter の pos、age=0 で
  * lifetime / color / scale / gravity は def をコピーする。pool 満杯時は何もしない。
  */
-void FParticleEffectSystem::EmitOne(const FEmitter& e) noexcept {
+void CParticleEffectSystem::EmitOne(const FEmitter& e) noexcept {
     const u32 idx = AcquireParticleSlot();
     if (idx == kInvalidIdx) return;
 
@@ -239,7 +239,7 @@ void FParticleEffectSystem::EmitOne(const FEmitter& e) noexcept {
  * particle を semi-implicit Euler で積分 (v <- v + g*dt → p <- p + v*dt)、age が
  * lifetime を超えたら active=0 に戻して pool へ返却する。dt <= 0 / Init 前は no-op。
  */
-void FParticleEffectSystem::Tick(f32 dt) noexcept {
+void CParticleEffectSystem::Tick(f32 dt) noexcept {
     if (dt <= 0.0f) return;
     if (m_Capacity == 0u) return;
 
@@ -297,14 +297,14 @@ void FParticleEffectSystem::Tick(f32 dt) noexcept {
 }
 
 /** particle pool の先頭ポインタと全体サイズを返す (Init 前は nullptr / 0)。 */
-const FParticle* FParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
+const FParticle* CParticleEffectSystem::AllParticles(u32& out_count) const noexcept {
     out_count = m_Capacity;
     if (m_Capacity == 0u) return nullptr;
     return m_Particles.Data();
 }
 
 /** 全 emitter slot を解放し全 particle を inactive 化する (gen と pool 容量は維持)。 */
-void FParticleEffectSystem::ClearAll() noexcept {
+void CParticleEffectSystem::ClearAll() noexcept {
     // emitter slot を全て解放 (gen はそのまま残す = stale handle 検出を維持)
     const usize en = m_Emitters.Size();
     for (usize i = 0; i < en; ++i) {
@@ -330,7 +330,7 @@ void FParticleEffectSystem::ClearAll() noexcept {
  * Numerical Recipes 由来の LCG (a=1664525, c=1013904223, m=2^32)。統計的品質は高くないが
  * particle 用途には十分。上位 24bit を仮数に詰めて [0,1) f32 を作る (bias 最小)。
  */
-f32 FParticleEffectSystem::NextRandUnit() noexcept {
+f32 CParticleEffectSystem::NextRandUnit() noexcept {
     m_RngState = m_RngState * 1664525u + 1013904223u;
     // 上位 24bit を [0,1) に。0x1p-24 = 1/16777216。
     const u32 bits = m_RngState >> 8;
@@ -338,7 +338,7 @@ f32 FParticleEffectSystem::NextRandUnit() noexcept {
 }
 
 /** [min, max] の一様乱数を返す (min > max は swap、退化ケースは min を即返し)。 */
-f32 FParticleEffectSystem::NextRandRange(f32 min, f32 max) noexcept {
+f32 CParticleEffectSystem::NextRandRange(f32 min, f32 max) noexcept {
     if (max < min) {
         const f32 t = min;
         min = max;

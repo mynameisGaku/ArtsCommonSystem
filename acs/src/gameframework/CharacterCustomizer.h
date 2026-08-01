@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar O — FCharacterCustomizer (cosmetic 装備管理)
+// GameFramework Pillar O — CCharacterCustomizer (cosmetic 装備管理)
 //
 // プレイヤーキャラの「見た目」を装備する高レベルマネージャ。帽子・服・靴・武器の
 // 見た目 (=  cosmetic) 等を slot 単位で 1 つずつ装着する。実装的には id ベースの
@@ -13,7 +13,7 @@
 //     マネージャ) を用意し、本クラスとは独立に動かす。
 //
 // 使い方:
-//   FCharacterCustomizer cc;
+//   CCharacterCustomizer cc;
 //
 //   // 起動時にゲーム or アセットバンドル側で全 cosmetic を登録。
 //   cc.RegisterCosmetic({ "hat.red_cap",   "Red Cap",   ECosmeticSlot::Head,
@@ -23,7 +23,7 @@
 //   // ...
 //
 //   // ストア / クエスト報酬経由で unlock。実 entitlement 検証は呼出側 (Pillar O
-//   // FEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
+//   // CEntitlementRegistry / Pillar S Storefront) で済ませてから本 API に通知。
 //   cc.UnlockCosmetic("hat.red_cap");
 //
 //   // 装着 callback を購読 (レンダラ側で見た目差し替えを反映する用)。
@@ -35,12 +35,12 @@
 //   }
 //
 // 設計選択 (Pillar O):
-//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + FEntitlementRegistry / Achievement
+//   ・**id は const char* 非所有**: ACS の STL 禁止方針 + CEntitlementRegistry / Achievement
 //     と一貫。文字列リテラル or 長寿命バッファ前提 (呼出側保証)。
 //   ・**slot は固定 enum**: ECosmeticSlot は 11 種類で固定。slot ごとに最大 1 つの
 //     cosmetic が装着可能 (装着すると同 slot の既存装着は自動で外れる)。
 //     ColorPalette は色変更用の特殊 slot (UI のカラー選択を保持)。
-//   ・**Def + Unlocked 状態を並行 TArray で持つ**: FAchievementManager と同じ Def/State
+//   ・**Def + Unlocked 状態を並行 TArray で持つ**: CAchievementManager と同じ Def/State
 //     分離。FCosmeticItem は immutable な定義、unlocked は実行時 bool。1:1 対応で
 //     同 index を共有 (TArray<FCosmeticItem> + TArray<bool>)。
 //   ・**装着状態は slot indexed const char* 配列**: 線形検索を避けるため、slot を
@@ -55,7 +55,7 @@
 //   ・**Equip は unlock 必須**: IsUnlocked(id) == false の cosmetic は装着拒否。
 //     UI 側で「グレーアウト + locked 表示」を実装する前提。
 //   ・**線形検索**: cosmetic 件数は AAA タイトルでも通常 200〜1000 のオーダー。
-//     per-byte 文字列比較で十分 (FEntitlementRegistry / FAchievementManager と同じ判断)。
+//     per-byte 文字列比較で十分 (CEntitlementRegistry / CAchievementManager と同じ判断)。
 //   ・**ClearAll は登録も装着も両方リセット**: Save/Load 復元前のクリーンスタート用。
 //     callback は呼ばない (loop / ノイズ防止)。
 //   ・**全 noexcept、非コピー・非ムーブ**: 他 Manager 系と統一。
@@ -168,25 +168,25 @@ using EquipCallback = void(*)(void* user, ECosmeticSlot slot, const char* item_i
  * 見た目のみで、装備性能 / 戦闘パラメータは一切変更しない (pay-to-win 回避)。
  * 装着には事前の UnlockCosmetic が必須。文字列は全て const char* 非所有。
  */
-class FCharacterCustomizer {
+class CCharacterCustomizer {
 public:
     /** 全 slot を未装着で構築する (TArray は空)。 */
-    FCharacterCustomizer()  noexcept;
+    CCharacterCustomizer()  noexcept;
 
     /** 破棄する (非所有データのみ保持のため特別な後始末なし)。 */
-    ~FCharacterCustomizer() noexcept = default;
+    ~CCharacterCustomizer() noexcept = default;
 
     /** コピー禁止 (他 Manager 系と統一)。 */
-    FCharacterCustomizer(const FCharacterCustomizer&)            = delete;
+    CCharacterCustomizer(const CCharacterCustomizer&)            = delete;
 
     /** コピー代入も禁止。 */
-    FCharacterCustomizer& operator=(const FCharacterCustomizer&) = delete;
+    CCharacterCustomizer& operator=(const CCharacterCustomizer&) = delete;
 
     /** ムーブ禁止。 */
-    FCharacterCustomizer(FCharacterCustomizer&&)                 = delete;
+    CCharacterCustomizer(CCharacterCustomizer&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FCharacterCustomizer& operator=(FCharacterCustomizer&&)      = delete;
+    CCharacterCustomizer& operator=(CCharacterCustomizer&&)      = delete;
 
     /**
      * cosmetic 定義を 1 件登録する (起動時に 1 度ずつ)。
@@ -329,5 +329,8 @@ private:
     /** 装着 callback に渡すユーザポインタ。 */
     void*         m_OnEquipUser = nullptr;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FCharacterCustomizer = CCharacterCustomizer;
 
 } // namespace acs::game

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar — modelview / FModelInspectorPanel
+// GameFramework Pillar — modelview / AModelInspectorPanel
 //
 // ModelViewer ワークスペース内に配置される **読み取り専用の mesh 情報 panel**。
-// FAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
-// FModelViewerPanel (別エージェント) が load した結果を、本 panel に
+// CAssetBrowser から選択 / DragDrop された model (.mdl / .fbx / .gltf 等) を
+// AModelViewerPanel (別エージェント) が load した結果を、本 panel に
 // `UpdateFromModel(...)` でプッシュしてもらい、内部にスナップショットとして
 // 保持して ImGui で表示する。Unity の Mesh Inspector / Godot の "Import"
 // 出力タブ / UE の Static Mesh Editor の "Mesh Details" 相当。
@@ -19,15 +19,15 @@
 //
 // 役割分担:
 //   ・本パネルは「描画 + 配列のスナップショット保持」だけを担当。実 model load /
-//     parse は FModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
-//     モジュールの責任。caller (= FModelViewerPanel もしくは sample 31) が
+//     parse は AModelViewerPanel (別エージェント) と Mesh / Skeleton / AnimationClip
+//     モジュールの責任。caller (= AModelViewerPanel もしくは sample 31) が
 //     load 完了時に本 panel の `UpdateFromModel` を呼んで情報を流し込む。
 //   ・本 panel は callback / 編集 / GPU リソース確保を一切持たない (= 純粋な
 //     read-only viewer)。
 //
 // 設計選択 (modelview):
-//   ・**FEditorPanel 継承**: editor_core 基底に乗せる。
-//     FModelViewerPanel / sample 31 が FEditorWorkspace 経由で本 panel を
+//   ・**AEditorPanel 継承**: editor_core 基底に乗せる。
+//     AModelViewerPanel / sample 31 が CEditorWorkspace 経由で本 panel を
 //     register する。Title は "Model Info" (Unity / Godot の Inspector 表記寄り)。
 //   ・**スナップショット方式**: 元の Mesh / Skeleton / AnimationClip オブジェクト
 //     を ref で保持しない (= モデル再 load / 解放と本 panel の表示が race しない
@@ -37,7 +37,7 @@
 //     安全 (= ImGui draw までに開放されない)。
 //   ・**3 つの可変長配列 + 1 つの fixed struct**: submeshes / bones / clips は
 //     model ごとに件数が変わるため `acs::TArray<T>`。summary は単一 struct で
-//     値保持。FAssetBrowser / FHierarchyPanel と同形の "TArray<T> を内部に持つ
+//     値保持。CAssetBrowser / AHierarchyPanel と同形の "TArray<T> を内部に持つ
 //     panel" パターン。
 //   ・**has_model flag**: load 前 (= UpdateFromModel が一度も呼ばれていない) /
 //     Clear 直後の状態を識別するためのフラグ。DrawUI 冒頭で "(No model loaded)"
@@ -48,7 +48,7 @@
 //   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約。name は
 //     `const char*` リテラル / caller 所有領域を想定。
 //   ・**ImGui ヘッダは含めない**: 派生 .cpp で <imgui.h> を include する形
-//     (FParticleEditorPanel / FInspectorPanel / FHierarchyPanel と同形)。
+//     (AParticleEditorPanel / AInspectorPanel / AHierarchyPanel と同形)。
 //   ・**bone hierarchy は描画時にオンザフライ走査**: 子リストを事前構築せず、
 //     各 node 描画時に全 bone を線形走査して `parent_index == this_index` の
 //     子を見つけて再帰する。bone 数 100k 級でなければ十分速く、メモリ追加なし。
@@ -80,7 +80,7 @@ namespace acs::game::modelview {
  * model 全体の集計情報 (単一インスタンス、値コピー保持)。
  *
  * @details
- * caller (FModelViewerPanel 等) が model load 後に集計して本 panel に渡す。全フィールド
+ * caller (AModelViewerPanel 等) が model load 後に集計して本 panel に渡す。全フィールド
  * 値型のため、Mesh / Skeleton / AnimationClip 側のリソース解放と本 panel の表示は完全に
  * decouple される。
  */
@@ -163,31 +163,31 @@ struct FAnimationClipInfo {
  * read-only な mesh / skeleton / animation 情報ビューア panel。
  *
  * @details
- * editor_core::FEditorPanel を継承し、caller (FModelViewerPanel 等) が UpdateFromModel で
+ * editor_core::AEditorPanel を継承し、caller (AModelViewerPanel 等) が UpdateFromModel で
  * push した model 情報をスナップショットとして値コピー保持し、ImGui で Summary / Submeshes /
  * Bones / Animation Clips の 4 セクションを描画する。callback / 編集 / GPU リソース確保は
  * 一切持たない純粋な viewer。元の Mesh / Skeleton / AnimationClip オブジェクトは ref 保持
  * しないため、モデル再 load / 解放と本 panel の表示は race しない。
  */
-class FModelInspectorPanel : public editor_core::FEditorPanel {
+class AModelInspectorPanel : public editor_core::AEditorPanel {
 public:
     /** 空状態で構築する (model なし)。 */
-    FModelInspectorPanel() noexcept = default;
+    AModelInspectorPanel() noexcept = default;
 
     /** 破棄する (内部 TArray は ~TArray が解放)。 */
-    ~FModelInspectorPanel() noexcept override = default;
+    ~AModelInspectorPanel() noexcept override = default;
 
     /** コピー禁止 (内部 TArray + has_model 状態の所有を曖昧にしないため)。 */
-    FModelInspectorPanel(const FModelInspectorPanel&)            = delete;
+    AModelInspectorPanel(const AModelInspectorPanel&)            = delete;
 
     /** コピー代入も禁止。 */
-    FModelInspectorPanel& operator=(const FModelInspectorPanel&) = delete;
+    AModelInspectorPanel& operator=(const AModelInspectorPanel&) = delete;
 
     /** ムーブ禁止。 */
-    FModelInspectorPanel(FModelInspectorPanel&&)                 = delete;
+    AModelInspectorPanel(AModelInspectorPanel&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FModelInspectorPanel& operator=(FModelInspectorPanel&&)      = delete;
+    AModelInspectorPanel& operator=(AModelInspectorPanel&&)      = delete;
 
     /** 内部状態を空にする (多重 Init 可)。 */
     void Init() noexcept;
@@ -337,5 +337,7 @@ private:
      */
     void DrawBoneRecursive(i32 bone_index, u32 depth) noexcept;
 };
+
+using FModelInspectorPanel = AModelInspectorPanel;
 
 } // namespace acs::game::modelview

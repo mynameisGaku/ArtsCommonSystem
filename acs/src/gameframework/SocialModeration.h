@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar T — FSocialModeration (blocking / reporting / 通報管理)
+// GameFramework Pillar T — CSocialModeration (blocking / reporting / 通報管理)
 //
 // 役割:
 //   ローカルブロックリストと通報 (報告) キューを管理する。実プラットフォームの
@@ -10,7 +10,7 @@
 //   PartySystem.h で「moderation / blocking は別モジュール」と明記した通り、
 //   本 system が「上位レイヤから呼ばれる単一窓口」を担う。InviteFriend で
 //   ブロック相手かどうかを判定したい場合は、呼び出し側で IsBlocked() を
-//   先に問い合わせる責任分離 (FPartySystem 自身は moderation を意識しない)。
+//   先に問い合わせる責任分離 (CPartySystem 自身は moderation を意識しない)。
 //
 // 設計上の倫理方針 (通報 / ブロック + 児童保護):
 //   ・**ブロックはローカル即時反映**: BlockUser はネットワーク往復を伴わず、
@@ -30,10 +30,10 @@
 //     判断する責任分離)。
 //   ・**自分自身のブロックは防御的に弾かない**: 文字列比較で「自分の
 //     user_id」を知らないため、上位レイヤで弾く責任。本 system は受け取った
-//     文字列をそのままリストに入れる (FPartySystem と同じ哲学)。
+//     文字列をそのままリストに入れる (CPartySystem と同じ哲学)。
 //
 // 使い方 (典型例):
-//   FSocialModeration mod;
+//   CSocialModeration mod;
 //   mod.Init();
 //
 //   // toxic プレイヤーを即時ブロック
@@ -115,7 +115,7 @@ enum class EReportCategory : u8 {
  *
  * @details
  * `reported_user_id` / `reporter_user_id` / `note` はすべて const char* 非所有
- * (FPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
+ * (CPartySystem と同じポリシー)。timestamp は Unix 秒など呼び出し側が決めた
  * 単調増加値で、本 system は比較せず保存のみ行う。
  */
 struct FReportRecord {
@@ -159,25 +159,25 @@ struct FBlockEntry {
  * 送信は seam として未接続。通常は長寿命 1 個で運用し、誤コピーで block list が
  * 分裂して安全性が損なわれるのを避けるため非コピー・非ムーブとする。
  */
-class FSocialModeration {
+class CSocialModeration {
 public:
     /** 空状態で構築する。 */
-    FSocialModeration()  noexcept = default;
+    CSocialModeration()  noexcept = default;
 
     /** 破棄する。 */
-    ~FSocialModeration() noexcept = default;
+    ~CSocialModeration() noexcept = default;
 
     /** コピー禁止 (block list の分裂を防ぐため)。 */
-    FSocialModeration(const FSocialModeration&)            = delete;
+    CSocialModeration(const CSocialModeration&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSocialModeration& operator=(const FSocialModeration&) = delete;
+    CSocialModeration& operator=(const CSocialModeration&) = delete;
 
     /** ムーブ禁止 (block list の分裂を防ぐため)。 */
-    FSocialModeration(FSocialModeration&&)                 = delete;
+    CSocialModeration(CSocialModeration&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSocialModeration& operator=(FSocialModeration&&)      = delete;
+    CSocialModeration& operator=(CSocialModeration&&)      = delete;
 
     /**
      * 内部 state を初期化する。
@@ -189,7 +189,7 @@ public:
     /**
      * user_id をローカルブロックリストに追加する。
      *
-     * @details 既に登録済み、または user_id == nullptr なら no-op (FPartySystem.AddFriend と同じ防御)。
+     * @details 既に登録済み、または user_id == nullptr なら no-op (CPartySystem.AddFriend と同じ防御)。
      * @param user_id ブロックする相手の user_id (非所有)。
      */
     void BlockUser(const char* user_id) noexcept;
@@ -205,7 +205,7 @@ public:
     /**
      * user_id がブロック済みかを返す。
      *
-     * @details FPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
+     * @details CPartySystem.InviteFriend() の前段ガードとしての呼び出しを想定。
      * @param user_id 判定する相手の user_id (nullptr は常に false)。
      * @return ブロック済みなら true。
      */
@@ -324,5 +324,8 @@ private:
     /** backend 受理済み通報の累計件数。 */
     u32                  m_Delivered        = 0;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSocialModeration = CSocialModeration;
 
 } // namespace acs::game

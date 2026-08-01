@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar R — FCinematicsDirector 実装
+// GameFramework Pillar R — CCinematicsDirector 実装
 //
 // 状態遷移:
 //   Stopped (m_Playing=false, m_Time=0)
@@ -17,7 +17,7 @@
 
 namespace acs::game {
 
-void FCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
+void CCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
     // 負の time_sec は 0 に clamp して受け入れる (= タイムライン頭打ち発火)。
     FTimelineKeyframe entry = kf;
     if (entry.time_sec < 0.0f) entry.time_sec = 0.0f;
@@ -55,28 +55,28 @@ void FCinematicsDirector::AddKeyframe(const FTimelineKeyframe& kf) noexcept {
     // なので m_LastFiredIndex の補正はしない (Play() 前なら m_LastFired=0)。
 }
 
-void FCinematicsDirector::Clear() noexcept {
+void CCinematicsDirector::Clear() noexcept {
     m_Keyframes.Clear();
     m_Time             = 0.0f;
     m_LastFiredIndex = 0u;
     m_Playing          = false;
 }
 
-void FCinematicsDirector::Play() noexcept {
+void CCinematicsDirector::Play() noexcept {
     m_Playing = true;
 }
 
-void FCinematicsDirector::Pause() noexcept {
+void CCinematicsDirector::Pause() noexcept {
     m_Playing = false;
 }
 
-void FCinematicsDirector::Stop() noexcept {
+void CCinematicsDirector::Stop() noexcept {
     m_Playing          = false;
     m_Time             = 0.0f;
     m_LastFiredIndex = 0u;
 }
 
-void FCinematicsDirector::Skip() noexcept {
+void CCinematicsDirector::Skip() noexcept {
     // 残り全 keyframe を時刻昇順に発火。m_Time は TotalDuration() に進める。
     // Skip は Play 中でなくても呼べる (= 即座に "終わった状態" に飛ばす操作)。
     const f32 total = TotalDuration();
@@ -87,11 +87,11 @@ void FCinematicsDirector::Skip() noexcept {
     // IsFinished() が true になるので、Tick が呼ばれ続けても無害。
 }
 
-bool FCinematicsDirector::IsFinished() const noexcept {
+bool CCinematicsDirector::IsFinished() const noexcept {
     return m_LastFiredIndex >= static_cast<u32>(m_Keyframes.Size());
 }
 
-void FCinematicsDirector::Tick(f32 dt) noexcept {
+void CCinematicsDirector::Tick(f32 dt) noexcept {
     if (!m_Playing) return;
     if (dt <= 0.0f) return;
 
@@ -99,33 +99,33 @@ void FCinematicsDirector::Tick(f32 dt) noexcept {
     FireUpTo(m_Time);
 }
 
-f32 FCinematicsDirector::TotalDuration() const noexcept {
+f32 CCinematicsDirector::TotalDuration() const noexcept {
     // 昇順を維持しているので末尾 (Back) の time_sec が最大。
     if (m_Keyframes.Size() == 0) return 0.0f;
     return m_Keyframes[m_Keyframes.Size() - 1].time_sec;
 }
 
-void FCinematicsDirector::SetCameraCallback(CameraCallbackFn cb, void* user) noexcept {
+void CCinematicsDirector::SetCameraCallback(CameraCallbackFn cb, void* user) noexcept {
     m_CameraCb   = cb;
     m_CameraUser = user;
 }
 
-void FCinematicsDirector::SetDialogueCallback(DialogueCallbackFn cb, void* user) noexcept {
+void CCinematicsDirector::SetDialogueCallback(DialogueCallbackFn cb, void* user) noexcept {
     m_DialogueCb   = cb;
     m_DialogueUser = user;
 }
 
-void FCinematicsDirector::SetMusicCallback(MusicCallbackFn cb, void* user) noexcept {
+void CCinematicsDirector::SetMusicCallback(MusicCallbackFn cb, void* user) noexcept {
     m_MusicCb   = cb;
     m_MusicUser = user;
 }
 
-void FCinematicsDirector::SetEventCallback(EventCallbackFn cb, void* user) noexcept {
+void CCinematicsDirector::SetEventCallback(EventCallbackFn cb, void* user) noexcept {
     m_EventCb   = cb;
     m_EventUser = user;
 }
 
-void FCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
+void CCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
     // 発火予定の keyframe を «値で» 退避してから、走査を終えた後にまとめて発火する。
     // keyframe callback が同 director の AddKeyframe / Clear / Stop を呼んで
     // m_Keyframes を変更 (再確保・空化) しても、走査中の範囲外アクセスや realloc による
@@ -144,7 +144,7 @@ void FCinematicsDirector::FireUpTo(f32 up_to_time) noexcept {
     }
 }
 
-void FCinematicsDirector::FireOne(const FTimelineKeyframe& kf) noexcept {
+void CCinematicsDirector::FireOne(const FTimelineKeyframe& kf) noexcept {
     switch (kf.kind) {
     case ETimelineTrackKind::Wait:
         // 何もしない (時間進行マーカー)。

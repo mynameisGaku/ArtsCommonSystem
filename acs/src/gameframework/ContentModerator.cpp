@@ -332,13 +332,13 @@ FModerationResult ClassifyText(const char* text) noexcept {
 } // namespace
 
 /** テキストを ClassifyText で判定する (user_id は Stub では未使用)。 */
-TResult<FModerationResult> FContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
+TResult<FModerationResult> CContentModeratorStub::ModerateText(const char* user_id, const char* text) noexcept {
     (void)user_id;  // Stub では未使用 (実 SDK では通報履歴・レピュテーション参照に使う)
     return ClassifyText(text);
 }
 
 /** 画像をローカルデコードし肌色比率 heuristic で判定する。 */
-TResult<FModerationResult> FContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
+TResult<FModerationResult> CContentModeratorStub::ModerateImage(const char* user_id, const u8* image_data, u64 size) noexcept {
     (void)user_id;
     if (image_data == nullptr || size == 0) {
         return TResult<FModerationResult>(
@@ -373,7 +373,7 @@ TResult<FModerationResult> FContentModeratorStub::ModerateImage(const char* user
 }
 
 /** 肌色比率を 4 段のしきい値で verdict/rating に変換する。 */
-TResult<FModerationResult> FContentModeratorStub::ClassifyImageRatio(f32 skin_ratio) const noexcept {
+TResult<FModerationResult> CContentModeratorStub::ClassifyImageRatio(f32 skin_ratio) const noexcept {
     FModerationResult r{};
     if (skin_ratio >= 0.55f) {
         r.verdict = EModerationVerdict::Block;
@@ -396,7 +396,7 @@ TResult<FModerationResult> FContentModeratorStub::ClassifyImageRatio(f32 skin_ra
 }
 
 /** デコード済み RGBA8 ピクセルを再デコードせず肌色比率で判定する。 */
-TResult<FModerationResult> FContentModeratorStub::ModerateImageRgba8(
+TResult<FModerationResult> CContentModeratorStub::ModerateImageRgba8(
         const u8* rgba, u32 width, u32 height) noexcept {
     if (rgba == nullptr || width == 0 || height == 0) {
         return TResult<FModerationResult>(
@@ -408,7 +408,7 @@ TResult<FModerationResult> FContentModeratorStub::ModerateImageRgba8(
 }
 
 /** ユーザー名を text と同じ NG ワード辞書 (ClassifyText) で判定する。 */
-TResult<FModerationResult> FContentModeratorStub::ModerateUserName(const char* name) noexcept {
+TResult<FModerationResult> CContentModeratorStub::ModerateUserName(const char* name) noexcept {
     // ユーザー名 NG チェックは text と同じ辞書を流用 (Stub なので簡略化)。
     // 実 SDK では「短い文字列内のなりすまし / leet speak / 同形異義字」検出を
     // 強化したサブ API を別途用意することが多い。
@@ -416,13 +416,13 @@ TResult<FModerationResult> FContentModeratorStub::ModerateUserName(const char* n
 }
 
 /** 非同期キューを持たないため no-op。 */
-void FContentModeratorStub::Tick(f32 dt) noexcept {
+void CContentModeratorStub::Tick(f32 dt) noexcept {
     (void)dt;  // Stub は非同期キューを持たないので no-op。
 }
 
 /** Stub の共有 singleton を返す (関数スコープ static で thread-safe 初期化)。 */
 IContentModerator& GetModeratorStub() noexcept {
-    static FContentModeratorStub m_Instance;
+    static CContentModeratorStub m_Instance;
     return m_Instance;
 }
 

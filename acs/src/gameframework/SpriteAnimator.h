@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar C — FSpriteAnimator
+// GameFramework Pillar C — CSpriteAnimator
 //
 // 「現在フレーム index を時間から算出する」ロジックだけを担うコンポーネント。
 // 画像 asset / 描画 API には一切触れず、利用者が CurrentFrame() を取り出して
@@ -14,7 +14,7 @@
 //     (Loop の周回毎に再発火、std::function は使わない)
 //
 // 使い方:
-//   FSpriteAnimator anim;
+//   CSpriteAnimator anim;
 //   anim.Init(/*frame_count=*/8, /*fps=*/12.0f, EPlayMode::Loop);
 //   anim.AddFrameEvent(4, [](void* ud) noexcept {
 //       static_cast<MyActor*>(ud)->OnFootstep();
@@ -26,7 +26,7 @@
 //
 // 設計判断:
 //   ・asset 非依存にすることで Pillar C (フレーム時間管理) と Pillar Q (視覚世界,
-//     スプライトシート) の関心を分離。FSpriteAnimator は時間→index 関数として
+//     スプライトシート) の関心を分離。CSpriteAnimator は時間→index 関数として
 //     ユニットテスト可能。
 //   ・std::function を避けるため frame event のコールバックは関数ポインタ + user 引数。
 //     Lambda は capture 無しに限る (= ACS の関数ポインタ規約と整合)。
@@ -67,28 +67,28 @@ enum class EPlayMode : u8 {
  * または末尾でクランプ (Once) し、長時間プレイでの f32 精度ロスを防ぐ。frame event は
  * std::function を使わず関数ポインタ + user 引数で実装する。
  */
-class FSpriteAnimator {
+class CSpriteAnimator {
 public:
     /** frame に進入した瞬間に呼ぶコールバックの型 (capture 無し関数ポインタ + user)。 */
     using FrameEventFn = void(*)(void* user) noexcept;
 
     /** 空状態で構築する (frame=1, fps=1, 停止)。 */
-    FSpriteAnimator() noexcept = default;
+    CSpriteAnimator() noexcept = default;
 
     /** デストラクタ (特別な後始末なし)。 */
-    ~FSpriteAnimator() noexcept = default;
+    ~CSpriteAnimator() noexcept = default;
 
     /** コピー禁止 (アニメ状態を不意に複製しないため)。 */
-    FSpriteAnimator(const FSpriteAnimator&)            = delete;
+    CSpriteAnimator(const CSpriteAnimator&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteAnimator& operator=(const FSpriteAnimator&) = delete;
+    CSpriteAnimator& operator=(const CSpriteAnimator&) = delete;
 
     /** ムーブ禁止。 */
-    FSpriteAnimator(FSpriteAnimator&&)                 = delete;
+    CSpriteAnimator(CSpriteAnimator&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSpriteAnimator& operator=(FSpriteAnimator&&)      = delete;
+    CSpriteAnimator& operator=(CSpriteAnimator&&)      = delete;
 
     /**
      * 再生パラメータを初期化する。
@@ -266,5 +266,8 @@ private:
     /** 登録済みの frame event 一覧。 */
     TArray<FFrameEvent> m_Events;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSpriteAnimator = CSpriteAnimator;
 
 } // namespace acs::game
