@@ -141,13 +141,14 @@ ACS_REF.modules.push({
     {
       name: "TObservableArray&lt;T&gt;",
       kind: "クラステンプレート", header: "mvvm/ObservableArray.h",
-      summary: "<b>要素の追加・削除・変更を通知する配列</b>。1 種類の<t>コールバック</t>で受け取り、<t>EArrayChange</t> の種類で分岐する。通知 callback 中の <code>PushBack</code> / <code>PopBack</code> / <code>RemoveAt</code> / <code>SetAt</code> / <code>Clear</code> はすべて禁止で、Debug では assert する。assert 無効構成で処理が続いても呼び出し側の契約違反となるため、必要な変更は通知後の処理キューへ積む。callback が owner ごと <code>TObservableArray&lt;T&gt;</code> 自身を同期破棄した場合、復帰直後に破棄済み owner へ触れず return し、後続 listener を停止する。リスト UI を差分で更新する用途向け。コピー禁止。",
+      summary: "<b>要素の追加・削除・変更を通知する配列</b>。1 種類の<t>コールバック</t>で受け取り、<t>EArrayChange</t> の種類で分岐する。通知 callback 中の <code>PushBack</code> / <code>PopBack</code> / <code>Remove</code> / <code>RemoveAt</code> / <code>SetAt</code> / <code>Clear</code> はすべて禁止で、Debug では assert する。assert 無効構成で処理が続いても呼び出し側の契約違反となるため、必要な変更は通知後の処理キューへ積む。callback が owner ごと <code>TObservableArray&lt;T&gt;</code> 自身を同期破棄した場合、復帰直後に破棄済み owner へ触れず return し、後続 listener を停止する。リスト UI を差分で更新する用途向け。コピー禁止。",
       when: "インベントリやリストなど、中身が増減する集合を UI に反映したい時。全更新ではなく「どこに何が起きたか」で受け取れる。",
       sample: "TObservableArray&lt;int&gt; inv;\ninv.Subscribe([](EArrayChange kind, usize idx, const int* v, void*){\n    if (kind == EArrayChange::Inserted) ACS_LOG_INFO(\"Add[%zu]=%d\", idx, *v);\n}, nullptr);\ninv.PushBack(7);   // Inserted, idx=0, v=7\ninv.SetAt(0, 99);  // Changed,  idx=0, v=99\ninv.RemoveAt(0);   // Removed,  idx=0",
       members: [
         { sig: "using Listener = void (*)(EArrayChange kind, usize index, const T* value, void* user)", desc: "通知<t>コールバック</t>の型。種類・位置・値ポインタ(削除/全消去時は <code>nullptr</code>)を受ける。" },
         { sig: "void PushBack(T v)", desc: "末尾に追加し <code>Inserted</code> を通知する。" },
         { sig: "void PopBack()", desc: "末尾を削除し <code>Removed</code> を通知する(空なら no-op)。" },
+        { sig: "bool Remove(const T& value)", ret: "削除できれば true", desc: "最初に一致した 1 件を順序を保って削除し、一致位置で <code>Removed</code> を 1 回通知する。" },
         { sig: "void RemoveAt(usize index)", desc: "指定位置を削除(前詰めで順序保持)し <code>Removed</code> を通知する。" },
         { sig: "void SetAt(usize index, T v)", desc: "指定位置を書き換える。<b>同値ならスキップ</b>、変われば <code>Changed</code> を通知する。" },
         { sig: "void Clear()", desc: "全削除して <code>Cleared</code> を通知する。" },

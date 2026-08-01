@@ -39,6 +39,35 @@ ACS_TEST(Container, InlineArrayAvoidsHeapUntilCapacityAndPreservesOrder)
     EXPECT_EQ(values[0], 99u);
 }
 
+ACS_TEST(Container, InlineArrayRemovePreservesOrderInBothStorageModes)
+{
+    /** 直接領域と動的領域の削除を順に検証する配列。 */
+    TInlineArray<u32, 4u> values;
+    values.PushBack(10u);
+    values.PushBack(20u);
+    values.PushBack(10u);
+    values.PushBack(30u);
+
+    EXPECT_TRUE(values.Remove(values[0]));
+    EXPECT_TRUE(values.UsesInlineStorage());
+    EXPECT_EQ(values.Size(), static_cast<usize>(3u));
+    EXPECT_EQ(values[0], 20u);
+    EXPECT_EQ(values[1], 10u);
+    EXPECT_EQ(values[2], 30u);
+    EXPECT_FALSE(values.Remove(99u));
+
+    values.PushBack(40u);
+    values.PushBack(50u);
+    EXPECT_FALSE(values.UsesInlineStorage());
+    EXPECT_TRUE(values.Remove(10u));
+    EXPECT_FALSE(values.UsesInlineStorage());
+    EXPECT_EQ(values.Size(), static_cast<usize>(4u));
+    EXPECT_EQ(values[0], 20u);
+    EXPECT_EQ(values[1], 30u);
+    EXPECT_EQ(values[2], 40u);
+    EXPECT_EQ(values[3], 50u);
+}
+
 namespace {
 
 /** 確保失敗時のコンテナ契約を検証する backing。 */
@@ -189,6 +218,7 @@ struct FArrayValueCounters {
     usize ValueConstructions = 0u;
     usize CopyConstructions = 0u;
     usize MoveConstructions = 0u;
+    usize MoveAssignments = 0u;
     usize Destructions = 0u;
     usize LiveValues = 0u;
 };
@@ -222,6 +252,20 @@ struct FArrayTrackedValue {
         Other.Value = kMovedFromValue;
         ++Counters->MoveConstructions;
         ++Counters->LiveValues;
+    }
+
+    FArrayTrackedValue& operator=(FArrayTrackedValue&& Other) noexcept
+    {
+        ACS_ASSERT(Counters == Other.Counters);
+        Value = Other.Value;
+        Other.Value = kMovedFromValue;
+        ++Counters->MoveAssignments;
+        return *this;
+    }
+
+    bool operator==(const FArrayTrackedValue& Other) const noexcept
+    {
+        return Value == Other.Value;
     }
 
     ~FArrayTrackedValue() noexcept
@@ -398,6 +442,94 @@ ACS_TEST(Container, ArrayTryOperationsPreserveStateOnOverflowAndOutOfMemory)
     EXPECT_FALSE(OverflowArray.TryResize(~usize(0)));
     EXPECT_EQ(OverflowArray.Size(), static_cast<usize>(0));
     EXPECT_EQ(OverflowArray.Capacity(), static_cast<usize>(0));
+}
+
+ACS_TEST(Container, ArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
+{
+    /** 削除中の確保要求を計数する allocator。 */
+    FCountingAllocator allocator;
+    /** 非 trivial 要素の構築・移動・破棄回数。 */
+    FArrayValueCounters counters;
+    {
+        /** 寿命と確保不変を検証する配列。 */
+        TArray<FArrayTrackedValue> values(allocator);
+        EXPECT_TRUE(values.TryReserve(4u));
+        EXPECT_TRUE(values.TryEmplaceBack(counters, 10) != nullptr);
+        EXPECT_TRUE(values.TryEmplaceBack(counters, 20) != nullptr);
+        EXPECT_TRUE(values.TryEmplaceBack(counters, 10) != nullptr);
+        EXPECT_TRUE(values.TryEmplaceBack(counters, 30) != nullptr);
+        /** 削除前の連続領域先頭。 */
+        FArrayTrackedValue* const data_before = values.Data();
+        /** 削除前の確保容量。 */
+        const usize capacity_before = values.Capacity();
+        /** 削除前の allocator identity。 */
+        FAllocator* const allocator_before = values.GetAllocator();
+        /** 削除前の確保回数。 */
+        const u64 alloc_calls_before = allocator.AllocCalls;
+        /** 削除前の再確保回数。 */
+        const u64 realloc_calls_before = allocator.ReallocCalls;
+        /** 削除前の解放回数。 */
+        const u64 free_calls_before = allocator.FreeCalls;
+
+        /** 先頭と同値な後続要素を指す内部参照。 */
+        const FArrayTrackedValue& aliased_later_match = values[2];
+        EXPECT_TRUE(values.Remove(aliased_later_match));
+        EXPECT_TRUE(values.Data() == data_before);
+        EXPECT_EQ(values.Capacity(), capacity_before);
+        EXPECT_TRUE(values.GetAllocator() == allocator_before);
+        EXPECT_EQ(allocator.AllocCalls, alloc_calls_before);
+        EXPECT_EQ(allocator.ReallocCalls, realloc_calls_before);
+        EXPECT_EQ(allocator.FreeCalls, free_calls_before);
+        EXPECT_EQ(values.Size(), static_cast<usize>(3u));
+        EXPECT_EQ(values[0].Value, 20);
+        EXPECT_EQ(values[1].Value, 10);
+        EXPECT_EQ(values[2].Value, 30);
+        EXPECT_EQ(counters.MoveAssignments, static_cast<usize>(3u));
+        EXPECT_EQ(counters.Destructions, static_cast<usize>(1u));
+        EXPECT_EQ(counters.LiveValues, static_cast<usize>(3u));
+    }
+    EXPECT_EQ(counters.Destructions, static_cast<usize>(4u));
+    EXPECT_EQ(counters.LiveValues, static_cast<usize>(0u));
+}
+
+ACS_TEST(Container, InlineArrayRemoveMaintainsNonTrivialLifetimeWithoutAllocation)
+{
+    /** 直接領域の削除が確保しないことを計数する allocator。 */
+    FCountingAllocator allocator;
+    /** 非 trivial 要素の構築・移動・破棄回数。 */
+    FArrayValueCounters counters;
+    {
+        /** 直接領域内の寿命を検証する配列。 */
+        TInlineArray<FArrayTrackedValue, 4u> values(allocator);
+        values.PushBack(FArrayTrackedValue(counters, 10));
+        values.PushBack(FArrayTrackedValue(counters, 20));
+        values.PushBack(FArrayTrackedValue(counters, 10));
+        values.PushBack(FArrayTrackedValue(counters, 30));
+        /** 削除前の確保回数。 */
+        const u64 alloc_calls_before = allocator.AllocCalls;
+        /** 削除前の再確保回数。 */
+        const u64 realloc_calls_before = allocator.ReallocCalls;
+        /** 削除前の解放回数。 */
+        const u64 free_calls_before = allocator.FreeCalls;
+        /** 削除前の破棄回数。 */
+        const usize destructions_before = counters.Destructions;
+
+        /** 先頭と同値な後続要素を指す内部参照。 */
+        const FArrayTrackedValue& aliased_later_match = values[2];
+        EXPECT_TRUE(values.Remove(aliased_later_match));
+        EXPECT_TRUE(values.UsesInlineStorage());
+        EXPECT_EQ(allocator.AllocCalls, alloc_calls_before);
+        EXPECT_EQ(allocator.ReallocCalls, realloc_calls_before);
+        EXPECT_EQ(allocator.FreeCalls, free_calls_before);
+        EXPECT_EQ(values.Size(), static_cast<usize>(3u));
+        EXPECT_EQ(values[0].Value, 20);
+        EXPECT_EQ(values[1].Value, 10);
+        EXPECT_EQ(values[2].Value, 30);
+        EXPECT_EQ(counters.MoveAssignments, static_cast<usize>(3u));
+        EXPECT_EQ(counters.Destructions, destructions_before + 1u);
+        EXPECT_EQ(counters.LiveValues, static_cast<usize>(3u));
+    }
+    EXPECT_EQ(counters.LiveValues, static_cast<usize>(0u));
 }
 
 ACS_TEST(Container, ArraySelfReferentialGrowthKeepsArgumentsAliveUntilConstruction)
@@ -924,6 +1056,33 @@ ACS_TEST(Container, ArrayRemoveAtAndRemoveFirstSwap)
     EXPECT_TRUE(a.Contains(40));
     EXPECT_FALSE(a.RemoveFirstSwap(999)); // 見つからなければ false / 変更なし
     EXPECT_EQ(a.Size(), static_cast<usize>(2));
+}
+
+ACS_TEST(Container, ArrayRemovePreservesOrderAndRemovesFirstMatch)
+{
+    /** 最初の一致だけを削除する契約を検証する配列。 */
+    TArray<i32> values;
+    values.PushBack(10);
+    values.PushBack(20);
+    values.PushBack(10);
+    values.PushBack(30);
+
+    /** 先頭の削除対象を指す内部参照。 */
+    const i32& aliased_value = values[0];
+    EXPECT_TRUE(values.Remove(aliased_value));
+    EXPECT_EQ(values.Size(), static_cast<usize>(3));
+    EXPECT_EQ(values[0], 20);
+    EXPECT_EQ(values[1], 10);
+    EXPECT_EQ(values[2], 30);
+
+    /** 未一致削除前の連続領域先頭。 */
+    i32* const data_before = values.Data();
+    /** 未一致削除前の確保容量。 */
+    const usize capacity_before = values.Capacity();
+    EXPECT_FALSE(values.Remove(99));
+    EXPECT_TRUE(values.Data() == data_before);
+    EXPECT_EQ(values.Capacity(), capacity_before);
+    EXPECT_EQ(values.Size(), static_cast<usize>(3));
 }
 
 ACS_TEST(Container, StringViewFindAndContains)

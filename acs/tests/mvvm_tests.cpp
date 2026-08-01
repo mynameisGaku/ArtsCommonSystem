@@ -578,13 +578,68 @@ ACS_TEST(Mvvm, ObservableArrayLifecycle) {
     arr.SetAt(0, 99);
     EXPECT_EQ(ctx.changed, 1);
 
-    arr.RemoveAt(0);
+    EXPECT_TRUE(arr.Remove(20));
     EXPECT_EQ(ctx.removed, 1);
+    EXPECT_EQ(ctx.last_idx, 1);
     EXPECT_EQ(arr.Size(), (usize)1);
+    EXPECT_EQ(arr.At(0), 99);
+    EXPECT_FALSE(arr.Remove(20));
+    EXPECT_EQ(ctx.removed, 1);
+
+    arr.PushBack(30);
+    arr.RemoveAt(0);
+    EXPECT_EQ(ctx.removed, 2);
+    EXPECT_EQ(ctx.last_idx, 0);
+    EXPECT_EQ(arr.Size(), (usize)1);
+    EXPECT_EQ(arr.At(0), 30);
 
     arr.Clear();
     EXPECT_EQ(ctx.cleared, 1);
     EXPECT_EQ(arr.Size(), (usize)0);
+}
+
+// ---- ObservableArray: Remove 通知中に owner を破棄しても戻り値を返す ------
+ACS_TEST(Mvvm, ObservableArrayRemoveListenerMayDestroyOwner) {
+    struct FOwner {
+        // 値の削除を通知する配列。
+        TObservableArray<i32> Values;
+    };
+    struct FDestroyContext {
+        // 通知中に破棄する配列 owner。
+        TUniquePtr<FOwner>* Owner = nullptr;
+        // owner を破棄した listener の呼び出し回数。
+        i32 DestroyingCalls = 0;
+        // owner 破棄後に呼ばれてはならない後続 listener の回数。
+        i32 LaterCalls = 0;
+    };
+
+    // Remove の通知元を所有する object。
+    TUniquePtr<FOwner> owner = MakeUnique<FOwner>();
+    owner->Values.PushBack(7);
+    // listener 間で owner と回数を共有する状態。
+    FDestroyContext context{ &owner, 0, 0 };
+    owner->Values.Subscribe(
+        [](EArrayChange, usize, const i32*, void* user) {
+            auto* const destroy = static_cast<FDestroyContext*>(user);
+            ++destroy->DestroyingCalls;
+            // owner と配列は無効になるため、破棄後は何も参照せず直ちに戻る。
+            destroy->Owner->Reset();
+            return;
+        },
+        &context);
+    owner->Values.Subscribe(
+        [](EArrayChange, usize, const i32*, void* user) {
+            ++static_cast<FDestroyContext*>(user)->LaterCalls;
+        },
+        &context);
+
+    // owner 破棄後も Remove が返す成功結果。
+    const bool removed = owner->Values.Remove(7);
+
+    EXPECT_TRUE(removed);
+    EXPECT_FALSE(static_cast<bool>(owner));
+    EXPECT_EQ(context.DestroyingCalls, 1);
+    EXPECT_EQ(context.LaterCalls, 0);
 }
 
 // ---- MakeBind / MakeBindConvert: TUniquePtr 版 ------------------------------

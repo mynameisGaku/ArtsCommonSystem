@@ -121,6 +121,30 @@ public:
         InlineData()[m_InlineSize].~T();
     }
 
+    /**
+     * value と == で一致する最初の要素を、順序を保って削除する。
+     *
+     * @details 直接領域と動的領域のどちらでも新しい確保は行わない。動的領域へ
+     * 移行済みの場合は、削除後も動的領域を使い続ける。
+     * @param value 削除する値。配列内の要素自身を渡してもよい。
+     * @return 削除できたら true。見つからなければ配列を変えず false。
+     */
+    bool Remove(const T& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.Remove(value);
+        // 直接領域の先頭。
+        T* const data = InlineData();
+        // 一致を調べる要素位置。
+        for (usize i = 0u; i < m_InlineSize; ++i) {
+            if (!(data[i] == value)) continue;
+            // 削除位置より後から前へ詰める要素位置。
+            for (usize k = i + 1u; k < m_InlineSize; ++k) data[k - 1u] = Move(data[k]);
+            --m_InlineSize;
+            data[m_InlineSize].~T();
+            return true;
+        }
+        return false;
+    }
+
     void Clear() noexcept {
         if (m_UsingOverflow) {
             m_Overflow.Clear();

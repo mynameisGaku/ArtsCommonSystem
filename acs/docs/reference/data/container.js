@@ -11,7 +11,10 @@ ACS_REF.modules.push({
       name: "TInlineArray&lt;T, InlineCapacity&gt;",
       kind: "クラステンプレート", header: "container/InlineArray.h",
       summary: "少数要素を本体内へ保持し、容量超過時だけ allocator へ退避する可変長配列。",
-      when: "通常件数が小さい一時配列で heap 確保を避けつつ、まれな増加も扱う時。"
+      when: "通常件数が小さい一時配列で heap 確保を避けつつ、まれな増加も扱う時。",
+      members: [
+        { sig: "bool Remove(const T& value)", ret: "削除できれば true", desc: "最初に一致した 1 件を順序を保って削除する。動的領域へ移行済みなら、削除後もその領域を再利用する。" }
+      ]
     },
     {
       name: "FStableStringKey",
@@ -35,6 +38,7 @@ ACS_REF.modules.push({
         { sig: "void PushBack(const T& v) / PushBack(T&& v)", desc: "末尾に要素を追加する。容量が足りなければ自動で約 1.5 倍に拡張。" },
         { sig: "T& EmplaceBack(Args&&... args)", ret: "追加した要素の参照", desc: "末尾にその場で<b>直接構築</b>する(一時オブジェクトのコピー/ムーブを省く)。", sample: "arr.EmplaceBack(x, y, z);  // FVec3 をその場で構築" },
         { sig: "void PopBack()", desc: "末尾要素を 1 つ取り除く(空の時に呼ぶと<t>アサート</t>)。" },
+        { sig: "bool Remove(const T& value)", ret: "削除できれば true", desc: "最初に一致した 1 件を順序を保って削除する。見つからなければ配列を変更しない。" },
         { sig: "void RemoveAtSwap(usize i)", desc: "i 番に末尾要素をムーブして縮める。<b>順序は保たれない</b>が削除が O(1) で速い。", when: "順序を気にしないリストから素早く 1 個消したい時。" },
         { sig: "usize Size() const / usize Capacity() const / bool IsEmpty() const", desc: "現在の要素数 / 確保済み容量 / 空かどうか。" },
         { sig: "void Reserve(usize n)", desc: "あらかじめ容量を確保する。追加中の再確保を避けて速くなる。", when: "追加する個数がだいたい分かっている時に最初に呼ぶ。" },

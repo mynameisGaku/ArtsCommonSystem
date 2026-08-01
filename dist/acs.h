@@ -4533,6 +4533,22 @@ public:
     bool Contains(const T& value) const noexcept { return IndexOf(value) != kNpos; }
 
     /**
+     * value と == で一致する最初の要素を、順序を保って削除する。
+     *
+     * @details 削除時の確保は行わない。削除位置より後の要素は前へ詰めるため、
+     * その位置以降を指すポインタと参照は無効になる。
+     * @param value 削除する値。配列内の要素自身を渡してもよい。
+     * @return 削除できたら true。見つからなければ配列を変えず false。
+     */
+    bool Remove(const T& value) noexcept {
+        // 最初に一致した削除位置。
+        const usize i = IndexOf(value);
+        if (i == kNpos) return false;
+        RemoveAt(i);
+        return true;
+    }
+
+    /**
      * value と == で一致する最初の要素を swap-remove する (順序は保たれない)。
      *
      * @param value 削除する値。
@@ -18546,6 +18562,30 @@ public:
         }
         --m_InlineSize;
         InlineData()[m_InlineSize].~T();
+    }
+
+    /**
+     * value と == で一致する最初の要素を、順序を保って削除する。
+     *
+     * @details 直接領域と動的領域のどちらでも新しい確保は行わない。動的領域へ
+     * 移行済みの場合は、削除後も動的領域を使い続ける。
+     * @param value 削除する値。配列内の要素自身を渡してもよい。
+     * @return 削除できたら true。見つからなければ配列を変えず false。
+     */
+    bool Remove(const T& value) noexcept {
+        if (m_UsingOverflow) return m_Overflow.Remove(value);
+        // 直接領域の先頭。
+        T* const data = InlineData();
+        // 一致を調べる要素位置。
+        for (usize i = 0u; i < m_InlineSize; ++i) {
+            if (!(data[i] == value)) continue;
+            // 削除位置より後から前へ詰める要素位置。
+            for (usize k = i + 1u; k < m_InlineSize; ++k) data[k - 1u] = Move(data[k]);
+            --m_InlineSize;
+            data[m_InlineSize].~T();
+            return true;
+        }
+        return false;
     }
 
     void Clear() noexcept {
@@ -97519,7 +97559,7 @@ void BindProgress(const char* label, const TObservable<f32>& v, f32 v_min, f32 v
 //
 // 設計:
 //   ・通知は 1 種類の callback で kind を分岐 (UE5 の per-event fan-out より易い)
-//   ・listener 中は PushBack/PopBack/RemoveAt/SetAt/Clear による全変更を禁止する
+//   ・listener 中は PushBack/PopBack/Remove/RemoveAt/SetAt/Clear による全変更を禁止する
 //     (Debug は assert 検出。assert 無効の Release では検出されず処理が実行されるため、
 //      呼び出した時点で caller の契約違反)
 //     → どうしても要るなら listener が処理キューに積んで後で実行
@@ -97585,7 +97625,7 @@ inline constexpr FArrayObserverHandle kInvalidArrayObserver{};
  *
  * @details
  * 各変更操作は単一のリスナを EArrayChange の種別付きで呼ぶ (per-event の fan-out はしない)。
- * 通知中 (Notify 内) は PushBack/PopBack/RemoveAt/SetAt/Clear による全変更を禁止する。
+ * 通知中 (Notify 内) は PushBack/PopBack/Remove/RemoveAt/SetAt/Clear による全変更を禁止する。
  * Debug ビルドでは assert で検出する。assert を無効化した Release ビルドでは検出されず
  * 変更処理が実行されるため、呼び出した時点で caller の契約違反となる。
  * SetAt は通知外でも operator== で同値ならスキップする。
@@ -97658,6 +97698,22 @@ public:
         }
         m_Items.PopBack();
         Notify(EArrayChange::Removed, index, nullptr);
+    }
+
+    /**
+     * value と == で一致する最初の要素を、順序を保って削除する。
+     *
+     * @details 削除できた場合だけ Removed を一致位置で 1 回通知する。通知中の
+     * 再変更は禁止し、見つからない場合は通知も行わない。
+     * @param value 削除する値。配列内の要素自身を渡してもよい。
+     * @return 削除できたら true。見つからなければ配列を変えず false。
+     */
+    bool Remove(const T& value) noexcept {
+        // 最初に一致した削除位置。
+        const usize index = m_Items.IndexOf(value);
+        if (index == TArray<T>::kNpos) return false;
+        RemoveAt(index);
+        return true;
     }
 
     /**
@@ -97854,7 +97910,7 @@ private:
      * 通知中の変更操作が行われていないかを検証する。
      *
      * @details
-     * リスナ (Notify) 実行中の PushBack/PopBack/RemoveAt/SetAt/Clear は、
+     * リスナ (Notify) 実行中の PushBack/PopBack/Remove/RemoveAt/SetAt/Clear は、
      * 要素配列の再配置、通知の再入、通知対象の途中変更を招くためすべて禁止する。
      * Debug ビルドでは m_NotifyDepth==0 を assert する。assert を無効化した Release
      * ビルドでは検出されず変更処理が続くため、caller が契約を守らなければならない。

@@ -516,6 +516,22 @@ public:
     bool Contains(const T& value) const noexcept { return IndexOf(value) != kNpos; }
 
     /**
+     * value と == で一致する最初の要素を、順序を保って削除する。
+     *
+     * @details 削除時の確保は行わない。削除位置より後の要素は前へ詰めるため、
+     * その位置以降を指すポインタと参照は無効になる。
+     * @param value 削除する値。配列内の要素自身を渡してもよい。
+     * @return 削除できたら true。見つからなければ配列を変えず false。
+     */
+    bool Remove(const T& value) noexcept {
+        // 最初に一致した削除位置。
+        const usize i = IndexOf(value);
+        if (i == kNpos) return false;
+        RemoveAt(i);
+        return true;
+    }
+
+    /**
      * value と == で一致する最初の要素を swap-remove する (順序は保たれない)。
      *
      * @param value 削除する値。

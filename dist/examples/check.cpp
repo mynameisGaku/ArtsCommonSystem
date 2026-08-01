@@ -2,10 +2,14 @@
 // 配布先だけをinclude/linkしてheaderと実装libraryの整合を確認する。
 #include <acs.h>
 #include <cstdio>
+#include <type_traits>
 
 static_assert(sizeof(acs::FTimerHandle) == 8u, "event タイマーハンドルは 8byte の独立型です");
 static_assert(sizeof(acs::game::FSceneTimerHandle) == 4u, "シーンタイマーハンドルは 4byte の packed 型です");
 static_assert(sizeof(acs::FLogSinkHandle) == 8u, "ログ購読ハンドルは枠番号と世代番号の 8byte 型です");
+static_assert(std::is_same_v<decltype(&acs::TArray<acs::i32>::Remove), bool (acs::TArray<acs::i32>::*)(const acs::i32&) noexcept>);
+static_assert(std::is_same_v<decltype(&acs::TInlineArray<acs::i32, 2u>::Remove), bool (acs::TInlineArray<acs::i32, 2u>::*)(const acs::i32&) noexcept>);
+static_assert(std::is_same_v<decltype(&acs::TObservableArray<acs::i32>::Remove), bool (acs::TObservableArray<acs::i32>::*)(const acs::i32&) noexcept>);
 
 /**
  * 配布ライブラリを経由したシーンタイマー発火を記録する。
@@ -42,12 +46,30 @@ int main()
     TArray<i32> v;
     v.PushBack(10);
     v.PushBack(32);
+    v.PushBack(10);
+    // 最初の一致だけを順序保持で削除できたか。
+    const bool array_remove_ok = v.Remove(10) && v.Size() == 2u && v[0] == 32 && v[1] == 10;
     // containerから得た合計値。
     i32 sum = 0;
     for (usize i = 0; i < v.Size(); ++i)
     {
         sum += v[i];
     }
+
+    // 直接領域を越えた配列でも同じ削除契約を検証する値。
+    TInlineArray<i32, 2u> inline_values;
+    inline_values.PushBack(7);
+    inline_values.PushBack(8);
+    inline_values.PushBack(7);
+    // 動的領域へ移行した配列の削除結果。
+    const bool inline_remove_ok = inline_values.Remove(7) && inline_values.Size() == 2u && inline_values[0] == 8 && inline_values[1] == 7;
+
+    // 通知付き配列の値削除を検証する値。
+    TObservableArray<i32> observable_values;
+    observable_values.PushBack(3);
+    observable_values.PushBack(4);
+    // 値削除後の順序と未一致時の不変結果。
+    const bool observable_remove_ok = observable_values.Remove(3) && !observable_values.Remove(9) && observable_values.Size() == 1u && observable_values.At(0) == 4;
 
     // 距離計算の始点。
     FVec2 a{0.0f, 0.0f};
@@ -96,5 +118,5 @@ int main()
     FLogger::Shutdown();
 
     std::printf("acs.h OK | sum=%d dist=%.1f clamp=%.1f len=%.1f hash=%016llx scene_timer=%u log_sink=%u\n", sum, dist, clamp, len, static_cast<unsigned long long>(linked_hash), scene_timer_fire_count, log_notification_count);
-    return (sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && scene_timer_ok && log_sink_ok) ? 0 : 1;
+    return (array_remove_ok && inline_remove_ok && observable_remove_ok && sum == 42 && dist == 5.0f && clamp == 100.0f && len == 5.0f && linked_hash == kExpectedHash && scene_timer_ok && log_sink_ok) ? 0 : 1;
 }
