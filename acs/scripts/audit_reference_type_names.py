@@ -62,12 +62,41 @@ EXCLUDED_DIRECTORIES = frozenset(
         "x64",
     }
 )
+REFERENCE_DATA_FILE_OVERRIDES = {
+    "editor_abi": "editor.js",
+    "render": "render_core.js",
+}
+
+# 手書きreferenceで既に使っているclass分類だけを明示的に受理する。
+REFERENCE_CLASS_KINDS = frozenset(
+    {
+        "クラス",
+        "クラス / 構造体",
+        "クラス(AAsset 派生)",
+        "クラス(IAssetLoader 派生)",
+        "クラス(static 関数群)",
+        "クラス(静的)",
+        "クラス（静的）",
+        "基底クラス",
+    }
+)
+
+
+def reference_data_file_for_header(header: str) -> str:
+    """header moduleから手書きreference data fileを一意に決める。"""
+
+    module = header.split("/", 1)[0]
+    header_name = header.rsplit("/", 1)[-1]
+    if module == "render" and header_name.startswith(("Diligent", "Dx12")):
+        return "render_backend.js"
+    return REFERENCE_DATA_FILE_OVERRIDES.get(module, f"{module}.js")
 
 # 型役割監査の正規契約からreference掲載先を導出する。
 CANONICAL_SCALAR_REFERENCE_ENTRIES = {
     qualified_name.rsplit("::", 1)[-1]: (
-        header.split("/", 1)[0] + ".js",
+        reference_data_file_for_header(header),
         header,
+        ALIAS_KIND_MARKER,
     )
     for qualified_name, (header, _) in CANONICAL_SCALAR_ALIASES.items()
 }
@@ -75,10 +104,11 @@ CANONICAL_SCALAR_REFERENCE_ENTRIES = {
 # 管理objectと機能classの正規契約からreference掲載先を導出する。
 CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES = {
     qualified_name.rsplit("::", 1)[-1]: (
-        header.split("/", 1)[0] + ".js",
+        reference_data_file_for_header(header),
         header,
+        "インターフェース" if prefix == "I" else "クラス",
     )
-    for qualified_name, (header, kind, _) in (
+    for qualified_name, (header, kind, prefix) in (
         MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES.items()
     )
     if kind == "class"
@@ -86,18 +116,8 @@ CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES = {
 
 # 全hard canonicalをkindとともに一意に検査する。
 CANONICAL_REFERENCE_ENTRIES = {
-    **{
-        name: (expected_file, expected_header, "クラス")
-        for name, (expected_file, expected_header) in (
-            CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES.items()
-        )
-    },
-    **{
-        name: (expected_file, expected_header, ALIAS_KIND_MARKER)
-        for name, (expected_file, expected_header) in (
-            CANONICAL_SCALAR_REFERENCE_ENTRIES.items()
-        )
-    },
+    **CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES,
+    **CANONICAL_SCALAR_REFERENCE_ENTRIES,
 }
 
 # 旧名は対応する正規entry内の互換別名としてだけ掲載する。
@@ -113,7 +133,10 @@ LEGACY_ALIAS_REFERENCE_NAMES = frozenset(
 )
 
 # 基盤最適化で追加した公開型のうち、参照欠落を継続監視する範囲。
-REQUIRED_FOUNDATION_REFERENCE_TYPES = frozenset(
+LEGACY_REFERENCE_SIMPLE_TO_CANONICAL = dict(LEGACY_REFERENCE_ALIASES)
+
+# 基盤最適化時の旧表記を保持し、現行migration registryで正規名へ解決する。
+_REQUIRED_FOUNDATION_REFERENCE_TYPE_NAMES = frozenset(
     {
         "EFileExtensionKind",
         "EFormatAspect",
@@ -148,6 +171,10 @@ REQUIRED_FOUNDATION_REFERENCE_TYPES = frozenset(
         "TRhiPipelineBindPolicy",
         "TTypedPoolAllocator",
     }
+)
+REQUIRED_FOUNDATION_REFERENCE_TYPES = frozenset(
+    LEGACY_REFERENCE_SIMPLE_TO_CANONICAL.get(name, name)
+    for name in _REQUIRED_FOUNDATION_REFERENCE_TYPE_NAMES
 )
 
 
@@ -446,6 +473,44 @@ def entry_display_identifiers(entry: FReferenceEntry) -> Iterable[str]:
             yield match.group(0)
 
 
+def entry_direct_display_identifiers(entry: FReferenceEntry) -> Iterable[str]:
+    """nested型のqualifierを除き、entryが直接掲載する識別子を返す。"""
+
+    for part in entry.display_name.split("/"):
+        stripped = part.strip()
+        match = IDENTIFIER_PATTERN.match(stripped)
+        if match is None or stripped[match.end() :].startswith("::"):
+            continue
+        yield match.group(0)
+
+
+def normalized_header_paths(header: str) -> frozenset[str]:
+    """複合header表記を個別のrepo相対pathへ展開する。"""
+
+    parts = [part.strip() for part in header.split(" / ")]
+    result: set[str] = set()
+    base = ""
+    for part in parts:
+        if not part:
+            continue
+        if "/" in part:
+            base = part.rsplit("/", 1)[0]
+            result.add(part)
+        elif base:
+            result.add(f"{base}/{part}")
+        else:
+            result.add(part)
+    return frozenset(result)
+
+
+def reference_kind_matches(actual: str, expected: str) -> bool:
+    """説明付きkindを保持したままhard canonicalの役割を照合する。"""
+
+    if expected == "クラス":
+        return actual in REFERENCE_CLASS_KINDS
+    return actual == expected
+
+
 def candidate_names(name: str, declared: set[str]) -> list[str]:
     """prefix の追加・置換だけで到達する現行宣言候補を返す。"""
 
@@ -514,7 +579,11 @@ def audit_canonical_type_references(
             if expected_kind == ALIAS_KIND_MARKER
             else "reference-object-class"
         )
-        matches = [entry for entry in entries if entry.display_name == name]
+        matches = [
+            entry
+            for entry in entries
+            if name in entry_direct_display_identifiers(entry)
+        ]
         if not matches:
             violations.append(
                 FReferenceContractViolation(
@@ -542,7 +611,7 @@ def audit_canonical_type_references(
                     f"expected={expected_file}, actual={entry.path.name}",
                 )
             )
-        if entry.header != expected_header:
+        if expected_header not in normalized_header_paths(entry.header):
             violations.append(
                 FReferenceContractViolation(
                     f"{tag_prefix}-header",
@@ -550,7 +619,7 @@ def audit_canonical_type_references(
                     f"expected={expected_header}, actual={entry.header or '<missing>'}",
                 )
             )
-        if entry.kind != expected_kind:
+        if not reference_kind_matches(entry.kind, expected_kind):
             violations.append(
                 FReferenceContractViolation(
                     f"{tag_prefix}-kind",
@@ -560,7 +629,7 @@ def audit_canonical_type_references(
             )
 
     for entry in entries:
-        for name in entry_display_identifiers(entry):
+        for name in entry_direct_display_identifiers(entry):
             if name not in LEGACY_ALIAS_REFERENCE_NAMES:
                 continue
             violations.append(
@@ -599,7 +668,9 @@ def audit_legacy_alias_reference_tokens(
             for source in normalized_sources.values()
         )
         canonical_entries = [
-            entry for entry in entries if entry.display_name == canonical_name
+            entry
+            for entry in entries
+            if canonical_name in entry_direct_display_identifiers(entry)
         ]
         alias_count = sum(
             entry.body.count(exact_alias) for entry in canonical_entries
@@ -637,6 +708,13 @@ def audit_required_references(
 
 def run_self_test() -> int:
     """旧名検出、正名通過、hard canonical・互換alias契約を検証する。"""
+
+    if not reference_kind_matches("クラス(静的)", "クラス"):
+        print("registered reference class kind was rejected", file=sys.stderr)
+        return 1
+    if reference_kind_matches("偽クラス", "クラス"):
+        print("unregistered reference class kind was accepted", file=sys.stderr)
+        return 1
 
     with tempfile.TemporaryDirectory(prefix="acs-reference-audit-") as directory:
         root = Path(directory)
@@ -743,43 +821,10 @@ def run_self_test() -> int:
             )
             return 1
 
+        # 以降はregistry由来のglobal contractだけを検査し、一般名fixtureを分離する。
+        data_path.write_text("", encoding="utf-8")
         event_path = data_root / "event.js"
         ecs_path = data_root / "ecs.js"
-        audio_path = data_root / "audio.js"
-        memory_path = data_root / "memory.js"
-        scripting_path = data_root / "scripting.js"
-        baseline_audio = reference_entry(
-            "CAudioEngine",
-            "クラス",
-            "audio/AudioEngine.h",
-            '  members: [{ sig: "using FAudioEngine = CAudioEngine" }]',
-        )
-        baseline_memory = reference_entry(
-            "AObject",
-            "クラス",
-            "memory/AObject.h",
-            '  members: [{ sig: "using FObject = AObject" }]',
-        )
-        baseline_scripting = reference_entry(
-            "CLuaVm",
-            "クラス",
-            "scripting/LuaVm.h",
-            '  members: [{ sig: "using FLuaVm = CLuaVm" }]',
-        )
-        baseline_event_classes = (
-            reference_entry(
-                "CMessageBroker",
-                "クラス",
-                "event/MessageBroker.h",
-                '  members: [{ sig: "using FMessageBroker = CMessageBroker" }]',
-            )
-            + reference_entry(
-                "CTimerManager",
-                "クラス",
-                "event/TimerManager.h",
-                '  members: [{ sig: "using FTimerManager = CTimerManager" }]',
-            )
-        )
         baseline_event = (
             reference_entry(
                 "FEventTypeId",
@@ -811,19 +856,61 @@ def run_self_test() -> int:
             + reference_entry("TRc&lt;T&gt;", "型エイリアス", "memory/Rc.h")
         )
 
+        canonical_to_legacy = {
+            canonical_name: legacy_name
+            for legacy_name, canonical_name in LEGACY_REFERENCE_ALIASES.items()
+        }
+
+        def canonical_object_entry(
+            canonical_name: str,
+            expected_header: str,
+            expected_kind: str,
+        ) -> str:
+            """registry由来のcanonical class/interface fixtureを返す。"""
+
+            legacy_name = canonical_to_legacy[canonical_name]
+            return reference_entry(
+                canonical_name,
+                expected_kind,
+                expected_header,
+                (
+                    '  members: [{ sig: "using '
+                    f'{legacy_name} = {canonical_name}" }}]'
+                ),
+            )
+
+        object_baseline_by_file: dict[str, str] = {}
+        for canonical_name, (
+            expected_file,
+            expected_header,
+            expected_kind,
+        ) in sorted(CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES.items()):
+            object_baseline_by_file[expected_file] = (
+                object_baseline_by_file.get(expected_file, "")
+                + canonical_object_entry(
+                    canonical_name,
+                    expected_header,
+                    expected_kind,
+                )
+            )
+
         def check_contract(
             event_source: str, ecs_source: str
         ) -> tuple[tuple[str, str, str], ...]:
             """指定したreference fixtureのhard canonical契約違反を返す。"""
 
-            audio_path.write_text(baseline_audio, encoding="utf-8")
-            memory_path.write_text(baseline_memory, encoding="utf-8")
-            scripting_path.write_text(baseline_scripting, encoding="utf-8")
-            event_path.write_text(
-                baseline_event_classes + event_source,
-                encoding="utf-8",
+            wrong_path = data_root / "wrong.js"
+            if wrong_path.exists():
+                wrong_path.unlink()
+            baseline_by_file = dict(object_baseline_by_file)
+            baseline_by_file["event.js"] = (
+                baseline_by_file.get("event.js", "") + event_source
             )
-            ecs_path.write_text(ecs_source, encoding="utf-8")
+            baseline_by_file["ecs.js"] = (
+                baseline_by_file.get("ecs.js", "") + ecs_source
+            )
+            for file_name, source in sorted(baseline_by_file.items()):
+                (data_root / file_name).write_text(source, encoding="utf-8")
             return tuple(
                 (violation.tag, violation.name, violation.detail)
                 for violation in audit_canonical_type_references(
@@ -831,8 +918,13 @@ def run_self_test() -> int:
                 )
             )
 
-        if check_contract(baseline_event, baseline_ecs):
-            print("reference canonical type baseline did not pass", file=sys.stderr)
+        baseline_contract_violations = check_contract(baseline_event, baseline_ecs)
+        if baseline_contract_violations:
+            print(
+                "reference canonical type baseline did not pass: "
+                f"{baseline_contract_violations!r}",
+                file=sys.stderr,
+            )
             return 1
 
         mutations: tuple[
@@ -1042,49 +1134,31 @@ def run_self_test() -> int:
                     )
                     return 1
 
-        hard_fixtures = (
+        hard_fixtures = tuple(
             (
-                "AObject",
-                memory_path,
-                baseline_memory,
-                "memory/AObject.h",
-            ),
-            (
-                "CAudioEngine",
-                audio_path,
-                baseline_audio,
-                "audio/AudioEngine.h",
-            ),
-            (
-                "CLuaVm",
-                scripting_path,
-                baseline_scripting,
-                "scripting/LuaVm.h",
-            ),
-            (
-                "CMessageBroker",
-                event_path,
-                reference_entry(
-                    "CMessageBroker",
-                    "クラス",
-                    "event/MessageBroker.h",
-                    '  members: [{ sig: "using FMessageBroker = CMessageBroker" }]',
+                canonical_name,
+                data_root / expected_file,
+                canonical_object_entry(
+                    canonical_name,
+                    expected_header,
+                    expected_kind,
                 ),
-                "event/MessageBroker.h",
-            ),
-            (
-                "CTimerManager",
-                event_path,
-                reference_entry(
-                    "CTimerManager",
-                    "クラス",
-                    "event/TimerManager.h",
-                    '  members: [{ sig: "using FTimerManager = CTimerManager" }]',
-                ),
-                "event/TimerManager.h",
-            ),
+                expected_header,
+                expected_kind,
+            )
+            for canonical_name, (
+                expected_file,
+                expected_header,
+                expected_kind,
+            ) in sorted(CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES.items())
         )
-        for canonical_name, canonical_path, canonical_entry, expected_header in hard_fixtures:
+        for (
+            canonical_name,
+            canonical_path,
+            canonical_entry,
+            expected_header,
+            expected_kind,
+        ) in hard_fixtures:
             # 各mutationの前に正規fixtureへ戻す。
             if check_contract(baseline_event, baseline_ecs):
                 print("reference object/class fixture restore failed", file=sys.stderr)
@@ -1114,7 +1188,11 @@ def run_self_test() -> int:
                 ),
                 (
                     "wrong header",
-                    canonical_source.replace(expected_header, wrong_header, 1),
+                    canonical_source.replace(
+                        canonical_entry,
+                        canonical_entry.replace(expected_header, wrong_header, 1),
+                        1,
+                    ),
                     canonical_path,
                     (
                         "reference-object-class-header",
@@ -1127,7 +1205,7 @@ def run_self_test() -> int:
                     canonical_source.replace(
                         canonical_entry,
                         canonical_entry.replace(
-                            'kind: "クラス"', 'kind: "構造体"', 1
+                            f'kind: "{expected_kind}"', 'kind: "構造体"', 1
                         ),
                         1,
                     ),
@@ -1135,7 +1213,7 @@ def run_self_test() -> int:
                     (
                         "reference-object-class-kind",
                         canonical_name,
-                        "expected=クラス, actual=構造体",
+                        f"expected={expected_kind}, actual=構造体",
                     ),
                 ),
             )
@@ -1166,10 +1244,8 @@ def run_self_test() -> int:
                 canonical_source.replace(canonical_entry, "", 1),
                 encoding="utf-8",
             )
-            ecs_path.write_text(
-                baseline_ecs + canonical_entry,
-                encoding="utf-8",
-            )
+            wrong_path = data_root / "wrong.js"
+            wrong_path.write_text(canonical_entry, encoding="utf-8")
             actual_file_violations = tuple(
                 (violation.tag, violation.name, violation.detail)
                 for violation in audit_canonical_type_references(
@@ -1183,7 +1259,7 @@ def run_self_test() -> int:
                     (
                         "expected="
                         f"{CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES[canonical_name][0]}, "
-                        "actual=ecs.js"
+                        "actual=wrong.js"
                     ),
                 ),
             )

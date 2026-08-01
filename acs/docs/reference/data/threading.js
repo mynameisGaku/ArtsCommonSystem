@@ -122,7 +122,7 @@ ACS_REF.modules.push({
       name: "FThread",
       kind: "クラス", header: "threading/Thread.h",
       summary: "新しい<t>スレッド</t>を起動して関数を別並列で走らせる <t>RAII</t> ハンドル(std::thread 相当)。例外を投げず、起動失敗は <t>Result</t> で返す。コピー不可・<t>ムーブ</t>可。",
-      when: "重い処理(読み込み・計算)をメインスレッドと別に走らせたい時。多数の小タスクを捌くなら <code>FThread</code> を直接作らず <t>FThreadPool</t> を使う方が効率的。",
+      when: "重い処理(読み込み・計算)をメインスレッドと別に走らせたい時。多数の小タスクを捌くなら <code>FThread</code> を直接作らず <t>CThreadPool</t> を使う方が効率的。",
       sample: "void Work(void* user) { /* 別スレッドで走る */ }\nauto r = FThread::Spawn(&Work, &ctx);\nif (r.IsOk()) {\n    FThread t = static_cast&lt;FThread&amp;&amp;&gt;(r.Value());\n    t.Join();   // 終わるまで待つ\n}",
       members: [
         { sig: "static TResult<FThread> Spawn(ThreadEntry entry, void* user, const FThreadConfig& cfg = {})", ret: "スレッド or エラー", desc: "<code>entry(user)</code> を別スレッドで起動する。失敗時は Err。", when: "スレッドを 1 本立ち上げる時。" },
@@ -150,7 +150,7 @@ ACS_REF.modules.push({
       name: "SleepMs / Yield / HardwareConcurrency",
       kind: "関数", header: "threading/Thread.h",
       summary: "現在スレッドを操作するフリー関数。<b>SleepMs</b>=指定ミリ秒眠る。<b>Yield</b>=同優先度の他スレッドに実行を譲る。<b>HardwareConcurrency</b>=論理 CPU 数を返す。",
-      when: "SleepMs はポーリング間隔の調整、Yield は短い待ち、HardwareConcurrency は並列数の決定(<code>FThreadPool</code> の既定 worker 数等)に。",
+      when: "SleepMs はポーリング間隔の調整、Yield は短い待ち、HardwareConcurrency は並列数の決定(<code>CThreadPool</code> の既定 worker 数等)に。",
       sample: "SleepMs(16);                     // ~1 フレーム眠る\nu32 cpus = HardwareConcurrency(); // 例: 8\nFThreadPool::Init(cpus);",
       members: [
         { sig: "void SleepMs(u32 ms)", desc: "指定ミリ秒スリープする。" },
@@ -189,11 +189,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FThreadPool",
+      name: "CThreadPool",
       kind: "クラス", header: "threading/ThreadPool.h",
       summary: "あらかじめ用意したワーカー<t>スレッド</t>群に小さなタスクを投げて並列実行させる<t>スレッドプール</t>。<t>ワークスチール</t>方式で、暇なワーカーが忙しいワーカーの仕事を奪い負荷を均す。全 static の単一プール。ParallelFor は 32 分割まで stack、超過分は再利用 block を使う。内部では実行制御・タスク流量・API寿命の共有値を別cache lineへ分け、投入とworker loopの干渉を抑える。",
-      when: "数百〜数千の独立した小タスク(描画準備・更新・計算)を CPU 全コアで捌きたい時。<code>FThread</code> を毎回作るより遥かに軽い。依存関係があるなら <t>FJobGraph</t>。",
-      sample: "FThreadPool::Init();                 // 論理CPU数でワーカー起動\nFCompletionCounter done;\nFTask t{ &MyTask, &ctx, &done };\nFThreadPool::Submit(t);              // 投入(counter は自動 Add)\nFThreadPool::Wait(done);            // 完了待ち(待機中も手伝う)\nFThreadPool::Shutdown();",
+      when: "数百〜数千の独立した小タスク(描画準備・更新・計算)を CPU 全コアで捌きたい時。<code>FThread</code> を毎回作るより遥かに軽い。依存関係があるなら <t>CJobGraph</t>。",
+      sample: "CThreadPool::Init();                 // 論理CPU数でワーカー起動\nFCompletionCounter done;\nFTask t{ &MyTask, &ctx, &done };\nFThreadPool::Submit(t);              // 投入(counter は自動 Add)\nFThreadPool::Wait(done);            // 完了待ち(待機中も手伝う)\nFThreadPool::Shutdown();",
       members: [
         { sig: "static TResult<void> Init(u32 worker_count = 0)", ret: "成否", desc: "プールを起動する。<code>0</code> で論理 CPU 数を採用。二重 Init はエラー。" },
         { sig: "static void Shutdown()", desc: "全ワーカーを停止しプールを片付ける。" },
@@ -203,13 +203,14 @@ ACS_REF.modules.push({
         { sig: "static constexpr u32 kNotAWorker = 0xFFFFFFFF", desc: "<code>CurrentWorkerIndex()</code> がワーカー外スレッドで返す番兵値。" },
         { sig: "static TResult<void> Submit(const FTask& t)", ret: "成否", desc: "タスクを投入する。<code>t.counter</code> が非 null なら自動で <code>Add(1)</code> される。", when: "1 個のタスクを並列キューに積む時。" },
         { sig: "static void Wait(FCompletionCounter& counter)", desc: "<code>counter</code> が 0 になるまで待つ。待機中の呼び出しスレッドも仕事を手伝う(スティーリング参加)。" },
-        { sig: "static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, body, void* user)", ret: "成否", desc: "<code>[begin, end)</code> を <code>grain</code> 個ずつに分割して並列実行し、全部終わるまで待つ。", when: "配列を範囲分割して並列処理したい時の定番。", sample: "FThreadPool::ParallelFor(0, n, 64,\n  [](u32 i, u32 w, void* u){ /* i 番目を処理 */ }, &ctx);" }
+        { sig: "static TResult<void> ParallelFor(u32 begin, u32 end, u32 grain, body, void* user)", ret: "成否", desc: "<code>[begin, end)</code> を <code>grain</code> 個ずつに分割して並列実行し、全部終わるまで待つ。", when: "配列を範囲分割して並列処理したい時の定番。", sample: "CThreadPool::ParallelFor(0, n, 64,\n  [](u32 i, u32 w, void* u){ /* i 番目を処理 */ }, &ctx);" },
+        { sig: "using FThreadPool = CThreadPool", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CThreadPool</code> を使う。" }
       ]
     },
     {
       name: "FParallelForDiagnostics",
       kind: "構造体", header: "threading/ParallelForDiagnostics.h",
-      summary: "<code>FThreadPool::ParallelFor</code> が一時 context をどこへ置いたかと、固定 block の同時使用量を返す 40 byte の値 snapshot。",
+      summary: "<code>CThreadPool::ParallelFor</code> が一時 context をどこへ置いたかと、固定 block の同時使用量を返す 40 byte の値 snapshot。",
       when: "分割数や同時 ParallelFor 数に対して固定 pool が足りているか、heap 退避が起きていないかを profiler や性能 test で確認する時。",
       members: [
         { sig: "u64 inline_calls", desc: "32 分割以下で stack だけを使った呼び出し数。" },
@@ -222,8 +223,8 @@ ACS_REF.modules.push({
     {
       name: "FTask / TaskFn",
       kind: "構造体 / 型エイリアス", header: "threading/ThreadPool.h",
-      summary: "<t>FThreadPool</t> に投げる 1 件の仕事。<b>TaskFn</b>=タスク本体の関数型 <code>void(*)(void* user, u32 worker_index)</code>。<b>FTask</b>=その関数・ユーザーデータ・完了通知先をまとめた <t>POD</t>。",
-      when: "<code>FThreadPool::Submit</code> に渡すために組み立てる。<code>counter</code> を付けると <code>Wait</code> で完了を待てる。",
+      summary: "<t>CThreadPool</t> に投げる 1 件の仕事。<b>TaskFn</b>=タスク本体の関数型 <code>void(*)(void* user, u32 worker_index)</code>。<b>FTask</b>=その関数・ユーザーデータ・完了通知先をまとめた <t>POD</t>。",
+      when: "<code>CThreadPool::Submit</code> に渡すために組み立てる。<code>counter</code> を付けると <code>Wait</code> で完了を待てる。",
       sample: "void MyTask(void* user, u32 worker) { /* 実処理 */ }\nFCompletionCounter done;\nFTask t;\nt.fn      = &MyTask;\nt.user    = &ctx;\nt.counter = &done;   // 任意(null 可)\nFThreadPool::Submit(t);",
       members: [
         { sig: "using TaskFn = void (*)(void* user, u32 worker_index)", desc: "実行される関数。<code>worker_index</code> は実行ワーカーの番号 0..N-1。" },
@@ -236,8 +237,8 @@ ACS_REF.modules.push({
       name: "FCompletionCounter",
       kind: "クラス", header: "threading/ThreadPool.h",
       summary: "投げたタスク群が『あと何個残っているか』を数える<t>アトミック</t>カウンタ。0 になったら全完了。<code>Done</code> は 0 で<b>飽和</b>し、呼びすぎても下にあふれない(待ちがハングしない)。コピー不可。",
-      when: "複数タスクをまとめて投入し、全部終わるのを <code>FThreadPool::Wait</code> で待ちたい時の合図役。",
-      sample: "FCompletionCounter c;\nfor (auto& job : jobs)\n    FThreadPool::Submit(FTask{ job.fn, job.user, &c }); // 自動 Add\nFThreadPool::Wait(c);  // 全部終わるまで(自分も手伝いつつ)待つ",
+      when: "複数タスクをまとめて投入し、全部終わるのを <code>CThreadPool::Wait</code> で待ちたい時の合図役。",
+      sample: "FCompletionCounter c;\nfor (auto& job : jobs)\n    CThreadPool::Submit(FTask{ job.fn, job.user, &c }); // 自動 Add\nFThreadPool::Wait(c);  // 全部終わるまで(自分も手伝いつつ)待つ",
       members: [
         { sig: "explicit FCompletionCounter(u32 initial)", desc: "初期残数を指定して作る(既定は 0)。" },
         { sig: "void Add(u32 n = 1)", desc: "残数を <code>n</code> 増やす(タスク投入時)。<code>Submit</code> 経由なら自動。" },
@@ -247,19 +248,20 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FJobGraph",
+      name: "CJobGraph",
       kind: "クラス", header: "threading/JobGraph.h",
-      summary: "<b>依存関係のある</b>タスク(ジョブ)を並べて並列実行するスケジューラ。『B は A の後』のような順序を指定すると、依存が解けたジョブから自動的に <t>FThreadPool</t> 上で走り出す。Submit 冒頭で全 job の完了数を 1 回だけ予約し、依存解決ごとの加算を避ける。",
+      summary: "<b>依存関係のある</b>タスク(ジョブ)を並べて並列実行するスケジューラ。『B は A の後』のような順序を指定すると、依存が解けたジョブから自動的に <t>CThreadPool</t> 上で走り出す。Submit 冒頭で全 job の完了数を 1 回だけ予約し、依存解決ごとの加算を避ける。",
       when: "読み込み→構築→GPU アップロードのように、一部は並列・一部は順序ありの処理パイプラインを組みたい時。",
-      sample: "FJobGraph g;\nauto loadA = g.Add(&LoadA, &ctx);\nauto loadB = g.Add(&LoadB, &ctx);\nauto build = g.Add(&Build, &ctx);\nbuild.DependOn(loadA);   // loadA,loadB 完了後に build\nbuild.DependOn(loadB);\ng.Submit();              // 依存0のジョブから開始\ng.Wait();                // 全完了まで待つ",
+      sample: "CJobGraph g;\nauto loadA = g.Add(&LoadA, &ctx);\nauto loadB = g.Add(&LoadB, &ctx);\nauto build = g.Add(&Build, &ctx);\nbuild.DependOn(loadA);   // loadA,loadB 完了後に build\nbuild.DependOn(loadB);\ng.Submit();              // 依存0のジョブから開始\ng.Wait();                // 全完了まで待つ",
       members: [
         { sig: "FJobHandle Add(JobFn fn, void* user)", ret: "ジョブのハンドル", desc: "ジョブを 1 件追加する。<code>Submit</code> より前にだけ呼べる。", when: "グラフを組み立てる段階。" },
         { sig: "void AddDependency(FJobHandle upstream, FJobHandle downstream)", desc: "<code>upstream</code> が終わるまで <code>downstream</code> を走らせない依存を張る(<code>FJobHandle::DependOn</code> と同じ)。" },
-        { sig: "TResult<void> Submit()", ret: "成否", desc: "全 job の完了数を一括予約してから、依存 0 の job を <code>FThreadPool</code> に投入する。未投入・依存待ち job も先に残数へ含むため、待機側へ一時的な 0 を公開しない。投入後はグラフ変更不可。" },
+        { sig: "TResult<void> Submit()", ret: "成否", desc: "全 job の完了数を一括予約してから、依存 0 の job を <code>CThreadPool</code> に投入する。未投入・依存待ち job も先に残数へ含むため、待機側へ一時的な 0 を公開しない。投入後はグラフ変更不可。" },
         { sig: "void Wait()", desc: "全ジョブが終わるまで待つ(待機中もスティーリングに参加)。" },
         { sig: "void Reset()", desc: "依存関係はそのままに残カウントを初期値へ戻し、同じグラフを再実行できるようにする。" },
         { sig: "u32 JobCount() const", ret: "ジョブ数", desc: "グラフに登録されたジョブの数。" },
-        { sig: "FJobGraphCompletionDiagnostics CompletionDiagnostics() const", ret: "現在予約", desc: "現在 Submit 済みなら <code>{1, JobCount()}</code>、未 Submit または Reset 後なら <code>{0, 0}</code>。既存 <code>FJobGraphDiagnostics</code> の 40B ABI を変えない独立値型。" }
+        { sig: "FJobGraphCompletionDiagnostics CompletionDiagnostics() const", ret: "現在予約", desc: "現在 Submit 済みなら <code>{1, JobCount()}</code>、未 Submit または Reset 後なら <code>{0, 0}</code>。既存 <code>FJobGraphDiagnostics</code> の 40B ABI を変えない独立値型。" },
+        { sig: "using FJobGraph = CJobGraph", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CJobGraph</code> を使う。" }
       ]
     },
     {
@@ -276,11 +278,11 @@ ACS_REF.modules.push({
     {
       name: "FJobHandle / JobFn",
       kind: "構造体 / 型エイリアス", header: "threading/JobGraph.h",
-      summary: "<b>FJobHandle</b>=<t>FJobGraph</t> に追加したジョブを指す軽い参照で、これ越しに依存関係を張る。<b>JobFn</b>=ジョブ本体の関数型 <code>void(*)(void* user, u32 worker_index)</code>(<code>TaskFn</code> と同形式)。",
-      when: "<code>FJobGraph::Add</code> の戻り値として受け取り、<code>DependOn</code> で順序を組む時。",
+      summary: "<b>FJobHandle</b>=<t>CJobGraph</t> に追加したジョブを指す軽い参照で、これ越しに依存関係を張る。<b>JobFn</b>=ジョブ本体の関数型 <code>void(*)(void* user, u32 worker_index)</code>(<code>TaskFn</code> と同形式)。",
+      when: "<code>CJobGraph::Add</code> の戻り値として受け取り、<code>DependOn</code> で順序を組む時。",
       sample: "auto build  = g.Add(&Build,  &ctx);\nauto upload = g.Add(&Upload, &ctx);\nupload.DependOn(build);   // build → upload の順\nif (build.IsValid()) { /* 追加成功 */ }",
       members: [
-        { sig: "FJobGraph* graph", desc: "このハンドルが属するグラフ。" },
+        { sig: "CJobGraph* graph", desc: "このハンドルが属するグラフ。" },
         { sig: "u32 index", desc: "グラフ内のジョブ番号。" },
         { sig: "bool IsValid() const", ret: "有効か", desc: "正しいジョブを指していれば true。" },
         { sig: "void DependOn(FJobHandle upstream)", desc: "<code>upstream</code> が完了するまでこのジョブを走らせない、という依存を張る。" }
@@ -294,7 +296,7 @@ Object.assign(ACS_REF.glossary, {
   "排他": "あるデータを一度に 1 スレッドだけが触れるように制限すること。<t>FMutex</t> や<t>ロック</t>で実現する。",
   "ロック": "データを守るための『鍵』。取った人だけが対象を触れ、他は解放されるまで待つ。",
   "スレッド": "1 つのプログラム内で同時に進む実行の流れ。複数あると処理を並列にできる。",
-  "ジョブ": "並列実行する小さな仕事の単位。依存関係を付けて <t>FJobGraph</t> で順序立てて走らせられる。",
+  "ジョブ": "並列実行する小さな仕事の単位。依存関係を付けて <t>CJobGraph</t> で順序立てて走らせられる。",
   "条件変数": "ある条件が満たされるまでスレッドを眠らせ、別スレッドの通知で起こす待ち合わせの仕組み。",
   "スレッドプール": "ワーカー<t>スレッド</t>を前もって用意し、タスクを投げて使い回す仕組み。毎回スレッドを作るより軽い。",
   "ワークスチール": "暇なワーカーが忙しいワーカーの未処理タスクを奪って実行し、全体の負荷を均す方式。",
@@ -306,6 +308,6 @@ Object.assign(ACS_REF.glossary, {
   "TAtomic": "ACS のアトミック値型(std::atomic 相当)。ロックなしで安全に共有できる小さな値。",
   "FMutex": "一度に 1 スレッドだけ通す<t>排他</t><t>ロック</t>(std::mutex 相当)。",
   "FRwLock": "読み手は同時に複数、書き手は 1 人だけ通すロック(std::shared_mutex 相当)。",
-  "FThreadPool": "タスクを並列実行する<t>スレッドプール</t>(<t>ワークスチール</t>方式)。",
-  "FJobGraph": "依存関係付きの<t>ジョブ</t>を並列実行するスケジューラ。"
+  "CThreadPool": "タスクを並列実行する<t>スレッドプール</t>(<t>ワークスチール</t>方式)。",
+  "CJobGraph": "依存関係付きの<t>ジョブ</t>を並列実行するスケジューラ。"
 });

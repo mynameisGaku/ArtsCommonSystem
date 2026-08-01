@@ -8,15 +8,16 @@ ACS_REF.modules.push({
   blurb: "PC 同士を通信でつなぐための土台。<t>TCP</t>(確実に届ける接続)と <t>UDP</t>(速いが届く保証なし)の<t>ソケット</t>を、Windows の <t>WinSock</t> をくるんだ薄い<t>API</t>として提供します。マルチプレイや簡単なサーバ通信の入口です。",
   types: [
     {
-      name: "FNetwork",
+      name: "CNetwork",
       kind: "クラス", header: "network/Network.h",
       summary: "ネットワーク機能全体の<b>初期化／終了</b>をまとめる入口(<t>WinSock</t> の <code>WSAStartup</code> ラッパ)。<t>ソケット</t>を使う前に一度 <code>Init()</code> を呼ぶ必要がある。",
-      when: "アプリ起動時に一度 <code>FNetwork::Init()</code>。<t>FApplication</t> はネットワークを自動初期化しないので、自分で明示的に呼ぶこと。終了時に <code>Shutdown()</code>。",
-      sample: "if (acs::FNetwork::Init().IsErr()) {\n    // 初期化失敗。以降の通信はできない\n    return;\n}\n// ...ソケットを使った通信...\nacs::FNetwork::Shutdown();",
+      when: "アプリ起動時に一度 <code>CNetwork::Init()</code>。<t>FApplication</t> はネットワークを自動初期化しないので、自分で明示的に呼ぶこと。終了時に <code>Shutdown()</code>。",
+      sample: "if (acs::CNetwork::Init().IsErr()) {\n    // 初期化失敗。以降の通信はできない\n    return;\n}\n// ...ソケットを使った通信...\nacs::CNetwork::Shutdown();",
       members: [
         { sig: "static TResult<void> Init()", ret: "成功 or エラー", desc: "<t>WinSock</t> を初期化する。多重に呼んでも安全(内部で<t>参照カウント</t>)。", when: "ソケット系の型を作る前に必ず。" },
         { sig: "static void Shutdown()", desc: "ネットワークを解放する。<code>Init()</code> と対で呼ぶ。" },
-        { sig: "static bool IsInitialized()", ret: "初期化済みか", desc: "すでに <code>Init()</code> 済みなら true。" }
+        { sig: "static bool IsInitialized()", ret: "初期化済みか", desc: "すでに <code>Init()</code> 済みなら true。" },
+        { sig: "using FNetwork = CNetwork", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CNetwork</code> を使う。" }
       ]
     },
     {
@@ -88,7 +89,7 @@ Object.assign(ACS_REF.glossary, {
   "ソケット": "ネットワーク通信の出入口となる OS の口。ここを通じてデータを送受信する。",
   "TCP": "相手と接続を張り、順序どおり・確実にデータを届ける通信方式。取りこぼしが許されない用途向け。関連語 <t>UDP</t>。",
   "UDP": "接続を張らず<t>データグラム</t>を 1 通ずつ送る通信方式。速いが到達・順序は保証されない。関連語 <t>TCP</t>。",
-  "WinSock": "Windows のソケット通信ライブラリ。ACS の <t>FNetwork</t> はこれを薄くくるんでいる。",
+  "WinSock": "Windows のソケット通信ライブラリ。ACS の <t>CNetwork</t> はこれを薄くくるんでいる。",
   "IPv4": "<code>192.168.0.1</code> のような 4 数値で表す主流のネットワークアドレス形式。",
   "IPv6": "IPv4 を拡張した新しいアドレス形式。ACS v1 では未対応。",
   "データグラム": "UDP で送受信する 1 通分のデータの塊。それ単体で届き、順序は保証されない。",

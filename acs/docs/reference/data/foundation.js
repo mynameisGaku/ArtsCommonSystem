@@ -146,7 +146,7 @@ ACS_REF.modules.push({
       kind: "関数", header: "foundation/Panic.h",
       summary: "<b>最終エラー経路</b>。場所・失敗式・メッセージ・<t>スタックトレース</t>を出力した後、プロセスを終了させる（戻らない）。通常は直接呼ばず <t>アサート</t>経由で呼ばれる。",
       when: "致命的でこれ以上続行できない時。<code>SetPanicHook</code> でパニック直前の処理（ログのフラッシュ、クラッシュレポート保存）を差し込める。",
-      sample: "// パニック直前にログを書き出す\nSetPanicHook([](void*, const char* msg, acs::usize) {\n    FLogger::Flush();\n}, nullptr);\n// 直接呼ぶことは稀（普通は ACS_ASSERT 経由）",
+      sample: "// パニック直前にログを書き出す\nSetPanicHook([](void*, const char* msg, acs::usize) {\n    CLogger::Flush();\n}, nullptr);\n// 直接呼ぶことは稀（普通は ACS_ASSERT 経由）",
       members: [
         { sig: "void FPanic(FSourceLoc, const char* expr, const char* fmt, ...)", desc: "パニックを発生させ、出力後にプロセス終了する。<code>[[noreturn]]</code> なので戻らない。" },
         { sig: "void SetPanicHook(PanicHook hook, void* user)", desc: "パニック直前に呼ぶフックを登録する。スレッドセーフ。", when: "クラッシュ時にログをフラッシュしたい等。" },
@@ -154,7 +154,7 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FLogger",
+      name: "CLogger",
       kind: "クラス", header: "foundation/Log.h",
       summary: "<b>非同期でスレッド安全</b>なロガー。<code>printf</code> 互換の書式で記録でき、専用の書き込みスレッドがファイル/コンソールと登録済み通知先へ出す。通常は <code>ACS_LOG_*</code> マクロ経由で使う。",
       when: "デバッグ出力・診断ログを残したい時。<code>Init</code> で一度設定し、各所では <code>ACS_LOG_INFO</code> 等を呼ぶだけ。",
@@ -171,15 +171,16 @@ ACS_REF.modules.push({
         { sig: "static bool TryCopySinkHandles(FLogSinkHandle* output, u32 capacity, u32& count)", desc: "共有 lock 内の登録順 snapshot を一括コピーする。0件でも output は非 null。容量・整列・桁あふれ・output と count のbyte重複が無効なら両出力を変更しない。" },
         { sig: "static void SetMinSeverity(ELogSeverity s)", desc: "出力する最小レベルを実行中に変更する（スレッドセーフ）。" },
         { sig: "static bool Enabled(ELogSeverity s)", desc: "そのレベルが出力対象かを返す（マクロが内部で使う）。" },
-        { sig: "static u64 DroppedCount()", desc: "リング満杯で破棄したレコード総数。負荷時の取りこぼし確認用。" }
+        { sig: "static u64 DroppedCount()", desc: "リング満杯で破棄したレコード総数。負荷時の取りこぼし確認用。" },
+        { sig: "using FLogger = CLogger", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLogger</code> を使う。" }
       ]
     },
     {
       name: "FLogSinkHandle / FLogSinkSubscription",
       kind: "構造体 / クラス", header: "foundation/LogSinkHandle.h / foundation/LogSinkSubscription.h",
       summary: "複数利用者向けログ通知先の世代付き識別子と、破棄時に解除する移動専用所有権。",
-      when: "エディタ、開発用表示、外部診断など複数の利用者が同じ <t>FLogger</t> のログを受け取る時。",
-      sample: "auto subscription = FLogger::SubscribeSinkOwned(\n    [](ELogSeverity severity, const char* message, void* user) noexcept {\n        ConsumeLog(user, severity, message);\n    }, context);\n// subscription の破棄時に自動解除",
+      when: "エディタ、開発用表示、外部診断など複数の利用者が同じ <t>CLogger</t> のログを受け取る時。",
+      sample: "auto subscription = CLogger::SubscribeSinkOwned(\n    [](ELogSeverity severity, const char* message, void* user) noexcept {\n        ConsumeLog(user, severity, message);\n    }, context);\n// subscription の破棄時に自動解除",
       members: [
         { sig: "bool FLogSinkHandle::IsValid() const", desc: "枠番号と世代番号が有効範囲内かを返す。" },
         { sig: "bool FLogSinkSubscription::IsValid() const", desc: "保持中の購読が現在も有効かを返す。" },
@@ -190,7 +191,7 @@ ACS_REF.modules.push({
     {
       name: "ACS_LOG / ACS_LOG_* マクロ",
       kind: "マクロ", header: "foundation/Log.h",
-      summary: "<t>FLogger</t> に 1 行書くための入口。レベル別のショートカットがあり、<b>無効レベルなら書式評価ごと省く</b>ので軽い。発生位置は自動で付く。",
+      summary: "<t>CLogger</t> に 1 行書くための入口。レベル別のショートカットがあり、<b>無効レベルなら書式評価ごと省く</b>ので軽い。発生位置は自動で付く。",
       when: "コードのあちこちでログを出す時。普段はこのマクロだけ使えばよい。",
       sample: "ACS_LOG_TRACE(\"x=%f\", x);\nACS_LOG_INFO(\"loaded %u assets\", n);\nACS_LOG_ERROR(\"open failed: %s\", path);",
       members: [
@@ -204,7 +205,7 @@ ACS_REF.modules.push({
       kind: "列挙(enum)", header: "foundation/Log.h",
       summary: "ログの<b>重要度レベル</b>（基底 <code>u8</code>）。数値が小さいほど詳細。最小レベル以上のものだけが出力される。",
       when: "<code>FLogConfig::min_severity</code> や <code>SetMinSeverity</code> でしきい値を決める時。",
-      sample: "FLogger::SetMinSeverity(ELogSeverity::Warn);\n// → Warn / Error / Fatal だけ出力、Info 以下は無視\nconst char* lv = ToString(ELogSeverity::Error);  // \"ERROR\"",
+      sample: "CLogger::SetMinSeverity(ELogSeverity::Warn);\n// → Warn / Error / Fatal だけ出力、Info 以下は無視\nconst char* lv = ToString(ELogSeverity::Error);  // \"ERROR\"",
       members: [
         { sig: "Trace=0 / Debug=1 / Info=2", desc: "詳細トレース / デバッグ / 通常情報。" },
         { sig: "Warn=3 / Error=4 / Fatal=5", desc: "警告 / エラー / 致命エラー。" },
@@ -215,8 +216,8 @@ ACS_REF.modules.push({
     {
       name: "FLogConfig",
       kind: "構造体", header: "foundation/Log.h",
-      summary: "<t>FLogger</t> の初期設定。出力先（ファイル/コンソール/デバッグ出力）と最小レベル、内部リングの長さを指定する。",
-      when: "<code>FLogger::Init</code> に渡す。ゲーム起動時に一度だけ作る。",
+      summary: "<t>CLogger</t> の初期設定。出力先（ファイル/コンソール/デバッグ出力）と最小レベル、内部リングの長さを指定する。",
+      when: "<code>CLogger::Init</code> に渡す。ゲーム起動時に一度だけ作る。",
       sample: "FLogConfig cfg;\ncfg.file_path = L\"game.log\";       // nullptr ならファイル無効\ncfg.min_severity = ELogSeverity::Info;\ncfg.console = true;\nFLogger::Init(cfg);",
       members: [
         { sig: "const wchar_t* file_path", desc: "出力ファイルのパス。<code>nullptr</code> ならファイル出力なし。" },
@@ -363,7 +364,7 @@ Object.assign(ACS_REF.glossary, {
   "TResult": "成功値かエラー値の<b>どちらか一方</b>を持つ型。<t>例外</t>を使わずに失敗を戻り値で伝える（既定のエラー型は <t>FErrorCode</t>）。",
   "FErrorCode": "ACS の標準エラー型。カテゴリ・サブコード・OS エラー値・メッセージ・<t>発生位置</t>をまとめて持つ <t>POD</t>。",
   "FPanic": "回復不能な状況でログとスタックトレースを出してプロセスを終了させる最終経路。通常は<t>アサート</t>から呼ばれる。",
-  "FLogger": "非同期でスレッド安全なログ出力クラス。<code>ACS_LOG_*</code> マクロ経由で使う。",
+  "CLogger": "非同期でスレッド安全なログ出力クラス。<code>ACS_LOG_*</code> マクロ経由で使う。",
   "例外": "C++ の <code>throw</code>/<code>catch</code> による失敗伝搬。ACS は性能と単純さのため使わず <t>TResult</t> を選ぶ。",
   "アサート": "条件が偽ならその場でプログラムを止めてバグを知らせる仕組み（ACS_ASSERT 等）。",
   "POD": "Plain Old Data。コンストラクタや仮想関数を持たない単純な構造体で、メモリコピーで安全に扱える型。",

@@ -21,7 +21,8 @@ ACS_REF.modules.push({
         { sig: "const FVec2* Outline() const / u32 OutlineCount() const", ret: "輪郭の頂点配列と個数", desc: "簡略化された<t>輪郭</t>の頂点列。凹んだ形にも沿う、見た目に忠実な形。" },
         { sig: "FAabb2 Bounds() const", ret: "外接矩形", desc: "形を囲む 2D の<t>AABB</t>(軸並行の最小矩形)。粗い当たり判定の前段に使える。" },
         { sig: "void Clear()", desc: "生成した形状をすべて捨てて空に戻す。" },
-        { sig: "static constexpr u32 kMaxVertices = 256", desc: "凸包・輪郭それぞれの頂点数の上限(定数)。" }
+        { sig: "static constexpr u32 kMaxVertices = 256", desc: "凸包・輪郭それぞれの頂点数の上限(定数)。" },
+        { sig: "using FSpriteCollider = CSpriteCollider", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSpriteCollider</code> を使う。" }
       ]
     },
     {
@@ -31,13 +32,14 @@ ACS_REF.modules.push({
       when: "床・壁・地形などのメッシュに対して、視線・弾・マウスのレイがどこに当たるかを調べたい時。レンダリング用メッシュをそのまま当たり判定に流用できる。",
       sample: "acs::CMeshCollider col;\ncol.BuildFromMesh(*Primitive::MakeCube(2.0f));\nacs::FRay3 ray{ {0,5,0}, {0,-1,0} };\nacs::FRayHit3 h = col.Raycast(ray);\nif (h.hit) Place(h.point, h.normal);  // 当たった位置と面の向き",
       members: [
-        { sig: "TResult<void> BuildFromMesh(const FMeshAsset& mesh)", ret: "成功/失敗(<t>Result</t>)", desc: "レンダリング用メッシュ(<code>FMeshAsset</code>)の<b>頂点位置だけ</b>を使って当たり判定を構築する。", when: "描画に使っているメッシュをそのまま衝突にも使いたい時。" },
+        { sig: "TResult<void> BuildFromMesh(const AMeshAsset& mesh)", ret: "成功/失敗(<t>Result</t>)", desc: "レンダリング用メッシュ(<code>AMeshAsset</code>)の<b>頂点位置だけ</b>を使って当たり判定を構築する。", when: "描画に使っているメッシュをそのまま衝突にも使いたい時。" },
         { sig: "TResult<void> BuildFromTriangles(const FVec3* positions, u32 vertex_count, const u32* indices, u32 index_count)", ret: "成功/失敗", desc: "生の頂点位置配列 + 三角形<t>インデックス</t>列(3 個 1 組)から構築する。<code>BuildConvexHull3</code> の出力をそのまま渡せる。", sample: "col.BuildFromTriangles(hv.Data(), hv.Size(), hi.Data(), hi.Size());" },
         { sig: "FRayHit3 Raycast(const FRay3& ray, f32 t_max = 3.4028235e38f) const", ret: "ヒット情報", desc: "レイを飛ばし<b>最も近い</b>当たりを返す。結果の <code>hit</code>(当たったか)・<code>t</code>(距離)・<code>point</code>(位置)・<code>normal</code>(三角形の面法線)を見る。当たらなければ <code>hit=false</code>。", when: "マウスピッキング・着弾点・視線判定など。" },
         { sig: "bool OverlapsAabb(const FAabb3& box) const", ret: "重なるなら true", desc: "指定した <t>AABB</t> がメッシュ(の三角形)と重なるかを <t>BVH</t> で素早く判定する。<t>ブロードフェーズ</t>のふるい分けに。" },
         { sig: "FAabb3 Bounds() const", ret: "外接箱", desc: "メッシュ全体を囲む 3D の<t>AABB</t>。" },
         { sig: "u32 TriangleCount() const / u32 NodeCount() const", ret: "三角形数 / ノード数", desc: "保持する三角形の数と、組み上がった <t>BVH</t> のノード数。主にデバッグ・規模確認用。" },
-        { sig: "void Clear()", desc: "構築済みの三角形と <t>BVH</t> をすべて捨てて空に戻す。" }
+        { sig: "void Clear()", desc: "構築済みの三角形と <t>BVH</t> をすべて捨てて空に戻す。" },
+        { sig: "using FMeshCollider = CMeshCollider", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMeshCollider</code> を使う。" }
       ]
     },
     {

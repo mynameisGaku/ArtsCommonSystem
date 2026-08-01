@@ -118,10 +118,10 @@ ACS_REF.modules.push({
       sample: "void OnRender(FRenderContext& rc) noexcept override {\n    if (rc.HasSprites()) {\n        rc.Sprites().DrawString(rc.GetFont(), \"SCORE\", x, y);\n    }\n    u32 w = rc.Width(), h = rc.Height();\n}",
       members: [
         { sig: "IRhiCommandList& Cmd() const", ret: "コマンドリスト", desc: "今フレームの描画コマンド発行先。素の <t>RHI</t> を直接叩く時に。" },
-        { sig: "FRenderer& GetRenderer() const", ret: "レンダラ", desc: "描画システム本体への参照。" },
+        { sig: "CRenderer& GetRenderer() const", ret: "レンダラ", desc: "描画システム本体への参照。" },
         { sig: "u32 Width() const / u32 Height() const", desc: "描画対象の画面サイズ (ピクセル)。" },
         { sig: "bool IsFrameActive() const", desc: "今フレームの描画中かどうか。" },
-        { sig: "bool HasSprites() const / FSpriteBatch& Sprites() const", desc: "シーンが用意した共有<t>スプライトバッチ</t>があれば取得する。" },
+        { sig: "bool HasSprites() const / CSpriteBatch& Sprites() const", desc: "シーンが用意した共有<t>スプライトバッチ</t>があれば取得する。" },
         { sig: "bool HasFont() const / FFont& GetFont() const", desc: "共有 UI フォントを取得する。読めなかった環境では <code>HasFont()==false</code>。" },
         { sig: "bool HasReflection() const / IRhiTexture& Reflection() const", desc: "水面などの平面反射に使うシーンテクスチャを取得する。" },
         { sig: "FVec2 ViewCenter() const / f32 ViewScale() const", desc: "2D の world→screen 変換パラメータ。画面投影に使う。" },
@@ -230,16 +230,16 @@ ACS_REF.modules.push({
       kind: "クラス", header: "gameframework/Scene2D.h",
       summary: "<b>2D ゲーム用の実用シーン基底</b>。<code>FScene</code> を継承し、ルートの <code>ANode</code> ツリー・共有<t>スプライトバッチ</t>・カメラ/物理サービスを最初から配線済み。<code>OnReady</code>/<code>OnTick</code>/<code>OnDrawWorld</code>/<code>OnDrawHud</code> を override するだけで 2D ゲームが書ける。",
       when: "2D ゲームの画面を作る時。毎回同じ root/更新/描画の配線を書かずに済む。",
-      sample: "class FStageScene : public acs::game::FScene2D {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override { /* ロジック */ }\n    void OnDrawWorld(FRenderContext& rc, FSpriteBatch& sb) noexcept override { /* world */ }\n    void OnDrawHud(FRenderContext& rc, FSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
+      sample: "class FStageScene : public acs::game::FScene2D {\nprotected:\n    void OnReady() noexcept override { /* ノード生成 */ }\n    void OnTick(f32 dt) noexcept override { /* ロジック */ }\n    void OnDrawWorld(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* world */ }\n    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override { /* HUD */ }\n};",
       members: [
         { sig: "ANode& Root()", ret: "ルートノード", desc: "シーンの<t>ノードツリー</t>の根。ここに子ノードをぶら下げる。" },
-        { sig: "FSpriteBatch& SpriteBatch()", desc: "world と HUD で共有する<t>スプライトバッチ</t>。" },
+        { sig: "CSpriteBatch& SpriteBatch()", desc: "world と HUD で共有する<t>スプライトバッチ</t>。" },
         { sig: "void SetPixelsPerUnit(f32 ppu) / f32 PixelsPerUnit() const", desc: "1 ワールド単位を何ピクセルにするかの倍率 (既定 64)。" },
         { sig: "FVec2 ScreenToWorld(FVec2 screen_px)", ret: "ワールド座標", desc: "画面ピクセル座標をワールド座標へ変換する。マウスピッキングに。", when: "クリック位置のノードを当てたい時。" },
         { sig: "void SetReflectionEnabled(bool on)", desc: "水面などの平面反射を有効化する (world を 2 度描くコストあり)。" },
         { sig: "void SetStencilMaskEnabled(bool on)", desc: "<t>ステンシルマスク</t>を有効化し、任意形状で描画範囲を切り抜けるようにする。" },
         { sig: "virtual void OnReady() / OnTick(f32) / OnFixedTick(f32)", desc: "override 用フック。準備・毎フレーム・固定刻みのロジック。" },
-        { sig: "virtual void OnDrawWorld(FRenderContext&, FSpriteBatch&) / OnDrawHud(...)", desc: "world (カメラ追従) と HUD (画面固定) の描画を分けて書く。" }
+        { sig: "virtual void OnDrawWorld(FRenderContext&, CSpriteBatch&) / OnDrawHud(...)", desc: "world (カメラ追従) と HUD (画面固定) の描画を分けて書く。" }
       ]
     },
     {

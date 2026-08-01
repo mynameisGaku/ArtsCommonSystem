@@ -153,7 +153,7 @@ ACS_REF.modules.push({
       name: "FInputMap",
       kind: "クラス", header: "gameframework/InputMap.h",
       summary: "物理キー/マウス/ゲームパッドを「Jump」「MoveX」のような<b>名前付きアクション</b>に束ねるマッピング層。ゲームロジックが物理キーから切り離され、キーコンフィグ UI も後付けできる。",
-      when: "「スペース or ゲームパッド A = ジャンプ」のように 1 アクションへ複数入力を割り当てたい時。状態は持たず、問い合わせ時に <code>acs::FInput</code> を poll する。",
+      when: "「スペース or ゲームパッド A = ジャンプ」のように 1 アクションへ複数入力を割り当てたい時。状態は持たず、問い合わせ時に <code>acs::CInput</code> を poll する。",
       sample: "FInputMap im;\nim.BindKey    (FActionId(\"Jump\"),  EKey::Space);\nim.BindGamepad(FActionId(\"Jump\"),  EGamepadButton::A);\nim.BindAxisKeys(FActionId(\"MoveX\"), EKey::A, EKey::D);\nif (im.IsPressed(FActionId(\"Jump\"))) DoJump();\nf32 mx = im.Axis(FActionId(\"MoveX\")); // -1, 0, +1",
       members: [
         { sig: "void BindKey(FActionId a, EKey key)", desc: "キーボードのキーをアクションに割り当てる。" },

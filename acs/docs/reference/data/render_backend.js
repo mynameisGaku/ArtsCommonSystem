@@ -56,11 +56,11 @@ ACS_REF.modules.push({
       when: "shader と binding layout の互換性を cache key として確認する時。"
     },
     {
-      name: "FDx12Device",
+      name: "CDx12Device",
       kind: "クラス", header: "render/Dx12/Dx12Device.h",
       summary: "<t>DX12</t> ネイティブの<t>RHIデバイス</t>実装(<code>IRhiDevice</code> 派生)。<code>ID3D12Device</code>・コマンドキュー・<t>ディスクリプタヒープ</t>(SRV/RTV/DSV)・フレーム<t>フェンス</t>を抱える、DX12 描画の中枢です。",
       when: "DX12 バックエンドでビルドした時に <code>CreateRhiDevice()</code> が内部で生成する実体。直接 new せず、返ってきた <code>IRhiDevice</code> を使うのが基本。生の <code>ID3D12Device</code> が要る低レベル統合(ImGui バックエンド等)でだけダウンキャストして触ります。",
-      sample: "FDeviceConfig cfg;\ncfg.enable_debug_layer = true;       // Debug ビルド推奨\nauto dev = CreateRhiDevice(cfg).Value();  // 中身が FDx12Device\nprintf(\"%s / %s\\n\", dev-&gt;BackendName(), dev-&gt;AdapterName());",
+      sample: "FDeviceConfig cfg;\ncfg.enable_debug_layer = true;       // Debug ビルド推奨\nauto dev = CreateRhiDevice(cfg).Value();  // 中身が CDx12Device\nprintf(\"%s / %s\\n\", dev-&gt;BackendName(), dev-&gt;AdapterName());",
       members: [
         { sig: "const char* BackendName() const", ret: "\"DX12\"", desc: "バックエンド名。常に <code>\"DX12\"</code> を返す。" },
         { sig: "const char* AdapterName() const", ret: "GPU 名", desc: "選ばれた<t>アダプタ</t>(GPU)の名前。デバッグ表示用。" },
@@ -77,7 +77,8 @@ ACS_REF.modules.push({
         { sig: "IDXGIFactory6* DxgiFactory() const", ret: "生ファクトリ", desc: "内部用。DXGI ファクトリ。<code>FDx12Swapchain</code> がスワップチェイン生成時に使う。" },
         { sig: "ID3D12DescriptorHeap* SrvHeap() / u32 SrvHandleSize() const", desc: "内部用。シェーダ可視 SRV/CBV/UAV ヒープ本体と、1 記述子あたりのバイト幅。バインド時にハンドル計算へ使う。" },
         { sig: "D3D12_CPU_DESCRIPTOR_HANDLE SrvCpuHandle(i32 index) const", ret: "CPU ハンドル", desc: "内部用。SRV スロットの CPU ハンドル。テクスチャ作成時にビューを書き込む先。" },
-        { sig: "D3D12_CPU_DESCRIPTOR_HANDLE DsvCpuHandle(i32) / RtvCpuHandle(i32) const", ret: "CPU ハンドル", desc: "内部用。確保した DSV / オフスクリーン RTV スロットの CPU ハンドル。<code>CommandList</code> がレンダーターゲット/深度のバインドに使う。" }
+        { sig: "D3D12_CPU_DESCRIPTOR_HANDLE DsvCpuHandle(i32) / RtvCpuHandle(i32) const", ret: "CPU ハンドル", desc: "内部用。確保した DSV / オフスクリーン RTV スロットの CPU ハンドル。<code>CommandList</code> がレンダーターゲット/深度のバインドに使う。" },
+        { sig: "using FDx12Device = CDx12Device", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDx12Device</code> を使う。" }
       ]
     },
     {
@@ -97,7 +98,7 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FDx12CommandList",
+      name: "CDx12CommandList",
       kind: "クラス", header: "render/Dx12/Dx12CommandList.h",
       summary: "<t>DX12</t> の<t>コマンドリスト</t>(<code>IRhiCommandList</code> 派生)。1 フレーム分の描画命令(クリア・パイプライン設定・バインド・Draw)を <code>ID3D12GraphicsCommandList</code> へ記録し、GPU に投入します。<t>リソース状態</t>の<t>バリア</t>も内部で面倒を見ます。",
       when: "毎フレームの描画ループの主役。<code>CreateRhiCommandList()</code> で作り、<code>Begin</code>→各種パス→<code>End</code>→<code>Submit</code> の順に回す。",
@@ -117,7 +118,8 @@ ACS_REF.modules.push({
         { sig: "void SetConstantBuffer(u32 slot, cb) / SetTexture(u32 slot, tex)", desc: "定数バッファ・テクスチャを <code>register(bN)</code>/<code>register(tN)</code> に対応する slot へバインド。" },
         { sig: "void Draw(vertex_count, first_vertex=0)", desc: "非インデックス描画。" },
         { sig: "void DrawIndexed(index_count, first_index=0, base_vertex=0)", desc: "インデックス描画。" },
-        { sig: "void* NativeHandle()", ret: "ID3D12GraphicsCommandList*", desc: "生のコマンドリスト。ImGui 等の外部統合用。" }
+        { sig: "void* NativeHandle()", ret: "ID3D12GraphicsCommandList*", desc: "生のコマンドリスト。ImGui 等の外部統合用。" },
+        { sig: "using FDx12CommandList = CDx12CommandList", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDx12CommandList</code> を使う。" }
       ]
     },
     {
@@ -189,11 +191,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FDiligentDevice",
+      name: "CDiligentDevice",
       kind: "クラス", header: "render/Diligent/DiligentDevice.h",
       summary: "<t>Diligent</t> Engine 経由の<t>RHIデバイス</t>(<code>IRhiDevice</code> 派生)。内部に <code>IRenderDevice</code>・<code>IDeviceContext</code>・<code>EngineFactory</code> を持ち、<b>D3D12 と(ビルド次第で)Vulkan</b>を 1 つの API で扱えます。ヘッダは Diligent 依存を漏らさず前方宣言だけで完結します。",
       when: "Diligent バックエンドでビルドした時に <code>CreateRhiDevice()</code> が生成する実体。<code>FDeviceConfig::backend</code> で D3D12 / Vulkan / Auto を選べる(Vulkan は <code>ACS_DILIGENT_VULKAN=ON</code> 時のみ)。",
-      sample: "FDeviceConfig cfg;\ncfg.backend = ERhiBackendKind::Auto;   // 最良を自動選択\nauto dev = CreateRhiDevice(cfg).Value();\n// 実際に選ばれた API を見る:\n// static_cast&lt;FDiligentDevice*&gt;(dev.get())-&gt;ActualBackend();",
+      sample: "FDeviceConfig cfg;\ncfg.backend = ERhiBackendKind::Auto;   // 最良を自動選択\nauto dev = CreateRhiDevice(cfg).Value();\n// 実際に選ばれた API を見る:\n// static_cast&lt;CDiligentDevice*&gt;(dev.get())-&gt;ActualBackend();",
       members: [
         { sig: "const char* BackendName() const", ret: "\"Diligent\"", desc: "バックエンド名。" },
         { sig: "const char* AdapterName() const", ret: "GPU 名", desc: "選ばれた<t>アダプタ</t>名。" },
@@ -204,7 +206,8 @@ ACS_REF.modules.push({
         { sig: "u32 CurrentFrameSlot() / void AdvanceFrameSlot()", ret: "0..1", desc: "<t>フレームインフライト</t>(<code>kFramesInFlight=2</code>)のリングインデックス。" },
         { sig: "Diligent::IRenderDevice* RenderDev() const", ret: "生レンダーデバイス", desc: "内部公開。生の Diligent <code>IRenderDevice</code>。他の <code>Diligent*</code> 実装やネイティブ統合用。" },
         { sig: "Diligent::IDeviceContext* Context() const", ret: "生コンテキスト", desc: "内部公開。即時実行する <code>IDeviceContext</code>(コマンドキューを兼ねる)。" },
-        { sig: "Diligent::IEngineFactory* FactoryGeneric() const", desc: "内部公開。API 非依存の <code>EngineFactory</code>。D3D12 専用は <code>Factory()</code>、Vulkan は <code>FactoryVk()</code>。" }
+        { sig: "Diligent::IEngineFactory* FactoryGeneric() const", desc: "内部公開。API 非依存の <code>EngineFactory</code>。D3D12 専用は <code>Factory()</code>、Vulkan は <code>FactoryVk()</code>。" },
+        { sig: "using FDiligentDevice = CDiligentDevice", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDiligentDevice</code> を使う。" }
       ]
     },
     {
@@ -223,14 +226,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FDiligentCommandList",
+      name: "CDiligentCommandList",
       kind: "クラス", header: "render/Diligent/DiligentCommandList.h",
-      summary: "<t>Diligent</t> の<t>コマンドリスト</t>(<code>IRhiCommandList</code> 派生)。Diligent は <code>IDeviceContext</code> 自体が即時 API なので、本クラスはその薄いラッパです。<code>FDx12CommandList</code> と同じインターフェイスで、加えて <b>MRT(複数 RT 同時描画)を実装</b>します。",
+      summary: "<t>Diligent</t> の<t>コマンドリスト</t>(<code>IRhiCommandList</code> 派生)。Diligent は <code>IDeviceContext</code> 自体が即時 API なので、本クラスはその薄いラッパです。<code>CDx12CommandList</code> と同じインターフェイスで、加えて <b>MRT(複数 RT 同時描画)を実装</b>します。",
       when: "<code>CreateRhiCommandList()</code> が Diligent で生成する実体。描画ループの主役で、DX12 版と同じ <code>Begin</code>→パス→<code>End</code>→<code>Submit</code> で回す。",
       sample: "auto cmd = CreateRhiCommandList(*dev).Value();\ncmd-&gt;Begin();\nu32 i = swap-&gt;AcquireNextImage();\ncmd-&gt;BeginRenderToSwapchain(*swap, i, {0,0,0,1});\ncmd-&gt;SetPipeline(*pso);\ncmd-&gt;SetConstantBuffer(0, *cb);\ncmd-&gt;SetTexture(0, *tex);\ncmd-&gt;DrawIndexed(idxCount);\ncmd-&gt;EndRenderToSwapchain(*swap, i);\ncmd-&gt;End();\nif (!cmd-&gt;Submit() || !swap-&gt;Present()) { /* 描画ループを停止 */ }",
       members: [
         { sig: "void Begin() / End(); bool Submit()", desc: "記録の開始・終了・GPU 投入。投入/fence failure は false。" },
-        { sig: "void BeginRenderToSwapchain(...) / EndRenderToSwapchain(...)", desc: "バックバッファへの描画パス開始/終了。<code>FDx12CommandList</code> と同シグネチャ。" },
+        { sig: "void BeginRenderToSwapchain(...) / EndRenderToSwapchain(...)", desc: "バックバッファへの描画パス開始/終了。<code>CDx12CommandList</code> と同シグネチャ。" },
         { sig: "void BeginShadowPass(...) / EndShadowPass(...)", desc: "深度のみ<t>シャドウマップ</t>パス。終了時に SHADER_RESOURCE へ遷移。" },
         { sig: "void BeginRenderToTexture(...) / EndRenderToTexture(...)", desc: "オフスクリーン RT への描画。途中で挟んでも main pass の RT(swapchain/depth)を記憶して復帰する。" },
         { sig: "void BeginRenderToTextureLoad(...) / BeginRenderToTextureSlice(...)", desc: "クリアせず追記する load 版 / cubemap 面・スライス・mip 別に描く版。" },
@@ -239,7 +242,8 @@ ACS_REF.modules.push({
         { sig: "void SetPipeline(...) / SetVertexBuffer(...) / SetIndexBuffer(...)", desc: "パイプライン・頂点/インデックスバッファのバインド。" },
         { sig: "void SetConstantBuffer(u32 slot, cb) / SetTexture(u32 slot, tex)", desc: "定数バッファ・テクスチャを slot へ。Diligent は<b>名前ベース</b>で SRB を引くため、内部でパイプラインの HLSL リソース名を使う。" },
         { sig: "void Draw(...) / DrawIndexed(...)", desc: "描画。" },
-        { sig: "void* NativeHandle()", ret: "IDeviceContext*", desc: "生の <code>IDeviceContext</code>。外部統合用。" }
+        { sig: "void* NativeHandle()", ret: "IDeviceContext*", desc: "生の <code>IDeviceContext</code>。外部統合用。" },
+        { sig: "using FDiligentCommandList = CDiligentCommandList", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDiligentCommandList</code> を使う。" }
       ]
     },
     {
@@ -299,13 +303,14 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FDiligentMemoryAdapter",
+      name: "CDiligentMemoryAdapter",
       kind: "クラス", header: "render/Diligent/DiligentMemoryAdapter.h",
-      summary: "<t>Diligent</t> の内部 malloc を ACS の<t>アロケータ</t>(<code>FAllocator</code>)へ橋渡しするアダプタ。<code>EngineCreateInfo::pRawMemAllocator</code> にこれを渡すと、Diligent のメモリ確保が ACS のメモリ管理(<code>ESegment::RenderInternal</code> 等)を経由するようになります。",
-      when: "Diligent デバイス初期化時に、エンジン内部のメモリも ACS の予算管理・可視化に乗せたい場合。<code>FDiligentDevice::Init</code> が内部で使う想定。",
-      sample: "FAllocator& a = DefaultAllocator();\nvoid* memAlloc = FDiligentMemoryAdapter::Create(&amp;a);\n// EngineCreateInfo::pRawMemAllocator = (Diligent::IMemoryAllocator*)memAlloc;",
+      summary: "<t>Diligent</t> の内部 malloc を ACS の<t>アロケータ</t>(<code>IAllocator</code>)へ橋渡しするアダプタ。<code>EngineCreateInfo::pRawMemAllocator</code> にこれを渡すと、Diligent のメモリ確保が ACS のメモリ管理(<code>ESegment::RenderInternal</code> 等)を経由するようになります。",
+      when: "Diligent デバイス初期化時に、エンジン内部のメモリも ACS の予算管理・可視化に乗せたい場合。<code>CDiligentDevice::Init</code> が内部で使う想定。",
+      sample: "IAllocator& a = DefaultAllocator();\nvoid* memAlloc = CDiligentMemoryAdapter::Create(&amp;a);\n// EngineCreateInfo::pRawMemAllocator = (Diligent::IMemoryAllocator*)memAlloc;",
       members: [
-        { sig: "static void* Create(FAllocator* backing)", ret: "IMemoryAllocator*", desc: "<code>backing</code> を呼び出し先に使うアダプタを生成し、Diligent の <code>IMemoryAllocator*</code> として渡せる <code>void*</code> を返す(プロセス寿命)。" }
+        { sig: "static void* Create(IAllocator* backing)", ret: "IMemoryAllocator*", desc: "<code>backing</code> を呼び出し先に使うアダプタを生成し、Diligent の <code>IMemoryAllocator*</code> として渡せる <code>void*</code> を返す(プロセス寿命)。" },
+        { sig: "using FDiligentMemoryAdapter = CDiligentMemoryAdapter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CDiligentMemoryAdapter</code> を使う。" }
       ]
     },
     {

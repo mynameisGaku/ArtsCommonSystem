@@ -11,7 +11,7 @@ ACS_REF.modules.push({
       name: "TObservable&lt;T&gt;",
       kind: "クラステンプレート", header: "mvvm/Observable.h",
       summary: "<b>監視できる 1 個の値</b>(MVVM の中核)。<code>Set</code> で値を変えると、変わった時だけ<t>購読</t>者へ通知が飛ぶ。通知中の解除に加え、nested 通知中に listener が所有 object ごと TObservable 自身を同期破棄するケースも stack lifetime guard で検出し、破棄済み member へ触れず残りの通知を停止する。同じ storage に新実体を placement-new しても old Notify は新しい frame chain へ侵入しない。owner を破棄する callback は破棄を最後の操作にし、その後 new_value、user、owner を再参照せず直ちに return する必要がある。UI thread 専用・コピー禁止。",
-      when: "HP やレベルなど「変わったら画面に反映したい」値を持たせる時。<t>FViewModel</t> のメンバとして公開するのが基本形。",
+      when: "HP やレベルなど「変わったら画面に反映したい」値を持たせる時。<t>CViewModel</t> のメンバとして公開するのが基本形。",
       sample: "TObservable&lt;f32&gt; hp { 100.0f };         // 初期値つき\nauto h = hp.Subscribe([](const f32&amp; v, void*){\n    ACS_LOG_INFO(\"HP=%.1f\", v);              // 値が変わるたび呼ばれる\n}, nullptr);\nhp.Set(75.0f);                              // → 通知発火\nhp.Unsubscribe(h);                          // 監視解除",
       members: [
         { sig: "explicit TObservable(T initial)", desc: "初期値を与えて作る。引数なしなら <code>T{}</code> から開始。" },
@@ -43,13 +43,14 @@ ACS_REF.modules.push({
       sample: "FObservableHandle h = kInvalidObservable;\n// ... 後で h = obs.Subscribe(...);\nif (h == kInvalidObservable) { /* まだ未登録 */ }"
     },
     {
-      name: "FViewModel",
+      name: "CViewModel",
       kind: "基底クラス", header: "mvvm/ViewModel.h",
       summary: "<t>MVVM</t> の中央 <b>VM(ビューモデル)</b> の基底。中身はあえて空で、命名と意図だけを与える。継承して <code>TObservable&lt;T&gt;</code> のプロパティを並べて公開する。",
       when: "UI に見せたいデータ群を 1 つの「画面の状態」としてまとめたい時。これを継承して各値を <code>TObservable</code> で持つ。",
-      sample: "class FPlayerViewModel : public FViewModel {\npublic:\n    TObservable&lt;f32&gt;  hp    { 100.0f };\n    TObservable&lt;i32&gt;  level { 1 };\n    TObservable&lt;bool&gt; invincible { false };\n};\nFPlayerViewModel vm;\nvm.hp.Set(vm.hp.Get() - 10.0f);   // View 側へ自動反映",
+      sample: "class FPlayerViewModel : public CViewModel {\npublic:\n    TObservable&lt;f32&gt;  hp    { 100.0f };\n    TObservable&lt;i32&gt;  level { 1 };\n    TObservable&lt;bool&gt; invincible { false };\n};\nFPlayerViewModel vm;\nvm.hp.Set(vm.hp.Get() - 10.0f);   // View 側へ自動反映",
       members: [
-        { sig: "virtual ~FViewModel()", desc: "<t>デストラクタ</t>は仮想。派生 VM を基底ポインタで安全に破棄できる。" }
+        { sig: "virtual ~CViewModel()", desc: "<t>デストラクタ</t>は仮想。派生 VM を基底ポインタで安全に破棄できる。" },
+        { sig: "using FViewModel = CViewModel", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CViewModel</code> を使う。" }
       ]
     },
     {

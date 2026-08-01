@@ -50,7 +50,7 @@ ACS_REF.modules.push({
         { sig: "T* Data() / T* begin() / T* end()", desc: "生<t>ポインタ</t> / イテレータを返す。range-for に対応。" },
         { sig: "TSpan<T> AsSpan()", ret: "非所有ビュー", desc: "中身を <code>TSpan</code> として渡せる形にする。", when: "配列の中身を所有権なしで関数に渡したい時。" },
         { sig: "TArray Clone() const", ret: "複製した配列", desc: "中身を丸ごとコピーした新しい配列を作る(高コストなので明示的)。" },
-        { sig: "FAllocator* GetAllocator() const", ret: "アロケータ", desc: "確保に使っている<t>アロケータ</t>を返す。" }
+        { sig: "IAllocator* GetAllocator() const", ret: "アロケータ", desc: "確保に使っている<t>アロケータ</t>を返す。" }
       ]
     },
     {
@@ -76,8 +76,8 @@ ACS_REF.modules.push({
       when: "中身を書き換えたり連結したりする文字列が欲しい時。名前・ログ・組み立て中のテキストなど。",
       sample: "FString s = \"Hello\";\ns.Append(\", \");\ns.Append(FStringView(\"world\"));\ns.AppendFormat(\" (%d)\", 42);  // printf 風\nFStringView v = s;            // ビューへ暗黙変換",
       members: [
-        { sig: "FString(const char* cstr, FAllocator& a = DefaultAllocator())", desc: "C 文字列から作る。<t>アロケータ</t>も指定できる。" },
-        { sig: "FString(FStringView v, FAllocator& a = DefaultAllocator())", desc: "ビューから中身をコピーして作る。" },
+        { sig: "FString(const char* cstr, IAllocator& a = DefaultAllocator())", desc: "C 文字列から作る。<t>アロケータ</t>も指定できる。" },
+        { sig: "FString(FStringView v, IAllocator& a = DefaultAllocator())", desc: "ビューから中身をコピーして作る。" },
         { sig: "void Append(FStringView v) / Append(char c)", desc: "末尾に文字列 / 1 文字を追記する。" },
         { sig: "usize AppendFormat(const char* fmt, ...)", ret: "最終サイズ(失敗時 0)", desc: "<code>printf</code> 風の書式で末尾に整形追記する。", sample: "s.AppendFormat(\"hp=%d/%d\", cur, max);" },
         { sig: "void Reserve(usize n)", desc: "容量を予約して追記中の再確保を減らす。" },
@@ -88,7 +88,7 @@ ACS_REF.modules.push({
         { sig: "char& operator[](usize i)", desc: "i バイト目を参照する(範囲外は<t>アサート</t>)。" },
         { sig: "static constexpr usize kSsoCapacity = 22", desc: "ヒープを使わずインライン保持できる最大バイト数。" },
         { sig: "void PushBack(char c)", desc: "末尾に 1 文字を追記する(<code>Append(char)</code> の別名)。" },
-        { sig: "explicit FString(FAllocator& a)", desc: "空文字列を指定<t>アロケータ</t>で作る。引数なしの既定構築も可能。" },
+        { sig: "explicit FString(IAllocator& a)", desc: "空文字列を指定<t>アロケータ</t>で作る。引数なしの既定構築も可能。" },
         { sig: "bool operator==(const FString&/FStringView, const FString&/FStringView)", ret: "等しいか", desc: "<code>FString</code> 同士、または <code>FString</code> と <code>FStringView</code> をバイト単位で比較する自由関数(3 オーバーロード)。" }
       ]
     },

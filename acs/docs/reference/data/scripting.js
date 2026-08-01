@@ -15,8 +15,7 @@ ACS_REF.modules.push({
       sample: "acs::scripting::CLuaVm vm;\nif (vm.Init().IsOk()) {\n    vm.LoadScript(\"function add(a,b) return a+b end\", 0, \"inline\");\n    acs::game::FScriptValue args[2];\n    args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;\n    args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;\n    acs::game::FScriptValue ret;\n    vm.CallFunction(\"add\", args, 2, &amp;ret);   // ret.v.num == 5\n    vm.Shutdown();\n}",
       members: [
         { sig: "CLuaVm() noexcept", desc: "VM を生成する(まだ初期化はされていない)。コピー / <t>ムーブ</t>はできない(単一所有運用)。" },
-        { sig: "explicit CLuaVm(FAllocator&amp; allocator) noexcept", desc: "native関数登録簿の保存領域に使う確保器を注入してVMを生成する。VMは確保器を所有せず参照を保持するため、確保器は構築したVMより後まで生存させる。確保失敗経路の制御や所有元と同じ寿命の確保器を使う場合に選ぶ。" },
-        { sig: "using FLuaVm = CLuaVm", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLuaVm</code> を使う。" },
+        { sig: "explicit CLuaVm(IAllocator&amp; allocator) noexcept", desc: "native関数登録簿の保存領域に使う確保器を注入してVMを生成する。VMは確保器を所有せず参照を保持するため、確保器は構築したVMより後まで生存させる。確保失敗経路の制御や所有元と同じ寿命の確保器を使う場合に選ぶ。" },
         { sig: "TResult&lt;void&gt; Init() noexcept", ret: "成否", desc: "Lua の状態(<code>lua_State</code>)を作り、標準ライブラリを開く。これを呼ぶまで <code>LoadScript</code> / <code>CallFunction</code> は失敗してよい。", when: "VM を使い始める最初に 1 回だけ呼ぶ。" },
         { sig: "void Shutdown() noexcept", desc: "Lua の状態を破棄する(<code>lua_close</code> 相当)。登録した <t>NativeFunction</t> もここで無効になる。" },
         { sig: "EScriptLanguage Language() const noexcept", ret: "言語タグ", desc: "常に <code>EScriptLanguage::Lua54</code> を返す。" },
@@ -26,7 +25,8 @@ ACS_REF.modules.push({
         { sig: "void SetGlobalNumber(const char* name, f64 value) noexcept", desc: "Lua のグローバル数値変数を設定する。スクリプト側から <code>name</code> で参照できる。" },
         { sig: "f64 GetGlobalNumber(const char* name, f64 default_value) const noexcept", ret: "数値", desc: "Lua のグローバル数値変数を読む。未定義 / 型が違う時は <code>default_value</code> を返す。" },
         { sig: "void CollectGarbage() noexcept", desc: "<t>GC</t> を 1 サイクル強制実行する(<code>lua_gc(LUA_GCCOLLECT)</code> 相当)。フレーム境界で明示的に呼ぶ運用が推奨。" },
-        { sig: "u64 MemoryUsageBytes() const noexcept", ret: "バイト数", desc: "VM が現在使っているメモリ量(近似)。デバッグ HUD 等に。" }
+        { sig: "u64 MemoryUsageBytes() const noexcept", ret: "バイト数", desc: "VM が現在使っているメモリ量(近似)。デバッグ HUD 等に。" },
+        { sig: "using FLuaVm = CLuaVm", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLuaVm</code> を使う。" }
       ]
     },
     {

@@ -8,11 +8,11 @@ ACS_REF.modules.push({
   blurb: "ゲーム内で起きた出来事(<t>テレメトリ</t>イベント)をサーバではなく<b>ローカルのファイル</b>に書き出す、お手軽なログ記録の実装です。<code>gameframework</code> の <t>IBackendClient</t> 窓口にそのまま差し込めるので、サーバが無くてもイベント計測のコードを動かせます。",
   types: [
     {
-      name: "FFileTelemetryBackendClient",
+      name: "CFileTelemetryBackendClient",
       kind: "クラス", header: "telemetryfile/FileTelemetryBackendClient.h",
       summary: "<t>テレメトリ</t>イベントを<b>1 行 1 件のテキストファイル</b>に追記していく <t>IBackendClient</t> の実装。サーバ送信の代わりに <code>file:</code> パス先のファイルへ書き込む。<t>Connect</t> でファイルを開き、<code>SendTelemetry</code> でイベントを書き、<code>Disconnect</code> で閉じる。",
       when: "オンラインサーバをまだ用意していない開発初期や、オフラインのプレイログを手元に貯めたい時。計測コードを <t>IBackendClient</t> 越しに書いておけば、後で本物のサーバ実装に差し替えられる。",
-      sample: "acs::telemetryfile::FFileTelemetryBackendClient tel;\ntel.Connect(\"file:Saved/telemetry.jsonl\");   // ファイルを開く\ntel.SendTelemetry(\"level_completed\", \"{\\\"level\\\":3}\"); // 1 行追記\ntel.Tick(0.016f);                              // 毎フレーム呼ぶ(flush 等)\ntel.Disconnect();                              // 閉じる",
+      sample: "acs::telemetryfile::CFileTelemetryBackendClient tel;\ntel.Connect(\"file:Saved/telemetry.jsonl\");   // ファイルを開く\ntel.SendTelemetry(\"level_completed\", \"{\\\"level\\\":3}\"); // 1 行追記\ntel.Tick(0.016f);                              // 毎フレーム呼ぶ(flush 等)\ntel.Disconnect();                              // 閉じる",
       members: [
         { sig: "TResult&lt;void&gt; Connect(const char* ServerUrl)", ret: "成功/失敗", desc: "出力先ファイルを開く(無ければ作る)。<code>ServerUrl</code> は <code>\"file:パス\"</code> 形式で、<code>file:</code> 接頭辞は自動で取り除かれる。開けない時は失敗を返す。", when: "イベントを書き始める前に一度呼ぶ。", sample: "auto r = tel.Connect(\"file:Saved/events.log\");\nif (r.IsErr()) { /* 開けなかった */ }" },
         { sig: "void Disconnect()", desc: "開いているファイルを閉じる。未接続でも安全(<t>べき等</t>)。" },
@@ -20,17 +20,18 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; SendTelemetry(const char* EventName, const char* JsonPayload)", ret: "成功/失敗", desc: "イベント 1 件を 1 行としてファイルに追記する。<code>JsonPayload</code> 内の特殊文字は安全に<t>エスケープ</t>される。書き込み失敗時は失敗を返す。", when: "計測したい出来事が起きたタイミングで呼ぶ。", sample: "tel.SendTelemetry(\"item_pickup\", \"{\\\"id\\\":\\\"potion\\\"}\");" },
         { sig: "void Tick(f32 Dt)", desc: "毎フレーム呼ぶ前提の更新処理。<code>Dt</code> は前フレームからの経過秒。", when: "ゲームループの中で毎フレーム呼ぶ。" },
         { sig: "const char* Path() const", ret: "出力先パス", desc: "現在書き込んでいるファイルのパスを返す。" },
-        { sig: "u32 WrittenCount() const", ret: "書込件数", desc: "これまでにファイルへ書いたイベントの累計件数。動作確認やテストに便利。", sample: "if (tel.WrittenCount() == 0) { /* まだ何も書いていない */ }" }
+        { sig: "u32 WrittenCount() const", ret: "書込件数", desc: "これまでにファイルへ書いたイベントの累計件数。動作確認やテストに便利。", sample: "if (tel.WrittenCount() == 0) { /* まだ何も書いていない */ }" },
+        { sig: "using FFileTelemetryBackendClient = CFileTelemetryBackendClient", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CFileTelemetryBackendClient</code> を使う。" }
       ]
     },
     {
       name: "GetDefaultFileTelemetryBackendClient()",
       kind: "関数", header: "telemetryfile/FileTelemetryBackendClient.h",
-      summary: "プロセス全体で共有される既定の <code>FFileTelemetryBackendClient</code> 1 個(<t>シングルトン</t>)への参照を返す。自分でインスタンスを作らず、これ 1 つを使い回す入口。",
+      summary: "プロセス全体で共有される既定の <code>CFileTelemetryBackendClient</code> 1 個(<t>シングルトン</t>)への参照を返す。自分でインスタンスを作らず、これ 1 つを使い回す入口。",
       when: "ファイルテレメトリの実体を 1 個だけ用意し、あちこちから同じ記録先を使いたい時。多くは次の <code>InstallFileTelemetryAsDefault()</code> が内部で利用する。",
       sample: "auto& tel = acs::telemetryfile::GetDefaultFileTelemetryBackendClient();\ntel.Connect(\"file:Saved/telemetry.jsonl\");",
       members: [
-        { sig: "acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient()", ret: "共有の実体", desc: "共有 <code>FFileTelemetryBackendClient</code> を <t>IBackendClient</t> 参照で返す。" }
+        { sig: "acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient()", ret: "共有の実体", desc: "共有 <code>CFileTelemetryBackendClient</code> を <t>IBackendClient</t> 参照で返す。" }
       ]
     },
     {

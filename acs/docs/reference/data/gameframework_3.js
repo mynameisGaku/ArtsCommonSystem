@@ -356,7 +356,7 @@ ACS_REF.modules.push({
     {
       name: "AWater2DComponent",
       kind: "クラス (コンポーネント)", header: "gameframework/Effects2D.h",
-      summary: "波打つ水面を描く<t>コンポーネント</t>。<t>シェーダ</t>もアセットも不要で、<code>FSpriteBatch</code> の三角形を時間で手続き生成して描く。横視点 (海/プール) と見下ろし (Core Keeper 風) の 2 スタイル、深さ勾配・泡・縁取り・平面反射・コースティクス・リップル (波紋) に対応。",
+      summary: "波打つ水面を描く<t>コンポーネント</t>。<t>シェーダ</t>もアセットも不要で、<code>CSpriteBatch</code> の三角形を時間で手続き生成して描く。横視点 (海/プール) と見下ろし (Core Keeper 風) の 2 スタイル、深さ勾配・泡・縁取り・平面反射・コースティクス・リップル (波紋) に対応。",
       when: "HLSL を書かずに海・川・池・水溜まりを置きたい時。ノードに <code>AddComponent</code> するだけで動く。プレイヤーが触れると波紋を立てる等のインタラクションも可能。",
       sample: "auto& w = node->AddComponent&lt;AWater2DComponent&gt;();\nw.SetRect({0, 3}, {16, 2});       // 形 (owner 相対、+Y=下なので水面は下)\nw.SetColor({0.1f, 0.35f, 0.6f});\nw.SetWaves(0.15f, 1.5f);          // 振幅・速度\nw.Disturb(mouse_world, 0.4f);     // 触れた点に波紋",
       members: [
@@ -401,7 +401,7 @@ ACS_REF.modules.push({
     {
       name: "AStencilClip2DComponent",
       kind: "クラス (コンポーネント)", header: "gameframework/Effects2D.h",
-      summary: "任意形状の<t>ステンシルマスク</t>で子ツリーをクリップする<t>コンポーネント</t>。attach したノードの子を、指定形状の内側 (既定) か外側だけに切り抜いて描く。シェーダ不要で <code>FSpriteBatch</code> のステンシルモードを使う。",
+      summary: "任意形状の<t>ステンシルマスク</t>で子ツリーをクリップする<t>コンポーネント</t>。attach したノードの子を、指定形状の内側 (既定) か外側だけに切り抜いて描く。シェーダ不要で <code>CSpriteBatch</code> のステンシルモードを使う。",
       when: "窓越しに別のエフェクトを覗かせる、穴あきマスクを作る、円形ミニマップを切り抜く等。シーンで <code>SetStencilMaskEnabled(true)</code> が前提。",
       sample: "auto win = NewObject&lt;ANode&gt;();\nauto& clip = win->AddComponent&lt;AStencilClip2DComponent&gt;();\nclip.SetCircle({0, 0}, 2.5f);     // 円形の窓 (owner 相対)\nwin->AddChild(MakeWaterNode());   // 子 = 窓の中だけに見える\nroot.AddChild(Move(win));",
       members: [

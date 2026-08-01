@@ -515,7 +515,7 @@ ACS_REF.modules.push({
   name: "FFxeditSerializer",
   kind: "クラス(static ユーティリティ)", header: "gameframework/tools/fxedit/FxeditSerializer.h",
   summary: "ParticleEditor が編集中の <code>FParticleEmitterDef</code> 群を、人間可読で <t>git diff</t> しやすい <code>.fxedit</code> テキスト形式で保存・復元する <t>シリアライザ</t>。バイナリの <code>TSaveSlot</code> と違い、<b>作業中アセットをそのまま版管理に乗せる</b>ことを優先する。全メンバ <code>static</code>、生成・コピー・ムーブはすべて <code>= delete</code>。",
-  when: "emitter 定義をテキストでセーブ/ロードしたい時。1 行 1 key=value なので 1 パラメータ変更が 1 行 diff になる。ファイル I/O は <code>acs::FFileSystem</code> 経由。",
+  when: "emitter 定義をテキストでセーブ/ロードしたい時。1 行 1 key=value なので 1 パラメータ変更が 1 行 diff になる。ファイル I/O は <code>acs::CFileSystem</code> 経由。",
   sample: "acs::game::FParticleEmitterDef defs[2] = {};\ndefs[0].lifetime_sec = 2.0f;\nconst char* names[] = {\"fire\", \"smoke\"};\nnamespace fx = acs::game::fxedit;\nfx::FFxeditSerializer::Save(L\"data/fx.fxedit\", defs, names, 2);\n\nacs::game::FParticleEmitterDef loaded[16] = {};\nchar name_buf[16 * 32] = {};\nauto r = fx::FFxeditSerializer::Load(L\"data/fx.fxedit\", loaded, name_buf, sizeof(name_buf), 16);\nif (r.IsOk()) { acs::u32 n = r.Value(); (void)n; }",
   members: [
     { sig: "static TResult&lt;void, FErrorCode&gt; Save(const wchar_t* file_path, const FParticleEmitterDef* defs, const char* const* names, u32 count) noexcept", ret: "成否", desc: "emitter 群を <code>.fxedit</code> テキストへ書き出す。既存ファイルは上書き。<code>names</code> ポインタ自体が nullptr なら <code>kSub_NullArgs</code>。count=0 はヘッダだけ書く。", when: "セーブ時。" },
@@ -952,7 +952,7 @@ ACS_REF.modules.push({
   name: "FMaterialOverride",
   kind: "構造体(POD)", header: "gameframework/tools/modelview/ModelMaterialPanel.h",
   summary: "1 つの material slot 分の <b>PBR override データ</b>(base color / metallic / roughness / normal strength / AO strength / emissive / emissive intensity)。<code>is_overridden</code> が false の slot は「元の material そのまま」を意味し、各値は物理的に neutral な default で初期化される。ユーザーが UI で 1 つでも触ると <code>is_overridden</code> が true になる。<code>TArray</code> Resize 時に MemSet ゼロ初期化される trivially-constructible レイアウト。",
-  when: "<code>FModelMaterialPanel</code> から callback で 1 件ずつ外部に渡され、受け側が <code>FPbrShader</code> 等の constant buffer に反映する。FUndoStack には「変更前 → 変更後」を 1 件分として atomic に積める。",
+  when: "<code>FModelMaterialPanel</code> から callback で 1 件ずつ外部に渡され、受け側が <code>CPbrShader</code> 等の constant buffer に反映する。FUndoStack には「変更前 → 変更後」を 1 件分として atomic に積める。",
   sample: "void OnMatChanged(void* user, u32 slot, const FMaterialOverride&amp; ov) noexcept {\n    if (!ov.is_overridden) return;        // 元のマテリアルそのまま\n    // ov.base_color / ov.metallic / ov.roughness を shader CB に書く\n    (void)user; (void)slot;\n}",
   members: [
     { sig: "u32 slot_index = 0u", desc: "slot 番号(0..SlotCount()-1)。TArray index と一致する冗長情報だが、callback で外部に渡す際に index を引き直さずに済む。" },
@@ -1010,23 +1010,23 @@ ACS_REF.modules.push({
   name: "FAnimationClipBinding",
   kind: "構造体(POD)", header: "gameframework/tools/modelview/ModelAnimationPanel.h",
   summary: "モデルに含まれる 1 個の animation clip の<b>メタ情報</b>。<code>FModelAnimationPanel::SetClips</code> で外部から渡す POD で、panel は値コピーで内部 TArray に保持する(呼出側はビルド済み temp 配列を渡してよい)。<code>name</code> はコピー所有しないため寿命は呼出側責任。",
-  when: "モデル load 時に clip 一覧を組み立てて <code>SetClips</code> に渡す。<code>clip_index</code> は外部 FAnimationPlayer のクリップ ID で、callback にそのまま返る。",
+  when: "モデル load 時に clip 一覧を組み立てて <code>SetClips</code> に渡す。<code>clip_index</code> は外部 CAnimationPlayer のクリップ ID で、callback にそのまま返る。",
   sample: "FAnimationClipBinding clips[] = {\n    { \"Idle\", 2.0f, true,  0 },\n    { \"Walk\", 1.2f, true,  1 },\n    { \"Jump\", 0.8f, false, 2 },\n};\nanim.SetClips(clips, 3);",
   members: [
     { sig: "const char* name = nullptr", desc: "clip 表示名。const char* リテラル / 永続バッファ想定(panel はコピー所有しない)。" },
     { sig: "f32 duration_sec = 0.0f", desc: "clip の長さ(秒)。0 以下が来た場合は内部で clamp される。" },
     { sig: "bool is_looping = false", desc: "clip 既定のループ可否。UI の Loop checkbox で override 可能。" },
-    { sig: "u32 clip_index = 0u", desc: "外部 FAnimationPlayer 内のクリップ ID。callback にそのまま渡される。panel は中身を解釈しない。" }
+    { sig: "u32 clip_index = 0u", desc: "外部 CAnimationPlayer 内のクリップ ID。callback にそのまま渡される。panel は中身を解釈しない。" }
   ]
 },
 {
   name: "FModelAnimationPanel",
   kind: "クラス(FEditorPanel 派生)", header: "gameframework/tools/modelview/ModelAnimationPanel.h",
-  summary: "ModelViewer 内でロード済みモデルの <b>animation clip 再生制御 + timeline</b> を行うパネル。<t>FEditorPanel</t> を継承し、clip dropdown / Play / Pause / Stop / Time slider / Loop checkbox / Speed slider / BlendWeight slider を提供する。<b>時刻の進行 + clip 選択 + UI control だけ</b>を持ち、実 bone palette 計算 / GPU 反映は <code>OnFrameCallback</code>(raw 関数ポインタ + void*) 経由で外部 renderer + FAnimationPlayer に委譲する。時刻進行は <code>Tick(dt)</code> に分離(DrawUI は描画専任)。非コピー / 非ムーブ・全 noexcept。",
+  summary: "ModelViewer 内でロード済みモデルの <b>animation clip 再生制御 + timeline</b> を行うパネル。<t>FEditorPanel</t> を継承し、clip dropdown / Play / Pause / Stop / Time slider / Loop checkbox / Speed slider / BlendWeight slider を提供する。<b>時刻の進行 + clip 選択 + UI control だけ</b>を持ち、実 bone palette 計算 / GPU 反映は <code>OnFrameCallback</code>(raw 関数ポインタ + void*) 経由で外部 renderer + CAnimationPlayer に委譲する。時刻進行は <code>Tick(dt)</code> に分離(DrawUI は描画専任)。非コピー / 非ムーブ・全 noexcept。",
   when: "モデルのアニメーションを切り替えて再生確認するパネルとして使う。<code>SetClips</code> で clip 一覧を渡し、callback を登録して毎フレーム <code>Tick(dt)</code> を呼ぶと、終端で外部に時刻が通知される。",
   sample: "FModelAnimationPanel anim;\nanim.Init();\nworkspace.RegisterPanel(&amp;anim);\n\nFAnimationClipBinding clips[] = { { \"Idle\", 2.0f, true, 0 } };\nanim.SetClips(clips, 1);\nanim.SelectClip(0);\nanim.Play();\n\n// 毎フレーム:\nanim.Tick(dt);    // Playing 中は m_CurrentTime += dt * speed",
   members: [
-    { sig: "using AnimationFrameCallback = void (*)(void* user, u32 clip_index, f32 time_sec) noexcept", ret: "型", desc: "Tick 終端で呼ばれる callback 型。<code>clip_index</code> は <code>FAnimationClipBinding::clip_index</code>(外部 FAnimationPlayer ID)。std::function 禁止のため raw 関数ポインタ規約。", when: "—" },
+    { sig: "using AnimationFrameCallback = void (*)(void* user, u32 clip_index, f32 time_sec) noexcept", ret: "型", desc: "Tick 終端で呼ばれる callback 型。<code>clip_index</code> は <code>FAnimationClipBinding::clip_index</code>(外部 CAnimationPlayer ID)。std::function 禁止のため raw 関数ポインタ規約。", when: "—" },
     { sig: "void Init() noexcept", ret: "—", desc: "内部 state をデフォルト、clip リストを空、selection / time を 0、callback も nullptr に(= 完全リセット)。多重呼び出し可。", when: "生成直後 / 再利用時。" },
     { sig: "void Shutdown() noexcept", ret: "—", desc: "内部 state を全解放(明示 Clear で再 Init の確定状態を作る)。多重呼び出し可。", when: "任意" },
     { sig: "void SetClips(const FAnimationClipBinding* clips, u32 count) noexcept", ret: "—", desc: "clip メタ一覧を push。内部 TArray を <code>count</code> 個に Resize し値コピー。<code>count==0</code> で空。selection は自動的に index 0(count==0 なら -1)、時刻 / state も Stopped + 0 にリセット。", when: "モデル load / 切替時。" },
@@ -1046,13 +1046,22 @@ ACS_REF.modules.push({
     { sig: "bool IsLoopingOverride() const noexcept / void SetLoopingOverride(bool b) noexcept", ret: "—", desc: "UI の Loop checkbox 状態。true なら clip 側 <code>is_looping</code> を無視して強制 loop、false なら clip 既定に従う。", when: "ループ切替時。" },
     { sig: "f32 BlendWeight() const noexcept / void SetBlendWeight(f32 w) noexcept", ret: "—", desc: "blend weight <code>[0,1]</code>(0 未満 / 1 超過はクランプ)。Phase 21b は単一 clip 再生のため表示用 + callback 経由で renderer が参考にする値。", when: "ブレンド重み設定時。" },
     { sig: "void Tick(f32 dt) noexcept", ret: "—", desc: "Playing 中は <code>m_CurrentTime += dt * m_Speed</code>。duration 到達時、loop 有効なら wrap、無効なら duration に固定 + Stopped に遷移。終端で callback を発火。clip 未選択 / Stopped / Paused / <code>dt &lt;= 0</code> は no-op(巻き戻し非対応)。", when: "毎フレーム。" },
-    { sig: "void SetOnFrameCallback(AnimationFrameCallback cb, void* user) noexcept", ret: "—", desc: "Tick 終端で 1 度呼ばれる callback を設定。<code>nullptr</code> で解除。引数は (user, clip_index, time_sec)。", when: "FAnimationPlayer 連携時。" },
+    { sig: "void SetOnFrameCallback(AnimationFrameCallback cb, void* user) noexcept", ret: "—", desc: "Tick 終端で 1 度呼ばれる callback を設定。<code>nullptr</code> で解除。引数は (user, clip_index, time_sec)。", when: "CAnimationPlayer 連携時。" },
     { sig: "const char* Title() const noexcept override", ret: "\"Animation\"", desc: "ImGui ウインドウタイトル兼 ID。固定リテラル。", when: "基底からの呼び出し。" },
     { sig: "void DrawUI() noexcept override", ret: "—", desc: "ImGui::Begin \"Animation\" + ClipCombo + Time slider + Play / Pause / Stop + Loop checkbox + Speed slider + BlendWeight slider を描画。<code>IsVisible()</code> が false なら早期 return。", when: "毎フレーム。" },
     { sig: "static constexpr f32 kMinPlaybackSpeed=0.1f / kMaxPlaybackSpeed=4.0f", desc: "Speed slider の範囲。SetPlaybackSpeed の clamp にも使う。" },
     { sig: "static constexpr i32 kNoClipSelected = -1", desc: "「未選択」を表す sentinel(i32 戻り値で使用)。" }
   ]
-}
+},
+    {
+      name: "CRegistry",
+      kind: "クラス", header: "editor_abi/EditorCameraViewRequests.h",
+      summary: "editor camera view requestを型ごとに登録し、呼び出し側へ同じ窓口を提供する。",
+      when: "editor camera viewの処理を登録または取得する時。",
+      members: [
+        { sig: "using FRegistry = CRegistry", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CRegistry</code> を使う。" }
+      ]
+    }
   ]
 });
 

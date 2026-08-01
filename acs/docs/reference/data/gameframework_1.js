@@ -197,7 +197,7 @@ ACS_REF.modules.push({
       sample: "FAssetBundle bundle;\nbundle.Add(\"textures/hero.png\");\nbundle.Add(\"audio/bgm.ogg\");\nbundle.BeginLoad(registry);\n// 毎フレーム:\nif (!bundle.IsLoaded()) ShowLoading(bundle.Progress());\nelse RunGame();\n// OnExit:\nbundle.Unload();",
       members: [
         { sig: "void Add(const char* asset_path)", desc: "ロード対象のパスを追加する (実ロードはまだ走らない)。BeginLoad 後の Add は無視。" },
-        { sig: "void BeginLoad(FAssetRegistry& registry)", desc: "登録済み全パスを registry 経由で実ロードする。多重呼び出しは無視。", when: "シーン入場時にロードを開始する。" },
+        { sig: "void BeginLoad(CAssetRegistry& registry)", desc: "登録済み全パスを registry 経由で実ロードする。多重呼び出しは無視。", when: "シーン入場時にロードを開始する。" },
         { sig: "TSharedPtr<Asset> GetAsset(u32 index) const / TSharedPtr<Asset> FindAsset(const char* path) const", ret: "ロード済みアセット", desc: "index 順 / パス一致でロード済みアセットを取り出す (未ロード/失敗は空)。" },
         { sig: "f32 Progress() const", ret: "0〜1", desc: "完了割合。プログレスバー表示用。" },
         { sig: "bool IsLoaded() const / bool HasFailed() const", desc: "全完了したか / 1 個でも失敗があるかを返す。" },
@@ -260,7 +260,7 @@ ACS_REF.modules.push({
         { sig: "void Pause() / void Resume() / void StopAll()", desc: "全体の一時停止 / 再開 / 停止+リセット。" },
         { sig: "void Tick(f32 dt)", desc: "クロスフェード/ダッキングの内部タイマーを進める。毎フレーム呼ぶ (Pause 中は凍結)。" },
         { sig: "void SetBackend(IAudioBackend* backend)", desc: "実音再生 backend (FXAudio2Backend 等) を差し込む。nullptr で無音の状態管理のみ。" },
-        { sig: "void SetAssetRegistry(FAssetRegistry* registry)", desc: "name→clip 解決用の registry を差すと、name から実ロードして実音を鳴らせる。" },
+        { sig: "void SetAssetRegistry(CAssetRegistry* registry)", desc: "name→clip 解決用の registry を差すと、name から実ロードして実音を鳴らせる。" },
         { sig: "FAudioVoiceHandle PlayBgmClip(const FAudioClipDesc&, f32 fade=1, bool loop=true) / FAudioVoiceHandle PlaySfxClip(const FAudioClipDesc&, f32 vol=1, f32 pitch=1)", desc: "raw PCM clip から直接 BGM/SFX を再生する。backend 未設定時は無効ハンドル。" },
         { sig: "f32 EffectiveBgmVolume() const / f32 EffectiveSfxVolume() const", desc: "master×バス×ダッキングを合成した実際の出力ボリュームを返す (デバッグ/backend 用)。" }
       ]
@@ -302,7 +302,7 @@ ACS_REF.modules.push({
     {
       name: "GetDefaultBackendClient / GetDefaultMatchmaker ほか provider 結線",
       kind: "関数", header: "gameframework/BackendClient.h",
-      summary: "backend 実装を backend 非依存に取得する仕組み。実 backend (TelemetryFile / FLocalMatchmaker 等) が provider を登録し、ゲームコードは <code>GetDefaultBackendClient()</code> / <code>GetDefaultMatchmaker()</code> で取得する。未登録なら<t>スタブ</t>を返す。",
+      summary: "backend 実装を backend 非依存に取得する仕組み。実 backend (TelemetryFile / CLocalMatchmaker 等) が provider を登録し、ゲームコードは <code>GetDefaultBackendClient()</code> / <code>GetDefaultMatchmaker()</code> で取得する。未登録なら<t>スタブ</t>を返す。",
       when: "通信実装の有無で挙動を切り替えつつ、ゲームコードを backend に依存させたくない時。",
       sample: "#if WITH_ACS_TELEMETRY_FILE\n  acs::telemetryfile::InstallFileTelemetryAsDefault();\n#endif\nIBackendClient& be = acs::game::GetDefaultBackendClient();",
       members: [

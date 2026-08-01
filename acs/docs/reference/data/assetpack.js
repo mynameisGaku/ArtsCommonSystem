@@ -14,25 +14,26 @@ ACS_REF.modules.push({
       when: "配布 pak の読み込み量と余分なコピー、失敗理由をプロファイルする時。"
     },
     {
-      name: "FAcpakWriter",
+      name: "CAcpakWriter",
       kind: "クラス", header: "assetpack/AcpakWriter.h",
       summary: "バラバラのファイル(バイト列)を 1 つの <code>.acpak</code> <t>アーカイブ</t>にまとめて書き出す<b>梱包係</b>。入力は内部へコピーして所有し、完成品は同一ディレクトリの一時ファイルから出力先へ原子的に置換するため、途中失敗で既存 pak を壊さない。",
       when: "ゲームの全アセットを 1 ファイルに固めたい時。圧縮や暗号化を有効にして「中身を覗かれにくく」したい時。",
-      sample: "acs::assetpack::FAcpakWriter w;\nw.Open(L\"out/game.acpak\", acs::assetpack::AcpakFlagNone);\nfor (auto&amp; a : assets)\n    w.AddFile(a.path, a.bytes, a.size);  // この場では貯めるだけ\nw.Finalize();   // ここで一気に書き出す\nw.Close();",
+      sample: "acs::assetpack::CAcpakWriter w;\nw.Open(L\"out/game.acpak\", acs::assetpack::AcpakFlagNone);\nfor (auto&amp; a : assets)\n    w.AddFile(a.path, a.bytes, a.size);  // この場では貯めるだけ\nw.Finalize();   // ここで一気に書き出す\nw.Close();",
       members: [
         { sig: "TResult<void> Open(const wchar_t* output_path, EAcpakFlags flags)", ret: "成否(<t>Result</t>)", desc: "出力先と同じディレクトリに一意な一時ファイルを作る。出力先はまだ変更しない。<code>flags</code> で圧縮/暗号化を選び、未知 bit と二重 Open はエラー。暗号化する場合は <code>Finalize</code> より前に <code>SetKey</code> を呼ぶ。" },
         { sig: "void SetKey(const FAcpakKey& key)", desc: "暗号化に使う<t>鍵</t>を設定する。<code>AcpakFlagEncrypted</code> を立てた時に <code>Finalize</code> で使われる。Open の前後どちらでも呼べる。", when: "暗号化付きの pak を作る時(鍵未設定だと Finalize でエラー)。" },
         { sig: "TResult<void> AddFile(const wchar_t* virtual_path, const void* data, u64 size)", desc: "1 ファイルを追加する。<code>/</code> 区切りの正規形仮想パスと全バイトを内部配列へコピーし、path hash を一度保持する。重複確認は hash 一致候補だけを完全比較し、同名パスや不正な <code>.</code>/<code>..</code> segment は拒否する。成功後は呼び出し側が入力を直ちに再利用・解放してよい。", sample: "w.AddFile(L\"textures/hero.png\", pngBytes, pngLen);", when: "梱包したいファイルを 1 つずつ登録していく時。" },
         { sig: "TResult<void> Finalize()", desc: "一時ファイルへヘッダ→全データ→<t>ファイルテーブル</t>の順で書き出し、元バイトの <t>CRC32</t> を記録する。ヘッダ確定後に <code>FlushFileBuffers</code> し、出力先へ原子的に置換する。置換が成功するまでは既存の出力先を保ち、書込み・flush・置換の失敗時は <code>Close</code> またはデストラクタが一時ファイルを削除する。", when: "全ファイルの AddFile が済んだ後、最後に 1 度だけ。" },
-        { sig: "void Close()", desc: "ハンドルと内部入力コピーを解放し、鍵を 0 クリアする。まだ原子的置換していない一時ファイルは削除し、既存の出力先を残す。多重 Close は安全。" }
+        { sig: "void Close()", desc: "ハンドルと内部入力コピーを解放し、鍵を 0 クリアする。まだ原子的置換していない一時ファイルは削除し、既存の出力先を残す。多重 Close は安全。" },
+        { sig: "using FAcpakWriter = CAcpakWriter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAcpakWriter</code> を使う。" }
       ]
     },
     {
-      name: "FAcpakReader",
+      name: "CAcpakReader",
       kind: "クラス", header: "assetpack/AcpakReader.h",
       summary: "1 つの <code>.acpak</code> を開き、中の仮想ファイルを<b>名前で取り出す</b>読み出し係。<t>圧縮</t>・<t>暗号化</t>されていれば自動で<t>解凍</t>・<t>復号</t>して返す。",
       when: "実行時にアーカイブからテクスチャや音データを読み込みたい時。普通はゲーム起動時に 1 度 Open し、必要な時に ReadFile する。",
-      sample: "acs::assetpack::FAcpakReader reader;\nreader.Open(L\"game.acpak\");\nauto sz = reader.GetUncompressedSize(L\"textures/hero.png\");\nacs::byte* buf = MyAlloc(sz.Value());\nreader.ReadFile(L\"textures/hero.png\", buf, sz.Value());\nreader.Close();",
+      sample: "acs::assetpack::CAcpakReader reader;\nreader.Open(L\"game.acpak\");\nauto sz = reader.GetUncompressedSize(L\"textures/hero.png\");\nacs::byte* buf = MyAlloc(sz.Value());\nreader.ReadFile(L\"textures/hero.png\", buf, sz.Value());\nreader.Close();",
       members: [
         { sig: "TResult<void> Open(const wchar_t* file_path)", desc: "pak を独立した一時 Reader へ開き、ヘッダと<t>ファイルテーブル</t>の検証完了後にだけ現在状態を置換する。多重 Open が失敗した場合は既存の handle・manifest・鍵を維持し、未 Open からの失敗は未 Open のまま。<b>暗号化 pak</b> は Open 前に <code>SetKey</code> で鍵を渡しておくこと(無いと ReadFile でエラー)。magic/version/flags 不一致はエラー。" },
         { sig: "void SetKey(const FAcpakKey& key)", desc: "暗号化 pak の<t>復号</t>鍵を設定する。<code>ReadFile</code> 内の AES-256-GCM 復号で使う。Close すると鍵情報は 0 クリアされる。", when: "暗号化された pak を読む時。" },
@@ -43,40 +44,43 @@ ACS_REF.modules.push({
         { sig: "const FAcpakFileEntry* FindEntry(const wchar_t* path) const", ret: "エントリ or null", desc: "要求 path を一度 hash し、manifest 読み込み時に保持した hash と一致する候補だけを大文字小文字を区別して完全比較する。見つからない・非正規形・未 Open なら null。" },
         { sig: "TResult<u64> ReadFile(const wchar_t* path, void* out_buffer, u64 buffer_size)", ret: "書き込んだバイト数", desc: "ファイルを <code>out_buffer</code> へ読み出す。<code>buffer_size</code> は <code>GetUncompressedSize</code> 以上必要。読み出し後 <t>CRC32</t> を照合し、不一致(破損/改竄)はエラー。", sample: "auto r = reader.ReadFile(L\"data/level1.bin\", buf, bufSize);\nif (r.IsOk()) { /* buf に生データ */ }", when: "実際にファイルの中身が欲しい時。" },
         { sig: "TResult<u64> GetUncompressedSize(const wchar_t* path) const", ret: "復号+解凍後のバイト数", desc: "ファイルの最終サイズを返す。<code>ReadFile</code> 用バッファの事前確保に使う。未存在パスはエラー。", when: "ReadFile の前に必要なバッファ量を知りたい時。" },
-        { sig: "u32 Flags() const", ret: "<t>フラグ</t>", desc: "ヘッダから読んだ <code>flags</code>(暗号化/圧縮の有無)をそのまま返す。診断用。" }
+        { sig: "u32 Flags() const", ret: "<t>フラグ</t>", desc: "ヘッダから読んだ <code>flags</code>(暗号化/圧縮の有無)をそのまま返す。診断用。" },
+        { sig: "using FAcpakReader = CAcpakReader", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAcpakReader</code> を使う。" }
       ]
     },
     {
-      name: "FAcpakCrypto",
+      name: "CAcpakCrypto",
       kind: "クラス(static 関数群)", header: "assetpack/AcpakCrypto.h",
       summary: "<t>AES-256-GCM</t> 暗号化と <t>PBKDF2</t> による<t>鍵導出</t>をまとめた薄いラッパ。中身は Windows 標準の <t>CNG</t>(BCrypt)で、外部ライブラリに依存しない。インスタンス化はせず静的関数だけを使う。",
-      when: "通常は <code>FAcpakWriter</code>/<code>FAcpakReader</code> が内部で使うので直接触る必要は少ない。パスワードから鍵を作る時だけ <code>DeriveKey</code> を呼ぶ。",
-      sample: "// パスワードから鍵を作る\nconst u8 pw[] = \"my-secret\";\nconst u8 salt[] = \"acs-salt\";\nauto key = FAcpakCrypto::DeriveKey(pw, 9, salt, 8);\nwriter.SetKey(key.Value());",
+      when: "通常は <code>CAcpakWriter</code>/<code>CAcpakReader</code> が内部で使うので直接触る必要は少ない。パスワードから鍵を作る時だけ <code>DeriveKey</code> を呼ぶ。",
+      sample: "// パスワードから鍵を作る\nconst u8 pw[] = \"my-secret\";\nconst u8 salt[] = \"acs-salt\";\nauto key = CAcpakCrypto::DeriveKey(pw, 9, salt, 8);\nwriter.SetKey(key.Value());",
       members: [
         { sig: "TResult<FAcpakKey> DeriveKey(const u8* password, u32 password_len, const u8* salt, u32 salt_len)", ret: "32 バイトの鍵", desc: "パスワードと <t>salt</t> から AES-256 鍵を作る(PBKDF2-HMAC-SHA256、10000 回)。ポインタは即時消費され、戻り後は参照されない。", when: "ユーザー入力のパスワードを直接 32 バイト鍵に変換したい時。" },
         { sig: "TResult<void> Encrypt(const FAcpakKey& key, const u8 nonce[12], const u8* plaintext, u64 size, u8* ciphertext, u8 tag_out[16])", desc: "平文を暗号化し、暗号文と認証<t>タグ</t>(16 バイト)を出力する。<code>nonce</code> は per-entry に必ず一意であること(同じ <code>(key, nonce)</code> の再利用は致命的)。in-place(plaintext==ciphertext)可。" },
         { sig: "TResult<void> Decrypt(const FAcpakKey& key, const u8 nonce[12], const u8 tag[16], const u8* ciphertext, u64 size, u8* plaintext)", desc: "暗号文とタグから平文を復号する。タグ検証に失敗すると(=少しでも改竄/破損していると)全データを弾く。in-place 可。" },
-        { sig: "TResult<void> GenerateRandomNonce(u8 nonce_out[12])", ret: "ランダムな nonce", desc: "<t>CSPRNG</t> で 12 バイトの一意な <t>nonce</t> を作る。失敗時は決して成功を返さず 0 クリア+エラー(予測可能な nonce での暗号化は禁止のため)。", when: "Encrypt のたびに新しい nonce を用意する時。" }
+        { sig: "TResult<void> GenerateRandomNonce(u8 nonce_out[12])", ret: "ランダムな nonce", desc: "<t>CSPRNG</t> で 12 バイトの一意な <t>nonce</t> を作る。失敗時は決して成功を返さず 0 クリア+エラー(予測可能な nonce での暗号化は禁止のため)。", when: "Encrypt のたびに新しい nonce を用意する時。" },
+        { sig: "using FAcpakCrypto = CAcpakCrypto", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAcpakCrypto</code> を使う。" }
       ]
     },
     {
-      name: "FAcpakLz4",
+      name: "CAcpakLz4",
       kind: "クラス(static 関数群)", header: "assetpack/AcpakLz4.h",
       summary: "<code>.acpak</code> の各ファイルを<t>圧縮</t>/<t>解凍</t>する自前 <t>LZ4</t> 実装(外部依存ゼロ)。LZ4 は「速い・そこそこ縮む」高速圧縮形式。インスタンス化はせず静的関数を使う。",
       when: "通常は Writer/Reader が内部で使う。任意のバイト列を手早く圧縮/解凍したい時に直接呼んでもよい。",
-      sample: "u32 cap = FAcpakLz4::MaxCompressedSize(srcLen);\nu8* dst = MyAlloc(cap);\nauto n = FAcpakLz4::Compress(src, srcLen, dst, cap);\n// n.Value() = 圧縮後の実バイト数",
+      sample: "u32 cap = CAcpakLz4::MaxCompressedSize(srcLen);\nu8* dst = MyAlloc(cap);\nauto n = CAcpakLz4::Compress(src, srcLen, dst, cap);\n// n.Value() = 圧縮後の実バイト数",
       members: [
         { sig: "u32 MaxCompressedSize(u32 input_size)", ret: "最悪ケースの出力サイズ", desc: "入力サイズから「これ以下に必ず収まる」圧縮後サイズを返す。圧縮できないデータでもこの範囲。出力バッファ確保に使う。", when: "Compress に渡す出力バッファのサイズを決める時。" },
         { sig: "TResult<u32> Compress(const u8* src, u32 src_size, u8* dst, u32 dst_capacity)", ret: "圧縮後バイト数", desc: "<code>src</code> を <code>dst</code> へ圧縮する。<code>dst_capacity</code> は <code>MaxCompressedSize</code> 以上推奨。13 バイト未満は素通し。" },
-        { sig: "TResult<u32> Decompress(const u8* src, u32 src_size, u8* dst, u32 dst_capacity)", ret: "解凍後バイト数", desc: "圧縮データを <code>dst</code> へ解凍する。<code>dst_capacity</code> は元サイズ以上必要。不正な入力でも<t>境界検査</t>で安全に弾く。" }
+        { sig: "TResult<u32> Decompress(const u8* src, u32 src_size, u8* dst, u32 dst_capacity)", ret: "解凍後バイト数", desc: "圧縮データを <code>dst</code> へ解凍する。<code>dst_capacity</code> は元サイズ以上必要。不正な入力でも<t>境界検査</t>で安全に弾く。" },
+        { sig: "using FAcpakLz4 = CAcpakLz4", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAcpakLz4</code> を使う。" }
       ]
     },
     {
       name: "FAcpakKey",
       kind: "構造体", header: "assetpack/AcpakCrypto.h",
       summary: "AES-256 用の <b>256bit(32 バイト)の<t>鍵</t></b>を表す単純な <t>POD</t>。1 つの <code>.acpak</code> は 1 鍵で全エントリを暗号化する。",
-      when: "<code>FAcpakWriter::SetKey</code> / <code>FAcpakReader::SetKey</code> に渡す。普通は <code>FAcpakCrypto::DeriveKey</code> で作る。",
-      sample: "FAcpakKey key{};               // 0 埋め\nauto k = FAcpakCrypto::DeriveKey(pw, pwLen, salt, saltLen);\nreader.SetKey(k.Value());",
+      when: "<code>CAcpakWriter::SetKey</code> / <code>CAcpakReader::SetKey</code> に渡す。普通は <code>CAcpakCrypto::DeriveKey</code> で作る。",
+      sample: "FAcpakKey key{};               // 0 埋め\nauto k = CAcpakCrypto::DeriveKey(pw, pwLen, salt, saltLen);\nreader.SetKey(k.Value());",
       members: [
         { sig: "u8 bytes[32]", desc: "32 バイトの鍵データ。" }
       ]
@@ -99,7 +103,7 @@ ACS_REF.modules.push({
       name: "FAcpakFileEntry",
       kind: "構造体", header: "assetpack/AcpakFormat.h",
       summary: "<t>ファイルテーブル</t>の 1 行を <t>Reader</t> がメモリ上に展開した形。仮想パス・オフセット・サイズ・<t>CRC32</t>、暗号化 pak なら <t>nonce</t>/<t>タグ</t>を持つ。",
-      when: "<code>FAcpakReader::GetEntry</code> / <code>FindEntry</code> の戻り値として受け取り、ファイルの素性を調べる時。",
+      when: "<code>CAcpakReader::GetEntry</code> / <code>FindEntry</code> の戻り値として受け取り、ファイルの素性を調べる時。",
       sample: "const FAcpakFileEntry* e = reader.FindEntry(L\"bgm/title.ogg\");\nif (e) {\n    u64 raw = e->size_stored;          // アーカイブ上の生サイズ\n    u64 real = e->size_uncompressed;   // 解凍後サイズ\n}",
       members: [
         { sig: "const wchar_t* path", desc: "仮想パス(Reader 内文字列<t>プール</t>への参照、寿命は次の Close まで)。" },
@@ -114,7 +118,7 @@ ACS_REF.modules.push({
       name: "EAcpakFlags",
       kind: "列挙(enum)", header: "assetpack/AcpakFormat.h",
       summary: "ヘッダ <code>flags</code> の<t>ビットフラグ</t>。pak 全体が暗号化されているか/圧縮されているかを表す。Writer の <code>Open</code> に渡し、Reader が読んで処理を組み立てる。",
-      when: "<code>FAcpakWriter::Open</code> で圧縮/暗号化を選ぶ時。複数を <code>|</code> で組み合わせ可(順序は compress→encrypt)。",
+      when: "<code>CAcpakWriter::Open</code> で圧縮/暗号化を選ぶ時。複数を <code>|</code> で組み合わせ可(順序は compress→encrypt)。",
       sample: "// 圧縮+暗号化で梱包\nw.SetKey(key);\nw.Open(L\"out/game.acpak\",\n       EAcpakFlags(AcpakFlagCompressed | AcpakFlagEncrypted));",
       members: [
         { sig: "AcpakFlagNone = 0", desc: "圧縮も暗号化もしない(素の生バイト)。" },
@@ -123,11 +127,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FAcpakGameReader",
+      name: "CAcpakGameReader",
       kind: "クラス", header: "assetpack/AcpakGameBridge.h",
-      summary: "<code>FAcpakReader</code> を <t>GameFramework</t> の <code>acs::game::IAssetPackReader</code> <t>インターフェース</t>に適合させた<b>橋渡し</b>クラス。パスを <code>char*</code>(UTF-8)で扱える。",
+      summary: "<code>CAcpakReader</code> を <t>GameFramework</t> の <code>acs::game::IAssetPackReader</code> <t>インターフェース</t>に適合させた<b>橋渡し</b>クラス。パスを <code>char*</code>(UTF-8)で扱える。",
       when: "ゲーム側の汎用アセット読み込み API(<code>IAssetPackReader</code>)経由で <code>.acpak</code> を使いたい時。",
-      sample: "acs::assetpack::FAcpakGameReader r;\nr.Mount(\"game.acpak\");\nu64 sz = r.FileSize(\"textures/hero.png\").Value();\nr.ReadFile(\"textures/hero.png\", buf, sz);\nr.Unmount();",
+      sample: "acs::assetpack::CAcpakGameReader r;\nr.Mount(\"game.acpak\");\nu64 sz = r.FileSize(\"textures/hero.png\").Value();\nr.ReadFile(\"textures/hero.png\", buf, sz);\nr.Unmount();",
       members: [
         { sig: "TResult<void> Mount(const char* PackPath)", desc: "pak を開く(<code>Open</code> 相当)。" },
         { sig: "void Unmount()", desc: "pak を閉じる(<code>Close</code> 相当)。" },
@@ -135,19 +139,21 @@ ACS_REF.modules.push({
         { sig: "TResult<u32> FileCount()", ret: "ファイル数", desc: "含まれるファイル数。" },
         { sig: "TResult<const char*> FileName(u32 Index)", ret: "ファイル名(UTF-8)", desc: "<code>Index</code> 番目の仮想ファイル名。" },
         { sig: "TResult<u64> FileSize(const char* Name)", ret: "サイズ", desc: "名前指定でファイルの最終サイズを返す。" },
-        { sig: "TResult<void> ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize)", desc: "名前指定でファイルを読み出す。" }
+        { sig: "TResult<void> ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize)", desc: "名前指定でファイルを読み出す。" },
+        { sig: "using FAcpakGameReader = CAcpakGameReader", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAcpakGameReader</code> を使う。" }
       ]
     },
     {
-      name: "FAcpakGameWriter",
+      name: "CAcpakGameWriter",
       kind: "クラス", header: "assetpack/AcpakGameBridge.h",
-      summary: "<code>FAcpakWriter</code> を <code>acs::game::IAssetPackWriter</code> <t>インターフェース</t>に適合させた橋渡しクラス。パスを <code>char*</code>(UTF-8)で扱える。",
+      summary: "<code>CAcpakWriter</code> を <code>acs::game::IAssetPackWriter</code> <t>インターフェース</t>に適合させた橋渡しクラス。パスを <code>char*</code>(UTF-8)で扱える。",
       when: "ゲーム側の汎用パッキング API(<code>IAssetPackWriter</code>)経由で <code>.acpak</code> を作りたい時。",
-      sample: "acs::assetpack::FAcpakGameWriter w;\nw.BeginPack(\"out/game.acpak\");\nw.AddFile(\"data/level1.bin\", bytes, size);\nw.FinishPack();",
+      sample: "acs::assetpack::CAcpakGameWriter w;\nw.BeginPack(\"out/game.acpak\");\nw.AddFile(\"data/level1.bin\", bytes, size);\nw.FinishPack();",
       members: [
         { sig: "TResult<void> BeginPack(const char* OutputPath)", desc: "出力 pak を開く(<code>Open</code> 相当)。" },
         { sig: "TResult<void> AddFile(const char* VirtualName, const u8* Data, u64 Size)", desc: "ファイルを 1 つ追加する。" },
-        { sig: "TResult<void> FinishPack()", desc: "pak を確定して書き出す(<code>Finalize</code> 相当)。" }
+        { sig: "TResult<void> FinishPack()", desc: "pak を確定して書き出す(<code>Finalize</code> 相当)。" },
+        { sig: "using FAcpakGameWriter = CAcpakGameWriter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CAcpakGameWriter</code> を使う。" }
       ]
     },
     {
@@ -188,7 +194,7 @@ ACS_REF.modules.push({
     {
       name: "kAcpakNonceSize / kAcpakTagSize",
       kind: "定数", header: "assetpack/AcpakCrypto.h",
-      summary: "AES-256-GCM の <t>nonce</t> と認証<t>タグ</t>の<b>バイト長定数</b>。<code>kAcpakNonceSize = 12</code>(96bit、GCM 推奨幅)、<code>kAcpakTagSize = 16</code>(128bit 認証タグ)。<code>FAcpakCrypto</code> の引数配列長として使われ、呼び出し側の長さ誤りを防ぐ。",
+      summary: "AES-256-GCM の <t>nonce</t> と認証<t>タグ</t>の<b>バイト長定数</b>。<code>kAcpakNonceSize = 12</code>(96bit、GCM 推奨幅)、<code>kAcpakTagSize = 16</code>(128bit 認証タグ)。<code>CAcpakCrypto</code> の引数配列長として使われ、呼び出し側の長さ誤りを防ぐ。",
       when: "<code>Encrypt</code>/<code>Decrypt</code>/<code>GenerateRandomNonce</code> に渡す nonce/tag バッファのサイズを決める時。",
       sample: "u8 nonce[kAcpakNonceSize];   // 12\nu8 tag[kAcpakTagSize];       // 16\nFAcpakCrypto::GenerateRandomNonce(nonce);\nFAcpakCrypto::Encrypt(key, nonce, pt, n, ct, tag);",
       members: [
@@ -212,7 +218,7 @@ ACS_REF.modules.push({
         { sig: "kAcpakSubNotOpen = 1307", desc: "Open() 前に API を呼んだ。" },
         { sig: "kAcpakSubNotFound = 1308", desc: "指定 path / index が pak 内に無い。" },
         { sig: "kAcpakSubBufferTooSmall = 1309", desc: "<code>ReadFile</code> の out_buffer が小さすぎる。" },
-        { sig: "kAcpakSubAlreadyOpen = 1310", desc: "<code>FAcpakWriter::Open</code> の二重呼び出し。" },
+        { sig: "kAcpakSubAlreadyOpen = 1310", desc: "<code>CAcpakWriter::Open</code> の二重呼び出し。" },
         { sig: "kAcpakSubNotFinalized = 1311", desc: "Finalize 前に Close(内部用)。" },
         { sig: "kAcpakSubIOFailure = 1312", desc: "Win32 I/O 失敗(<code>os_error</code> 参照)。" },
         { sig: "kAcpakSubOutOfMemory = 1313", desc: "文字列 pool / entry 配列の確保失敗。" },
@@ -227,8 +233,8 @@ ACS_REF.modules.push({
       name: ".acpak エラー subcode (crypto)",
       kind: "定数群", header: "assetpack/AcpakCrypto.h",
       summary: "<t>AES-256-GCM</t> / <t>PBKDF2</t> 周りの<b>暗号エラー <t>subcode</t></b>(1314〜1319)。多くは <code>ACS_ERR_OS</code>(CNG/BCrypt の OS エラー付き)。タグ検証失敗だけは改竄/破損の単一窓口として扱う。",
-      when: "<code>FAcpakCrypto</code> や暗号化 pak の Read/Write が失敗した時、原因(初期化/鍵/演算/タグ/乱数/KDF)を判別する時。",
-      sample: "auto k = FAcpakCrypto::DeriveKey(pw, n, salt, m);\nif (k.IsErr() &amp;&amp; k.Error().subcode == kAcpakSubCryptoKdf) {\n    // KDF 計算に失敗\n}",
+      when: "<code>CAcpakCrypto</code> や暗号化 pak の Read/Write が失敗した時、原因(初期化/鍵/演算/タグ/乱数/KDF)を判別する時。",
+      sample: "auto k = CAcpakCrypto::DeriveKey(pw, n, salt, m);\nif (k.IsErr() &amp;&amp; k.Error().subcode == kAcpakSubCryptoKdf) {\n    // KDF 計算に失敗\n}",
       members: [
         { sig: "kAcpakSubCryptoInit = 1314", desc: "BCryptOpenAlgorithmProvider 失敗(algorithm provider 取得)。" },
         { sig: "kAcpakSubCryptoKey = 1315", desc: "BCryptGenerateSymmetricKey 失敗(鍵未設定で暗号化 pak を扱った時にも返る)。" },
@@ -241,9 +247,9 @@ ACS_REF.modules.push({
     {
       name: ".acpak エラー subcode (lz4)",
       kind: "定数群", header: "assetpack/AcpakLz4.h",
-      summary: "<t>LZ4</t> 圧縮/解凍の<b>エラー <t>subcode</t></b>(1320〜1323)。<code>FAcpakLz4::Compress</code> / <code>Decompress</code> が <code>ACS_ERR(Asset,...)</code> で返す。<t>境界検査</t>に引っかかった不正ブロックを表す。",
-      when: "圧縮 pak の読み書きや <code>FAcpakLz4</code> 直接呼び出しが失敗した時、原因(入力枯渇/出力超過/不正 offset/不正入力)を判別する時。",
-      sample: "auto n = FAcpakLz4::Decompress(src, sn, dst, cap);\nif (n.IsErr() &amp;&amp; n.Error().subcode == kAcpakSubLz4DstOverflow) {\n    // 出力バッファ不足 or 壊れた圧縮データ\n}",
+      summary: "<t>LZ4</t> 圧縮/解凍の<b>エラー <t>subcode</t></b>(1320〜1323)。<code>CAcpakLz4::Compress</code> / <code>Decompress</code> が <code>ACS_ERR(Asset,...)</code> で返す。<t>境界検査</t>に引っかかった不正ブロックを表す。",
+      when: "圧縮 pak の読み書きや <code>CAcpakLz4</code> 直接呼び出しが失敗した時、原因(入力枯渇/出力超過/不正 offset/不正入力)を判別する時。",
+      sample: "auto n = CAcpakLz4::Decompress(src, sn, dst, cap);\nif (n.IsErr() &amp;&amp; n.Error().subcode == kAcpakSubLz4DstOverflow) {\n    // 出力バッファ不足 or 壊れた圧縮データ\n}",
       members: [
         { sig: "kAcpakSubLz4SrcOverflow = 1320", desc: "src カーソルが範囲外(入力が途中で尽きた)。" },
         { sig: "kAcpakSubLz4DstOverflow = 1321", desc: "dst capacity 超過(出力が dst を超えた)。" },

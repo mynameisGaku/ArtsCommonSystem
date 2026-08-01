@@ -116,7 +116,7 @@ ACS_REF.modules.push({
         { sig: "bool Unsubscribe(FSubscriptionHandle h)", ret: "解除できたか", desc: "購読を解除する。<b>配信(Publish)中でも直ちに無効</b>になり、まだ呼ばれていない購読ならその回から呼ばれない。購読枠の再利用だけを最外側の配信終了まで遅らせる。", when: "受信側が不要になった/破棄される時。必ず解除する。" },
         { sig: "void Clear()", desc: "全購読を直ちに無効化する。配信中は残りの処理を止め、新しい購読を拒否し、最外側の配信終了時に保持領域を解放する。" },
         { sig: "u32 SubscriberCount(FEventTypeId channel) const", ret: "購読者数", desc: "あるチャンネル(イベント型)の現在の購読者数。主にデバッグ用。" },
-        { sig: "using FMessageBroker = CMessageBroker", desc: "旧名を使う既存コード向けの一時的な互換別名。新しいコードでは <code>CMessageBroker</code> を使う。" }
+        { sig: "using FMessageBroker = CMessageBroker", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CMessageBroker</code> を使う。" }
       ]
     },
     {
@@ -192,7 +192,7 @@ ACS_REF.modules.push({
         { sig: "void Tick(f32 dt)", desc: "毎フレーム呼ぶ。<code>dt</code>(前フレームからの秒数)だけ全タイマを進める。処理からの再入更新は無視し、更新中の新規登録は次回から進める。", when: "ゲームループの更新部分で必ず 1 回呼ぶ。" },
         { sig: "u32 ActiveCount() const", ret: "稼働中の数", desc: "現在アクティブなタイマ数。主にデバッグ用。" },
         { sig: "FTimerDiagnostics Diagnostics() const / void ResetDiagnostics()", ret: "走査診断値", desc: "直近更新のactive走査量と累積cancel probeを取得し、必要なら診断値だけを0へ戻す。" },
-        { sig: "using FTimerManager = CTimerManager", desc: "旧名を使う既存コード向けの一時的な互換別名。新しいコードでは <code>CTimerManager</code> を使う。" }
+        { sig: "using FTimerManager = CTimerManager", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CTimerManager</code> を使う。" }
       ]
     },
     {

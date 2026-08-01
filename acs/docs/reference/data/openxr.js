@@ -8,7 +8,7 @@ ACS_REF.modules.push({
   blurb: "VR/AR ヘッドセット(<t>HMD</t>)を扱う窓口です。<t>OpenXR</t> という業界標準を通して、頭やコントローラの位置・向きを読み取り、<t>パススルー</t>(現実映像の表示)を切り替えます。実機が無くても安全に動く<t>フォールバック</t>付き。",
   types: [
     {
-      name: "FKhronosOpenXrBridge",
+      name: "CKhronosOpenXrBridge",
       kind: "クラス", header: "openxr/KhronosOpenXrBridge.h",
       summary: "<t>OpenXR</t> 公式ローダ(Khronos loader)を使った実<t>backend</t>。共通インターフェース <t>IOpenXrBridge</t> を実装し、<t>HMD</t> やコントローラの<t>ポーズ</t>を提供する。コピー/ムーブ不可の<t>singleton</t>運用前提。",
       when: "実機の VR ランタイムに接続して頭・手の位置を取りたい時。通常は直接 new せず、<code>GetDefaultKhronosOpenXrBridge()</code> か <code>GetDefaultOpenXrBridge()</code> 経由で使う。",
@@ -24,7 +24,8 @@ ACS_REF.modules.push({
         { sig: "FXrControllerState RightController() const", ret: "右手の状態", desc: "右コントローラの入力スナップショット。" },
         { sig: "void Tick(f32 Dt)", desc: "XR ランタイムのイベントを取り込み、ポーズ/入力を更新する。ゲームループから毎フレーム呼ぶ。<code>Dt</code> は実時間秒。" },
         { sig: "bool IsPassthroughSupported() const", ret: "対応可否", desc: "<t>パススルー</t>(MR モード)に対応しているか。" },
-        { sig: "void SetPassthrough(bool bOn)", desc: "パススルーの on/off を要求する。非対応/未初期化なら何もしない。" }
+        { sig: "void SetPassthrough(bool bOn)", desc: "パススルーの on/off を要求する。非対応/未初期化なら何もしない。" },
+        { sig: "using FKhronosOpenXrBridge = CKhronosOpenXrBridge", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CKhronosOpenXrBridge</code> を使う。" }
       ]
     },
     {
@@ -51,7 +52,7 @@ ACS_REF.modules.push({
     {
       name: "IOpenXrBridge",
       kind: "インターフェース", header: "gameframework/OpenXrBridge.h",
-      summary: "XR ランタイム/<t>HMD</t> を抽象化した共通<t>インターフェース</t>(<t>seam</t>)。ゲームロジックはこの型越しに頭・手のポーズや<t>パススルー</t>を叩き、具象 backend(<t>FKhronosOpenXrBridge</t> / stub 等)は差し替えで選ぶ。シングルスレッド専用・コピー/ムーブ不可。",
+      summary: "XR ランタイム/<t>HMD</t> を抽象化した共通<t>インターフェース</t>(<t>seam</t>)。ゲームロジックはこの型越しに頭・手のポーズや<t>パススルー</t>を叩き、具象 backend(<t>CKhronosOpenXrBridge</t> / stub 等)は差し替えで選ぶ。シングルスレッド専用・コピー/ムーブ不可。",
       when: "XR を使う側のコードはこの参照型で受け取る。これにより実機が無い CI でも <t>mock</t> に差し替えてテストできる。",
       sample: "void UpdateVr(acs::game::IOpenXrBridge&amp; xr, float dt) {\n    xr.Tick(dt);\n    if (!xr.IsTracking()) return;     // 未追跡なら 2D へ\n    auto head = xr.HeadPose();\n    if (xr.LeftController().trigger &gt; 0.5f) Shoot();\n}",
       members: [

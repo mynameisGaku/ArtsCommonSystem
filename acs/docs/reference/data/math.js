@@ -157,7 +157,8 @@ ACS_REF.modules.push({
         { sig: "const FMat4& View() / Projection()", ret: "行列", desc: "ビュー / 投影行列を個別に取得。" },
         { sig: "FMat4 ViewProjection()", ret: "VP 行列", desc: "ビュー × 投影。シェーダの定数バッファに入れる定番。" },
         { sig: "FVec3 Eye()", ret: "視点位置", desc: "現在の視点（カメラ位置）。ライティングや距離計算に使う。" },
-        { sig: "void UpdateAspect(fov_y_rad, aspect, near_z, far_z)", desc: "ウィンドウリサイズ時にアスペクト比だけ更新する。" }
+        { sig: "void UpdateAspect(fov_y_rad, aspect, near_z, far_z)", desc: "ウィンドウリサイズ時にアスペクト比だけ更新する。" },
+        { sig: "using FCamera = CCamera", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CCamera</code> を使う。" }
       ]
     },
     {

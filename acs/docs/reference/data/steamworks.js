@@ -8,11 +8,11 @@ ACS_REF.modules.push({
   blurb: "<t>Steam</t> の実績・リーダーボード・クラウドセーブ・フレンドなどを使う<t>バックエンド</t>です。ゲーム側は <code>acs::game</code> の <t>シーム</t>(抽象 I/F)越しに呼ぶだけで、このモジュールが本物の <t>Steamworks SDK</t> につなぎます。",
   types: [
     {
-      name: "FSteamworksBridgeImpl",
+      name: "CSteamworksBridgeImpl",
       kind: "クラス", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "<t>Steamworks SDK</t> を実際に呼ぶ<b>本物の実装</b>(<code>acs::game::ISteamworksBridge</code> を <t>Override</t>)。<code>SteamAPI_Init()</code> を起点に、実績解除・リーダーボード・統計(Stats)・DLC 所有・リッチプレゼンス・フレンド・クラウドセーブ・Workshop・ボイス・Steam Input を提供します。",
       when: "出荷ビルドで本物の Steam 機能を使いたい時。開発中で Steam クライアントを立ち上げられない時は、代わりに <code>acs::game::SteamworksBridgeStub</code> を使う(自動切り替えは <code>GetDefaultSteamworksBridge()</code> 参照)。",
-      sample: "acs::steamworks::FSteamworksBridgeImpl steam;\nif (steam.Init().IsErr()) {\n    // Steam 未起動 / AppID 不一致 → stub にフォールバック\n}\n// ボス撃破時に実績解除\n(void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム必須(コールバックポンプ)\nsteam.Tick(dt);",
+      sample: "acs::steamworks::CSteamworksBridgeImpl steam;\nif (steam.Init().IsErr()) {\n    // Steam 未起動 / AppID 不一致 → stub にフォールバック\n}\n// ボス撃破時に実績解除\n(void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n// 毎フレーム必須(コールバックポンプ)\nsteam.Tick(dt);",
       members: [
         { sig: "TResult&lt;void&gt; Init()", ret: "成功 or エラー", desc: "<code>SteamAPI_Init()</code> を呼んで Steam クライアント連携を確立する。Steam 未起動 / AppID 不一致なら <t>Err</t>(<code>kSubSteamworksInitFailed</code>)。", when: "起動時に一度。失敗したら stub へフォールバックする。" },
         { sig: "void Shutdown()", desc: "SDK 終了処理。<code>Init()</code> 前に呼んでも安全(<t>no-op</t>)。" },
@@ -38,14 +38,15 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; VoiceStartRecording() / VoiceStopRecording()", desc: "<t>ボイスチャット</t>の録音を開始/停止する(プッシュトゥトーク想定)。" },
         { sig: "TResult&lt;u32&gt; VoiceGetCompressed(void* out_buf, u32 buf_size)", ret: "取得バイト数", desc: "圧縮済み音声データを取り出す。0 は「データなし」。" },
         { sig: "TResult&lt;void&gt; InputInit()", desc: "<t>Steam Input</t> を初期化する(アクションセットを SDK へ通知)。" },
-        { sig: "u32 InputGetControllerCount() const", ret: "接続数", desc: "Steam Input が認識しているコントローラ数。" }
+        { sig: "u32 InputGetControllerCount() const", ret: "接続数", desc: "Steam Input が認識しているコントローラ数。" },
+        { sig: "using FSteamworksBridgeImpl = CSteamworksBridgeImpl", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CSteamworksBridgeImpl</code> を使う。" }
       ]
     },
     {
       name: "GetDefaultSteamworksBridge()",
       kind: "関数", header: "steamworks/SteamworksBridgeImpl.h",
       summary: "プロセス共有の<b>実 Bridge シングルトン</b>を返す。初回アクセス時に <code>Init()</code> を 1 回だけ走らせる(Steam 未起動でも参照は返す — 成否は <code>IsInitialized()</code> で判定)。",
-      when: "「とりあえず実 Bridge が欲しい」時。自前で <code>FSteamworksBridgeImpl</code> を持ちたくない場合の手軽な入口。",
+      when: "「とりあえず実 Bridge が欲しい」時。自前で <code>CSteamworksBridgeImpl</code> を持ちたくない場合の手軽な入口。",
       sample: "auto&amp; steam = acs::steamworks::GetDefaultSteamworksBridge();\nif (steam.IsInitialized()) {\n    (void)steam.UnlockAchievement(\"ACH_BOSS_01\");\n}"
     },
     {

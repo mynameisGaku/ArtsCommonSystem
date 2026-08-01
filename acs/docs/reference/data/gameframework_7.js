@@ -203,7 +203,7 @@ ACS_REF.modules.push({
         { sig: "void SetPivot(FVec2 p) / FVec2 Pivot() const", desc: "回転・配置の基準点 (0..1、既定は中心 {0.5,0.5})。" },
         { sig: "void SetUvRect(f32 u0, f32 v0, f32 u1, f32 v1)", desc: "テクスチャ内の表示矩形を指定。スプライトシートの 1 コマを切り出す。", when: "アニメ用に <t>ASpriteAnimComponent</t> が毎フレーム書き換える。" },
         { sig: "FVec2 UvMin() const / FVec2 UvMax() const", desc: "現在の UV 矩形の左上 / 右下。" },
-        { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理。<code>FScene2D</code> の <t>FSpriteBatch</t> 経由で描く (利用者は通常呼ばない)。" }
+        { sig: "void OnDraw(FRenderContext& rc) override", desc: "描画処理。<code>FScene2D</code> の <t>CSpriteBatch</t> 経由で描く (利用者は通常呼ばない)。" }
       ]
     },
     {
@@ -351,7 +351,7 @@ ACS_REF.modules.push({
       sample: "FStreamingDirector dir;\ndir.Init(/*chunk_size=*/100.0f, /*view_radius=*/2);\ndir.SetMaxConcurrentLoads(4);\n// 毎フレーム\ndir.SetViewerPos({ cam.x, cam.y });\ndir.Tick(dt);",
       members: [
         { sig: "void Init(f32 chunk_size = 100.0f, i32 view_radius_chunks = 2)", desc: "1 チャンクの大きさと保持半径を設定。半径 2 なら 5x5 = 25 チャンクを保つ。" },
-        { sig: "void SetAssetRegistry(FAssetRegistry* registry) / FAssetRegistry* GetAssetRegistry() const", desc: "実アセットロード用 registry を差し込む / 取得する。<code>nullptr</code> なら擬似ロード。" },
+        { sig: "void SetAssetRegistry(CAssetRegistry* registry) / CAssetRegistry* GetAssetRegistry() const", desc: "実アセットロード用 registry を差し込む / 取得する。<code>nullptr</code> なら擬似ロード。" },
         { sig: "void SetChunkPathFormat(const char* fmt)", desc: "チャンク (cx,cy) → アセットパスの printf 風書式。<code>%d</code> を 2 つこの順で含める。" },
         { sig: "void SetViewerPos(FVec2 pos)", desc: "カメラのワールド座標を更新する。" },
         { sig: "void SetMaxConcurrentLoads(u32 n)", desc: "同時ロード数の上限 (既定 4、0 は 1 に補正)。" },
@@ -500,7 +500,7 @@ ACS_REF.modules.push({
     {
       name: "ATilemapComponent",
       kind: "クラス", header: "gameframework/TilemapComponent.h",
-      summary: "<t>FTilemap</t> のデータを <t>FScene2D</t> 上に<b>描画</b>するコンポーネント。格子アトラステクスチャを持ち、非空タイルを対応セルの UV で <t>FSpriteBatch</t> に描く。当たり判定の生成もできる。",
+      summary: "<t>FTilemap</t> のデータを <t>FScene2D</t> 上に<b>描画</b>するコンポーネント。格子アトラステクスチャを持ち、非空タイルを対応セルの UV で <t>CSpriteBatch</t> に描く。当たり判定の生成もできる。",
       when: "タイルマップを実際に画面表示し、必要なら壁として物理ワールドに登録したい時。",
       sample: "auto& tm = node->AddComponent<ATilemapComponent>();\ntm.Map().Init(16, 12, 1, 1.0f);\ntm.Map().FillRect(0, 0, 15, 0, FTileId{1});\ntm.SetTexture(atlas_tex);\ntm.SetAtlasGrid(4, 4);\ntm.BuildCollision(world, 0, kWall);",
       members: [
@@ -521,7 +521,7 @@ ACS_REF.modules.push({
       members: [
         { sig: "FVec2 position / f32 rotation / FVec2 scale", desc: "位置・回転 (ラジアン)・スケール。" },
         { sig: "FTransform2D Compose(const FTransform2D& local) const", ret: "world transform", desc: "親の座標系に <code>local</code> を載せたワールド transform を返す。", when: "親子ノードのワールド座標を求める時。" },
-        { sig: "FMat4 ToMat4() const", ret: "4x4 行列", desc: "<t>FSpriteBatch</t> 等で 4x4 行列が要るときの変換 (合成内では使わない)。" },
+        { sig: "FMat4 ToMat4() const", ret: "4x4 行列", desc: "<t>CSpriteBatch</t> 等で 4x4 行列が要るときの変換 (合成内では使わない)。" },
         { sig: "static FTransform2D Identity()", ret: "単位 transform", desc: "原点 / 無回転 / 等倍の単位 transform。" }
       ]
     }
@@ -545,8 +545,8 @@ Object.assign(ACS_REF.glossary, {
   "FSpritePack": "1 枚のアトラスと名前付きフレーム矩形を持つデータ層。",
   "FTilemap": "2D グリッドにタイル ID を並べるデータ専用のマップ。",
   "ATilemapComponent": "タイルマップを画面に描画するコンポーネント。",
-  "FScene2D": "2D シーンの管理係。FSpriteBatch を FRenderContext に用意し、ノードを描画する。",
-  "FSpriteBatch": "多数のスプライトをまとめて効率よく描画する仕組み。",
+  "FScene2D": "2D シーンの管理係。CSpriteBatch を FRenderContext に用意し、ノードを描画する。",
+  "CSpriteBatch": "多数のスプライトをまとめて効率よく描画する仕組み。",
   "FAudioSource3D": "3D 空間内の音源 1 個 (位置 / 音量 / 減衰)。",
   "FAudioListener": "音を聞く側 (プレイヤーの耳) の位置と向き。",
   "IHrtfRenderer": "モノラルをステレオへ空間化する処理の抽象<t>インターフェース</t>。",

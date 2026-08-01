@@ -34,7 +34,8 @@ ACS_REF.modules.push({
         { sig: "FFixedStepAdvanceResult Advance(f64 delta_seconds)", ret: "今回の更新回数と補間情報", desc: "負値と有限でない値を拒否し、上限を適用して時計を進める。" },
         { sig: "bool TryAdvanceBatch(deltas, count, results, capacity, result_count)", ret: "全件処理できたか", desc: "最大4096件を先に検証し、失敗時は時計と全出力を維持する。" },
         { sig: "TryCaptureSnapshot / TryRestoreSnapshot", ret: "保存または復元できたか", desc: "内容、整列、領域重複を検証し、失敗時は出力または時計を維持する。" },
-        { sig: "Reset / InterpolationAlpha / TotalStepCount / TotalDroppedSeconds", desc: "設定を維持した初期化と、現在補間率、累積更新回数、累積破棄秒の取得を行う。" }
+        { sig: "Reset / InterpolationAlpha / TotalStepCount / TotalDroppedSeconds", desc: "設定を維持した初期化と、現在補間率、累積更新回数、累積破棄秒の取得を行う。" },
+        { sig: "using FFixedStepClock = CFixedStepClock", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CFixedStepClock</code> を使う。" }
       ]
     },
     {

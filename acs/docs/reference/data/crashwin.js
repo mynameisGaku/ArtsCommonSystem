@@ -9,7 +9,7 @@ ACS_REF.modules.push({
     {
       name: "FWindowsCrashReporterConfig",
       kind: "構造体", header: "crashwin/WindowsCrashReporter.h",
-      summary: "<t>FWindowsCrashReporter</t> の初期設定。今は<b>ダンプ／報告書の出力先フォルダ</b>を 1 つ指定するだけのシンプルな設定です。",
+      summary: "<t>CWindowsCrashReporter</t> の初期設定。今は<b>ダンプ／報告書の出力先フォルダ</b>を 1 つ指定するだけのシンプルな設定です。",
       when: "クラッシュ報告ファイルの保存先を既定の <code>\"crash_dumps\"</code> 以外にしたい時。",
       sample: "FWindowsCrashReporterConfig cfg;\ncfg.DumpDirectory = \"Saved/Crashes\";   // 出力先を変更\nFWindowsCrashReporter reporter(cfg);",
       members: [
@@ -17,13 +17,13 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FWindowsCrashReporter",
+      name: "CWindowsCrashReporter",
       kind: "クラス", header: "crashwin/WindowsCrashReporter.h",
       summary: "Windows 専用のクラッシュ報告 backend。<t>gameframework</t> の <t>ICrashReporterBackend</t> を実装し、<t>DbgHelp</t> の <code>MiniDumpWriteDump</code> で<b>ミニダンプ</b>を、合わせて<b>人間が読めるテキスト報告書</b>を書き出します。直前の <t>パンくず</t>（breadcrumb）も最大 32 件まで添付します。コピー／<t>ムーブ</t>は禁止。",
       when: "Windows タイトルで、クラッシュや非致命エラーをローカルファイルとして残したい時。多くの場合は直接 new せず <t>InstallWindowsCrashReporterAsDefault</t> 経由で <t>singleton</t> として使います。",
-      sample: "FWindowsCrashReporter reporter;\nif (reporter.Init(\"com.example.mygame\", \"1.2.3\").IsOk()) {\n    reporter.AddBreadcrumb(\"scene\", \"TitleScreen ロード完了\");\n    // ... 何か落ちそうな処理 ...\n    reporter.ReportError(\"save\", \"セーブファイルが壊れています\");\n}\nreporter.Shutdown();",
+      sample: "CWindowsCrashReporter reporter;\nif (reporter.Init(\"com.example.mygame\", \"1.2.3\").IsOk()) {\n    reporter.AddBreadcrumb(\"scene\", \"TitleScreen ロード完了\");\n    // ... 何か落ちそうな処理 ...\n    reporter.ReportError(\"save\", \"セーブファイルが壊れています\");\n}\nreporter.Shutdown();",
       members: [
-        { sig: "explicit FWindowsCrashReporter(const FWindowsCrashReporterConfig& Config)", desc: "出力フォルダ等を指定して構築する。引数なしの既定構築も可（出力先は <code>\"crash_dumps\"</code>）。" },
+        { sig: "explicit CWindowsCrashReporter(const FWindowsCrashReporterConfig& Config)", desc: "出力フォルダ等を指定して構築する。引数なしの既定構築も可（出力先は <code>\"crash_dumps\"</code>）。" },
         { sig: "TResult<void> Init(const char* ProductId, const char* Version)", ret: "成否（<t>Result</t>）", desc: "報告に付ける<b>製品 ID とバージョン</b>を控えて初期化する。両文字列の寿命は呼出側が保証。", when: "アプリ起動直後に一度だけ。", sample: "auto r = reporter.Init(\"com.example.mygame\", \"1.2.3\");\nif (r.IsErr()) { /* 失敗は握り潰す（二次クラッシュ防止） */ }" },
         { sig: "void Shutdown()", desc: "後始末。<code>Init()</code> 前に呼んでも安全（<t>no-op</t>）。" },
         { sig: "bool IsAvailable() const", ret: "利用可能か", desc: "<code>Init()</code> 成功後かつ <code>Shutdown()</code> 前なら true。" },
@@ -33,17 +33,18 @@ ACS_REF.modules.push({
         { sig: "void SetUserId(const char* AnonymousId)", desc: "報告に付ける<b>匿名ユーザー ID</b>を設定する。GDPR/CCPA 対応のため、生の email でなく初回起動時に作った UUID 等を渡す。", sample: "reporter.SetUserId(\"a1b2c3d4-...\");" },
         { sig: "void Tick(f32 Dt)", desc: "毎フレーム呼ぶ pump 用フック（<code>Dt</code> は経過秒）。本 backend は同期書き込みなので実質 <t>no-op</t>。" },
         { sig: "const char* LastDumpPath() const", ret: "最後の .dmp パス", desc: "直近に書き出したミニダンプの<b>ファイルパス</b>。未出力なら空文字列。", when: "出力されたダンプの場所をログに出す／UI で案内する時。" },
-        { sig: "const char* LastReportPath() const", ret: "最後の .txt パス", desc: "直近に書き出したテキスト報告書の<b>ファイルパス</b>。未出力なら空文字列。" }
+        { sig: "const char* LastReportPath() const", ret: "最後の .txt パス", desc: "直近に書き出したテキスト報告書の<b>ファイルパス</b>。未出力なら空文字列。" },
+        { sig: "using FWindowsCrashReporter = CWindowsCrashReporter", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CWindowsCrashReporter</code> を使う。" }
       ]
     },
     {
       name: "GetDefaultWindowsCrashReporter()",
       kind: "関数", header: "crashwin/WindowsCrashReporter.h",
-      summary: "プロセス全体で共有される<b>既定の <t>FWindowsCrashReporter</t> <t>singleton</t></b>を返す。これが <t>provider</t> として登録される実体。",
+      summary: "プロセス全体で共有される<b>既定の <t>CWindowsCrashReporter</t> <t>singleton</t></b>を返す。これが <t>provider</t> として登録される実体。",
       when: "通常は直接呼ばず <t>InstallWindowsCrashReporterAsDefault</t> を使う。明示的に同じ singleton を触りたい時だけ使う。",
       sample: "auto& crash = acs::crashwin::GetDefaultWindowsCrashReporter();\ncrash.AddBreadcrumb(\"boot\", \"engine init 完了\");",
       members: [
-        { sig: "ICrashReporterBackend& GetDefaultWindowsCrashReporter()", ret: "既定 backend 参照", desc: "プロセス共有の <code>FWindowsCrashReporter</code> を <t>ICrashReporterBackend</t> 参照として返す。" }
+        { sig: "ICrashReporterBackend& GetDefaultWindowsCrashReporter()", ret: "既定 backend 参照", desc: "プロセス共有の <code>CWindowsCrashReporter</code> を <t>ICrashReporterBackend</t> 参照として返す。" }
       ]
     },
     {
