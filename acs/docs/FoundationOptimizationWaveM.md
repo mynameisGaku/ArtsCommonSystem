@@ -281,8 +281,8 @@ cmake --build .wave-m-build --config Release --target acs_unit_tests acs_foundat
 cmake --build .wave-m-build --config Release --target acs_foundation_optimization_wave_i_bench --parallel 16
 ctest --test-dir .wave-m-build -C Debug --output-on-failure
 ctest --test-dir .wave-m-build -C Release --output-on-failure
-python acs\scripts\run_foundation_stress.py --executable <debug-wave-m-test> --iterations 100 --timeout-seconds 60
-python acs\scripts\run_foundation_stress.py --executable <release-wave-m-test> --iterations 100 --timeout-seconds 60
+python acs\scripts\run_foundation_stress.py --executable <debug-wave-m-test> --iterations 100 --timeout-seconds 60 --isolate-cwd
+python acs\scripts\run_foundation_stress.py --executable <release-wave-m-test> --iterations 100 --timeout-seconds 60 --isolate-cwd
 node --check acs\docs\reference\data\assetpack.js
 node --check acs\docs\reference\data\container.js
 node --check acs\docs\reference\data\threading.js
@@ -290,6 +290,8 @@ python acs\scripts\audit_reference_type_names.py --root acs
 python acs\scripts\audit_module_sources.py --root acs
 git diff --check
 ```
+
+stress runnerは信頼済み実行ファイルの直接子だけを監視する。`--isolate-cwd`は各反復のcwdを専用一時directoryへ分離するが、実行ファイルが生成した子孫processの停止やcleanupは保証しない。
 
 この経路で確認する決定的な契約は次のとおり。
 

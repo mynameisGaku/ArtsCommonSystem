@@ -21,7 +21,7 @@ Editor rendererは既存の28段階startup state machineを維持する。各pum
 
 ## T79: 所有権stress
 
-`run_foundation_stress.py` はWave B専用実行ファイルを既定32回、毎回新しいprocessで起動する。これによりglobal thread poolの初期化・終了、owned callableの一度だけの破棄、MPMC/SPSC順序、nested publish/cancel、timer generation、atomic file置換をprocess世代ごとに反復する。runner自体にも成功・失敗・出力上限のself-testを置く。
+`run_foundation_stress.py` はWave B専用実行ファイルを既定32回、毎回新しいprocessで起動する。既定では従来どおり呼び出し元の作業ディレクトリを継承し、`--isolate-cwd` 指定時だけ反復ごとに標準の一時ディレクトリを作業場所として使い、成功・非0終了・直接子のtimeout・起動失敗後に削除する。これによりglobal thread poolの初期化・終了、owned callableの一度だけの破棄、MPMC/SPSC順序、nested publish/cancel、timer generation、atomic file置換をprocess世代ごとに反復する。対象は信頼済みACS実行ファイルの直接子だけであり、その実行ファイルが生成した子孫processの終了や生成物削除は保証しない。runner自体にも出力形式、cleanup失敗、並列分離を含むself-testを置く。
 
 Publish中に追加された購読者が、未走査の空きslotへ再利用され同じ配送へ混入する契約違反も統合レビューで修正した。Publish中は新規購読を末尾へ追加し、発行開始時点の集合を固定する回帰テストをWave Bへ追加している。
 

@@ -279,14 +279,16 @@ add_test(
     NAME ACS.FoundationStressRunnerSelfTest
     COMMAND "${Python3_EXECUTABLE}"
             "${ACS_TREE_ROOT}/scripts/run_foundation_stress.py"
-            --self-test)
+            --self-test
+            --isolate-cwd)
 add_test(
     NAME ACS.FoundationOwnershipStress
     COMMAND "${Python3_EXECUTABLE}"
             "${ACS_TREE_ROOT}/scripts/run_foundation_stress.py"
             --executable "$<TARGET_FILE:acs_foundation_optimization_wave_b_tests>"
             --iterations 32
-            --timeout-seconds 60)
+            --timeout-seconds 60
+            --isolate-cwd)
 set_tests_properties(
     ACS.FoundationStressRunnerSelfTest
     ACS.FoundationOwnershipStress
