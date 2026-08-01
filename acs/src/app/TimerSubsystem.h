@@ -5,7 +5,7 @@
 
 namespace acs {
 
-class FTimerManager;
+class CTimerManager;
 
 /** FApplication が所有するタイマー管理器を Engine スコープへ公開するアダプター。 */
 class FTimerSubsystem final : public FSubsystem {
@@ -22,20 +22,20 @@ public:
     void OnTickFrame(const FSubsystemFrameContext& context) noexcept override;
 
     /** 結び付け済みのタイマー管理器を返し、未初期化なら nullptr を返す。 */
-    FTimerManager* GetTimers() noexcept
+    CTimerManager* GetTimers() noexcept
     {
         return m_Timers;
     }
 
     /** 結び付け済みのタイマー管理器を返し、未初期化なら nullptr を返す。 */
-    const FTimerManager* GetTimers() const noexcept
+    const CTimerManager* GetTimers() const noexcept
     {
         return m_Timers;
     }
 
 private:
     /** FApplication が所有するタイマー管理器への非所有参照。 */
-    FTimerManager* m_Timers = nullptr;
+    CTimerManager* m_Timers = nullptr;
 };
 
 } // namespace acs
