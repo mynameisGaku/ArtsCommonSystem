@@ -6,7 +6,7 @@
 //   ...
 //   if (fut.IsReady()) {
 //       auto r = fut.Get();
-//       if (r.IsOk()) TSharedPtr<FAsset> a = r.Value();
+//       if (r.IsOk()) TSharedPtr<AAsset> a = r.Value();
 //   }
 //   // または同期待ち（ワーカースチール参加付き）
 //   auto r = fut.Wait();
@@ -33,7 +33,7 @@ struct FAsyncLoadState {
     FCompletionCounter counter{1};
 
     /** ロード成功時のアセット (共有所有)。 */
-    TSharedPtr<FAsset>         result;
+    TSharedPtr<AAsset>         result;
 
     /** ロード失敗時のエラーコード (has_error が true のとき有効)。 */
     FErrorCode         error{};
@@ -46,7 +46,7 @@ struct FAsyncLoadState {
  * 非同期アセットロードの結果ハンドル。
  *
  * @details
- * FAssetRegistry::LoadAsync が返す。IsReady() でノンブロッキングに完了確認し、
+ * CAssetRegistry::LoadAsync が返す。IsReady() でノンブロッキングに完了確認し、
  * Get()/Wait() で完了を待って結果を取り出す。内部共有状態 (FAsyncLoadState) を
  * TSharedPtr で保持し、ワーカーと結果領域を共有する。
  */
@@ -56,7 +56,7 @@ public:
     FAssetFuture() noexcept = default;
 
     /**
-     * 共有状態から future を構築する (FAssetRegistry::LoadAsync 用、内部用)。
+     * 共有状態から future を構築する (CAssetRegistry::LoadAsync 用、内部用)。
      *
      * @param s ワーカーと共有する非同期ロード状態。
      */
@@ -84,11 +84,11 @@ public:
      * @details 呼び出しスレッドがワーカーの場合はワーカースチールに参加して手伝う。
      * @return 成功ならロード済みアセット、失敗ならエラー。空 future ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> Get() noexcept {
+    TResult<TSharedPtr<AAsset>> Get() noexcept {
         if (!_state.Get()) return ACS_ERR(Asset, 10, "FAssetFuture: empty");
         FThreadPool::Wait(_state->counter);
-        if (_state->has_error) return TResult<TSharedPtr<FAsset>>(_state->error);
-        return TResult<TSharedPtr<FAsset>>(OkInit, _state->result);
+        if (_state->has_error) return TResult<TSharedPtr<AAsset>>(_state->error);
+        return TResult<TSharedPtr<AAsset>>(OkInit, _state->result);
     }
 
     /**
@@ -96,7 +96,7 @@ public:
      *
      * @return Get() と同じ結果。
      */
-    TResult<TSharedPtr<FAsset>> Wait() noexcept { return Get(); }
+    TResult<TSharedPtr<AAsset>> Wait() noexcept { return Get(); }
 
 private:
     /** ワーカーと共有する非同期ロード状態 (null なら無効 future)。 */

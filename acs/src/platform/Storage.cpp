@@ -459,11 +459,11 @@ const FStorage::FEntry* FStorage::FindEntry(const char* key) const noexcept {
 TResult<void> FStorage::Load(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 100, "FStorage::Load: null or empty path");
-    if (!FFileSystem::Exists(path)) {
+    if (!CFileSystem::Exists(path)) {
         // 無ければ空状態のまま成功扱い
         return Ok();
     }
-    auto bytes_r = FFileSystem::ReadAllBytes(path);
+    auto bytes_r = CFileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) return Err<void>(bytes_r.Error());
     const TArray<byte>& bytes = bytes_r.Value();
     return LoadFromBytes(reinterpret_cast<const u8*>(bytes.Data()), bytes.Size());
@@ -549,7 +549,7 @@ TResult<void> FStorage::Save(const wchar_t* path) noexcept {
     wchar_t dir[1024];
     DirOf(path, dir, 1024);
     if (dir[0]) {
-        auto mk = FFileSystem::CreateDirectory(dir);
+        auto mk = CFileSystem::CreateDirectory(dir);
         if (mk.IsErr()) {
             // 既存なら成功扱いになっているので、エラーは本当の失敗
             return mk;
@@ -565,7 +565,7 @@ TResult<void> FStorage::Save(const wchar_t* path) noexcept {
         out.Append(m_Entries[i].value.View());
         out.Append('\n');
     }
-    return FFileSystem::WriteAllBytesAtomic(path, reinterpret_cast<const byte*>(out.Data()), out.Size());
+    return CFileSystem::WriteAllBytesAtomic(path, reinterpret_cast<const byte*>(out.Data()), out.Size());
 }
 
 TResult<void> FStorage::GetAppDataPath(const wchar_t* sub_dir, const wchar_t* file_name, wchar_t* out, usize cap) noexcept {
@@ -588,7 +588,7 @@ TResult<void> FStorage::GetAppDataPath(const wchar_t* sub_dir, const wchar_t* fi
     wchar_t parent[1024];
     DirOf(out, parent, 1024);
     if (parent[0]) {
-        auto mk = FFileSystem::CreateDirectory(parent);
+        auto mk = CFileSystem::CreateDirectory(parent);
         if (mk.IsErr()) return mk;
     }
     return Ok();

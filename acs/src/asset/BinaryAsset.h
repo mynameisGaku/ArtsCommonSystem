@@ -17,19 +17,19 @@ namespace acs {
  *
  * @details 専用ローダがない拡張子のフォールバック用、またはテストデータ用に使う最小実装。
  */
-class FBinaryAsset : public FAsset {
+class ABinaryAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FBinaryAsset")
 
     /** 空のバイナリアセットを構築する。 */
-    FBinaryAsset() noexcept = default;
+    ABinaryAsset() noexcept = default;
 
     /**
      * バイト列を所有してバイナリアセットを構築する。
      *
      * @param bytes 保持するバイト列 (ムーブで所有を奪う)。
      */
-    explicit FBinaryAsset(TArray<byte>&& bytes) noexcept : m_Bytes(Move(bytes)) {}
+    explicit ABinaryAsset(TArray<byte>&& bytes) noexcept : m_Bytes(Move(bytes)) {}
 
     /**
      * 保持しているバイト列への const 参照を返す。
@@ -50,19 +50,22 @@ private:
     TArray<byte> m_Bytes;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBinaryAsset = ABinaryAsset;
+
 /**
  * 任意の拡張子を担当する拡張子フォールバックローダ。
  *
- * @details Extension() が "*" を返し、専用ローダが見つからないアセットを FBinaryAsset として読み込む。
+ * @details Extension() が "*" を返し、専用ローダが見つからないアセットを ABinaryAsset として読み込む。
  */
-class FBinaryAssetLoader final : public IAssetLoader {
+class CBinaryAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FBinaryAsset の型 ID。
+     * @return ABinaryAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FBinaryAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return ABinaryAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -72,13 +75,16 @@ public:
     const char* Extension() const noexcept override { return "*"; }
 
     /**
-     * バイト列をそのまま保持する FBinaryAsset を生成する。
+     * バイト列をそのまま保持する ABinaryAsset を生成する。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes ファイル全体のバイト列。
-     * @return 成功なら FBinaryAsset、失敗ならエラー。
+     * @return 成功なら ABinaryAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FBinaryAssetLoader = CBinaryAssetLoader;
 
 } // namespace acs

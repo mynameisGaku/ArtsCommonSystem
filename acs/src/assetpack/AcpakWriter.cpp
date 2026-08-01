@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — FAcpakWriter 実装 (Win32 I/O + CRC32 計算)
+// ACS AssetPack — CAcpakWriter 実装 (Win32 I/O + CRC32 計算)
 // -----------------------------------------------------------------------------
 // 書き出しレイアウト:
 //   1. ヘッダ (36 バイト固定、AcpakFormat.h の kAcpakHeaderDiskSize 参照)
@@ -38,7 +38,7 @@ namespace {
  * CRC32 lookup table (poly 0xEDB88320) を遅延構築して返す。
  *
  * @details
- * FAcpakReader.cpp と同じ実装。link 単位を分けているので重複する。256-entry
+ * CAcpakReader.cpp と同じ実装。link 単位を分けているので重複する。256-entry
  * table を最初の呼び出し時に組み立てる (Meyers singleton)。
  * @return 256 要素の CRC32 lookup table。
  */
@@ -283,23 +283,23 @@ bool RenameOpenFileAtomically(HANDLE Handle, const wchar_t* AbsoluteOutputPath,
 } // namespace
 
 /** DefaultAllocator で空の Writer を構築する。 */
-FAcpakWriter::FAcpakWriter() noexcept : FAcpakWriter(DefaultAllocator())
+CAcpakWriter::CAcpakWriter() noexcept : CAcpakWriter(DefaultAllocator())
 {
 }
 
 /** 指定 allocator で pending list を構築する。 */
-FAcpakWriter::FAcpakWriter(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Pending(Allocator)
+CAcpakWriter::CAcpakWriter(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Pending(Allocator)
 {
 }
 
 /** 破棄時に Close を呼んで後始末する。 */
-FAcpakWriter::~FAcpakWriter() noexcept
+CAcpakWriter::~CAcpakWriter() noexcept
 {
     Close();
 }
 
 /** ハンドルを閉じ、ResetState で内部状態をクリアする (多重 Close は no-op)。 */
-void FAcpakWriter::Close() noexcept
+void CAcpakWriter::Close() noexcept
 {
     FScopedLock Lock(m_LifecycleLock);
     if (m_FileHandle != nullptr) {
@@ -313,7 +313,7 @@ void FAcpakWriter::Close() noexcept
 }
 
 /** flags / Finalize フラグ / pending list / 鍵情報をクリアする。 */
-void FAcpakWriter::ResetState() noexcept
+void CAcpakWriter::ResetState() noexcept
 {
     m_Flags = 0;
     m_Finalized = false;
@@ -327,7 +327,7 @@ void FAcpakWriter::ResetState() noexcept
 }
 
 /** 暗号化鍵を内部にコピーし、鍵設定済みフラグを立てる。 */
-void FAcpakWriter::SetKey(const FAcpakKey& Key) noexcept
+void CAcpakWriter::SetKey(const FAcpakKey& Key) noexcept
 {
     FScopedLock Lock(m_LifecycleLock);
     MemCopy(m_Key.bytes, Key.bytes, sizeof(m_Key.bytes));
@@ -335,20 +335,20 @@ void FAcpakWriter::SetKey(const FAcpakKey& Key) noexcept
 }
 
 /** 出力ファイルを開き、ヘッダのプレースホルダ (36B) を書き出す。 */
-TResult<void> FAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) noexcept
+TResult<void> CAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) noexcept
 {
     FScopedLock Lock(m_LifecycleLock);
     if (m_FileHandle != nullptr) {
-        return ACS_ERR(IO, kAcpakSubAlreadyOpen, "FAcpakWriter::Open: writer already open");
+        return ACS_ERR(IO, kAcpakSubAlreadyOpen, "CAcpakWriter::Open: writer already open");
     }
     if (OutputPath == nullptr || OutputPath[0] == L'\0') {
-        return ACS_ERR(IO, kAcpakSubBadPath, "FAcpakWriter::Open: output_path is null or empty");
+        return ACS_ERR(IO, kAcpakSubBadPath, "CAcpakWriter::Open: output_path is null or empty");
     }
 
     // encrypted / compressed は対応済。未知 flag bit のみ拒否。
     const u32 KnownFlags = static_cast<u32>(AcpakFlagEncrypted) | static_cast<u32>(AcpakFlagCompressed);
     if ((static_cast<u32>(Flags) & ~KnownFlags) != 0) {
-        return ACS_ERR(Asset, kAcpakSubBadFlags, "FAcpakWriter::Open: unknown flag bits");
+        return ACS_ERR(Asset, kAcpakSubBadFlags, "CAcpakWriter::Open: unknown flag bits");
     }
 
     usize OutputLength = 0;
@@ -356,20 +356,20 @@ TResult<void> FAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) n
         ++OutputLength;
     }
     if (OutputLength == 0 || OutputLength > kAcpakMaxOutputPathLength) {
-        return ACS_ERR(IO, kAcpakSubBadPath, "FAcpakWriter::Open: output_path exceeds limit");
+        return ACS_ERR(IO, kAcpakSubBadPath, "CAcpakWriter::Open: output_path exceeds limit");
     }
     const DWORD AbsoluteLength = ::GetFullPathNameW(
         OutputPath, static_cast<DWORD>(kAcpakMaxOutputPathLength + 1u),
         m_OutputPath, nullptr);
     if (AbsoluteLength == 0) {
         return ACS_ERR_OS(IO, kAcpakSubBadPath,
-                          "FAcpakWriter::Open: output_path resolution failed",
+                          "CAcpakWriter::Open: output_path resolution failed",
                           ::GetLastError());
     }
     if (AbsoluteLength > kAcpakMaxOutputPathLength) {
         m_OutputPath[0] = L'\0';
         return ACS_ERR(IO, kAcpakSubBadPath,
-                       "FAcpakWriter::Open: absolute output_path exceeds limit");
+                       "CAcpakWriter::Open: absolute output_path exceeds limit");
     }
 
     HANDLE Handle = INVALID_HANDLE_VALUE;
@@ -380,7 +380,7 @@ TResult<void> FAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) n
         m_OutputPath[0] = L'\0';
         m_TemporaryPath[0] = L'\0';
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Open: temporary file creation failed", CreateError);
+                          "CAcpakWriter::Open: temporary file creation failed", CreateError);
     }
 
     m_FileHandle = Handle;
@@ -404,38 +404,38 @@ TResult<void> FAcpakWriter::Open(const wchar_t* OutputPath, EAcpakFlags Flags) n
         m_FileHandle = nullptr;
         (void)::DeleteFileW(m_TemporaryPath);
         ResetState();
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Open: WriteFile (header) failed", Error);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakWriter::Open: WriteFile (header) failed", Error);
     }
 
     return Ok();
 }
 
 /** 1 ファイルを pending list に積む (実書き込みは Finalize)。 */
-TResult<void> FAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data, u64 Size) noexcept
+TResult<void> CAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data, u64 Size) noexcept
 {
     FScopedLock Lock(m_LifecycleLock);
     if (m_FileHandle == nullptr) {
-        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::AddFile: writer not open");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "CAcpakWriter::AddFile: writer not open");
     }
     if (m_Finalized) {
-        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::AddFile: writer already finalized");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "CAcpakWriter::AddFile: writer already finalized");
     }
     if (VirtualPath == nullptr) {
-        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakWriter::AddFile: virtual_path is null");
+        return ACS_ERR(IO, kAcpakSubIOFailure, "CAcpakWriter::AddFile: virtual_path is null");
     }
     if (Data == nullptr && Size > 0) {
-        return ACS_ERR(IO, kAcpakSubIOFailure, "FAcpakWriter::AddFile: data is null but size > 0");
+        return ACS_ERR(IO, kAcpakSubIOFailure, "CAcpakWriter::AddFile: data is null but size > 0");
     }
 
     if (m_Pending.Size() >= kAcpakMaxFileCount) {
-        return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: file count exceeds limit");
+        return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakWriter::AddFile: file count exceeds limit");
     }
 
     /** NUL を除く仮想パス長。 */
     const usize PathLength = LenWBounded(VirtualPath);
     if (PathLength == 0 || PathLength > kAcpakMaxPathLength || !IsCanonicalAcpakVirtualPath(VirtualPath, PathLength)) {
         return ACS_ERR(IO, kAcpakSubBadPath,
-                       "FAcpakWriter::AddFile: invalid virtual path");
+                       "CAcpakWriter::AddFile: invalid virtual path");
     }
     /** 正規形 path に対して AddFile 中に一度だけ計算する hash。 */
     const u64 PathHash = HashCanonicalAcpakVirtualPath(VirtualPath, PathLength);
@@ -443,31 +443,31 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
     for (usize Index = 0; Index < m_Pending.Size(); ++Index) {
         if (m_Pending[Index].PathHash == PathHash && EqualPath(m_Pending[Index].Path, VirtualPath, PathLength)) {
             return ACS_ERR(Asset, kAcpakSubDuplicatePath,
-                           "FAcpakWriter::AddFile: duplicate virtual path");
+                           "CAcpakWriter::AddFile: duplicate virtual path");
         }
     }
     /** 現在の address space で扱う payload byte 数。 */
     const usize PayloadSize = static_cast<usize>(Size);
     if (static_cast<u64>(PayloadSize) != Size) {
-        return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakWriter::AddFile: payload exceeds address space");
+        return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakWriter::AddFile: payload exceeds address space");
     }
 
     /** path と payload を保持する新規 pending entry。 */
     FPendingEntry* Entry = m_Pending.TryEmplaceBack(*m_Allocator);
     if (Entry == nullptr) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: pending entry allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::AddFile: pending entry allocation failed");
     }
 
     if (!Entry->Path.TryResize(PathLength + 1u)) {
         m_Pending.PopBack();
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: path copy allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::AddFile: path copy allocation failed");
     }
     Entry->PathHash = PathHash;
     MemCopy(Entry->Path.Data(), VirtualPath, (PathLength + 1u) * sizeof(wchar_t));
 
     if (!Entry->Data.TryResize(PayloadSize)) {
         m_Pending.PopBack();
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::AddFile: payload copy allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::AddFile: payload copy allocation failed");
     }
     if (Size > 0) {
         MemCopy(Entry->Data.Data(), Data, static_cast<usize>(Size));
@@ -476,7 +476,7 @@ TResult<void> FAcpakWriter::AddFile(const wchar_t* VirtualPath, const void* Data
 }
 
 /** pending entry 群をディスクに書き出し、最後にヘッダを更新して pak を確定する。 */
-TResult<void> FAcpakWriter::Finalize() noexcept
+TResult<void> CAcpakWriter::Finalize() noexcept
 {
     FScopedLock Lock(m_LifecycleLock);
     // 各 entry に対し compress-then-encrypt パイプラインを通す:
@@ -491,10 +491,10 @@ TResult<void> FAcpakWriter::Finalize() noexcept
     // たとえ size_stored > size_uncompressed でも保存する。圧縮 + 暗号化が両方
     // 立つ場合も、LZ4 で生格納に倒れた entry を含め暗号化は通常通り行う。
     if (m_FileHandle == nullptr) {
-        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::Finalize: writer not open");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "CAcpakWriter::Finalize: writer not open");
     }
     if (m_Finalized) {
-        return ACS_ERR(IO, kAcpakSubNotOpen, "FAcpakWriter::Finalize: already finalized");
+        return ACS_ERR(IO, kAcpakSubNotOpen, "CAcpakWriter::Finalize: already finalized");
     }
 
     const HANDLE h = static_cast<HANDLE>(m_FileHandle);
@@ -504,7 +504,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
     // 念のため明示的に seek (古いヘッダ書き込みが flush されていない場合に
     // file pointer が想定外位置にいるリスクを下げる)。
     if (!SeekTo(h, kAcpakHeaderDiskSize, err)) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: SetFilePointerEx failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakWriter::Finalize: SetFilePointerEx failed", err);
     }
 
     const bool is_encrypted = (m_Flags & static_cast<u32>(AcpakFlagEncrypted)) != 0u;
@@ -512,7 +512,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
 
     // 暗号化が立っているのに鍵未設定なら早期に弾く (失敗のソースを明確化)。
     if (is_encrypted && !m_HasKey) {
-        return ACS_ERR(Asset, kAcpakSubCryptoKey, "FAcpakWriter::Finalize: encrypted flag set but no key");
+        return ACS_ERR(Asset, kAcpakSubCryptoKey, "CAcpakWriter::Finalize: encrypted flag set but no key");
     }
 
     // 各 entry の (offset, size_unc, size_st, crc32, nonce[12], tag[16]) を控える。
@@ -526,7 +526,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
     };
     TArray<FWrittenEntry> written(*m_Allocator);
     if (!written.TryResize(m_Pending.Size())) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: entry result allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: entry result allocation failed");
     }
 
     // 中間バッファは entry 間で再利用する (TArray<u8> を 2 つ用意)。
@@ -540,7 +540,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
         FWrittenEntry w{};
         if (!TryTell(h, w.Offset, err)) {
             return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                              "FAcpakWriter::Finalize: tell data offset failed", err);
+                              "CAcpakWriter::Finalize: tell data offset failed", err);
         }
         w.UncompressedSize = static_cast<u64>(p.Data.Size());
         w.Crc32 = ComputeCrc32(p.Data.Data(), p.Data.Size());
@@ -552,14 +552,14 @@ TResult<void> FAcpakWriter::Finalize() noexcept
         // ---- 圧縮 (compress-then-encrypt の 1 段目) --------------------
         if (is_compressed) {
             if (p.Data.Size() > 0xFFFFFFFFu) {
-                return ACS_ERR(Asset, kAcpakSubBadSize, "FAcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
+                return ACS_ERR(Asset, kAcpakSubBadSize, "CAcpakWriter::Finalize: input > 4GiB (LZ4 limit)");
             }
             const u32 src_size = static_cast<u32>(p.Data.Size());
-            const u32 dst_cap = FAcpakLz4::MaxCompressedSize(src_size);
+            const u32 dst_cap = CAcpakLz4::MaxCompressedSize(src_size);
             if (!stage_compress.TryResize(dst_cap)) {
-                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: compression allocation failed");
+                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: compression allocation failed");
             }
-            const auto cr = FAcpakLz4::Compress(p.Data.Data(), src_size, stage_compress.Data(), dst_cap);
+            const auto cr = CAcpakLz4::Compress(p.Data.Data(), src_size, stage_compress.Data(), dst_cap);
             if (cr.IsErr()) return cr.Error();
             stage_ptr = stage_compress.Data();
             stage_size = cr.Value();
@@ -570,14 +570,14 @@ TResult<void> FAcpakWriter::Finalize() noexcept
             // CSPRNG nonce 生成。RNG 失敗時はゼロ nonce での AES-GCM 暗号化
             // (= nonce 再利用 → 認証鍵漏洩) を絶対に避けるため、エラーを伝播し
             // 暗号化を中止する。
-            const auto nr = FAcpakCrypto::GenerateRandomNonce(w.CipherNonce);
+            const auto nr = CAcpakCrypto::GenerateRandomNonce(w.CipherNonce);
             if (nr.IsErr()) return nr.Error();
 
             // 出力バッファ (= 同 size の別領域、in-place も可だが分離で安全)
             if (!stage_encrypt.TryResize(static_cast<usize>(stage_size))) {
-                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: encryption allocation failed");
+                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: encryption allocation failed");
             }
-            const auto er = FAcpakCrypto::Encrypt(m_Key, w.CipherNonce, stage_ptr, stage_size, stage_encrypt.Data(),
+            const auto er = CAcpakCrypto::Encrypt(m_Key, w.CipherNonce, stage_ptr, stage_size, stage_encrypt.Data(),
                                                   w.CipherTag);
             if (er.IsErr()) return er.Error();
             stage_ptr = stage_encrypt.Data();
@@ -589,7 +589,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
         // ---- ディスク書き出し ----------------------------------------
         if (stage_size > 0) {
             if (!WriteAll(h, stage_ptr, stage_size, err)) {
-                return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: WriteFile (data) failed", err);
+                return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakWriter::Finalize: WriteFile (data) failed", err);
             }
         }
 
@@ -600,7 +600,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
     u64 file_table_offset = 0;
     if (!TryTell(h, file_table_offset, err)) {
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: tell manifest offset failed", err);
+                          "CAcpakWriter::Finalize: tell manifest offset failed", err);
     }
 
     for (usize i = 0; i < m_Pending.Size(); ++i) {
@@ -620,7 +620,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
         TArray<u8> heap_buf(*m_Allocator);
         if (entry_bytes > sizeof(stack_buf)) {
             if (!heap_buf.TryResize(static_cast<usize>(entry_bytes))) {
-                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakWriter::Finalize: table entry allocation failed");
+                return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakWriter::Finalize: table entry allocation failed");
             }
             buf = heap_buf.Data();
         }
@@ -640,7 +640,7 @@ TResult<void> FAcpakWriter::Finalize() noexcept
         }
 
         if (!WriteAll(h, buf, entry_bytes, err)) {
-            return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: WriteFile (entry) failed", err);
+            return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakWriter::Finalize: WriteFile (entry) failed", err);
         }
     }
 
@@ -649,11 +649,11 @@ TResult<void> FAcpakWriter::Finalize() noexcept
     if (!::SetEndOfFile(h)) {
         err = ::GetLastError();
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: SetEndOfFile failed", err);
+                          "CAcpakWriter::Finalize: SetEndOfFile failed", err);
     }
 
     if (!SeekTo(h, 0, err)) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: SetFilePointerEx (rewind) failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakWriter::Finalize: SetFilePointerEx (rewind) failed", err);
     }
 
     u8 header[kAcpakHeaderDiskSize] = {};
@@ -666,24 +666,24 @@ TResult<void> FAcpakWriter::Finalize() noexcept
     WriteU32LE(header + 32, 0); // reserved = 0
 
     if (!WriteAll(h, header, kAcpakHeaderDiskSize, err)) {
-        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "FAcpakWriter::Finalize: WriteFile (header rewrite) failed", err);
+        return ACS_ERR_OS(IO, kAcpakSubIOFailure, "CAcpakWriter::Finalize: WriteFile (header rewrite) failed", err);
     }
 
     // ディスクに反映 (クラッシュ耐性は完璧ではないが、最低限 flush 要求)
     if (!::FlushFileBuffers(h)) {
         err = ::GetLastError();
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: FlushFileBuffers failed", err);
+                          "CAcpakWriter::Finalize: FlushFileBuffers failed", err);
     }
     if (!RenameOpenFileAtomically(h, m_OutputPath, err)) {
         return ACS_ERR_OS(IO, kAcpakSubAtomicReplace,
-                          "FAcpakWriter::Finalize: atomic replace failed", err);
+                          "CAcpakWriter::Finalize: atomic replace failed", err);
     }
 
     if (!::CloseHandle(h)) {
         err = ::GetLastError();
         return ACS_ERR_OS(IO, kAcpakSubIOFailure,
-                          "FAcpakWriter::Finalize: CloseHandle failed", err);
+                          "CAcpakWriter::Finalize: CloseHandle failed", err);
     }
     m_FileHandle = nullptr;
 

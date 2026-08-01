@@ -2,8 +2,8 @@
 // =============================================================================
 // ACS AssetPack — AES-256-GCM 暗号化 + PBKDF2 鍵導出 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
-// `.acpak` v2 で各ファイルエントリを暗号化するための薄いラッパ。FAcpakReader /
-// FAcpakWriter から呼ばれる。実装は Windows CNG (BCrypt) を使い、サードパーティ
+// `.acpak` v2 で各ファイルエントリを暗号化するための薄いラッパ。CAcpakReader /
+// CAcpakWriter から呼ばれる。実装は Windows CNG (BCrypt) を使い、サードパーティ
 // 依存は OS 同梱 `Bcrypt.lib` 1 つのみ。
 //
 // 仕様 (AssetPack.md §4 に準拠):
@@ -35,8 +35,8 @@ namespace acs::assetpack {
  * AES-256 鍵 (256bit) を保持する POD。
  *
  * @details
- * `AssetPack.md` の `ArchiveKey` と同じレイアウト。FAcpakWriter /
- * FAcpakReader は事前に DeriveKey() で作成した本鍵を受け取り、内部で
+ * `AssetPack.md` の `ArchiveKey` と同じレイアウト。CAcpakWriter /
+ * CAcpakReader は事前に DeriveKey() で作成した本鍵を受け取り、内部で
  * BCryptGenerateSymmetricKey に渡す。
  */
 struct FAcpakKey {
@@ -79,10 +79,10 @@ inline constexpr u16 kAcpakSubCryptoKdf    = 1319;
  * .acpak のロードは典型的に起動時 1 度 + ストリーミング読み出しなので、
  * ハンドルキャッシュは行わない。インスタンス化はできない (ctor delete)。
  */
-class FAcpakCrypto {
+class CAcpakCrypto {
 public:
     /** インスタンス化禁止 (全 API は static)。 */
-    FAcpakCrypto() = delete;
+    CAcpakCrypto() = delete;
 
     /**
      * パスワード + salt から 32 バイトの AES-256 鍵を導出する。
@@ -167,5 +167,8 @@ public:
      */
     static TResult<void> GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakCrypto = CAcpakCrypto;
 
 } // namespace acs::assetpack

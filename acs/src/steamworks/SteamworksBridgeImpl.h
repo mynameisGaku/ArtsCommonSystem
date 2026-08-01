@@ -5,7 +5,7 @@
 //
 // 利用方法:
 //   #include "steamworks/SteamworksBridgeImpl.h"
-//   acs::steamworks::FSteamworksBridgeImpl impl;
+//   acs::steamworks::CSteamworksBridgeImpl impl;
 //   if (impl.Init().IsErr()) {
 //       // Steam クライアントが起動していない / AppID 不一致 等
 //       fallback_to_stub();
@@ -56,25 +56,25 @@ inline constexpr u16 kSubSteamworksTimeout          = 1007;
  * leaderboard 系は async (Find -> Upload/Download) の 2 段で進めて Tick() の
  * コールバックポンプで完了を回収する。CMake の ACS_BUILD_STEAMWORKS=ON でビルドされる。
  */
-class FSteamworksBridgeImpl final : public acs::game::ISteamworksBridge {
+class CSteamworksBridgeImpl final : public acs::game::ISteamworksBridge {
 public:
     /** Pimpl 状態を確保して構築する (Steam 連携は Init で確立)。 */
-    FSteamworksBridgeImpl() noexcept;
+    CSteamworksBridgeImpl() noexcept;
 
     /** 必要なら Shutdown を呼び、Pimpl 状態を解放する。 */
-    ~FSteamworksBridgeImpl() noexcept override;
+    ~CSteamworksBridgeImpl() noexcept override;
 
     /** コピー禁止 (Pimpl 状態を単独所有するため)。 */
-    FSteamworksBridgeImpl(const FSteamworksBridgeImpl&)            = delete;
+    CSteamworksBridgeImpl(const CSteamworksBridgeImpl&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSteamworksBridgeImpl& operator=(const FSteamworksBridgeImpl&) = delete;
+    CSteamworksBridgeImpl& operator=(const CSteamworksBridgeImpl&) = delete;
 
     /** ムーブ禁止。 */
-    FSteamworksBridgeImpl(FSteamworksBridgeImpl&&)                 = delete;
+    CSteamworksBridgeImpl(CSteamworksBridgeImpl&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FSteamworksBridgeImpl& operator=(FSteamworksBridgeImpl&&)      = delete;
+    CSteamworksBridgeImpl& operator=(CSteamworksBridgeImpl&&)      = delete;
 
     /**
      * SteamAPI_Init() を呼んで Steam クライアント連携を確立する。
@@ -324,6 +324,9 @@ private:
     /** Steam 連携が確立済みかを示すフラグ。 */
     bool  m_bInitialized = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSteamworksBridgeImpl = CSteamworksBridgeImpl;
 
 /**
  * プロセス共有 singleton の実 Bridge を返す。

@@ -44,7 +44,7 @@ constexpr bool HasOnlyPathSeparators(const wchar_t* path, usize begin, usize len
 {
     /** 判定する文字位置。 */
     for (usize i = begin; i < length; ++i) {
-        if (!FFileSystem::IsPathSeparator(path[i])) return false;
+        if (!CFileSystem::IsPathSeparator(path[i])) return false;
     }
     return true;
 }
@@ -60,7 +60,7 @@ constexpr bool HasOnlyPathSeparators(const wchar_t* path, usize begin, usize len
 constexpr bool IsDriveRootPath(const wchar_t* path, usize length, usize prefix_length) noexcept
 {
     if (length < prefix_length + 3u) return false;
-    if (!IsDriveLetter(path[prefix_length]) || path[prefix_length + 1u] != L':' || !FFileSystem::IsPathSeparator(path[prefix_length + 2u])) return false;
+    if (!IsDriveLetter(path[prefix_length]) || path[prefix_length + 1u] != L':' || !CFileSystem::IsPathSeparator(path[prefix_length + 2u])) return false;
     return HasOnlyPathSeparators(path, prefix_length + 3u, length);
 }
 
@@ -73,20 +73,20 @@ constexpr bool IsDriveRootPath(const wchar_t* path, usize length, usize prefix_l
  */
 constexpr bool IsUncShareRootPath(const wchar_t* path, usize length) noexcept
 {
-    if (length < 5u || !FFileSystem::IsPathSeparator(path[0]) || !FFileSystem::IsPathSeparator(path[1])) return false;
+    if (length < 5u || !CFileSystem::IsPathSeparator(path[0]) || !CFileSystem::IsPathSeparator(path[1])) return false;
 
     /** server要素の終端位置。 */
     usize server_end = 2u;
-    while (server_end < length && !FFileSystem::IsPathSeparator(path[server_end])) ++server_end;
+    while (server_end < length && !CFileSystem::IsPathSeparator(path[server_end])) ++server_end;
     if (server_end == 2u || server_end == length) return false;
     if (server_end == 3u && (path[2] == L'?' || path[2] == L'.')) return false;
 
     /** share要素の開始位置。 */
     const usize share_begin = server_end + 1u;
-    if (share_begin >= length || FFileSystem::IsPathSeparator(path[share_begin])) return false;
+    if (share_begin >= length || CFileSystem::IsPathSeparator(path[share_begin])) return false;
     /** share要素の終端位置。 */
     usize share_end = share_begin;
-    while (share_end < length && !FFileSystem::IsPathSeparator(path[share_end])) ++share_end;
+    while (share_end < length && !CFileSystem::IsPathSeparator(path[share_end])) ++share_end;
     return HasOnlyPathSeparators(path, share_end, length);
 }
 
@@ -100,7 +100,7 @@ constexpr bool IsUncShareRootPath(const wchar_t* path, usize length) noexcept
 constexpr bool IsDirectoryRootPath(const wchar_t* path, usize length) noexcept
 {
     if (IsDriveRootPath(path, length, 0u) || IsUncShareRootPath(path, length)) return true;
-    return length >= 4u && FFileSystem::IsPathSeparator(path[0]) && FFileSystem::IsPathSeparator(path[1]) && path[2] == L'?' && FFileSystem::IsPathSeparator(path[3]) && IsDriveRootPath(path, length, 4u);
+    return length >= 4u && CFileSystem::IsPathSeparator(path[0]) && CFileSystem::IsPathSeparator(path[1]) && path[2] == L'?' && CFileSystem::IsPathSeparator(path[3]) && IsDriveRootPath(path, length, 4u);
 }
 
 /**
@@ -224,17 +224,17 @@ TResult<TArray<Element>> ReadWholeFile(const wchar_t* path) noexcept
 } // namespace
 
 // ファイル全体をバイト列として読み込む
-TResult<TArray<byte>> FFileSystem::ReadAllBytes(const wchar_t* path) noexcept {
+TResult<TArray<byte>> CFileSystem::ReadAllBytes(const wchar_t* path) noexcept {
     return ReadWholeFile<byte, false>(path);
 }
 
 // ファイル全体を直接 char 配列へ読み込み、末尾に NUL を付与する。
-TResult<TArray<char>> FFileSystem::ReadAllText(const wchar_t* path) noexcept {
+TResult<TArray<char>> CFileSystem::ReadAllText(const wchar_t* path) noexcept {
     return ReadWholeFile<char, true>(path);
 }
 
 // バイト列を書き出す（上書き）
-TResult<void> FFileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
+TResult<void> CFileSystem::WriteAllBytes(const wchar_t* path, const byte* data, usize size) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 109, "WriteAllBytes: path is null or empty");
     if (size > MAXDWORD)
@@ -263,7 +263,7 @@ TResult<void> FFileSystem::WriteAllBytes(const wchar_t* path, const byte* data, 
 }
 
 // 同一ディレクトリの一時ファイルを完全に書いてから原子的に公開する。
-TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* data, usize size) noexcept {
+TResult<void> CFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* data, usize size) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 114, "WriteAllBytesAtomic: path is null or empty");
     if (size > MAXDWORD)
@@ -373,7 +373,7 @@ TResult<void> FFileSystem::WriteAllBytesAtomic(const wchar_t* path, const byte* 
 }
 
 // 文字列を書き出す（NUL 終端は書かない）
-TResult<void> FFileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
+TResult<void> CFileSystem::WriteAllText(const wchar_t* path, const char* text) noexcept {
     /** 終端を除いた入力文字数。 */
     usize len = 0;
     while (text && text[len]) ++len;
@@ -381,7 +381,7 @@ TResult<void> FFileSystem::WriteAllText(const wchar_t* path, const char* text) n
 }
 
 // ファイルサイズ取得
-TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
+TResult<u64> CFileSystem::FileSize(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 119, "FileSize: path is null or empty");
     /** ファイルサイズを含む Win32 属性。 */
@@ -396,7 +396,7 @@ TResult<u64> FFileSystem::FileSize(const wchar_t* path) noexcept {
 }
 
 // ファイル存在確認
-bool FFileSystem::Exists(const wchar_t* path) noexcept {
+bool CFileSystem::Exists(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0') return false;
     /** 対象パスの Win32 属性。 */
     const DWORD a = ::GetFileAttributesW(path);
@@ -404,7 +404,7 @@ bool FFileSystem::Exists(const wchar_t* path) noexcept {
 }
 
 // ディレクトリ存在確認
-bool FFileSystem::DirectoryExists(const wchar_t* path) noexcept {
+bool CFileSystem::DirectoryExists(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0') return false;
     /** 対象パスの Win32 属性。 */
     const DWORD a = ::GetFileAttributesW(path);
@@ -412,7 +412,7 @@ bool FFileSystem::DirectoryExists(const wchar_t* path) noexcept {
 }
 
 /** 親を含めてディレクトリを作成し、通常ファイルとの衝突はエラーにする。 */
-TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
+TResult<void> CFileSystem::CreateDirectory(const wchar_t* path) noexcept {
     if (path == nullptr || path[0] == L'\0')
         return ACS_ERR(IO, 131, "CreateDirectory: path is null or empty");
     /** 途中の区切りを一時終端へ置換する作業パス。 */
@@ -476,7 +476,7 @@ TResult<void> FFileSystem::CreateDirectory(const wchar_t* path) noexcept {
 }
 
 // ファイル削除
-TResult<void> FFileSystem::Delete(const wchar_t* path) noexcept {
+TResult<void> CFileSystem::Delete(const wchar_t* path) noexcept {
     if (!path || path[0] == L'\0')
         return ACS_ERR(IO, 139, "Delete: path is null or empty");
     if (!::DeleteFileW(path))
@@ -485,7 +485,7 @@ TResult<void> FFileSystem::Delete(const wchar_t* path) noexcept {
 }
 
 /** 現在の I/O 診断値を返す。 */
-FFileSystemDiagnostics FFileSystem::Diagnostics() noexcept
+FFileSystemDiagnostics CFileSystem::Diagnostics() noexcept
 {
     return FFileSystemDiagnostics{
         g_ReadSyscalls.Load(EMemoryOrder::Acquire),
@@ -495,7 +495,7 @@ FFileSystemDiagnostics FFileSystem::Diagnostics() noexcept
 }
 
 /** I/O 診断値だけを 0 に戻す。 */
-void FFileSystem::ResetDiagnostics() noexcept
+void CFileSystem::ResetDiagnostics() noexcept
 {
     g_ReadSyscalls.Store(0, EMemoryOrder::Release);
     g_WriteSyscalls.Store(0, EMemoryOrder::Release);

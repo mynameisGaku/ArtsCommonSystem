@@ -14,7 +14,7 @@ namespace acs {
  * Bind() で生成し、SendTo()/RecvFrom() でデータグラムを送受信する。OS の
  * ソケットハンドルを単独所有する non-copy / move-only 型で、デストラクタや
  * Close() で確実にハンドルを閉じる。内部ハンドルは ~uptr{0} を無効値として持つ。
- * 同じソケットへの呼び出しは利用側で直列化し、破棄まで FNetwork の初期化を保つ。
+ * 同じソケットへの呼び出しは利用側で直列化し、破棄まで CNetwork の初期化を保つ。
  */
 class FUdpSocket {
 public:
@@ -50,7 +50,7 @@ public:
      *
      * @details
      * 受信専用なら受信ポートを指定し、送信専用なら port=0 を渡して OS にポートを
-     * 任せる。事前に FNetwork::Init() が呼ばれている必要がある。
+     * 任せる。事前に CNetwork::Init() が呼ばれている必要がある。
      * @param addr バインドするローカルアドレス (Any() で全インターフェイス)。
      * @param port バインドするローカルポート (0 で OS 任せ)。
      * @return 成功なら生成した FUdpSocket、失敗ならエラー。

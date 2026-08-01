@@ -53,7 +53,7 @@ void ReportNetworkResourceFailure(const char* record, u32 error, const char* lea
  *
  * @return 成功なら空の TResult、WSAStartup 失敗ならエラー。
  */
-TResult<void> FNetwork::Init() noexcept
+TResult<void> CNetwork::Init() noexcept
 {
     // 参照数だけを先に公開すると、別スレッドが WSAStartup 完了前に利用できてしまう。
     // 最終 WSACleanup と次の WSAStartup が交差する窓も同じロックで閉じる。
@@ -105,7 +105,7 @@ TResult<void> FNetwork::Init() noexcept
 }
 
 /** 参照カウントを 1 減らし、最後の参照が外れたら WSACleanup を呼ぶ。 */
-void FNetwork::Shutdown() noexcept
+void CNetwork::Shutdown() noexcept
 {
     ::AcquireSRWLockExclusive(&g_network_lifecycle_lock);
 
@@ -145,7 +145,7 @@ void FNetwork::Shutdown() noexcept
 }
 
 /** 初期化済みかどうかを返す (参照カウントが 1 以上なら true)。 */
-bool FNetwork::IsInitialized() noexcept
+bool CNetwork::IsInitialized() noexcept
 {
     ::AcquireSRWLockShared(&g_network_lifecycle_lock);
     const bool initialized = g_initialization_reference_count > 0;
@@ -154,7 +154,7 @@ bool FNetwork::IsInitialized() noexcept
 }
 
 /** Network が所有する Winsock 資源状態を一貫した時点で取得する。 */
-FNetworkDiagnostics FNetwork::CaptureDiagnostics() noexcept
+FNetworkDiagnostics CNetwork::CaptureDiagnostics() noexcept
 {
     FNetworkDiagnostics diagnostics{};
     ::AcquireSRWLockShared(&g_network_lifecycle_lock);

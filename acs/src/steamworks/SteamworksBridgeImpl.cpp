@@ -50,14 +50,14 @@ struct FAsyncLeaderboardOp {
 } // namespace
 
 /**
- * FSteamworksBridgeImpl の内部 state と Steam async コールバックハンドラ。
+ * CSteamworksBridgeImpl の内部 state と Steam async コールバックハンドラ。
  *
  * @details
  * FPlayerIdentity が返す const char* の寿命を保持する文字列バッファと、leaderboard
  * の async 操作を追跡する固定プールを持つ。各コールバックは CCallResult 経由で
  * Steam から呼ばれ、対応する pending op を完了状態に遷移させる。
  */
-struct FSteamworksBridgeImpl::FImpl {
+struct CSteamworksBridgeImpl::FImpl {
     /** persona name の保持バッファ (GetLocalPlayer が返す寿命を確保、Tick で更新)。 */
     char m_PersonaName[64]  = {};
 
@@ -169,12 +169,12 @@ struct FSteamworksBridgeImpl::FImpl {
 };
 
 /** Pimpl 状態を確保する。 */
-FSteamworksBridgeImpl::FSteamworksBridgeImpl() noexcept {
+CSteamworksBridgeImpl::CSteamworksBridgeImpl() noexcept {
     m_Impl = new FImpl();
 }
 
 /** 必要なら Shutdown し、Pimpl 状態を解放する。 */
-FSteamworksBridgeImpl::~FSteamworksBridgeImpl() noexcept {
+CSteamworksBridgeImpl::~CSteamworksBridgeImpl() noexcept {
     if (m_bInitialized) {
         Shutdown();
     }
@@ -183,7 +183,7 @@ FSteamworksBridgeImpl::~FSteamworksBridgeImpl() noexcept {
 }
 
 /** SteamAPI_Init() を呼んで連携を確立し、persona/SteamID を初回 cache する。 */
-acs::TResult<void> FSteamworksBridgeImpl::Init() noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::Init() noexcept {
     if (m_bInitialized) return acs::OkInit;
     if (!SteamAPI_Init()) {
         // 代表的な失敗理由:
@@ -204,7 +204,7 @@ acs::TResult<void> FSteamworksBridgeImpl::Init() noexcept {
 }
 
 /** SteamAPI_Shutdown() を呼んで連携を終了する。 */
-void FSteamworksBridgeImpl::Shutdown() noexcept {
+void CSteamworksBridgeImpl::Shutdown() noexcept {
     if (!m_bInitialized) return;
     SteamAPI_Shutdown();
     m_bInitialized = false;
@@ -212,12 +212,12 @@ void FSteamworksBridgeImpl::Shutdown() noexcept {
 }
 
 /** Steam 連携が確立済みかを返す。 */
-bool FSteamworksBridgeImpl::IsInitialized() const noexcept {
+bool CSteamworksBridgeImpl::IsInitialized() const noexcept {
     return m_bInitialized;
 }
 
 /** persona name + SteamID64 + session token を詰めた FPlayerIdentity を返す。 */
-acs::game::FPlayerIdentity FSteamworksBridgeImpl::GetLocalPlayer() const noexcept {
+acs::game::FPlayerIdentity CSteamworksBridgeImpl::GetLocalPlayer() const noexcept {
     acs::game::FPlayerIdentity id{};
     if (!m_bInitialized) return id;
     id.platform_id   = m_Impl->m_SteamId64Str;
@@ -227,7 +227,7 @@ acs::game::FPlayerIdentity FSteamworksBridgeImpl::GetLocalPlayer() const noexcep
 }
 
 /** SetAchievement + StoreStats を即時実行して実績を解除する。 */
-acs::TResult<void> FSteamworksBridgeImpl::UnlockAchievement(const char* ach_id) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::UnlockAchievement(const char* ach_id) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before UnlockAchievement");
@@ -245,7 +245,7 @@ acs::TResult<void> FSteamworksBridgeImpl::UnlockAchievement(const char* ach_id) 
 }
 
 /** FindLeaderboard を kick off し、pending upload op をプールに積む (async)。 */
-acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_id, acs::i64 score) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::SetLeaderboardScore(const char* board_id, acs::i64 score) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetLeaderboardScore");
@@ -273,7 +273,7 @@ acs::TResult<void> FSteamworksBridgeImpl::SetLeaderboardScore(const char* board_
 }
 
 /** 同一 board の完了 download op があれば返し、無ければ Find->Download を kick off する (async)。 */
-acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* board_id) noexcept {
+acs::TResult<acs::i64> CSteamworksBridgeImpl::GetLeaderboardScore(const char* board_id) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before GetLeaderboardScore");
@@ -334,7 +334,7 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetLeaderboardScore(const char* bo
 }
 
 /** i64 値を int32 へ clamp して SetStat + StoreStats する。 */
-acs::TResult<void> FSteamworksBridgeImpl::SetStat(const char* stat_name, acs::i64 value) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::SetStat(const char* stat_name, acs::i64 value) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetStat");
@@ -356,7 +356,7 @@ acs::TResult<void> FSteamworksBridgeImpl::SetStat(const char* stat_name, acs::i6
 }
 
 /** 整数 stat を読み出して i64 で返す。 */
-acs::TResult<acs::i64> FSteamworksBridgeImpl::GetStat(const char* stat_name) noexcept {
+acs::TResult<acs::i64> CSteamworksBridgeImpl::GetStat(const char* stat_name) noexcept {
     if (!m_bInitialized) {
         return acs::TResult<acs::i64>(ACS_ERR(Generic,
                                               acs::game::kSubSteamworksNotInitialized,
@@ -377,7 +377,7 @@ acs::TResult<acs::i64> FSteamworksBridgeImpl::GetStat(const char* stat_name) noe
 }
 
 /** float overload の SetStat + StoreStats で浮動小数 stat を設定する。 */
-acs::TResult<void> FSteamworksBridgeImpl::SetFloatStat(const char* stat_name, acs::f32 value) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::SetFloatStat(const char* stat_name, acs::f32 value) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetFloatStat");
@@ -395,7 +395,7 @@ acs::TResult<void> FSteamworksBridgeImpl::SetFloatStat(const char* stat_name, ac
 }
 
 /** 浮動小数 stat を読み出して返す。 */
-acs::TResult<acs::f32> FSteamworksBridgeImpl::GetFloatStat(const char* stat_name) noexcept {
+acs::TResult<acs::f32> CSteamworksBridgeImpl::GetFloatStat(const char* stat_name) noexcept {
     if (!m_bInitialized) {
         return acs::TResult<acs::f32>(ACS_ERR(Generic,
                                               acs::game::kSubSteamworksNotInitialized,
@@ -416,7 +416,7 @@ acs::TResult<acs::f32> FSteamworksBridgeImpl::GetFloatStat(const char* stat_name
 }
 
 /** BIsDlcInstalled で指定 AppID の DLC 所有・インストール状態を返す。 */
-bool FSteamworksBridgeImpl::IsDlcOwned(acs::u32 app_id) const noexcept {
+bool CSteamworksBridgeImpl::IsDlcOwned(acs::u32 app_id) const noexcept {
     if (!m_bInitialized) return false;
     ISteamApps* apps = SteamApps();
     if (!apps) return false;
@@ -424,7 +424,7 @@ bool FSteamworksBridgeImpl::IsDlcOwned(acs::u32 app_id) const noexcept {
 }
 
 /** ISteamFriends::SetRichPresence でリッチプレゼンスのキーと値を設定する。 */
-acs::TResult<void> FSteamworksBridgeImpl::SetRichPresence(const char* key, const char* value) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::SetRichPresence(const char* key, const char* value) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before SetRichPresence");
@@ -444,7 +444,7 @@ acs::TResult<void> FSteamworksBridgeImpl::SetRichPresence(const char* key, const
 }
 
 /** 即時フレンドのフレンド数を返す。 */
-acs::u32 FSteamworksBridgeImpl::GetFriendCount() const noexcept {
+acs::u32 CSteamworksBridgeImpl::GetFriendCount() const noexcept {
     if (!m_bInitialized) return 0;
     ISteamFriends* friends = SteamFriends();
     if (!friends) return 0;
@@ -453,7 +453,7 @@ acs::u32 FSteamworksBridgeImpl::GetFriendCount() const noexcept {
 }
 
 /** index 番目のフレンドの persona name / SteamID64 を thread_local バッファ越しに返す。 */
-acs::game::FPlayerIdentity FSteamworksBridgeImpl::GetFriendByIndex(acs::u32 index) const noexcept {
+acs::game::FPlayerIdentity CSteamworksBridgeImpl::GetFriendByIndex(acs::u32 index) const noexcept {
     acs::game::FPlayerIdentity id{};
     if (!m_bInitialized) return id;
     ISteamFriends* friends = SteamFriends();
@@ -484,7 +484,7 @@ acs::game::FPlayerIdentity FSteamworksBridgeImpl::GetFriendByIndex(acs::u32 inde
 }
 
 /** ISteamRemoteStorage::FileWrite で Steam Cloud へファイルを書き込む。 */
-acs::TResult<void> FSteamworksBridgeImpl::CloudWriteFile(const char* path, const void* data, acs::u32 size) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::CloudWriteFile(const char* path, const void* data, acs::u32 size) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before CloudWriteFile");
@@ -499,7 +499,7 @@ acs::TResult<void> FSteamworksBridgeImpl::CloudWriteFile(const char* path, const
 }
 
 /** ISteamRemoteStorage::FileRead で Steam Cloud からファイルを読み込み、読み取りバイト数を返す。 */
-acs::TResult<acs::u32> FSteamworksBridgeImpl::CloudReadFile(const char* path, void* out_buf, acs::u32 buf_size) noexcept {
+acs::TResult<acs::u32> CSteamworksBridgeImpl::CloudReadFile(const char* path, void* out_buf, acs::u32 buf_size) noexcept {
     if (!m_bInitialized) {
         return acs::TResult<acs::u32>(ACS_ERR(Generic,
                                               acs::game::kSubSteamworksNotInitialized,
@@ -516,7 +516,7 @@ acs::TResult<acs::u32> FSteamworksBridgeImpl::CloudReadFile(const char* path, vo
 }
 
 /** ISteamRemoteStorage::FileExists で Steam Cloud にファイルが存在するかを返す。 */
-bool FSteamworksBridgeImpl::CloudFileExists(const char* path) const noexcept {
+bool CSteamworksBridgeImpl::CloudFileExists(const char* path) const noexcept {
     if (!m_bInitialized) return false;
     ISteamRemoteStorage* rs = SteamRemoteStorage();
     if (!rs) return false;
@@ -524,7 +524,7 @@ bool FSteamworksBridgeImpl::CloudFileExists(const char* path) const noexcept {
 }
 
 /** ISteamRemoteStorage::FileDelete で Steam Cloud のファイルを削除する。 */
-acs::TResult<void> FSteamworksBridgeImpl::CloudDeleteFile(const char* path) noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::CloudDeleteFile(const char* path) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before CloudDeleteFile");
@@ -538,7 +538,7 @@ acs::TResult<void> FSteamworksBridgeImpl::CloudDeleteFile(const char* path) noex
 }
 
 /** ISteamRemoteStorage::GetQuota で Steam Cloud の空き/総量バイト数を出力する。 */
-void FSteamworksBridgeImpl::CloudGetQuota(acs::u64& out_available_bytes, acs::u64& out_total_bytes) const noexcept {
+void CSteamworksBridgeImpl::CloudGetQuota(acs::u64& out_available_bytes, acs::u64& out_total_bytes) const noexcept {
     out_available_bytes = 0;
     out_total_bytes = 0;
     if (!m_bInitialized) return;
@@ -552,7 +552,7 @@ void FSteamworksBridgeImpl::CloudGetQuota(acs::u64& out_available_bytes, acs::u6
 }
 
 /** ISteamUGC::GetNumSubscribedItems で購読中の Workshop アイテム数を返す。 */
-acs::u32 FSteamworksBridgeImpl::WorkshopGetSubscribedCount() const noexcept {
+acs::u32 CSteamworksBridgeImpl::WorkshopGetSubscribedCount() const noexcept {
     if (!m_bInitialized) return 0;
     ISteamUGC* ugc = SteamUGC();
     if (!ugc) return 0;
@@ -560,7 +560,7 @@ acs::u32 FSteamworksBridgeImpl::WorkshopGetSubscribedCount() const noexcept {
 }
 
 /** 購読アイテムを一括取得し、index 番目の ID とインストールパスを出力する。 */
-void FSteamworksBridgeImpl::WorkshopGetSubscribedItem(acs::u32 index, acs::u64& out_item_id,
+void CSteamworksBridgeImpl::WorkshopGetSubscribedItem(acs::u32 index, acs::u64& out_item_id,
                                                       const char*& out_install_path) const noexcept {
     out_item_id      = 0;
     out_install_path = nullptr;
@@ -585,7 +585,7 @@ void FSteamworksBridgeImpl::WorkshopGetSubscribedItem(acs::u32 index, acs::u64& 
 }
 
 /** ISteamUser::StartVoiceRecording でボイス録音を開始する。 */
-acs::TResult<void> FSteamworksBridgeImpl::VoiceStartRecording() noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::VoiceStartRecording() noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before VoiceStartRecording");
@@ -599,7 +599,7 @@ acs::TResult<void> FSteamworksBridgeImpl::VoiceStartRecording() noexcept {
 }
 
 /** ISteamUser::StopVoiceRecording でボイス録音を停止する (未初期化なら何もしない)。 */
-acs::TResult<void> FSteamworksBridgeImpl::VoiceStopRecording() noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::VoiceStopRecording() noexcept {
     if (!m_bInitialized) return acs::OkInit;
     ISteamUser* user = SteamUser();
     if (user) user->StopVoiceRecording();
@@ -607,7 +607,7 @@ acs::TResult<void> FSteamworksBridgeImpl::VoiceStopRecording() noexcept {
 }
 
 /** ISteamUser::GetVoice で圧縮ボイスを取り出し、書き込みバイト数を返す。 */
-acs::TResult<acs::u32> FSteamworksBridgeImpl::VoiceGetCompressed(void* out_buf, acs::u32 buf_size) noexcept {
+acs::TResult<acs::u32> CSteamworksBridgeImpl::VoiceGetCompressed(void* out_buf, acs::u32 buf_size) noexcept {
     if (!m_bInitialized) {
         return acs::TResult<acs::u32>(acs::OkInit, 0u);
     }
@@ -627,7 +627,7 @@ acs::TResult<acs::u32> FSteamworksBridgeImpl::VoiceGetCompressed(void* out_buf, 
 }
 
 /** ISteamInput::Init で Steam Input を初期化する。 */
-acs::TResult<void> FSteamworksBridgeImpl::InputInit() noexcept {
+acs::TResult<void> CSteamworksBridgeImpl::InputInit() noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::kSubSteamworksNotInitialized,
                        "Init() before InputInit");
@@ -642,7 +642,7 @@ acs::TResult<void> FSteamworksBridgeImpl::InputInit() noexcept {
 }
 
 /** ISteamInput::GetConnectedControllers で接続コントローラ数を返す。 */
-acs::u32 FSteamworksBridgeImpl::InputGetControllerCount() const noexcept {
+acs::u32 CSteamworksBridgeImpl::InputGetControllerCount() const noexcept {
     if (!m_bInitialized) return 0;
     ISteamInput* input = SteamInput();
     if (!input) return 0;
@@ -652,7 +652,7 @@ acs::u32 FSteamworksBridgeImpl::InputGetControllerCount() const noexcept {
 }
 
 /** SteamAPI_RunCallbacks を進め、persona/SteamID を refresh し pending op を compact する。 */
-void FSteamworksBridgeImpl::Tick(acs::f32 /*dt*/) noexcept {
+void CSteamworksBridgeImpl::Tick(acs::f32 /*dt*/) noexcept {
     if (!m_bInitialized) return;
     SteamAPI_RunCallbacks();
 

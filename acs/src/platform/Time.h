@@ -21,7 +21,7 @@ namespace acs {
  * 実装は std::chrono::steady_clock ベースで、初回参照時を起点とする単調増加時刻を返す。
  * Windows では内部的に QPC、Linux/macOS では CLOCK_MONOTONIC 相当。
  */
-class FClock {
+class CClock {
 public:
     /**
      * 起動 (初回参照) からの経過秒を返す。
@@ -53,6 +53,9 @@ public:
      */
     static u64 TicksPerSecond() noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FClock = CClock;
 
 /**
  * フレーム時間を計測するタイマ (毎フレーム Tick を呼ぶ)。

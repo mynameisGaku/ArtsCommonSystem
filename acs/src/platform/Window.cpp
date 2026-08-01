@@ -174,7 +174,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) noexcept 
             FEvent e{}; e.type = EEventType::MouseMoved;
             e.mouse_move.x = static_cast<f32>(GET_X_LPARAM(lp));
             e.mouse_move.y = static_cast<f32>(GET_Y_LPARAM(lp));
-            e.mouse_move.dx = 0;  // 差分は FInput::Update 側で計算
+            e.mouse_move.dx = 0;  // 差分は CInput::Update 側で計算
             e.mouse_move.dy = 0;
             w->DispatchEvent_Internal(e);
             return 0;

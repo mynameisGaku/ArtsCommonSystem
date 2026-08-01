@@ -14,31 +14,31 @@ namespace acs::assetpack {
  *
  * @details
  * gameframework が UTF-8 const char* でやり取りする API を受け、内部の
- * FAcpakReader (UTF-16 wchar_t* ベース) へ橋渡しする。ファイル名は Mount ごとの
+ * CAcpakReader (UTF-16 wchar_t* ベース) へ橋渡しする。ファイル名は Mount ごとの
  * UTF-8 pool に保持し、戻り値を次の Mount / Unmount まで安定させる。non-copy / non-move。
  */
-class FAcpakGameReader final : public acs::game::IAssetPackReader {
+class CAcpakGameReader final : public acs::game::IAssetPackReader {
 public:
     /** 空状態で構築する (pak は Mount で開く)。 */
-    FAcpakGameReader() noexcept;
+    CAcpakGameReader() noexcept;
 
     /** 指定 allocator を内部 Reader の配列に使う空状態で構築する。 */
-    explicit FAcpakGameReader(acs::FAllocator& Allocator) noexcept;
+    explicit CAcpakGameReader(acs::FAllocator& Allocator) noexcept;
 
-    /** 破棄する (FAcpakReader が開いていれば自動 Close)。 */
-    ~FAcpakGameReader() noexcept override;
+    /** 破棄する (CAcpakReader が開いていれば自動 Close)。 */
+    ~CAcpakGameReader() noexcept override;
 
-    /** コピー禁止 (FAcpakReader を単独所有するため)。 */
-    FAcpakGameReader(const FAcpakGameReader&) = delete;
+    /** コピー禁止 (CAcpakReader を単独所有するため)。 */
+    CAcpakGameReader(const CAcpakGameReader&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakGameReader& operator=(const FAcpakGameReader&) = delete;
+    CAcpakGameReader& operator=(const CAcpakGameReader&) = delete;
 
     /** ムーブ禁止。 */
-    FAcpakGameReader(FAcpakGameReader&&) = delete;
+    CAcpakGameReader(CAcpakGameReader&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakGameReader& operator=(FAcpakGameReader&&) = delete;
+    CAcpakGameReader& operator=(CAcpakGameReader&&) = delete;
 
     /**
      * UTF-8 パスを UTF-16 に変換して `.acpak` を開く。
@@ -48,7 +48,7 @@ public:
      */
     acs::TResult<void> Mount(const char* PackPath) noexcept override;
 
-    /** 現在の pak をアンマウントする (FAcpakReader::Close、未 Mount でも安全)。 */
+    /** 現在の pak をアンマウントする (CAcpakReader::Close、未 Mount でも安全)。 */
     void Unmount() noexcept override;
 
     /**
@@ -117,7 +117,7 @@ private:
     mutable FRwLock m_LifecycleLock;
 
     /** 実 `.acpak` 読み出しを担う Reader。 */
-    FAcpakReader m_Reader;
+    CAcpakReader m_Reader;
 
     /** FileName が返す UTF-8 文字列の連結 pool。 */
     TArray<char> m_Utf8NamePool;
@@ -126,38 +126,41 @@ private:
     TArray<usize> m_Utf8NameOffsets;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakGameReader = CAcpakGameReader;
+
 /**
  * gameframework の IAssetPackWriter を実 `.acpak` Writer で実装する具象 backend。
  *
  * @details
- * gameframework の UTF-8 const char* API を受け、内部の FAcpakWriter
+ * gameframework の UTF-8 const char* API を受け、内部の CAcpakWriter
  * (UTF-16 wchar_t* ベース) へ橋渡しする。BeginPack は AcpakFlagNone (無圧縮 / 無暗号)
  * で開く。変換先は各呼び出しのローカル領域に置く。non-copy / non-move。
  */
-class FAcpakGameWriter final : public acs::game::IAssetPackWriter {
+class CAcpakGameWriter final : public acs::game::IAssetPackWriter {
 public:
     /** 空状態で構築する (pak は BeginPack で開く)。 */
-    FAcpakGameWriter() noexcept = default;
+    CAcpakGameWriter() noexcept = default;
 
     /** 指定 allocator を内部 Writer の pending list に使う空状態で構築する。 */
-    explicit FAcpakGameWriter(acs::FAllocator& allocator) noexcept : m_Writer(allocator)
+    explicit CAcpakGameWriter(acs::FAllocator& allocator) noexcept : m_Writer(allocator)
     {
     }
 
-    /** 破棄する (FAcpakWriter が開いていれば自動 Close)。 */
-    ~FAcpakGameWriter() noexcept override = default;
+    /** 破棄する (CAcpakWriter が開いていれば自動 Close)。 */
+    ~CAcpakGameWriter() noexcept override = default;
 
-    /** コピー禁止 (FAcpakWriter を単独所有するため)。 */
-    FAcpakGameWriter(const FAcpakGameWriter&) = delete;
+    /** コピー禁止 (CAcpakWriter を単独所有するため)。 */
+    CAcpakGameWriter(const CAcpakGameWriter&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakGameWriter& operator=(const FAcpakGameWriter&) = delete;
+    CAcpakGameWriter& operator=(const CAcpakGameWriter&) = delete;
 
     /** ムーブ禁止。 */
-    FAcpakGameWriter(FAcpakGameWriter&&) = delete;
+    CAcpakGameWriter(CAcpakGameWriter&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakGameWriter& operator=(FAcpakGameWriter&&) = delete;
+    CAcpakGameWriter& operator=(CAcpakGameWriter&&) = delete;
 
     /**
      * 出力 pak を AcpakFlagNone で開いて書き込みを開始する。
@@ -189,8 +192,11 @@ private:
     static constexpr acs::u32 kPathCapacity = kAcpakMaxPathLength + 1u;
 
     /** 実 `.acpak` 書き込みを担う Writer。 */
-    FAcpakWriter m_Writer;
+    CAcpakWriter m_Writer;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakGameWriter = CAcpakGameWriter;
 
 /**
  * プロセス共有の既定 Acpak Reader を返す (Meyers singleton)。
@@ -200,7 +206,7 @@ private:
  * acs::game::SetAssetPackReaderProvider() に本関数を登録して行う
  * (InstallAcpakReaderAsDefault が登録する)。以降は backend 非依存に
  * acs::game::GetDefaultAssetPackReader() でこの実装が得られる。
- * @return プロセス共有の FAcpakGameReader への参照。
+ * @return プロセス共有の CAcpakGameReader への参照。
  */
 acs::game::IAssetPackReader& GetDefaultAcpakReader() noexcept;
 
@@ -210,7 +216,7 @@ void InstallAcpakReaderAsDefault() noexcept;
 /**
  * プロセス共有の既定 Acpak Writer を返す (Meyers singleton)。
  *
- * @return プロセス共有の FAcpakGameWriter への参照。
+ * @return プロセス共有の CAcpakGameWriter への参照。
  */
 acs::game::IAssetPackWriter& GetDefaultAcpakWriter() noexcept;
 

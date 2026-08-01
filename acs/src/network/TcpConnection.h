@@ -15,7 +15,7 @@ namespace acs {
  * FromAccepted 経由で構築される。Send/Recv でバイト列を送受信し、Close または
  * デストラクタで切断する。OS の SOCKET を単独所有する non-copy / move-only 型で、
  * 無効値は ~uptr{0} (=INVALID_SOCKET 相当) を用いる。同じ接続への呼び出しは
- * 利用側で直列化し、接続を破棄するまで FNetwork の初期化を保つ。
+ * 利用側で直列化し、接続を破棄するまで CNetwork の初期化を保つ。
  */
 class FTcpConnection {
 public:
@@ -53,7 +53,7 @@ public:
      * 指定アドレス・ポートへ TCP 接続する。
      *
      * @details
-     * FNetwork::Init() が未呼出ならエラーを返す。socket → connect を行い、成功すれば
+     * CNetwork::Init() が未呼出ならエラーを返す。socket → connect を行い、成功すれば
      * remote に port をセットした接続を返す。失敗時はソケットを閉じて OS エラーを返す。
      * @param addr 接続先 IP アドレス。
      * @param port 接続先ポート番号。

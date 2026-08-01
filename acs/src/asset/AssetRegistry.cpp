@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FAssetRegistry 実装
+// CAssetRegistry 実装
 #include "asset/AssetRegistry.h"
 #include "asset/BinaryAsset.h"
 #include "asset/TextAsset.h"
@@ -120,45 +120,45 @@ private:
 
 } // namespace
 
-FAssetRegistry::~FAssetRegistry() noexcept
+CAssetRegistry::~CAssetRegistry() noexcept
 {
     Shutdown();
 }
 
-void FAssetRegistry::RegisterLoader(IAssetLoader* loader) noexcept {
+void CAssetRegistry::RegisterLoader(IAssetLoader* loader) noexcept {
     (void)TryRegisterLoader(loader);
 }
 
-TResult<void> FAssetRegistry::TryRegisterLoader(IAssetLoader* loader) noexcept {
+TResult<void> CAssetRegistry::TryRegisterLoader(IAssetLoader* loader) noexcept {
     if (!loader) {
         return ACS_ERR(Asset, kAssetRegistrySubInvalidLoader,
-                       "FAssetRegistry::TryRegisterLoader: null loader");
+                       "CAssetRegistry::TryRegisterLoader: null loader");
     }
     const char* const Extension = loader->Extension();
     if (!IsValidLoaderExtension(Extension)) {
         return ACS_ERR(Asset, kAssetRegistrySubInvalidExtension,
-                       "FAssetRegistry::TryRegisterLoader: invalid extension");
+                       "CAssetRegistry::TryRegisterLoader: invalid extension");
     }
 
     FScopedLock lk(m_Lock);
     if (m_Closing) {
         return ACS_ERR(Asset, kAssetRegistrySubShuttingDown,
-                       "FAssetRegistry::TryRegisterLoader: registry is shutting down");
+                       "CAssetRegistry::TryRegisterLoader: registry is shutting down");
     }
     for (usize Index = 0; Index < m_Loaders.Size(); ++Index) {
         if (StrEqAscii(m_Loaders[Index]->Extension(), Extension)) {
             return ACS_ERR(Asset, kAssetRegistrySubDuplicateLoader,
-                           "FAssetRegistry::TryRegisterLoader: duplicate extension");
+                           "CAssetRegistry::TryRegisterLoader: duplicate extension");
         }
     }
     if (!m_Loaders.TryPushBack(loader)) {
         return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                       "FAssetRegistry::TryRegisterLoader: allocation failed");
+                       "CAssetRegistry::TryRegisterLoader: allocation failed");
     }
     return Ok();
 }
 
-IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
+IAssetLoader* CAssetRegistry::FindLoader(const wchar_t* path) noexcept {
     char ext[32]{};
     ExtractExtensionAscii(path, ext, sizeof(ext));
     IAssetLoader* fallback = nullptr;
@@ -170,23 +170,23 @@ IAssetLoader* FAssetRegistry::FindLoader(const wchar_t* path) noexcept {
     return fallback;  // 拡張子マッチなければ "*" のフォールバックを返す
 }
 
-TResult<TSharedPtr<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
+TResult<TSharedPtr<AAsset>> CAssetRegistry::Load(const wchar_t* path) noexcept {
     const u16 PathError = ValidateRegistryPath(path);
     if (PathError != 0) {
-        return ACS_ERR(Asset, PathError, "FAssetRegistry::Load: invalid path");
+        return ACS_ERR(Asset, PathError, "CAssetRegistry::Load: invalid path");
     }
 
     const FAssetId id = MakeIdFromPath(path);
     IAssetLoader* loader = nullptr;
-    TSharedPtr<FAsset> cached;
+    TSharedPtr<AAsset> cached;
     {
         FScopedLock lk(m_Lock);
         if (m_Closing) {
             return ACS_ERR(Asset, kAssetRegistrySubShuttingDown,
-                           "FAssetRegistry is shutting down");
+                           "CAssetRegistry is shutting down");
         }
 
-        const TSharedPtr<FAsset>* hit = m_Cache.Find(id);
+        const TSharedPtr<AAsset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             cached = *hit;
             ++m_CacheHitCount;
@@ -201,21 +201,21 @@ TResult<TSharedPtr<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
         }
     }
 
-    if (cached.Get()) return TResult<TSharedPtr<FAsset>>(OkInit, Move(cached));
+    if (cached.Get()) return TResult<TSharedPtr<AAsset>>(OkInit, Move(cached));
     if (!loader) {
         return ACS_ERR(Asset, kAssetRegistrySubNoLoader, "no loader for this asset path");
     }
     FActiveOperationGuard operation(&m_ActiveOperations);
 
     // ファイルを読み込む
-    auto bytes_r = FFileSystem::ReadAllBytes(path);
-    if (bytes_r.IsErr()) return Err<TSharedPtr<FAsset>>(bytes_r.Error());
+    auto bytes_r = CFileSystem::ReadAllBytes(path);
+    if (bytes_r.IsErr()) return Err<TSharedPtr<AAsset>>(bytes_r.Error());
 
     // ローダ呼び出し
     auto asset_r = loader->LoadFromBytes(id, bytes_r.Value());
-    if (asset_r.IsErr()) return Err<TSharedPtr<FAsset>>(asset_r.Error());
+    if (asset_r.IsErr()) return Err<TSharedPtr<AAsset>>(asset_r.Error());
 
-    TSharedPtr<FAsset> a = Move(asset_r.Value());
+    TSharedPtr<AAsset> a = Move(asset_r.Value());
     if (!a.Get())  // ローダが OkInit で null を返した場合 (alloc 失敗等) の null-deref 回避
         return ACS_ERR(Asset, kAssetRegistrySubNullAsset, "loader returned null asset");
     a->SetId(id);
@@ -226,10 +226,10 @@ TResult<TSharedPtr<FAsset>> FAssetRegistry::Load(const wchar_t* path) noexcept {
         FScopedLock lk(m_Lock);
         if (!m_Closing && !m_Cache.TryInsert(id, a)) {
             return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                           "FAssetRegistry::Load: cache allocation failed");
+                           "CAssetRegistry::Load: cache allocation failed");
         }
     }
-    return TResult<TSharedPtr<FAsset>>(OkInit, Move(a));
+    return TResult<TSharedPtr<AAsset>>(OkInit, Move(a));
 }
 
 namespace {
@@ -239,7 +239,7 @@ struct FAsyncLoadJob {
     FAllocator* allocator = nullptr;
 
     /** キャッシュ挿入先のレジストリ。 */
-    FAssetRegistry*           registry  = nullptr;
+    CAssetRegistry*           registry  = nullptr;
 
     /** 結果書き込み先 (worker と future で共有)。 */
     TSharedPtr<FAsyncLoadState>       state;
@@ -274,7 +274,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
     TUniquePtr<FAsyncLoadJob> job(raw_job, raw_job ? raw_job->allocator : nullptr);
     if (!job) return;
 
-    auto bytes_r = FFileSystem::ReadAllBytes(job->path->Path());
+    auto bytes_r = CFileSystem::ReadAllBytes(job->path->Path());
     if (bytes_r.IsErr()) {
         job->state->error = bytes_r.Error();
         job->state->has_error = true;
@@ -292,7 +292,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
         return;
     }
 
-    TSharedPtr<FAsset> a = Move(asset_r.Value());
+    TSharedPtr<AAsset> a = Move(asset_r.Value());
     if (!a.Get()) {  // ローダが OkInit で null を返した場合の null-deref 回避
         job->state->error = ACS_ERR(Asset, kAssetRegistrySubNullAsset,
                                     "loader returned null asset");
@@ -321,7 +321,7 @@ void AsyncLoadWorker(void* user, u32 /*worker*/) noexcept {
 }
 } // namespace
 
-TResult<void> FAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a) noexcept {
+TResult<void> CAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<AAsset> a) noexcept {
     FScopedLock lk(m_Lock);
     if (m_Closing) {
         // Shutdown は既に受理した load の完了を待つ。結果は future に返し、
@@ -330,17 +330,17 @@ TResult<void> FAssetRegistry::AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a
     }
     if (!m_Cache.TryInsert(id, Move(a))) {
         return ACS_ERR(Memory, kAssetRegistrySubOutOfMemory,
-                       "FAssetRegistry::AsyncCacheInsert: cache allocation failed");
+                       "CAssetRegistry::AsyncCacheInsert: cache allocation failed");
     }
     return Ok();
 }
 
-void FAssetRegistry::AsyncLoadFinished(FAssetId id) noexcept {
+void CAssetRegistry::AsyncLoadFinished(FAssetId id) noexcept {
     FScopedLock lk(m_Lock);
     m_InFlight.Remove(id);
 }
 
-FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
+FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     // 共有状態を作る
     auto state = MakeShared<FAsyncLoadState>();
     if (!state.Get()) return FAssetFuture{};
@@ -361,14 +361,14 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
         FScopedLock lk(m_Lock);
         if (m_Closing) {
             state->error = ACS_ERR(Asset, kAssetRegistrySubShuttingDown,
-                                   "FAssetRegistry is shutting down");
+                                   "CAssetRegistry is shutting down");
             state->has_error = true;
             state->counter.Done();
             return FAssetFuture(Move(state));
         }
         ++m_AsyncRequestCount;
 
-        const TSharedPtr<FAsset>* hit = m_Cache.Find(id);
+        const TSharedPtr<AAsset>* hit = m_Cache.Find(id);
         if (hit && hit->Get()) {
             state->result = *hit;
             ++m_CacheHitCount;
@@ -454,23 +454,23 @@ FAssetFuture FAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     return FAssetFuture(Move(state));
 }
 
-TSharedPtr<FAsset> FAssetRegistry::Find(FAssetId id) noexcept {
+TSharedPtr<AAsset> CAssetRegistry::Find(FAssetId id) noexcept {
     FScopedLock lk(m_Lock);
-    const TSharedPtr<FAsset>* hit = m_Cache.Find(id);
-    return (hit && hit->Get()) ? *hit : TSharedPtr<FAsset>();
+    const TSharedPtr<AAsset>* hit = m_Cache.Find(id);
+    return (hit && hit->Get()) ? *hit : TSharedPtr<AAsset>();
 }
 
-void FAssetRegistry::Unload(FAssetId id) noexcept {
+void CAssetRegistry::Unload(FAssetId id) noexcept {
     FScopedLock lk(m_Lock);
     m_Cache.Remove(id);
 }
 
-void FAssetRegistry::Clear() noexcept {
+void CAssetRegistry::Clear() noexcept {
     FScopedLock lk(m_Lock);
     m_Cache.Clear();
 }
 
-FAssetRegistryDiagnostics FAssetRegistry::Diagnostics() const noexcept
+FAssetRegistryDiagnostics CAssetRegistry::Diagnostics() const noexcept
 {
     /** 呼び出し元へ返す診断 snapshot。 */
     FAssetRegistryDiagnostics Result{};
@@ -487,7 +487,7 @@ FAssetRegistryDiagnostics FAssetRegistry::Diagnostics() const noexcept
     return Result;
 }
 
-void FAssetRegistry::Shutdown() noexcept
+void CAssetRegistry::Shutdown() noexcept
 {
     {
         FScopedLock lk(m_Lock);
@@ -514,7 +514,7 @@ void FAssetRegistry::Shutdown() noexcept
     m_ShutdownComplete = true;
 }
 
-void FAssetRegistry::Restart() noexcept
+void CAssetRegistry::Restart() noexcept
 {
     Shutdown();
 
@@ -530,37 +530,37 @@ void FAssetRegistry::Restart() noexcept
 
 namespace {
 /** 画像ローダ実体 (プロセス寿命)。 */
-FImageAssetLoader  g_image_loader;
+CImageAssetLoader  g_image_loader;
 
 /** WAV 音声ローダ実体。 */
-FWavAssetLoader    g_wav_loader;
+CWavAssetLoader    g_wav_loader;
 
 /** MP3 音声ローダ実体。 */
-FMp3AssetLoader    g_mp3_loader;
+CMp3AssetLoader    g_mp3_loader;
 
 /** FLAC 音声ローダ実体。 */
-FFlacAssetLoader   g_flac_loader;
+CFlacAssetLoader   g_flac_loader;
 
 /** OGG Vorbis 音声ローダ実体。 */
-FOggAssetLoader    g_ogg_loader;
+COggAssetLoader    g_ogg_loader;
 
 /** glTF メッシュローダ実体。 */
-FGltfAssetLoader   g_gltf_loader;
+CGltfAssetLoader   g_gltf_loader;
 
 /** GLB メッシュローダ実体。 */
-FGlbAssetLoader    g_glb_loader;
+CGlbAssetLoader    g_glb_loader;
 
 /** Wavefront OBJ メッシュローダ実体。 */
-FObjAssetLoader    g_obj_loader;
+CObjAssetLoader    g_obj_loader;
 
 /** FBX メッシュローダ実体。 */
-FFbxAssetLoader    g_fbx_loader;
+CFbxAssetLoader    g_fbx_loader;
 
 /** テキストローダ実体。 */
-FTextAssetLoader   g_text_loader;
+CTextAssetLoader   g_text_loader;
 
 /** バイナリフォールバックローダ実体。 */
-FBinaryAssetLoader g_binary_loader;
+CBinaryAssetLoader g_binary_loader;
 
 /**
  * 拡張子別名のラッパローダ。
@@ -598,7 +598,7 @@ public:
      * @param bytes ファイル全体のバイト列。
      * @return base->LoadFromBytes() の結果。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override {
         return m_Base->LoadFromBytes(id, bytes);
     }
 private:
@@ -692,7 +692,7 @@ FAliasLoader g_text_py   { &g_text_loader, "py"   };
 } // namespace
 
 // 標準ローダを 1 度に登録する
-void FAssetRegistry::RegisterDefaultLoaders() noexcept {
+void CAssetRegistry::RegisterDefaultLoaders() noexcept {
     // 画像
     RegisterLoader(&g_image_loader);
     RegisterLoader(&g_image_jpg);  RegisterLoader(&g_image_jpeg);

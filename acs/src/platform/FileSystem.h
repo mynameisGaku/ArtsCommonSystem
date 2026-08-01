@@ -13,7 +13,7 @@
 namespace acs {
 
 /** ファイル I/O とパス操作のユーティリティ (全メソッド static、Win32 実装)。 */
-class FFileSystem {
+class CFileSystem {
 public:
     /**
      * ASCII 大文字を小文字へ変換し、それ以外は変更しない。
@@ -213,5 +213,8 @@ public:
     /** I/O 診断値だけを 0 に戻す。 */
     static void ResetDiagnostics() noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFileSystem = CFileSystem;
 
 } // namespace acs

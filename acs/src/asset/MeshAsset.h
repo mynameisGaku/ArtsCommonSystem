@@ -50,12 +50,12 @@ struct FSubMesh {
  * @details 頂点は FMeshVertex (位置 + 法線 + UV) 固定。各ローダ (glTF/GLB/OBJ/FBX) が
  * 全プリミティブを 1 つの本アセットへ flatten して構築する。
  */
-class FMeshAsset : public FAsset {
+class AMeshAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FMeshAsset")
 
     /** 空のメッシュアセットを構築する。 */
-    FMeshAsset() noexcept = default;
+    AMeshAsset() noexcept = default;
 
     /**
      * 頂点配列への const 参照を返す。
@@ -137,19 +137,22 @@ private:
     u64 m_GeometryRevision = 1u;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMeshAsset = AMeshAsset;
+
 /**
- * glTF (.gltf) を FMeshAsset へロードするローダ (cgltf 使用)。
+ * glTF (.gltf) を AMeshAsset へロードするローダ (cgltf 使用)。
  *
  * @details v1 では外部バイナリ参照は非対応で、埋め込みバッファのみサポートする。
  */
-class FGltfAssetLoader final : public IAssetLoader {
+class CGltfAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -159,24 +162,27 @@ public:
     const char* Extension() const noexcept override { return "gltf"; }
 
     /**
-     * バイト列を glTF としてパースし FMeshAsset を構築する。
+     * バイト列を glTF としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .gltf のバイト列。
-     * @return 成功なら Ready 状態の FMeshAsset、パース/バッファロード失敗ならエラー。
+     * @return 成功なら Ready 状態の AMeshAsset、パース/バッファロード失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
-/** GLB (.glb) を FMeshAsset へロードするローダ (cgltf 使用)。 */
-class FGlbAssetLoader final : public IAssetLoader {
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FGltfAssetLoader = CGltfAssetLoader;
+
+/** GLB (.glb) を AMeshAsset へロードするローダ (cgltf 使用)。 */
+class CGlbAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -186,28 +192,31 @@ public:
     const char* Extension() const noexcept override { return "glb"; }
 
     /**
-     * バイト列を GLB としてパースし FMeshAsset を構築する。
+     * バイト列を GLB としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .glb のバイト列。
-     * @return 成功なら Ready 状態の FMeshAsset、パース/バッファロード失敗ならエラー。
+     * @return 成功なら Ready 状態の AMeshAsset、パース/バッファロード失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FGlbAssetLoader = CGlbAssetLoader;
+
 /**
- * Wavefront OBJ (.obj) を FMeshAsset へロードするローダ (自前パーサ)。
+ * Wavefront OBJ (.obj) を AMeshAsset へロードするローダ (自前パーサ)。
  *
  * @details v / vn / vt / f のみ対応し、マテリアルは無視する。
  */
-class FObjAssetLoader final : public IAssetLoader {
+class CObjAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -217,28 +226,31 @@ public:
     const char* Extension() const noexcept override { return "obj"; }
 
     /**
-     * バイト列を OBJ としてパースし FMeshAsset を構築する。
+     * バイト列を OBJ としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .obj のバイト列。
-     * @return 構築した Ready 状態の FMeshAsset。
+     * @return 構築した Ready 状態の AMeshAsset。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FObjAssetLoader = CObjAssetLoader;
+
 /**
- * FBX (.fbx) を FMeshAsset へロードするローダ (ufbx 使用)。
+ * FBX (.fbx) を AMeshAsset へロードするローダ (ufbx 使用)。
  *
  * @details ufbx の三角形化ヘルパで全メッシュを三角形へ分割して取り込む。
  */
-class FFbxAssetLoader final : public IAssetLoader {
+class CFbxAssetLoader final : public IAssetLoader {
 public:
     /**
      * このローダが生成するアセット型を返す。
      *
-     * @return FMeshAsset の静的型 ID。
+     * @return AMeshAsset の静的型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FMeshAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AMeshAsset::StaticType(); }
 
     /**
      * 対応する拡張子を返す。
@@ -248,13 +260,16 @@ public:
     const char* Extension() const noexcept override { return "fbx"; }
 
     /**
-     * バイト列を FBX としてパースし FMeshAsset を構築する。
+     * バイト列を FBX としてパースし AMeshAsset を構築する。
      *
      * @param id 生成するアセットに割り当てる ID。
      * @param bytes .fbx のバイト列。
-     * @return 成功なら Ready 状態の FMeshAsset、ロード失敗ならエラー。
+     * @return 成功なら Ready 状態の AMeshAsset、ロード失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFbxAssetLoader = CFbxAssetLoader;
 
 } // namespace acs

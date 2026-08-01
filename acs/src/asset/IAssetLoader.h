@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // アセットローダのインターフェイス
 //
-// 各アセット型 (FImageAsset, FMeshAsset, FAudioAsset など) ごとにローダを実装し、
-// FAssetRegistry に登録する。レジストリは拡張子から適切なローダを呼び出す。
+// 各アセット型 (AImageAsset, AMeshAsset, AAudioAsset など) ごとにローダを実装し、
+// CAssetRegistry に登録する。レジストリは拡張子から適切なローダを呼び出す。
 #pragma once
 
 #include "foundation/Types.h"
@@ -18,7 +18,7 @@ namespace acs {
  * アセットローダのインターフェイス。
  *
  * @details
- * 各アセット型 (FImageAsset, FMeshAsset, FAudioAsset など) ごとに実装し、FAssetRegistry に登録する。
+ * 各アセット型 (AImageAsset, AMeshAsset, AAudioAsset など) ごとに実装し、CAssetRegistry に登録する。
  * レジストリは Extension() でパスの拡張子からローダを選び、LoadFromBytes() を呼ぶ。
  * 非同期ロードはレジストリ側が FThreadPool で LoadFromBytes() を呼ぶ形で実現するため、
  * 実装は同期ロードだけを考えればよい。
@@ -50,7 +50,7 @@ public:
      * @param bytes ファイル全体のバイト列。
      * @return 成功なら生成したアセット、失敗ならエラー。
      */
-    virtual TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
+    virtual TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept = 0;
 };
 
 } // namespace acs

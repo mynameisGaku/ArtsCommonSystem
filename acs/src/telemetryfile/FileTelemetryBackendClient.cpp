@@ -9,11 +9,11 @@
 
 namespace acs::telemetryfile {
 
-FFileTelemetryBackendClient::~FFileTelemetryBackendClient() noexcept {
+CFileTelemetryBackendClient::~CFileTelemetryBackendClient() noexcept {
     Disconnect();
 }
 
-const char* FFileTelemetryBackendClient::StripFileScheme(const char* server_url) const noexcept {
+const char* CFileTelemetryBackendClient::StripFileScheme(const char* server_url) const noexcept {
     constexpr const char* kPrefix = "file://";
     constexpr acs::usize kPrefixLen = 7;
     if (server_url == nullptr) {
@@ -25,7 +25,7 @@ const char* FFileTelemetryBackendClient::StripFileScheme(const char* server_url)
     return server_url;
 }
 
-void FFileTelemetryBackendClient::CopyText(char* dst,
+void CFileTelemetryBackendClient::CopyText(char* dst,
                                            acs::usize dst_size,
                                            const char* src) noexcept {
     if (dst == nullptr || dst_size == 0) {
@@ -39,11 +39,11 @@ void FFileTelemetryBackendClient::CopyText(char* dst,
     dst[dst_size - 1] = 0;
 }
 
-acs::TResult<void> FFileTelemetryBackendClient::Connect(const char* server_url) noexcept {
+acs::TResult<void> CFileTelemetryBackendClient::Connect(const char* server_url) noexcept {
     const char* const path = StripFileScheme(server_url);
     if (path == nullptr || path[0] == 0) {
         return ACS_ERR(IO, acs::game::FBackendError::kSub_BadArgument,
-                       "FFileTelemetryBackendClient::Connect requires a file path");
+                       "CFileTelemetryBackendClient::Connect requires a file path");
     }
 
     Disconnect();
@@ -53,14 +53,14 @@ acs::TResult<void> FFileTelemetryBackendClient::Connect(const char* server_url) 
     if (fopen_s(&file, m_Path, "ab") != 0 || file == nullptr) {
         m_Path[0] = 0;
         return ACS_ERR(IO, kSubTelemetryFileOpenFailed,
-                       "FFileTelemetryBackendClient failed to open telemetry file");
+                       "CFileTelemetryBackendClient failed to open telemetry file");
     }
 
     m_File = file;
     return acs::Ok();
 }
 
-void FFileTelemetryBackendClient::Disconnect() noexcept {
+void CFileTelemetryBackendClient::Disconnect() noexcept {
     if (m_File != nullptr) {
         FILE* const file = static_cast<FILE*>(m_File);
         std::fflush(file);
@@ -69,11 +69,11 @@ void FFileTelemetryBackendClient::Disconnect() noexcept {
     }
 }
 
-bool FFileTelemetryBackendClient::IsConnected() const noexcept {
+bool CFileTelemetryBackendClient::IsConnected() const noexcept {
     return m_File != nullptr;
 }
 
-bool FFileTelemetryBackendClient::WriteEscaped(const char* text) noexcept {
+bool CFileTelemetryBackendClient::WriteEscaped(const char* text) noexcept {
     FILE* const file = static_cast<FILE*>(m_File);
     if (text == nullptr) {
         return std::fputs("", file) >= 0;
@@ -99,15 +99,15 @@ bool FFileTelemetryBackendClient::WriteEscaped(const char* text) noexcept {
     return true;
 }
 
-acs::TResult<void> FFileTelemetryBackendClient::SendTelemetry(const char* event_name,
+acs::TResult<void> CFileTelemetryBackendClient::SendTelemetry(const char* event_name,
                                                                const char* json_payload) noexcept {
     if (m_File == nullptr) {
         return ACS_ERR(IO, acs::game::FBackendError::kSub_NotConnected,
-                       "FFileTelemetryBackendClient::SendTelemetry called before Connect");
+                       "CFileTelemetryBackendClient::SendTelemetry called before Connect");
     }
     if (event_name == nullptr || json_payload == nullptr) {
         return ACS_ERR(IO, acs::game::FBackendError::kSub_BadArgument,
-                       "FFileTelemetryBackendClient::SendTelemetry requires event name and payload");
+                       "CFileTelemetryBackendClient::SendTelemetry requires event name and payload");
     }
 
     FILE* const file = static_cast<FILE*>(m_File);
@@ -119,16 +119,15 @@ acs::TResult<void> FFileTelemetryBackendClient::SendTelemetry(const char* event_
     b_ok = b_ok && std::fflush(file) == 0;
     if (!b_ok) {
         return ACS_ERR(IO, kSubTelemetryFileWriteFailed,
-                       "FFileTelemetryBackendClient failed to write telemetry event");
+                       "CFileTelemetryBackendClient failed to write telemetry event");
     }
 
     ++m_WrittenCount;
     return acs::Ok();
 }
 
-void FFileTelemetryBackendClient::Tick(acs::f32 dt) noexcept {
+void CFileTelemetryBackendClient::Tick(acs::f32 dt) noexcept {
     (void)dt;
 }
 
 } // namespace acs::telemetryfile
-

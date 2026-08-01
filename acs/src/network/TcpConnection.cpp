@@ -41,7 +41,7 @@ FTcpConnection& FTcpConnection::operator=(FTcpConnection&& o) noexcept {
 }
 
 TResult<FTcpConnection> FTcpConnection::Connect(FIpAddress addr, u16 port) noexcept {
-    if (!FNetwork::IsInitialized())
+    if (!CNetwork::IsInitialized())
         return ACS_ERR(IO, 210, "Network::Init() not called");
 
     const SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);

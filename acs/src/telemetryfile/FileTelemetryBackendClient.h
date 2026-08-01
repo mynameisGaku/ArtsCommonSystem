@@ -15,25 +15,25 @@ namespace acs::telemetryfile {
  * server_url は呼出側が寿命を保証する非所有文字列で、本実装は内部固定長バッファに
  * コピーして保持する。non-copy / non-move 型。
  */
-class FFileTelemetryBackendClient final : public acs::game::IBackendClient {
+class CFileTelemetryBackendClient final : public acs::game::IBackendClient {
 public:
     /** 空のクライアントを構築する (ファイルは未オープン)。 */
-    FFileTelemetryBackendClient() noexcept = default;
+    CFileTelemetryBackendClient() noexcept = default;
 
     /** 破棄する (オープン中ならファイルを flush・close する)。 */
-    ~FFileTelemetryBackendClient() noexcept override;
+    ~CFileTelemetryBackendClient() noexcept override;
 
     /** コピー禁止 (ファイルハンドルを単独所有するため)。 */
-    FFileTelemetryBackendClient(const FFileTelemetryBackendClient&)            = delete;
+    CFileTelemetryBackendClient(const CFileTelemetryBackendClient&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFileTelemetryBackendClient& operator=(const FFileTelemetryBackendClient&) = delete;
+    CFileTelemetryBackendClient& operator=(const CFileTelemetryBackendClient&) = delete;
 
     /** ムーブ禁止。 */
-    FFileTelemetryBackendClient(FFileTelemetryBackendClient&&)                 = delete;
+    CFileTelemetryBackendClient(CFileTelemetryBackendClient&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FFileTelemetryBackendClient& operator=(FFileTelemetryBackendClient&&)      = delete;
+    CFileTelemetryBackendClient& operator=(CFileTelemetryBackendClient&&)      = delete;
 
     /**
      * 出力先ファイルを開く (追記モード)。
@@ -137,8 +137,11 @@ private:
     acs::u32 m_WrittenCount = 0;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFileTelemetryBackendClient = CFileTelemetryBackendClient;
+
 /**
- * プロセス共有の既定 FFileTelemetryBackendClient singleton を返す。
+ * プロセス共有の既定 CFileTelemetryBackendClient singleton を返す。
  *
  * @details InstallFileTelemetryAsDefault が gameframework の backend provider に登録する provider 実体。
  * @return ファイルバック実装の singleton への参照。

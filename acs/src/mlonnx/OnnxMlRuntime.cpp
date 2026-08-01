@@ -131,7 +131,7 @@ bool Utf8ToWide(const char* src, wchar_t* dst, acs::u32 dst_count) noexcept {
 
 } // namespace
 
-struct FOnnxMlRuntime::FImpl {
+struct COnnxMlRuntime::FImpl {
     struct FModel {
         acs::u64   m_Id = 0;
         OrtSession* m_Session = nullptr;
@@ -167,18 +167,18 @@ struct FOnnxMlRuntime::FImpl {
     }
 };
 
-FOnnxMlRuntime::FOnnxMlRuntime() noexcept {
+COnnxMlRuntime::COnnxMlRuntime() noexcept {
     m_Impl = new FImpl();
 }
 
-FOnnxMlRuntime::~FOnnxMlRuntime() noexcept {
+COnnxMlRuntime::~COnnxMlRuntime() noexcept {
     Shutdown();
     delete m_Impl;
     m_Impl = nullptr;
 }
 
-TResult<void> FOnnxMlRuntime::Init() noexcept {
-    if (!m_Impl) return ACS_ERR(Generic, kSubOrtInitFailed, "FOnnxMlRuntime allocation failed");
+TResult<void> COnnxMlRuntime::Init() noexcept {
+    if (!m_Impl) return ACS_ERR(Generic, kSubOrtInitFailed, "COnnxMlRuntime allocation failed");
     if (m_Impl->m_bInitialized) return Ok();
 
     m_Impl->m_Api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
@@ -220,11 +220,11 @@ TResult<void> FOnnxMlRuntime::Init() noexcept {
     }
 
     m_Impl->m_bInitialized = true;
-    ACS_LOG_INFO("FOnnxMlRuntime initialized (ONNX Runtime API %u)", ORT_API_VERSION);
+    ACS_LOG_INFO("COnnxMlRuntime initialized (ONNX Runtime API %u)", ORT_API_VERSION);
     return Ok();
 }
 
-void FOnnxMlRuntime::Shutdown() noexcept {
+void COnnxMlRuntime::Shutdown() noexcept {
     if (!m_Impl || !m_Impl->m_Api) return;
     const OrtApi& api = *m_Impl->m_Api;
     for (acs::u32 i = 0; i < FImpl::kMaxModels; ++i) {
@@ -247,10 +247,10 @@ void FOnnxMlRuntime::Shutdown() noexcept {
     m_Impl->m_bInitialized = false;
 }
 
-TResult<game::FMlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) noexcept {
+TResult<game::FMlModelHandle> COnnxMlRuntime::LoadModel(const char* model_path) noexcept {
     if (!m_Impl || !m_Impl->m_bInitialized) {
         return TResult<game::FMlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_NotImplemented,
-            "FOnnxMlRuntime::LoadModel called before Init"));
+            "COnnxMlRuntime::LoadModel called before Init"));
     }
     if (!model_path || model_path[0] == 0) {
         return TResult<game::FMlModelHandle>(ACS_ERR(Generic, game::ml_err::kSub_InvalidArg,
@@ -408,7 +408,7 @@ TResult<game::FMlModelHandle> FOnnxMlRuntime::LoadModel(const char* model_path) 
     return TResult<game::FMlModelHandle>(OkInit, game::FMlModelHandle{slot->m_Id});
 }
 
-TResult<void> FOnnxMlRuntime::UnloadModel(game::FMlModelHandle h) noexcept {
+TResult<void> COnnxMlRuntime::UnloadModel(game::FMlModelHandle h) noexcept {
     if (!m_Impl || !m_Impl->m_bInitialized) return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "Init first");
     FImpl::FModel* model = m_Impl->Find(h);
     if (!model) return Ok();
@@ -419,11 +419,11 @@ TResult<void> FOnnxMlRuntime::UnloadModel(game::FMlModelHandle h) noexcept {
     return Ok();
 }
 
-TResult<void> FOnnxMlRuntime::RunInference(game::FMlModelHandle h,
+TResult<void> COnnxMlRuntime::RunInference(game::FMlModelHandle h,
                                            const f32* inputs, u32 in_count,
                                            f32* outputs, u32 out_count) noexcept {
     if (!m_Impl || !m_Impl->m_bInitialized) {
-        return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "FOnnxMlRuntime::RunInference called before Init");
+        return ACS_ERR(Generic, game::ml_err::kSub_NotImplemented, "COnnxMlRuntime::RunInference called before Init");
     }
     if (!inputs || !outputs || in_count == 0 || out_count == 0) {
         return ACS_ERR(Generic, game::ml_err::kSub_InvalidArg, "RunInference invalid buffers/counts");

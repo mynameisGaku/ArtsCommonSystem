@@ -30,9 +30,9 @@ void PushVertex(TArray<FMeshVertex>& dst, FVec3 pos, FVec3 nrm, f32 u, f32 v) no
 } // namespace
 
 /** 中心原点の立方体を生成する (6 面 × 4 頂点、面ごとの法線、UV 0..1)。 */
-TSharedPtr<FMeshAsset> MakeCube(f32 size) noexcept {
-    auto m = MakeShared<FMeshAsset>();
-    if (!m) return TSharedPtr<FMeshAsset>();
+TSharedPtr<AMeshAsset> MakeCube(f32 size) noexcept {
+    auto m = MakeShared<AMeshAsset>();
+    if (!m) return TSharedPtr<AMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     V.Reserve(24);
@@ -77,12 +77,12 @@ TSharedPtr<FMeshAsset> MakeCube(f32 size) noexcept {
 }
 
 /** UV 球を生成する (緯度 × 経度の格子、segments>=3 / rings>=2 に丸め)。 */
-TSharedPtr<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
+TSharedPtr<AMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept {
     if (segments < 3) segments = 3;
     if (rings    < 2) rings    = 2;
 
-    auto m = MakeShared<FMeshAsset>();
-    if (!m) return TSharedPtr<FMeshAsset>();
+    auto m = MakeShared<AMeshAsset>();
+    if (!m) return TSharedPtr<AMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
     V.Reserve((segments + 1) * (rings + 1));
@@ -124,9 +124,9 @@ TSharedPtr<FMeshAsset> MakeSphere(f32 radius, u32 segments, u32 rings) noexcept 
 }
 
 /** XZ 平面を生成する (4 頂点・2 三角形、Y=0、法線 +Y)。 */
-TSharedPtr<FMeshAsset> MakePlane(f32 width, f32 depth) noexcept {
-    auto m = MakeShared<FMeshAsset>();
-    if (!m) return TSharedPtr<FMeshAsset>();
+TSharedPtr<AMeshAsset> MakePlane(f32 width, f32 depth) noexcept {
+    auto m = MakeShared<AMeshAsset>();
+    if (!m) return TSharedPtr<AMeshAsset>();
     auto& V = m->Vertices();
     auto& I = m->Indices();
 

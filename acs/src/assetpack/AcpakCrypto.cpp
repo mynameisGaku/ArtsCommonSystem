@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS AssetPack — FAcpakCrypto 実装 (Windows CNG / BCrypt)
+// ACS AssetPack — CAcpakCrypto 実装 (Windows CNG / BCrypt)
 // -----------------------------------------------------------------------------
 // Win32 BCrypt API ラッパ。各 API 呼び出しでアルゴリズムプロバイダを開いて
 // 閉じるシンプルな実装。キャッシュ無し (起動時 + ストリーミングが
@@ -93,7 +93,7 @@ NTSTATUS CreateAesKey(BCRYPT_ALG_HANDLE  hAlg,
 
 } // namespace
 
-TResult<FAcpakKey> FAcpakCrypto::DeriveKey(const u8* password,
+TResult<FAcpakKey> CAcpakCrypto::DeriveKey(const u8* password,
                                         u32       password_len,
                                         const u8* salt,
                                         u32       salt_len) noexcept {
@@ -111,7 +111,7 @@ TResult<FAcpakKey> FAcpakCrypto::DeriveKey(const u8* password,
                                                BCRYPT_ALG_HANDLE_HMAC_FLAG);
     if (s != STATUS_SUCCESS) {
         return ACS_ERR_OS(Asset, kAcpakSubCryptoInit,
-                          "FAcpakCrypto::DeriveKey: BCryptOpenAlgorithmProvider failed",
+                          "CAcpakCrypto::DeriveKey: BCryptOpenAlgorithmProvider failed",
                           static_cast<u32>(s));
     }
 
@@ -132,13 +132,13 @@ TResult<FAcpakKey> FAcpakCrypto::DeriveKey(const u8* password,
         // 鍵領域は失敗時にゴミが残るので念のため 0 クリア (defensive)。
         MemSet(out.bytes, 0, sizeof(out.bytes));
         return ACS_ERR_OS(Asset, kAcpakSubCryptoKdf,
-                          "FAcpakCrypto::DeriveKey: BCryptDeriveKeyPBKDF2 failed",
+                          "CAcpakCrypto::DeriveKey: BCryptDeriveKeyPBKDF2 failed",
                           static_cast<u32>(s));
     }
     return TResult<FAcpakKey>(OkInit, out);
 }
 
-TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
+TResult<void> CAcpakCrypto::Encrypt(const FAcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8*       plaintext,
                                   u64             size,
@@ -147,24 +147,24 @@ TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
     // size == 0 は GMAC 専用パス (タグだけ計算)。plaintext は nullptr 可。
     if (size > 0 && (plaintext == nullptr || ciphertext == nullptr)) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Encrypt: null buffer with non-zero size");
+                       "CAcpakCrypto::Encrypt: null buffer with non-zero size");
     }
     if (nonce == nullptr || tag_out == nullptr) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Encrypt: nonce/tag pointer is null");
+                       "CAcpakCrypto::Encrypt: nonce/tag pointer is null");
     }
     // BCryptEncrypt の cbInput は ULONG (32bit)。single-chunk とし、
     // >4GiB の単一エントリは未対応 (実用上 .acpak のエントリは数 MB 程度)。
     if (size > 0xFFFFFFFFu) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Encrypt: size > 4GiB not supported");
+                       "CAcpakCrypto::Encrypt: size > 4GiB not supported");
     }
 
     BCRYPT_ALG_HANDLE hAlg = nullptr;
     NTSTATUS s = OpenAesGcmProvider(&hAlg);
     if (s != STATUS_SUCCESS) {
         return ACS_ERR_OS(Asset, kAcpakSubCryptoInit,
-                          "FAcpakCrypto::Encrypt: provider init failed",
+                          "CAcpakCrypto::Encrypt: provider init failed",
                           static_cast<u32>(s));
     }
 
@@ -173,7 +173,7 @@ TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
     if (s != STATUS_SUCCESS) {
         ::BCryptCloseAlgorithmProvider(hAlg, 0);
         return ACS_ERR_OS(Asset, kAcpakSubCryptoKey,
-                          "FAcpakCrypto::Encrypt: BCryptGenerateSymmetricKey failed",
+                          "CAcpakCrypto::Encrypt: BCryptGenerateSymmetricKey failed",
                           static_cast<u32>(s));
     }
 
@@ -209,19 +209,19 @@ TResult<void> FAcpakCrypto::Encrypt(const FAcpakKey& key,
 
     if (s != STATUS_SUCCESS) {
         return ACS_ERR_OS(Asset, kAcpakSubCryptoOp,
-                          "FAcpakCrypto::Encrypt: BCryptEncrypt failed",
+                          "CAcpakCrypto::Encrypt: BCryptEncrypt failed",
                           static_cast<u32>(s));
     }
     if (written != static_cast<ULONG>(size)) {
         // GCM では入力 == 出力 サイズが原則。これが崩れているなら CNG が
         // 想定外モードで動いている (バグ)。
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Encrypt: unexpected output size");
+                       "CAcpakCrypto::Encrypt: unexpected output size");
     }
     return Ok();
 }
 
-TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
+TResult<void> CAcpakCrypto::Decrypt(const FAcpakKey& key,
                                   const u8        nonce[kAcpakNonceSize],
                                   const u8        tag[kAcpakTagSize],
                                   const u8*       ciphertext,
@@ -229,22 +229,22 @@ TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
                                   u8*             plaintext) noexcept {
     if (size > 0 && (ciphertext == nullptr || plaintext == nullptr)) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Decrypt: null buffer with non-zero size");
+                       "CAcpakCrypto::Decrypt: null buffer with non-zero size");
     }
     if (nonce == nullptr || tag == nullptr) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Decrypt: nonce/tag pointer is null");
+                       "CAcpakCrypto::Decrypt: nonce/tag pointer is null");
     }
     if (size > 0xFFFFFFFFu) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Decrypt: size > 4GiB not supported");
+                       "CAcpakCrypto::Decrypt: size > 4GiB not supported");
     }
 
     BCRYPT_ALG_HANDLE hAlg = nullptr;
     NTSTATUS s = OpenAesGcmProvider(&hAlg);
     if (s != STATUS_SUCCESS) {
         return ACS_ERR_OS(Asset, kAcpakSubCryptoInit,
-                          "FAcpakCrypto::Decrypt: provider init failed",
+                          "CAcpakCrypto::Decrypt: provider init failed",
                           static_cast<u32>(s));
     }
 
@@ -253,7 +253,7 @@ TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
     if (s != STATUS_SUCCESS) {
         ::BCryptCloseAlgorithmProvider(hAlg, 0);
         return ACS_ERR_OS(Asset, kAcpakSubCryptoKey,
-                          "FAcpakCrypto::Decrypt: BCryptGenerateSymmetricKey failed",
+                          "CAcpakCrypto::Decrypt: BCryptGenerateSymmetricKey failed",
                           static_cast<u32>(s));
     }
 
@@ -292,16 +292,16 @@ TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
             MemSet(plaintext, 0, static_cast<usize>(size));
         }
         return ACS_ERR(Asset, kAcpakSubCryptoTag,
-                       "FAcpakCrypto::Decrypt: GCM tag verification failed");
+                       "CAcpakCrypto::Decrypt: GCM tag verification failed");
     }
     if (s != STATUS_SUCCESS) {
         return ACS_ERR_OS(Asset, kAcpakSubCryptoOp,
-                          "FAcpakCrypto::Decrypt: BCryptDecrypt failed",
+                          "CAcpakCrypto::Decrypt: BCryptDecrypt failed",
                           static_cast<u32>(s));
     }
     if (written != static_cast<ULONG>(size)) {
         return ACS_ERR(Asset, kAcpakSubCryptoOp,
-                       "FAcpakCrypto::Decrypt: unexpected output size");
+                       "CAcpakCrypto::Decrypt: unexpected output size");
     }
     return Ok();
 }
@@ -310,10 +310,10 @@ TResult<void> FAcpakCrypto::Decrypt(const FAcpakKey& key,
 // と認証鍵 (H) が漏洩し、任意改竄が可能になる致命的破綻を起こす。したがって
 // CSPRNG が失敗した場合に「ゼロ / 予測可能な nonce」で処理を続行してはならない。
 // ここでは TResult<void> を返し、RNG 失敗を必ずエラーとして伝播させる。
-TResult<void> FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
+TResult<void> CAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) noexcept {
     if (nonce_out == nullptr) {
         return ACS_ERR(Asset, kAcpakSubCryptoRand,
-                       "FAcpakCrypto::GenerateRandomNonce: nonce_out pointer is null");
+                       "CAcpakCrypto::GenerateRandomNonce: nonce_out pointer is null");
     }
 
     const NTSTATUS s = ::BCryptGenRandom(nullptr,
@@ -327,7 +327,7 @@ TResult<void> FAcpakCrypto::GenerateRandomNonce(u8 nonce_out[kAcpakNonceSize]) n
         //  防御だが、本実装では呼び出し側が必ずエラーを伝播するので未使用になる。)
         MemSet(nonce_out, 0, kAcpakNonceSize);
         return ACS_ERR_OS(Asset, kAcpakSubCryptoRand,
-                          "FAcpakCrypto::GenerateRandomNonce: BCryptGenRandom failed",
+                          "CAcpakCrypto::GenerateRandomNonce: BCryptGenRandom failed",
                           static_cast<u32>(s));
     }
     return Ok();

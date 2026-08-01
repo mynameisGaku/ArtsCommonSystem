@@ -13,12 +13,12 @@
 namespace acs::crashwin {
 
 /** 設定からダンプディレクトリを取り込んで構築する。 */
-FWindowsCrashReporter::FWindowsCrashReporter(const FWindowsCrashReporterConfig& config) noexcept {
+CWindowsCrashReporter::CWindowsCrashReporter(const FWindowsCrashReporterConfig& config) noexcept {
     CopyText(m_DumpDirectory, sizeof(m_DumpDirectory), config.DumpDirectory);
 }
 
 /** src を dst へ安全に NUL 終端コピーする (バッファ境界を超えない)。 */
-void FWindowsCrashReporter::CopyText(char* dst, acs::usize dst_size, const char* src) noexcept {
+void CWindowsCrashReporter::CopyText(char* dst, acs::usize dst_size, const char* src) noexcept {
     if (dst == nullptr || dst_size == 0) {
         return;
     }
@@ -31,10 +31,10 @@ void FWindowsCrashReporter::CopyText(char* dst, acs::usize dst_size, const char*
 }
 
 /** backend を初期化し、ダンプディレクトリを作成する。 */
-acs::TResult<void> FWindowsCrashReporter::Init(const char* product_id, const char* version) noexcept {
+acs::TResult<void> CWindowsCrashReporter::Init(const char* product_id, const char* version) noexcept {
     if (product_id == nullptr || product_id[0] == 0 || version == nullptr || version[0] == 0) {
         return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_BadArgument,
-                       "FWindowsCrashReporter::Init requires product id and version");
+                       "CWindowsCrashReporter::Init requires product id and version");
     }
 
     CopyText(m_ProductId, sizeof(m_ProductId), product_id);
@@ -47,7 +47,7 @@ acs::TResult<void> FWindowsCrashReporter::Init(const char* product_id, const cha
         const DWORD error = ::GetLastError();
         if (error != ERROR_ALREADY_EXISTS) {
             return ACS_ERR(Generic, kSubCrashWinIoFailed,
-                           "FWindowsCrashReporter failed to create dump directory");
+                           "CWindowsCrashReporter failed to create dump directory");
         }
     }
 
@@ -56,17 +56,17 @@ acs::TResult<void> FWindowsCrashReporter::Init(const char* product_id, const cha
 }
 
 /** backend を終了状態にする (m_bInitialized を下ろすだけ)。 */
-void FWindowsCrashReporter::Shutdown() noexcept {
+void CWindowsCrashReporter::Shutdown() noexcept {
     m_bInitialized = false;
 }
 
 /** backend が利用可能 (Init 済み) かを返す。 */
-bool FWindowsCrashReporter::IsAvailable() const noexcept {
+bool CWindowsCrashReporter::IsAvailable() const noexcept {
     return m_bInitialized;
 }
 
 /** レポート用の一意なベースパス (拡張子なし) を組み立てる。 */
-void FWindowsCrashReporter::BuildBasePath(char* out, acs::usize out_size, const char* prefix) noexcept {
+void CWindowsCrashReporter::BuildBasePath(char* out, acs::usize out_size, const char* prefix) noexcept {
     SYSTEMTIME time{};
     ::GetLocalTime(&time);
     const DWORD process_id = ::GetCurrentProcessId();
@@ -87,7 +87,7 @@ void FWindowsCrashReporter::BuildBasePath(char* out, acs::usize out_size, const 
 }
 
 /** テキスト形式のクラッシュ / エラーレポートをファイルへ書き出す。 */
-bool FWindowsCrashReporter::WriteTextReport(const char* path,
+bool CWindowsCrashReporter::WriteTextReport(const char* path,
                                             const acs::game::FCrashContext* context,
                                             const char* category,
                                             const char* message) noexcept {
@@ -138,7 +138,7 @@ bool FWindowsCrashReporter::WriteTextReport(const char* path,
 }
 
 /** 現在のプロセスの minidump を MiniDumpWriteDump で書き出す。 */
-bool FWindowsCrashReporter::WriteCurrentProcessDump(const char* path) noexcept {
+bool CWindowsCrashReporter::WriteCurrentProcessDump(const char* path) noexcept {
     const HANDLE file = ::CreateFileA(path,
                                 GENERIC_WRITE,
                                 0,
@@ -162,11 +162,11 @@ bool FWindowsCrashReporter::WriteCurrentProcessDump(const char* path) noexcept {
 }
 
 /** クラッシュ 1 件のテキストレポートと minidump を書き出す。 */
-acs::TResult<void> FWindowsCrashReporter::ReportCrash(
+acs::TResult<void> CWindowsCrashReporter::ReportCrash(
     const acs::game::FCrashContext& context) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_NotInitialized,
-                       "FWindowsCrashReporter::ReportCrash called before Init");
+                       "CWindowsCrashReporter::ReportCrash called before Init");
     }
 
     char base[260] = {};
@@ -176,26 +176,26 @@ acs::TResult<void> FWindowsCrashReporter::ReportCrash(
 
     if (!WriteTextReport(m_LastReportPath, &context, nullptr, nullptr)) {
         return ACS_ERR(Generic, kSubCrashWinIoFailed,
-                       "FWindowsCrashReporter failed to write crash text report");
+                       "CWindowsCrashReporter failed to write crash text report");
     }
     if (!WriteCurrentProcessDump(m_LastDumpPath)) {
         return ACS_ERR(Generic, kSubCrashWinDumpFailed,
-                       "FWindowsCrashReporter failed to write minidump");
+                       "CWindowsCrashReporter failed to write minidump");
     }
 
     return acs::Ok();
 }
 
 /** 非致命的エラー 1 件のテキストレポートを書き出す (minidump は作らない)。 */
-acs::TResult<void> FWindowsCrashReporter::ReportError(const char* category,
+acs::TResult<void> CWindowsCrashReporter::ReportError(const char* category,
                                                        const char* message) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_NotInitialized,
-                       "FWindowsCrashReporter::ReportError called before Init");
+                       "CWindowsCrashReporter::ReportError called before Init");
     }
     if (category == nullptr || message == nullptr) {
         return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_BadArgument,
-                       "FWindowsCrashReporter::ReportError requires category and message");
+                       "CWindowsCrashReporter::ReportError requires category and message");
     }
 
     char base[260] = {};
@@ -205,21 +205,21 @@ acs::TResult<void> FWindowsCrashReporter::ReportError(const char* category,
 
     if (!WriteTextReport(m_LastReportPath, nullptr, category, message)) {
         return ACS_ERR(Generic, kSubCrashWinIoFailed,
-                       "FWindowsCrashReporter failed to write error report");
+                       "CWindowsCrashReporter failed to write error report");
     }
     return acs::Ok();
 }
 
 /** breadcrumb を 1 件リングバッファへ追加する (満杯時は最古を上書き)。 */
-acs::TResult<void> FWindowsCrashReporter::AddBreadcrumb(const char* category,
+acs::TResult<void> CWindowsCrashReporter::AddBreadcrumb(const char* category,
                                                          const char* message) noexcept {
     if (!m_bInitialized) {
         return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_NotInitialized,
-                       "FWindowsCrashReporter::AddBreadcrumb called before Init");
+                       "CWindowsCrashReporter::AddBreadcrumb called before Init");
     }
     if (category == nullptr || message == nullptr) {
         return ACS_ERR(Generic, acs::game::FCrashReporterError::kSub_BadArgument,
-                       "FWindowsCrashReporter::AddBreadcrumb requires category and message");
+                       "CWindowsCrashReporter::AddBreadcrumb requires category and message");
     }
 
     acs::u32 index = 0;
@@ -237,12 +237,12 @@ acs::TResult<void> FWindowsCrashReporter::AddBreadcrumb(const char* category,
 }
 
 /** レポートに付与する匿名ユーザー ID を設定する。 */
-void FWindowsCrashReporter::SetUserId(const char* anonymous_id) noexcept {
+void CWindowsCrashReporter::SetUserId(const char* anonymous_id) noexcept {
     CopyText(m_UserId, sizeof(m_UserId), anonymous_id);
 }
 
 /** 毎フレーム pump フック (本 backend は同期書き込みのため何もしない)。 */
-void FWindowsCrashReporter::Tick(acs::f32 dt) noexcept {
+void CWindowsCrashReporter::Tick(acs::f32 dt) noexcept {
     (void)dt;
 }
 

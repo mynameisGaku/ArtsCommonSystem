@@ -49,7 +49,7 @@ public:
      * 指定アドレス/ポートで Listen を開始する。
      *
      * @details
-     * socket→SO_REUSEADDR→bind→listen を実行する。FNetwork::Init() 未呼び出し、
+     * socket→SO_REUSEADDR→bind→listen を実行する。CNetwork::Init() 未呼び出し、
      * または各 WinSock 呼び出しの失敗時はエラーを返す。
      * @param addr バインドするアドレス (FIpAddress::Any() で全インターフェイス)。
      * @param port 待ち受けるポート番号。

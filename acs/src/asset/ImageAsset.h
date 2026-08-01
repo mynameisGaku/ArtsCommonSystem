@@ -39,12 +39,12 @@ enum class EPixelFormat : u8 {
 /**
  * 画像 1 枚分の CPU 側ピクセルデータを保持するアセット。
  */
-class FImageAsset : public FAsset {
+class AImageAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FImageAsset")
 
     /** 空の画像アセットを構築する。 */
-    FImageAsset() noexcept = default;
+    AImageAsset() noexcept = default;
 
     /**
      * ピクセルデータから画像アセットを構築する。
@@ -54,7 +54,7 @@ public:
      * @param fmt ピクセルフォーマット。
      * @param pixels 生ピクセルバイト列 (ムーブで所有を奪う)。
      */
-    FImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
+    AImageAsset(u32 w, u32 h, EPixelFormat fmt, TArray<byte>&& pixels) noexcept
         : m_Width(w), m_Height(h), m_Format(fmt), m_Pixels(Move(pixels)) {}
 
     /**
@@ -106,17 +106,20 @@ private:
     TArray<byte> m_Pixels;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FImageAsset = AImageAsset;
+
 /**
- * 各種画像ファイルを FImageAsset にデコードするローダ (stb_image)。
+ * 各種画像ファイルを AImageAsset にデコードするローダ (stb_image)。
  */
-class FImageAssetLoader final : public IAssetLoader {
+class CImageAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FImageAsset の型 ID。
+     * @return AImageAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FImageAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AImageAsset::StaticType(); }
 
     /**
      * 担当する主要拡張子を返す。
@@ -126,14 +129,17 @@ public:
     const char* Extension() const noexcept override { return "png"; }
 
     /**
-     * 画像バイト列をデコードし FImageAsset を生成する。
+     * 画像バイト列をデコードし AImageAsset を生成する。
      *
      * @details HDR (.hdr 等) は 32-bit float RGBA、それ以外は 8-bit RGBA に統一する。
      * @param id 生成アセットに割り当てる ID。
      * @param bytes 画像ファイル全体のバイト列。
-     * @return 成功なら FImageAsset、失敗ならエラー。
+     * @return 成功なら AImageAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FImageAssetLoader = CImageAssetLoader;
 
 } // namespace acs

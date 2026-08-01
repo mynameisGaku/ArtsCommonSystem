@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// AcpakDefault — FAcpakGameReader / FAcpakGameWriter を gameframework の既定
+// AcpakDefault — CAcpakGameReader / CAcpakGameWriter を gameframework の既定
 // AssetPack provider へ結線する
 // -----------------------------------------------------------------------------
 // gameframework は ACS::AssetPack に依存できない (循環依存) ため、結線は backend
@@ -11,8 +11,8 @@
 // `acs::game::GetDefaultAssetPackReader()` / `GetDefaultAssetPackWriter()` で
 // 実 `.acpak` Reader/Writer を取得できる。
 //
-// provider が返す Reader/Writer はプロセス共有 singleton。FAcpakGameReader /
-// FAcpakGameWriter は default 構築でき、別途 Init() を要さない (利用側が
+// provider が返す Reader/Writer はプロセス共有 singleton。CAcpakGameReader /
+// CAcpakGameWriter は default 構築でき、別途 Init() を要さない (利用側が
 // Mount()/BeginPack() でライフサイクルを開始する) ため、Lua backend のような
 // lazy-init は不要。function-local static の構築自体が thread-safe。
 // =============================================================================
@@ -31,8 +31,8 @@ struct FDefaultAcpakState {
 
     // backend を先に破棄してから allocator を破棄する宣言順にする。
     acs::FSystemAllocator allocator;
-    FAcpakGameReader reader;
-    FAcpakGameWriter writer;
+    CAcpakGameReader reader;
+    CAcpakGameWriter writer;
 };
 
 FDefaultAcpakState& GetDefaultAcpakState() noexcept

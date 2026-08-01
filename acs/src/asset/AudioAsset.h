@@ -34,12 +34,12 @@ enum class ESampleFormat : u8 {
  * 全フォーマットを 16-bit もしくは float PCM に統一してインターリーブ保持する。
  * 再生は CAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
  */
-class FAudioAsset : public FAsset {
+class AAudioAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FAudioAsset")
 
     /** 空の音声アセットを構築する。 */
-    FAudioAsset() noexcept = default;
+    AAudioAsset() noexcept = default;
 
     /**
      * PCM データから音声アセットを構築する。
@@ -50,7 +50,7 @@ public:
      * @param frame_count フレーム数 (1 フレーム = 全チャンネル 1 サンプル)。
      * @param samples インターリーブ済み生 PCM バイト列 (ムーブで所有を奪う)。
      */
-    FAudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
+    AAudioAsset(u32 sample_rate, u8 channels, ESampleFormat fmt,
                u64 frame_count, TArray<byte>&& samples) noexcept
         : m_SampleRate(sample_rate), m_Channels(channels), m_Format(fmt),
           m_FrameCount(frame_count), m_Samples(Move(samples)) {}
@@ -123,17 +123,20 @@ private:
     TArray<byte>  m_Samples;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAudioAsset = AAudioAsset;
+
 /**
- * WAV ファイルを FAudioAsset にデコードするローダ (dr_wav)。
+ * WAV ファイルを AAudioAsset にデコードするローダ (dr_wav)。
  */
-class FWavAssetLoader  final : public IAssetLoader {
+class CWavAssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -143,26 +146,29 @@ public:
     const char* Extension() const noexcept override { return "wav"; }
 
     /**
-     * WAV バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * WAV バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes WAV ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWavAssetLoader = CWavAssetLoader;
+
 /**
- * MP3 ファイルを FAudioAsset にデコードするローダ (dr_mp3)。
+ * MP3 ファイルを AAudioAsset にデコードするローダ (dr_mp3)。
  */
-class FMp3AssetLoader  final : public IAssetLoader {
+class CMp3AssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -172,26 +178,29 @@ public:
     const char* Extension() const noexcept override { return "mp3"; }
 
     /**
-     * MP3 バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * MP3 バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes MP3 ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMp3AssetLoader = CMp3AssetLoader;
+
 /**
- * FLAC ファイルを FAudioAsset にデコードするローダ (dr_flac)。
+ * FLAC ファイルを AAudioAsset にデコードするローダ (dr_flac)。
  */
-class FFlacAssetLoader final : public IAssetLoader {
+class CFlacAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -201,26 +210,29 @@ public:
     const char* Extension() const noexcept override { return "flac"; }
 
     /**
-     * FLAC バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * FLAC バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes FLAC ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FFlacAssetLoader = CFlacAssetLoader;
+
 /**
- * OGG Vorbis ファイルを FAudioAsset にデコードするローダ (stb_vorbis)。
+ * OGG Vorbis ファイルを AAudioAsset にデコードするローダ (stb_vorbis)。
  */
-class FOggAssetLoader  final : public IAssetLoader {
+class COggAssetLoader  final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FAudioAsset の型 ID。
+     * @return AAudioAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FAudioAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return AAudioAsset::StaticType(); }
 
     /**
      * 担当拡張子を返す。
@@ -230,13 +242,16 @@ public:
     const char* Extension() const noexcept override { return "ogg"; }
 
     /**
-     * OGG Vorbis バイト列を 16-bit PCM の FAudioAsset にデコードする。
+     * OGG Vorbis バイト列を 16-bit PCM の AAudioAsset にデコードする。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes OGG ファイル全体のバイト列。
-     * @return 成功なら FAudioAsset、失敗ならエラー。
+     * @return 成功なら AAudioAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FOggAssetLoader = COggAssetLoader;
 
 } // namespace acs

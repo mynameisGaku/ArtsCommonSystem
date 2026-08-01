@@ -17,16 +17,16 @@ namespace acs {
 namespace {
 
 /**
- * 構築済み FMeshAsset に ID と Ready 状態を設定し TSharedPtr<Asset> として返す。
+ * 構築済み AMeshAsset に ID と Ready 状態を設定し TSharedPtr<Asset> として返す。
  *
  * @param id アセットに割り当てる ID。
- * @param m 構築済みの FMeshAsset (所有権がムーブされる)。
+ * @param m 構築済みの AMeshAsset (所有権がムーブされる)。
  * @return Ready 状態にした Asset への共有ポインタ。
  */
-TSharedPtr<FAsset> WrapMesh(FAssetId id, TSharedPtr<FMeshAsset>&& m) noexcept {
+TSharedPtr<AAsset> WrapMesh(FAssetId id, TSharedPtr<AMeshAsset>&& m) noexcept {
     m->SetId(id);
     m->SetState(EAssetState::Ready);
-    return TSharedPtr<FAsset>(Move(m));
+    return TSharedPtr<AAsset>(Move(m));
 }
 
 /**
@@ -69,18 +69,18 @@ void ReadAttributeUV(const cgltf_accessor* a, FMeshVertex* dst, usize n) noexcep
 }
 
 /**
- * cgltf のシーンデータを 1 つの FMeshAsset へ flatten して構築する。
+ * cgltf のシーンデータを 1 つの AMeshAsset へ flatten して構築する。
  *
  * @details 全メッシュ・全プリミティブを走査し、POSITION/NORMAL/TEXCOORD_0 を頂点へ、
  * インデックス (無ければ連番) をサブメッシュとして 1 つのアセットにまとめる。
  * @param data パース済みの cgltf データ (nullptr やメッシュ無しなら空メッシュを返す)。
- * @return 構築した FMeshAsset。
+ * @return 構築した AMeshAsset。
  */
-TSharedPtr<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
-    auto mesh = MakeShared<FMeshAsset>();
+TSharedPtr<AMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
+    auto mesh = MakeShared<AMeshAsset>();
     if (!data || data->meshes_count == 0) return mesh;
 
-    // 全プリミティブを 1 つの FMeshAsset に flatten（v1）
+    // 全プリミティブを 1 つの AMeshAsset に flatten（v1）
     u32 vertex_offset = 0;
     for (cgltf_size mi = 0; mi < data->meshes_count; ++mi) {
         const cgltf_mesh& m = data->meshes[mi];
@@ -136,8 +136,8 @@ TSharedPtr<FMeshAsset> BuildFromCgltf(cgltf_data* data) noexcept {
 
 } // namespace
 
-/** glTF (.gltf) をパースして FMeshAsset を構築する (埋め込みバッファのみ対応)。 */
-TResult<TSharedPtr<FAsset>> FGltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+/** glTF (.gltf) をパースして AMeshAsset を構築する (埋め込みバッファのみ対応)。 */
+TResult<TSharedPtr<AAsset>> CGltfAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     cgltf_data* data = nullptr;
     if (::cgltf_parse(&opts, bytes.Data(), bytes.Size(), &data) != cgltf_result_success || !data)
@@ -148,13 +148,13 @@ TResult<TSharedPtr<FAsset>> FGltfAssetLoader::LoadFromBytes(FAssetId id, const T
         ::cgltf_free(data);
         return ACS_ERR(Asset, 301, "cgltf_load_buffers failed (external bin not supported in v1)");
     }
-    TSharedPtr<FMeshAsset> mesh = BuildFromCgltf(data);
+    TSharedPtr<AMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-/** GLB (.glb) をパースして FMeshAsset を構築する。 */
-TResult<TSharedPtr<FAsset>> FGlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+/** GLB (.glb) をパースして AMeshAsset を構築する。 */
+TResult<TSharedPtr<AAsset>> CGlbAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     cgltf_options opts{};
     opts.type = cgltf_file_type_glb;
     cgltf_data* data = nullptr;
@@ -164,14 +164,14 @@ TResult<TSharedPtr<FAsset>> FGlbAssetLoader::LoadFromBytes(FAssetId id, const TA
         ::cgltf_free(data);
         return ACS_ERR(Asset, 311, "cgltf_load_buffers failed");
     }
-    TSharedPtr<FMeshAsset> mesh = BuildFromCgltf(data);
+    TSharedPtr<AMeshAsset> mesh = BuildFromCgltf(data);
     ::cgltf_free(data);
-    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-/** OBJ (.obj) を自前パーサで読み込み FMeshAsset を構築する (v/vn/vt/f のみ対応、マテリアル無視)。 */
-TResult<TSharedPtr<FAsset>> FObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
-    auto mesh = MakeShared<FMeshAsset>();
+/** OBJ (.obj) を自前パーサで読み込み AMeshAsset を構築する (v/vn/vt/f のみ対応、マテリアル無視)。 */
+TResult<TSharedPtr<AAsset>> CObjAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+    auto mesh = MakeShared<AMeshAsset>();
     TArray<FVec3> positions;
     TArray<FVec3> normals;
     struct FUv { f32 u, v; };
@@ -273,17 +273,17 @@ TResult<TSharedPtr<FAsset>> FObjAssetLoader::LoadFromBytes(FAssetId id, const TA
     sub.first_index = 0;
     sub.index_count = static_cast<u32>(mesh->Indices().Size());
     mesh->SubMeshes().PushBack(sub);
-    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
-/** FBX (.fbx) を ufbx で読み込み、三角形化して FMeshAsset を構築する。 */
-TResult<TSharedPtr<FAsset>> FFbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+/** FBX (.fbx) を ufbx で読み込み、三角形化して AMeshAsset を構築する。 */
+TResult<TSharedPtr<AAsset>> CFbxAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     ufbx_load_opts opts{};
     ufbx_error err{};
     ufbx_scene* scene = ::ufbx_load_memory(bytes.Data(), bytes.Size(), &opts, &err);
     if (!scene) return ACS_ERR(Asset, 400, "ufbx_load_memory failed");
 
-    auto mesh = MakeShared<FMeshAsset>();
+    auto mesh = MakeShared<AMeshAsset>();
     u32 vertex_offset = 0;
     for (size_t mi = 0; mi < scene->meshes.count; ++mi) {
         ufbx_mesh* fm = scene->meshes.data[mi];
@@ -323,7 +323,7 @@ TResult<TSharedPtr<FAsset>> FFbxAssetLoader::LoadFromBytes(FAssetId id, const TA
         vertex_offset = static_cast<u32>(mesh->Vertices().Size());
     }
     ::ufbx_free_scene(scene);
-    return TResult<TSharedPtr<FAsset>>(OkInit, WrapMesh(id, Move(mesh)));
+    return TResult<TSharedPtr<AAsset>>(OkInit, WrapMesh(id, Move(mesh)));
 }
 
 } // namespace acs

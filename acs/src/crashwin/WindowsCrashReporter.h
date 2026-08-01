@@ -7,7 +7,7 @@
 namespace acs::crashwin {
 
 /**
- * FWindowsCrashReporter の生成時設定。
+ * CWindowsCrashReporter の生成時設定。
  *
  * @details コンストラクタ経由で minidump / テキストレポートの出力先ディレクトリを指定する。
  */
@@ -25,32 +25,32 @@ struct FWindowsCrashReporterConfig {
  * breadcrumb は固定長リングバッファで保持し、レポート出力時にまとめて添付する。文字列は
  * 全て固定長メンババッファへコピーして保持する (非所有ポインタに依存しない)。
  */
-class FWindowsCrashReporter final : public acs::game::ICrashReporterBackend {
+class CWindowsCrashReporter final : public acs::game::ICrashReporterBackend {
 public:
     /** 既定ダンプディレクトリ "crash_dumps" で構築する。 */
-    FWindowsCrashReporter() noexcept = default;
+    CWindowsCrashReporter() noexcept = default;
 
     /**
      * 設定からダンプディレクトリを取り込んで構築する。
      *
      * @param config 出力先ディレクトリ等の生成時設定。
      */
-    explicit FWindowsCrashReporter(const FWindowsCrashReporterConfig& config) noexcept;
+    explicit CWindowsCrashReporter(const FWindowsCrashReporterConfig& config) noexcept;
 
     /** 破棄する (保持リソースは固定長バッファのみのため特別な解放は不要)。 */
-    ~FWindowsCrashReporter() noexcept override = default;
+    ~CWindowsCrashReporter() noexcept override = default;
 
     /** コピー禁止 (プロセス共有 singleton として単独運用するため)。 */
-    FWindowsCrashReporter(const FWindowsCrashReporter&)            = delete;
+    CWindowsCrashReporter(const CWindowsCrashReporter&)            = delete;
 
     /** コピー代入も禁止。 */
-    FWindowsCrashReporter& operator=(const FWindowsCrashReporter&) = delete;
+    CWindowsCrashReporter& operator=(const CWindowsCrashReporter&) = delete;
 
     /** ムーブ禁止。 */
-    FWindowsCrashReporter(FWindowsCrashReporter&&)                 = delete;
+    CWindowsCrashReporter(CWindowsCrashReporter&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FWindowsCrashReporter& operator=(FWindowsCrashReporter&&)      = delete;
+    CWindowsCrashReporter& operator=(CWindowsCrashReporter&&)      = delete;
 
     /**
      * backend を初期化し、ダンプディレクトリを作成する。
@@ -237,8 +237,11 @@ private:
     bool        m_bInitialized = false;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FWindowsCrashReporter = CWindowsCrashReporter;
+
 /**
- * プロセス共有の既定 FWindowsCrashReporter singleton を返す (provider の実体)。
+ * プロセス共有の既定 CWindowsCrashReporter singleton を返す (provider の実体)。
  *
  * @details
  * 初回アクセス時に ACS 既定のプレースホルダ product id / version で Init() を 1 回走らせ、

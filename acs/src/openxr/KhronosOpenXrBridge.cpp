@@ -45,11 +45,11 @@ bool HasExtension(const char* name) noexcept {
 
 } // namespace
 
-FKhronosOpenXrBridge::~FKhronosOpenXrBridge() noexcept {
+CKhronosOpenXrBridge::~CKhronosOpenXrBridge() noexcept {
     Shutdown();
 }
 
-TResult<void> FKhronosOpenXrBridge::Init(game::EXrPlatform platform) noexcept {
+TResult<void> CKhronosOpenXrBridge::Init(game::EXrPlatform platform) noexcept {
     if (m_bInitialized) return Ok();
 
     u32 extension_count = 0;
@@ -88,11 +88,11 @@ TResult<void> FKhronosOpenXrBridge::Init(game::EXrPlatform platform) noexcept {
     m_Platform = platform;
     m_bInitialized = true;
     m_bPassthroughSupported = HasExtension("XR_FB_passthrough") || HasExtension("XR_HTC_passthrough");
-    ACS_LOG_INFO("FKhronosOpenXrBridge initialized (extensions=%u)", extension_count);
+    ACS_LOG_INFO("CKhronosOpenXrBridge initialized (extensions=%u)", extension_count);
     return Ok();
 }
 
-void FKhronosOpenXrBridge::Shutdown() noexcept {
+void CKhronosOpenXrBridge::Shutdown() noexcept {
     if (m_Instance) {
         xrDestroyInstance(reinterpret_cast<XrInstance>(m_Instance));
         m_Instance = nullptr;
@@ -108,7 +108,7 @@ void FKhronosOpenXrBridge::Shutdown() noexcept {
     m_bTickWarned = false;
 }
 
-void FKhronosOpenXrBridge::Tick(f32 dt) noexcept {
+void CKhronosOpenXrBridge::Tick(f32 dt) noexcept {
     (void)dt;
     // 正直化: 実セッションループ (xrCreateSession → xrWaitFrame / xrBeginFrame /
     // xrLocateViews / xrSyncActions / xrLocateSpace) は graphics binding (D3D12/Vulkan)
@@ -124,7 +124,7 @@ void FKhronosOpenXrBridge::Tick(f32 dt) noexcept {
     //   ・session loop 未実装である旨を一度だけ警告し、サイレントに偽ポーズを
     //     供給していた挙動を是正する。
     if (m_bInitialized && !m_bSessionTracking && !m_bTickWarned) {
-        ACS_LOG_WARN("FKhronosOpenXrBridge::Tick: OpenXR session loop is not implemented "
+        ACS_LOG_WARN("CKhronosOpenXrBridge::Tick: OpenXR session loop is not implemented "
                      "(graphics binding + HMD runtime required). HeadPose/Controller "
                      "report the not-tracking zero pose; query IsTracking() and use "
                      "the non-XR fallback path.");
@@ -135,7 +135,7 @@ void FKhronosOpenXrBridge::Tick(f32 dt) noexcept {
     m_Right = game::FXrControllerState{};
 }
 
-void FKhronosOpenXrBridge::SetPassthrough(bool b_on) noexcept {
+void CKhronosOpenXrBridge::SetPassthrough(bool b_on) noexcept {
     m_bPassthroughRequested = b_on && m_bPassthroughSupported;
 }
 

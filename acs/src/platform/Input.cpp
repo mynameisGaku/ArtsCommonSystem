@@ -164,7 +164,7 @@ void AppendTextUtf8(FInputState& s, u32 cp) noexcept {
 } // 無名名前空間
 
 // フレーム先頭で呼ぶ：状態をフレーム間で進める
-void FInput::Update() noexcept {
+void CInput::Update() noexcept {
     // キーボード / マウス: 現フレーム → 前フレームに移し替え
     for (usize i = 0; i < (usize)EKey::_Count; ++i)
         g_input.keys_prev[i] = g_input.keys_now[i];
@@ -205,7 +205,7 @@ void FInput::Update() noexcept {
 }
 
 // FWindow からの Event を Input 状態に反映
-void FInput::OnEvent(const FEvent& e) noexcept {
+void CInput::OnEvent(const FEvent& e) noexcept {
     switch (e.type) {
         case EEventType::KeyPressed:
         case EEventType::KeyRepeat:
@@ -248,27 +248,27 @@ void FInput::OnEvent(const FEvent& e) noexcept {
     }
 }
 
-bool FInput::IsKeyDown(EKey k) noexcept     { return g_input.keys_now[(usize)k]; }
-bool FInput::IsKeyPressed(EKey k) noexcept  { return g_input.keys_now[(usize)k] && !g_input.keys_prev[(usize)k]; }
-bool FInput::IsKeyReleased(EKey k) noexcept { return !g_input.keys_now[(usize)k] && g_input.keys_prev[(usize)k]; }
+bool CInput::IsKeyDown(EKey k) noexcept     { return g_input.keys_now[(usize)k]; }
+bool CInput::IsKeyPressed(EKey k) noexcept  { return g_input.keys_now[(usize)k] && !g_input.keys_prev[(usize)k]; }
+bool CInput::IsKeyReleased(EKey k) noexcept { return !g_input.keys_now[(usize)k] && g_input.keys_prev[(usize)k]; }
 
-bool FInput::IsMouseButtonDown(EMouseButton b) noexcept     { return g_input.mb_now[(usize)b]; }
-bool FInput::IsMouseButtonPressed(EMouseButton b) noexcept  { return g_input.mb_now[(usize)b] && !g_input.mb_prev[(usize)b]; }
-bool FInput::IsMouseButtonReleased(EMouseButton b) noexcept { return !g_input.mb_now[(usize)b] && g_input.mb_prev[(usize)b]; }
+bool CInput::IsMouseButtonDown(EMouseButton b) noexcept     { return g_input.mb_now[(usize)b]; }
+bool CInput::IsMouseButtonPressed(EMouseButton b) noexcept  { return g_input.mb_now[(usize)b] && !g_input.mb_prev[(usize)b]; }
+bool CInput::IsMouseButtonReleased(EMouseButton b) noexcept { return !g_input.mb_now[(usize)b] && g_input.mb_prev[(usize)b]; }
 
-FVec2 FInput::MousePos()   noexcept { return FVec2(g_input.mouse_x, g_input.mouse_y); }
-FVec2 FInput::MouseDelta() noexcept { return FVec2(g_input.mouse_x - g_input.mouse_x_prev,
+FVec2 CInput::MousePos()   noexcept { return FVec2(g_input.mouse_x, g_input.mouse_y); }
+FVec2 CInput::MouseDelta() noexcept { return FVec2(g_input.mouse_x - g_input.mouse_x_prev,
                                                  g_input.mouse_y - g_input.mouse_y_prev); }
-f32  FInput::MouseWheel() noexcept { return g_input.wheel_frame; }
+f32  CInput::MouseWheel() noexcept { return g_input.wheel_frame; }
 
-const char* FInput::TextInput() noexcept { return g_input.text_utf8; }
+const char* CInput::TextInput() noexcept { return g_input.text_utf8; }
 
-bool FInput::IsGamepadConnected(u32 idx) noexcept {
+bool CInput::IsGamepadConnected(u32 idx) noexcept {
     if (idx >= 4) return false;
     return g_input.pad_connected[idx];
 }
 
-bool FInput::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
+bool CInput::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
     const usize button_index = static_cast<usize>(b);
     if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
@@ -277,7 +277,7 @@ bool FInput::IsGamepadButtonDown(u32 idx, EGamepadButton b) noexcept {
     return (g_input.pad_now[idx].Gamepad.wButtons & bit) != 0;
 }
 
-bool FInput::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
+bool CInput::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return false;
     const usize button_index = static_cast<usize>(b);
     if (button_index >= static_cast<usize>(EGamepadButton::_Count)) return false;
@@ -288,7 +288,7 @@ bool FInput::IsGamepadButtonPressed(u32 idx, EGamepadButton b) noexcept {
     return now && !prev;
 }
 
-bool FInput::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
+bool CInput::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
 {
     if (idx >= 4) return false;
     const usize button_index = static_cast<usize>(b);
@@ -300,7 +300,7 @@ bool FInput::IsGamepadButtonReleased(u32 idx, EGamepadButton b) noexcept
     return !now && prev;
 }
 
-f32 FInput::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {
+f32 CInput::GamepadAxisValue(u32 idx, EGamepadAxis axis) noexcept {
     if (idx >= 4 || !g_input.pad_connected[idx]) return 0.0f;
     const auto& g = g_input.pad_now[idx].Gamepad;
     switch (axis) {

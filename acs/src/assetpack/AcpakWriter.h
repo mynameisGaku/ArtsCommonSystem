@@ -18,35 +18,35 @@ namespace acs::assetpack {
  * AddFile は実書き込みせず内部の pending list に仮想パスとデータをコピーし、
  * 実書き込みは Finalize 内で一気に行う。呼び出し側は AddFile 成功後に入力を
  * 直ちに再利用または解放できる。ツールビルド
- * (パッキングコマンド) から使う想定で、ランタイムは FAcpakReader だけで足りる。
+ * (パッキングコマンド) から使う想定で、ランタイムは CAcpakReader だけで足りる。
  * ハンドル + pending list を所有するため non-copy / non-move。
  */
-class FAcpakWriter {
+class CAcpakWriter {
 public:
     /** 空状態で構築する (出力は Open で開く)。 */
-    FAcpakWriter() noexcept;
+    CAcpakWriter() noexcept;
 
     /**
      * 指定 allocator で pending list を持つ空状態を構築する。
      *
      * @param Allocator pending list の確保に使う allocator。
      */
-    explicit FAcpakWriter(FAllocator& Allocator) noexcept;
+    explicit CAcpakWriter(FAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
-    ~FAcpakWriter() noexcept;
+    ~CAcpakWriter() noexcept;
 
     /** コピー禁止 (ハンドル + pending list を単独所有するため)。 */
-    FAcpakWriter(const FAcpakWriter&) = delete;
+    CAcpakWriter(const CAcpakWriter&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakWriter& operator=(const FAcpakWriter&) = delete;
+    CAcpakWriter& operator=(const CAcpakWriter&) = delete;
 
     /** ムーブ禁止 (固定アドレスでライフタイムを管理するため)。 */
-    FAcpakWriter(FAcpakWriter&&) = delete;
+    CAcpakWriter(CAcpakWriter&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakWriter& operator=(FAcpakWriter&&) = delete;
+    CAcpakWriter& operator=(CAcpakWriter&&) = delete;
 
     /**
      * 出力ファイルを開き、ヘッダのプレースホルダを書く (既存は上書き)。
@@ -167,5 +167,8 @@ private:
     /** 出力先と同じ directory に CREATE_NEW した一意な一時ファイル名。 */
     wchar_t m_TemporaryPath[kAcpakMaxOutputPathLength + 96u] = {};
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakWriter = CAcpakWriter;
 
 } // namespace acs::assetpack

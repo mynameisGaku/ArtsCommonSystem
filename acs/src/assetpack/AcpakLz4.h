@@ -68,10 +68,10 @@ inline constexpr u16 kAcpakSubLz4BadInput    = 1323;
  *
  * @details third_party 依存ゼロ。インスタンス化はできない (ctor delete)。
  */
-class FAcpakLz4 {
+class CAcpakLz4 {
 public:
     /** インスタンス化禁止 (全 API は static)。 */
-    FAcpakLz4() = delete;
+    CAcpakLz4() = delete;
 
     /**
      * 入力サイズから最悪ケースの圧縮出力サイズを算出する (LZ4 公式式)。
@@ -125,5 +125,8 @@ public:
                                   u8*       dst,
                                   u32       dst_capacity) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakLz4 = CAcpakLz4;
 
 } // namespace acs::assetpack

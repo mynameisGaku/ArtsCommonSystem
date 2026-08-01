@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ネットワークサブシステム初期化（WSAStartup ラッパ）
 //
-// 使い方: アプリ起動時に一度 FNetwork::Init() を呼ぶ。FApplication が
+// 使い方: アプリ起動時に一度 CNetwork::Init() を呼ぶ。FApplication が
 //         Audio/Network 系を自動初期化することは無いので、明示的に呼ぶこと。
 #pragma once
 
@@ -10,7 +10,7 @@
 
 namespace acs {
 
-/** FNetwork が所有する Winsock 資源の診断スナップショット。 */
+/** CNetwork が所有する Winsock 資源の診断スナップショット。 */
 struct FNetworkDiagnostics {
     /** 現在の Init 参照数。 */
     u32 initialization_reference_count = 0;
@@ -29,7 +29,7 @@ struct FNetworkDiagnostics {
  * 全メンバが static。多重 Init は内部の参照カウントで安全に扱い、最後の Shutdown で
  * 実際に WSACleanup を呼ぶ。FApplication は自動初期化しないので明示的に呼ぶこと。
  */
-class FNetwork {
+class CNetwork {
 public:
     /**
      * WinSock を初期化する (多重呼び出し可)。
@@ -58,5 +58,8 @@ public:
     /** 参照数・cleanup debt・資源解放失敗数を一貫した時点で取得する。 */
     static FNetworkDiagnostics CaptureDiagnostics() noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNetwork = CNetwork;
 
 } // namespace acs

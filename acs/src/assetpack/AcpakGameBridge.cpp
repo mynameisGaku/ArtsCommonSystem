@@ -65,48 +65,48 @@ TResult<const wchar_t*> ConvertUtf8ToWide(const char* Text, wchar_t* Out, u32 Ou
 
 } // namespace
 
-FAcpakGameReader::FAcpakGameReader() noexcept : FAcpakGameReader(DefaultAllocator())
+CAcpakGameReader::CAcpakGameReader() noexcept : CAcpakGameReader(DefaultAllocator())
 {
 }
 
-FAcpakGameReader::FAcpakGameReader(FAllocator& Allocator) noexcept
+CAcpakGameReader::CAcpakGameReader(FAllocator& Allocator) noexcept
     : m_Reader(Allocator), m_Utf8NamePool(Allocator), m_Utf8NameOffsets(Allocator)
 {
 }
 
-FAcpakGameReader::~FAcpakGameReader() noexcept
+CAcpakGameReader::~CAcpakGameReader() noexcept
 {
     Unmount();
 }
 
-TResult<void> FAcpakGameReader::BuildFileNamePool() noexcept
+TResult<void> CAcpakGameReader::BuildFileNamePool() noexcept
 {
     const u32 FileCount = m_Reader.FileCount();
     if (!m_Utf8NameOffsets.TryResize(FileCount)) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakGameReader: file name offset allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader: file name offset allocation failed");
     }
 
     usize TotalBytes = 0;
     for (u32 Index = 0; Index < FileCount; ++Index) {
         const FAcpakFileEntry* Entry = m_Reader.GetEntry(Index);
         if (Entry == nullptr) {
-            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakGameReader: entry disappeared while mounting");
+            return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakGameReader: entry disappeared while mounting");
         }
 
         const int Required = ::WideCharToMultiByte(CP_UTF8, 0, Entry->path, -1, nullptr, 0, nullptr, nullptr);
         if (Required <= 0) {
-            return ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "FAcpakGameReader: file name conversion failed");
+            return ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "CAcpakGameReader: file name conversion failed");
         }
         const usize RequiredBytes = static_cast<usize>(Required);
         if (RequiredBytes > kAcpakMaxUtf8NamePoolBytes - TotalBytes) {
-            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakGameReader: UTF-8 file name pool exceeds limit");
+            return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakGameReader: UTF-8 file name pool exceeds limit");
         }
         m_Utf8NameOffsets[Index] = TotalBytes;
         TotalBytes += RequiredBytes;
     }
 
     if (!m_Utf8NamePool.TryResize(TotalBytes)) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakGameReader: file name pool allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader: file name pool allocation failed");
     }
 
     for (u32 Index = 0; Index < FileCount; ++Index) {
@@ -114,26 +114,26 @@ TResult<void> FAcpakGameReader::BuildFileNamePool() noexcept
         char* Destination = m_Utf8NamePool.Data() + m_Utf8NameOffsets[Index];
         const usize AvailableBytes = TotalBytes - m_Utf8NameOffsets[Index];
         if (Entry == nullptr) {
-            return ACS_ERR(IO, kAcpakSubBadSize, "FAcpakGameReader: invalid file name pool layout");
+            return ACS_ERR(IO, kAcpakSubBadSize, "CAcpakGameReader: invalid file name pool layout");
         }
 
         const int Written = ::WideCharToMultiByte(CP_UTF8, 0, Entry->path, -1, Destination,
                                                   static_cast<int>(AvailableBytes), nullptr, nullptr);
         if (Written <= 0) {
-            return ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "FAcpakGameReader: file name conversion failed");
+            return ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "CAcpakGameReader: file name conversion failed");
         }
     }
 
     return Ok();
 }
 
-void FAcpakGameReader::ReleaseFileNamePool() noexcept
+void CAcpakGameReader::ReleaseFileNamePool() noexcept
 {
     m_Utf8NameOffsets.ReleaseStorage();
     m_Utf8NamePool.ReleaseStorage();
 }
 
-TResult<void> FAcpakGameReader::Mount(const char* PackPath) noexcept
+TResult<void> CAcpakGameReader::Mount(const char* PackPath) noexcept
 {
     FScopedExclusiveLock Lock(m_LifecycleLock);
     m_Reader.Close();
@@ -159,42 +159,42 @@ TResult<void> FAcpakGameReader::Mount(const char* PackPath) noexcept
     return Ok();
 }
 
-void FAcpakGameReader::Unmount() noexcept
+void CAcpakGameReader::Unmount() noexcept
 {
     FScopedExclusiveLock Lock(m_LifecycleLock);
     m_Reader.Close();
     ReleaseFileNamePool();
 }
 
-bool FAcpakGameReader::IsMounted() const noexcept
+bool CAcpakGameReader::IsMounted() const noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
     return m_Reader.IsOpen();
 }
 
-TResult<u32> FAcpakGameReader::FileCount() noexcept
+TResult<u32> CAcpakGameReader::FileCount() noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
     if (!m_Reader.IsOpen()) {
-        return TResult<u32>(ACS_ERR(IO, game::kSubAssetPackNotMounted, "FAcpakGameReader::FileCount before Mount"));
+        return TResult<u32>(ACS_ERR(IO, game::kSubAssetPackNotMounted, "CAcpakGameReader::FileCount before Mount"));
     }
     return TResult<u32>(OkInit, m_Reader.FileCount());
 }
 
-TResult<const char*> FAcpakGameReader::FileName(u32 Index) noexcept
+TResult<const char*> CAcpakGameReader::FileName(u32 Index) noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
     if (!m_Reader.IsOpen()) {
         return TResult<const char*>(
-            ACS_ERR(IO, game::kSubAssetPackNotMounted, "FAcpakGameReader::FileName before Mount"));
+            ACS_ERR(IO, game::kSubAssetPackNotMounted, "CAcpakGameReader::FileName before Mount"));
     }
     if (static_cast<usize>(Index) >= m_Utf8NameOffsets.Size()) {
-        return TResult<const char*>(ACS_ERR(IO, kAcpakSubNotFound, "FAcpakGameReader::FileName index not found"));
+        return TResult<const char*>(ACS_ERR(IO, kAcpakSubNotFound, "CAcpakGameReader::FileName index not found"));
     }
     return TResult<const char*>(OkInit, m_Utf8NamePool.Data() + m_Utf8NameOffsets[Index]);
 }
 
-TResult<u64> FAcpakGameReader::FileSize(const char* Name) noexcept
+TResult<u64> CAcpakGameReader::FileSize(const char* Name) noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
     wchar_t WideName[kPathCapacity] = {};
@@ -205,7 +205,7 @@ TResult<u64> FAcpakGameReader::FileSize(const char* Name) noexcept
     return m_Reader.GetUncompressedSize(ConvertedName.Value());
 }
 
-TResult<void> FAcpakGameReader::ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize) noexcept
+TResult<void> CAcpakGameReader::ReadFile(const char* Name, u8* OutBuffer, u64 BufferSize) noexcept
 {
     FScopedSharedLock Lock(m_LifecycleLock);
     wchar_t WideName[kPathCapacity] = {};
@@ -220,13 +220,13 @@ TResult<void> FAcpakGameReader::ReadFile(const char* Name, u8* OutBuffer, u64 Bu
     return Ok();
 }
 
-TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Requests, u32 Count, u32* CompletedCount) noexcept
+TResult<void> CAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Requests, u32 Count, u32* CompletedCount) noexcept
 {
     /** mount 状態と reader を一括処理中に保持する共有 lock。 */
     FScopedSharedLock Lock(m_LifecycleLock);
     if (CompletedCount != nullptr) *CompletedCount = 0u;
     if (Count > kAcpakReadBatchMaxEntries || (Count > 0u && Requests == nullptr)) {
-        return ACS_ERR(IO, game::kSubAssetPackInvalidBatch, "FAcpakGameReader::ReadFiles: invalid batch");
+        return ACS_ERR(IO, game::kSubAssetPackInvalidBatch, "CAcpakGameReader::ReadFiles: invalid batch");
     }
     if (Count == 0u) return Ok();
 
@@ -243,7 +243,7 @@ TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
     /** 各 path の末尾 NUL を含む UTF-16 要素数。 */
     TArray<u32> RequiredUnits(Allocator);
     if (!WideNames.TryResize(Count) || !OutBuffers.TryResize(Count) || !BufferSizes.TryResize(Count) || !RequiredUnits.TryResize(Count)) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakGameReader::ReadFiles: allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader::ReadFiles: allocation failed");
     }
 
     /** pool に必要な UTF-16 合計要素数。 */
@@ -261,7 +261,7 @@ TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
             break;
         }
         if (RequiredResult.Value() > kPathCapacity) {
-            DeferredError = ACS_ERR(IO, kSubAcpakBridgePathTooLong, "FAcpakGameReader::ReadFiles: path is too long");
+            DeferredError = ACS_ERR(IO, kSubAcpakBridgePathTooLong, "CAcpakGameReader::ReadFiles: path is too long");
             break;
         }
         RequiredUnits[Index] = RequiredResult.Value();
@@ -271,7 +271,7 @@ TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
         ++PreparedCount;
     }
     if (!WideNamePool.TryResize(PathUnits)) {
-        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "FAcpakGameReader::ReadFiles: path pool allocation failed");
+        return ACS_ERR(Memory, kAcpakSubOutOfMemory, "CAcpakGameReader::ReadFiles: path pool allocation failed");
     }
 
     /** 次の変換結果を書き込む pool offset。 */
@@ -285,7 +285,7 @@ TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
         /** 現在 path で実際に変換した要素数。 */
         const int Written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Requests[Index].Name, -1, WideName, static_cast<int>(RequiredUnits[Index]));
         if (Written != static_cast<int>(RequiredUnits[Index])) {
-            DeferredError = ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "FAcpakGameReader::ReadFiles: path conversion failed");
+            DeferredError = ACS_ERR(IO, kSubAcpakBridgeBadUtf8, "CAcpakGameReader::ReadFiles: path conversion failed");
             break;
         }
         WideNames[Index] = WideName;
@@ -306,7 +306,7 @@ TResult<void> FAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
     return Ok();
 }
 
-TResult<void> FAcpakGameWriter::BeginPack(const char* OutputPath) noexcept
+TResult<void> CAcpakGameWriter::BeginPack(const char* OutputPath) noexcept
 {
     wchar_t WidePath[kPathCapacity] = {};
     const auto ConvertedPath = ConvertUtf8ToWide(OutputPath, WidePath, kPathCapacity);
@@ -316,7 +316,7 @@ TResult<void> FAcpakGameWriter::BeginPack(const char* OutputPath) noexcept
     return m_Writer.Open(ConvertedPath.Value(), AcpakFlagNone);
 }
 
-TResult<void> FAcpakGameWriter::AddFile(const char* VirtualName, const u8* Data, u64 Size) noexcept
+TResult<void> CAcpakGameWriter::AddFile(const char* VirtualName, const u8* Data, u64 Size) noexcept
 {
     wchar_t WideName[kPathCapacity] = {};
     const auto ConvertedName = ConvertUtf8ToWide(VirtualName, WideName, kPathCapacity);
@@ -326,7 +326,7 @@ TResult<void> FAcpakGameWriter::AddFile(const char* VirtualName, const u8* Data,
     return m_Writer.AddFile(ConvertedName.Value(), Data, Size);
 }
 
-TResult<void> FAcpakGameWriter::FinishPack() noexcept
+TResult<void> CAcpakGameWriter::FinishPack() noexcept
 {
     const auto FinishResult = m_Writer.Finalize();
     m_Writer.Close();

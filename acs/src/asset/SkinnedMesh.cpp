@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSkinnedMeshAsset + FAnimationPlayer 実装
+// ASkinnedMeshAsset + CAnimationPlayer 実装
 #include "asset/SkinnedMesh.h"
 #include "math/Math.h"
 #include "foundation/Move.h"
@@ -73,7 +73,7 @@ void SampleChannel(const FAnimationChannel& ch, f32 t,
 } // namespace
 
 /** 各ボーンのバインドワールド行列を親から合成し、その逆行列を inverse_bind に格納する。 */
-void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
+void ASkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
     const u32 n = static_cast<u32>(m_Bones.Size());
     if (n == 0) return;
 
@@ -102,7 +102,7 @@ void FSkinnedMeshAsset::ComputeInverseBindMatrices() noexcept {
 }
 
 /** 指定アニメーションを先頭から再生開始する (mesh 未設定・範囲外は無視)。 */
-void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
+void CAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
     if (!m_Mesh) return;
     if (anim_index >= m_Mesh->Animations().Size()) return;
     m_Anim = static_cast<i32>(anim_index);
@@ -112,7 +112,7 @@ void FAnimationPlayer::Play(u32 anim_index, bool loop) noexcept {
 }
 
 /** 再生時刻を dt 進め、ループ時は wrap、非ループ時は終端でクランプして停止する。 */
-void FAnimationPlayer::Update(f32 dt) noexcept {
+void CAnimationPlayer::Update(f32 dt) noexcept {
     if (!m_Playing || !m_Mesh || m_Anim < 0) return;
     if (m_Anim >= static_cast<i32>(m_Mesh->Animations().Size())) return;
     const FAnimation& a = m_Mesh->Animations()[m_Anim];
@@ -132,7 +132,7 @@ void FAnimationPlayer::Update(f32 dt) noexcept {
 }
 
 /** 現在時刻の (world * inverse_bind) ボーンパレットを書き込み、書き込んだボーン数を返す。 */
-u32 FAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
+u32 CAnimationPlayer::WritePalette(FMat4* out_palette, u32 max_count) const noexcept {
     if (!m_Mesh || !out_palette) return 0;
     const TArray<FBone>& bones = m_Mesh->Bones();
     const u32 nb = static_cast<u32>(bones.Size());

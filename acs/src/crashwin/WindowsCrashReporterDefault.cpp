@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// WindowsCrashReporterDefault — FWindowsCrashReporter を gameframework の既定
+// WindowsCrashReporterDefault — CWindowsCrashReporter を gameframework の既定
 // CrashReporter provider へ結線する。
 //
 // gameframework は ACS::CrashWin に依存できない (循環依存) ため、結線は backend
@@ -9,17 +9,17 @@
 // DbgHelp backend を取得できる。
 //
 // provider が返す backend はプロセス共有 singleton。初回アクセス時に Init() を 1
-// 回走らせ、すぐ使える状態で返す。FWindowsCrashReporter::Init() は product id /
+// 回走らせ、すぐ使える状態で返す。CWindowsCrashReporter::Init() は product id /
 // version の non-empty を要求するため、ここでは ACS 既定のプレースホルダを渡す。
 // タイトル側はこの後 backend の API を直接叩く際に SetUserId 等で文脈を補える。
 #include "crashwin/WindowsCrashReporter.h"
 
 namespace acs::crashwin {
 
-/** プロセス共有の既定 FWindowsCrashReporter singleton を返す (provider の実体)。 */
+/** プロセス共有の既定 CWindowsCrashReporter singleton を返す (provider の実体)。 */
 acs::game::ICrashReporterBackend& GetDefaultWindowsCrashReporter() noexcept {
     // Meyers singleton。プロセス内 1 個の Windows backend を既定として共有する。
-    static FWindowsCrashReporter s_backend;
+    static CWindowsCrashReporter s_backend;
     // 実際の初期化状態を判定に使い、明示 Shutdown 後や失敗後も再取得で復帰させる。
     // Init() は product id / version の non-empty を要求するので既定値を渡す。
     if (!s_backend.IsAvailable()) {

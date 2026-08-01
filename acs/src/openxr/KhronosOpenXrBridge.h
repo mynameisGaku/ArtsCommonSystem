@@ -23,13 +23,13 @@ inline constexpr acs::u16 kSubOpenXrInitFailed         = 302;
  * (未トラッキングのゼロポーズ) を返し IsTracking() は常に false を返す。passthrough
  * 拡張 (XR_FB_passthrough / XR_HTC_passthrough) の有無のみ検出する。
  */
-class FKhronosOpenXrBridge final : public acs::game::IOpenXrBridge {
+class CKhronosOpenXrBridge final : public acs::game::IOpenXrBridge {
 public:
     /** 空状態で構築する (instance は Init で生成)。 */
-    FKhronosOpenXrBridge() noexcept = default;
+    CKhronosOpenXrBridge() noexcept = default;
 
     /** 破棄する (Shutdown を呼んで instance を解放)。 */
-    ~FKhronosOpenXrBridge() noexcept override;
+    ~CKhronosOpenXrBridge() noexcept override;
 
     /**
      * OpenXR instance を生成して backend を初期化する。
@@ -153,6 +153,9 @@ private:
     /** Tick() の「session loop 未実装」警告を一度だけ出すためのラッチ。 */
     bool m_bTickWarned = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FKhronosOpenXrBridge = CKhronosOpenXrBridge;
 
 /**
  * プロセス共有 singleton の実 Khronos bridge を返す。

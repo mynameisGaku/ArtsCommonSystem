@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// FileTelemetryDefault — FFileTelemetryBackendClient を gameframework の既定
+// FileTelemetryDefault — CFileTelemetryBackendClient を gameframework の既定
 // IBackendClient provider へ結線する
 // -----------------------------------------------------------------------------
 // gameframework は ACS::TelemetryFile に依存できない (循環依存) ため、結線は
@@ -22,7 +22,7 @@ namespace acs::telemetryfile {
 acs::game::IBackendClient& GetDefaultFileTelemetryBackendClient() noexcept {
     // Meyers singleton。プロセス内 1 個のファイルテレメトリ client を既定として
     // 共有する。Connect は呼び出し側が出力先を決めた時点で行う。
-    static FFileTelemetryBackendClient s_client;
+    static CFileTelemetryBackendClient s_client;
     return s_client;
 }
 

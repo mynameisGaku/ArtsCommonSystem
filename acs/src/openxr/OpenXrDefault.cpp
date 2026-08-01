@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// OpenXrDefault — FKhronosOpenXrBridge を gameframework の既定 provider へ結線する
+// OpenXrDefault — CKhronosOpenXrBridge を gameframework の既定 provider へ結線する
 // -----------------------------------------------------------------------------
 // gameframework は ACS::OpenXr に依存できない (循環依存) ため、結線は backend 側
 // (本 TU) から `acs::game::SetOpenXrBridgeProvider()` を呼んで行う。アプリは起動時
@@ -18,7 +18,7 @@ namespace acs::openxr {
 
 acs::game::IOpenXrBridge& GetDefaultKhronosOpenXrBridge() noexcept {
     // Meyers singleton。プロセス内 1 個の実 Khronos bridge を既定として共有する。
-    static FKhronosOpenXrBridge s_bridge;
+    static CKhronosOpenXrBridge s_bridge;
     // Init 成功状態そのものを判定に使う。別の所有者が Shutdown した後や、初回に
     // ランタイム未接続で失敗した後も、次の取得で正しく再試行できる。
     if (!s_bridge.IsInitialized()) {

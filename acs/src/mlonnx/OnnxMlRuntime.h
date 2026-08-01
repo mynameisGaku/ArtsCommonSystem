@@ -16,13 +16,13 @@ namespace acs::mlonnx {
  * (LoadModel / RunInference / UnloadModel)* → Shutdown() のライフタイムで、
  * シングルスレッドでのみ使う前提。
  */
-class FOnnxMlRuntime final : public acs::game::IMlRuntime {
+class COnnxMlRuntime final : public acs::game::IMlRuntime {
 public:
     /** pimpl (FImpl) を確保して構築する (Init は別途呼ぶ必要がある)。 */
-    FOnnxMlRuntime() noexcept;
+    COnnxMlRuntime() noexcept;
 
     /** Shutdown 後に pimpl を解放して破棄する。 */
-    ~FOnnxMlRuntime() noexcept override;
+    ~COnnxMlRuntime() noexcept override;
 
     /**
      * ONNX Runtime を初期化する (API 取得 / Env・SessionOptions・Allocator 作成)。
@@ -83,13 +83,16 @@ private:
     FImpl* m_Impl = nullptr;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FOnnxMlRuntime = COnnxMlRuntime;
+
 /**
- * プロセス共有の既定 FOnnxMlRuntime singleton への参照を返す。
+ * プロセス共有の既定 COnnxMlRuntime singleton への参照を返す。
  *
  * @details
  * SetMlRuntimeProvider に登録される provider の実体。static 単一インスタンス
  * (process lifetime) として本物の ONNX Runtime backend を返す。
- * @return 共有 FOnnxMlRuntime への参照 (IMlRuntime として)。
+ * @return 共有 COnnxMlRuntime への参照 (IMlRuntime として)。
  */
 acs::game::IMlRuntime& GetDefaultOnnxMlRuntime() noexcept;
 

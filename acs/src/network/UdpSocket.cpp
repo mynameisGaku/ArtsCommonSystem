@@ -58,7 +58,7 @@ FUdpSocket& FUdpSocket::operator=(FUdpSocket&& o) noexcept {
 
 /** 指定アドレス/ポートにバインドした UDP ソケットを生成する。 */
 TResult<FUdpSocket> FUdpSocket::Bind(FIpAddress addr, u16 port) noexcept {
-    if (!FNetwork::IsInitialized())
+    if (!CNetwork::IsInitialized())
         return ACS_ERR(IO, 230, "Network::Init() not called");
 
     const SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);

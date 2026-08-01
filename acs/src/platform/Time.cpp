@@ -33,36 +33,36 @@ const FTimeState& GetTimeState() noexcept { static FTimeState s; return s; }
 
 } // namespace
 
-f64 FClock::SecondsSinceStartup() noexcept {
+f64 CClock::SecondsSinceStartup() noexcept {
     using namespace std::chrono;
     auto dt = SteadyClock::now() - GetTimeState().start;
     return duration<f64>(dt).count();
 }
 
-u64 FClock::MillisSinceStartup() noexcept {
+u64 CClock::MillisSinceStartup() noexcept {
     using namespace std::chrono;
     auto dt = SteadyClock::now() - GetTimeState().start;
     return static_cast<u64>(duration_cast<milliseconds>(dt).count());
 }
 
-u64 FClock::Ticks() noexcept {
+u64 CClock::Ticks() noexcept {
     // 内部表現の生 tick (ナノ秒 or プラットフォーム依存)
     return static_cast<u64>(SteadyClock::now().time_since_epoch().count());
 }
 
-u64 FClock::TicksPerSecond() noexcept {
+u64 CClock::TicksPerSecond() noexcept {
     using Period = SteadyClock::period;   // ratio<num, den>
     // ticks/sec = den / num
     return static_cast<u64>(Period::den / Period::num);
 }
 
 FFrameTimer::FFrameTimer() noexcept {
-    m_LastTicks = FClock::Ticks();
+    m_LastTicks = CClock::Ticks();
 }
 
 f32 FFrameTimer::Tick() noexcept {
-    const u64 now = FClock::Ticks();
-    const u64 freq = FClock::TicksPerSecond();
+    const u64 now = CClock::Ticks();
+    const u64 freq = CClock::TicksPerSecond();
     f32 dt = static_cast<f32>(static_cast<f64>(now - m_LastTicks) / static_cast<f64>(freq));
     m_LastTicks = now;
 

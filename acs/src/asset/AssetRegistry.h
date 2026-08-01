@@ -36,29 +36,29 @@ inline constexpr u16 kAssetRegistrySubShuttingDown      = 13u;
  * FAssetId をキーに TSharedPtr でキャッシュされ、同じパスの再ロードは同一インスタンスを返す。
  * FMutex でガードされ、非同期ワーカーからのキャッシュ挿入も安全。non-copy 型。
  */
-class FAssetRegistry {
+class CAssetRegistry {
 public:
     /** 空のレジストリを構築する (ローダ未登録)。 */
-    FAssetRegistry() noexcept = default;
+    CAssetRegistry() noexcept = default;
 
     /**
      * 指定アロケータを使う空のレジストリを構築する。
      *
      * @param allocator キャッシュ・ローダ配列のストレージ確保元。
      */
-    explicit FAssetRegistry(FAllocator& allocator) noexcept
+    explicit CAssetRegistry(FAllocator& allocator) noexcept
         : m_Cache(allocator), m_InFlight(allocator), m_Loaders(allocator), m_PathInterner(allocator)
     {
     }
 
     /** 実行中の同期・非同期ロードを待ってからキャッシュを解放する。 */
-    ~FAssetRegistry() noexcept;
+    ~CAssetRegistry() noexcept;
 
     /** コピー禁止 (FMutex とキャッシュを単独保持するため)。 */
-    FAssetRegistry(const FAssetRegistry&) = delete;
+    CAssetRegistry(const CAssetRegistry&) = delete;
 
     /** コピー代入も禁止。 */
-    FAssetRegistry& operator=(const FAssetRegistry&) = delete;
+    CAssetRegistry& operator=(const CAssetRegistry&) = delete;
 
     /**
      * ローダを登録する。
@@ -85,7 +85,7 @@ public:
      * @param path ロードするファイルのパス。
      * @return 成功ならアセット、失敗 (null path / ローダ無し / 読み込み失敗) ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> Load(const wchar_t* path) noexcept;
+    TResult<TSharedPtr<AAsset>> Load(const wchar_t* path) noexcept;
 
     /**
      * パスからアセットを非同期ロードする。
@@ -122,7 +122,7 @@ public:
      * @param id 探すアセット ID。
      * @return キャッシュにあればアセット、無ければ空の TSharedPtr。
      */
-    TSharedPtr<FAsset> Find(FAssetId id) noexcept;
+    TSharedPtr<AAsset> Find(FAssetId id) noexcept;
 
     /**
      * 指定アセットをキャッシュから外す (ファイル変更時の再読み込み用)。
@@ -140,7 +140,7 @@ public:
      * @param id 挿入するアセット ID。
      * @param a 挿入するアセット。
      */
-    TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<FAsset> a) noexcept;
+    TResult<void> AsyncCacheInsert(FAssetId id, TSharedPtr<AAsset> a) noexcept;
 
     /** 完了した非同期要求を処理中テーブルから外す。 */
     void AsyncLoadFinished(FAssetId id) noexcept;
@@ -158,7 +158,7 @@ private:
     mutable FMutex                  m_Lock;
 
     /** ID をキーにしたアセットキャッシュ。 */
-    THashMap<FAssetId, TSharedPtr<FAsset>>    m_Cache;
+    THashMap<FAssetId, TSharedPtr<AAsset>>    m_Cache;
 
     /**
      * 同一 ID の未完了ロードが共有する状態。
@@ -172,7 +172,7 @@ private:
     TArray<IAssetLoader*>           m_Loaders;
 
     /** 非同期ジョブと再要求で共有する有界パス所有プール。 */
-    FAssetPathInterner m_PathInterner;
+    CAssetPathInterner m_PathInterner;
 
     /** 有効な非同期要求数。 */
     u64 m_AsyncRequestCount = 0u;
@@ -198,5 +198,8 @@ private:
     /** ロック外でレジストリまたは登録ローダを参照しているロード処理数。 */
     FCompletionCounter m_ActiveOperations;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetRegistry = CAssetRegistry;
 
 } // namespace acs

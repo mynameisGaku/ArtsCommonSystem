@@ -9,7 +9,7 @@
 
 namespace acs {
 
-TResult<TSharedPtr<FAsset>> FImageAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
+TResult<TSharedPtr<AAsset>> CImageAssetLoader::LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept {
     int w = 0, h = 0, channels = 0;
     // HDR ファイル（.hdr など）は float ピクセル、それ以外は 8-bit に統一
     const bool is_hdr = ::stbi_is_hdr_from_memory(reinterpret_cast<const stbi_uc*>(bytes.Data()),
@@ -28,11 +28,11 @@ TResult<TSharedPtr<FAsset>> FImageAssetLoader::LoadFromBytes(FAssetId id, const 
         MemCopy(pixels.Data(), px, byte_count);
         ::stbi_image_free(px);
 
-        TSharedPtr<FImageAsset> a = MakeShared<FImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
+        TSharedPtr<AImageAsset> a = MakeShared<AImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
                                                EPixelFormat::R32G32B32A32_F, Move(pixels));
         a->SetId(id);
         a->SetState(EAssetState::Ready);
-        return TResult<TSharedPtr<FAsset>>(OkInit, TSharedPtr<FAsset>(Move(a)));
+        return TResult<TSharedPtr<AAsset>>(OkInit, TSharedPtr<AAsset>(Move(a)));
     }
 
     // LDR: 8-bit RGBA に強制
@@ -47,11 +47,11 @@ TResult<TSharedPtr<FAsset>> FImageAssetLoader::LoadFromBytes(FAssetId id, const 
     MemCopy(pixels.Data(), px, byte_count);
     ::stbi_image_free(px);
 
-    TSharedPtr<FImageAsset> a = MakeShared<FImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
+    TSharedPtr<AImageAsset> a = MakeShared<AImageAsset>(static_cast<u32>(w), static_cast<u32>(h),
                                            EPixelFormat::R8G8B8A8, Move(pixels));
     a->SetId(id);
     a->SetState(EAssetState::Ready);
-    return TResult<TSharedPtr<FAsset>>(OkInit, TSharedPtr<FAsset>(Move(a)));
+    return TResult<TSharedPtr<AAsset>>(OkInit, TSharedPtr<AAsset>(Move(a)));
 }
 
 } // namespace acs

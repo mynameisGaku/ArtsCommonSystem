@@ -30,19 +30,19 @@ inline constexpr u16 kAssetPathInternerSubOutOfMemory = 16u;
  *
  * @details 未使用要素だけを追い出し、使用中パスのアドレスと寿命を維持する。
  */
-class FAssetPathInterner {
+class CAssetPathInterner {
 public:
     /** デフォルトアロケータで空のプールを構築する。 */
-    FAssetPathInterner() noexcept;
+    CAssetPathInterner() noexcept;
 
     /** 指定アロケータで空のプールを構築する。 */
-    explicit FAssetPathInterner(FAllocator& Allocator) noexcept;
+    explicit CAssetPathInterner(FAllocator& Allocator) noexcept;
 
     /** コピーを禁止する。 */
-    FAssetPathInterner(const FAssetPathInterner&) = delete;
+    CAssetPathInterner(const CAssetPathInterner&) = delete;
 
     /** コピー代入を禁止する。 */
-    FAssetPathInterner& operator=(const FAssetPathInterner&) = delete;
+    CAssetPathInterner& operator=(const CAssetPathInterner&) = delete;
 
     /**
      * 検証済みパスを共有する。
@@ -75,5 +75,8 @@ private:
     /** 累積診断値。 */
     FAssetPathInternerDiagnostics m_Diagnostics{};
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAssetPathInterner = CAssetPathInterner;
 
 } // namespace acs

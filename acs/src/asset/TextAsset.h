@@ -17,19 +17,19 @@ namespace acs {
  *
  * @details 内部バッファは末尾に NUL を含み、CStr() で NUL 終端文字列として参照できる。
  */
-class FTextAsset : public FAsset {
+class ATextAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FTextAsset")
 
     /** 空のテキストアセットを構築する。 */
-    FTextAsset() noexcept = default;
+    ATextAsset() noexcept = default;
 
     /**
      * 文字列バッファを所有してテキストアセットを構築する。
      *
      * @param text 末尾に NUL を含む文字列バッファ (ムーブで所有を奪う)。
      */
-    explicit FTextAsset(TArray<char>&& text) noexcept : m_Text(Move(text)) {}
+    explicit ATextAsset(TArray<char>&& text) noexcept : m_Text(Move(text)) {}
 
     /**
      * NUL 終端された文字列ポインタを返す。
@@ -57,15 +57,18 @@ private:
     TArray<char> m_Text;
 };
 
-/** 任意のテキストファイルを FTextAsset に読み込むローダ。 */
-class FTextAssetLoader final : public IAssetLoader {
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTextAsset = ATextAsset;
+
+/** 任意のテキストファイルを ATextAsset に読み込むローダ。 */
+class CTextAssetLoader final : public IAssetLoader {
 public:
     /**
      * 生成するアセット型 ID を返す。
      *
-     * @return FTextAsset の型 ID。
+     * @return ATextAsset の型 ID。
      */
-    AssetType   TypeId()    const noexcept override { return FTextAsset::StaticType(); }
+    AssetType   TypeId()    const noexcept override { return ATextAsset::StaticType(); }
 
     /**
      * 担当する主要拡張子を返す。
@@ -75,13 +78,16 @@ public:
     const char* Extension() const noexcept override { return "txt"; }
 
     /**
-     * バイト列を NUL 終端文字列としてコピーし FTextAsset を生成する。
+     * バイト列を NUL 終端文字列としてコピーし ATextAsset を生成する。
      *
      * @param id 生成アセットに割り当てる ID。
      * @param bytes テキストファイル全体のバイト列。
-     * @return 成功なら FTextAsset、失敗ならエラー。
+     * @return 成功なら ATextAsset、失敗ならエラー。
      */
-    TResult<TSharedPtr<FAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
+    TResult<TSharedPtr<AAsset>> LoadFromBytes(FAssetId id, const TArray<byte>& bytes) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTextAssetLoader = CTextAssetLoader;
 
 } // namespace acs

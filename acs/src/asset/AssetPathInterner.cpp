@@ -16,18 +16,18 @@ FAssetId MakeInternedAssetPathId(const wchar_t* Path, usize Length) noexcept
 
 } // namespace
 
-FAssetPathInterner::FAssetPathInterner() noexcept : FAssetPathInterner(DefaultAllocator())
+CAssetPathInterner::CAssetPathInterner() noexcept : CAssetPathInterner(DefaultAllocator())
 {
 }
 
-FAssetPathInterner::FAssetPathInterner(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Paths(Allocator)
+CAssetPathInterner::CAssetPathInterner(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Paths(Allocator)
 {
 }
 
-TResult<TSharedPtr<FInternedAssetPath>> FAssetPathInterner::Intern(const wchar_t* Path, usize Length) noexcept
+TResult<TSharedPtr<FInternedAssetPath>> CAssetPathInterner::Intern(const wchar_t* Path, usize Length) noexcept
 {
     if (Path == nullptr || Length == 0u) {
-        return ACS_ERR(Asset, kAssetPathInternerSubInvalidPath, "FAssetPathInterner::Intern: invalid path");
+        return ACS_ERR(Asset, kAssetPathInternerSubInvalidPath, "CAssetPathInterner::Intern: invalid path");
     }
 
     /** path の完全一致候補を探す識別値。 */
@@ -40,7 +40,7 @@ TResult<TSharedPtr<FInternedAssetPath>> FAssetPathInterner::Intern(const wchar_t
     const TSharedPtr<FInternedAssetPath>* Existing = m_Paths.Find(Id);
     if (Existing != nullptr && Existing->Get() != nullptr) {
         if (!(*Existing)->Equals(Path, Length)) {
-            return ACS_ERR(Asset, kAssetPathInternerSubHashCollision, "FAssetPathInterner::Intern: path hash collision");
+            return ACS_ERR(Asset, kAssetPathInternerSubHashCollision, "CAssetPathInterner::Intern: path hash collision");
         }
         ++m_Diagnostics.hit_count;
         return TResult<TSharedPtr<FInternedAssetPath>>(OkInit, *Existing);
@@ -50,7 +50,7 @@ TResult<TSharedPtr<FInternedAssetPath>> FAssetPathInterner::Intern(const wchar_t
     /** 呼び出し元へ返す新規 intern path。 */
     TSharedPtr<FInternedAssetPath> Created = MakeSharedIn<FInternedAssetPath>(*m_Allocator, *m_Allocator, Id);
     if (!Created.Get() || !Created->TryInitialize(Path, Length)) {
-        return ACS_ERR(Memory, kAssetPathInternerSubOutOfMemory, "FAssetPathInterner::Intern: allocation failed");
+        return ACS_ERR(Memory, kAssetPathInternerSubOutOfMemory, "CAssetPathInterner::Intern: allocation failed");
     }
 
     /** 末尾 NUL を含む保持 code unit 数。 */
@@ -68,21 +68,21 @@ TResult<TSharedPtr<FInternedAssetPath>> FAssetPathInterner::Intern(const wchar_t
     }
 
     if (!m_Paths.TryInsert(Id, Created)) {
-        return ACS_ERR(Memory, kAssetPathInternerSubOutOfMemory, "FAssetPathInterner::Intern: table allocation failed");
+        return ACS_ERR(Memory, kAssetPathInternerSubOutOfMemory, "CAssetPathInterner::Intern: table allocation failed");
     }
     ++m_Diagnostics.retained_path_count;
     m_Diagnostics.retained_code_units += RequiredCodeUnits;
     return TResult<TSharedPtr<FInternedAssetPath>>(OkInit, Move(Created));
 }
 
-FAssetPathInternerDiagnostics FAssetPathInterner::Diagnostics() const noexcept
+FAssetPathInternerDiagnostics CAssetPathInterner::Diagnostics() const noexcept
 {
     /** 診断値の一貫した snapshot を守る lock。 */
     FScopedLock Lock(m_Lock);
     return m_Diagnostics;
 }
 
-void FAssetPathInterner::Reset() noexcept
+void CAssetPathInterner::Reset() noexcept
 {
     /** table と診断値の同時初期化を守る lock。 */
     FScopedLock Lock(m_Lock);
@@ -90,7 +90,7 @@ void FAssetPathInterner::Reset() noexcept
     m_Diagnostics = {};
 }
 
-void FAssetPathInterner::EvictUnusedUntilFit(usize RequiredCodeUnits) noexcept
+void CAssetPathInterner::EvictUnusedUntilFit(usize RequiredCodeUnits) noexcept
 {
     while (!m_Paths.IsEmpty() && (m_Paths.Size() >= kAssetPathInternerMaxEntries || RequiredCodeUnits > kAssetPathInternerMaxCodeUnits || m_Diagnostics.retained_code_units > kAssetPathInternerMaxCodeUnits - RequiredCodeUnits)) {
         /** 今回 table から外す未参照 path の識別値。 */

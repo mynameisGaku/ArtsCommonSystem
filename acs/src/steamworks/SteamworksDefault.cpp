@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// SteamworksDefault — FSteamworksBridgeImpl を gameframework の既定 Bridge
+// SteamworksDefault — CSteamworksBridgeImpl を gameframework の既定 Bridge
 // provider へ結線する
 // -----------------------------------------------------------------------------
 // gameframework は ACS::Steamworks に依存できない (循環依存) ため、結線は backend
@@ -19,7 +19,7 @@ namespace acs::steamworks {
 
 acs::game::ISteamworksBridge& GetDefaultSteamworksBridge() noexcept {
     // Meyers singleton。プロセス内 1 個の実 Bridge を既定として共有する。
-    static FSteamworksBridgeImpl s_bridge;
+    static CSteamworksBridgeImpl s_bridge;
     // 実際の初期化状態を判定に使い、明示 Shutdown 後や Steam client 未起動による
     // 失敗後も、次の取得で Init を再試行できるようにする。
     if (!s_bridge.IsInitialized()) {

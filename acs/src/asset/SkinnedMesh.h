@@ -2,13 +2,13 @@
 // スキンメッシュ（ボーン + アニメーション）
 //
 // 構成:
-//   FSkinnedMeshAsset = 頂点（位置+法線+UV+ボーン indices/weights）
+//   ASkinnedMeshAsset = 頂点（位置+法線+UV+ボーン indices/weights）
 //                    + インデックス
 //                    + ボーン階層
 //                    + アニメーション群
 //
 // ランタイム:
-//   FAnimationPlayer がアニメーションをスキャンして
+//   CAnimationPlayer がアニメーションをスキャンして
 //   GPU 用ボーンパレット (FMat4×N) を毎フレーム計算する。
 //
 // MVP では glTF パースは省略し、ランタイムでプログラム的に
@@ -118,12 +118,12 @@ struct FAnimation {
  *
  * @details MVP ではファイルからのパースは行わず、ランタイムでプログラム的にデータを構築して使う。
  */
-class FSkinnedMeshAsset : public FAsset {
+class ASkinnedMeshAsset : public AAsset {
 public:
     ACS_ASSET_TYPE("FSkinnedMeshAsset")
 
     /** 空のスキンメッシュアセットを構築する。 */
-    FSkinnedMeshAsset() noexcept = default;
+    ASkinnedMeshAsset() noexcept = default;
 
     /**
      * 頂点配列への可変参照を返す。
@@ -203,6 +203,9 @@ private:
     TArray<FAnimation>     m_Animations;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FSkinnedMeshAsset = ASkinnedMeshAsset;
+
 /**
  * アニメーションを再生し、GPU 用ボーンパレットを計算するプレイヤ。
  *
@@ -210,17 +213,17 @@ private:
  * SetMesh でスキンメッシュを設定し Play でクリップを選択、Update で時刻を進め、
  * WritePalette で現在時刻の (world * inverse_bind) パレットを書き出す。
  */
-class FAnimationPlayer {
+class CAnimationPlayer {
 public:
     /** 空のアニメーションプレイヤを構築する。 */
-    FAnimationPlayer() noexcept = default;
+    CAnimationPlayer() noexcept = default;
 
     /**
      * 対象スキンメッシュを設定し再生状態をリセットする。
      *
      * @param mesh 参照するスキンメッシュ (所有はしない)。
      */
-    void SetMesh(const FSkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
+    void SetMesh(const ASkinnedMeshAsset* mesh) noexcept { m_Mesh = mesh; m_Anim = -1; m_Time = 0; }
 
     /**
      * 指定インデックスのアニメーションを先頭から再生する。
@@ -283,7 +286,7 @@ public:
 
 private:
     /** 参照中のスキンメッシュ (所有しない)。 */
-    const FSkinnedMeshAsset* m_Mesh    = nullptr;
+    const ASkinnedMeshAsset* m_Mesh    = nullptr;
 
     /** 再生中アニメーションの index (-1 なら T ポーズ)。 */
     i32                     m_Anim    = -1;
@@ -297,5 +300,8 @@ private:
     /** 再生中フラグ。 */
     bool                    m_Playing = false;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAnimationPlayer = CAnimationPlayer;
 
 } // namespace acs

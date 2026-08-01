@@ -24,32 +24,32 @@ namespace acs::assetpack {
  * 所有するため non-copy / non-move で、固定アドレスでライフタイムを管理する。
  * GameFramework の IAssetPackReader とは独立に動作する。
  */
-class FAcpakReader {
+class CAcpakReader {
 public:
     /** 空状態で構築する (ファイルは Open で開く)。 */
-    FAcpakReader() noexcept;
+    CAcpakReader() noexcept;
 
     /**
      * 指定 allocator で file table と文字列 pool を持つ空状態を構築する。
      *
      * @param Allocator 内部配列の確保に使う allocator。
      */
-    explicit FAcpakReader(FAllocator& Allocator) noexcept;
+    explicit CAcpakReader(FAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
-    ~FAcpakReader() noexcept;
+    ~CAcpakReader() noexcept;
 
     /** コピー禁止 (ハンドル + pool を単独所有するため)。 */
-    FAcpakReader(const FAcpakReader&) = delete;
+    CAcpakReader(const CAcpakReader&) = delete;
 
     /** コピー代入も禁止。 */
-    FAcpakReader& operator=(const FAcpakReader&) = delete;
+    CAcpakReader& operator=(const CAcpakReader&) = delete;
 
     /** ムーブ禁止 (entry.path が内部 pool を指すため)。 */
-    FAcpakReader(FAcpakReader&&) = delete;
+    CAcpakReader(CAcpakReader&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FAcpakReader& operator=(FAcpakReader&&) = delete;
+    CAcpakReader& operator=(CAcpakReader&&) = delete;
 
     /**
      * `.acpak` ファイルを開き、header と file table を読み出す。
@@ -270,5 +270,8 @@ private:
     /** correctness から独立した累積診断値。 */
     FReadDiagnosticCounters m_ReadDiagnosticCounters;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAcpakReader = CAcpakReader;
 
 } // namespace acs::assetpack

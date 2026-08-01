@@ -3,12 +3,12 @@
 //
 // 使い方:
 //   while (!w.ShouldClose()) {
-//       FInput::Update();           // フレーム先頭で呼ぶ
+//       CInput::Update();           // フレーム先頭で呼ぶ
 //       w.PollEvents();
 //
-//       if (FInput::IsKeyDown(EKey::Space)) Jump();
-//       if (FInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
-//       FVec2 m = FInput::MousePos();
+//       if (CInput::IsKeyDown(EKey::Space)) Jump();
+//       if (CInput::IsMouseButtonPressed(EMouseButton::Left)) Shoot();
+//       FVec2 m = CInput::MousePos();
 //   }
 //
 // ・「Down」 = 現在押されている
@@ -31,7 +31,7 @@ namespace acs {
  * 前フレームを進め、FWindow からのイベントを OnEvent でこの状態へ反映する。「Down」=現在
  * 押下中、「Pressed」=このフレームで押下開始、「Released」=このフレームで離した、を表す。
  */
-class FInput {
+class CInput {
 public:
     /**
      * フレーム先頭で 1 回呼び、入力状態をフレーム間で進める。
@@ -172,5 +172,8 @@ public:
      */
     static f32  GamepadAxisValue(u32 player_index, EGamepadAxis axis) noexcept;
 };
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FInput = CInput;
 
 } // namespace acs

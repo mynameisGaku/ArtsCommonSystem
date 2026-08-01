@@ -46,7 +46,7 @@ FTcpListener& FTcpListener::operator=(FTcpListener&& o) noexcept {
 
 /** 指定アドレス/ポートで socket→bind→listen を実行し、待ち受け中のリスナーを返す。 */
 TResult<FTcpListener> FTcpListener::Listen(FIpAddress addr, u16 port, u32 backlog) noexcept {
-    if (!FNetwork::IsInitialized())
+    if (!CNetwork::IsInitialized())
         return ACS_ERR(IO, 220, "Network::Init() not called");
 
     const SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
