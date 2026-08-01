@@ -20,7 +20,7 @@ class TTypedPoolAllocator;
  * 利用者領域へ公開済みのノードを並行して読まない。パーティクル・ノード・コンポーネント等の
  * 大量確保/解放に向く。
  */
-class FPoolAllocator final : public FAllocator {
+class CPoolAllocator final : public IAllocator {
 public:
     /**
      * 固定サイズブロックのプールを構築し、ストレージを 1 回確保する。
@@ -34,16 +34,16 @@ public:
      * @param Alignment 各ブロックのアライメント (既定 kDefaultAlignment)。
      * @param BackingAllocator ストレージの確保元 (nullptr なら DefaultAllocator)。
      */
-    FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment, FAllocator* BackingAllocator = nullptr) noexcept;
+    CPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment = kDefaultAlignment, IAllocator* BackingAllocator = nullptr) noexcept;
 
     /** ストレージを backing に返して破棄する。 */
-    ~FPoolAllocator() noexcept override;
+    ~CPoolAllocator() noexcept override;
 
     /** コピー禁止 (ストレージを単独所有するため)。 */
-    FPoolAllocator(const FPoolAllocator&) = delete;
+    CPoolAllocator(const CPoolAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FPoolAllocator& operator=(const FPoolAllocator&) = delete;
+    CPoolAllocator& operator=(const CPoolAllocator&) = delete;
 
     /**
      * フリーリストから 1 ブロックを取り出して返す。
@@ -202,7 +202,7 @@ private:
     u64 m_Alignment = 0;
 
     /** ストレージの確保元アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** 現在使用中のブロック数 (統計用)。 */
     TAtomic<u64> m_Live{0};
@@ -216,5 +216,8 @@ private:
     /** フリーリストと所有状態を一体で保護する。 */
     mutable FMutex m_Lock;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FPoolAllocator = CPoolAllocator;
 
 } // namespace acs

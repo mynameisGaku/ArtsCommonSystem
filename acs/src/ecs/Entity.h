@@ -10,19 +10,19 @@ namespace acs {
  * エンティティ識別子 (世代付きハンドル、POD でコピー・比較可)。
  *
  * @details
- * index は FWorld 内のスロット番号、generation は世代番号。スロットが Destroy →
+ * index は CWorld 内のスロット番号、generation は世代番号。スロットが Destroy →
  * 再利用されるたびに generation が +1 されるため、解放済みスロットを指す古い
  * FEntityId は世代不一致として検出でき、dangling 参照を防げる。
  */
 struct FEntityId {
-    /** FWorld 内のスロット番号 (0xFFFFFFFF は無効を表す)。 */
+    /** CWorld 内のスロット番号 (0xFFFFFFFF は無効を表す)。 */
     u32 index      = 0xFFFFFFFFu;
 
     /** 世代番号 (Destroy → 再利用のたびに +1)。 */
     u32 generation = 0;
 
     /**
-     * index が有効値かを返す (世代の生存判定は FWorld::IsAlive で行う)。
+     * index が有効値かを返す (世代の生存判定は CWorld::IsAlive で行う)。
      *
      * @return index が番兵 0xFFFFFFFF でなければ true。
      */

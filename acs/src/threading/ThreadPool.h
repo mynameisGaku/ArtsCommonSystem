@@ -103,7 +103,7 @@ struct FTask {
  * 外部投入キューの drain → 他ワーカーからの steal → 短時間 park の順に動く。Wait は
  * 待機中もスティーリングに参加するため、ワーカースレッドからの呼び出しでもデッドロックしない。
  */
-class FThreadPool {
+class CThreadPool {
 public:
     /**
      * プールを初期化し、ワーカースレッドを起動する。
@@ -189,7 +189,7 @@ public:
         /** callable の所有情報を保持するノード。 */
         FCallableTaskStorage* const storage = AcquireCallableTaskStorage();
         if (!storage) {
-            return ACS_ERR(Threading, 9, "FThreadPool callable storage is unavailable");
+            return ACS_ERR(Threading, 9, "CThreadPool callable storage is unavailable");
         }
 
         if constexpr (sizeof(StoredCallable) <= kInlineCallableBytes && alignof(StoredCallable) <= alignof(std::max_align_t)) {
@@ -203,7 +203,7 @@ public:
             auto* const object = new (std::nothrow) StoredCallable(Forward<Callable>(callable));
             if (!object) {
                 AbandonCallableTaskStorage(storage);
-                return ACS_ERR(Memory, 10, "FThreadPool callable allocation failed");
+                return ACS_ERR(Memory, 10, "CThreadPool callable allocation failed");
             }
             storage->object = object;
             storage->destroy = &DestroyHeapCallable<StoredCallable>;
@@ -297,5 +297,8 @@ private:
         delete static_cast<Callable*>(object);
     }
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FThreadPool = CThreadPool;
 
 } // namespace acs

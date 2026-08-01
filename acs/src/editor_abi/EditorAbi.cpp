@@ -763,7 +763,7 @@ struct FEditorHost {
     // swapchain. Only the explicitly bound presenter may drive that surface;
     // all other requests retain independent identity/extent/generation state
     // for the future async offscreen scheduler.
-    editor_camera_view::FRegistry camera_view_requests;
+    editor_camera_view::CRegistry camera_view_requests;
     u64 camera_view_frame_serial = 0u;
     u64 last_render_camera_view_request_id = 0u;
     u32 last_render_camera_view_history_generation = 0u;

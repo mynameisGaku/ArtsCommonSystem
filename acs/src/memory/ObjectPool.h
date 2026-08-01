@@ -73,7 +73,7 @@ public:
     static constexpr u32 kChunkSize = 256u;
 
     /** 確保元アロケータを指定して空のプールを作る。 */
-    explicit TObjectPool(FAllocator& Allocator = DefaultAllocator()) noexcept
+    explicit TObjectPool(IAllocator& Allocator = DefaultAllocator()) noexcept
         : m_Alloc(&Allocator), m_Chunks(Allocator), m_Free(Allocator), m_Live(Allocator)
     {
     }
@@ -308,7 +308,7 @@ private:
         m_Chunks.Clear();
     }
 
-    FAllocator* m_Alloc;
+    IAllocator* m_Alloc;
     TArray<FChunk*> m_Chunks;  /**< チャンク (各 kChunkSize スロット)。ポインタは固定。 */
     TArray<u32> m_Free;       /**< 再利用可能なスロット番号。 */
     TArray<u32> m_Live;       /**< 生存スロット番号の密な配列 (反復用)。 */

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FRelocatableAllocator 実装
+// ACS Memory — CRelocatableAllocator 実装
 // =============================================================================
 #include "memory/RelocatableAllocator.h"
-#include "memory/Allocator.h"   // FAllocator / AlignUp / IsPow2
+#include "memory/Allocator.h"   // IAllocator / AlignUp / IsPow2
 #include "memory/Memory.h"      // DefaultAllocator / MemMove
 #include "foundation/Assert.h"
 
@@ -30,37 +30,37 @@ bool TryCalculateAlignedOffset(const u8* Base, usize Cursor, usize Alignment,
 }
 }
 
-FRelocatableAllocator::~FRelocatableAllocator() noexcept { Shutdown(); }
+CRelocatableAllocator::~CRelocatableAllocator() noexcept { Shutdown(); }
 
-TResult<void> FRelocatableAllocator::Init(usize capacity_bytes, u32 max_handles,
-                                          FAllocator* backing) noexcept {
-    if (m_Base) return ACS_ERR(Memory, 60, "FRelocatableAllocator: already initialized");
+TResult<void> CRelocatableAllocator::Init(usize capacity_bytes, u32 max_handles,
+                                          IAllocator* backing) noexcept {
+    if (m_Base) return ACS_ERR(Memory, 60, "CRelocatableAllocator: already initialized");
     if (capacity_bytes == 0 || max_handles == 0)
-        return ACS_ERR(Memory, 61, "FRelocatableAllocator: invalid capacity/max_handles");
+        return ACS_ERR(Memory, 61, "CRelocatableAllocator: invalid capacity/max_handles");
 
     m_Backing = backing ? backing : &DefaultAllocator();
 
     m_Base = static_cast<u8*>(m_Backing->Alloc(capacity_bytes, 16, FSourceLoc::Current()));
-    if (!m_Base) return ACS_ERR(Memory, 62, "FRelocatableAllocator: arena alloc failed");
+    if (!m_Base) return ACS_ERR(Memory, 62, "CRelocatableAllocator: arena alloc failed");
 
     if (max_handles > (~usize(0)) / sizeof(FEntry) || max_handles > (~usize(0)) / sizeof(u32)) {
         m_Backing->Free(m_Base);
         m_Base = nullptr;
-        return ACS_ERR(Memory, 63, "FRelocatableAllocator: handle table size overflow");
+        return ACS_ERR(Memory, 63, "CRelocatableAllocator: handle table size overflow");
     }
 
     m_Entries = static_cast<FEntry*>(
         m_Backing->Alloc(sizeof(FEntry) * max_handles, alignof(FEntry), FSourceLoc::Current()));
     if (!m_Entries) {
         m_Backing->Free(m_Base); m_Base = nullptr;
-        return ACS_ERR(Memory, 63, "FRelocatableAllocator: handle table alloc failed");
+        return ACS_ERR(Memory, 63, "CRelocatableAllocator: handle table alloc failed");
     }
     m_Order = static_cast<u32*>(
         m_Backing->Alloc(sizeof(u32) * max_handles, alignof(u32), FSourceLoc::Current()));
     if (!m_Order) {
         m_Backing->Free(m_Entries); m_Entries = nullptr;
         m_Backing->Free(m_Base);    m_Base = nullptr;
-        return ACS_ERR(Memory, 64, "FRelocatableAllocator: order array alloc failed");
+        return ACS_ERR(Memory, 64, "CRelocatableAllocator: order array alloc failed");
     }
 
     m_Capacity   = capacity_bytes;
@@ -82,7 +82,7 @@ TResult<void> FRelocatableAllocator::Init(usize capacity_bytes, u32 max_handles,
     return Ok();
 }
 
-void FRelocatableAllocator::Shutdown() noexcept {
+void CRelocatableAllocator::Shutdown() noexcept {
     if (m_Backing) {
         if (m_Order)   { m_Backing->Free(m_Order);   m_Order = nullptr; }
         if (m_Entries) { m_Backing->Free(m_Entries); m_Entries = nullptr; }
@@ -93,7 +93,7 @@ void FRelocatableAllocator::Shutdown() noexcept {
     m_Backing = nullptr;
 }
 
-bool FRelocatableAllocator::ResolveEntry(FRelocHandle h, FEntry*& out) const noexcept {
+bool CRelocatableAllocator::ResolveEntry(FRelocHandle h, FEntry*& out) const noexcept {
     if (!m_Base || h.generation == 0u || h.index >= m_MaxHandles) return false;
     FEntry& e = m_Entries[h.index];
     if (!e.live || e.generation != h.generation) return false;
@@ -101,7 +101,7 @@ bool FRelocatableAllocator::ResolveEntry(FRelocHandle h, FEntry*& out) const noe
     return true;
 }
 
-FRelocHandle FRelocatableAllocator::Alloc(usize size, usize alignment) noexcept {
+FRelocHandle CRelocatableAllocator::Alloc(usize size, usize alignment) noexcept {
     if (!m_Base || size == 0) return {};
     if (alignment < 1) alignment = 1;
     if (!IsPow2(alignment)) return {};
@@ -140,7 +140,7 @@ FRelocHandle FRelocatableAllocator::Alloc(usize size, usize alignment) noexcept 
     return FRelocHandle{ idx, gen };
 }
 
-void FRelocatableAllocator::Free(FRelocHandle h) noexcept {
+void CRelocatableAllocator::Free(FRelocHandle h) noexcept {
     FEntry* e = nullptr;
     if (!ResolveEntry(h, e)) {
         // 二重解放や期限切れハンドルは状態を変更せず拒否する。
@@ -155,22 +155,22 @@ void FRelocatableAllocator::Free(FRelocHandle h) noexcept {
     // ブロックは Compact まで garbage として残る (high-water は下がらない)。
 }
 
-void* FRelocatableAllocator::Resolve(FRelocHandle h) const noexcept {
+void* CRelocatableAllocator::Resolve(FRelocHandle h) const noexcept {
     FEntry* e = nullptr;
     return ResolveEntry(h, e) ? e->ptr : nullptr;
 }
 
-usize FRelocatableAllocator::SizeOf(FRelocHandle h) const noexcept {
+usize CRelocatableAllocator::SizeOf(FRelocHandle h) const noexcept {
     FEntry* e = nullptr;
     return ResolveEntry(h, e) ? e->size : 0u;
 }
 
-bool FRelocatableAllocator::ValidateHandle(FRelocHandle h) const noexcept {
+bool CRelocatableAllocator::ValidateHandle(FRelocHandle h) const noexcept {
     FEntry* e = nullptr;
     return ResolveEntry(h, e);
 }
 
-usize FRelocatableAllocator::Compact() noexcept {
+usize CRelocatableAllocator::Compact() noexcept {
     if (!m_Base) return 0;
     const usize old_cursor = m_Cursor;
 

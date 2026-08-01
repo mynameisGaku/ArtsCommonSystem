@@ -44,7 +44,7 @@ public:
      */
     TTwoWayBinder(TObservable<T>& a, TObservable<T>& b) noexcept
         : m_A(&a), m_B(&b) {
-        // 初期同期: a の値を b に反映 (FViewModel → View 想定)
+        // 初期同期: a の値を b に反映 (CViewModel → View 想定)
         b.Set(a.Get());
         m_HA = a.Subscribe(&OnAChanged, this);
         m_HB = b.Subscribe(&OnBChanged, this);

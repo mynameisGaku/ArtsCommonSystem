@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FPoolAllocator 実装
+// ACS Memory — CPoolAllocator 実装
 // -----------------------------------------------------------------------------
 // フリーリストと各ブロックの所有状態を同じロックで保護する。
 // 利用者領域とフリーリストノードを共有するため、pop 中のノードを
@@ -13,8 +13,8 @@
 
 namespace acs {
 
-FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment,
-                               FAllocator* BackingAllocator) noexcept
+CPoolAllocator::CPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCount, usize Alignment,
+                               IAllocator* BackingAllocator) noexcept
     : m_BlockSize(static_cast<u64>(RequestedBlockSize)),
       m_BlockCount(static_cast<u64>(RequestedBlockCount)),
       m_Alignment(static_cast<u64>(Alignment)),
@@ -70,14 +70,14 @@ FPoolAllocator::FPoolAllocator(usize RequestedBlockSize, usize RequestedBlockCou
     m_FreeHead = PreviousNode;
 }
 
-FPoolAllocator::~FPoolAllocator() noexcept
+CPoolAllocator::~CPoolAllocator() noexcept
 {
     if (m_AllocationStates) m_Backing->Free(m_AllocationStates);
     if (m_Storage) m_Backing->Free(m_Storage);
 }
 
 // 確保
-void* FPoolAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+void* CPoolAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     if (Size == 0) return nullptr;
     if (Size > m_BlockSize) return nullptr;
@@ -85,7 +85,7 @@ void* FPoolAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/
     return AllocBlock();
 }
 
-void* FPoolAllocator::AllocBlock() noexcept
+void* CPoolAllocator::AllocBlock() noexcept
 {
     if (m_Storage == nullptr || m_AllocationStates == nullptr) {
         return nullptr;
@@ -109,7 +109,7 @@ void* FPoolAllocator::AllocBlock() noexcept
     return AllocatedNode;
 }
 
-usize FPoolAllocator::AllocBatch(void** Output, usize Count) noexcept
+usize CPoolAllocator::AllocBatch(void** Output, usize Count) noexcept
 {
     if (Output == nullptr || Count == 0u) return 0u;
     // 未取得分を確実に nullptr として返す。
@@ -142,7 +142,7 @@ usize FPoolAllocator::AllocBatch(void** Output, usize Count) noexcept
 }
 
 // 解放
-void FPoolAllocator::Free(void* Pointer) noexcept
+void CPoolAllocator::Free(void* Pointer) noexcept
 {
     if (!Contains(Pointer) || m_AllocationStates == nullptr) return;
     // Pointer に対応する状態配列の位置。
@@ -160,7 +160,7 @@ void FPoolAllocator::Free(void* Pointer) noexcept
     m_Live.FetchSub(1u);
 }
 
-usize FPoolAllocator::FreeBatch(void* const* Pointers, usize Count) noexcept
+usize CPoolAllocator::FreeBatch(void* const* Pointers, usize Count) noexcept
 {
     if (Pointers == nullptr || Count == 0u || m_Storage == nullptr || m_AllocationStates == nullptr) {
         return 0u;
@@ -206,7 +206,7 @@ usize FPoolAllocator::FreeBatch(void* const* Pointers, usize Count) noexcept
     return FreedCount;
 }
 
-bool FPoolAllocator::TryBeginDestroyBlock(void* Pointer) noexcept
+bool CPoolAllocator::TryBeginDestroyBlock(void* Pointer) noexcept
 {
     if (!Contains(Pointer) || m_AllocationStates == nullptr) return false;
     // Pointer に対応する状態配列の位置。
@@ -220,7 +220,7 @@ bool FPoolAllocator::TryBeginDestroyBlock(void* Pointer) noexcept
     return true;
 }
 
-void FPoolAllocator::FinishDestroyBlock(void* Pointer) noexcept
+void CPoolAllocator::FinishDestroyBlock(void* Pointer) noexcept
 {
     ACS_ASSERT(Contains(Pointer));
     // Pointer に対応する状態配列の位置。
@@ -238,7 +238,7 @@ void FPoolAllocator::FinishDestroyBlock(void* Pointer) noexcept
     m_Live.FetchSub(1u);
 }
 
-u64 FPoolAllocator::LockAcquisitionCount() const noexcept
+u64 CPoolAllocator::LockAcquisitionCount() const noexcept
 {
     // 計測値をフリーリスト更新と同じロックで読み取る。
     FScopedLock Lock(m_Lock);

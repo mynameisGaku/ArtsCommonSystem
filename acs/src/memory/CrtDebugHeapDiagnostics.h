@@ -205,9 +205,9 @@ private:
 };
 
 /** MSVC CRT デバッグヒープの単発診断 API。 */
-class FCrtDebugHeapDiagnostics final {
+class CCrtDebugHeapDiagnostics final {
 public:
-    FCrtDebugHeapDiagnostics() = delete;
+    CCrtDebugHeapDiagnostics() = delete;
 
     /** MSVC の Debug CRT 診断が利用可能か。 */
     static bool IsSupported() noexcept;
@@ -241,5 +241,8 @@ public:
      */
     static bool SetProcessExitLeakCheckEnabled(bool bEnabled) noexcept;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FCrtDebugHeapDiagnostics = CCrtDebugHeapDiagnostics;
 
 } // namespace acs

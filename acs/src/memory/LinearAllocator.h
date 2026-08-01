@@ -16,7 +16,7 @@ namespace acs {
  * 巻き戻す。容量を超える確保は nullptr を返す。Reset は新規 Alloc を一時停止し、
  * 入場済みの Alloc が完了してからカーソルを巻き戻す。
  */
-class FLinearAllocator final : public FAllocator {
+class CLinearAllocator final : public IAllocator {
 public:
     /**
      * capacity バイトのバッファを backing から 1 回確保して構築する。
@@ -24,16 +24,16 @@ public:
      * @param BufferCapacity 確保するバッファの総バイト数。
      * @param BackingAllocator バッキングアロケータ (nullptr なら DefaultAllocator)。
      */
-    FLinearAllocator(usize BufferCapacity, FAllocator* BackingAllocator = nullptr) noexcept;
+    CLinearAllocator(usize BufferCapacity, IAllocator* BackingAllocator = nullptr) noexcept;
 
     /** バッキングバッファを backing に返して破棄する。 */
-    ~FLinearAllocator() noexcept override;
+    ~CLinearAllocator() noexcept override;
 
     /** コピー禁止 (バッファを単独所有するため)。 */
-    FLinearAllocator(const FLinearAllocator&) = delete;
+    CLinearAllocator(const CLinearAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FLinearAllocator& operator=(const FLinearAllocator&) = delete;
+    CLinearAllocator& operator=(const CLinearAllocator&) = delete;
 
     /**
      * カーソルを alignment 整列して size バイトを切り出す。
@@ -152,7 +152,7 @@ private:
     u64 m_Capacity = 0;
 
     /** バッファの確保元アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** backing を所有しているか (現状常に false)。 */
     bool m_bOwnsBacking = false;
@@ -173,5 +173,8 @@ private:
     /** Reset とデストラクタの制御処理を直列化するスピンロック。 */
     TAtomic<u32> m_LifecycleControl{0u};
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FLinearAllocator = CLinearAllocator;
 
 } // namespace acs

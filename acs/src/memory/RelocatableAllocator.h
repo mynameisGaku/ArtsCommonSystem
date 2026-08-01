@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FRelocatableAllocator (ハンドルベース再配置/デフラグ可能アロケータ)
+// ACS Memory — CRelocatableAllocator (ハンドルベース再配置/デフラグ可能アロケータ)
 // -----------------------------------------------------------------------------
 // 生ポインタは「動かせない」ため、デフラグ (compaction) には間接参照が必須。
 // 利用側は確保時に **ハンドル** を受け取り、Resolve(handle) で現在のポインタを得る。
@@ -21,7 +21,7 @@
 
 namespace acs {
 
-class FAllocator;
+class IAllocator;
 
 /** 再配置可能確保を指すハンドル (index = エントリ番号、generation = 世代で use-after-free を検出)。 */
 struct FRelocHandle {
@@ -69,19 +69,19 @@ inline bool operator!=(FRelocHandle a, FRelocHandle b) noexcept { return !(a == 
  * 変わるので Resolve を取り直す)。内部同期はしない — 単一スレッドで使うか、Resolve したポインタを
  * 握っている間は Compact しないことを利用側が保証すること。
  */
-class FRelocatableAllocator {
+class CRelocatableAllocator {
 public:
     /** 未初期化状態で構築する (使用前に Init を呼ぶこと)。 */
-    FRelocatableAllocator() noexcept = default;
+    CRelocatableAllocator() noexcept = default;
 
     /** Shutdown を呼んでアリーナとテーブルを backing に返して破棄する。 */
-    ~FRelocatableAllocator() noexcept;
+    ~CRelocatableAllocator() noexcept;
 
     /** コピー禁止 (アリーナとハンドルテーブルを単独所有するため)。 */
-    FRelocatableAllocator(const FRelocatableAllocator&) = delete;
+    CRelocatableAllocator(const CRelocatableAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FRelocatableAllocator& operator=(const FRelocatableAllocator&) = delete;
+    CRelocatableAllocator& operator=(const CRelocatableAllocator&) = delete;
 
     /**
      * アリーナとハンドルテーブルを backing から確保して初期化する。
@@ -92,7 +92,7 @@ public:
      * @param backing 各種確保元 (nullptr なら DefaultAllocator)。
      * @return 成功なら空の TResult、失敗ならエラー。
      */
-    TResult<void> Init(usize capacity_bytes, u32 max_handles, FAllocator* backing = nullptr) noexcept;
+    TResult<void> Init(usize capacity_bytes, u32 max_handles, IAllocator* backing = nullptr) noexcept;
 
     /** 確保済みのアリーナ・テーブルを backing に返し、未初期化状態へ戻す。 */
     void Shutdown() noexcept;
@@ -237,10 +237,13 @@ private:
     u32*        m_Order      = nullptr;
 
     /** 各種確保元アロケータ。 */
-    FAllocator* m_Backing    = nullptr;
+    IAllocator* m_Backing    = nullptr;
 
     /** Shutdown/Init をまたいでも単調に進めるハンドル世代。 */
     u64         m_NextGeneration = 1u;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FRelocatableAllocator = CRelocatableAllocator;
 
 } // namespace acs

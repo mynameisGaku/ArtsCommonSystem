@@ -112,8 +112,8 @@ TResult<void> FMemorySnapshot::WriteSvg(const wchar_t* Path, u32 Width, u32 RowH
     }
 
     FSegmentStats StatisticsArray[(usize)ESegment::_Count];
-    const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
-    if (SegmentCount == 0) return ACS_ERR(Memory, 40, "FMemorySystem has no segments");
+    const u32 SegmentCount = CMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
+    if (SegmentCount == 0) return ACS_ERR(Memory, 40, "CMemorySystem has no segments");
     if (SegmentCount + 1u > ((~u32(0)) - 40u) / RowHeight) {
         return ACS_ERR(Memory, 43, "SVG dimensions overflow");
     }
@@ -305,8 +305,8 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
     }
 
     FSegmentStats StatisticsArray[(usize)ESegment::_Count];
-    const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
-    if (SegmentCount == 0) return ACS_ERR(Memory, 41, "FMemorySystem has no segments");
+    const u32 SegmentCount = CMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
+    if (SegmentCount == 0) return ACS_ERR(Memory, 41, "CMemorySystem has no segments");
 
     const u64 Height64 = static_cast<u64>(SegmentCount) * RowHeight;
     const u64 RowBytes64 = static_cast<u64>(Width) * 3u;
@@ -400,7 +400,7 @@ TResult<void> FMemorySnapshot::WriteBmp(const wchar_t* Path, u32 Width, u32 RowH
 void FMemorySnapshot::DumpToStdOut() noexcept
 {
     FSegmentStats StatisticsArray[(usize)ESegment::_Count];
-    const u32 SegmentCount = FMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
+    const u32 SegmentCount = CMemorySystem::GetStats(StatisticsArray, (u32)ESegment::_Count);
     ::printf("[ACS Memory Snapshot]\n");
     ::printf("  %-12s | %-10s | %-12s | %-12s | %-12s | %-12s\n", "ESegment", "Allocator", "Budget", "Requested",
              "Peak", "Allocations");

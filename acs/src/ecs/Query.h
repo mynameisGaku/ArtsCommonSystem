@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-// FWorld::Query<FPos, FVel>().Each(...) を提供するクエリヘルパ
+// CWorld::Query<FPos, FVel>().Each(...) を提供するクエリヘルパ
 //
 // 仕組み: 指定された全コンポーネントを持つエンティティを選び出して、
 //         それぞれにラムダを適用する。
@@ -25,18 +25,18 @@ namespace acs {
  * 一番要素数の少ない TSparseSet を主軸 (primary) に選び、その dense を走査しつつ
  * 各エンティティが他のコンポーネントも持つかを確認してラムダを適用する。dense は
  * 走査前にローカルへスナップショットするため、ラムダ内での Add/Remove (構造変更) で
- * 反復が無効化されない。FWorld::Query<...>() から生成する。
+ * 反復が無効化されない。CWorld::Query<...>() から生成する。
  * @tparam Comps 同時に要求するコンポーネント型 (1 つ以上)。
  */
 template<typename... Comps>
 class TQueryView {
 public:
     /**
-     * 走査対象の FWorld を束ねてビューを構築する。
+     * 走査対象の CWorld を束ねてビューを構築する。
      *
-     * @param w 走査対象の FWorld (参照を保持)。
+     * @param w 走査対象の CWorld (参照を保持)。
      */
-    explicit TQueryView(FWorld& w) noexcept : m_World(w)
+    explicit TQueryView(CWorld& w) noexcept : m_World(w)
     {
     }
 
@@ -61,7 +61,7 @@ public:
     template<typename Fn>
     void Each(Fn fn) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
         if (count == 0) return;
@@ -93,7 +93,7 @@ public:
     template<typename... Excludes, typename Fn>
     void EachExcluding(Fn fn) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
         if (count == 0) return;
@@ -118,7 +118,7 @@ public:
     template<typename... Optional, typename Fn>
     void EachOptional(Fn fn) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const usize count = primary->Size();
         if (count == 0u) return;
@@ -142,7 +142,7 @@ public:
      * fn を呼ぶ (完了まで block)。同じエンティティが複数スレッドから同時に呼ばれること
      * はないが、グローバル資源を触る場合はユーザー側で同期が必要。
      *
-     * **重要**: fn は FWorld を構造変更 (Add/Remove/Destroy) してはならない。FWorld/TSparseSet は
+     * **重要**: fn は CWorld を構造変更 (Add/Remove/Destroy) してはならない。CWorld/TSparseSet は
      * 並行変更に対してスレッドセーフでなく、他スレッドが使用中の Comps& 参照も dangling する。
      * 構造変更が必要なら `FParallelEntityCommandBuffer` (ecs/ParallelEntityCommandBuffer.h)
      * へロックなしで記録し、EachParallel の完了後に Flush() するのが安全で推奨
@@ -156,7 +156,7 @@ public:
     template<typename Fn>
     void EachParallel(Fn fn, u32 grain = 1024) noexcept
     {
-        FSparseSetBase* primary = nullptr;
+        ASparseSetBase* primary = nullptr;
         if (!ResolvePrimary(primary)) return;
         const u32 count = static_cast<u32>(primary->Size());
         if (count == 0) return;
@@ -195,16 +195,16 @@ private:
      *
      * @details どれか 1 つでも未登録 (= 該当コンポーネントを持つエンティティが皆無) の
      * 場合は走査不要なので false を返す。
-     * @param out_primary 選んだ主軸 FSparseSetBase を書き戻す出力先。
+     * @param out_primary 選んだ主軸 ASparseSetBase を書き戻す出力先。
      * @return 全コンポーネントが揃って主軸を選べたら true。
      */
-    bool ResolvePrimary(FSparseSetBase*& out_primary) noexcept
+    bool ResolvePrimary(ASparseSetBase*& out_primary) noexcept
     {
-        FSparseSetBase* sets[sizeof...(Comps)] = {static_cast<FSparseSetBase*>(m_World.template TryGetSet<Comps>())...};
+        ASparseSetBase* sets[sizeof...(Comps)] = {static_cast<ASparseSetBase*>(m_World.template TryGetSet<Comps>())...};
         for (usize i = 0; i < sizeof...(Comps); ++i) {
             if (!sets[i]) return false;
         }
-        FSparseSetBase* primary = sets[0];
+        ASparseSetBase* primary = sets[0];
         for (usize i = 1; i < sizeof...(Comps); ++i) {
             if (sets[i]->Size() < primary->Size()) primary = sets[i];
         }
@@ -274,18 +274,18 @@ private:
         }
     }
 
-    /** 走査対象の FWorld。 */
-    FWorld& m_World;
+    /** 走査対象の CWorld。 */
+    CWorld& m_World;
 };
 
 /**
- * FWorld::Query<...>() の実装本体 (World.h で宣言、TQueryView を生成して返す)。
+ * CWorld::Query<...>() の実装本体 (World.h で宣言、TQueryView を生成して返す)。
  *
  * @tparam Comps 同時に要求するコンポーネント型。
- * @return この FWorld を束ねた TQueryView<Comps...>。
+ * @return この CWorld を束ねた TQueryView<Comps...>。
  */
 template<typename... Comps>
-auto FWorld::Query() noexcept
+auto CWorld::Query() noexcept
 {
     return TQueryView<Comps...>(*this);
 }

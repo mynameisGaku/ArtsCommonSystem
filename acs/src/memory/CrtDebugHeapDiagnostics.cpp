@@ -407,7 +407,7 @@ bool FCrtDebugHeapScope::Begin(const FCrtDebugHeapScopeConfiguration& Configurat
 FCrtDebugHeapScopeReport FCrtDebugHeapScope::End() noexcept
 {
     FCrtDebugHeapScopeReport Report{};
-    Report.bSupported = FCrtDebugHeapDiagnostics::IsSupported();
+    Report.bSupported = CCrtDebugHeapDiagnostics::IsSupported();
     if (!m_Active) {
         return Report;
     }
@@ -599,7 +599,7 @@ void FCrtDebugHeapProcessConfigurationScope::End() noexcept
 #endif
 }
 
-bool FCrtDebugHeapDiagnostics::IsSupported() noexcept
+bool CCrtDebugHeapDiagnostics::IsSupported() noexcept
 {
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
     return true;
@@ -608,7 +608,7 @@ bool FCrtDebugHeapDiagnostics::IsSupported() noexcept
 #endif
 }
 
-bool FCrtDebugHeapDiagnostics::CheckHeapIntegrity() noexcept
+bool CCrtDebugHeapDiagnostics::CheckHeapIntegrity() noexcept
 {
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
     if (!TryBeginReportCapableOperation()) {
@@ -622,7 +622,7 @@ bool FCrtDebugHeapDiagnostics::CheckHeapIntegrity() noexcept
 #endif
 }
 
-void FCrtDebugHeapDiagnostics::DumpAllLiveObjects() noexcept
+void CCrtDebugHeapDiagnostics::DumpAllLiveObjects() noexcept
 {
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
     if (!TryBeginReportCapableOperation()) {
@@ -633,7 +633,7 @@ void FCrtDebugHeapDiagnostics::DumpAllLiveObjects() noexcept
 #endif
 }
 
-FCrtDebugHeapProcessLeakReport FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
+FCrtDebugHeapProcessLeakReport CCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
     bool bWriteMachineReadableLog) noexcept
 {
     FCrtDebugHeapProcessLeakReport Report{};
@@ -684,7 +684,7 @@ FCrtDebugHeapProcessLeakReport FCrtDebugHeapDiagnostics::DumpProcessMemoryLeaks(
     return Report;
 }
 
-i64 FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(i64 AllocationSequence) noexcept
+i64 CCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(i64 AllocationSequence) noexcept
 {
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
     ::AcquireSRWLockExclusive(&g_ProcessConfigurationLock);
@@ -702,7 +702,7 @@ i64 FCrtDebugHeapDiagnostics::SetBreakOnAllocationSequence(i64 AllocationSequenc
 #endif
 }
 
-bool FCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(bool bEnabled) noexcept
+bool CCrtDebugHeapDiagnostics::SetProcessExitLeakCheckEnabled(bool bEnabled) noexcept
 {
 #if ACS_COMPILER_MSVC && ACS_BUILD_DEBUG && !ACS_ADDRESS_SANITIZER
     ::AcquireSRWLockExclusive(&g_ProcessConfigurationLock);

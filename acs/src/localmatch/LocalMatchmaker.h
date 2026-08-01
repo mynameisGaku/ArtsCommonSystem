@@ -24,32 +24,32 @@ struct FLocalMatchmakerConfig {
  * (Cancelled / 双方 Accept 済み) に入ったスロットは退役させ、満杯時に最古の退役
  * スロットを再利用することで ticket リークを防ぐ。ネットワークは一切使わない。
  */
-class FLocalMatchmaker final : public acs::game::IMatchmaker {
+class CLocalMatchmaker final : public acs::game::IMatchmaker {
 public:
     /** 既定設定 (MaxRatingDelta=150) で構築する。 */
-    FLocalMatchmaker() noexcept = default;
+    CLocalMatchmaker() noexcept = default;
 
     /**
      * 設定を指定して構築する。
      *
      * @param config 適用する matchmaker 設定。
      */
-    explicit FLocalMatchmaker(const FLocalMatchmakerConfig& config) noexcept;
+    explicit CLocalMatchmaker(const FLocalMatchmakerConfig& config) noexcept;
 
     /** 破棄する (保持リソースは固定長配列のみ)。 */
-    ~FLocalMatchmaker() noexcept override = default;
+    ~CLocalMatchmaker() noexcept override = default;
 
     /** コピー禁止 (ticket プールを単独所有するため)。 */
-    FLocalMatchmaker(const FLocalMatchmaker&)            = delete;
+    CLocalMatchmaker(const CLocalMatchmaker&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLocalMatchmaker& operator=(const FLocalMatchmaker&) = delete;
+    CLocalMatchmaker& operator=(const CLocalMatchmaker&) = delete;
 
     /** ムーブ禁止。 */
-    FLocalMatchmaker(FLocalMatchmaker&&)                 = delete;
+    CLocalMatchmaker(CLocalMatchmaker&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLocalMatchmaker& operator=(FLocalMatchmaker&&)      = delete;
+    CLocalMatchmaker& operator=(CLocalMatchmaker&&)      = delete;
 
     /**
      * マッチ検索を開始し、新しい ticket を発行する。
@@ -248,8 +248,11 @@ private:
     acs::u32 m_MaxRatingDelta = 150;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FLocalMatchmaker = CLocalMatchmaker;
+
 /**
- * プロセス共有の既定 FLocalMatchmaker singleton を返す。
+ * プロセス共有の既定 CLocalMatchmaker singleton を返す。
  *
  * @details matchmaker provider に登録する provider 実体として使う。
  * @return ローカル matchmaker singleton への参照。

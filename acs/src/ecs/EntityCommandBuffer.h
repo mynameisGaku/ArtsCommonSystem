@@ -10,7 +10,7 @@
 namespace acs {
 
 /**
- * ECS の構造変更 (Destroy / Add<T> / Remove<T>) を記録し、Flush() で FWorld へ一括適用する。
+ * ECS の構造変更 (Destroy / Add<T> / Remove<T>) を記録し、Flush() で CWorld へ一括適用する。
  *
  * @details Query 反復中に安全へ構造変更するための遅延バッファ。記録順に適用する。
  * 非コピー (退避値とコマンド列を所有するため)。
@@ -18,12 +18,12 @@ namespace acs {
 class FEntityCommandBuffer {
 public:
     /**
-     * 適用先 FWorld と退避用アロケータを束ねて構築する。
+     * 適用先 CWorld と退避用アロケータを束ねて構築する。
      *
-     * @param world 適用先の FWorld (参照を保持)。
+     * @param world 適用先の CWorld (参照を保持)。
      * @param alloc Add 値の退避とコマンド列に使うアロケータ。
      */
-    explicit FEntityCommandBuffer(FWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FEntityCommandBuffer(CWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
         : m_World(&world), m_Alloc(&alloc), m_Commands(alloc)
     {
     }
@@ -95,10 +95,10 @@ public:
     }
 
     /**
-     * 空エンティティの生成を記録する (Flush 時に FWorld::Create が走る)。
+     * 空エンティティの生成を記録する (Flush 時に CWorld::Create が走る)。
      *
      * @details 逐次 Each 中の Create は即時でも安全 (World.h 参照) だが、EachParallel 中は
-     * FWorld::Create がスレッドセーフでないため本記録を使う。生成される FEntityId は
+     * CWorld::Create がスレッドセーフでないため本記録を使う。生成される FEntityId は
      * Flush 時に確定するので、事前に参照したい用途には使えない。
      */
     void Create() noexcept
@@ -115,7 +115,7 @@ public:
      * 「生成 + T を付与」を記録する (小型の単純な値は内部保持、Flush 時に生成)。
      *
      * @details 弾やパーティクル等の並列スポーンに使う。複数コンポーネントを同一エンティティへ
-     * 付けたい場合は Flush 後に FWorld 側で組み立てるか、T を集約構造体にすること。
+     * 付けたい場合は Flush 後に CWorld 側で組み立てるか、T を集約構造体にすること。
      * @tparam T 生成と同時に付与するコンポーネント型。
      * @param value 格納する値 (ムーブで退避する)。
      */
@@ -134,9 +134,9 @@ public:
     }
 
     /**
-     * 記録した全操作を記録順に FWorld へ適用し、バッファを空にする。
+     * 記録した全操作を記録順に CWorld へ適用し、バッファを空にする。
      *
-     * @details Add は退避値を FWorld へムーブしてから退避値を破棄する。適用後は Size()==0。
+     * @details Add は退避値を CWorld へムーブしてから退避値を破棄する。適用後は Size()==0。
      */
     void Flush() noexcept
     {
@@ -243,7 +243,7 @@ private:
         /** 大型または非単純な値の退避先。 */
         void* value = nullptr;
         /** 追加または除去を型消去して適用する関数。 */
-        void (*apply)(FWorld&, FEntityId, void*) noexcept = nullptr;
+        void (*apply)(CWorld&, FEntityId, void*) noexcept = nullptr;
         /** ヒープへ退避した値を型消去して破棄する関数。 */
         void (*destroy)(FAllocator&, void*) noexcept = nullptr;
         /** 小規模値を確保せず保持する領域。 */
@@ -290,16 +290,16 @@ private:
         command.inline_value_used = false;
     }
 
-    /** 退避した T を FWorld へムーブ追加する型消去 thunk。 */
+    /** 退避した T を CWorld へムーブ追加する型消去 thunk。 */
     template<typename T>
-    static void ApplyAdd(FWorld& world, FEntityId e, void* value) noexcept
+    static void ApplyAdd(CWorld& world, FEntityId e, void* value) noexcept
     {
         world.Add<T>(e, Move(*static_cast<T*>(value)));
     }
 
-    /** FWorld から T を除去する型消去 thunk。 */
+    /** CWorld から T を除去する型消去 thunk。 */
     template<typename T>
-    static void ApplyRemove(FWorld& world, FEntityId e, void* /*value*/) noexcept
+    static void ApplyRemove(CWorld& world, FEntityId e, void* /*value*/) noexcept
     {
         world.Remove<T>(e);
     }
@@ -311,8 +311,8 @@ private:
         Delete(alloc, static_cast<T*>(value));
     }
 
-    /** 適用先 FWorld。バッファより長く生存する。 */
-    FWorld* m_World = nullptr;
+    /** 適用先 CWorld。バッファより長く生存する。 */
+    CWorld* m_World = nullptr;
 
     /** 退避とコマンド列に使うアロケータ。 */
     FAllocator* m_Alloc = nullptr;

@@ -29,15 +29,15 @@ bool CopyPodArray(TArray<T>& dst, const TArray<T>& src) noexcept
 } // namespace
 
 /** 空の World を構築する。 */
-FWorld::FWorld() noexcept = default;
+CWorld::CWorld() noexcept = default;
 
 /** World を破棄し、所有する全 SparseSet を解放する。 */
-FWorld::~FWorld() noexcept {
+CWorld::~CWorld() noexcept {
     Clear();
 }
 
 /** 全エンティティとコンポーネントストレージを解放して初期状態へ戻す。 */
-void FWorld::Clear() noexcept
+void CWorld::Clear() noexcept
 {
     // 全 SparseSet を解放（Delete が仮想デストラクタ経由で型ごとの破棄を実行し、確保元
     // アロケータへ返す）。生 delete を避け、GetOrCreateSet の New と対で MemorySystem 追跡する。
@@ -49,7 +49,7 @@ void FWorld::Clear() noexcept
     }
 
     // Clear() だけでは容量を保持するため、終了処理ではバッファ自体も返す。
-    m_Sets = TArray<FSparseSetBase*>{*m_Sets.GetAllocator()};
+    m_Sets = TArray<ASparseSetBase*>{*m_Sets.GetAllocator()};
     m_Slots = TArray<FSlot>{*m_Slots.GetAllocator()};
     m_FreeIndices = TArray<u32>{*m_FreeIndices.GetAllocator()};
     m_AliveCount = 0;
@@ -57,7 +57,7 @@ void FWorld::Clear() noexcept
 }
 
 /** src の完全複製をこの World に作る (詳細な契約は World.h 参照)。 */
-bool FWorld::CopyFrom(const FWorld& src) noexcept
+bool CWorld::CopyFrom(const CWorld& src) noexcept
 {
     if (this == &src) return true;
     Clear();
@@ -90,7 +90,7 @@ bool FWorld::CopyFrom(const FWorld& src) noexcept
 }
 
 /** エンティティを生成する (フリースロット再利用、無ければ新規確保)。 */
-FEntityId FWorld::Create() noexcept {
+FEntityId CWorld::Create() noexcept {
     FEntityId e{};
     if (!m_FreeIndices.IsEmpty()) {
         // フリースロットを再利用（生成回数で世代がインクリメントされる）
@@ -112,7 +112,7 @@ FEntityId FWorld::Create() noexcept {
 }
 
 /** エンティティの全コンポーネントを除去し、世代を進めてスロットを再利用待ちへ戻す。 */
-void FWorld::Destroy(FEntityId e) noexcept {
+void CWorld::Destroy(FEntityId e) noexcept {
     if (!IsAlive(e)) return;
     // 全コンポーネントを取り除く（型消去 Remove で各 SparseSet に通知）
     for (usize i = 0; i < m_Sets.Size(); ++i) {
@@ -126,7 +126,7 @@ void FWorld::Destroy(FEntityId e) noexcept {
 }
 
 /** エンティティが生存中かつ世代一致かを返す。 */
-bool FWorld::IsAlive(FEntityId e) const noexcept {
+bool CWorld::IsAlive(FEntityId e) const noexcept {
     if (!e.IsValid()) return false;
     if (e.index >= m_Slots.Size()) return false;
     const FSlot& s = m_Slots[e.index];

@@ -2,7 +2,7 @@
 // ACS Memory — TUniquePtr<T>（std::unique_ptr 代替）
 //
 // 単独所有のスマートポインタ。ムーブのみ可、コピー不可。
-// 破棄時に FAllocator::Free を呼んで自動解放する。
+// 破棄時に IAllocator::Free を呼んで自動解放する。
 //
 // 例:
 //   auto p = MakeUnique<FMesh>(args...);
@@ -36,7 +36,7 @@ public:
      * @param Pointer 所有する対象 (この後の解放責任を引き受ける)。
      * @param Allocator 解放に使うアロケータ (nullptr なら DefaultAllocator)。
      */
-    explicit TUniquePtr(T* Pointer, FAllocator* Allocator = nullptr) noexcept
+    explicit TUniquePtr(T* Pointer, IAllocator* Allocator = nullptr) noexcept
         : m_Ptr(Pointer), m_Alloc(Allocator ? Allocator : &DefaultAllocator())
     {
     }
@@ -151,7 +151,7 @@ public:
      * @param Pointer 新たに保持する対象 (既定 nullptr で空にする)。
      * @param Allocator Pointer の解放に使うアロケータ。省略時は現在の保持先、空なら DefaultAllocator。
      */
-    void Reset(T* Pointer = nullptr, FAllocator* Allocator = nullptr) noexcept
+    void Reset(T* Pointer = nullptr, IAllocator* Allocator = nullptr) noexcept
     {
         // 同じポインタを渡した場合に、解放済みポインタを再保持しない。
         if (Pointer == m_Ptr) {
@@ -179,7 +179,7 @@ public:
      *
      * @return 保持中のアロケータ。
      */
-    FAllocator* GetAllocator() const noexcept
+    IAllocator* GetAllocator() const noexcept
     {
         return m_Alloc;
     }
@@ -189,7 +189,7 @@ private:
     T* m_Ptr = nullptr;
 
     /** 対象の解放に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 };
 
 /**
@@ -203,7 +203,7 @@ private:
 template<typename T, typename... Args>
 ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... Arguments) noexcept
 {
-    FAllocator& Allocator = DefaultAllocator();
+    IAllocator& Allocator = DefaultAllocator();
     T* const Pointer = New<T>(Allocator, Forward<Args>(Arguments)...);
     return TUniquePtr<T>(Pointer, &Allocator);
 }
@@ -218,7 +218,7 @@ ACS_FORCEINLINE TUniquePtr<T> MakeUnique(Args&&... Arguments) noexcept
  * @return 構築した対象を所有する TUniquePtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(FAllocator& Allocator, Args&&... Arguments) noexcept
+ACS_FORCEINLINE TUniquePtr<T> MakeUniqueIn(IAllocator& Allocator, Args&&... Arguments) noexcept
 {
     T* const Pointer = New<T>(Allocator, Forward<Args>(Arguments)...);
     return TUniquePtr<T>(Pointer, &Allocator);

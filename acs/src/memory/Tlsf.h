@@ -10,7 +10,7 @@
 
 namespace acs {
 
-class FShardedTlsfAllocator;
+class CShardedTlsfAllocator;
 
 namespace tlsf {
 
@@ -70,21 +70,21 @@ struct FBlockHeader {
  * O(1) で見つける。隣接フリーブロックは O(1) で統合して外部断片化を抑える。VM 予約から
  * 構築した場合は OOM 時に予約から段階的に commit して自動拡張する (auto-grow)。常時有効の
  * 安全ガード (非整列/範囲外/二重 free 検知) を持ち、in-place realloc に対応する。本クラス自体は
- * 同期しない — マルチスレッドでは呼び出し側でロックすること (FShardedTlsfAllocator が部品として使う)。
+ * 同期しない — マルチスレッドでは呼び出し側でロックすること (CShardedTlsfAllocator が部品として使う)。
  */
-class FTlsfAllocator final : public FAllocator {
+class CTlsfAllocator final : public IAllocator {
 public:
     /** 未初期化状態で構築する (使用前に Init/InitWithReservation を呼ぶこと)。 */
-    FTlsfAllocator() noexcept = default;
+    CTlsfAllocator() noexcept = default;
 
     /** 破棄する。所有する VM 予約は Reset とメンバ破棄の二段階で解放を試みる。 */
-    ~FTlsfAllocator() noexcept override;
+    ~CTlsfAllocator() noexcept override;
 
     /** コピー禁止 (ヒープ状態を単独所有するため)。 */
-    FTlsfAllocator(const FTlsfAllocator&) = delete;
+    CTlsfAllocator(const CTlsfAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FTlsfAllocator& operator=(const FTlsfAllocator&) = delete;
+    CTlsfAllocator& operator=(const CTlsfAllocator&) = delete;
 
     /**
      * 既存メモリ領域を単一プールとして初期化する。
@@ -250,7 +250,7 @@ public:
      *
      * @details
      * 予約を所有していれば解放する。解放失敗時は所有状態を保持する。再 Init を可能にする
-     * (FShardedTlsfAllocator の Shutdown→再 Init や FMemorySystem の再初期化で使う)。
+     * (CShardedTlsfAllocator の Shutdown→再 Init や CMemorySystem の再初期化で使う)。
      * @return 成功なら空の TResult、VM 予約の解放失敗なら状態を保持したエラー。
      */
     TResult<void> Reset() noexcept;
@@ -290,7 +290,7 @@ public:
 
 private:
     /** シャード化ラッパーだけに thread-local キャッシュ状態の遷移を許可する。 */
-    friend class FShardedTlsfAllocator;
+    friend class CShardedTlsfAllocator;
 
     /** 使用中ブロックを thread-local キャッシュ保管中へ原子的に遷移させる。 */
     bool TryMarkThreadCacheBlock(void* Pointer) noexcept;
@@ -450,5 +450,8 @@ private:
      */
     tlsf::FBlockHeader* MergeNext(tlsf::FBlockHeader* Block) noexcept;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FTlsfAllocator = CTlsfAllocator;
 
 } // namespace acs

@@ -197,7 +197,7 @@ private:
     template<typename U> friend class TWeakObjectPtr;
 
     /** NewObjectIn が採用コンストラクタを使うための friend 宣言。 */
-    template<typename U, typename... A> friend TObjectPtr<U> NewObjectIn(FAllocator&, A&&...) noexcept;
+    template<typename U, typename... A> friend TObjectPtr<U> NewObjectIn(IAllocator&, A&&...) noexcept;
 };
 
 /**
@@ -373,7 +373,7 @@ private:
  * @return 生成したオブジェクトを所有する TObjectPtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(IAllocator& a, Args&&... args) noexcept {
     static_assert(IsBaseOfV<AObject, T>, "NewObject<T>: T は AObject を継承していること");
     using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());

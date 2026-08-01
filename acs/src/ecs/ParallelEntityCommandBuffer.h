@@ -3,7 +3,7 @@
 // =============================================================================
 // ACS ECS — FParallelEntityCommandBuffer (EachParallel 用の per-worker 遅延記録)
 // -----------------------------------------------------------------------------
-// Query::EachParallel の fn は FWorld を構造変更 (Add/Remove/Destroy) してはならない
+// Query::EachParallel の fn は CWorld を構造変更 (Add/Remove/Destroy) してはならない
 // (Query.h の契約参照)。また FEntityCommandBuffer は単一スレッド前提なので、複数
 // ワーカーから同じバッファへ記録すると TArray が競合して壊れる。
 //
@@ -51,14 +51,14 @@ namespace acs {
 class FParallelEntityCommandBuffer {
 public:
     /**
-     * 適用先 FWorld とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
+     * 適用先 CWorld とアロケータを束ね、ワーカー数 + 1 本のバッファを確保して構築する。
      *
      * @details 確保に失敗したら以降の記録は落ち、HasOverflowed() が true になる
      * (IsValid() で構築成否を確認できる)。FThreadPool::Init より後に構築すること。
-     * @param world 適用先の FWorld (参照を保持)。
+     * @param world 適用先の CWorld (参照を保持)。
      * @param alloc 各バッファの記録・退避に使うアロケータ。
      */
-    explicit FParallelEntityCommandBuffer(FWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FParallelEntityCommandBuffer(CWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
         : m_Alloc(&alloc), m_Buffers(alloc)
     {
         const u32 slots = FThreadPool::WorkerCount() + 1u;   // +1 = 非ワーカー用予備
@@ -122,7 +122,7 @@ public:
     /**
      * 空エンティティの生成を自スレッド専用スロットへ記録する (Flush 時に生成)。
      *
-     * @details FWorld::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
+     * @details CWorld::Create はスレッドセーフでないため、EachParallel 中の生成は本記録を使う。
      */
     void Create() noexcept
     {
@@ -142,7 +142,7 @@ public:
     }
 
     /**
-     * 全スロットの記録を FWorld へ適用し、空にする (単一スレッドから呼ぶこと)。
+     * 全スロットの記録を CWorld へ適用し、空にする (単一スレッドから呼ぶこと)。
      *
      * @details スロット順 (worker 0..N-1, 非ワーカー) に、各スロット内は記録順で適用する。
      */

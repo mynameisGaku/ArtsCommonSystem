@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FCommand — VM のアクション (ボタン等) を FViewModel 側に置くためのヘルパ
+// FCommand — VM のアクション (ボタン等) を CViewModel 側に置くためのヘルパ
 //
 // 使い方:
-//   class FPlayerVm : public FViewModel {
+//   class FPlayerVm : public CViewModel {
 //   public:
 //       TObservable<f32> hp { 100.0f };
 //

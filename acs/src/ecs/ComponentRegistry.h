@@ -41,7 +41,7 @@ struct FComponentOps {
  * FComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
  * 形で保存する。Slots() の固定配列を共有する純粋な静的ユーティリティ。
  */
-class FComponentRegistry {
+class CComponentRegistry {
 public:
     /**
      * 型 T を登録し、その FComponentOps を返す (初回のみ実体登録、以降は既存を返す)。
@@ -90,5 +90,8 @@ private:
      */
     static FComponentOps* Slots() noexcept;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FComponentRegistry = CComponentRegistry;
 
 } // namespace acs

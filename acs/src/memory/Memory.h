@@ -11,21 +11,21 @@ namespace acs {
 /**
  * 現在のデフォルトアロケータを返す。
  *
- * @details 起動時は内部のプロセス全体 FSystemAllocator を指す。
+ * @details 起動時は内部のプロセス全体 CSystemAllocator を指す。
  * @return デフォルトアロケータへの参照。
  */
-FAllocator& DefaultAllocator() noexcept;
+IAllocator& DefaultAllocator() noexcept;
 
 /**
  * デフォルトアロケータを差し替える。
  *
  * @details
- * nullptr を渡すと内部の FSystemAllocator に戻る。DefaultAllocator との並行呼出でも
+ * nullptr を渡すと内部の CSystemAllocator に戻る。DefaultAllocator との並行呼出でも
  * ポインタの公開はスレッドセーフ。差し替え前のアロケータを参照中の処理は継続し得るため、
  * 呼出側は全利用者が停止するまで差し替え先と差し替え前のアロケータを生存させること。
- * @param Allocator 新しいデフォルトアロケータ (nullptr で FSystemAllocator に戻す)。
+ * @param Allocator 新しいデフォルトアロケータ (nullptr で CSystemAllocator に戻す)。
  */
-void SetDefaultAllocator(FAllocator* Allocator) noexcept;
+void SetDefaultAllocator(IAllocator* Allocator) noexcept;
 
 /**
  * 領域非重複コピー (::memcpy への薄いラッパ)。

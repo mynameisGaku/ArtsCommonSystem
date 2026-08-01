@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FMemorySystem 実装
+// ACS Memory — CMemorySystem 実装
 // -----------------------------------------------------------------------------
 // 通常セグメントは mimalloc first-class heap、フレーム一括寿命は arena を使う。
 // 「現在のセグメント」は TLS 変数で管理し、ScopedMemorySegment で push/pop。
@@ -29,7 +29,7 @@ ACS_THREAD_LOCAL ESegment tls_current_segment = ESegment::Default;
 namespace {
 
 /** frame(arena) セグメントのページ確保元。既定差し替え (SetDefaultAllocator) の影響を受けない独立 system allocator (再帰回避)。 */
-FSystemAllocator g_frame_backing;
+CSystemAllocator g_frame_backing;
 
 /** 1 セグメント分のアロケータホルダ。 */
 struct FSegmentSlot {
@@ -43,10 +43,10 @@ struct FSegmentSlot {
     bool initialized = false;
 
     /** 汎用アロケータ (use_frame_allocator=false のとき使用)。 */
-    FMimallocAllocator mimalloc;
+    CMimallocAllocator mimalloc;
 
     /** フレーム/スクラッチ用 arena (use_frame_allocator=true のとき placement-new で確保)。 */
-    FArenaAllocator* arena = nullptr;
+    CArenaAllocator* arena = nullptr;
 
     /** ハード予算 (バイト、0 で無制限)。 */
     u64 hard_budget_bytes = 0;
@@ -701,14 +701,14 @@ private:
 };
 
 /**
- * SegmentSlot を FAllocator インターフェイスとして公開するアダプタ。
+ * SegmentSlot を IAllocator インターフェイスとして公開するアダプタ。
  *
  * @details
  * 裏側の mimalloc / arena はどちらも内部でスレッド安全なので、ここではロックを取らない。
  * mimalloc と frame arena のハード予算は、どちらも確保中の予約量を含む CAS で厳密に守る。
  * arena は ResetTemp まで個別解放しないため、再確保時も新しい要求量を追加予約する。
  */
-class FSegmentAllocator final : public FAllocator {
+class FSegmentAllocator final : public IAllocator {
 public:
     /** 未バインド状態で構築する (使用前に Bind を呼ぶこと)。 */
     FSegmentAllocator() noexcept = default;
@@ -1095,10 +1095,10 @@ private:
      *
      * @return use_frame_allocator に応じた裏側アロケータ。
      */
-    FAllocator* Backing() const noexcept
+    IAllocator* Backing() const noexcept
     {
-        return m_Slot->use_frame_allocator ? static_cast<FAllocator*>(m_Slot->arena)
-                                           : static_cast<FAllocator*>(&m_Slot->mimalloc);
+        return m_Slot->use_frame_allocator ? static_cast<IAllocator*>(m_Slot->arena)
+                                           : static_cast<IAllocator*>(&m_Slot->mimalloc);
     }
 
     /** 委譲先のセグメントスロット (未バインドなら nullptr)。 */
@@ -1120,7 +1120,7 @@ struct FState {
     bool default_overridden = false;
 
     /** 差し替え前の既定アロケータ (Shutdown で復元する退避先)。 */
-    FAllocator* prev_default = nullptr;
+    IAllocator* prev_default = nullptr;
 };
 
 /** プロセス唯一のグローバル状態インスタンス。 */
@@ -1133,9 +1133,9 @@ bool IsValidSegment(ESegment Segment) noexcept
 }
 
 /** スロットが選択している具象アロケータを返す。 */
-FAllocator* BackingAllocator(FSegmentSlot& Slot) noexcept
+IAllocator* BackingAllocator(FSegmentSlot& Slot) noexcept
 {
-    return Slot.use_frame_allocator ? static_cast<FAllocator*>(Slot.arena) : static_cast<FAllocator*>(&Slot.mimalloc);
+    return Slot.use_frame_allocator ? static_cast<IAllocator*>(Slot.arena) : static_cast<IAllocator*>(&Slot.mimalloc);
 }
 
 /** 初期化済みスロットを破棄し、再初期化可能な状態へ戻す。 */
@@ -1147,7 +1147,7 @@ void DestroySegmentSlot(FSegmentSlot& Slot) noexcept
 
     if (Slot.use_frame_allocator) {
         if (Slot.arena) {
-            Slot.arena->~FArenaAllocator();
+            Slot.arena->~CArenaAllocator();
             (void)::HeapFree(::GetProcessHeap(), 0, Slot.arena);
             Slot.arena = nullptr;
         }
@@ -1171,7 +1171,7 @@ FMemorySegmentInspection InspectSegmentSlot(FSegmentSlot& Slot) noexcept
         return Result;
     }
 
-    FAllocator* const Allocator = BackingAllocator(Slot);
+    IAllocator* const Allocator = BackingAllocator(Slot);
     Result.allocator_name = Allocator->Name();
     Result.requested_bytes = Slot.use_frame_allocator
                                  ? Slot.frame_reserved_bytes.Load(EMemoryOrder::Acquire)
@@ -1220,7 +1220,7 @@ FMemoryLeakSummary CaptureLeakSummaryWithoutLifecycleGate() noexcept
 } // namespace
 
 // 既定設定（小規模テスト用、すぐ動かしたいとき向け）
-FMemorySystemConfig FMemorySystem::DefaultConfig() noexcept
+FMemorySystemConfig CMemorySystem::DefaultConfig() noexcept
 {
     FMemorySystemConfig Configuration{};
     auto Setup = [](FSegmentConfig& SegmentConfiguration, ESegment Segment, u64 HardBudgetBytes,
@@ -1238,13 +1238,13 @@ FMemorySystemConfig FMemorySystem::DefaultConfig() noexcept
 }
 
 // 全セグメントを設定で初期化
-TResult<void> FMemorySystem::Init(const FMemorySystemConfig& Configuration) noexcept
+TResult<void> CMemorySystem::Init(const FMemorySystemConfig& Configuration) noexcept
 {
     FMemorySystemLifecycleControlScope LifecycleControl;
     const u64 PreviousLifecycleToken = g_MemorySystemLifecycleToken.Load(EMemoryOrder::Acquire);
     if (MemorySystemLifecycleStateOf(PreviousLifecycleToken) != EMemorySystemLifecycleState::Uninitialized)
     {
-        return ACS_ERR(Memory, 30, "FMemorySystem already initialized");
+        return ACS_ERR(Memory, 30, "CMemorySystem already initialized");
     }
 
     for (usize Index = 0; Index < static_cast<usize>(ESegment::_Count); ++Index)
@@ -1281,13 +1281,13 @@ TResult<void> FMemorySystem::Init(const FMemorySystemConfig& Configuration) noex
         {
             (void)AdvanceFrameAllocationGeneration(Slot);
             // ページは既定差し替えの影響を受けない system allocator から確保する。
-            Slot.arena = static_cast<FArenaAllocator*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(FArenaAllocator)));
+            Slot.arena = static_cast<CArenaAllocator*>(::HeapAlloc(::GetProcessHeap(), 0, sizeof(CArenaAllocator)));
             if (!Slot.arena)
             {
                 Failure = ACS_ERR(Memory, 31, "frame arena allocation failed");
                 break;
             }
-            ::new (Slot.arena) FArenaAllocator(usize{1u} * 1024u * 1024u, &g_frame_backing);
+            ::new (Slot.arena) CArenaAllocator(usize{1u} * 1024u * 1024u, &g_frame_backing);
         }
         else
         {
@@ -1333,11 +1333,11 @@ TResult<void> FMemorySystem::Init(const FMemorySystemConfig& Configuration) noex
 #endif
     ACS_LOG_INFO("[acs][memory] initialized=true general_allocator=mimalloc mimalloc_version=%d "
                  "re_engine_page_profile=%s frame_allocator=arena",
-                 FMimallocAllocator::RuntimeVersion(), kReEnginePageProfileEnabled);
+                 CMimallocAllocator::RuntimeVersion(), kReEnginePageProfileEnabled);
     return Ok();
 }
 
-void FMemorySystem::Shutdown() noexcept
+void CMemorySystem::Shutdown() noexcept
 {
     FMemorySystemLifecycleControlScope LifecycleControl;
     const u64 RunningLifecycleToken = g_MemorySystemLifecycleToken.Load(EMemoryOrder::Acquire);
@@ -1484,7 +1484,7 @@ void FMemorySystem::Shutdown() noexcept
         EMemoryOrder::Release);
 }
 
-FAllocator* FMemorySystem::Get(ESegment Segment) noexcept
+IAllocator* CMemorySystem::Get(ESegment Segment) noexcept
 {
     if (!IsValidSegment(Segment))
     {
@@ -1498,18 +1498,18 @@ FAllocator* FMemorySystem::Get(ESegment Segment) noexcept
     return &g_state.allocators[static_cast<usize>(Segment)];
 }
 
-ESegment FMemorySystem::Current() noexcept
+ESegment CMemorySystem::Current() noexcept
 {
     return tls_current_segment;
 }
 
-FAllocator* FMemorySystem::CurrentAllocator() noexcept
+IAllocator* CMemorySystem::CurrentAllocator() noexcept
 {
     return Get(tls_current_segment);
 }
 
 // Temp セグメントを巻き戻す（フレーム先頭で 1 回呼ぶ）
-void FMemorySystem::ResetTemp() noexcept
+void CMemorySystem::ResetTemp() noexcept
 {
     FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
@@ -1529,7 +1529,7 @@ void FMemorySystem::ResetTemp() noexcept
 }
 
 // 全セグメントの統計を Output に詰める
-u32 FMemorySystem::GetStats(FSegmentStats* Output, u32 OutputCapacity) noexcept
+u32 CMemorySystem::GetStats(FSegmentStats* Output, u32 OutputCapacity) noexcept
 {
     if (!Output || OutputCapacity == 0)
     {
@@ -1548,7 +1548,7 @@ u32 FMemorySystem::GetStats(FSegmentStats* Output, u32 OutputCapacity) noexcept
         {
             continue;
         }
-        FAllocator* const Allocator = BackingAllocator(Slot);
+        IAllocator* const Allocator = BackingAllocator(Slot);
         FSegmentStats& Statistics = Output[WrittenCount++];
         Statistics.segment = Slot.segment;
         Statistics.segment_name = ToString(Slot.segment);
@@ -1565,7 +1565,7 @@ u32 FMemorySystem::GetStats(FSegmentStats* Output, u32 OutputCapacity) noexcept
     return WrittenCount;
 }
 
-FMemorySegmentInspection FMemorySystem::InspectSegmentMemory(ESegment Segment) noexcept
+FMemorySegmentInspection CMemorySystem::InspectSegmentMemory(ESegment Segment) noexcept
 {
     FMemorySegmentInspection Result;
     Result.segment = Segment;
@@ -1581,7 +1581,7 @@ FMemorySegmentInspection FMemorySystem::InspectSegmentMemory(ESegment Segment) n
     return InspectSegmentSlot(g_state.slots[static_cast<usize>(Segment)]);
 }
 
-FMemoryLeakSummary FMemorySystem::CaptureLeakSummary() noexcept
+FMemoryLeakSummary CMemorySystem::CaptureLeakSummary() noexcept
 {
     FMemorySystemOperationScope Operation;
     if (!Operation.WasAdmitted())
@@ -1591,7 +1591,7 @@ FMemoryLeakSummary FMemorySystem::CaptureLeakSummary() noexcept
     return CaptureLeakSummaryWithoutLifecycleGate();
 }
 
-FMemoryTrackingCheckpoint FMemorySystem::CaptureMemoryTrackingCheckpoint() noexcept
+FMemoryTrackingCheckpoint CMemorySystem::CaptureMemoryTrackingCheckpoint() noexcept
 {
     FMemoryTrackingCheckpoint Checkpoint;
 #if ACS_MEMORY_TRACK_ALLOCATION_SITES
@@ -1604,14 +1604,14 @@ FMemoryTrackingCheckpoint FMemorySystem::CaptureMemoryTrackingCheckpoint() noexc
     return Checkpoint;
 }
 
-FMemoryTrackingReport FMemorySystem::CollectOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
+FMemoryTrackingReport CMemorySystem::CollectOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
                                                                         FOutstandingMemoryAllocation* Output,
                                                                         u32 OutputCapacity) noexcept
 {
     return CollectTrackedAllocations(Checkpoint, Output, OutputCapacity);
 }
 
-FMemoryTrackingReport FMemorySystem::DumpOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
+FMemoryTrackingReport CMemorySystem::DumpOutstandingMemoryAllocations(FMemoryTrackingCheckpoint Checkpoint,
                                                                      u32 MaximumLoggedAllocationCount) noexcept
 {
     FMemoryTrackingReport Report = CollectTrackedAllocations(Checkpoint, nullptr, 0);
@@ -1689,7 +1689,7 @@ FMemoryTrackingReport FMemorySystem::DumpOutstandingMemoryAllocations(FMemoryTra
     return Report;
 }
 
-void FMemorySystem::SetBreakOnAllocationSequence(u64 AllocationSequence) noexcept
+void CMemorySystem::SetBreakOnAllocationSequence(u64 AllocationSequence) noexcept
 {
 #if ACS_MEMORY_TRACK_ALLOCATION_SITES
     ::AcquireSRWLockExclusive(&g_allocation_tracking.lock);
@@ -1700,7 +1700,7 @@ void FMemorySystem::SetBreakOnAllocationSequence(u64 AllocationSequence) noexcep
 #endif
 }
 
-bool FMemorySystem::IsAllocationSiteTrackingEnabled() noexcept
+bool CMemorySystem::IsAllocationSiteTrackingEnabled() noexcept
 {
 #if ACS_MEMORY_TRACK_ALLOCATION_SITES
     return true;

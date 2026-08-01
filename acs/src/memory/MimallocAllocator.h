@@ -2,7 +2,7 @@
 // =============================================================================
 // ACS Memory - mimalloc first-class heap アロケータ
 // -----------------------------------------------------------------------------
-// mimalloc の first-class heap を ACS の FAllocator 契約へ接続する。
+// mimalloc の first-class heap を ACS の IAllocator 契約へ接続する。
 // 要求サイズ、件数、ハード予算、サイズ分布は ACS 側で追跡し、mimalloc の
 // usable size やプロセス全体統計には依存しない。
 // =============================================================================
@@ -92,7 +92,7 @@ struct FMimallocReallocationResult
  * ハード予算は atomic な予約カウンタで守る。生存中の要求量に確保処理中の要求量も
  * 加えた値が上限を超える操作は、mimalloc を呼ぶ前に失敗する。
  */
-class FMimallocAllocator final : public FAllocator {
+class CMimallocAllocator final : public IAllocator {
 public:
     /** 小サイズ帯の上限 (4 KiB、境界を含む)。 */
     static constexpr u64 kSmallAllocationMaximumBytes = 4ull * 1024ull;
@@ -101,22 +101,22 @@ public:
     static constexpr u64 kMediumAllocationMaximumBytes = 1024ull * 1024ull;
 
     /** 未初期化状態で構築する。使用前に Init を呼ぶこと。 */
-    FMimallocAllocator() noexcept = default;
+    CMimallocAllocator() noexcept = default;
 
     /** ヒープを破棄する。未解放確保があれば FLogger 非依存の診断を出す。 */
-    ~FMimallocAllocator() noexcept override;
+    ~CMimallocAllocator() noexcept override;
 
     /** ヒープを単独所有するためコピーしない。 */
-    FMimallocAllocator(const FMimallocAllocator&) = delete;
+    CMimallocAllocator(const CMimallocAllocator&) = delete;
 
     /** ヒープを単独所有するためコピー代入しない。 */
-    FMimallocAllocator& operator=(const FMimallocAllocator&) = delete;
+    CMimallocAllocator& operator=(const CMimallocAllocator&) = delete;
 
     /** ライフサイクルと atomic カウンタの所有者を固定するためムーブしない。 */
-    FMimallocAllocator(FMimallocAllocator&&) = delete;
+    CMimallocAllocator(CMimallocAllocator&&) = delete;
 
     /** ライフサイクルと atomic カウンタの所有者を固定するためムーブ代入しない。 */
-    FMimallocAllocator& operator=(FMimallocAllocator&&) = delete;
+    CMimallocAllocator& operator=(CMimallocAllocator&&) = delete;
 
     /**
      * first-class heap を作成し、利用可能状態にする。
@@ -196,7 +196,7 @@ public:
      * Pointer が現在の世代のこのアロケータから払い出された利用者ポインタかを検証する。
      *
      * @details
-     * Pointer は nullptr、または生存中の FMimallocAllocator が返した正規の先頭ポインタに
+     * Pointer は nullptr、または生存中の CMimallocAllocator が返した正規の先頭ポインタに
      * 限る。任意アドレス、領域内部、Free 完了後の古いポインタを調べる一般的なアドレス範囲
      * API ではない。raw pointer だけでは、解放後に同じアドレスへ別確保が再配置された ABA を
      * 識別できない。
@@ -366,5 +366,8 @@ private:
     /** 大サイズ確保の現在要求バイト合計。 */
     TAtomic<u64> m_LargeRequestedBytes{0};
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FMimallocAllocator = CMimallocAllocator;
 
 } // namespace acs

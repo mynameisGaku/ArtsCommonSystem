@@ -168,7 +168,7 @@ constexpr const char* ToString(ELogSeverity s) noexcept
 }
 
 /**
- * FLogger の初期化設定。
+ * CLogger の初期化設定。
  */
 struct FLogConfig {
     /** ログファイルのパス (nullptr ならファイル出力を無効化)。 */
@@ -194,7 +194,7 @@ struct FLogConfig {
  * Vyukov 風 MPMC リングにレコードを積み、専用ライタースレッドが取り出して
  * コンソール / ファイル / デバッガに書き出す。全メンバが static のシングルトン。
  */
-class FLogger {
+class CLogger {
 public:
     /**
      * ロガーを初期化する (多重呼び出しは無視)。
@@ -401,19 +401,22 @@ public:
     }
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FLogger = CLogger;
+
 } // acs 名前空間
 
 // 内部マクロ: 指定レベルが有効ならログを出力
 #define ACS_LOG(sev, fmt, ...)                                                                                          \
     do {                                                                                                                \
-        if (::acs::FLogger::Enabled(sev))                                                                               \
-            ::acs::FLogger::WriteDispatch(sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);           \
+        if (::acs::CLogger::Enabled(sev))                                                                               \
+            ::acs::CLogger::WriteDispatch(sev, ::acs::FSourceLoc::Current(), fmt __VA_OPT__(,) __VA_ARGS__);           \
     } while (0)
 
 // 固定レベルは if constexpr で無効レベルの引数評価とコード生成を完全に除去する。
 #define ACS_LOG_STATIC(sev, fmt, ...)                                                \
     do {                                                                            \
-        if constexpr (::acs::FLogger::CompiledEnabled<sev>()) {                     \
+        if constexpr (::acs::CLogger::CompiledEnabled<sev>()) {                     \
             ACS_LOG(sev, fmt __VA_OPT__(,) __VA_ARGS__);                            \
         }                                                                           \
     } while (0)

@@ -43,7 +43,7 @@ ACS_FORCEINLINE TRc<T> MakeRc(Args&&... args) noexcept {
  * @return 構築した対象を共有所有する TRc (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TRc<T> MakeRcIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TRc<T> MakeRcIn(IAllocator& a, Args&&... args) noexcept {
     return MakeSharedIn<T>(a, Forward<Args>(args)...);
 }
 

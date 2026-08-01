@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — グローバルアロケータ実装 + FAllocator::Realloc デフォルト
+// ACS Memory — グローバルアロケータ実装 + IAllocator::Realloc デフォルト
 // -----------------------------------------------------------------------------
 // CRT (memcpy/memmove/memset/memcmp) は SSE/AVX で最適化されているため、
 // そのまま委譲する。自前実装するメリットは皆無に近い。
@@ -21,27 +21,27 @@ namespace {
  * @details 別翻訳単位の静的オブジェクトから起動時・終了時に呼ばれても、構築順と
  * 破棄順に依存しない。OS がプロセスヒープとともに最終回収する。
  */
-FSystemAllocator& ProcessSystemAllocator() noexcept
+CSystemAllocator& ProcessSystemAllocator() noexcept
 {
-    alignas(FSystemAllocator) static byte Storage[sizeof(FSystemAllocator)] = {};
-    static FSystemAllocator* Allocator = ::new (static_cast<void*>(Storage)) FSystemAllocator();
+    alignas(CSystemAllocator) static byte Storage[sizeof(CSystemAllocator)] = {};
+    static CSystemAllocator* Allocator = ::new (static_cast<void*>(Storage)) CSystemAllocator();
     return *Allocator;
 }
 
 /** 現在の既定アロケータを保持する、初回利用時構築のatomicスロット。 */
-TAtomic<FAllocator*>& DefaultAllocatorSlot() noexcept
+TAtomic<IAllocator*>& DefaultAllocatorSlot() noexcept
 {
-    static TAtomic<FAllocator*> Allocator{&ProcessSystemAllocator()};
+    static TAtomic<IAllocator*> Allocator{&ProcessSystemAllocator()};
     return Allocator;
 }
 } // namespace
 
-FAllocator& DefaultAllocator() noexcept
+IAllocator& DefaultAllocator() noexcept
 {
     return *DefaultAllocatorSlot().Load(EMemoryOrder::Acquire);
 }
 
-void SetDefaultAllocator(FAllocator* Allocator) noexcept
+void SetDefaultAllocator(IAllocator* Allocator) noexcept
 {
     DefaultAllocatorSlot().Store(Allocator ? Allocator : &ProcessSystemAllocator(), EMemoryOrder::Release);
 }
@@ -72,7 +72,7 @@ int MemCmp(const void* Left, const void* Right, usize Size) noexcept
  * @details
  * 派生アロケータが override しない場合のフォールバック。NewSize==0 なら Free して
  * nullptr を返す。新規確保に失敗したら旧領域を保持したまま nullptr を返す (旧データは無傷)。
- * 効率的な in-place realloc を持つ実装 (FTlsfAllocator 等) は override すべき。
+ * 効率的な in-place realloc を持つ実装 (CTlsfAllocator 等) は override すべき。
  * @param Pointer 既存の確保 (nullptr なら新規 Alloc 相当)。
  * @param OldSize 旧サイズ (コピーするバイト数の決定に使う)。
  * @param NewSize 新サイズ (0 なら解放のみ)。
@@ -80,7 +80,7 @@ int MemCmp(const void* Left, const void* Right, usize Size) noexcept
  * @param Location 診断用の呼び出し位置。
  * @return 新しい確保 (失敗時や NewSize==0 のとき nullptr)。
  */
-void* FAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment, FSourceLoc Location) noexcept
+void* IAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment, FSourceLoc Location) noexcept
 {
     if (NewSize == 0) {
         Free(Pointer);

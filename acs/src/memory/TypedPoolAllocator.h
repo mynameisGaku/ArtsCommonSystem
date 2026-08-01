@@ -32,7 +32,7 @@ public:
      *
      * @param BackingAllocator ストレージの確保元。nullptr は既定アロケータを使う。
      */
-    explicit TTypedPoolAllocator(FAllocator* BackingAllocator = nullptr) noexcept
+    explicit TTypedPoolAllocator(IAllocator* BackingAllocator = nullptr) noexcept
         : m_Pool(kBlockSize, Capacity, kAlignment, BackingAllocator)
     {
     }
@@ -111,14 +111,14 @@ public:
     u64 LockAcquisitionCount() const noexcept { return m_Pool.LockAcquisitionCount(); }
 
     /** 型なしプールへ可変参照でアクセスする。 */
-    FPoolAllocator& Untyped() noexcept { return m_Pool; }
+    CPoolAllocator& Untyped() noexcept { return m_Pool; }
 
     /** 型なしプールへ読み取り専用参照でアクセスする。 */
-    const FPoolAllocator& Untyped() const noexcept { return m_Pool; }
+    const CPoolAllocator& Untyped() const noexcept { return m_Pool; }
 
 private:
     /** 実ストレージと所有状態を管理する型なしプール。 */
-    FPoolAllocator m_Pool;
+    CPoolAllocator m_Pool;
 };
 
 } // namespace acs

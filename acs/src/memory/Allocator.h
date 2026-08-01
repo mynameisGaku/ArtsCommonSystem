@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ACS Memory — アロケータ抽象インターフェイス
 //
-// すべてのコンテナ・スマートポインタ・サブシステムは FAllocator* を介して
+// すべてのコンテナ・スマートポインタ・サブシステムは IAllocator* を介して
 // メモリ確保を行う。これによりプール / アリーナ / サンドボックスアロケータ
 // を呼び出し側を再テンプレート化することなく差し替えられる。
 //
@@ -13,7 +13,7 @@
 // 性能注意:
 //   virtual 呼び出しのコスト（vtable 1 段間接 + 仮想関数 prediction miss）が
 //   ホットパス（毎フレーム数千回）で問題になる場合は、テンプレート化された
-//   薄いアダプタ越しに呼ぶか、ヒューリスティック inline 候補（FPoolAllocator
+//   薄いアダプタ越しに呼ぶか、ヒューリスティック inline 候補（CPoolAllocator
 //   の固定サイズ確保等）を別 API で公開すること。
 #pragma once
 
@@ -40,10 +40,10 @@ inline constexpr usize kDefaultAlignment = alignof(void*) > 8 ? alignof(void*) :
  * 確保/解放を行うため、具象アロケータ (プール/アリーナ等) を呼び出し側を変えずに
  * 差し替えられる。具象実装はスレッドセーフで、確保失敗時は nullptr を返し例外は投げない。
  */
-class FAllocator {
+class IAllocator {
 public:
     /** 派生アロケータを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FAllocator() noexcept = default;
+    virtual ~IAllocator() noexcept = default;
 
     /**
      * size バイトを alignment 整列で確保する。
@@ -123,11 +123,11 @@ public:
     /**
      * アロケータの識別名を返す。
      *
-     * @return アロケータ名 (既定は "FAllocator"。実装側で上書き)。
+     * @return アロケータ名 (既定は "IAllocator"。実装側で上書き)。
      */
     virtual const char* Name() const noexcept
     {
-        return "FAllocator";
+        return "IAllocator";
     }
 
     /**
@@ -142,6 +142,9 @@ public:
         return Alloc(Size, kDefaultAlignment, Location);
     }
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FAllocator = IAllocator;
 
 /**
  * Value が 2 のべき乗かを判定する。

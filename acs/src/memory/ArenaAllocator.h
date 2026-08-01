@@ -18,7 +18,7 @@ namespace acs {
  * 遅延再利用するか、全ページを backing に返す。Reset は開始済みの Alloc が完了するまで待ち、
  * Reset 開始後の Alloc は nullptr で拒否する。
  */
-class FArenaAllocator final : public FAllocator {
+class CArenaAllocator final : public IAllocator {
 public:
     /**
      * 1 ページあたりのサイズと backing を指定して構築する (ページは遅延確保)。
@@ -26,16 +26,16 @@ public:
      * @param PageSize 1 ページのデータ領域サイズ (既定 64KiB)。
      * @param BackingAllocator ページの確保元 (nullptr なら DefaultAllocator)。
      */
-    FArenaAllocator(usize PageSize = 64 * 1024, FAllocator* BackingAllocator = nullptr) noexcept;
+    CArenaAllocator(usize PageSize = 64 * 1024, IAllocator* BackingAllocator = nullptr) noexcept;
 
     /** 全ページを backing に返して破棄する。 */
-    ~FArenaAllocator() noexcept override;
+    ~CArenaAllocator() noexcept override;
 
     /** コピー禁止 (ページ群を単独所有するため)。 */
-    FArenaAllocator(const FArenaAllocator&) = delete;
+    CArenaAllocator(const CArenaAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FArenaAllocator& operator=(const FArenaAllocator&) = delete;
+    CArenaAllocator& operator=(const CArenaAllocator&) = delete;
 
     /**
      * 現在ページから alignment 整列で size バイトを切り出す (満杯なら新ページを確保)。
@@ -189,7 +189,7 @@ private:
     void EndAllocation() noexcept;
 
     /** ページの確保元アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** 1 ページのデータ領域サイズ。 */
     usize m_PageSize = 0;
@@ -233,5 +233,8 @@ private:
     /** 最後の Reset 以降に遅延初期化した page 数。 */
     TAtomic<u64> m_LazyPageResetCount{0};
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FArenaAllocator = CArenaAllocator;
 
 } // namespace acs

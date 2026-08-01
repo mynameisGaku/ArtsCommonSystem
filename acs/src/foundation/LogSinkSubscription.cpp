@@ -30,7 +30,7 @@ FLogSinkSubscription& FLogSinkSubscription::operator=(FLogSinkSubscription&& oth
 /** 保持中の購読が現在の Logger 世代でも有効かを返す。 */
 bool FLogSinkSubscription::IsValid() const noexcept
 {
-    return FLogger::IsSinkSubscribed(m_Handle);
+    return CLogger::IsSinkSubscribed(m_Handle);
 }
 
 /** 保持中の購読を解除し、解除できたかを返す。 */
@@ -38,7 +38,7 @@ bool FLogSinkSubscription::Reset() noexcept
 {
     const FLogSinkHandle handle = m_Handle;
     m_Handle = {};
-    return FLogger::UnsubscribeSink(handle);
+    return CLogger::UnsubscribeSink(handle);
 }
 
 } // namespace acs

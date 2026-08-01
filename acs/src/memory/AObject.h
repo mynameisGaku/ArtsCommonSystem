@@ -4,7 +4,7 @@
 namespace acs {
 
 /** オブジェクトの確保元として使うアロケータの前方宣言。 */
-class FAllocator;
+class IAllocator;
 
 /** オブジェクトへの強参照ポインタの前方宣言。 */
 template<typename T> class TObjectPtr;
@@ -21,7 +21,7 @@ struct FControlBlock;
 
 /** 指定アロケータでAObject派生型を生成する関数の前方宣言。 */
 template<typename T, typename... Args>
-TObjectPtr<T> NewObjectIn(FAllocator& Allocator, Args&&... Arguments) noexcept;
+TObjectPtr<T> NewObjectIn(IAllocator& Allocator, Args&&... Arguments) noexcept;
 
 /**
  * 参照カウント管理されるACSオブジェクトの基底。
@@ -66,7 +66,7 @@ private:
 
     /** NewObjectInが逆ポインタを設定するためのfriend宣言。 */
     template<typename U, typename... Args>
-    friend TObjectPtr<U> NewObjectIn(FAllocator& Allocator, Args&&... Arguments) noexcept;
+    friend TObjectPtr<U> NewObjectIn(IAllocator& Allocator, Args&&... Arguments) noexcept;
 };
 
 /** 旧名を使う既存コード向けの一時的な互換別名。 */

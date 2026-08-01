@@ -15,7 +15,7 @@
 // 典型的な使用例:
 //   TResult<FFile, FErrorCode> r = OpenFile("foo");
 //   if (!r) {
-//       FLogger::Error("open failed: %s", r.Error().message);
+//       CLogger::Error("open failed: %s", r.Error().message);
 //       return;
 //   }
 //   FFile& f = r.Value();

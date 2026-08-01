@@ -5,7 +5,7 @@
 
 namespace acs {
 
-/** 破棄時に FLogger のログ購読を解除する移動専用所有権。 */
+/** 破棄時に CLogger のログ購読を解除する移動専用所有権。 */
 class FLogSinkSubscription {
 public:
     /** 購読を持たない空の所有権を作る。 */
@@ -53,7 +53,7 @@ private:
     FLogSinkHandle m_Handle{};
 
     /** 所有権付き購読を生成する Logger。 */
-    friend class FLogger;
+    friend class CLogger;
 };
 
 } // namespace acs

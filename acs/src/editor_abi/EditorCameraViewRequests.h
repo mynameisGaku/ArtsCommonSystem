@@ -74,7 +74,7 @@ static_assert(sizeof(FSnapshot) == 60u);
  * target-generation and history-generation metadata for a later bounded
  * offscreen scheduler.
  */
-class FRegistry {
+class CRegistry {
 public:
     [[nodiscard]] bool Create(
         std::int32_t camera_node_id,
@@ -474,5 +474,8 @@ private:
     FRecord m_Records[kMaximumRequests]{};
     std::uint64_t m_PresenterRequestId = 0u;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FRegistry = CRegistry;
 
 } // namespace acs::editor_camera_view

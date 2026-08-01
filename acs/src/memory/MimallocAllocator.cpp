@@ -15,7 +15,7 @@ namespace acs {
 
 namespace {
 
-/** 全 FMimallocAllocator に共通する mimalloc プロセス設定の初期化状態。 */
+/** 全 CMimallocAllocator に共通する mimalloc プロセス設定の初期化状態。 */
 TAtomic<u32> g_process_configuration_state{0};
 
 /** 全アロケータの Init 世代を一意化する採番器。0 は未初期化用に予約する。 */
@@ -63,7 +63,7 @@ struct FAllocationHeader
     alignas(sizeof(u32)) volatile u32 State = 0u;
 
     u64 Magic = 0;
-    const FMimallocAllocator* Owner = nullptr;
+    const CMimallocAllocator* Owner = nullptr;
     u64 Generation = 0;
     u64 RequestedBytes = 0;
     usize EffectiveAlignment = 0;
@@ -221,7 +221,7 @@ bool CalculateAllocationSize(usize RequestedSize, usize EffectiveAlignment, usiz
 }
 
 /** 生ブロックに ACS ヘッダと利用者ポインタ直前プレフィックスを設定する。 */
-void* InitializeAllocationMetadata(void* AllocationBase, FMimallocAllocator* Owner, u64 Generation, usize RequestedSize,
+void* InitializeAllocationMetadata(void* AllocationBase, CMimallocAllocator* Owner, u64 Generation, usize RequestedSize,
                                    usize EffectiveAlignment) noexcept
 {
     auto* Header = static_cast<FAllocationHeader*>(AllocationBase);
@@ -245,7 +245,7 @@ void* InitializeAllocationMetadata(void* AllocationBase, FMimallocAllocator* Own
 }
 
 /** 所有者、世代、位置、アライメントを含めてヘッダとプレフィックスを検証する。 */
-const FAllocationHeader* ValidateAllocationMetadata(const FMimallocAllocator* Owner, const void* Heap, u64 Generation,
+const FAllocationHeader* ValidateAllocationMetadata(const CMimallocAllocator* Owner, const void* Heap, u64 Generation,
                                                    const void* Pointer) noexcept
 {
     if (!Owner || !Heap || !Pointer) {
@@ -305,7 +305,7 @@ const FAllocationHeader* ValidateAllocationMetadata(const FMimallocAllocator* Ow
 }
 
 /** 未解放を伴う破棄を Logger に依存せず stderr とデバッガへ出力する。 */
-void EmitDestroyedWithLiveAllocations(const FMimallocAllocator* Allocator, u64 OutstandingAllocationCount,
+void EmitDestroyedWithLiveAllocations(const CMimallocAllocator* Allocator, u64 OutstandingAllocationCount,
                                       u64 OutstandingBytes, u64 HardBudgetBytes) noexcept
 {
     FMimallocDiagnosticBuffer Message;
@@ -331,7 +331,7 @@ void EmitDestroyedWithLiveAllocations(const FMimallocAllocator* Allocator, u64 O
 
 /** ブロック列挙コールバックが更新する内部状態。 */
 struct FHeapInspectionContext {
-    const FMimallocAllocator* Owner = nullptr;
+    const CMimallocAllocator* Owner = nullptr;
     u64 Generation = 0;
     FMimallocHeapInspectionStatistics Statistics = {};
 };
@@ -394,10 +394,10 @@ bool mi_cdecl VisitHeapBlock(const mi_heap_t*, const mi_heap_area_t* Area, void*
 } // namespace
 
 /** 公開操作の入場登録をスコープ終了時に必ず解除する。 */
-class FMimallocAllocator::FLifecycleOperation final
+class CMimallocAllocator::FLifecycleOperation final
 {
 public:
-    explicit FLifecycleOperation(const FMimallocAllocator& Allocator) noexcept
+    explicit FLifecycleOperation(const CMimallocAllocator& Allocator) noexcept
         : m_Allocator(&Allocator)
         , m_bAdmitted(Allocator.TryBeginLifecycleOperation())
     {
@@ -421,13 +421,13 @@ public:
 
 private:
     /** 入場先アロケータ。ガードより長く生存する。 */
-    const FMimallocAllocator* m_Allocator = nullptr;
+    const CMimallocAllocator* m_Allocator = nullptr;
 
     /** Running 中の公開操作として登録済みなら true。 */
     bool m_bAdmitted = false;
 };
 
-bool FMimallocAllocator::TryBeginLifecycleOperation() const noexcept
+bool CMimallocAllocator::TryBeginLifecycleOperation() const noexcept
 {
     u64 GateValue = m_LifecycleGate.Load(EMemoryOrder::Acquire);
     const u64 EntryGeneration = GateValue & kLifecycleGenerationMask;
@@ -442,7 +442,7 @@ bool FMimallocAllocator::TryBeginLifecycleOperation() const noexcept
         const u64 OperationCount = GateValue & kLifecycleOperationCountMask;
         if (OperationCount == kLifecycleOperationCountMask)
         {
-            ACS_ASSERT(false && "FMimallocAllocator: lifecycle operation count overflow");
+            ACS_ASSERT(false && "CMimallocAllocator: lifecycle operation count overflow");
             return false;
         }
 
@@ -455,7 +455,7 @@ bool FMimallocAllocator::TryBeginLifecycleOperation() const noexcept
     return false;
 }
 
-void FMimallocAllocator::EndLifecycleOperation() const noexcept
+void CMimallocAllocator::EndLifecycleOperation() const noexcept
 {
     u64 GateValue = m_LifecycleGate.Load(EMemoryOrder::Acquire);
     for (;;)
@@ -485,7 +485,7 @@ void FMimallocAllocator::EndLifecycleOperation() const noexcept
     }
 }
 
-void FMimallocAllocator::CloseLifecycleGateAndWait() noexcept
+void CMimallocAllocator::CloseLifecycleGateAndWait() noexcept
 {
     m_LifecycleGate.FetchAnd(~kLifecycleAcceptingBit);
 
@@ -496,7 +496,7 @@ void FMimallocAllocator::CloseLifecycleGateAndWait() noexcept
     }
 }
 
-void FMimallocAllocator::OpenLifecycleGate() noexcept
+void CMimallocAllocator::OpenLifecycleGate() noexcept
 {
     const u64 ClosedGateValue = m_LifecycleGate.Load(EMemoryOrder::Acquire);
     ACS_ASSERT((ClosedGateValue & kLifecycleAcceptingBit) == 0u);
@@ -511,23 +511,23 @@ void FMimallocAllocator::OpenLifecycleGate() noexcept
     m_LifecycleGate.Store(kLifecycleAcceptingBit | NextGeneration, EMemoryOrder::Release);
 }
 
-FMimallocAllocator::~FMimallocAllocator() noexcept
+CMimallocAllocator::~CMimallocAllocator() noexcept
 {
     Shutdown();
 }
 
-TResult<void> FMimallocAllocator::Init(u64 BudgetBytes) noexcept
+TResult<void> CMimallocAllocator::Init(u64 BudgetBytes) noexcept
 {
     FScopedLock LifecycleControlLock(m_LifecycleControlLock);
     if (m_Heap)
     {
-        return ACS_ERR(Memory, 70, "FMimallocAllocator already initialized");
+        return ACS_ERR(Memory, 70, "CMimallocAllocator already initialized");
     }
 
     ConfigureMimallocProcessOnce();
     mi_heap_t* Heap = mi_heap_new();
     if (!Heap) {
-        return ACS_ERR(Memory, 71, "FMimallocAllocator heap creation failed");
+        return ACS_ERR(Memory, 71, "CMimallocAllocator heap creation failed");
     }
 
     m_Heap = Heap;
@@ -554,7 +554,7 @@ TResult<void> FMimallocAllocator::Init(u64 BudgetBytes) noexcept
     return {};
 }
 
-void FMimallocAllocator::Shutdown() noexcept
+void CMimallocAllocator::Shutdown() noexcept
 {
     FScopedLock LifecycleControlLock(m_LifecycleControlLock);
     CloseLifecycleGateAndWait();
@@ -590,7 +590,7 @@ void FMimallocAllocator::Shutdown() noexcept
     m_LargeRequestedBytes.Store(0u, EMemoryOrder::Release);
 }
 
-void* FMimallocAllocator::Alloc(usize Size, usize Alignment, FSourceLoc) noexcept
+void* CMimallocAllocator::Alloc(usize Size, usize Alignment, FSourceLoc) noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     if (!LifecycleOperation.WasAdmitted())
@@ -600,7 +600,7 @@ void* FMimallocAllocator::Alloc(usize Size, usize Alignment, FSourceLoc) noexcep
     return AllocateAfterLifecycleAdmission(Size, Alignment);
 }
 
-void* FMimallocAllocator::AllocateAfterLifecycleAdmission(usize Size, usize Alignment) noexcept
+void* CMimallocAllocator::AllocateAfterLifecycleAdmission(usize Size, usize Alignment) noexcept
 {
     if (!m_Heap || Size == 0u || !IsPow2(Alignment))
     {
@@ -632,12 +632,12 @@ void* FMimallocAllocator::AllocateAfterLifecycleAdmission(usize Size, usize Alig
     return UserPointer;
 }
 
-void FMimallocAllocator::Free(void* Pointer) noexcept
+void CMimallocAllocator::Free(void* Pointer) noexcept
 {
     (void)TryFreeAllocation(Pointer);
 }
 
-bool FMimallocAllocator::TryFreeAllocation(void* Pointer) noexcept
+bool CMimallocAllocator::TryFreeAllocation(void* Pointer) noexcept
 {
     if (!Pointer)
     {
@@ -663,7 +663,7 @@ bool FMimallocAllocator::TryFreeAllocation(void* Pointer) noexcept
     return bReleased;
 }
 
-bool FMimallocAllocator::FreeAfterLifecycleAdmission(void* Pointer, bool& bCollectionRequested) noexcept
+bool CMimallocAllocator::FreeAfterLifecycleAdmission(void* Pointer, bool& bCollectionRequested) noexcept
 {
     bCollectionRequested = false;
     const FAllocationHeader* ConstHeader = nullptr;
@@ -692,7 +692,7 @@ bool FMimallocAllocator::FreeAfterLifecycleAdmission(void* Pointer, bool& bColle
     return true;
 }
 
-void* FMimallocAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
+void* CMimallocAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
                                   FSourceLoc Location) noexcept
 {
     (void)OldSize;
@@ -705,7 +705,7 @@ void* FMimallocAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, u
     return Result.Pointer;
 }
 
-FMimallocReallocationResult FMimallocAllocator::TryReallocateAllocation(void* Pointer, usize NewSize,
+FMimallocReallocationResult CMimallocAllocator::TryReallocateAllocation(void* Pointer, usize NewSize,
                                                                        usize Alignment) noexcept
 {
     bool bCollectionRequested = false;
@@ -726,7 +726,7 @@ FMimallocReallocationResult FMimallocAllocator::TryReallocateAllocation(void* Po
     return Result;
 }
 
-FMimallocReallocationResult FMimallocAllocator::ReallocateAfterLifecycleAdmission(
+FMimallocReallocationResult CMimallocAllocator::ReallocateAfterLifecycleAdmission(
     void* Pointer, usize NewSize, usize Alignment, bool& bCollectionRequested) noexcept
 {
     FMimallocReallocationResult Result;
@@ -819,43 +819,43 @@ FMimallocReallocationResult FMimallocAllocator::ReallocateAfterLifecycleAdmissio
     return Result;
 }
 
-u64 FMimallocAllocator::BytesAllocated() const noexcept
+u64 CMimallocAllocator::BytesAllocated() const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     return LifecycleOperation.WasAdmitted() ? m_RequestedBytes.Load(EMemoryOrder::Acquire) : 0u;
 }
 
-u64 FMimallocAllocator::AllocationCount() const noexcept
+u64 CMimallocAllocator::AllocationCount() const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     return LifecycleOperation.WasAdmitted() ? m_AllocationCount.Load(EMemoryOrder::Acquire) : 0u;
 }
 
-u64 FMimallocAllocator::PeakBytes() const noexcept
+u64 CMimallocAllocator::PeakBytes() const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     return LifecycleOperation.WasAdmitted() ? m_PeakRequestedBytes.Load(EMemoryOrder::Acquire) : 0u;
 }
 
-u64 FMimallocAllocator::LifetimeGeneration() const noexcept
+u64 CMimallocAllocator::LifetimeGeneration() const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     return LifecycleOperation.WasAdmitted() ? m_Generation : 0u;
 }
 
-bool FMimallocAllocator::IsInitialized() const noexcept
+bool CMimallocAllocator::IsInitialized() const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     return LifecycleOperation.WasAdmitted() && m_Heap != nullptr;
 }
 
-u64 FMimallocAllocator::HardBudgetBytes() const noexcept
+u64 CMimallocAllocator::HardBudgetBytes() const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     return LifecycleOperation.WasAdmitted() ? m_HardBudgetBytes : 0u;
 }
 
-bool FMimallocAllocator::RetireAllocation(void* AllocationBase, u64 RequestedBytes) noexcept
+bool CMimallocAllocator::RetireAllocation(void* AllocationBase, u64 RequestedBytes) noexcept
 {
     auto* const Header = static_cast<FAllocationHeader*>(AllocationBase);
     FScopedLock RetiredAllocationLock(m_RetiredAllocationLock);
@@ -874,7 +874,7 @@ bool FMimallocAllocator::RetireAllocation(void* AllocationBase, u64 RequestedByt
     return bCollectionRequested;
 }
 
-void FMimallocAllocator::CollectRetiredAllocationsIfNeeded() noexcept
+void CMimallocAllocator::CollectRetiredAllocationsIfNeeded() noexcept
 {
     if (m_RetiredCollectionRequested.Load(EMemoryOrder::Acquire) == 0u)
     {
@@ -895,7 +895,7 @@ void FMimallocAllocator::CollectRetiredAllocationsIfNeeded() noexcept
     OpenLifecycleGate();
 }
 
-void FMimallocAllocator::FreeRetiredAllocationsWhileLifecycleIsPaused() noexcept
+void CMimallocAllocator::FreeRetiredAllocationsWhileLifecycleIsPaused() noexcept
 {
     FScopedLock RetiredAllocationLock(m_RetiredAllocationLock);
     auto* Header = static_cast<FAllocationHeader*>(m_RetiredAllocationHead);
@@ -912,7 +912,7 @@ void FMimallocAllocator::FreeRetiredAllocationsWhileLifecycleIsPaused() noexcept
     }
 }
 
-bool FMimallocAllocator::OwnsAllocation(const void* Pointer) const noexcept
+bool CMimallocAllocator::OwnsAllocation(const void* Pointer) const noexcept
 {
     FLifecycleOperation LifecycleOperation(*this);
     if (!LifecycleOperation.WasAdmitted())
@@ -923,7 +923,7 @@ bool FMimallocAllocator::OwnsAllocation(const void* Pointer) const noexcept
     return ValidateAllocationMetadata(this, m_Heap, m_Generation, Pointer) != nullptr;
 }
 
-void FMimallocAllocator::Collect(bool bForce) noexcept
+void CMimallocAllocator::Collect(bool bForce) noexcept
 {
     FScopedLock LifecycleControlLock(m_LifecycleControlLock);
     CloseLifecycleGateAndWait();
@@ -937,7 +937,7 @@ void FMimallocAllocator::Collect(bool bForce) noexcept
     OpenLifecycleGate();
 }
 
-FMimallocAllocationHistogram FMimallocAllocator::CaptureAllocationHistogram() const noexcept
+FMimallocAllocationHistogram CMimallocAllocator::CaptureAllocationHistogram() const noexcept
 {
     FMimallocAllocationHistogram Histogram;
     FLifecycleOperation LifecycleOperation(*this);
@@ -955,7 +955,7 @@ FMimallocAllocationHistogram FMimallocAllocator::CaptureAllocationHistogram() co
     return Histogram;
 }
 
-FMimallocHeapInspectionStatistics FMimallocAllocator::InspectHeap() noexcept
+FMimallocHeapInspectionStatistics CMimallocAllocator::InspectHeap() noexcept
 {
     FMimallocHeapInspectionStatistics Empty;
     FScopedLock LifecycleControlLock(m_LifecycleControlLock);
@@ -982,13 +982,13 @@ FMimallocHeapInspectionStatistics FMimallocAllocator::InspectHeap() noexcept
     return Context.Statistics;
 }
 
-int FMimallocAllocator::RuntimeVersion() noexcept
+int CMimallocAllocator::RuntimeVersion() noexcept
 {
     ConfigureMimallocProcessOnce();
     return mi_version();
 }
 
-bool FMimallocAllocator::TryReserveBudget(u64 Amount) noexcept
+bool CMimallocAllocator::TryReserveBudget(u64 Amount) noexcept
 {
     if (Amount == 0u) {
         return true;
@@ -1010,14 +1010,14 @@ bool FMimallocAllocator::TryReserveBudget(u64 Amount) noexcept
     }
 }
 
-void FMimallocAllocator::ReleaseBudget(u64 Amount) noexcept
+void CMimallocAllocator::ReleaseBudget(u64 Amount) noexcept
 {
     if (Amount != 0u) {
         m_BudgetReservedBytes.FetchSub(Amount);
     }
 }
 
-void FMimallocAllocator::RecordAllocation(u64 RequestedBytes) noexcept
+void CMimallocAllocator::RecordAllocation(u64 RequestedBytes) noexcept
 {
     const u64 Previous = m_RequestedBytes.FetchAdd(RequestedBytes);
     m_AllocationCount.FetchAdd(1u);
@@ -1035,7 +1035,7 @@ void FMimallocAllocator::RecordAllocation(u64 RequestedBytes) noexcept
     }
 }
 
-void FMimallocAllocator::RecordFree(u64 RequestedBytes) noexcept
+void CMimallocAllocator::RecordFree(u64 RequestedBytes) noexcept
 {
     m_RequestedBytes.FetchSub(RequestedBytes);
     m_AllocationCount.FetchSub(1u);
@@ -1052,7 +1052,7 @@ void FMimallocAllocator::RecordFree(u64 RequestedBytes) noexcept
     }
 }
 
-void FMimallocAllocator::RecordReallocation(u64 OldRequestedBytes, u64 NewRequestedBytes) noexcept
+void CMimallocAllocator::RecordReallocation(u64 OldRequestedBytes, u64 NewRequestedBytes) noexcept
 {
     if (NewRequestedBytes > OldRequestedBytes) {
         const u64 Growth = NewRequestedBytes - OldRequestedBytes;
@@ -1085,7 +1085,7 @@ void FMimallocAllocator::RecordReallocation(u64 OldRequestedBytes, u64 NewReques
     }
 }
 
-void FMimallocAllocator::UpdatePeak(u64 Candidate) noexcept
+void CMimallocAllocator::UpdatePeak(u64 Candidate) noexcept
 {
     u64 Current = m_PeakRequestedBytes.Load(EMemoryOrder::Acquire);
     while (Candidate > Current) {

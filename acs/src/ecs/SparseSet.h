@@ -27,15 +27,15 @@ namespace acs {
  * @details
  * sparse (entity_index → dense_index) と dense (dense_index → entity_index) の対応を
  * 保持し、走査・存在判定・型消去削除を提供する。実際のコンポーネント値配列 m_Data は
- * 派生 TSparseSet<T> が持つ。FWorld が型を知らずにポリモーフィックに扱えるようにする層。
+ * 派生 TSparseSet<T> が持つ。CWorld が型を知らずにポリモーフィックに扱えるようにする層。
  */
-class FSparseSetBase {
+class ASparseSetBase {
 public:
     /** dense インデックスが未登録であることを表す番兵値。 */
     static constexpr u32 kInvalid = 0xFFFFFFFFu;
 
     /** 派生 TSparseSet<T> を型を知らず正しく破棄するための仮想デストラクタ。 */
-    virtual ~FSparseSetBase() noexcept = default;
+    virtual ~ASparseSetBase() noexcept = default;
 
     /**
      * 指定エンティティに対応する dense インデックスを返す。
@@ -72,21 +72,21 @@ public:
     const u32* DenseEntities() const noexcept { return m_Dense.Data(); }
 
     /**
-     * 型を知らずに指定エンティティの値を削除する (FWorld::Destroy から呼ぶ)。
+     * 型を知らずに指定エンティティの値を削除する (CWorld::Destroy から呼ぶ)。
      *
      * @param entity_index 削除するエンティティのスロット番号。
      */
     virtual void RemoveErased(u32 entity_index) noexcept = 0;
 
     /**
-     * 型を知らずにこの集合の完全な複製を確保して返す (FWorld::CopyFrom から呼ぶ)。
+     * 型を知らずにこの集合の完全な複製を確保して返す (CWorld::CopyFrom から呼ぶ)。
      *
      * @details sparse/dense と値配列をすべてコピーした新しい集合を alloc で確保する。
      * T が非コピー構築型の場合と OOM 時は nullptr を返す (部分複製は返さない)。
      * @param alloc 複製の確保に使うアロケータ。
      * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
      */
-    virtual FSparseSetBase* CloneErased(FAllocator& alloc) const noexcept = 0;
+    virtual ASparseSetBase* CloneErased(FAllocator& alloc) const noexcept = 0;
 
 protected:
     /**
@@ -95,7 +95,7 @@ protected:
      * @param other コピー元。
      * @return 両配列をコピーできたら true (OOM なら false)。
      */
-    bool CopyBaseFrom(const FSparseSetBase& other) noexcept {
+    bool CopyBaseFrom(const ASparseSetBase& other) noexcept {
         if (!m_Sparse.TryResize(other.m_Sparse.Size())) return false;
         if (!m_Dense.TryResize(other.m_Dense.Size())) return false;
         if (other.m_Sparse.Size() > 0) {
@@ -128,6 +128,9 @@ protected:
     TArray<u32> m_Dense;
 };
 
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FSparseSetBase = ASparseSetBase;
+
 /**
  * コンポーネント T 専用の型付き TSparseSet。
  *
@@ -138,7 +141,7 @@ protected:
  * @tparam T 格納するコンポーネント型。
  */
 template<typename T>
-class TSparseSet : public FSparseSetBase {
+class TSparseSet : public ASparseSetBase {
 public:
     /** 空の集合を構築する。 */
     TSparseSet() noexcept = default;
@@ -243,9 +246,9 @@ public:
      * @param alloc 複製の確保に使うアロケータ。
      * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
      */
-    FSparseSetBase* CloneErased(FAllocator& alloc) const noexcept override {
+    ASparseSetBase* CloneErased(FAllocator& alloc) const noexcept override {
         if constexpr (!IsCopyConstructibleV<T>) {
-            return nullptr;   // 非コピー型の snapshot は不可 (FWorld::CopyFrom が false を返す)
+            return nullptr;   // 非コピー型の snapshot は不可 (CWorld::CopyFrom が false を返す)
         } else {
             TSparseSet<T>* const clone = New<TSparseSet<T>>(alloc);
             if (clone == nullptr) return nullptr;

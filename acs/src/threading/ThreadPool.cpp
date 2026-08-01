@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ワークスティーリング FThreadPool 実装（Chase-Lev SPMC deque + ノードプール）
+// ワークスティーリング CThreadPool 実装（Chase-Lev SPMC deque + ノードプール）
 #include "threading/ThreadPool.h"
 #include "threading/Mutex.h"
 #include "threading/ScopedLock.h"
@@ -398,7 +398,7 @@ FMutex g_lifecycle_lock;
 FMutex g_init_shutdown_lock;
 
 /** ワーカースレッドだけが自分のインデックスを持つ TLS (ワーカー外は kNotAWorker)。 */
-ACS_THREAD_LOCAL u32 tls_worker_index = FThreadPool::kNotAWorker;
+ACS_THREAD_LOCAL u32 tls_worker_index = CThreadPool::kNotAWorker;
 
 /** 現在実行しているタスクの所有プール。外部スレッドが Wait 中に実行する場合も設定する。 */
 ACS_THREAD_LOCAL FPoolState* tls_executing_pool = nullptr;
@@ -778,22 +778,22 @@ void WorkerMain(void* arg) noexcept {
         if (pool->wake_reservations != 0) --pool->wake_reservations;
         pool->sleeping_workers.FetchSub(1);
     }
-    tls_worker_index = FThreadPool::kNotAWorker;
+    tls_worker_index = CThreadPool::kNotAWorker;
 }
 
 } // namespace
 
 /** プールを初期化し、ワーカースレッドを起動する。 */
-TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
+TResult<void> CThreadPool::Init(u32 worker_count) noexcept {
     FScopedLock operation_lock(g_init_shutdown_lock);
     FScopedLock lifecycle_lock(g_lifecycle_lock);
-    if (g_pool != nullptr) return ACS_ERR(Threading, 2, "FThreadPool already initialized");
+    if (g_pool != nullptr) return ACS_ERR(Threading, 2, "CThreadPool already initialized");
     if (worker_count == 0) worker_count = HardwareConcurrency();
     if (worker_count > kMaxWorkers) worker_count = kMaxWorkers;
 
     // 共有アトミック値のキャッシュライン境界を保証したPoolStateを確保する。
     g_pool = CreatePoolState();
-    if (!g_pool) return ACS_ERR(Memory, 2, "FThreadPool state alloc failed");
+    if (!g_pool) return ACS_ERR(Memory, 2, "CThreadPool state alloc failed");
 
     // ワーカー配列を 64B 境界整列で確保
     usize total = sizeof(FWorker) * worker_count + kCacheLineBytes - 1u;
@@ -801,7 +801,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     if (!wmem) {
         DestroyPoolState(g_pool);
         g_pool = nullptr;
-        return ACS_ERR(Memory, 3, "FThreadPool worker alloc failed");
+        return ACS_ERR(Memory, 3, "CThreadPool worker alloc failed");
     }
     uptr aligned = (reinterpret_cast<uptr>(wmem) + kCacheLineBytes - 1u) & ~uptr{kCacheLineBytes - 1u};
     g_pool->worker_allocation = wmem;
@@ -819,7 +819,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
         ::HeapFree(::GetProcessHeap(), 0, wmem);
         DestroyPoolState(g_pool);
         g_pool = nullptr;
-        return ACS_ERR(Memory, 7, "FThreadPool submit pool alloc failed");
+        return ACS_ERR(Memory, 7, "CThreadPool submit pool alloc failed");
     }
     g_pool->submit_node_pool = ::new (pool_mem) FPoolAllocator(sizeof(FSubmissionNode), kSubmitNodePoolCount, alignof(FSubmissionNode));
 
@@ -832,7 +832,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
         ::HeapFree(::GetProcessHeap(), 0, wmem);
         DestroyPoolState(g_pool);
         g_pool = nullptr;
-        return ACS_ERR(Memory, 8, "FThreadPool callable pool alloc failed");
+        return ACS_ERR(Memory, 8, "CThreadPool callable pool alloc failed");
     }
     g_pool->callable_node_pool = ::new (callable_pool_mem) FPoolAllocator(kCallableNodeBlockSize, kCallableNodePoolCount, alignof(std::max_align_t));
 
@@ -848,7 +848,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
     // ワーカースレッド起動
     for (u32 i = 0; i < worker_count; ++i) {
         FThreadConfig cfg {};
-        cfg.name = L"acs::FThreadPool worker";
+        cfg.name = L"acs::CThreadPool worker";
         auto r = FThread::Spawn(&WorkerMain, &g_pool->workers[i], cfg);
         if (r.IsErr()) {
             // 失敗時のロールバック
@@ -874,7 +874,7 @@ TResult<void> FThreadPool::Init(u32 worker_count) noexcept {
 }
 
 /** 全受理済みタスクを排出してからワーカーを停止・Join し、プールのリソースを解放する。 */
-void FThreadPool::Shutdown() noexcept {
+void CThreadPool::Shutdown() noexcept {
     // 実行中タスクから自分自身を Join すると永久待機になる。外部所有者が改めて終了する。
     // callable の構築・破棄中も、その処理を保持する api_users を自分で待てないため同様とする。
     if (tls_executing_pool != nullptr || tls_callable_lifecycle_depth != 0) {
@@ -969,18 +969,18 @@ void FThreadPool::Shutdown() noexcept {
 }
 
 /** 起動中のワーカー数を返す (未初期化なら 0)。 */
-u32 FThreadPool::WorkerCount() noexcept {
+u32 CThreadPool::WorkerCount() noexcept {
     FPoolPin pin;
     return pin.Get() ? pin.Get()->worker_count : 0;
 }
 
 /** 呼び出しスレッドのワーカーインデックスを返す (非ワーカーは kNotAWorker)。 */
-u32 FThreadPool::CurrentWorkerIndex() noexcept {
+u32 CThreadPool::CurrentWorkerIndex() noexcept {
     return tls_worker_index;
 }
 
 /** 所有 callable ノードを固定プールから確保する。 */
-FThreadPool::FCallableTaskStorage* FThreadPool::AcquireCallableTaskStorage() noexcept
+CThreadPool::FCallableTaskStorage* CThreadPool::AcquireCallableTaskStorage() noexcept
 {
     static_assert(sizeof(FCallableTaskStorage) <= kCallableNodeBlockSize, "callable ノードの固定プール block が不足しています");
 
@@ -1015,7 +1015,7 @@ FThreadPool::FCallableTaskStorage* FThreadPool::AcquireCallableTaskStorage() noe
 }
 
 /** 構築前に失敗した所有 callable ノードを返却する。 */
-void FThreadPool::AbandonCallableTaskStorage(FCallableTaskStorage* storage) noexcept
+void CThreadPool::AbandonCallableTaskStorage(FCallableTaskStorage* storage) noexcept
 {
     if (!storage) return;
     auto* const pool = static_cast<FPoolState*>(storage->owner);
@@ -1031,7 +1031,7 @@ void FThreadPool::AbandonCallableTaskStorage(FCallableTaskStorage* storage) noex
 }
 
 /** 構築済み所有 callable を通常の FTask 経路へ公開する。 */
-TResult<void> FThreadPool::PublishCallableTaskStorage(FCallableTaskStorage* storage, FCompletionCounter* counter) noexcept
+TResult<void> CThreadPool::PublishCallableTaskStorage(FCallableTaskStorage* storage, FCompletionCounter* counter) noexcept
 {
     /** callable 所有ノードの確保元プール。 */
     auto* const pool = static_cast<FPoolState*>(storage->owner);
@@ -1040,7 +1040,7 @@ TResult<void> FThreadPool::PublishCallableTaskStorage(FCallableTaskStorage* stor
     /** worker がノードを解放する前に退避した本体確保方式。 */
     const bool heap_callable = storage->heap_callable;
     /** 従来 ABI へ接続した公開タスク。 */
-    const FTask task{&FThreadPool::CallableTaskThunk, storage, counter};
+    const FTask task{&CThreadPool::CallableTaskThunk, storage, counter};
     /** 外部投入 FIFO への公開結果。 */
     TResult<void> result = Submit(task);
     if (result.IsOk()) {
@@ -1070,7 +1070,7 @@ TResult<void> FThreadPool::PublishCallableTaskStorage(FCallableTaskStorage* stor
 }
 
 /** worker 上で所有 callable を実行し、必ず破棄してノードを返却する。 */
-void FThreadPool::CallableTaskThunk(void* user, u32 worker_index) noexcept
+void CThreadPool::CallableTaskThunk(void* user, u32 worker_index) noexcept
 {
     /** 実行と破棄の型情報を持つ所有ノード。 */
     auto* const storage = static_cast<FCallableTaskStorage*>(user);
@@ -1090,7 +1090,7 @@ void FThreadPool::CallableTaskThunk(void* user, u32 worker_index) noexcept
 }
 
 /** 現在の同期・割り当て診断値を返す。 */
-FThreadPoolDiagnostics FThreadPool::Diagnostics() noexcept
+FThreadPoolDiagnostics CThreadPool::Diagnostics() noexcept
 {
     /** 診断取得中の PoolState 寿命を固定する pin。 */
     FPoolPin pin;
@@ -1115,7 +1115,7 @@ FThreadPoolDiagnostics FThreadPool::Diagnostics() noexcept
 }
 
 /** ParallelFor の一時 context 格納診断値を返す。 */
-FParallelForDiagnostics FThreadPool::CaptureParallelForDiagnostics() noexcept
+FParallelForDiagnostics CThreadPool::CaptureParallelForDiagnostics() noexcept
 {
     /** 診断取得中の PoolState 寿命を固定する pin。 */
     FPoolPin pin;
@@ -1133,7 +1133,7 @@ FParallelForDiagnostics FThreadPool::CaptureParallelForDiagnostics() noexcept
 }
 
 /** ThreadPool と ParallelFor の診断カウンタを 0 に戻す。 */
-void FThreadPool::ResetDiagnostics() noexcept
+void CThreadPool::ResetDiagnostics() noexcept
 {
     FPoolPin pin;
     FPoolState* const pool = pin.Get();
@@ -1158,17 +1158,17 @@ void FThreadPool::ResetDiagnostics() noexcept
 }
 
 /** タスクを投入する (自ワーカーなら deque、外部ならグローバルキュー経由)。 */
-TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
+TResult<void> CThreadPool::Submit(const FTask& t) noexcept {
     FPoolPin pin;
     FPoolState* const pool = pin.Get();
-    if (!pool) return ACS_ERR(Threading, 3, "FThreadPool not initialized");
+    if (!pool) return ACS_ERR(Threading, 3, "CThreadPool not initialized");
     if (!t.fn)   return ACS_ERR(Threading, 4, "Task fn is null");
 
     pool->api_lifetime.active_submitters.FetchAdd(1);
     const bool is_child_submit = tls_executing_pool == pool;
     if (pool->accepting.Load(EMemoryOrder::Acquire) == 0 && !is_child_submit) {
         pool->api_lifetime.active_submitters.FetchSub(1);
-        return ACS_ERR(Threading, 8, "FThreadPool is shutting down");
+        return ACS_ERR(Threading, 8, "CThreadPool is shutting down");
     }
 
     if (t.counter) t.counter->Add(1);
@@ -1219,7 +1219,7 @@ TResult<void> FThreadPool::Submit(const FTask& t) noexcept {
 }
 
 /** counter が 0 になるまで待機する (待機中もスティーリング、無作業なら指数バックオフ)。 */
-void FThreadPool::Wait(FCompletionCounter& counter) noexcept {
+void CThreadPool::Wait(FCompletionCounter& counter) noexcept {
     FPoolPin pin;
     FPoolState* const pool = pin.Get();
     if (!pool) return;
@@ -1305,12 +1305,12 @@ void ReleaseParallelForContextBlocks(FPoolState* pool, FParallelForContextBlock*
 } // namespace
 
 /** 範囲 [begin, end) を grain で分割して並列実行し、完了まで待つ。 */
-TResult<void> FThreadPool::ParallelFor(u32 begin, u32 end, u32 grain, void (*body)(u32, u32, void*), void* user) noexcept {
+TResult<void> CThreadPool::ParallelFor(u32 begin, u32 end, u32 grain, void (*body)(u32, u32, void*), void* user) noexcept {
     /** context pool を含む PoolState の寿命を呼び出し完了まで固定する。 */
     FPoolPin pin;
     /** ParallelFor を実行する pool。 */
     FPoolState* const pool = pin.Get();
-    if (!pool || pool->worker_count == 0) return ACS_ERR(Threading, 5, "FThreadPool not initialized");
+    if (!pool || pool->worker_count == 0) return ACS_ERR(Threading, 5, "CThreadPool not initialized");
     if (!body)   return ACS_ERR(Threading, 6, "ParallelFor body is null");
     if (begin >= end) return Ok();
     if (grain == 0)   grain = 1;

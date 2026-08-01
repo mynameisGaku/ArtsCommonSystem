@@ -22,7 +22,7 @@
 
 namespace acs {
 
-/** プロセス内に存在する FSystemAllocator 全体の統計スナップショット。 */
+/** プロセス内に存在する CSystemAllocator 全体の統計スナップショット。 */
 struct FSystemAllocatorProcessStatistics {
     /** 現在生存し、侵入レジストリへ登録されているアロケータ数。 */
     u64 live_allocator_count = 0;
@@ -67,10 +67,10 @@ struct FSystemAllocatorProcessStatistics {
  * アロケータは自身が払い出した全確保より長く生存しなければならない。異なる確保に対する操作は
  * 並行実行できるが、同じ確保に対する Free/Realloc は呼び出し側で同期すること。
  */
-class FSystemAllocator final : public FAllocator {
+class CSystemAllocator final : public IAllocator {
 public:
     /** 既定構築し、プロセス内の侵入レジストリへ登録する。 */
-    FSystemAllocator() noexcept;
+    CSystemAllocator() noexcept;
 
     /**
      * 侵入レジストリから登録解除して破棄する。
@@ -78,22 +78,22 @@ public:
      * @details 未解放確保があれば FLogger に依存しない機械可読ログをデバッグ出力と標準エラーへ出す。
      * 未解放領域は自動回収しないため、破棄後にそのポインタを別のアロケータへ渡してはならない。
      */
-    ~FSystemAllocator() noexcept override;
+    ~CSystemAllocator() noexcept override;
 
     /** コピー禁止 (侵入レジストリの単一ノードとして管理するため)。 */
-    FSystemAllocator(const FSystemAllocator&) = delete;
+    CSystemAllocator(const CSystemAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FSystemAllocator& operator=(const FSystemAllocator&) = delete;
+    CSystemAllocator& operator=(const CSystemAllocator&) = delete;
 
     /** ムーブ禁止 (登録済みノードのアドレスを固定するため)。 */
-    FSystemAllocator(FSystemAllocator&&) = delete;
+    CSystemAllocator(CSystemAllocator&&) = delete;
 
     /** ムーブ代入も禁止。 */
-    FSystemAllocator& operator=(FSystemAllocator&&) = delete;
+    CSystemAllocator& operator=(CSystemAllocator&&) = delete;
 
     /**
-     * プロセス内に存在する全 FSystemAllocator の統計を取得する。
+     * プロセス内に存在する全 CSystemAllocator の統計を取得する。
      *
      * @details 動的確保を行わず、侵入レジストリを共有ロックして各アトミック統計を集計する。
      * 並行して確保・解放している間のバイト数と件数は弱整合スナップショットとなるため、
@@ -200,10 +200,13 @@ private:
     mutable TAtomic<u64> m_AllocationCount{0};
 
     /** プロセス内侵入レジストリの次ノード。動的確保を避けるため本体に保持する。 */
-    FSystemAllocator* m_RegistryNext = nullptr;
+    CSystemAllocator* m_RegistryNext = nullptr;
 
     /** 侵入レジストリへ登録済みなら true。 */
     bool m_RegistryRegistered = false;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FSystemAllocator = CSystemAllocator;
 
 } // namespace acs

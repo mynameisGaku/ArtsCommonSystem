@@ -298,7 +298,7 @@ ACS_FORCEINLINE usize AdjustRequestSize(usize Size, usize /*Alignment*/) noexcep
 
 } // namespace tlsf
 
-FTlsfAllocator::~FTlsfAllocator() noexcept
+CTlsfAllocator::~CTlsfAllocator() noexcept
 {
     // ここで失敗しても m_Reservation のデストラクタが同じ所有状態から再試行する。
     if (Reset().IsErr()) {
@@ -315,7 +315,7 @@ FTlsfAllocator::~FTlsfAllocator() noexcept
 }
 
 // 単一プール初期化
-TResult<void> FTlsfAllocator::Init(void* PoolBase, usize PoolSize) noexcept
+TResult<void> CTlsfAllocator::Init(void* PoolBase, usize PoolSize) noexcept
 {
     if (m_Initialized) return ACS_ERR(Memory, 25, "TLSF::Init already initialized");
     if (!PoolBase || PoolSize < 1024) return ACS_ERR(Memory, 20, "TLSF::Init invalid pool");
@@ -357,7 +357,7 @@ TResult<void> FTlsfAllocator::Init(void* PoolBase, usize PoolSize) noexcept
 }
 
 // VmReservation も保持する初期化
-TResult<void> FTlsfAllocator::InitWithReservation(FVmReservation&& Reservation, usize InitialCommitBytes) noexcept
+TResult<void> CTlsfAllocator::InitWithReservation(FVmReservation&& Reservation, usize InitialCommitBytes) noexcept
 {
     if (m_Initialized) return ACS_ERR(Memory, 25, "TLSF::InitWithReservation already initialized");
     auto CommitResult = Reservation.Commit(0, InitialCommitBytes);
@@ -373,7 +373,7 @@ TResult<void> FTlsfAllocator::InitWithReservation(FVmReservation&& Reservation, 
 
 // OOM 時に予約からコミットを段階的に伸ばし、needed_bytes のブロックを収容できる
 // 新プールを追加する。幾何級数 (現コミットの 50%) で伸ばしてプール数を対数に抑える。
-bool FTlsfAllocator::GrowToFit(usize NeededBytes) noexcept
+bool CTlsfAllocator::GrowToFit(usize NeededBytes) noexcept
 {
     using namespace tlsf;
     if (!m_bOwnsReservation) return false; // 予約を所有しないプールは grow 不可
@@ -423,7 +423,7 @@ bool FTlsfAllocator::GrowToFit(usize NeededBytes) noexcept
 }
 
 // プールを TLSF に登録（先頭にフリーブロック 1 個 + 末尾に終端番兵）
-TResult<void> FTlsfAllocator::AddPool(void* PoolBase, usize PoolSize) noexcept
+TResult<void> CTlsfAllocator::AddPool(void* PoolBase, usize PoolSize) noexcept
 {
     using namespace tlsf;
 
@@ -489,7 +489,7 @@ TResult<void> FTlsfAllocator::AddPool(void* PoolBase, usize PoolSize) noexcept
 }
 
 // 指定ブロックを (FL, SL) バケットの先頭に挿入
-void FTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* Block) noexcept
+void CTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* Block) noexcept
 {
     using namespace tlsf;
     int fl, sl;
@@ -508,7 +508,7 @@ void FTlsfAllocator::InsertFreeBlock(tlsf::FBlockHeader* Block) noexcept
 }
 
 // フリーリストから取り除く（バケットが空なら対応ビットも下ろす）
-void FTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* Block) noexcept
+void CTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* Block) noexcept
 {
     using namespace tlsf;
     FBlockHeader* const PreviousBlock = Block->prev_free;
@@ -531,7 +531,7 @@ void FTlsfAllocator::RemoveFreeBlock(tlsf::FBlockHeader* Block) noexcept
 }
 
 // 要求サイズ以上のフリーブロックが入ったバケットを O(1) で見つける
-tlsf::FBlockHeader* FTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexcept
+tlsf::FBlockHeader* CTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexcept
 {
     using namespace tlsf;
     // 同じ FL 内で sl 以上のビットを探す
@@ -548,7 +548,7 @@ tlsf::FBlockHeader* FTlsfAllocator::SearchSuitableBlock(int& fl, int& sl) noexce
 }
 
 // 余剰サイズを切り出して新しいフリーブロックとして再登録
-void FTlsfAllocator::TrimFreeBlock(tlsf::FBlockHeader* Block, usize Size) noexcept
+void CTlsfAllocator::TrimFreeBlock(tlsf::FBlockHeader* Block, usize Size) noexcept
 {
     using namespace tlsf;
     // **引き算の前に比較形でガードする** (canonical TLSF の block_can_split)。
@@ -579,7 +579,7 @@ void FTlsfAllocator::TrimFreeBlock(tlsf::FBlockHeader* Block, usize Size) noexce
 }
 
 // 物理的に前のフリーブロックと統合
-tlsf::FBlockHeader* FTlsfAllocator::MergePrev(tlsf::FBlockHeader* Block) noexcept
+tlsf::FBlockHeader* CTlsfAllocator::MergePrev(tlsf::FBlockHeader* Block) noexcept
 {
     using namespace tlsf;
     FBlockHeader* PreviousBlock = Block->prev_phys_block;
@@ -591,7 +591,7 @@ tlsf::FBlockHeader* FTlsfAllocator::MergePrev(tlsf::FBlockHeader* Block) noexcep
 }
 
 // 物理的に次のフリーブロックと統合
-tlsf::FBlockHeader* FTlsfAllocator::MergeNext(tlsf::FBlockHeader* Block) noexcept
+tlsf::FBlockHeader* CTlsfAllocator::MergeNext(tlsf::FBlockHeader* Block) noexcept
 {
     using namespace tlsf;
     FBlockHeader* NextFreeBlock = NextBlock(Block);
@@ -605,7 +605,7 @@ tlsf::FBlockHeader* FTlsfAllocator::MergeNext(tlsf::FBlockHeader* Block) noexcep
 // used ブロックを size に縮め、余りを free ブロックとして解放する (in-place realloc 用)。
 // TrimFreeBlock との違い: block は used のまま保持し、切り出した余り(tail)を「解放」する。
 // tail の物理次が free なら統合する (used ブロックは free 隣接を持ち得るため必須)。
-void FTlsfAllocator::TrimUsedBlock(tlsf::FBlockHeader* Block, usize Size) noexcept
+void CTlsfAllocator::TrimUsedBlock(tlsf::FBlockHeader* Block, usize Size) noexcept
 {
     using namespace tlsf;
     const usize OriginalBlockSize = BlockSize(Block);
@@ -636,7 +636,7 @@ void FTlsfAllocator::TrimUsedBlock(tlsf::FBlockHeader* Block, usize Size) noexce
 static constexpr usize kMaxAlignment = 64u * 1024u;
 
 // 確保
-void* FTlsfAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+void* CTlsfAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     using namespace tlsf;
     if (Size == 0) return nullptr;
@@ -748,7 +748,7 @@ void* FTlsfAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/
 }
 
 // 登録プールの範囲だけでなく、物理ブロック境界と前後リンクも検証する。
-bool FTlsfAllocator::OwnsPointer(const void* Pointer) const noexcept
+bool CTlsfAllocator::OwnsPointer(const void* Pointer) const noexcept
 {
     using namespace tlsf;
     if (!IsPointerWithinPoolPayloadRange(Pointer) || !IsAllocationStartTracked(Pointer)) return false;
@@ -798,7 +798,7 @@ bool FTlsfAllocator::OwnsPointer(const void* Pointer) const noexcept
     return false;
 }
 
-bool FTlsfAllocator::IsPointerWithinPoolPayloadRange(const void* Pointer) const noexcept
+bool CTlsfAllocator::IsPointerWithinPoolPayloadRange(const void* Pointer) const noexcept
 {
     using namespace tlsf;
     if (!Pointer || (reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1u)) != 0u) return false;
@@ -813,7 +813,7 @@ bool FTlsfAllocator::IsPointerWithinPoolPayloadRange(const void* Pointer) const 
     return false;
 }
 
-bool FTlsfAllocator::IsAllocationStartTracked(const void* Pointer) const noexcept
+bool CTlsfAllocator::IsAllocationStartTracked(const void* Pointer) const noexcept
 {
     using namespace tlsf;
     if (!Pointer || (reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1u)) != 0u) return false;
@@ -832,7 +832,7 @@ bool FTlsfAllocator::IsAllocationStartTracked(const void* Pointer) const noexcep
     return false;
 }
 
-bool FTlsfAllocator::TrackAllocationStart(const void* Pointer) noexcept
+bool CTlsfAllocator::TrackAllocationStart(const void* Pointer) noexcept
 {
     using namespace tlsf;
     if (!Pointer || (reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1u)) != 0u) return false;
@@ -853,7 +853,7 @@ bool FTlsfAllocator::TrackAllocationStart(const void* Pointer) noexcept
     return false;
 }
 
-bool FTlsfAllocator::UntrackAllocationStart(const void* Pointer) noexcept
+bool CTlsfAllocator::UntrackAllocationStart(const void* Pointer) noexcept
 {
     using namespace tlsf;
     if (!Pointer || (reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1u)) != 0u) return false;
@@ -874,7 +874,7 @@ bool FTlsfAllocator::UntrackAllocationStart(const void* Pointer) noexcept
     return false;
 }
 
-TResult<void> FTlsfAllocator::Reset() noexcept
+TResult<void> CTlsfAllocator::Reset() noexcept
 {
     using namespace tlsf;
     if (m_bOwnsReservation) {
@@ -910,7 +910,7 @@ TResult<void> FTlsfAllocator::Reset() noexcept
     return Ok();
 }
 
-bool FTlsfAllocator::ContainsPtr(const void* Pointer) const noexcept
+bool CTlsfAllocator::ContainsPtr(const void* Pointer) const noexcept
 {
     // 予約所有時はその予約レンジ全体で O(1) 判定する (シャード化の Free ルーティング用)。
     // 予約は各シャード固有の連続 VM 範囲なので、所有判定はレンジ内かどうかで一意に決まる。
@@ -928,7 +928,7 @@ bool FTlsfAllocator::ContainsPtr(const void* Pointer) const noexcept
 }
 
 // 物理ブロックチェイン + prev_phys/prev_free フラグの一貫性を検証する。
-bool FTlsfAllocator::ValidateHeap() const noexcept
+bool CTlsfAllocator::ValidateHeap() const noexcept
 {
     using namespace tlsf;
     constexpr usize kMinimumRepresentableBlockSize = MIN_BLOCK_SIZE - kBlockHeaderOverhead;
@@ -976,12 +976,12 @@ bool FTlsfAllocator::ValidateHeap() const noexcept
     return true;
 }
 
-void FTlsfAllocator::Free(void* Pointer) noexcept
+void CTlsfAllocator::Free(void* Pointer) noexcept
 {
     (void)TryFree(Pointer);
 }
 
-bool FTlsfAllocator::TryMarkThreadCacheBlock(void* Pointer) noexcept
+bool CTlsfAllocator::TryMarkThreadCacheBlock(void* Pointer) noexcept
 {
     using namespace tlsf;
     // ShardedTLSF は予約所有ヒープだけを使う。初期化後に不変な予約範囲で確認し、
@@ -1007,7 +1007,7 @@ bool FTlsfAllocator::TryMarkThreadCacheBlock(void* Pointer) noexcept
     }
 }
 
-bool FTlsfAllocator::TryRestoreThreadCacheBlock(void* Pointer) noexcept
+bool CTlsfAllocator::TryRestoreThreadCacheBlock(void* Pointer) noexcept
 {
     using namespace tlsf;
     if (!Pointer || (reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1u)) != 0u || !ContainsPtr(Pointer)) {
@@ -1031,7 +1031,7 @@ bool FTlsfAllocator::TryRestoreThreadCacheBlock(void* Pointer) noexcept
     }
 }
 
-bool FTlsfAllocator::IsClientOwnedBlock(const void* Pointer) const noexcept
+bool CTlsfAllocator::IsClientOwnedBlock(const void* Pointer) const noexcept
 {
     using namespace tlsf;
     if (!Pointer || (reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1)) != 0 || !OwnsPointer(Pointer)) {
@@ -1044,7 +1044,7 @@ bool FTlsfAllocator::IsClientOwnedBlock(const void* Pointer) const noexcept
     return (CurrentState & (kBlockFreeBit | kThreadCacheBit)) == 0 && (CurrentState & kBlockSizeMask) != 0;
 }
 
-bool FTlsfAllocator::TryFree(void* Pointer) noexcept
+bool CTlsfAllocator::TryFree(void* Pointer) noexcept
 {
     using namespace tlsf;
     if (!Pointer) return true;
@@ -1053,19 +1053,19 @@ bool FTlsfAllocator::TryFree(void* Pointer) noexcept
     // (0) 全 payload は 16 整列なので、非整列ポインタは当アロケータ由来でない (内部/野良ポインタ)。
     //     PtrToBlock が壊れたヘッダを指してヒープを破壊する前に弾く。
     if ((reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1)) != 0) {
-        ACS_ASSERT(false && "FTlsfAllocator::Free: 非整列ポインタ (当アロケータ由来でない)");
+        ACS_ASSERT(false && "CTlsfAllocator::Free: 非整列ポインタ (当アロケータ由来でない)");
         return false;
     }
     // (1) 所属プール範囲外 (野良 / 別アロケータ由来) のポインタを弾く。誤った Free が
     //     ヒープ構造を破壊するのを未然に防ぐ。Debug は assert で即検出、Release は安全に no-op。
     if (!OwnsPointer(Pointer)) {
-        ACS_ASSERT(false && "FTlsfAllocator::Free: ポインタが当アロケータの所有でない");
+        ACS_ASSERT(false && "CTlsfAllocator::Free: ポインタが当アロケータの所有でない");
         return false;
     }
     FBlockHeader* Block = PtrToBlock(Pointer);
     // (2) 二重 free 検出: 既に free 状態のブロックを再 free するとフリーリストが壊れる。
     if (IsFree(Block)) {
-        ACS_ASSERT(false && "FTlsfAllocator::Free: 二重 free を検出");
+        ACS_ASSERT(false && "CTlsfAllocator::Free: 二重 free を検出");
         return false;
     }
     if (IsThreadCached(Block)) {
@@ -1074,11 +1074,11 @@ bool FTlsfAllocator::TryFree(void* Pointer) noexcept
     // (3) サイズ健全性: used ブロックのサイズは非 0 (0 は終端番兵/破損)。
     const usize CurrentBlockSize = BlockSize(Block);
     if (CurrentBlockSize == 0) {
-        ACS_ASSERT(false && "FTlsfAllocator::Free: 破損ブロック (size 0)");
+        ACS_ASSERT(false && "CTlsfAllocator::Free: 破損ブロック (size 0)");
         return false;
     }
     if (!UntrackAllocationStart(Pointer)) {
-        ACS_ASSERT(false && "FTlsfAllocator::Free: allocation-start tracking mismatch");
+        ACS_ASSERT(false && "CTlsfAllocator::Free: allocation-start tracking mismatch");
         return false;
     }
 
@@ -1108,7 +1108,7 @@ bool FTlsfAllocator::TryFree(void* Pointer) noexcept
     return true;
 }
 
-void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
+void* CTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
                               FSourceLoc Location) noexcept
 {
     using namespace tlsf;
@@ -1125,12 +1125,12 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
     // 不正/解放済みポインタは旧領域を読まず/解放せず、失敗を返して所有権を維持する。
     const bool bPointerIsValid = OwnsPointer(Pointer) && ((reinterpret_cast<uptr>(Pointer) & (ALIGN_SIZE - 1)) == 0);
     if (!bPointerIsValid) {
-        ACS_ASSERT(false && "FTlsfAllocator::Realloc: 不正なポインタ");
+        ACS_ASSERT(false && "CTlsfAllocator::Realloc: 不正なポインタ");
         return nullptr;
     }
     FBlockHeader* Block = PtrToBlock(Pointer);
     if (IsFree(Block)) {
-        ACS_ASSERT(false && "FTlsfAllocator::Realloc: 解放済みポインタ");
+        ACS_ASSERT(false && "CTlsfAllocator::Realloc: 解放済みポインタ");
         return nullptr;
     }
     if (IsThreadCached(Block)) return nullptr;
@@ -1141,7 +1141,7 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
 
     // over-alignment 要求で現在の先頭が境界を満たさない場合は in-place できない → 移動。
     if (Alignment > ALIGN_SIZE && (reinterpret_cast<uptr>(Pointer) & (static_cast<uptr>(Alignment) - 1)) != 0) {
-        return FAllocator::Realloc(Pointer, SafeOldSize, NewSize, Alignment, Location);
+        return IAllocator::Realloc(Pointer, SafeOldSize, NewSize, Alignment, Location);
     }
 
     const usize AdjustedSize = AdjustRequestSize(NewSize, ALIGN_SIZE);
@@ -1153,7 +1153,7 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
         FBlockHeader* const NextFreeBlock = NextBlock(Block);
         if (!(IsFree(NextFreeBlock) &&
               (OldBlockSize + BlockSize(NextFreeBlock) + kBlockHeaderOverhead) >= AdjustedSize)) {
-            return FAllocator::Realloc(Pointer, SafeOldSize, NewSize, Alignment, Location);
+            return IAllocator::Realloc(Pointer, SafeOldSize, NewSize, Alignment, Location);
         }
         Block = MergeNext(Block);       // Block は used のまま NextFreeBlock を吸収
         MarkPrevUsed(NextBlock(Block)); // 統合後の次ブロックへ「prev(=Block) は used」を伝達
@@ -1173,7 +1173,7 @@ void* FTlsfAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize
     return Pointer;
 }
 
-FTlsfAllocator::FStats FTlsfAllocator::GetStats() const noexcept
+CTlsfAllocator::FStats CTlsfAllocator::GetStats() const noexcept
 {
     FStats Statistics{};
     Statistics.bytes_used = m_BytesUsed;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FArenaAllocator 実装
+// ACS Memory — CArenaAllocator 実装
 // -----------------------------------------------------------------------------
 // 通常確保はアトミック CAS 1 回で完了する。ページが満杯になった時だけ
 // FMutex で排他して新ページを確保する。
@@ -30,18 +30,18 @@ void WaitForArenaOperation(u32& SpinCount) noexcept
 
 } // namespace
 
-FArenaAllocator::FArenaAllocator(usize PageSize, FAllocator* BackingAllocator) noexcept
+CArenaAllocator::CArenaAllocator(usize PageSize, IAllocator* BackingAllocator) noexcept
     : m_Backing(BackingAllocator ? BackingAllocator : &DefaultAllocator()), m_PageSize(PageSize)
 {
 }
 
-FArenaAllocator::~FArenaAllocator() noexcept
+CArenaAllocator::~CArenaAllocator() noexcept
 {
     Reset(/*release*/ true);
 }
 
 // 新ページ確保（ヘッダ + データ + 64B 整列の余裕を 1 回で取る）
-FArenaAllocator::FPage* FArenaAllocator::AllocPage(usize Size) noexcept
+CArenaAllocator::FPage* CArenaAllocator::AllocPage(usize Size) noexcept
 {
     // sizeof(Page) + Size + 64 の usize オーバーフローを防ぐ。wrap すると過小な Total で
     // alloc し、その後の base/used 計算でページ境界を越えて書き込む (OOB)。
@@ -59,7 +59,7 @@ FArenaAllocator::FPage* FArenaAllocator::AllocPage(usize Size) noexcept
     return NewPage;
 }
 
-bool FArenaAllocator::TryBeginAllocation() noexcept
+bool CArenaAllocator::TryBeginAllocation() noexcept
 {
     if (m_ResetInProgress.Load(EMemoryOrder::Acquire) != 0u) {
         return false;
@@ -75,17 +75,17 @@ bool FArenaAllocator::TryBeginAllocation() noexcept
     return false;
 }
 
-void FArenaAllocator::EndAllocation() noexcept
+void CArenaAllocator::EndAllocation() noexcept
 {
     m_ActiveAllocations.FetchSub(1u);
 }
 
-void* FArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+void* CArenaAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     return ReserveRegion(Size, Alignment, Size, 1u);
 }
 
-ACS_FORCEINLINE void* FArenaAllocator::ReserveRegion(usize ReservedSize, usize Alignment, usize AccountedBytes, usize AccountedAllocations) noexcept
+ACS_FORCEINLINE void* CArenaAllocator::ReserveRegion(usize ReservedSize, usize Alignment, usize AccountedBytes, usize AccountedAllocations) noexcept
 {
     if (ReservedSize == 0u || AccountedAllocations == 0u) return nullptr;
     if (!IsPow2(Alignment) || Alignment > kMaximumArenaAlignment) return nullptr;
@@ -95,7 +95,7 @@ ACS_FORCEINLINE void* FArenaAllocator::ReserveRegion(usize ReservedSize, usize A
     /** 関数離脱時に arena の確保入場数を戻す局所 guard。 */
     struct FActiveAllocationScope {
         /** 入場数を戻す arena。 */
-        FArenaAllocator* allocator = nullptr;
+        CArenaAllocator* allocator = nullptr;
 
         /** 保持している確保入場を終了する。 */
         ~FActiveAllocationScope() noexcept
@@ -181,7 +181,7 @@ ACS_FORCEINLINE void* FArenaAllocator::ReserveRegion(usize ReservedSize, usize A
     }
 }
 
-bool FArenaAllocator::AllocBatch(void** Output, usize Count, usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+bool CArenaAllocator::AllocBatch(void** Output, usize Count, usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     if (!Output || Count == 0u) return false;
     /** 失敗時の契約を先に満たす出力 index。 */
@@ -208,12 +208,12 @@ bool FArenaAllocator::AllocBatch(void** Output, usize Count, usize Size, usize A
     return true;
 }
 
-void FArenaAllocator::Free(void* /*Pointer*/) noexcept
+void CArenaAllocator::Free(void* /*Pointer*/) noexcept
 {
     // 個別解放はサポートしない（Reset で全体破棄）
 }
 
-bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize Size) noexcept
+bool CArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize Size) noexcept
 {
     if (!Pointer || Size == 0u)
     {
@@ -234,7 +234,7 @@ bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize 
 
     struct FActiveOperationScope
     {
-        FArenaAllocator* Allocator = nullptr;
+        CArenaAllocator* Allocator = nullptr;
 
         ~FActiveOperationScope() noexcept
         {
@@ -264,7 +264,7 @@ bool FArenaAllocator::ContainsCurrentAllocationRange(const void* Pointer, usize 
     return false;
 }
 
-FArenaAllocatorDiagnostics FArenaAllocator::Diagnostics() const noexcept
+FArenaAllocatorDiagnostics CArenaAllocator::Diagnostics() const noexcept
 {
     /** page 列の安定した読み取りを保証する lock。 */
     FScopedLock ScopedGrowLock(m_GrowLock);
@@ -280,7 +280,7 @@ FArenaAllocatorDiagnostics FArenaAllocator::Diagnostics() const noexcept
 }
 
 // 巻き戻し or 全解放
-void FArenaAllocator::Reset(bool bReleasePages) noexcept
+void CArenaAllocator::Reset(bool bReleasePages) noexcept
 {
     // 複数の Reset は順番に実行する。入場ゲートを先に閉じることで GrowLock 待ちとのデッドロックを避ける。
     u32 SpinCount = 0u;

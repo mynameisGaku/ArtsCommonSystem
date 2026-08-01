@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// ECS の FWorld（エンティティとコンポーネントを管理する中心）
+// ECS の CWorld（エンティティとコンポーネントを管理する中心）
 //
 // 使い方:
-//   FWorld w;
+//   CWorld w;
 //   FEntityId e = w.Create();
 //   w.Add<FPosition>(e, {0, 0, 0});
 //   w.Add<FVelocity>(e, {1, 0, 0});
@@ -36,19 +36,19 @@ namespace acs {
  * 型ごとに TSparseSet を 1 つ持ち、FComponentTypeId を添字に引く。Query で複数
  * コンポーネントを横断走査する。non-copy 型。
  */
-class FWorld {
+class CWorld {
 public:
-    /** 空の FWorld を構築する。 */
-    FWorld() noexcept;
+    /** 空の CWorld を構築する。 */
+    CWorld() noexcept;
 
-    /** FWorld を破棄する (全 TSparseSet を解放)。 */
-    ~FWorld() noexcept;
+    /** CWorld を破棄する (全 TSparseSet を解放)。 */
+    ~CWorld() noexcept;
 
     /** コピー禁止 (TSparseSet を所有するため)。 */
-    FWorld(const FWorld&) = delete;
+    CWorld(const CWorld&) = delete;
 
     /** コピー代入も禁止。 */
-    FWorld& operator=(const FWorld&) = delete;
+    CWorld& operator=(const CWorld&) = delete;
 
     /**
      * エンティティを生成する。
@@ -69,7 +69,7 @@ public:
     void Destroy(FEntityId e) noexcept;
 
     /**
-     * 全エンティティとコンポーネントストレージを解放し、空の FWorld に戻す。
+     * 全エンティティとコンポーネントストレージを解放し、空の CWorld に戻す。
      *
      * @details MemorySystem の終了前に、実行中に選ばれた既定アロケータを使う
      * TSparseSet を確実に破棄するためにも使用する。繰り返し呼んでも安全。
@@ -77,14 +77,14 @@ public:
     void Clear() noexcept;
 
     /**
-     * src の完全な複製をこの FWorld に作る (snapshot / rollback 用)。
+     * src の完全な複製をこの CWorld に作る (snapshot / rollback 用)。
      *
      * @details
      * エンティティスロット (世代含む)・フリーリスト・全 TSparseSet の値をコピーする。
      * 世代までコピーするため、snapshot 時に取った FEntityId は復元後もそのまま有効で、
      * snapshot 後に生成した FEntityId は復元で無効になる (rollback netcode の要件)。
      *
-     *   FWorld backup;
+     *   CWorld backup;
      *   backup.CopyFrom(world);    // フレーム N の状態を退避
      *   ...                        // 予測実行でフレーム N+k まで進める
      *   world.CopyFrom(backup);    // 権威入力が届いたらフレーム N へ巻き戻す
@@ -92,10 +92,10 @@ public:
      * 全コンポーネント型がコピー構築可能である必要がある。非コピー型の TSparseSet が
      * あるか OOM の場合は false を返し、this は空 (Clear 済み) の状態になる
      * (部分複製は残さない)。this == &src は何もせず true。
-     * @param src 複製元の FWorld。
+     * @param src 複製元の CWorld。
      * @return 完全に複製できたら true。
      */
-    bool CopyFrom(const FWorld& src) noexcept;
+    bool CopyFrom(const CWorld& src) noexcept;
 
     /**
      * エンティティが現在も生存しているかを返す (世代チェック)。
@@ -146,7 +146,7 @@ public:
     template<typename T>
     const T* Get(FEntityId e) const noexcept {
         if (!IsAlive(e)) return nullptr;
-        const TSparseSet<T>* set = const_cast<FWorld*>(this)->TryGetSet<T>();
+        const TSparseSet<T>* set = const_cast<CWorld*>(this)->TryGetSet<T>();
         return set ? set->Get(e.index) : nullptr;
     }
 
@@ -194,11 +194,11 @@ public:
         const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
         if (!m_Sets[id]) {
-            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。FSparseSetBase の
-            // 仮想デストラクタで型ごとの破棄が走るため、解放は FWorld::Clear の Delete で型消去できる。
+            // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。ASparseSetBase の
+            // 仮想デストラクタで型ごとの破棄が走るため、解放は CWorld::Clear の Delete で型消去できる。
             TSparseSet<T>* const set = New<TSparseSet<T>>(*m_Sets.GetAllocator());
             ACS_CHECKF(set != nullptr, "World::GetOrCreateSet: SparseSet 確保失敗 (id=%u)", id);
-            m_Sets[id] = static_cast<FSparseSetBase*>(set);
+            m_Sets[id] = static_cast<ASparseSetBase*>(set);
         }
         return *static_cast<TSparseSet<T>*>(m_Sets[id]);
     }
@@ -252,8 +252,8 @@ private:
     /** 解放済みで再利用待ちのスロット番号。 */
     TArray<u32>            m_FreeIndices;
 
-    /** コンポーネント型ごとの TSparseSet (FComponentTypeId → FSparseSetBase*、所有権を持つ)。 */
-    TArray<FSparseSetBase*> m_Sets;
+    /** コンポーネント型ごとの TSparseSet (FComponentTypeId → ASparseSetBase*、所有権を持つ)。 */
+    TArray<ASparseSetBase*> m_Sets;
 
     /** 生存中のエンティティ数。 */
     u32                   m_AliveCount = 0;
@@ -261,5 +261,8 @@ private:
     /** Clear 前の FEntityId が再生成後に一致しないよう、新規スロットへ与える世代。 */
     u32 m_GenerationSeed = 0;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FWorld = CWorld;
 
 } // namespace acs

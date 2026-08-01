@@ -8,11 +8,11 @@
 
 namespace acs::localmatch {
 
-FLocalMatchmaker::FLocalMatchmaker(const FLocalMatchmakerConfig& config) noexcept
+CLocalMatchmaker::CLocalMatchmaker(const FLocalMatchmakerConfig& config) noexcept
     : m_MaxRatingDelta(config.MaxRatingDelta) {
 }
 
-bool FLocalMatchmaker::StrEq(const char* a, const char* b) noexcept {
+bool CLocalMatchmaker::StrEq(const char* a, const char* b) noexcept {
     if (a == nullptr || b == nullptr) {
         return false;
     }
@@ -26,7 +26,7 @@ bool FLocalMatchmaker::StrEq(const char* a, const char* b) noexcept {
     return *a == 0 && *b == 0;
 }
 
-void FLocalMatchmaker::CopyText(char* dst, acs::usize dst_size, const char* src) noexcept {
+void CLocalMatchmaker::CopyText(char* dst, acs::usize dst_size, const char* src) noexcept {
     if (dst == nullptr || dst_size == 0) {
         return;
     }
@@ -38,7 +38,7 @@ void FLocalMatchmaker::CopyText(char* dst, acs::usize dst_size, const char* src)
     dst[dst_size - 1] = 0;
 }
 
-FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
+CLocalMatchmaker::FEntry* CLocalMatchmaker::FindEntry(
     acs::game::FMatchTicket ticket) noexcept {
     if (!ticket.IsValid()) {
         return nullptr;
@@ -51,7 +51,7 @@ FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
     return nullptr;
 }
 
-const FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
+const CLocalMatchmaker::FEntry* CLocalMatchmaker::FindEntry(
     acs::game::FMatchTicket ticket) const noexcept {
     if (!ticket.IsValid()) {
         return nullptr;
@@ -64,7 +64,7 @@ const FLocalMatchmaker::FEntry* FLocalMatchmaker::FindEntry(
     return nullptr;
 }
 
-FLocalMatchmaker::FEntry* FLocalMatchmaker::FindFreeEntry() noexcept {
+CLocalMatchmaker::FEntry* CLocalMatchmaker::FindFreeEntry() noexcept {
     // まず本当に空いている (一度も使われていない / Clear 済み) スロットを優先。
     for (acs::u32 i = 0; i < kMaxTickets; ++i) {
         if (!m_Entries[i].bActive) {
@@ -89,7 +89,7 @@ FLocalMatchmaker::FEntry* FLocalMatchmaker::FindFreeEntry() noexcept {
     return oldest; // 退役スロットも無ければ nullptr (= 真に満杯)
 }
 
-void FLocalMatchmaker::RetireEntry(FEntry& entry) noexcept {
+void CLocalMatchmaker::RetireEntry(FEntry& entry) noexcept {
     if (entry.RetireSeq != 0) {
         return; // 既に退役済み: m_ActiveCount を二重減算しない (冪等)
     }
@@ -99,12 +99,12 @@ void FLocalMatchmaker::RetireEntry(FEntry& entry) noexcept {
     }
 }
 
-bool FLocalMatchmaker::IsRatingCompatible(acs::u32 a, acs::u32 b) const noexcept {
+bool CLocalMatchmaker::IsRatingCompatible(acs::u32 a, acs::u32 b) const noexcept {
     const acs::u32 delta = a > b ? a - b : b - a;
     return delta <= m_MaxRatingDelta;
 }
 
-FLocalMatchmaker::FEntry* FLocalMatchmaker::FindCompatibleEntry(const char* mode,
+CLocalMatchmaker::FEntry* CLocalMatchmaker::FindCompatibleEntry(const char* mode,
                                                                 acs::u32 elo_hint) noexcept {
     for (acs::u32 i = 0; i < kMaxTickets; ++i) {
         FEntry& entry = m_Entries[i];
@@ -118,17 +118,17 @@ FLocalMatchmaker::FEntry* FLocalMatchmaker::FindCompatibleEntry(const char* mode
     return nullptr;
 }
 
-acs::TResult<acs::game::FMatchTicket> FLocalMatchmaker::StartSearch(const char* mode,
+acs::TResult<acs::game::FMatchTicket> CLocalMatchmaker::StartSearch(const char* mode,
                                                                     acs::u32 elo_hint) noexcept {
     if (mode == nullptr || mode[0] == 0) {
         return ACS_ERR(IO, acs::game::FBackendError::kSub_BadArgument,
-                       "FLocalMatchmaker::StartSearch requires a mode");
+                       "CLocalMatchmaker::StartSearch requires a mode");
     }
 
     FEntry* new_entry = FindFreeEntry();
     if (new_entry == nullptr) {
         return ACS_ERR(IO, kSubLocalMatchFull,
-                       "FLocalMatchmaker ticket pool is full");
+                       "CLocalMatchmaker ticket pool is full");
     }
 
     acs::game::FMatchTicket new_ticket{};
@@ -152,11 +152,11 @@ acs::TResult<acs::game::FMatchTicket> FLocalMatchmaker::StartSearch(const char* 
     return acs::TResult<acs::game::FMatchTicket>(acs::OkInit, new_ticket);
 }
 
-acs::TResult<void> FLocalMatchmaker::CancelSearch(acs::game::FMatchTicket ticket) noexcept {
+acs::TResult<void> CLocalMatchmaker::CancelSearch(acs::game::FMatchTicket ticket) noexcept {
     FEntry* entry = FindEntry(ticket);
     if (entry == nullptr) {
         return ACS_ERR(IO, kSubLocalMatchInvalidTicket,
-                       "FLocalMatchmaker::CancelSearch invalid ticket");
+                       "CLocalMatchmaker::CancelSearch invalid ticket");
     }
     // 相手とマッチ済みだった場合、相手をまだ確定していなければ Searching に戻して
     // 再マッチ可能にする (interface 仕様で許容)。相手の PartnerTicket も切る。
@@ -180,20 +180,20 @@ acs::TResult<void> FLocalMatchmaker::CancelSearch(acs::game::FMatchTicket ticket
     return acs::Ok();
 }
 
-acs::game::EMatchStatus FLocalMatchmaker::PollStatus(acs::game::FMatchTicket ticket) noexcept {
+acs::game::EMatchStatus CLocalMatchmaker::PollStatus(acs::game::FMatchTicket ticket) noexcept {
     const FEntry* entry = FindEntry(ticket);
     return entry != nullptr ? entry->Status : acs::game::EMatchStatus::Failed;
 }
 
-acs::TResult<void> FLocalMatchmaker::AcceptMatch(acs::game::FMatchTicket ticket) noexcept {
+acs::TResult<void> CLocalMatchmaker::AcceptMatch(acs::game::FMatchTicket ticket) noexcept {
     FEntry* entry = FindEntry(ticket);
     if (entry == nullptr) {
         return ACS_ERR(IO, kSubLocalMatchInvalidTicket,
-                       "FLocalMatchmaker::AcceptMatch invalid ticket");
+                       "CLocalMatchmaker::AcceptMatch invalid ticket");
     }
     if (entry->Status != acs::game::EMatchStatus::Matched) {
         return ACS_ERR(IO, kSubLocalMatchWrongState,
-                       "FLocalMatchmaker::AcceptMatch requires Matched status");
+                       "CLocalMatchmaker::AcceptMatch requires Matched status");
     }
     entry->bAccepted = true;
     // 双方が Accept したらマッチ確定 = 終端。両スロットを退役させて再利用可能に
@@ -214,7 +214,7 @@ acs::TResult<void> FLocalMatchmaker::AcceptMatch(acs::game::FMatchTicket ticket)
     return acs::Ok();
 }
 
-void FLocalMatchmaker::Clear() noexcept {
+void CLocalMatchmaker::Clear() noexcept {
     for (acs::u32 i = 0; i < kMaxTickets; ++i) {
         m_Entries[i] = FEntry{};
     }

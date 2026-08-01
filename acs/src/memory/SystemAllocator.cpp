@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FSystemAllocator 実装
+// ACS Memory — CSystemAllocator 実装
 // -----------------------------------------------------------------------------
 // HeapAlloc は最大で MEMORY_ALLOCATION_ALIGNMENT (16B on x64) しか保証しない。
 // 任意アライメントを得るため、要求サイズ + アライメント余裕 + ヘッダ分を
@@ -16,19 +16,19 @@ namespace acs {
 
 namespace {
 
-/** 全 FSystemAllocator の侵入レジストリを守る。POD なので静的初期化・破棄順序へ依存しない。 */
+/** 全 CSystemAllocator の侵入レジストリを守る。POD なので静的初期化・破棄順序へ依存しない。 */
 SRWLOCK g_system_allocator_registry_lock = SRWLOCK_INIT;
 
-/** 生存中 FSystemAllocator の侵入リスト先頭。 */
-FSystemAllocator* g_system_allocator_registry_head = nullptr;
+/** 生存中 CSystemAllocator の侵入リスト先頭。 */
+CSystemAllocator* g_system_allocator_registry_head = nullptr;
 
-/** 生存中 FSystemAllocator の数。レジストリロック下で更新する。 */
+/** 生存中 CSystemAllocator の数。レジストリロック下で更新する。 */
 u64 g_live_system_allocator_count = 0;
 
-/** 最後に割り当てた FSystemAllocator 構築世代。レジストリロック下で単調増加させる。 */
+/** 最後に割り当てた CSystemAllocator 構築世代。レジストリロック下で単調増加させる。 */
 u64 g_last_system_allocator_generation = 0;
 
-/** 未解放確保を残したまま破棄された FSystemAllocator の累積数。 */
+/** 未解放確保を残したまま破棄された CSystemAllocator の累積数。 */
 u64 g_destroyed_with_live_allocations_count = 0;
 
 /** 破棄時に残っていた実ヒープ確保量の累積。 */
@@ -111,7 +111,7 @@ private:
 };
 
 /** 未解放を伴うアロケータ破棄を Logger 非依存で機械可読出力する。 */
-void EmitDestroyedWithLiveAllocations(const FSystemAllocator* Allocator, u64 AllocatorGeneration, u64 OutstandingBytes,
+void EmitDestroyedWithLiveAllocations(const CSystemAllocator* Allocator, u64 AllocatorGeneration, u64 OutstandingBytes,
                                       u64 OutstandingAllocationCount, u64 DestroyedWithLiveAllocationsCount,
                                       u64 DestroyedOutstandingBytes, u64 DestroyedOutstandingAllocationCount) noexcept
 {
@@ -140,13 +140,13 @@ void EmitDestroyedWithLiveAllocations(const FSystemAllocator* Allocator, u64 All
     }
 }
 
-/** FSystemAllocator が払い出したブロックを識別する固定値。 */
+/** CSystemAllocator が払い出したブロックを識別する固定値。 */
 constexpr u64 kAllocationHeaderMagic = 0x414353535953544Dull;
 
 /** ユーザポインタ直前に置く所有権・回収情報。 */
 struct FAllocationHeader {
     u64 magic = 0;
-    FSystemAllocator* owner = nullptr;
+    CSystemAllocator* owner = nullptr;
     u64 owner_generation = 0;
     void* allocation_base = nullptr;
     usize allocation_size = 0;
@@ -168,12 +168,12 @@ enum class EAlignedFreeResult : u8 {
 struct FAlignedFreeDetails {
     usize freed_size = 0;
     DWORD operating_system_error = ERROR_SUCCESS;
-    const FSystemAllocator* actual_owner = nullptr;
+    const CSystemAllocator* actual_owner = nullptr;
     u64 actual_owner_generation = 0;
 };
 
 /** 解放拒否や HeapFree 失敗を Logger 非依存で機械可読出力する。 */
-void EmitFreeFailure(const FSystemAllocator* Allocator, u64 AllocatorGeneration, const void* Pointer,
+void EmitFreeFailure(const CSystemAllocator* Allocator, u64 AllocatorGeneration, const void* Pointer,
                      const FAlignedFreeDetails& Details, EAlignedFreeResult Result) noexcept
 {
     const char* Reason = "unknown";
@@ -215,7 +215,7 @@ void EmitFreeFailure(const FSystemAllocator* Allocator, u64 AllocatorGeneration,
 }
 
 /** 再確保の所有権拒否や旧領域解放失敗を Logger 非依存で機械可読出力する。 */
-void EmitReallocationFailure(const FSystemAllocator* Allocator, u64 AllocatorGeneration, const void* Pointer,
+void EmitReallocationFailure(const CSystemAllocator* Allocator, u64 AllocatorGeneration, const void* Pointer,
                              const FAlignedFreeDetails& Details, EAlignedFreeResult Result) noexcept
 {
     const char* Reason = "invalid_metadata";
@@ -268,7 +268,7 @@ void EmitReallocationFailure(const FSystemAllocator* Allocator, u64 AllocatorGen
  * @param ActualSize 実際にヒープから取った総バイト数を返す (統計用、失敗時 0)。
  * @return アライン済みユーザポインタ (失敗時 nullptr)。
  */
-void* AlignedAlloc(usize Size, usize Alignment, FSystemAllocator* Owner, u64 OwnerGeneration,
+void* AlignedAlloc(usize Size, usize Alignment, CSystemAllocator* Owner, u64 OwnerGeneration,
                    usize& ActualSize) noexcept
 {
     if (Alignment == 0 || (Alignment & (Alignment - 1u)) != 0) {
@@ -368,7 +368,7 @@ const FAllocationHeader* ValidateAllocationHeader(const void* Pointer) noexcept
  * @param Details 解放サイズと失敗診断値の出力先。
  * @return 解放結果。
  */
-EAlignedFreeResult AlignedFree(FSystemAllocator* Allocator, u64 AllocatorGeneration, void* Pointer,
+EAlignedFreeResult AlignedFree(CSystemAllocator* Allocator, u64 AllocatorGeneration, void* Pointer,
                                FAlignedFreeDetails& Details) noexcept
 {
     Details = FAlignedFreeDetails{};
@@ -404,7 +404,7 @@ EAlignedFreeResult AlignedFree(FSystemAllocator* Allocator, u64 AllocatorGenerat
 
 } // namespace
 
-FSystemAllocator::FSystemAllocator() noexcept
+CSystemAllocator::CSystemAllocator() noexcept
 {
     ::AcquireSRWLockExclusive(&g_system_allocator_registry_lock);
     g_last_system_allocator_generation = SaturatingAdd(g_last_system_allocator_generation, 1u);
@@ -416,7 +416,7 @@ FSystemAllocator::FSystemAllocator() noexcept
     ::ReleaseSRWLockExclusive(&g_system_allocator_registry_lock);
 }
 
-FSystemAllocator::~FSystemAllocator() noexcept
+CSystemAllocator::~CSystemAllocator() noexcept
 {
     const u64 OutstandingBytes = m_Bytes.Load(EMemoryOrder::Acquire);
     const u64 OutstandingAllocationCount = m_AllocationCount.Load(EMemoryOrder::Acquire);
@@ -428,7 +428,7 @@ FSystemAllocator::~FSystemAllocator() noexcept
 
     ::AcquireSRWLockExclusive(&g_system_allocator_registry_lock);
     if (m_RegistryRegistered) {
-        FSystemAllocator** Link = &g_system_allocator_registry_head;
+        CSystemAllocator** Link = &g_system_allocator_registry_head;
         while (*Link && *Link != this)
             Link = &((*Link)->m_RegistryNext);
         if (*Link == this) {
@@ -457,7 +457,7 @@ FSystemAllocator::~FSystemAllocator() noexcept
     }
 }
 
-FSystemAllocatorProcessStatistics FSystemAllocator::CaptureProcessStatistics() noexcept
+FSystemAllocatorProcessStatistics CSystemAllocator::CaptureProcessStatistics() noexcept
 {
     FSystemAllocatorProcessStatistics Statistics;
     ::AcquireSRWLockShared(&g_system_allocator_registry_lock);
@@ -466,7 +466,7 @@ FSystemAllocatorProcessStatistics FSystemAllocator::CaptureProcessStatistics() n
     Statistics.destroyed_outstanding_bytes = g_destroyed_outstanding_bytes;
     Statistics.destroyed_outstanding_allocation_count = g_destroyed_outstanding_allocation_count;
 
-    for (const FSystemAllocator* Allocator = g_system_allocator_registry_head; Allocator;
+    for (const CSystemAllocator* Allocator = g_system_allocator_registry_head; Allocator;
          Allocator = Allocator->m_RegistryNext) {
         Statistics.outstanding_bytes = SaturatingAdd(Statistics.outstanding_bytes, Allocator->BytesAllocated());
         Statistics.outstanding_allocation_count = SaturatingAdd(Statistics.outstanding_allocation_count,
@@ -476,7 +476,7 @@ FSystemAllocatorProcessStatistics FSystemAllocator::CaptureProcessStatistics() n
     return Statistics;
 }
 
-void* FSystemAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+void* CSystemAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     if (Size == 0) return nullptr;
     usize ActualSize = 0;
@@ -492,7 +492,7 @@ void* FSystemAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location
     return Allocation;
 }
 
-void FSystemAllocator::Free(void* Pointer) noexcept
+void CSystemAllocator::Free(void* Pointer) noexcept
 {
     if (!Pointer) return;
     FAlignedFreeDetails Details;
@@ -505,7 +505,7 @@ void FSystemAllocator::Free(void* Pointer) noexcept
     m_AllocationCount.FetchSub(1u);
 }
 
-void* FSystemAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
+void* CSystemAllocator::Realloc(void* Pointer, usize OldSize, usize NewSize, usize Alignment,
                                 FSourceLoc Location) noexcept
 {
     (void)OldSize;

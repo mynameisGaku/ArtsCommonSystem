@@ -21,7 +21,7 @@ struct FSegmentConfig {
     bool use_frame_allocator = false;
 };
 
-/** FMemorySystem 全体の初期化設定。 */
+/** CMemorySystem 全体の初期化設定。 */
 struct FMemorySystemConfig {
     /** セグメント種別ごとの設定 (ESegment::_Count 個)。 */
     FSegmentConfig segments[(usize)ESegment::_Count];
@@ -98,7 +98,7 @@ struct FMemorySegmentInspection {
     bool matches_authoritative_statistics = false;
 };
 
-/** FMemorySystem の終了診断に使う未解放メモリ集計。 */
+/** CMemorySystem の終了診断に使う未解放メモリ集計。 */
 struct FMemoryLeakSummary {
     /** Temp を除く全セグメントの未解放バイト数。 */
     u64 outstanding_bytes = 0;
@@ -180,7 +180,7 @@ struct FMemoryTrackingReport {
 };
 
 /** セグメント別メモリ管理のファサード (mimalloc / frame arena + 予算 + 診断、全 static)。 */
-class FMemorySystem {
+class CMemorySystem {
 public:
     /**
      * 全セグメントを設定で初期化する。
@@ -217,7 +217,7 @@ public:
      * @return セグメントのアロケータ (Init 前と Shutdown 開始後は nullptr)。
      * 返したアダプタのアドレスは再初期化後も安定しているが、非稼働中の操作は失敗する。
      */
-    static FAllocator* Get(ESegment Segment) noexcept;
+    static IAllocator* Get(ESegment Segment) noexcept;
 
     /**
      * 現在のセグメント (FScopedMemorySegment が設定した TLS の値) を返す。
@@ -231,7 +231,7 @@ public:
      *
      * @return 現在セグメントのアロケータ (Init 前は nullptr)。
      */
-    static FAllocator* CurrentAllocator() noexcept;
+    static IAllocator* CurrentAllocator() noexcept;
 
     /**
      * Temp セグメントを巻き戻す (フレーム先頭で 1 回呼ぶ)。
@@ -282,7 +282,7 @@ public:
     /**
      * チェックポイントより後に残る割り当て元情報を、呼び出し側の固定長配列へ収集する。
      *
-     * @details 追跡表自身は Win32 プロセスヒープを使うため、FMemorySystem へ再帰確保しない。
+     * @details 追跡表自身は Win32 プロセスヒープを使うため、CMemorySystem へ再帰確保しない。
      * @param Checkpoint 差分開始位置。ゼロなら現在の全未解放割り当てを対象にする。
      * @param Output 書き込み先配列。件数だけ調べる場合は nullptr。
      * @param OutputCapacity Output の要素容量。
@@ -317,6 +317,9 @@ public:
      */
     static bool IsAllocationSiteTrackingEnabled() noexcept;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FMemorySystem = CMemorySystem;
 
 /** RAII でカレントセグメントを切り替える (スコープ脱出で元に戻す)。 */
 class FScopedMemorySegment {

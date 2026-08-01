@@ -53,7 +53,7 @@ struct FControlBlock {
     TAtomic<u32> weak   {1};
 
     /** 解放に使うアロケータ。 */
-    FAllocator*  alloc  = nullptr;
+    IAllocator*  alloc  = nullptr;
 
     /** T のデストラクタを実行する関数 (型消去された破棄フック)。 */
     void (*destroy_obj)(FControlBlock*) noexcept = nullptr;
@@ -154,7 +154,7 @@ struct TInlineBlock : FControlBlock {
      */
     static void FreeSelf(FControlBlock* cb) noexcept {
         auto* self = static_cast<TInlineBlock*>(cb);
-        FAllocator* const a = self->alloc;
+        IAllocator* const a = self->alloc;
         a->Free(self);
     }
 };
@@ -345,7 +345,7 @@ private:
     template<typename U> friend class TWeakPtr;
 
     /** MakeSharedIn が採用コンストラクタを使うための friend 宣言。 */
-    template<typename U, typename... A> friend TSharedPtr<U> MakeSharedIn(FAllocator&, A&&...) noexcept;
+    template<typename U, typename... A> friend TSharedPtr<U> MakeSharedIn(IAllocator&, A&&...) noexcept;
 };
 
 /**
@@ -584,7 +584,7 @@ void HookSharedFromThis(const TSharedPtr<T>& sp) noexcept {
  * @return 構築した対象を共有所有する TSharedPtr (確保失敗時は空)。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE TSharedPtr<T> MakeSharedIn(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE TSharedPtr<T> MakeSharedIn(IAllocator& a, Args&&... args) noexcept {
     using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TSharedPtr<T>();

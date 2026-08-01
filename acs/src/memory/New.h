@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Memory — FAllocator 経由の new/delete ヘルパ
+// ACS Memory — IAllocator 経由の new/delete ヘルパ
 //
-// グローバル new/delete を使わず、FAllocator から確保 → 配置 new でコンストラクタ
-// 呼び出し → デストラクタ呼び出し → FAllocator に返す、という流れを 1 関数化。
+// グローバル new/delete を使わず、IAllocator から確保 → 配置 new でコンストラクタ
+// 呼び出し → デストラクタ呼び出し → IAllocator に返す、という流れを 1 関数化。
 //
 // 例:
 //   FMyObj* p = New<FMyObj>(allocator, args...);
@@ -17,7 +17,7 @@
 namespace acs {
 
 /**
- * FAllocator から確保した領域に単一オブジェクトを構築する。
+ * IAllocator から確保した領域に単一オブジェクトを構築する。
  *
  * @details a.Alloc で sizeof(T)/alignof(T) を確保し、配置 new で T を構築する。
  * コンストラクタ引数は完全転送する。
@@ -28,7 +28,7 @@ namespace acs {
  * @return 構築した T へのポインタ。確保失敗時は nullptr。
  */
 template<typename T, typename... Args>
-ACS_FORCEINLINE T* New(FAllocator& a, Args&&... args) noexcept {
+ACS_FORCEINLINE T* New(IAllocator& a, Args&&... args) noexcept {
     void* const p = a.Alloc(sizeof(T), alignof(T), FSourceLoc::Current());
     if (!p) return nullptr;
     return ::new (p) T(Forward<Args>(args)...);  // 配置 new
@@ -43,7 +43,7 @@ ACS_FORCEINLINE T* New(FAllocator& a, Args&&... args) noexcept {
  * @param p 破棄する対象 (nullptr は no-op)。
  */
 template<typename T>
-ACS_FORCEINLINE void Delete(FAllocator& a, T* p) noexcept {
+ACS_FORCEINLINE void Delete(IAllocator& a, T* p) noexcept {
     if (!p) return;
     if constexpr (!IsTriviallyDestructibleV<T>) p->~T();
     a.Free(static_cast<void*>(p));
@@ -59,7 +59,7 @@ ACS_FORCEINLINE void Delete(FAllocator& a, T* p) noexcept {
  * @return 配列先頭へのポインタ。n==0・オーバーフロー・確保失敗時は nullptr。
  */
 template<typename T>
-ACS_FORCEINLINE T* NewArray(FAllocator& a, usize n) noexcept {
+ACS_FORCEINLINE T* NewArray(IAllocator& a, usize n) noexcept {
     if (n == 0) return nullptr;
     if (n > (~usize(0)) / sizeof(T)) return nullptr;  // sizeof(T)*n のラップ → 失敗
     void* const p = a.Alloc(sizeof(T) * n, alignof(T), FSourceLoc::Current());
@@ -80,7 +80,7 @@ ACS_FORCEINLINE T* NewArray(FAllocator& a, usize n) noexcept {
  * @param n 配列の要素数。
  */
 template<typename T>
-ACS_FORCEINLINE void DeleteArray(FAllocator& a, T* arr, usize n) noexcept {
+ACS_FORCEINLINE void DeleteArray(IAllocator& a, T* arr, usize n) noexcept {
     if (!arr) return;
     if constexpr (!IsTriviallyDestructibleV<T>) {
         for (usize i = n; i-- > 0;) arr[i].~T();

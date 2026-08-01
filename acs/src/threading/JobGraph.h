@@ -16,16 +16,16 @@
 
 namespace acs {
 
-class FJobGraph;
+class CJobGraph;
 
 /**
- * グラフ内の 1 ジョブを指すハンドル (FJobGraph::Add の戻り値 / DependOn のキー)。
+ * グラフ内の 1 ジョブを指すハンドル (CJobGraph::Add の戻り値 / DependOn のキー)。
  *
  * @details graph ポインタとジョブ index の組。index が 0xFFFFFFFF または graph が null なら無効。
  */
 struct FJobHandle {
     /** このハンドルが属するグラフ (null = 無効)。 */
-    FJobGraph* graph = nullptr;
+    CJobGraph* graph = nullptr;
 
     /** グラフ内のジョブインデックス (0xFFFFFFFF = 無効)。 */
     u32       index = 0xFFFFFFFFu;
@@ -46,31 +46,31 @@ struct FJobHandle {
     void DependOn(FJobHandle upstream) noexcept;
 };
 
-/** ジョブ本体の関数型 (FThreadPool::TaskFn と同形式)。 */
+/** ジョブ本体の関数型 (CThreadPool::TaskFn と同形式)。 */
 using JobFn = void (*)(void* user, u32 worker_index);
 
 /**
  * 依存関係付きの並列タスクスケジューラ。
  *
  * @details
- * FThreadPool 上で動く DAG スケジューラ。各ジョブは完了時に dependents の
- * deps_remaining をアトミックにデクリメントし、0 になったものを FThreadPool へ
+ * CThreadPool 上で動く DAG スケジューラ。各ジョブは完了時に dependents の
+ * deps_remaining をアトミックにデクリメントし、0 になったものを CThreadPool へ
  * 投入する fan-out 方式。グラフは Submit 後は変更不可 (Add/AddDependency は Submit 前のみ)。
  * Reset で依存構造を保ったまま再実行できる。コピー不可。
  */
-class FJobGraph {
+class CJobGraph {
 public:
     /** 空のジョブグラフを構築する。 */
-    FJobGraph() noexcept = default;
+    CJobGraph() noexcept = default;
 
     /** 実行中なら Wait してから、Add で確保したすべての FJob を解放する。 */
-    ~FJobGraph() noexcept;
+    ~CJobGraph() noexcept;
 
     /** コピー禁止。 */
-    FJobGraph(const FJobGraph&) = delete;
+    CJobGraph(const CJobGraph&) = delete;
 
     /** コピー代入も禁止。 */
-    FJobGraph& operator=(const FJobGraph&) = delete;
+    CJobGraph& operator=(const CJobGraph&) = delete;
 
     /**
      * ジョブを追加する (Submit 前のみ呼べる)。
@@ -138,9 +138,9 @@ public:
     void AddDependency(FJobHandle upstream, FJobHandle downstream) noexcept;
 
     /**
-     * 全ジョブを FThreadPool に投入する。依存 0 のジョブが即座に走り始める。
+     * 全ジョブを CThreadPool に投入する。依存 0 のジョブが即座に走り始める。
      *
-     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。FThreadPool への
+     * @details Kahn 法でサイクル検知し、循環があれば一件も投入しない。CThreadPool への
      * 個別投入が失敗した場合はそのジョブだけを同期実行し、部分投入による二重実行を防ぐ。
      * @return 成功なら空の TResult。二重 Submit・サイクル検出時はエラー。
      */
@@ -173,7 +173,7 @@ private:
     friend struct FJobHandle;
 
     /**
-     * 1 ジョブを実行し、依存先を起動する FThreadPool 向けの TaskFn thunk。
+     * 1 ジョブを実行し、依存先を起動する CThreadPool 向けの TaskFn thunk。
      *
      * @param user 実行する FJob へのポインタ。
      * @param worker_index 実行中のワーカーインデックス。
@@ -198,7 +198,7 @@ private:
         TArray<u32>     dependents;
 
         /** 所属するグラフ (JobThunk から参照する)。 */
-        FJobGraph*      owner            = nullptr;
+        CJobGraph*      owner            = nullptr;
 
         /** inline callable の固定領域。 */
         alignas(std::max_align_t) u8 callable_storage[48]{};
@@ -291,5 +291,8 @@ private:
     /** 構築・再実行経路の診断値。 */
     FJobGraphDiagnostics m_Diagnostics;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FJobGraph = CJobGraph;
 
 } // namespace acs

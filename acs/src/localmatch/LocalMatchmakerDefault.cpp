@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// LocalMatchmakerDefault — FLocalMatchmaker を gameframework の既定 IMatchmaker
+// LocalMatchmakerDefault — CLocalMatchmaker を gameframework の既定 IMatchmaker
 // provider へ結線する
 // -----------------------------------------------------------------------------
 // gameframework は ACS::LocalMatch に依存できない (循環依存) ため、結線は backend
@@ -21,7 +21,7 @@ namespace acs::localmatch {
 acs::game::IMatchmaker& GetDefaultLocalMatchmaker() noexcept {
     // Meyers singleton。プロセス内 1 個のローカル matchmaker を既定として共有する。
     // 既定構築で即使用可能 (StartSearch から直接利用できる)。
-    static FLocalMatchmaker s_matchmaker;
+    static CLocalMatchmaker s_matchmaker;
     return s_matchmaker;
 }
 

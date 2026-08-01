@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FShardedTlsfAllocator
+// ACS Memory — CShardedTlsfAllocator
 // -----------------------------------------------------------------------------
 // マルチスレッド確保のロック競合を排除するシャード化 TLSF。
 //
 // 設計:
-//   ・N 個の独立した FTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散。
+//   ・N 個の独立した CTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散。
 //   ・確保: スレッドごとに割り当てたシャードへ (満杯なら隣のシャードへフォールバック)。
 //           スレッド数 <= シャード数なら実質ロック競合ゼロ。
 //   ・解放: ポインタのアドレスから所有シャードを O(N) で特定し、そのシャードのみロック。
-//   ・既存の検証済み FTlsfAllocator をそのまま部品にする (安全性ガード / auto-grow /
+//   ・既存の検証済み CTlsfAllocator をそのまま部品にする (安全性ガード / auto-grow /
 //     in-place realloc を全シャードで継承)。
 //
 // これは mimalloc の per-thread ヒープに相当する利点 (中央ロックの排除) を、ACS の
@@ -35,28 +35,28 @@ struct FShardedTlsfThreadCache;
  * ロック競合を抑えた N-way シャード化 TLSF アロケータ (mimalloc の per-thread ヒープ相当)。
  *
  * @details
- * 独立した FTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散する。確保はスレッドごとに
+ * 独立した CTlsfAllocator シャード (各々 VM 予約 + 専用ロック) に分散する。確保はスレッドごとに
  * 割り当てたシャードへ向かい (満杯なら隣へフォールバック)、解放はポインタアドレスから所有シャードを
  * O(N) で特定してそのシャードのみロックする。スレッド数 <= シャード数なら実質ロック競合ゼロ。
  * EnableThreadCache で小サイズ用の thread-local マガジン (lock-free hot path) を有効化できる。
- * 各シャードは検証済み FTlsfAllocator なので安全ガード・auto-grow・in-place realloc を継承する。
+ * 各シャードは検証済み CTlsfAllocator なので安全ガード・auto-grow・in-place realloc を継承する。
  */
-class FShardedTlsfAllocator final : public FAllocator {
+class CShardedTlsfAllocator final : public IAllocator {
 public:
     /** シャード数の上限 (典型的なゲーム CPU を 8-way で分散)。 */
     static constexpr u32 kMaxShards = 8;
 
     /** 未初期化状態で構築する (使用前に Init を呼ぶこと)。 */
-    FShardedTlsfAllocator() noexcept = default;
+    CShardedTlsfAllocator() noexcept = default;
 
     /** 破棄する (Shutdown を呼んで全シャードの VM 予約を解放する)。 */
-    ~FShardedTlsfAllocator() noexcept override;
+    ~CShardedTlsfAllocator() noexcept override;
 
     /** コピー禁止 (シャード群と VM 予約を単独所有するため)。 */
-    FShardedTlsfAllocator(const FShardedTlsfAllocator&) = delete;
+    CShardedTlsfAllocator(const CShardedTlsfAllocator&) = delete;
 
     /** コピー代入も禁止。 */
-    FShardedTlsfAllocator& operator=(const FShardedTlsfAllocator&) = delete;
+    CShardedTlsfAllocator& operator=(const CShardedTlsfAllocator&) = delete;
 
     /**
      * シャードを構築し、各シャードに VM 予約と初期コミットを割り当てて初期化する。
@@ -169,7 +169,7 @@ public:
      * @details
      * 小サイズ Alloc のキャッシュヒットは lock-free。Free は 1 shard をロックして正規の確保開始位置と
      * 状態を検証してから、payload 外の固定長ポインタ配列へ格納する。同一スレッドが別の
-     * FShardedTlsfAllocator を使う場合は、切替時に旧マガジンを旧 owner へ返してから新 owner へ
+     * CShardedTlsfAllocator を使う場合は、切替時に旧マガジンを旧 owner へ返してから新 owner へ
      * 貼り直す。スレッド終了時も、生存中かつ同一世代の owner へ残存ブロックを返す。
      */
     void EnableThreadCache() noexcept;
@@ -225,7 +225,7 @@ private:
     /** 1 シャード分の TLSF アロケータと専用ロック。 */
     struct FShard {
         /** このシャードの TLSF アロケータ (専用 VM 予約を所有)。 */
-        FTlsfAllocator alloc;
+        CTlsfAllocator alloc;
 
         /** このシャードへの確保/解放を直列化するロック。 */
         mutable FMutex lock;
@@ -265,7 +265,7 @@ private:
     mutable FConditionVar m_LifecycleDrainedCondition;
 
     /** 生存中アロケータの侵入リストにおける次要素。動的確保を避けるため本体に保持する。 */
-    FShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;
+    CShardedTlsfAllocator* m_ThreadCacheRegistryNext = nullptr;
 
     /** thread-local マガジンの寿命レジストリへ登録済みなら true。 */
     bool m_ThreadCacheLifetimeRegistered = false;
@@ -351,5 +351,8 @@ private:
      */
     bool FreeSharded(void* Pointer) noexcept;
 };
+
+/** 移行期間中に旧名を受け付ける互換別名。 */
+using FShardedTlsfAllocator = CShardedTlsfAllocator;
 
 } // namespace acs

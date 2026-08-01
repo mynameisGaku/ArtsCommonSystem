@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// 非同期スレッドセーフ FLogger 実装
+// 非同期スレッドセーフ CLogger 実装
 #include "foundation/Log.h"
 #include "foundation/Platform.h"
 
@@ -844,7 +844,7 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept
         if (dropped > 0) {
             char warn[160];
             const int n = ::snprintf(warn, sizeof(warn),
-                                     "[acs::FLogger] WARNING: dropped %lld log records due to ring overflow\n",
+                                     "[acs::CLogger] WARNING: dropped %lld log records due to ring overflow\n",
                                      static_cast<long long>(dropped));
             if (n > 0) {
                 if (g_state.use_console) WriteAll(g_state.out_console, warn, static_cast<usize>(n));
@@ -885,13 +885,13 @@ DWORD WINAPI WriterThreadProc(LPVOID) noexcept
 } // 無名名前空間
 
 /** 全資源の公開が完了し、Write を受け付けられる状態かを返す。 */
-bool FLogger::IsInitialized() noexcept
+bool CLogger::IsInitialized() noexcept
 {
     return ::_InterlockedExchangeAdd(&g_inited, 0) != 0;
 }
 
 /** ロガーを初期化する。詳細は宣言を参照。 */
-void FLogger::Init(const FLogConfig& configuration) noexcept
+void CLogger::Init(const FLogConfig& configuration) noexcept
 {
     // writer 自身から lifecycle を切り替えると Shutdown の join と循環するため受け付けない。
     if (t_inside_sink_callback) return;
@@ -910,7 +910,7 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
     // ページ単位でリング確保
     void* const mem = ::VirtualAlloc(nullptr, sizeof(FCell) * cap, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!mem) {
-        ::OutputDebugStringA("[acs::FLogger] FATAL: ring allocation failed\n");
+        ::OutputDebugStringA("[acs::CLogger] FATAL: ring allocation failed\n");
         ::ReleaseSRWLockExclusive(&g_lifecycle_lock);
         return;
     }
@@ -928,7 +928,7 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
     g_state.wake_signal_count = 0;
 
     // 複数通知先は Logger lifecycle 内だけ有効で、固定4096枠を初期化時に一括確保する。
-    if (!AllocateSinkRegistry()) ::OutputDebugStringA("[acs::FLogger] WARNING: sink registry allocation failed\n");
+    if (!AllocateSinkRegistry()) ::OutputDebugStringA("[acs::CLogger] WARNING: sink registry allocation failed\n");
 
     // 出力先ハンドル取得
     g_state.use_console = configuration.console;
@@ -966,13 +966,13 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
         RollbackInitWithoutWriter();
 
         char message[160];
-        ::snprintf(message, sizeof(message), "[acs::FLogger] FATAL: writer thread creation failed (error=%lu)\n",
+        ::snprintf(message, sizeof(message), "[acs::CLogger] FATAL: writer thread creation failed (error=%lu)\n",
                    static_cast<unsigned long>(error));
         ::OutputDebugStringA(message);
         ::ReleaseSRWLockExclusive(&g_lifecycle_lock);
         return;
     }
-    ::SetThreadDescription(g_state.writer_thread, L"acs::FLogger writer");
+    ::SetThreadDescription(g_state.writer_thread, L"acs::CLogger writer");
 
     // 全状態 (ring/mask/threads/calibration) を公開し終えた最後に ready を立てる。
     ::_InterlockedExchange(&g_inited, 1);
@@ -980,7 +980,7 @@ void FLogger::Init(const FLogConfig& configuration) noexcept
 }
 
 /** ライタースレッドを停止しリソースを解放する。詳細は宣言を参照。 */
-void FLogger::Shutdown() noexcept
+void CLogger::Shutdown() noexcept
 {
     // writer thread は自身を join できない。sink callback からの終了要求は所有側へ戻して行う。
     if (t_inside_sink_callback) return;
@@ -1029,7 +1029,7 @@ void FLogger::Shutdown() noexcept
 }
 
 /** 残レコードを書き出すまで待つ。詳細は宣言を参照。 */
-void FLogger::Flush() noexcept
+void CLogger::Flush() noexcept
 {
     // callback を実行中の writer 自身が待機しても、後続レコードを処理できない。
     if (t_inside_sink_callback) return;
@@ -1054,12 +1054,12 @@ void FLogger::Flush() noexcept
     ::ReleaseSRWLockShared(&g_lifecycle_lock);
 }
 
-void FLogger::SetMinSeverity(ELogSeverity severity) noexcept
+void CLogger::SetMinSeverity(ELogSeverity severity) noexcept
 {
     ::_InterlockedExchange(&g_state.min_severity, static_cast<LONG>(severity));
 }
 
-void FLogger::SetSink(void (*sink)(ELogSeverity, const char*)) noexcept
+void CLogger::SetSink(void (*sink)(ELogSeverity, const char*)) noexcept
 {
     if (t_inside_sink_callback) {
         // callback 自身は共有 lock を保持しているため、排他取得は自己デッドロックになる。
@@ -1082,7 +1082,7 @@ void FLogger::SetSink(void (*sink)(ELogSeverity, const char*)) noexcept
     ::ReleaseSRWLockExclusive(&g_lifecycle_lock);
 }
 
-FLogSinkHandle FLogger::SubscribeSink(LogSinkCallback callback, void* user) noexcept
+FLogSinkHandle CLogger::SubscribeSink(LogSinkCallback callback, void* user) noexcept
 {
     if (callback == nullptr) return {};
     if (t_inside_sink_callback) return SubscribeSinkLocked(callback, user);
@@ -1093,12 +1093,12 @@ FLogSinkHandle FLogger::SubscribeSink(LogSinkCallback callback, void* user) noex
     return handle;
 }
 
-FLogSinkSubscription FLogger::SubscribeSinkOwned(LogSinkCallback callback, void* user) noexcept
+FLogSinkSubscription CLogger::SubscribeSinkOwned(LogSinkCallback callback, void* user) noexcept
 {
     return FLogSinkSubscription(SubscribeSink(callback, user));
 }
 
-bool FLogger::UnsubscribeSink(FLogSinkHandle handle) noexcept
+bool CLogger::UnsubscribeSink(FLogSinkHandle handle) noexcept
 {
     if (!handle.IsValid()) return false;
     if (t_inside_sink_callback) return UnsubscribeSinkLocked(handle, false);
@@ -1109,7 +1109,7 @@ bool FLogger::UnsubscribeSink(FLogSinkHandle handle) noexcept
     return removed;
 }
 
-bool FLogger::IsSinkSubscribed(FLogSinkHandle handle) noexcept
+bool CLogger::IsSinkSubscribed(FLogSinkHandle handle) noexcept
 {
     if (!handle.IsValid()) return false;
     if (!t_inside_sink_callback) ::AcquireSRWLockShared(&g_lifecycle_lock);
@@ -1124,7 +1124,7 @@ bool FLogger::IsSinkSubscribed(FLogSinkHandle handle) noexcept
     return subscribed;
 }
 
-u32 FLogger::SinkCount() noexcept
+u32 CLogger::SinkCount() noexcept
 {
     if (!t_inside_sink_callback) ::AcquireSRWLockShared(&g_lifecycle_lock);
     u32 count = 0u;
@@ -1137,7 +1137,7 @@ u32 FLogger::SinkCount() noexcept
     return count;
 }
 
-bool FLogger::TryCopySinkHandles(FLogSinkHandle* output, u32 output_capacity, u32& output_count) noexcept
+bool CLogger::TryCopySinkHandles(FLogSinkHandle* output, u32 output_capacity, u32& output_count) noexcept
 {
     if (!ValidateSinkHandleCopyOutput(output, output_capacity, output_count)) return false;
     if (!t_inside_sink_callback) ::AcquireSRWLockShared(&g_lifecycle_lock);
@@ -1164,25 +1164,25 @@ bool FLogger::TryCopySinkHandles(FLogSinkHandle* output, u32 output_capacity, u3
     return copied;
 }
 
-bool FLogger::Enabled(ELogSeverity severity) noexcept
+bool CLogger::Enabled(ELogSeverity severity) noexcept
 {
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return false;
     return static_cast<LONG>(severity) >= ::_InterlockedExchangeAdd(&g_state.min_severity, 0);
 }
 
-u64 FLogger::DroppedCount() noexcept
+u64 CLogger::DroppedCount() noexcept
 {
     // writer は g_state.dropped を周回毎に 0 化するため、累積は dropped_total を返す。
     return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.dropped_total, 0));
 }
 
-u64 FLogger::WakeSignalCount() noexcept
+u64 CLogger::WakeSignalCount() noexcept
 {
     return static_cast<u64>(::_InterlockedExchangeAdd64(&g_state.wake_signal_count, 0));
 }
 
 /** プロデューサ実体: Vyukov 風 CAS でセルを予約し、書き込んで release 公開する。詳細は宣言を参照。 */
-void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept
+void CLogger::Write(ELogSeverity severity, FSourceLoc location, const char* format, ...) noexcept
 {
     const LONG lifecycle_generation = ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0);
     if (!::_InterlockedExchangeAdd(&g_inited, 0)) return;
@@ -1213,7 +1213,7 @@ void FLogger::Write(ELogSeverity severity, FSourceLoc location, const char* form
     PublishRecord(reservation);
 }
 
-void FLogger::WriteMessage(ELogSeverity severity, FSourceLoc location, const char* message, usize length) noexcept
+void CLogger::WriteMessage(ELogSeverity severity, FSourceLoc location, const char* message, usize length) noexcept
 {
     /** 書き込み開始時のロガー世代。 */
     const LONG lifecycle_generation = ::_InterlockedExchangeAdd(&g_lifecycle_generation, 0);
@@ -1250,7 +1250,7 @@ void FLogger::WriteMessage(ELogSeverity severity, FSourceLoc location, const cha
 #if defined(ACS_FOUNDATION_LOG_TEST_HOOKS)
 namespace log_sink_test_detail {
 
-/** 次回の FLogger::Init で購読表の確保だけを失敗させる。 */
+/** 次回の CLogger::Init で購読表の確保だけを失敗させる。 */
 void FailNextSinkRegistryAllocation() noexcept
 {
     ::_InterlockedExchange(&g_fail_next_sink_registry_allocation, 1);

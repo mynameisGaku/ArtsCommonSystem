@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Memory — FLinearAllocator 実装
+// ACS Memory — CLinearAllocator 実装
 // -----------------------------------------------------------------------------
 // アトミック CAS でカーソル位置を進めるだけ。多スレッド競合下でも
 // O(1)（CAS リトライ次第で実測 1-3 倍）。Free は何もしない。
@@ -11,7 +11,7 @@
 
 namespace acs {
 
-FLinearAllocator::FLinearAllocator(usize BufferCapacity, FAllocator* BackingAllocator) noexcept
+CLinearAllocator::CLinearAllocator(usize BufferCapacity, IAllocator* BackingAllocator) noexcept
     : m_Capacity(BufferCapacity),
       m_Backing(BackingAllocator ? BackingAllocator : &DefaultAllocator()),
       m_bOwnsBacking(false)
@@ -19,7 +19,7 @@ FLinearAllocator::FLinearAllocator(usize BufferCapacity, FAllocator* BackingAllo
     m_Base = static_cast<u8*>(m_Backing->Alloc(BufferCapacity, kDefaultAlignment, FSourceLoc::Current()));
 }
 
-FLinearAllocator::~FLinearAllocator() noexcept
+CLinearAllocator::~CLinearAllocator() noexcept
 {
     LockLifecycleControl();
     CloseAllocationGateAndWait();
@@ -30,7 +30,7 @@ FLinearAllocator::~FLinearAllocator() noexcept
     }
 }
 
-bool FLinearAllocator::TryBeginAllocation() noexcept
+bool CLinearAllocator::TryBeginAllocation() noexcept
 {
     u64 GateValue = m_AllocationGate.Load(EMemoryOrder::Acquire);
     const u64 EntryGeneration = GateValue & kAllocationGateGenerationMask;
@@ -56,12 +56,12 @@ bool FLinearAllocator::TryBeginAllocation() noexcept
     return false;
 }
 
-void FLinearAllocator::EndAllocation() noexcept
+void CLinearAllocator::EndAllocation() noexcept
 {
     m_AllocationGate.FetchSub(1u);
 }
 
-void FLinearAllocator::CloseAllocationGateAndWait() noexcept
+void CLinearAllocator::CloseAllocationGateAndWait() noexcept
 {
     m_AllocationGate.FetchAnd(~kAllocationGateAcceptingBit);
     u32 SpinCount = 0u;
@@ -79,7 +79,7 @@ void FLinearAllocator::CloseAllocationGateAndWait() noexcept
     }
 }
 
-void FLinearAllocator::OpenAllocationGate() noexcept
+void CLinearAllocator::OpenAllocationGate() noexcept
 {
     const u64 ClosedGateValue = m_AllocationGate.Load(EMemoryOrder::Acquire);
     ACS_ASSERT((ClosedGateValue & kAllocationGateAcceptingBit) == 0u);
@@ -94,7 +94,7 @@ void FLinearAllocator::OpenAllocationGate() noexcept
     m_AllocationGate.Store(kAllocationGateAcceptingBit | NextGeneration, EMemoryOrder::Release);
 }
 
-void FLinearAllocator::LockLifecycleControl() noexcept
+void CLinearAllocator::LockLifecycleControl() noexcept
 {
     u32 SpinCount = 0u;
     for (;;)
@@ -117,7 +117,7 @@ void FLinearAllocator::LockLifecycleControl() noexcept
     }
 }
 
-void FLinearAllocator::UnlockLifecycleControl() noexcept
+void CLinearAllocator::UnlockLifecycleControl() noexcept
 {
     m_LifecycleControl.Store(0u, EMemoryOrder::Release);
 }
@@ -129,7 +129,7 @@ void FLinearAllocator::UnlockLifecycleControl() noexcept
 //   4. 容量超過なら nullptr
 //   5. CompareExchange で m_Used を CurrentUsed → NextUsed に交換
 //   6. 競合した場合は 1 へ戻ってリトライ
-void* FLinearAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
+void* CLinearAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location*/) noexcept
 {
     if (Size == 0u || Alignment == 0u || (Alignment & (Alignment - 1u)) != 0u)
     {
@@ -142,7 +142,7 @@ void* FLinearAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location
 
     struct FActiveAllocationScope
     {
-        FLinearAllocator* Allocator = nullptr;
+        CLinearAllocator* Allocator = nullptr;
 
         ~FActiveAllocationScope() noexcept
         {
@@ -185,13 +185,13 @@ void* FLinearAllocator::Alloc(usize Size, usize Alignment, FSourceLoc /*Location
     }
 }
 
-void FLinearAllocator::Free(void* /*Pointer*/) noexcept
+void CLinearAllocator::Free(void* /*Pointer*/) noexcept
 {
     // リニアアロケータは個別解放をサポートしない（仕様）。
     // 全体の解放は Reset() で行う。
 }
 
-void FLinearAllocator::Reset() noexcept
+void CLinearAllocator::Reset() noexcept
 {
     LockLifecycleControl();
     CloseAllocationGateAndWait();
