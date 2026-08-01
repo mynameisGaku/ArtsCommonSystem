@@ -6,7 +6,7 @@
 
 namespace acs {
 
-class FDx12Device;
+class CDx12Device;
 
 /**
  * IRhiCommandList の DX12 実装。
@@ -17,13 +17,13 @@ class FDx12Device;
  * 待ってから返すため UPLOAD ヒープの書き込み競合を避ける。スワップチェイン/オフスクリーン
  * RT/シャドウ depth へのレンダーパス開始・終了でリソースバリアを発行する。
  */
-class FDx12CommandList final : public IRhiCommandList {
+class CDx12CommandList final : public IRhiCommandList {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FDx12CommandList() noexcept = default;
+    CDx12CommandList() noexcept = default;
 
     /** 全 fence の完了を待ってからコマンドリスト・アロケータを解放する。 */
-    ~FDx12CommandList() noexcept override;
+    ~CDx12CommandList() noexcept override;
 
     /**
      * コマンドアロケータとコマンドリストを生成する。
@@ -32,7 +32,7 @@ public:
      * @param device 生成に使う DX12 デバイス。
      * @return 成功なら IsOk な FHrResult、生成失敗なら失敗 HRESULT。
      */
-    FHrResult Init(FDx12Device& device) noexcept;
+    FHrResult Init(CDx12Device& device) noexcept;
 
     /** 現フレームスロットのアロケータを Reset し、コマンド記録を開始する (共有 SRV ヒープを bind)。 */
     void Begin() noexcept override;
@@ -310,7 +310,7 @@ private:
     FRhiCommandStatistics m_CommandStatistics{};
 
     /** Init で受け取った DX12 デバイス (fence 待ち・キュー投入に使う)。 */
-    FDx12Device*                     m_Device      = nullptr;
+    CDx12Device*                     m_Device      = nullptr;
 
     /** フレームスロットごとのコマンドアロケータ (kFramesInFlight=2)。 */
     ID3D12CommandAllocator*         _allocators[2] {};
@@ -350,5 +350,9 @@ private:
      */
     bool                            m_BackbufferIsRt = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDx12CommandList = CDx12CommandList;
+
 
 } // namespace acs

@@ -16,7 +16,7 @@ namespace {
  *
  * @details
  * SV_VertexID で 3 頂点の fullscreen 三角形を生成し、source texture を素 sample して
- * 出力する。頂点バッファ無しで Draw(3) で描画できる (SSR / SSGI / FPostProcess と
+ * 出力する。頂点バッファ無しで Draw(3) で描画できる (SSR / SSGI / CPostProcess と
  * 同じパターン)。
  */
 const char* kBlitHLSL = R"(
@@ -39,19 +39,19 @@ float4 PSMain(VSOut v) : SV_TARGET {
 }
 )";
 
-TResult<FBlit::FCompiledShaders> CompileBlitShadersWithDevice(
+TResult<CBlit::FCompiledShaders> CompileBlitShadersWithDevice(
     IRhiDevice& device, bool compile_async) noexcept {
-    FBlit::FCompiledShaders compiled{};
+    CBlit::FCompiledShaders compiled{};
 
     FShaderDesc vertex_description{};
     vertex_description.stage = EShaderStage::Vertex;
     vertex_description.hlsl_source = kBlitHLSL;
     vertex_description.entry_point = "VSMain";
-    vertex_description.debug_name = "FBlit.VS";
+    vertex_description.debug_name = "CBlit.VS";
     vertex_description.compile_async = compile_async;
     auto vertex = CreateRhiShader(device, vertex_description);
     if (vertex.IsErr()) {
-        return Err<FBlit::FCompiledShaders>(vertex.Error());
+        return Err<CBlit::FCompiledShaders>(vertex.Error());
     }
     compiled.vertex = Move(vertex.Value());
 
@@ -59,20 +59,20 @@ TResult<FBlit::FCompiledShaders> CompileBlitShadersWithDevice(
     pixel_description.stage = EShaderStage::Pixel;
     pixel_description.hlsl_source = kBlitHLSL;
     pixel_description.entry_point = "PSMain";
-    pixel_description.debug_name = "FBlit.PS";
+    pixel_description.debug_name = "CBlit.PS";
     pixel_description.compile_async = compile_async;
     auto pixel = CreateRhiShader(device, pixel_description);
     if (pixel.IsErr()) {
-        return Err<FBlit::FCompiledShaders>(pixel.Error());
+        return Err<CBlit::FCompiledShaders>(pixel.Error());
     }
     compiled.pixel = Move(pixel.Value());
 
-    return TResult<FBlit::FCompiledShaders>(OkInit, Move(compiled));
+    return TResult<CBlit::FCompiledShaders>(OkInit, Move(compiled));
 }
 
 } // namespace
 
-EShaderStatus FBlit::FCompiledShaders::Status() const noexcept {
+EShaderStatus CBlit::FCompiledShaders::Status() const noexcept {
     if (!vertex || !pixel) return EShaderStatus::Failed;
     const EShaderStatus vertex_status = vertex->Status();
     const EShaderStatus pixel_status = pixel->Status();
@@ -88,14 +88,14 @@ EShaderStatus FBlit::FCompiledShaders::Status() const noexcept {
 }
 
 /** ブリット用 VS/PS をコンパイルし、rt_format に合わせた PSO を生成する。 */
-TResult<void> FBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
+TResult<void> CBlit::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     auto compiled = CompileBlitShadersWithDevice(device, false);
     if (compiled.IsErr()) return Err<void>(compiled.Error());
     return InitWithCompiledShaders(
         device, Move(compiled.Value()), rt_format);
 }
 
-TResult<FBlit::FCompiledShaders> FBlit::CompileShadersCpu() noexcept {
+TResult<CBlit::FCompiledShaders> CBlit::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     auto compile = [](EShaderStage stage, const char* entry_point,
                       const char* debug_name) noexcept
@@ -107,12 +107,12 @@ TResult<FBlit::FCompiledShaders> FBlit::CompileShadersCpu() noexcept {
         description.debug_name = debug_name;
         auto shader = MakeUnique<FDx12Shader>();
         if (!shader) {
-            return ACS_ERR(Memory, 725, "FBlit shader allocation failed");
+            return ACS_ERR(Memory, 725, "CBlit shader allocation failed");
         }
         const FHrResult result = shader->Init(description);
         if (result.IsErr()) {
             return ACS_ERR_OS(
-                Render, 726, "FBlit shader CPU compile failed",
+                Render, 726, "CBlit shader CPU compile failed",
                 static_cast<u32>(result.hr));
         }
         auto* allocator = shader.GetAllocator();
@@ -122,36 +122,36 @@ TResult<FBlit::FCompiledShaders> FBlit::CompileShadersCpu() noexcept {
 
     FCompiledShaders compiled{};
     auto vertex = compile(
-        EShaderStage::Vertex, "VSMain", "FBlit.VS");
+        EShaderStage::Vertex, "VSMain", "CBlit.VS");
     if (vertex.IsErr()) return Err<FCompiledShaders>(vertex.Error());
     compiled.vertex = Move(vertex.Value());
     auto pixel = compile(
-        EShaderStage::Pixel, "PSMain", "FBlit.PS");
+        EShaderStage::Pixel, "PSMain", "CBlit.PS");
     if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
     compiled.pixel = Move(pixel.Value());
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
 #else
     return ACS_ERR(
         Render, 727,
-        "FBlit CPU compilation is available only on raw DX12");
+        "CBlit CPU compilation is available only on raw DX12");
 #endif
 }
 
-TResult<FBlit::FCompiledShaders> FBlit::BeginCompileShadersAsync(
+TResult<CBlit::FCompiledShaders> CBlit::BeginCompileShadersAsync(
     IRhiDevice& device) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
             Render, 728,
-            "FBlit backend-managed asynchronous compilation is unsupported");
+            "CBlit backend-managed asynchronous compilation is unsupported");
     }
     return CompileBlitShadersWithDevice(device, true);
 }
 
-TResult<void> FBlit::InitWithCompiledShaders(
+TResult<void> CBlit::InitWithCompiledShaders(
     IRhiDevice& device, FCompiledShaders&& shaders,
     EFormat rt_format) noexcept {
     if (shaders.Status() != EShaderStatus::Ready) {
-        return ACS_ERR(Render, 729, "FBlit compiled shader set is not ready");
+        return ACS_ERR(Render, 729, "CBlit compiled shader set is not ready");
     }
     FPipelineDesc pd{};
     pd.vs            = shaders.vertex.Get();
@@ -183,14 +183,14 @@ TResult<void> FBlit::InitWithCompiledShaders(
 }
 
 /** パイプラインとシェーダを解放する。 */
-void FBlit::Shutdown() noexcept {
+void CBlit::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
 }
 
 /** load 版の RT 開始でフルスクリーン三角形を描画し src を dst へ上書きコピーする。 */
-void FBlit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
+void CBlit::Copy(IRhiCommandList& cmd, IRhiTexture& src, IRhiTexture& dst) noexcept {
     if (!m_Pipeline) return;
     // 全 pixel が src で上書きされるので clear 不要 → load 版で開始する。
     // (本コミットで追加した BeginRenderToTextureLoad の自然な利用例)。

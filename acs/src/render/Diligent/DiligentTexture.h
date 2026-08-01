@@ -13,7 +13,7 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class CDiligentDevice;
 
 /**
  * Diligent Engine の ITexture を IRhiTexture として包むテクスチャ実装。
@@ -52,7 +52,7 @@ public:
      * @param desc 生成するテクスチャの記述子。
      * @return 成功なら空の TResult、検証失敗・生成失敗ならエラー。
      */
-    TResult<void> Init(FDiligentDevice& device, const FTextureDesc& desc) noexcept;
+    TResult<void> Init(CDiligentDevice& device, const FTextureDesc& desc) noexcept;
 
     /**
      * テクスチャの幅 (テクセル数) を返す。
@@ -182,7 +182,7 @@ private:
     void Reset() noexcept;
 
     /** Init で受け取った所有元デバイス。 */
-    FDiligentDevice*         m_Device  = nullptr;
+    CDiligentDevice*         m_Device  = nullptr;
 
     /** Diligent ネイティブのテクスチャ本体。 */
     Diligent::ITexture*     m_Texture = nullptr;

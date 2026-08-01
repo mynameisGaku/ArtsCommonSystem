@@ -36,8 +36,8 @@ bool IsDiligentDevice(IRhiDevice& device) noexcept
 
 TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& configuration) noexcept
 {
-    auto d = MakeUnique<FDiligentDevice>();
-    if (!d) return ACS_ERR(Memory, 200, "FDiligentDevice alloc failed");
+    auto d = MakeUnique<CDiligentDevice>();
+    if (!d) return ACS_ERR(Memory, 200, "CDiligentDevice alloc failed");
     const auto r = d->Init(configuration);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiDevice> base(d.Release(), d.GetAllocator());
@@ -60,7 +60,7 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device, const 
     auto sc = MakeUnique<FDiligentSwapchain>();
     // MakeUnique は確保失敗時に null を返し得るため、Init で null-deref する前に検査する
     if (!sc) return ACS_ERR(Memory, 211, "FDiligentSwapchain alloc failed");
-    const auto r = sc->Init(static_cast<FDiligentDevice&>(device), cfg);
+    const auto r = sc->Init(static_cast<CDiligentDevice&>(device), cfg);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiSwapchain> base(sc.Release(), sc.GetAllocator());
     return TResult<TUniquePtr<IRhiSwapchain>>(OkInit, Move(base));
@@ -69,10 +69,10 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device, const 
 TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) noexcept
 {
     if (!IsDiligentDevice(device)) return ACS_ERR(Render, 220, "CreateRhiCommandList: device is not Diligent");
-    auto cl = MakeUnique<FDiligentCommandList>();
+    auto cl = MakeUnique<CDiligentCommandList>();
     // MakeUnique は確保失敗時に null を返し得るため、Init で null-deref する前に検査する
-    if (!cl) return ACS_ERR(Memory, 221, "FDiligentCommandList alloc failed");
-    const auto r = cl->Init(static_cast<FDiligentDevice&>(device));
+    if (!cl) return ACS_ERR(Memory, 221, "CDiligentCommandList alloc failed");
+    const auto r = cl->Init(static_cast<CDiligentDevice&>(device));
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiCommandList> base(cl.Release(), cl.GetAllocator());
     return TResult<TUniquePtr<IRhiCommandList>>(OkInit, Move(base));
@@ -84,7 +84,7 @@ TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBuffe
     auto b = MakeUnique<FDiligentBuffer>();
     // MakeUnique は確保失敗時に null を返し得るため、Init で null-deref する前に検査する
     if (!b) return ACS_ERR(Memory, 231, "FDiligentBuffer alloc failed");
-    const auto r = b->Init(static_cast<FDiligentDevice&>(device), desc);
+    const auto r = b->Init(static_cast<CDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiBuffer> base(b.Release(), b.GetAllocator());
     return TResult<TUniquePtr<IRhiBuffer>>(OkInit, Move(base));
@@ -96,7 +96,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device, const FTex
     auto t = MakeUnique<FDiligentTexture>();
     // MakeUnique は確保失敗時に null を返し得るため、Init で null-deref する前に検査する
     if (!t) return ACS_ERR(Memory, 241, "FDiligentTexture alloc failed");
-    const auto r = t->Init(static_cast<FDiligentDevice&>(device), desc);
+    const auto r = t->Init(static_cast<CDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiTexture> base(t.Release(), t.GetAllocator());
     return TResult<TUniquePtr<IRhiTexture>>(OkInit, Move(base));
@@ -108,7 +108,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device, const FP
     auto p = MakeUnique<FDiligentPipeline>();
     // MakeUnique は確保失敗時に null を返し得るため、Init で null-deref する前に検査する
     if (!p) return ACS_ERR(Memory, 251, "FDiligentPipeline alloc failed");
-    const auto r = p->Init(static_cast<FDiligentDevice&>(device), desc);
+    const auto r = p->Init(static_cast<CDiligentDevice&>(device), desc);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
@@ -120,7 +120,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
     if (!IsDiligentDevice(device)) return ACS_ERR(Render, 252, "CreateRhiComputePipeline: device is not Diligent");
     auto p = MakeUnique<FDiligentPipeline>();
     if (!p) return ACS_ERR(Memory, 253, "FDiligentPipeline(compute) alloc failed");
-    const auto r = p->InitCompute(static_cast<FDiligentDevice&>(device), description);
+    const auto r = p->InitCompute(static_cast<CDiligentDevice&>(device), description);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiPipeline> base(p.Release(), p.GetAllocator());
     return TResult<TUniquePtr<IRhiPipeline>>(OkInit, Move(base));
@@ -134,7 +134,7 @@ TResult<TUniquePtr<IRhiShader>> CreateRhiShader(IRhiDevice& device, const FShade
     if (!s) return ACS_ERR(Memory, 261, "FDiligentShader alloc failed");
     // compute シェーダは combined-sampler OFF (UAV/RWStructuredBuffer 名が mangle されないように)。
     const bool combined = (desc.stage != EShaderStage::Compute);
-    const auto r = s->Init(static_cast<FDiligentDevice&>(device), desc, combined);
+    const auto r = s->Init(static_cast<CDiligentDevice&>(device), desc, combined);
     if (r.IsErr()) return r.Error();
     TUniquePtr<IRhiShader> base(s.Release(), s.GetAllocator());
     return TResult<TUniquePtr<IRhiShader>>(OkInit, Move(base));

@@ -4,12 +4,12 @@
 // PBR の ambient 項を「環境マップから事前積分した光」で置き換える。
 // 構成要素:
 //   ・BRDF LUT       — 2D 256x256 RG16F。GGX split-sum approximation の scale+bias
-//   ・環境 cubemap   — シーンの背景 (FSky 等から captured)。1024x1024x6、R11G11B10_Float
+//   ・環境 cubemap   — シーンの背景 (CSky 等から captured)。1024x1024x6、R11G11B10_Float
 //   ・拡散 irradiance cubemap — 64x64x6、半球積分された diffuse 反射
 //   ・specular prefilter cubemap — 512x512x6 (7 mip)、roughness 段階別 GGX 反射
 //
 // 使い方 (HelloIbl):
-//   FImageBasedLighting ibl;
+//   CImageBasedLighting ibl;
 //   ibl.EnsureBrdfLut(*dev, *cl);              // 初回のみ LUT 生成 (256x256)
 //   ibl.EnsureEnvCubemap(*dev, *cl, sky);       // 初回のみ env cubemap キャプチャ
 //   // (irradiance / prefilter を生成してから:)
@@ -37,7 +37,7 @@
 
 namespace acs {
 
-class FSky;
+class CSky;
 
 /**
  * Image-Based Lighting。PBR の ambient 項を環境マップから事前積分した光で置き換える。
@@ -48,19 +48,19 @@ class FSky;
  * cubemap (512x512x6, 7 mip)。Diligent backend 専用の本実装で、raw-DX12 backend では
  * 各 Build/Ensure が ACS_ERR(Render, 88) を返す (fake-success しない)。
  */
-class FImageBasedLighting {
+class CImageBasedLighting {
 public:
     /** 空状態で構築する (各 GPU リソースは Ensure 系で遅延生成)。 */
-    FImageBasedLighting() noexcept = default;
+    CImageBasedLighting() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FImageBasedLighting() noexcept = default;
+    ~CImageBasedLighting() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FImageBasedLighting(const FImageBasedLighting&)            = delete;
+    CImageBasedLighting(const CImageBasedLighting&)            = delete;
 
     /** コピー代入も禁止。 */
-    FImageBasedLighting& operator=(const FImageBasedLighting&) = delete;
+    CImageBasedLighting& operator=(const CImageBasedLighting&) = delete;
 
     /**
      * 初回呼び出しで BRDF LUT を 1 回だけ生成する (以降は no-op)。
@@ -73,7 +73,7 @@ public:
     TResult<void> EnsureBrdfLut(IRhiDevice& device, IRhiCommandList& cl) noexcept;
 
     /**
-     * 初回呼び出しで env cubemap を FSky 手続き式からキャプチャする。
+     * 初回呼び出しで env cubemap を CSky 手続き式からキャプチャする。
      *
      * @details
      * 1024x1024x6 / R11G11B10_Float を各 face 6 回の per-slice draw で塗る。sky の現在の
@@ -85,7 +85,7 @@ public:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> EnsureEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                  const FSky& sky) noexcept;
+                                  const CSky& sky) noexcept;
 
     /**
      * 既存 env cubemap を破棄し equirectangular HDR 画像から新しい env cubemap を作る。
@@ -108,7 +108,7 @@ public:
      * convolution while keeping that disc visible in the environment skybox.
      *
      * Finite convolution sequences sample a sub-pixel HDR sun disc as
-     * structured fireflies, and FPbrShader already evaluates the same sun via
+     * structured fireflies, and CPbrShader already evaluates the same sun via
      * its directional-light BRDF.  Set cosine_half_angle > 1 to disable.
      * Call this before EnsureIrradiance/EnsurePrefilter during an environment
      * rebuild.  It does not destroy already-built GPU products; changing it
@@ -124,7 +124,7 @@ public:
      * @details
      * Ramamoorthi-Hanrahan の L_l,m 球面調和係数 9 個を求めて out_sh_rgb に書き出す。
      * 各 out_sh_rgb[i].xyz が RGB 係数で .w は不使用 (CB layout の便宜上 FVec4)。後段
-     * FPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
+     * CPbrShader で SH 9 ambient mode に切替でき、irradiance cubemap の圧縮版 (144B のみ)
      * として diffuse irradiance を近似する。規約: v=0 が +Y、v=1 が -Y、u=0 が phi=-π。
      * @param rgba_float equirect 画像の RGBA float ピクセル列。
      * @param width 画像の幅 (px)。
@@ -215,7 +215,7 @@ public:
      * 環境 cubemap (とそれに依存する irradiance / prefilter) だけを reset する。
      *
      * @details
-     * FSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
+     * CSky preset 切替などで env を作り直したいときに使い、BRDF LUT (sky 非依存) は残せる。
      * 呼び出し前にデバイスの WaitIdle() を呼ぶこと: 前フレームの GPU 描画がまだこのテクスチャ
      * を参照中だと UB になる。
      */
@@ -306,7 +306,7 @@ private:
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
     TResult<void> BuildEnvCubemap(IRhiDevice& device, IRhiCommandList& cl,
-                                 const FSky& sky) noexcept;
+                                 const CSky& sky) noexcept;
 
     /**
      * irradiance cubemap を実際に生成する。
@@ -389,5 +389,9 @@ private:
     /** prefilter cubemap 生成済みフラグ。 */
     bool m_bPrefilterBuilt  = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FImageBasedLighting = CImageBasedLighting;
+
 
 } // namespace acs

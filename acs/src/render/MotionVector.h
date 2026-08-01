@@ -14,14 +14,14 @@
 // 本モジュールがその穴を埋める。
 //
 // 設計:
-//   - FShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
+//   - CShadowMap と同じ Begin/DrawMesh/End パターン (caller がシーンを描く)
 //   - 全 mesh を描く前提 (静的 mesh は prev_model == model)。motion texture は
 //     画面全体で authoritative になり、TAA は depth を併用せず済む
 //     (→ TAA resolve PSO の texture slot を増やさず slot binding 問題を回避)
 //   - occlusion 用に専用 depth buffer を内部に持つ (scene depth は共有しない)
 //
 // 使い方:
-//   FMotionVector mv;
+//   CMotionVector mv;
 //   mv.Init(*dev, w, h);
 //   ...毎フレーム (シーン color pass のあと):
 //   if (mv.BeginFrame(visible_mesh_count) &&
@@ -56,9 +56,9 @@ namespace acs {
  * 書き出す。motion は screen-space motion vector (prev_uv - curr_uv) で camera 動きと
  * object 動きの両方を含み、TAA が history を正確に reproject して ghost/trail を消す。
  * normal は頂点法線をピクセル補間した world-space 法線で、SSR/SSGI/SSAO が sample する。
- * FShadowMap と同じ Begin/DrawMesh/End パターンで、occlusion 用 depth を内部に持つ。
+ * CShadowMap と同じ Begin/DrawMesh/End パターンで、occlusion 用 depth を内部に持つ。
  */
-class FMotionVector {
+class CMotionVector {
 public:
     /**
      * 空状態で構築する (GPU リソースは Init で確保)。
@@ -66,18 +66,18 @@ public:
      * @param object_pool_allocator 可変長 object-CB 所有配列の allocator。
      *        通常は既定値を使い、failure-injection tests だけ差し替える。
      */
-    explicit FMotionVector(
+    explicit CMotionVector(
         FAllocator& object_pool_allocator = DefaultAllocator()) noexcept
         : m_Cbs(object_pool_allocator) {}
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FMotionVector() noexcept = default;
+    ~CMotionVector() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FMotionVector(const FMotionVector&)            = delete;
+    CMotionVector(const CMotionVector&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMotionVector& operator=(const FMotionVector&) = delete;
+    CMotionVector& operator=(const CMotionVector&) = delete;
 
     /**
      * GPU リソース (RT 2 枚 + depth + パイプライン) を確保する。
@@ -254,5 +254,9 @@ private:
      */
     bool                     m_PassActive = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FMotionVector = CMotionVector;
+
 
 } // namespace acs

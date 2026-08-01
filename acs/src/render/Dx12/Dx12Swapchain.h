@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class FDx12Device;
+class CDx12Device;
 
 /**
  * IRhiSwapchain の DX12 実装。
@@ -59,7 +59,7 @@ public:
      * @param cfg バッファ数・vsync・フォーマット・対象ウィンドウなどの構成。
      * @return 成功なら IsOk な FHrResult、いずれかの段階で失敗ならその HRESULT。
      */
-    FHrResult Init(FDx12Device& device, const FSwapchainConfig& cfg) noexcept;
+    FHrResult Init(CDx12Device& device, const FSwapchainConfig& cfg) noexcept;
 
     /**
      * 次に描画すべきバックバッファのインデックスを返す。
@@ -125,10 +125,10 @@ private:
      * @param device RTV 作成に使う DX12 デバイス。
      * @return 成功なら IsOk な FHrResult、取得失敗ならその HRESULT。
      */
-    FHrResult AcquireBuffers(FDx12Device& device) noexcept;
+    FHrResult AcquireBuffers(CDx12Device& device) noexcept;
 
     /** Init で受け取った DX12 デバイス (Resize のバッファ再取得に使う)。 */
-    FDx12Device*          m_Device       = nullptr;
+    CDx12Device*          m_Device       = nullptr;
 
     /** 所有する DXGI スワップチェイン (SwapChain3)。 */
     IDXGISwapChain3*     m_Swapchain    = nullptr;

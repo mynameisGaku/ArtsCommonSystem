@@ -5,10 +5,10 @@
 // march して horizon angle を求め、ambient occlusion を出す。
 //
 // 出力は R8G8B8A8_UNorm の RT。.r = AO visibility、.g = contact shadow
-// (ともに 1=照明 / 0=遮蔽)。FPbrShader が .r を ambient、.g を direct light に乗算する。
+// (ともに 1=照明 / 0=遮蔽)。CPbrShader が .r を ambient、.g を direct light に乗算する。
 //
 // 制限:
-//   - 法線は FMotionVector の normal G-buffer (world normal) を view 空間へ変換して
+//   - 法線は CMotionVector の normal G-buffer (world normal) を view 空間へ変換して
 //     使う (depth 微分 cross(ddx,ddy) は faceted で AO がブロック状になる)
 //   - 単純な uniform random direction、Halton 等の low-discrepancy 未使用
 //   - 6 direction × 6 step = 36 sample / pixel
@@ -39,7 +39,7 @@ namespace acs {
  * を求める。出力は R8G8B8A8_UNorm で .r=AO visibility、.g=contact shadow (ともに 1=照明 /
  * 0=遮蔽)。raw → depth-aware bilateral blur の 2 pass で生成し、OutputTexture() は blur 後を返す。
  */
-class FSsao {
+class CSsao {
 public:
     /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
     struct FCompiledShaders {
@@ -52,16 +52,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSsao() noexcept = default;
+    CSsao() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSsao() noexcept = default;
+    ~CSsao() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSsao(const FSsao&) = delete;
+    CSsao(const CSsao&) = delete;
 
     /** コピー代入も禁止。 */
-    FSsao& operator=(const FSsao&) = delete;
+    CSsao& operator=(const CSsao&) = delete;
 
     /**
      * 出力 RT・パイプライン・定数バッファを生成する。
@@ -115,7 +115,7 @@ public:
      * @param device 描画に使う RHI デバイス (現状未使用)。
      * @param cl コマンドを積むコマンドリスト。
      * @param scene_depth shader_visible_depth=true な depth buffer。
-     * @param normal_gbuffer FMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
      * @param view_proj 現フレームの view * projection (contact shadow の投影に使う)。
      * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
      * @param view world → view 変換 (GTAO の slice 計算は view 空間で行う)。
@@ -135,7 +135,7 @@ public:
                 f32 radius    = 0.5f) noexcept;
 
     /**
-     * blur 後の RT を返す (FPbrShader / overlay はこちらを読む)。
+     * blur 後の RT を返す (CPbrShader / overlay はこちらを読む)。
      *
      * @return depth-aware bilateral blur 後の AO/contact RT。
      */
@@ -202,5 +202,9 @@ private:
     /** SSAO パラメータの定数バッファ。 */
     TUniquePtr<IRhiBuffer>   m_Cb;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsao = CSsao;
+
 
 } // namespace acs

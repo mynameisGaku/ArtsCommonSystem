@@ -6,15 +6,15 @@
 // サンプリングを追加した発展版 (Aaltonen 2014 系の単純化版)。
 //
 // 入力: scene_color (HDR R16G16B16A16_Float)、scene_depth (shader-visible depth)
-// 出力: ssgi_color (RGB)、FPbrShader が ambient/indirect 項に加算
+// 出力: ssgi_color (RGB)、CPbrShader が ambient/indirect 項に加算
 //
 // 制限:
-//   - 法線は FMotionVector の normal G-buffer (world normal) から sample
+//   - 法線は CMotionVector の normal G-buffer (world normal) から sample
 //     (depth 微分 cross(ddx,ddy) は faceted で hemisphere ray がブロック状になるため避ける)
 //   - 8 step / 4 ray = 32 sample/pixel (画質と速度のバランス)
 //   - 反射的なシャープなパスは捨て、diffuse-ish な広い hemisphere に絞る
 //   - 1 bounce のみ (Lumen の voxel cone tracing 等は未対応)
-//   - blur 無し (FPbrShader 側で linear sampling で smooth に補間する想定)
+//   - blur 無し (CPbrShader 側で linear sampling で smooth に補間する想定)
 #pragma once
 
 #include "foundation/Result.h"
@@ -37,10 +37,10 @@ namespace acs {
  * 各ピクセルから法線半球内に N 本のレイを screen-space で march し、ヒットした pixel の
  * HDR 色を 1 バウンスの indirect light として集める。SSAO の構造に色サンプリングを
  * 追加した発展版で、raw → depth-aware blur → temporal accumulation の 3 pass で構成する。
- * FPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
+ * CPbrShader が結果を ambient/indirect 項に加算する。8 step / 4 ray = 32 sample/pixel、
  * diffuse-ish な広い hemisphere に絞り、反射的なシャープなパスは捨てる。
  */
-class FSsgi {
+class CSsgi {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -51,16 +51,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSsgi() noexcept = default;
+    CSsgi() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSsgi() noexcept = default;
+    ~CSsgi() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSsgi(const FSsgi&) = delete;
+    CSsgi(const CSsgi&) = delete;
 
     /** コピー代入も禁止。 */
-    FSsgi& operator=(const FSsgi&) = delete;
+    CSsgi& operator=(const CSsgi&) = delete;
 
     /**
      * 出力 RT・history・パイプライン・定数バッファを生成する。
@@ -117,14 +117,14 @@ public:
      * @param cl コマンドを積むコマンドリスト。
      * @param scene_color 現在フレームの HDR scene RT。
      * @param scene_depth shader-visible depth (SSR/SSAO と同じ)。
-     * @param normal_gbuffer FMotionVector の world-space normal G-buffer (RGBA16F)。
+     * @param normal_gbuffer CMotionVector の world-space normal G-buffer (RGBA16F)。
      * @param view_proj 現フレームの view * projection。
      * @param inv_view_proj 現フレーム VP の逆 (depth+uv → world)。
      * @param prev_view_proj 前フレームの view_proj (temporal reproject 用)。identity を渡すと reprojection 無効 (= 静的 accumulate)。
      * @param eye カメラの world pos。
      * @param intensity indirect light の倍率 (0=無効、1=neutral、>1=強調)。
      * @param max_distance ray march の世界距離上限 (世界座標、典型 5.0)。
-     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。FMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
+     * @param motion_texture 非 null なら temporal pass が depth reprojection ではなくこの motion vector で history を引く (動く mesh も ghost せず追従)。CMotionVector::OutputTexture() を渡す。null なら従来の camera-only depth reprojection。
      */
     void Render(IRhiDevice& device, IRhiCommandList& cl,
                 IRhiTexture& scene_color,
@@ -141,7 +141,7 @@ public:
     /**
      * temporal accumulation 後の history RT を返す。
      *
-     * @details 直近の Render が書き込んだ index を返す。FPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
+     * @details 直近の Render が書き込んだ index を返す。CPbrShader はこれを読む (blur + 時間積分でノイズ除去済)。
      * @return 直近の積分結果を持つ history RT。
      */
     IRhiTexture* OutputTexture() const noexcept {
@@ -226,5 +226,9 @@ private:
     /** Prevents callers from publishing an unwritten or invalidated history. */
     bool                    m_OutputValid = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsgi = CSsgi;
+
 
 } // namespace acs

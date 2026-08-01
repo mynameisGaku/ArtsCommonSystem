@@ -14,11 +14,11 @@ class FAllocator;
  * Diligent の IMemoryAllocator を ACS の FAllocator にブリッジするアダプタ。
  *
  * @details
- * 実体は Diligent の IMemoryAllocator vtable と互換になるよう FDiligentMemoryAdapter.cpp で
+ * 実体は Diligent の IMemoryAllocator vtable と互換になるよう CDiligentMemoryAdapter.cpp で
  * 定義する。生成したアダプタを EngineCreateInfo::pRawMemAllocator に渡すと、Diligent の
  * 内部 malloc が ACS の FAllocator を経由するようになる。
  */
-class FDiligentMemoryAdapter {
+class CDiligentMemoryAdapter {
 public:
     /**
      * backing を呼び出し先に使う静的寿命のアダプタを返す。
@@ -66,5 +66,9 @@ public:
      */
     static u64 BackingLifetimeGeneration() noexcept;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDiligentMemoryAdapter = CDiligentMemoryAdapter;
+
 
 } // namespace acs

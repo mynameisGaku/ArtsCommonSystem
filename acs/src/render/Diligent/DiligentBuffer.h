@@ -12,7 +12,7 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class CDiligentDevice;
 
 /**
  * Diligent Engine 経由で GPU バッファを実装する IRhiBuffer。
@@ -48,7 +48,7 @@ public:
      * @param desc 生成するバッファの記述 (サイズ・用途・初期データ等)。
      * @return 成功なら空の TResult、デバイス未初期化や生成失敗ならエラー。
      */
-    TResult<void> Init(FDiligentDevice& device, const FBufferDesc& desc) noexcept;
+    TResult<void> Init(CDiligentDevice& device, const FBufferDesc& desc) noexcept;
 
     /**
      * バッファのバイトサイズを返す。
@@ -94,7 +94,7 @@ private:
     void Reset() noexcept;
 
     /** Update でコンテキストを引くために保持する生成元デバイス。 */
-    FDiligentDevice*    m_Device = nullptr;
+    CDiligentDevice*    m_Device = nullptr;
 
     /** 実体の Diligent バッファ (参照カウントで所有)。 */
     Diligent::IBuffer* m_Buffer = nullptr;

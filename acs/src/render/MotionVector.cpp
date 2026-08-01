@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FMotionVector 実装
+// CMotionVector 実装
 #include "render/MotionVector.h"
 #include "render/NormalMatrix.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
@@ -86,7 +86,7 @@ struct FMotionCb {
 
 } // namespace
 
-TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> CMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     Shutdown();
     m_PassActive = false;
     m_Device = &device;
@@ -112,7 +112,7 @@ TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
         Shutdown();
         return ACS_ERR(
             Render, 367,
-            "FMotionVector object-buffer pool allocation failed");
+            "CMotionVector object-buffer pool allocation failed");
     }
     for (u32 i = 0; i < kInitialObjectBufferCapacity; ++i) {
         auto cbr = CreateRhiBuffer(device, cbd);
@@ -125,14 +125,14 @@ TResult<void> FMotionVector::Init(IRhiDevice& device, u32 width, u32 height) noe
             Shutdown();
             return ACS_ERR(
                 Render, 368,
-                "FMotionVector object-buffer pool commit failed");
+                "CMotionVector object-buffer pool commit failed");
         }
     }
 
     return Ok();
 }
 
-void FMotionVector::Shutdown() noexcept {
+void CMotionVector::Shutdown() noexcept {
     m_PassActive = false;
     m_Cbs.ReleaseStorage();
     m_Pipeline.Reset();
@@ -148,8 +148,8 @@ void FMotionVector::Shutdown() noexcept {
     m_CapacityFailureLogged = false;
 }
 
-TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
-    if (!m_Device) return ACS_ERR(Render, 360, "FMotionVector::Resize before Init");
+TResult<void> CMotionVector::Resize(u32 width, u32 height) noexcept {
+    if (!m_Device) return ACS_ERR(Render, 360, "CMotionVector::Resize before Init");
     if (width == 0 || height == 0) return Ok();
     if (width == m_Width && height == m_Height) return Ok();
     m_PassActive = false;
@@ -161,7 +161,7 @@ TResult<void> FMotionVector::Resize(u32 width, u32 height) noexcept {
     return CreateTargets(*m_Device, width, height);
 }
 
-TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> CMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // motion RT: RG16F。.rg に screen-space motion (prev_uv - curr_uv)。
     FTextureDesc md{};
     md.width  = w;
@@ -195,12 +195,12 @@ TResult<void> FMotionVector::CreateTargets(IRhiDevice& device, u32 w, u32 h) noe
     return Ok();
 }
 
-TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> CMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage       = EShaderStage::Vertex;
     vs_d.hlsl_source = kMotionHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FMotionVector.VS";
+    vs_d.debug_name  = "CMotionVector.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     m_Vs = Move(vs_r.Value());
@@ -209,7 +209,7 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage       = EShaderStage::Pixel;
     ps_d.hlsl_source = kMotionHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FMotionVector.PS";
+    ps_d.debug_name  = "CMotionVector.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     m_Ps = Move(ps_r.Value());
@@ -243,7 +243,7 @@ TResult<void> FMotionVector::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-bool FMotionVector::EnsureObjectCapacity(u32 required_draws) noexcept {
+bool CMotionVector::EnsureObjectCapacity(u32 required_draws) noexcept {
     if (required_draws == kInvalidObjectBuffer) return false;
     if (!m_Device) return false;
     if (required_draws <= m_Cbs.Size()) return true;
@@ -281,19 +281,19 @@ bool FMotionVector::EnsureObjectCapacity(u32 required_draws) noexcept {
     return true;
 }
 
-bool FMotionVector::BeginFrame(u32 required_draws) noexcept {
+bool CMotionVector::BeginFrame(u32 required_draws) noexcept {
     m_DrawCursor = 0;
     m_CapacityFailureLogged = false;
     if (EnsureObjectCapacity(required_draws)) return true;
 
-    ACS_LOG_WARN("FMotionVector: could not reserve %u per-object buffers "
+    ACS_LOG_WARN("CMotionVector: could not reserve %u per-object buffers "
                  "(retained %u); motion output will be skipped this frame",
                  required_draws, static_cast<u32>(m_Cbs.Size()));
     m_CapacityFailureLogged = true;
     return false;
 }
 
-bool FMotionVector::Begin(IRhiCommandList& cl,
+bool CMotionVector::Begin(IRhiCommandList& cl,
                          const FMat4& view_proj, const FMat4& prev_view_proj) noexcept {
     m_PassActive = false;
     if (!m_Motion || !m_Normal || !m_Depth || !m_Pipeline) return false;
@@ -314,7 +314,7 @@ bool FMotionVector::Begin(IRhiCommandList& cl,
     return true;
 }
 
-bool FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
+bool CMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
                              const FMat4& model, const FMat4& prev_model) noexcept {
     if (!m_PassActive) return false;
     if (!mesh.vertex_buffer || !mesh.index_buffer) return false;
@@ -322,7 +322,7 @@ bool FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
         (m_DrawCursor >= m_Cbs.Size() &&
          !EnsureObjectCapacity(m_DrawCursor + 1u))) {
         if (!m_CapacityFailureLogged) {
-            ACS_LOG_WARN("FMotionVector: object-buffer growth failed at draw %u; "
+            ACS_LOG_WARN("CMotionVector: object-buffer growth failed at draw %u; "
                          "motion output is incomplete",
                          m_DrawCursor);
             m_CapacityFailureLogged = true;
@@ -351,7 +351,7 @@ bool FMotionVector::DrawMesh(IRhiCommandList& cl, const FGpuMesh& mesh,
     return true;
 }
 
-void FMotionVector::End(IRhiCommandList& cl) noexcept {
+void CMotionVector::End(IRhiCommandList& cl) noexcept {
     if (!m_PassActive || !m_Motion || !m_Normal) return;
     IRhiTexture* rts[2] = {m_Motion.Get(), m_Normal.Get()};
     cl.EndRenderToTextureMrt(rts, 2u);

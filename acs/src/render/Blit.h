@@ -10,7 +10,7 @@
 // (HDR scene color → 屈折オブジェクトが sample する複製テクスチャ)。
 //
 // 使い方:
-//   FBlit blit;
+//   CBlit blit;
 //   blit.Init(*device, hdr_format);                    // 1 度だけ
 //   // フレーム中、コピーしたい時点で:
 //   blit.Copy(*cl, *src_hdr, *dst_bg);                 // dst の format == hdr_format
@@ -35,7 +35,7 @@ namespace acs {
  * pixel-perfect コピーを行う標準テクニック。出力 RT のフォーマットは Init 時に
  * PSO へ焼き込むため、別フォーマットへコピーしたい場合は別インスタンスを使う。
  */
-class FBlit {
+class CBlit {
 public:
     /** Compiled shader handles awaiting owner-thread PSO creation. */
     struct FCompiledShaders {
@@ -46,23 +46,23 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBlit() noexcept = default;
+    CBlit() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBlit() noexcept = default;
+    ~CBlit() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBlit(const FBlit&)            = delete;
+    CBlit(const CBlit&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBlit& operator=(const FBlit&) = delete;
+    CBlit& operator=(const CBlit&) = delete;
 
     /**
      * シェーダとパイプラインを生成して初期化する。
      *
      * @details
      * rt_format は Copy の出力 RT のフォーマットで、PSO に焼き込まれる。出力 RT を
-     * 別フォーマットに切り替えたい場合は別の FBlit インスタンスを使うこと。
+     * 別フォーマットに切り替えたい場合は別の CBlit インスタンスを使うこと。
      * @param device シェーダ・パイプライン生成に使う RHI デバイス。
      * @param rt_format 出力 RT のフォーマット (PSO に焼き込む)。
      * @return 成功なら空の TResult、生成失敗ならエラー。
@@ -116,5 +116,9 @@ private:
     /** ブリット描画のパイプライン。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBlit = CBlit;
+
 
 } // namespace acs

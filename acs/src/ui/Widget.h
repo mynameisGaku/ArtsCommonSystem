@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// FWidget — ACS UI フレームワークの基底クラス
+// AWidget — ACS UI フレームワークの基底クラス
 //
 // 設計:
 //   ・retained-mode UI (ImGui のような毎フレーム再構築でなく、ツリーを保持)
-//   ・MVVM 駆動: 各 FWidget は TObservable<T> プロパティを公開し、FViewModel と Bind 可能
-//   ・FSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
-//   ・親 → 子の所有を TUniquePtr<FWidget> で表現、Add で子を取り込む
+//   ・MVVM 駆動: 各 AWidget は TObservable<T> プロパティを公開し、FViewModel と Bind 可能
+//   ・CSpriteBatch + FFont で描画 (Diligent / Dx12 を意識しない)
+//   ・親 → 子の所有を TUniquePtr<AWidget> で表現、Add で子を取り込む
 //   ・Layout は親の Layout モードに応じて子に再帰的に配置
 //
 // 使い方:
-//   FStackPanel root;
+//   AStackPanel root;
 //   root.SetPadding(8);
-//   auto* btn = root.Add<FButton>("OK");
+//   auto* btn = root.Add<AButton>("OK");
 //   btn->on_clicked.Subscribe(...);
 //
 //   // 毎フレーム:
@@ -27,27 +27,30 @@
 
 namespace acs {
 
-class FUiInput;
-class FWidget;
+class CUiInput;
+class AWidget;
+
 
 namespace ui_detail {
 
 class FWidgetCallbackLifetimeGuard;
 
+
+
 /**
- * FUiInput が widget 実体を追跡する内部専用の複合 identity。
+ * CUiInput が widget 実体を追跡する内部専用の複合 identity。
  *
  * @details address_token は生存 widget のアドレスを整数化した比較専用値であり、
- * ポインタへ戻したり参照したりしない。module_token は FWidget を構築した binary module
+ * ポインタへ戻したり参照したりしない。module_token は AWidget を構築した binary module
  * が使用した generation counter のアドレスを整数化し、widget member に保存した値。
  * generation はその module 内の採番値。別 DLL が同じ widget address と generation を
  * 同時または逐次利用しても module_token が実体を区別する。InputIdentity を呼ぶ側の
  * module で token を再計算してはならない。
  *
  * 全フィールドの 0 は「追跡対象なし」に予約する。この型は非公開の実行時 handle で、
- * ファイル保存・通信・plugin ABI に永続化してはならない。FUiInput/FWidget のレイアウト
+ * ファイル保存・通信・plugin ABI に永続化してはならない。CUiInput/AWidget のレイアウト
  * 自体もこの開発版では安定 ABI として公開しない。DLL unload/reload で module address が
- * 再利用される境界は host 側 FUiInput::Reset が必須。
+ * 再利用される境界は host 側 CUiInput::Reset が必須。
  */
 struct FWidgetInputIdentity {
     usize address_token = 0;
@@ -128,7 +131,7 @@ struct FUiRect {
 };
 
 /**
- * FStackPanel の子整列方向。
+ * AStackPanel の子整列方向。
  */
 enum class EStackDir : u8 {
     /** 縦方向 (上から下) に並べる。 */
@@ -158,7 +161,7 @@ struct FUiPadding {
 /**
  * UI キーイベントに同時押し状態を付与する修飾キーのスナップショット。
  *
- * @details FUiInput は編集キーを配信する時点で左右キーをまとめて設定する。
+ * @details CUiInput は編集キーを配信する時点で左右キーをまとめて設定する。
  * 既存の修飾キーなし OnKey 経路では全フィールドが false になる。
  */
 struct FUiKeyModifiers {
@@ -283,14 +286,14 @@ inline FUiRect ComputeAnchoredRect(const FUiRect& parent, const FUiAnchor& a) no
  * retained-mode UI ツリーの基底ウィジェット。
  *
  * @details
- * 親が TUniquePtr<FWidget> で子を所有し、Layout (親が呼ぶ) / Render (FUiRenderer が呼ぶ) /
+ * 親が TUniquePtr<AWidget> で子を所有し、Layout (親が呼ぶ) / Render (CUiRenderer が呼ぶ) /
  * 入力イベント (On*) を仮想メソッドで提供する。各派生は TObservable<T> プロパティを公開して
  * MVVM の FViewModel と Bind できる。非コピー。
  */
-class FWidget {
+class AWidget {
 public:
     /** 空のウィジェットを構築する (親なし・子なし)。 */
-    FWidget() noexcept
+    AWidget() noexcept
         : m_InputModuleToken(
               ui_detail::WidgetInputModuleToken(
                   ui_detail::g_NextWidgetInputGeneration)),
@@ -303,18 +306,18 @@ public:
      *
      * @details guard は UI callback の stack 上にだけ存在し、allocation は行わない。
      */
-    virtual ~FWidget() noexcept;
+    virtual ~AWidget() noexcept;
 
     /** コピー禁止 (子を TUniquePtr で単独所有するため)。 */
-    FWidget(const FWidget&) = delete;
+    AWidget(const AWidget&) = delete;
 
     /** コピー代入も禁止。 */
-    FWidget& operator=(const FWidget&) = delete;
+    AWidget& operator=(const AWidget&) = delete;
 
     /**
      * W 型の子ウィジェットを構築・追加して所有し、生ポインタを返す。
      *
-     * @tparam W 追加する FWidget 派生型。
+     * @tparam W 追加する AWidget 派生型。
      * @tparam Args W のコンストラクタ引数型。
      * @param args W のコンストラクタへ転送する引数。
      * @return 追加した子 W への生ポインタ (所有はツリー側)。
@@ -333,7 +336,7 @@ public:
      *
      * @return 親 (root なら nullptr)。
      */
-    FWidget* Parent() const noexcept { return m_Parent; }
+    AWidget* Parent() const noexcept { return m_Parent; }
 
     /**
      * 直接の子の数を返す。
@@ -348,7 +351,7 @@ public:
      * @param i 子のインデックス。
      * @return i 番目の子 (範囲外なら nullptr)。
      */
-    FWidget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
+    AWidget* Child(usize i) const noexcept { return i < m_Children.Size() ? m_Children[i].Get() : nullptr; }
 
     /** 表示フラグ (false で自身と子の描画・hit-test をスキップ)。 */
     bool   visible = true;
@@ -359,16 +362,16 @@ public:
     /** 要望サイズ (0 の成分はレイアウトに任せる)。 */
     FUiRect requested;
 
-    /** アンカー設定 (FAnchorPanel の子のときのみ使われる。既定は親全体を埋める)。 */
+    /** アンカー設定 (AAnchorPanel の子のときのみ使われる。既定は親全体を埋める)。 */
     FUiAnchor anchor;
 
-    /** ポインタが上にあるか (FUiInput が更新)。 */
+    /** ポインタが上にあるか (CUiInput が更新)。 */
     bool hovered = false;
 
-    /** 入力フォーカス中か (FTextInput 等で使う)。 */
+    /** 入力フォーカス中か (ATextInput 等で使う)。 */
     bool focused = false;
 
-    /** 直近フレームで押下中か (FButton 等で使う)。 */
+    /** 直近フレームで押下中か (AButton 等で使う)。 */
     bool pressed = false;
 
     /**
@@ -385,12 +388,12 @@ public:
     }
 
     /**
-     * 自身を描画する (FUiRenderer が呼ぶ)。
+     * 自身を描画する (CUiRenderer が呼ぶ)。
      *
      * @details 既定は visible な子を再帰的に描画するだけ。見た目を持つ派生で override する。
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    virtual void Render(class FUiRenderer& r) noexcept {
+    virtual void Render(class CUiRenderer& r) noexcept {
         // 既定は子だけ描画する (visible なものに絞り)
         for (usize i = 0; i < m_Children.Size(); ++i) {
             if (m_Children[i] && m_Children[i]->visible) m_Children[i]->Render(r);
@@ -412,7 +415,7 @@ public:
     /**
      * ポインタ押下イベント。
      *
-     * @details 既定は何もしない。FButton/FSlider 等が override する。
+     * @details 既定は何もしない。AButton/ASlider 等が override する。
      * @param px 押下点の X 座標。
      * @param py 押下点の Y 座標。
      */
@@ -439,7 +442,7 @@ public:
     /**
      * 文字入力イベント (確定後の codepoint)。
      *
-     * @details 既定は何もしない。FTextInput が override する。
+     * @details 既定は何もしない。ATextInput が override する。
      * @param codepoint 入力された Unicode コードポイント。
      */
     virtual void OnTextInput  (u32 /*codepoint*/) noexcept {}
@@ -457,7 +460,7 @@ public:
      * 修飾キーを含むキーイベント。
      *
      * @details 既定実装は従来の 2 引数 OnKey へ転送する。このため、既存の派生 widget が
-     * 2 引数版だけを override していても FUiInput からの新しい配信を受け続けられる。
+     * 2 引数版だけを override していても CUiInput からの新しい配信を受け続けられる。
      * 修飾キーを扱う派生型だけがこの overload を override する。
      * @param key 制御コードに対応付けられたキーコード。
      * @param pressed_ 押下なら true、解放なら false。
@@ -478,13 +481,13 @@ public:
      * @param py 判定する点の Y 座標。
      * @return ヒットした最前面の widget (なければ nullptr)。
      */
-    FWidget* HitTestRecursive(f32 px, f32 py) noexcept {
+    AWidget* HitTestRecursive(f32 px, f32 py) noexcept {
         if (!visible) return nullptr;
         // 後ろの子 (上に描画されてる) から優先的にヒット
         for (usize i = m_Children.Size(); i > 0; --i) {
-            FWidget* const c = m_Children[i - 1].Get();
+            AWidget* const c = m_Children[i - 1].Get();
             if (c) {
-                if (FWidget* h = c->HitTestRecursive(px, py)) return h;
+                if (AWidget* h = c->HitTestRecursive(px, py)) return h;
             }
         }
         return HitTest(px, py) ? this : nullptr;
@@ -492,13 +495,13 @@ public:
 
 protected:
     /** 親ウィジェット (root なら nullptr、所有はしない)。 */
-    FWidget*                       m_Parent   = nullptr;
+    AWidget*                       m_Parent   = nullptr;
 
     /** 直接の子 (所有権を持つ、描画/走査順は配列順)。 */
-    TArray<TUniquePtr<FWidget>>      m_Children;
+    TArray<TUniquePtr<AWidget>>      m_Children;
 
 private:
-    friend class FUiInput;
+    friend class CUiInput;
     friend class ui_detail::FWidgetCallbackLifetimeGuard;
 
     /**
@@ -507,14 +510,14 @@ private:
      * @details 保存済みの生ポインタは参照せず、現在の所有ツリーだけを走査するため、
      * child が除去済みでも解放済み領域へ触れない。
      */
-    FWidget* FindByInputIdentity_Internal(
+    AWidget* FindByInputIdentity_Internal(
             const ui_detail::FWidgetInputIdentity& identity) noexcept {
         if (!identity.IsSet()) return nullptr;
         if (InputIdentity_Internal() == identity) return this;
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const child = m_Children[i].Get();
+            AWidget* const child = m_Children[i].Get();
             if (!child) continue;
-            if (FWidget* const found =
+            if (AWidget* const found =
                     child->FindByInputIdentity_Internal(identity)) {
                 return found;
             }
@@ -536,8 +539,8 @@ private:
      *
      * @param root 現在 Dispatch 中で、生存が保証されている root。
      */
-    bool IsInputVisibleFrom_Internal(const FWidget& root) const noexcept {
-        const FWidget* current = this;
+    bool IsInputVisibleFrom_Internal(const AWidget& root) const noexcept {
+        const AWidget* current = this;
         while (current) {
             if (!current->visible) return false;
             if (current == &root) return true;
@@ -552,7 +555,7 @@ private:
         focused = false;
         pressed = false;
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            if (FWidget* const child = m_Children[i].Get()) {
+            if (AWidget* const child = m_Children[i].Get()) {
                 child->ClearInputStateRecursive_Internal();
             }
         }
@@ -568,18 +571,21 @@ private:
     ui_detail::FWidgetCallbackLifetimeGuard* m_CallbackLifetimeGuards = nullptr;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FWidget = AWidget;
+
 namespace ui_detail {
 
 /**
  * widget callback が自身の破棄後に member へ再接触することを防ぐ stack guard。
  *
- * @details UI thread 専用。構築時に widget の intrusive stack へ連結し、FWidget の
+ * @details UI thread 専用。構築時に widget の intrusive stack へ連結し、AWidget の
  * destructor が active guard を dead にする。dead guard は dangling widget pointer を
  * 一切参照しない。heap allocation や shared ownership は行わない。
  */
 class FWidgetCallbackLifetimeGuard {
 public:
-    explicit FWidgetCallbackLifetimeGuard(FWidget& widget) noexcept
+    explicit FWidgetCallbackLifetimeGuard(AWidget& widget) noexcept
         : m_Widget(&widget),
           m_Previous(widget.m_CallbackLifetimeGuards) {
         widget.m_CallbackLifetimeGuards = this;
@@ -601,16 +607,16 @@ public:
     bool IsAlive() const noexcept { return m_Alive; }
 
 private:
-    friend class ::acs::FWidget;
+    friend class ::acs::AWidget;
 
-    FWidget* m_Widget = nullptr;
+    AWidget* m_Widget = nullptr;
     FWidgetCallbackLifetimeGuard* m_Previous = nullptr;
     bool m_Alive = true;
 };
 
 } // namespace ui_detail
 
-inline FWidget::~FWidget() noexcept {
+inline AWidget::~AWidget() noexcept {
     ui_detail::FWidgetCallbackLifetimeGuard* guard =
         m_CallbackLifetimeGuards;
     while (guard) {
@@ -626,10 +632,10 @@ inline FWidget::~FWidget() noexcept {
  *
  * @details dir に応じて子を順に配置し、各子の要望サイズ (なければ既定値) を使う。
  */
-class FStackPanel : public FWidget {
+class AStackPanel : public AWidget {
 public:
     /** 既定設定 (縦並び・spacing=4・padding=8) で構築する。 */
-    FStackPanel() noexcept = default;
+    AStackPanel() noexcept = default;
 
     /** 子を並べる方向。 */
     EStackDir   dir      = EStackDir::Vertical;
@@ -659,7 +665,7 @@ public:
         const f32 ch = h - padding.t - padding.b;
 
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const c = m_Children[i].Get();
+            AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
 
             if (dir == EStackDir::Vertical) {
@@ -675,12 +681,15 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FStackPanel = AStackPanel;
+
 /**
  * 自身は描画せず、子に自分と同じ範囲を渡すだけの透過パネル。
  *
  * @details 同じ領域を複数の子に重ねて配置したいとき (オーバーレイ等) に使う。
  */
-class FContainer : public FWidget {
+class AContainer : public AWidget {
 public:
     /**
      * 自身の rect を確定し、全 visible な子に同じ範囲を渡す。
@@ -693,29 +702,32 @@ public:
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const c = m_Children[i].Get();
+            AWidget* const c = m_Children[i].Get();
             if (c && c->visible) c->Layout(x, y, w, h);
         }
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FContainer = AContainer;
+
 /**
  * 各子を自身の anchor (RectTransform 風) に従って配置するレスポンシブパネル。
  *
  * @details
- * FContainer が全子に同じ矩形を渡すのに対し、FAnchorPanel は子ごとの `anchor` を
+ * AContainer が全子に同じ矩形を渡すのに対し、AAnchorPanel は子ごとの `anchor` を
  * ComputeAnchoredRect で解決して個別配置する。パネルの rect が変わる (画面リサイズ等)
  * と全子が追従するため、HUD やオーバーレイの解像度非依存レイアウトに使う。
  *
  * 使い方:
- *   FAnchorPanel hud;
- *   auto* score = hud.Add<FLabel>("0");
+ *   AAnchorPanel hud;
+ *   auto* score = hud.Add<ALabel>("0");
  *   score->anchor = FUiAnchor::Point({1,0}, 120, 32, -128, 8);  // 右上に固定サイズ
- *   auto* bar = hud.Add<FContainer>();
+ *   auto* bar = hud.Add<AContainer>();
  *   bar->anchor = FUiAnchor::Stretch(16, 0, 16, 8);             // 下端を左右いっぱい
  *   hud.Layout(0, 0, screen_w, screen_h);
  */
-class FAnchorPanel : public FWidget {
+class AAnchorPanel : public AWidget {
 public:
     /**
      * 自身の rect を確定し、各 visible な子を anchor に従って配置する。
@@ -728,12 +740,16 @@ public:
     void Layout(f32 x, f32 y, f32 w, f32 h) noexcept override {
         rect = { x, y, w, h };
         for (usize i = 0; i < m_Children.Size(); ++i) {
-            FWidget* const c = m_Children[i].Get();
+            AWidget* const c = m_Children[i].Get();
             if (!c || !c->visible) continue;
             const FUiRect cr = ComputeAnchoredRect(rect, c->anchor);
             c->Layout(cr.x, cr.y, cr.w, cr.h);
         }
     }
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FAnchorPanel = AAnchorPanel;
+
 
 } // namespace acs

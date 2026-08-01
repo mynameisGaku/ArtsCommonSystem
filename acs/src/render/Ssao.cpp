@@ -163,7 +163,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
     // dir light 0 へ向かう短距離 screen-space ray march。surface と光源の間に
     // geometry があれば直接光が遮られている (= 接地影)。shadow map が拾えない
     // 細かい接触遮蔽 (球と床の接地際など) を補う。結果は .g に焼き、blur で軟化、
-    // FPbrShader が direct light に乗算する。
+    // CPbrShader が direct light に乗算する。
     float contact = 1.0;
     float3 Pw = ReconstructWorldPos(v.uv, depth);
     float3 L  = normalize(light_dir.xyz);             // 光源へ向かう方向 (surface→light)
@@ -325,7 +325,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-EShaderStatus FSsao::FCompiledShaders::Status() const noexcept {
+EShaderStatus CSsao::FCompiledShaders::Status() const noexcept {
     if (!vertex || !pixel || !blur_pixel) return EShaderStatus::Failed;
 
     const EShaderStatus vertex_status = vertex->Status();
@@ -345,14 +345,14 @@ EShaderStatus FSsao::FCompiledShaders::Status() const noexcept {
 }
 
 /** 出力 RT・パイプライン・定数バッファを生成する。 */
-TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> CSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     FCompiledShaders compiled{};
 
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name = "FSsao.VS";
+    vs_d.debug_name = "CSsao.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr())
         return Err<void>(r.Error());
     else
@@ -362,7 +362,7 @@ TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsaoHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name = "FSsao.PS";
+    ps_d.debug_name = "CSsao.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr())
         return Err<void>(r.Error());
     else
@@ -382,8 +382,8 @@ TResult<void> FSsao::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
         device, Move(compiled), width, height);
 }
 
-TResult<FSsao::FCompiledShaders>
-FSsao::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+TResult<CSsao::FCompiledShaders>
+CSsao::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
             Render, 331,
@@ -396,7 +396,7 @@ FSsao::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsaoHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name = "FSsao.VS";
+    vs_d.debug_name = "CSsao.VS";
     vs_d.compile_async = true;
     auto vertex = CreateRhiShader(device, vs_d);
     if (vertex.IsErr()) return Err<FCompiledShaders>(vertex.Error());
@@ -406,7 +406,7 @@ FSsao::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsaoHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name = "FSsao.PS";
+    ps_d.debug_name = "CSsao.PS";
     ps_d.compile_async = true;
     auto pixel = CreateRhiShader(device, ps_d);
     if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
@@ -425,7 +425,7 @@ FSsao::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
 }
 
-TResult<void> FSsao::InitWithCompiledShaders(
+TResult<void> CSsao::InitWithCompiledShaders(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     u32 width,
@@ -438,7 +438,7 @@ TResult<void> FSsao::InitWithCompiledShaders(
     // Startup can retry transient allocation/PSO failures, and an ordinary
     // re-init must not destroy a still-valid SSAO stack before its replacement
     // is known-good.
-    FSsao candidate;
+    CSsao candidate;
     candidate.m_Device = &device;
     if (auto r = candidate.CreateOutputRT(device, width, height); r.IsErr())
         return r;
@@ -476,7 +476,7 @@ TResult<void> FSsao::InitWithCompiledShaders(
 }
 
 /** SSAO raw と blur 後の出力 RT を生成する。 */
-TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> CSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     FTextureDesc td{};
     td.width  = width;
     td.height = height;
@@ -500,7 +500,7 @@ TResult<void> FSsao::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
 }
 
 /** Ready SSAO shadersから本体とblurのパイプラインを生成する。 */
-TResult<void> FSsao::CreatePipeline(
+TResult<void> CSsao::CreatePipeline(
     IRhiDevice& device,
     FCompiledShaders& shaders) noexcept {
     FPipelineDesc pd{};
@@ -580,7 +580,7 @@ TResult<void> FSsao::CreatePipeline(
 }
 
 /** 確保した GPU リソースを解放する。 */
-void FSsao::Shutdown() noexcept {
+void CSsao::Shutdown() noexcept {
     m_BlurPipeline.Reset();
     m_Pipeline.Reset();
     m_Cb.Reset();
@@ -595,8 +595,8 @@ void FSsao::Shutdown() noexcept {
 }
 
 /** 解像度変更時に内部 RT を作り直す。 */
-TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
-    if (!m_Device) return ACS_ERR(Render, 330, "FSsao::Resize before Init");
+TResult<void> CSsao::Resize(u32 width, u32 height) noexcept {
+    if (!m_Device) return ACS_ERR(Render, 330, "CSsao::Resize before Init");
     if (width == m_Width && height == m_Height) return Ok();
     auto result = CreateOutputRT(*m_Device, width, height);
     if (result.IsErr()) return result;
@@ -606,7 +606,7 @@ TResult<void> FSsao::Resize(u32 width, u32 height) noexcept {
 }
 
 /** SSAO (GTAO) と contact shadow を 2 pass で計算し内部 RT に書く。 */
-void FSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void CSsao::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,
                   const FMat4& view_proj, const FMat4& inv_view_proj,

@@ -112,7 +112,7 @@ constexpr u32 NextPowerOfTwo(u32 value) noexcept {
 
 } // namespace
 
-TResult<void> FHiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
+TResult<void> CHiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noexcept {
     m_Device = &device;
     m_SrcW  = src_width;
     m_SrcH  = src_height;
@@ -140,7 +140,7 @@ TResult<void> FHiZ::Init(IRhiDevice& device, u32 src_width, u32 src_height) noex
     return Ok();
 }
 
-TResult<void> FHiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
+TResult<void> CHiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept {
     m_HizEven.Reset();
     m_HizOdd.Reset();
     m_HizW = (src_w + kBlockSize - 1u) / kBlockSize;
@@ -182,12 +182,12 @@ TResult<void> FHiZ::CreateRT(IRhiDevice& device, u32 src_w, u32 src_h) noexcept 
     return Ok();
 }
 
-TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> CHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kHiZHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FHiZ.VS";
+    vs_d.debug_name  = "CHiZ.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else m_Vs = Move(r.Value());
 
@@ -195,7 +195,7 @@ TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     base_ps_d.stage = EShaderStage::Pixel;
     base_ps_d.hlsl_source = kHiZHLSL;
     base_ps_d.entry_point = "PSBase";
-    base_ps_d.debug_name  = "FHiZ.BasePS";
+    base_ps_d.debug_name  = "CHiZ.BasePS";
     if (auto r = CreateRhiShader(device, base_ps_d); r.IsErr()) return Err<void>(r.Error());
     else m_PsBase = Move(r.Value());
 
@@ -203,7 +203,7 @@ TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     reduce_ps_d.stage = EShaderStage::Pixel;
     reduce_ps_d.hlsl_source = kHiZHLSL;
     reduce_ps_d.entry_point = "PSReduce";
-    reduce_ps_d.debug_name  = "FHiZ.ReducePS";
+    reduce_ps_d.debug_name  = "CHiZ.ReducePS";
     if (auto r = CreateRhiShader(device, reduce_ps_d); r.IsErr()) return Err<void>(r.Error());
     else m_PsReduce = Move(r.Value());
 
@@ -236,7 +236,7 @@ TResult<void> FHiZ::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FHiZ::Shutdown() noexcept {
+void CHiZ::Shutdown() noexcept {
     m_ReducePipeline.Reset();
     m_BasePipeline.Reset();
     for (auto& cb : m_LevelCb) cb.Reset();
@@ -251,15 +251,15 @@ void FHiZ::Shutdown() noexcept {
     m_Device = nullptr;
 }
 
-TResult<void> FHiZ::Resize(u32 src_width, u32 src_height) noexcept {
-    if (!m_Device) return ACS_ERR(Render, 320, "FHiZ::Resize before Init");
+TResult<void> CHiZ::Resize(u32 src_width, u32 src_height) noexcept {
+    if (!m_Device) return ACS_ERR(Render, 320, "CHiZ::Resize before Init");
     if (src_width == m_SrcW && src_height == m_SrcH) return Ok();
     m_SrcW = src_width;
     m_SrcH = src_height;
     return CreateRT(*m_Device, src_width, src_height);
 }
 
-void FHiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void CHiZ::Build(IRhiDevice& /*device*/, IRhiCommandList& cl,
                 IRhiTexture& scene_depth) noexcept {
     if (!m_HizEven || !m_HizOdd || !m_BasePipeline || !m_ReducePipeline ||
         m_MipCount == 0) {

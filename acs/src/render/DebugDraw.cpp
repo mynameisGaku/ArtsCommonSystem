@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDebugDraw3D 実装。
+// CDebugDraw3D 実装。
 #include "render/DebugDraw.h"
 #include "foundation/Move.h"
 
@@ -30,14 +30,14 @@ constexpr usize CBSize() noexcept { return (sizeof(T) + 255u) & ~static_cast<usi
 
 } // namespace
 
-TResult<void> FDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_lines) noexcept {
+TResult<void> CDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_lines) noexcept {
     m_MaxVerts = (max_lines < 1u ? 1u : max_lines) * 2u;
 
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kDebugLineHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FDebugDraw3D.VS";
+    vs_d.debug_name  = "CDebugDraw3D.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else m_Vs = Move(r.Value());
 
@@ -45,7 +45,7 @@ TResult<void> FDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kDebugLineHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FDebugDraw3D.PS";
+    ps_d.debug_name  = "CDebugDraw3D.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else m_Ps = Move(r.Value());
 
@@ -87,7 +87,7 @@ TResult<void> FDebugDraw3D::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     return Ok();
 }
 
-void FDebugDraw3D::Shutdown() noexcept {
+void CDebugDraw3D::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Cb.Reset();
     m_Vb.Reset();
@@ -96,15 +96,15 @@ void FDebugDraw3D::Shutdown() noexcept {
     m_Verts.Clear();
 }
 
-void FDebugDraw3D::Begin() noexcept { m_Verts.Clear(); }
+void CDebugDraw3D::Begin() noexcept { m_Verts.Clear(); }
 
-void FDebugDraw3D::Line(FVec3 a, FVec3 b, FVec4 c) noexcept {
+void CDebugDraw3D::Line(FVec3 a, FVec3 b, FVec4 c) noexcept {
     if (m_Verts.Size() + 2 > m_MaxVerts) return;
     m_Verts.PushBack(FLineVtx{ a.x, a.y, a.z, c.x, c.y, c.z, c.w });
     m_Verts.PushBack(FLineVtx{ b.x, b.y, b.z, c.x, c.y, c.z, c.w });
 }
 
-void FDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept {
+void CDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept {
     const FVec3 mn = box.Min(), mx = box.Max();
     const FVec3 c[8] = {
         {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mx.x,mx.y,mn.z},{mn.x,mx.y,mn.z},
@@ -116,7 +116,7 @@ void FDebugDraw3D::Aabb(const FAabb3& box, FVec4 color) noexcept {
     for (int i = 0; i < 12; ++i) Line(c[e[i][0]], c[e[i][1]], color);
 }
 
-void FDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count,
+void CDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count,
                              const u32* indices, u32 index_count, FVec4 color) noexcept {
     if (!positions || !indices) return;
     for (u32 t = 0; t + 3 <= index_count; t += 3) {
@@ -128,7 +128,7 @@ void FDebugDraw3D::Wireframe(const FVec3* positions, u32 vertex_count,
     }
 }
 
-void FDebugDraw3D::End(IRhiCommandList& cl, const FMat4& view_proj) noexcept {
+void CDebugDraw3D::End(IRhiCommandList& cl, const FMat4& view_proj) noexcept {
     if (!m_Pipeline || !m_Vb || !m_Cb || m_Verts.Size() == 0) return;
     FDebugCbLayout cb{};
     cb.view_proj = view_proj;

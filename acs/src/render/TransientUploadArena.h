@@ -10,25 +10,25 @@ namespace acs {
 class IRhiDevice;
 
 /** 同一サイズの一時定数を少数のGPUバッファへまとめるフレームarena。 */
-class FTransientUploadArena final {
+class CTransientUploadArena final {
 public:
     /** GPU資源を持たない空状態を作る。 */
-    FTransientUploadArena() noexcept = default;
+    CTransientUploadArena() noexcept = default;
 
     /** 所有ページを解放する。 */
-    ~FTransientUploadArena() noexcept = default;
+    ~CTransientUploadArena() noexcept = default;
 
     /** 単独所有を保つためコピーを禁止する。 */
-    FTransientUploadArena(const FTransientUploadArena&) = delete;
+    CTransientUploadArena(const CTransientUploadArena&) = delete;
 
     /** 単独所有を保つためコピー代入を禁止する。 */
-    FTransientUploadArena& operator=(const FTransientUploadArena&) = delete;
+    CTransientUploadArena& operator=(const CTransientUploadArena&) = delete;
 
     /** arenaの所有権を移す。 */
-    FTransientUploadArena(FTransientUploadArena&&) noexcept = default;
+    CTransientUploadArena(CTransientUploadArena&&) noexcept = default;
 
     /** arenaの所有権を移して代入する。 */
-    FTransientUploadArena& operator=(FTransientUploadArena&&) noexcept = default;
+    CTransientUploadArena& operator=(CTransientUploadArena&&) noexcept = default;
 
     /**
      * 一時定数の大きさと初期個数を設定して最初の共有ページを作る。
@@ -170,5 +170,9 @@ private:
     /** RHIページ記述へ要求した一frame分の論理総バイト数。 */
     usize m_ReservedBytes = 0u;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FTransientUploadArena = CTransientUploadArena;
+
 
 } // namespace acs

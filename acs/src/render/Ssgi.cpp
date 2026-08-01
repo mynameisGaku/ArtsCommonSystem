@@ -386,19 +386,19 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 /** Compile raw-DX12 bytecode without accessing the render device. */
-TResult<FSsgi::FCompiledShaders> FSsgi::CompileShadersCpu() noexcept {
+TResult<CSsgi::FCompiledShaders> CSsgi::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSsgi.VS";
+    vs_d.debug_name  = "CSsgi.VS";
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsgiHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSsgi.PS";
+    ps_d.debug_name  = "CSsgi.PS";
 
     FShaderDesc blur_ps_d{};
     blur_ps_d.stage = EShaderStage::Pixel;
@@ -470,14 +470,14 @@ TResult<FSsgi::FCompiledShaders> FSsgi::CompileShadersCpu() noexcept {
 #endif
 }
 
-TResult<void> FSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> CSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     FCompiledShaders compiled{};
 
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSsgiHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSsgi.VS";
+    vs_d.debug_name  = "CSsgi.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr())
         return Err<void>(r.Error());
     else
@@ -487,7 +487,7 @@ TResult<void> FSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSsgiHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSsgi.PS";
+    ps_d.debug_name  = "CSsgi.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr())
         return Err<void>(r.Error());
     else
@@ -517,7 +517,7 @@ TResult<void> FSsgi::Init(IRhiDevice& device, u32 width, u32 height) noexcept {
         device, Move(compiled), width, height);
 }
 
-TResult<void> FSsgi::InitWithCompiledShaders(
+TResult<void> CSsgi::InitWithCompiledShaders(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     u32 width,
@@ -532,7 +532,7 @@ TResult<void> FSsgi::InitWithCompiledShaders(
     // Build the complete replacement off to the side.  Startup can retry an
     // effect after a device/allocation failure, so publishing shaders, render
     // targets or PSOs one at a time would leave a mixture of generations.
-    FSsgi candidate;
+    CSsgi candidate;
     candidate.m_Device = &device;
     candidate.m_Vs = Move(shaders.vertex);
     candidate.m_Ps = Move(shaders.main_pixel);
@@ -572,7 +572,7 @@ TResult<void> FSsgi::InitWithCompiledShaders(
     return Ok();
 }
 
-TResult<void> FSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
+TResult<void> CSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) noexcept {
     FTextureDesc td{};
     td.width  = width;
     td.height = height;
@@ -604,7 +604,7 @@ TResult<void> FSsgi::CreateOutputRT(IRhiDevice& device, u32 width, u32 height) n
     return Ok();
 }
 
-TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> CSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     FPipelineDesc pd{};
     pd.vs            = m_Vs.Get();
     pd.ps            = m_Ps.Get();
@@ -702,7 +702,7 @@ TResult<void> FSsgi::CreatePipeline(IRhiDevice& device) noexcept {
     return Ok();
 }
 
-void FSsgi::Shutdown() noexcept {
+void CSsgi::Shutdown() noexcept {
     m_TemporalPipeline.Reset();
     m_BlurPipeline.Reset();
     m_Pipeline.Reset();
@@ -721,8 +721,8 @@ void FSsgi::Shutdown() noexcept {
     m_Device = nullptr;
 }
 
-TResult<void> FSsgi::Resize(u32 width, u32 height) noexcept {
-    if (!m_Device) return ACS_ERR(Render, 340, "FSsgi::Resize before Init");
+TResult<void> CSsgi::Resize(u32 width, u32 height) noexcept {
+    if (!m_Device) return ACS_ERR(Render, 340, "CSsgi::Resize before Init");
     if (width == m_Width && height == m_Height) return Ok();
     if (auto r = CreateOutputRT(*m_Device, width, height); r.IsErr()) return r;
     m_Width  = width;
@@ -732,7 +732,7 @@ TResult<void> FSsgi::Resize(u32 width, u32 height) noexcept {
     return Ok();
 }
 
-void FSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
+void CSsgi::Render(IRhiDevice& /*device*/, IRhiCommandList& cl,
                   IRhiTexture& scene_color,
                   IRhiTexture& scene_depth,
                   IRhiTexture& normal_gbuffer,

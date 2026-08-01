@@ -11,7 +11,7 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class CDiligentDevice;
 
 /**
  * Diligent Engine 経由のスワップチェイン (IRhiSwapchain 実装)。
@@ -45,7 +45,7 @@ public:
      * @param cfg ウィンドウ・フォーマット・バッファ数・vsync を含むスワップチェイン設定。
      * @return 成功なら空の TResult、ウィンドウ無効・device 未初期化・生成失敗ならエラー。
      */
-    TResult<void> Init(FDiligentDevice& device, const FSwapchainConfig& cfg) noexcept;
+    TResult<void> Init(CDiligentDevice& device, const FSwapchainConfig& cfg) noexcept;
 
     /**
      * 次に描画するバックバッファのインデックスを返す。
@@ -107,7 +107,7 @@ private:
     void Reset() noexcept;
 
     /** Init で受け取った Diligent デバイス。 */
-    FDiligentDevice*       m_Device       = nullptr;
+    CDiligentDevice*       m_Device       = nullptr;
 
     /** Diligent ネイティブのスワップチェイン。 */
     Diligent::ISwapChain* m_Swap         = nullptr;

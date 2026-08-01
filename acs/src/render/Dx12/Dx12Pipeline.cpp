@@ -261,7 +261,7 @@ void FDx12Pipeline::Reset() noexcept
 }
 
 /** ルートシグネチャ・入力レイアウト・PSO を構築する (CreateRhiPipeline 経由で呼ばれる)。 */
-FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) noexcept {
+FHrResult FDx12Pipeline::Init(CDx12Device& device, const FPipelineDesc& desc) noexcept {
     FHrResult r{};
     Reset();
 
@@ -342,7 +342,7 @@ FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) no
         p.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     }
 
-    // 静的サンプラ (FPipelineDesc.static_samplers は容量 16。FPbrShader は 10 個使うため 4 では不足だった)
+    // 静的サンプラ (FPipelineDesc.static_samplers は容量 16。CPbrShader は 10 個使うため 4 では不足だった)
     D3D12_STATIC_SAMPLER_DESC samplers[16]{};
     const u32 sampler_count = desc.static_sampler_count;
     for (u32 i = 0; i < sampler_count; ++i) {
@@ -449,7 +449,7 @@ FHrResult FDx12Pipeline::Init(FDx12Device& device, const FPipelineDesc& desc) no
     return r;
 }
 
-FHrResult FDx12Pipeline::InitCompute(FDx12Device& device,
+FHrResult FDx12Pipeline::InitCompute(CDx12Device& device,
                                      const FComputePipelineDesc& desc) noexcept {
     FHrResult r{};
     Reset();
@@ -598,7 +598,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiPipeline(IRhiDevice& device, const FP
     auto pipeline = MakeUnique<FDx12Pipeline>();
     if (!pipeline) return ACS_ERR(Memory, 52, "Dx12Pipeline allocation failed");
 
-    const FHrResult result = pipeline->Init(static_cast<FDx12Device&>(device), description);
+    const FHrResult result = pipeline->Init(static_cast<CDx12Device&>(device), description);
     if (result.IsErr()) {
         return ACS_ERR_OS(Render, 51, "Dx12Pipeline::Init failed", static_cast<u32>(result.hr));
     }
@@ -626,7 +626,7 @@ TResult<TUniquePtr<IRhiPipeline>> CreateRhiComputePipeline(IRhiDevice& device,
     if (!pipeline) return ACS_ERR(Memory, 53, "Dx12 compute pipeline allocation failed");
 
     const FHrResult result =
-        pipeline->InitCompute(static_cast<FDx12Device&>(device), description);
+        pipeline->InitCompute(static_cast<CDx12Device&>(device), description);
     if (result.IsErr()) {
         return ACS_ERR_OS(Render, 54, "Dx12Pipeline::InitCompute failed",
                           static_cast<u32>(result.hr));

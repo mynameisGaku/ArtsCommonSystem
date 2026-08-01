@@ -22,7 +22,7 @@ FWeldKey QuantizePos(FVec3 p, f32 inv_eps) noexcept {
 
 } // namespace
 
-bool FVertexScatter::Build(const FMeshAsset& mesh, f32 weld_epsilon) noexcept {
+bool CVertexScatter::Build(const FMeshAsset& mesh, f32 weld_epsilon) noexcept {
     const auto& verts = mesh.Vertices();
     const auto& idx   = mesh.Indices();
     if (verts.Size() == 0 || idx.Size() < 3) return false;
@@ -34,7 +34,7 @@ bool FVertexScatter::Build(const FMeshAsset& mesh, f32 weld_epsilon) noexcept {
                  idx.Data(), static_cast<u32>(idx.Size()), weld_epsilon);
 }
 
-bool FVertexScatter::Build(const FVec3* positions, u32 vcount, const u32* indices, u32 icount,
+bool CVertexScatter::Build(const FVec3* positions, u32 vcount, const u32* indices, u32 icount,
                            f32 weld_epsilon) noexcept {
     m_VertexCount = 0;
     m_NodeCount   = 0;
@@ -118,7 +118,7 @@ bool FVertexScatter::Build(const FVec3* positions, u32 vcount, const u32* indice
     return true;
 }
 
-void FVertexScatter::DiffuseChannel(const f32* src, f32* dst, f32* work, u32 iters) const noexcept {
+void CVertexScatter::DiffuseChannel(const f32* src, f32* dst, f32* work, u32 iters) const noexcept {
     // ノード空間で iters 回の «対称グラフ・ラプラシアン» 熱拡散:
     //   x'_i = x_i + λ Σ_j w_ij (x_j - x_i)      (w_ij = w_ji)
     // 対称重みゆえ Σ_i Σ_j w_ij(x_j-x_i) = 0 → «総和 (総エネルギー) を保存»。
@@ -138,7 +138,7 @@ void FVertexScatter::DiffuseChannel(const f32* src, f32* dst, f32* work, u32 ite
     if (a != dst) for (u32 i = 0; i < m_NodeCount; ++i) dst[i] = a[i];
 }
 
-void FVertexScatter::Scatter(const FVec3* in, FVec3* out, const FScatterProfile& profile) const noexcept {
+void CVertexScatter::Scatter(const FVec3* in, FVec3* out, const FScatterProfile& profile) const noexcept {
     if (m_NodeCount == 0 || in == nullptr || out == nullptr) return;
 
     // 頂点空間 → ノード空間へ集約 (溶接された頂点群は平均を取る)。

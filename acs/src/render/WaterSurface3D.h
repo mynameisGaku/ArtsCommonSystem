@@ -22,7 +22,7 @@ class IRhiTexture;
 class FMeshAsset;
 
 /**
- * Authoring parameters for FWaterSurface3D.
+ * Authoring parameters for CWaterSurface3D.
  *
  * @details
  * The surface is physically based around water IOR 1.333. Colors and absorption
@@ -100,7 +100,7 @@ struct FWaterSurface3DParams {
  * High-quality interactive 3D water renderer.
  *
  * @details
- * FWaterSurface3D is renderer-facing and accepts any sufficiently tessellated
+ * CWaterSurface3D is renderer-facing and accepts any sufficiently tessellated
  * mesh authored on its local XZ plane. The model may freely translate, rotate,
  * or scale that surface in a 3D scene. Dynamic disturbances are stored as full
  * world-space points and are never overwritten while active.
@@ -114,7 +114,7 @@ struct FWaterSurface3DParams {
  *     available, the shader-visible opaque depth and SSR/planar reflection.
  *  4. Run bloom/tonemapping if using HDR.
  */
-class FWaterSurface3D {
+class CWaterSurface3D {
 public:
     /** Backend-compiled shader handles awaiting owner-thread PSO creation. */
     struct FCompiledShaders {
@@ -145,11 +145,11 @@ public:
 
     static_assert(kImpactRippleSlots + kWakeRippleSlots == kMaxRipples);
 
-    FWaterSurface3D() noexcept;
-    ~FWaterSurface3D() noexcept;
+    CWaterSurface3D() noexcept;
+    ~CWaterSurface3D() noexcept;
 
-    FWaterSurface3D(const FWaterSurface3D&) = delete;
-    FWaterSurface3D& operator=(const FWaterSurface3D&) = delete;
+    CWaterSurface3D(const CWaterSurface3D&) = delete;
+    CWaterSurface3D& operator=(const CWaterSurface3D&) = delete;
 
     /**
      * Creates shaders, pipeline, constant-buffer ring, and a generated normal map.
@@ -491,5 +491,9 @@ private:
     u32 m_ScreenHeight = 1;
     f32 m_Time = 0.0f;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FWaterSurface3D = CWaterSurface3D;
+
 
 } // namespace acs

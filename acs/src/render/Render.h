@@ -9,11 +9,11 @@
 //
 // 含まれるもの:
 //   - 低レベル RHI インターフェイス (IRhiDevice / IRhiBuffer / IRhiShader / ...)
-//   - 高レベルヘルパ (FRenderer / FStandardShader / FSpriteBatch / FFont /
+//   - 高レベルヘルパ (CRenderer / CStandardShader / CSpriteBatch / FFont /
 //     メッシュ・テクスチャのアップロード)
 //
 // PBR・スカイ・シャドウ・IBL・スキンメッシュなど特定機能のヘッダ
-// (FPbrShader.h / FSky.h / FShadowMap.h / FIbl.h / FSkinnedShader.h ...) は、
+// (CPbrShader.h / CSky.h / CShadowMap.h / FIbl.h / CSkinnedShader.h ...) は、
 // 使うサンプル側で必要なときに個別に include してください。
 // =============================================================================
 #pragma once

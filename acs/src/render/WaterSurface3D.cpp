@@ -53,8 +53,8 @@ struct FWaterFrameCb {
     FVec4 environment_zenith;
     FVec4 environment_horizon;
     FVec4 environment_ground;
-    FVec4 ripple_a[FWaterSurface3D::kMaxRipples];
-    FVec4 ripple_b[FWaterSurface3D::kMaxRipples];
+    FVec4 ripple_a[CWaterSurface3D::kMaxRipples];
+    FVec4 ripple_b[CWaterSurface3D::kMaxRipples];
 };
 
 struct FWaterObjectCb {
@@ -1022,13 +1022,13 @@ TResult<TUniquePtr<IRhiTexture>> CreateSceneFallback(IRhiDevice& device) noexcep
 
 } // namespace
 
-FWaterSurface3D::FWaterSurface3D() noexcept = default;
+CWaterSurface3D::CWaterSurface3D() noexcept = default;
 
-FWaterSurface3D::~FWaterSurface3D() noexcept {
+CWaterSurface3D::~CWaterSurface3D() noexcept {
     Shutdown();
 }
 
-EShaderStatus FWaterSurface3D::FCompiledShaders::Status() const noexcept {
+EShaderStatus CWaterSurface3D::FCompiledShaders::Status() const noexcept {
     if (!vertex || !pixel) return EShaderStatus::Failed;
     const EShaderStatus vertex_status = vertex->Status();
     const EShaderStatus pixel_status = pixel->Status();
@@ -1043,12 +1043,12 @@ EShaderStatus FWaterSurface3D::FCompiledShaders::Status() const noexcept {
     return EShaderStatus::Ready;
 }
 
-void FWaterSurface3D::SetParams(
+void CWaterSurface3D::SetParams(
     const FWaterSurface3DParams& params) noexcept {
     m_Params = SanitizeParams(params);
 }
 
-bool FWaterSurface3D::IsLocalXzSurfaceMesh(
+bool CWaterSurface3D::IsLocalXzSurfaceMesh(
     const FMeshAsset& mesh) noexcept {
     const TArray<FMeshVertex>& vertices = mesh.Vertices();
     const TArray<u32>& indices = mesh.Indices();
@@ -1120,7 +1120,7 @@ bool FWaterSurface3D::IsLocalXzSurfaceMesh(
            projected_twice_area > minimum_area;
 }
 
-TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
+TResult<void> CWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
                                     EFormat depth_format,
                                     u32 msaa_samples) noexcept {
     FCompiledShaders compiled{};
@@ -1152,8 +1152,8 @@ TResult<void> FWaterSurface3D::Init(IRhiDevice& device, EFormat rt_format,
         rt_format, depth_format, msaa_samples);
 }
 
-TResult<FWaterSurface3D::FCompiledShaders>
-FWaterSurface3D::CompileShadersCpu() noexcept {
+TResult<CWaterSurface3D::FCompiledShaders>
+CWaterSurface3D::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     FShaderDesc vertex_description{};
     vertex_description.stage = EShaderStage::Vertex;
@@ -1209,8 +1209,8 @@ FWaterSurface3D::CompileShadersCpu() noexcept {
 #endif
 }
 
-TResult<FWaterSurface3D::FCompiledShaders>
-FWaterSurface3D::BeginCompileShadersAsync(
+TResult<CWaterSurface3D::FCompiledShaders>
+CWaterSurface3D::BeginCompileShadersAsync(
     IRhiDevice& device) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
@@ -1247,7 +1247,7 @@ FWaterSurface3D::BeginCompileShadersAsync(
     return TResult<FCompiledShaders>(OkInit, Move(compiled));
 }
 
-TResult<void> FWaterSurface3D::BeginInitWithCompiledShaders(
+TResult<void> CWaterSurface3D::BeginInitWithCompiledShaders(
     IRhiDevice& device, FCompiledShaders&& shaders,
     EFormat rt_format, EFormat depth_format,
     u32 msaa_samples) noexcept {
@@ -1260,7 +1260,7 @@ TResult<void> FWaterSurface3D::BeginInitWithCompiledShaders(
         // Reinitialization is transactional: construct a complete replacement
         // away from the published renderer, then replace only after every PSO,
         // texture and constant buffer is known-good.
-        FWaterSurface3D candidate;
+        CWaterSurface3D candidate;
         candidate.m_Params = m_Params;
         auto begin = candidate.BeginInitWithCompiledShaders(
             device, Move(shaders),
@@ -1396,7 +1396,7 @@ TResult<void> FWaterSurface3D::BeginInitWithCompiledShaders(
     return Ok();
 }
 
-TResult<bool> FWaterSurface3D::AdvanceInitialization(
+TResult<bool> CWaterSurface3D::AdvanceInitialization(
     u32 buffer_pairs) noexcept {
     if (!m_InitializationPending) {
         return TResult<bool>(OkInit, m_Pipeline.Get() != nullptr);
@@ -1448,7 +1448,7 @@ TResult<bool> FWaterSurface3D::AdvanceInitialization(
         OkInit, !m_InitializationPending);
 }
 
-TResult<void> FWaterSurface3D::InitWithCompiledShaders(
+TResult<void> CWaterSurface3D::InitWithCompiledShaders(
     IRhiDevice& device, FCompiledShaders&& shaders,
     EFormat rt_format, EFormat depth_format,
     u32 msaa_samples) noexcept {
@@ -1466,7 +1466,7 @@ TResult<void> FWaterSurface3D::InitWithCompiledShaders(
             "interactive-water synchronous initialization incomplete");
 }
 
-void FWaterSurface3D::Shutdown() noexcept {
+void CWaterSurface3D::Shutdown() noexcept {
     m_ManualDepthPipeline.Reset();
     m_Pipeline.Reset();
     m_Ps.Reset();
@@ -1486,7 +1486,7 @@ void FWaterSurface3D::Shutdown() noexcept {
     m_InitializationPending = false;
 }
 
-void FWaterSurface3D::Update(f32 dt) noexcept {
+void CWaterSurface3D::Update(f32 dt) noexcept {
     if (dt < 0.0f) dt = 0.0f;
     if (!std::isfinite(dt)) return;
     const f64 next_time = static_cast<f64>(m_Time) + static_cast<f64>(dt);
@@ -1533,7 +1533,7 @@ void FWaterSurface3D::Update(f32 dt) noexcept {
     }
 }
 
-f32 FWaterSurface3D::EvaluateRippleAmplitudeScale(
+f32 CWaterSurface3D::EvaluateRippleAmplitudeScale(
     f32 age, f32 lifetime, f32 damping) noexcept {
     if (!std::isfinite(age) || !std::isfinite(lifetime)
         || !std::isfinite(damping) || lifetime <= 0.0f) {
@@ -1564,7 +1564,7 @@ f32 FWaterSurface3D::EvaluateRippleAmplitudeScale(
         ? static_cast<f32>(scale) : 0.0f;
 }
 
-void FWaterSurface3D::DeactivateEventAtActivePosition(
+void CWaterSurface3D::DeactivateEventAtActivePosition(
     u32 active_position) noexcept {
     if (active_position >= m_ActiveRippleCount) return;
     const u32 storage_index =
@@ -1577,7 +1577,7 @@ void FWaterSurface3D::DeactivateEventAtActivePosition(
     m_ActiveRippleStorageIndices[m_ActiveRippleCount] = 0u;
 }
 
-bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
+bool CWaterSurface3D::AddEvent(u64 surface_id, bool wake,
                                FVec3 world_point, FVec3 direction,
                                f32 anisotropy, f32 radius,
                                f32 strength,
@@ -1671,7 +1671,7 @@ bool FWaterSurface3D::AddEvent(u64 surface_id, bool wake,
     return true;
 }
 
-u32 FWaterSurface3D::AvailableEventSlots(
+u32 CWaterSurface3D::AvailableEventSlots(
     u64 surface_id, bool wake) const noexcept {
     const u32 per_surface_limit =
         wake ? kWakeRippleSlots : kImpactRippleSlots;
@@ -1717,13 +1717,13 @@ u32 FWaterSurface3D::AvailableEventSlots(
     return std::min(per_surface_available, free_slot_count);
 }
 
-bool FWaterSurface3D::AddDisturbance(FVec3 world_point, f32 radius,
+bool CWaterSurface3D::AddDisturbance(FVec3 world_point, f32 radius,
                                      f32 strength) noexcept {
     return AddDisturbanceForSurface(
         0u, world_point, radius, strength);
 }
 
-bool FWaterSurface3D::AddDisturbanceForSurface(
+bool CWaterSurface3D::AddDisturbanceForSurface(
     u64 surface_id, FVec3 world_point,
     f32 radius, f32 strength) noexcept {
     return AddEvent(surface_id, false, world_point,
@@ -1731,13 +1731,13 @@ bool FWaterSurface3D::AddDisturbanceForSurface(
                     radius, strength);
 }
 
-bool FWaterSurface3D::AddWake(FVec3 world_point, FVec3 world_velocity,
+bool CWaterSurface3D::AddWake(FVec3 world_point, FVec3 world_velocity,
                               f32 radius, f32 strength) noexcept {
     return AddWakeForSurface(
         0u, world_point, world_velocity, radius, strength);
 }
 
-bool FWaterSurface3D::AddWakeForSurface(
+bool CWaterSurface3D::AddWakeForSurface(
     u64 surface_id, FVec3 world_point, FVec3 world_velocity,
     f32 radius, f32 strength) noexcept {
     return AddWakeEventForSurface(
@@ -1745,7 +1745,7 @@ bool FWaterSurface3D::AddWakeForSurface(
         radius, strength, 0.0f);
 }
 
-bool FWaterSurface3D::AddWakeEventForSurface(
+bool CWaterSurface3D::AddWakeEventForSurface(
     u64 surface_id, FVec3 world_point, FVec3 world_velocity,
     f32 radius, f32 strength, f32 initial_age) noexcept {
     if (!IsFinite(world_velocity)) return false;
@@ -1771,7 +1771,7 @@ bool FWaterSurface3D::AddWakeEventForSurface(
                     anisotropy, radius, strength, initial_age);
 }
 
-u32 FWaterSurface3D::AddWakeSegment(
+u32 CWaterSurface3D::AddWakeSegment(
     FVec3 segment_start, FVec3 segment_end,
     f32 duration, f32 sample_spacing,
     f32 radius, f32 strength) noexcept {
@@ -1780,7 +1780,7 @@ u32 FWaterSurface3D::AddWakeSegment(
         duration, sample_spacing, radius, strength);
 }
 
-u32 FWaterSurface3D::AddWakeSegmentForSurface(
+u32 CWaterSurface3D::AddWakeSegmentForSurface(
     u64 surface_id,
     FVec3 segment_start, FVec3 segment_end,
     f32 duration, f32 sample_spacing,
@@ -1865,7 +1865,7 @@ u32 FWaterSurface3D::AddWakeSegmentForSurface(
     return accepted;
 }
 
-void FWaterSurface3D::ClearDisturbances() noexcept {
+void CWaterSurface3D::ClearDisturbances() noexcept {
     for (u32 i = 0; i < kMaxStoredRipples; ++i) {
         m_Ripples[i] = FRipple{};
         m_ActiveRippleStorageIndices[i] = 0u;
@@ -1873,7 +1873,7 @@ void FWaterSurface3D::ClearDisturbances() noexcept {
     m_ActiveRippleCount = 0u;
 }
 
-void FWaterSurface3D::ClearDisturbancesForSurface(
+void CWaterSurface3D::ClearDisturbancesForSurface(
     u64 surface_id) noexcept {
     u32 active_position = 0u;
     while (active_position < m_ActiveRippleCount) {
@@ -1887,11 +1887,11 @@ void FWaterSurface3D::ClearDisturbancesForSurface(
     }
 }
 
-u32 FWaterSurface3D::ActiveRippleCount() const noexcept {
+u32 CWaterSurface3D::ActiveRippleCount() const noexcept {
     return m_ActiveRippleCount;
 }
 
-u32 FWaterSurface3D::ActiveRippleCountForSurface(
+u32 CWaterSurface3D::ActiveRippleCountForSurface(
     u64 surface_id) const noexcept {
     u32 count = 0u;
     for (u32 active_position = 0u;
@@ -1906,7 +1906,7 @@ u32 FWaterSurface3D::ActiveRippleCountForSurface(
     return count;
 }
 
-f32 FWaterSurface3D::ConservativeDisplacementBoundForSurface(
+f32 CWaterSurface3D::ConservativeDisplacementBoundForSurface(
     u64 surface_id,
     const FWaterSurface3DParams& params) const noexcept {
     // EvaluateAmbientWaves uses these four normalized layer weights. Since
@@ -1943,7 +1943,7 @@ f32 FWaterSurface3D::ConservativeDisplacementBoundForSurface(
         : std::numeric_limits<f32>::quiet_NaN();
 }
 
-void FWaterSurface3D::SetFrame(const FMat4& view_projection,
+void CWaterSurface3D::SetFrame(const FMat4& view_projection,
                                FVec3 camera_pos,
                                u32 screen_width, u32 screen_height,
                                FVec3 sun_direction,
@@ -1966,7 +1966,7 @@ void FWaterSurface3D::SetFrame(const FMat4& view_projection,
     m_DrawOverflowLogged = false;
 }
 
-void FWaterSurface3D::SetEnvironment(
+void CWaterSurface3D::SetEnvironment(
     FVec3 zenith, FVec3 horizon, FVec3 ground) noexcept {
     m_EnvironmentZenith = ClampFinite(
         zenith, m_EnvironmentZenith, 0.0f, 65504.0f);
@@ -1976,7 +1976,7 @@ void FWaterSurface3D::SetEnvironment(
         ground, m_EnvironmentGround, 0.0f, 65504.0f);
 }
 
-void FWaterSurface3D::SetShadowMap(
+void CWaterSurface3D::SetShadowMap(
     IRhiTexture* shadow_map,
     const FMat4& light_view_projection,
     f32 depth_bias,
@@ -1990,7 +1990,7 @@ void FWaterSurface3D::SetShadowMap(
     m_ShadowPcfRadius = ClampFinite(pcf_radius, 0.0f, 0.0f, 8.0f);
 }
 
-void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
+void CWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
                                const FGpuMesh& mesh,
                                const FMat4& model,
                                IRhiTexture* scene_color,
@@ -2010,7 +2010,7 @@ void FWaterSurface3D::DrawMesh(IRhiCommandList& command_list,
     if (m_DrawCursor >= kMaxDrawsPerFrame) {
         if (!m_DrawOverflowLogged) {
             ACS_LOG_WARN(
-                "FWaterSurface3D: more than %u DrawMesh calls after one "
+                "CWaterSurface3D: more than %u DrawMesh calls after one "
                 "SetFrame; extra draws skipped to preserve constant buffers",
                 kMaxDrawsPerFrame);
             m_DrawOverflowLogged = true;

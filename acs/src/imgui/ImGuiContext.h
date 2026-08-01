@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS FWindow + FRenderer に統合する薄いラッパ
+// ImGui を ACS FWindow + CRenderer に統合する薄いラッパ
 //
 // 使い方:
 //   ImGuiCtx imgui;
@@ -24,10 +24,10 @@
 namespace acs {
 
 class FWindow;
-class FRenderer;
+class CRenderer;
 
 /**
- * ImGui を ACS の FWindow + FRenderer に統合する薄いラッパ。
+ * ImGui を ACS の FWindow + CRenderer に統合する薄いラッパ。
  *
  * @details
  * Win32 backend (imgui_impl_win32) と DX12 backend (imgui_impl_dx12) を組み合わせ、
@@ -54,12 +54,12 @@ public:
      * @details
      * ImGui コンテキストを作ってキーボードナビゲーションを有効化し、Win32 backend に
      * HWND を渡し、DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (64 ディスクリプタ) を
-     * 確保して紐付ける。FRenderer が未初期化 (Device/Swapchain が null) の場合は失敗する。
+     * 確保して紐付ける。CRenderer が未初期化 (Device/Swapchain が null) の場合は失敗する。
      * @param window 紐付ける対象ウィンドウ (HWND を取得する)。
      * @param renderer DX12 デバイス・スワップチェインの取得元レンダラ。
      * @return 成功なら空の TResult、初期化失敗ならエラー。
      */
-    TResult<void> Init(FWindow& window, FRenderer& renderer) noexcept;
+    TResult<void> Init(FWindow& window, CRenderer& renderer) noexcept;
 
     /** DX12/Win32 backend と ImGui コンテキスト・SRV ヒープを解放する (多重呼び出し安全)。 */
     void Shutdown() noexcept;
@@ -83,7 +83,7 @@ private:
     FWindow*    m_Window    = nullptr;
 
     /** DX12 デバイス・スワップチェインの取得元レンダラ (Init で受け取る)。 */
-    FRenderer*  m_Renderer  = nullptr;
+    CRenderer*  m_Renderer  = nullptr;
 
     /** DX12 backend 用の SHADER_VISIBLE な SRV ヒープ (ID3D12DescriptorHeap*)。 */
     void*      m_SrvHeap  = nullptr;

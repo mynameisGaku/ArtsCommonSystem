@@ -14,7 +14,7 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class CDiligentDevice;
 
 /**
  * Diligent Engine 経由で生成する HLSL シェーダ (IRhiShader 実装)。
@@ -51,7 +51,7 @@ public:
      * @param desc シェーダ記述 (HLSL source・エントリポイント・ステージ等)。
      * @return 成功なら空の TResult、device 未初期化・source 欠落・コンパイル失敗ならエラー。
      */
-    TResult<void> Init(FDiligentDevice& device, const FShaderDesc& desc,
+    TResult<void> Init(CDiligentDevice& device, const FShaderDesc& desc,
                        bool combined_samplers = true) noexcept;
 
     /**
@@ -116,7 +116,7 @@ private:
     void Reset() noexcept;
 
     /** Init で受け取った Diligent デバイス。 */
-    FDiligentDevice*    m_Device = nullptr;
+    CDiligentDevice*    m_Device = nullptr;
 
     /** Diligent ネイティブのシェーダオブジェクト。 */
     Diligent::IShader* m_Shader = nullptr;

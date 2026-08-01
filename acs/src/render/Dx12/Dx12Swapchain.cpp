@@ -38,7 +38,7 @@ bool FDx12Swapchain::HasAllBuffers() const noexcept
     return true;
 }
 
-FHrResult FDx12Swapchain::Init(FDx12Device& device, const FSwapchainConfig& cfg) noexcept {
+FHrResult FDx12Swapchain::Init(CDx12Device& device, const FSwapchainConfig& cfg) noexcept {
     FHrResult r{};
     if (m_Device) m_Device->WaitIdle();
     Reset();
@@ -128,7 +128,7 @@ void FDx12Swapchain::ReleaseBuffers() noexcept {
 }
 
 // 各バックバッファ用に ID3D12Resource を取得し、RTV を作成する
-FHrResult FDx12Swapchain::AcquireBuffers(FDx12Device& device) noexcept {
+FHrResult FDx12Swapchain::AcquireBuffers(CDx12Device& device) noexcept {
     FHrResult r{};
     if (!m_Swapchain || !m_RtvHeap || !device.D3DDevice() || m_BufferCount == 0) {
         r.hr = E_FAIL;
@@ -193,7 +193,7 @@ bool FDx12Swapchain::Resize(u32 width, u32 height) noexcept {
         return AcquireBuffers(*m_Device).IsOk();
     }
 
-    // FRenderer::OnResize owns the single GPU-idle boundary. Keeping that
+    // CRenderer::OnResize owns the single GPU-idle boundary. Keeping that
     // ownership above the backend avoids two serial queue drains per resize.
     ReleaseBuffers();
 
@@ -230,7 +230,7 @@ TResult<TUniquePtr<IRhiSwapchain>> CreateRhiSwapchain(IRhiDevice& device,
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 10, "CreateRhiSwapchain: device is not DX12");
-    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    CDx12Device* dxd = static_cast<CDx12Device*>(&device);
     auto sc = MakeUnique<FDx12Swapchain>();
     const FHrResult r = sc->Init(*dxd, cfg);
     if (r.IsErr()) {

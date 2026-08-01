@@ -65,7 +65,7 @@ struct FGpuMesh {
 TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept;
 
 /**
- * スキンメッシュ 1 つ分の GPU バッファセット (FSkinnedShader が消費する形式)。
+ * スキンメッシュ 1 つ分の GPU バッファセット (CSkinnedShader が消費する形式)。
  */
 struct FSkinnedGpuMesh {
     /** 頂点バッファ (所有権を持つ)。 */

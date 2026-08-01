@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class FDx12Device;
+class CDx12Device;
 
 /**
  * DX12 のグラフィックスパイプライン実装 (PSO + RootSignature)。
@@ -36,10 +36,10 @@ public:
      * @param desc シェーダ・入力レイアウト・各種ステートを指定するパイプライン記述。
      * @return 成功なら成功 FHrResult、引数不正や生成失敗なら失敗 FHrResult。
      */
-    FHrResult Init(FDx12Device& device, const FPipelineDesc& desc) noexcept;
+    FHrResult Init(CDx12Device& device, const FPipelineDesc& desc) noexcept;
 
     /** Compute root signature と PSO を生成する。 */
-    FHrResult InitCompute(FDx12Device& device, const FComputePipelineDesc& desc) noexcept;
+    FHrResult InitCompute(CDx12Device& device, const FComputePipelineDesc& desc) noexcept;
 
     /**
      * 構築済みの PSO を返す。

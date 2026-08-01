@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FPbrShader 実装 — Cook-Torrance BRDF (GGX + Smith + Schlick)
+// CPbrShader 実装 — Cook-Torrance BRDF (GGX + Smith + Schlick)
 #include "render/PbrShader.h"
 #include "render/NormalMatrix.h"
 #if !WITH_RENDER_DILIGENT
@@ -24,7 +24,7 @@ namespace {
 /**
  * PBR Cook-Torrance シェーダの HLSL ソース (VSMain / PSMain)。
  *
- * @details FStandardShader と同じ vertex 入力 (pos / nrm / uv) と vs 出力
+ * @details CStandardShader と同じ vertex 入力 (pos / nrm / uv) と vs 出力
  * (world_p / world_n / uv) を持ち、IBL・shadow・SSAO/SSGI/SSR・拡張 lobe を含む。
  */
 const char* kPbrHLSL = R"(
@@ -1990,7 +1990,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-EShaderStatus FPbrShader::FCompiledShaders::Status() const noexcept {
+EShaderStatus CPbrShader::FCompiledShaders::Status() const noexcept {
     if (!vertex || !pixel) return EShaderStatus::Failed;
     const EShaderStatus vertex_status = vertex->Status();
     const EShaderStatus pixel_status = pixel->Status();
@@ -2013,8 +2013,8 @@ EShaderStatus FPbrShader::FCompiledShaders::Status() const noexcept {
 }
 
 /** Compile raw-DX12 bytecode without accessing the render device. */
-TResult<FPbrShader::FCompiledShaders>
-FPbrShader::CompileShadersCpu(bool include_subsurface_mrt) noexcept {
+TResult<CPbrShader::FCompiledShaders>
+CPbrShader::CompileShadersCpu(bool include_subsurface_mrt) noexcept {
 #if !WITH_RENDER_DILIGENT
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
@@ -2076,8 +2076,8 @@ FPbrShader::CompileShadersCpu(bool include_subsurface_mrt) noexcept {
 #endif
 }
 
-TResult<FPbrShader::FCompiledShaders>
-FPbrShader::BeginCompileShadersAsync(
+TResult<CPbrShader::FCompiledShaders>
+CPbrShader::BeginCompileShadersAsync(
     IRhiDevice& device,
     bool include_subsurface_mrt) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
@@ -2122,7 +2122,7 @@ FPbrShader::BeginCompileShadersAsync(
 }
 
 /** シェーダ・PSO・CB・fallback テクスチャ群を生成する。 */
-TResult<void> FPbrShader::Init(
+TResult<void> CPbrShader::Init(
     IRhiDevice& device,
     EFormat rt_format,
     EFormat depth_format,
@@ -2164,7 +2164,7 @@ TResult<void> FPbrShader::Init(
 }
 
 /** Install CPU-compiled bytecode and create all owner-thread RHI resources. */
-TResult<void> FPbrShader::InitWithCompiledShaders(
+TResult<void> CPbrShader::InitWithCompiledShaders(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     EFormat rt_format,
@@ -2174,7 +2174,7 @@ TResult<void> FPbrShader::InitWithCompiledShaders(
         device, Move(shaders), rt_format, depth_format, cull_mode);
 }
 
-TResult<void> FPbrShader::BuildInitializedCandidateForRawDx12(
+TResult<void> CPbrShader::BuildInitializedCandidateForRawDx12(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     EFormat rt_format,
@@ -2206,7 +2206,7 @@ TResult<void> FPbrShader::BuildInitializedCandidateForRawDx12(
 #endif
 }
 
-TResult<void> FPbrShader::InitWithCompiledShadersInternal(
+TResult<void> CPbrShader::InitWithCompiledShadersInternal(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     EFormat rt_format,
@@ -2228,7 +2228,7 @@ TResult<void> FPbrShader::InitWithCompiledShadersInternal(
         TUniquePtr<IRhiPipeline> subsurface_mrt_pipeline;
         TUniquePtr<IRhiBuffer> frame_cb;
         /** per-object定数をまとめる未公開arena。 */
-        FTransientUploadArena object_arena;
+        CTransientUploadArena object_arena;
         TUniquePtr<IRhiTexture> white;
         TUniquePtr<IRhiTexture> shadow_fb;
         TUniquePtr<IRhiTexture> normal_map_fb;
@@ -2564,7 +2564,7 @@ TResult<void> FPbrShader::InitWithCompiledShadersInternal(
 }
 
 /** 全 GPU リソースと参照ポインタを解放する。 */
-void FPbrShader::Shutdown() noexcept {
+void CPbrShader::Shutdown() noexcept {
     ClearSubstrateSurface();
     m_SubsurfaceMrtPipeline.Reset();
     m_Pipeline.Reset();
@@ -2611,7 +2611,7 @@ void FPbrShader::Shutdown() noexcept {
     m_ObjectCapacityFailureLogged = false;
 }
 
-bool FPbrShader::BeginFrame(u32 required_object_draws) noexcept {
+bool CPbrShader::BeginFrame(u32 required_object_draws) noexcept {
     /** 必要容量の確保結果。 */
     const bool capacity_ready = m_ObjectArena.BeginFrame(required_object_draws);
     m_ObjectCbCursor = 0u;
@@ -2622,7 +2622,7 @@ bool FPbrShader::BeginFrame(u32 required_object_draws) noexcept {
 }
 
 /** IBL テクスチャを記録し、3 つ揃っていれば IBL ambient を有効化する。 */
-void FPbrShader::SetIbl(IRhiTexture* irradiance,
+void CPbrShader::SetIbl(IRhiTexture* irradiance,
                        IRhiTexture* prefilter,
                        IRhiTexture* brdf_lut,
                        u32 prefilter_mips) noexcept {
@@ -2636,12 +2636,12 @@ void FPbrShader::SetIbl(IRhiTexture* irradiance,
 }
 
 /** 従来 ABI を保ちつつ、高品質 fog の標準位相値を適用する。 */
-void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
+void CPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base) noexcept {
     SetFog(color, density, height_falloff, height_base, 0.35f, 0.18f);
 }
 
 /** fog の色・密度・高さ・位相パラメータを記録して frame CB を更新する。 */
-void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base,
+void CPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height_base,
                         f32 anisotropy, f32 sun_scatter) noexcept {
     if (density < 0.0f) density = 0.0f;
     if (height_falloff < 0.0f) height_falloff = 0.0f;
@@ -2654,7 +2654,7 @@ void FPbrShader::SetFog(FVec3 color, f32 density, f32 height_falloff, f32 height
 }
 
 /** probe grid (位置 + SH9) を最大 4 個記録し、残りを 0 埋めして frame CB を更新する。 */
-void FPbrShader::SetProbeGrid(const FLightProbe* probes, u32 count) noexcept {
+void CPbrShader::SetProbeGrid(const FLightProbe* probes, u32 count) noexcept {
     if (count > 4) count = 4;
     m_ProbeCount = count;
     for (u32 i = 0; i < count; ++i) {
@@ -2671,7 +2671,7 @@ void FPbrShader::SetProbeGrid(const FLightProbe* probes, u32 count) noexcept {
 }
 
 /** SH 9 係数を記録して SH9 ambient mode を切り替え、frame CB を更新する。 */
-void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
+void CPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
     if (sh9_or_null) {
         for (u32 i = 0; i < 9; ++i) m_Sh9[i] = sh9_or_null[i];
         m_bSh9Enabled = true;
@@ -2683,7 +2683,7 @@ void FPbrShader::SetSh9(const FVec4* sh9_or_null) noexcept {
 }
 
 /** IBL slot 1-3 と normal/shadow/SSAO/SSGI/lightmap/SSR を実テクスチャか fallback で bind する。 */
-void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
+void CPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
     if (m_IblEnabled) {
         cmd.SetTexture(1, *m_IblIrradiance);
         cmd.SetTexture(2, *m_IblPrefilter);
@@ -2748,7 +2748,7 @@ void FPbrShader::BindIblTextures(IRhiCommandList& cmd) noexcept {
 }
 
 /** normal map テクスチャ参照を差し替える。 */
-void FPbrShader::SetNormalMap(IRhiTexture* tex, f32 strength) noexcept {
+void CPbrShader::SetNormalMap(IRhiTexture* tex, f32 strength) noexcept {
     m_NormalMap = tex;
     m_NormalMapStrength =
         !std::isfinite(strength) ? 1.0f :
@@ -2757,7 +2757,7 @@ void FPbrShader::SetNormalMap(IRhiTexture* tex, f32 strength) noexcept {
 }
 
 /** SSAO テクスチャ・強度・viewport inv size を記録して frame CB を更新する。 */
-void FPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
+void CPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
                         u32 viewport_w, u32 viewport_h) noexcept {
     m_SsaoTex       = ssao_tex;
     m_SsaoIntensity = intensity < 0 ? 0.0f : intensity;
@@ -2767,35 +2767,35 @@ void FPbrShader::SetSsao(IRhiTexture* ssao_tex, f32 intensity,
 }
 
 /** SSGI テクスチャと強度を記録して frame CB を更新する。 */
-void FPbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
+void CPbrShader::SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept {
     m_SsgiTex       = ssgi_tex;
     m_SsgiIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
 /** SSR テクスチャと強度を記録して frame CB を更新する。 */
-void FPbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
+void CPbrShader::SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept {
     m_SsrTex       = ssr_tex;
     m_SsrIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
 /** aerial perspective volume と max_dist を記録して frame CB を更新する。 */
-void FPbrShader::SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept {
+void CPbrShader::SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept {
     m_ApVol    = ap_vol;
     m_ApParams = FVec4{ ap_vol ? 1.0f : 0.0f, max_dist > 0.0f ? max_dist : 1.0f, 0.0f, 0.0f };
     FlushFrameCB();
 }
 
 /** lightmap テクスチャと強度を記録して frame CB を更新する。 */
-void FPbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
+void CPbrShader::SetLightmap(IRhiTexture* lightmap_tex, f32 intensity) noexcept {
     m_LightmapTex       = lightmap_tex;
     m_LightmapIntensity = intensity < 0 ? 0.0f : intensity;
     FlushFrameCB();
 }
 
 /** single-cascade 互換で全 cascade に同じ VP を書き、splits を inf にして frame CB を更新する。 */
-void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
+void CPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
                               f32 bias, f32 texel_size, f32 filter_radius) noexcept {
     m_ShadowDepth     = depth;
     // 後方互換: 全 cascade スロットに同じ VP を書き、splits を inf にして
@@ -2809,7 +2809,7 @@ void FPbrShader::SetShadowMap(IRhiTexture* depth, const FMat4& light_vp,
 }
 
 /** 各 cascade の VP・split・atlas UV スケールを記録して frame CB を更新する。 */
-void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
+void CPbrShader::SetShadowMapCascades(IRhiTexture* depth,
                                       const FMat4* light_vp,
                                       const f32*  cascade_splits,
                                       u32 cascade_count,
@@ -2836,7 +2836,7 @@ void FPbrShader::SetShadowMapCascades(IRhiTexture* depth,
 }
 
 /** カメラ・環境光・有向光源を記録して frame CB を更新する。 */
-void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
+void CPbrShader::SetLights(const FMat4& vp, FVec3 eye,
                           const FDirLight* lights, u32 count,
                           FVec3 ambient) noexcept {
     m_Vp = vp;
@@ -2849,7 +2849,7 @@ void FPbrShader::SetLights(const FMat4& vp, FVec3 eye,
 }
 
 /** 点光源を記録して frame CB を更新する。 */
-void FPbrShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
+void CPbrShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
     for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
@@ -2857,7 +2857,7 @@ void FPbrShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
 }
 
 /** 矩形 area light を記録して frame CB を更新する。 */
-void FPbrShader::SetAreaLights(const FAreaLight* lights, u32 count) noexcept {
+void CPbrShader::SetAreaLights(const FAreaLight* lights, u32 count) noexcept {
     if (count > kMaxAreaLights) count = kMaxAreaLights;
     m_AreaCount = count;
     for (u32 i = 0; i < count; ++i) m_AreaLights[i] = lights[i];
@@ -2865,7 +2865,7 @@ void FPbrShader::SetAreaLights(const FAreaLight* lights, u32 count) noexcept {
 }
 
 /** 全 member 値から FrameCBLayout を構築して frame CB に書き込む。 */
-void FPbrShader::FlushFrameCB() noexcept {
+void CPbrShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
     FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
@@ -2934,7 +2934,7 @@ void FPbrShader::FlushFrameCB() noexcept {
 }
 
 /** model と PBR/拡張パラメータから ObjectCBLayout を構築して object CB に書き込む。 */
-void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
+void CPbrShader::SetObject(const FMat4& model, FVec3 base_color,
                           f32 metallic, f32 roughness, f32 ao) noexcept {
     FObjectCbLayout cb{};
     cb.model = model;
@@ -3012,7 +3012,7 @@ void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
     IRhiBuffer* const object_cb = m_ObjectArena.Upload(&cb, sizeof(cb));
     if (object_cb == nullptr) {
         if (!m_ObjectCapacityFailureLogged) {
-            ACS_LOG_WARN("FPbrShader: unable to grow shared object upload arena (required=%u, retained=%u); remaining PBR draws are skipped", m_ObjectCbCursor == kInvalidObjectBuffer ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u, m_ObjectArena.Capacity());
+            ACS_LOG_WARN("CPbrShader: unable to grow shared object upload arena (required=%u, retained=%u); remaining PBR draws are skipped", m_ObjectCbCursor == kInvalidObjectBuffer ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u, m_ObjectArena.Capacity());
             m_ObjectCapacityFailureLogged = true;
         }
         m_CurrentObjectCb = kInvalidObjectBuffer;
@@ -3023,7 +3023,7 @@ void FPbrShader::SetObject(const FMat4& model, FVec3 base_color,
 }
 
 /** clearcoat/anisotropy パラメータを member に格納する (次の SetObject で反映)。 */
-void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
+void CPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
                              f32 anisotropy, FVec3 tangent) noexcept {
     m_ExtParams    = FVec4{clearcoat, clearcoat_roughness, anisotropy, 0};
     m_AnisoTangent = FVec4{tangent.x, tangent.y, tangent.z, 0};
@@ -3033,14 +3033,14 @@ void FPbrShader::SetExtParams(f32 clearcoat, f32 clearcoat_roughness,
 }
 
 /** emissive (color*strength) を member に格納する (次の SetObject で反映)。 */
-void FPbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
+void CPbrShader::SetEmissive(FVec3 color, f32 strength) noexcept {
     const f32 s = strength < 0.0f ? 0.0f : strength;
     m_Emissive = FVec4{color.x * s, color.y * s, color.z * s, 0.0f};
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
 /** sheen パラメータを [0,1] にクランプして member に格納する (次の SetObject で反映)。 */
-void FPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept {
+void CPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept {
     // weight は [0,1] の blend 係数、sheen_color は反射率なので各 ch を [0,1] に収める。
     // これでシェーダの energy 減衰係数 (1 - weight*maxC*0.5) が負へ振れない。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
@@ -3052,7 +3052,7 @@ void FPbrShader::SetSheen(FVec3 sheen_color, f32 weight, f32 roughness) noexcept
 }
 
 /** iridescence パラメータを物理範囲にクランプして member に格納する (次の SetObject で反映)。 */
-void FPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexcept {
+void CPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noexcept {
     // weight は [0,1] の blend 係数。thickness は非負、film_ior は物理的に >= 1。
     const f32 w = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
     const f32 t = thickness_nm < 0.0f ? 0.0f : thickness_nm;
@@ -3062,7 +3062,7 @@ void FPbrShader::SetIridescence(f32 weight, f32 thickness_nm, f32 film_ior) noex
 }
 
 /** subsurface パラメータを [0,1] にクランプして member に格納する (次の SetObject で反映)。 */
-void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
+void CPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // weight は [0,1] の blend 係数、sss_color は内部散乱の色 (各 ch [0,1])。
     auto sat01 = [](f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
     m_SssParams = FVec4{sat01(sss_color.x), sat01(sss_color.y), sat01(sss_color.z),
@@ -3070,7 +3070,7 @@ void FPbrShader::SetSubsurface(FVec3 sss_color, f32 weight) noexcept {
     // SetExtParams と同じく member 格納。次の SetObject / DrawMesh が CB に反映する。
 }
 
-void FPbrShader::SetSubstrateSurface(
+void CPbrShader::SetSubstrateSurface(
     const FSubstrateResolvedSurface& surface) noexcept {
     // SetSubstrateSurface is also a public static-surface path.  It must not
     // inherit the previous material's per-pixel program or texture bindings.
@@ -3135,7 +3135,7 @@ void FPbrShader::SetSubstrateSurface(
                         sat(surface.diffuse_albedo.z), sss_weight};
 }
 
-bool FPbrShader::SetSubstrateMaterial(
+bool CPbrShader::SetSubstrateMaterial(
     const FSubstrateMaterial& material,
     f32 time_seconds) noexcept {
     FSubstrateResolvedSurface surface{};
@@ -3189,7 +3189,7 @@ bool FPbrShader::SetSubstrateMaterial(
     return true;
 }
 
-void FPbrShader::SetSubstrateExpressionParameters(
+void CPbrShader::SetSubstrateExpressionParameters(
     const FShaderExpressionParameter* parameters,
     u32 count) noexcept {
     m_SubstrateExpressionParameterCount = 0u;
@@ -3217,12 +3217,12 @@ void FPbrShader::SetSubstrateExpressionParameters(
     }
 }
 
-void FPbrShader::SetSubstrateExpressionTime(f32 time_seconds) noexcept {
+void CPbrShader::SetSubstrateExpressionTime(f32 time_seconds) noexcept {
     m_SubstrateExpressionTime =
         std::isfinite(time_seconds) ? time_seconds : 0.0f;
 }
 
-void FPbrShader::SetSubstrateExpressionTexture(
+void CPbrShader::SetSubstrateExpressionTexture(
     u32 slot, IRhiTexture* texture) noexcept {
     if (slot >= kShaderExpressionMaxTextureSlots) return;
     m_SubstrateExpressionTextures[slot] = texture;
@@ -3234,7 +3234,7 @@ void FPbrShader::SetSubstrateExpressionTexture(
     }
 }
 
-void FPbrShader::ClearSubstrateSurface() noexcept {
+void CPbrShader::ClearSubstrateSurface() noexcept {
     m_SubstrateSecondary.w = 0.0f;
     m_SubstrateExpressionInstructionCount = 0u;
     m_SubstrateExpressionBindingCount = 0u;
@@ -3249,7 +3249,7 @@ void FPbrShader::ClearSubstrateSurface() noexcept {
 }
 
 /** SetObject + パイプライン/CB/テクスチャ/VB/IB bind + DrawIndexed をまとめて発行する。 */
-bool FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
+bool CPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model,
                          FVec3 base_color, f32 metallic, f32 roughness, f32 ao,
                          IRhiTexture* albedo) noexcept {
     if (!m_Pipeline || !m_FrameCb || m_ObjectArena.Capacity() == 0u || !m_ObjectArena.Get(0u) || !mesh.vertex_buffer || !mesh.index_buffer) {
@@ -3269,7 +3269,7 @@ bool FPbrShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat
     return true;
 }
 
-bool FPbrShader::DrawMeshSubsurfaceMrt(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, FVec3 base_color, f32 metallic, f32 roughness, f32 ao, IRhiTexture* albedo) noexcept {
+bool CPbrShader::DrawMeshSubsurfaceMrt(IRhiCommandList& cmd, const FGpuMesh& mesh, const FMat4& model, FVec3 base_color, f32 metallic, f32 roughness, f32 ao, IRhiTexture* albedo) noexcept {
     if (!m_SubsurfaceMrtPipeline || !m_FrameCb || m_ObjectArena.Capacity() == 0u || !m_ObjectArena.Get(0u) || !mesh.vertex_buffer || !mesh.index_buffer) {
         return false;
     }

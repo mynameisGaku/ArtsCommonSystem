@@ -5,7 +5,7 @@
 //       2D ゲームの絵描き用。同じテクスチャの連続スプライトは自動でバッチされる。
 //
 // 使い方:
-//   FSpriteBatch sb;
+//   CSpriteBatch sb;
 //   sb.Init(*renderer.Device(), renderer.ColorFormat(), max_sprites=4096);
 //
 //   // 描画フレーム中
@@ -203,19 +203,19 @@ struct FEffectParams {
  * テクスチャが切り替わるかバッチが満杯になると Flush して GPU に送る。座標系は
  * 左上原点・ピクセル単位で Y は下方向。Begin/Draw.../End の順に呼ぶ。
  */
-class FSpriteBatch {
+class CSpriteBatch {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSpriteBatch() noexcept = default;
+    CSpriteBatch() noexcept = default;
 
     /** 破棄する (GPU リソースと CPU ステージング領域を解放)。 */
-    ~FSpriteBatch() noexcept;
+    ~CSpriteBatch() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSpriteBatch(const FSpriteBatch&)            = delete;
+    CSpriteBatch(const CSpriteBatch&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteBatch& operator=(const FSpriteBatch&) = delete;
+    CSpriteBatch& operator=(const CSpriteBatch&) = delete;
 
     /**
      * VS+PS・パイプライン・頂点/インデックスバッファ・白テクスチャを生成する。
@@ -837,5 +837,9 @@ private:
     /** カメラのズーム倍率。 */
     f32              m_ViewZoom     = 1.0f;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSpriteBatch = CSpriteBatch;
+
 
 } // namespace acs

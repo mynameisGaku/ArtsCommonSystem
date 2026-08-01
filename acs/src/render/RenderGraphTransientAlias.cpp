@@ -15,7 +15,7 @@ bool IsEarlier(const FRenderGraphResourceLifetime& lhs, const FRenderGraphResour
 
 } // namespace
 
-bool FRenderGraphTransientAliasPlanner::CanAlias(const FRenderGraphResourceLifetime& first, const FRenderGraphResourceLifetime& second) noexcept {
+bool CRenderGraphTransientAliasPlanner::CanAlias(const FRenderGraphResourceLifetime& first, const FRenderGraphResourceLifetime& second) noexcept {
     if (first.resource_id == second.resource_id || first.size_bytes == 0 || second.size_bytes == 0 || first.first_pass > first.last_pass || second.first_pass > second.last_pass || !first.transient || !second.transient || !first.alias_allowed || !second.alias_allowed || first.compatibility_key != second.compatibility_key) {
         return false;
     }
@@ -24,7 +24,7 @@ bool FRenderGraphTransientAliasPlanner::CanAlias(const FRenderGraphResourceLifet
     return first.last_pass < second.first_pass || second.last_pass < first.first_pass;
 }
 
-bool FRenderGraphTransientAliasPlanner::Build(const FRenderGraphResourceLifetime* lifetimes, usize count) noexcept {
+bool CRenderGraphTransientAliasPlanner::Build(const FRenderGraphResourceLifetime* lifetimes, usize count) noexcept {
     Reset();
     if (count == 0) {
         return true;
@@ -124,7 +124,7 @@ bool FRenderGraphTransientAliasPlanner::Build(const FRenderGraphResourceLifetime
     return true;
 }
 
-void FRenderGraphTransientAliasPlanner::Reset() noexcept {
+void CRenderGraphTransientAliasPlanner::Reset() noexcept {
     m_Assignments.Clear();
     m_Order.Clear();
     m_SlotLastPass.Clear();

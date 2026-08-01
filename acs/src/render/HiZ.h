@@ -18,7 +18,7 @@
 //     skip が大きく走るのは安全 (空には反射先が無い)
 //
 // 使い方 (SSR 統合):
-//   FHiZ hiz;
+//   CHiZ hiz;
 //   hiz.Init(*dev, w, h);
 //   // 毎フレーム main pass の depth が完成したあと、SSR 前に:
 //   hiz.Build(*dev, *cl, scene_depth);
@@ -26,8 +26,8 @@
 //   // hierarchical path は EvenTexture/OddTexture を両方 bind し、
 //   // even level を EvenTexture、odd level を OddTexture の同じ mip から読む。
 //
-// 上位の SSR shader 側で skip-ahead する具体実装 (FSsr.cpp) と一体で機能する。
-// Hi-Z を渡さない場合も FSsr で OK (nullptr fallback)。
+// 上位の SSR shader 側で skip-ahead する具体実装 (CSsr.cpp) と一体で機能する。
+// Hi-Z を渡さない場合も CSsr で OK (nullptr fallback)。
 #pragma once
 
 #include "foundation/Result.h"
@@ -50,19 +50,19 @@ namespace acs {
  * 直前 level の厳密な 2x2 min 縮約になる。2 本の R32G32_Float texture に level を
  * 偶奇で分けることで、同一 resource の SRV/RTV 同時利用を避ける。
  */
-class FHiZ {
+class CHiZ {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FHiZ() noexcept = default;
+    CHiZ() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FHiZ() noexcept = default;
+    ~CHiZ() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FHiZ(const FHiZ&) = delete;
+    CHiZ(const CHiZ&) = delete;
 
     /** コピー代入も禁止。 */
-    FHiZ& operator=(const FHiZ&) = delete;
+    CHiZ& operator=(const CHiZ&) = delete;
 
     /**
      * GPU リソースを確保する。
@@ -252,5 +252,9 @@ private:
      */
     TUniquePtr<IRhiBuffer> m_LevelCb[kMaxMipLevels];
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FHiZ = CHiZ;
+
 
 } // namespace acs

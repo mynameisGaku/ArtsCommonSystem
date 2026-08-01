@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D パーティクルシステム（CPU プール + FSpriteBatch 描画）
+// 2D パーティクルシステム（CPU プール + CSpriteBatch 描画）
 //
 // 用途: 火花・煙・爆発・魔法効果など、ゲームの視覚エフェクト全般。
 //
 // 使い方:
-//   FParticleSystem ps;
+//   CParticleSystem ps;
 //   ps.Init(2048);                           // 最大パーティクル数
 //   ps.SetTexture(my_circle_tex);            // null なら 1×1 白
 //
@@ -39,7 +39,7 @@
 namespace acs {
 
 class IRhiTexture;
-class FSpriteBatch;
+class CSpriteBatch;
 class FAllocator;
 
 /**
@@ -130,26 +130,26 @@ struct FEmitterDesc {
 };
 
 /**
- * 2D パーティクルシステム (CPU プール + FSpriteBatch 描画)。
+ * 2D パーティクルシステム (CPU プール + CSpriteBatch 描画)。
  *
  * @details
  * 火花・煙・爆発・魔法効果などの視覚エフェクト全般に使う。最大 max_particles の
  * 固定プールを確保し、FEmitterDesc に従って連続生成・物理積分・寿命管理を行う
- * (死亡粒子は swap-pop で除去)。描画は事前に Begin 済みの FSpriteBatch にバッチ追加する。
+ * (死亡粒子は swap-pop で除去)。描画は事前に Begin 済みの CSpriteBatch にバッチ追加する。
  */
-class FParticleSystem {
+class CParticleSystem {
 public:
     /** 空状態で構築する (プールは Init で確保)。 */
-    FParticleSystem() noexcept = default;
+    CParticleSystem() noexcept = default;
 
     /** 破棄する (Shutdown でプールを解放)。 */
-    ~FParticleSystem() noexcept;
+    ~CParticleSystem() noexcept;
 
     /** コピー禁止 (粒子プールを単独所有するため)。 */
-    FParticleSystem(const FParticleSystem&)            = delete;
+    CParticleSystem(const CParticleSystem&)            = delete;
 
     /** コピー代入も禁止。 */
-    FParticleSystem& operator=(const FParticleSystem&) = delete;
+    CParticleSystem& operator=(const CParticleSystem&) = delete;
 
     /**
      * max_particles ぶんの粒子プールを確保する。
@@ -166,7 +166,7 @@ public:
     /**
      * 描画に使うテクスチャを設定する。
      *
-     * @param tex 粒子に貼るテクスチャ。null なら DrawRect 相当の白矩形 (FSpriteBatch の内部白テクスチャ)。
+     * @param tex 粒子に貼るテクスチャ。null なら DrawRect 相当の白矩形 (CSpriteBatch の内部白テクスチャ)。
      */
     void SetTexture(IRhiTexture* tex) noexcept { m_Tex = tex; }
 
@@ -209,11 +209,11 @@ public:
     void Reset() noexcept { m_Active = 0; m_SpawnAccum = 0; }
 
     /**
-     * アクティブな粒子を FSpriteBatch に積む (事前に Begin 済みであること)。
+     * アクティブな粒子を CSpriteBatch に積む (事前に Begin 済みであること)。
      *
-     * @param sb 粒子を描画する先の FSpriteBatch。
+     * @param sb 粒子を描画する先の CSpriteBatch。
      */
-    void Render(FSpriteBatch& sb) noexcept;
+    void Render(CSpriteBatch& sb) noexcept;
 
     /**
      * 現在生存中の粒子数を返す。
@@ -304,5 +304,9 @@ private:
     /** xorshift 乱数の状態シード。 */
     u32          m_Seed         = 0xC0FFEEu;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FParticleSystem = CParticleSystem;
+
 
 } // namespace acs

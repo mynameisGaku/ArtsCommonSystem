@@ -108,10 +108,10 @@ struct FLight2DcbLayout {
     FVec4 screen;
 
     /** 各光源の xy = pos(px)、z = radius(px)、w = intensity。 */
-    FVec4 lpos[FLighting2D::kMaxLights];
+    FVec4 lpos[CLighting2D::kMaxLights];
 
     /** 各光源の rgb = color、w = softness(0..1)。 */
-    FVec4 lcol[FLighting2D::kMaxLights];
+    FVec4 lcol[CLighting2D::kMaxLights];
 };
 
 /**
@@ -128,7 +128,7 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 /** GPU リソース (scene/occluder RT・パイプライン・定数バッファ) を確保する。 */
-TResult<void> FLighting2D::Init(IRhiDevice& device, EFormat color_format,
+TResult<void> CLighting2D::Init(IRhiDevice& device, EFormat color_format,
                                 u32 width, u32 height) noexcept {
     m_Device      = &device;
     m_ColorFormat = color_format;
@@ -154,7 +154,7 @@ TResult<void> FLighting2D::Init(IRhiDevice& device, EFormat color_format,
 }
 
 /** scene RT と occluder RT を生成する (既存があれば作り直す)。 */
-TResult<void> FLighting2D::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> CLighting2D::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     m_SceneRt.Reset();
     m_OccluderRt.Reset();
 
@@ -179,12 +179,12 @@ TResult<void> FLighting2D::CreateTargets(IRhiDevice& device, u32 w, u32 h) noexc
 }
 
 /** 合成シェーダ (VS/PS) とパイプラインを生成する。 */
-TResult<void> FLighting2D::CreatePipeline(IRhiDevice& device) noexcept {
+TResult<void> CLighting2D::CreatePipeline(IRhiDevice& device) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage       = EShaderStage::Vertex;
     vs_d.hlsl_source = kLight2DHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FLighting2D.VS";
+    vs_d.debug_name  = "CLighting2D.VS";
     if (auto r = CreateRhiShader(device, vs_d); r.IsErr()) return Err<void>(r.Error());
     else m_Vs = Move(r.Value());
 
@@ -192,7 +192,7 @@ TResult<void> FLighting2D::CreatePipeline(IRhiDevice& device) noexcept {
     ps_d.stage       = EShaderStage::Pixel;
     ps_d.hlsl_source = kLight2DHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FLighting2D.PS";
+    ps_d.debug_name  = "CLighting2D.PS";
     if (auto r = CreateRhiShader(device, ps_d); r.IsErr()) return Err<void>(r.Error());
     else m_Ps = Move(r.Value());
 
@@ -223,7 +223,7 @@ TResult<void> FLighting2D::CreatePipeline(IRhiDevice& device) noexcept {
 }
 
 /** 確保した全 GPU リソースを解放し、状態をリセットする。 */
-void FLighting2D::Shutdown() noexcept {
+void CLighting2D::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Cb.Reset();
     m_Ps.Reset();
@@ -235,8 +235,8 @@ void FLighting2D::Shutdown() noexcept {
 }
 
 /** 解像度変更時に内部 RT を作り直す (無効/同サイズは no-op)。 */
-TResult<void> FLighting2D::Resize(u32 width, u32 height) noexcept {
-    if (!m_Device) return ACS_ERR(Render, 360, "FLighting2D::Resize before Init");
+TResult<void> CLighting2D::Resize(u32 width, u32 height) noexcept {
+    if (!m_Device) return ACS_ERR(Render, 360, "CLighting2D::Resize before Init");
     if (width == 0 || height == 0) return Ok();                 // 無効サイズは無視
     if (width == m_Width && height == m_Height && m_SceneRt) return Ok();
     m_Width  = width;
@@ -245,43 +245,43 @@ TResult<void> FLighting2D::Resize(u32 width, u32 height) noexcept {
 }
 
 /** 点光源を 1 個追加する (上限到達なら false)。 */
-bool FLighting2D::AddLight(const FLight2D& light) noexcept {
+bool CLighting2D::AddLight(const FLight2D& light) noexcept {
     if (m_LightCount >= kMaxLights) return false;
     m_Lights[m_LightCount++] = light;
     return true;
 }
 
 /** 影の品質を設定する (march_steps を 2..64、ray_count を 1..16 に clamp)。 */
-void FLighting2D::SetShadowQuality(u32 march_steps, u32 ray_count) noexcept {
+void CLighting2D::SetShadowQuality(u32 march_steps, u32 ray_count) noexcept {
     m_MarchSteps = (march_steps < 2u) ? 2u : (march_steps > 64u ? 64u : march_steps);
     m_RayCount   = (ray_count   < 1u) ? 1u : (ray_count   > 16u ? 16u : ray_count);
 }
 
 /** scene RT を bind + clear して世界の albedo 描画 bracket を開始する。 */
-void FLighting2D::BeginScene(IRhiCommandList& cl, FVec4 clear) noexcept {
+void CLighting2D::BeginScene(IRhiCommandList& cl, FVec4 clear) noexcept {
     if (!m_SceneRt) return;
     cl.BeginRenderToTexture(*m_SceneRt, FClearColor{clear.x, clear.y, clear.z, clear.w},
                             nullptr, 1.0f);
 }
 
 /** scene 描画 bracket を終了する。 */
-void FLighting2D::EndScene(IRhiCommandList& cl) noexcept {
+void CLighting2D::EndScene(IRhiCommandList& cl) noexcept {
     if (m_SceneRt) cl.EndRenderToTexture(*m_SceneRt);
 }
 
 /** occluder RT を黒 clear して影スプライト描画 bracket を開始する。 */
-void FLighting2D::BeginOccluders(IRhiCommandList& cl) noexcept {
+void CLighting2D::BeginOccluders(IRhiCommandList& cl) noexcept {
     if (!m_OccluderRt) return;
     cl.BeginRenderToTexture(*m_OccluderRt, FClearColor{0, 0, 0, 1}, nullptr, 1.0f);
 }
 
 /** occluder 描画 bracket を終了する。 */
-void FLighting2D::EndOccluders(IRhiCommandList& cl) noexcept {
+void CLighting2D::EndOccluders(IRhiCommandList& cl) noexcept {
     if (m_OccluderRt) cl.EndRenderToTexture(*m_OccluderRt);
 }
 
 /** 定数バッファを更新し、現在 bind 中のターゲットへ scene × light を合成描画する。 */
-void FLighting2D::Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
+void CLighting2D::Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
     if (!m_Pipeline || !m_Cb || !m_SceneRt || !m_OccluderRt) return;
 
     FLight2DcbLayout data{};
@@ -306,7 +306,7 @@ void FLighting2D::Composite(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noe
 }
 
 /** 柔らかい放射状グラデーションの影テクスチャを CPU で生成して GPU へ上げる。 */
-TResult<void> FBlobShadow::Init(IRhiDevice& device, u32 resolution) noexcept {
+TResult<void> CBlobShadow::Init(IRhiDevice& device, u32 resolution) noexcept {
     u32 res = resolution;
     if (res < 16u) res = 16u;
     if (res > 64u) res = 64u;       // 64² の固定スタックバッファに収める
@@ -343,12 +343,12 @@ TResult<void> FBlobShadow::Init(IRhiDevice& device, u32 resolution) noexcept {
 }
 
 /** 影テクスチャを解放する。 */
-void FBlobShadow::Shutdown() noexcept {
+void CBlobShadow::Shutdown() noexcept {
     m_Tex.Reset();
 }
 
 /** (cx,cy) 中心に w×h の影テクスチャを SpriteBatch で描く。 */
-void FBlobShadow::Draw(FSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
+void CBlobShadow::Draw(CSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
                        f32 alpha, FVec3 color) noexcept {
     if (!m_Tex) return;
     sb.Draw(*m_Tex, cx - w * 0.5f, cy - h * 0.5f, w, h,

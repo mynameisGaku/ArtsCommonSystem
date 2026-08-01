@@ -6,7 +6,7 @@
 //       ジャギー低減が主目的。
 //
 // 使い方:
-//   FFxaa fxaa;
+//   CFxaa fxaa;
 //   fxaa.Init(*device, backbuffer_format);             // 1 度だけ
 //   // フレーム中: シーンをオフスクリーン RT に描いた後、出力先 (backbuffer 等) を
 //   // bind した状態で:
@@ -33,19 +33,19 @@ namespace acs {
  * 素通しするため、ベタ塗り領域やテキストのにじみは最小限。入力サイズは
  * GetDimensions で取得するので cbuffer 不要。
  */
-class FFxaa {
+class CFxaa {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FFxaa() noexcept = default;
+    CFxaa() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FFxaa() noexcept = default;
+    ~CFxaa() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FFxaa(const FFxaa&)            = delete;
+    CFxaa(const CFxaa&)            = delete;
 
     /** コピー代入も禁止。 */
-    FFxaa& operator=(const FFxaa&) = delete;
+    CFxaa& operator=(const CFxaa&) = delete;
 
     /**
      * シェーダとパイプラインを生成して初期化する。
@@ -63,7 +63,7 @@ public:
      * 現在 bind 中のターゲットへ src を FXAA 解決しつつ全画面描画する。
      *
      * @details
-     * FBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
+     * CBlit::Copy と違い出力 RT の bind は行わない。呼ぶ前に BeginRenderToSwapchain
      * 等で出力先を bind し、viewport を設定しておくこと (全 pixel を上書きする)。
      * @param cmd コマンドを積むコマンドリスト。
      * @param src FXAA を掛けるシーンテクスチャ (SRV 状態であること)。
@@ -80,5 +80,9 @@ private:
     /** FXAA 描画のパイプライン。 */
     TUniquePtr<IRhiPipeline> m_Pipeline;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFxaa = CFxaa;
+
 
 } // namespace acs

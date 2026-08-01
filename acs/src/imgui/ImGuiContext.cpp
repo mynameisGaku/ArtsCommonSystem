@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// ImGui を ACS FWindow + FRenderer に統合する薄いラッパ実装
+// ImGui を ACS FWindow + CRenderer に統合する薄いラッパ実装
 #include "imgui/ImGuiContext.h"
 #include "platform/Window.h"
 #include "render/Renderer.h"
@@ -24,13 +24,13 @@ FImGuiCtx::~FImGuiCtx() noexcept {
 }
 
 /** ImGui コンテキストと Win32/DX12 backend を初期化する。 */
-TResult<void> FImGuiCtx::Init(FWindow& window, FRenderer& renderer) noexcept {
+TResult<void> FImGuiCtx::Init(FWindow& window, CRenderer& renderer) noexcept {
     if (m_Initialized || m_Context != nullptr || m_SrvHeap != nullptr || m_Win32Initialized || m_Dx12Initialized) {
         return ACS_ERR(Render, 104, "ImGuiCtx::Init: already initialized");
     }
 
     HWND hwnd = static_cast<HWND>(window.NativeHandle());
-    FDx12Device* dev = static_cast<FDx12Device*>(renderer.Device());
+    CDx12Device* dev = static_cast<CDx12Device*>(renderer.Device());
     FDx12Swapchain* sc = static_cast<FDx12Swapchain*>(renderer.Swapchain());
     if (hwnd == nullptr || dev == nullptr || sc == nullptr || dev->D3DDevice() == nullptr) {
         return ACS_ERR(Render, 101, "ImGuiCtx::Init: window or renderer not initialized");

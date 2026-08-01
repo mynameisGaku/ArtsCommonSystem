@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FSkinnedShader 実装
+// CSkinnedShader 実装
 #include "render/SkinnedShader.h"
 #include "asset/SkinnedMesh.h"        // SkinnedVertex を使う
 #include "foundation/Move.h"
@@ -167,7 +167,7 @@ struct FObjectCbLayout {
 };
 
 struct FBonesCbLayout {
-    FMat4 palette[FSkinnedShader::kMaxBones];
+    FMat4 palette[CSkinnedShader::kMaxBones];
 };
 
 template<typename T>
@@ -177,7 +177,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> CSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     Shutdown();
 
     // === シェーダ ===
@@ -269,7 +269,7 @@ TResult<void> FSkinnedShader::Init(IRhiDevice& device, EFormat rt_format, EForma
     return Ok();
 }
 
-void FSkinnedShader::Shutdown() noexcept {
+void CSkinnedShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
     m_DrawBuffers.ReleaseStorage();
@@ -283,7 +283,7 @@ void FSkinnedShader::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
-bool FSkinnedShader::EnsureObjectCapacity(
+bool CSkinnedShader::EnsureObjectCapacity(
     u32 required_object_draws) noexcept {
     if (required_object_draws == kInvalidObjectBuffer) return false;
     if (!m_ResourceDevice) return false;
@@ -335,7 +335,7 @@ bool FSkinnedShader::EnsureObjectCapacity(
     return true;
 }
 
-bool FSkinnedShader::BeginFrame(u32 required_object_draws) noexcept {
+bool CSkinnedShader::BeginFrame(u32 required_object_draws) noexcept {
     m_ObjectCbCursor = 0u;
     m_CurrentObjectCb =
         m_DrawBuffers.IsEmpty() ? kInvalidObjectBuffer : 0u;
@@ -346,7 +346,7 @@ bool FSkinnedShader::BeginFrame(u32 required_object_draws) noexcept {
     return m_FrameCapacityReady;
 }
 
-void FSkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
+void CSkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
                              FVec3 light_color, FVec3 ambient) noexcept {
     FDirLight one;
     one.direction = light_dir;
@@ -354,7 +354,7 @@ void FSkinnedShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
     SetLights(vp, cam, &one, 1, ambient);
 }
 
-void FSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
+void CSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
                               const FDirLight* lights, u32 count,
                               FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
@@ -366,14 +366,14 @@ void FSkinnedShader::SetLights(const FMat4& vp, FVec3 cam,
     FlushFrameCB();
 }
 
-void FSkinnedShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
+void CSkinnedShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
     for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
     FlushFrameCB();
 }
 
-void FSkinnedShader::FlushFrameCB() noexcept {
+void CSkinnedShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
     FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
@@ -395,7 +395,7 @@ void FSkinnedShader::FlushFrameCB() noexcept {
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
-bool FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
+bool CSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
                               f32 specular_strength, f32 shininess) noexcept {
     if (!m_FrameCapacityReady ||
         m_ObjectCbCursor == kInvalidObjectBuffer ||
@@ -403,7 +403,7 @@ bool FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
          !EnsureObjectCapacity(m_ObjectCbCursor + 1u))) {
         if (!m_ObjectCapacityFailureLogged) {
             ACS_LOG_WARN(
-                "FSkinnedShader: unable to grow per-frame Object/Bones pool "
+                "CSkinnedShader: unable to grow per-frame Object/Bones pool "
                 "(required=%u, retained=%zu); remaining draws are skipped",
                 m_ObjectCbCursor == kInvalidObjectBuffer
                     ? kInvalidObjectBuffer : m_ObjectCbCursor + 1u,
@@ -430,7 +430,7 @@ bool FSkinnedShader::SetObject(const FMat4& model, FVec3 base_color,
     return true;
 }
 
-bool FSkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
+bool CSkinnedShader::SetBonePalette(const FMat4* palette, u32 count) noexcept {
     IRhiBuffer* bones_cb = BonesCB();
     if (!bones_cb || (palette == nullptr && count > 0)) return false;
     if (count > kMaxBones) count = kMaxBones;

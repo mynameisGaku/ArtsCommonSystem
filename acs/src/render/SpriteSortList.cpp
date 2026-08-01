@@ -124,7 +124,7 @@ void FSpriteSortList::Sort() noexcept {
     }
 }
 
-void FSpriteSortList::Replay(FSpriteBatch& sb) const noexcept {
+void FSpriteSortList::Replay(CSpriteBatch& sb) const noexcept {
     const u32 n = static_cast<u32>(m_Cmds.Size());
     const bool sorted = (m_Order.Size() == m_Cmds.Size());
     for (u32 k = 0; k < n; ++k) {

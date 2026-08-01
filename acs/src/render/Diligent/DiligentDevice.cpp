@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
+// CDiligentDevice 実装（D3D12 / Vulkan バックエンド両対応）
 #include "render/Diligent/DiligentDevice.h"
 #include "render/FormatTraits.h"
 
@@ -24,14 +24,14 @@
 
 namespace acs {
 
-bool FDiligentDevice::SupportsAsyncShaderCompilation() const noexcept
+bool CDiligentDevice::SupportsAsyncShaderCompilation() const noexcept
 {
     return m_Device != nullptr &&
            m_Device->GetDeviceInfo().Features.AsyncShaderCompilation ==
                Diligent::DEVICE_FEATURE_STATE_ENABLED;
 }
 
-bool FDiligentDevice::IsDeviceHealthy() const noexcept
+bool CDiligentDevice::IsDeviceHealthy() const noexcept
 {
     if (m_Device == nullptr || m_Context == nullptr ||
         m_IdleFence == nullptr) {
@@ -93,14 +93,14 @@ render_internal::FD3D12DebugDeviceReportHandle CaptureDiligentDebugDevice(Dilige
 
 } // namespace
 
-FDiligentDevice::~FDiligentDevice() noexcept
+CDiligentDevice::~CDiligentDevice() noexcept
 {
     // 直接利用時も、所有 context が投入済みの GPU 処理を完了してから解放する。
     if (m_Context) WaitIdle();
     Reset();
 }
 
-void FDiligentDevice::Reset() noexcept
+void CDiligentDevice::Reset() noexcept
 {
 #    if ACS_BUILD_DEBUG
     // D3D12 Factory の取得後に失敗した場合も DXGI 診断を残す。
@@ -132,10 +132,10 @@ void FDiligentDevice::Reset() noexcept
         m_FactoryVk = nullptr;
     }
 #    endif
-    const u64 binding_generation = FDiligentMemoryAdapter::BindingGeneration();
-    const u64 backing_lifetime_generation = FDiligentMemoryAdapter::BackingLifetimeGeneration();
-    const u64 outstanding_allocation_count = FDiligentMemoryAdapter::OutstandingAllocationCount();
-    const u64 outstanding_requested_bytes = FDiligentMemoryAdapter::OutstandingRequestedBytes();
+    const u64 binding_generation = CDiligentMemoryAdapter::BindingGeneration();
+    const u64 backing_lifetime_generation = CDiligentMemoryAdapter::BackingLifetimeGeneration();
+    const u64 outstanding_allocation_count = CDiligentMemoryAdapter::OutstandingAllocationCount();
+    const u64 outstanding_requested_bytes = CDiligentMemoryAdapter::OutstandingRequestedBytes();
     if (outstanding_allocation_count != 0 || outstanding_requested_bytes != 0) {
         ACS_LOG_ERROR("[acs][memory] tracker=diligent_memory_adapter record=shutdown device_released=true "
                       "leak_detected=true status=failed binding_generation=%llu backing_lifetime_generation=%llu "
@@ -169,7 +169,7 @@ void FDiligentDevice::Reset() noexcept
     m_BackendName = "Diligent";
 }
 
-TResult<void> FDiligentDevice::Init(const FDeviceConfig& configuration) noexcept
+TResult<void> CDiligentDevice::Init(const FDeviceConfig& configuration) noexcept
 {
     // 二重 Init では前回の GPU 処理を完了させてから所有物を解放する。
     if (m_Context) WaitIdle();
@@ -197,7 +197,7 @@ TResult<void> FDiligentDevice::Init(const FDeviceConfig& configuration) noexcept
     return result;
 }
 
-TResult<void> FDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noexcept
+TResult<void> CDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noexcept
 {
     FAllocator* const memory_segment = FMemorySystem::Get(ESegment::Resource);
     if (!memory_segment) {
@@ -206,7 +206,7 @@ TResult<void> FDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noe
         return ACS_ERR(Render, 105, "Diligent requires an initialized MemorySystem Resource segment");
     }
     auto* const diligent_memory_allocator = static_cast<Diligent::IMemoryAllocator*>(
-        FDiligentMemoryAdapter::Create(memory_segment));
+        CDiligentMemoryAdapter::Create(memory_segment));
     if (!diligent_memory_allocator) {
         return ACS_ERR(Render, 106, "Diligent memory adapter rejected the allocator lifetime");
     }
@@ -287,7 +287,7 @@ TResult<void> FDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noe
     return Ok();
 }
 
-TResult<void> FDiligentDevice::InitVulkan(const FDeviceConfig& configuration) noexcept
+TResult<void> CDiligentDevice::InitVulkan(const FDeviceConfig& configuration) noexcept
 {
 #    if WITH_RENDER_DILIGENT_VULKAN
     FAllocator* const memory_segment = FMemorySystem::Get(ESegment::Resource);
@@ -297,7 +297,7 @@ TResult<void> FDiligentDevice::InitVulkan(const FDeviceConfig& configuration) no
         return ACS_ERR(Render, 115, "Diligent requires an initialized MemorySystem Resource segment");
     }
     auto* const diligent_memory_allocator = static_cast<Diligent::IMemoryAllocator*>(
-        FDiligentMemoryAdapter::Create(memory_segment));
+        CDiligentMemoryAdapter::Create(memory_segment));
     if (!diligent_memory_allocator) {
         return ACS_ERR(Render, 116, "Diligent memory adapter rejected the allocator lifetime");
     }
@@ -370,7 +370,7 @@ TResult<void> FDiligentDevice::InitVulkan(const FDeviceConfig& configuration) no
 #    endif
 }
 
-void FDiligentDevice::WaitIdle() noexcept
+void CDiligentDevice::WaitIdle() noexcept
 {
     if (!m_Context) return;
 
@@ -383,7 +383,7 @@ void FDiligentDevice::WaitIdle() noexcept
     if (m_Device) m_Device->ReleaseStaleResources(false);
 }
 
-bool FDiligentDevice::FinishPendingSubmittedFrame() noexcept
+bool CDiligentDevice::FinishPendingSubmittedFrame() noexcept
 {
     if (!m_FrameSubmissionPending) return true;
     if (!m_Context) return false;
@@ -397,7 +397,7 @@ bool FDiligentDevice::FinishPendingSubmittedFrame() noexcept
     return fence_queued;
 }
 
-void FDiligentDevice::PrepareCommandRecording() noexcept
+void CDiligentDevice::PrepareCommandRecording() noexcept
 {
     if (!m_Context) return;
 
@@ -416,7 +416,7 @@ void FDiligentDevice::PrepareCommandRecording() noexcept
     if (m_Device) m_Device->ReleaseStaleResources(false);
 }
 
-bool FDiligentDevice::CanPrepareCommandRecordingWithoutWait() const noexcept
+bool CDiligentDevice::CanPrepareCommandRecordingWithoutWait() const noexcept
 {
     if (!IsDeviceHealthy() || m_FrameSubmissionPending)
         return false;
@@ -426,7 +426,7 @@ bool FDiligentDevice::CanPrepareCommandRecordingWithoutWait() const noexcept
             m_IdleFence->GetCompletedValue() >= fence_value);
 }
 
-void FDiligentDevice::MarkFrameSubmitted() noexcept
+void CDiligentDevice::MarkFrameSubmitted() noexcept
 {
     if (!m_Context) return;
 
@@ -435,7 +435,7 @@ void FDiligentDevice::MarkFrameSubmitted() noexcept
     m_FrameSubmissionPending = true;
 }
 
-bool FDiligentDevice::NotifyPrimaryPresentFinished() noexcept
+bool CDiligentDevice::NotifyPrimaryPresentFinished() noexcept
 {
     if (!m_FrameSubmissionPending) return false;
 
@@ -445,7 +445,7 @@ bool FDiligentDevice::NotifyPrimaryPresentFinished() noexcept
     return fence_queued;
 }
 
-bool FDiligentDevice::QueueFinishedFrameFence() noexcept
+bool CDiligentDevice::QueueFinishedFrameFence() noexcept
 {
     if (!m_Context || !IsDeviceHealthy()) return false;
     const u32 submitted_slot = m_FrameSlot;
@@ -460,7 +460,7 @@ bool FDiligentDevice::QueueFinishedFrameFence() noexcept
     return true;
 }
 
-bool FDiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
+bool CDiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
 {
     if (!m_Device || !m_Context || destination_pixels == nullptr) return false;
     auto* dtex = static_cast<FDiligentTexture*>(&texture);
@@ -524,7 +524,7 @@ bool FDiligentDevice::ReadTexture(IRhiTexture& texture, void* destination_pixels
     return true;
 }
 
-u64 FDiligentDevice::SignalGraphicsQueue() noexcept
+u64 CDiligentDevice::SignalGraphicsQueue() noexcept
 {
     if (!m_Context || !m_IdleFence) return 0;
     ++m_IdleValue;
@@ -532,7 +532,7 @@ u64 FDiligentDevice::SignalGraphicsQueue() noexcept
     return m_IdleValue;
 }
 
-void FDiligentDevice::WaitForFenceValue(u64 fence_value) noexcept
+void CDiligentDevice::WaitForFenceValue(u64 fence_value) noexcept
 {
     if (!m_IdleFence) return;
     // Diligent 2.5.6's D3D12 fence uses a manual-reset event without resetting it,

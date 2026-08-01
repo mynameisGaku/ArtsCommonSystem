@@ -8,14 +8,14 @@
 
 namespace acs {
 
-class FDx12Device;
+class CDx12Device;
 
 /**
  * IRhiTexture の DX12 実装 (2D テクスチャ / 配列 / キューブマップ / 深度・RT)。
  *
  * @details
  * DEFAULT ヒープに ID3D12Resource を確保し、用途に応じて SRV / DSV / RTV を
- * FDx12Device のディスクリプタヒープから割り当てる。配列・キューブマップ・per-slice
+ * CDx12Device のディスクリプタヒープから割り当てる。配列・キューブマップ・per-slice
  * RTV・mip 連鎖に対応し、IBL の env/irradiance/prefilter cubemap (array_size=6 +
  * per_slice_rtv) でも使える。深度ターゲットは SRV/DSV を両方作れるよう TYPELESS で
  * 確保する。現在のリソース状態を保持し、CommandList のバリア発行に追従させる。
@@ -40,7 +40,7 @@ public:
      * @param desc 生成するテクスチャの記述 (サイズ・フォーマット・用途フラグ・初期データ)。
      * @return 成功なら成功状態の FHrResult、失敗なら HRESULT を保持したエラー。
      */
-    FHrResult Init(FDx12Device& device, const FTextureDesc& desc) noexcept;
+    FHrResult Init(CDx12Device& device, const FTextureDesc& desc) noexcept;
 
     /**
      * テクスチャの幅 (ピクセル) を返す。
@@ -192,7 +192,7 @@ private:
     void Reset() noexcept;
 
     /** 所有元の DX12 デバイス (ディスクリプタ解放に使う)。 */
-    FDx12Device*           m_Device   = nullptr;
+    CDx12Device*           m_Device   = nullptr;
 
     /** 基となる D3D12 リソース。 */
     ID3D12Resource*       m_Resource = nullptr;

@@ -88,12 +88,12 @@ FEmitterDesc FEmitterDesc::Smoke(FVec2 pos) noexcept {
 }
 
 /** プールを解放してから破棄する。 */
-FParticleSystem::~FParticleSystem() noexcept {
+CParticleSystem::~CParticleSystem() noexcept {
     Shutdown();
 }
 
 /** max_particles ぶんのプールを確保する (0 は 1024 に丸める)。 */
-TResult<void> FParticleSystem::Init(u32 max_particles) noexcept {
+TResult<void> CParticleSystem::Init(u32 max_particles) noexcept {
     if (max_particles == 0) max_particles = 1024;
     Shutdown();
 
@@ -116,7 +116,7 @@ TResult<void> FParticleSystem::Init(u32 max_particles) noexcept {
 }
 
 /** プールを解放してカウンタをリセットする。 */
-void FParticleSystem::Shutdown() noexcept {
+void CParticleSystem::Shutdown() noexcept {
     if (m_Pool) {
         ACS_ASSERT(m_Allocator != nullptr);
         m_Allocator->Free(m_Pool);
@@ -129,18 +129,18 @@ void FParticleSystem::Shutdown() noexcept {
 }
 
 /** xorshift で [0,1) の擬似乱数を返す。 */
-f32 FParticleSystem::RandF() noexcept {
+f32 CParticleSystem::RandF() noexcept {
     m_Seed ^= m_Seed << 13; m_Seed ^= m_Seed >> 17; m_Seed ^= m_Seed << 5;
     return static_cast<f32>(m_Seed & 0xFFFFFFu) / 16777216.0f;
 }
 
 /** [a,b) の一様乱数を返す。 */
-f32 FParticleSystem::RandRange(f32 a, f32 b) noexcept {
+f32 CParticleSystem::RandRange(f32 a, f32 b) noexcept {
     return a + (b - a) * RandF();
 }
 
 /** エミッタ記述に従って粒子を 1 つ生成する (容量上限なら何もしない)。 */
-void FParticleSystem::SpawnOne() noexcept {
+void CParticleSystem::SpawnOne() noexcept {
     if (m_Active >= m_Capacity) return;
     FParticle& p = m_Pool[m_Active++];
     p.age = 0;
@@ -162,13 +162,13 @@ void FParticleSystem::SpawnOne() noexcept {
 }
 
 /** count 個の粒子を即座に生成する。 */
-void FParticleSystem::EmitBurst(u32 count) noexcept {
+void CParticleSystem::EmitBurst(u32 count) noexcept {
     if (!m_Pool) return;
     for (u32 i = 0; i < count; ++i) SpawnOne();
 }
 
 /** 1 フレーム分の連続生成 + 物理積分 + 寿命管理を進める。 */
-void FParticleSystem::Update(f32 dt) noexcept {
+void CParticleSystem::Update(f32 dt) noexcept {
     if (!m_Pool) return;
 
     // 1) 連続生成
@@ -196,11 +196,11 @@ void FParticleSystem::Update(f32 dt) noexcept {
     }
 }
 
-/** アクティブな粒子の size/color を寿命比で補間して FSpriteBatch に積む。 */
-void FParticleSystem::Render(FSpriteBatch& sb) noexcept {
+/** アクティブな粒子の size/color を寿命比で補間して CSpriteBatch に積む。 */
+void CParticleSystem::Render(CSpriteBatch& sb) noexcept {
     if (!m_Pool || m_Active == 0) return;
 
-    // テクスチャ未設定なら FSpriteBatch の DrawRect 相当（白矩形）
+    // テクスチャ未設定なら CSpriteBatch の DrawRect 相当（白矩形）
     // 設定済みなら DrawSub 経由
     for (u32 i = 0; i < m_Active; ++i) {
         const FParticle& p = m_Pool[i];

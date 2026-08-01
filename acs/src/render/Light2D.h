@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // 2D 動的ライティング + ソフト影 (Core Keeper 風) と簡易ブロブ影。
 //
-// FLighting2D:
+// CLighting2D:
 //   トップダウン/横スクロール 2D 向けの動的ライト。複数のカラー点光源を
 //   持ち、occluder (影を落とすもの) のシルエットからソフト影を落とす。
 //   ambient を低く (暗い洞窟) しておき、光源の周りだけが照らされる Core Keeper
@@ -27,9 +27,9 @@
 //   沿った影が落ちる。影は occluder mask を linear sample + 複数レイ (面光源近似)
 //   で柔らかくする。
 //
-// FBlobShadow:
+// CBlobShadow:
 //   光源計算を伴わない激軽の「足元の影」。柔らかい楕円テクスチャを 1 枚持ち、
-//   FSpriteBatch で暗く落とすだけ。動的ライトを使わない/負荷を抑えたい時の fallback。
+//   CSpriteBatch で暗く落とすだけ。動的ライトを使わない/負荷を抑えたい時の fallback。
 //
 // ACS 規約: STL/<string> 不使用、全 noexcept、TResult、非コピー。
 #pragma once
@@ -47,7 +47,8 @@
 
 namespace acs {
 
-class FSpriteBatch;
+class CSpriteBatch;
+
 
 /**
  * 1 個の 2D 点光源。座標はスプライトと同じピクセル空間 (左上原点)。
@@ -79,22 +80,22 @@ struct FLight2D {
  * に焼き、Composite で scene × (ambient + Σ light·影) を現在の RT へ合成する。影は
  * occluder mask の linear sample と複数レイ (面光源近似) で柔らかくする。
  */
-class FLighting2D {
+class CLighting2D {
 public:
     /** 同時に扱える点光源の上限。 */
     static constexpr u32 kMaxLights = 16;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FLighting2D() noexcept = default;
+    CLighting2D() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FLighting2D() noexcept = default;
+    ~CLighting2D() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FLighting2D(const FLighting2D&)            = delete;
+    CLighting2D(const CLighting2D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLighting2D& operator=(const FLighting2D&) = delete;
+    CLighting2D& operator=(const CLighting2D&) = delete;
 
     /**
      * GPU リソース (scene/occluder RT・パイプライン・定数バッファ) を確保する。
@@ -275,26 +276,29 @@ private:
     u32       m_RayCount    = 6;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FLighting2D = CLighting2D;
+
 /**
  * 光源計算なしの簡易ブロブ影 (足元の楕円)。
  *
  * @details
- * 柔らかい楕円テクスチャを 1 枚持ち、FSpriteBatch で暗く落とすだけの激軽な「足元の影」。
+ * 柔らかい楕円テクスチャを 1 枚持ち、CSpriteBatch で暗く落とすだけの激軽な「足元の影」。
  * 動的ライトを使わない/負荷を抑えたいときの fallback / 補助に使う。
  */
-class FBlobShadow {
+class CBlobShadow {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBlobShadow() noexcept = default;
+    CBlobShadow() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBlobShadow() noexcept = default;
+    ~CBlobShadow() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBlobShadow(const FBlobShadow&)            = delete;
+    CBlobShadow(const CBlobShadow&)            = delete;
 
     /** コピー代入も禁止。 */
-    FBlobShadow& operator=(const FBlobShadow&) = delete;
+    CBlobShadow& operator=(const CBlobShadow&) = delete;
 
     /**
      * 柔らかい放射状グラデーションのテクスチャを 1 枚生成する。
@@ -312,7 +316,7 @@ public:
     /**
      * (cx,cy) 中心に w×h の柔らかい影を sb 経由で描く (要 sb.Begin 済み)。
      *
-     * @param sb 描画に使う FSpriteBatch。
+     * @param sb 描画に使う CSpriteBatch。
      * @param cx 影の中心 X (px)。
      * @param cy 影の中心 Y (px)。
      * @param w 影の幅 (px)。
@@ -320,7 +324,7 @@ public:
      * @param alpha 影の濃さ。
      * @param color 影の色 (既定は黒)。
      */
-    void Draw(FSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
+    void Draw(CSpriteBatch& sb, f32 cx, f32 cy, f32 w, f32 h,
               f32 alpha = 0.5f, FVec3 color = FVec3{0, 0, 0}) noexcept;
 
     /**
@@ -334,5 +338,9 @@ private:
     /** 放射状グラデーションの影テクスチャ。 */
     TUniquePtr<IRhiTexture> m_Tex;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBlobShadow = CBlobShadow;
+
 
 } // namespace acs

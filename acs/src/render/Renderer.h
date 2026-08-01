@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-// 高レベル FRenderer（ウィンドウへの描画ループを統括する司令塔）
+// 高レベル CRenderer（ウィンドウへの描画ループを統括する司令塔）
 //
 // 使い方 (典型的):
-//   FRenderer rdr;
+//   CRenderer rdr;
 //   rdr.Init(window);
 //   while (!window.ShouldClose()) {
 //       window.PollEvents();
 //       rdr.BeginFrame({0.1f, 0.2f, 0.3f, 1.0f});
 //       // BeginFrame 後は GetCommandList() でコマンドを積める。
 //       // 高レベルヘルパ:
-//       //   FStandardShader  — Lambert+Blinn-Phong + シャドウマップ
-//       //   FSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
-//       //   FSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
-//       //   FSpriteBatch     — 2D スプライト + フォント
-//       //   FFont            — TTrueType -> アトラス -> FSpriteBatch
-//       //   FParticleSystem  — 簡易 GPU パーティクル
-//       //   FShadowMap       — depth-only パス
-//       //   FPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
+//       //   CStandardShader  — Lambert+Blinn-Phong + シャドウマップ
+//       //   CSkinnedShader   — GPU スキニング (BoneCB + BLENDINDICES/WEIGHT)
+//       //   CSky             — 手続き生成スカイ (Day/Sunset/Night プリセット)
+//       //   CSpriteBatch     — 2D スプライト + フォント
+//       //   FFont            — TTrueType -> アトラス -> CSpriteBatch
+//       //   CParticleSystem  — 簡易 GPU パーティクル
+//       //   CShadowMap       — depth-only パス
+//       //   CPostProcess     — HDR + Bloom + ACES Tonemap (Diligent backend 専用)
 //       if (!rdr.EndFrame()) break;
 //   }
 //   rdr.Shutdown();
 //
 // HDR ポストプロセス経路を組むときは FApplication::OnCustomFrame() を override
-// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → FPostProcess.Render() →
+// して、自分で BeginRenderToTexture(HDR_RT) → 描画 → CPostProcess.Render() →
 // Present までを直接書く (HelloBloom 参照)。
 #pragma once
 
@@ -43,22 +43,22 @@ class FWindow;
  * @details
  * Device + Swapchain + CommandList (+ 任意で深度バッファ) を所有し、BeginFrame /
  * EndFrame でフレーム境界を管理する。BeginFrame 後に GetCommandList() でコマンドを
- * 積み、FStandardShader / FSky / FSpriteBatch などの高レベルヘルパで描画する。GPU
+ * 積み、CStandardShader / CSky / CSpriteBatch などの高レベルヘルパで描画する。GPU
  * リソースを単独所有する non-copy 型。
  */
-class FRenderer {
+class CRenderer {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FRenderer() noexcept = default;
+    CRenderer() noexcept = default;
 
     /** 破棄する (確保した GPU リソースを解放)。 */
-    ~FRenderer() noexcept;
+    ~CRenderer() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FRenderer(const FRenderer&) = delete;
+    CRenderer(const CRenderer&) = delete;
 
     /** コピー代入も禁止。 */
-    FRenderer& operator=(const FRenderer&) = delete;
+    CRenderer& operator=(const CRenderer&) = delete;
 
     /**
      * ウィンドウに紐付けて初期化する (Device + Swapchain + CommandList を作成)。
@@ -221,5 +221,9 @@ private:
     /** フレームが BeginFrame 済み (EndFrame 未呼出) か。 */
     bool                        m_bFrameOpen     = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FRenderer = CRenderer;
+
 
 } // namespace acs

@@ -2,7 +2,7 @@
 // Physical atmospheric scattering (Hillaire 2020 / Bruneton 風)
 //
 // Rayleigh + Mie 単散乱を per-direction で CPU 評価し equirect 画像に焼く。
-// `FImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
+// `CImageBasedLighting::LoadEquirectHdrFromMemory` に通せば env cubemap →
 // irradiance → prefilter の IBL chain が一気に物理ベースの sky で構築される。
 //
 // 物理パラメータ (Earth、Bruneton 2008):
@@ -80,10 +80,10 @@ struct FVolumetricFogParams {
  *
  * @details
  * Hillaire 2020 / Bruneton 風の Rayleigh + Mie 単散乱を per-direction で評価し、
- * 焼いた equirect 画像を FImageBasedLighting に渡すと env cubemap → irradiance →
+ * 焼いた equirect 画像を CImageBasedLighting に渡すと env cubemap → irradiance →
  * prefilter の IBL chain が物理ベースの sky で構築できる。
  */
-class FAtmosphere {
+class CAtmosphere {
 public:
     /**
      * CPU で equirect 画像を焼いて RGBA float 配列を返す。
@@ -101,6 +101,10 @@ public:
                                     const FAtmosphereParams& params) noexcept;
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FAtmosphere = CAtmosphere;
+
+
 /**
  * GPU 物理大気 (WickedEngine / Hillaire 2020 流の GPU compute パイプライン)。
  *
@@ -108,12 +112,12 @@ public:
      * Transmittance LUT (256x64) を compute で焼き、equirect bake compute がそれを使って
      * Rayleigh+Mie+ozone の単散乱 + 等方多重散乱を per-direction で評価して equirect texture
      * (RGBA32F、解析的な太陽ディスクを含まない) に書く。ReadTexture で CPU へ読み戻し、
-     * FImageBasedLighting::LoadEquirectHdrFromMemory
+     * CImageBasedLighting::LoadEquirectHdrFromMemory
  * に通せば既存の env cubemap → irradiance → prefilter の IBL chain と背景描画がそのまま動く。
- * CPU 版 FAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
- * 要 Phase 0 compute コア + FDiligentDevice::ReadTexture。Diligent backend 専用。
+ * CPU 版 CAtmosphere::BakeEquirect の置き換え (GPU で高速 + ozone/multiscatter で物理的に正しい空)。
+ * 要 Phase 0 compute コア + CDiligentDevice::ReadTexture。Diligent backend 専用。
  */
-class FSkyAtmosphere {
+class CSkyAtmosphere {
 public:
     /** compute パイプライン (transmittance / equirect bake) と Transmittance LUT・CB を生成。 */
     TResult<void> Init(IRhiDevice& device,
@@ -298,5 +302,9 @@ private:
     TUniquePtr<IRhiBuffer>   m_LocalFogCompositeCb; // later local-fog draw only
     u32                      m_EqW = 0, m_EqH = 0;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSkyAtmosphere = CSkyAtmosphere;
+
 
 } // namespace acs

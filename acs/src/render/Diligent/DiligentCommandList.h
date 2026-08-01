@@ -10,7 +10,7 @@ struct IQuery;
 
 namespace acs {
 
-class FDiligentDevice;
+class CDiligentDevice;
 class FDiligentPipeline;
 class FDiligentSwapchain;
 class FDiligentTexture;
@@ -24,19 +24,19 @@ class FDiligentTexture;
  * 行う。RT 種別を跨ぐ pass (shadow / off-screen) の後に main pass へ復帰できるよう、
  * フレーム冒頭で bind した swap chain / depth を記憶する。
  */
-class FDiligentCommandList final : public IRhiCommandList {
+class CDiligentCommandList final : public IRhiCommandList {
 public:
     /** 空状態で構築する (実体は Init で device に結び付ける)。 */
-    FDiligentCommandList() noexcept = default;
+    CDiligentCommandList() noexcept = default;
 
     /** 破棄する (保持するのは生ポインタのみで所有権は持たない)。 */
-    ~FDiligentCommandList() noexcept override;
+    ~CDiligentCommandList() noexcept override;
 
     /** コピー禁止 (device コンテキストへの参照を単独で持つため)。 */
-    FDiligentCommandList(const FDiligentCommandList&) = delete;
+    CDiligentCommandList(const CDiligentCommandList&) = delete;
 
     /** コピー代入も禁止。 */
-    FDiligentCommandList& operator=(const FDiligentCommandList&) = delete;
+    CDiligentCommandList& operator=(const CDiligentCommandList&) = delete;
 
     /**
      * device に結び付けてコマンドリストを初期化する。
@@ -44,7 +44,7 @@ public:
      * @param device コマンドを積む先の Diligent デバイス。
      * @return 常に成功 (空の TResult)。
      */
-    TResult<void> Init(FDiligentDevice& device) noexcept;
+    TResult<void> Init(CDiligentDevice& device) noexcept;
 
     /** 記録開始フック (Diligent は即時 API のため no-op)。 */
     void Begin() noexcept override;
@@ -320,7 +320,7 @@ private:
     FRhiCommandStatistics m_CommandStatistics{};
 
     /** コマンドを積む先の Diligent デバイス。 */
-    FDiligentDevice*    m_Device   = nullptr;
+    CDiligentDevice*    m_Device   = nullptr;
 
     Diligent::IQuery*
         m_GpuTimestampQueries[kGpuTimingFrameSlots]
@@ -352,5 +352,9 @@ private:
     /** フレーム冒頭で bind した main pass の depth (復帰時に再 bind する)。 */
     FDiligentTexture*   m_MainDepth         = nullptr;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDiligentCommandList = CDiligentCommandList;
+
 
 } // namespace acs

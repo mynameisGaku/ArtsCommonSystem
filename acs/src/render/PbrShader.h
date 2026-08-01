@@ -31,7 +31,7 @@ namespace acs {
  * volumetric fog、emissive、clearcoat/anisotropy/sheen/iridescence/subsurface の
  * 拡張マテリアルを束ね、per-frame / per-object の 2 定数バッファで駆動する。
  */
-class FPbrShader {
+class CPbrShader {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -48,16 +48,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FPbrShader() noexcept = default;
+    CPbrShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FPbrShader() noexcept = default;
+    ~CPbrShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FPbrShader(const FPbrShader&)            = delete;
+    CPbrShader(const CPbrShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FPbrShader& operator=(const FPbrShader&) = delete;
+    CPbrShader& operator=(const CPbrShader&) = delete;
 
     /**
      * シェーダ・パイプライン・定数バッファ・fallback テクスチャ群を生成する。
@@ -200,7 +200,7 @@ public:
      *
      * @details
      * 3 つとも非 null かつ prefilter_mips > 0 のときに IBL ambient が有効化される。
-     * それ以外は flat ambient (= 既存挙動)。通常は FImageBasedLighting の
+     * それ以外は flat ambient (= 既存挙動)。通常は CImageBasedLighting の
      * IrradianceMap()/PrefilterMap()/BrdfLut()/PrefilterMips() をそのまま渡す。
      * @param irradiance 拡散 irradiance cubemap。
      * @param prefilter pre-filtered 環境 specular cubemap。
@@ -235,7 +235,7 @@ public:
     /**
      * SSAO の visibility テクスチャを設定する (ambient/indirect 項に乗算)。
      *
-     * @param ssao_tex FSsao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
+     * @param ssao_tex CSsao::OutputTexture() (R8G8B8A8_UNorm、.r=visibility)。null で OFF。
      * @param intensity 0=neutral (AO 無視)、1=通常、>1=AO 強調。
      * @param viewport_w tonemap 前の HDR RT 幅 (pixel)。0 で SSAO 強制 OFF。
      * @param viewport_h tonemap 前の HDR RT 高さ (pixel)。0 で SSAO 強制 OFF。
@@ -247,7 +247,7 @@ public:
      * SSGI color (1 bounce indirect light の screen-space 推定) を設定する。
      *
      * @details viewport inv size は SSAO の値を再利用するので別途渡さない。
-     * @param ssgi_tex FSsgi::OutputTexture() (R11G11B10F)。null で OFF。
+     * @param ssgi_tex CSsgi::OutputTexture() (R11G11B10F)。null で OFF。
      * @param intensity 0=indirect 無視、1=通常、>1=強調 (経験的に 0.5..2.0)。
      */
     void SetSsgi(IRhiTexture* ssgi_tex, f32 intensity) noexcept;
@@ -258,8 +258,8 @@ public:
      * @details
      * roughness が高い面ほど自動で寄与が下がる (rough 面は環境 prefilter、smooth 面は
      * SSR を反射元に使う)。物理的に正しい roughness 依存反射のため tonemap 合成ではなく
-     * FPbrShader 側で合成する。viewport は SSAO の値を再利用する。
-     * @param ssr_tex FSsr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
+     * CPbrShader 側で合成する。viewport は SSAO の値を再利用する。
+     * @param ssr_tex CSsr::OutputTexture() (HDR、.rgb=反射放射輝度、.a=hit mask)。null で OFF。
      * @param intensity 0=OFF、1=通常。
      */
     void SetSsr(IRhiTexture* ssr_tex, f32 intensity) noexcept;
@@ -269,7 +269,7 @@ public:
      *
      * @details screen UV は現在の view-projection と world position から復元するため、
      * SSAO の有無や viewport 設定には依存しない。
-     * @param ap_vol AP froxel volume (FSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
+     * @param ap_vol AP froxel volume (CSkyAtmosphere::BuildAerialPerspective の出力)。nullptr で無効。
      * @param max_dist volume がカバーする最大距離 (scene 単位、深度→スライス逆変換に使う)。
      */
     void SetAerialPerspective(IRhiTexture* ap_vol, f32 max_dist) noexcept;
@@ -297,7 +297,7 @@ public:
     /**
      * 静的光プローブ (位置 + SH9 9 係数) の記述。
      *
-     * @details FPbrShader は count > 0 のとき SH9 single mode より優先して probe grid を
+     * @details CPbrShader は count > 0 のとき SH9 single mode より優先して probe grid を
      * 使い、world position から IDW で blend する。
      */
     struct FLightProbe {
@@ -347,8 +347,8 @@ public:
      * shadow を disable したいときは必ず本 API に null depth を渡すこと。m_ShadowParams.y を
      * 直接 0 にして再有効化する経路は texel_size=0 の場合 PCSS blocker search で search_r=0 に
      * なり結果が壊れる。常にこの API 経由で更新する。
-     * @param depth FShadowMap::DepthTexture()。null で OFF。
-     * @param light_vp FShadowMap::LightViewProjection()。
+     * @param depth CShadowMap::DepthTexture()。null で OFF。
+     * @param light_vp CShadowMap::LightViewProjection()。
      * @param bias depth bias (acne 回避、0.001..0.01 程度)。
      * @param texel_size shadow map 1 texel の UV サイズ。
      * @param filter_radius PCSS 強度 (0=hard PCF、1=標準、>1 で柔らか)。
@@ -361,7 +361,7 @@ public:
      * CSM 用に複数 cascade の VP と split を一括設定する。
      *
      * @details
-     * FShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から cascade を
+     * CShadowMap が atlas で確保した深度テクスチャを渡し、HLSL 側で view_z から cascade を
      * 選択 + atlas UV 変換でサンプルする。
      * @param depth cascade atlas の深度テクスチャ。null で disable。
      * @param light_vp 各 cascade の light VP (c=0..cascade_count-1)。
@@ -455,7 +455,7 @@ public:
      * 通常の 1-RT 描画では、肌/ロウ/大理石のような質感を wrapped diffuse +
      * 裏面 translucency の薄物向け解析近似で表現する。SSSS MRT 描画では
      * sss_color * weight を RGB ごとの平均自由行程として RGBA16F に抽出し、
-     * FSubsurfaceScattering が物理距離に基づいて diffuse 成分だけを拡散する。
+     * CSubsurfaceScattering が物理距離に基づいて diffuse 成分だけを拡散する。
      * member に格納され次の SetObject / DrawMesh が反映する (既定 weight=0 で無効)。
      * @param sss_color RGB ごとの相対散乱距離 (肌なら赤が長い)。
      * @param weight SSS coverage と legacy 最大散乱距離 (0=OFF、1=1cm)。
@@ -621,7 +621,7 @@ private:
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
 
     /** per-object定数を少数のGPUページへまとめるupload arena。 */
-    FTransientUploadArena    m_ObjectArena;
+    CTransientUploadArena    m_ObjectArena;
 
     /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
@@ -772,7 +772,7 @@ private:
     /** lightmap 無効時に bind する fallback (1x1 RGBA8 黒)。 */
     TUniquePtr<IRhiTexture> m_LightmapFb;
 
-    /** shadow cascade の最大数 (FShadowMap::kMaxCascades と一致、frame CB の shadow_view_proj[4] と対応)。 */
+    /** shadow cascade の最大数 (CShadowMap::kMaxCascades と一致、frame CB の shadow_view_proj[4] と対応)。 */
     static constexpr u32 kMaxShadowCascades = 4;
 
     /** shadow map / cascade atlas の深度テクスチャ (非所有)。 */
@@ -839,5 +839,9 @@ private:
     u32 m_SubstrateExpressionTextureMask = 0u;
     f32 m_SubstrateExpressionTime = 0.0f;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FPbrShader = CPbrShader;
+
 
 } // namespace acs

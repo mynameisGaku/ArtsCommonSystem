@@ -6,13 +6,13 @@
 //       地面の色を補間して描画する。
 //
 // 使い方:
-//   FSky sky;
+//   CSky sky;
 //   sky.Init(*renderer.Device(), renderer.ColorFormat(), renderer.DepthFormat());
 //   sky.PresetDay();
 //
 //   // 描画フレーム中、シーンの最初に
 //   sky.Render(*cl, camera);
-//   // ... FStandardShader でメッシュを描く ...
+//   // ... CStandardShader でメッシュを描く ...
 #pragma once
 
 #include "foundation/Result.h"
@@ -39,7 +39,7 @@ class FCamera;
  * 深度の書き込み・テストは行わない (背景塗りなので既存深度を維持)。太陽は視線と太陽
  * 方向の角度で半径・ハローを付ける。VS/PS/PSO/定数バッファを単独所有する。
  */
-class FSky {
+class CSky {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -51,16 +51,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSky() noexcept = default;
+    CSky() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSky() noexcept = default;
+    ~CSky() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSky(const FSky&)            = delete;
+    CSky(const CSky&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSky& operator=(const FSky&) = delete;
+    CSky& operator=(const CSky&) = delete;
 
     /**
      * GPU リソース (VS/PS/PSO/定数バッファ) を確保する。
@@ -201,7 +201,7 @@ public:
     void PresetNight()  noexcept;
 
     /**
-     * 現在の太陽方向を返す (FStandardShader / IBL と整合させたいときに)。
+     * 現在の太陽方向を返す (CStandardShader / IBL と整合させたいときに)。
      *
      * @return 正規化済みの太陽方向ベクトル。
      */
@@ -311,6 +311,10 @@ private:
     FVec3 m_CloudColor   = FVec3{1.0f, 1.0f, 1.0f};
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSky = CSky;
+
+
 /**
  * GPU レイマーチ volumetric clouds (WickedEngine / Nubis 流)。
  *
@@ -320,12 +324,12 @@ private:
  * dual-lobe Henyey-Greenstein 位相 + powder 項でエネルギー保存散乱を積分する。出力 (straight 散乱色
  * + alpha) を hdrRt の «空» の上に合成する。ray march は half-res、雲自身の代表深度を使う
  * bilateral spatial reconstruction と camera/wind reprojection temporal accumulation で full-res に
- * 復元する。FSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
+ * 復元する。CSky の 2D-FBM 雲より遥かにディテール/立体感が高い。
  * 要 Phase 0 compute コア (RWTexture2D UAV)。full-res color/depth も一つの
  * 8x8 compute pass で別 format UAV へ同時に再構成し、重複 read と MRT overhead を避ける。
  */
 /**
- * World-space altitude band used by FVolumetricClouds.
+ * World-space altitude band used by CVolumetricClouds.
  *
  * The cloud density field must never be translated with the camera.  Keeping
  * these heights in world space makes translation, orbit and temporal
@@ -658,7 +662,7 @@ bool VolumetricCloudViewCutDetected(
     const FMat4& current_inv_view_proj,
     FVec3 current_camera_position) noexcept;
 
-class FVolumetricClouds {
+class CVolumetricClouds {
 public:
     /** CPU-compiled shader bytecode handed to the render-owner thread. */
     struct FCompiledShaders {
@@ -849,5 +853,9 @@ private:
     u64                      m_WorkloadSubmissionIndex = 0u;
     FVolumetricCloudFrameWorkload m_LastFrameWorkload{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FVolumetricClouds = CVolumetricClouds;
+
 
 } // namespace acs

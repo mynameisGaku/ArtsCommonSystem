@@ -51,7 +51,7 @@ private:
 } // namespace
 
 /** key table・COM owner・lock を公開 device layout 外へ隔離する内部 cache owner。 */
-struct FDx12Device::FPipelineCacheOwner {
+struct CDx12Device::FPipelineCacheOwner {
     /** 確保元 allocator を記録して同じ所有者へ返す。 */
     explicit FPipelineCacheOwner(FAllocator& allocator) noexcept : allocator(&allocator) {}
 
@@ -65,12 +65,12 @@ struct FDx12Device::FPipelineCacheOwner {
     ID3D12RootSignature* root_signatures[kPipelineCacheCapacity]{};
 };
 
-FDx12Device::~FDx12Device() noexcept
+CDx12Device::~CDx12Device() noexcept
 {
     Reset();
 }
 
-bool FDx12Device::FindCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState*& pipeline, ID3D12RootSignature*& root_signature) noexcept {
+bool CDx12Device::FindCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState*& pipeline, ID3D12RootSignature*& root_signature) noexcept {
     pipeline = nullptr;
     root_signature = nullptr;
     /** owner の参照から COM AddRef までを Reset と直列化する lock。 */
@@ -93,7 +93,7 @@ bool FDx12Device::FindCachedPipeline(const FPipelineStateKey& key, ID3D12Pipelin
     return true;
 }
 
-void FDx12Device::StoreCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState* pipeline, ID3D12RootSignature* root_signature) noexcept {
+void CDx12Device::StoreCachedPipeline(const FPipelineStateKey& key, ID3D12PipelineState* pipeline, ID3D12RootSignature* root_signature) noexcept {
     if (pipeline == nullptr || root_signature == nullptr) return;
     /** owner の遅延生成から登録までを Reset と直列化する lock。 */
     FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
@@ -118,7 +118,7 @@ void FDx12Device::StoreCachedPipeline(const FPipelineStateKey& key, ID3D12Pipeli
     owner->root_signatures[identifier] = root_signature;
 }
 
-void FDx12Device::ResetPipelineCache(bool release_objects) noexcept {
+void CDx12Device::ResetPipelineCache(bool release_objects) noexcept {
     /** owner の切離しから metadata delete までを lookup/register と直列化する lock。 */
     FExclusiveLockGuard cache_guard(m_PipelineCacheLock);
     /** outer lock 内で切り離す cache owner。 */
@@ -140,7 +140,7 @@ void FDx12Device::ResetPipelineCache(bool release_objects) noexcept {
     Delete(allocator, owner);
 }
 
-void FDx12Device::Reset() noexcept
+void CDx12Device::Reset() noexcept
 {
 #if ACS_BUILD_DEBUG
     // 初期化途中で Factory または Adapter だけを得た経路も DXGI 診断対象にする。
@@ -222,7 +222,7 @@ void FDx12Device::Reset() noexcept
     m_RtvSlots.Reset();
 }
 
-FHrResult FDx12Device::InitDescriptorHeaps() noexcept
+FHrResult CDx12Device::InitDescriptorHeaps() noexcept
 {
     FHrResult r{};
     // SRV/CBV/UAV 用シェーダ可視ヒープ
@@ -276,31 +276,31 @@ FHrResult FDx12Device::InitDescriptorHeaps() noexcept
     return r;
 }
 
-i32 FDx12Device::AllocateSrvSlot() noexcept
+i32 CDx12Device::AllocateSrvSlot() noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     return m_SrvSlots.Allocate();
 }
 
-bool FDx12Device::AllocateSrvSlots(i32* output, u32 count) noexcept
+bool CDx12Device::AllocateSrvSlots(i32* output, u32 count) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     return m_SrvSlots.AllocateBatch(output, count);
 }
 
-void FDx12Device::FreeSrvSlot(i32 index) noexcept
+void CDx12Device::FreeSrvSlot(i32 index) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     m_SrvSlots.Free(index);
 }
 
-void FDx12Device::FreeSrvSlots(const i32* slots, u32 count) noexcept
+void CDx12Device::FreeSrvSlots(const i32* slots, u32 count) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     m_SrvSlots.FreeBatch(slots, count);
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept
+D3D12_CPU_DESCRIPTOR_HANDLE CDx12Device::SrvCpuHandle(i32 index) const noexcept
 {
     // Handle math only needs the immutable heap capacity. Reading the mutable
     // high-water mark here raced with free-threaded background allocation.
@@ -310,7 +310,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::SrvCpuHandle(i32 index) const noexcept
     return h;
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE FDx12Device::SrvGpuHandle(i32 index) const noexcept
+D3D12_GPU_DESCRIPTOR_HANDLE CDx12Device::SrvGpuHandle(i32 index) const noexcept
 {
     if (!m_SrvHeap || index < 0 || static_cast<u32>(index) >= kSrvCapacity) return D3D12_GPU_DESCRIPTOR_HANDLE{0};
     D3D12_GPU_DESCRIPTOR_HANDLE h = m_SrvHeap->GetGPUDescriptorHandleForHeapStart();
@@ -318,31 +318,31 @@ D3D12_GPU_DESCRIPTOR_HANDLE FDx12Device::SrvGpuHandle(i32 index) const noexcept
     return h;
 }
 
-i32 FDx12Device::AllocateDsvSlot() noexcept
+i32 CDx12Device::AllocateDsvSlot() noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     return m_DsvSlots.Allocate();
 }
 
-bool FDx12Device::AllocateDsvSlots(i32* output, u32 count) noexcept
+bool CDx12Device::AllocateDsvSlots(i32* output, u32 count) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     return m_DsvSlots.AllocateBatch(output, count);
 }
 
-void FDx12Device::FreeDsvSlot(i32 index) noexcept
+void CDx12Device::FreeDsvSlot(i32 index) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     m_DsvSlots.Free(index);
 }
 
-void FDx12Device::FreeDsvSlots(const i32* slots, u32 count) noexcept
+void CDx12Device::FreeDsvSlots(const i32* slots, u32 count) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     m_DsvSlots.FreeBatch(slots, count);
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept
+D3D12_CPU_DESCRIPTOR_HANDLE CDx12Device::DsvCpuHandle(i32 index) const noexcept
 {
     if (!m_DsvHeap || index < 0 || static_cast<u32>(index) >= kDsvCapacity) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_DsvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -350,31 +350,31 @@ D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::DsvCpuHandle(i32 index) const noexcept
     return h;
 }
 
-i32 FDx12Device::AllocateRtvSlot() noexcept
+i32 CDx12Device::AllocateRtvSlot() noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     return m_RtvSlots.Allocate();
 }
 
-bool FDx12Device::AllocateRtvSlots(i32* output, u32 count) noexcept
+bool CDx12Device::AllocateRtvSlots(i32* output, u32 count) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     return m_RtvSlots.AllocateBatch(output, count);
 }
 
-void FDx12Device::FreeRtvSlot(i32 index) noexcept
+void CDx12Device::FreeRtvSlot(i32 index) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     m_RtvSlots.Free(index);
 }
 
-void FDx12Device::FreeRtvSlots(const i32* slots, u32 count) noexcept
+void CDx12Device::FreeRtvSlots(const i32* slots, u32 count) noexcept
 {
     FExclusiveLockGuard guard(m_DescriptorLock);
     m_RtvSlots.FreeBatch(slots, count);
 }
 
-void FDx12Device::ReleaseRetiredResource(
+void CDx12Device::ReleaseRetiredResource(
     FRetiredResource& retired) noexcept
 {
     // Lock order is retirement -> descriptor.  Callers hold (or exclusively
@@ -395,7 +395,7 @@ void FDx12Device::ReleaseRetiredResource(
     retired.fence_value = 0u;
 }
 
-void FDx12Device::ReleaseAllRetiredResources() noexcept
+void CDx12Device::ReleaseAllRetiredResources() noexcept
 {
     FExclusiveLockGuard retirement_guard(m_RetirementLock);
     for (usize i = 0; i < m_RetiredResources.Size(); ++i)
@@ -406,7 +406,7 @@ void FDx12Device::ReleaseAllRetiredResources() noexcept
     m_EmergencyRetiredResourceCount = 0u;
 }
 
-void FDx12Device::AbandonAllRetiredResources() noexcept
+void CDx12Device::AbandonAllRetiredResources() noexcept
 {
     FExclusiveLockGuard retirement_guard(m_RetirementLock);
     auto abandon = [](FRetiredResource& retired) noexcept {
@@ -428,7 +428,7 @@ void FDx12Device::AbandonAllRetiredResources() noexcept
     m_EmergencyRetiredResourceCount = 0u;
 }
 
-void FDx12Device::QueueRetiredResource(
+void CDx12Device::QueueRetiredResource(
     FRetiredResource&& retired) noexcept
 {
     if (retired.resource == nullptr &&
@@ -461,7 +461,7 @@ void FDx12Device::QueueRetiredResource(
     retired.fence_value = 0u;
 }
 
-void FDx12Device::RetireResource(ID3D12Resource* resource) noexcept
+void CDx12Device::RetireResource(ID3D12Resource* resource) noexcept
 {
     if (resource == nullptr) return;
     FRetiredResource retired{};
@@ -469,7 +469,7 @@ void FDx12Device::RetireResource(ID3D12Resource* resource) noexcept
     QueueRetiredResource(Move(retired));
 }
 
-void FDx12Device::RetireTextureResource(
+void CDx12Device::RetireTextureResource(
     ID3D12Resource* resource,
     i32 srv_slot, i32 uav_slot, i32 dsv_slot,
     TArray<i32>&& rtv_slots) noexcept
@@ -483,7 +483,7 @@ void FDx12Device::RetireTextureResource(
     QueueRetiredResource(Move(retired));
 }
 
-void FDx12Device::CollectRetiredResources() noexcept
+void CDx12Device::CollectRetiredResources() noexcept
 {
     if (m_IdleFence == nullptr) return;
     const u64 completed = m_IdleFence->GetCompletedValue();
@@ -514,14 +514,14 @@ void FDx12Device::CollectRetiredResources() noexcept
     }
 }
 
-usize FDx12Device::RetiredResourceCount() noexcept
+usize CDx12Device::RetiredResourceCount() noexcept
 {
     FExclusiveLockGuard retirement_guard(m_RetirementLock);
     return m_RetiredResources.Size() +
            static_cast<usize>(m_EmergencyRetiredResourceCount);
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::RtvCpuHandle(i32 index) const noexcept
+D3D12_CPU_DESCRIPTOR_HANDLE CDx12Device::RtvCpuHandle(i32 index) const noexcept
 {
     if (!m_RtvHeap || index < 0 || static_cast<u32>(index) >= kRtvCapacity) return D3D12_CPU_DESCRIPTOR_HANDLE{0};
     D3D12_CPU_DESCRIPTOR_HANDLE h = m_RtvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -529,7 +529,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE FDx12Device::RtvCpuHandle(i32 index) const noexcept
     return h;
 }
 
-FHrResult FDx12Device::Init(const FDeviceConfig& configuration) noexcept
+FHrResult CDx12Device::Init(const FDeviceConfig& configuration) noexcept
 {
     FHrResult r{};
     Reset();
@@ -631,7 +631,7 @@ FHrResult FDx12Device::Init(const FDeviceConfig& configuration) noexcept
 }
 
 // GPU が現在のキューに積まれた全コマンドを完了するまで待つ
-void FDx12Device::WaitIdle() noexcept
+void CDx12Device::WaitIdle() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence || !m_IdleEvent) return;
     const u64 value = SignalGraphicsQueue();
@@ -640,14 +640,14 @@ void FDx12Device::WaitIdle() noexcept
     CollectRetiredResources();
 }
 
-bool FDx12Device::IsOperational() const noexcept
+bool CDx12Device::IsOperational() const noexcept
 {
     return m_Device != nullptr &&
            m_GfxQueue != nullptr &&
            SUCCEEDED(m_Device->GetDeviceRemovedReason());
 }
 
-u64 FDx12Device::SignalGraphicsQueueLocked() noexcept
+u64 CDx12Device::SignalGraphicsQueueLocked() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence) return 0;
     const u64 next_value = m_IdleValue + 1u;
@@ -659,7 +659,7 @@ u64 FDx12Device::SignalGraphicsQueueLocked() noexcept
     return next_value;
 }
 
-void FDx12Device::SealPendingRetirements(u64 fence_value) noexcept
+void CDx12Device::SealPendingRetirements(u64 fence_value) noexcept
 {
     if (fence_value == 0u) return;
     for (usize i = 0; i < m_RetiredResources.Size(); ++i) {
@@ -672,7 +672,7 @@ void FDx12Device::SealPendingRetirements(u64 fence_value) noexcept
     }
 }
 
-u64 FDx12Device::ExecuteGraphicsCommandListsAndSignal(
+u64 CDx12Device::ExecuteGraphicsCommandListsAndSignal(
     ID3D12CommandList* const* command_lists,
     u32 command_list_count,
     bool seal_retirements) noexcept
@@ -710,7 +710,7 @@ u64 FDx12Device::ExecuteGraphicsCommandListsAndSignal(
     return SignalGraphicsQueueLocked();
 }
 
-u64 FDx12Device::SubmitGraphicsCommandLists(
+u64 CDx12Device::SubmitGraphicsCommandLists(
     ID3D12CommandList* const* command_lists,
     u32 command_list_count) noexcept
 {
@@ -718,7 +718,7 @@ u64 FDx12Device::SubmitGraphicsCommandLists(
         command_lists, command_list_count, true);
 }
 
-u64 FDx12Device::ExecuteOneOffGraphicsCommandList(
+u64 CDx12Device::ExecuteOneOffGraphicsCommandList(
     ID3D12CommandList* command_list) noexcept
 {
     ID3D12CommandList* lists[1] = {command_list};
@@ -728,14 +728,14 @@ u64 FDx12Device::ExecuteOneOffGraphicsCommandList(
 
 // Generic queue waits never seal retirement records. Only the main renderer
 // Submit path proves that its currently recorded references have been queued.
-u64 FDx12Device::SignalGraphicsQueue() noexcept
+u64 CDx12Device::SignalGraphicsQueue() noexcept
 {
     if (!m_GfxQueue || !m_IdleFence) return 0u;
     FExclusiveLockGuard submission_guard(m_QueueSubmissionLock);
     return SignalGraphicsQueueLocked();
 }
 
-void FDx12Device::WaitForFenceValue(u64 value) noexcept
+void CDx12Device::WaitForFenceValue(u64 value) noexcept
 {
     if (!m_IdleFence || !m_IdleEvent || value == 0) return;
     FExclusiveLockGuard guard(m_FenceWaitLock);
@@ -754,7 +754,7 @@ void FDx12Device::WaitForFenceValue(u64 value) noexcept
 }
 
 // Texture の mip0/slice0 (3D は depth slice 0) を密な CPU 行へ読み戻す。
-bool FDx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
+bool CDx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u32 destination_size) noexcept
 {
     if (!m_Device || !m_GfxQueue || destination_pixels == nullptr) return false;
     auto* dtex = static_cast<FDx12Texture*>(&texture);
@@ -881,7 +881,7 @@ bool FDx12Device::ReadTexture(IRhiTexture& texture, void* destination_pixels, u3
 #if !WITH_RENDER_DILIGENT
 TResult<TUniquePtr<IRhiDevice>> CreateRhiDevice(const FDeviceConfig& configuration) noexcept
 {
-    auto d = MakeUnique<FDx12Device>();
+    auto d = MakeUnique<CDx12Device>();
     if (!d) return ACS_ERR(Memory, 200, "Dx12Device alloc failed");
     const FHrResult r = d->Init(configuration);
     if (r.IsErr()) {

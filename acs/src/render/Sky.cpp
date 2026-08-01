@@ -20,7 +20,7 @@ namespace {
 const char* kSkyHLSL = R"(
 #pragma pack_matrix(row_major)
 
-cbuffer FSky : register(b0) {
+cbuffer CSky : register(b0) {
     float4x4 inv_view_proj;       // 画面 NDC → ワールドへの逆変換
     float4   camera_pos;          // xyz=eye
     float4   sun_dir;             // xyz=方向 (camera→sun)
@@ -223,7 +223,7 @@ float4 PSMain(VSOut v) : SV_TARGET {
 )";
 
 /**
- * スカイ定数バッファのレイアウト (HLSL の cbuffer FSky と一致)。
+ * スカイ定数バッファのレイアウト (HLSL の cbuffer CSky と一致)。
  */
 struct FSkyCb {
     /** 画面 NDC からワールドへの逆 view-projection。 */
@@ -286,9 +286,9 @@ ACS_FORCEINLINE FVec3 NormalizeSafe(FVec3 v) noexcept {
 } // namespace
 
 /** 太陽方向を正規化して保持する。 */
-void FSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
+void CSky::SetSunDirection(FVec3 dir) noexcept { m_SunDir = NormalizeSafe(dir); }
 
-EShaderStatus FSky::FCompiledShaders::Status() const noexcept {
+EShaderStatus CSky::FCompiledShaders::Status() const noexcept {
     if (!vertex || !pixel) return EShaderStatus::Failed;
     const EShaderStatus vertex_status = vertex->Status();
     const EShaderStatus pixel_status = pixel->Status();
@@ -304,37 +304,37 @@ EShaderStatus FSky::FCompiledShaders::Status() const noexcept {
 }
 
 /** Compile raw-DX12 sky bytecode without accessing the render device. */
-TResult<FSky::FCompiledShaders> FSky::CompileShadersCpu() noexcept {
+TResult<CSky::FCompiledShaders> CSky::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSky.VS";
+    vs_d.debug_name  = "CSky.VS";
 
     FShaderDesc ps_d{};
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSky.PS";
+    ps_d.debug_name  = "CSky.PS";
 
     auto vertex = MakeUnique<FDx12Shader>();
     if (!vertex)
-        return ACS_ERR(Memory, 571, "FSky vertex shader allocation failed");
+        return ACS_ERR(Memory, 571, "CSky vertex shader allocation failed");
     const FHrResult vertex_result = vertex->Init(vs_d);
     if (vertex_result.IsErr()) {
         return ACS_ERR_OS(
-            Render, 572, "FSky vertex shader CPU compile failed",
+            Render, 572, "CSky vertex shader CPU compile failed",
             static_cast<u32>(vertex_result.hr));
     }
 
     auto pixel = MakeUnique<FDx12Shader>();
     if (!pixel)
-        return ACS_ERR(Memory, 573, "FSky pixel shader allocation failed");
+        return ACS_ERR(Memory, 573, "CSky pixel shader allocation failed");
     const FHrResult pixel_result = pixel->Init(ps_d);
     if (pixel_result.IsErr()) {
         return ACS_ERR_OS(
-            Render, 574, "FSky pixel shader CPU compile failed",
+            Render, 574, "CSky pixel shader CPU compile failed",
             static_cast<u32>(pixel_result.hr));
     }
 
@@ -347,23 +347,23 @@ TResult<FSky::FCompiledShaders> FSky::CompileShadersCpu() noexcept {
 #else
     return ACS_ERR(
         Render, 575,
-        "FSky CPU compilation is available only on the raw DX12 backend");
+        "CSky CPU compilation is available only on the raw DX12 backend");
 #endif
 }
 
-TResult<FSky::FCompiledShaders> FSky::BeginCompileShadersAsync(
+TResult<CSky::FCompiledShaders> CSky::BeginCompileShadersAsync(
     IRhiDevice& device) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
             Render, 576,
-            "FSky backend-managed asynchronous compilation is unsupported");
+            "CSky backend-managed asynchronous compilation is unsupported");
     }
 
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name = "FSky.VS";
+    vs_d.debug_name = "CSky.VS";
     vs_d.compile_async = true;
 
     FCompiledShaders compiled{};
@@ -375,7 +375,7 @@ TResult<FSky::FCompiledShaders> FSky::BeginCompileShadersAsync(
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name = "FSky.PS";
+    ps_d.debug_name = "CSky.PS";
     ps_d.compile_async = true;
     auto pixel = CreateRhiShader(device, ps_d);
     if (pixel.IsErr()) return Err<FCompiledShaders>(pixel.Error());
@@ -385,12 +385,12 @@ TResult<FSky::FCompiledShaders> FSky::BeginCompileShadersAsync(
 }
 
 /** VS/PS/定数バッファ/パイプラインを生成する。 */
-TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> CSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kSkyHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FSky.VS";
+    vs_d.debug_name  = "CSky.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     FCompiledShaders compiled{};
@@ -400,7 +400,7 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kSkyHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FSky.PS";
+    ps_d.debug_name  = "CSky.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     compiled.pixel = Move(ps_r.Value());
@@ -410,13 +410,13 @@ TResult<void> FSky::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_fo
 }
 
 /** Install compiled bytecode and atomically publish owner-thread resources. */
-TResult<void> FSky::InitWithCompiledShaders(
+TResult<void> CSky::InitWithCompiledShaders(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     EFormat rt_format,
     EFormat depth_format) noexcept {
     if (shaders.vertex.Get() == nullptr || shaders.pixel.Get() == nullptr) {
-        return ACS_ERR(Render, 576, "FSky compiled shader set is incomplete");
+        return ACS_ERR(Render, 576, "CSky compiled shader set is incomplete");
     }
 
     FBufferDesc cbd{};
@@ -439,7 +439,7 @@ TResult<void> FSky::InitWithCompiledShaders(
     pd.blend_mode    = EBlendMode::Opaque;
     pd.cbuffer_slots = 1;
     pd.texture_slots = 0;
-    pd.cbuffer_names[0] = "FSky";
+    pd.cbuffer_names[0] = "CSky";
     pd.layout_count  = 0;
     pd.vertex_stride = 0;
     auto pl_r = CreateRhiPipeline(device, pd);
@@ -458,7 +458,7 @@ TResult<void> FSky::InitWithCompiledShaders(
 }
 
 /** GPU リソースを解放する。 */
-void FSky::Shutdown() noexcept {
+void CSky::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Cb.Reset();
     m_Ps.Reset();
@@ -466,7 +466,7 @@ void FSky::Shutdown() noexcept {
 }
 
 /** 昼空プリセット (青空 + 白い太陽) を適用する。 */
-void FSky::PresetDay() noexcept {
+void CSky::PresetDay() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.4f, 0.7f, 0.4f});
     m_SunColor   = FVec3{1.0f, 0.95f, 0.85f};
     m_SunRadius  = 0.0006f;
@@ -481,7 +481,7 @@ void FSky::PresetDay() noexcept {
 }
 
 /** 夕焼けプリセット (茜色 + 暖色太陽) を適用する。 */
-void FSky::PresetSunset() noexcept {
+void CSky::PresetSunset() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.7f, 0.05f, 0.5f});
     m_SunColor   = FVec3{1.0f, 0.55f, 0.25f};
     m_SunRadius  = 0.001f;
@@ -496,7 +496,7 @@ void FSky::PresetSunset() noexcept {
 }
 
 /** 夜空プリセット (紺青 + 弱い月光) を適用する。 */
-void FSky::PresetNight() noexcept {
+void CSky::PresetNight() noexcept {
     m_SunDir     = NormalizeSafe(FVec3{0.3f, 0.6f, 0.2f});
     m_SunColor   = FVec3{0.85f, 0.85f, 0.95f};
     m_SunRadius  = 0.0008f;
@@ -511,7 +511,7 @@ void FSky::PresetNight() noexcept {
 }
 
 /** 定数バッファを更新し、フルスクリーン三角形でスカイを描画する。 */
-void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
+void CSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     if (!m_Pipeline || !m_Cb) return;
     FSkyCb cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());
@@ -538,7 +538,7 @@ void FSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
     m_Time += 1.0f / 60.0f;
 }
 
-// ===================== FVolumetricClouds (GPU レイマーチ) =====================
+// ===================== CVolumetricClouds (GPU レイマーチ) =====================
 namespace {
 
 // 雲レイマーチ compute。視線ごとに雲スラブを march、Worley FBM 密度を coverage/height で remap、
@@ -3285,7 +3285,7 @@ FVolumetricCloudMarchPlan PlanVolumetricCloudRayMarch(
     return out;
 }
 
-void FVolumetricClouds::SetLayer(const FVolumetricCloudLayer& requested) noexcept {
+void CVolumetricClouds::SetLayer(const FVolumetricCloudLayer& requested) noexcept {
     const FVolumetricCloudLayer defaults{};
     FVolumetricCloudLayer layer = requested;
     if (!std::isfinite(layer.base_height)) {
@@ -3332,7 +3332,7 @@ void FVolumetricClouds::SetLayer(const FVolumetricCloudLayer& requested) noexcep
     }
 }
 
-EShaderStatus FVolumetricClouds::FCompiledShaders::Status() const noexcept {
+EShaderStatus CVolumetricClouds::FCompiledShaders::Status() const noexcept {
     IRhiShader* const mandatory[] = {
         cloud.Get(),
         noise.Get(),
@@ -3371,7 +3371,7 @@ EShaderStatus FVolumetricClouds::FCompiledShaders::Status() const noexcept {
 
 namespace {
 
-TResult<FVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
+TResult<CVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
     IRhiDevice& device, bool compile_async) noexcept {
     if (compile_async && !device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
@@ -3392,12 +3392,12 @@ TResult<FVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
         return CreateRhiShader(device, desc);
     };
 
-    FVolumetricClouds::FCompiledShaders shaders{};
+    CVolumetricClouds::FCompiledShaders shaders{};
 #define ACS_CREATE_CLOUD_SHADER(member, stage, source, entry, name)           \
     do {                                                                      \
         auto result = compile(stage, source, entry, name);                    \
         if (result.IsErr()) {                                                 \
-            return Err<FVolumetricClouds::FCompiledShaders>(result.Error());  \
+            return Err<CVolumetricClouds::FCompiledShaders>(result.Error());  \
         }                                                                     \
         shaders.member = Move(result.Value());                                \
     } while (false)
@@ -3437,14 +3437,14 @@ TResult<FVolumetricClouds::FCompiledShaders> CreateCloudShaderSet(
         }
     }
 #undef ACS_CREATE_CLOUD_SHADER
-    return TResult<FVolumetricClouds::FCompiledShaders>(
+    return TResult<CVolumetricClouds::FCompiledShaders>(
         OkInit, Move(shaders));
 }
 
 } // namespace
 
-TResult<FVolumetricClouds::FCompiledShaders>
-FVolumetricClouds::CompileShadersCpu() noexcept {
+TResult<CVolumetricClouds::FCompiledShaders>
+CVolumetricClouds::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     auto compile = [](EShaderStage stage, const char* source,
                       const char* entry, const char* name) noexcept
@@ -3525,7 +3525,7 @@ FVolumetricClouds::CompileShadersCpu() noexcept {
 #endif
 }
 
-TResult<void> FVolumetricClouds::Init(
+TResult<void> CVolumetricClouds::Init(
     IRhiDevice& device, EFormat hdr_format) noexcept {
     auto shader_result = CreateCloudShaderSet(device, false);
     if (shader_result.IsErr()) return Err<void>(shader_result.Error());
@@ -3533,12 +3533,12 @@ TResult<void> FVolumetricClouds::Init(
         device, Move(shader_result.Value()), hdr_format);
 }
 
-TResult<FVolumetricClouds::FCompiledShaders>
-FVolumetricClouds::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+TResult<CVolumetricClouds::FCompiledShaders>
+CVolumetricClouds::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     return CreateCloudShaderSet(device, true);
 }
 
-TResult<void> FVolumetricClouds::InitWithCompiledShaders(
+TResult<void> CVolumetricClouds::InitWithCompiledShaders(
     IRhiDevice& device, FCompiledShaders&& shaders,
     EFormat hdr_format) noexcept {
     if (!shaders.cloud || !shaders.noise || !shaders.weather ||
@@ -3550,7 +3550,7 @@ TResult<void> FVolumetricClouds::InitWithCompiledShaders(
             "Volumetric-cloud compiled shader set is incomplete");
     }
 
-    FVolumetricClouds candidate;
+    CVolumetricClouds candidate;
     candidate.m_Layer = m_Layer;
     auto result = candidate.InitCandidateWithCompiledShaders(
         device, Move(shaders), hdr_format);
@@ -3565,7 +3565,7 @@ TResult<void> FVolumetricClouds::InitWithCompiledShaders(
     return Ok();
 }
 
-TResult<void> FVolumetricClouds::InitCandidateWithCompiledShaders(
+TResult<void> CVolumetricClouds::InitCandidateWithCompiledShaders(
     IRhiDevice& device, FCompiledShaders&& shaders,
     EFormat hdr_format) noexcept {
     m_HdrFormat = hdr_format;
@@ -3690,7 +3690,7 @@ TResult<void> FVolumetricClouds::InitCandidateWithCompiledShaders(
             m_ShadowCs.Reset();
             if (kVolumetricCloudShadowCacheEnabled) {
                 ACS_LOG_WARN(
-                    "FVolumetricClouds: optional sun-depth cache unavailable; "
+                    "CVolumetricClouds: optional sun-depth cache unavailable; "
                     "exact lighting fallback remains active");
             }
         }
@@ -3846,11 +3846,11 @@ TResult<void> FVolumetricClouds::InitCandidateWithCompiledShaders(
     {   FBufferDesc bd{}; bd.size = CBSize<FCloudAtmosphereCb>(); bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
         auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_CompAtmosCb = Move(r.Value()); }
     m_Ready = true;
-    ACS_LOG_INFO("FVolumetricClouds: compute raymarch, bilateral resolve, and temporal reprojection initialized");
+    ACS_LOG_INFO("CVolumetricClouds: compute raymarch, bilateral resolve, and temporal reprojection initialized");
     return Ok();
 }
 
-bool FVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
+bool CVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
                                    f32 render_scale) noexcept {
     if (!m_Ready) return false;
     const u32 fw = scW > 0 ? scW : 1;
@@ -3916,7 +3916,7 @@ bool FVolumetricClouds::EnsureSize(IRhiDevice& device, u32 scW, u32 scH,
     return true;
 }
 
-void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
+void CVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view_proj, FVec3 cam_pos,
                                       FVec3 sun_dir, FVec3 sun_color, FVec3 sky_color,
                                       f32 coverage, f32 density, f32 wind, f32 time) noexcept {
     const bool historyWasAvailable = m_HistoryValid;
@@ -4421,7 +4421,7 @@ void FVolumetricClouds::RenderCompute(IRhiCommandList& cl, const FMat4& inv_view
     m_PrevTime = safeTime;
 }
 
-void FVolumetricClouds::Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
+void CVolumetricClouds::Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
                                   u32 scW, u32 scH,
                                   IRhiTexture* atmosphere_volume,
                                   IRhiTexture* atmosphere_transmittance,
@@ -4458,7 +4458,7 @@ void FVolumetricClouds::Composite(IRhiCommandList& cl, IRhiTexture& scene_depth,
     }
 }
 
-void FVolumetricClouds::Shutdown() noexcept {
+void CVolumetricClouds::Shutdown() noexcept {
     m_ShapeTex.Reset(); m_NoisePipe.Reset(); m_NoiseCs.Reset(); m_NoiseBaked = false;
     m_WeatherTex.Reset(); m_WeatherPipe.Reset(); m_WeatherCs.Reset(); m_WeatherBaked = false;
     m_DetailTex.Reset(); m_DetailPipe.Reset(); m_DetailCs.Reset(); m_DetailBaked = false;

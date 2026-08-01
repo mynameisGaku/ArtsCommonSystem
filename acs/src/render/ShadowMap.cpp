@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FShadowMap 実装 (single + CSM atlas)
+// CShadowMap 実装 (single + CSM atlas)
 #include "render/ShadowMap.h"
 #include "asset/MeshAsset.h"          // MeshVertex の input layout 用
 #include "math/Math.h"
@@ -135,7 +135,7 @@ ACS_FORCEINLINE void StabilizeOrthoProjection(const FMat4& light_view,
 } // namespace
 
 /** 深度テクスチャ・キャスター VS・定数バッファ・depth-only パイプラインを生成する。 */
-TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
+TResult<void> CShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) noexcept {
     Shutdown();
 
     if (size == 0) size = 2048;
@@ -192,7 +192,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
         if (!EnsureCasterCapacity(cascade, 1u))
             return fail_init(ACS_ERR(
                 Render, 115,
-                "FShadowMap: failed to create caster constant buffer"));
+                "CShadowMap: failed to create caster constant buffer"));
     }
 
     // 深度のみパイプライン。
@@ -226,7 +226,7 @@ TResult<void> FShadowMap::Init(IRhiDevice& device, u32 size, u32 cascade_count) 
 }
 
 /** 確保した GPU リソースを解放し、サイズ・cascade 数を初期状態に戻す。 */
-void FShadowMap::Shutdown() noexcept {
+void CShadowMap::Shutdown() noexcept {
     m_Pipeline.Reset();
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
         m_ObjectCbs[cascade].ReleaseStorage();
@@ -250,7 +250,7 @@ void FShadowMap::Shutdown() noexcept {
 }
 
 /** Reset the CPU cursor; already-recorded GPU addresses remain immutable. */
-bool FShadowMap::BeginFrame(
+bool CShadowMap::BeginFrame(
     u32 required_casters_per_cascade) noexcept {
     m_TotalCasterDrawCount = 0;
     for (u32 cascade = 0; cascade < kMaxCascades; ++cascade) {
@@ -278,7 +278,7 @@ bool FShadowMap::BeginFrame(
 }
 
 /** Grow one cascade's persistent immutable per-draw CB pool. */
-bool FShadowMap::EnsureCasterCapacity(
+bool CShadowMap::EnsureCasterCapacity(
     u32 cascade, u32 required_casters) noexcept {
     if (cascade >= m_CascadeCapacity || !m_Device ||
         required_casters == kInvalidCasterBuffer) return false;
@@ -312,7 +312,7 @@ bool FShadowMap::EnsureCasterCapacity(
 }
 
 /** single cascade 用に光源の LookAt + ortho を組み、cascade 0 の light VP を更新する。 */
-void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
+void CShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) noexcept {
     // This API publishes a single shadow volume even when Init reserved a CSM
     // atlas. Keep the active API state aligned with the only CB updated below;
     // SetDirectionalLightCascades can restore the reserved capacity later.
@@ -362,7 +362,7 @@ void FShadowMap::SetDirectionalLight(FVec3 light_dir, FVec3 center, f32 radius) 
 }
 
 /** CSM 用に frustum を分割し、各 cascade の bounding sphere から light VP を計算する。 */
-void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
+void CShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
                                              const FMat4& view, const FMat4& proj,
                                              f32 near_z, f32 far_z,
                                              f32 lambda) noexcept {
@@ -520,18 +520,18 @@ void FShadowMap::SetDirectionalLightCascades(FVec3 light_dir,
 }
 
 /** Select a cascade-specific CB without overwriting an already-recorded address. */
-void FShadowMap::SetCurrentCascade(u32 cascade) noexcept {
+void CShadowMap::SetCurrentCascade(u32 cascade) noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
     m_CurrentCascade = cascade;
 }
 
 /** 後方互換 API。失敗は CasterOverflowed() で照会できる。 */
-void FShadowMap::SetCaster(const FMat4& model) noexcept {
+void CShadowMap::SetCaster(const FMat4& model) noexcept {
     (void)TrySetCaster(model);
 }
 
 /** Write the model matrix to a buffer used by this draw only. */
-bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
+bool CShadowMap::TrySetCaster(const FMat4& model) noexcept {
     if (!IsFinite(model) || !m_FrameCapacityReady) return false;
     const u32 cascade = m_CurrentCascade;
     u32& draw_count = m_CasterDrawCounts[cascade];
@@ -540,7 +540,7 @@ bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
         m_CasterOverflowed[cascade] = true;
         if (!m_CasterWarningIssued[cascade]) {
             ACS_LOG_WARN(
-                "FShadowMap cascade %u caster cursor overflow; "
+                "CShadowMap cascade %u caster cursor overflow; "
                 "remaining caster draws are skipped", cascade);
             m_CasterWarningIssued[cascade] = true;
         }
@@ -553,7 +553,7 @@ bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
         m_CasterOverflowed[cascade] = true;
         if (!m_CasterWarningIssued[cascade]) {
             ACS_LOG_WARN(
-                "FShadowMap failed to grow cascade %u caster-CB pool "
+                "CShadowMap failed to grow cascade %u caster-CB pool "
                 "(required=%u, retained=%zu); remaining pass is skipped",
                 cascade, slot + 1u, m_ObjectCbs[cascade].Size());
             m_CasterWarningIssued[cascade] = true;
@@ -571,7 +571,7 @@ bool FShadowMap::TrySetCaster(const FMat4& model) noexcept {
 }
 
 /** atlas 内の cascade 領域に対応する viewport を組み立てて返す。 */
-FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
+FViewport CShadowMap::CascadeViewport(u32 cascade) const noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
     FViewport vp{};
     vp.x         = static_cast<f32>(cascade * m_Size);
@@ -585,7 +585,7 @@ FViewport FShadowMap::CascadeViewport(u32 cascade) const noexcept {
 }
 
 /** atlas 内の cascade 領域に対応する scissor を組み立てて返す。 */
-FScissorRect FShadowMap::CascadeScissor(u32 cascade) const noexcept {
+FScissorRect CShadowMap::CascadeScissor(u32 cascade) const noexcept {
     if (cascade >= m_CascadeCount) cascade = 0;
     FScissorRect r{};
     r.left   = static_cast<i32>(cascade * m_Size);

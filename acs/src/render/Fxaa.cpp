@@ -165,12 +165,12 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-TResult<void> FFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
+TResult<void> CFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kFxaaHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FFxaa.VS";
+    vs_d.debug_name  = "CFxaa.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     m_Vs = Move(vs_r.Value());
@@ -179,7 +179,7 @@ TResult<void> FFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kFxaaHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FFxaa.PS";
+    ps_d.debug_name  = "CFxaa.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     m_Ps = Move(ps_r.Value());
@@ -208,13 +208,13 @@ TResult<void> FFxaa::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     return Ok();
 }
 
-void FFxaa::Shutdown() noexcept {
+void CFxaa::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_Ps.Reset();
     m_Vs.Reset();
 }
 
-void FFxaa::Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept {
+void CFxaa::Apply(IRhiCommandList& cmd, IRhiTexture& src) noexcept {
     if (!m_Pipeline) return;
     cmd.SetPipeline(*m_Pipeline);
     cmd.SetTexture(0, src);

@@ -15,7 +15,7 @@ namespace acs {
  * inclusive な寿命区間が重ならない場合だけ同一 slot を選ぶ。入力順に依存しない
  * pass 順の決定的な greedy 計画を作り、GPU alias barrier の実体化は行わない。
  */
-class FRenderGraphTransientAliasPlanner {
+class CRenderGraphTransientAliasPlanner {
 public:
     /**
      * 寿命配列から alias 候補計画を構築する。
@@ -75,5 +75,9 @@ private:
     /** 現在の計画集計。 */
     FRenderGraphAliasPlanSummary m_Summary{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FRenderGraphTransientAliasPlanner = CRenderGraphTransientAliasPlanner;
+
 
 } // namespace acs

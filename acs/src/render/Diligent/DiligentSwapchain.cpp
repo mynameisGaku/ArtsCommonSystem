@@ -28,7 +28,7 @@ void FDiligentSwapchain::Reset() noexcept
 }
 
 /** ウィンドウに対してバックエンド別 factory でスワップチェインを生成する。 */
-TResult<void> FDiligentSwapchain::Init(FDiligentDevice& device, const FSwapchainConfig& cfg) noexcept {
+TResult<void> FDiligentSwapchain::Init(CDiligentDevice& device, const FSwapchainConfig& cfg) noexcept {
     Reset();
     m_Device = &device;
     m_BufferCount = (cfg.buffer_count >= 2 && cfg.buffer_count <= 3) ? cfg.buffer_count : 2;
@@ -52,7 +52,7 @@ TResult<void> FDiligentSwapchain::Init(FDiligentDevice& device, const FSwapchain
     sd.PreTransform      = Diligent::SURFACE_TRANSFORM_OPTIMAL;
     sd.Usage             = Diligent::SWAP_CHAIN_USAGE_RENDER_TARGET;
     // Present() が Diligent の FinishFrame()/ReleaseStaleResources() を担う契約を
-    // ACS 側でも明示する。off-screen submission は FDiligentDevice が別途閉じる。
+    // ACS 側でも明示する。off-screen submission は CDiligentDevice が別途閉じる。
     sd.IsPrimary         = true;
 
     Diligent::Win32NativeWindow win{};
@@ -103,7 +103,7 @@ bool FDiligentSwapchain::Present() noexcept {
     // IsPrimary=true の Present は Diligent 内部で FinishFrame() 済み。
     // Success or failure, clear the pending marker so shutdown never performs
     // a second FinishFrame for the same primary Present. Fence failure and
-    // backend device loss are propagated to FRenderer.
+    // backend device loss are propagated to CRenderer.
     const bool finalized =
         m_Device->NotifyPrimaryPresentFinished();
     const bool healthy = m_Device->IsDeviceHealthy();

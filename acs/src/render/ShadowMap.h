@@ -3,7 +3,7 @@
 //
 // 2 つのモード:
 //   1. Single cascade (既定、cascade_count=1): 1 つの 2D 深度テクスチャに
-//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (FStandardShader) や
+//      シーン全体を 1 つの ortho 投影で描く。HelloShadows (CStandardShader) や
 //      昔の HelloIbl が使う伝統的な方式。
 //   2. Cascaded Shadow Map (CSM、cascade_count >= 2): カメラ frustum を
 //      距離で 2-4 個に分割し、近景は高解像度・遠景は広範囲を 1 枚の atlas
@@ -12,7 +12,7 @@
 //      保てる (UE5 等 large outdoor scene の標準解)。
 //
 // 使い方 (single cascade、後方互換):
-//   FShadowMap sm;
+//   CShadowMap sm;
 //   sm.Init(*dev, /*size=*/2048);                    // cascade_count=1 既定
 //   sm.SetDirectionalLight(light_dir, scene_center, 15.0f);
 //   if (!sm.BeginFrame(/* casters */ 1)) return;
@@ -27,7 +27,7 @@
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
 // 使い方 (CSM、3 cascade):
-//   FShadowMap sm;
+//   CShadowMap sm;
 //   sm.Init(*dev, 2048, /*cascade_count=*/3);
 //   sm.SetDirectionalLightCascades(light_dir, view, proj, 0.1f, 100.0f);
 //   if (!sm.BeginFrame(/* casters per cascade */ 1)) return;
@@ -46,7 +46,7 @@
 //   }
 //   cl->EndShadowPass(*sm.DepthTexture());
 //
-// 主パスでの使用 (FPbrShader 統合):
+// 主パスでの使用 (CPbrShader 統合):
 //   single mode: pbr.SetShadowMap(*sm.DepthTexture(), sm.LightViewProjection(), ...);
 //   CSM mode   : FMat4 vps[3] = { sm.LightViewProjection(0), sm.LightViewProjection(1), sm.LightViewProjection(2) };
 //                f32  spl[3] = { sm.CascadeSplit(0), sm.CascadeSplit(1), sm.CascadeSplit(2) };
@@ -76,7 +76,7 @@ namespace acs {
  * 近景は高解像度・遠景は広範囲を 1 枚の atlas (width = cascade_count * size、height = size)
  * に並べる (CSM)。GPU リソースを単独所有する non-copy 型。
  */
-class FShadowMap {
+class CShadowMap {
 public:
     /** サポートする cascade の最大数。 */
     static constexpr u32 kMaxCascades = 4;
@@ -92,16 +92,16 @@ public:
         kMaxCascades * 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FShadowMap() noexcept = default;
+    CShadowMap() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FShadowMap() noexcept = default;
+    ~CShadowMap() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FShadowMap(const FShadowMap&)            = delete;
+    CShadowMap(const CShadowMap&)            = delete;
 
     /** コピー代入も禁止。 */
-    FShadowMap& operator=(const FShadowMap&) = delete;
+    CShadowMap& operator=(const CShadowMap&) = delete;
 
     /**
      * 深度テクスチャとキャスター用パイプラインを生成する。
@@ -346,5 +346,9 @@ private:
     bool                    m_CasterOverflowed[kMaxCascades] = {};
     bool                    m_CasterWarningIssued[kMaxCascades] = {};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FShadowMap = CShadowMap;
+
 
 } // namespace acs

@@ -53,7 +53,7 @@ Diligent::ITextureView* FDiligentTexture::RtvSlice(u32 slice, u32 mip) const noe
 }
 
 /** 記述に従ってテクスチャ・default view・任意の per-slice RTV を生成する。 */
-TResult<void> FDiligentTexture::Init(FDiligentDevice& device, const FTextureDesc& desc) noexcept {
+TResult<void> FDiligentTexture::Init(CDiligentDevice& device, const FTextureDesc& desc) noexcept {
     Reset();
 
     auto* dev = device.RenderDev();

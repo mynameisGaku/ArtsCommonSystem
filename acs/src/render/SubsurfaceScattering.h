@@ -71,10 +71,10 @@ struct FSubsurfaceScatteringParams {
  * empty RGB profile.
  *
  * Integration order:
- *   opaque lighting + SSS buffers -> FSubsurfaceScattering -> transparent /
+ *   opaque lighting + SSS buffers -> CSubsurfaceScattering -> transparent /
  *   atmosphere -> scene-linear TAA -> exposure -> bloom -> tone map.
  */
-class FSubsurfaceScattering {
+class CSubsurfaceScattering {
 public:
     /** Shader handles compiled away from owner-thread PSO/resource creation. */
     struct FCompiledShaders {
@@ -86,11 +86,11 @@ public:
         EShaderStatus Status() const noexcept;
     };
 
-    FSubsurfaceScattering() noexcept = default;
-    ~FSubsurfaceScattering() noexcept = default;
+    CSubsurfaceScattering() noexcept = default;
+    ~CSubsurfaceScattering() noexcept = default;
 
-    FSubsurfaceScattering(const FSubsurfaceScattering&) = delete;
-    FSubsurfaceScattering& operator=(const FSubsurfaceScattering&) = delete;
+    CSubsurfaceScattering(const CSubsurfaceScattering&) = delete;
+    CSubsurfaceScattering& operator=(const CSubsurfaceScattering&) = delete;
 
     /** Create shaders, PSOs, constant buffers and full-resolution HDR targets. */
     TResult<void> Init(IRhiDevice& device, u32 width, u32 height) noexcept;
@@ -207,5 +207,9 @@ private:
     TUniquePtr<IRhiBuffer> m_HorizontalCb;
     TUniquePtr<IRhiBuffer> m_VerticalCb;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSubsurfaceScattering = CSubsurfaceScattering;
+
 
 } // namespace acs

@@ -890,13 +890,13 @@ float4 PSLit(VSOut v) : SV_TARGET {
 
 } // namespace
 
-FSpriteBatch::~FSpriteBatch() noexcept
+CSpriteBatch::~CSpriteBatch() noexcept
 {
     // device が先に破棄された場合もあるため、デストラクタでは非所有ポインタを参照しない。
     ReleaseResources();
 }
 
-TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites,
+TResult<void> CSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_sprites,
                                  u32 msaa_samples) noexcept {
     // 再初期化時も、以前の成功状態や部分初期化状態を残さない。
     Shutdown();
@@ -912,7 +912,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     // overflow して過小確保 → 索引バッファ書き込みで heap overflow し得る。上限で拒否する。
     constexpr u32 kMaxSpritesPerBatch = 65536u / 4u;  // = 16384
     if (max_sprites > kMaxSpritesPerBatch) {
-        return fail(ACS_ERR(Render, 252, "FSpriteBatch::Init: max_sprites exceeds u16 index limit (16384)"));
+        return fail(ACS_ERR(Render, 252, "CSpriteBatch::Init: max_sprites exceeds u16 index limit (16384)"));
     }
     m_MaxSprites  = max_sprites;
     m_Device      = &device;     // ステンシル PSO の遅延生成で再利用
@@ -951,13 +951,13 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
     // CPU 側のステージング配列（各フレームここに頂点を積んでから VB へコピー）
     m_VertexAllocator = &DefaultAllocator();
     m_VertexCpu = static_cast<FVertex*>(m_VertexAllocator->Alloc(vb_size));
-    if (!m_VertexCpu) return fail(ACS_ERR(Memory, 250, "FSpriteBatch: vertex stage alloc"));
+    if (!m_VertexCpu) return fail(ACS_ERR(Memory, 250, "CSpriteBatch: vertex stage alloc"));
 
     // === インデックスバッファ（quad ごとに 6 indices、固定）===
     const u32 idx_count = max_sprites * 6;
     FAllocator& allocator = DefaultAllocator();
     u16* idx_ptr = static_cast<u16*>(allocator.Alloc(sizeof(u16) * idx_count));
-    if (!idx_ptr) return fail(ACS_ERR(Memory, 251, "FSpriteBatch: index alloc"));
+    if (!idx_ptr) return fail(ACS_ERR(Memory, 251, "CSpriteBatch: index alloc"));
     for (u32 i = 0; i < max_sprites; ++i) {
         const u16 base = static_cast<u16>(i * 4);
         idx_ptr[i*6 + 0] = base + 0;
@@ -1016,7 +1016,7 @@ TResult<void> FSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
 
 // vs/ps/layout/blend/sampler/slot など、全 SpriteBatch PSO 共通の部分を埋める。
 // depth_format / depth_test / stencil は呼び出し側がパス種別に応じて設定する。
-void FSpriteBatch::FillCommonPipelineDesc(FPipelineDesc& pd) const noexcept {
+void CSpriteBatch::FillCommonPipelineDesc(FPipelineDesc& pd) const noexcept {
     pd.vs = m_Vs.Get();
     pd.ps = m_Ps.Get();
     pd.topology      = EPrimitiveTopology::TriangleList;
@@ -1041,7 +1041,7 @@ void FSpriteBatch::FillCommonPipelineDesc(FPipelineDesc& pd) const noexcept {
 
 // ステンシル 4 モードの PSO を遅延生成する。すべて DSVFormat=D24S8 で、深度テスト/
 // 書込みは無効 (2D)。StencilEnable と比較/操作だけがモードごとに異なる。
-bool FSpriteBatch::EnsureStencilPipelines() noexcept {
+bool CSpriteBatch::EnsureStencilPipelines() noexcept {
     if (m_StencilReady) return true;
     if (!m_Device) return false;
 
@@ -1065,7 +1065,7 @@ bool FSpriteBatch::EnsureStencilPipelines() noexcept {
         pd.stencil.depth_fail_op = EStencilOp::Keep;
         auto r = CreateRhiPipeline(*m_Device, pd);
         if (r.IsErr()) {
-            ACS_LOG_ERROR("FSpriteBatch: ステンシル PSO %u の生成に失敗", i);
+            ACS_LOG_ERROR("CSpriteBatch: ステンシル PSO %u の生成に失敗", i);
             return false;
         }
         m_StencilPipe[i] = Move(r.Value());
@@ -1074,7 +1074,7 @@ bool FSpriteBatch::EnsureStencilPipelines() noexcept {
     return true;
 }
 
-bool FSpriteBatch::EnsureAdditivePipeline() noexcept {
+bool CSpriteBatch::EnsureAdditivePipeline() noexcept {
     if (m_AdditiveReady) return true;
     if (!m_Device) return false;
     FPipelineDesc pd{};
@@ -1083,13 +1083,13 @@ bool FSpriteBatch::EnsureAdditivePipeline() noexcept {
     pd.depth_format = EFormat::Unknown;
     pd.depth_test   = false;
     auto r = CreateRhiPipeline(*m_Device, pd);
-    if (r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 加算 PSO の生成に失敗"); return false; }
+    if (r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: 加算 PSO の生成に失敗"); return false; }
     m_AdditivePipe = Move(r.Value());
     m_AdditiveReady = true;
     return true;
 }
 
-bool FSpriteBatch::EnsureOpaquePipeline() noexcept {
+bool CSpriteBatch::EnsureOpaquePipeline() noexcept {
     if (m_OpaqueReady) return true;
     if (!m_Device) return false;
     FPipelineDesc pd{};
@@ -1099,7 +1099,7 @@ bool FSpriteBatch::EnsureOpaquePipeline() noexcept {
     pd.depth_test = false;
     auto r = CreateRhiPipeline(*m_Device, pd);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("FSpriteBatch: 不透明 PSO の生成に失敗");
+        ACS_LOG_ERROR("CSpriteBatch: 不透明 PSO の生成に失敗");
         return false;
     }
     m_OpaquePipe = Move(r.Value());
@@ -1107,7 +1107,7 @@ bool FSpriteBatch::EnsureOpaquePipeline() noexcept {
     return true;
 }
 
-bool FSpriteBatch::EnsureMultiplyPipeline() noexcept {
+bool CSpriteBatch::EnsureMultiplyPipeline() noexcept {
     if (m_MultiplyReady) return true;
     if (!m_Device) return false;
     FPipelineDesc pd{};
@@ -1117,7 +1117,7 @@ bool FSpriteBatch::EnsureMultiplyPipeline() noexcept {
     pd.depth_test = false;
     auto r = CreateRhiPipeline(*m_Device, pd);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("FSpriteBatch: 乗算 PSO の生成に失敗");
+        ACS_LOG_ERROR("CSpriteBatch: 乗算 PSO の生成に失敗");
         return false;
     }
     m_MultiplyPipe = Move(r.Value());
@@ -1125,7 +1125,7 @@ bool FSpriteBatch::EnsureMultiplyPipeline() noexcept {
     return true;
 }
 
-bool FSpriteBatch::EnsureAdditivePreserveAlphaPipeline() noexcept {
+bool CSpriteBatch::EnsureAdditivePreserveAlphaPipeline() noexcept {
     if (m_AdditivePreserveAlphaReady) return true;
     if (!m_Device) return false;
     FPipelineDesc pd{};
@@ -1135,7 +1135,7 @@ bool FSpriteBatch::EnsureAdditivePreserveAlphaPipeline() noexcept {
     pd.depth_test = false;
     auto r = CreateRhiPipeline(*m_Device, pd);
     if (r.IsErr()) {
-        ACS_LOG_ERROR("FSpriteBatch: alpha 保持加算 PSO の生成に失敗");
+        ACS_LOG_ERROR("CSpriteBatch: alpha 保持加算 PSO の生成に失敗");
         return false;
     }
     m_AdditivePreserveAlphaPipe = Move(r.Value());
@@ -1146,7 +1146,7 @@ bool FSpriteBatch::EnsureAdditivePreserveAlphaPipeline() noexcept {
 // ピクセル効果 PS + PSO + 効果 CB リングを遅延生成する。VS は通常スプライトと共通
 // (m_Vs)。PSO は通常パイプラインと同じ DSV 無し・AlphaBlend で、b1 に cbuffer Effect
 // を 1 本追加するだけ。効果を使わないシーンでは一切作らない。
-bool FSpriteBatch::EnsureEffectPipeline() noexcept {
+bool CSpriteBatch::EnsureEffectPipeline() noexcept {
     if (m_EffectReady) return true;
     if (!m_Device) return false;
 
@@ -1159,7 +1159,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
         FAllocator& allocator = DefaultAllocator();
         u8* pixels = static_cast<u8*>(allocator.Alloc(kNormalBytes));
         if (!pixels) {
-            ACS_LOG_ERROR("FSpriteBatch: 水面法線テクスチャの CPU 生成領域確保に失敗");
+            ACS_LOG_ERROR("CSpriteBatch: 水面法線テクスチャの CPU 生成領域確保に失敗");
             return false;
         }
 
@@ -1227,7 +1227,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
         auto normal_r = CreateRhiTexture(*m_Device, td);
         allocator.Free(pixels);
         if (normal_r.IsErr()) {
-            ACS_LOG_ERROR("FSpriteBatch: 水面法線テクスチャの GPU 生成に失敗");
+            ACS_LOG_ERROR("CSpriteBatch: 水面法線テクスチャの GPU 生成に失敗");
             return false;
         }
         m_WaterNormal = Move(normal_r.Value());
@@ -1239,7 +1239,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
     ps_d.entry_point = "PSEffect";
     ps_d.debug_name  = "Sprite.Effect.PS";
     auto ps_r = CreateRhiShader(*m_Device, ps_d);
-    if (ps_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 PS の生成に失敗"); return false; }
+    if (ps_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: 効果 PS の生成に失敗"); return false; }
     m_EffectPs = Move(ps_r.Value());
 
     for (u32 i = 0; i < kEffectRing; ++i) {
@@ -1248,7 +1248,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(*m_Device, cbd);
-        if (cb_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 CB の生成に失敗"); return false; }
+        if (cb_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: 効果 CB の生成に失敗"); return false; }
         m_EffectCb[i] = Move(cb_r.Value());
     }
     m_EffectCbCur = 0;
@@ -1269,7 +1269,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
     pd.static_samplers[1].address_u = ESamplerAddress::Wrap;
     pd.static_samplers[1].address_v = ESamplerAddress::Wrap;
     auto pl_r = CreateRhiPipeline(*m_Device, pd);
-    if (pl_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 効果 PSO の生成に失敗"); return false; }
+    if (pl_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: 効果 PSO の生成に失敗"); return false; }
     m_EffectPipe = Move(pl_r.Value());
 
     m_EffectReady = true;
@@ -1277,7 +1277,7 @@ bool FSpriteBatch::EnsureEffectPipeline() noexcept {
 }
 
 // lit (PBR) スプライトの VS/PS + PSO + マテリアル/ライト CB + 平面法線テクスチャを遅延生成する。
-bool FSpriteBatch::EnsureLitPipeline() noexcept {
+bool CSpriteBatch::EnsureLitPipeline() noexcept {
     if (m_LitReady) return true;
     if (!m_Device) return false;
 
@@ -1287,7 +1287,7 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
     vs_d.entry_point = "VSLit";
     vs_d.debug_name  = "Sprite.Lit.VS";
     auto vs_r = CreateRhiShader(*m_Device, vs_d);
-    if (vs_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit VS の生成に失敗"); return false; }
+    if (vs_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: lit VS の生成に失敗"); return false; }
     m_LitVs = Move(vs_r.Value());
 
     FShaderDesc ps_d{};
@@ -1296,7 +1296,7 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
     ps_d.entry_point = "PSLit";
     ps_d.debug_name  = "Sprite.Lit.PS";
     auto ps_r = CreateRhiShader(*m_Device, ps_d);
-    if (ps_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit PS の生成に失敗"); return false; }
+    if (ps_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: lit PS の生成に失敗"); return false; }
     m_LitPs = Move(ps_r.Value());
 
     for (u32 i = 0; i < kLitMatRing; ++i) {
@@ -1305,7 +1305,7 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(*m_Device, cbd);
-        if (cb_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit マテリアル CB の生成に失敗"); return false; }
+        if (cb_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: lit マテリアル CB の生成に失敗"); return false; }
         m_LitMatCb[i] = Move(cb_r.Value());
     }
     m_LitMatCbCur = 0;
@@ -1316,7 +1316,7 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
         cbd.usage = EBufferUsage::Uniform;
         cbd.cpu_writable = true;
         auto cb_r = CreateRhiBuffer(*m_Device, cbd);
-        if (cb_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: ライト CB の生成に失敗"); return false; }
+        if (cb_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: ライト CB の生成に失敗"); return false; }
         m_LightsCb = Move(cb_r.Value());
     }
 
@@ -1328,7 +1328,7 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
     td.initial_data = flat_n;
     td.initial_data_size = 4;
     auto nt_r = CreateRhiTexture(*m_Device, td);
-    if (nt_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: 平面法線テクスチャの生成に失敗"); return false; }
+    if (nt_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: 平面法線テクスチャの生成に失敗"); return false; }
     m_FlatNormal = Move(nt_r.Value());
 
     FPipelineDesc pd{};
@@ -1343,14 +1343,14 @@ bool FSpriteBatch::EnsureLitPipeline() noexcept {
     pd.texture_slots = 2;                 // t0=atlas, t1=normal_tex
     pd.texture_names[1] = "normal_tex";
     auto pl_r = CreateRhiPipeline(*m_Device, pd);
-    if (pl_r.IsErr()) { ACS_LOG_ERROR("FSpriteBatch: lit PSO の生成に失敗"); return false; }
+    if (pl_r.IsErr()) { ACS_LOG_ERROR("CSpriteBatch: lit PSO の生成に失敗"); return false; }
     m_LitPipe = Move(pl_r.Value());
 
     m_LitReady = true;
     return true;
 }
 
-void FSpriteBatch::SetBlendMode(EBlendMode mode) noexcept {
+void CSpriteBatch::SetBlendMode(EBlendMode mode) noexcept {
     if (!m_Cl || mode == m_BlendMode) return;
     Flush();                                  // 直前のバッチを現ブレンドで確定
     IRhiPipeline* pl = nullptr;
@@ -1383,7 +1383,7 @@ void FSpriteBatch::SetBlendMode(EBlendMode mode) noexcept {
     m_BlendMode = mode;
 }
 
-void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
+void CSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
     if (!m_Cl) return;
     Flush();                                  // 直前のバッチを現モードで確定
     if (!EnsureStencilPipelines()) return;
@@ -1400,7 +1400,7 @@ void FSpriteBatch::SetStencilMode(EStencilMode mode, u8 ref) noexcept {
     m_StencilMode = mode;
 }
 
-void FSpriteBatch::SetEffect(ESpriteEffect effect, const FEffectParams& params) noexcept {
+void CSpriteBatch::SetEffect(ESpriteEffect effect, const FEffectParams& params) noexcept {
     if (!m_Cl) return;
     if (effect == ESpriteEffect::None) { ClearEffect(); return; }
     Flush();                                   // 直前のバッチを現パイプラインで確定
@@ -1426,7 +1426,7 @@ void FSpriteBatch::SetEffect(ESpriteEffect effect, const FEffectParams& params) 
     m_EffectActive = true;
 }
 
-bool FSpriteBatch::SetWaterSurfaceEffect(const FWaterSurfaceParams& params,
+bool CSpriteBatch::SetWaterSurfaceEffect(const FWaterSurfaceParams& params,
                                          IRhiTexture* scene_color,
                                          IRhiTexture* scene_depth) noexcept {
     if (!m_Cl) return false;
@@ -1497,7 +1497,7 @@ bool FSpriteBatch::SetWaterSurfaceEffect(const FWaterSurfaceParams& params,
     return true;
 }
 
-void FSpriteBatch::ClearEffect() noexcept {
+void CSpriteBatch::ClearEffect() noexcept {
     if (!m_Cl || !m_EffectActive) return;
     Flush();                                   // 効果バッチを確定してから通常へ戻す
     m_Cl->SetPipeline(*m_Pipeline);
@@ -1507,7 +1507,7 @@ void FSpriteBatch::ClearEffect() noexcept {
     m_EffectActive = false;
 }
 
-void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambient,
+void CSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambient,
                              f32 light_height,
                              const FSpriteOccluder* occluders, u32 occ_count) noexcept {
     if (!m_Cl) return;
@@ -1560,7 +1560,7 @@ void FSpriteBatch::SetLights(const FSpriteLight* lights, u32 count, FVec3 ambien
     m_LightsCb->Update(cb, sizeof(cb));
 }
 
-void FSpriteBatch::SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* normal_tex) noexcept {
+void CSpriteBatch::SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* normal_tex) noexcept {
     if (!m_Cl) return;
     Flush();                                   // 直前のバッチを現パイプラインで確定
     if (!EnsureLitPipeline()) return;
@@ -1595,7 +1595,7 @@ void FSpriteBatch::SetLitMaterial(const FLitMaterialParams& mat, IRhiTexture* no
     m_LitActive = true;
 }
 
-void FSpriteBatch::ClearLit() noexcept {
+void CSpriteBatch::ClearLit() noexcept {
     if (!m_Cl || !m_LitActive) return;
     Flush();
     m_Cl->SetPipeline(*m_Pipeline);
@@ -1605,7 +1605,7 @@ void FSpriteBatch::ClearLit() noexcept {
     m_LitActive = false;
 }
 
-void FSpriteBatch::Shutdown() noexcept {
+void CSpriteBatch::Shutdown() noexcept {
     // 再初期化や単独 Shutdown でも、GPU が参照中のリソースを先に破棄しない。
     // m_Device は本バッチより長く生存するという既存の所有契約に従う。
     if (m_Device) m_Device->WaitIdle();
@@ -1613,7 +1613,7 @@ void FSpriteBatch::Shutdown() noexcept {
     ReleaseResources();
 }
 
-void FSpriteBatch::ReleaseResources() noexcept
+void CSpriteBatch::ReleaseResources() noexcept
 {
     // 描画中を指す非所有ポインタは、所有リソースより先に無効化する。
     m_Cl = nullptr;
@@ -1676,7 +1676,7 @@ void FSpriteBatch::ReleaseResources() noexcept
     m_ViewZoom = 1.0f;
 }
 
-void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
+void CSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexcept {
     m_Cl = &cl;
     m_ScreenW = screen_w == 0 ? 1 : screen_w;
     m_ScreenH = screen_h == 0 ? 1 : screen_h;
@@ -1716,11 +1716,11 @@ void FSpriteBatch::Begin(IRhiCommandList& cl, u32 screen_w, u32 screen_h) noexce
     m_CurrentTex = m_White.Get();
 }
 
-void FSpriteBatch::Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, FVec4 tint) noexcept {
+void CSpriteBatch::Draw(IRhiTexture& tex, f32 x, f32 y, f32 w, f32 h, FVec4 tint) noexcept {
     DrawSub(tex, x, y, w, h, 0, 0, 1, 1, tint);
 }
 
-void FSpriteBatch::DrawSub(IRhiTexture& tex,
+void CSpriteBatch::DrawSub(IRhiTexture& tex,
                           f32 x, f32 y, f32 w, f32 h,
                           f32 u0, f32 v0, f32 u1, f32 v1,
                           FVec4 tint) noexcept {
@@ -1740,11 +1740,11 @@ void FSpriteBatch::DrawSub(IRhiTexture& tex,
     ++m_SpriteCount;
 }
 
-void FSpriteBatch::DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color) noexcept {
+void CSpriteBatch::DrawRect(f32 x, f32 y, f32 w, f32 h, FVec4 color) noexcept {
     DrawSub(*m_White, x, y, w, h, 0, 0, 1, 1, color);
 }
 
-void FSpriteBatch::DrawRotated(IRhiTexture& tex,
+void CSpriteBatch::DrawRotated(IRhiTexture& tex,
                               f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                               f32 u0, f32 v0, f32 u1, f32 v1,
                               FVec4 tint) noexcept {
@@ -1772,18 +1772,18 @@ void FSpriteBatch::DrawRotated(IRhiTexture& tex,
     ++m_SpriteCount;
 }
 
-void FSpriteBatch::DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
+void CSpriteBatch::DrawRectRotated(f32 cx, f32 cy, f32 w, f32 h, f32 radians,
                                    FVec4 color) noexcept {
     DrawRotated(*m_White, cx, cy, w, h, radians, 0, 0, 1, 1, color);
 }
 
-void FSpriteBatch::SetDrawSuppressed(bool suppress) noexcept {
+void CSpriteBatch::SetDrawSuppressed(bool suppress) noexcept {
     if (m_DrawSuppressed == suppress) return;
     Flush();
     m_DrawSuppressed = suppress;
 }
 
-void FSpriteBatch::WriteScreenCBuffer() noexcept {
+void CSpriteBatch::WriteScreenCBuffer() noexcept {
     const f32 sw = static_cast<f32>(m_ScreenW);
     const f32 sh = static_cast<f32>(m_ScreenH);
     f32 cb[8] = {
@@ -1793,15 +1793,15 @@ void FSpriteBatch::WriteScreenCBuffer() noexcept {
     m_Cb[m_CbCur]->Update(cb, sizeof(cb));
 }
 
-void FSpriteBatch::AdvanceViewBuffer() noexcept {
+void CSpriteBatch::AdvanceViewBuffer() noexcept {
     m_CbCur = (m_CbCur + 1u) % kViewRing;
 }
 
-void FSpriteBatch::BindViewBuffer() noexcept {
+void CSpriteBatch::BindViewBuffer() noexcept {
     if (m_Cl) m_Cl->SetConstantBuffer(0, *m_Cb[m_CbCur]);
 }
 
-void FSpriteBatch::SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept {
+void CSpriteBatch::SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept {
     if (!m_Cl) return;
     Flush();   // 既存バッチを「現在の view バッファ」で確定してから切り替える
     // 別スロットへ進めて新 view を書き、root CBV を貼り直す。これで Flush 済みの
@@ -1814,21 +1814,21 @@ void FSpriteBatch::SetView(f32 cam_x, f32 cam_y, f32 zoom) noexcept {
     BindViewBuffer();
 }
 
-void FSpriteBatch::SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept {
+void CSpriteBatch::SetClipRect(i32 x, i32 y, i32 w, i32 h) noexcept {
     if (!m_Cl) return;
     Flush();   // クリップ変更前のバッチを確定
     FScissorRect sr{ x, y, x + w, y + h };
     m_Cl->SetScissor(sr);
 }
 
-void FSpriteBatch::ClearClipRect() noexcept {
+void CSpriteBatch::ClearClipRect() noexcept {
     if (!m_Cl) return;
     Flush();
     FScissorRect sr{ 0, 0, static_cast<i32>(m_ScreenW), static_cast<i32>(m_ScreenH) };
     m_Cl->SetScissor(sr);
 }
 
-void FSpriteBatch::DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+void CSpriteBatch::DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                                  FVec4 c0, FVec4 c1, FVec4 c2) noexcept {
     if (!m_Cl || m_DrawSuppressed) return;
     if (m_CurrentTex && m_CurrentTex != m_White.Get()) Flush();
@@ -1845,7 +1845,7 @@ void FSpriteBatch::DrawTriangleVC(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2
     ++m_SpriteCount;
 }
 
-void FSpriteBatch::DrawTriangleVCUV(f32 x0, f32 y0, f32 u0, f32 v0, FVec4 c0,
+void CSpriteBatch::DrawTriangleVCUV(f32 x0, f32 y0, f32 u0, f32 v0, FVec4 c0,
                                    f32 x1, f32 y1, f32 u1, f32 v1, FVec4 c1,
                                    f32 x2, f32 y2, f32 u2, f32 v2, FVec4 c2) noexcept {
     if (!m_Cl || m_DrawSuppressed) return;
@@ -1860,12 +1860,12 @@ void FSpriteBatch::DrawTriangleVCUV(f32 x0, f32 y0, f32 u0, f32 v0, FVec4 c0,
     ++m_SpriteCount;
 }
 
-void FSpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
+void CSpriteBatch::DrawTriangle(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                                FVec4 color) noexcept {
     DrawTriangleVC(x0, y0, x1, y1, x2, y2, color, color, color);
 }
 
-void FSpriteBatch::DrawTriangleSub(IRhiTexture& tex,
+void CSpriteBatch::DrawTriangleSub(IRhiTexture& tex,
                                    f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2,
                                    f32 u0, f32 v0, f32 u1, f32 v1, f32 u2, f32 v2,
                                    FVec4 tint) noexcept {
@@ -1882,7 +1882,7 @@ void FSpriteBatch::DrawTriangleSub(IRhiTexture& tex,
     ++m_SpriteCount;
 }
 
-void FSpriteBatch::DrawString(const FFont& font, const char* utf8_text,
+void CSpriteBatch::DrawString(const FFont& font, const char* utf8_text,
                            f32 x, f32 y, FVec4 color) noexcept {
     if (!utf8_text || !font.AtlasTexture()) return;
     IRhiTexture* atlas = font.AtlasTexture();
@@ -1911,16 +1911,16 @@ void FSpriteBatch::DrawString(const FFont& font, const char* utf8_text,
     }
 }
 
-void FSpriteBatch::End() noexcept {
+void CSpriteBatch::End() noexcept {
     Flush();
     m_Cl = nullptr;
 }
 
-void FSpriteBatch::FlushPending() noexcept {
+void CSpriteBatch::FlushPending() noexcept {
     Flush();   // カウントは維持されるので以降のスプライトは VB の続きへ追記される
 }
 
-void FSpriteBatch::Rebind() noexcept {
+void CSpriteBatch::Rebind() noexcept {
     if (!m_Cl) return;
     // Begin と同じ bind を貼り直す (カウントやリングは進めない)。割り込み描画で
     // 変わった pipeline / vertex・index buffer / view cbuffer を元に戻す。
@@ -1930,7 +1930,7 @@ void FSpriteBatch::Rebind() noexcept {
     m_Cl->SetIndexBuffer(*m_Ib);
 }
 
-void FSpriteBatch::Flush() noexcept {
+void CSpriteBatch::Flush() noexcept {
     if (!m_Cl || !m_CurrentTex) return;
     if (m_SpriteCount <= m_FlushedCount) return;
 

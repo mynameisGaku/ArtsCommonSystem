@@ -23,7 +23,7 @@ class IRhiTexture;
  *
  * @details
  * Bloom / Tonemap / Cinematic FX / Color grading / CAS / TAA / Auto-exposure の
- * 全パラメータを保持し、FPostProcess::Render に 1 つ渡す。各メンバは既定値で
+ * 全パラメータを保持し、CPostProcess::Render に 1 つ渡す。各メンバは既定値で
  * 「無効 or 中性」になるよう設計してある。
  */
 struct FPostProcessParams {
@@ -79,7 +79,7 @@ struct FPostProcessParams {
     f32   grain_time         = 0.0f;
 
     /**
-     * tonemap 直前に additive 合成する SSR 出力テクスチャ (FSsr::OutputTexture())。
+     * tonemap 直前に additive 合成する SSR 出力テクスチャ (CSsr::OutputTexture())。
      *
      * @details null で SSR 無し。入力は scene-linear HDR とする。
      * auto exposure の完了値と manual exposure / EV compensation は
@@ -154,7 +154,7 @@ struct FPostProcessParams {
     FVec3         taa_camera_position{};
 
     /**
-     * 動的 mesh 対応の motion vector テクスチャ (FMotionVector モジュール)。
+     * 動的 mesh 対応の motion vector テクスチャ (CMotionVector モジュール)。
      *
      * @details
      * 非 null なら TAA は depth reprojection の代わりにこのテクスチャで history を引く。
@@ -221,7 +221,7 @@ struct FPostProcessParams {
  * 処理する。auto-exposure 有効時は luma 測定と露出順応 pass を追加で挟む。Diligent
  * backend を前提とし、GPU リソースを単独所有する non-copy 型。
  */
-class FPostProcess {
+class CPostProcess {
 public:
     /** Compiled shader handles awaiting owner-thread resource creation. */
     struct FCompiledShaders {
@@ -242,16 +242,16 @@ public:
     };
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FPostProcess() noexcept = default;
+    CPostProcess() noexcept = default;
 
     /** 破棄する (確保した GPU リソースを解放)。 */
-    ~FPostProcess() noexcept;
+    ~CPostProcess() noexcept;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FPostProcess(const FPostProcess&) = delete;
+    CPostProcess(const CPostProcess&) = delete;
 
     /** コピー代入も禁止。 */
-    FPostProcess& operator=(const FPostProcess&) = delete;
+    CPostProcess& operator=(const CPostProcess&) = delete;
 
     /**
      * HDR RT + Bloom mip chain + Tonemap パイプラインを作成する。
@@ -327,7 +327,7 @@ public:
     TResult<void> Resize(u32 width, u32 height) noexcept;
 
     /**
-     * シーンを描画する HDR RT を返す (FRenderer がここに描画する)。
+     * シーンを描画する HDR RT を返す (CRenderer がここに描画する)。
      *
      * @return HDR R16G16B16A16_Float のレンダーターゲット。
      */
@@ -362,7 +362,7 @@ public:
                 const FPostProcessParams& params) noexcept;
 
 private:
-    FPostProcess& operator=(FPostProcess&&) noexcept = default;
+    CPostProcess& operator=(CPostProcess&&) noexcept = default;
 
     /**
      * Bloom mip chain の段数 (1/2 から 1/64 までの 6 段)。
@@ -658,5 +658,9 @@ private:
     /** 固定 PostProcess graph から計算した transient alias 候補集計。 */
     FRenderGraphAliasPlanSummary m_TransientAliasPlan{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FPostProcess = CPostProcess;
+
 
 } // namespace acs

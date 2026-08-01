@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDebugDraw3D — 3D ライン (LineList) のデバッグ描画。コライダーの wireframe、
+// CDebugDraw3D — 3D ライン (LineList) のデバッグ描画。コライダーの wireframe、
 // AABB、レイ等を色付きで重ねるのに使う。
 //
-//   FDebugDraw3D dd;
+//   CDebugDraw3D dd;
 //   dd.Init(*dev, renderer.ColorFormat());
 //   ...
 //   dd.Begin();
@@ -38,19 +38,19 @@ namespace acs {
  * 中のターゲットへ描画する。depth テスト無しで常に手前に重なる。ACS 規約準拠
  * (noexcept / TResult / 非コピー)。
  */
-class FDebugDraw3D {
+class CDebugDraw3D {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FDebugDraw3D() noexcept = default;
+    CDebugDraw3D() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FDebugDraw3D() noexcept = default;
+    ~CDebugDraw3D() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FDebugDraw3D(const FDebugDraw3D&)            = delete;
+    CDebugDraw3D(const CDebugDraw3D&)            = delete;
 
     /** コピー代入も禁止。 */
-    FDebugDraw3D& operator=(const FDebugDraw3D&) = delete;
+    CDebugDraw3D& operator=(const CDebugDraw3D&) = delete;
 
     /**
      * GPU リソース (シェーダ・パイプライン・頂点/定数バッファ) を確保する。
@@ -137,5 +137,9 @@ private:
     /** 頂点バッファに収まる頂点数の上限 (max_lines * 2)。 */
     u32                      m_MaxVerts = 0;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDebugDraw3D = CDebugDraw3D;
+
 
 } // namespace acs

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// 高レベル FRenderer 実装
+// 高レベル CRenderer 実装
 #include "render/Renderer.h"
 #include "platform/Window.h"
 #include "foundation/Move.h"
@@ -7,11 +7,11 @@
 
 namespace acs {
 
-FRenderer::~FRenderer() noexcept {
+CRenderer::~CRenderer() noexcept {
     Shutdown();
 }
 
-TResult<void> FRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) noexcept {
+TResult<void> CRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) noexcept {
     // 再初期化でも、前回の所有物や途中まで作られた状態を持ち越さない。
     Shutdown();
 
@@ -55,7 +55,7 @@ TResult<void> FRenderer::Init(FWindow& w, bool enable_debug, bool enable_depth) 
     return Ok();
 }
 
-TResult<void> FRenderer::InitExternal(void* hwnd, u32 width, u32 height,
+TResult<void> CRenderer::InitExternal(void* hwnd, u32 width, u32 height,
                                       bool enable_debug, bool enable_depth) noexcept {
     // 外部 HWND 経路も通常経路と同じく、失敗後は必ず空状態に戻す。
     Shutdown();
@@ -105,7 +105,7 @@ TResult<void> FRenderer::InitExternal(void* hwnd, u32 width, u32 height,
     return Ok();
 }
 
-TResult<void> FRenderer::RebuildDepth(u32 w, u32 h) noexcept {
+TResult<void> CRenderer::RebuildDepth(u32 w, u32 h) noexcept {
     m_Depth.Reset();
     if (w == 0 || h == 0) return Ok();
     FTextureDesc td{};
@@ -122,7 +122,7 @@ TResult<void> FRenderer::RebuildDepth(u32 w, u32 h) noexcept {
     return Ok();
 }
 
-void FRenderer::Shutdown() noexcept {
+void CRenderer::Shutdown() noexcept {
     // A removed device cannot make forward progress. Waiting in that state can
     // turn an already-reported render failure into an application hang.
     if (m_Device && m_Device->IsOperational())
@@ -140,7 +140,7 @@ void FRenderer::Shutdown() noexcept {
 }
 
 // フレーム開始: バックバッファ取得 → コマンド記録開始 → クリア
-bool FRenderer::BeginFrameInternal(
+bool CRenderer::BeginFrameInternal(
     const FClearColor& clear, bool avoid_gpu_wait) noexcept {
     if (!m_Swapchain || !m_Cmd || m_bFrameOpen) return false;
     if (avoid_gpu_wait) {
@@ -167,31 +167,31 @@ bool FRenderer::BeginFrameInternal(
     return true;
 }
 
-void FRenderer::BeginFrame(const FClearColor& clear) noexcept {
+void CRenderer::BeginFrame(const FClearColor& clear) noexcept {
     (void)BeginFrameInternal(clear, false);
 }
 
-bool FRenderer::CanBeginFrameWithoutGpuWait() const noexcept {
+bool CRenderer::CanBeginFrameWithoutGpuWait() const noexcept {
     return !m_bFrameOpen && m_Swapchain && m_Cmd &&
            m_Cmd->CanBeginWithoutGpuWait();
 }
 
-bool FRenderer::IsOperational() const noexcept {
+bool CRenderer::IsOperational() const noexcept {
     return m_Device && m_Swapchain && m_Cmd &&
            m_Device->IsOperational();
 }
 
-bool FRenderer::TryBeginFrameWithoutGpuWait(
+bool CRenderer::TryBeginFrameWithoutGpuWait(
     const FClearColor& clear) noexcept {
     return BeginFrameInternal(clear, true);
 }
 
 // フレーム終了: バックバッファを Present 状態に戻して GPU 投入 → 画面に提示
-bool FRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
+bool CRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
     if (!m_bFrameOpen) return false;
     if (!m_Cmd || !m_Swapchain) {
         m_bFrameOpen = false;
-        ACS_LOG_ERROR("FRenderer::EndFrame: frame resources are unavailable");
+        ACS_LOG_ERROR("CRenderer::EndFrame: frame resources are unavailable");
         return false;
     }
     m_Cmd->EndRenderToSwapchain(*m_Swapchain, m_CurrentBuffer);
@@ -201,32 +201,32 @@ bool FRenderer::EndFrameInternal(bool avoid_gpu_wait) noexcept {
         : m_Cmd->Submit();
     m_bFrameOpen = false;
     if (!submitted) {
-        ACS_LOG_ERROR("FRenderer::EndFrame: command submission failed");
+        ACS_LOG_ERROR("CRenderer::EndFrame: command submission failed");
         return false;
     }
     if (!m_Swapchain->Present()) {
-        ACS_LOG_ERROR("FRenderer::EndFrame: swapchain present failed");
+        ACS_LOG_ERROR("CRenderer::EndFrame: swapchain present failed");
         return false;
     }
     return true;
 }
 
-bool FRenderer::EndFrame() noexcept {
+bool CRenderer::EndFrame() noexcept {
     return EndFrameInternal(false);
 }
 
-bool FRenderer::EndFrameWithoutGpuWait() noexcept {
+bool CRenderer::EndFrameWithoutGpuWait() noexcept {
     return EndFrameInternal(true);
 }
 
-bool FRenderer::OnResize(u32 width, u32 height) noexcept {
+bool CRenderer::OnResize(u32 width, u32 height) noexcept {
     if (!m_Swapchain) return false;
     if (m_Device) m_Device->WaitIdle();
     if (!m_Swapchain->Resize(width, height)) {
         // リサイズ失敗 (バックバッファ未取得状態)。深度再構築や本フレームの描画を行わず、
         // 次フレームの再 Resize に委ねる。BeginRenderToSwapchain 側も null バックバッファを
         // ガードするため、ここで早期 return しても安全に縮退する。
-        ACS_LOG_WARN("FRenderer::OnResize: swapchain Resize に失敗 (%ux%u)。次フレームで再試行します。",
+        ACS_LOG_WARN("CRenderer::OnResize: swapchain Resize に失敗 (%ux%u)。次フレームで再試行します。",
                      width, height);
         return false;
     }
@@ -234,7 +234,7 @@ bool FRenderer::OnResize(u32 width, u32 height) noexcept {
         const auto depth_result = RebuildDepth(width, height);
         if (depth_result.IsErr()) {
             ACS_LOG_ERROR(
-                "FRenderer::OnResize: depth rebuild failed (%ux%u): %s",
+                "CRenderer::OnResize: depth rebuild failed (%ux%u): %s",
                 width, height, depth_result.Error().message);
             return false;
         }

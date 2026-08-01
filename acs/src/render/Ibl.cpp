@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Image-Based Lighting 実装
 //
-// 現段階の機能: BRDF LUT 生成、FSky → env cubemap キャプチャ、skybox preview 描画。
+// 現段階の機能: BRDF LUT 生成、CSky → env cubemap キャプチャ、skybox preview 描画。
 // irradiance / prefilter は後続ステップで追加する。
 #include "render/Ibl.h"
 #include "render/Sky.h"
@@ -31,12 +31,12 @@ namespace {
 // 出力 RG16F: r=scale (F0 にかける係数), g=bias (F0 と無関係なオフセット)
 // 実行時 PBR 反射: F0 * lut.r + lut.g を Fresnel-modulated specular IBL の係数として使う。
 //
-// **テクスチャ座標規約 (FPbrShader IBL 統合時に必ず一致させること)**:
+// **テクスチャ座標規約 (CPbrShader IBL 統合時に必ず一致させること)**:
 //   ・row 0  (texture top, v=0) = roughness 0  (鏡面)
 //   ・row 255 (texture bottom, v=1) = roughness 1 (粗い表面)
 //   ・col 0  (texture left,  u=0) = NdotV 0  (grazing 角)
 //   ・col 255 (texture right, u=1) = NdotV 1  (正対)
-// → FPbrShader 側で `brdf_lut.Sample(s, float2(NdotV, roughness))` で sampling 可能。
+// → CPbrShader 側で `brdf_lut.Sample(s, float2(NdotV, roughness))` で sampling 可能。
 const char* kBrdfLutHLSL = R"(
 #pragma pack_matrix(row_major)
 
@@ -133,9 +133,9 @@ constexpr u32 kIrradianceSize = 64;    // 拡散 (低周波だが 32 だとバ�
 constexpr u32 kPrefilterSize  = 512;   // 鏡面反射の先鋭度。128 では金属面に明確なブロックが見えた → 512
 constexpr u32 kPrefilterMips  = 7;     // 512/256/128/64/32/16/8 → roughness 0..1 をなめらかに
 
-// ---- 環境 cubemap キャプチャ (FSky procedural を 6 face に焼く) ----
+// ---- 環境 cubemap キャプチャ (CSky procedural を 6 face に焼く) ----
 //
-// FSky.cpp の手続き式 (高さ角でグラデ + 太陽 disc) と同じ式を per-face で評価する。
+// CSky.cpp の手続き式 (高さ角でグラデ + 太陽 disc) と同じ式を per-face で評価する。
 // face_index で 6 面それぞれの (uv → world dir) 変換を選ぶ。
 const char* kEnvCaptureHLSL = R"(
 #pragma pack_matrix(row_major)
@@ -239,7 +239,7 @@ VSOut VSMain(uint id : SV_VertexID) {
     float2 uv = float2((id << 1) & 2, id & 2);
     VSOut o;
     o.ndc = uv * 2.0 - 1.0;
-    // 遠平面 (z=1) で描画。FSky.cpp と同じく pos.y は -ndc.y で D3D の上下を統一
+    // 遠平面 (z=1) で描画。CSky.cpp と同じく pos.y は -ndc.y で D3D の上下を統一
     o.pos = float4(o.ndc.x, -o.ndc.y, 1.0, 1.0);
     return o;
 }
@@ -300,7 +300,7 @@ struct FSkyboxCbLayout {
 //
 // Lambert diffuse の ambient 反射光 (radiance):
 //   L_diffuse = (albedo/π) E(N)
-// → ここでは (E(N)/π) を cubemap に焼き、FPbrShader 側で `albedo * irradiance.Sample(N)`
+// → ここでは (E(N)/π) を cubemap に焼き、CPbrShader 側で `albedo * irradiance.Sample(N)`
 //   と素直に乗算できる形にする。
 //
 // kNumPhi × kNumTheta = 64 × 16 = 1024 サンプル / texel。64x64x6 = 24576 texel × 1024 ≈ 25.2M
@@ -648,7 +648,7 @@ struct FEquirectCbLayout {
 
 } // namespace
 
-TResult<void> FImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
+TResult<void> CImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
                                                 IRhiCommandList& cl) noexcept {
     if (m_bBrdfBuilt) return Ok();
     auto r = BuildBrdfLut(device, cl);
@@ -657,14 +657,14 @@ TResult<void> FImageBasedLighting::EnsureBrdfLut(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
+TResult<void> CImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
                                                IRhiCommandList& cl) noexcept {
     // Dx12 raw backend には高度3D (cubemap / per-slice RTV) が無いため本実装不能。
     // fake-success せず正直に capability error を返す (Ibl.h の境界を参照)。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: BRDF LUT requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: BRDF LUT requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -736,9 +736,9 @@ TResult<void> FImageBasedLighting::BuildBrdfLut(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
+TResult<void> CImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
-                                                  const FSky& sky) noexcept {
+                                                  const CSky& sky) noexcept {
     if (m_bEnvBuilt) return Ok();
     auto r = BuildEnvCubemap(device, cl, sky);
     if (r.IsErr()) return r;
@@ -746,13 +746,13 @@ TResult<void> FImageBasedLighting::EnsureEnvCubemap(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
+TResult<void> CImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
                                                   IRhiCommandList& cl,
-                                                  const FSky& sky) noexcept {
+                                                  const CSky& sky) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: env cubemap requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: env cubemap requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -855,7 +855,7 @@ TResult<void> FImageBasedLighting::BuildEnvCubemap(IRhiDevice& device,
     return Ok();
 }
 
-void FImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
+void CImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
                                                   u32 width, u32 height,
                                                   FVec4 out_sh_rgb[9]) noexcept {
     // 初期化
@@ -928,13 +928,13 @@ void FImageBasedLighting::ComputeSh9FromEquirect(const f32* rgba_float,
     }
 }
 
-TResult<void> FImageBasedLighting::LoadEquirectHdrFromMemory(
+TResult<void> CImageBasedLighting::LoadEquirectHdrFromMemory(
         IRhiDevice& device, IRhiCommandList& cl,
         const f32* rgba_float, u32 width, u32 height) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: equirect HDR requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: equirect HDR requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -961,7 +961,7 @@ TResult<void> FImageBasedLighting::LoadEquirectHdrFromMemory(
         equirect = Move(r.Value());
     }
 
-    // 2) 出力 env cubemap (FSky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
+    // 2) 出力 env cubemap (CSky 由来と同サイズ、R11G11B10_Float、per-slice RTV)
     {
         FTextureDesc td{};
         td.width            = kEnvCubeSize;
@@ -1047,7 +1047,7 @@ TResult<void> FImageBasedLighting::LoadEquirectHdrFromMemory(
     return Ok();
 }
 
-void FImageBasedLighting::SetDirectLightExclusion(
+void CImageBasedLighting::SetDirectLightExclusion(
         FVec3 direction, f32 cosine_half_angle) noexcept {
     const FVec4 disabled{0.0f, 1.0f, 0.0f, 2.0f};
 
@@ -1080,14 +1080,14 @@ void FImageBasedLighting::SetDirectLightExclusion(
         threshold};
 }
 
-TResult<void> FImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
+TResult<void> CImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
                                                    IRhiCommandList& cl) noexcept {
     if (m_bIrradianceBuilt) return Ok();
     // Diligent でなければ高度3D 不能 → fake-success せず capability error を返す。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: irradiance requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: irradiance requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1095,7 +1095,7 @@ TResult<void> FImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
     }
     if (!m_EnvCube) {
         return ACS_ERR(Render, 160,
-            "FImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
+            "CImageBasedLighting::EnsureIrradiance: env cubemap not built yet");
     }
     auto r = BuildIrradiance(device, cl);
     if (r.IsErr()) return r;
@@ -1103,12 +1103,12 @@ TResult<void> FImageBasedLighting::EnsureIrradiance(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::BuildIrradiance(IRhiDevice& device,
+TResult<void> CImageBasedLighting::BuildIrradiance(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: irradiance requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: irradiance requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1203,14 +1203,14 @@ TResult<void> FImageBasedLighting::BuildIrradiance(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
+TResult<void> CImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
                                                   IRhiCommandList& cl) noexcept {
     if (m_bPrefilterBuilt) return Ok();
     // Diligent でなければ高度3D 不能 → fake-success せず capability error を返す。
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: prefilter requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: prefilter requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1218,7 +1218,7 @@ TResult<void> FImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
     }
     if (!m_EnvCube) {
         return ACS_ERR(Render, 161,
-            "FImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
+            "CImageBasedLighting::EnsurePrefilter: env cubemap not built yet");
     }
     auto r = BuildPrefilter(device, cl);
     if (r.IsErr()) return r;
@@ -1226,12 +1226,12 @@ TResult<void> FImageBasedLighting::EnsurePrefilter(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::BuildPrefilter(IRhiDevice& device,
+TResult<void> CImageBasedLighting::BuildPrefilter(IRhiDevice& device,
                                                  IRhiCommandList& cl) noexcept {
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: prefilter requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: prefilter requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1330,7 +1330,7 @@ TResult<void> FImageBasedLighting::BuildPrefilter(IRhiDevice& device,
     return Ok();
 }
 
-TResult<void> FImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
+TResult<void> CImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
                                                        EFormat rt_format,
                                                        EFormat depth_format) noexcept {
     if (m_SkyPipeline && m_SkyRtFormat == rt_format && m_SkyDepthFormat == depth_format) {
@@ -1394,7 +1394,7 @@ TResult<void> FImageBasedLighting::EnsureSkyboxPipeline(IRhiDevice& device,
     return Ok();
 }
 
-void FImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
+void CImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                      IRhiTexture& cube,
                                      const FMat4& view_proj, FVec3 eye,
                                      EFormat rt_format, EFormat depth_format,
@@ -1407,7 +1407,7 @@ void FImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
     if (!IsDiligentBackend(device)) {
         static bool s_warned = false;
         if (!s_warned) {
-            ACS_LOG_WARN("FImageBasedLighting: skybox preview requires the Diligent backend "
+            ACS_LOG_WARN("CImageBasedLighting: skybox preview requires the Diligent backend "
                          "(rebuild with -DACS_RENDER_DILIGENT=ON); skipped");
             s_warned = true;
         }
@@ -1456,7 +1456,7 @@ void FImageBasedLighting::DrawSkybox(IRhiDevice& device, IRhiCommandList& cl,
     cl.Draw(3);
 }
 
-void FImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
+void CImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                                         const FMat4& view_proj, FVec3 eye,
                                         EFormat rt_format, EFormat depth_format,
                                         FVec3 sun_direction,
@@ -1468,7 +1468,7 @@ void FImageBasedLighting::DrawEnvSkybox(IRhiDevice& device, IRhiCommandList& cl,
                sun_direction, sun_radiance, sun_angular_radius);
 }
 
-void FImageBasedLighting::ResetEnvCubemap() noexcept {
+void CImageBasedLighting::ResetEnvCubemap() noexcept {
     // env が無効になれば irradiance / prefilter も無効。
     m_PrefilterCube.Reset();
     m_PrefilterMips   = 0;
@@ -1479,7 +1479,7 @@ void FImageBasedLighting::ResetEnvCubemap() noexcept {
     m_bEnvBuilt        = false;
 }
 
-void FImageBasedLighting::Shutdown() noexcept {
+void CImageBasedLighting::Shutdown() noexcept {
     m_SkyPipeline.Reset();
     m_SkyCb.Reset();
     m_SkyPs.Reset();

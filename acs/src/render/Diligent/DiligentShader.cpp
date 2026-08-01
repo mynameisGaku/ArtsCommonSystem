@@ -101,7 +101,7 @@ void FDiligentShader::Reset() noexcept
 }
 
 /** HLSL source をコンパイルしてシェーダを生成し、register binding を抽出する。 */
-TResult<void> FDiligentShader::Init(FDiligentDevice& device, const FShaderDesc& desc,
+TResult<void> FDiligentShader::Init(CDiligentDevice& device, const FShaderDesc& desc,
                                    bool combined_samplers) noexcept {
     Reset();
     m_Device = &device;

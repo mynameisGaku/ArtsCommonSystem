@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDiligentCommandList 実装
+// CDiligentCommandList 実装
 #include "render/Diligent/DiligentCommandList.h"
 
 #if WITH_RENDER_DILIGENT
@@ -30,11 +30,11 @@ f32 TimestampDeltaMilliseconds(
 
 } // namespace
 
-FDiligentCommandList::~FDiligentCommandList() noexcept {
+CDiligentCommandList::~CDiligentCommandList() noexcept {
     ResetGpuTiming();
 }
 
-TResult<void> FDiligentCommandList::Init(FDiligentDevice& device) noexcept {
+TResult<void> CDiligentCommandList::Init(CDiligentDevice& device) noexcept {
     ResetGpuTiming();
     // 再初期化前に、旧 device/resource への借用参照をすべて失効させる。
     for (u32 index = 0; index < 16; ++index)
@@ -47,7 +47,7 @@ TResult<void> FDiligentCommandList::Init(FDiligentDevice& device) noexcept {
     m_Device = &device;
 
     static_assert(
-        kGpuTimingFrameSlots == FDiligentDevice::kFramesInFlight,
+        kGpuTimingFrameSlots == CDiligentDevice::kFramesInFlight,
         "GPU timing slots must follow the Diligent frame ring");
     Diligent::IRenderDevice* render_device = device.RenderDev();
     if (render_device != nullptr &&
@@ -74,7 +74,7 @@ TResult<void> FDiligentCommandList::Init(FDiligentDevice& device) noexcept {
     return Ok();
 }
 
-void FDiligentCommandList::ResetGpuTiming() noexcept {
+void CDiligentCommandList::ResetGpuTiming() noexcept {
     for (u32 slot = 0; slot < kGpuTimingFrameSlots; ++slot) {
         for (u32 query = 0;
              query < kGpuTimingQueriesPerSlot;
@@ -95,7 +95,7 @@ void FDiligentCommandList::ResetGpuTiming() noexcept {
     m_GpuTimingScopeActive = false;
 }
 
-void FDiligentCommandList::CollectGpuTiming(u32 slot) noexcept {
+void CDiligentCommandList::CollectGpuTiming(u32 slot) noexcept {
     if (!m_GpuTimingSupported || slot >= kGpuTimingFrameSlots) return;
     FGpuTimingSlot& timing_slot = m_GpuTimingSlots[slot];
     if (!timing_slot.pending ||
@@ -174,7 +174,7 @@ void FDiligentCommandList::CollectGpuTiming(u32 slot) noexcept {
     timing_slot.segment_count = 0;
 }
 
-u32 FDiligentCommandList::EmitGpuTimestamp() noexcept {
+u32 CDiligentCommandList::EmitGpuTimestamp() noexcept {
     if (!m_GpuTimingRecording ||
         m_GpuTimingRecordingSlot >= kGpuTimingFrameSlots) {
         return kInvalidGpuTimingQuery;
@@ -197,7 +197,7 @@ u32 FDiligentCommandList::EmitGpuTimestamp() noexcept {
     return index;
 }
 
-bool FDiligentCommandList::BeginGpuTimingFrame(
+bool CDiligentCommandList::BeginGpuTimingFrame(
     u64 frame_index) noexcept
 {
     if (!m_GpuTimingSupported || m_GpuTimingRecording ||
@@ -223,7 +223,7 @@ bool FDiligentCommandList::BeginGpuTimingFrame(
     return true;
 }
 
-bool FDiligentCommandList::BeginGpuTimingPass(
+bool CDiligentCommandList::BeginGpuTimingPass(
     ERhiGpuTimingPass pass) noexcept
 {
     if (!m_GpuTimingRecording || m_GpuTimingScopeActive ||
@@ -244,7 +244,7 @@ bool FDiligentCommandList::BeginGpuTimingPass(
     return true;
 }
 
-void FDiligentCommandList::EndGpuTimingPass() noexcept {
+void CDiligentCommandList::EndGpuTimingPass() noexcept {
     if (!m_GpuTimingRecording || !m_GpuTimingScopeActive) return;
     const u32 end = EmitGpuTimestamp();
     FGpuTimingSlot& slot =
@@ -260,7 +260,7 @@ void FDiligentCommandList::EndGpuTimingPass() noexcept {
     m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
 }
 
-void FDiligentCommandList::EndGpuTimingFrame() noexcept {
+void CDiligentCommandList::EndGpuTimingFrame() noexcept {
     if (!m_GpuTimingRecording) return;
     if (m_GpuTimingScopeActive) EndGpuTimingPass();
     FGpuTimingSlot& slot =
@@ -275,14 +275,14 @@ void FDiligentCommandList::EndGpuTimingFrame() noexcept {
     m_GpuTimingRecording = false;
 }
 
-bool FDiligentCommandList::TryGetGpuTiming(
+bool CDiligentCommandList::TryGetGpuTiming(
     FRhiGpuTimingSnapshot& out_snapshot) const noexcept
 {
     out_snapshot = m_LatestGpuTiming;
     return out_snapshot.valid;
 }
 
-void FDiligentCommandList::Begin() noexcept {
+void CDiligentCommandList::Begin() noexcept {
     if (m_Device) m_Device->PrepareCommandRecording();
     // PrepareCommandRecording は保留中の off-screen submission を FinishFrame で閉じる。
     // FinishFrame は Diligent context の PSO 状態を消すため、ACS 側の借用キャッシュも
@@ -295,22 +295,22 @@ void FDiligentCommandList::Begin() noexcept {
     // Diligent は明示的な Begin/End が不要（IDeviceContext は即時実行）。
 }
 
-bool FDiligentCommandList::CanBeginWithoutGpuWait() const noexcept {
+bool CDiligentCommandList::CanBeginWithoutGpuWait() const noexcept {
     return m_Device != nullptr &&
            m_Device->CanPrepareCommandRecordingWithoutWait();
 }
 
-bool FDiligentCommandList::TryBeginWithoutGpuWait() noexcept {
+bool CDiligentCommandList::TryBeginWithoutGpuWait() noexcept {
     if (!CanBeginWithoutGpuWait()) return false;
     Begin();
     return true;
 }
 
-void FDiligentCommandList::End() noexcept {
+void CDiligentCommandList::End() noexcept {
     // Diligent はコマンドが即時積まれるので EOF も不要
 }
 
-bool FDiligentCommandList::Submit() noexcept {
+bool CDiligentCommandList::Submit() noexcept {
     if (!m_Device || !m_Device->IsDeviceHealthy()) return false;
     auto* ctx = m_Device->Context();
     if (!ctx) return false;
@@ -324,7 +324,7 @@ bool FDiligentCommandList::Submit() noexcept {
     return true;
 }
 
-void FDiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer_index*/,
+void CDiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffer_index*/,
                                                   const FClearColor& clear,
                                                   IRhiTexture* depth,
                                                   f32 depth_clear) noexcept {
@@ -356,7 +356,7 @@ void FDiligentCommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 /*buffe
     m_MainDepth     = depth ? static_cast<FDiligentTexture*>(depth) : nullptr;
 }
 
-void FDiligentCommandList::BeginRenderToSwapchainLoad(
+void CDiligentCommandList::BeginRenderToSwapchainLoad(
     IRhiSwapchain& sc, u32 /*buffer_index*/) noexcept {
     if (!m_Device) return;
     auto* context = m_Device->Context();
@@ -376,11 +376,11 @@ void FDiligentCommandList::BeginRenderToSwapchainLoad(
     m_MainDepth = nullptr;
 }
 
-void FDiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buffer_index*/) noexcept {
+void CDiligentCommandList::EndRenderToSwapchain(IRhiSwapchain& /*sc*/, u32 /*buffer_index*/) noexcept {
     // Diligent は Present 時に PRESENT 状態に自動遷移するので何もしない
 }
 
-void FDiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
+void CDiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -402,7 +402,7 @@ void FDiligentCommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) 
     SetScissor(sr);
 }
 
-void FDiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
+void CDiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
     // shadow texture の DSV → SRV 遷移は Diligent が次の SetTexture で
     // 自動で行う。ただし RT の復帰はやってくれないので、フレーム冒頭の
     // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV を
@@ -427,7 +427,7 @@ void FDiligentCommandList::EndShadowPass(IRhiTexture& /*depth*/) noexcept {
     SetScissor(sr);
 }
 
-void FDiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
+void CDiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
                                                 IRhiTexture* depth, f32 depth_clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
@@ -459,7 +459,7 @@ void FDiligentCommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearCol
     SetScissor(sr);
 }
 
-void FDiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
+void CDiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                     IRhiTexture* depth) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
@@ -483,7 +483,7 @@ void FDiligentCommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
     SetScissor(sr);
 }
 
-bool FDiligentCommandList::BeginRenderToTextureMrt(
+bool CDiligentCommandList::BeginRenderToTextureMrt(
     IRhiTexture* const* rts, u32 rt_count,
     const FClearColor& clear,
     IRhiTexture* depth,
@@ -494,7 +494,7 @@ bool FDiligentCommandList::BeginRenderToTextureMrt(
         rts, rt_count, clear, clear_mask, depth, true, depth_clear);
 }
 
-bool FDiligentCommandList::BeginRenderToTextureMrtLoad(
+bool CDiligentCommandList::BeginRenderToTextureMrtLoad(
     IRhiTexture* const* rts, u32 rt_count,
     const FClearColor& clear, u32 clear_mask,
     IRhiTexture* depth, bool clear_depth,
@@ -572,7 +572,7 @@ bool FDiligentCommandList::BeginRenderToTextureMrtLoad(
     return true;
 }
 
-void FDiligentCommandList::EndRenderToTextureMrt(
+void CDiligentCommandList::EndRenderToTextureMrt(
     IRhiTexture* const* /*rts*/, u32 /*rt_count*/) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
@@ -585,7 +585,7 @@ void FDiligentCommandList::EndRenderToTextureMrt(
     m_Pipeline = nullptr;
 }
 
-void FDiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
+void CDiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
                                                      const FClearColor& clear) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
@@ -617,7 +617,7 @@ void FDiligentCommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice,
     SetScissor(sr);
 }
 
-void FDiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
+void CDiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     // RT texture の RTV → SRV 遷移は Diligent が次の SetTexture で自動。
     // ただし RT 復帰はやってくれないので、main pass に戻したいときは
     // BeginRenderToSwapchain で記憶した swap chain RTV + main pass DSV +
@@ -643,7 +643,7 @@ void FDiligentCommandList::EndRenderToTexture(IRhiTexture& /*rt*/) noexcept {
     SetScissor(sr);
 }
 
-void FDiligentCommandList::SetViewport(const FViewport& vp) noexcept {
+void CDiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -657,7 +657,7 @@ void FDiligentCommandList::SetViewport(const FViewport& vp) noexcept {
     ctx->SetViewports(1, &dvp, 0, 0);
 }
 
-void FDiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
+void CDiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -669,13 +669,13 @@ void FDiligentCommandList::SetScissor(const FScissorRect& sr) noexcept {
     ctx->SetScissorRects(1, &r, 0, 0);
 }
 
-void FDiligentCommandList::SetStencilRef(u32 ref) noexcept {
+void CDiligentCommandList::SetStencilRef(u32 ref) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (ctx) ctx->SetStencilRef(ref);
 }
 
-void FDiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
+void CDiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -686,7 +686,7 @@ void FDiligentCommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
-void FDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
+void CDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -699,7 +699,7 @@ void FDiligentCommandList::SetVertexBuffer(IRhiBuffer& vb, u32 /*stride*/) noexc
                           Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
 }
 
-void FDiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
+void CDiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -710,7 +710,7 @@ void FDiligentCommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
                         Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 }
 
-void FDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
+void CDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
@@ -745,7 +745,7 @@ void FDiligentCommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept 
     }
 }
 
-void FDiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
+void CDiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
@@ -759,7 +759,7 @@ void FDiligentCommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (var) var->Set(t.SrvView());
 }
 
-bool FDiligentCommandList::CopyDepthTexture(
+bool CDiligentCommandList::CopyDepthTexture(
     IRhiTexture& source,
     IRhiTexture& destination) noexcept {
     if (!m_Device ||
@@ -814,7 +814,7 @@ bool FDiligentCommandList::CopyDepthTexture(
     return true;
 }
 
-void FDiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
+void CDiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     if (vertex_count == 0u || !m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -834,7 +834,7 @@ void FDiligentCommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     ctx->Draw(da);
 }
 
-void FDiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
+void CDiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
     if (index_count == 0u || !m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -854,7 +854,7 @@ void FDiligentCommandList::DrawIndexed(u32 index_count, u32 first_index, i32 bas
 
 // ---- Compute (Phase 0) ----
 
-void FDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
+void CDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     if (!m_Device) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -865,7 +865,7 @@ void FDiligentCommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     if (p.Native()) ctx->SetPipelineState(p.Native());
 }
 
-void FDiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
+void CDiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
@@ -876,7 +876,7 @@ void FDiligentCommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
     if (var) var->Set(t.UavView());
 }
 
-void FDiligentCommandList::BindUav(u32 slot, IRhiBuffer& buf) noexcept {
+void CDiligentCommandList::BindUav(u32 slot, IRhiBuffer& buf) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
@@ -887,7 +887,7 @@ void FDiligentCommandList::BindUav(u32 slot, IRhiBuffer& buf) noexcept {
     if (var) var->Set(b.UavView());
 }
 
-void FDiligentCommandList::BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept {
+void CDiligentCommandList::BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept {
     if (!m_Pipeline || !m_Device) return;
     auto* srb = m_Pipeline->Srb();
     if (!srb) return;
@@ -898,7 +898,7 @@ void FDiligentCommandList::BindStructuredSrv(u32 slot, IRhiBuffer& buf) noexcept
     if (var) var->Set(b.SrvView());
 }
 
-void FDiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
+void CDiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     if (gx == 0u || gy == 0u || gz == 0u ||
         !m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
@@ -917,7 +917,7 @@ void FDiligentCommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     ctx->DispatchCompute(dca);
 }
 
-void FDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) noexcept {
+void CDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) noexcept {
     if (!m_Device || !m_Pipeline) return;
     auto* ctx = m_Device->Context();
     if (!ctx) return;
@@ -936,7 +936,7 @@ void FDiligentCommandList::DispatchIndirect(IRhiBuffer& args, u32 byte_offset) n
     ctx->DispatchComputeIndirect(dcia);
 }
 
-void* FDiligentCommandList::NativeHandle() noexcept {
+void* CDiligentCommandList::NativeHandle() noexcept {
     return m_Device ? m_Device->Context() : nullptr;
 }
 

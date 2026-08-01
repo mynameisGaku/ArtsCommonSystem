@@ -106,7 +106,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& o
  * スキンメッシュアセットから GPU バッファを作って SkinnedGpuMesh に詰める。
  *
  * @details
- * FSkinnedVertex 形式の頂点で VB を作る（FSkinnedShader が消費する形式）。静的 mesh は
+ * FSkinnedVertex 形式の頂点で VB を作る（CSkinnedShader が消費する形式）。静的 mesh は
  * USAGE_IMMUTABLE で扱い、インデックスが無ければ IB は生成しない。
  * @param device バッファ生成に使う RHI デバイス。
  * @param mesh アップロード元のスキンメッシュアセット。

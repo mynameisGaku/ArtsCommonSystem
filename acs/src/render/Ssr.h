@@ -6,7 +6,7 @@
 //     reflection ray を screen space で march
 //   - 衝突したら scene_color を sample、ray 起点に reflection を加算
 //   - 結果は別 HDR RT (= ssr_rt) に書き出し → caller が composite で本 HDR へ加算
-//   - normal は FMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
+//   - normal は CMotionVector パスが出力する normal G-buffer (RGBA16F world normal)
 //     から sample する。depth-derivative cross(ddx,ddy) は 2x2 quad
 //     単位で faceted になり、曲面の反射ベクトルが段差状になってガビガビになる
 //
@@ -20,7 +20,7 @@
 // silhouette ジャギーを均す。OutputTexture() は temporal 累積後を返す。
 //
 // glossy reflection (roughness 別 mip サンプル) は未対応 — roughness 依存の blend は
-// FPbrShader 側が担当。
+// CPbrShader 側が担当。
 #pragma once
 
 #include "foundation/Result.h"
@@ -46,19 +46,19 @@ namespace acs {
  * 構成で、履歴を reproject + neighborhood clamp して silhouette ジャギーを均す。
  * GPU リソースは TUniquePtr で単独所有する non-copy 型。
  */
-class FSsr {
+class CSsr {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSsr() noexcept = default;
+    CSsr() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSsr() noexcept = default;
+    ~CSsr() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSsr(const FSsr&) = delete;
+    CSsr(const CSsr&) = delete;
 
     /** コピー代入も禁止。 */
-    FSsr& operator=(const FSsr&) = delete;
+    CSsr& operator=(const CSsr&) = delete;
 
     /**
      * GPU リソース (出力 RT・history ping-pong・パイプライン・CB) を確保する。
@@ -104,14 +104,14 @@ public:
      * @param cl 描画コマンドを積むコマンドリスト。
      * @param scene_color 現フレームの HDR scene color。
      * @param scene_depth 現フレームの depth buffer (shader_visible_depth=true 必須)。
-     * @param normal_gbuffer FMotionVector パスの world-space normal G-buffer (RGBA16F)。
+     * @param normal_gbuffer CMotionVector パスの world-space normal G-buffer (RGBA16F)。
      * @param view_proj 現フレームの view-projection 行列 (row-major)。
      * @param inv_view_proj view_proj の逆行列 (world pos 復元用)。
      * @param prev_view_proj 前フレームの view_proj (temporal reproject 用、identity で reprojection 無効)。
      * @param eye カメラのワールド位置。
      * @param intensity SSR 強度 (0..2)。
-     * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。FMotionVector::OutputTexture() を渡す。
-     * @param hiz_even Hi-Z の偶数 level texture。旧 FHiZ::Texture() だけなら level 0 の coarse path。
+     * @param motion_texture 非 null なら temporal pass が動く mesh の反射を motion vector で reproject する (null なら camera-only depth reproject)。CMotionVector::OutputTexture() を渡す。
+     * @param hiz_even Hi-Z の偶数 level texture。旧 CHiZ::Texture() だけなら level 0 の coarse path。
      * @param hiz_odd Hi-Z の奇数 level texture。hiz_mip_count > 1 のとき使用する。
      * @param hiz_mip_count 有効 pyramid level 数。0 は hiz_even があれば互換 level 0、無ければ Hi-Z 無効。
      */
@@ -127,7 +127,7 @@ public:
                 u32 hiz_mip_count           = 0) noexcept;
 
     /**
-     * temporal accumulation 後の history テクスチャを返す (FPbrShader / overlay 用)。
+     * temporal accumulation 後の history テクスチャを返す (CPbrShader / overlay 用)。
      *
      * @return 直近に書き込んだ history RT (frame 0 では history[0])。
      */
@@ -213,5 +213,9 @@ private:
     /** Prevents callers from publishing an unwritten or invalidated history. */
     bool                    m_OutputValid = false;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSsr = CSsr;
+
 
 } // namespace acs

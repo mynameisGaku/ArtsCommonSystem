@@ -43,22 +43,22 @@ void TransitionTexture(ID3D12GraphicsCommandList* cmd, FDx12Texture& texture,
 
 } // namespace
 
-FDx12CommandList::~FDx12CommandList() noexcept {
+CDx12CommandList::~CDx12CommandList() noexcept {
     Reset(true);
 }
 
-void FDx12CommandList::Reset(bool wait_for_gpu) noexcept
+void CDx12CommandList::Reset(bool wait_for_gpu) noexcept
 {
     // 全 fence の完了を待ってから破棄しないと、投入中のコマンドが
     // 解放済みアロケータを参照する。Init 途中の失敗時は待機不要。
     if (wait_for_gpu && m_Device) {
-        for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
+        for (u32 i = 0; i < CDx12Device::kFramesInFlight; ++i) {
             m_Device->WaitForFenceValue(m_FrameFences[i]);
         }
     }
     ResetGpuTiming();
     ACS_SAFE_RELEASE(m_CmdList);
-    for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
+    for (u32 i = 0; i < CDx12Device::kFramesInFlight; ++i) {
         ACS_SAFE_RELEASE(_allocators[i]);
         m_FrameFences[i] = 0;
     }
@@ -68,7 +68,7 @@ void FDx12CommandList::Reset(bool wait_for_gpu) noexcept
     m_BackbufferIsRt = false;
 }
 
-void FDx12CommandList::ResetGpuTiming() noexcept {
+void CDx12CommandList::ResetGpuTiming() noexcept {
     if (m_GpuTimestampReadback != nullptr &&
         m_GpuTimestampReadbackData != nullptr) {
         D3D12_RANGE written_range{0, 0};
@@ -89,7 +89,7 @@ void FDx12CommandList::ResetGpuTiming() noexcept {
     m_GpuTimingScopeActive = false;
 }
 
-FHrResult FDx12CommandList::Init(FDx12Device& device) noexcept {
+FHrResult CDx12CommandList::Init(CDx12Device& device) noexcept {
     FHrResult r{};
     Reset(true);
     if (!device.D3DDevice() || !device.GraphicsQueue()) {
@@ -98,7 +98,7 @@ FHrResult FDx12CommandList::Init(FDx12Device& device) noexcept {
     }
     m_Device = &device;
     // フレームインフライト数ぶんアロケータを作成（GPU/CPU 並列実行のため）
-    for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
+    for (u32 i = 0; i < CDx12Device::kFramesInFlight; ++i) {
         r.hr = device.D3DDevice()->CreateCommandAllocator(
             D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_allocators[i]));
         if (r.IsErr() || !_allocators[i]) {
@@ -123,7 +123,7 @@ FHrResult FDx12CommandList::Init(FDx12Device& device) noexcept {
     }
 
     static_assert(
-        kGpuTimingFrameSlots == FDx12Device::kFramesInFlight,
+        kGpuTimingFrameSlots == CDx12Device::kFramesInFlight,
         "GPU timing slots must follow the DX12 frame ring");
     D3D12_QUERY_HEAP_DESC query_heap_desc{};
     query_heap_desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
@@ -181,7 +181,7 @@ FHrResult FDx12CommandList::Init(FDx12Device& device) noexcept {
     return r;
 }
 
-void FDx12CommandList::CollectGpuTiming(u32 slot) noexcept {
+void CDx12CommandList::CollectGpuTiming(u32 slot) noexcept {
     if (!m_GpuTimingSupported || slot >= kGpuTimingFrameSlots ||
         m_GpuTimestampReadbackData == nullptr ||
         m_GpuTimestampFrequency == 0) {
@@ -255,7 +255,7 @@ void FDx12CommandList::CollectGpuTiming(u32 slot) noexcept {
     timing_slot.segment_count = 0;
 }
 
-u32 FDx12CommandList::EmitGpuTimestamp() noexcept {
+u32 CDx12CommandList::EmitGpuTimestamp() noexcept {
     if (!m_GpuTimingRecording || !_open ||
         m_CmdList == nullptr ||
         m_GpuTimestampHeap == nullptr ||
@@ -277,7 +277,7 @@ u32 FDx12CommandList::EmitGpuTimestamp() noexcept {
     return local_index;
 }
 
-bool FDx12CommandList::BeginGpuTimingFrame(
+bool CDx12CommandList::BeginGpuTimingFrame(
     u64 frame_index) noexcept
 {
     if (!m_GpuTimingSupported || m_GpuTimingRecording ||
@@ -303,7 +303,7 @@ bool FDx12CommandList::BeginGpuTimingFrame(
     return true;
 }
 
-bool FDx12CommandList::BeginGpuTimingPass(
+bool CDx12CommandList::BeginGpuTimingPass(
     ERhiGpuTimingPass pass) noexcept
 {
     if (!m_GpuTimingRecording || m_GpuTimingScopeActive ||
@@ -324,7 +324,7 @@ bool FDx12CommandList::BeginGpuTimingPass(
     return true;
 }
 
-void FDx12CommandList::EndGpuTimingPass() noexcept {
+void CDx12CommandList::EndGpuTimingPass() noexcept {
     if (!m_GpuTimingRecording || !m_GpuTimingScopeActive) return;
     const u32 end = EmitGpuTimestamp();
     FGpuTimingSlot& slot =
@@ -340,7 +340,7 @@ void FDx12CommandList::EndGpuTimingPass() noexcept {
     m_GpuTimingActiveBegin = kInvalidGpuTimingQuery;
 }
 
-void FDx12CommandList::EndGpuTimingFrame() noexcept {
+void CDx12CommandList::EndGpuTimingFrame() noexcept {
     if (!m_GpuTimingRecording) return;
     if (m_GpuTimingScopeActive) EndGpuTimingPass();
     FGpuTimingSlot& slot =
@@ -365,17 +365,17 @@ void FDx12CommandList::EndGpuTimingFrame() noexcept {
     m_GpuTimingRecording = false;
 }
 
-bool FDx12CommandList::TryGetGpuTiming(
+bool CDx12CommandList::TryGetGpuTiming(
     FRhiGpuTimingSnapshot& out_snapshot) const noexcept
 {
     out_snapshot = m_LatestGpuTiming;
     return out_snapshot.valid;
 }
 
-bool FDx12CommandList::BeginCurrentSlot() noexcept {
+bool CDx12CommandList::BeginCurrentSlot() noexcept {
     if (!m_Device || !m_CmdList) return false;
     const u32 slot = m_Device->CurrentFrameSlot();
-    if (slot >= FDx12Device::kFramesInFlight || !_allocators[slot])
+    if (slot >= CDx12Device::kFramesInFlight || !_allocators[slot])
         return false;
 
     m_BoundPipe = nullptr;
@@ -393,36 +393,36 @@ bool FDx12CommandList::BeginCurrentSlot() noexcept {
     return true;
 }
 
-void FDx12CommandList::Begin() noexcept {
+void CDx12CommandList::Begin() noexcept {
     (void)BeginCurrentSlot();
 }
 
-bool FDx12CommandList::CanBeginWithoutGpuWait() const noexcept {
+bool CDx12CommandList::CanBeginWithoutGpuWait() const noexcept {
     if (!m_Device || !m_CmdList) return false;
     const u32 slot = m_Device->CurrentFrameSlot();
-    return slot < FDx12Device::kFramesInFlight &&
+    return slot < CDx12Device::kFramesInFlight &&
            _allocators[slot] != nullptr &&
            m_Device->IsFenceComplete(m_FrameFences[slot]);
 }
 
-bool FDx12CommandList::TryBeginWithoutGpuWait() noexcept {
+bool CDx12CommandList::TryBeginWithoutGpuWait() noexcept {
     if (!CanBeginWithoutGpuWait()) return false;
     return BeginCurrentSlot();
 }
 
-void FDx12CommandList::End() noexcept {
+void CDx12CommandList::End() noexcept {
     if (!_open || !m_CmdList) return;
     (void)m_CmdList->Close();
     _open = false;
 }
 
-bool FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
+bool CDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
     if (!m_Device || !m_CmdList || !m_Device->GraphicsQueue()) return false;
     if (_open) End();
     ID3D12CommandList* lists[] = { m_CmdList };
 
     const u32 cur_slot  = m_Device->CurrentFrameSlot();
-    const u32 next_slot = (cur_slot + 1) % FDx12Device::kFramesInFlight;
+    const u32 next_slot = (cur_slot + 1) % CDx12Device::kFramesInFlight;
 
     // 1) このフレームの GPU 完了を fence に Signal
     // Execute + Signal + retirement sealing are one queue-order transaction.
@@ -432,7 +432,7 @@ bool FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
         m_Device->SubmitGraphicsCommandLists(lists, 1u);
     if (submitted_fence == 0u) {
         ACS_LOG_ERROR(
-            "FDx12CommandList::Submit: Execute/Signal failed; "
+            "CDx12CommandList::Submit: Execute/Signal failed; "
             "frame slot was not advanced");
         return false;
     }
@@ -450,15 +450,15 @@ bool FDx12CommandList::SubmitInternal(bool wait_for_next_slot) noexcept {
     return true;
 }
 
-bool FDx12CommandList::Submit() noexcept {
+bool CDx12CommandList::Submit() noexcept {
     return SubmitInternal(true);
 }
 
-bool FDx12CommandList::SubmitWithoutGpuWait() noexcept {
+bool CDx12CommandList::SubmitWithoutGpuWait() noexcept {
     return SubmitInternal(false);
 }
 
-void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
+void CDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index,
                                               const FClearColor& clear,
                                               IRhiTexture* depth,
                                               f32 depth_clear) noexcept {
@@ -510,7 +510,7 @@ void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_inde
     m_CmdList->ClearRenderTargetView(rtv, col, 0, nullptr);
 
     // ビューポート/シザーをバックバッファ全体へ設定する (BeginShadowPass / BindOffscreenRT と同様)。
-    // これが無いと直前パスの viewport が残り、FPostProcess の最終合成 (Pass_Tonemap) 等が
+    // これが無いと直前パスの viewport が残り、CPostProcess の最終合成 (Pass_Tonemap) 等が
     // 画面の一部にしか描かれない。raw DX12 backend のみこの設定が抜けていた。
     D3D12_VIEWPORT vp{};
     vp.TopLeftX = 0; vp.TopLeftY = 0;
@@ -525,7 +525,7 @@ void FDx12CommandList::BeginRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_inde
     m_CmdList->RSSetScissorRects(1, &sr);
 }
 
-void FDx12CommandList::BeginRenderToSwapchainLoad(
+void CDx12CommandList::BeginRenderToSwapchainLoad(
     IRhiSwapchain& sc, u32 buffer_index) noexcept {
     auto& dx_sc = static_cast<FDx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
@@ -558,7 +558,7 @@ void FDx12CommandList::BeginRenderToSwapchainLoad(
     m_CmdList->RSSetScissorRects(1, &scissor);
 }
 
-void FDx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
+void CDx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index) noexcept {
     if (!m_BackbufferIsRt) return;   // 既に PRESENT 状態 (二重 End 防止)
     auto& dx_sc = static_cast<FDx12Swapchain&>(sc);
     ID3D12Resource* rt = dx_sc.BackBuffer(buffer_index);
@@ -577,7 +577,7 @@ void FDx12CommandList::EndRenderToSwapchain(IRhiSwapchain& sc, u32 buffer_index)
     m_BackbufferIsRt = false;
 }
 
-void FDx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
+void CDx12CommandList::BeginShadowPass(IRhiTexture& depth, f32 depth_clear) noexcept {
     auto& dx_depth = static_cast<FDx12Texture&>(depth);
     if (!dx_depth.IsDepth()) return;
 
@@ -672,7 +672,7 @@ void BindOffscreenRT(ID3D12GraphicsCommandList* cmd, FDx12Texture& rt, IRhiTextu
 }
 } // namespace
 
-void FDx12CommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
+void CDx12CommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& clear,
                                             IRhiTexture* depth, f32 depth_clear) noexcept {
     auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;       // is_render_target=true で作成された RT のみ
@@ -680,7 +680,7 @@ void FDx12CommandList::BeginRenderToTexture(IRhiTexture& rt, const FClearColor& 
     m_BoundPipe = nullptr;             // パイプライン再 bind を強制
 }
 
-void FDx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
+void CDx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
     auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;
     if (dx_rt.CurrentState() != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
@@ -697,7 +697,7 @@ void FDx12CommandList::EndRenderToTexture(IRhiTexture& rt) noexcept {
 
 // MSAA RT をバックバッファへ ResolveSubresource で解決する。
 // 解決後バックバッファは RENDER_TARGET へ戻し、EndRenderToSwapchain (RT→PRESENT) と整合させる。
-void FDx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept {
+void CDx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u32 buffer_index) noexcept {
     auto& dx_src = static_cast<FDx12Texture&>(src);
     auto& dx_sc  = static_cast<FDx12Swapchain&>(sc);
     ID3D12Resource* bb = dx_sc.BackBuffer(buffer_index);
@@ -736,7 +736,7 @@ void FDx12CommandList::ResolveToSwapchain(IRhiTexture& src, IRhiSwapchain& sc, u
 }
 
 // SS 屈折用の load 版 (clear せず再 bind)。
-void FDx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
+void CDx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
                                                 IRhiTexture* depth) noexcept {
     auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;
@@ -746,7 +746,7 @@ void FDx12CommandList::BeginRenderToTextureLoad(IRhiTexture& rt,
 
 // cubemap 1 面 / 配列 1 スライス / 1 mip に描画する (per_slice_rtv=true で作成された RT 用)。
 // IBL の env/irradiance/prefilter cube の各面・各 roughness mip を焼くのに使う。
-void FDx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
+void CDx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32 mip,
                                                  const FClearColor& clear) noexcept {
     auto& dx_rt = static_cast<FDx12Texture&>(rt);
     if (!dx_rt.HasRtv()) return;  // per_slice_rtv=true で作成された RT のみ
@@ -789,7 +789,7 @@ void FDx12CommandList::BeginRenderToTextureSlice(IRhiTexture& rt, u32 slice, u32
 }
 
 // 複数 RT を同時に bind する。各 RT は同一寸法で、有効な RTV を持つことが必須。
-bool FDx12CommandList::BeginRenderToTextureMrt(
+bool CDx12CommandList::BeginRenderToTextureMrt(
     IRhiTexture* const* rts, u32 rt_count,
     const FClearColor& clear,
     IRhiTexture* depth, f32 depth_clear) noexcept {
@@ -799,7 +799,7 @@ bool FDx12CommandList::BeginRenderToTextureMrt(
         rts, rt_count, clear, clear_mask, depth, true, depth_clear);
 }
 
-bool FDx12CommandList::BeginRenderToTextureMrtLoad(
+bool CDx12CommandList::BeginRenderToTextureMrtLoad(
     IRhiTexture* const* rts, u32 rt_count,
     const FClearColor& clear, u32 clear_mask,
     IRhiTexture* depth, bool clear_depth,
@@ -921,7 +921,7 @@ bool FDx12CommandList::BeginRenderToTextureMrtLoad(
     return true;
 }
 
-void FDx12CommandList::EndRenderToTextureMrt(
+void CDx12CommandList::EndRenderToTextureMrt(
     IRhiTexture* const* rts, u32 rt_count) noexcept {
     if (!m_CmdList || !rts || rt_count == 0u || rt_count > 8u) return;
 
@@ -958,7 +958,7 @@ void FDx12CommandList::EndRenderToTextureMrt(
     m_BoundPipe = nullptr;
 }
 
-void FDx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
+void CDx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
     auto& dx_depth = static_cast<FDx12Texture&>(depth);
     if (!dx_depth.IsDepth() || !dx_depth.HasSrv()) return;
 
@@ -974,7 +974,7 @@ void FDx12CommandList::EndShadowPass(IRhiTexture& depth) noexcept {
     }
 }
 
-void FDx12CommandList::SetViewport(const FViewport& vp) noexcept {
+void CDx12CommandList::SetViewport(const FViewport& vp) noexcept {
     D3D12_VIEWPORT v{};
     v.TopLeftX = vp.x;
     v.TopLeftY = vp.y;
@@ -985,18 +985,18 @@ void FDx12CommandList::SetViewport(const FViewport& vp) noexcept {
     m_CmdList->RSSetViewports(1, &v);
 }
 
-void FDx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
+void CDx12CommandList::SetScissor(const FScissorRect& sr) noexcept {
     D3D12_RECT r{};
     r.left = sr.left; r.top = sr.top;
     r.right = sr.right; r.bottom = sr.bottom;
     m_CmdList->RSSetScissorRects(1, &r);
 }
 
-void FDx12CommandList::SetStencilRef(u32 ref) noexcept {
+void CDx12CommandList::SetStencilRef(u32 ref) noexcept {
     m_CmdList->OMSetStencilRef(ref);
 }
 
-void FDx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
+void CDx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     auto& p = static_cast<FDx12Pipeline&>(pipeline);
     if (p.IsCompute()) {
         SetComputePipeline(pipeline);
@@ -1011,7 +1011,7 @@ void FDx12CommandList::SetPipeline(IRhiPipeline& pipeline) noexcept {
     m_BoundPipe = &p;
 }
 
-void FDx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
+void CDx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
     auto& b = static_cast<FDx12Buffer&>(vb);
     D3D12_VERTEX_BUFFER_VIEW v{};
     v.BufferLocation = b.Gpu();
@@ -1020,7 +1020,7 @@ void FDx12CommandList::SetVertexBuffer(IRhiBuffer& vb, u32 stride) noexcept {
     m_CmdList->IASetVertexBuffers(0, 1, &v);
 }
 
-void FDx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
+void CDx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     auto& b = static_cast<FDx12Buffer&>(ib);
     D3D12_INDEX_BUFFER_VIEW v{};
     v.BufferLocation = b.Gpu();
@@ -1029,7 +1029,7 @@ void FDx12CommandList::SetIndexBuffer(IRhiBuffer& ib) noexcept {
     m_CmdList->IASetIndexBuffer(&v);
 }
 
-void FDx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
+void CDx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
     if (!m_BoundPipe || slot >= m_BoundPipe->CBufferSlots()) return;
     /** 論理sliceを解決した実DX12バッファ。 */
     IRhiBuffer& binding_buffer = cb.BindingBuffer();
@@ -1045,7 +1045,7 @@ void FDx12CommandList::SetConstantBuffer(u32 slot, IRhiBuffer& cb) noexcept {
         m_CmdList->SetGraphicsRootConstantBufferView(slot, b.Gpu() + binding_offset);
 }
 
-void FDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
+void CDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_BoundPipe || slot >= m_BoundPipe->TextureSlots()) return;
     auto& t = static_cast<FDx12Texture&>(tex);
     if (!t.HasSrv()) return;
@@ -1060,7 +1060,7 @@ void FDx12CommandList::SetTexture(u32 slot, IRhiTexture& tex) noexcept {
         m_CmdList->SetGraphicsRootDescriptorTable(root_index, t.SrvGpuHandle());
 }
 
-void FDx12CommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
+void CDx12CommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     auto& p = static_cast<FDx12Pipeline&>(pipeline);
     using FPolicy = TRhiPipelineBindPolicy<ERhiPipelineBindDomain::Compute>;
     if (!FPolicy::Accepts(p.IsCompute()) || !p.Pso() || !p.RootSignature() || !FPolicy::NeedsBind(m_BoundPipe, &p)) return;
@@ -1069,7 +1069,7 @@ void FDx12CommandList::SetComputePipeline(IRhiPipeline& pipeline) noexcept {
     m_BoundPipe = &p;
 }
 
-void FDx12CommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
+void CDx12CommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
     if (!m_BoundPipe || !m_BoundPipe->IsCompute() ||
         slot >= m_BoundPipe->UavSlots()) return;
     auto& t = static_cast<FDx12Texture&>(tex);
@@ -1080,7 +1080,7 @@ void FDx12CommandList::BindUav(u32 slot, IRhiTexture& tex) noexcept {
     m_CmdList->SetComputeRootDescriptorTable(root_index, t.UavGpuHandle());
 }
 
-void FDx12CommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
+void CDx12CommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     if (!m_BoundPipe || !m_BoundPipe->IsCompute() ||
         gx == 0 || gy == 0 || gz == 0) return;
     RecordDispatch(m_CommandStatistics);
@@ -1092,7 +1092,7 @@ void FDx12CommandList::Dispatch(u32 gx, u32 gy, u32 gz) noexcept {
     m_CmdList->ResourceBarrier(1, &barrier);
 }
 
-bool FDx12CommandList::CopyDepthTexture(
+bool CDx12CommandList::CopyDepthTexture(
     IRhiTexture& source,
     IRhiTexture& destination) noexcept {
     if (!m_CmdList || !_open ||
@@ -1162,13 +1162,13 @@ bool FDx12CommandList::CopyDepthTexture(
     return true;
 }
 
-void FDx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
+void CDx12CommandList::Draw(u32 vertex_count, u32 first_vertex) noexcept {
     if (vertex_count == 0u) return;
     RecordDraw(m_CommandStatistics, vertex_count);
     m_CmdList->DrawInstanced(vertex_count, 1, first_vertex, 0);
 }
 
-void FDx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
+void CDx12CommandList::DrawIndexed(u32 index_count, u32 first_index, i32 base_vertex) noexcept {
     if (index_count == 0u) return;
     RecordDraw(m_CommandStatistics, index_count);
     m_CmdList->DrawIndexedInstanced(index_count, 1, first_index, base_vertex, 0);
@@ -1180,8 +1180,8 @@ TResult<TUniquePtr<IRhiCommandList>> CreateRhiCommandList(IRhiDevice& device) no
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 20, "CreateRhiCommandList: device is not DX12");
-    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
-    auto cl = MakeUnique<FDx12CommandList>();
+    CDx12Device* dxd = static_cast<CDx12Device*>(&device);
+    auto cl = MakeUnique<CDx12CommandList>();
     const FHrResult r = cl->Init(*dxd);
     if (r.IsErr()) {
         return ACS_ERR_OS(Render, 21, "Dx12CommandList::Init failed", static_cast<u32>(r.hr));

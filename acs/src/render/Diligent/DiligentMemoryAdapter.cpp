@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FDiligentMemoryAdapter 実装
+// CDiligentMemoryAdapter 実装
 //
 // Diligent の IMemoryAllocator は以下の仮想関数を持つ:
 //   void* Allocate(size_t Size, const Char* dbgInfo, const Char* dbgFile, const Int32 dbgLine);
@@ -456,7 +456,7 @@ FAcsMemoryAllocator& AdapterInstance() noexcept
 } // namespace
 
 /** backing を委譲先にする静的寿命のアダプタを返す。 */
-void* FDiligentMemoryAdapter::Create(FAllocator* backing) noexcept
+void* CDiligentMemoryAdapter::Create(FAllocator* backing) noexcept
 {
     if (!backing) return nullptr;
     // アダプタ本体は backing の外に置く。同一アドレスが再利用されても、旧寿命の領域が残る間は
@@ -477,22 +477,22 @@ void* FDiligentMemoryAdapter::Create(FAllocator* backing) noexcept
     return static_cast<void*>(&adapter);
 }
 
-u64 FDiligentMemoryAdapter::OutstandingAllocationCount() noexcept
+u64 CDiligentMemoryAdapter::OutstandingAllocationCount() noexcept
 {
     return AdapterInstance().OutstandingAllocationCount();
 }
 
-u64 FDiligentMemoryAdapter::OutstandingRequestedBytes() noexcept
+u64 CDiligentMemoryAdapter::OutstandingRequestedBytes() noexcept
 {
     return AdapterInstance().OutstandingRequestedBytes();
 }
 
-u64 FDiligentMemoryAdapter::BindingGeneration() noexcept
+u64 CDiligentMemoryAdapter::BindingGeneration() noexcept
 {
     return AdapterInstance().BindingGeneration();
 }
 
-u64 FDiligentMemoryAdapter::BackingLifetimeGeneration() noexcept
+u64 CDiligentMemoryAdapter::BackingLifetimeGeneration() noexcept
 {
     return AdapterInstance().BackingLifetimeGeneration();
 }

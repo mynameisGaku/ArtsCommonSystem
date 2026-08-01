@@ -16,7 +16,7 @@ FDx12Buffer::~FDx12Buffer() noexcept {
 void FDx12Buffer::Reset() noexcept
 {
     if (m_Mapped && m_Resource) m_Resource->Unmap(0, nullptr);
-    FDx12Device* device = m_Device;
+    CDx12Device* device = m_Device;
     ID3D12Resource* resource = m_Resource;
     m_Mapped = nullptr;
     m_Device = nullptr;
@@ -37,7 +37,7 @@ void FDx12Buffer::Reset() noexcept
 }
 
 /** desc に従って GPU バッファを確保し、必要なら永続マップして初期データを複製する。 */
-FHrResult FDx12Buffer::Init(FDx12Device& device, const FBufferDesc& desc) noexcept {
+FHrResult FDx12Buffer::Init(CDx12Device& device, const FBufferDesc& desc) noexcept {
     FHrResult r{};
     Reset();
 
@@ -68,14 +68,14 @@ FHrResult FDx12Buffer::Init(FDx12Device& device, const FBufferDesc& desc) noexce
     // 1 スロットあたりのストライド（最大の Uniform 要件 256B にアライン）
     if (m_bFrameCycled) {
         m_SlotStride = (desc.size + 255u) & ~static_cast<usize>(255u);
-        if (m_SlotStride > max_size / FDx12Device::kFramesInFlight) {
+        if (m_SlotStride > max_size / CDx12Device::kFramesInFlight) {
             r.hr = E_INVALIDARG;
             Reset();
             return r;
         }
     }
     const usize total_size = m_bFrameCycled
-        ? m_SlotStride * FDx12Device::kFramesInFlight
+        ? m_SlotStride * CDx12Device::kFramesInFlight
         : desc.size;
 
     // バッファリソース記述（行レイアウトのリニアバッファ）
@@ -127,7 +127,7 @@ FHrResult FDx12Buffer::Init(FDx12Device& device, const FBufferDesc& desc) noexce
     // 初期データを全スロットに複製（フレームリング時は両スロットへ）
     if (desc.initial_data && desc.size > 0 && m_Mapped) {
         if (m_bFrameCycled) {
-            for (u32 i = 0; i < FDx12Device::kFramesInFlight; ++i) {
+            for (u32 i = 0; i < CDx12Device::kFramesInFlight; ++i) {
                 ::memcpy(static_cast<u8*>(m_Mapped) + i * m_SlotStride,
                          desc.initial_data, desc.size);
             }
@@ -256,7 +256,7 @@ TResult<TUniquePtr<IRhiBuffer>> CreateRhiBuffer(IRhiDevice& device, const FBuffe
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 30, "CreateRhiBuffer: device is not DX12");
-    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    CDx12Device* dxd = static_cast<CDx12Device*>(&device);
     auto b = MakeUnique<FDx12Buffer>();
     const FHrResult r = b->Init(*dxd, desc);
     if (r.IsErr())

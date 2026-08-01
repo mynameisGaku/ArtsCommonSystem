@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FPostProcess (Bloom + ACES Tonemap) 実装
+// CPostProcess (Bloom + ACES Tonemap) 実装
 #include "render/PostProcess.h"
 #include "render/RenderGraphTransientAlias.h"
 #include "foundation/Move.h"
@@ -881,9 +881,9 @@ void FillFullscreenLayout(FPipelineDesc& pd) noexcept {
     pd.depth_format  = EFormat::Unknown;
 }
 
-TResult<FPostProcess::FCompiledShaders> CompilePostShadersWithDevice(
+TResult<CPostProcess::FCompiledShaders> CompilePostShadersWithDevice(
     IRhiDevice& device, bool compile_async) noexcept {
-    FPostProcess::FCompiledShaders compiled{};
+    CPostProcess::FCompiledShaders compiled{};
     auto compile = [&](EShaderStage stage, const char* source,
                        const char* entry_point, const char* debug_name,
                        TUniquePtr<IRhiShader>& output) noexcept
@@ -902,49 +902,49 @@ TResult<FPostProcess::FCompiledShaders> CompilePostShadersWithDevice(
 
     if (auto r = compile(EShaderStage::Vertex, kFullscreenVS, "VSMain",
                          "Fullscreen.VS", compiled.fullscreen_vertex);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kExtractPS, "PSMain",
                          "Bloom.Extract", compiled.extract_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kDownsamplePS, "PSMain",
                          "Bloom.Downsample", compiled.downsample_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kUpsamplePS, "PSMain",
                          "Bloom.Upsample", compiled.upsample_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kGaussianBlurPS, "PSMain",
                          "Bloom.Gaussian", compiled.gaussian_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kTaaResolvePS, "PSMain",
                          "Taa.Resolve", compiled.taa_resolve_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kTonemapPS, "PSMain",
                          "Tonemap", compiled.tonemap_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kLumaExtractPS, "PSMain",
                          "Luma.Extract", compiled.luma_extract_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kLumaDownsamplePS, "PSMain",
                          "Luma.Downsample", compiled.luma_downsample_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kExposurePS, "PSMain",
                          "Exposure.Adapt", compiled.exposure_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
     if (auto r = compile(EShaderStage::Pixel, kExposeApplyPS, "PSMain",
                          "Exposure.Apply", compiled.exposure_apply_pixel);
-        r.IsErr()) return Err<FPostProcess::FCompiledShaders>(r.Error());
+        r.IsErr()) return Err<CPostProcess::FCompiledShaders>(r.Error());
 
-    return TResult<FPostProcess::FCompiledShaders>(
+    return TResult<CPostProcess::FCompiledShaders>(
         OkInit, Move(compiled));
 }
 
 } // namespace
 
-FPostProcess::~FPostProcess() noexcept {
+CPostProcess::~CPostProcess() noexcept {
     Shutdown();
 }
 
-EShaderStatus FPostProcess::FCompiledShaders::Status() const noexcept {
+EShaderStatus CPostProcess::FCompiledShaders::Status() const noexcept {
     IRhiShader* const shaders[] = {
         fullscreen_vertex.Get(),
         extract_pixel.Get(),
@@ -1029,8 +1029,8 @@ void FPostProcessParams::Sanitize() noexcept {
         delta_time, defaults.delta_time, 0.0f, 1.0f);
 }
 
-TResult<FPostProcess::FCompiledShaders>
-FPostProcess::CompileShadersCpu() noexcept {
+TResult<CPostProcess::FCompiledShaders>
+CPostProcess::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     FCompiledShaders compiled{};
     auto compile = [](EShaderStage stage, const char* source,
@@ -1101,8 +1101,8 @@ FPostProcess::CompileShadersCpu() noexcept {
 #endif
 }
 
-TResult<FPostProcess::FCompiledShaders>
-FPostProcess::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
+TResult<CPostProcess::FCompiledShaders>
+CPostProcess::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
             Render, 723,
@@ -1112,7 +1112,7 @@ FPostProcess::BeginCompileShadersAsync(IRhiDevice& device) noexcept {
     return CompilePostShadersWithDevice(device, true);
 }
 
-TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
+TResult<void> CPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
                                 EFormat color_format) noexcept {
     auto compiled = CompilePostShadersWithDevice(device, false);
     if (compiled.IsErr()) return Err<void>(compiled.Error());
@@ -1120,7 +1120,7 @@ TResult<void> FPostProcess::Init(IRhiDevice& device, u32 width, u32 height,
         device, Move(compiled.Value()), width, height, color_format);
 }
 
-TResult<void> FPostProcess::InitWithCompiledShaders(
+TResult<void> CPostProcess::InitWithCompiledShaders(
     IRhiDevice& device, FCompiledShaders&& shaders,
     u32 width, u32 height, EFormat color_format) noexcept {
     if (shaders.Status() != EShaderStatus::Ready) {
@@ -1133,7 +1133,7 @@ TResult<void> FPostProcess::InitWithCompiledShaders(
     // Construct a complete replacement away from the published renderer.
     // No externally visible state changes until every allocation and PSO has
     // succeeded, so startup may retry without destroying a valid stack.
-    FPostProcess candidate;
+    CPostProcess candidate;
     candidate.m_Device = &device;
     candidate.m_ColorFormat = color_format;
     candidate.m_Width = width;
@@ -1200,7 +1200,7 @@ TResult<void> FPostProcess::InitWithCompiledShaders(
     return Ok();
 }
 
-void FPostProcess::Shutdown() noexcept {
+void CPostProcess::Shutdown() noexcept {
     m_BlackFb.Reset();
     m_TaaDepthFb.Reset();
     m_CbAuto.Reset();
@@ -1245,8 +1245,8 @@ void FPostProcess::Shutdown() noexcept {
     m_Device = nullptr;
 }
 
-TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
-    if (!m_Device) return ACS_ERR(Render, 300, "FPostProcess::Resize before Init");
+TResult<void> CPostProcess::Resize(u32 width, u32 height) noexcept {
+    if (!m_Device) return ACS_ERR(Render, 300, "CPostProcess::Resize before Init");
     if (width == 0) width = 1;
     if (height == 0) height = 1;
     if (width == m_Width && height == m_Height) return Ok();
@@ -1255,7 +1255,7 @@ TResult<void> FPostProcess::Resize(u32 width, u32 height) noexcept {
     // A failed allocation must not invalidate the old-size HDR target, TAA
     // history, exposure history, or their frame indices: the caller can keep
     // presenting a stable clear and retry this or a later size next frame.
-    FPostProcess candidate;
+    CPostProcess candidate;
     candidate.m_HdrFormat = m_HdrFormat;
     candidate.m_LumaFormat = m_LumaFormat;
     if (auto created =
@@ -1312,7 +1312,7 @@ FRenderGraphAliasPlanSummary BuildPostProcessTransientAliasPlan(u32 width, u32 h
     }
 
     // 候補計画は GPU 所有権を変更せず集計だけを公開する。
-    FRenderGraphTransientAliasPlanner planner;
+    CRenderGraphTransientAliasPlanner planner;
     if (!planner.Build(lifetimes, resource_count)) {
         return {};
     }
@@ -1321,7 +1321,7 @@ FRenderGraphAliasPlanSummary BuildPostProcessTransientAliasPlan(u32 width, u32 h
 
 } // namespace
 
-TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
+TResult<void> CPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h) noexcept {
     // メイン HDR RT
     FTextureDesc td{};
     td.width  = w;
@@ -1411,7 +1411,7 @@ TResult<void> FPostProcess::CreateRenderTargets(IRhiDevice& device, u32 w, u32 h
     return Ok();
 }
 
-TResult<void> FPostProcess::CreatePipelines(
+TResult<void> CPostProcess::CreatePipelines(
     IRhiDevice& device, FCompiledShaders&& shaders) noexcept {
     if (shaders.Status() != EShaderStatus::Ready) {
         return ACS_ERR(
@@ -1658,7 +1658,7 @@ TResult<void> FPostProcess::CreatePipelines(
     return Ok();
 }
 
-void FPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
+void CPostProcess::Render(IRhiCommandList& cmd, IRhiSwapchain& swapchain, u32 buffer_index,
                           const FPostProcessParams& params) noexcept {
     m_BloomOutputValid = false;
     m_TaaOutputValid = false;
@@ -1788,10 +1788,10 @@ void UpdatePostCB(IRhiBuffer* cb, const FPostProcessParams& p,
 }
 } // namespace
 
-IRhiBuffer* FPostProcess::AcquirePostCb() noexcept {
+IRhiBuffer* CPostProcess::AcquirePostCb() noexcept {
     if (m_PostCbCursor >= kPostCbRing) {
         if (m_PostCbCursor == kPostCbRing) {
-            ACS_LOG_WARN("FPostProcess: per-frame pass CB limit (%u) exceeded; "
+            ACS_LOG_WARN("CPostProcess: per-frame pass CB limit (%u) exceeded; "
                          "remaining post passes are skipped", kPostCbRing);
             ++m_PostCbCursor;
         }
@@ -1800,7 +1800,7 @@ IRhiBuffer* FPostProcess::AcquirePostCb() noexcept {
     return m_CbPost[m_PostCbCursor++].Get();
 }
 
-bool FPostProcess::Pass_Extract(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
+bool CPostProcess::Pass_Extract(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
     auto* dst = m_BloomMips[0].Get();
     if (!dst || !m_HdrRt || !m_PipeExtract) return false;
 
@@ -1821,7 +1821,7 @@ bool FPostProcess::Pass_Extract(IRhiCommandList& cmd, const FPostProcessParams& 
     return true;
 }
 
-bool FPostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept {
+bool CPostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept {
     if (from_mip >= kBloomMips - 1u || !m_PipeDownsample) return false;
     auto* src = m_BloomMips[from_mip].Get();
     auto* dst = m_BloomMips[from_mip + 1].Get();
@@ -1840,7 +1840,7 @@ bool FPostProcess::Pass_Downsample(IRhiCommandList& cmd, u32 from_mip) noexcept 
     return true;
 }
 
-bool FPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius,
+bool CPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius,
                                  f32 scatter) noexcept {
     if (to_mip >= kBloomMips - 1u || !m_PipeUpsample) return false;
     auto* src = m_BloomMips[to_mip + 1].Get();
@@ -1866,7 +1866,7 @@ bool FPostProcess::Pass_Upsample(IRhiCommandList& cmd, u32 to_mip, f32 radius,
     return true;
 }
 
-bool FPostProcess::Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept {
+bool CPostProcess::Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizontal, f32 amount) noexcept {
     if (mip >= kBloomMips || !m_PipeGaussian) return false;
     auto* tex = m_BloomMips[mip].Get();
     auto* tmp = m_BloomTmp[mip].Get();
@@ -1891,7 +1891,7 @@ bool FPostProcess::Pass_GaussianBlur(IRhiCommandList& cmd, u32 mip, bool horizon
     return true;
 }
 
-bool FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
+bool CPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
     auto* cur_rt = m_Taa[m_TaaFrame % 2].Get();         // 今フレームの書き先
     auto* hist_rt = m_Taa[(m_TaaFrame + 1) % 2].Get();   // 前フレームの resolved
     if (!cur_rt || !hist_rt || !m_HdrRt || !m_PipeTaaResolve ||
@@ -1972,7 +1972,7 @@ bool FPostProcess::Pass_TaaResolve(IRhiCommandList& cmd, const FPostProcessParam
     return true;
 }
 
-bool FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
+bool CPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf_idx,
                                 const FPostProcessParams& p) noexcept {
     if (!m_PipeTonemap || sc.Width() == 0 || sc.Height() == 0) return false;
     const bool scene_auto_exposed =
@@ -2028,7 +2028,7 @@ bool FPostProcess::Pass_Tonemap(IRhiCommandList& cmd, IRhiSwapchain& sc, u32 buf
 
 // ==== Auto-exposure passes ====
 
-IRhiTexture* FPostProcess::SceneInput(const FPostProcessParams& p) const noexcept {
+IRhiTexture* CPostProcess::SceneInput(const FPostProcessParams& p) const noexcept {
     if (p.auto_exposure_enabled && m_ExposureOutputValid && m_ExposedRt) {
         return m_ExposedRt.Get();
     }
@@ -2038,7 +2038,7 @@ IRhiTexture* FPostProcess::SceneInput(const FPostProcessParams& p) const noexcep
     return m_HdrRt.Get();
 }
 
-bool FPostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
+bool CPostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
     if (!m_HdrRt || m_LumaMipCount == 0 ||
         m_LumaMipCount > kMaxLumaMips ||
         !m_PipeLumaExtract || !m_PipeLumaDown) {
@@ -2080,7 +2080,7 @@ bool FPostProcess::Pass_LumaReduce(IRhiCommandList& cmd) noexcept {
     return true;
 }
 
-bool FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
+bool CPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessParams& p) noexcept {
     if (m_LumaMipCount == 0 || m_LumaMipCount > kMaxLumaMips ||
         !m_PipeExposure || !m_CbAuto) {
         return false;
@@ -2108,7 +2108,7 @@ bool FPostProcess::Pass_ExposureAdapt(IRhiCommandList& cmd, const FPostProcessPa
     return true;
 }
 
-bool FPostProcess::Pass_ExposureApply(IRhiCommandList& cmd,
+bool CPostProcess::Pass_ExposureApply(IRhiCommandList& cmd,
                                       IRhiTexture& source) noexcept {
     if (!m_ExposedRt || !m_PipeExposeApply) return false;
     auto* exp_tex = m_Exposure[m_AutoFrame % 2].Get();     // Pass_ExposureAdapt が書いた露出

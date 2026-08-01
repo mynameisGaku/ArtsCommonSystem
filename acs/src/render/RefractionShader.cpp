@@ -202,7 +202,7 @@ constexpr usize CBSize() noexcept {
 
 } // namespace
 
-TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
+TResult<void> CRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
                                     EFormat depth_format) noexcept {
     // === シェーダコンパイル ===
     FShaderDesc vs_d{};
@@ -300,7 +300,7 @@ TResult<void> FRefractionShader::Init(IRhiDevice& device, EFormat rt_format,
     return Ok();
 }
 
-void FRefractionShader::Shutdown() noexcept {
+void CRefractionShader::Shutdown() noexcept {
     m_BackDepthFb.Reset();
     m_BackDepth = nullptr;
     m_Pipeline.Reset();
@@ -312,7 +312,7 @@ void FRefractionShader::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
-void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos,
+void CRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos,
                                  u32 screen_w, u32 screen_h) noexcept {
     m_ObjectCbCursor = 0;
     m_CurrentObjectCb = kObjectCbRing;
@@ -328,7 +328,7 @@ void FRefractionShader::SetFrame(const FMat4& view_projection, FVec3 camera_pos,
     m_FrameCb->Update(&cb, sizeof(cb));
 }
 
-void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far_z,
+void CRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 far_z,
                                      u32 screen_w, u32 screen_h) noexcept {
     m_BackDepth   = back_depth;
     m_bBackEnabled = (back_depth != nullptr);
@@ -347,12 +347,12 @@ void FRefractionShader::SetBackDepth(IRhiTexture* back_depth, f32 near_z, f32 fa
     }
 }
 
-void FRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
+void CRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
                                  FVec3 tint, f32 roughness, f32 dispersion,
                                  u32 env_mip_levels) noexcept {
     if (m_ObjectCbCursor >= kObjectCbRing) {
         if (m_ObjectCbCursor == kObjectCbRing) {
-            ACS_LOG_WARN("FRefractionShader: per-frame draw limit (%u) exceeded; "
+            ACS_LOG_WARN("CRefractionShader: per-frame draw limit (%u) exceeded; "
                          "remaining refraction draws are skipped", kObjectCbRing);
             ++m_ObjectCbCursor;
         }
@@ -386,7 +386,7 @@ void FRefractionShader::SetObject(const FMat4& model, f32 ior, f32 thickness,
     object_cb->Update(&cb, sizeof(cb));
 }
 
-void FRefractionShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh,
+void CRefractionShader::DrawMesh(IRhiCommandList& cmd, const FGpuMesh& mesh,
                                 const FMat4& model, IRhiTexture& background,
                                 IRhiTexture& env, f32 ior, f32 thickness,
                                 FVec3 tint, f32 roughness, f32 dispersion) noexcept {

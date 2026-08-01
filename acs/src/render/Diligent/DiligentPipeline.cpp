@@ -63,7 +63,7 @@ void FDiligentPipeline::Reset() noexcept
     }
 }
 
-TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept {
+TResult<void> FDiligentPipeline::Init(CDiligentDevice& device, const FPipelineDesc& desc) noexcept {
     Reset();
     if (!ShaderLayoutMetadata(desc).IsValidGraphics()) return ACS_ERR(Render, 158, "FDiligentPipeline: shader layout exceeds fixed limits");
     m_Device = &device;
@@ -102,7 +102,7 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
             if (n) m_TexNames[i] = n;
         }
     }
-    // PS は depth-only pass (FShadowMap 等) で null OK。NumRenderTargets=0、
+    // PS は depth-only pass (CShadowMap 等) で null OK。NumRenderTargets=0、
     // RTVFormats[0]=UNKNOWN にして PSO 作成する。
 
     Diligent::GraphicsPipelineStateCreateInfo psoCI;
@@ -147,7 +147,7 @@ TResult<void> FDiligentPipeline::Init(FDiligentDevice& device, const FPipelineDe
     gp.RasterizerDesc.CullMode      = diligent_detail::ToDiligent(desc.cull_mode);
     gp.RasterizerDesc.FillMode      = Diligent::FILL_MODE_SOLID;
     // 経験的に: 色 pass (PS あり) で `true`、depth-only (PS なし) で `false`
-    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / FSky / Mesh ...)
+    // にすると ACS sample 群 (HelloLights / Bloom / Shadows / CSky / Mesh ...)
     // で正しい winding になる。Diligent の D3D12 backend が swap chain / RT
     // 種別で内部的に何か変換してると推測。
     // 注: HelloBloom の off-screen HDR RT (PS あり、has_ps=true) も `true`
@@ -307,7 +307,7 @@ const char* FDiligentPipeline::UavName(u32 slot) const noexcept {
     return m_UavNames[slot] ? m_UavNames[slot] : kUavFallback[slot];
 }
 
-TResult<void> FDiligentPipeline::InitCompute(FDiligentDevice& device,
+TResult<void> FDiligentPipeline::InitCompute(CDiligentDevice& device,
                                             const FComputePipelineDesc& desc) noexcept {
     Reset();
     if (!ShaderLayoutMetadata(desc).IsValidCompute(desc.uav_slots)) return ACS_ERR(Render, 159, "FDiligentPipeline(compute): shader layout exceeds fixed limits");

@@ -6,7 +6,7 @@
 namespace acs {
 
 /** 親バッファと公開範囲を設定する。 */
-void FTransientUploadArena::FSlice::Configure(IRhiBuffer& buffer, usize offset, usize size) noexcept
+void CTransientUploadArena::FSlice::Configure(IRhiBuffer& buffer, usize offset, usize size) noexcept
 {
     m_Buffer = &buffer;
     m_Offset = offset;
@@ -14,26 +14,26 @@ void FTransientUploadArena::FSlice::Configure(IRhiBuffer& buffer, usize offset, 
 }
 
 /** 公開範囲内へデータを書き込む。 */
-void FTransientUploadArena::FSlice::Update(const void* data, usize size, usize offset) noexcept
+void CTransientUploadArena::FSlice::Update(const void* data, usize size, usize offset) noexcept
 {
     if (m_Buffer == nullptr || data == nullptr || offset > m_Size || size > m_Size - offset) return;
     m_Buffer->Update(data, size, m_Offset + offset);
 }
 
 /** backendがbindする実バッファを返す。 */
-IRhiBuffer& FTransientUploadArena::FSlice::BindingBuffer() noexcept
+IRhiBuffer& CTransientUploadArena::FSlice::BindingBuffer() noexcept
 {
     return m_Buffer->BindingBuffer();
 }
 
 /** 実バッファ先頭からのbind offsetを返す。 */
-usize FTransientUploadArena::FSlice::BindingOffset() const noexcept
+usize CTransientUploadArena::FSlice::BindingOffset() const noexcept
 {
     return m_Buffer->BindingOffset() + m_Offset;
 }
 
 /** 一時定数の大きさと初期個数を設定して最初の共有ページを作る。 */
-TResult<void> FTransientUploadArena::Init(IRhiDevice& device, usize allocation_size, u32 initial_capacity) noexcept
+TResult<void> CTransientUploadArena::Init(IRhiDevice& device, usize allocation_size, u32 initial_capacity) noexcept
 {
     Reset();
     /** アライン計算に使う最大値。 */
@@ -52,7 +52,7 @@ TResult<void> FTransientUploadArena::Init(IRhiDevice& device, usize allocation_s
 }
 
 /** 全ページを解放して未初期化状態へ戻す。 */
-void FTransientUploadArena::Reset() noexcept
+void CTransientUploadArena::Reset() noexcept
 {
     m_Pages.ReleaseStorage();
     m_Device = nullptr;
@@ -65,7 +65,7 @@ void FTransientUploadArena::Reset() noexcept
 }
 
 /** 次フレームの必要数を予約し、使用位置だけを定数時間で先頭へ戻す。 */
-bool FTransientUploadArena::BeginFrame(u32 required_allocations) noexcept
+bool CTransientUploadArena::BeginFrame(u32 required_allocations) noexcept
 {
     /** 必要容量の確保結果。 */
     const bool capacity_ready = Reserve(required_allocations);
@@ -75,7 +75,7 @@ bool FTransientUploadArena::BeginFrame(u32 required_allocations) noexcept
 }
 
 /** 必要数まで共有ページを追加する。 */
-bool FTransientUploadArena::Reserve(u32 required_allocations) noexcept
+bool CTransientUploadArena::Reserve(u32 required_allocations) noexcept
 {
     if (required_allocations == ~u32{0}) return false;
     if (m_Device == nullptr || m_Stride == 0u) return false;
@@ -89,7 +89,7 @@ bool FTransientUploadArena::Reserve(u32 required_allocations) noexcept
 }
 
 /** 次の論理sliceへ定数を書き、通常のIRhiBufferとして返す。 */
-IRhiBuffer* FTransientUploadArena::Upload(const void* data, usize size) noexcept
+IRhiBuffer* CTransientUploadArena::Upload(const void* data, usize size) noexcept
 {
     if (data == nullptr || size == 0u || size > m_AllocationSize || m_Cursor == ~u32{0}) return nullptr;
     if (m_Cursor >= m_Capacity && !Reserve(m_Cursor + 1u)) return nullptr;
@@ -104,7 +104,7 @@ IRhiBuffer* FTransientUploadArena::Upload(const void* data, usize size) noexcept
 }
 
 /** 指定した論理sliceを返す。 */
-IRhiBuffer* FTransientUploadArena::Get(u32 allocation_index) noexcept
+IRhiBuffer* CTransientUploadArena::Get(u32 allocation_index) noexcept
 {
     if (allocation_index >= m_Capacity || m_Pages.IsEmpty()) return nullptr;
     /** 検索を始めるページ番号。 */
@@ -124,7 +124,7 @@ IRhiBuffer* FTransientUploadArena::Get(u32 allocation_index) noexcept
 }
 
 /** 指定した論理sliceをconst arenaから返す。 */
-IRhiBuffer* FTransientUploadArena::Get(u32 allocation_index) const noexcept
+IRhiBuffer* CTransientUploadArena::Get(u32 allocation_index) const noexcept
 {
     if (allocation_index >= m_Capacity) return nullptr;
     for (usize page_index = 0u; page_index < m_Pages.Size(); ++page_index) {
@@ -138,7 +138,7 @@ IRhiBuffer* FTransientUploadArena::Get(u32 allocation_index) const noexcept
 }
 
 /** 指定個数を持つページを末尾へ追加する。 */
-bool FTransientUploadArena::AddPage(u32 allocation_count) noexcept
+bool CTransientUploadArena::AddPage(u32 allocation_count) noexcept
 {
     if (m_Device == nullptr || allocation_count == 0u || m_Stride == 0u) return false;
     /** サイズ計算に使う最大値。 */
@@ -171,7 +171,7 @@ bool FTransientUploadArena::AddPage(u32 allocation_count) noexcept
 }
 
 /** 要求値以上へ幾何成長させる次ページ個数を返す。 */
-u32 FTransientUploadArena::NextPageCapacity(u32 required_allocations) const noexcept
+u32 CTransientUploadArena::NextPageCapacity(u32 required_allocations) const noexcept
 {
     /** まだ不足している論理slice数。 */
     const u32 missing = required_allocations - m_Capacity;

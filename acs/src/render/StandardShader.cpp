@@ -160,7 +160,7 @@ float ComputeShadow(float3 world_p, float3 world_n, float3 light_to_surface) {
 
     // ---- 2) Penumbra width ----
     // light_size_uv = 0.01 をハードコード、kFilt で全体スケーリング。
-    // FPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
+    // CPbrShader と同じ係数で 27_HelloShowcase 等の見た目に整合。
     float pcss_penumbra = max((my_d - blocker_avg) / max(blocker_avg, 1e-3), 0.0);
     float filter_r = max(pcss_penumbra * 0.01 * kFilt, ts * 1.25);
     // 極端な receiver/blocker 比で隣接物へ影が漏れるのを防ぐ。
@@ -324,7 +324,7 @@ constexpr usize CBSize() noexcept {
 } // namespace
 
 /** VS/PS のコンパイル、定数バッファ・白テクスチャ・パイプラインを生成する。 */
-TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
+TResult<void> CStandardShader::Init(IRhiDevice& device, EFormat rt_format, EFormat depth_format) noexcept {
     Shutdown();
 
     // シェーダコンパイル
@@ -418,7 +418,7 @@ TResult<void> FStandardShader::Init(IRhiDevice& device, EFormat rt_format, EForm
 }
 
 /** GPU リソースを解放する。 */
-void FStandardShader::Shutdown() noexcept {
+void CStandardShader::Shutdown() noexcept {
     m_Pipeline.Reset();
     m_White.Reset();
     m_ObjectArena.Reset();
@@ -431,7 +431,7 @@ void FStandardShader::Shutdown() noexcept {
     m_Vs.Reset();
 }
 
-bool FStandardShader::BeginFrame(u32 required_object_draws) noexcept {
+bool CStandardShader::BeginFrame(u32 required_object_draws) noexcept {
     /** 必要容量の確保結果。 */
     const bool capacity_ready = m_ObjectArena.BeginFrame(required_object_draws);
     m_ObjectCbCursor = 0u;
@@ -445,7 +445,7 @@ bool FStandardShader::BeginFrame(u32 required_object_draws) noexcept {
 }
 
 /** 単一の有向光源を組み立てて SetLights に委譲する。 */
-void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
+void CStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
                               FVec3 light_color, FVec3 ambient) noexcept {
     FDirLight one;
     one.direction = light_dir;
@@ -454,7 +454,7 @@ void FStandardShader::SetFrame(const FMat4& vp, FVec3 cam, FVec3 light_dir,
 }
 
 /** 有向光源群・カメラ・環境光を保持し、フレーム CB を更新する。 */
-void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
+void CStandardShader::SetLights(const FMat4& vp, FVec3 cam,
                                const FDirLight* lights, u32 count,
                                FVec3 ambient) noexcept {
     if (count > kMaxDirLights) count = kMaxDirLights;
@@ -467,7 +467,7 @@ void FStandardShader::SetLights(const FMat4& vp, FVec3 cam,
 }
 
 /** 点光源群を保持し、フレーム CB を更新する。 */
-void FStandardShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
+void CStandardShader::SetPointLights(const FPointLight* lights, u32 count) noexcept {
     if (count > kMaxPointLights) count = kMaxPointLights;
     m_PointCount = count;
     for (u32 i = 0; i < count; ++i) m_PointLights[i] = lights[i];
@@ -475,7 +475,7 @@ void FStandardShader::SetPointLights(const FPointLight* lights, u32 count) noexc
 }
 
 /** シャドウマップと light view-projection・bias・filter を保持し、フレーム CB を更新する。 */
-void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
+void CStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
                                    f32 bias, f32 filter_radius) noexcept {
     m_ShadowTex    = tex;
     m_LightVp      = light_vp;
@@ -485,7 +485,7 @@ void FStandardShader::SetShadowMap(IRhiTexture* tex, const FMat4& light_vp,
 }
 
 /** 保持中のライト・カメラ・シャドウ状態をフレーム定数バッファに書き込む。 */
-void FStandardShader::FlushFrameCB() noexcept {
+void CStandardShader::FlushFrameCB() noexcept {
     if (!m_FrameCb) return;
     FFrameCBLayout cb{};
     cb.view_proj  = m_Vp;
@@ -522,11 +522,11 @@ void FStandardShader::FlushFrameCB() noexcept {
 }
 
 /** モデル行列・ベースカラー・マテリアルをオブジェクト定数バッファに書き込む。 */
-bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
+bool CStandardShader::SetObject(const FMat4& model, FVec3 base_color,
                                f32 specular_strength, f32 shininess) noexcept {
     if (!m_FrameCapacityReady || m_ObjectCbCursor == kInvalidObjectBuffer) {
         if (!m_ObjectCapacityFailureLogged) {
-            ACS_LOG_WARN("FStandardShader: shared object upload arena is unavailable; remaining draws are skipped");
+            ACS_LOG_WARN("CStandardShader: shared object upload arena is unavailable; remaining draws are skipped");
             m_ObjectCapacityFailureLogged = true;
         }
         m_FrameCapacityReady = false;
@@ -541,7 +541,7 @@ bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
     IRhiBuffer* const object_cb = m_ObjectArena.Upload(&cb, sizeof(cb));
     if (object_cb == nullptr) {
         if (!m_ObjectCapacityFailureLogged) {
-            ACS_LOG_WARN("FStandardShader: unable to grow shared object upload arena (required=%u, retained=%u); remaining draws are skipped", m_ObjectCbCursor + 1u, m_ObjectArena.Capacity());
+            ACS_LOG_WARN("CStandardShader: unable to grow shared object upload arena (required=%u, retained=%u); remaining draws are skipped", m_ObjectCbCursor + 1u, m_ObjectArena.Capacity());
             m_ObjectCapacityFailureLogged = true;
         }
         m_FrameCapacityReady = false;
@@ -554,7 +554,7 @@ bool FStandardShader::SetObject(const FMat4& model, FVec3 base_color,
 }
 
 /** オブジェクト CB を更新し、パイプライン・バッファ・テクスチャを束ねてメッシュを描画する。 */
-void FStandardShader::DrawMesh(IRhiCommandList& cmd,
+void CStandardShader::DrawMesh(IRhiCommandList& cmd,
                               const FGpuMesh& mesh,
                               const FMat4& model,
                               FVec3 base_color,

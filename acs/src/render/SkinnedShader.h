@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // スキンメッシュ用ライティングシェーダ（GPU スキニング）
 //
-// FStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
+// CStandardShader の上位互換: PerFrame (b0) / PerObject (b1) は同じレイアウト。
 // 加えて Bones (b2) を持ち、最大 64 ボーンのパレット行列をシェーダに送る。
 //
 // 使い方:
-//   FSkinnedShader shd;
+//   CSkinnedShader shd;
 //   shd.Init(*dev, color_fmt, depth_fmt);
 //   if (!shd.BeginFrame(/* expected draws */ 1)) return;
 //
-//   // フレーム共通（FStandardShader と同じ呼び方）
+//   // フレーム共通（CStandardShader と同じ呼び方）
 //   shd.SetLights(camera.ViewProjection(), camera.Eye(),
 //                 lights, count, ambient);
 //
@@ -50,12 +50,12 @@ namespace acs {
  * GPU スキニング対応のライティングシェーダ。
  *
  * @details
- * FStandardShader の上位互換で、PerFrame (b0) / PerObject (b1) は同レイアウト。
+ * CStandardShader の上位互換で、PerFrame (b0) / PerObject (b1) は同レイアウト。
  * 加えて Bones (b2) を持ち、最大 kMaxBones 個のボーンパレット行列をシェーダへ送る。
  * 頂点シェーダで BLENDINDICES / BLENDWEIGHT を使い 4 ボーンを加重平均してスキニングし、
  * ピクセルシェーダで方向光 + 点光源の Blinn-Phong ライティングを計算する。
  */
-class FSkinnedShader {
+class CSkinnedShader {
 public:
     /** ボーンパレットの最大数 (シェーダ側 ACS_MAX_BONES と一致)。 */
     static constexpr u32 kMaxBones = 64;
@@ -68,16 +68,16 @@ public:
     static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FSkinnedShader() noexcept = default;
+    CSkinnedShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FSkinnedShader() noexcept = default;
+    ~CSkinnedShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FSkinnedShader(const FSkinnedShader&)            = delete;
+    CSkinnedShader(const CSkinnedShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSkinnedShader& operator=(const FSkinnedShader&) = delete;
+    CSkinnedShader& operator=(const CSkinnedShader&) = delete;
 
     /**
      * シェーダ・パイプライン・定数バッファ・既定白テクスチャを生成する。
@@ -276,5 +276,9 @@ private:
     /** 有効な点光源の数。 */
     u32        m_PointCount = 0;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSkinnedShader = CSkinnedShader;
+
 
 } // namespace acs

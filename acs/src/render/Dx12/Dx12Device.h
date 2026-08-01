@@ -17,13 +17,13 @@ namespace acs {
  * 各デスクリプタヒープを簡易フリーリストで管理する。WaitIdle/フレーム fence による
  * GPU 同期と、kFramesInFlight スロットのリングインデックスも提供する。
  */
-class FDx12Device final : public IRhiDevice {
+class CDx12Device final : public IRhiDevice {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FDx12Device() noexcept = default;
+    CDx12Device() noexcept = default;
 
     /** GPU の完了を待ってから全 COM リソースを解放する。 */
-    ~FDx12Device() noexcept override;
+    ~CDx12Device() noexcept override;
 
     /**
      * DXGI ファクトリを返す (内部使用)。
@@ -536,5 +536,9 @@ private:
     /** 初回登録時だけ確保する cpp-private PSO cache owner。 */
     FPipelineCacheOwner* m_PipelineCacheOwner = nullptr;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDx12Device = CDx12Device;
+
 
 } // namespace acs

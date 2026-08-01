@@ -17,7 +17,7 @@ FDx12Texture::~FDx12Texture() noexcept {
 
 void FDx12Texture::Reset() noexcept
 {
-    FDx12Device* device = m_Device;
+    CDx12Device* device = m_Device;
     ID3D12Resource* resource = m_Resource;
     const i32 srv_slot = m_SrvSlot;
     const i32 uav_slot = m_UavSlot;
@@ -53,7 +53,7 @@ void FDx12Texture::Reset() noexcept
 }
 
 /** desc に従って DX12 リソースと SRV/DSV/RTV を生成する (詳細はヘッダ参照)。 */
-FHrResult FDx12Texture::Init(FDx12Device& device, const FTextureDesc& desc) noexcept {
+FHrResult FDx12Texture::Init(CDx12Device& device, const FTextureDesc& desc) noexcept {
     FHrResult r{};
     Reset();
 
@@ -602,7 +602,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateRhiTexture(IRhiDevice& device,
     const char* bn = device.BackendName();
     if (!(bn[0] == 'D' && bn[1] == 'X' && bn[2] == '1' && bn[3] == '2'))
         return ACS_ERR(Render, 70, "CreateRhiTexture: device is not DX12");
-    FDx12Device* dxd = static_cast<FDx12Device*>(&device);
+    CDx12Device* dxd = static_cast<CDx12Device*>(&device);
     auto t = MakeUnique<FDx12Texture>();
     const FHrResult r = t->Init(*dxd, desc);
     if (r.IsErr())

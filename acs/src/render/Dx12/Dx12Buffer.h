@@ -7,7 +7,7 @@
 
 namespace acs {
 
-class FDx12Device;
+class CDx12Device;
 
 /**
  * DX12 の GPU バッファ実装 (頂点・インデックス・定数バッファ用)。
@@ -36,7 +36,7 @@ public:
      * @param desc サイズ・用途・cpu_writable・初期データを指定するバッファ記述。
      * @return 成功なら成功 FHrResult、リソース生成・マップ失敗なら失敗 FHrResult。
      */
-    FHrResult Init(FDx12Device& device, const FBufferDesc& desc) noexcept;
+    FHrResult Init(CDx12Device& device, const FBufferDesc& desc) noexcept;
 
     /**
      * バッファの 1 フレームスロットあたりのバイト数を返す。
@@ -84,7 +84,7 @@ private:
     void Reset() noexcept;
 
     /** フレームスロット問い合わせに使う DX12 デバイス。 */
-    FDx12Device*     m_Device       = nullptr;
+    CDx12Device*     m_Device       = nullptr;
 
     /** 確保した D3D12 バッファリソース。 */
     ID3D12Resource* m_Resource     = nullptr;

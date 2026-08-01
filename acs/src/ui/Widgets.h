@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// 標準ウィジェット — FLabel / FButton / FSlider / FCheckbox / FTextInput
+// 標準ウィジェット — ALabel / AButton / ASlider / ACheckbox / ATextInput
 //
 // すべての widget は TObservable<T> プロパティで状態を公開しているので、
 // MVVM の Bind* で FViewModel と直結できる:
 //
 //   class FPlayerViewModel : public FViewModel { TObservable<f32> hp{100}; };
 //   FPlayerViewModel vm;
-//   FStackPanel root;
-//   auto* sl = root.Add<FSlider>(0.0f, 100.0f);
+//   AStackPanel root;
+//   auto* sl = root.Add<ASlider>(0.0f, 100.0f);
 //   auto bind = MakeTwoWayBind(vm.hp, sl->value);   // 双方向同期
 #pragma once
 
@@ -20,10 +20,13 @@ namespace acs {
 
 class FFont;
 
+
+
+
 /**
  * UI ウィジェット共通の配色テーマ (簡易カラーセット)。
  *
- * @details FUiRenderer が保持し、各 widget の Render が色名で参照する。
+ * @details CUiRenderer が保持し、各 widget の Render が色名で参照する。
  */
 struct FUiColors {
     /** パネル背景色。 */
@@ -75,6 +78,7 @@ struct FUiColors {
     FVec4 input_selection = { 0.25f, 0.52f, 0.88f, 0.72f };
 };
 
+
 /**
  * プロセス共有の既定 FUiColors への参照を返す。
  *
@@ -88,14 +92,14 @@ inline FUiColors& DefaultUiColors() noexcept {
 /**
  * 静的テキストを表示するラベル widget。
  */
-class FLabel : public FWidget {
+class ALabel : public AWidget {
 public:
     /**
      * 初期テキストを指定して構築する。
      *
      * @param initial 初期表示文字列 (既定は空文字列)。
      */
-    explicit FLabel(const char* initial = "") noexcept : text(FString{initial}) {
+    explicit ALabel(const char* initial = "") noexcept : text(FString{initial}) {
         requested.h = 22.0f;
     }
 
@@ -107,20 +111,23 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FLabel = ALabel;
 
 /**
  * クリックできるボタン widget。
  */
-class FButton : public FWidget {
+class AButton : public AWidget {
 public:
     /**
      * ラベル文字列を指定して構築する。
      *
      * @param label ボタンに表示する文字列 (既定 "Button")。
      */
-    explicit FButton(const char* label = "Button") noexcept : text(FString{label}) {
+    explicit AButton(const char* label = "Button") noexcept : text(FString{label}) {
         requested.h = 32.0f;
     }
 
@@ -141,7 +148,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * 押下状態に入る。
@@ -170,10 +177,13 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FButton = AButton;
+
 /**
  * 範囲付きの値をドラッグで編集するスライダー widget。
  */
-class FSlider : public FWidget {
+class ASlider : public AWidget {
 public:
     /**
      * 値域を指定して構築する。
@@ -181,7 +191,7 @@ public:
      * @param min_v 取りうる最小値 (既定 0)。
      * @param max_v 取りうる最大値 (既定 1)。
      */
-    FSlider(f32 min_v = 0, f32 max_v = 1) noexcept : min_value(min_v), max_value(max_v) {
+    ASlider(f32 min_v = 0, f32 max_v = 1) noexcept : min_value(min_v), max_value(max_v) {
         requested.h = 24.0f;
     }
 
@@ -199,7 +209,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * 押下して、その X 位置から値を更新する。
@@ -240,17 +250,20 @@ private:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSlider = ASlider;
+
 /**
  * bool 値をトグルするチェックボックス widget。
  */
-class FCheckbox : public FWidget {
+class ACheckbox : public AWidget {
 public:
     /**
      * ラベル文字列を指定して構築する。
      *
      * @param label チェックボックス横に表示する文字列 (既定は空文字列)。
      */
-    explicit FCheckbox(const char* label = "") noexcept : text(FString{label}) {
+    explicit ACheckbox(const char* label = "") noexcept : text(FString{label}) {
         requested.h = 24.0f;
     }
 
@@ -265,7 +278,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * 矩形内で解放されたら checked を反転する。
@@ -278,6 +291,9 @@ public:
     }
 };
 
+/** 旧名を使う既存コード向けの互換別名。 */
+using FCheckbox = ACheckbox;
+
 /**
  * UTF-8 の 1 行テキストをコードポイント境界で編集する入力 widget。
  *
@@ -286,7 +302,7 @@ public:
  * 境界へ正規化する。編集は一時 FString 上で完了してから observable へ move するため、
  * 容量確保に失敗しても文字列と cursor は変更されない。
  */
-class FTextInput : public FWidget {
+class ATextInput : public AWidget {
 public:
     /** 既定の入力上限 (NUL を含まない UTF-8 バイト数)。 */
     static constexpr usize kDefaultMaxTextBytes = 4096u;
@@ -295,7 +311,7 @@ public:
     static constexpr usize kHardMaxTextBytes = 1024u * 1024u;
 
     /** 空文字列で構築する。 */
-    FTextInput() noexcept {
+    ATextInput() noexcept {
         requested.h = 28.0f;
     }
 
@@ -307,7 +323,7 @@ public:
      *
      * @param r 描画ヘルパとテーマ色を提供する UI レンダラ。
      */
-    void Render(FUiRenderer& r) noexcept override;
+    void Render(CUiRenderer& r) noexcept override;
 
     /**
      * クリックでフォーカスを得て cursor を末尾へ移動する。
@@ -385,8 +401,8 @@ public:
      * @details 直接呼ばれた場合は修飾キーなしで処理する。3 引数版から転送中なら、その
      * callback の間だけ保持した修飾キースナップショットを使う。この関数をさらに派生型が
      * override していても、3 引数 Dispatch から仮想呼び出しで到達する。組み込みの
-     * FTextInput 編集も残す派生 override は FTextInput::OnKey を呼ぶこと。
-     * @param key FUiInput が編集キーへ割り当てる互換制御コード。
+     * ATextInput 編集も残す派生 override は ATextInput::OnKey を呼ぶこと。
+     * @param key CUiInput が編集キーへ割り当てる互換制御コード。
      * @param pressed_ 押下なら true、解放なら false。
      */
     void OnKey(i32 key, bool pressed_) noexcept override {
@@ -427,11 +443,11 @@ public:
     /**
      * 修飾キーを保持して従来の仮想 2 引数 OnKey へ転送する。
      *
-     * @details FTextInput 自身では2引数版が Backspace/Delete/Left/Right/Home/End、
+     * @details ATextInput 自身では2引数版が Backspace/Delete/Left/Right/Home/End、
      * Shift 選択、Ctrl+A を処理する。ここから2引数版を仮想呼び出しするため、既存の
-     * FTextInput 派生型が2引数版だけを override していても新しい3引数 Dispatch を受ける。
+     * ATextInput 派生型が2引数版だけを override していても新しい3引数 Dispatch を受ける。
      * 入れ子の OnKey 呼び出しでは以前の snapshot を保存・復元する。
-     * @param key FUiInput が編集キーへ割り当てる互換制御コード。
+     * @param key CUiInput が編集キーへ割り当てる互換制御コード。
      * @param pressed_ 押下なら true、解放なら false。
      * @param modifiers 配信時点の修飾キー状態。
      */
@@ -847,5 +863,9 @@ private:
      */
     const FUiKeyModifiers* m_ForwardedKeyModifiers = nullptr;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FTextInput = ATextInput;
+
 
 } // namespace acs

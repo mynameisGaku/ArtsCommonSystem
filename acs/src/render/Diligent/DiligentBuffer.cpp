@@ -56,7 +56,7 @@ Diligent::BIND_FLAGS BindFromUsage(EBufferUsage u) noexcept {
 } // namespace
 
 /** desc に従って GPU バッファを生成する。 */
-TResult<void> FDiligentBuffer::Init(FDiligentDevice& device, const FBufferDesc& desc) noexcept {
+TResult<void> FDiligentBuffer::Init(CDiligentDevice& device, const FBufferDesc& desc) noexcept {
     Reset();
     m_Device  = &device;
     m_Size    = desc.size;

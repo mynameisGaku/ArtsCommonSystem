@@ -32,19 +32,19 @@ namespace acs {
  * 明示的に Release() する。バックエンド非依存で完結するため、ユーザーコードは CreateRhiDevice()
  * 経由で IRhiDevice ハンドルだけを受け取り、このヘッダを include する必要はない。
  */
-class FDiligentDevice final : public IRhiDevice {
+class CDiligentDevice final : public IRhiDevice {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FDiligentDevice() noexcept = default;
+    CDiligentDevice() noexcept = default;
 
     /** Diligent オブジェクトを Release して破棄する。 */
-    ~FDiligentDevice() noexcept override;
+    ~CDiligentDevice() noexcept override;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FDiligentDevice(const FDiligentDevice&) = delete;
+    CDiligentDevice(const CDiligentDevice&) = delete;
 
     /** コピー代入も禁止。 */
-    FDiligentDevice& operator=(const FDiligentDevice&) = delete;
+    CDiligentDevice& operator=(const CDiligentDevice&) = delete;
 
     /**
      * デバイスを初期化する (CreateRhiDevice から呼ばれる)。
@@ -310,5 +310,9 @@ private:
     /** バックエンド名 (Init で確定するまでの既定値 "Diligent")。 */
     const char* m_BackendName = "Diligent";
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FDiligentDevice = CDiligentDevice;
+
 
 } // namespace acs

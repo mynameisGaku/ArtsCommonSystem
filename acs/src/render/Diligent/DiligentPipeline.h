@@ -12,7 +12,7 @@ namespace Diligent {
 
 namespace acs {
 
-class FDiligentDevice;
+class CDiligentDevice;
 
 /**
  * Diligent の IPipelineState + IShaderResourceBinding をラップしたパイプライン実装。
@@ -46,7 +46,7 @@ public:
      * @param desc パイプラインの記述 (シェーダ・入力レイアウト・ブレンド・深度等)。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> Init(FDiligentDevice& device, const FPipelineDesc& desc) noexcept;
+    TResult<void> Init(CDiligentDevice& device, const FPipelineDesc& desc) noexcept;
 
     /**
      * FComputePipelineDesc から compute PSO と SRB を生成する (Phase 0)。
@@ -55,7 +55,7 @@ public:
      * @param desc compute パイプラインの記述 (CS・cbuffer/SRV/UAV slot と名前)。
      * @return 成功なら空の TResult、生成失敗ならエラー。
      */
-    TResult<void> InitCompute(FDiligentDevice& device, const FComputePipelineDesc& desc) noexcept;
+    TResult<void> InitCompute(CDiligentDevice& device, const FComputePipelineDesc& desc) noexcept;
 
     /** compute パイプラインか (Dispatch 用)。 */
     bool IsCompute() const noexcept { return m_IsCompute; }
@@ -116,7 +116,7 @@ private:
     void Reset() noexcept;
 
     /** PSO 生成に使った Diligent デバイス。 */
-    FDiligentDevice*                  m_Device = nullptr;
+    CDiligentDevice*                  m_Device = nullptr;
 
     /** ネイティブのパイプラインステート。 */
     Diligent::IPipelineState*        m_Pso    = nullptr;

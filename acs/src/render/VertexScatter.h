@@ -43,10 +43,10 @@ struct FScatterProfile {
  * RGB 放射照度をグラフ上で拡散する。拡散ステップは行確率的 (各頂点の隣接重みの総和=1) な
  * 凸結合なので無条件安定かつ大域平均を保存する (= エネルギー保存)。
  */
-class FVertexScatter {
+class CVertexScatter {
 public:
     /** 空状態で構築する (Build で確保)。 */
-    FVertexScatter() noexcept = default;
+    CVertexScatter() noexcept = default;
 
     /**
      * メッシュから拡散演算子を構築する。
@@ -93,5 +93,9 @@ private:
     TArray<f32>  m_Degree;            ///< ノードごとの次数 D_n = Σ_e w (安定 λ の算出に使用)。
     f32          m_Lambda = 0.0f;     ///< 拡散係数 0.5/max(D_n) (λ·D ≤ 0.5 で安定)。
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FVertexScatter = CVertexScatter;
+
 
 } // namespace acs

@@ -313,7 +313,7 @@ FSamplerDesc PointClampSampler() noexcept {
 } // namespace
 
 EShaderStatus
-FSubsurfaceScattering::FCompiledShaders::Status() const noexcept {
+CSubsurfaceScattering::FCompiledShaders::Status() const noexcept {
     if (!vertex || !blur_pixel || !composite_pixel) {
         return EShaderStatus::Failed;
     }
@@ -350,7 +350,7 @@ void FSubsurfaceScatteringParams::Sanitize() noexcept {
         ClampFinite(max_radius_pixels, 64.0f, 1.0f, 128.0f);
 }
 
-TResult<void> FSubsurfaceScattering::Init(
+TResult<void> CSubsurfaceScattering::Init(
     IRhiDevice& device, u32 width, u32 height) noexcept {
     FCompiledShaders shaders{};
     FShaderDesc vertex_description{};
@@ -386,8 +386,8 @@ TResult<void> FSubsurfaceScattering::Init(
         device, Move(shaders), width, height);
 }
 
-TResult<FSubsurfaceScattering::FCompiledShaders>
-FSubsurfaceScattering::CompileShadersCpu() noexcept {
+TResult<CSubsurfaceScattering::FCompiledShaders>
+CSubsurfaceScattering::CompileShadersCpu() noexcept {
 #if !WITH_RENDER_DILIGENT
     FCompiledShaders shaders{};
 
@@ -453,8 +453,8 @@ FSubsurfaceScattering::CompileShadersCpu() noexcept {
 #endif
 }
 
-TResult<FSubsurfaceScattering::FCompiledShaders>
-FSubsurfaceScattering::BeginCompileShadersAsync(
+TResult<CSubsurfaceScattering::FCompiledShaders>
+CSubsurfaceScattering::BeginCompileShadersAsync(
     IRhiDevice& device) noexcept {
     if (!device.SupportsAsyncShaderCompilation()) {
         return ACS_ERR(
@@ -497,7 +497,7 @@ FSubsurfaceScattering::BeginCompileShadersAsync(
     return TResult<FCompiledShaders>(OkInit, Move(shaders));
 }
 
-TResult<void> FSubsurfaceScattering::InitWithCompiledShaders(
+TResult<void> CSubsurfaceScattering::InitWithCompiledShaders(
     IRhiDevice& device,
     FCompiledShaders&& shaders,
     u32 width,
@@ -505,7 +505,7 @@ TResult<void> FSubsurfaceScattering::InitWithCompiledShaders(
     if (width == 0 || height == 0) {
         return ACS_ERR(
             Render, 350,
-            "FSubsurfaceScattering::Init requires non-zero dimensions");
+            "CSubsurfaceScattering::Init requires non-zero dimensions");
     }
     if (shaders.Status() != EShaderStatus::Ready) {
         return ACS_ERR(
@@ -514,7 +514,7 @@ TResult<void> FSubsurfaceScattering::InitWithCompiledShaders(
 
     // Build a complete candidate first so reinitialization failure leaves the
     // currently usable object untouched.
-    FSubsurfaceScattering candidate;
+    CSubsurfaceScattering candidate;
     candidate.m_Device = &device;
     if (auto result =
             candidate.CreatePipelines(device, shaders);
@@ -548,7 +548,7 @@ TResult<void> FSubsurfaceScattering::InitWithCompiledShaders(
 }
 
 TResult<void>
-FSubsurfaceScattering::InitPipelineResourcesWithCompiledShaders(
+CSubsurfaceScattering::InitPipelineResourcesWithCompiledShaders(
     IRhiDevice& device,
     FCompiledShaders&& shaders) noexcept {
     if (shaders.Status() != EShaderStatus::Ready) {
@@ -558,7 +558,7 @@ FSubsurfaceScattering::InitPipelineResourcesWithCompiledShaders(
 
     // Construct every pipeline-side resource before touching the published
     // object. Full-resolution targets are a later Resize commit.
-    FSubsurfaceScattering candidate;
+    CSubsurfaceScattering candidate;
     candidate.m_Device = &device;
     if (auto result = candidate.CreatePipelines(device, shaders);
         result.IsErr()) {
@@ -581,7 +581,7 @@ FSubsurfaceScattering::InitPipelineResourcesWithCompiledShaders(
     return Ok();
 }
 
-TResult<void> FSubsurfaceScattering::BuildPipelineCandidateForRawDx12(
+TResult<void> CSubsurfaceScattering::BuildPipelineCandidateForRawDx12(
     IRhiDevice& device,
     FCompiledShaders&& shaders) noexcept {
 #if !WITH_RENDER_DILIGENT
@@ -597,7 +597,7 @@ TResult<void> FSubsurfaceScattering::BuildPipelineCandidateForRawDx12(
 #endif
 }
 
-void FSubsurfaceScattering::Shutdown() noexcept {
+void CSubsurfaceScattering::Shutdown() noexcept {
     m_CompositePipeline.Reset();
     m_BlurPipeline.Reset();
     m_VerticalCb.Reset();
@@ -612,17 +612,17 @@ void FSubsurfaceScattering::Shutdown() noexcept {
     m_Height = 0;
 }
 
-TResult<void> FSubsurfaceScattering::Resize(
+TResult<void> CSubsurfaceScattering::Resize(
     u32 width, u32 height) noexcept {
     if (!m_Device) {
         return ACS_ERR(
             Render, 351,
-            "FSubsurfaceScattering::Resize called before Init");
+            "CSubsurfaceScattering::Resize called before Init");
     }
     if (width == 0 || height == 0) {
         return ACS_ERR(
             Render, 352,
-            "FSubsurfaceScattering::Resize requires non-zero dimensions");
+            "CSubsurfaceScattering::Resize requires non-zero dimensions");
     }
     if (width == m_Width && height == m_Height) return Ok();
 
@@ -633,7 +633,7 @@ TResult<void> FSubsurfaceScattering::Resize(
     return Ok();
 }
 
-TResult<void> FSubsurfaceScattering::CreateTargets(
+TResult<void> CSubsurfaceScattering::CreateTargets(
     IRhiDevice& device, u32 width, u32 height) noexcept {
     FTextureDesc description{};
     description.width = width;
@@ -656,7 +656,7 @@ TResult<void> FSubsurfaceScattering::CreateTargets(
     return Ok();
 }
 
-TResult<void> FSubsurfaceScattering::CreateConstantBuffers(
+TResult<void> CSubsurfaceScattering::CreateConstantBuffers(
     IRhiDevice& device) noexcept {
     FBufferDesc description{};
     description.size = ConstantBufferSize();
@@ -677,7 +677,7 @@ TResult<void> FSubsurfaceScattering::CreateConstantBuffers(
     return Ok();
 }
 
-TResult<void> FSubsurfaceScattering::CreatePipelines(
+TResult<void> CSubsurfaceScattering::CreatePipelines(
     IRhiDevice& device,
     FCompiledShaders& shaders) noexcept {
     if (shaders.Status() != EShaderStatus::Ready) {
@@ -734,7 +734,7 @@ TResult<void> FSubsurfaceScattering::CreatePipelines(
     return Ok();
 }
 
-bool FSubsurfaceScattering::Render(
+bool CSubsurfaceScattering::Render(
     IRhiCommandList& command_list,
     IRhiTexture& scene_color,
     IRhiTexture& diffuse_lighting,

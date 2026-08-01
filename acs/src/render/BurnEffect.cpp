@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// FBurnEffect 実装 (per-pixel 燃えディゾルブ)
+// CBurnEffect 実装 (per-pixel 燃えディゾルブ)
 #include "render/BurnEffect.h"
 #include "foundation/Move.h"
 
@@ -132,12 +132,12 @@ ACS_FORCEINLINE f32 Saturate01(f32 v) noexcept { return v < 0.0f ? 0.0f : (v > 1
 } // namespace
 
 /** VS/PS/CB/PSO を生成する。 */
-TResult<void> FBurnEffect::Init(IRhiDevice& device, EFormat rt_format) noexcept {
+TResult<void> CBurnEffect::Init(IRhiDevice& device, EFormat rt_format) noexcept {
     FShaderDesc vs_d{};
     vs_d.stage = EShaderStage::Vertex;
     vs_d.hlsl_source = kBurnHLSL;
     vs_d.entry_point = "VSMain";
-    vs_d.debug_name  = "FBurnEffect.VS";
+    vs_d.debug_name  = "CBurnEffect.VS";
     auto vs_r = CreateRhiShader(device, vs_d);
     if (vs_r.IsErr()) return Err<void>(vs_r.Error());
     m_Vs = Move(vs_r.Value());
@@ -146,7 +146,7 @@ TResult<void> FBurnEffect::Init(IRhiDevice& device, EFormat rt_format) noexcept 
     ps_d.stage = EShaderStage::Pixel;
     ps_d.hlsl_source = kBurnHLSL;
     ps_d.entry_point = "PSMain";
-    ps_d.debug_name  = "FBurnEffect.PS";
+    ps_d.debug_name  = "CBurnEffect.PS";
     auto ps_r = CreateRhiShader(device, ps_d);
     if (ps_r.IsErr()) return Err<void>(ps_r.Error());
     m_Ps = Move(ps_r.Value());
@@ -185,7 +185,7 @@ TResult<void> FBurnEffect::Init(IRhiDevice& device, EFormat rt_format) noexcept 
 }
 
 /** GPU リソースを解放する。 */
-void FBurnEffect::Shutdown() noexcept {
+void CBurnEffect::Shutdown() noexcept {
     m_Pipeline.Reset();
     for (u32 i = 0; i < kRing; ++i) m_Cb[i].Reset();
     m_Ps.Reset();
@@ -193,7 +193,7 @@ void FBurnEffect::Shutdown() noexcept {
 }
 
 /** 定数バッファを更新し、クアッドを 1 回描く。 */
-void FBurnEffect::Draw(IRhiCommandList& cl, f32 x, f32 y, f32 w, f32 h,
+void CBurnEffect::Draw(IRhiCommandList& cl, f32 x, f32 y, f32 w, f32 h,
                        f32 screen_w, f32 screen_h, const FBurnParams& p) noexcept {
     if (!m_Pipeline || !m_Cb[0]) return;
     const f32 sw = screen_w > 0.0f ? screen_w : 1.0f;

@@ -9,7 +9,7 @@
 namespace acs {
 
 class IRhiTexture;   // 前方宣言 (コマンドはポインタのみ保持)
-class FSpriteBatch;  // Replay の対象 (定義は .cpp 側)
+class CSpriteBatch;  // Replay の対象 (定義は .cpp 側)
 
 /**
  * ソートリストに積む 1 コマンドの種別。
@@ -72,11 +72,11 @@ struct FSpriteCmd {
 };
 
 /**
- * FSpriteBatch 用の明示的 depth/layer 順序レイヤ (opt-in)。
+ * CSpriteBatch 用の明示的 depth/layer 順序レイヤ (opt-in)。
  *
  * @details
- * 描画コマンドを layer/depth 付きで貯め、安定ソートして FSpriteBatch に sorted 順で流す。
- * FSpriteBatch は無改変のまま「提出順」を保つので、本クラスを使わない経路は一切変わらない。
+ * 描画コマンドを layer/depth 付きで貯め、安定ソートして CSpriteBatch に sorted 順で流す。
+ * CSpriteBatch は無改変のまま「提出順」を保つので、本クラスを使わない経路は一切変わらない。
  * 非コピー (コマンド配列を単独所有)。
  */
 class FSpriteSortList {
@@ -222,14 +222,14 @@ public:
     }
 
     /**
-     * ソート済み順に全コマンドを FSpriteBatch へ流す。
+     * ソート済み順に全コマンドを CSpriteBatch へ流す。
      *
      * @details
      * Sort() 済みであることが前提 (未ソートなら提出順で流す)。Begin/End は呼び出し側で行う。
      * Textured は DrawSub、Rect は DrawRect を呼ぶ。
      * @param sb 描画先の (Begin 済み) スプライトバッチ。
      */
-    void Replay(FSpriteBatch& sb) const noexcept;
+    void Replay(CSpriteBatch& sb) const noexcept;
 
 private:
     /** 積まれたコマンド (提出順、ソートで動かさない)。 */

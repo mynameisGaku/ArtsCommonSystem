@@ -327,7 +327,7 @@ FVec3 GroundHemisphere(FVec3 viewer, FVec3 view_dir, FVec3 sun_dir,
 } // namespace
 
 /** equirect 画像の各方向で単散乱を評価し RGBA float 配列を焼く。 */
-TArray<f32> FAtmosphere::BakeEquirect(u32 width, u32 height,
+TArray<f32> CAtmosphere::BakeEquirect(u32 width, u32 height,
                                      const FAtmosphereParams& params) noexcept {
     TArray<f32> out;
     out.Resize(static_cast<usize>(width) * height * 4u);
@@ -380,7 +380,7 @@ TArray<f32> FAtmosphere::BakeEquirect(u32 width, u32 height,
     return out;
 }
 
-// ===================== GPU Hillaire 大気 (FSkyAtmosphere) =====================
+// ===================== GPU Hillaire 大気 (CSkyAtmosphere) =====================
 namespace {
 
 /** AtmoCB レイアウト (HLSL の cbuffer AtmoCB と一致)。 */
@@ -810,13 +810,13 @@ float4 PSMain(VSOut v) : SV_TARGET {
 
 } // namespace
 
-bool FSkyAtmosphere::SameVolumeCacheKey(
+bool CSkyAtmosphere::SameVolumeCacheKey(
     const FVolumeCacheKey& lhs,
     const FVolumeCacheKey& rhs) noexcept {
     return std::memcmp(&lhs, &rhs, sizeof(FVolumeCacheKey)) == 0;
 }
 
-TResult<void> FSkyAtmosphere::Init(IRhiDevice& device, EFormat hdr_format) noexcept {
+TResult<void> CSkyAtmosphere::Init(IRhiDevice& device, EFormat hdr_format) noexcept {
     m_Ready = false;
     m_LutsReady = false;
     m_LocalFogVolumeValid = false;
@@ -961,11 +961,11 @@ TResult<void> FSkyAtmosphere::Init(IRhiDevice& device, EFormat hdr_format) noexc
     {   FBufferDesc bd{}; bd.size = 256; bd.usage = EBufferUsage::Uniform; bd.cpu_writable = true;
         auto r = CreateRhiBuffer(device, bd); if (r.IsErr()) return Err<void>(r.Error()); m_LocalFogCompositeCb = Move(r.Value()); }
     m_Ready = true;
-    ACS_LOG_INFO("FSkyAtmosphere: scattering LUTs and aerial-perspective volume initialized");
+    ACS_LOG_INFO("CSkyAtmosphere: scattering LUTs and aerial-perspective volume initialized");
     return Ok();
 }
 
-IRhiTexture* FSkyAtmosphere::BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
+IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& device, IRhiCommandList& cl,
                                                     const FMat4& inv_view_proj, FVec3 cam_pos,
                                                     FVec3 sun_dir, FVec3 sun_intensity,
                                                     f32 max_dist_scene, f32 scene_to_km,
@@ -975,7 +975,7 @@ IRhiTexture* FSkyAtmosphere::BuildAerialPerspective(IRhiDevice& device, IRhiComm
                                   FVolumetricFogParams{});
 }
 
-IRhiTexture* FSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhiCommandList& cl,
+IRhiTexture* CSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhiCommandList& cl,
                                                     const FMat4& inv_view_proj, FVec3 cam_pos,
                                                     FVec3 sun_dir, FVec3 sun_intensity,
                                                     f32 max_dist_scene, f32 scene_to_km,
@@ -1118,7 +1118,7 @@ IRhiTexture* FSkyAtmosphere::BuildAerialPerspective(IRhiDevice& /*device*/, IRhi
     return physicalEnabled ? m_ApVol.Get() : nullptr;
 }
 
-void FSkyAtmosphere::CompositeAerialPerspective(IRhiCommandList& cl,
+void CSkyAtmosphere::CompositeAerialPerspective(IRhiCommandList& cl,
                                                 IRhiTexture& depth,
                                                 IRhiTexture& ap_volume,
                                                 IRhiTexture& transmittance_volume,
@@ -1165,7 +1165,7 @@ void FSkyAtmosphere::CompositeAerialPerspective(IRhiCommandList& cl,
     cl.Draw(3, 0);
 }
 
-void FSkyAtmosphere::CompositeLocalFog(
+void CSkyAtmosphere::CompositeLocalFog(
     IRhiCommandList& cl, IRhiTexture& depth, IRhiTexture& local_fog_volume,
     IRhiTexture* cloud_depth, const FMat4& inv_view_proj,
     FVec3 cam_pos, f32 max_dist_scene,
@@ -1199,7 +1199,7 @@ void FSkyAtmosphere::CompositeLocalFog(
     cl.Draw(3, 0);
 }
 
-bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
+bool CSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                                   const FAtmosphereParams& params,
                                   u32 width, u32 height, TArray<f32>& out) noexcept {
     if (!m_Ready) return false;
@@ -1249,7 +1249,7 @@ bool FSkyAtmosphere::BakeEquirect(IRhiDevice& device, IRhiCommandList& cl,
                               static_cast<u32>(out.Size() * sizeof(f32)));
 }
 
-void FSkyAtmosphere::Shutdown() noexcept {
+void CSkyAtmosphere::Shutdown() noexcept {
     m_TransPipe.Reset(); m_BakePipe.Reset();
     m_TransCs.Reset();   m_BakeCs.Reset();
     m_MultiPipe.Reset(); m_MultiCs.Reset(); m_MultiLut.Reset();   // 多重散乱 LUT (UAF 防止)

@@ -9,10 +9,10 @@
 //   1. opaque ジオメトリを HDR RT へ描画する
 //   2. HDR RT を background テクスチャへ複製する (屈折オブジェクトが読むため。
 //      同一 RT の read+write は不可なので複製が要る)
-//   3. FRefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
+//   3. CRefractionShader で屈折オブジェクトを HDR RT へ描画する (background を sample)
 //
 // 使い方:
-//   FRefractionShader refr;
+//   CRefractionShader refr;
 //   refr.Init(*device, hdr_format, depth_format);
 //   refr.SetFrame(camera.ViewProjection(), camera.Eye(),
 //                 background_tex.Width(), background_tex.Height());
@@ -47,19 +47,19 @@ namespace acs {
  * オブジェクトを表現する。blend は Opaque で深度も書き、後続の描画を正しく遮蔽する。
  * GPU リソースを単独所有する non-copy 型。
  */
-class FRefractionShader {
+class CRefractionShader {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FRefractionShader() noexcept = default;
+    CRefractionShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FRefractionShader() noexcept = default;
+    ~CRefractionShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FRefractionShader(const FRefractionShader&)            = delete;
+    CRefractionShader(const CRefractionShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FRefractionShader& operator=(const FRefractionShader&) = delete;
+    CRefractionShader& operator=(const CRefractionShader&) = delete;
 
     /**
      * VS+PS のコンパイル・パイプライン・定数バッファを生成する。
@@ -226,5 +226,9 @@ private:
     /** SetFrame で受け取った world 空間の eye 位置 (Frame CB 再書き込み用)。 */
     FVec3                   m_Eye          = FVec3{0, 0, 0};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FRefractionShader = CRefractionShader;
+
 
 } // namespace acs

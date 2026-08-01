@@ -3,7 +3,7 @@
 //
 // 用途: 2D の矩形領域に「燃える紙」を 1 枚かぶせ、progress 0→1 で燃え際 (白熱→橙→
 //       黒コゲ) が進みながら下の描画内容を出現させる。ピクセル単位の手続きノイズで
-//       描くのでセル/ドットにならず高解像度。FSky と同じく自前の VS/PS/PSO/CB を持ち、
+//       描くのでセル/ドットにならず高解像度。CSky と同じく自前の VS/PS/PSO/CB を持ち、
 //       コマンドリストに 6 頂点のクアッドを 1 回 Draw するだけ (VB 不要)。
 #pragma once
 
@@ -45,22 +45,22 @@ struct FBurnParams {
 /**
  * 紙が燃えるディゾルブをピクセル単位で描く 2D オーバーレイ効果。
  *
- * @details DX12 raw / Diligent どちらでも動く (FSky と同じ生パイプライン)。アルファ
+ * @details DX12 raw / Diligent どちらでも動く (CSky と同じ生パイプライン)。アルファ
  *          ブレンドで重ね、燃え尽きた画素は discard して下の内容を見せる。
  */
-class FBurnEffect {
+class CBurnEffect {
 public:
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FBurnEffect() noexcept = default;
+    CBurnEffect() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FBurnEffect() noexcept = default;
+    ~CBurnEffect() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FBurnEffect(const FBurnEffect&) = delete;
+    CBurnEffect(const CBurnEffect&) = delete;
 
     /** コピー代入も禁止。 */
-    FBurnEffect& operator=(const FBurnEffect&) = delete;
+    CBurnEffect& operator=(const CBurnEffect&) = delete;
 
     /**
      * VS/PS/PSO/定数バッファを生成する。
@@ -108,5 +108,9 @@ private:
     /** 次に使う CB スロット (Draw ごとに進める)。 */
     u32                      m_CbIdx = 0;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FBurnEffect = CBurnEffect;
+
 
 } // namespace acs

@@ -58,7 +58,7 @@ struct FPointLight {
  * シャドウ) はメンバにキャッシュされ、SetLights / SetPointLights / SetShadowMap を
  * 独立に呼んでも整合する Frame CB へ反映される。
  */
-class FStandardShader {
+class CStandardShader {
 public:
     /**
      * Source-compatibility estimate from the former fixed ring.
@@ -68,16 +68,16 @@ public:
     static constexpr u32 kMaxObjectDrawsPerFrame = 256u;
 
     /** 空状態で構築する (GPU リソースは Init で確保)。 */
-    FStandardShader() noexcept = default;
+    CStandardShader() noexcept = default;
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */
-    ~FStandardShader() noexcept = default;
+    ~CStandardShader() noexcept = default;
 
     /** コピー禁止 (GPU リソースを単独所有するため)。 */
-    FStandardShader(const FStandardShader&)            = delete;
+    CStandardShader(const CStandardShader&)            = delete;
 
     /** コピー代入も禁止。 */
-    FStandardShader& operator=(const FStandardShader&) = delete;
+    CStandardShader& operator=(const CStandardShader&) = delete;
 
     /**
      * GPU リソースを確保する。
@@ -160,10 +160,10 @@ public:
      * シャドウマップを設定する (PCSS ソフトシャドウ、最初の有向光源にのみ適用)。
      *
      * @details
-     * tex には FShadowMap::DepthTexture()、light_vp には同 LightViewProjection() を渡す。
+     * tex には CShadowMap::DepthTexture()、light_vp には同 LightViewProjection() を渡す。
      * tex に nullptr を渡すとシャドウ無効 (描画は影なしで進む)。filter_radius は影の
      * 柔らかさスケールで、0=実質ハード影 (1 texel の min penumbra)、1.0=標準 PCSS
-     * (Fernando 2005 の light_size=0.01 相当、FPbrShader と一致)、>1 でより柔らかい半影。
+     * (Fernando 2005 の light_size=0.01 相当、CPbrShader と一致)、>1 でより柔らかい半影。
      * @param tex シャドウマップの深度テクスチャ (nullptr で無効化)。
      * @param light_vp ライト視点の view-projection 行列。
      * @param bias シャドウアクネ回避用バイアス (一般に 0.0005..0.005)。
@@ -281,7 +281,7 @@ private:
     static constexpr u32     kInvalidObjectBuffer = ~u32{0};
 
     /** per-object定数を少数のGPUページへまとめるupload arena。 */
-    FTransientUploadArena    m_ObjectArena;
+    CTransientUploadArena    m_ObjectArena;
 
     /** 現フレームで消費したobject slot数。 */
     u32                      m_ObjectCbCursor = 0u;
@@ -331,5 +331,9 @@ private:
     /** シャドウマップの深度テクスチャ (弱参照、所有しない)。 */
     IRhiTexture* m_ShadowTex = nullptr;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FStandardShader = CStandardShader;
+
 
 } // namespace acs
