@@ -2221,6 +2221,7 @@ if ($LASTEXITCODE -ne 0) {
 # 2) 構成ごとに library を統合する。
 $requiredAcsLibraries = @(
     'acs_foundation.lib', 'acs_threading.lib', 'acs_memory.lib',
+    'acs_subsystem.lib',
     'acs_container.lib', 'acs_math.lib', 'acs_timing.lib', 'acs_platform.lib',
     'acs_ecs.lib', 'acs_event.lib', 'acs_asset.lib', 'acs_render.lib',
     'acs_app.lib', 'acs_audio.lib', 'acs_network.lib', 'acs_mvvm.lib',

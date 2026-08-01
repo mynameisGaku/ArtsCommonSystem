@@ -22,6 +22,9 @@ acs_enable_module(Container REQUIRED
     FEATURES HASHMAP STRING_SSO
 )
 
+# owner 寿命に従う共有サービスの登録・所有・更新基盤。
+acs_enable_module(Subsystem REQUIRED)
+
 acs_enable_module(Math REQUIRED
     FEATURES DIRECTXMATH AVX2 RUNTIME_DISPATCH
 )

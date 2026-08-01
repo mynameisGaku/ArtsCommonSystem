@@ -5,9 +5,9 @@
 // InitialScene() を override して最初の FScene を返すだけでよい。
 //
 // 使い方:
-//   class FMyGame : public acs::game::FGame {
+//   class FMyGame : public acs::FGame {
 //   protected:
-//       acs::TUniquePtr<acs::game::FScene> InitialScene() noexcept override {
+//       acs::TUniquePtr<acs::FScene> InitialScene() noexcept override {
 //           return acs::MakeUnique<FTitleScene>();
 //       }
 //   };
@@ -44,7 +44,7 @@ class FScene;
 class FGame : public FApplication {
 public:
     /** 既定状態で構築する。 */
-    FGame() noexcept = default;
+    FGame() noexcept;
 
     /** 破棄する。 */
     ~FGame() noexcept override = default;
@@ -160,7 +160,7 @@ public:
      *
      * @return Engine スコープのコレクション。
      */
-    FSubsystemCollection& EngineSubsystems() noexcept { return m_EngineSubsystems; }
+    FSubsystemCollection& EngineSubsystems() noexcept { return FApplication::EngineSubsystems(); }
 
     /**
      * 型でサブシステムを取得する(GameInstance → Engine の順に検索)。
@@ -226,6 +226,9 @@ private:
     /** 進行中フェードの fullscreen quad を描く。 */
     void DrawFadeOverlay() noexcept;
 
+    /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
+    FSubsystemCollection m_GameInstanceSubsystems;
+
     /** シーンマネージャ (FScene の push/pop/切替を管理)。 */
     FSceneManager  m_Scenes;
 
@@ -235,11 +238,8 @@ private:
     /** シーン跨ぎの型消去永続状態 (1 個固定)。 */
     FAppStateSlot  m_AppState;
 
-    /** Engine スコープ(アプリ全体寿命)のサブシステム束。 */
-    FSubsystemCollection m_EngineSubsystems;
-
-    /** GameInstance スコープ(ゲームセッション寿命、シーン跨ぎ)のサブシステム束。 */
-    FSubsystemCollection m_GameInstanceSubsystems;
+    /** GameFramework同梱factoryの登録が全件成功した。 */
+    bool m_BuiltinCatalogReady = false;
 
     /** 全シーン共有の HUD フォント (game 寿命)。 */
     FFont          m_UiFont;
@@ -279,3 +279,12 @@ private:
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** FGameが所有するsceneをトップレベルから参照する正規入口。 */
+using game::FScene;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::FGame;
+
+} // namespace acs

@@ -6,6 +6,7 @@
 #include "gameframework/Camera2D.h"
 #include "gameframework/Game.h"
 #include "gameframework/PolygonRenderer2D.h"
+#include "gameframework/Spawn2DSubsystem.h"
 #include "render/Renderer.h"
 #include "render/IRhiCommandList.h"
 #include "render/IRhiSwapchain.h"
@@ -17,6 +18,14 @@
 #include <cstring> // std::strcmp
 
 namespace acs::game {
+
+/** World サブシステムを root へ公開し、2D 専用生成先を型付きで接続する。 */
+void FScene2D::_OnWorldSubsystemsReady() noexcept
+{
+    m_Root->_SetSubsystems(_WorldSubsystemsPtr());
+    FSpawn2DSubsystem* const Spawner = GetSubsystem<FSpawn2DSubsystem>();
+    if (Spawner != nullptr) Spawner->BindTargetRoot(m_Root.Get());
+}
 
 /** シーン入場時に root へ services を配線し、派生の初期化フック OnReady を呼ぶ。 */
 void FScene2D::OnEnter() noexcept {

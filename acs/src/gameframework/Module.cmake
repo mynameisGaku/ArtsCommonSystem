@@ -115,6 +115,7 @@ set(_acsgen_gameframework_sources
     Settings.cpp
     SocialModeration.cpp
     SpatialAudio.cpp
+    Spawn2DSubsystem.cpp
     Sprite2DComponent.cpp
     SpriteAnimComponent.cpp
     SpriteAnimator.cpp
@@ -123,6 +124,7 @@ set(_acsgen_gameframework_sources
     Steering2D.cpp
     StreamingDirector.cpp
     StudioWorkflow.cpp
+    SubsystemCatalog.cpp
     TelemetryDirector.cpp
     Tilemap.cpp
     TilemapComponent.cpp
@@ -293,6 +295,7 @@ set(_acsgen_gameframework_headers
     StreamingDirector.h
     StudioWorkflow.h
     Subsystem.h
+    SubsystemCatalog.h
     SubsystemCollection.h
     SubsystemRegistry.h
     TelemetryDirector.h
@@ -326,6 +329,7 @@ set(_acsgen_gameframework_public_deps
     Foundation
     Memory
     Container
+    Subsystem
     Threading
     Math
     Platform

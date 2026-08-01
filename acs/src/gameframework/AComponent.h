@@ -299,3 +299,18 @@ private:
     const char* ReflectName() const noexcept override { return #T; }
 
 } // namespace acs::game
+
+namespace acs {
+
+/** componentが返す2D light情報をトップレベルから参照する正規入口。 */
+using game::FLightDesc2D;
+/** component所有ノードをトップレベルから参照する正規入口。 */
+using game::ANode;
+/** component描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+/** component用シーンサービスをトップレベルから参照する正規入口。 */
+using game::FSceneServices;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::AComponent;
+
+} // namespace acs

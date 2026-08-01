@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // FApplication 実装
 #include "app/Application.h"
+#include "app/ApplicationSubsystemCatalog.h"
+#include "app/AssetSubsystem.h"
+#include "app/TimerSubsystem.h"
 #include "foundation/Log.h"
 #include "foundation/Move.h"
 #include "foundation/Platform.h"
@@ -308,6 +311,26 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
     m_Assets.Restart();
     m_Assets.RegisterDefaultLoaders();
 
+    // Application 所有の既存サービスを Engine サブシステムとして公開する。
+    const bool application_subsystems_registered = AcsRegisterApplicationSubsystems();
+    const bool engine_subsystems_initialized = application_subsystems_registered && m_EngineSubsystems.TryInitialize(ESubsystemScope::Engine, nullptr, FSubsystemOwner{this, ESubsystemOwnerKind::Application});
+    FTimerSubsystem* const timer_subsystem = GetSubsystem<FTimerSubsystem>();
+    FAssetSubsystem* const asset_subsystem = GetSubsystem<FAssetSubsystem>();
+    if (!engine_subsystems_initialized || timer_subsystem == nullptr || asset_subsystem == nullptr ||
+        timer_subsystem->GetTimers() != &m_Timers || asset_subsystem->GetAssets() != &m_Assets) {
+        ACS_LOG_ERROR("FApplication: Engine subsystem initialization failed");
+        m_EngineSubsystems.Deinitialize();
+        m_Timers.Clear();
+        m_Events.Clear();
+        m_World.Clear();
+        m_Assets.Shutdown();
+        m_Renderer.Shutdown();
+        m_Window = FWindow{};
+        m_RuntimeFoundationLifetime.Release();
+        m_RunActive = false;
+        return 7;
+    }
+
     // 派生クラスの初期化フック
     OnStart();
     bool renderer_failed = false;
@@ -336,12 +359,16 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
         FMemorySystem::ResetTemp(); // Temp セグメントを毎フレーム巻き戻し
         m_Dt = m_FrameTimer.Tick();
 
-        // タイマーをまず進める (派生クラスの OnUpdate より前に発火させて、
-        // ゲームロジックがタイマー結果を見られるようにする)
-        m_Timers.Tick(m_Dt);
+        // Engine の PreUpdate を生時間で進め、既存タイマーを OnUpdate より前に発火させる。
+        const FSubsystemFrameContext PreContext{m_Dt, m_Dt, m_FrameTimer.FrameCount(), ESubsystemTickPhase::PreUpdate};
+        m_EngineSubsystems.TickFrame(PreContext);
 
         // 派生クラスの更新フック
         OnUpdate(m_Dt);
+
+        // 派生更新後に Engine の PostUpdate を同じフレーム情報で進める。
+        const FSubsystemFrameContext PostContext{m_Dt, m_Dt, m_FrameTimer.FrameCount(), ESubsystemTickPhase::PostUpdate};
+        m_EngineSubsystems.TickFrame(PostContext);
 
         // フレーム描画 — OnCustomFrame() が true を返すなら派生クラスに完全委譲
         const bool custom_frame_completed = OnCustomFrame();
@@ -379,6 +406,9 @@ int FApplication::Run(const FAppConfig& configuration) noexcept
 
     // 派生クラスの終了フック
     OnShutdown();
+
+    // 派生側が参照を使い終えてから Engine サブシステムを逆順で終了する。
+    m_EngineSubsystems.Deinitialize();
 
     // 実行中に既定アロケータから生成された所有物を、MemorySystem より先に解放する。
     // 特に World の SparseSet、MessageBroker の Channel、Asset の共有参照は

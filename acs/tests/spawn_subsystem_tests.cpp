@@ -9,6 +9,8 @@
 #include "test/Expect.h"
 #include "gameframework/Spawn2DSubsystem.h"
 #include "gameframework/Scene2D.h"
+#include "gameframework/Scene.h"
+#include "gameframework/SubsystemCatalog.h"
 #include "gameframework/ANode.h"
 
 using namespace acs;
@@ -26,12 +28,15 @@ const char* kBullet =
 
 // Owner(FScene2D)の root へプレハブを生成し、指定位置に配置する。
 ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
+    EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
     FScene2D scene;
-    FSpawn2DSubsystem spawner;
-    spawner._SetOwner(&scene);                         // World サブシステムの owner = Scene
+    EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
+    FSpawn2DSubsystem* spawner = scene.GetSubsystem<FSpawn2DSubsystem>();
+    EXPECT_TRUE(spawner != nullptr);
+    if (spawner == nullptr) return;
 
     const u32 before = scene.Root().ChildCount();
-    ANode* n = spawner.SpawnPrefabText(kBullet, FVec2{ 100.0f, 50.0f });
+    ANode* n = spawner->SpawnPrefabText(kBullet, FVec2{ 100.0f, 50.0f });
     EXPECT_TRUE(n != nullptr);
     EXPECT_TRUE(n->Parent() == &scene.Root());         // シーン root の子として生成
     EXPECT_EQ(scene.Root().ChildCount(), before + 1u);
@@ -40,7 +45,7 @@ ACS_TEST(SpawnSubsystem, SpawnsIntoSceneRootAtPosition) {
     EXPECT_EQ(n->SerialId(), 1);                       // SerialId 復元(参照解決の土台)
 
     // 複数スポーンは独立に積み上がる。
-    ANode* m = spawner.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f });
+    ANode* m = spawner->SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f });
     EXPECT_TRUE(m != nullptr && m != n);
     EXPECT_EQ(scene.Root().ChildCount(), before + 2u);
 }
@@ -50,4 +55,21 @@ ACS_TEST(SpawnSubsystem, NoOwnerIsSafe) {
     FSpawn2DSubsystem orphan;                          // owner 未設定
     EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);
     EXPECT_TRUE(orphan.SpawnPrefabText(nullptr, FVec2{ 0.0f, 0.0f }) == nullptr);
+
+    int wrong_owner = 0;
+    orphan._SetOwner(&wrong_owner);
+    EXPECT_TRUE(orphan.SpawnPrefabText(kBullet, FVec2{ 0.0f, 0.0f }) == nullptr);
+}
+
+/** 2D 以外の Scene は同じ World 登録を持っても生成先へ接続されない。 */
+ACS_TEST(SpawnSubsystem, PlainSceneOwnerIsSafe)
+{
+    EXPECT_TRUE(AcsRegisterGameFrameworkSubsystems());
+    FScene scene;
+    EXPECT_TRUE(scene._InitWorldSubsystems(nullptr));
+    FSpawn2DSubsystem* const spawner = scene.GetSubsystem<FSpawn2DSubsystem>();
+    EXPECT_TRUE(spawner != nullptr);
+    if (spawner != nullptr) {
+        EXPECT_TRUE(spawner->SpawnPrefabText(kBullet, FVec2{0.0f, 0.0f}) == nullptr);
+    }
 }

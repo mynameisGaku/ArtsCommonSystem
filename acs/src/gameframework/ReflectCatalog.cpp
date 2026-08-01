@@ -33,10 +33,6 @@
 #include "gameframework/Light2DComponent.h"  // ALight2DComponent (2D 点光源)
 #include "gameframework/Follow2DComponent.h"  // AFollow2DComponent (オブジェクト参照デモ)
 #include "gameframework/ReflectMethod.h"      // ACS_REGISTER_METHOD (関数リフレクション)
-#include "gameframework/SubsystemRegistry.h"  // ACS_REGISTER_SUBSYSTEM
-#include "gameframework/EventBus.h"           // FEventBus (オブジェクト間 pub/sub)
-#include "gameframework/Spawn2DSubsystem.h"   // FSpawn2DSubsystem (プレハブ生成)
-#include "gameframework/WorldClockSubsystem.h" // FWorldClockSubsystem (経過時間/フレーム)
 
 // ----- Scene -----
 #include "gameframework/Scene2D.h"
@@ -216,14 +212,6 @@ ACS_REGISTER_METHOD(APrimitiveRenderer2D, LogState, METHOD_BP_CALLABLE | METHOD_
 ACS_REGISTER_METHOD_F32(APrimitiveRenderer2D, LogValue, METHOD_BP_CALLABLE | METHOD_CALL_IN_EDITOR)
 // 戻り値あり(f32)メソッドのデモ: 結果が data 出力ピンへ流れ下流ノードが消費できる。
 ACS_REGISTER_METHOD_RET_F32(APrimitiveRenderer2D, GetArea, METHOD_BP_CALLABLE)
-
-// ----- Subsystem (エンジン提供。各 World に自動生成される) -----
-// FEventBus: ワールド内オブジェクト間の疎結合通信 (名前付きイベント pub/sub)。
-ACS_REGISTER_SUBSYSTEM(FEventBus, ::acs::game::ESubsystemScope::World)
-// FSpawn2DSubsystem: どこからでもプレハブをワールドへ生成 (Owner=FScene2D の root へ)。
-ACS_REGISTER_SUBSYSTEM(FSpawn2DSubsystem, ::acs::game::ESubsystemScope::World)
-// FWorldClockSubsystem: シーン開始からの経過時間・フレーム数を OnTick で自動集計。
-ACS_REGISTER_SUBSYSTEM(FWorldClockSubsystem, ::acs::game::ESubsystemScope::World)
 
 // ----- Scene -----
 ACS_REGISTER_SCENE(FScene2D)

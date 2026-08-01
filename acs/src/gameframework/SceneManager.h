@@ -101,11 +101,11 @@ public:
     /**
      * top のシーンに可変刻み dt を流す。
      *
-     * @details services が有効なら PreUpdate (Clock 進行) → OnUpdate → PostUpdate
-     * (Tweens/Sequences tick) の 2 phase で駆動する。Clock 未要求なら raw dt をそのまま渡す。
+     * @details services PreUpdate → World PreUpdate → OnUpdate → services PostUpdate
+     * → World PostUpdate の順で駆動する。Clock 未要求なら raw dt をそのまま渡す。
      * @param dt 前フレームからの経過秒。
      */
-    void _Update(f32 dt) noexcept;
+    void _Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds, u64 FrameNumber) noexcept;
 
     /**
      * top のシーンに固定刻み fixed_dt を流す。
@@ -146,7 +146,10 @@ private:
      * @param next push するシーン (所有権が移る)。
      * @param pause_current true なら push 前に旧 top の OnPause を呼ぶ (Change は false、Push は true)。
      */
-    void DoPushInternal(FGame& game, TUniquePtr<FScene> next, bool pause_current) noexcept;
+    bool PrepareScene(FGame& Game, FScene& Scene) noexcept;
+
+    /** 準備済み scene を stack へ移し、必要なら旧 top を一時停止する。 */
+    bool CommitPush(TUniquePtr<FScene> Scene, bool PauseCurrent) noexcept;
 
     /**
      * 内部 pop 処理。top の OnExit を呼び、ring buffer へ退避してからスタックから外す。
@@ -172,3 +175,14 @@ private:
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** scene遷移を所有するgameをトップレベルから参照する正規入口。 */
+using game::FGame;
+/** scene描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::FSceneManager;
+
+} // namespace acs

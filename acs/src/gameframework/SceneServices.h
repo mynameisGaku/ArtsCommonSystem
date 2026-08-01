@@ -242,6 +242,11 @@ public:
     f32  _ScaledDt(f32 raw_dt) const noexcept;
 
 private:
+    friend class FSceneManager;
+
+    /** 要求された全サービスが生成済みかを返す。 */
+    bool IsReady() const noexcept;
+
     /** 構築時に要求されたサービスマスク。 */
     ESvc                       m_Wanted = ESvc::None;
 
@@ -268,3 +273,12 @@ private:
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** Scene が要求する service 集合のビット列挙をトップレベルへ公開する。 */
+using game::ESvc;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::FSceneServices;
+
+} // namespace acs

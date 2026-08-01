@@ -904,3 +904,20 @@ private:
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** node追加結果をトップレベルから参照する正規入口。 */
+using game::EAddChildResult;
+/** node階層の最大深度をトップレベルから参照する正規入口。 */
+using game::kNodeMaxTreeDepth;
+/** node描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+/** node用シーンサービスをトップレベルから参照する正規入口。 */
+using game::FSceneServices;
+/** nodeへ設定する2D materialをトップレベルから参照する正規入口。 */
+using game::FMaterial2D;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::ANode;
+
+} // namespace acs

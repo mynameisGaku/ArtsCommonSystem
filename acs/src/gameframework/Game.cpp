@@ -2,6 +2,7 @@
 // FGame 実装
 #include "gameframework/Game.h"
 #include "gameframework/Scene.h"
+#include "gameframework/SubsystemCatalog.h"
 
 #include "render/Renderer.h"
 #include "render/IRhiCommandList.h"
@@ -12,12 +13,27 @@
 
 namespace acs::game {
 
+FGame::FGame() noexcept
+{
+    m_BuiltinCatalogReady = AcsRegisterGameFrameworkSubsystems();
+}
+
 /** 起動時に InitialScene() を push して即時適用する。 */
 void FGame::OnStart() noexcept {
-    // サブシステムを先に初期化(最初のシーンの World サブシステム/OnEnter が参照できるように)。
-    // Engine が最上位、GameInstance はその子(Get<T> が Engine へフォールバックする)。owner=FGame。
-    m_EngineSubsystems.Initialize(ESubsystemScope::Engine, nullptr, this);
-    m_GameInstanceSubsystems.Initialize(ESubsystemScope::GameInstance, &m_EngineSubsystems, this);
+    m_BuiltinCatalogReady = AcsRegisterGameFrameworkSubsystems();
+    if (!m_BuiltinCatalogReady) {
+        ACS_LOG_ERROR("FGame: builtin subsystem registration failed");
+        Quit();
+        return;
+    }
+    // GameInstance は FApplication 所有の Engine を親にし、最初の World より先に初期化する。
+    if (!m_GameInstanceSubsystems.TryInitialize(
+            ESubsystemScope::GameInstance, &FApplication::EngineSubsystems(),
+            FSubsystemOwner{this, ESubsystemOwnerKind::Game})) {
+        ACS_LOG_ERROR("FGame: GameInstance subsystem initialization failed");
+        Quit();
+        return;
+    }
 
     TUniquePtr<FScene> first = InitialScene();
     if (!first) {
@@ -27,6 +43,10 @@ void FGame::OnStart() noexcept {
     }
     m_Scenes.PushScene(Move(first));
     m_Scenes._ApplyPending(*this);     // 起動時の最初の遷移は即時適用
+    if (m_Scenes.IsEmpty()) {
+        ACS_LOG_ERROR("FGame: initial scene subsystem initialization failed");
+        Quit();
+    }
 }
 
 /** フェード進行と固定 / 可変タイムステップ update を毎フレーム駆動する。 */
@@ -61,12 +81,19 @@ void FGame::OnUpdate(f32 dt) noexcept {
         }
     }
 
-    // Engine / GameInstance サブシステムを tick(シーンより先 = ゲーム全体の状態を先に更新)。
-    m_EngineSubsystems.Tick(scaled_dt);
-    m_GameInstanceSubsystems.Tick(scaled_dt);
+    // 既存の観測順どおり、固定stepを完了してからGameInstance→Worldを進める。
+    /** GameInstance の更新前コンテキスト。 */
+    const FSubsystemFrameContext PreContext{
+        scaled_dt, dt, FrameCount(), ESubsystemTickPhase::PreUpdate};
+    m_GameInstanceSubsystems.TickFrame(PreContext);
 
-    // variable-rate update (毎フレーム dt)。Scene 内で World サブシステムも tick される。
-    m_Scenes._Update(scaled_dt);
+    // variable-rate update。Scene 内では World Pre → Scene → World Post の順に進む。
+    m_Scenes._Update(scaled_dt, dt, FrameCount());
+
+    /** GameInstance の更新後コンテキスト。 */
+    const FSubsystemFrameContext PostContext{
+        scaled_dt, dt, FrameCount(), ESubsystemTickPhase::PostUpdate};
+    m_GameInstanceSubsystems.TickFrame(PostContext);
 }
 
 /** 初回呼び出しで default UI フォントを 1 回だけ遅延ロードする。 */
@@ -135,9 +162,8 @@ void FGame::TransitionTo(TUniquePtr<FScene> next, f32 out_sec, f32 in_sec) noexc
 /** 全シーンを shutdown し、サブシステムと UI フォント・overlay リソースを解放する。 */
 void FGame::OnShutdown() noexcept {
     m_Scenes._ShutdownAll();                  // 各シーンが OnExit で World サブシステムを解体
-    // サブシステムを下位スコープから順に解体(GameInstance → Engine)。
+    // Engine は FApplication がこの hook の復帰後に解体する。
     m_GameInstanceSubsystems.Deinitialize();
-    m_EngineSubsystems.Deinitialize();
     if (m_UiFontReady) m_UiFont.Shutdown();
     if (m_OverlayReady) m_Overlay.Shutdown();
 }

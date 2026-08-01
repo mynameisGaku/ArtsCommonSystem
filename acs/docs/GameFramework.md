@@ -133,11 +133,19 @@ public:
 メニュー画面は `ESvc::Ui|ESvc::Audio` のみ宣言し ECS/物理のコストを払わない。
 `FGame` が v3 で定めたシーム地点で `FSceneServices` を生成・tick する。
 
-### 3.2 取り付け機構（全サブシステムはこの 2 つのどちらか）
+### 3.2 取り付け機構
 1. **`FSceneServices` メンバ** — シーン単位のサービス（Clock/Tween/Sequence/Input/
    Camera/Collision/Trigger）。`FGame` が自動で `dt` を供給。
 2. **`FGame` グローバルサービス** — シーンをまたいで生存（`FAssetRegistry`・
    `CAudioEngine` デバイス・`FSaveArchive`・`FSettings`・`FAppStateSlot`・`FDebugOverlay`）。
+3. **`FSubsystemCollection`** — Engine / GameInstance / World の owner 寿命で自動生成し、
+   段階別更新と逆順解体が必要な共有サービス。呼び出し側の正規入口は `acs` とし、実定義を含む
+   旧 `acs::game` namespace はソース互換のため保持する。物理 namespace の統一は後続 wave で行う。
+
+サブシステム基盤の正規 namespace、仮想関数表、owner・frame context・factory の layout は
+更新され、x64 の `FSubsystem` は旧16 byteから24 byte、`FSubsystemCollection` は旧48 byteから
+80 byte、`FSpawn2DSubsystem` は旧24 byteから32 byteになる。旧 object / library との ABI 互換は
+ないため、ACS 本体と全 consumer を同じ revision から clean rebuild する。
 
 シーン内オブジェクトの表現はピラー B（ノードツリー）。バルク処理が要るシーンは
 ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
@@ -401,7 +409,7 @@ GameFrameworkConfig.h  全調整定数を 1 箇所に
 | 1 | 既存エンジンをラップ、再実装しない | ECS/描画/音声/アセット等は既に高品質。重複は害 |
 | 2 | オブジェクトモデルは**ノードツリー主体**、ECS は群体用の併用ツール、ブリッジは一方向 | 手配置の階層オブジェクトにツリーが自然。ECS は既存を活かす。両者の所有権が衝突しない |
 | 3 | `SceneServices` + `WantedServices()` で取り付け | 「メニューに ECS/物理を強制しない」を保ちつつ全機能に到達可能 |
-| 4 | サブシステム取り付けは `SceneServices`/`Game`グローバルの 2 機構のみ | どのサブシステムも例外なくこの 2 つに収まる＝設計が一貫している証拠 |
+| 4 | サブシステム取り付けは `SceneServices` / `Game` グローバル / owner-scoped `FSubsystemCollection` の 3 機構 | 局所サービス、ゲーム全体の既存サービス、明確な owner 寿命と更新を持つ共有サービスを責務で分離する |
 | 5 | GPU リソースは遅延削除キュー（3 フレーム）で破棄 | シーン破棄時の use-after-free を構造的に排除（v3 確定） |
 | 6 | 階層変更・シーン遷移は遅延適用 | 走査中の自己破棄クラッシュを排除 |
 | 7 | RTTI 不使用の型識別（`ComponentKindOf<T>` カウンタ + virtual `Kind()`） | ACS 既存 `ComponentId` と同方式。`dynamic_cast` 不要 |

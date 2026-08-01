@@ -137,6 +137,8 @@ add_executable(acs_unit_tests
     assetpack_lifetime_tests.cpp
     assetpack_manifest_safety_tests.cpp
     application_lifetime_tests.cpp
+    application_subsystem_tests.cpp
+    subsystem_canonical_header_tests.cpp
     win32_resource_tests.cpp
     network_socket_io_tests.cpp
 )
@@ -176,6 +178,68 @@ target_link_libraries(acs_random_compatibility_tests PRIVATE
 )
 add_test(NAME ACS.RandomCompatibility COMMAND acs_random_compatibility_tests)
 set_tests_properties(ACS.RandomCompatibility PROPERTIES LABELS "GameFramework;Compatibility" TIMEOUT 60)
+
+# Subsystem のtransaction、phase、再入解体を通常unit群から独立して再現する。
+add_executable(acs_subsystem_lifecycle_tests
+    main.cpp
+    subsystem_tests.cpp
+)
+set_target_properties(acs_subsystem_lifecycle_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_subsystem_lifecycle_tests)
+target_link_libraries(acs_subsystem_lifecycle_tests PRIVATE
+    ACS::Subsystem
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.SubsystemLifecycle COMMAND acs_subsystem_lifecycle_tests)
+set_tests_properties(ACS.SubsystemLifecycle PROPERTIES LABELS "Subsystem;GameFramework;Lifecycle" TIMEOUT 60)
+
+# catalog関数を直接呼ばず、static libraryのFGame anchorだけでbuiltin登録を検証する。
+add_executable(acs_subsystem_static_link_tests
+    main.cpp
+    subsystem_static_link_tests.cpp
+)
+set_target_properties(acs_subsystem_static_link_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_subsystem_static_link_tests)
+target_link_libraries(acs_subsystem_static_link_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.SubsystemStaticLink COMMAND acs_subsystem_static_link_tests)
+set_tests_properties(ACS.SubsystemStaticLink PROPERTIES LABELS "Subsystem;GameFramework;Compatibility" TIMEOUT 60)
+
+# canonical top-level headerと旧GameFramework forwarding名を単独consumerで固定する。
+add_executable(acs_subsystem_canonical_header_tests
+    main.cpp
+    subsystem_acomponent_header_compile_tests.cpp
+    subsystem_anode_header_compile_tests.cpp
+    subsystem_canonical_header_tests.cpp
+    subsystem_scene_header_compile_tests.cpp
+    subsystem_scene_manager_header_compile_tests.cpp
+    subsystem_spawn_header_compile_tests.cpp
+)
+set_target_properties(acs_subsystem_canonical_header_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_subsystem_canonical_header_tests)
+target_link_libraries(acs_subsystem_canonical_header_tests PRIVATE
+    ACS::GameFramework
+    ACS::Test
+)
+add_test(NAME ACS.SubsystemCanonicalHeaders COMMAND acs_subsystem_canonical_header_tests)
+set_tests_properties(ACS.SubsystemCanonicalHeaders PROPERTIES LABELS "Subsystem;Compatibility" TIMEOUT 60)
+
+# FApplication所有のEngine adapterが既存実体identityとphaseを保つ。
+add_executable(acs_application_subsystem_tests
+    main.cpp
+    application_subsystem_tests.cpp
+)
+set_target_properties(acs_application_subsystem_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_application_subsystem_tests)
+target_link_libraries(acs_application_subsystem_tests PRIVATE
+    ACS::App
+    ACS::Test
+)
+add_test(NAME ACS.ApplicationSubsystem COMMAND acs_application_subsystem_tests)
+set_tests_properties(ACS.ApplicationSubsystem PROPERTIES LABELS "Subsystem;App;Compatibility" TIMEOUT 60)
 
 # FStorage の文字列一括設定、失敗時不変、入力上限を独立して反復する。
 add_executable(acs_storage_transactional_batch_tests

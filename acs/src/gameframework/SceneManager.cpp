@@ -47,25 +47,32 @@ u32 FSceneManager::Depth() const noexcept {
     return static_cast<u32>(m_Stack.Size());
 }
 
-/** 内部 push: 旧 top を任意で OnPause し、next に context/services を attach して OnEnter する。 */
-void FSceneManager::DoPushInternal(FGame& game, TUniquePtr<FScene> next,
-                                   bool pause_current) noexcept {
-    if (!next) return;
-    // 旧 top を OnPause (Push 時のみ。Change は新 top 直入れなので skip)
-    if (pause_current && !m_Stack.IsEmpty()) {
-        m_Stack.Back()->OnPause();
-    }
-    next->_SetContext(&game, this);
+/** scene を可視化せず、context/services/World サブシステムを全て準備する。 */
+bool FSceneManager::PrepareScene(FGame& Game, FScene& Scene) noexcept
+{
+    if (!Scene._CanPrepare()) return false;
+    Scene._SetContext(&Game, this);
     // WantedServices に基づいて FSceneServices を構築・attach。
     // None なら空の FSceneServices だが、Services() を呼ばない限りコスト 0。
-    const ESvc wanted = next->WantedServices();
-    if (wanted != ESvc::None) {
-        next->_AttachServices(MakeUnique<FSceneServices>(wanted));
+    const ESvc Wanted = Scene.WantedServices();
+    if (Wanted != ESvc::None) {
+        /** scene が要求したサービス束。 */
+        TUniquePtr<FSceneServices> Services = MakeUnique<FSceneServices>(Wanted);
+        if (!Services || !Services->IsReady()) return false;
+        Scene._AttachServices(Move(Services));
     }
-    // World スコープのサブシステムを初期化(parent = GameInstance → Engine)。OnEnter より前。
-    next->_InitWorldSubsystems(&game.GameInstanceSubsystems());
-    m_Stack.PushBack(Move(next));
+    return Scene._InitWorldSubsystems(&Game.GameInstanceSubsystems());
+}
+
+/** 準備済み scene だけを stack へ commit し、OnEnter を呼ぶ。 */
+bool FSceneManager::CommitPush(TUniquePtr<FScene> Scene, bool PauseCurrent) noexcept
+{
+    if (!Scene) return false;
+    if (PauseCurrent && !m_Stack.IsEmpty()) m_Stack.Back()->OnPause();
+    // _ApplyPending が必要容量を事前確保済みなので、ここでは割り当てが発生しない。
+    if (!m_Stack.TryPushBack(Move(Scene))) return false;
     m_Stack.Back()->OnEnter();
+    return true;
 }
 
 /** 内部 pop: top を OnExit して ring buffer へ退避し、任意で新 top を OnResume する。 */
@@ -99,14 +106,35 @@ void FSceneManager::_ApplyPending(FGame& game) noexcept {
     case EOp::None:
         return;
     case EOp::Change:
-        // Pop + Push の合成 = 旧 top を OnExit、新 top を OnEnter。途中で
-        // OnResume/OnPause が一瞬走らないように両方 false を渡す。
+        // 旧topを残したまま、置換後の要素数を先に収容できることを保証する。
+        if (!m_Stack.TryReserve(m_Stack.IsEmpty() ? 1u : m_Stack.Size())) {
+            ACS_LOG_ERROR("FSceneManager: change scene stack allocation failed");
+            return;
+        }
+        // 新 scene の準備に失敗した場合は旧 top とその pause 状態を完全に維持する。
+        if (!arg || !PrepareScene(game, *arg)) {
+            ACS_LOG_ERROR("FSceneManager: change scene preparation failed");
+            return;
+        }
         DoPopInternal(/*resume_new=*/false);
-        DoPushInternal(game, Move(arg), /*pause_current=*/false);
+        if (!CommitPush(Move(arg), /*PauseCurrent=*/false)) {
+            ACS_LOG_ERROR("FSceneManager: reserved change scene commit failed");
+        }
         break;
     case EOp::Push:
-        // 新 top が乗るので、旧 top を OnPause する。
-        DoPushInternal(game, Move(arg), /*pause_current=*/true);
+        // pause前に新topを格納する容量を確保し、OOM時は旧topを変更しない。
+        if (!m_Stack.TryReserve(m_Stack.Size() + 1u)) {
+            ACS_LOG_ERROR("FSceneManager: push scene stack allocation failed");
+            return;
+        }
+        // 準備成功後だけ旧 top を pause する。
+        if (!arg || !PrepareScene(game, *arg)) {
+            ACS_LOG_ERROR("FSceneManager: push scene preparation failed");
+            return;
+        }
+        if (!CommitPush(Move(arg), /*PauseCurrent=*/true)) {
+            ACS_LOG_ERROR("FSceneManager: reserved push scene commit failed");
+        }
         break;
     case EOp::Pop:
         if (m_Stack.Size() <= 1) {
@@ -121,22 +149,28 @@ void FSceneManager::_ApplyPending(FGame& game) noexcept {
 }
 
 /** top のシーンを services の 2 phase tick (Pre→OnUpdate→Post) で駆動する。 */
-void FSceneManager::_Update(f32 dt) noexcept {
+void FSceneManager::_Update(f32 ScaledDeltaSeconds, f32 UnscaledDeltaSeconds,
+                            u64 FrameNumber) noexcept {
     FScene* top = Top();
     if (!top) return;
     // services 2 phase tick — PreUpdate (Clock 進行) → scene OnUpdate
     // → PostUpdate (Tweens/Sequences tick)。Clock 未要求なら raw dt をそのまま OnUpdate へ。
     FSceneServices* svc = top->_ServicesOrNull();
+    f32 WorldDeltaSeconds = ScaledDeltaSeconds;
     if (svc != nullptr) {
-        svc->_PreUpdate(dt);
-        const f32 scaled = svc->_ScaledDt(dt);
-        top->_TickWorldSubsystems(scaled);   // World サブシステムを OnUpdate より先に tick
-        top->OnUpdate(scaled);
-        svc->_PostUpdate(scaled);
-    } else {
-        top->_TickWorldSubsystems(dt);
-        top->OnUpdate(dt);
+        svc->_PreUpdate(ScaledDeltaSeconds);
+        WorldDeltaSeconds = svc->_ScaledDt(ScaledDeltaSeconds);
     }
+    /** World の更新前コンテキスト。 */
+    const FSubsystemFrameContext PreContext{
+        WorldDeltaSeconds, UnscaledDeltaSeconds, FrameNumber, ESubsystemTickPhase::PreUpdate};
+    top->_TickWorldSubsystems(PreContext);
+    top->OnUpdate(WorldDeltaSeconds);
+    if (svc != nullptr) svc->_PostUpdate(WorldDeltaSeconds);
+    /** World の更新後コンテキスト。 */
+    const FSubsystemFrameContext PostContext{
+        WorldDeltaSeconds, UnscaledDeltaSeconds, FrameNumber, ESubsystemTickPhase::PostUpdate};
+    top->_TickWorldSubsystems(PostContext);
 }
 
 /** top のシーンに固定刻み update を流す。 */

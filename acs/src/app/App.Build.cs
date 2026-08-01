@@ -10,7 +10,7 @@ public sealed class App : AcsModule
         Type = ModuleType.Runtime;
         PublicDeps.AddRange(new[]
         {
-            "Foundation", "Memory", "Container", "Threading", "Math",
+            "Foundation", "Memory", "Container", "Subsystem", "Threading", "Math",
             "Platform", "Asset", "Ecs", "Event", "Render",
         });
     }

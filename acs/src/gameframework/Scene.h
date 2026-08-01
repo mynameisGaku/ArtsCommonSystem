@@ -5,11 +5,11 @@
 // 切り替え・更新・描画する。FScene の override は全て `noexcept`。
 //
 // 使い方:
-//   class FTitleScene : public acs::game::FScene {
+//   class FTitleScene : public acs::FScene {
 //   public:
 //       void OnEnter()      noexcept override { /* 起動時の初期化 */ }
 //       void OnUpdate(f32)  noexcept override { /* ロジック */ }
-//       void OnRender(acs::game::FRenderContext&) noexcept override { /* 描画 */ }
+//       void OnRender(acs::FRenderContext&) noexcept override { /* 描画 */ }
 //       void OnExit()       noexcept override { /* 後片付け */ }
 //   };
 //
@@ -209,13 +209,28 @@ public:
      *
      * @param parent GameInstance スコープのコレクション(フォールバック先)。
      */
-    void _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
-        m_WorldSubsystems.Initialize(ESubsystemScope::World, parent, this);   // owner = この FScene
+    bool _InitWorldSubsystems(FSubsystemCollection* parent) noexcept {
+        if (!m_WorldSubsystems.TryInitialize(
+                ESubsystemScope::World, parent,
+                FSubsystemOwner{this, ESubsystemOwnerKind::Scene})) {
+            return false;
+        }
+        /** hook前のWorld lifecycle世代。 */
+        const u64 Generation = m_WorldSubsystems.LifecycleGeneration();
         _OnWorldSubsystemsReady();
+        if (!m_WorldSubsystems.IsInitialized() ||
+            m_WorldSubsystems.LifecycleGeneration() != Generation) {
+            m_WorldSubsystems.Deinitialize();
+            return false;
+        }
+        return true;
     }
 
-    /** World サブシステムを 1 フレーム進める (内部用)。 */
-    void _TickWorldSubsystems(f32 dt) noexcept { m_WorldSubsystems.Tick(dt); }
+    /** 指定 phase の World サブシステムを 1 フレーム進める (内部用)。 */
+    void _TickWorldSubsystems(const FSubsystemFrameContext& Context) noexcept
+    {
+        m_WorldSubsystems.TickFrame(Context);
+    }
 
     /** World サブシステムを解体する (内部用。FSceneManager が pop 時に呼ぶ)。 */
     void _DeinitWorldSubsystems() noexcept { m_WorldSubsystems.Deinitialize(); }
@@ -223,7 +238,13 @@ public:
     /** World サブシステムへのポインタ (内部用。派生がノードへ配線するのに使う)。 */
     FSubsystemCollection* _WorldSubsystemsPtr() noexcept { return &m_WorldSubsystems; }
 
+    /** constructor後のscene固有状態が遷移準備可能かを返す。 */
+    bool _CanPrepare() const noexcept { return _IsPreparationReady(); }
+
 protected:
+    /** scene固有の必須所有物が生成済みならtrueを返す。 */
+    virtual bool _IsPreparationReady() const noexcept { return true; }
+
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
      *
@@ -247,4 +268,17 @@ private:
 };
 
 } // namespace game
+} // namespace acs
+
+namespace acs {
+
+/** scene所有gameをトップレベルから参照する正規入口。 */
+using game::FGame;
+/** scene managerをトップレベルから参照する正規入口。 */
+using game::FSceneManager;
+/** scene描画コンテキストをトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::FScene;
+
 } // namespace acs

@@ -320,3 +320,10 @@ private:
 };
 
 } // namespace acs::game
+
+namespace acs {
+
+/** GameFramework 内の実装型をトップレベルから参照する正規入口。 */
+using game::FRenderContext;
+
+} // namespace acs

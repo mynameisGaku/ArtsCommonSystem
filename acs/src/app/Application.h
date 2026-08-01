@@ -30,6 +30,7 @@
 #include "event/MessageBroker.h"
 #include "app/AppConfig.h"
 #include "memory/CrtDebugHeapDiagnostics.h"
+#include "subsystem/SubsystemCollection.h"
 
 namespace acs {
 
@@ -71,7 +72,7 @@ public:
      * OnShutdown で解放しておくこと。
      * @param configuration ウィンドウ・ロガー・レンダラ等の起動オプション。
      * @return 正常終了で 0、初期化失敗で 1〜4、同一オブジェクトへの再入で 5、
-     *         実行中の resize/submit/present 失敗で 6。
+     *         実行中の resize/submit/present 失敗で 6、Engine サブシステム初期化失敗で 7。
      */
     int Run(const FAppConfig& configuration) noexcept;
 
@@ -164,6 +165,19 @@ public:
     CMessageBroker& GetEvents() noexcept
     {
         return m_Events;
+    }
+
+    /** Application 寿命の Engine サブシステム群を返す。 */
+    FSubsystemCollection& EngineSubsystems() noexcept
+    {
+        return m_EngineSubsystems;
+    }
+
+    /** Application 寿命の Engine サブシステムを型で取得する。 */
+    template<typename T>
+    T* GetSubsystem() noexcept
+    {
+        return m_EngineSubsystems.Get<T>();
     }
 
     /**
@@ -324,6 +338,9 @@ private:
 
     /** イベントブローカー。 */
     CMessageBroker m_Events;
+
+    /** Application が所有する Engine スコープのサブシステム群。 */
+    FSubsystemCollection m_EngineSubsystems;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
     FFrameTimer m_FrameTimer;

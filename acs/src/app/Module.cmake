@@ -8,16 +8,23 @@ acs_module(
     TYPE    Runtime
     SOURCES
         Application.cpp
+        ApplicationSubsystemCatalog.cpp
+        AssetSubsystem.cpp
         Sample.cpp
+        TimerSubsystem.cpp
     HEADERS
         AppConfig.h
         Application.h
+        ApplicationSubsystemCatalog.h
+        AssetSubsystem.h
         EntryPoint.h
         Sample.h
+        TimerSubsystem.h
     PUBLIC_DEPS
         Foundation
         Memory
         Container
+        Subsystem
         Threading
         Math
         Platform

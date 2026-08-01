@@ -14,7 +14,7 @@ public sealed class GameFramework : AcsModule
         Type = ModuleType.Runtime;
         PublicDeps.AddRange(new[]
         {
-            "Foundation", "Memory", "Container", "Threading", "Math", "Platform", "Render", "App",
+            "Foundation", "Memory", "Container", "Subsystem", "Threading", "Math", "Platform", "Render", "App",
             // RollbackSession (World スナップショット履歴 + 入力台帳の rollback netcode 統合層) が
             // acs::World / FRollbackBuffer を使う。
             "Ecs",
