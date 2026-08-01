@@ -52,6 +52,7 @@ set(_acsgen_gameframework_sources
     HierarchyWorldTransformBatch.cpp
     HotReload.cpp
     HungerSystem.cpp
+    InputAxisOptions.cpp
     InputMap.cpp
     InputRecorder.cpp
     InputRecordingFormat.cpp
@@ -204,6 +205,7 @@ set(_acsgen_gameframework_headers
     HotReload.h
     HotReloadDiagnosticsInternal.h
     HungerSystem.h
+    InputAxisOptions.h
     InputMap.h
     InputRecorder.h
     InputRecordingFormat.h

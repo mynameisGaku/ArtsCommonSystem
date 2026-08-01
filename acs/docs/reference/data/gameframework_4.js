@@ -137,6 +137,19 @@ ACS_REF.modules.push({
     // InputMap.h
     // =====================================================================
     {
+      name: "FInputAxisOptions",
+      kind: "構造体", header: "gameframework/InputAxisOptions.h",
+      summary: "1D軸の合算値へデッドゾーン、非負倍率、反転を適用する12byteの値。デッドゾーン外を連続する0..1へ再正規化してから倍率を掛ける。",
+      when: "移動や視点入力へ、物理バインドとは独立した感度・反転設定を適用したい時。FInputMap::AxisValueへ値渡しする。",
+      sample: "const FInputAxisOptions look{0.12f, 1.4f, true};\nconst f32 x = input_map.AxisValue(FActionId(\"LookX\"), look);",
+      members: [
+        { sig: "f32 dead_zone = 0", desc: "絶対値がこの値以下なら0。有効範囲は0以上1未満。" },
+        { sig: "f32 scale = 1", desc: "再正規化後の絶対値へ掛ける有限の非負倍率。" },
+        { sig: "bool inverted = false", desc: "trueなら出力方向を反転。" },
+        { sig: "f32 Apply(f32 value) const noexcept", ret: "[-1,+1]", desc: "有限入力を制限して設定を適用。不正設定または非有限入力は0。" }
+      ]
+    },
+    {
       name: "FInputMap",
       kind: "クラス", header: "gameframework/InputMap.h",
       summary: "物理キー/マウス/ゲームパッドを「Jump」「MoveX」のような<b>名前付きアクション</b>に束ねるマッピング層。ゲームロジックが物理キーから切り離され、キーコンフィグ UI も後付けできる。",
@@ -151,7 +164,8 @@ ACS_REF.modules.push({
         { sig: "bool IsPressed(FActionId a) const", desc: "このフレームで押された瞬間か (OR セマンティクス: どれか 1 つでも該当で true)。" },
         { sig: "bool IsHeld(FActionId a) const", desc: "押されているか。" },
         { sig: "bool IsReleased(FActionId a) const", desc: "このフレームで離された瞬間か。" },
-        { sig: "f32 Axis(FActionId a) const", ret: "[-1,+1]", desc: "1D 軸値。複数 axis 割り当ては累積して clamp(-1,+1)。" }
+        { sig: "f32 Axis(FActionId a) const", ret: "[-1,+1]", desc: "1D 軸値。複数 axis 割り当ては累積して clamp(-1,+1)。" },
+        { sig: "f32 AxisValue(FActionId a, FInputAxisOptions options) const", ret: "[-1,+1]", desc: "既存Axisの合算値へ検査済みのデッドゾーン、倍率、反転を後処理。" }
       ]
     },
     {

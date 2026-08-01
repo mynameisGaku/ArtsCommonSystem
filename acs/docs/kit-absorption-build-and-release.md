@@ -19,7 +19,7 @@ Kit の機能は別の基盤として残さず、責務が同じものを ACS �
 | Ease の旧数値 ID | 統合中 | `FLegacyKitEaseIdCodec` で固定33値を正規 enum と相互変換し、独立レビュー、Debug/Release、直接・単一ヘッダ利用、配布物の検証後に完了へ移す |
 | Random snapshot | `GameFramework`へ責務統合 | 既存 `FRandom` の16byte配置、乱数列、消費順を保ち、定数時間snapshotと検査済みAPIを同じ型へ吸収する |
 | Fixed-step | `Timing`へ分離統合 | `FFixedStepClock`の値所有、48byte配置、固定境界、一括不変、Debug/Release、単一header、外部利用を同じclean treeで確認する |
-| Input options | 未統合 | 既存モジュールとの責務比較後、機能単位で実装と試験を移す |
+| Input axis options | `GameFramework`へ責務統合 | `FInputAxisOptions`を既存`FInputMap::Axis`の明示的な後処理として追加し、既存入力ABIと挙動を維持する |
 | Diagnostics | 一部統合 | 複数ログ通知先は既存 `FLogger` へ吸収済み。履歴、category、統計、一括通知は責務比較と独立検証後に判定する |
 
 TypedEvent を含む各行は、作業ツリーに関連ファイルが存在するだけでは「吸収済み」へ変更しない。
@@ -45,6 +45,24 @@ Kit由来の偏り除去や入力検査は、既存の偏りを許容するAPI�
 
 完了判定には、Debug/Releaseの専用test、既存objectと新headerの直接利用、
 単一header利用、Kit random回帰、referenceと配布物の同一tree検証を含める。
+
+## Input axis optionsの責務統合
+
+Kitの入力軸設定とACSの`FInputMap::Axis`は、名前付き1D入力をゲーム向けの範囲へ整える同じ責務を持つ。
+別の入力map、subsystem、allocator、event経路は追加せず、12byteのaggregate値
+`FInputAxisOptions`と`FInputMap::AxisValue(action, options)`へ吸収する。
+`AxisValue`は既存`Axis(action)`の結果へ`options.Apply(...)`を一度だけ適用する。
+
+`dead_zone`は0以上1未満、`scale`は有限の非負値だけを受け付ける。
+入力と設定を検査した後、入力を`[-1,+1]`へ制限し、デッドゾーン外を0から1へ再正規化する。
+倍率計算と上限制限は二倍精度で行い、元の符号と`inverted`を排他的に合成する。
+不正設定または非有限入力は0を返す。
+
+既存の`Axis(FActionId)`、`BindGamepadAxis`の負倍率、`IsHeld`、
+`FInputMap`と内部bindingのlayoutは変更しない。
+旧Kit型のaliasは追加せず、入力補正値は保存形式や共有serviceとして扱わない。
+完了判定には12byte配置、全境界、既存objectと新library、直接header、単一header、
+Debug/Release全test、reference、配布物の同一tree検証を含める。
 
 ## 監査対象
 

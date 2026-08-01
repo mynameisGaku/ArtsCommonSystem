@@ -27,6 +27,7 @@ add_executable(acs_unit_tests
     scene_timer_handle_tests.cpp
     component_factory_tests.cpp
     component_services_tests.cpp
+    input_axis_options_tests.cpp
     input_feed_tests.cpp
     input_recording_view_tests.cpp
     rigidworld_tests.cpp

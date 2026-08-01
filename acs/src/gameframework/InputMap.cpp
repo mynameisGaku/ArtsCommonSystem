@@ -174,4 +174,10 @@ f32 FInputMap::Axis(FActionId action) const noexcept {
     return acc;
 }
 
+/** 既存axis値へ明示された入力補正を適用する。 */
+f32 FInputMap::AxisValue(FActionId action, FInputAxisOptions options) const noexcept
+{
+    return options.Apply(Axis(action));
+}
+
 } // namespace acs::game

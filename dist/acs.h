@@ -47485,36 +47485,35 @@ private:
 
 // ===================== gameframework/InputMap.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar D — FInputMap
-//
-// 物理入力 (EKey/EMouseButton/EGamepadButton) を「名前付きアクション」に束ねる
-// マッピング層。ゲームロジックが物理キーから疎結合になり、キーコンフィグ UI も
-// 後付けで書けるようになる。
-//
-// 使い方:
-//   FInputMap im;
-//   im.BindKey         (FActionId("Jump"),  EKey::Space);
-//   im.BindGamepad     (FActionId("Jump"),  EGamepadButton::A);
-//   im.BindAxisKeys    (FActionId("MoveX"), EKey::A, EKey::D);
-//
-//   if (im.IsPressed(FActionId("Jump"))) DoJump();
-//   f32 mv_x = im.Axis(FActionId("MoveX"));  // -1, 0, +1
-//
-// 設計選択 (Pillar D):
-//   ・**compile-time hash**: FActionId は `constexpr` FNV-1a で生成、`FActionId("name")`
-//     は配置で完結 (実行時 string compare なし)。衝突は 32bit hash で実用上無視。
-//   ・**複数 bind OR セマンティクス**: 1 アクションに複数の物理入力を bind 可能。
-//     1 つでも該当すれば Pressed/Held/Released は true。
-//   ・**1D axis**: neg/pos キーまたはゲームパッド軸を束ねる。複数の axis binding は
-//     累積 + clamp(-1, +1) (例: AD + LStick で同方向に重ねられる)。
-//   ・**poll-based**: 状態取得時に `acs::FInput::*` を呼ぶ。アクション側に状態は持たない。
-//
-// 範囲外:
-//   ・player_index 完全対応 (現状は gamepad bind 時のみ受ける、digital は 0 固定)
-//   ・FSettings (`FStorage`) への永続化
-//   ・input context スタック (gameplay/menu/dialogue でバインド集を push/pop)
-//   ・event 配送 (現状は OnUpdate からの polling 前提)
 
+
+// ===================== gameframework/InputAxisOptions.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+
+namespace acs::game {
+
+/** 一次元入力へデッドゾーン、倍率、反転を適用する値。 */
+struct FInputAxisOptions {
+    /** 無入力として扱う絶対値の上限。0以上1未満を受け付ける。 */
+    f32 dead_zone = 0.0f;
+
+    /** デッドゾーン補正後の絶対値へ乗算する非負倍率。 */
+    f32 scale = 1.0f;
+
+    /** 入力方向を反転する場合はtrue。 */
+    bool inverted = false;
+
+    /**
+     * 一次元入力を検査して設定を適用する。
+     *
+     * @param value 適用前の入力値。
+     * @return 有効な入力の補正値。不正な設定または非有限入力なら0。
+     */
+    f32 Apply(f32 value) const noexcept;
+};
+
+} // namespace acs::game
 
 namespace acs::game {
 
@@ -47687,6 +47686,15 @@ public:
      * @return [-1, +1] の axis 値。
      */
     f32  Axis      (FActionId action) const noexcept;
+
+    /**
+     * 1D axis 値へ検査済みの補正を適用して返す。
+     *
+     * @param action 判定するアクション。
+     * @param options デッドゾーン、倍率、反転の設定。
+     * @return 設定適用後の[-1, +1]のaxis値。不正設定なら0。
+     */
+    f32 AxisValue(FActionId action, FInputAxisOptions options) const noexcept;
 
 private:
     /** binding の種別 (物理入力の種類を判別する)。 */

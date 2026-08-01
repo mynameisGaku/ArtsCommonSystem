@@ -3,7 +3,7 @@
 キーボード・マウス・ゲームパッドを読む方法は 2 層あります。
 
 - **`acs::FInput`** … 物理キー直読みのポーリング API。手早く動かしたいとき・1 サンプルで完結するデモ向き。
-- **`acs::game::FInputMap`** … 「`Jump` を押した」のような *名前付きアクション* に物理入力を束ねる層。複数キーの OR バインドやキーコンフィグ UI を後付けしやすい。**ゲーム本体ではこちらを推奨**。
+- **`acs::game::FInputMap`** … 「`Jump` を押した」のような *名前付きアクション* に物理入力を束ねる層。複数キーの OR バインド、デッドゾーン等の明示的な軸補正、キーコンフィグ UI を後付けしやすい。**ゲーム本体ではこちらを推奨**。
 
 座標系の注意: `FInput::MousePos()` は **ウィンドウのクライアント座標 (px)**。スプライト等の **ワールド座標** に変換するには `ScreenToWorld(...)` を通します（後述）。
 
@@ -46,7 +46,8 @@ im.BindGamepad  (FActionId("Jump"),  EGamepadButton::A);   // Space でも A で
 im.BindAxisKeys (FActionId("MoveX"), EKey::A, EKey::D);    // A=-1, D=+1
 
 if (im.IsPressed(FActionId("Jump"))) DoJump();
-f32 mvx = im.Axis(FActionId("MoveX"));   // -1 / 0 / +1
+const FInputAxisOptions move_options{0.15f, 1.0f, false};
+f32 mvx = im.AxisValue(FActionId("MoveX"), move_options);
 ```
 
 ---
@@ -85,8 +86,23 @@ f32 mvx = im.Axis(FActionId("MoveX"));   // -1 / 0 / +1
 | `IsHeld(FActionId)` | いずれかが押されている（OR） |
 | `IsReleased(FActionId)` | いずれかがこのフレーム離された（OR） |
 | `Axis(FActionId) -> f32` | キー軸とアナログ軸を合算 → `clamp(-1, +1)` |
+| `AxisValue(FActionId, FInputAxisOptions) -> f32` | 既存の合算値へデッドゾーン、倍率、反転を後処理 |
 
 `FActionId("Jump")` は **コンパイル時 FNV-1a ハッシュ**（`u32`）で、実行時の文字列比較は発生しません。毎フレーム `FActionId("Jump")` と書いてもコストはゼロです。
+
+### `acs::game::FInputAxisOptions`（1D軸の後処理）
+
+| 項目 | 既定値 | 説明 |
+|---|---:|---|
+| `dead_zone` | `0` | 絶対値がこの値以下なら0。`0 <= dead_zone < 1` が有効 |
+| `scale` | `1` | デッドゾーン外を再正規化した後の非負倍率 |
+| `inverted` | `false` | 正負を反転 |
+| `Apply(f32) -> f32` | — | 入力を`[-1,+1]`へ制限して設定を適用。不正設定または非有限入力は0 |
+
+デッドゾーン外は連続するよう0から1へ再正規化され、その後に倍率、`[-1,+1]`制限、反転が適用されます。
+`FInputMap::AxisValue(action, options)`は、既存の`Axis(action)`で全バインドを合算した後に
+`options.Apply(...)`を一度だけ呼びます。バインドごとの倍率を指定する既存の
+`BindGamepadAxis(..., scale)`とは責務が異なり、負のバインド倍率による反転も従来どおり使えます。
 
 ### 主要 enum（`platform/InputCodes.h`）
 
@@ -175,18 +191,17 @@ m_SpacePrev = space;
 ### 4. ゲームパッドのアナログスティック
 
 アクションへ統合する場合は `BindGamepadAxis` を使います。キー軸とスティック値は
-`FInputMap::Axis` で合算され、最終的に `[-1,+1]` へ clamp されます。デッドゾーン等を
-独自処理したい場合だけ `FInput` の生アナログ値を直接読みます。
+`FInputMap::Axis` で合算され、最終的に `[-1,+1]` へ制限されます。ゲーム固有のデッドゾーン、
+感度、反転は`FInputAxisOptions`で合算後に適用できます。
 
 ```cpp
-if (FInput::IsGamepadConnected(0)) {
-    f32 lx = FInput::GamepadAxisValue(0, EGamepadAxis::LeftX);   // -1.0 .. +1.0
-    f32 ly = FInput::GamepadAxisValue(0, EGamepadAxis::LeftY);
-    f32 rt = FInput::GamepadAxisValue(0, EGamepadAxis::RightTrigger); // 0.0 .. 1.0
-    // 必要ならデッドゾーン処理を自前で
-    if (lx*lx + ly*ly > 0.04f) Move(lx, ly);
-}
+const FInputAxisOptions look_options{0.12f, 1.4f, true};
+const f32 look_x = input_map.AxisValue(FActionId("LookX"), look_options);
+LookHorizontal(look_x);
 ```
+
+物理デバイス値そのものを調査する場合は、従来どおり
+`FInput::GamepadAxisValue(player, axis)`で生アナログ値を読めます。
 
 ---
 
@@ -197,6 +212,7 @@ if (FInput::IsGamepadConnected(0)) {
 - **`FInput::Update()` の呼び出し場所**。生ウィンドウループでは毎フレーム先頭で自分で呼ぶ。`FApplication`/`FGame`（サンプル 28/38/55〜61 系）ではフレームワークが代行するので、`OnUpdate`/`OnTick` 内で **重ねて呼ばない**。
 - **複数バインドは OR**。1 アクションに `BindKey`+`BindGamepad` を重ねると、どれか 1 つでも該当で `IsPressed/IsHeld/IsReleased` が true。「全部押す」AND セマンティクスは無い。
 - **軸キーの相殺**。`BindAxisKeys(neg, pos)` で *両方同時押し* は `0`（相殺）。複数の軸バインドは合算後 `clamp(-1, +1)`。
+- **軸補正は合算後**。`FInputAxisOptions`は各物理バインドではなく`Axis(action)`の最終値へ一度だけ適用される。不正な`dead_zone`、負または非有限の`scale`、非有限入力は安全に0を返す。
 - **`FInputMap` の未実装ポイント（正直な注意）**:
   - 軸バインド (`BindAxisKeys` / `BindGamepadAxis`) に対する `IsPressed` / `IsReleased` は **常に false**（軸にエッジの概念なし）。`IsHeld` は現在値が非ゼロなら true。
   - キーボード/マウスには player 概念がなく、`BindKey` / `BindMouseButton` / `BindAxisKeys` は全プレイヤー共通。ゲームパッドだけ `player_index` で分離する。
@@ -215,4 +231,4 @@ if (FInput::IsGamepadConnected(0)) {
 | トグル（前フレーム保持でエッジ化）+ `IsKeyDown` で連続操作 | `acs/samples/60_HelloStencilMask/StencilMaskDemo.cpp` |
 | `FInputMap` 実戦（`BindAxisKeys`/`BindMouseButton`/`Axis`/`IsHeld`/`IsPressed`） | `acs/samples/38_HelloFullGame/GameplayScene.cpp`, `Player.cpp` |
 
-ヘッダ実体: `acs/src/platform/Input.h`, `acs/src/platform/InputCodes.h`, `acs/src/gameframework/InputMap.h`（実装 `InputMap.cpp`）。
+ヘッダ実体: `acs/src/platform/Input.h`, `acs/src/platform/InputCodes.h`, `acs/src/gameframework/InputAxisOptions.h`, `acs/src/gameframework/InputMap.h`（実装 `InputAxisOptions.cpp`, `InputMap.cpp`）。
