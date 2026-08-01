@@ -23,6 +23,7 @@ acs_module(
         InputCodes.h
         Localization.h
         Storage.h
+        StorageStringBatchEntry.h
         Time.h
         Window.h
     PUBLIC_DEPS

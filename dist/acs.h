@@ -99170,33 +99170,42 @@ public:
 
 // ===================== platform/Storage.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// 設定 / セーブデータ用 key-value ストア（INI 形式）
-//
-// 用途: ゲーム設定（音量・解像度）、セーブデータ（ハイスコア・進行度）の
-//       人間可読な永続化。
-//
-// 使い方:
-//   FStorage cfg;
-//   wchar_t path[260];
-//   FStorage::GetAppDataPath(L"MyGame", L"settings.ini", path, 260);
-//
-//   cfg.Load(path);                       // 既存があれば読み込む（無ければ空）
-//   if (!cfg.Has("master_volume")) {
-//       cfg.SetFloat("master_volume", 0.8f);
-//   }
-//   f64 vol = cfg.GetFloat("master_volume", 0.8);
-//   cfg.SetInt("high_score", 12345);
-//   cfg.Save(path);                       // 保存
-//
-// ファイル形式 (INI 風、フラット):
-//   master_volume=0.8
-//   resolution_w=1920
-//   high_score=12345
-//   player_name=タロウ
-//
-// セクションは v1 では持たず、平坦なキー名（例 "audio.master_volume"）で
-// 名前空間分けする想定。
 
+
+// ===================== platform/StorageStringBatchEntry.h =====================
+// SPDX-License-Identifier: Apache-2.0
+
+#include <cstddef>
+#include <type_traits>
+
+namespace acs {
+
+/**
+ * 文字列設定を一括反映するときのキーと値を表す。
+ *
+ * @details key は有効な UTF-8 の終端文字列を指定し、Save/Load 後も identity を維持するため
+ * 先頭と末尾の ASCII space (U+0020) を許可しない。内部の ASCII space は許可する。
+ * value の nullptr は空文字列として扱い、非 nullptr は既存の単体 setter と同じく終端までの
+ * byte 列を追加検査や変換なしで保持する。二つの pointer を宣言順に保持する aggregate であり、
+ * standard-layout と trivially-copyable の ABI をコンパイル時に検査する。
+ */
+struct FStorageStringBatchEntry {
+    /** 設定対象の終端文字列キー。先頭と末尾に ASCII space (U+0020) は指定できない。 */
+    const char* key;
+
+    /** 設定する終端 byte 列。nullptr は空文字列として扱い、非 nullptr には追加制約を設けない。 */
+    const char* value;
+};
+
+static_assert(sizeof(FStorageStringBatchEntry) == sizeof(const char*) * 2u);
+static_assert(alignof(FStorageStringBatchEntry) == alignof(const char*));
+static_assert(offsetof(FStorageStringBatchEntry, key) == 0u);
+static_assert(offsetof(FStorageStringBatchEntry, value) == sizeof(const char*));
+static_assert(std::is_standard_layout_v<FStorageStringBatchEntry>);
+static_assert(std::is_trivially_copyable_v<FStorageStringBatchEntry>);
+static_assert(std::is_aggregate_v<FStorageStringBatchEntry>);
+
+} // namespace acs
 
 namespace acs {
 
@@ -99210,6 +99219,9 @@ namespace acs {
  */
 class FStorage {
 public:
+    /** 一回の文字列一括設定と反映後のストアで許可する最大項目数。 */
+    static constexpr usize kMaximumStringBatchEntryCount = 4096u;
+
     /** DefaultAllocator を確保元として空のストアを構築する。 */
     FStorage() noexcept : FStorage(DefaultAllocator())
     {
@@ -99336,6 +99348,27 @@ public:
         candidate.value = Move(candidateValue);
         return m_Entries.TryPushBack(Move(candidate));
     }
+
+    /**
+     * 複数の文字列値を、全項目が成功した場合だけ一括反映する。
+     *
+     * @details key は Save 後も LoadFromBytes の trim で identity が変わらないよう、先頭と末尾の
+     * ASCII space (U+0020) を許可しない。内部の ASCII space は許可する。value の nullptr は
+     * TrySetString と同じく空文字列として扱い、非 nullptr は終端までの byte 列を追加検査や変換なしで
+     * 保持する。同値項目は変更数へ含めず、全項目が同値なら確保せず既存状態を置き換えない。
+     * 反映前に既存 key を LoadFromBytes と同じ境界 ASCII space/tab trim で比較し、既存同士、
+     * または byte 列が異なる既存 key と入力 key が同じ identity になる場合は確保せず拒否する。
+     * byte 列が同じ既存 key と入力 key は通常の update または no-op として扱う。
+     * 衝突しない legacy key は正規化も拒否もせず、後の Save/Load で境界が trim される場合がある。
+     * 入力文字列は既存内部値を指してもよい。
+     * 実変更に成功すると候補全体へ置き換えるため、呼び出し前に GetString から借用した全ポインタは
+     * 無効になる。失敗時と変更なしの成功時は、既存状態と借用ポインタを維持する。
+     * @param entries 設定する項目列。count が 0 の場合だけ nullptr を許可する。
+     * @param count 設定する項目数。kMaximumStringBatchEntryCount 以下でなければならない。
+     * @return 成功時は新規または実変更した項目数。入力不正、key identity 衝突、
+     * 反映後件数超過、確保失敗時はエラー。
+     */
+    TResult<usize> TrySetStringBatch(const FStorageStringBatchEntry* entries, usize count) noexcept;
 
     /**
      * 文字列値を設定する (既存キーは上書き)。

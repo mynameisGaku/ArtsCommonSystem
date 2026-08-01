@@ -173,6 +173,20 @@ target_link_libraries(acs_random_compatibility_tests PRIVATE
 add_test(NAME ACS.RandomCompatibility COMMAND acs_random_compatibility_tests)
 set_tests_properties(ACS.RandomCompatibility PROPERTIES LABELS "GameFramework;Compatibility" TIMEOUT 60)
 
+# FStorage の文字列一括設定、失敗時不変、入力上限を独立して反復する。
+add_executable(acs_storage_transactional_batch_tests
+    main.cpp
+    storage_transactional_batch_tests.cpp
+)
+set_target_properties(acs_storage_transactional_batch_tests PROPERTIES FOLDER "Engine/Tests")
+acs_apply_compiler_options(acs_storage_transactional_batch_tests)
+target_link_libraries(acs_storage_transactional_batch_tests PRIVATE
+    ACS::Platform
+    ACS::Test
+)
+add_test(NAME ACS.StorageTransactionalBatch COMMAND acs_storage_transactional_batch_tests)
+set_tests_properties(ACS.StorageTransactionalBatch PROPERTIES LABELS "Platform;Persistence;Compatibility" TIMEOUT 60)
+
 # 実機タイミングだけに依存せず、削減した呼び出し・起床回数を JSON で検証する。
 add_executable(acs_foundation_performance
     foundation_performance_main.cpp

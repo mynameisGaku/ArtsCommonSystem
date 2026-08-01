@@ -19,11 +19,58 @@ Kit の機能は別の基盤として残さず、責務が同じものを ACS �
 | Ease の旧数値 ID | 統合中 | `FLegacyKitEaseIdCodec` で固定33値を正規 enum と相互変換し、独立レビュー、Debug/Release、直接・単一ヘッダ利用、配布物の検証後に完了へ移す |
 | Random snapshot | `GameFramework`へ責務統合 | 既存 `FRandom` の16byte配置、乱数列、消費順を保ち、定数時間snapshotと検査済みAPIを同じ型へ吸収する |
 | Fixed-step | `Timing`へ分離統合 | `FFixedStepClock`の値所有、48byte配置、固定境界、一括不変、Debug/Release、単一header、外部利用を同じclean treeで確認する |
+| Storage / Persistence | 部分統合 | 既存の single / atomic I/O と string upsert batch は統合済み。transactional remove、typed codec、owned snapshot、document export/summary は未統合 |
 | Input axis options | `GameFramework`へ責務統合 | `FInputAxisOptions`を既存`FInputMap::Axis`の明示的な後処理として追加し、既存入力ABIと挙動を維持する |
 | Diagnostics | 一部統合 | 複数ログ通知先は既存 `FLogger` へ吸収済み。履歴、category、統計、一括通知は責務比較と独立検証後に判定する |
 
 TypedEvent を含む各行は、作業ツリーに関連ファイルが存在するだけでは「吸収済み」へ変更しない。
 正式な完了判定は、対象差分と依存差分が同じ clean tree で検証された後に更新する。
+
+## Persistence の責務統合
+
+Kit Persistence の文字列 transaction/batch は、既存の instance-owned
+`acs::FStorage` が持つ key-value 更新と同じ責務へ統合する。別の保存 manager、
+process-global state、subsystem、mutex、thread-local state は追加しない。
+
+`FStorage::TrySetStringBatch` は最大4,096項目を受け付け、反映後のストアも同じ上限に
+収める。0件は `Ok(0)` とし、成功値は新規または実変更した件数とする。
+`value == nullptr` は既存 `TrySetString` と同じ空文字列であり、全件同値なら確保せず
+`Ok(0)` を返す。非 null の value は終端までの byte 列を追加検査や変換なしで保持し、
+この wave では既存 value の制約を強めない。
+
+既存互換の単体 setter と読み込み経路は4,096件上限へ変更しない。呼び出し前から
+上限を超えるストアへの非0件 batch は、全件同値でも最終件数検査で確保前に拒否し、
+件数、値、借用ポインタ、allocator 使用量を維持する。
+
+非0件数の null/非整列配列、件数・バイト数・アドレスの overflow、不正な key、
+重複 key は既存状態の複製前に拒否する。key は空でない有効な UTF-8 とし、改行、
+`=`、制御文字、INI のコメントやセクション開始と衝突する先頭文字を許可しない。
+既存全 key は `LoadFromBytes` と同じ先頭・末尾 ASCII space/tab trim で allocation 前に
+比較し、既存同士、または byte 列が異なる既存と batch の正規化 identity が衝突すれば
+拒否する。byte 列が同じ既存 key と batch key は通常の update/no-op として扱う。
+この事前拒否も件数、値、借用ポインタ、allocator 使用量を維持する。
+衝突しない境界 space/tab 付き legacy key は拒否も正規化もせず、後の Save/Load では
+loader の従来 trim により raw identity が変わり得る。保証は trim 後の重複と
+`LoadFromBytes` の duplicate key エラーを作らない範囲に限定する。
+loader-trim identity 検査では、既存件数 `n` と batch 件数 `m` を各4,096以下とし、
+key 組を `n(n-1)/2+n*m` 回、最大25,163,776組比較する。これはAPI全体の計算量ではなく、
+各組の byte 比較量には key 長も影響する。検査用の追加領域は `O(1)` とする。
+
+入力 key/value は対象と同じ allocator へすべて所有退避してから、既存状態を候補へ
+複製する。上限と最終容量を確認した候補だけを一度の move で反映するため、入力が
+`GetString` の内部ポインタを指す場合も扱え、全失敗で件数、値、既存借用ポインタを
+維持する。実変更を含む成功は候補全体へ置き換えるため、呼び出し前の全借用ポインタを
+無効にする。全件同値の `Ok(0)` は置き換えず、借用ポインタを維持する。
+
+`FStorageStringBatchEntry` は宣言順の二 pointer からなる aggregate とし、各 field offset、
+二 pointer サイズ、pointer alignment、standard-layout、trivially-copyable を公開 header の
+`static_assert` で固定する。
+
+既存の single / atomic I/O と string upsert batch は統合済みである。
+transactional remove、typed codec、owned snapshot、document export/summary は
+この部分統合に含めない。
+
+詳細な公開契約と利用例は `StorageTransactionalBatch.md` に記載する。
 
 ## Random の責務統合
 

@@ -208,6 +208,16 @@ ACS_REF.modules.push({
       ]
     },
     {
+      name: "FStorageStringBatchEntry",
+      kind: "構造体", header: "platform/StorageStringBatchEntry.h",
+      summary: "<t>FStorage</t>へ一括設定する終端key/value組。<code>value == nullptr</code>は空文字列、非nullは終端までのbyte列として扱う。key/valueの順に二pointerを保持するaggregateで、field offset、standard-layout、trivially-copyableをcompile-timeに固定する。",
+      when: "複数の文字列設定を、一部だけ反映される状態を作らずまとめて更新したい時。",
+      members: [
+        { sig: "const char* key", desc: "設定対象のkey。有効なUTF-8で、空、改行、<code>=</code>、制御文字、INI指示行と衝突する先頭文字は使えない。<code>LoadFromBytes</code>の境界trimでidentityが変わらないよう、先頭と末尾のASCII space (U+0020)も拒否するが、内部spaceは許可する。" },
+        { sig: "const char* value", desc: "設定する値。nullは既存の<code>TrySetString</code>と同じ空文字列。非nullは終端までのbyte列を追加検査や変換なしで保持し、このwaveで既存valueの制約を強めない。" }
+      ]
+    },
+    {
       name: "FStorage",
       kind: "クラス", header: "platform/Storage.h",
       summary: "設定やセーブデータ用の <b>key-value ストア</b>（INI 形式）。<code>master_volume=0.8</code> のような人間が読める形でファイルに保存できる。文字列・整数・小数・真偽を型ごとに出し入れする。",
@@ -218,6 +228,8 @@ ACS_REF.modules.push({
         { sig: "TResult&lt;void&gt; LoadFromBytes(const u8* data, usize size)", desc: "メモリ上のバイト列（INI 形式 UTF-8）から読み込む。実行ファイル埋め込み用。" },
         { sig: "TResult&lt;void&gt; Save(const wchar_t* path) / Save(const char* path_utf8)", desc: "INI ファイルへ保存する。親ディレクトリが無ければ作る。" },
         { sig: "void Clear()", desc: "全エントリを消す（ファイルには触らない）。" },
+        { sig: "static constexpr usize kMaximumStringBatchEntryCount = 4096", desc: "一回の文字列一括設定と反映後のストアで許可する最大項目数。既存ストアが超過していれば非0件batchを拒否する。" },
+        { sig: "TResult&lt;usize&gt; TrySetStringBatch(const FStorageStringBatchEntry* entries, usize count)", ret: "実変更件数 or エラー", desc: "keyの先頭・末尾ASCII spaceを保存前に拒否する。既存全keyも<code>LoadFromBytes</code>と同じ境界ASCII space/tab trimで確保前に比較し、既存同士、またはbyte列が異なる既存とbatchのidentity衝突を拒否する。同じbyte列のkeyは通常のupdate/no-op。衝突しないlegacy keyは拒否も正規化もせず、後のSave/Loadでraw identityが変わり得る。保証はtrim後の重複とloaderのduplicate keyエラーを作らない範囲。入力を同じallocatorへ所有化し、候補が完成した場合だけ一度に反映する。0件と検査済みの全同値は確保せず<code>Ok(0)</code>。実変更成功時は呼び出し前の全借用ポインタが無効になり、失敗時とno-op時は件数、値、既存借用ポインタを維持する。loader-trim identity検査はn,m&lt;=4096でn(n-1)/2+n*m回、最大25,163,776組を比較し、追加領域O(1)。これはAPI全体の計算量ではない。" },
         { sig: "void SetString / SetInt / SetFloat / SetBool(const char* key, value)", desc: "キーに値を設定する（型ごとに 4 種）。" },
         { sig: "const char* GetString(const char* key, const char* default_v = \"\")", ret: "文字列", desc: "キーの文字列を取得。無ければ既定値。返る参照は内部バッファなので、長く持つならコピーする。" },
         { sig: "i64 GetInt / f64 GetFloat / bool GetBool(const char* key, default_v)", desc: "キーの値を型付きで取得。無ければ既定値を返す。" },

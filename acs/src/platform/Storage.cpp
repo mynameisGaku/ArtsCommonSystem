@@ -36,6 +36,107 @@ bool StrEq(const char* a, const char* b) noexcept {
 }
 
 /**
+ * loader と同じ規則で key 境界の ASCII space と tab を除いたビューを返す。
+ *
+ * @param key 正規化する非所有 key ビュー。
+ * @return key 内を指す正規化済みビュー。
+ */
+FStringView TrimStorageKeyForLoad(FStringView key) noexcept {
+    /** 先頭の ASCII space と tab を除いた開始位置。 */
+    usize start = 0u;
+    while (start < key.Size() && (key.Data()[start] == ' ' || key.Data()[start] == '\t')) ++start;
+
+    /** 末尾の ASCII space と tab を除いた終端位置。 */
+    usize end = key.Size();
+    while (end > start && (key.Data()[end - 1u] == ' ' || key.Data()[end - 1u] == '\t')) --end;
+    return key.SubView(start, end - start);
+}
+
+/** 一括設定の入力文字列を呼び出し元から独立して保持する。 */
+struct FOwnedStorageStringBatchEntry {
+    /** 指定した allocator をキーと値の確保元にする。 */
+    explicit FOwnedStorageStringBatchEntry(FAllocator& allocator) noexcept : key(allocator), value(allocator) {}
+
+    /** 所有している設定キー。 */
+    FString key;
+
+    /** 所有している設定値。 */
+    FString value;
+};
+
+/**
+ * 一括設定キーが UTF-8 と INI の保存形式に対して安全かを返す。
+ *
+ * @param key 検証する終端文字列キー。
+ * @return 空でなく、有効な UTF-8 で保存形式や loader の key trim と衝突しなければ true。
+ */
+bool IsValidStorageStringBatchKey(const char* key) noexcept {
+    if (!key || key[0] == '\0') return false;
+
+    /** INI のコメントまたはセクション開始と衝突する先頭バイト。 */
+    const u8 firstByte = static_cast<u8>(key[0]);
+    if (firstByte == static_cast<u8>(' ') || firstByte == static_cast<u8>('#') || firstByte == static_cast<u8>(';') || firstByte == static_cast<u8>('[')) {
+        return false;
+    }
+
+    /** キー先頭の数値アドレス。 */
+    const uptr baseAddress = reinterpret_cast<uptr>(key);
+
+    /** 現在検証している UTF-8 列の先頭位置。 */
+    usize offset = 0u;
+    for (;;) {
+        if (offset > (~uptr(0)) - baseAddress) return false;
+
+        /** 現在の UTF-8 列を始めるバイト。 */
+        const u8 lead = static_cast<u8>(key[offset]);
+        if (lead == 0u) return static_cast<u8>(key[offset - 1u]) != static_cast<u8>(' ');
+
+        /** 現在の UTF-8 列が表す Unicode 値。 */
+        u32 codepoint = 0u;
+
+        /** 現在の UTF-8 列を構成するバイト数。 */
+        usize sequenceLength = 0u;
+        if (lead <= 0x7Fu) {
+            codepoint = lead;
+            sequenceLength = 1u;
+        } else if (lead >= 0xC2u && lead <= 0xDFu) {
+            codepoint = static_cast<u32>(lead & 0x1Fu);
+            sequenceLength = 2u;
+        } else if (lead >= 0xE0u && lead <= 0xEFu) {
+            codepoint = static_cast<u32>(lead & 0x0Fu);
+            sequenceLength = 3u;
+        } else if (lead >= 0xF0u && lead <= 0xF4u) {
+            codepoint = static_cast<u32>(lead & 0x07u);
+            sequenceLength = 4u;
+        } else {
+            return false;
+        }
+
+        if (sequenceLength > (~uptr(0)) - baseAddress - offset + 1u) return false;
+        for (usize byteIndex = 1u; byteIndex < sequenceLength; ++byteIndex) {
+            /** 現在の UTF-8 継続バイト。 */
+            const u8 continuation = static_cast<u8>(key[offset + byteIndex]);
+            if ((continuation & 0xC0u) != 0x80u) return false;
+            codepoint = (codepoint << 6u) | static_cast<u32>(continuation & 0x3Fu);
+        }
+
+        if ((sequenceLength == 3u && lead == 0xE0u && static_cast<u8>(key[offset + 1u]) < 0xA0u) || (sequenceLength == 3u && lead == 0xEDu && static_cast<u8>(key[offset + 1u]) >= 0xA0u) || (sequenceLength == 4u && lead == 0xF0u && static_cast<u8>(key[offset + 1u]) < 0x90u) || (sequenceLength == 4u && lead == 0xF4u && static_cast<u8>(key[offset + 1u]) >= 0x90u)) {
+            return false;
+        }
+
+        /** ASCII と Unicode の制御文字に該当するか。 */
+        const bool isControl = codepoint < 0x20u || (codepoint >= 0x7Fu && codepoint <= 0x9Fu);
+
+        /** Unicode の行区切りまたは段落区切りに該当するか。 */
+        const bool isLineSeparator = codepoint == 0x2028u || codepoint == 0x2029u;
+        if (isControl || isLineSeparator || codepoint == static_cast<u32>('=')) return false;
+
+        if (sequenceLength > (~usize(0)) - offset) return false;
+        offset += sequenceLength;
+    }
+}
+
+/**
  * 文字列末尾の空白・改行類 (' ' '\t' '\r' '\n') を取り除く。
  *
  * @param s 対象の文字列 (その場で短縮される)。
@@ -119,6 +220,169 @@ void FStorage::SetString(const char* key, const char* value) noexcept {
         ne.value = FString(value ? value : "", *m_Allocator);
         m_Entries.PushBack(Move(ne));
     }
+}
+
+TResult<usize> FStorage::TrySetStringBatch(const FStorageStringBatchEntry* entries, usize count) noexcept {
+    if (count == 0u) return Ok(static_cast<usize>(0u));
+    if (!entries) {
+        return ACS_ERR(Container, 140, "FStorage::TrySetStringBatch: null entries");
+    }
+    if (count > (~usize(0)) / sizeof(FStorageStringBatchEntry)) {
+        return ACS_ERR(Container, 141, "FStorage::TrySetStringBatch: entry byte count overflow");
+    }
+
+    /** 入力配列全体のバイト数。 */
+    const usize entryBytes = count * sizeof(FStorageStringBatchEntry);
+
+    /** 入力配列先頭の数値アドレス。 */
+    const uptr entryAddress = reinterpret_cast<uptr>(entries);
+    if ((entryAddress % alignof(FStorageStringBatchEntry)) != 0u) {
+        return ACS_ERR(Container, 142, "FStorage::TrySetStringBatch: misaligned entries");
+    }
+    if (static_cast<uptr>(entryBytes) > (~uptr(0)) - entryAddress) {
+        return ACS_ERR(Container, 143, "FStorage::TrySetStringBatch: entry address overflow");
+    }
+    if (count > kMaximumStringBatchEntryCount) {
+        return ACS_ERR(Container, 144, "FStorage::TrySetStringBatch: entry count exceeds limit");
+    }
+
+    for (usize index = 0u; index < count; ++index) {
+        if (!IsValidStorageStringBatchKey(entries[index].key)) {
+            return ACS_ERR(Container, 145, "FStorage::TrySetStringBatch: invalid key");
+        }
+        for (usize priorIndex = 0u; priorIndex < index; ++priorIndex) {
+            if (StrEq(entries[index].key, entries[priorIndex].key)) {
+                return ACS_ERR(Container, 146, "FStorage::TrySetStringBatch: duplicate key");
+            }
+        }
+    }
+
+    if (m_Entries.Size() > kMaximumStringBatchEntryCount) {
+        return ACS_ERR(Container, 147, "FStorage::TrySetStringBatch: final entry count exceeds limit");
+    }
+
+    for (usize existingIndex = 0u; existingIndex < m_Entries.Size(); ++existingIndex) {
+        /** loader と同じ規則で正規化した現在の既存 key。 */
+        const FStringView normalizedExistingKey = TrimStorageKeyForLoad(m_Entries[existingIndex].key.View());
+        for (usize priorIndex = 0u; priorIndex < existingIndex; ++priorIndex) {
+            /** loader と同じ規則で正規化した検証済み既存 key。 */
+            const FStringView normalizedPriorKey = TrimStorageKeyForLoad(m_Entries[priorIndex].key.View());
+            if (normalizedExistingKey == normalizedPriorKey) {
+                return ACS_ERR(Container, 157, "FStorage::TrySetStringBatch: existing keys collide after loader trim");
+            }
+        }
+    }
+
+    for (usize inputIndex = 0u; inputIndex < count; ++inputIndex) {
+        /** 現在比較している入力 key。 */
+        const FStringView inputKey(entries[inputIndex].key);
+
+        /** loader と同じ規則で正規化した入力 key。 */
+        const FStringView normalizedInputKey = TrimStorageKeyForLoad(inputKey);
+        for (usize existingIndex = 0u; existingIndex < m_Entries.Size(); ++existingIndex) {
+            /** 現在比較している既存 key。 */
+            const FStringView existingKey = m_Entries[existingIndex].key.View();
+
+            /** loader と同じ規則で正規化した既存 key。 */
+            const FStringView normalizedExistingKey = TrimStorageKeyForLoad(existingKey);
+            if (existingKey != inputKey && normalizedExistingKey == normalizedInputKey) {
+                return ACS_ERR(Container, 158, "FStorage::TrySetStringBatch: existing and input keys collide after loader trim");
+            }
+        }
+    }
+
+    /** 新規追加または実変更する項目数。 */
+    usize changedCount = 0u;
+
+    /** 一括反映で新規追加する項目数。 */
+    usize addedCount = 0u;
+    for (usize index = 0u; index < count; ++index) {
+        /** 入力キーに対応する反映前の項目。 */
+        const FEntry* existingEntry = FindEntry(entries[index].key);
+
+        /** nullptr を既存 setter と同じ空文字列へ正規化した入力値。 */
+        const char* const inputValue = entries[index].value ? entries[index].value : "";
+        if (!existingEntry) {
+            ++changedCount;
+            ++addedCount;
+        } else if (!StrEq(existingEntry->value.Data(), inputValue)) {
+            ++changedCount;
+        }
+    }
+    if (addedCount > kMaximumStringBatchEntryCount - m_Entries.Size()) {
+        return ACS_ERR(Container, 147, "FStorage::TrySetStringBatch: final entry count exceeds limit");
+    }
+    if (changedCount == 0u) return Ok(static_cast<usize>(0u));
+    if (addedCount > (~usize(0)) - m_Entries.Size()) {
+        return ACS_ERR(Container, 148, "FStorage::TrySetStringBatch: final entry count overflow");
+    }
+
+    /** 反映成功後に保持する項目数。 */
+    const usize finalCount = m_Entries.Size() + addedCount;
+    if (finalCount > (~usize(0)) / sizeof(FEntry)) {
+        return ACS_ERR(Container, 149, "FStorage::TrySetStringBatch: final entry byte count overflow");
+    }
+
+    /** 呼び出し元と既存ストアの寿命から独立させた全入力。 */
+    TArray<FOwnedStorageStringBatchEntry> ownedEntries(*m_Allocator);
+    if (!ownedEntries.TryReserve(count)) {
+        return ACS_ERR(Memory, 150, "FStorage::TrySetStringBatch: input table allocation failed");
+    }
+    for (usize index = 0u; index < count; ++index) {
+        /** 現在所有化している入力項目。 */
+        FOwnedStorageStringBatchEntry ownedEntry(*m_Allocator);
+        if (!ownedEntry.key.TryAppend(FStringView(entries[index].key)) || !ownedEntry.value.TryAppend(FStringView(entries[index].value ? entries[index].value : ""))) {
+            return ACS_ERR(Memory, 151, "FStorage::TrySetStringBatch: input string allocation failed");
+        }
+        if (!ownedEntries.TryPushBack(Move(ownedEntry))) {
+            return ACS_ERR(Memory, 152, "FStorage::TrySetStringBatch: input table growth failed");
+        }
+    }
+
+    /** 成功時だけ公開状態へ移す同一 allocator の候補。 */
+    FStorage candidate(*m_Allocator);
+    if (!candidate.m_Entries.TryReserve(finalCount)) {
+        return ACS_ERR(Memory, 153, "FStorage::TrySetStringBatch: candidate table allocation failed");
+    }
+    for (usize index = 0u; index < m_Entries.Size(); ++index) {
+        /** 複製する既存項目のキー。 */
+        FString candidateKey(*m_Allocator);
+
+        /** 複製する既存項目の値。 */
+        FString candidateValue(*m_Allocator);
+        if (!candidateKey.TryAppend(m_Entries[index].key.View()) || !candidateValue.TryAppend(m_Entries[index].value.View())) {
+            return ACS_ERR(Memory, 154, "FStorage::TrySetStringBatch: candidate string allocation failed");
+        }
+
+        /** 候補へ追加する既存項目の複製。 */
+        FEntry candidateEntry{Move(candidateKey), Move(candidateValue)};
+        if (!candidate.m_Entries.TryPushBack(Move(candidateEntry))) {
+            return ACS_ERR(Memory, 155, "FStorage::TrySetStringBatch: candidate table growth failed");
+        }
+    }
+
+    for (usize index = 0u; index < ownedEntries.Size(); ++index) {
+        /** 入力キーに対応する反映前の項目。 */
+        const FEntry* existingEntry = FindEntry(ownedEntries[index].key.Data());
+        if (existingEntry && StrEq(existingEntry->value.Data(), ownedEntries[index].value.Data())) {
+            continue;
+        }
+
+        /** 入力キーに対応する候補内の項目。 */
+        FEntry* candidateEntry = candidate.FindEntry(ownedEntries[index].key.Data());
+        if (candidateEntry) {
+            candidateEntry->value = Move(ownedEntries[index].value);
+        } else {
+            /** 候補へ新規追加する所有済み項目。 */
+            FEntry addedEntry{Move(ownedEntries[index].key), Move(ownedEntries[index].value)};
+            if (!candidate.m_Entries.TryPushBack(Move(addedEntry))) {
+                return ACS_ERR(Memory, 156, "FStorage::TrySetStringBatch: new entry insertion failed");
+            }
+        }
+    }
+
+    *this = Move(candidate);
+    return Ok(changedCount);
 }
 
 void FStorage::SetInt(const char* key, i64 value) noexcept {
@@ -240,13 +504,11 @@ TResult<void> FStorage::LoadFromBytes(const u8* data, usize size) noexcept {
         while (eq < line.Size() && line.Data()[eq] != '=') ++eq;
         if (eq >= line.Size()) continue;
 
-        usize ks = 0; while (ks < eq && (line.Data()[ks] == ' ' || line.Data()[ks] == '\t')) ++ks;
-        usize ke = eq; while (ke > ks && (line.Data()[ke - 1] == ' ' || line.Data()[ke - 1] == '\t')) --ke;
         // Save後の再読込で値を変えないため、'='より後ろは先頭空白を含めてそのまま保持する。
         const usize vs = eq + 1;
         const usize ve = line.Size();
 
-        const FStringView key(line.Data() + ks, ke - ks);
+        const FStringView key = TrimStorageKeyForLoad(line.SubView(0u, eq));
         for (usize i = 0; i < loaded.m_Entries.Size(); ++i) {
             if (loaded.m_Entries[i].key.View() == key) {
                 return ACS_ERR(
