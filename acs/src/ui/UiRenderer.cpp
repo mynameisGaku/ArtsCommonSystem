@@ -284,7 +284,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
     ValidateTrackedState(root);
 
     // マウス位置取得
-    const FVec2 mp = FInput::MousePos();
+    const FVec2 mp = CInput::MousePos();
     const f32 mx = mp.x, my = mp.y;
 
     // hover 更新
@@ -313,7 +313,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
     }
 
     // クリック
-    if (FInput::IsMouseButtonPressed(EMouseButton::Left)) {
+    if (CInput::IsMouseButtonPressed(EMouseButton::Left)) {
         // pointer callback が child 構成を変更できるため、押下直前に hit-test をやり直す。
         hit = root.HitTestRecursive(mx, my);
         const FTrackedIdentity pressed_identity =
@@ -329,7 +329,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
         m_PressedIdentity = pressed_identity;
         if (hit) hit->OnPointerDown(mx, my);
     }
-    if (FInput::IsMouseButtonReleased(EMouseButton::Left)) {
+    if (CInput::IsMouseButtonReleased(EMouseButton::Left)) {
         const FTrackedIdentity released_identity = m_PressedIdentity;
         m_PressedIdentity = {};
         if (AWidget* const pressed =
@@ -348,7 +348,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
     if (m_FocusedIdentity.IsSet() || m_ControlAOwnerIdentity.IsSet()) {
         // 1) このフレームに確定した文字列 (UTF-8, IME 確定後) を codepoint 単位で配信。
         //    checked canonical decoder で正規の U+FFFD は受理し、不正入力だけを除外する。
-        const char* txt = FInput::TextInput();
+        const char* txt = CInput::TextInput();
         if (txt) {
             const char* p = txt;
             while (*p) {
@@ -368,14 +368,14 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
         //    (例: Backspace=0x08) で判定するため、EKey をその制御コードに対応付けて渡す。
         //    修飾キーは左右をまとめた押下中スナップショットとして同じイベントに付ける。
         const FUiKeyModifiers modifiers{
-            FInput::IsKeyDown(EKey::LeftShift) ||
-                FInput::IsKeyDown(EKey::RightShift),
-            FInput::IsKeyDown(EKey::LeftCtrl) ||
-                FInput::IsKeyDown(EKey::RightCtrl),
-            FInput::IsKeyDown(EKey::LeftAlt) ||
-                FInput::IsKeyDown(EKey::RightAlt),
-            FInput::IsKeyDown(EKey::LeftSuper) ||
-                FInput::IsKeyDown(EKey::RightSuper),
+            CInput::IsKeyDown(EKey::LeftShift) ||
+                CInput::IsKeyDown(EKey::RightShift),
+            CInput::IsKeyDown(EKey::LeftCtrl) ||
+                CInput::IsKeyDown(EKey::RightCtrl),
+            CInput::IsKeyDown(EKey::LeftAlt) ||
+                CInput::IsKeyDown(EKey::RightAlt),
+            CInput::IsKeyDown(EKey::LeftSuper) ||
+                CInput::IsKeyDown(EKey::RightSuper),
         };
         struct FKeyMap { EKey key; i32 code; };
         static const FKeyMap kEditKeys[] = {
@@ -390,8 +390,8 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
             { EKey::End,       0x23 },  // VK_END   相当
         };
         for (const auto& km : kEditKeys) {
-            const bool key_pressed = FInput::IsKeyPressed(km.key);
-            const bool key_released = FInput::IsKeyReleased(km.key);
+            const bool key_pressed = CInput::IsKeyPressed(km.key);
+            const bool key_released = CInput::IsKeyReleased(km.key);
             if (!key_pressed && !key_released) continue;
 
             ValidateTrackedState(root);
@@ -403,7 +403,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
 
         // Ctrl+A は文字入力ではなく選択コマンドとして配信する。
         if (modifiers.bControl && !modifiers.bAlt && !modifiers.bSuper &&
-            FInput::IsKeyPressed(EKey::A)) {
+            CInput::IsKeyPressed(EKey::A)) {
             ValidateTrackedState(root);
             if (AWidget* const focused =
                     ResolveVisible(root, m_FocusedIdentity)) {
@@ -411,7 +411,7 @@ void CUiInput::Dispatch(AWidget& root) noexcept {
                 focused->OnKey(0x41, true, modifiers);
             }
         }
-        if (FInput::IsKeyReleased(EKey::A)) {
+        if (CInput::IsKeyReleased(EKey::A)) {
             const FTrackedIdentity owner_identity = m_ControlAOwnerIdentity;
             m_ControlAOwnerIdentity = {};
             if (AWidget* const owner =

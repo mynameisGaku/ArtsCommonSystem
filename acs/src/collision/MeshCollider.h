@@ -22,7 +22,7 @@
 
 namespace acs {
 
-class FMeshAsset;
+class AMeshAsset;
 
 /**
  * 三角形メッシュから median-split AABB BVH を構築する 3D メッシュコライダー。
@@ -54,7 +54,7 @@ public:
      * @param mesh 三角形列を持つ入力メッシュアセット。
      * @return 成功なら空の TResult、頂点が無ければエラー。
      */
-    TResult<void> BuildFromMesh(const FMeshAsset& mesh) noexcept;
+    TResult<void> BuildFromMesh(const AMeshAsset& mesh) noexcept;
 
     /**
      * 生の頂点位置 + 三角形インデックス列から collider を構築する。

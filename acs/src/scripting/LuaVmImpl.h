@@ -46,7 +46,7 @@ public:
      *
      * @param allocator 登録情報の保存領域を確保する。
      */
-    explicit FLuaVmImpl(acs::FAllocator& allocator) noexcept : m_Natives(allocator) {}
+    explicit FLuaVmImpl(acs::IAllocator& allocator) noexcept : m_Natives(allocator) {}
 
 private:
     /** 所有元のCLuaVmだけに内部状態の操作を許可する。 */

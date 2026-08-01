@@ -173,7 +173,7 @@ CLuaVm::CLuaVm() noexcept : CLuaVm(DefaultAllocator()) {}
 /**
  * @param allocator 登録情報の保存領域を確保する。
  */
-CLuaVm::CLuaVm(acs::FAllocator& allocator) noexcept {
+CLuaVm::CLuaVm(acs::IAllocator& allocator) noexcept {
     m_Impl = new FLuaVmImpl(allocator);
     m_Impl->m_Owner = this;
 }

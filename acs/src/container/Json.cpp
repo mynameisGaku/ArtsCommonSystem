@@ -59,7 +59,7 @@ static const FJsonValue& NullValue() noexcept {
         }
 
         // value を先に破棄してから allocator を破棄する宣言順にする。
-        FSystemAllocator allocator;
+        CSystemAllocator allocator;
         FJsonValue value;
     };
     static const FNullState s_null;
@@ -72,7 +72,7 @@ static const FJsonValue& NullValue() noexcept {
 FJsonValue::FJsonValue() noexcept = default;
 
 /** 指定 allocator を文字列と子配列へ固定して空の Null 値を構築する。 */
-FJsonValue::FJsonValue(FAllocator& allocator) noexcept : m_String(allocator), m_Elems(allocator), m_Keys(allocator)
+FJsonValue::FJsonValue(IAllocator& allocator) noexcept : m_String(allocator), m_Elems(allocator), m_Keys(allocator)
 {
 }
 
@@ -361,7 +361,7 @@ struct FParser {
     const char* end;
 
     /** DOM と一時文字列の確保に使う allocator。 */
-    FAllocator* allocator;
+    IAllocator* allocator;
 
     /** 現在行 (1 始まり、エラーメッセージ用)。 */
     u32 line = 1;
@@ -379,7 +379,7 @@ struct FParser {
      * @param len text のバイト長。
      * @param InAllocator DOM と一時文字列に使う allocator。
      */
-    explicit FParser(const char* text, usize len, FAllocator& InAllocator) noexcept : p(text), end(text + len), allocator(&InAllocator) {}
+    explicit FParser(const char* text, usize len, IAllocator& InAllocator) noexcept : p(text), end(text + len), allocator(&InAllocator) {}
 
     /**
      * 入力終端に達したかを返す。
@@ -757,7 +757,7 @@ TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept {
  * @param allocator DOM と一時文字列に使う allocator。
  * @return 成功なら root 値、失敗なら line/col 付きエラー。
  */
-TResult<FJsonValue> ParseJson(const char* text, usize len, FAllocator& allocator) noexcept {
+TResult<FJsonValue> ParseJson(const char* text, usize len, IAllocator& allocator) noexcept {
     if (text == nullptr || len == 0) {
         return ACS_ERR(Generic, kSubJsonEof, "JSON: empty input");
     }

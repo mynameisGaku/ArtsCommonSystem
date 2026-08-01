@@ -23,7 +23,7 @@ public:
     CAcpakGameReader() noexcept;
 
     /** 指定 allocator を内部 Reader の配列に使う空状態で構築する。 */
-    explicit CAcpakGameReader(acs::FAllocator& Allocator) noexcept;
+    explicit CAcpakGameReader(acs::IAllocator& Allocator) noexcept;
 
     /** 破棄する (CAcpakReader が開いていれば自動 Close)。 */
     ~CAcpakGameReader() noexcept override;
@@ -143,7 +143,7 @@ public:
     CAcpakGameWriter() noexcept = default;
 
     /** 指定 allocator を内部 Writer の pending list に使う空状態で構築する。 */
-    explicit CAcpakGameWriter(acs::FAllocator& allocator) noexcept : m_Writer(allocator)
+    explicit CAcpakGameWriter(acs::IAllocator& allocator) noexcept : m_Writer(allocator)
     {
     }
 

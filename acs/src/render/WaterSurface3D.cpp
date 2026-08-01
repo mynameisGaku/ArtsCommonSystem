@@ -926,7 +926,7 @@ TResult<TUniquePtr<IRhiTexture>> CreateWaterNormalMap(IRhiDevice& device) noexce
     constexpr u32 kSize = 256;
     constexpr usize kBytes =
         static_cast<usize>(kSize) * static_cast<usize>(kSize) * 4u;
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     u8* pixels = static_cast<u8*>(allocator.Alloc(kBytes));
     if (!pixels) {
         return Err<TUniquePtr<IRhiTexture>>(
@@ -1049,7 +1049,7 @@ void CWaterSurface3D::SetParams(
 }
 
 bool CWaterSurface3D::IsLocalXzSurfaceMesh(
-    const FMeshAsset& mesh) noexcept {
+    const AMeshAsset& mesh) noexcept {
     const TArray<FMeshVertex>& vertices = mesh.Vertices();
     const TArray<u32>& indices = mesh.Indices();
     if (vertices.Size() < 3u || indices.Size() < 3u ||

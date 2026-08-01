@@ -31,7 +31,7 @@ public:
      *
      * @param a ヒープ確保に使うアロケータ。
      */
-    explicit FString(FAllocator& a) noexcept;
+    explicit FString(IAllocator& a) noexcept;
 
     /**
      * C 文字列から構築する。
@@ -39,7 +39,7 @@ public:
      * @param cstr NUL 終端文字列 (nullptr なら空文字列)。
      * @param a ヒープ確保に使うアロケータ (既定は DefaultAllocator)。
      */
-    FString(const char* cstr, FAllocator& a = DefaultAllocator()) noexcept;
+    FString(const char* cstr, IAllocator& a = DefaultAllocator()) noexcept;
 
     /**
      * FStringView から構築する。
@@ -47,7 +47,7 @@ public:
      * @param v コピー元のビュー。
      * @param a ヒープ確保に使うアロケータ (既定は DefaultAllocator)。
      */
-    FString(FStringView v,    FAllocator& a = DefaultAllocator()) noexcept;
+    FString(FStringView v,    IAllocator& a = DefaultAllocator()) noexcept;
 
     /**
      * コピー構築する (内容を複製する)。
@@ -283,7 +283,7 @@ public:
      *
      * @return ヒープ確保に使っている FAllocator へのポインタ。
      */
-    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
+    IAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
     /** ヒープフラグ bit (m_Sso.remaining の MSB = LE x64 で m_Heap.capacity の bit 63)。 */
@@ -351,7 +351,7 @@ private:
     };
 
     /** ヒープ確保に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 };
 
 /**

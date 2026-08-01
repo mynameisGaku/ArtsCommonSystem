@@ -34,7 +34,7 @@ public:
      *
      * @param Allocator 内部配列の確保に使う allocator。
      */
-    explicit CAcpakReader(FAllocator& Allocator) noexcept;
+    explicit CAcpakReader(IAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~CAcpakReader() noexcept;

@@ -226,8 +226,8 @@ SCALAR_TYPE_NAMES = frozenset(
 DETAIL_NAMESPACE_NAMES = frozenset({"detail", "internal", "private"})
 PUBLIC_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inl"})
 TYPE_ROLE_MIGRATION_SCHEMA_VERSION = 1
-DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 5
-DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "8DFBAD8ADB86795478ABC0D2826217C9D388CF215D534136CD8158A6FEE46828"
+DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 146
+DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "598D674FD874FF7B1E04A507CBB4C8C8F9C0A12098DFF09704F11763CDF89441"
 DEFAULT_TYPE_ROLE_MIGRATIONS = (
     Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migrations.json"
 )
@@ -236,7 +236,7 @@ DEFAULT_TYPE_ROLE_MIGRATIONS = (
 def _load_registered_type_role_migrations(
     path: Path = DEFAULT_TYPE_ROLE_MIGRATIONS,
     verify_default_baseline: bool = True,
-) -> tuple[tuple[str, str, str, str, str], ...]:
+) -> tuple[tuple[Optional[str], str, str, str, str], ...]:
     """正規型と一時的な旧名の固定契約を読み込む。"""
 
     # 監査器と同じ場所に置いた追跡済みregistryだけを読む。
@@ -288,7 +288,7 @@ def _load_registered_type_role_migrations(
         raise ValueError("type role migration registry does not match the fixed baseline")
 
     # legacy、canonical、path、宣言種別、prefixの順で保持する。
-    entries: list[tuple[str, str, str, str, str]] = []
+    entries: list[tuple[Optional[str], str, str, str, str]] = []
     expected_fields = {"path", "legacy", "canonical", "kind", "prefix"}
     qualified_name = re.compile(r"^[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*$")
     for index, raw_entry in enumerate(raw_entries):
@@ -313,7 +313,9 @@ def _load_registered_type_role_migrations(
             or normalized_path.suffix not in PUBLIC_HEADER_SUFFIXES
         ):
             raise ValueError(f"type role migration entries[{index}] has an invalid path")
-        if not isinstance(legacy, str) or qualified_name.fullmatch(legacy) is None:
+        if legacy is not None and (
+            not isinstance(legacy, str) or qualified_name.fullmatch(legacy) is None
+        ):
             raise ValueError(f"type role migration entries[{index}] has an invalid legacy name")
         if not isinstance(canonical, str) or qualified_name.fullmatch(canonical) is None:
             raise ValueError(f"type role migration entries[{index}] has an invalid canonical name")
@@ -321,11 +323,14 @@ def _load_registered_type_role_migrations(
             raise ValueError(f"type role migration entries[{index}] has an invalid role")
         if canonical.rsplit("::", 1)[-1][0] != prefix:
             raise ValueError(f"type role migration entries[{index}] prefix does not match canonical name")
+        if legacy == canonical:
+            raise ValueError(f"type role migration entries[{index}] cannot alias a type to itself")
         entries.append((legacy, canonical, path, kind, prefix))
 
-    if entries != sorted(entries, key=lambda entry: (entry[2], entry[0])):
+    if entries != sorted(entries, key=lambda entry: (entry[2], entry[0] or "")):
         raise ValueError("type role migration entries must use ordinal path and legacy-name order")
-    if len({entry[0] for entry in entries}) != len(entries):
+    legacy_names = [entry[0] for entry in entries if entry[0] is not None]
+    if len(set(legacy_names)) != len(legacy_names):
         raise ValueError("type role migration legacy names must be unique")
     if len({entry[1] for entry in entries}) != len(entries):
         raise ValueError("type role migration canonical names must be unique")
@@ -335,6 +340,7 @@ def _load_registered_type_role_migrations(
 REGISTERED_TYPE_ROLE_MIGRATIONS = _load_registered_type_role_migrations()
 LEGACY_COMPATIBILITY_ALIASES = {
     legacy: canonical for legacy, canonical, _, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+    if legacy is not None
 }
 LEGACY_COMPATIBILITY_ALIASES.update({
     "acs::ComponentSignatureId": "acs::FComponentSignatureId",
@@ -343,6 +349,7 @@ LEGACY_COMPATIBILITY_ALIASES.update({
 })
 LEGACY_COMPATIBILITY_PATHS = {
     legacy: path for legacy, _, path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+    if legacy is not None
 }
 LEGACY_COMPATIBILITY_PATHS.update({
     "acs::ComponentSignatureId": "ecs/ComponentId.h",
@@ -352,6 +359,11 @@ LEGACY_COMPATIBILITY_PATHS.update({
 CANONICAL_OBJECT_AND_CLASS_TYPES = {
     canonical: (path, kind, prefix)
     for _, canonical, path, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
+}
+MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES = {
+    canonical: (path, kind, prefix)
+    for legacy, canonical, path, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
+    if legacy is not None
 }
 FOUNDATION_PRIMITIVE_ALIASES = {
     "byte": ("unsigned", "char"),
@@ -386,8 +398,8 @@ PREMIGRATION_SCALAR_ALIASES = {
 DEBT_SCHEMA_VERSION = 1
 SCHEMA_VERSION = 3
 DEBT_WAVE = "acf-role-review-wave-1"
-DEFAULT_DEBT_ENTRY_COUNT = 326
-DEFAULT_DEBT_SEMANTIC_SHA256 = "7F3260326DFC5C77494DC5DF3B43F8D479B9F73B42AB4496EEDCC259EA404841"
+DEFAULT_DEBT_ENTRY_COUNT = 185
+DEFAULT_DEBT_SEMANTIC_SHA256 = "2477034CD52BF703BE0956FD6EBDEEE9DE0576F48CBF7586D2C37340E960C02E"
 DEFAULT_MIGRATION_DEBT = Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migration_debt.json"
 
 
@@ -2069,7 +2081,17 @@ def _audit_definitions(
     counts: dict[str, int] = {}
     for definition in definitions:
         features = _features(definition)
-        expected, evidence, role_reason = _expected_prefix(definition, features, managed_names)
+        hard_contract = CANONICAL_OBJECT_AND_CLASS_TYPES.get(definition.qualified_name)
+        if hard_contract is None:
+            expected, evidence, role_reason = _expected_prefix(
+                definition,
+                features,
+                managed_names,
+            )
+        else:
+            expected = hard_contract[2]
+            evidence = ("レビュー済みのhard canonical型役割",)
+            role_reason = "hard-canonical"
         counts[expected] = counts.get(expected, 0) + 1
         observed = definition.name[0] if ROLE_NAME.match(definition.name) else ""
         if observed != expected:
@@ -2347,6 +2369,8 @@ def _collect_migration_debt(
     asset_family = _asset_family_names(definitions, aliases)
     entries: list[FTypeRoleDebt] = []
     for definition in definitions:
+        if definition.qualified_name in CANONICAL_OBJECT_AND_CLASS_TYPES:
+            continue
         entry = _migration_debt_assessment(definition, managed_names, asset_family)
         if entry is not None:
             entries.append(entry)
@@ -2762,6 +2786,45 @@ EventTypeId LegacyEventType = 0;
             != REGISTERED_TYPE_ROLE_MIGRATIONS
         ):
             print("type role migration registry copy self-test failed", file=sys.stderr)
+            return False
+
+        reviewed_registry_document = json.loads(json.dumps(default_registry_document))
+        reviewed_registry_document["entries"].append(
+            {
+                "path": "z/ReviewedValue.h",
+                "legacy": None,
+                "canonical": "acs::FReviewedValue",
+                "kind": "struct",
+                "prefix": "F",
+            }
+        )
+        reviewed_entries = _load_registered_type_role_migrations(
+            write_registry_fixture("reviewed-value.json", reviewed_registry_document),
+            False,
+        )
+        if reviewed_entries[-1] != (
+            None,
+            "acs::FReviewedValue",
+            "z/ReviewedValue.h",
+            "struct",
+            "F",
+        ):
+            print("type role reviewed keep decision self-test failed", file=sys.stderr)
+            return False
+
+        self_alias_registry_document = json.loads(json.dumps(default_registry_document))
+        self_alias_registry_document["entries"][0]["legacy"] = (
+            self_alias_registry_document["entries"][0]["canonical"]
+        )
+        try:
+            _load_registered_type_role_migrations(
+                write_registry_fixture("self-alias.json", self_alias_registry_document),
+                False,
+            )
+        except ValueError:
+            pass
+        else:
+            print("type role migration self-alias self-test failed", file=sys.stderr)
             return False
 
         invalid_registry_paths = (
@@ -3677,14 +3740,17 @@ EventTypeId LegacyEventType = 0;
             "event/EventTypeId.h": "namespace acs { using FEventTypeId=u32; using EventTypeId=FEventTypeId; }",
         }
         for legacy, canonical, expected_path, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
-            # 1つのheaderに複数の移行型があっても独立した宣言として組み立てる。
+            # 1つのheaderに複数の確定型があっても独立した宣言として組み立てる。
             namespace = canonical.rsplit("::", 1)[0]
             canonical_name = canonical.rsplit("::", 1)[-1]
-            legacy_name = legacy.rsplit("::", 1)[-1]
-            declaration = (
-                f"namespace {namespace} {{ {kind} {canonical_name} {{}}; "
-                f"using {legacy_name}={canonical_name}; }}"
-            )
+            if legacy is None:
+                declaration = f"namespace {namespace} {{ {kind} {canonical_name} {{}}; }}"
+            else:
+                legacy_name = legacy.rsplit("::", 1)[-1]
+                declaration = (
+                    f"namespace {namespace} {{ {kind} {canonical_name} {{}}; "
+                    f"using {legacy_name}={canonical_name}; }}"
+                )
             presence_sources[expected_path] = (
                 f"{presence_sources[expected_path]}\n{declaration}"
                 if expected_path in presence_sources
@@ -3705,6 +3771,53 @@ EventTypeId LegacyEventType = 0;
         if scan_tree(presence_root).violations:
             print("type role compatibility presence self-test failed", file=sys.stderr)
             return False
+
+        def scan_presence_mutation(sources: dict[str, str]) -> FScanResult:
+            """一つの共有treeへ変異を適用し、走査後に必ず基準内容へ戻す。"""
+
+            changed_paths = tuple(
+                sorted(
+                    {
+                        *(
+                            path
+                            for path, source in sources.items()
+                            if presence_sources.get(path) != source
+                        ),
+                        *(
+                            path
+                            for path in presence_sources
+                            if path not in sources
+                        ),
+                    }
+                )
+            )
+            try:
+                for relative_path in changed_paths:
+                    fixture_path = presence_root / relative_path
+                    if relative_path in sources:
+                        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+                        fixture_path.write_text(sources[relative_path], encoding="utf-8")
+                    elif fixture_path.exists():
+                        fixture_path.unlink()
+                return scan_tree(presence_root)
+            finally:
+                for relative_path in changed_paths:
+                    fixture_path = presence_root / relative_path
+                    if relative_path in presence_sources:
+                        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+                        fixture_path.write_text(
+                            presence_sources[relative_path],
+                            encoding="utf-8",
+                        )
+                    elif fixture_path.exists():
+                        fixture_path.unlink()
+                    parent = fixture_path.parent
+                    while parent != presence_root and parent.exists():
+                        try:
+                            parent.rmdir()
+                        except OSError:
+                            break
+                        parent = parent.parent
         conditional_alias_sources = dict(presence_sources)
         conditional_alias_sources["audio/AudioEngine.h"] = presence_sources["audio/AudioEngine.h"].replace(
             "using FAudioEngine=CAudioEngine;",
@@ -3714,8 +3827,8 @@ EventTypeId LegacyEventType = 0;
             "using FAudioEngine=CAudioEngine;\n"
             "#endif\n"
         )
-        conditional_alias_violations = scan_tree(
-            write_presence_tree("conditional-compatibility-alias", conditional_alias_sources)
+        conditional_alias_violations = scan_presence_mutation(
+            conditional_alias_sources
         ).violations
         if [(item.rule, item.type_name) for item in conditional_alias_violations] != [
             ("ACS-R020d", "FAudioEngine")
@@ -3742,12 +3855,12 @@ EventTypeId LegacyEventType = 0;
                 print(f"type role absolute compatibility fixture replacement failed: {qualified_name}", file=sys.stderr)
                 return False
             absolute_sources[expected_path] = absolute_source
-            if scan_tree(write_presence_tree(f"absolute-target-{case_index}", absolute_sources)).violations:
+            if scan_presence_mutation(absolute_sources).violations:
                 print(f"type role absolute compatibility target self-test failed: {qualified_name}", file=sys.stderr)
                 return False
         missing_audio_sources = dict(presence_sources)
         missing_audio_sources.pop("audio/AudioEngine.h")
-        missing_audio_violations = scan_tree(write_presence_tree("missing-audio-directory", missing_audio_sources)).violations
+        missing_audio_violations = scan_presence_mutation(missing_audio_sources).violations
         if [(item.rule, item.type_name) for item in missing_audio_violations] != [
             ("ACS-R020d", "CAudioEngine"),
             ("ACS-R020d", "FAudioEngine"),
@@ -3756,14 +3869,12 @@ EventTypeId LegacyEventType = 0;
             return False
         nested_source_sources = dict(presence_sources)
         nested_source_sources["foo/src/foundation/Types.h"] = "namespace acs { using u32 = ::uint32_t; }"
-        nested_source_violations = scan_tree(write_presence_tree("nested-source", nested_source_sources)).violations
+        nested_source_violations = scan_presence_mutation(nested_source_sources).violations
         if [(item.rule, item.type_name) for item in nested_source_violations] != [("ACS-R020d", "u32")]:
             print(f"type role nested source path self-test failed: {nested_source_violations}", file=sys.stderr)
             return False
         preprocessor_sources = {relative_path: f"#if 0\n{source}\n#endif\n" for relative_path, source in presence_sources.items()}
-        preprocessor_violations = scan_tree(
-            write_presence_tree("preprocessor-disabled", preprocessor_sources)
-        ).violations
+        preprocessor_violations = scan_presence_mutation(preprocessor_sources).violations
         expected_disabled_names = {
             *(name.rsplit("::", 1)[-1] for name in LEGACY_COMPATIBILITY_ALIASES),
             *(name.rsplit("::", 1)[-1] for name in CANONICAL_OBJECT_AND_CLASS_TYPES),
@@ -3783,7 +3894,7 @@ EventTypeId LegacyEventType = 0;
         premigration_sources = dict(presence_sources)
         premigration_sources["ecs/ComponentId.h"] = "namespace acs { using ComponentTypeId=u32; using ComponentSignatureId=u64; }"
         premigration_sources["event/EventTypeId.h"] = "namespace acs { using EventTypeId=u32; }"
-        premigration_violations = scan_tree(write_presence_tree("premigration", premigration_sources)).violations
+        premigration_violations = scan_presence_mutation(premigration_sources).violations
         if [(item.rule, item.type_name) for item in premigration_violations] != [
             ("ACS-R020d", "ComponentTypeId"),
             ("ACS-R020d", "ComponentSignatureId"),
@@ -3793,30 +3904,32 @@ EventTypeId LegacyEventType = 0;
             return False
         coordinated_sources = dict(presence_sources)
         coordinated_sources["event/EventTypeId.h"] = "namespace acs {}"
-        coordinated_violations = scan_tree(write_presence_tree("coordinated-delete", coordinated_sources)).violations
+        coordinated_violations = scan_presence_mutation(coordinated_sources).violations
         if [(item.rule, item.type_name) for item in coordinated_violations] != [("ACS-R020d", "EventTypeId"), ("ACS-R020d", "FEventTypeId")]:
             print(f"type role coordinated delete self-test failed: {coordinated_violations}", file=sys.stderr)
             return False
         canonical_attribute_sources = dict(presence_sources)
         canonical_attribute_sources["event/EventTypeId.h"] = canonical_attribute_sources["event/EventTypeId.h"].replace("using FEventTypeId=u32;", "using FEventTypeId [[deprecated]]=u32;")
-        canonical_attribute_violations = scan_tree(write_presence_tree("canonical-attribute", canonical_attribute_sources)).violations
+        canonical_attribute_violations = scan_presence_mutation(
+            canonical_attribute_sources
+        ).violations
         if [(item.rule, item.type_name) for item in canonical_attribute_violations] != [("ACS-R020d", "FEventTypeId")]:
             print(f"type role canonical attribute self-test failed: {canonical_attribute_violations}", file=sys.stderr)
             return False
         legacy_attribute_sources = dict(presence_sources)
         legacy_attribute_sources["event/EventTypeId.h"] = legacy_attribute_sources["event/EventTypeId.h"].replace("using EventTypeId=FEventTypeId;", "using EventTypeId [[deprecated]]=FEventTypeId;")
-        legacy_attribute_violations = scan_tree(write_presence_tree("legacy-attribute", legacy_attribute_sources)).violations
+        legacy_attribute_violations = scan_presence_mutation(legacy_attribute_sources).violations
         if [(item.rule, item.type_name) for item in legacy_attribute_violations] != [("ACS-R020d", "EventTypeId")]:
             print(f"type role legacy attribute self-test failed: {legacy_attribute_violations}", file=sys.stderr)
             return False
         inner_linkage_sources = dict(presence_sources)
         inner_linkage_sources["event/EventTypeId.h"] = "namespace acs { extern \"C\" { using FEventTypeId=u32; using EventTypeId=FEventTypeId; } }"
-        if scan_tree(write_presence_tree("inner-linkage", inner_linkage_sources)).violations:
+        if scan_presence_mutation(inner_linkage_sources).violations:
             print("type role inner linkage self-test failed", file=sys.stderr)
             return False
         outer_linkage_sources = dict(presence_sources)
         outer_linkage_sources["event/EventTypeId.h"] = "extern \"C\" { namespace acs { using FEventTypeId=u32; using EventTypeId=FEventTypeId; } }"
-        if scan_tree(write_presence_tree("outer-linkage", outer_linkage_sources)).violations:
+        if scan_presence_mutation(outer_linkage_sources).violations:
             print("type role outer linkage self-test failed", file=sys.stderr)
             return False
 
@@ -3827,6 +3940,8 @@ EventTypeId LegacyEventType = 0;
         }
         registered_canonical_names = [entry[1] for entry in REGISTERED_TYPE_ROLE_MIGRATIONS]
         for legacy, canonical, expected_path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
+            if legacy is None:
+                continue
             # target swapは別の登録済み正規型へ向け、単なる未宣言名にしない。
             wrong_target = next(name for name in registered_canonical_names if name != canonical)
             legacy_name = legacy.rsplit("::", 1)[-1]
@@ -3858,8 +3973,7 @@ EventTypeId LegacyEventType = 0;
                 ("target", target_sources),
                 ("relative-target", relative_target_sources),
             ):
-                mutation_root = write_presence_tree(f"legacy-{case_index}-{mutation_name}", mutation_sources)
-                mutation_violations = scan_tree(mutation_root).violations
+                mutation_violations = scan_presence_mutation(mutation_sources).violations
                 if [(item.rule, item.type_name) for item in mutation_violations] != [("ACS-R020d", alias_name)]:
                     print(f"type role legacy contract mutation failed: {qualified_name}/{mutation_name}: {mutation_violations}", file=sys.stderr)
                     return False
@@ -3888,9 +4002,7 @@ EventTypeId LegacyEventType = 0;
                 ("move", moved_sources),
                 ("keyword", keyword_sources),
             ):
-                mutation_violations = scan_tree(
-                    write_presence_tree(f"canonical-type-{case_index}-{mutation_name}", mutation_sources)
-                ).violations
+                mutation_violations = scan_presence_mutation(mutation_sources).violations
                 hard_contract = [
                     item
                     for item in mutation_violations
@@ -3906,14 +4018,21 @@ EventTypeId LegacyEventType = 0;
                     return False
 
             legacy_name = next(
-                name for name, target in LEGACY_COMPATIBILITY_ALIASES.items() if target == qualified_name
+                (
+                    name
+                    for name, target in LEGACY_COMPATIBILITY_ALIASES.items()
+                    if target == qualified_name
+                ),
+                None,
             )
+            if legacy_name is None:
+                continue
             legacy_definition_sources = dict(presence_sources)
             legacy_definition_sources[expected_path] += (
                 f"\nnamespace {namespace} {{ class {legacy_name.rsplit('::', 1)[-1]} {{}}; }}"
             )
-            legacy_definition_violations = scan_tree(
-                write_presence_tree(f"legacy-definition-{case_index}", legacy_definition_sources)
+            legacy_definition_violations = scan_presence_mutation(
+                legacy_definition_sources
             ).violations
             if len(
                 [
@@ -3951,8 +4070,7 @@ EventTypeId LegacyEventType = 0;
                 ("move", moved_sources),
                 ("target", target_sources),
             ):
-                mutation_root = write_presence_tree(f"canonical-{case_index}-{mutation_name}", mutation_sources)
-                mutation_violations = scan_tree(mutation_root).violations
+                mutation_violations = scan_presence_mutation(mutation_sources).violations
                 if [(item.rule, item.type_name) for item in mutation_violations] != [("ACS-R020d", alias_name)]:
                     print(f"type role canonical contract mutation failed: {qualified_name}/{mutation_name}: {mutation_violations}", file=sys.stderr)
                     return False
@@ -3962,7 +4080,7 @@ EventTypeId LegacyEventType = 0;
             "using EventTypeId=FEventTypeId;",
             "template<class T> using EventTypeId=FEventTypeId;",
         )
-        bypass_violations = scan_tree(write_presence_tree("required-template-bypass", required_bypass_sources)).violations
+        bypass_violations = scan_presence_mutation(required_bypass_sources).violations
         if [(item.rule, item.type_name) for item in bypass_violations] != [("ACS-R020d", "EventTypeId")]:
             print(f"type role required template bypass self-test failed: {bypass_violations}", file=sys.stderr)
             return False
@@ -3971,7 +4089,7 @@ EventTypeId LegacyEventType = 0;
             "using FMessageBroker=CMessageBroker;",
             "using FMessageBroker=void(*)();",
         )
-        bypass_violations = scan_tree(write_presence_tree("required-callback-bypass", required_bypass_sources)).violations
+        bypass_violations = scan_presence_mutation(required_bypass_sources).violations
         if [(item.rule, item.type_name) for item in bypass_violations] != [("ACS-R020d", "FMessageBroker")]:
             print(f"type role required callback bypass self-test failed: {bypass_violations}", file=sys.stderr)
             return False
@@ -3981,7 +4099,7 @@ EventTypeId LegacyEventType = 0;
             namespace = qualified_name.rsplit("::", 1)[0]
             reentry_sources = dict(presence_sources)
             reentry_sources[f"event/LegacyUse{case_index}.cpp"] = f"namespace {namespace} {{ {alias_name}* LegacyValue = nullptr; }}"
-            reentry_violations = scan_tree(write_presence_tree(f"legacy-reentry-{case_index}", reentry_sources)).violations
+            reentry_violations = scan_presence_mutation(reentry_sources).violations
             if [(item.rule, item.type_name) for item in reentry_violations] != [("ACS-R020e", alias_name)]:
                 print(f"type role legacy reentry self-test failed: {qualified_name}: {reentry_violations}", file=sys.stderr)
                 return False
@@ -3991,7 +4109,7 @@ EventTypeId LegacyEventType = 0;
             namespace = qualified_name.rsplit("::", 1)[0]
             forward_sources = dict(presence_sources)
             forward_sources[f"event/LegacyForward{case_index}.cpp"] = f"namespace {namespace} {{ class {alias_name}; }}"
-            forward_violations = scan_tree(write_presence_tree(f"legacy-forward-{case_index}", forward_sources)).violations
+            forward_violations = scan_presence_mutation(forward_sources).violations
             if [(item.rule, item.type_name) for item in forward_violations] != [("ACS-R020e", alias_name)]:
                 print(f"type role legacy forward self-test failed: {qualified_name}: {forward_violations}", file=sys.stderr)
                 return False

@@ -56,7 +56,7 @@ void CMessageBroker::InvalidateAllChannels() noexcept {
 /** 全通路と保持領域を解放し、保留中の全解除を完了する。 */
 void CMessageBroker::ReleaseChannels() noexcept {
     /** 通路の確保と解放に使う既存配列のメモリ管理器。 */
-    FAllocator& allocator = *m_Channels.GetAllocator();
+    IAllocator& allocator = *m_Channels.GetAllocator();
     for (/** 解放する通路の位置。 */ usize i = 0; i < m_Channels.Size(); ++i) {
         if (m_Channels[i]) Delete(allocator, m_Channels[i]);
     }

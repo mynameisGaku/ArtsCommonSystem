@@ -19,7 +19,7 @@ class IRhiCommandList;
 class IRhiDevice;
 class IRhiPipeline;
 class IRhiTexture;
-class FMeshAsset;
+class AMeshAsset;
 
 /**
  * Authoring parameters for CWaterSurface3D.
@@ -352,7 +352,7 @@ public:
      * fallback when it returns false.
      */
     static bool IsLocalXzSurfaceMesh(
-        const FMeshAsset& mesh) noexcept;
+        const AMeshAsset& mesh) noexcept;
 
     /**
      * Selects an optional directional-light shadow map.

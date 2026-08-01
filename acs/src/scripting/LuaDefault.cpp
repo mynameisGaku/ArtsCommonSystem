@@ -15,7 +15,7 @@ acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
 
         // VM を先に破棄してから allocator を破棄する宣言順にする。
         /** VMの保存領域を確保する。 */
-        acs::FSystemAllocator allocator;
+        acs::CSystemAllocator allocator;
         /** 既定として共有するLua VM。 */
         CLuaVm vm;
     };

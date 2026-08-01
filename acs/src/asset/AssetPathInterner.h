@@ -36,7 +36,7 @@ public:
     CAssetPathInterner() noexcept;
 
     /** 指定アロケータで空のプールを構築する。 */
-    explicit CAssetPathInterner(FAllocator& Allocator) noexcept;
+    explicit CAssetPathInterner(IAllocator& Allocator) noexcept;
 
     /** コピーを禁止する。 */
     CAssetPathInterner(const CAssetPathInterner&) = delete;
@@ -64,7 +64,7 @@ private:
     void EvictUnusedUntilFit(usize RequiredCodeUnits) noexcept;
 
     /** 共有オブジェクトの確保元。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** パス ID ごとの共有文字列。 */
     THashMap<FAssetId, TSharedPtr<FInternedAssetPath>> m_Paths;

@@ -37,7 +37,7 @@ enum class EAllocationRegistryLookup : u8 {
 struct FAllocationRegistryRecord {
     void* pointer = nullptr;
     void* raw = nullptr;
-    FAllocator* allocator = nullptr;
+    IAllocator* allocator = nullptr;
     u64 allocator_lifetime_generation = 0;
     u64 adapter_binding_generation = 0;
     u64 requested_bytes = 0;
@@ -260,7 +260,7 @@ public:
      *
      * @param backing 実際の確保・解放を委譲する ACS アロケータ。
      */
-    bool Bind(FAllocator* backing) noexcept
+    bool Bind(IAllocator* backing) noexcept
     {
         FScopedExclusiveLock lock(m_LifetimeLock);
         if (!backing) return false;
@@ -292,7 +292,7 @@ public:
 
         FScopedSharedLock lock(m_LifetimeLock);
 
-        FAllocator* const allocator = m_Backing;
+        IAllocator* const allocator = m_Backing;
         if (!allocator) return nullptr;
         const u64 allocator_lifetime_generation = allocator->LifetimeGeneration();
         if (allocator_lifetime_generation == 0 || allocator_lifetime_generation != m_BackingLifetimeGeneration) {
@@ -431,7 +431,7 @@ private:
     FAllocationRegistry m_AllocationRegistry;
 
     /** 確保・解放を委譲する ACS アロケータ。 */
-    FAllocator* m_Backing = nullptr;
+    IAllocator* m_Backing = nullptr;
 
     /** Create 成功時に固定した backing allocator の寿命世代。 */
     u64 m_BackingLifetimeGeneration = 0;
@@ -456,7 +456,7 @@ FAcsMemoryAllocator& AdapterInstance() noexcept
 } // namespace
 
 /** backing を委譲先にする静的寿命のアダプタを返す。 */
-void* CDiligentMemoryAdapter::Create(FAllocator* backing) noexcept
+void* CDiligentMemoryAdapter::Create(IAllocator* backing) noexcept
 {
     if (!backing) return nullptr;
     // アダプタ本体は backing の外に置く。同一アドレスが再利用されても、旧寿命の領域が残る間は

@@ -342,7 +342,7 @@ struct FSceneMeshCacheKey {
     const game::ANode* parent = nullptr;
     const game::AMeshComponent3D* component = nullptr;
     const void* render_handle = nullptr;
-    const FMeshAsset* mesh = nullptr;
+    const AMeshAsset* mesh = nullptr;
     u64 mesh_revision = 0u;
     i32 editor_id = 0;
     i32 primitive = 0;
@@ -385,8 +385,8 @@ struct FSceneMeshCacheKey {
 
 /** 1 つのビューポート + エディタ・シーン (実 ANode ツリー) を保持する描画ホスト。 */
 struct FEditorHost {
-    FRenderer    renderer;
-    FSpriteBatch sprites;
+    CRenderer    renderer;
+    CSpriteBatch sprites;
     // Monotonic process-local identity used to reject results that complete
     // after a managed HwndHost has been destroyed and rebuilt.
     u64          abi_host_generation = 0u;
@@ -420,18 +420,18 @@ struct FEditorHost {
     // PSO/resource operation remain on the HWND/render-owner thread.
     u32           startup_async_shader_kind = 0u; // 0=none, 1=PBR, 3=FSky, 4=clouds, 5=SSAO, 7=post
     editor_profiler::FTimePoint startup_async_shader_begin{};
-    FSky::FCompiledShaders startup_sky_shaders{};
-    FPbrShader::FCompiledShaders startup_pbr_shaders{};
+    CSky::FCompiledShaders startup_sky_shaders{};
+    CPbrShader::FCompiledShaders startup_pbr_shaders{};
     IRhiDevice* startup_pbr_candidate_device = nullptr;
     EFormat startup_pbr_candidate_rt_format =
         EFormat::B8G8R8A8_UNorm;
     EFormat startup_pbr_candidate_depth_format =
         EFormat::D32_Float;
     IRhiDevice* startup_ssss_candidate_device = nullptr;
-    FSsgi::FCompiledShaders startup_ssgi_shaders{};
-    FVolumetricClouds::FCompiledShaders startup_cloud_shaders{};
-    FSsao::FCompiledShaders startup_ssao_shaders{};
-    FPostProcess::FCompiledShaders startup_post_shaders{};
+    CSsgi::FCompiledShaders startup_ssgi_shaders{};
+    CVolumetricClouds::FCompiledShaders startup_cloud_shaders{};
+    CSsao::FCompiledShaders startup_ssao_shaders{};
+    CPostProcess::FCompiledShaders startup_post_shaders{};
     bool          startup_phase_pending = false;
     f32           startup_phase_elapsed_override_ms = -1.0f;
     u32          width         = 0;
@@ -455,7 +455,7 @@ struct FEditorHost {
     bool                          profiler_has_previous_frame = false;
 
     // AA: シーンをオフスクリーン RT に描き、MSAA resolve (既定 8x) または FXAA で backbuffer へ出す。
-    FFxaa                       fxaa;                  // FXAA パス (MSAA 無効/失敗時のフォールバック)
+    CFxaa                       fxaa;                  // FXAA パス (MSAA 無効/失敗時のフォールバック)
     bool                        fxaa_ready = false;
     TUniquePtr<IRhiTexture>     scene_rt;              // シーン用オフスクリーン RT (swapchain と同サイズ)
     u32                         scene_rt_w = 0, scene_rt_h = 0;
@@ -468,7 +468,7 @@ struct FEditorHost {
 
     // マテリアルプレビュー用の非 MSAA スプライトバッチ (preview_rt は sample_count=1 のため
     // MSAA PSO の本体バッチでは描けない)。EnsurePreviewRt で遅延初期化。
-    FSpriteBatch                preview_sprites;
+    CSpriteBatch                preview_sprites;
     bool                        preview_sprites_ready = false;
 
     // プロジェクト設定 (UE の Project Settings 相当)。acs_editor_settings_load で
@@ -519,7 +519,7 @@ struct FEditorHost {
     u32                         preview_rt_size = 0;
     u32                         preview_ldr_work_size = 0;
     u32                         preview_hdr_size = 0;
-    FPbrShader                  preview_pbr3d;         // main viewport state と分離した real PBR/Substrate preview
+    CPbrShader                  preview_pbr3d;         // main viewport state と分離した real PBR/Substrate preview
     bool                        preview_pbr3d_ready = false;
     TUniquePtr<IRhiShader>      preview_post_vs;
     TUniquePtr<IRhiShader>      preview_background_ps;
@@ -584,21 +584,21 @@ struct FEditorHost {
     TUniquePtr<IRhiShader>   sky_vs, sky_ps;
     TUniquePtr<IRhiPipeline> sky_pipe;
     TUniquePtr<IRhiBuffer>   sky_cb;                  // カメラ基底 (レイ再構成用)
-    acs::FSky                sky3d;                   // Phase2: エンジン標準スカイ (kSky3DHLSL を置換)
+    acs::CSky                sky3d;                   // Phase2: エンジン標準スカイ (kSky3DHLSL を置換)
     bool                     sky3d_ready = false;
-    acs::FPbrShader          pbr3d;                   // Phase2: エンジン標準 PBR (メッシュ移行先)
+    acs::CPbrShader          pbr3d;                   // Phase2: エンジン標準 PBR (メッシュ移行先)
     bool                     pbr3d_ready = false;
-    acs::FPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
+    acs::CPostProcess        post3d;                  // Phase2: HDR→ACES トーンマップ
     bool                     post3d_ready = false;
     u32                      post3d_w = 0, post3d_h = 0;
-    acs::FSubsurfaceScattering ssss3d;
+    acs::CSubsurfaceScattering ssss3d;
     bool                     ssss3d_ready = false;
     bool                     ssss3d_init_failed = false;
     // Pipeline creation and the full-resolution target pair are separate
     // render-pump commits. Raw DX12 builds the unpublished pipeline candidate
     // on startup_worker; state 2 allocates only the internal target pair.
     u32                      ssss3d_init_state = 0u; // 0=idle, 1=compiling, 2=pipeline ready, 3=failed
-    acs::FSubsurfaceScattering::FCompiledShaders
+    acs::CSubsurfaceScattering::FCompiledShaders
                              ssss3d_pending_shaders{};
     TUniquePtr<IRhiTexture>  ssss_diffuse_rt;
     TUniquePtr<IRhiTexture>  ssss_material_rt;
@@ -610,7 +610,7 @@ struct FEditorHost {
     u32                      ssss_frame_resource_state = 0u; // 0=idle, 1=diffuse ready, 2=failed
     u32                      ssss_frame_failed_w = 0, ssss_frame_failed_h = 0;
     // SSAO (GTAO + contact shadow)。法線 G-buffer プリパス → FSsao → FPbrShader.SetSsao で ambient に乗算。
-    acs::FSsao               ssao3d;                   // エンジン GTAO。法線 gbuffer + depth を要求
+    acs::CSsao               ssao3d;                   // エンジン GTAO。法線 gbuffer + depth を要求
     bool                     ssao_ready = false;       // FSsao Init 成否
     bool                     ssao_pipe_ready = false;  // 法線プリパスのパイプライン成否
     u32                      ssao_w = 0, ssao_h = 0;
@@ -621,14 +621,14 @@ struct FEditorHost {
     TUniquePtr<IRhiShader>   normal_vs, normal_ps;
     TUniquePtr<IRhiBuffer>   normal_cb;                // b0: view_proj (プリパス専用・上書き回避)
     // SSR (画面空間反射)。SSAO と同じ法線+深度 G-buffer + 前フレーム scene color から反射を焼く。
-    acs::FSsr                ssr3d;                    // エンジン SSR。出力は FPbrShader.SetSsr で roughness ブレンド
+    acs::CSsr                ssr3d;                    // エンジン SSR。出力は FPbrShader.SetSsr で roughness ブレンド
     bool                     ssr_ready = false;
     u32                      ssr_w = 0, ssr_h = 0;
     bool                     ssr_computed = false;     // 今フレーム SSR を焼いたか (次フレームの SetSsr 用)
-    acs::FHiZ                hiz3d;                    // 偶奇 texture ping-pong の full mip min-depth pyramid
+    acs::CHiZ                hiz3d;                    // 偶奇 texture ping-pong の full mip min-depth pyramid
     bool                     hiz3d_ready = false;
     u32                      hiz3d_w = 0, hiz3d_h = 0;
-    acs::FSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
+    acs::CSsgi               ssgi3d;                   // エンジン SSGI (1 バウンス間接光)。出力は FPbrShader.SetSsgi で ambient に加算
     bool                     ssgi_ready = false;
     u32                      ssgi_w = 0, ssgi_h = 0;
     bool                     ssgi_init_tried = false;
@@ -643,18 +643,18 @@ struct FEditorHost {
     TUniquePtr<IRhiBuffer>   vxgi_cb_vox, vxgi_cb_res;
     bool                     vxgi_ready = false, vxgi_tried = false;
     u32                      vxgi_rw = 0, vxgi_rh = 0;
-    acs::FMotionVector       mv3d;                     // motion + world normal G-buffer。motion を TAA/SSR/SSGI へ供給 (動く物の ghost 除去)
+    acs::CMotionVector       mv3d;                     // motion + world normal G-buffer。motion を TAA/SSR/SSGI へ供給 (動く物の ghost 除去)
     bool                     mv_ready = false;
     u32                      mv_w = 0, mv_h = 0;
     bool                     mv_computed = false;      // 今フレーム motion を焼いたか
     // 屈折 (ガラス/水): opaque シーンを複製 (blit) → FRefractionShader が IOR で曲げて sample。要 env cubemap (Diligent)。
-    acs::FRefractionShader   refr3d;
+    acs::CRefractionShader   refr3d;
     bool                     refr_ready = false;
-    acs::FWaterSurface3D     water3d;
+    acs::CWaterSurface3D     water3d;
     bool                     water3d_ready = false;
-    acs::FWaterSurface3D::FCompiledShaders water3d_pending_shaders{};
+    acs::CWaterSurface3D::FCompiledShaders water3d_pending_shaders{};
     u32                      water3d_init_state = 0u; // 0=idle,1=compile,2=ready,3=failed,4=bounded commit
-    int                      water3d_draw_ids[FWaterSurface3D::kMaxTrackedSurfaces] = {};
+    int                      water3d_draw_ids[CWaterSurface3D::kMaxTrackedSurfaces] = {};
     u32                      water3d_draw_count = 0u;
     TUniquePtr<IRhiTexture>  refr_bg;                  // opaque HDR シーンの複製 (同一 RT read+write 不可のため)
     u32                      refr_bg_w = 0, refr_bg_h = 0;
@@ -691,10 +691,10 @@ struct FEditorHost {
     bool                     temporal_camera_pose_valid = false;
     u32                      taa_frame = 0;                // TAA Halton ジッタ列のフレームインデックス
     // IBL (鏡面+拡散 環境光)。FSky を env cubemap 化 → irradiance/prefilter/BRDF-LUT → FPbrShader.SetIbl。
-    acs::FImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
-    acs::FSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU FAtmosphere を置換
+    acs::CImageBasedLighting  ibl3d;                    // Diligent backend 専用 (raw-DX12 は失敗 → SH9 フォールバック)
+    acs::CSkyAtmosphere      sky_atmo;                 // GPU Hillaire 大気 (compute LUT)。SkyMode==1 で CPU FAtmosphere を置換
     bool                     sky_atmo_tried = false;   // Init を一度試したか
-    acs::FVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。FSky 2D 雲を置換
+    acs::CVolumetricClouds   vclouds3d;                // GPU レイマーチ volumetric clouds (Phase4)。FSky 2D 雲を置換
     bool                     vclouds_ready = false;    // Init 済み
     bool                     vclouds_tried = false;    // Init を一度試したか
     f32                      vclouds_time  = 0.0f;     // 雲アニメ用時間
@@ -706,21 +706,21 @@ struct FEditorHost {
     TUniquePtr<IRhiShader>   grid_vs, grid_ps;
     TUniquePtr<IRhiBuffer>   grid_cb, grid_vb;        // b0: view_proj + 中心、大クアッド頂点
     bool                     show_grid3d = true;      // 3D ビューポートのグリッド表示 (清書/スクショ時に消せる)
-    acs::FShadowMap          shadow;                  // 有向光源シャドウマップ (深度テクスチャ + 光VP)
+    acs::CShadowMap          shadow;                  // 有向光源シャドウマップ (深度テクスチャ + 光VP)
     TUniquePtr<IRhiPipeline> shadow_caster_pipe;      // M3DVtx 用 depth-only キャスター
     TUniquePtr<IRhiShader>   shadow_caster_vs;
     TUniquePtr<IRhiBuffer>   shadow_lvp_cb;           // b0: 光の view-projection (single cascade)
-    TUniquePtr<IRhiBuffer>   shadow_cascade_cb[acs::FShadowMap::kMaxCascades];  // CSM: cascade 毎に別 CB (1フレーム内の上書き回避)
+    TUniquePtr<IRhiBuffer>   shadow_cascade_cb[acs::CShadowMap::kMaxCascades];  // CSM: cascade 毎に別 CB (1フレーム内の上書き回避)
     bool                     shadow_ready = false;
-    FDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
-    FDebugDraw3D    camera_frustum_dbg3d; // post後のdisplay-space camera線
+    CDebugDraw3D    dbg3d;                // グリッド/選択 AABB/ギズモの線
+    CDebugDraw3D    camera_frustum_dbg3d; // post後のdisplay-space camera線
     bool         r3d_ready     = false;   // 3D リソース初期化済み
     u32          r3d_init_phase = 0;      // incremental startup phase
     bool         r3d_init_failed = false;
     FGpuMesh      gm_cube, gm_sphere, gm_plane;
     FGpuMesh      gm_water_plane;                 // 64x64-cell displacement grid
-    TSharedPtr<FMeshAsset> cpu_cube, cpu_sphere, cpu_plane;
-    TSharedPtr<FMeshAsset> cpu_water_plane;
+    TSharedPtr<AMeshAsset> cpu_cube, cpu_sphere, cpu_plane;
+    TSharedPtr<AMeshAsset> cpu_water_plane;
     TArray<game::ANode*> scene_mesh_nodes;
     TArray<game::ANode*> camera_resolve_nodes;
     TArray<int> camera_node_ids_scratch;
@@ -995,13 +995,13 @@ void LoadNodeSprite(FEditorHost& h, AEditorNode* n) noexcept {
     if (dev == nullptr) return;                             // attach 前 → DrawScene で再試行
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, n->sprite_path, -1, wpath, 512) <= 0) return;
-    auto bytes = FFileSystem::ReadAllBytes(wpath);
+    auto bytes = CFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr()) return;
-    FImageAssetLoader loader;
+    CImageAssetLoader loader;
     auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
     if (decoded.IsErr()) return;
     auto asset = decoded.Value();                           // TSharedPtr を保持 (即解放を防ぐ)
-    const FImageAsset* img = static_cast<const FImageAsset*>(asset.Get());
+    const AImageAsset* img = static_cast<const AImageAsset*>(asset.Get());
     if (img == nullptr) return;
     auto tex = UploadTexture(*dev, *img);
     if (tex.IsErr()) return;
@@ -1030,13 +1030,13 @@ static void LoadTexFromPath(FEditorHost& h, const char* utf8_path, TUniquePtr<IR
     if (dev == nullptr) return;
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, utf8_path, -1, wpath, 512) <= 0) return;
-    auto bytes = FFileSystem::ReadAllBytes(wpath);
+    auto bytes = CFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr()) return;
-    FImageAssetLoader loader;
+    CImageAssetLoader loader;
     auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
     if (decoded.IsErr()) return;
     auto asset = decoded.Value();
-    const FImageAsset* img = static_cast<const FImageAsset*>(asset.Get());
+    const AImageAsset* img = static_cast<const AImageAsset*>(asset.Get());
     if (img == nullptr) return;
     auto tex = UploadTexture(*dev, *img);
     if (tex.IsErr()) return;
@@ -1052,13 +1052,13 @@ static TUniquePtr<IRhiTexture> LoadTexWithSize(FEditorHost& h, const char* utf8_
     if (dev == nullptr) return out;
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, utf8_path, -1, wpath, 512) <= 0) return out;
-    auto bytes = FFileSystem::ReadAllBytes(wpath);
+    auto bytes = CFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr()) return out;
-    FImageAssetLoader loader;
+    CImageAssetLoader loader;
     auto decoded = loader.LoadFromBytes(kInvalidAssetId, bytes.Value());
     if (decoded.IsErr()) return out;
     auto asset = decoded.Value();
-    const FImageAsset* img = static_cast<const FImageAsset*>(asset.Get());
+    const AImageAsset* img = static_cast<const AImageAsset*>(asset.Get());
     if (img == nullptr) return out;
     auto tex = UploadTexture(*dev, *img);
     if (tex.IsErr()) return out;
@@ -2497,7 +2497,7 @@ int PrimitiveShape(const AEditorNode* n) noexcept {
 }
 
 /** レンダラー未付与ノードの薄いギズモ (小さな菱形の枠 + 中心点)。選択はできるが「空」だと分かる。 */
-void DrawEmptyGizmo(FSpriteBatch& sb, f32 cx, f32 cy, f32 alpha) noexcept {
+void DrawEmptyGizmo(CSpriteBatch& sb, f32 cx, f32 cy, f32 alpha) noexcept {
     const f32 r = 9.0f;
     const FVec4 col{ 0.55f, 0.62f, 0.72f, 0.5f * alpha };
     const FVec2 p[4] = { {cx, cy - r}, {cx + r, cy}, {cx, cy + r}, {cx - r, cy} };
@@ -2585,7 +2585,7 @@ u32 ConvexHullDecimated(const FVec2* pts, u32 n, FVec2* out, u32 maxOut) noexcep
 
 /** ノードのカスタムポリゴンを world→screen 変換して三角ファンで塗る。
  *  滑らかな render_verts があればそれを、無ければコライダー poly_verts を使う。 */
-void DrawNodePolygon(FEditorHost& h, FSpriteBatch& sb, const AEditorNode* n,
+void DrawNodePolygon(FEditorHost& h, CSpriteBatch& sb, const AEditorNode* n,
                      const game::FTransform2D& w, FVec4 col) noexcept {
     const FVec2* verts; u32 vc;
     if (n->render_count >= 3)    { verts = n->render_verts; vc = n->render_count; }
@@ -2608,7 +2608,7 @@ void DrawNodePolygon(FEditorHost& h, FSpriteBatch& sb, const AEditorNode* n,
 }
 
 /** シーンを 2D で描画する (カメラ適用: screen = world*zoom + pan)。 */
-void DrawScene(FEditorHost& h, FSpriteBatch& sb, u32 w, u32 hh) noexcept {
+void DrawScene(FEditorHost& h, CSpriteBatch& sb, u32 w, u32 hh) noexcept {
     const f32 fw = static_cast<f32>(w);
     const f32 fh = static_cast<f32>(hh);
     const f32 z  = h.cam_zoom;
@@ -3215,35 +3215,35 @@ bool EnsureSubsystems() noexcept
         return true;
     }
 
-    if (!FLogger::IsInitialized()) {
+    if (!CLogger::IsInitialized()) {
         FLogConfig lc{};
         lc.console = true;
         lc.debug_output = true;
-        FLogger::Init(lc);
-        g_subsystems.logger_owned = FLogger::IsInitialized();
+        CLogger::Init(lc);
+        g_subsystems.logger_owned = CLogger::IsInitialized();
     }
     if (g_subsystems.logger_owned) {
-        FLogger::SetSink(&EditorLogSink);
+        CLogger::SetSink(&EditorLogSink);
         g_subsystems.logger_sink_owned = true;
     }
 
-    if (FMemorySystem::Get(ESegment::Default) == nullptr) {
-        const auto result = FMemorySystem::Init(FMemorySystem::DefaultConfig());
-        if (result.IsErr() && FMemorySystem::Get(ESegment::Default) == nullptr) {
-            if (g_subsystems.logger_sink_owned) FLogger::SetSink(nullptr);
-            if (g_subsystems.logger_owned) FLogger::Shutdown();
+    if (CMemorySystem::Get(ESegment::Default) == nullptr) {
+        const auto result = CMemorySystem::Init(CMemorySystem::DefaultConfig());
+        if (result.IsErr() && CMemorySystem::Get(ESegment::Default) == nullptr) {
+            if (g_subsystems.logger_sink_owned) CLogger::SetSink(nullptr);
+            if (g_subsystems.logger_owned) CLogger::Shutdown();
             g_subsystems = FEditorSubsystemState{};
             return false;
         }
         g_subsystems.memory_owned = result.IsOk();
     }
 
-    if (FThreadPool::WorkerCount() == 0) {
-        const auto result = FThreadPool::Init(0);
-        if (result.IsErr() && FThreadPool::WorkerCount() == 0) {
-            if (g_subsystems.memory_owned) FMemorySystem::Shutdown();
-            if (g_subsystems.logger_sink_owned) FLogger::SetSink(nullptr);
-            if (g_subsystems.logger_owned) FLogger::Shutdown();
+    if (CThreadPool::WorkerCount() == 0) {
+        const auto result = CThreadPool::Init(0);
+        if (result.IsErr() && CThreadPool::WorkerCount() == 0) {
+            if (g_subsystems.memory_owned) CMemorySystem::Shutdown();
+            if (g_subsystems.logger_sink_owned) CLogger::SetSink(nullptr);
+            if (g_subsystems.logger_owned) CLogger::Shutdown();
             g_subsystems = FEditorSubsystemState{};
             return false;
         }
@@ -3279,12 +3279,12 @@ void ReleaseSubsystems() noexcept
     }
 
     ACS_LOG_INFO("[acs_editor_abi] subsystems shutting down");
-    if (logger_sink_owned) FLogger::SetSink(nullptr);
-    if (thread_pool_owned) FThreadPool::Shutdown();
-    if (memory_owned) FMemorySystem::Shutdown();
+    if (logger_sink_owned) CLogger::SetSink(nullptr);
+    if (thread_pool_owned) CThreadPool::Shutdown();
+    if (memory_owned) CMemorySystem::Shutdown();
     if (logger_owned) {
-        FLogger::Flush();
-        FLogger::Shutdown();
+        CLogger::Flush();
+        CLogger::Shutdown();
     }
     {
         FEditorSubsystemGuard guard;
@@ -3886,8 +3886,8 @@ void ComputeSkySh9(FVec4 out[9], FVec3 zenith, FVec3 horizon, FVec3 ground) noex
 void SkyCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
-        editor_profiler::FClock::now();
-    auto result = FSky::CompileShadersCpu();
+        editor_profiler::CClock::now();
+    auto result = CSky::CompileShadersCpu();
     const bool ok = result.IsOk();
     if (ok) {
         h.startup_sky_shaders = Move(result.Value());
@@ -3935,8 +3935,8 @@ bool BeginSkyCompileWorker(FEditorHost& h) noexcept {
 void PbrCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
-        editor_profiler::FClock::now();
-    auto shaders = FPbrShader::CompileShadersCpu(true);
+        editor_profiler::CClock::now();
+    auto shaders = CPbrShader::CompileShadersCpu(true);
     bool ok = shaders.IsOk() &&
               h.startup_pbr_candidate_device != nullptr;
     if (ok) {
@@ -4002,8 +4002,8 @@ bool BeginPbrCompileWorker(
 void SsgiCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
-        editor_profiler::FClock::now();
-    auto result = FSsgi::CompileShadersCpu();
+        editor_profiler::CClock::now();
+    auto result = CSsgi::CompileShadersCpu();
     const bool ok = result.IsOk();
     if (ok) {
         h.startup_ssgi_shaders = Move(result.Value());
@@ -4051,8 +4051,8 @@ bool BeginSsgiCompileWorker(FEditorHost& h) noexcept {
 void SsssCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
-        editor_profiler::FClock::now();
-    auto shaders = FSubsurfaceScattering::CompileShadersCpu();
+        editor_profiler::CClock::now();
+    auto shaders = CSubsurfaceScattering::CompileShadersCpu();
     bool ok = shaders.IsOk() &&
               h.startup_ssss_candidate_device != nullptr;
     if (ok) {
@@ -4113,8 +4113,8 @@ bool BeginSsssCompileWorker(
 void PostCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
-        editor_profiler::FClock::now();
-    auto result = FPostProcess::CompileShadersCpu();
+        editor_profiler::CClock::now();
+    auto result = CPostProcess::CompileShadersCpu();
     const bool ok = result.IsOk();
     if (ok) {
         h.startup_post_shaders = Move(result.Value());
@@ -4158,8 +4158,8 @@ bool BeginPostCompileWorker(FEditorHost& h) noexcept {
 void CloudCompileWorkerEntry(void* user) noexcept {
     auto& h = *static_cast<FEditorHost*>(user);
     const editor_profiler::FTimePoint begin =
-        editor_profiler::FClock::now();
-    auto result = FVolumetricClouds::CompileShadersCpu();
+        editor_profiler::CClock::now();
+    auto result = CVolumetricClouds::CompileShadersCpu();
     const bool ok = result.IsOk();
     if (ok) {
         h.startup_cloud_shaders = Move(result.Value());
@@ -4276,10 +4276,10 @@ void BeginSceneResourceRetirement(FEditorHost& h) noexcept {
 
 void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept;
 
-TSharedPtr<FMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
+TSharedPtr<AMeshAsset> MakeEditorWaterGrid(u32 cells = 64u) noexcept {
     if (cells < 2u) cells = 2u;
     if (cells > 256u) cells = 256u;
-    auto mesh = MakeShared<FMeshAsset>();
+    auto mesh = MakeShared<AMeshAsset>();
     if (!mesh) return nullptr;
     auto& vertices = mesh->Vertices();
     auto& indices = mesh->Indices();
@@ -4605,8 +4605,8 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
     if (dev->SupportsAsyncShaderCompilation()) {
         if (h.startup_async_shader_kind == 0u) {
             const editor_profiler::FTimePoint submit_begin =
-                editor_profiler::FClock::now();
-            auto shader_result = FSky::BeginCompileShadersAsync(*dev);
+                editor_profiler::CClock::now();
+            auto shader_result = CSky::BeginCompileShadersAsync(*dev);
             if (shader_result.IsOk()) {
                 h.startup_sky_shaders = Move(shader_result.Value());
                 h.startup_async_shader_kind = 3u;
@@ -4631,7 +4631,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             h.startup_phase_elapsed_override_ms = compile_ms;
             if (shader_status == EShaderStatus::Ready) {
                 const editor_profiler::FTimePoint commit_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 const auto sky_result = h.sky3d.InitWithCompiledShaders(
                     *dev, Move(h.startup_sky_shaders), hdrf, df);
                 const f32 commit_ms =
@@ -4681,7 +4681,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.startup_worker_elapsed_ms;
             if (worker_result > 0) {
                 const editor_profiler::FTimePoint commit_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 const auto sky_result = h.sky3d.InitWithCompiledShaders(
                     *dev, Move(h.startup_sky_shaders), hdrf, df);
                 const f32 commit_ms =
@@ -4736,9 +4736,9 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
         used_async_compile = true;
         if (h.startup_async_shader_kind == 0u) {
             const editor_profiler::FTimePoint submit_begin =
-                editor_profiler::FClock::now();
+                editor_profiler::CClock::now();
             auto shader_result =
-                FPbrShader::BeginCompileShadersAsync(*dev);
+                CPbrShader::BeginCompileShadersAsync(*dev);
             if (shader_result.IsOk()) {
                 h.startup_pbr_shaders = Move(shader_result.Value());
                 h.startup_async_shader_kind = 1u;
@@ -4763,7 +4763,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             h.startup_phase_elapsed_override_ms = compile_ms;
             if (shader_status == EShaderStatus::Ready) {
                 const editor_profiler::FTimePoint commit_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 const auto pbr_result = h.pbr3d.InitWithCompiledShaders(
                     *dev,
                     Move(h.startup_pbr_shaders),
@@ -4822,7 +4822,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.startup_worker_elapsed_ms;
             if (worker_result > 0) {
                 const editor_profiler::FTimePoint publish_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 // The acquire + join in PollStartupWorker is the publication
                 // boundary for the fully initialized, previously unpublished
                 // pbr3d object. No driver work remains on the UI thread.
@@ -4965,7 +4965,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.shadow_caster_pipe = Move(cpl.Value());
                 FBufferDesc lcb{}; lcb.size = 256; lcb.usage = EBufferUsage::Uniform; lcb.cpu_writable = true;
                 auto lcr = CreateRhiBuffer(*dev, lcb); if (lcr.IsOk()) h.shadow_lvp_cb = Move(lcr.Value());
-                for (u32 c = 0; c < acs::FShadowMap::kMaxCascades; ++c) {   // CSM: cascade 毎の light VP 用 CB
+                for (u32 c = 0; c < acs::CShadowMap::kMaxCascades; ++c) {   // CSM: cascade 毎の light VP 用 CB
                     FBufferDesc ccb{}; ccb.size = 256; ccb.usage = EBufferUsage::Uniform; ccb.cpu_writable = true;
                     auto ccr = CreateRhiBuffer(*dev, ccb); if (ccr.IsOk()) h.shadow_cascade_cb[c] = Move(ccr.Value());
                 }
@@ -5057,7 +5057,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.startup_phase_elapsed_override_ms = compile_ms;
                 if (shader_status == EShaderStatus::Ready) {
                     const editor_profiler::FTimePoint commit_begin =
-                        editor_profiler::FClock::now();
+                        editor_profiler::CClock::now();
                     const auto result =
                         h.post3d.InitWithCompiledShaders(
                             *dev,
@@ -5095,9 +5095,9 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 return false;
             } else {
                 const editor_profiler::FTimePoint submit_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 auto shader_result =
-                    FPostProcess::BeginCompileShadersAsync(*dev);
+                    CPostProcess::BeginCompileShadersAsync(*dev);
                 if (shader_result.IsOk()) {
                     h.startup_post_shaders =
                         Move(shader_result.Value());
@@ -5126,7 +5126,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                     h.startup_post_shaders.Status() ==
                         EShaderStatus::Ready) {
                     const editor_profiler::FTimePoint commit_begin =
-                        editor_profiler::FClock::now();
+                        editor_profiler::CClock::now();
                     const auto result =
                         h.post3d.InitWithCompiledShaders(
                             *dev,
@@ -5231,9 +5231,9 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 return false;
             }
             const editor_profiler::FTimePoint submit_begin =
-                editor_profiler::FClock::now();
+                editor_profiler::CClock::now();
             auto shader_result =
-                FSsao::BeginCompileShadersAsync(*dev);
+                CSsao::BeginCompileShadersAsync(*dev);
             if (shader_result.IsOk()) {
                 h.startup_ssao_shaders = Move(shader_result.Value());
                 h.startup_async_shader_kind = 5u;
@@ -5248,7 +5248,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
         }
 
         const editor_profiler::FTimePoint owner_commit_begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const bool wants_normal_buffer =
             h.q_ssao_on || h.q_ssr_on || h.q_ssgi_on;
         if (wants_normal_buffer) {
@@ -5356,7 +5356,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 h.startup_worker_elapsed_ms;
             if (worker_result > 0 && h.q_ssgi_on) {
                 const editor_profiler::FTimePoint commit_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 const auto result = h.ssgi3d.InitWithCompiledShaders(
                     *dev,
                     Move(h.startup_ssgi_shaders),
@@ -5426,7 +5426,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                         h.startup_worker_elapsed_ms;
                     if (worker_result > 0) {
                         const editor_profiler::FTimePoint commit_begin =
-                            editor_profiler::FClock::now();
+                            editor_profiler::CClock::now();
                         const auto result =
                             h.ssgi3d.InitWithCompiledShaders(
                                 *dev,
@@ -5525,7 +5525,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
             if (worker_result > 0 && wants_clouds) {
                 h.vclouds_tried = true;
                 const editor_profiler::FTimePoint commit_begin =
-                    editor_profiler::FClock::now();
+                    editor_profiler::CClock::now();
                 const auto result =
                     h.vclouds3d.InitWithCompiledShaders(
                         *dev, Move(h.startup_cloud_shaders),
@@ -5573,7 +5573,7 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                 if (shader_status == EShaderStatus::Ready) {
                     h.vclouds_tried = true;
                     const editor_profiler::FTimePoint commit_begin =
-                        editor_profiler::FClock::now();
+                        editor_profiler::CClock::now();
                     const auto result =
                         h.vclouds3d.InitWithCompiledShaders(
                             *dev, Move(h.startup_cloud_shaders),
@@ -5605,9 +5605,9 @@ bool AdvanceEnsure3D(FEditorHost& h) noexcept {
                    dev->SupportsAsyncShaderCompilation()) {
             h.vclouds_tried = true;
             const editor_profiler::FTimePoint submit_begin =
-                editor_profiler::FClock::now();
+                editor_profiler::CClock::now();
             auto shader_result =
-                FVolumetricClouds::BeginCompileShadersAsync(*dev);
+                CVolumetricClouds::BeginCompileShadersAsync(*dev);
             if (shader_result.IsOk()) {
                 h.startup_cloud_shaders = Move(shader_result.Value());
                 h.startup_async_shader_kind = 4u;
@@ -5733,7 +5733,7 @@ bool AdvanceEditorStartup(FEditorHost& h) noexcept {
     }
 
     const u32 step = h.startup_step;
-    const editor_profiler::FTimePoint begin = editor_profiler::FClock::now();
+    const editor_profiler::FTimePoint begin = editor_profiler::CClock::now();
     if (step == 0u) {
         // Project settings are loaded after attach and before the first warm-up
         // step. Commit their requested sample count now so startup does not
@@ -5957,16 +5957,16 @@ void Seed3DScene(FEditorHost& h) noexcept {
 
 /** 2D ポリゴン点列 (XY 平面、z=0) からフラットな FMeshAsset を作る (扇状三角形分割、法線+Z)。
  *  «2D は内部的に 3D 空間 (z=0) にある» を体現: 2D ポリゴンを 3D シーンのノードとして持つ。 */
-TSharedPtr<FAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
+TSharedPtr<AAsset> MakeFlatPolygon3D(const FVec2* pts, u32 n) noexcept {
     if (pts == nullptr || n < 3) return nullptr;
-    auto mesh = MakeShared<FMeshAsset>();
+    auto mesh = MakeShared<AMeshAsset>();
     auto& V = mesh->Vertices();
     for (u32 i = 0; i < n; ++i)
         V.PushBack(FMeshVertex{ FVec3{ pts[i].x, pts[i].y, 0.0f }, FVec3{ 0, 0, 1 }, 0.0f, 0.0f });
     auto& I = mesh->Indices();
     for (u32 i = 1; i + 1 < n; ++i) { I.PushBack(0); I.PushBack(i); I.PushBack(i + 1); }   // 扇 (凸前提)
     mesh->SubMeshes().PushBack(FSubMesh{ 0, static_cast<u32>(I.Size()) });
-    return TSharedPtr<FAsset>(mesh);
+    return TSharedPtr<AAsset>(mesh);
 }
 
 // --- 3D ノードアクセス (各 editor ノード = root の子 ANode + AEditor3DRecordComponent + AMeshComponent3D) ---
@@ -6118,7 +6118,7 @@ FVec4 NColor(game::ANode* n) noexcept {
 }
 
 /** ノードのカスタムメッシュ FMeshAsset (prim!=Mesh や未設定は null)。 */
-const FMeshAsset* NMesh(game::ANode* n) noexcept {
+const AMeshAsset* NMesh(game::ANode* n) noexcept {
     game::AMeshComponent3D* m = Mesh3D(n);
     return (m != nullptr) ? m->Mesh() : nullptr;
 }
@@ -6131,7 +6131,7 @@ FGpuMesh* GpuMeshForNode3D(FEditorHost& h, game::ANode* nn) noexcept {
     if (prim == 1) return &h.gm_sphere;
     if (prim == 2) return &h.gm_plane;
     if (prim != 3) return &h.gm_cube;                 // 0=Cube (既定)
-    const FMeshAsset* cm = NMesh(nn);
+    const AMeshAsset* cm = NMesh(nn);
     AEditor3DRecordComponent* rec = Rec3D(nn);
     if (cm == nullptr || rec == nullptr) return nullptr;
     if (rec->gm_cache_src != cm || rec->gm_cache.vertex_buffer.Get() == nullptr) {
@@ -6310,12 +6310,12 @@ FWaterSurface3DParams WaterSurface3DParamsFor(
 
 bool IsValidCustomWaterSurfaceMesh(
     AEditor3DRecordComponent& record,
-    const FMeshAsset* mesh) noexcept {
+    const AMeshAsset* mesh) noexcept {
     if (record.water_surface_validation_src != mesh) {
         record.water_surface_validation_src = mesh;
         record.water_surface_local_xz =
             mesh != nullptr &&
-            FWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
+            CWaterSurface3D::IsLocalXzSurfaceMesh(*mesh);
         record.water_surface_fallback_logged = false;
     }
     if (!record.water_surface_local_xz &&
@@ -6343,7 +6343,7 @@ FGpuMesh* WaterGpuMeshForNode3D(
     }
     if (NPrim(node) == 3) {
         AEditor3DRecordComponent* record = Rec3D(node);
-        const FMeshAsset* source = NMesh(node);
+        const AMeshAsset* source = NMesh(node);
         if (record == nullptr ||
             !IsValidCustomWaterSurfaceMesh(*record, source)) {
             return WaterGridFallback(host);
@@ -6355,7 +6355,7 @@ FGpuMesh* WaterGpuMeshForNode3D(
     return nullptr;
 }
 
-const FMeshAsset* WaterCpuMeshForNode3D(
+const AMeshAsset* WaterCpuMeshForNode3D(
     FEditorHost& host, game::ANode* node) noexcept {
     FGpuMesh* const gpu_mesh =
         WaterGpuMeshForNode3D(host, node);
@@ -6390,7 +6390,7 @@ void PrepareWater3DDrawEligibility(
 
     for (u32 i = 0u;
          i < nodes.Size() &&
-         host.water3d_draw_count < FWaterSurface3D::kMaxTrackedSurfaces;
+         host.water3d_draw_count < CWaterSurface3D::kMaxTrackedSurfaces;
          ++i) {
         game::ANode* node = nodes[i];
         if (WaterGpuMeshForNode3D(host, node) == nullptr) continue;
@@ -7128,7 +7128,7 @@ bool EditorOpaqueRayDistance(
             FAabb3{FVec3{0, 0, 0}, FVec3{0.5f, 0.02f, 0.5f}});
         break;
     case 3: {
-        const FMeshAsset* mesh = NMesh(node);
+        const AMeshAsset* mesh = NMesh(node);
         if (mesh == nullptr || mesh->Vertices().Size() == 0u ||
             mesh->Indices().Size() < 3u) {
             return false;
@@ -7187,7 +7187,7 @@ bool HitTestEditorWaterSurface(
             continue;
         }
         FVec3 local_point{};
-        const FMeshAsset* mesh =
+        const AMeshAsset* mesh =
             NPrim(node) == 3 ? NMesh(node) : nullptr;
         const bool use_custom_mesh =
             NPrim(node) == 3 &&
@@ -7298,7 +7298,7 @@ bool AdvanceWater3DInitialization(
     if (host.water3d_init_state == 0u) {
         if (device->SupportsAsyncShaderCompilation()) {
             auto result =
-                FWaterSurface3D::BeginCompileShadersAsync(*device);
+                CWaterSurface3D::BeginCompileShadersAsync(*device);
             if (result.IsOk()) {
                 host.water3d_pending_shaders = Move(result.Value());
                 host.water3d_init_state = 1u;
@@ -7310,7 +7310,7 @@ bool AdvanceWater3DInitialization(
                 result.Error().message);
         }
         const editor_profiler::FTimePoint begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const auto result = host.water3d.Init(
             *device, EFormat::R16G16B16A16_Float,
             host.renderer.DepthFormat(), 1u);
@@ -7333,7 +7333,7 @@ bool AdvanceWater3DInitialization(
     }
     if (host.water3d_init_state == 4u) {
         const editor_profiler::FTimePoint begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         auto advance =
             host.water3d.AdvanceInitialization(16u);
         const f32 elapsed =
@@ -7368,7 +7368,7 @@ bool AdvanceWater3DInitialization(
         return false;
     }
     const editor_profiler::FTimePoint commit_begin =
-        editor_profiler::FClock::now();
+        editor_profiler::CClock::now();
     const auto result = host.water3d.BeginInitWithCompiledShaders(
         *device, Move(host.water3d_pending_shaders),
         EFormat::R16G16B16A16_Float,
@@ -7647,30 +7647,30 @@ int ParentId3D(FEditorHost& h, game::ANode* n) noexcept {
 }
 
 /** メッシュファイル (.gltf/.glb/.obj/.fbx、UTF-8 path) を読み込んで FMeshAsset を返す (失敗 null)。 */
-TSharedPtr<FAsset> LoadMeshFile(const char* path) noexcept {
+TSharedPtr<AAsset> LoadMeshFile(const char* path) noexcept {
     if (path == nullptr || path[0] == '\0') return nullptr;
     wchar_t wpath[512];
     if (MultiByteToWideChar(kCpUtf8, 0, path, -1, wpath, 512) <= 0) return nullptr;
-    auto bytes = FFileSystem::ReadAllBytes(wpath);
+    auto bytes = CFileSystem::ReadAllBytes(wpath);
     if (bytes.IsErr() || bytes.Value().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ open 失敗: %s", path); return nullptr; }
     // 拡張子で loader を選ぶ。
     const char* ext = std::strrchr(path, '.');
-    TResult<TSharedPtr<FAsset>> r = ACS_ERR(Asset, 900, "no loader");
+    TResult<TSharedPtr<AAsset>> r = ACS_ERR(Asset, 900, "no loader");
     if (ext != nullptr) {
-        if      (_stricmp(ext, ".glb")  == 0) { FGlbAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
-        else if (_stricmp(ext, ".gltf") == 0) { FGltfAssetLoader l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
-        else if (_stricmp(ext, ".obj")  == 0) { FObjAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
-        else if (_stricmp(ext, ".fbx")  == 0) { FFbxAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        if      (_stricmp(ext, ".glb")  == 0) { CGlbAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".gltf") == 0) { CGltfAssetLoader l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".obj")  == 0) { CObjAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
+        else if (_stricmp(ext, ".fbx")  == 0) { CFbxAssetLoader  l; r = l.LoadFromBytes(kInvalidAssetId, bytes.Value()); }
     }
     if (r.IsErr()) { ACS_LOG_ERROR("[3D] メッシュ parse 失敗: %s", path); return nullptr; }
-    TSharedPtr<FAsset> a = r.Value();
-    const FMeshAsset* m = static_cast<const FMeshAsset*>(a.Get());
+    TSharedPtr<AAsset> a = r.Value();
+    const AMeshAsset* m = static_cast<const AMeshAsset*>(a.Get());
     if (m == nullptr || m->Vertices().Size() == 0) { ACS_LOG_ERROR("[3D] メッシュ空: %s", path); return nullptr; }
     return a;
 }
 
 /** CPU メッシュ cm の三角形を model 行列でワールド変換し色を付けて dv へ追加する。 */
-void AppendMeshTris(TArray<FM3DVtx>& dv, const FMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap,
+void AppendMeshTris(TArray<FM3DVtx>& dv, const AMeshAsset* cm, const FMat4& model, FVec3 col, u32 cap,
                     f32 metallic = 0.0f, f32 roughness = 0.6f) noexcept {
     if (cm == nullptr) return;
     const auto& vtx = cm->Vertices();
@@ -8315,7 +8315,7 @@ void BuildSceneMeshVerts(FEditorHost& h, const TArray<game::ANode*>& all3d,
         const bool interactive_water =
             IsRenderedByWater3D(h, nn);
         const int prim = NPrim(nn);
-        const FMeshAsset* cm = interactive_water
+        const AMeshAsset* cm = interactive_water
             ? WaterCpuMeshForNode3D(h, nn)
             : (prim == 3) ? NMesh(nn)
             : (prim == 1) ? h.cpu_sphere.Get()
@@ -8587,7 +8587,7 @@ void Pass_AtmosphereIbl(FEditorHost& h, IRhiCommandList* cl) noexcept {
                     if (!gpu) {
                         skyWidth = kPhysicalSkyCpuFallbackWidth;
                         skyHeight = kPhysicalSkyCpuFallbackHeight;
-                        sky = acs::FAtmosphere::BakeEquirect(
+                        sky = acs::CAtmosphere::BakeEquirect(
                             skyWidth,
                             skyHeight,
                             ap);
@@ -8617,8 +8617,8 @@ struct FShadowOut {
     FMat4 lightVp{};
     bool  shadowOn = false;
     bool  csmActive = false;
-    FMat4 csmVps[acs::FShadowMap::kMaxCascades]    = {};
-    f32   csmSplits[acs::FShadowMap::kMaxCascades] = {};
+    FMat4 csmVps[acs::CShadowMap::kMaxCascades]    = {};
+    f32   csmSplits[acs::CShadowMap::kMaxCascades] = {};
 };
 
 static_assert(
@@ -8641,8 +8641,8 @@ FShadowOut Pass_Shadows(FEditorHost& h, IRhiCommandList* cl, u32 dvCount,
         (h.q_shadow_cascades >= 2) &&
         !camera_orthographic &&
         h.q_shadow_size > 0;
-    const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::FShadowMap::kMaxCascades
-                                         ? h.q_shadow_cascades : acs::FShadowMap::kMaxCascades) : 1u;
+    const u32  wantCascades = wantCsm ? (h.q_shadow_cascades <= acs::CShadowMap::kMaxCascades
+                                         ? h.q_shadow_cascades : acs::CShadowMap::kMaxCascades) : 1u;
     if (h.shadow_ready && h.q_shadow_size > 0 &&
         (h.q_shadow_size != h.shadow.Size() || wantCascades != h.shadow.CascadeCount())) {
         IRhiDevice* sdev = h.renderer.Device();
@@ -9043,7 +9043,7 @@ bool AdvanceRuntimeSsss(
             return true;
         }
         const editor_profiler::FTimePoint resize_begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const auto resize_result =
             host.ssss3d.Resize(width, height);
         if (resize_result.IsOk()) {
@@ -9101,7 +9101,7 @@ bool AdvanceRuntimeSsss(
         }
 
         const editor_profiler::FTimePoint commit_begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const auto commit_result =
             host.ssss3d.InitPipelineResourcesWithCompiledShaders(
                 *device, Move(host.ssss3d_pending_shaders));
@@ -9125,7 +9125,7 @@ bool AdvanceRuntimeSsss(
 
     if (host.ssss3d_init_state == 2u) {
         const editor_profiler::FTimePoint targets_begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const auto targets_result = host.ssss3d.Resize(width, height);
         if (targets_result.IsErr()) {
             host.ssss3d_init_state = 3u;
@@ -9167,7 +9167,7 @@ bool AdvanceRuntimeSsss(
         return false;
     }
     auto shader_result =
-        FSubsurfaceScattering::BeginCompileShadersAsync(*device);
+        CSubsurfaceScattering::BeginCompileShadersAsync(*device);
     if (shader_result.IsErr()) {
         host.ssss3d_init_state = 3u;
         host.ssss3d_init_failed = true;
@@ -9230,7 +9230,7 @@ bool EnsureSsssFrameResources(
 
     if (!host.ssss_pending_diffuse_rt) {
         const editor_profiler::FTimePoint diffuse_begin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         auto diffuse_result = CreateRhiTexture(*device, diffuse_desc);
         if (diffuse_result.IsErr()) {
             host.ssss_frame_resource_state = 2u;
@@ -9260,7 +9260,7 @@ bool EnsureSsssFrameResources(
     // previously collapsed into an 8-bit scalar/hash mask.
     material_desc.format = EFormat::R16G16B16A16_Float;
     const editor_profiler::FTimePoint material_begin =
-        editor_profiler::FClock::now();
+        editor_profiler::CClock::now();
     auto material_result = CreateRhiTexture(*device, material_desc);
     if (material_result.IsErr()) {
         host.ssss_pending_diffuse_rt.Reset();
@@ -10967,7 +10967,7 @@ ACS_EDITOR_API int acs_editor_attach(void* handle, void* hwnd, uint32_t width, u
     host->startup_step = 0u;
     host->startup_ready = false;
     host->startup_failed = false;
-    host->startup_begin = editor_profiler::FClock::now();
+    host->startup_begin = editor_profiler::CClock::now();
 
     // Own the child HWND's pixels before returning to WPF. Otherwise HwndHost
     // airspace can expose uninitialized/old swapchain contents during warm-up.
@@ -11419,7 +11419,7 @@ static int RenderEditorFrame(
         return editor_frame::ToAbi(editor_frame::EResult::Busy);
     }
     const editor_profiler::FTimePoint nativeRenderActiveBegin =
-        editor_profiler::FClock::now();
+        editor_profiler::CClock::now();
     {
         // Reuse the host-owned DFS scratch retained by DrawScene3D. Clearing a
         // TArray preserves capacity, eliminating the per-frame heap churn that
@@ -11436,13 +11436,13 @@ static int RenderEditorFrame(
             *host, water_nodes);
     }
     const editor_profiler::FTimePoint profilerFrameBegin =
-        editor_profiler::FClock::now();
+        editor_profiler::CClock::now();
     BeginProfilerFrame(*host, profilerFrameBegin);
     if (host->scene_presentation_suppressed) {
         // Keep presenting a deterministic neutral frame so WPF's HwndHost airspace cannot
         // expose the previous/default scene while managed file I/O is in flight.
         const editor_profiler::FTimePoint submitBegin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const f32 nativeRenderActiveMs =
             editor_profiler::ElapsedMilliseconds(
                 nativeRenderActiveBegin);
@@ -11516,7 +11516,7 @@ static int RenderEditorFrame(
         if (cl != nullptr && sc != nullptr) DrawScene3D(*host, sc->Width(), sc->Height());
         if (cl != nullptr) cl->EndGpuTimingFrame();
         const editor_profiler::FTimePoint submitBegin =
-            editor_profiler::FClock::now();
+            editor_profiler::CClock::now();
         const f32 nativeRenderActiveMs =
             editor_profiler::ElapsedMilliseconds(
                 nativeRenderActiveBegin);
@@ -11604,7 +11604,7 @@ static int RenderEditorFrame(
         commandList->EndGpuTimingFrame();
     }
     const editor_profiler::FTimePoint submitBegin =
-        editor_profiler::FClock::now();
+        editor_profiler::CClock::now();
     const f32 nativeRenderActiveMs =
         editor_profiler::ElapsedMilliseconds(
             nativeRenderActiveBegin);
@@ -12233,7 +12233,7 @@ ACS_EDITOR_API void acs_editor_destroy(void* handle) {
     host->sky_pipe.Reset(); host->sky_vs.Reset(); host->sky_ps.Reset(); host->sky_cb.Reset();
     host->grid_pipe.Reset(); host->grid_vs.Reset(); host->grid_ps.Reset(); host->grid_cb.Reset(); host->grid_vb.Reset();
     host->shadow_caster_pipe.Reset(); host->shadow_caster_vs.Reset(); host->shadow_lvp_cb.Reset();
-    for (u32 c = 0; c < acs::FShadowMap::kMaxCascades; ++c) host->shadow_cascade_cb[c].Reset();
+    for (u32 c = 0; c < acs::CShadowMap::kMaxCascades; ++c) host->shadow_cascade_cb[c].Reset();
     host->shadow.Shutdown(); host->shadow_ready = false;
     host->normal_pipe.Reset(); host->normal_vs.Reset(); host->normal_ps.Reset(); host->normal_cb.Reset(); host->normal_rt.Reset(); host->normal_w = 0; host->normal_h = 0;
     host->ssao3d.Shutdown(); host->ssao_ready = false; host->ssao_pipe_ready = false; host->ssao_w = 0; host->ssao_h = 0;
@@ -14035,7 +14035,7 @@ static int RenderPbrMaterialPreview(
         Normalize(FVec3{0.38f, 0.72f, -0.58f});
     lights[0].color = FVec3{1.70f, 1.56f, 1.40f};
 
-    FPbrShader& shader = h.preview_pbr3d;
+    CPbrShader& shader = h.preview_pbr3d;
     if (!shader.BeginFrame(1u)) return 0;
     shader.SetLights(
         camera.ViewProjection(), eye, lights, 1u,
@@ -14231,7 +14231,7 @@ ACS_EDITOR_API int acs_editor_render_preview_effect(void* handle,
     p.strength = strength; p.p0 = p0; p.p1 = p1; p.p2 = p2; p.time = time;
     p.color = FVec4{ r, g, b, a };
     return RenderPreview(*host, s, out_rgba, static_cast<u32>(s * s * 4),
-        [&](FSpriteBatch& sb, f32 sz) {
+        [&](CSpriteBatch& sb, f32 sz) {
             const bool fx = (e != ESpriteEffect::None);
             if (fx) sb.SetEffect(e, p);
             if (host->preview_scene) sb.Draw(*host->preview_scene, 0, 0, sz, sz);
@@ -14254,7 +14254,7 @@ ACS_EDITOR_API int acs_editor_render_preview_material(void* handle, const char* 
         FEffectParams p = mat.params;
         if (mat.animated) p.time = 1.0f;
         return RenderPreview(*host, s, out_rgba, static_cast<u32>(s * s * 4),
-            [&](FSpriteBatch& sb, f32 sz) {
+            [&](CSpriteBatch& sb, f32 sz) {
                 if (fx) sb.SetEffect(mat.effect, p);
                 if (host->preview_scene) sb.Draw(*host->preview_scene, 0, 0, sz, sz);
                 if (fx) sb.ClearEffect();
@@ -14273,7 +14273,7 @@ ACS_EDITOR_API int acs_editor_render_preview_material(void* handle, const char* 
         }
         return RenderPreview(
             *host, s, out_rgba, static_cast<u32>(bytes),
-            [&](FSpriteBatch& sb, f32 sz) {
+            [&](CSpriteBatch& sb, f32 sz) {
                 FSpriteLight light;
                 light.pos = FVec2{
                     sz * 0.32f, sz * 0.28f};
@@ -16232,7 +16232,7 @@ ACS_EDITOR_API int acs_editor_node3d_paste(void* handle) {
 ACS_EDITOR_API int acs_editor_add_mesh3d(void* handle, const char* path, const char* name) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || path == nullptr) return -1;
-    TSharedPtr<FAsset> mesh = LoadMeshFile(path);
+    TSharedPtr<AAsset> mesh = LoadMeshFile(path);
     if (!mesh) return -1;
     char nmbuf[64];
     if (name != nullptr && name[0] != '\0') std::snprintf(nmbuf, sizeof(nmbuf), "%s", name);
@@ -16295,7 +16295,7 @@ ACS_EDITOR_API int acs_editor_add_polygon3d(void* handle, const float* xy, int c
     if (host == nullptr || xy == nullptr || count < 3) return -1;
     TArray<FVec2> pts; pts.Reserve(static_cast<usize>(count));
     for (int i = 0; i < count; ++i) pts.PushBack(FVec2{ xy[i * 2], xy[i * 2 + 1] });
-    TSharedPtr<FAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(count));
+    TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(count));
     if (!mesh) return -1;
     game::ANode& n = AddNode3D(*host, (name != nullptr && name[0] != '\0') ? name : "Polygon2D");
     const int id = host->next_id3d++;
@@ -16334,7 +16334,7 @@ ACS_EDITOR_API int acs_editor_poly3d_add_point(void* handle, float sx, float sy)
 ACS_EDITOR_API int acs_editor_poly3d_finalize(void* handle) {
     auto* host = static_cast<FEditorHost*>(handle);
     if (host == nullptr || host->poly3d_pts.Size() < 3) { if (host != nullptr) host->poly3d_pts.Clear(); return -1; }
-    TSharedPtr<FAsset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
+    TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(host->poly3d_pts.Data(), static_cast<u32>(host->poly3d_pts.Size()));
     if (!mesh) { host->poly3d_pts.Clear(); return -1; }
     game::ANode& n = AddNode3D(*host, "Polygon2D");
     const int id = host->next_id3d++;
@@ -17544,7 +17544,7 @@ static int LoadScene3DTextImpl(FEditorHost* host, const char* text, bool clear,
                 if (pts.Size() == pc) {
                     if (game::ANode* en = FindNode3DNode(*host, pid + idOffset)) {
                         if (game::AMeshComponent3D* m = Mesh3D(en)) {
-                            TSharedPtr<FAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
+                            TSharedPtr<AAsset> mesh = MakeFlatPolygon3D(pts.Data(), static_cast<u32>(pts.Size()));
                             if (mesh) m->SetMeshAsset(mesh);         // prim=Mesh + 所有 (z=0 フラット)
                         }
                         AEditor3DRecordComponent* rec = Rec3D(en);
@@ -17889,7 +17889,7 @@ ACS_EDITOR_API int acs_editor_water3d_pointer_event(
             const f32 min_interval = std::max(
                 safe_params.ripple_lifetime /
                     static_cast<f32>(
-                        FWaterSurface3D::kWakeRippleSlots - 2u),
+                        CWaterSurface3D::kWakeRippleSlots - 2u),
                 0.035f);
             const f32 since_emit =
                 host->water_pointer_emit_time < 0.0f
@@ -18299,7 +18299,7 @@ ACS_EDITOR_API void acs_editor_camera_frame_all(void* handle) {
                 local_minimum.y = 0.0f;
                 local_maximum.y = 0.0f;
             } else if (mesh_component->Primitive() == game::EMeshPrimitive3D::Mesh) {
-                const FMeshAsset* mesh = mesh_component->Mesh();
+                const AMeshAsset* mesh = mesh_component->Mesh();
                 if (mesh == nullptr || mesh->Vertices().Size() == 0) continue;
                 bool has_local_point = false;
                 for (u32 vertex_index = 0; vertex_index < mesh->Vertices().Size(); ++vertex_index) {

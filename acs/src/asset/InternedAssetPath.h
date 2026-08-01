@@ -15,7 +15,7 @@ namespace acs {
 class FInternedAssetPath {
 public:
     /** 指定アロケータで空のパスを構築する。 */
-    FInternedAssetPath(FAllocator& Allocator, FAssetId Id) noexcept;
+    FInternedAssetPath(IAllocator& Allocator, FAssetId Id) noexcept;
 
     /** パス文字列を一度だけ設定する。 */
     bool TryInitialize(const wchar_t* Path, usize Length) noexcept;

@@ -31,7 +31,7 @@ public:
      *
      * @param Allocator pending list の確保に使う allocator。
      */
-    explicit CAcpakWriter(FAllocator& Allocator) noexcept;
+    explicit CAcpakWriter(IAllocator& Allocator) noexcept;
 
     /** 破棄する (Open 済なら Close 相当の後始末を行う)。 */
     ~CAcpakWriter() noexcept;
@@ -115,7 +115,7 @@ public:
 private:
     /** AddFile が積み Finalize が消費する所有 entry。 */
     struct FPendingEntry {
-        explicit FPendingEntry(FAllocator& Allocator) noexcept : Path(Allocator), Data(Allocator)
+        explicit FPendingEntry(IAllocator& Allocator) noexcept : Path(Allocator), Data(Allocator)
         {
         }
 
@@ -141,7 +141,7 @@ private:
     mutable FMutex m_LifecycleLock;
 
     /** pending entry と一時バッファに使う allocator。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 
     /** Win32 HANDLE 相当 (<windows.h> を header から外すため void* で保持)。 */
     void* m_FileHandle = nullptr;

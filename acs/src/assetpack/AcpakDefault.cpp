@@ -30,7 +30,7 @@ struct FDefaultAcpakState {
     }
 
     // backend を先に破棄してから allocator を破棄する宣言順にする。
-    acs::FSystemAllocator allocator;
+    acs::CSystemAllocator allocator;
     CAcpakGameReader reader;
     CAcpakGameWriter writer;
 };

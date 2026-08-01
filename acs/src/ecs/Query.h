@@ -186,7 +186,7 @@ public:
         };
 
         // ParallelFor は完了まで block する (内部で Wait)。
-        (void)FThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
+        (void)CThreadPool::ParallelFor(0, count, grain, +thunk, &ctx);
     }
 
 private:

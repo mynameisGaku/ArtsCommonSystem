@@ -2,11 +2,284 @@
   "schema_version": 1,
   "entries": [
     {
+      "path": "asset/Asset.h",
+      "legacy": "acs::FAsset",
+      "canonical": "acs::AAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/AssetPathInterner.h",
+      "legacy": "acs::FAssetPathInterner",
+      "canonical": "acs::CAssetPathInterner",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/AssetRegistry.h",
+      "legacy": "acs::FAssetRegistry",
+      "canonical": "acs::CAssetRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/AudioAsset.h",
+      "legacy": "acs::FAudioAsset",
+      "canonical": "acs::AAudioAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/AudioAsset.h",
+      "legacy": "acs::FFlacAssetLoader",
+      "canonical": "acs::CFlacAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/AudioAsset.h",
+      "legacy": "acs::FMp3AssetLoader",
+      "canonical": "acs::CMp3AssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/AudioAsset.h",
+      "legacy": "acs::FOggAssetLoader",
+      "canonical": "acs::COggAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/AudioAsset.h",
+      "legacy": "acs::FWavAssetLoader",
+      "canonical": "acs::CWavAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/BinaryAsset.h",
+      "legacy": "acs::FBinaryAsset",
+      "canonical": "acs::ABinaryAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/BinaryAsset.h",
+      "legacy": "acs::FBinaryAssetLoader",
+      "canonical": "acs::CBinaryAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/ImageAsset.h",
+      "legacy": "acs::FImageAsset",
+      "canonical": "acs::AImageAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/ImageAsset.h",
+      "legacy": "acs::FImageAssetLoader",
+      "canonical": "acs::CImageAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/MeshAsset.h",
+      "legacy": "acs::FFbxAssetLoader",
+      "canonical": "acs::CFbxAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/MeshAsset.h",
+      "legacy": "acs::FGlbAssetLoader",
+      "canonical": "acs::CGlbAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/MeshAsset.h",
+      "legacy": "acs::FGltfAssetLoader",
+      "canonical": "acs::CGltfAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/MeshAsset.h",
+      "legacy": "acs::FMeshAsset",
+      "canonical": "acs::AMeshAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/MeshAsset.h",
+      "legacy": "acs::FObjAssetLoader",
+      "canonical": "acs::CObjAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/SkinnedMesh.h",
+      "legacy": "acs::FAnimationPlayer",
+      "canonical": "acs::CAnimationPlayer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "asset/SkinnedMesh.h",
+      "legacy": "acs::FSkinnedMeshAsset",
+      "canonical": "acs::ASkinnedMeshAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/TextAsset.h",
+      "legacy": "acs::FTextAsset",
+      "canonical": "acs::ATextAsset",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "asset/TextAsset.h",
+      "legacy": "acs::FTextAssetLoader",
+      "canonical": "acs::CTextAssetLoader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "assetpack/AcpakCrypto.h",
+      "legacy": "acs::assetpack::FAcpakCrypto",
+      "canonical": "acs::assetpack::CAcpakCrypto",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "assetpack/AcpakGameBridge.h",
+      "legacy": "acs::assetpack::FAcpakGameReader",
+      "canonical": "acs::assetpack::CAcpakGameReader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "assetpack/AcpakGameBridge.h",
+      "legacy": "acs::assetpack::FAcpakGameWriter",
+      "canonical": "acs::assetpack::CAcpakGameWriter",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "assetpack/AcpakLz4.h",
+      "legacy": "acs::assetpack::FAcpakLz4",
+      "canonical": "acs::assetpack::CAcpakLz4",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "assetpack/AcpakReader.h",
+      "legacy": "acs::assetpack::FAcpakReader",
+      "canonical": "acs::assetpack::CAcpakReader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "assetpack/AcpakWriter.h",
+      "legacy": "acs::assetpack::FAcpakWriter",
+      "canonical": "acs::assetpack::CAcpakWriter",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
       "path": "audio/AudioEngine.h",
       "legacy": "acs::FAudioEngine",
       "canonical": "acs::CAudioEngine",
       "kind": "class",
       "prefix": "C"
+    },
+    {
+      "path": "crashwin/WindowsCrashReporter.h",
+      "legacy": "acs::crashwin::FWindowsCrashReporter",
+      "canonical": "acs::crashwin::CWindowsCrashReporter",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "ecs/ComponentRegistry.h",
+      "legacy": "acs::FComponentRegistry",
+      "canonical": "acs::CComponentRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "ecs/EntityCommandBuffer.h",
+      "legacy": null,
+      "canonical": "acs::FEntityCommandBuffer",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "ecs/ParallelEntityCommandBuffer.h",
+      "legacy": null,
+      "canonical": "acs::FParallelEntityCommandBuffer",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "ecs/RollbackBuffer.h",
+      "legacy": null,
+      "canonical": "acs::FRollbackBuffer",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "ecs/SparseSet.h",
+      "legacy": "acs::FSparseSetBase",
+      "canonical": "acs::ASparseSetBase",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ecs/System.h",
+      "legacy": "acs::FSystemScheduler",
+      "canonical": "acs::CSystemScheduler",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "ecs/World.h",
+      "legacy": "acs::FWorld",
+      "canonical": "acs::CWorld",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "editor_abi/EditorCameraViewRequests.h",
+      "legacy": "acs::editor_camera_view::FRegistry",
+      "canonical": "acs::editor_camera_view::CRegistry",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "editor_abi/EditorProfiler.h",
+      "legacy": null,
+      "canonical": "acs::editor_profiler::FCpuScope",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "editor_abi/EditorProfiler.h",
+      "legacy": null,
+      "canonical": "acs::editor_profiler::FRollingGpuQueryWindow",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "editor_abi/EditorProfiler.h",
+      "legacy": null,
+      "canonical": "acs::editor_profiler::FRollingPeak",
+      "kind": "class",
+      "prefix": "F"
     },
     {
       "path": "event/MessageBroker.h",
@@ -23,6 +296,48 @@
       "prefix": "C"
     },
     {
+      "path": "foundation/Log.h",
+      "legacy": "acs::FLogger",
+      "canonical": "acs::CLogger",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "foundation/LogSinkSubscription.h",
+      "legacy": null,
+      "canonical": "acs::FLogSinkSubscription",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "foundation/SourceLoc.h",
+      "legacy": null,
+      "canonical": "acs::FSourceLoc",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "foundation/StackTrace.h",
+      "legacy": null,
+      "canonical": "acs::FStackTrace",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "imgui/ImGuiContext.h",
+      "legacy": null,
+      "canonical": "acs::FImGuiCtx",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "localmatch/LocalMatchmaker.h",
+      "legacy": "acs::localmatch::FLocalMatchmaker",
+      "canonical": "acs::localmatch::CLocalMatchmaker",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
       "path": "memory/AObject.h",
       "legacy": "acs::FObject",
       "canonical": "acs::AObject",
@@ -30,11 +345,683 @@
       "prefix": "A"
     },
     {
+      "path": "memory/Allocator.h",
+      "legacy": "acs::FAllocator",
+      "canonical": "acs::IAllocator",
+      "kind": "class",
+      "prefix": "I"
+    },
+    {
+      "path": "memory/ArenaAllocator.h",
+      "legacy": "acs::FArenaAllocator",
+      "canonical": "acs::CArenaAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/CrtDebugHeapDiagnostics.h",
+      "legacy": null,
+      "canonical": "acs::FCrtDebugHeapProcessConfigurationScope",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "memory/CrtDebugHeapDiagnostics.h",
+      "legacy": null,
+      "canonical": "acs::FCrtDebugHeapScope",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "memory/CrtDebugHeapDiagnostics.h",
+      "legacy": "acs::FCrtDebugHeapDiagnostics",
+      "canonical": "acs::CCrtDebugHeapDiagnostics",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/LinearAllocator.h",
+      "legacy": "acs::FLinearAllocator",
+      "canonical": "acs::CLinearAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/MemorySystem.h",
+      "legacy": "acs::FMemorySystem",
+      "canonical": "acs::CMemorySystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/MimallocAllocator.h",
+      "legacy": "acs::FMimallocAllocator",
+      "canonical": "acs::CMimallocAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/PoolAllocator.h",
+      "legacy": "acs::FPoolAllocator",
+      "canonical": "acs::CPoolAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/RelocatableAllocator.h",
+      "legacy": "acs::FRelocatableAllocator",
+      "canonical": "acs::CRelocatableAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/ShardedTlsf.h",
+      "legacy": "acs::FShardedTlsfAllocator",
+      "canonical": "acs::CShardedTlsfAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/SystemAllocator.h",
+      "legacy": "acs::FSystemAllocator",
+      "canonical": "acs::CSystemAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/Tlsf.h",
+      "legacy": "acs::FTlsfAllocator",
+      "canonical": "acs::CTlsfAllocator",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/VirtualMemory.h",
+      "legacy": null,
+      "canonical": "acs::FVmReservation",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "mlonnx/OnnxMlRuntime.h",
+      "legacy": "acs::mlonnx::FOnnxMlRuntime",
+      "canonical": "acs::mlonnx::COnnxMlRuntime",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "mvvm/Command.h",
+      "legacy": null,
+      "canonical": "acs::FCommand",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "mvvm/ViewModel.h",
+      "legacy": "acs::FViewModel",
+      "canonical": "acs::CViewModel",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "network/Network.h",
+      "legacy": "acs::FNetwork",
+      "canonical": "acs::CNetwork",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "network/TcpConnection.h",
+      "legacy": null,
+      "canonical": "acs::FTcpConnection",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "network/TcpListener.h",
+      "legacy": null,
+      "canonical": "acs::FTcpListener",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "network/UdpSocket.h",
+      "legacy": null,
+      "canonical": "acs::FUdpSocket",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "openxr/KhronosOpenXrBridge.h",
+      "legacy": "acs::openxr::FKhronosOpenXrBridge",
+      "canonical": "acs::openxr::CKhronosOpenXrBridge",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "platform/FileSystem.h",
+      "legacy": "acs::FFileSystem",
+      "canonical": "acs::CFileSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "platform/Input.h",
+      "legacy": "acs::FInput",
+      "canonical": "acs::CInput",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "platform/Localization.h",
+      "legacy": null,
+      "canonical": "acs::FLocalization",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "platform/Storage.h",
+      "legacy": null,
+      "canonical": "acs::FStorage",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "platform/Time.h",
+      "legacy": null,
+      "canonical": "acs::FFrameTimer",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "platform/Time.h",
+      "legacy": "acs::FClock",
+      "canonical": "acs::CClock",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "platform/Window.h",
+      "legacy": null,
+      "canonical": "acs::FWindow",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Atmosphere.h",
+      "legacy": "acs::FAtmosphere",
+      "canonical": "acs::CAtmosphere",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Atmosphere.h",
+      "legacy": "acs::FSkyAtmosphere",
+      "canonical": "acs::CSkyAtmosphere",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Blit.h",
+      "legacy": "acs::FBlit",
+      "canonical": "acs::CBlit",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/BurnEffect.h",
+      "legacy": "acs::FBurnEffect",
+      "canonical": "acs::CBurnEffect",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/DebugDraw.h",
+      "legacy": "acs::FDebugDraw3D",
+      "canonical": "acs::CDebugDraw3D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Diligent/DiligentBuffer.h",
+      "legacy": null,
+      "canonical": "acs::FDiligentBuffer",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Diligent/DiligentCommandList.h",
+      "legacy": "acs::FDiligentCommandList",
+      "canonical": "acs::CDiligentCommandList",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Diligent/DiligentDevice.h",
+      "legacy": "acs::FDiligentDevice",
+      "canonical": "acs::CDiligentDevice",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Diligent/DiligentMemoryAdapter.h",
+      "legacy": "acs::FDiligentMemoryAdapter",
+      "canonical": "acs::CDiligentMemoryAdapter",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Diligent/DiligentPipeline.h",
+      "legacy": null,
+      "canonical": "acs::FDiligentPipeline",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Diligent/DiligentShader.h",
+      "legacy": null,
+      "canonical": "acs::FDiligentShader",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Diligent/DiligentSwapchain.h",
+      "legacy": null,
+      "canonical": "acs::FDiligentSwapchain",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Diligent/DiligentTexture.h",
+      "legacy": null,
+      "canonical": "acs::FDiligentTexture",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Dx12/Dx12Buffer.h",
+      "legacy": null,
+      "canonical": "acs::FDx12Buffer",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Dx12/Dx12CommandList.h",
+      "legacy": "acs::FDx12CommandList",
+      "canonical": "acs::CDx12CommandList",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Dx12/Dx12Device.h",
+      "legacy": "acs::FDx12Device",
+      "canonical": "acs::CDx12Device",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Dx12/Dx12Pipeline.h",
+      "legacy": null,
+      "canonical": "acs::FDx12Pipeline",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Dx12/Dx12Shader.h",
+      "legacy": null,
+      "canonical": "acs::FDx12Shader",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Dx12/Dx12Swapchain.h",
+      "legacy": null,
+      "canonical": "acs::FDx12Swapchain",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Dx12/Dx12Texture.h",
+      "legacy": null,
+      "canonical": "acs::FDx12Texture",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Font.h",
+      "legacy": null,
+      "canonical": "acs::FFont",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Fxaa.h",
+      "legacy": "acs::FFxaa",
+      "canonical": "acs::CFxaa",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/HiZ.h",
+      "legacy": "acs::FHiZ",
+      "canonical": "acs::CHiZ",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Ibl.h",
+      "legacy": "acs::FImageBasedLighting",
+      "canonical": "acs::CImageBasedLighting",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Light2D.h",
+      "legacy": "acs::FBlobShadow",
+      "canonical": "acs::CBlobShadow",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Light2D.h",
+      "legacy": "acs::FLighting2D",
+      "canonical": "acs::CLighting2D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/MotionVector.h",
+      "legacy": "acs::FMotionVector",
+      "canonical": "acs::CMotionVector",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Particles.h",
+      "legacy": "acs::FParticleSystem",
+      "canonical": "acs::CParticleSystem",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/PbrShader.h",
+      "legacy": "acs::FPbrShader",
+      "canonical": "acs::CPbrShader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/PostProcess.h",
+      "legacy": "acs::FPostProcess",
+      "canonical": "acs::CPostProcess",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/RefractionShader.h",
+      "legacy": "acs::FRefractionShader",
+      "canonical": "acs::CRefractionShader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/RenderGraphTransientAlias.h",
+      "legacy": "acs::FRenderGraphTransientAliasPlanner",
+      "canonical": "acs::CRenderGraphTransientAliasPlanner",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Renderer.h",
+      "legacy": "acs::FRenderer",
+      "canonical": "acs::CRenderer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/ShadowMap.h",
+      "legacy": "acs::FShadowMap",
+      "canonical": "acs::CShadowMap",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/SkinnedShader.h",
+      "legacy": "acs::FSkinnedShader",
+      "canonical": "acs::CSkinnedShader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Sky.h",
+      "legacy": "acs::FSky",
+      "canonical": "acs::CSky",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Sky.h",
+      "legacy": "acs::FVolumetricClouds",
+      "canonical": "acs::CVolumetricClouds",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/SpriteBatch.h",
+      "legacy": "acs::FSpriteBatch",
+      "canonical": "acs::CSpriteBatch",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/SpriteSortList.h",
+      "legacy": null,
+      "canonical": "acs::FSpriteSortList",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "render/Ssao.h",
+      "legacy": "acs::FSsao",
+      "canonical": "acs::CSsao",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Ssgi.h",
+      "legacy": "acs::FSsgi",
+      "canonical": "acs::CSsgi",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/Ssr.h",
+      "legacy": "acs::FSsr",
+      "canonical": "acs::CSsr",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/StandardShader.h",
+      "legacy": "acs::FStandardShader",
+      "canonical": "acs::CStandardShader",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/SubsurfaceScattering.h",
+      "legacy": "acs::FSubsurfaceScattering",
+      "canonical": "acs::CSubsurfaceScattering",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/TransientUploadArena.h",
+      "legacy": "acs::FTransientUploadArena",
+      "canonical": "acs::CTransientUploadArena",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/VertexScatter.h",
+      "legacy": "acs::FVertexScatter",
+      "canonical": "acs::CVertexScatter",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "render/WaterSurface3D.h",
+      "legacy": "acs::FWaterSurface3D",
+      "canonical": "acs::CWaterSurface3D",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
       "path": "scripting/LuaVm.h",
       "legacy": "acs::scripting::FLuaVm",
       "canonical": "acs::scripting::CLuaVm",
       "kind": "class",
       "prefix": "C"
+    },
+    {
+      "path": "steamworks/SteamworksBridgeImpl.h",
+      "legacy": "acs::steamworks::FSteamworksBridgeImpl",
+      "canonical": "acs::steamworks::CSteamworksBridgeImpl",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "telemetryfile/FileTelemetryBackendClient.h",
+      "legacy": "acs::telemetryfile::FFileTelemetryBackendClient",
+      "canonical": "acs::telemetryfile::CFileTelemetryBackendClient",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "threading/ConditionVar.h",
+      "legacy": null,
+      "canonical": "acs::FConditionVar",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "threading/JobGraph.h",
+      "legacy": "acs::FJobGraph",
+      "canonical": "acs::CJobGraph",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "threading/Mutex.h",
+      "legacy": null,
+      "canonical": "acs::FMutex",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "threading/RwLock.h",
+      "legacy": null,
+      "canonical": "acs::FRwLock",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "threading/Thread.h",
+      "legacy": null,
+      "canonical": "acs::FThread",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "threading/ThreadPool.h",
+      "legacy": null,
+      "canonical": "acs::FCompletionCounter",
+      "kind": "class",
+      "prefix": "F"
+    },
+    {
+      "path": "threading/ThreadPool.h",
+      "legacy": "acs::FThreadPool",
+      "canonical": "acs::CThreadPool",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "ui/UiRenderer.h",
+      "legacy": "acs::FUiInput",
+      "canonical": "acs::CUiInput",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "ui/UiRenderer.h",
+      "legacy": "acs::FUiRenderer",
+      "canonical": "acs::CUiRenderer",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "ui/Widget.h",
+      "legacy": "acs::FAnchorPanel",
+      "canonical": "acs::AAnchorPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widget.h",
+      "legacy": "acs::FContainer",
+      "canonical": "acs::AContainer",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widget.h",
+      "legacy": "acs::FStackPanel",
+      "canonical": "acs::AStackPanel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widget.h",
+      "legacy": "acs::FWidget",
+      "canonical": "acs::AWidget",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widgets.h",
+      "legacy": "acs::FButton",
+      "canonical": "acs::AButton",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widgets.h",
+      "legacy": "acs::FCheckbox",
+      "canonical": "acs::ACheckbox",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widgets.h",
+      "legacy": "acs::FLabel",
+      "canonical": "acs::ALabel",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widgets.h",
+      "legacy": "acs::FSlider",
+      "canonical": "acs::ASlider",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "ui/Widgets.h",
+      "legacy": "acs::FTextInput",
+      "canonical": "acs::ATextInput",
+      "kind": "class",
+      "prefix": "A"
     }
   ]
 }

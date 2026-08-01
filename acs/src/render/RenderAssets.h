@@ -21,9 +21,9 @@
 
 namespace acs {
 
-class FImageAsset;
-class FMeshAsset;
-class FSkinnedMeshAsset;
+class AImageAsset;
+class AMeshAsset;
+class ASkinnedMeshAsset;
 
 /**
  * 画像アセットを GPU テクスチャにアップロードする (同期、戻った時点で即座に使用可能)。
@@ -32,7 +32,7 @@ class FSkinnedMeshAsset;
  * @param img アップロード元の画像アセット。
  * @return 生成したテクスチャを所有する TUniquePtr、失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept;
+TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const AImageAsset& img) noexcept;
 
 /**
  * メッシュ 1 つ分の GPU バッファセット (頂点バッファ + インデックスバッファ)。
@@ -62,7 +62,7 @@ struct FGpuMesh {
  * @param out 生成した VB/IB と各カウントを書き込む出力先。
  * @return 成功なら空の TResult、失敗ならエラー。
  */
-TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept;
+TResult<void> UploadMesh(IRhiDevice& device, const AMeshAsset& mesh, FGpuMesh& out) noexcept;
 
 /**
  * スキンメッシュ 1 つ分の GPU バッファセット (CSkinnedShader が消費する形式)。
@@ -93,7 +93,7 @@ struct FSkinnedGpuMesh {
  * @return 成功なら空の TResult、失敗ならエラー。
  */
 TResult<void> UploadSkinnedMesh(IRhiDevice& device,
-                                const FSkinnedMeshAsset& mesh,
+                                const ASkinnedMeshAsset& mesh,
                                 FSkinnedGpuMesh& out) noexcept;
 
 } // namespace acs

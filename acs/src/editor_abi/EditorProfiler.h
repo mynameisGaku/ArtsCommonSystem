@@ -302,19 +302,19 @@ private:
     bool m_HasLastFrame = false;
 };
 
-using FClock = std::chrono::steady_clock;
-using FTimePoint = FClock::time_point;
+using CClock = std::chrono::steady_clock;
+using FTimePoint = CClock::time_point;
 
 inline f32 ElapsedMilliseconds(FTimePoint begin) noexcept {
     return static_cast<f32>(
         std::chrono::duration<double, std::milli>(
-            FClock::now() - begin).count());
+            CClock::now() - begin).count());
 }
 
 class FCpuScope {
 public:
     explicit FCpuScope(f32& destination) noexcept
-        : m_Destination(destination), m_Begin(FClock::now()) {}
+        : m_Destination(destination), m_Begin(CClock::now()) {}
 
     ~FCpuScope() noexcept {
         m_Destination += ElapsedMilliseconds(m_Begin);

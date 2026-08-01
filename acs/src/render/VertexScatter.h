@@ -57,7 +57,7 @@ public:
      * @param weld_epsilon 位置溶接のしきい値 (これ以下の距離の頂点を同一ノードに束ねる)。
      * @return 頂点数 >= 1 かつ三角形が 1 つ以上あれば true。
      */
-    bool Build(const FMeshAsset& mesh, f32 weld_epsilon = 1e-4f) noexcept;
+    bool Build(const AMeshAsset& mesh, f32 weld_epsilon = 1e-4f) noexcept;
 
     /** 頂点配列・インデックス配列から直接構築する (アセット非依存の検証/汎用用)。 */
     bool Build(const FVec3* positions, u32 vcount, const u32* indices, u32 icount,

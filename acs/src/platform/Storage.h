@@ -29,7 +29,7 @@ public:
     }
 
     /** 指定した allocator を全エントリの確保元として空のストアを構築する。 */
-    explicit FStorage(FAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
+    explicit FStorage(IAllocator& allocator) noexcept : m_Entries(allocator), m_Allocator(&allocator)
     {
     }
 
@@ -323,7 +323,7 @@ private:
     TArray<FEntry> m_Entries;
 
     /** エントリ配列と key/value 文字列を確保した allocator。 */
-    FAllocator* m_Allocator = nullptr;
+    IAllocator* m_Allocator = nullptr;
 };
 
 } // namespace acs

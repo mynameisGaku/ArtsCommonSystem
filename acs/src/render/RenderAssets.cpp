@@ -40,7 +40,7 @@ EFormat ToRhiFormat(EPixelFormat f) noexcept {
  * @param img アップロード元の画像アセット。
  * @return 成功なら所有権付きの IRhiTexture、空画像・未対応フォーマット・生成失敗ならエラー。
  */
-TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageAsset& img) noexcept {
+TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const AImageAsset& img) noexcept {
     if (img.Width() == 0 || img.Height() == 0)
         return ACS_ERR(Render, 80, "UploadTexture: empty image");
 
@@ -71,7 +71,7 @@ TResult<TUniquePtr<IRhiTexture>> UploadTexture(IRhiDevice& device, const FImageA
  * @param out 生成した VB/IB と頂点数・インデックス数・ストライドの書き込み先。
  * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
  */
-TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& out) noexcept {
+TResult<void> UploadMesh(IRhiDevice& device, const AMeshAsset& mesh, FGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 82, "UploadMesh: empty mesh");
 
@@ -113,7 +113,7 @@ TResult<void> UploadMesh(IRhiDevice& device, const FMeshAsset& mesh, FGpuMesh& o
  * @param out 生成した VB/IB と頂点数・インデックス数・ストライドの書き込み先。
  * @return 成功なら空の TResult、空メッシュ・バッファ生成失敗ならエラー。
  */
-TResult<void> UploadSkinnedMesh(IRhiDevice& device, const FSkinnedMeshAsset& mesh,
+TResult<void> UploadSkinnedMesh(IRhiDevice& device, const ASkinnedMeshAsset& mesh,
                                FSkinnedGpuMesh& out) noexcept {
     if (mesh.Vertices().Size() == 0)
         return ACS_ERR(Render, 84, "UploadSkinnedMesh: empty mesh");

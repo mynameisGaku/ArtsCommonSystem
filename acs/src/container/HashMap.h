@@ -51,7 +51,7 @@ public:
      *
      * @param a 値配列・バケット確保に使うアロケータ。
      */
-    explicit THashMap(FAllocator& a) noexcept : m_Values(a), m_Alloc(&a) {}
+    explicit THashMap(IAllocator& a) noexcept : m_Values(a), m_Alloc(&a) {}
 
     /** コピー禁止 (ムーブ専用)。 */
     THashMap(const THashMap&) = delete;
@@ -609,7 +609,7 @@ private:
     u32              m_BucketMask  = 0;
 
     /** 確保に使うアロケータ。 */
-    FAllocator*       m_Alloc        = nullptr;
+    IAllocator*       m_Alloc        = nullptr;
 };
 
 } // namespace acs

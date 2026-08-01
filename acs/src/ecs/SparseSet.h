@@ -86,7 +86,7 @@ public:
      * @param alloc 複製の確保に使うアロケータ。
      * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
      */
-    virtual ASparseSetBase* CloneErased(FAllocator& alloc) const noexcept = 0;
+    virtual ASparseSetBase* CloneErased(IAllocator& alloc) const noexcept = 0;
 
 protected:
     /**
@@ -246,7 +246,7 @@ public:
      * @param alloc 複製の確保に使うアロケータ。
      * @return 複製した集合 (失敗なら nullptr)。所有権は呼び出し側へ移る。
      */
-    ASparseSetBase* CloneErased(FAllocator& alloc) const noexcept override {
+    ASparseSetBase* CloneErased(IAllocator& alloc) const noexcept override {
         if constexpr (!IsCopyConstructibleV<T>) {
             return nullptr;   // 非コピー型の snapshot は不可 (CWorld::CopyFrom が false を返す)
         } else {

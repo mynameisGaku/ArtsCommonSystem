@@ -276,13 +276,13 @@ struct FPoolState {
     u32 wake_reservations = 0;
 
     /** 外部投入ノードを HeapAlloc せず取るための固定サイズプール。 */
-    FPoolAllocator*    submit_node_pool = nullptr;
+    CPoolAllocator*    submit_node_pool = nullptr;
 
     /** 所有 callable ノードを HeapAlloc せず取る固定サイズプール。 */
-    FPoolAllocator* callable_node_pool = nullptr;
+    CPoolAllocator* callable_node_pool = nullptr;
 
     /** ParallelFor の overflow context を再利用する固定 block pool。 */
-    FPoolAllocator* parallel_for_context_pool = nullptr;
+    CPoolAllocator* parallel_for_context_pool = nullptr;
 
     /** 外部投入キュー lock の取得回数。 */
     TAtomic<u64> submission_lock_acquisitions{0};
@@ -478,7 +478,7 @@ FSubmissionNode* AcquireSubmitNode(FPoolState* pool) noexcept
 void ReleaseSubmitNode(FPoolState* state, FSubmissionNode* n) noexcept
 {
     if (!n) return;
-    FPoolAllocator* pool = state->submit_node_pool;
+    CPoolAllocator* pool = state->submit_node_pool;
     if (pool && pool->Contains(n)) {
         pool->Free(n);
     } else {
@@ -814,32 +814,32 @@ TResult<void> CThreadPool::Init(u32 worker_count) noexcept {
     g_pool->worker_count = worker_count;
 
     // 外部投入ノード用のプールを構築（HeapAlloc syscall を回避）
-    void* pool_mem = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPoolAllocator));
+    void* pool_mem = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(CPoolAllocator));
     if (!pool_mem) {
         ::HeapFree(::GetProcessHeap(), 0, wmem);
         DestroyPoolState(g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 7, "CThreadPool submit pool alloc failed");
     }
-    g_pool->submit_node_pool = ::new (pool_mem) FPoolAllocator(sizeof(FSubmissionNode), kSubmitNodePoolCount, alignof(FSubmissionNode));
+    g_pool->submit_node_pool = ::new (pool_mem) CPoolAllocator(sizeof(FSubmissionNode), kSubmitNodePoolCount, alignof(FSubmissionNode));
 
     // 所有 callable 用ノードも固定プールへ置き、通常投入時の HeapAlloc をなくす。
     void* callable_pool_mem =
-        ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPoolAllocator));
+        ::HeapAlloc(::GetProcessHeap(), 0, sizeof(CPoolAllocator));
     if (!callable_pool_mem) {
-        g_pool->submit_node_pool->~FPoolAllocator();
+        g_pool->submit_node_pool->~CPoolAllocator();
         ::HeapFree(::GetProcessHeap(), 0, g_pool->submit_node_pool);
         ::HeapFree(::GetProcessHeap(), 0, wmem);
         DestroyPoolState(g_pool);
         g_pool = nullptr;
         return ACS_ERR(Memory, 8, "CThreadPool callable pool alloc failed");
     }
-    g_pool->callable_node_pool = ::new (callable_pool_mem) FPoolAllocator(kCallableNodeBlockSize, kCallableNodePoolCount, alignof(std::max_align_t));
+    g_pool->callable_node_pool = ::new (callable_pool_mem) CPoolAllocator(kCallableNodeBlockSize, kCallableNodePoolCount, alignof(std::max_align_t));
 
     /** ParallelFor 固定 block pool object の配置先。 */
-    void* const parallel_for_pool_memory = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(FPoolAllocator));
+    void* const parallel_for_pool_memory = ::HeapAlloc(::GetProcessHeap(), 0, sizeof(CPoolAllocator));
     if (parallel_for_pool_memory) {
-        g_pool->parallel_for_context_pool = ::new (parallel_for_pool_memory) FPoolAllocator(sizeof(FParallelForContextBlock), kParallelForContextBlockPoolCount, alignof(FParallelForContextBlock));
+        g_pool->parallel_for_context_pool = ::new (parallel_for_pool_memory) CPoolAllocator(sizeof(FParallelForContextBlock), kParallelForContextBlockPoolCount, alignof(FParallelForContextBlock));
     }
 
     g_pool->accepting.Store(1, EMemoryOrder::Release);
@@ -855,12 +855,12 @@ TResult<void> CThreadPool::Init(u32 worker_count) noexcept {
             g_pool->running.Store(0, EMemoryOrder::Release);
             WakeAllWorkers(g_pool);
             for (u32 j = 0; j < i; ++j) g_pool->threads[j].Join();
-            g_pool->submit_node_pool->~FPoolAllocator();
+            g_pool->submit_node_pool->~CPoolAllocator();
             ::HeapFree(::GetProcessHeap(), 0, g_pool->submit_node_pool);
-            g_pool->callable_node_pool->~FPoolAllocator();
+            g_pool->callable_node_pool->~CPoolAllocator();
             ::HeapFree(::GetProcessHeap(), 0, g_pool->callable_node_pool);
             if (g_pool->parallel_for_context_pool) {
-                g_pool->parallel_for_context_pool->~FPoolAllocator();
+                g_pool->parallel_for_context_pool->~CPoolAllocator();
                 ::HeapFree(::GetProcessHeap(), 0, g_pool->parallel_for_context_pool);
             }
             ::HeapFree(::GetProcessHeap(), 0, wmem);
@@ -934,21 +934,21 @@ void CThreadPool::Shutdown() noexcept {
 
     // ノードプール破棄
     if (pool->submit_node_pool) {
-        pool->submit_node_pool->~FPoolAllocator();
+        pool->submit_node_pool->~CPoolAllocator();
         ::HeapFree(::GetProcessHeap(), 0, pool->submit_node_pool);
         pool->submit_node_pool = nullptr;
     }
 
     // 所有 callable ノードプール破棄
     if (pool->callable_node_pool) {
-        pool->callable_node_pool->~FPoolAllocator();
+        pool->callable_node_pool->~CPoolAllocator();
         ::HeapFree(::GetProcessHeap(), 0, pool->callable_node_pool);
         pool->callable_node_pool = nullptr;
     }
 
     // ParallelFor context block pool を破棄する。
     if (pool->parallel_for_context_pool) {
-        pool->parallel_for_context_pool->~FPoolAllocator();
+        pool->parallel_for_context_pool->~CPoolAllocator();
         ::HeapFree(::GetProcessHeap(), 0, pool->parallel_for_context_pool);
         pool->parallel_for_context_pool = nullptr;
     }

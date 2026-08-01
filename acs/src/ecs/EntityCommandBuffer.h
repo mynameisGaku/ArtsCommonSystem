@@ -23,7 +23,7 @@ public:
      * @param world 適用先の CWorld (参照を保持)。
      * @param alloc Add 値の退避とコマンド列に使うアロケータ。
      */
-    explicit FEntityCommandBuffer(CWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FEntityCommandBuffer(CWorld& world, IAllocator& alloc = DefaultAllocator()) noexcept
         : m_World(&world), m_Alloc(&alloc), m_Commands(alloc)
     {
     }
@@ -245,7 +245,7 @@ private:
         /** 追加または除去を型消去して適用する関数。 */
         void (*apply)(CWorld&, FEntityId, void*) noexcept = nullptr;
         /** ヒープへ退避した値を型消去して破棄する関数。 */
-        void (*destroy)(FAllocator&, void*) noexcept = nullptr;
+        void (*destroy)(IAllocator&, void*) noexcept = nullptr;
         /** 小規模値を確保せず保持する領域。 */
         alignas(16) byte inline_value[kInlineValueBytes]{};
         /** 小規模値領域を使用中なら true。 */
@@ -306,7 +306,7 @@ private:
 
     /** 退避した T を破棄して領域を返す型消去 thunk。 */
     template<typename T>
-    static void DestroyValue(FAllocator& alloc, void* value) noexcept
+    static void DestroyValue(IAllocator& alloc, void* value) noexcept
     {
         Delete(alloc, static_cast<T*>(value));
     }
@@ -315,7 +315,7 @@ private:
     CWorld* m_World = nullptr;
 
     /** 退避とコマンド列に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 
     /** 記録順のコマンド列。 */
     TArray<FCommand> m_Commands;

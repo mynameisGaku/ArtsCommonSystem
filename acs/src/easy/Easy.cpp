@@ -94,7 +94,7 @@ namespace {
  * @details MemorySystem の起動・停止をまたいで EasyState が生存するため、静的コンテナは
  * 実行時の DefaultAllocator を保持せず、常にプロセスヒープから確保する。
  */
-FSystemAllocator g_easy_allocator;
+CSystemAllocator g_easy_allocator;
 
 /**
  * LoadSprite が確保する 1 枚分のスプライト情報。
@@ -128,7 +128,7 @@ struct FSoundSlot {
     }
 
     /** 音声アセット (再生中ずっと生かしておくため TSharedPtr で保持)。 */
-    TSharedPtr<FAsset>   asset;
+    TSharedPtr<AAsset>   asset;
 
     /** 読み込み元パス (再ロード時の同一判定に使う)。 */
     FString      path;
@@ -192,10 +192,10 @@ struct FEasyState {
     FWindow        window;
 
     /** レンダラ (GPU デバイス・スワップチェインを保持)。 */
-    FRenderer      renderer;
+    CRenderer      renderer;
 
     /** アセットレジストリ (画像・音声の読み込み)。 */
-    FAssetRegistry assets;
+    CAssetRegistry assets;
 
     /** 音声エンジン。 */
     CAudioEngine   audio;
@@ -204,10 +204,10 @@ struct FEasyState {
     bool          audio_ok = false;
 
     /** 図形・スプライト・文字の描画を集約するスプライトバッチ。 */
-    FSpriteBatch   batch;
+    CSpriteBatch   batch;
 
     /** 紙が燃える per-pixel ディゾルブ効果 (どのバックエンドでも動く)。 */
-    FBurnEffect    burn;
+    CBurnEffect    burn;
 
     /** 既定フォント (DrawString 用)。 */
     FFont          font;
@@ -276,7 +276,7 @@ struct FEasyState {
     FColor ui_text  { 1.0f,  1.0f,  1.0f,  1.0f  };
 
     /** ポストプロセス (HDR 経路。Diligent backend でのみ有効)。 */
-    FPostProcess       post;
+    CPostProcess       post;
 
     /** ポストプロセスが利用可能か。 */
     bool              post_available = false;
@@ -321,7 +321,7 @@ struct FEasyState {
     FAsyncBatch        async_batches[kMaxBatches];
 
     /** RunJobs 用に構築中の依存グラフ (未構築なら nullptr)。 */
-    FJobGraph*        pending_graph = nullptr;
+    CJobGraph*        pending_graph = nullptr;
 
     /** pending_graph の各ノードの Closure* (所有)。 */
     TArray<void*>     graph_closures;
@@ -513,7 +513,7 @@ void DrawTextScaled(f32 x, f32 y, const char* text, FVec4 color, f32 scale) noex
  * @param e 処理するウィンドウイベント。
  */
 void EasyEventBridge(void* /*user*/, const FEvent& e) noexcept {
-    FInput::OnEvent(e);
+    CInput::OnEvent(e);
     if (g_state.renderer_failure_pending) return;
     if (e.type == EEventType::WindowResize) {
         if (!g_state.renderer.OnResize(
@@ -556,7 +556,7 @@ void CleanupJobs() noexcept {
     for (u32 i = 0; i < FEasyState::kMaxBatches; ++i) {
         FEasyState::FAsyncBatch& b = g_state.async_batches[i];
         if (!b.live) continue;
-        FThreadPool::Wait(b.counter);
+        CThreadPool::Wait(b.counter);
         for (usize k = 0; k < b.closures.Size(); ++k)
             FreeClosure(static_cast<jobdetail::FClosure*>(b.closures[k]));
         b.closures.ReleaseStorage();
@@ -579,7 +579,7 @@ void CleanupJobs() noexcept {
  */
 void JobsAtexit() {
     CleanupJobs();
-    if (g_state.jobs_pool_owned) { FThreadPool::Shutdown(); g_state.jobs_pool_owned = false; }
+    if (g_state.jobs_pool_owned) { CThreadPool::Shutdown(); g_state.jobs_pool_owned = false; }
 }
 
 /** セーブ用の静的コンテナを、メモリシステム停止前に解放する。 */
@@ -619,17 +619,17 @@ void ShutdownEasy() noexcept {
     g_state.window = FWindow{};              // HWND をプロセス終了まで保持しない
 
     if (g_state.thread_pool_owned) {
-        FThreadPool::Shutdown();
+        CThreadPool::Shutdown();
         g_state.thread_pool_owned = false;
     }
     if (g_state.memory_system_owned) {
-        FMemorySystem::Shutdown();
+        CMemorySystem::Shutdown();
         g_state.memory_system_owned = false;
     }
     ACS_LOG_INFO("easy: 終了しました");
     if (g_state.logger_owned) {
-        FLogger::Flush();
-        FLogger::Shutdown();
+        CLogger::Flush();
+        CLogger::Shutdown();
         g_state.logger_owned = false;
     }
 
@@ -838,15 +838,15 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
     g_state.ui_active = 0;
 
     // 1. ロガー。呼出側が既に起動している場合は借用し、終了時にも停止しない。
-    if (!FLogger::IsInitialized()) {
+    if (!CLogger::IsInitialized()) {
         FLogConfig lc{};
-        FLogger::Init(lc);
-        g_state.logger_owned = FLogger::IsInitialized();
+        CLogger::Init(lc);
+        g_state.logger_owned = CLogger::IsInitialized();
     }
 
     // 2. メモリシステム
-    if (FMemorySystem::Get(ESegment::Default) == nullptr) {
-        if (auto r = FMemorySystem::Init(FMemorySystem::DefaultConfig()); r.IsErr()) {
+    if (CMemorySystem::Get(ESegment::Default) == nullptr) {
+        if (auto r = CMemorySystem::Init(CMemorySystem::DefaultConfig()); r.IsErr()) {
             ACS_LOG_ERROR("easy: メモリシステムの初期化に失敗: %s", r.Error().message);
             FailEasyStartup();
             return;
@@ -854,8 +854,8 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         g_state.memory_system_owned = true;
     }
     // 3. スレッドプール
-    if (FThreadPool::WorkerCount() == 0) {
-        if (auto r = FThreadPool::Init(); r.IsErr()) {
+    if (CThreadPool::WorkerCount() == 0) {
+        if (auto r = CThreadPool::Init(); r.IsErr()) {
             ACS_LOG_ERROR("easy: スレッドプールの初期化に失敗: %s", r.Error().message);
             FailEasyStartup();
             return;
@@ -932,7 +932,7 @@ void OpenWindow(i32 width, i32 height, const char* title) noexcept {
         ACS_LOG_WARN("easy: 音声を初期化できませんでした（音は鳴りません）");
 
     g_state.timer  = FFrameTimer{};
-    g_rng          = static_cast<u32>(FClock::Ticks());   // 乱数の種を起動時刻で
+    g_rng          = static_cast<u32>(CClock::Ticks());   // 乱数の種を起動時刻で
     if (g_rng == 0) g_rng = 0x9E3779B9u;
     g_state.booted = true;
     if (!g_state.shutdown_atexit) {
@@ -987,7 +987,7 @@ bool NextFrame() noexcept {
     }
 
     // フレーム先頭処理
-    FInput::Update();
+    CInput::Update();
     g_state.window.PollEvents();
 
     // 保留中の全画面切替を、フレームの外側（リサイズが安全なこの位置）で適用
@@ -1003,7 +1003,7 @@ bool NextFrame() noexcept {
         return false;
     }
 
-    FMemorySystem::ResetTemp();
+    CMemorySystem::ResetTemp();
     g_state.dt = g_state.timer.Tick();
 
     // 終了判定（× ボタン or Quit()）
@@ -1501,13 +1501,13 @@ FSprite LoadSprite(const char* path) noexcept {
         ACS_LOG_ERROR("easy: 画像を読み込めません '%s': %s", path, r.Error().message);
         return FSprite{ 0 };
     }
-    const TSharedPtr<FAsset> asset = r.Value();
-    FAsset* base = asset.Get();
-    if (!base || base->Type() != FImageAsset::StaticType()) {
+    const TSharedPtr<AAsset> asset = r.Value();
+    AAsset* base = asset.Get();
+    if (!base || base->Type() != AImageAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は画像ファイルではありません", path);
         return FSprite{ 0 };
     }
-    FImageAsset* img = static_cast<FImageAsset*>(base);
+    AImageAsset* img = static_cast<AImageAsset*>(base);
     auto tx = UploadTexture(*g_state.renderer.Device(), *img);
     if (tx.IsErr()) {
         ACS_LOG_ERROR("easy: 画像を GPU に転送できません '%s': %s", path, tx.Error().message);
@@ -1541,9 +1541,9 @@ FSound LoadSound(const char* path) noexcept {
         ACS_LOG_ERROR("easy: 音声を読み込めません '%s': %s", path, r.Error().message);
         return FSound{ 0 };
     }
-    const TSharedPtr<FAsset> asset = r.Value();
-    FAsset* base = asset.Get();
-    if (!base || base->Type() != FAudioAsset::StaticType()) {
+    const TSharedPtr<AAsset> asset = r.Value();
+    AAsset* base = asset.Get();
+    if (!base || base->Type() != AAudioAsset::StaticType()) {
         ACS_LOG_ERROR("easy: '%s' は音声ファイルではありません", path);
         return FSound{ 0 };
     }
@@ -1561,9 +1561,9 @@ void Play(FSound sound) noexcept { Play(sound, 1.0f); }
 void Play(FSound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
-    FAsset* base = g_state.sounds[sound.id - 1].asset.Get();
+    AAsset* base = g_state.sounds[sound.id - 1].asset.Get();
     if (base)
-        g_state.audio.Play(*static_cast<FAudioAsset*>(base), Clamp01(volume), false);
+        g_state.audio.Play(*static_cast<AAudioAsset*>(base), Clamp01(volume), false);
 }
 
 /** 音を既定音量でループ再生する。 */
@@ -1574,10 +1574,10 @@ void PlayLoop(FSound sound, f32 volume) noexcept {
     if (!g_state.audio_ok) return;
     if (sound.id == 0 || sound.id > g_state.sounds.Size()) return;
     FSoundSlot& slot = g_state.sounds[sound.id - 1];
-    FAsset* base = slot.asset.Get();
+    AAsset* base = slot.asset.Get();
     if (!base) return;
     if (slot.loop.IsValid()) g_state.audio.Stop(slot.loop);   // 二重ループを防ぐ
-    slot.loop = g_state.audio.Play(*static_cast<FAudioAsset*>(base),
+    slot.loop = g_state.audio.Play(*static_cast<AAudioAsset*>(base),
                                   Clamp01(volume), true);
 }
 
@@ -1616,78 +1616,78 @@ void ResumeAllSounds() noexcept {
 }
 
 /** キーが押されている間ずっと true を返す。 */
-bool IsKeyDown    (EKey key) noexcept { return FInput::IsKeyDown(key); }
+bool IsKeyDown    (EKey key) noexcept { return CInput::IsKeyDown(key); }
 
 /** キーを押した瞬間のフレームだけ true を返す。 */
-bool IsKeyPressed (EKey key) noexcept { return FInput::IsKeyPressed(key); }
+bool IsKeyPressed (EKey key) noexcept { return CInput::IsKeyPressed(key); }
 
 /** キーを離した瞬間のフレームだけ true を返す。 */
-bool IsKeyReleased(EKey key) noexcept { return FInput::IsKeyReleased(key); }
+bool IsKeyReleased(EKey key) noexcept { return CInput::IsKeyReleased(key); }
 
 /** このフレームに入力された文字 (UTF-8、IME 確定後) を返す。 */
-const char* TextInput() noexcept { return FInput::TextInput(); }
+const char* TextInput() noexcept { return CInput::TextInput(); }
 
 /** マウスの X 座標 (画面座標) を返す。 */
-f32  MouseX() noexcept { return FInput::MousePos().x; }
+f32  MouseX() noexcept { return CInput::MousePos().x; }
 
 /** マウスの Y 座標 (画面座標) を返す。 */
-f32  MouseY() noexcept { return FInput::MousePos().y; }
+f32  MouseY() noexcept { return CInput::MousePos().y; }
 
 /** マウスボタンが押されている間ずっと true を返す。 */
-bool IsMouseDown    (EMouseButton button) noexcept { return FInput::IsMouseButtonDown(button); }
+bool IsMouseDown    (EMouseButton button) noexcept { return CInput::IsMouseButtonDown(button); }
 
 /** マウスボタンを押した瞬間のフレームだけ true を返す。 */
-bool IsMousePressed (EMouseButton button) noexcept { return FInput::IsMouseButtonPressed(button); }
+bool IsMousePressed (EMouseButton button) noexcept { return CInput::IsMouseButtonPressed(button); }
 
 /** マウスボタンを離した瞬間のフレームだけ true を返す。 */
-bool IsMouseReleased(EMouseButton button) noexcept { return FInput::IsMouseButtonReleased(button); }
+bool IsMouseReleased(EMouseButton button) noexcept { return CInput::IsMouseButtonReleased(button); }
 
 /** マウスホイールの回転量を返す。 */
-f32  MouseWheel() noexcept { return FInput::MouseWheel(); }
+f32  MouseWheel() noexcept { return CInput::MouseWheel(); }
 
 /** ゲームパッドが接続されているかを返す。 */
 bool IsGamepadConnected(i32 player) noexcept {
-    return FInput::IsGamepadConnected(GpIdx(player));
+    return CInput::IsGamepadConnected(GpIdx(player));
 }
 
 /** ゲームパッドのボタンが押されている間ずっと true を返す。 */
 bool IsGamepadDown(EGamepadButton button, i32 player) noexcept {
-    return FInput::IsGamepadButtonDown(GpIdx(player), button);
+    return CInput::IsGamepadButtonDown(GpIdx(player), button);
 }
 
 /** ゲームパッドのボタンを押した瞬間のフレームだけ true を返す。 */
 bool IsGamepadPressed(EGamepadButton button, i32 player) noexcept {
-    return FInput::IsGamepadButtonPressed(GpIdx(player), button);
+    return CInput::IsGamepadButtonPressed(GpIdx(player), button);
 }
 
 /** 左スティックの X 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadLeftX(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
+    return CInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftX);
 }
 
 /** 左スティックの Y 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadLeftY(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
+    return CInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftY);
 }
 
 /** 右スティックの X 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadRightX(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
+    return CInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightX);
 }
 
 /** 右スティックの Y 軸値 (-1.0〜+1.0) を返す。 */
 f32 GamepadRightY(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
+    return CInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightY);
 }
 
 /** 左トリガーの押し込み量 (0.0〜1.0) を返す。 */
 f32 GamepadLeftTrigger(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
+    return CInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::LeftTrigger);
 }
 
 /** 右トリガーの押し込み量 (0.0〜1.0) を返す。 */
 f32 GamepadRightTrigger(i32 player) noexcept {
-    return FInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
+    return CInput::GamepadAxisValue(GpIdx(player), EGamepadAxis::RightTrigger);
 }
 
 /** min 以上 max 以下の整数乱数を一様に返す (剰余バイアスを棄却)。 */
@@ -2306,19 +2306,19 @@ namespace jobdetail {
 
 /** スレッドプールのワーカ起動を保証する (未起動なら自動 Init)。 */
 bool Ready() noexcept {
-    if (FThreadPool::WorkerCount() >= 1) return true;
-    auto r = FThreadPool::Init();           // OpenWindow 未呼び出しでも初回使用で自動起動
+    if (CThreadPool::WorkerCount() >= 1) return true;
+    auto r = CThreadPool::Init();           // OpenWindow 未呼び出しでも初回使用で自動起動
     if (r.IsErr()) return false;
     if (!g_state.booted) g_state.jobs_pool_owned = true;   // jobs が起動した = jobs が後始末する
     if (!g_state.jobs_atexit) { std::atexit(&JobsAtexit); g_state.jobs_atexit = true; }
-    return FThreadPool::WorkerCount() >= 1;
+    return CThreadPool::WorkerCount() >= 1;
 }
 
 /** ParallelFor の自動チャンク幅 (ワーカ当たり ~4 チャンク) を求める。 */
 i32 AutoGrain(i32 begin, i32 end) noexcept {
     const i32 n = end - begin;
     if (n <= 0) return 1;
-    u32 w = FThreadPool::WorkerCount(); if (w < 1) w = 1;
+    u32 w = CThreadPool::WorkerCount(); if (w < 1) w = 1;
     const i32 chunks = static_cast<i32>(w) * 4;            // ワーカ当たり ~4 チャンク
     const i32 g = n / (chunks > 0 ? chunks : 1);
     return g > 0 ? g : 1;
@@ -2347,7 +2347,7 @@ FJobBatch SubmitAsync(FClosure* c, FJobBatch existing) noexcept {
     }
     b->closures.PushBack(c);                               // batch がクロージャを所有
     FTask t{ &RunClosureTask, c, &b->counter };
-    auto r = FThreadPool::Submit(t);
+    auto r = CThreadPool::Submit(t);
     if (r.IsErr()) { RunClosureTask(c, 0); }               // 投入失敗 → 同期実行 (解放は WaitJobs)
     return FJobBatch{ (static_cast<u32>(b->gen) << 16) | (idx + 1u) };
 }
@@ -2356,7 +2356,7 @@ FJobBatch SubmitAsync(FClosure* c, FJobBatch existing) noexcept {
 FJobNode AddNode(FClosure* c) noexcept {
     if (!c) return FJobNode{};
     if (!g_state.pending_graph) {
-        g_state.pending_graph  = new FJobGraph();
+        g_state.pending_graph  = new CJobGraph();
         g_state.graph_closures.ReleaseStorage();
         g_state.graph_handles.ReleaseStorage();
     }
@@ -2376,7 +2376,7 @@ void WaitJobs(FJobBatch batch) noexcept {
     if (idx >= FEasyState::kMaxBatches) return;
     FEasyState::FAsyncBatch& b = g_state.async_batches[idx];
     if (!b.live || b.gen != static_cast<u16>(batch.id >> 16)) return;   // 既に Wait 済 or 無効
-    FThreadPool::Wait(b.counter);
+    CThreadPool::Wait(b.counter);
     for (usize k = 0; k < b.closures.Size(); ++k)
         FreeClosure(static_cast<jobdetail::FClosure*>(b.closures[k]));
     b.closures.ReleaseStorage();
@@ -2405,7 +2405,7 @@ void Then(FJobNode before, FJobNode after) noexcept {
 void RunJobs() noexcept {
     if (!g_state.pending_graph) return;
     (void)jobdetail::Ready();                              // プールを保証 (未起動なら自動 Init)
-    FJobGraph* g = g_state.pending_graph;
+    CJobGraph* g = g_state.pending_graph;
     auto r = g->Submit();
     if (r.IsOk()) {
         g->Wait();
@@ -2423,9 +2423,9 @@ void RunJobs() noexcept {
 }
 
 /** 並列ワーカ数を返す (未起動なら自動起動を試みる)。 */
-i32  WorkerCount() noexcept { (void)jobdetail::Ready(); return static_cast<i32>(FThreadPool::WorkerCount()); }
+i32  WorkerCount() noexcept { (void)jobdetail::Ready(); return static_cast<i32>(CThreadPool::WorkerCount()); }
 
 /** 今このコードがワーカスレッド上で動いているかを返す。 */
-bool IsWorker()    noexcept { return FThreadPool::CurrentWorkerIndex() != FThreadPool::kNotAWorker; }
+bool IsWorker()    noexcept { return CThreadPool::CurrentWorkerIndex() != CThreadPool::kNotAWorker; }
 
 } // namespace acs::easy

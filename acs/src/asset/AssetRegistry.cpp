@@ -236,7 +236,7 @@ namespace {
 /** 非同期ロードワーカーに渡すジョブ引数 (heap 確保し所有権をワーカーへ渡す)。 */
 struct FAsyncLoadJob {
     /** このジョブ本体を確保したアロケータ。ワーカースレッドでの解放にも同じものを使う。 */
-    FAllocator* allocator = nullptr;
+    IAllocator* allocator = nullptr;
 
     /** キャッシュ挿入先のレジストリ。 */
     CAssetRegistry*           registry  = nullptr;
@@ -444,7 +444,7 @@ FAssetFuture CAssetRegistry::LoadAsync(const wchar_t* path) noexcept {
     t.fn      = &AsyncLoadWorker;
     t.user    = job.Get();
     t.counter = nullptr;     // 完了通知は state->counter 側で行う
-    auto sub = FThreadPool::Submit(t);
+    auto sub = CThreadPool::Submit(t);
     if (sub.IsErr()) {
         // 投入失敗時は同期的に実行
         AsyncLoadWorker(job.Release(), 0);
@@ -498,8 +498,8 @@ void CAssetRegistry::Shutdown() noexcept
     // ThreadPool が生きていれば待機側もキュー排出を手伝う。既に停止済みの場合でも、
     // 同期 Load が別スレッドで戻るまで待てるよう短時間 sleep で確認を続ける。
     while (!m_ActiveOperations.Finished()) {
-        if (FThreadPool::WorkerCount() != 0)
-            FThreadPool::Wait(m_ActiveOperations);
+        if (CThreadPool::WorkerCount() != 0)
+            CThreadPool::Wait(m_ActiveOperations);
         else
             SleepMs(1);
     }

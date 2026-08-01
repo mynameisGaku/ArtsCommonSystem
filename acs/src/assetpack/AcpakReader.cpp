@@ -194,7 +194,7 @@ CAcpakReader::CAcpakReader() noexcept : CAcpakReader(DefaultAllocator())
 }
 
 /** 指定 allocator で file table と文字列 pool を構築する。 */
-CAcpakReader::CAcpakReader(FAllocator& Allocator) noexcept
+CAcpakReader::CAcpakReader(IAllocator& Allocator) noexcept
     : m_Entries(Allocator), m_PathHashes(Allocator), m_StringPool(Allocator), m_StoredScratch(Allocator), m_FinalScratch(Allocator)
 {
 }

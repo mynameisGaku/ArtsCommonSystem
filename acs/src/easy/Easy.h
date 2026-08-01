@@ -1779,7 +1779,7 @@ namespace jobdetail {
      */
     struct FClosure {
         /** このクロージャを確保したアロケータ。 */
-        FAllocator* allocation_allocator;
+        IAllocator* allocation_allocator;
 
         /** allocation_allocator へ返す確保領域の先頭。 */
         void* allocation_base;
@@ -1818,7 +1818,7 @@ namespace jobdetail {
         const usize off = PayloadOffset<Fn>();
         if (off > (~usize(0)) - sizeof(Fn)) return nullptr;
 
-        FAllocator& allocator = acs::DefaultAllocator();
+        IAllocator& allocator = acs::DefaultAllocator();
         void* mem = allocator.Alloc(off + sizeof(Fn), a, acs::FSourceLoc::Current());
         if (!mem) return nullptr;
         FClosure* c = static_cast<FClosure*>(mem);
@@ -1838,7 +1838,7 @@ namespace jobdetail {
     inline void DestroyClosure(FClosure* closure) noexcept
     {
         if (closure == nullptr) return;
-        FAllocator* const allocator = closure->allocation_allocator;
+        IAllocator* const allocator = closure->allocation_allocator;
         void* const allocation_base = closure->allocation_base;
         closure->destroy(closure);
         if (allocator != nullptr && allocation_base != nullptr) {
@@ -1902,7 +1902,7 @@ inline void ParallelFor(i32 begin, i32 end, i32 grain, Fn fn) noexcept {
     void (*thunk)(u32, u32, void*) =
         [](u32 i, u32, void* u) { (*static_cast<FCtx*>(u)->fn)(static_cast<i32>(i)); };
     const i32 g = grain > 0 ? grain : jobdetail::AutoGrain(begin, end);
-    (void)acs::FThreadPool::ParallelFor(static_cast<u32>(begin), static_cast<u32>(end),
+    (void)acs::CThreadPool::ParallelFor(static_cast<u32>(begin), static_cast<u32>(end),
                                         static_cast<u32>(g), thunk, &ctx);
 }
 

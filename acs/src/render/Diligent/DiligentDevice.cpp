@@ -199,7 +199,7 @@ TResult<void> CDiligentDevice::Init(const FDeviceConfig& configuration) noexcept
 
 TResult<void> CDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noexcept
 {
-    FAllocator* const memory_segment = FMemorySystem::Get(ESegment::Resource);
+    IAllocator* const memory_segment = CMemorySystem::Get(ESegment::Resource);
     if (!memory_segment) {
         ACS_LOG_ERROR("[acs][memory] tracker=diligent_memory_adapter record=initialization "
                       "status=failed reason=memory_system_unavailable backend=Diligent-D3D12");
@@ -290,7 +290,7 @@ TResult<void> CDiligentDevice::InitD3D12(const FDeviceConfig& configuration) noe
 TResult<void> CDiligentDevice::InitVulkan(const FDeviceConfig& configuration) noexcept
 {
 #    if WITH_RENDER_DILIGENT_VULKAN
-    FAllocator* const memory_segment = FMemorySystem::Get(ESegment::Resource);
+    IAllocator* const memory_segment = CMemorySystem::Get(ESegment::Resource);
     if (!memory_segment) {
         ACS_LOG_ERROR("[acs][memory] tracker=diligent_memory_adapter record=initialization "
                       "status=failed reason=memory_system_unavailable backend=Diligent-Vulkan");

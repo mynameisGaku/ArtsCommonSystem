@@ -955,7 +955,7 @@ TResult<void> CSpriteBatch::Init(IRhiDevice& device, EFormat rt_format, u32 max_
 
     // === インデックスバッファ（quad ごとに 6 indices、固定）===
     const u32 idx_count = max_sprites * 6;
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     u16* idx_ptr = static_cast<u16*>(allocator.Alloc(sizeof(u16) * idx_count));
     if (!idx_ptr) return fail(ACS_ERR(Memory, 251, "CSpriteBatch: index alloc"));
     for (u32 i = 0; i < max_sprites; ++i) {
@@ -1156,7 +1156,7 @@ bool CSpriteBatch::EnsureEffectPipeline() noexcept {
         constexpr u32 kNormalSize = 256;
         constexpr usize kNormalBytes =
             static_cast<usize>(kNormalSize) * static_cast<usize>(kNormalSize) * 4u;
-        FAllocator& allocator = DefaultAllocator();
+        IAllocator& allocator = DefaultAllocator();
         u8* pixels = static_cast<u8*>(allocator.Alloc(kNormalBytes));
         if (!pixels) {
             ACS_LOG_ERROR("CSpriteBatch: 水面法線テクスチャの CPU 生成領域確保に失敗");

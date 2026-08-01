@@ -20,7 +20,7 @@ CAssetPathInterner::CAssetPathInterner() noexcept : CAssetPathInterner(DefaultAl
 {
 }
 
-CAssetPathInterner::CAssetPathInterner(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Paths(Allocator)
+CAssetPathInterner::CAssetPathInterner(IAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Paths(Allocator)
 {
 }
 

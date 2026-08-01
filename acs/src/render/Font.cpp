@@ -159,7 +159,7 @@ TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize
 
     // アトラス用ピクセル（R8 single-channel）
     const usize atlas_bytes = atlas_side * atlas_side;
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     u8* atlas_r8 = static_cast<u8*>(allocator.Alloc(atlas_bytes));
     if (!atlas_r8) return ACS_ERR(Memory, 220, "FFont: atlas alloc");
     ::memset(atlas_r8, 0, atlas_bytes);
@@ -266,7 +266,7 @@ TResult<void> FFont::LoadFromBytes(IRhiDevice& device, const u8* ttf_data, usize
 /** ファイルを読み込み、そのバイト列を LoadFromBytes に渡してアトラスを構築する。 */
 TResult<void> FFont::LoadFromFile(IRhiDevice& device, const wchar_t* path,
                                 f32 pixel_size, u32 atlas_size, bool include_cjk) noexcept {
-    auto bytes_r = FFileSystem::ReadAllBytes(path);
+    auto bytes_r = CFileSystem::ReadAllBytes(path);
     if (bytes_r.IsErr()) {
         Shutdown();
         return Err<void>(bytes_r.Error());

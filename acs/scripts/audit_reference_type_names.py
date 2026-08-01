@@ -22,9 +22,9 @@ from typing import Iterable, Sequence
 
 from audit_cpp_conventions import CPP_SUFFIXES, lex_cpp
 from audit_cpp_type_roles import (
-    CANONICAL_OBJECT_AND_CLASS_TYPES,
     CANONICAL_SCALAR_ALIASES,
     LEGACY_COMPATIBILITY_ALIASES,
+    MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES,
 )
 
 
@@ -78,7 +78,9 @@ CANONICAL_OBJECT_AND_CLASS_REFERENCE_ENTRIES = {
         header.split("/", 1)[0] + ".js",
         header,
     )
-    for qualified_name, (header, kind, _) in CANONICAL_OBJECT_AND_CLASS_TYPES.items()
+    for qualified_name, (header, kind, _) in (
+        MIGRATED_CANONICAL_OBJECT_AND_CLASS_TYPES.items()
+    )
     if kind == "class"
 }
 

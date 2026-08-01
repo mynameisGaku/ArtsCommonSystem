@@ -58,10 +58,10 @@ public:
      * @param world 適用先の CWorld (参照を保持)。
      * @param alloc 各バッファの記録・退避に使うアロケータ。
      */
-    explicit FParallelEntityCommandBuffer(CWorld& world, FAllocator& alloc = DefaultAllocator()) noexcept
+    explicit FParallelEntityCommandBuffer(CWorld& world, IAllocator& alloc = DefaultAllocator()) noexcept
         : m_Alloc(&alloc), m_Buffers(alloc)
     {
-        const u32 slots = FThreadPool::WorkerCount() + 1u;   // +1 = 非ワーカー用予備
+        const u32 slots = CThreadPool::WorkerCount() + 1u;   // +1 = 非ワーカー用予備
         if (!m_Buffers.TryReserve(slots)) {
             return;                                          // IsValid()=false (記録は全て落ちる)
         }
@@ -228,8 +228,8 @@ private:
             m_DroppedRecords.FetchAdd(1u);
             return nullptr;
         }
-        const u32 worker = FThreadPool::CurrentWorkerIndex();
-        const usize slot = (worker == FThreadPool::kNotAWorker)
+        const u32 worker = CThreadPool::CurrentWorkerIndex();
+        const usize slot = (worker == CThreadPool::kNotAWorker)
                                ? count - 1                        // 非ワーカー用の予備 (末尾)
                                : static_cast<usize>(worker);
         if (slot >= count) {
@@ -249,7 +249,7 @@ private:
     }
 
     /** バッファの確保・解放に使うアロケータ。 */
-    FAllocator* m_Alloc = nullptr;
+    IAllocator* m_Alloc = nullptr;
 
     /** スロット別バッファ (index = worker index、末尾 = 非ワーカー用)。 */
     TArray<FEntityCommandBuffer*> m_Buffers;

@@ -21,7 +21,7 @@ class TInlineArray {
 public:
     TInlineArray() noexcept = default;
 
-    explicit TInlineArray(FAllocator& allocator) noexcept : m_Overflow(allocator) {
+    explicit TInlineArray(IAllocator& allocator) noexcept : m_Overflow(allocator) {
     }
 
     TInlineArray(const TInlineArray&) = delete;

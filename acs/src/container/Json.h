@@ -46,7 +46,7 @@ public:
      *
      * @param allocator 文字列と子配列の確保に使う allocator。
      */
-    explicit FJsonValue(FAllocator& allocator) noexcept;
+    explicit FJsonValue(IAllocator& allocator) noexcept;
 
     /** 子要素ごと破棄する。 */
     ~FJsonValue() noexcept;
@@ -334,7 +334,7 @@ TResult<FJsonValue> ParseJson(const char* text, usize len) noexcept;
  * @param allocator DOM、key、文字列の全確保に使う allocator。
  * @return 成功時は root、失敗時は構文・深さ・サイズ error。
  */
-TResult<FJsonValue> ParseJson(const char* text, usize len, FAllocator& allocator) noexcept;
+TResult<FJsonValue> ParseJson(const char* text, usize len, IAllocator& allocator) noexcept;
 
 /**
  * JSON テキスト (ビュー) をパースして DOM を返す。
@@ -351,7 +351,7 @@ inline TResult<FJsonValue> ParseJson(FStringView s) noexcept { return ParseJson(
  * @param allocator DOM、key、文字列の全確保に使う allocator。
  * @return 成功時は root、失敗時は構文・深さ・サイズ error。
  */
-inline TResult<FJsonValue> ParseJson(FStringView s, FAllocator& allocator) noexcept
+inline TResult<FJsonValue> ParseJson(FStringView s, IAllocator& allocator) noexcept
 {
     return ParseJson(s.Data(), s.Size(), allocator);
 }

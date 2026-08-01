@@ -14,15 +14,11 @@
 //   UploadMesh(*device, *cube, gm);
 #pragma once
 
+#include "asset/MeshAsset.h"
 #include "foundation/Types.h"
 #include "memory/SharedPtr.h"
 
 namespace acs {
-
-class AMeshAsset;
-
-/** 旧名を使う既存コード向けの一時的な互換別名。 */
-using FMeshAsset = AMeshAsset;
 
 namespace Primitive {
 

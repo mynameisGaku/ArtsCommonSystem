@@ -54,7 +54,7 @@ public:
      * @param bLoop 繰り返し再生する場合はtrue。
      * @return 再生の識別値。開始できない場合はkInvalidSound。
      */
-    FSoundHandle Play(const FAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
+    FSoundHandle Play(const AAudioAsset& Asset, f32 Volume = 1.0f, bool bLoop = false) noexcept;
 
     /**
      * 指定した音声の再生を停止する。

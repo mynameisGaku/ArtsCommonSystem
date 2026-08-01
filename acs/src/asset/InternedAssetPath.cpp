@@ -3,7 +3,7 @@
 
 namespace acs {
 
-FInternedAssetPath::FInternedAssetPath(FAllocator& Allocator, FAssetId Id) noexcept
+FInternedAssetPath::FInternedAssetPath(IAllocator& Allocator, FAssetId Id) noexcept
     : m_Units(Allocator), m_Id(Id)
 {
 }

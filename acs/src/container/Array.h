@@ -33,7 +33,7 @@ public:
      *
      * @param a 確保に使うアロケータ。
      */
-    explicit TArray(FAllocator& a) noexcept : m_Alloc(&a) {}
+    explicit TArray(IAllocator& a) noexcept : m_Alloc(&a) {}
 
     /**
      * 初期容量を予約して空の配列を構築する。
@@ -41,7 +41,7 @@ public:
      * @param initial_capacity 事前に予約する容量。
      * @param a 確保に使うアロケータ (既定は DefaultAllocator)。
      */
-    TArray(usize initial_capacity, FAllocator& a = DefaultAllocator()) noexcept : m_Alloc(&a) {
+    TArray(usize initial_capacity, IAllocator& a = DefaultAllocator()) noexcept : m_Alloc(&a) {
         Reserve(initial_capacity);
     }
 
@@ -567,7 +567,7 @@ public:
      *
      * @return 確保に使っている FAllocator へのポインタ。
      */
-    FAllocator* GetAllocator() const noexcept { return m_Alloc; }
+    IAllocator* GetAllocator() const noexcept { return m_Alloc; }
 
 private:
     /**
@@ -733,7 +733,7 @@ private:
     usize      m_Capacity = 0;
 
     /** 確保に使うアロケータ。 */
-    FAllocator* m_Alloc    = nullptr;
+    IAllocator* m_Alloc    = nullptr;
 };
 
 } // namespace acs

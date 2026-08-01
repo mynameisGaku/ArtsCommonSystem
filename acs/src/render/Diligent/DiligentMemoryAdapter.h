@@ -8,7 +8,7 @@
 
 namespace acs {
 
-class FAllocator;
+class IAllocator;
 
 /**
  * Diligent の IMemoryAllocator を ACS の FAllocator にブリッジするアダプタ。
@@ -35,7 +35,7 @@ public:
      * @param backing 実際の確保・解放を委譲する ACS アロケータ。
      * @return Diligent::IMemoryAllocator* として渡せる void*。引数不正または再設定不能なら nullptr。
      */
-    static void* Create(FAllocator* backing) noexcept;
+    static void* Create(IAllocator* backing) noexcept;
 
     /**
      * Diligent が現在保持しているアダプタ経由の確保件数を返す。

@@ -802,7 +802,7 @@ private:
     FVertex*          m_VertexCpu    = nullptr;
 
     /** CPU 側の頂点バッファステージを確保したアロケータ。 */
-    FAllocator* m_VertexAllocator = nullptr;
+    IAllocator* m_VertexAllocator = nullptr;
 
     /** 1 フレームで描けるスプライト総数の上限。 */
     u32              m_MaxSprites   = 0;

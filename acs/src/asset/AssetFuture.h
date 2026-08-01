@@ -86,7 +86,7 @@ public:
      */
     TResult<TSharedPtr<AAsset>> Get() noexcept {
         if (!_state.Get()) return ACS_ERR(Asset, 10, "FAssetFuture: empty");
-        FThreadPool::Wait(_state->counter);
+        CThreadPool::Wait(_state->counter);
         if (_state->has_error) return TResult<TSharedPtr<AAsset>>(_state->error);
         return TResult<TSharedPtr<AAsset>>(OkInit, _state->result);
     }

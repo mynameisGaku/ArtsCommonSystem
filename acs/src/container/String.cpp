@@ -22,7 +22,7 @@ FString::FString() noexcept : m_Alloc(&DefaultAllocator()) {
  *
  * @param a ヒープ確保に使うアロケータ。
  */
-FString::FString(FAllocator& a) noexcept : m_Alloc(&a) {
+FString::FString(IAllocator& a) noexcept : m_Alloc(&a) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
 }
@@ -33,7 +33,7 @@ FString::FString(FAllocator& a) noexcept : m_Alloc(&a) {
  * @param cstr NUL 終端文字列 (nullptr なら空文字列)。
  * @param a ヒープ確保に使うアロケータ。
  */
-FString::FString(const char* cstr, FAllocator& a) noexcept : m_Alloc(&a) {
+FString::FString(const char* cstr, IAllocator& a) noexcept : m_Alloc(&a) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
     if (cstr) Append(FStringView(cstr));
@@ -45,7 +45,7 @@ FString::FString(const char* cstr, FAllocator& a) noexcept : m_Alloc(&a) {
  * @param v コピー元のビュー。
  * @param a ヒープ確保に使うアロケータ。
  */
-FString::FString(FStringView v, FAllocator& a) noexcept : m_Alloc(&a) {
+FString::FString(FStringView v, IAllocator& a) noexcept : m_Alloc(&a) {
     m_Sso.data[0] = 0;
     SetInlineLen(0);
     Append(v);

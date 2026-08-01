@@ -69,7 +69,7 @@ CAcpakGameReader::CAcpakGameReader() noexcept : CAcpakGameReader(DefaultAllocato
 {
 }
 
-CAcpakGameReader::CAcpakGameReader(FAllocator& Allocator) noexcept
+CAcpakGameReader::CAcpakGameReader(IAllocator& Allocator) noexcept
     : m_Reader(Allocator), m_Utf8NamePool(Allocator), m_Utf8NameOffsets(Allocator)
 {
 }
@@ -231,7 +231,7 @@ TResult<void> CAcpakGameReader::ReadFiles(const game::FAssetPackReadRequest* Req
     if (Count == 0u) return Ok();
 
     /** batch の変換配列へ使う既存 allocator。 */
-    FAllocator& Allocator = *m_Utf8NamePool.GetAllocator();
+    IAllocator& Allocator = *m_Utf8NamePool.GetAllocator();
     /** 全 path の UTF-16 変換結果を連続保持する pool。 */
     TArray<wchar_t> WideNamePool(Allocator);
     /** reader へ渡す各 UTF-16 path の先頭。 */

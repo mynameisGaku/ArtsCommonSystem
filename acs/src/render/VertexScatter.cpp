@@ -22,7 +22,7 @@ FWeldKey QuantizePos(FVec3 p, f32 inv_eps) noexcept {
 
 } // namespace
 
-bool CVertexScatter::Build(const FMeshAsset& mesh, f32 weld_epsilon) noexcept {
+bool CVertexScatter::Build(const AMeshAsset& mesh, f32 weld_epsilon) noexcept {
     const auto& verts = mesh.Vertices();
     const auto& idx   = mesh.Indices();
     if (verts.Size() == 0 || idx.Size() < 3) return false;

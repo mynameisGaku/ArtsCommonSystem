@@ -67,7 +67,7 @@ public:
      *        通常は既定値を使い、failure-injection tests だけ差し替える。
      */
     explicit CMotionVector(
-        FAllocator& object_pool_allocator = DefaultAllocator()) noexcept
+        IAllocator& object_pool_allocator = DefaultAllocator()) noexcept
         : m_Cbs(object_pool_allocator) {}
 
     /** 破棄する (GPU リソースは TUniquePtr が解放)。 */

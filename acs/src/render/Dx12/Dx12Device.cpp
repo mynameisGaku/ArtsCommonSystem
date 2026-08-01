@@ -53,10 +53,10 @@ private:
 /** key table・COM owner・lock を公開 device layout 外へ隔離する内部 cache owner。 */
 struct CDx12Device::FPipelineCacheOwner {
     /** 確保元 allocator を記録して同じ所有者へ返す。 */
-    explicit FPipelineCacheOwner(FAllocator& allocator) noexcept : allocator(&allocator) {}
+    explicit FPipelineCacheOwner(IAllocator& allocator) noexcept : allocator(&allocator) {}
 
     /** 自身を確保した allocator。 */
-    FAllocator* allocator = nullptr;
+    IAllocator* allocator = nullptr;
     /** PSO key を native 配列 index へ intern する表。 */
     TPipelineStateKeyCache<kPipelineCacheCapacity> key_cache;
     /** cache が所有する PSO。 */
@@ -101,7 +101,7 @@ void CDx12Device::StoreCachedPipeline(const FPipelineStateKey& key, ID3D12Pipeli
     FPipelineCacheOwner* owner = m_PipelineCacheOwner;
     if (owner == nullptr) {
         /** owner の確保と解放に使う allocator。 */
-        FAllocator& allocator = DefaultAllocator();
+        IAllocator& allocator = DefaultAllocator();
         /** 初回登録用に確保する候補 owner。 */
         owner = New<FPipelineCacheOwner>(allocator, allocator);
         if (owner == nullptr) return;
@@ -136,7 +136,7 @@ void CDx12Device::ResetPipelineCache(bool release_objects) noexcept {
     }
     owner->key_cache.Reset();
     /** owner が記録した確保元 allocator。 */
-    FAllocator& allocator = *owner->allocator;
+    IAllocator& allocator = *owner->allocator;
     Delete(allocator, owner);
 }
 

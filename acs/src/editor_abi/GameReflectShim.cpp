@@ -222,7 +222,7 @@ GR_API void acs_game_scene_draw(void* scene, void* sprite_batch,
                                 float view_cx, float view_cy, float view_scale,
                                 unsigned w, unsigned h) noexcept {
     auto* s  = static_cast<FGamePlayScene*>(scene);
-    auto* sb = static_cast<FSpriteBatch*>(sprite_batch);
+    auto* sb = static_cast<CSpriteBatch*>(sprite_batch);
     if (s == nullptr || !s->root || sb == nullptr) return;
     (void)w; (void)h;   // 予約 (将来 rc.Width/Height を配線する場合に使用)
     FRenderContext rc;
@@ -247,12 +247,12 @@ GR_API void acs_game_input_key(int keycode, int down) noexcept {
     e.type       = (down != 0) ? acs::EEventType::KeyPressed : acs::EEventType::KeyReleased;
     e.key.key    = static_cast<acs::EKey>(static_cast<acs::u16>(keycode));
     e.key.repeat = false;
-    acs::FInput::OnEvent(e);
+    acs::CInput::OnEvent(e);
 }
 
 /** Play フレーム先頭で呼び、この DLL の入力状態を now→prev に進める (IsPressed/Released エッジ用)。 */
 GR_API void acs_game_input_update() noexcept {
-    acs::FInput::Update();
+    acs::CInput::Update();
 }
 
 /** マウスボタンイベントをこの DLL の acs::Input へ流す (button: 0=Left,1=Right,2=Middle)。 */
@@ -260,7 +260,7 @@ GR_API void acs_game_input_mouse_button(int button, int down) noexcept {
     acs::FEvent e;
     e.type = (down != 0) ? acs::EEventType::MouseButtonPressed : acs::EEventType::MouseButtonReleased;
     e.mouse_button.button = static_cast<acs::EMouseButton>(static_cast<acs::u8>(button));
-    acs::FInput::OnEvent(e);
+    acs::CInput::OnEvent(e);
 }
 
 /** マウス移動 (viewport クライアント座標 px) をこの DLL の acs::Input へ流す。 */
@@ -268,7 +268,7 @@ GR_API void acs_game_input_mouse_move(float x, float y) noexcept {
     acs::FEvent e;
     e.type = acs::EEventType::MouseMoved;
     e.mouse_move.x = x; e.mouse_move.y = y; e.mouse_move.dx = 0.0f; e.mouse_move.dy = 0.0f;
-    acs::FInput::OnEvent(e);
+    acs::CInput::OnEvent(e);
 }
 
 /** Play シーンのカメラ (Services().Camera()) を設定する (Play 開始時に editor view へ合わせる)。 */

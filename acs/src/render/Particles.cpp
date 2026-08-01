@@ -101,7 +101,7 @@ TResult<void> CParticleSystem::Init(u32 max_particles) noexcept {
         return ACS_ERR(Memory, 300, "ParticleSystem: pool size overflow");
     }
 
-    FAllocator& allocator = DefaultAllocator();
+    IAllocator& allocator = DefaultAllocator();
     FParticle* const pool = static_cast<FParticle*>(
         allocator.Alloc(sizeof(FParticle) * static_cast<usize>(max_particles)));
     if (!pool) return ACS_ERR(Memory, 300, "ParticleSystem: pool alloc failed");

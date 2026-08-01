@@ -55,7 +55,7 @@ FStringView TrimStorageKeyForLoad(FStringView key) noexcept {
 /** 一括設定の入力文字列を呼び出し元から独立して保持する。 */
 struct FOwnedStorageStringBatchEntry {
     /** 指定した allocator をキーと値の確保元にする。 */
-    explicit FOwnedStorageStringBatchEntry(FAllocator& allocator) noexcept : key(allocator), value(allocator) {}
+    explicit FOwnedStorageStringBatchEntry(IAllocator& allocator) noexcept : key(allocator), value(allocator) {}
 
     /** 所有している設定キー。 */
     FString key;

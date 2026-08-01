@@ -288,7 +288,7 @@ CAcpakWriter::CAcpakWriter() noexcept : CAcpakWriter(DefaultAllocator())
 }
 
 /** 指定 allocator で pending list を構築する。 */
-CAcpakWriter::CAcpakWriter(FAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Pending(Allocator)
+CAcpakWriter::CAcpakWriter(IAllocator& Allocator) noexcept : m_Allocator(&Allocator), m_Pending(Allocator)
 {
 }
 

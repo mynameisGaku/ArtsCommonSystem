@@ -7,7 +7,7 @@
 
 namespace acs {
 /** 動的な保存領域を確保する型。 */
-class FAllocator;
+class IAllocator;
 }
 
 namespace acs::scripting {
@@ -25,7 +25,7 @@ public:
      * CLuaVmより後まで生存しなければならない。
      * @param allocator native function 登録簿の確保に使い、CLuaVmより長く生存するallocator。
      */
-    explicit CLuaVm(acs::FAllocator& allocator) noexcept;
+    explicit CLuaVm(acs::IAllocator& allocator) noexcept;
 
     /** Lua状態を終了して内部データを解放する。 */
     ~CLuaVm() noexcept override;

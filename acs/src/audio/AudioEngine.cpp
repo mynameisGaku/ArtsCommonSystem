@@ -530,7 +530,7 @@ u32 FindFreeSlot(CAudioEngine::FImpl& Implementation) noexcept
 }
 } // namespace
 
-FSoundHandle CAudioEngine::Play(const FAudioAsset& Asset, f32 Volume, bool bLoop) noexcept
+FSoundHandle CAudioEngine::Play(const AAudioAsset& Asset, f32 Volume, bool bLoop) noexcept
 {
     if (IsShutdownRequested())
     {

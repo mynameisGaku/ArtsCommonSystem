@@ -55,7 +55,7 @@ void ExpandMax(FVec3& mx, FVec3 p) noexcept {
 } // namespace
 
 /** レンダリング用メッシュから collider を構築する (頂点位置のみ使用)。 */
-TResult<void> FMeshCollider::BuildFromMesh(const FMeshAsset& mesh) noexcept {
+TResult<void> FMeshCollider::BuildFromMesh(const AMeshAsset& mesh) noexcept {
     const TArray<FMeshVertex>& verts = mesh.Vertices();
     const TArray<u32>&        idx   = mesh.Indices();
     if (verts.Size() == 0) {
