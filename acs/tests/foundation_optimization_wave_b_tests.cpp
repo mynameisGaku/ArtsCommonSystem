@@ -269,7 +269,7 @@ struct FTypedMessage {
 /** 型付き配送と購読解除の検証状態。 */
 struct FTypedBrokerContext {
     /** 検証対象の broker。 */
-    FMessageBroker* broker = nullptr;
+    CMessageBroker* broker = nullptr;
     /** 最初の配送で解除する購読。 */
     FSubscriptionHandle cancel_on_first{};
     /** 型付き購読者の呼び出し回数。 */
@@ -313,7 +313,7 @@ void OnRawMessage(const void* message, void* user) noexcept
 /** Publish 中の購読追加が次回配送まで遅延することを記録する状態。 */
 struct FSubscribeDuringPublishContext {
     /** 検証対象の broker。 */
-    FMessageBroker* broker = nullptr;
+    CMessageBroker* broker = nullptr;
 
     /** 発行開始時から存在する購読者の呼び出し回数。 */
     i32 initial_calls = 0;
@@ -663,7 +663,7 @@ ACS_TEST(FoundationOptimizationWaveB, MessagePipeSpscSpecializationPreservesOrde
 ACS_TEST(FoundationOptimizationWaveB, TypedBrokerPreservesNestedPublishCancellation)
 {
     /** 検証対象の message broker。 */
-    FMessageBroker broker;
+    CMessageBroker broker;
     /** 入れ子配送と呼び出し回数の状態。 */
     FTypedBrokerContext context;
     context.broker = &broker;
@@ -684,7 +684,7 @@ ACS_TEST(FoundationOptimizationWaveB, TypedBrokerPreservesNestedPublishCancellat
 ACS_TEST(FoundationOptimizationWaveB, BrokerDefersSubscriptionAddedDuringPublish)
 {
     /** 検証対象の message broker。 */
-    FMessageBroker broker;
+    CMessageBroker broker;
     /** 発行中購読追加の検証状態。 */
     FSubscribeDuringPublishContext context;
     context.broker = &broker;
@@ -713,7 +713,7 @@ ACS_TEST(FoundationOptimizationWaveB, TimerUsesDirectCancelAndActiveBitset)
     /** 登録して大半を解除する timer 数。 */
     constexpr u32 kTimerCount = 8192;
     /** 検証対象の timer manager。 */
-    FTimerManager timers;
+    CTimerManager timers;
     /** callback 呼び出し回数。 */
     FTimerCounter counter;
     /** 登録した timer の handle。 */

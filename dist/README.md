@@ -91,13 +91,14 @@ check.exe
 Expected output:
 
 ```
-acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0
+acs.h OK | sum=42 dist=5.0 clamp=100.0 len=5.0 hash=2773fad09b34e937 event=1 component=1 scene_timer=1 log_sink=1
 ```
 
 `examples\check.cpp` is the canonical "is my setup correct?" test: it includes
-*only* `<acs.h>` and uses the container / math / easy modules. The consumer
-does not list individual libraries on its command line; `acs.h` supplies the
-`acs.lib`, Windows SDK, Diligent and xxHash link directives above.
+*only* `<acs.h>` and checks the container, math, easy, event, ECS, scene timer,
+log sink and non-inline hash-library paths. The consumer does not list
+individual libraries on its command line; `acs.h` supplies the `acs.lib`,
+Windows SDK, Diligent and xxHash link directives above.
 
 ---
 

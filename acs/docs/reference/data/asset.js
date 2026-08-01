@@ -171,7 +171,7 @@ ACS_REF.modules.push({
     {
       name: "FAudioAsset",
       kind: "クラス(FAsset 派生)", header: "asset/AudioAsset.h",
-      summary: "<b>音声データ</b>。全フォーマットを 16-bit か float の <t>PCM</t> に統一して保持する。サンプルレート・チャンネル数・フレーム数・生サンプルを持つ。再生は <t>FAudioEngine</t> が直接この PCM を扱う。",
+      summary: "<b>音声データ</b>。全フォーマットを 16-bit か float の <t>PCM</t> に統一して保持する。サンプルレート・チャンネル数・フレーム数・生サンプルを持つ。再生は <t>CAudioEngine</t> が直接この PCM を扱う。",
       when: "BGM や効果音を読み込んで再生する時。wav/mp3/flac/ogg に対応。",
       sample: "auto r = reg.Load(L\"se/jump.wav\");\nauto* au = static_cast&lt;FAudioAsset*&gt;(r.Value().Get());\nf32 sec = au-&gt;DurationSeconds();\nu32 rate = au-&gt;SampleRate();",
       members: [
@@ -387,7 +387,7 @@ Object.assign(ACS_REF.glossary, {
   "エラーコード": "失敗の種類を表す値。ACS では <t>Result</t> と組で扱う。",
   "ピクセルフォーマット": "画像 1 画素のチャンネル構成とビット深度(RGBA8 や float RGB など)。",
   "PCM": "音声を一定間隔で数値化した生波形データ。圧縮なしでそのまま再生できる形式。",
-  "FAudioEngine": "PCM を実際に鳴らす音声再生エンジン(XAudio2 バックエンド)。",
+  "CAudioEngine": "PCM を実際に鳴らす音声再生エンジン(XAudio2 バックエンド)。",
   "頂点": "メッシュを構成する点。位置・法線・UV などの属性を持つ。",
   "インデックス": "頂点配列のどの点で三角形を作るかを示す番号の列。同じ頂点を使い回せる。",
   "UV 座標": "テクスチャ上のどこを貼るかを示す 0..1 の 2 次元座標。",

@@ -149,9 +149,9 @@ public:
     /**
      * タイマーマネージャへの参照を返す。
      *
-     * @return アプリが所有する FTimerManager への参照。
+     * @return アプリが所有する CTimerManager への参照。
      */
-    FTimerManager& GetTimers() noexcept
+    CTimerManager& GetTimers() noexcept
     {
         return m_Timers;
     }
@@ -159,9 +159,9 @@ public:
     /**
      * イベントブローカーへの参照を返す。
      *
-     * @return アプリが所有する FMessageBroker への参照。
+     * @return アプリが所有する CMessageBroker への参照。
      */
-    FMessageBroker& GetEvents() noexcept
+    CMessageBroker& GetEvents() noexcept
     {
         return m_Events;
     }
@@ -320,10 +320,10 @@ private:
     FAssetRegistry m_Assets;
 
     /** タイマーマネージャ。 */
-    FTimerManager m_Timers;
+    CTimerManager m_Timers;
 
     /** イベントブローカー。 */
-    FMessageBroker m_Events;
+    CMessageBroker m_Events;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
     FFrameTimer m_FrameTimer;

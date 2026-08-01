@@ -125,7 +125,7 @@ bool FScriptDemoApp::DemoGarbageCollection(IScriptVm& vm) noexcept {
 
 int FScriptDemoApp::Run() noexcept {
 #if WITH_ACS_SCRIPTING
-    acs::scripting::FLuaVm lua;
+    acs::scripting::CLuaVm lua;
     IScriptVm& vm = lua;
     m_bRealBackend = true;
 #else
@@ -134,8 +134,7 @@ int FScriptDemoApp::Run() noexcept {
 #endif
 
     std::printf("=== ACS HelloScripting ===\n");
-    std::printf("backend: %s\n\n", m_bRealBackend ? "REAL Lua 5.4 (FLuaVm)"
-                                                  : "Stub (build with -DACS_BUILD_SCRIPTING=ON)");
+    std::printf("backend: %s\n\n", m_bRealBackend ? "REAL Lua 5.4 (CLuaVm)" : "Stub (build with -DACS_BUILD_SCRIPTING=ON)");
 
     int provider_failures = 0;
 #if WITH_ACS_SCRIPTING

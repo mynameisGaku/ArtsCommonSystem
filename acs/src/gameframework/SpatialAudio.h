@@ -13,7 +13,7 @@
 //   FAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
 //   「2D 混音層」。本 FSpatialAudio は FAudioDirector の上に乗る「3D 空間化前段」で、
 //   listener / source を保持し、毎フレーム attenuation と pan を算出する。
-//   FAudioEngine と接続したとき、各 source を FAudioEngine voice に
+//   CAudioEngine と接続したとき、各 source を CAudioEngine voice に
 //   バインドして、FSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
@@ -31,7 +31,7 @@
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Spatial.UpdateSource(m_SrcEnemy, enemy.WorldPos(), enemy.Velocity());
 //           m_Spatial.Tick(dt);
-//           // FAudioEngine voice に volume/pan を書き込む。
+//           // CAudioEngine voice に volume/pan を書き込む。
 //           // f32 vol = m_Spatial.ComputeAttenuatedVolume(m_SrcEnemy);
 //           // f32 pan = m_Spatial.ComputePan(m_SrcEnemy);
 //       }
@@ -40,7 +40,7 @@
 // 設計選択:
 //   ・**listener は 1 個** (プレイヤ耳位置 = カメラに同期するのが典型)。
 //     スプリットスクリーンで複数 listener が必要になったら配列化する。
-//   ・**source は AoS (TArray of Structures)**: SoA は FAudioEngine voice
+//   ・**source は AoS (TArray of Structures)**: SoA は CAudioEngine voice
 //     バインドより後段で検討。現状は ~32 source 規模の想定。
 //   ・**source_id は単調増加 u32** (1..): 0 = 無効 ID。再利用しない (re-use しない)
 //     ので update/remove に対する stale ID 検出が単純化する。
@@ -69,7 +69,7 @@
 //   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
 //   ・複数 listener (split-screen)
 //   ・3D reverb (リバーブゾーン)
-//   ・FAudioEngine voice バインド (FAudioDirector と統合)
+//   ・CAudioEngine voice バインド (FAudioDirector と統合)
 #pragma once
 
 #include "foundation/Types.h"

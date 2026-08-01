@@ -19,11 +19,12 @@ ACS_REF.guide = [
   { p: "型名の頭文字でだいたいの種類が分かります。" },
   { ul: [
     "<b>T…</b> … <t>テンプレート</t>(型を後から指定する部品)。例: <code>TArray&lt;int&gt;</code>, <code>TSharedPtr&lt;Mesh&gt;</code>",
-    "<b>F…</b> … ふつうのクラス/構造体/union。例: <code>FVec3</code>, <code>FThreadPool</code>",
-    "<b>A…</b> … <code>FObject</code> の強参照/弱参照所有モデルで扱う node/component。例: <code>ANode</code>, <code>AComponent</code>",
+    "<b>F…</b> … データ、値、handleを表す型。例: <code>FVec3</code>, <code>FEventTypeId</code>",
+    "<b>C…</b> … 処理や振る舞いを持つ通常のクラス。例: <code>CAudioEngine</code>, <code>CMessageBroker</code>",
+    "<b>A…</b> … ownerまたはregistryに所有され、多態的に扱われるobject。現waveでは <code>AObject</code> の推移派生、または実際の登録macro使用を機械的な根拠にします。例: <code>AObject</code>, <code>ANode</code>, <code>AComponent</code>。既存の <code>FAsset</code> familyは、所有と多態性、registry、ABIを確認して <code>A</code> / <code>C</code> を後続waveで決める未判定の移行対象です。",
     "<b>E…</b> … 列挙(<t>enum</t>、選択肢の集合)。例: <code>EKey</code>, <code>EMemoryOrder</code>",
     "<b>I…</b> … <t>インターフェース</t>(実装を差し替えられる約束事)。例: <code>IAssetLoader</code>",
-    "<b>型 alias</b> … 頭文字は指定しません。delegate / callback も意味の明確な PascalCase なら <code>HotReloadCallback</code> と <code>FHotReloadCallback</code> のどちらも使えます。新規宣言は <code>using</code> を使い、<code>typedef</code> はlegacy互換に限ります。",
+    "<b>型 alias</b> … namespace公開の意味付きscalar/value aliasは <code>F</code> で始めます。delegate / callback / 関数ポインタは頭文字を指定せず、template aliasは今回のscalar監査対象外です。新規宣言は <code>using</code> を使い、<code>AssetType</code> は後続移行まで登録済み例外として維持します。",
     "<b>m_…</b> … メンバ変数(クラスが内部に持つ変数)。"
   ]},
 
@@ -56,7 +57,7 @@ ACS_REF.guide = [
 
   { h2: "ビルドと実行" },
   { p: "Visual Studio 用の <code>ACS.slnx</code> を <code>acs/generate.ps1</code> で生成し、<code>acs/Intermediate/vs</code> にプロジェクトが出ます。実行ファイルは <code>acs/Binaries/&lt;構成&gt;</code>(Debug/Release) に出ます。" },
-  { note: "生成スクリプトは <t>BOM</t> 付き UTF-8 必須。MSBuild のターゲット名は snake_case(例 <code>hello_jobs</code>)です。", kind: "warn" }
+  { note: "source・文書・build設定は UTF-8 <t>BOM</t>なしで保存します。改行は通常 LF、Windows shell (<code>.bat</code>、<code>.cmd</code>、<code>.ps1</code>、<code>.psm1</code>、<code>.psd1</code>)だけ CRLF です。MSBuild のターゲット名は snake_case(例 <code>hello_jobs</code>)です。", kind: "warn" }
 ];
 
 // ============================ トラブルシュート ============================
@@ -69,14 +70,14 @@ ACS_REF.troubleshooting = [
     a: "<t>循環参照</t>です。A が B を <code>TSharedPtr</code> で持ち、B も A を <code>TSharedPtr</code> で持つと<t>参照カウント</t>が 0 にならず永遠に残ります。片方を <code>TWeakPtr</code>(弱参照)にして輪を断ち切ってください。親→子は強参照、子→親は弱参照、が定石です。" },
   { q: "TWeakPtr.Lock() がいつも空(無効)になる", tags:["スマートポインタ","TWeakPtr"],
     a: "対象がすでに破棄されています(強参照が 0 になった)。<code>TWeakPtr</code> は生存を延ばしません。使う直前に <code>Lock()</code> し、戻り値が有効な間だけ触ってください。生成直後に Lock が空なら、元の <code>TSharedPtr</code> が先に消えていないか確認。" },
-  { q: "TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる", tags:["スマートポインタ","FObject"],
-    a: "その対象が <code>NewObject&lt;T&gt;()</code> 経由で作られていないと、内部の制御ブロックが無く空になります。<code>FObject</code> 派生は <code>NewObject</code> で生成してください(スタックや素の <code>new</code> ではダメ)。" },
+  { q: "TObjectPtr / TWeakObjectPtr を生ポインタから作ったら空になる", tags:["スマートポインタ","AObject"],
+    a: "その対象が <code>NewObject&lt;T&gt;()</code> 経由で作られていないと、内部の制御ブロックが無く空になります。<code>AObject</code> 派生は <code>NewObject</code> で生成してください(スタックや素の <code>new</code> ではダメ)。" },
   { q: "Result を返す関数で、戻り値を確認せずに使ったら止まった", tags:["Result","エラー処理"],
     a: "<code>IsOk()</code> で確認する前に <code>Value()</code> を呼ぶと、失敗時にそこで(<t>アサート</t>で)停止します。必ず <code>if (r.IsOk())</code> を通してから <code>Value()</code>、失敗時は <code>r.Error()</code> を見て分岐してください。" },
   { q: "std::vector や std::string を使ったらビルドが通らない/方針に合わない", tags:["STL","コンテナ"],
     a: "ACS は <t>STL</t> を使わない方針です。<code>TArray</code> / <code>FString</code> / <code>THashMap</code> など独自コンテナに置き換えてください(『はじめに』の対応表参照)。" },
   { q: "generate.ps1 を実行してもプロジェクトが更新されない/文字化けする", tags:["ビルド","generate","BOM"],
-    a: "生成スクリプトや一部入力は <b>UTF-8 (BOM 付き)</b>が前提です。エディタの保存エンコーディングを確認。新しいサンプルを足したら <code>cmake -S engine -B Intermediate/vs</code> で再構成が必要です。" },
+    a: "source・文書・build設定は <b>UTF-8 (BOMなし)</b>が前提です。改行は通常 LF、Windows shell (<code>.bat</code>、<code>.cmd</code>、<code>.ps1</code>、<code>.psm1</code>、<code>.psd1</code>)だけ CRLF です。エディタの保存形式を確認してください。新しいサンプルを足したら <code>cmake -S engine -B Intermediate/vs</code> で再構成が必要です。" },
   { q: "新しく追加したサンプルがビルド対象に出てこない", tags:["ビルド","サンプル","cmake"],
     a: "サンプルは <code>engine/CMakeLists.txt</code> に <code>acs_add_sample(NN_Name)</code> で明示登録します。ウィンドウを開くサンプルは <code>ACS_RENDER_DX12_RAW</code> ガード内に入れます。登録後に CMake 再構成してください。" },
   { q: "リンクエラー(未解決のシンボル)が出る", tags:["ビルド","リンク","LNK"],
@@ -137,7 +138,7 @@ Object.assign(ACS_REF.glossary, {
   "デストラクタ": "オブジェクトが破棄される時に自動で呼ばれる後始末の関数(~ClassName)。",
   "ムーブ": "中身をコピーせず所有権ごと移すこと。大きなデータを安く引き渡せる。",
   "未定義動作": "C++ 規格が結果を保証しない操作(配列外アクセス・寿命切れポインタ等)。最適化で表面化しやすい。",
-  "BOM": "テキスト先頭に付く文字コードの目印。ACS の一部スクリプトは UTF-8 BOM 付きが前提。",
+  "BOM": "テキスト先頭に付く文字コードの目印。ACS のsource・文書・build設定は UTF-8 BOMなしを正本にします。改行は通常 LF、Windows shellだけ CRLFです。",
   "ホバー": "マウスを乗せること。乗せると説明が出る、の意。",
   "GPU": "画像処理に特化した演算装置。描画はここで行われる。",
   "API": "ライブラリの機能を外から使うための窓口(関数や型の取り決め)。例: ネットワークは <t>WinSock</t> をくるんだ薄い API として提供される。",

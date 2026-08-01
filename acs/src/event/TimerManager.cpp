@@ -41,7 +41,7 @@ static_assert(GenerationExhaustionIsPermanent());
 } // namespace
 
 /** 次の登録に使うゼロ以外の識別番号を返す。 */
-u32 FTimerManager::AcquireId() noexcept {
+u32 CTimerManager::AcquireId() noexcept {
     /** 今回割り当てる識別番号。 */
     u32 identifier = m_NextId++;
     if (identifier == 0) identifier = m_NextId++;
@@ -49,12 +49,12 @@ u32 FTimerManager::AcquireId() noexcept {
 }
 
 /** 次の登録に使う世代番号を返し、使い切った場合は0を返す。 */
-u32 FTimerManager::AcquireGeneration() noexcept {
+u32 CTimerManager::AcquireGeneration() noexcept {
     return ConsumeGeneration(m_NextGeneration);
 }
 
 /** 新規タイマー枠を active bitset で表せるようにする。 */
-bool FTimerManager::EnsureActiveWord(u32 slot_index) noexcept {
+bool CTimerManager::EnsureActiveWord(u32 slot_index) noexcept {
     /** 必要な active word 数。 */
     const usize required = static_cast<usize>(slot_index / 64u) + 1;
     /** 拡張前の active word 数。 */
@@ -66,7 +66,7 @@ bool FTimerManager::EnsureActiveWord(u32 slot_index) noexcept {
 }
 
 /** 登録に使う空き枠を返し、確保できなければ無効な位置を返す。 */
-u32 FTimerManager::AcquireSlotIndex() noexcept {
+u32 CTimerManager::AcquireSlotIndex() noexcept {
     if (m_FreeIndices.Size() > 0) {
         /** 再利用するタイマー枠の位置。 */
         const u32 index = m_FreeIndices[m_FreeIndices.Size() - 1];
@@ -87,7 +87,7 @@ u32 FTimerManager::AcquireSlotIndex() noexcept {
  * @param cb 発火時に呼ぶ関数。
  * @param user 関数へ渡す値。
  */
-FTimerHandle FTimerManager::RegisterTimer(f32 duration_seconds, bool repeating, TimerCallback cb, void* user) noexcept {
+FTimerHandle CTimerManager::RegisterTimer(f32 duration_seconds, bool repeating, TimerCallback cb, void* user) noexcept {
     if (m_NextGeneration == 0) return kInvalidTimer;
     /** 登録先のタイマー枠の位置。 */
     const u32 index = AcquireSlotIndex();
@@ -112,7 +112,7 @@ FTimerHandle FTimerManager::RegisterTimer(f32 duration_seconds, bool repeating, 
 }
 
 /** タイマー枠の active bit を立てる。 */
-void FTimerManager::MarkActive(u32 slot_index) noexcept {
+void CTimerManager::MarkActive(u32 slot_index) noexcept {
     /** active word の位置。 */
     const usize word_index = slot_index / 64u;
     /** active bit の mask。 */
@@ -124,7 +124,7 @@ void FTimerManager::MarkActive(u32 slot_index) noexcept {
 }
 
 /** タイマー枠の active bit を下ろす。 */
-void FTimerManager::MarkInactive(u32 slot_index) noexcept {
+void CTimerManager::MarkInactive(u32 slot_index) noexcept {
     /** active word の位置。 */
     const usize word_index = slot_index / 64u;
     if (word_index >= m_ActiveWords.Size()) return;
@@ -137,7 +137,7 @@ void FTimerManager::MarkInactive(u32 slot_index) noexcept {
 }
 
 /** 全タイマー枠を無効にする。 */
-void FTimerManager::InvalidateAllSlots() noexcept {
+void CTimerManager::InvalidateAllSlots() noexcept {
     for (/** 無効にするタイマー枠の位置。 */ usize i = 0; i < m_Slots.Size(); ++i) {
         /** 無効にするタイマー情報。 */
         FSlot& slot = m_Slots[i];
@@ -153,7 +153,7 @@ void FTimerManager::InvalidateAllSlots() noexcept {
 }
 
 /** 全消去後の保持領域を解放する。 */
-void FTimerManager::ReleaseClearedStorage() noexcept {
+void CTimerManager::ReleaseClearedStorage() noexcept {
     m_Slots = TArray<FSlot>{*m_Slots.GetAllocator()};
     m_ActiveWords = TArray<u64>{*m_ActiveWords.GetAllocator()};
     m_FreeIndices = TArray<u32>{*m_FreeIndices.GetAllocator()};
@@ -161,7 +161,7 @@ void FTimerManager::ReleaseClearedStorage() noexcept {
 }
 
 /** 全タイマーを無効にして保持領域を空にする。 */
-void FTimerManager::Clear() noexcept {
+void CTimerManager::Clear() noexcept {
     if (m_ClearPending) return;
     InvalidateAllSlots();
     if (m_TickDepth != 0) {
@@ -172,24 +172,24 @@ void FTimerManager::Clear() noexcept {
 }
 
 /** 指定時間後に一度だけ関数を呼び出す。 */
-FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept {
+FTimerHandle CTimerManager::SetTimeout(f32 delay_seconds, TimerCallback cb, void* user) noexcept {
     if (!cb || delay_seconds < 0.0f || !std::isfinite(delay_seconds) || m_ClearPending) return kInvalidTimer;
     return RegisterTimer(delay_seconds, false, cb, user);
 }
 
 /** 指定時間後に一度だけデリゲートを呼び出す。 */
-FTimerHandle FTimerManager::SetTimeout(f32 delay_seconds, FSimpleDelegate delegate) noexcept {
+FTimerHandle CTimerManager::SetTimeout(f32 delay_seconds, FSimpleDelegate delegate) noexcept {
     return SetTimeout(delay_seconds, delegate.Function(), delegate.User());
 }
 
 /** 指定周期で関数を繰り返し呼び出す。 */
-FTimerHandle FTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept {
+FTimerHandle CTimerManager::SetInterval(f32 period_seconds, TimerCallback cb, void* user) noexcept {
     if (!cb || period_seconds <= 0.0f || !std::isfinite(period_seconds) || m_ClearPending) return kInvalidTimer;
     return RegisterTimer(period_seconds, true, cb, user);
 }
 
 /** 指定周期でデリゲートを繰り返し呼び出す。 */
-FTimerHandle FTimerManager::SetInterval(f32 period_seconds, FSimpleDelegate delegate) noexcept {
+FTimerHandle CTimerManager::SetInterval(f32 period_seconds, FSimpleDelegate delegate) noexcept {
     return SetInterval(period_seconds, delegate.Function(), delegate.User());
 }
 
@@ -197,7 +197,7 @@ FTimerHandle FTimerManager::SetInterval(f32 period_seconds, FSimpleDelegate dele
  * 指定したタイマーを取り消す。
  * @param handle 取り消すタイマーのハンドル。
  */
-bool FTimerManager::Cancel(FTimerHandle handle) noexcept {
+bool CTimerManager::Cancel(FTimerHandle handle) noexcept {
     if (!handle.IsValid()) return false;
     /** 識別番号から求めたタイマー枠の位置。 */
     const u32 index = handle.id - 1;
@@ -216,7 +216,7 @@ bool FTimerManager::Cancel(FTimerHandle handle) noexcept {
 }
 
 /** 登録中のタイマーをすべて取り消す。 */
-void FTimerManager::CancelAll() noexcept {
+void CTimerManager::CancelAll() noexcept {
     Clear();
 }
 
@@ -224,7 +224,7 @@ void FTimerManager::CancelAll() noexcept {
  * 指定したタイマーが現在も登録中かを返す。
  * @param handle 調べるタイマーのハンドル。
  */
-bool FTimerManager::IsActive(FTimerHandle handle) const noexcept {
+bool CTimerManager::IsActive(FTimerHandle handle) const noexcept {
     if (!handle.IsValid()) return false;
     /** 識別番号から求めたタイマー枠の位置。 */
     const u32 index = handle.id - 1;
@@ -238,7 +238,7 @@ bool FTimerManager::IsActive(FTimerHandle handle) const noexcept {
  * 時間を進めて発火条件を満たしたタイマーを呼び出す。
  * @param dt 前回から経過した秒数。
  */
-void FTimerManager::Tick(f32 dt) noexcept {
+void CTimerManager::Tick(f32 dt) noexcept {
     if (m_ClearPending || m_TickDepth != 0 || dt < 0.0f || !std::isfinite(dt)) return;
     ++m_TickDepth;
     m_Diagnostics.active_slots_visited = 0;
@@ -333,7 +333,7 @@ void FTimerManager::Tick(f32 dt) noexcept {
 }
 
 /** 現在有効なタイマー数を返す。 */
-u32 FTimerManager::ActiveCount() const noexcept {
+u32 CTimerManager::ActiveCount() const noexcept {
     return m_ActiveCount;
 }
 

@@ -20,19 +20,19 @@ inline constexpr u64 kAudioEngineResidentBufferBudgetBytes = 512ull * 1024ull * 
  * XAudio2を使って音声の再生と停止を管理する。
  * 内部状態の寿命と発音枠を個別に同期し、別スレッドからのShutdownを待ち合わせる。
  */
-class FAudioEngine {
+class CAudioEngine {
 public:
     /** 未初期化の音声エンジンを作る。 */
-    FAudioEngine() noexcept = default;
+    CAudioEngine() noexcept = default;
 
     /** 全音声資源を解放して破棄する。 */
-    ~FAudioEngine() noexcept;
+    ~CAudioEngine() noexcept;
 
     /** 音声資源の二重所有を防ぐためコピーを禁止する。 */
-    FAudioEngine(const FAudioEngine&) = delete;
+    CAudioEngine(const CAudioEngine&) = delete;
 
     /** 音声資源の二重所有を防ぐためコピー代入を禁止する。 */
-    FAudioEngine& operator=(const FAudioEngine&) = delete;
+    CAudioEngine& operator=(const CAudioEngine&) = delete;
 
     /**
      * 音声エンジンと最終出力先を初期化する。
@@ -174,7 +174,7 @@ private:
     FImpl* m_Impl = nullptr;
 };
 
-/** FAudioEngineの一時的なソース互換名。 */
-using CAudioEngine = FAudioEngine;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAudioEngine = CAudioEngine;
 
 } // namespace acs

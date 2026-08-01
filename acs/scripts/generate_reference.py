@@ -75,7 +75,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("event", {
         "title": "Event",
-        "summary": "FMessageBroker、TMessagePipe、FTimerManager。",
+        "summary": "CMessageBroker、TMessagePipe、CTimerManager。",
         "use": "pub/sub、時間差実行、フレームをまたぐ通知に使う。",
     }),
     ("asset", {
@@ -105,7 +105,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("audio", {
         "title": "Audio",
-        "summary": "FAudioEngine、FSoundHandle。",
+        "summary": "CAudioEngine、FSoundHandle。",
         "use": "WAV/MP3 などを読み、効果音/BGM として再生する。",
     }),
     ("network", {
@@ -181,10 +181,10 @@ SAMPLE_DESCRIPTIONS: dict[str, str] = {
     "01_HelloWindow": "FApplication の lifecycle、FWindow、FInput、終了処理の最小構成。",
     "02_HelloSprite": "FSpriteBatch によるスプライト、矩形、アルファブレンド。",
     "03_HelloText": "FFont と UTF-8 テキスト描画。日本語文字列の扱いも確認できる。",
-    "04_HelloECS": "FWorld/FEntityId/TQueryView、FMessageBroker、FTimerManager を使う ECS 入門。",
+    "04_HelloECS": "FWorld/FEntityId/TQueryView、CMessageBroker、CTimerManager を使う ECS 入門。",
     "05_HelloSave": "FStorage による INI 風の設定・セーブ永続化。",
     "06_HelloLocalization": "FLocalization と多言語切替。ja/en/fr の切替例。",
-    "07_HelloAudio": "FAudioEngine で WAV/MP3 を再生する。",
+    "07_HelloAudio": "CAudioEngine で WAV/MP3 を再生する。",
     "08_HelloPhysics2D": "2D の円衝突、重力、マウス発射の基礎。",
     "09_HelloParticles": "2D パーティクル表現。火、火花、噴水、煙など。",
     "10_HelloModel": "FStandardShader と手続きプリミティブで最初の 3D 描画。",

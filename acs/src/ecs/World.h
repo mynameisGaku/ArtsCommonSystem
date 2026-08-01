@@ -33,7 +33,7 @@ namespace acs {
  * @details
  * エンティティは世代付きスロットで管理し、Destroy したスロットは世代を進めて
  * フリーリストに戻して再利用する (古い FEntityId は世代不一致で無効化)。コンポーネント
- * 型ごとに TSparseSet を 1 つ持ち、ComponentTypeId を添字に引く。Query で複数
+ * 型ごとに TSparseSet を 1 つ持ち、FComponentTypeId を添字に引く。Query で複数
  * コンポーネントを横断走査する。non-copy 型。
  */
 class FWorld {
@@ -191,7 +191,7 @@ public:
      */
     template<typename T>
     TSparseSet<T>& GetOrCreateSet() noexcept {
-        const ComponentTypeId id = GetComponentTypeId<T>();
+        const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
         if (!m_Sets[id]) {
             // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。FSparseSetBase の
@@ -211,7 +211,7 @@ public:
      */
     template<typename T>
     TSparseSet<T>* TryGetSet() noexcept {
-        const ComponentTypeId id = GetComponentTypeId<T>();
+        const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) return nullptr;
         return static_cast<TSparseSet<T>*>(m_Sets[id]);
     }
@@ -252,7 +252,7 @@ private:
     /** 解放済みで再利用待ちのスロット番号。 */
     TArray<u32>            m_FreeIndices;
 
-    /** コンポーネント型ごとの TSparseSet (ComponentTypeId → FSparseSetBase*、所有権を持つ)。 */
+    /** コンポーネント型ごとの TSparseSet (FComponentTypeId → FSparseSetBase*、所有権を持つ)。 */
     TArray<FSparseSetBase*> m_Sets;
 
     /** 生存中のエンティティ数。 */

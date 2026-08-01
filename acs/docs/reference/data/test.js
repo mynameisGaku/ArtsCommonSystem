@@ -25,25 +25,25 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "TestCase",
+      name: "FTestCase",
       kind: "構造体", header: "test/Test.h",
       summary: "<b>1 つのテストケースの記述子</b>。スイート名・テスト名・ソース位置・テスト本体への<t>関数ポインタ</t>を持ち、<code>next</code> で次のケースへ繋がる<t>連結リスト</t>のノードでもある。<code>ACS_TEST</code> が内部で自動生成するので、通常は手で触らない。",
       when: "通常は意識しなくてよい(<code>ACS_TEST</code> が裏で作る)。テストランナーを自作したり一覧を走査したい上級者向け。",
-      sample: "// ACS_TEST が裏で次のような記述子を作って登録している\n::acs::test::TestCase tc {\n    \"MathVec3\", \"Add\",      // suite, name\n    __FILE__, __LINE__,      // file, line\n    &myTestFn, nullptr       // fn, next\n};",
+      sample: "// ACS_TEST が裏で次のような記述子を作って登録している\n::acs::test::FTestCase tc {\n    \"MathVec3\", \"Add\",      // suite, name\n    __FILE__, __LINE__,      // file, line\n    &myTestFn, nullptr       // fn, next\n};",
       members: [
         { sig: "const char* suite", desc: "テストの<b>グループ名</b>(<code>ACS_TEST</code> の第1引数)。" },
         { sig: "const char* name", desc: "グループ内での<b>個別テスト名</b>(第2引数)。" },
         { sig: "const char* file", desc: "テストが書かれた<b>ソースファイル名</b>(<code>__FILE__</code>)。" },
         { sig: "u32 line", desc: "テストの<b>行番号</b>(<code>__LINE__</code>)。失敗時の場所表示に使う。" },
         { sig: "TestFn fn", ret: "テスト本体", desc: "実行する<b>テスト関数への<t>関数ポインタ</t></b>。" },
-        { sig: "TestCase* next", desc: "<t>連結リスト</t>の<b>次のケース</b>。末尾は <code>nullptr</code>。" }
+        { sig: "FTestCase* next", desc: "<t>連結リスト</t>の<b>次のケース</b>。末尾は <code>nullptr</code>。" }
       ]
     },
     {
       name: "TestFn",
       kind: "型エイリアス", header: "test/Test.h",
       summary: "テスト本体の<b><t>関数ポインタ</t>型</b>。<code>void (*)()</code> の別名で、引数なし・戻り値なしの関数を指す。",
-      when: "<code>TestCase::fn</code> の型。テストランナーを自作するときに型として使う程度。",
+      when: "<code>FTestCase::fn</code> の型。テストランナーを自作するときに型として使う程度。",
       sample: "using TestFn = void (*)();  // 引数なし・戻り値なしの関数ポインタ"
     },
     {
@@ -53,7 +53,7 @@ ACS_REF.modules.push({
       when: "テストランナーを自作する等の特殊用途のみ。普段は <code>ACS_TEST</code> 経由で間接的に使われる。",
       sample: "// ACS_TEST 内部から自動で呼ばれる\n::acs::test::Register(&tc);",
       members: [
-        { sig: "void Register(TestCase* tc) noexcept", desc: "渡された記述子をグローバルなテスト一覧の<t>連結リスト</t>に繋ぐ。" }
+        { sig: "void Register(FTestCase* tc) noexcept", desc: "渡された記述子をグローバルなテスト一覧の<t>連結リスト</t>に繋ぐ。" }
       ]
     },
     {

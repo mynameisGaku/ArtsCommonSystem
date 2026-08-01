@@ -537,25 +537,567 @@ public static partial class ProjectManager
 
     // ===== クラス/ソース生成 (基底選択。Empty=空クラス、それ以外は <IDENT>_API エクスポート) =====
 
-    public static readonly string[] BaseClassOptions = { "Empty", "AComponent", "ANode", "FScene2D" };
+    public static readonly string[] BaseClassOptions = { "Empty", "AObject", "AComponent", "ANode", "FScene2D" };
 
     /// <summary>選択可能なエンジン基底 (これ以外の基底はユーザー型として扱う)。</summary>
-    private static readonly HashSet<string> EngineBaseClasses = new() { "AComponent", "ANode", "FScene2D" };
+    private static readonly HashSet<string> EngineBaseClasses = new() { "AObject", "AComponent", "ANode", "FScene2D" };
 
-    /// <summary>baseClass からユーザー継承鎖を辿り、行き着くエンジン基底名を返す (見つからなければ baseClass)。</summary>
-    private static string ResolveRootEngineBase(Project p, string baseClass)
+    /// <summary>既存の登録処理を保つobject基底。FScene2Dはscene専用登録へ分けるまで含める。</summary>
+    private static readonly HashSet<string> RegisteredObjectBaseClasses = new() { "AObject", "AComponent", "ANode", "FScene2D" };
+
+    /// <summary>baseClassからユーザー継承鎖を辿り、登録方針を決める既知rootを返す。</summary>
+    /// <exception cref="InvalidOperationException">基底が不明または継承が循環している。</exception>
+    private static string ResolveRootEngineBase(
+        IReadOnlyDictionary<string, string> userClasses,
+        string baseClass)
     {
-        var map = new Dictionary<string, string>();
-        foreach (var (name, bas) in ScanUserClasses(p)) map[name] = bas;   // 同名は後勝ち
         string cur = baseClass;
         var seen = new HashSet<string>();
-        while (!EngineBaseClasses.Contains(cur) && seen.Add(cur) && map.TryGetValue(cur, out var b)) cur = b;
-        return cur;
+        while (true)
+        {
+            if (EngineBaseClasses.Contains(cur)) return cur;
+            if (string.Equals(cur, "Empty", StringComparison.OrdinalIgnoreCase)) return "Empty";
+            if (!seen.Add(cur)) throw new InvalidOperationException($"基底classの継承が循環しています: {baseClass}");
+            if (!userClasses.TryGetValue(cur, out var next))
+                throw new InvalidOperationException($"基底classを解決できません: {baseClass}");
+            cur = next;
+        }
     }
 
-    // class [API] Name : public Base { を捉える (基底ピッカーの階層構築用)。
+    // 行頭の class [API] Name [final] [: public Base] { を捉える。
     private static readonly Regex UserClassRe = new(
-        @"class\s+(?:\w+\s+)?(\w+)\s*:\s*public\s+([\w:]+)\s*\{", RegexOptions.Compiled);
+        @"^[ \t]*class[ \t]+(?:[A-Za-z_]\w*_API[ \t]+)?([A-Za-z_]\w*)(?:[ \t]+final)?(?:[ \t]*:[ \t]*public[ \t]+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*))?[ \t\r\n]*\{",
+        RegexOptions.Compiled | RegexOptions.Multiline);
+
+    /// <summary>class keywordの直前が空白を挟んだenum keywordかを返す。</summary>
+    private static bool IsEnumClassSpecifier(string text, int classPosition)
+    {
+        int end = classPosition;
+        while (end > 0 && char.IsWhiteSpace(text[end - 1])) --end;
+        int start = end;
+        while (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] == '_')) --start;
+        return text.AsSpan(start, end - start).SequenceEqual("enum".AsSpan());
+    }
+
+    /// <summary>文字がC++数値リテラル内の桁区切りかを返す。</summary>
+    private static bool IsNumericLiteralSeparator(string text, int position)
+    {
+        if (position <= 0 || position + 1 >= text.Length) return false;
+        static bool IsTokenCharacter(char value) =>
+            (value >= 'A' && value <= 'Z')
+            || (value >= 'a' && value <= 'z')
+            || (value >= '0' && value <= '9')
+            || value is '_' or '\'';
+        if (!IsTokenCharacter(text[position - 1]) || !IsTokenCharacter(text[position + 1])) return false;
+        int start = position - 1;
+        while (start > 0 && IsTokenCharacter(text[start - 1])) --start;
+        return text[start] >= '0' && text[start] <= '9';
+    }
+
+    /// <summary>positionから始まるC++ raw文字列の終端を返す。</summary>
+    private static bool TryFindCppRawStringEnd(string text, int position, out int end)
+    {
+        end = position;
+        // raw文字列のR文字がある位置。
+        int rawMarker = position;
+        if (position + 3 < text.Length
+            && text[position] == 'u'
+            && text[position + 1] == '8'
+            && text[position + 2] == 'R'
+            && text[position + 3] == '"')
+        {
+            rawMarker = position + 2;
+        }
+        else if (position + 2 < text.Length
+            && text[position] is 'u' or 'U' or 'L'
+            && text[position + 1] == 'R'
+            && text[position + 2] == '"')
+        {
+            rawMarker = position + 1;
+        }
+        else if (position + 1 >= text.Length
+            || text[position] != 'R'
+            || text[position + 1] != '"')
+        {
+            return false;
+        }
+
+        if (position > 0
+            && (char.IsLetterOrDigit(text[position - 1]) || text[position - 1] == '_'))
+        {
+            return false;
+        }
+
+        // raw文字列delimiterの開始位置。
+        int delimiterStart = rawMarker + 2;
+        int open = text.IndexOf('(', delimiterStart);
+        bool validDelimiter = open >= delimiterStart && open - delimiterStart <= 16;
+        for (int delimiterPosition = delimiterStart;
+            validDelimiter && delimiterPosition < open;
+            ++delimiterPosition)
+        {
+            char delimiterCharacter = text[delimiterPosition];
+            validDelimiter = !char.IsWhiteSpace(delimiterCharacter)
+                && delimiterCharacter is not ('\\' or ')');
+        }
+        if (!validDelimiter) return false;
+
+        string delimiter = text.Substring(delimiterStart, open - delimiterStart);
+        string terminator = ")" + delimiter + "\"";
+        int close = text.IndexOf(terminator, open + 1, StringComparison.Ordinal);
+        end = close < 0 ? text.Length : close + terminator.Length;
+        return true;
+    }
+
+    /// <summary>
+    /// phase 2後のraw文字列を元source上の連続した終端まで対応付ける。
+    /// raw内容では行結合が戻るため、終端探索だけは元sourceで行う。
+    /// </summary>
+    private static bool TryFindCppRawStringInPhase2(
+        string phase2Text,
+        IReadOnlyList<int> originalPositions,
+        string originalText,
+        int position,
+        out int phase2End)
+    {
+        phase2End = position;
+        // phase 2文字列内でraw prefixのRがある位置。
+        int rawMarker = position;
+        if (position + 3 < phase2Text.Length
+            && phase2Text[position] == 'u'
+            && phase2Text[position + 1] == '8'
+            && phase2Text[position + 2] == 'R'
+            && phase2Text[position + 3] == '"')
+        {
+            rawMarker = position + 2;
+        }
+        else if (position + 2 < phase2Text.Length
+            && phase2Text[position] is 'u' or 'U' or 'L'
+            && phase2Text[position + 1] == 'R'
+            && phase2Text[position + 2] == '"')
+        {
+            rawMarker = position + 1;
+        }
+        else if (position + 1 >= phase2Text.Length
+            || phase2Text[position] != 'R'
+            || phase2Text[position + 1] != '"')
+        {
+            return false;
+        }
+
+        if (position > 0
+            && (char.IsLetterOrDigit(phase2Text[position - 1]) || phase2Text[position - 1] == '_'))
+        {
+            return false;
+        }
+
+        // phase 2文字列内のdelimiter開始位置。
+        int delimiterStart = rawMarker + 2;
+        int open = phase2Text.IndexOf('(', delimiterStart);
+        bool validDelimiter = open >= delimiterStart && open - delimiterStart <= 16;
+        for (int delimiterPosition = delimiterStart;
+            validDelimiter && delimiterPosition < open;
+            ++delimiterPosition)
+        {
+            char delimiterCharacter = phase2Text[delimiterPosition];
+            validDelimiter = !char.IsWhiteSpace(delimiterCharacter)
+                && delimiterCharacter is not ('\\' or ')');
+        }
+        if (!validDelimiter) return false;
+
+        string delimiter = phase2Text.Substring(delimiterStart, open - delimiterStart);
+        string terminator = ")" + delimiter + "\"";
+        // raw内容の開始位置に対応する元source位置。
+        int originalOpen = originalPositions[open];
+        int originalClose = originalText.IndexOf(
+            terminator,
+            originalOpen + 1,
+            StringComparison.Ordinal);
+        int originalEnd = originalClose < 0
+            ? originalText.Length
+            : originalClose + terminator.Length;
+        phase2End = position;
+        while (phase2End < originalPositions.Count
+            && originalPositions[phase2End] < originalEnd) ++phase2End;
+        return true;
+    }
+
+    /// <summary>C++のcommentと文字列を改行位置を保った空白へ置換する。</summary>
+    private static string MaskCppCommentsAndLiterals(string text)
+    {
+        char[] masked = text.ToCharArray();
+
+        // 指定範囲を空白化し、行頭判定に必要な改行だけを残す。
+        void MaskRange(int start, int end)
+        {
+            for (int position = start; position < end; ++position)
+            {
+                if (masked[position] is not ('\r' or '\n')) masked[position] = ' ';
+            }
+        }
+
+        for (int position = 0; position < text.Length;)
+        {
+            if (position + 1 < text.Length && text[position] == '/' && text[position + 1] == '/')
+            {
+                int end = position + 2;
+                while (end < text.Length)
+                {
+                    int lineEnd = text.IndexOf('\n', end);
+                    if (lineEnd < 0)
+                    {
+                        end = text.Length;
+                        break;
+                    }
+                    int last = lineEnd - 1;
+                    if (last >= end && text[last] == '\r') --last;
+                    if (last < end || text[last] != '\\')
+                    {
+                        end = lineEnd;
+                        break;
+                    }
+                    end = lineEnd + 1;
+                }
+                MaskRange(position, end);
+                position = end;
+                continue;
+            }
+            if (position + 1 < text.Length && text[position] == '/' && text[position + 1] == '*')
+            {
+                int close = text.IndexOf("*/", position + 2, StringComparison.Ordinal);
+                int end = close < 0 ? text.Length : close + 2;
+                MaskRange(position, end);
+                position = end;
+                continue;
+            }
+            if (TryFindCppRawStringEnd(text, position, out int rawEnd))
+            {
+                MaskRange(position, rawEnd);
+                position = rawEnd;
+                continue;
+            }
+            if (text[position] == '\'' && IsNumericLiteralSeparator(text, position))
+            {
+                ++position;
+                continue;
+            }
+            if (text[position] is '"' or '\'')
+            {
+                char quote = text[position];
+                int end = position + 1;
+                while (end < text.Length)
+                {
+                    if (text[end] == '\\' && end + 1 < text.Length)
+                    {
+                        end += 2;
+                        continue;
+                    }
+                    if (text[end++] == quote) break;
+                }
+                MaskRange(position, end);
+                position = end;
+                continue;
+            }
+            ++position;
+        }
+        return new string(masked);
+    }
+
+    /// <summary>行が空白と改行だけかを返す。</summary>
+    private static bool IsBlankCppLine(string text, int lineStart, int lineEnd)
+    {
+        for (int position = lineStart; position < lineEnd; ++position)
+        {
+            if (!char.IsWhiteSpace(text[position])) return false;
+        }
+        return true;
+    }
+
+    /// <summary>行頭のpreprocessor directiveを名前と引数へ分ける。</summary>
+    private static bool TryReadCppDirective(
+        string text,
+        int lineStart,
+        int lineEnd,
+        out int marker,
+        out string directiveName,
+        out string argument)
+    {
+        marker = lineStart;
+        while (marker < lineEnd && text[marker] is ' ' or '\t') ++marker;
+        if (marker >= lineEnd || text[marker] != '#')
+        {
+            directiveName = "";
+            argument = "";
+            return false;
+        }
+
+        // directive名の先頭位置。
+        int nameStart = marker + 1;
+        while (nameStart < lineEnd && char.IsWhiteSpace(text[nameStart])) ++nameStart;
+        // directive名の終端位置。
+        int nameEnd = nameStart;
+        while (nameEnd < lineEnd
+            && (char.IsLetterOrDigit(text[nameEnd]) || text[nameEnd] == '_')) ++nameEnd;
+        directiveName = text.Substring(nameStart, nameEnd - nameStart);
+        argument = text.Substring(nameEnd, lineEnd - nameEnd).Trim();
+        return true;
+    }
+
+    /// <summary>C++識別子だけで構成された文字列かを返す。</summary>
+    private static bool IsCppIdentifier(string value)
+    {
+        if (value.Length == 0 || !(char.IsLetter(value[0]) || value[0] == '_')) return false;
+        for (int position = 1; position < value.Length; ++position)
+        {
+            if (!(char.IsLetterOrDigit(value[position]) || value[position] == '_')) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// file全体を囲む単純な#ifndef/define guardだけを透過対象として認識する。
+    /// 条件分岐や置換値を持つguardは安全側で通常の条件付き領域として扱う。
+    /// </summary>
+    private static bool HasTransparentHeaderGuard(string text)
+    {
+        // 空行を除いた各行の範囲。
+        var meaningfulLines = new List<(int Start, int End)>();
+        for (int lineStart = 0; lineStart < text.Length;)
+        {
+            // 現在行の改行を含む終端位置。
+            int lineBreak = text.IndexOf('\n', lineStart);
+            int lineEnd = lineBreak < 0 ? text.Length : lineBreak + 1;
+            if (!IsBlankCppLine(text, lineStart, lineEnd)) meaningfulLines.Add((lineStart, lineEnd));
+            lineStart = lineEnd;
+        }
+        if (meaningfulLines.Count < 3) return false;
+
+        (int firstStart, int firstEnd) = meaningfulLines[0];
+        if (!TryReadCppDirective(
+                text,
+                firstStart,
+                firstEnd,
+                out _,
+                out string firstName,
+                out string guardName)
+            || firstName != "ifndef"
+            || !IsCppIdentifier(guardName))
+        {
+            return false;
+        }
+
+        (int secondStart, int secondEnd) = meaningfulLines[1];
+        if (!TryReadCppDirective(
+                text,
+                secondStart,
+                secondEnd,
+                out _,
+                out string secondName,
+                out string definedName)
+            || secondName != "define"
+            || !string.Equals(definedName, guardName, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // 外側guardを含む現在の条件深さ。
+        int conditionalDepth = 0;
+        for (int lineIndex = 0; lineIndex < meaningfulLines.Count; ++lineIndex)
+        {
+            (int lineStart, int lineEnd) = meaningfulLines[lineIndex];
+            if (!TryReadCppDirective(
+                    text,
+                    lineStart,
+                    lineEnd,
+                    out _,
+                    out string directiveName,
+                    out _))
+            {
+                if (conditionalDepth == 0) return false;
+                continue;
+            }
+
+            if (directiveName is "if" or "ifdef" or "ifndef")
+            {
+                ++conditionalDepth;
+                continue;
+            }
+            if (directiveName is "else" or "elif")
+            {
+                if (conditionalDepth == 1) return false;
+                continue;
+            }
+            if (directiveName != "endif") continue;
+            if (conditionalDepth == 0) return false;
+            --conditionalDepth;
+            if (conditionalDepth == 0 && lineIndex != meaningfulLines.Count - 1) return false;
+        }
+        return conditionalDepth == 0;
+    }
+
+    /// <summary>preprocessor directiveと条件付き領域を走査対象から除外する。</summary>
+    private static string MaskCppPreprocessorRegions(string text)
+    {
+        char[] masked = text.ToCharArray();
+        // file全体の単純なinclude guardだけは本文を走査する。
+        int visibleConditionalDepth = HasTransparentHeaderGuard(text) ? 1 : 0;
+        int conditionalDepth = 0;
+        int lineStart = 0;
+        while (lineStart < text.Length)
+        {
+            int lineBreak = text.IndexOf('\n', lineStart);
+            int lineEnd = lineBreak < 0 ? text.Length : lineBreak + 1;
+            bool directive = TryReadCppDirective(
+                text,
+                lineStart,
+                lineEnd,
+                out int marker,
+                out string directiveName,
+                out _);
+            if (directive)
+            {
+                if (directiveName is "endif" && conditionalDepth > 0) --conditionalDepth;
+                if (directiveName is "if" or "ifdef" or "ifndef") ++conditionalDepth;
+            }
+
+            if (directive || conditionalDepth > visibleConditionalDepth)
+            {
+                for (int position = lineStart; position < lineEnd; ++position)
+                {
+                    if (masked[position] is not ('\r' or '\n')) masked[position] = ' ';
+                }
+                if (directive) masked[marker] = '#';
+            }
+            lineStart = lineEnd;
+        }
+        return new string(masked);
+    }
+
+    private enum CppScanState
+    {
+        Code,
+        LineComment,
+        BlockComment,
+        StringLiteral,
+        CharacterLiteral,
+    }
+
+    /// <summary>
+    /// C++ phase 2の行結合を行い、comment/string文脈で実raw文字列だけを空白化する。
+    /// raw内容の行結合は元sourceの終端位置を使って取り消す。
+    /// </summary>
+    private static string SpliceCppLinesPreservingRawStrings(string text)
+    {
+        var phase2Builder = new StringBuilder(text.Length);
+        // phase 2文字ごとの元source位置。
+        var originalPositions = new List<int>(text.Length);
+        for (int position = 0; position < text.Length;)
+        {
+            if (position + 1 < text.Length && text[position] == '\\' && text[position + 1] == '\n')
+            {
+                position += 2;
+                continue;
+            }
+            if (position + 2 < text.Length
+                && text[position] == '\\'
+                && text[position + 1] == '\r'
+                && text[position + 2] == '\n')
+            {
+                position += 3;
+                continue;
+            }
+            phase2Builder.Append(text[position]);
+            originalPositions.Add(position);
+            ++position;
+        }
+
+        string phase2Text = phase2Builder.ToString();
+        char[] protectedText = phase2Text.ToCharArray();
+        CppScanState state = CppScanState.Code;
+        for (int position = 0; position < phase2Text.Length;)
+        {
+            if (state == CppScanState.Code)
+            {
+                if (position + 1 < phase2Text.Length
+                    && phase2Text[position] == '/'
+                    && phase2Text[position + 1] == '/')
+                {
+                    state = CppScanState.LineComment;
+                    position += 2;
+                    continue;
+                }
+                if (position + 1 < phase2Text.Length
+                    && phase2Text[position] == '/'
+                    && phase2Text[position + 1] == '*')
+                {
+                    state = CppScanState.BlockComment;
+                    position += 2;
+                    continue;
+                }
+                if (TryFindCppRawStringInPhase2(
+                    phase2Text,
+                    originalPositions,
+                    text,
+                    position,
+                    out int rawEnd))
+                {
+                    for (int maskedPosition = position; maskedPosition < rawEnd; ++maskedPosition)
+                    {
+                        if (protectedText[maskedPosition] is not ('\r' or '\n'))
+                            protectedText[maskedPosition] = ' ';
+                    }
+                    position = rawEnd;
+                    continue;
+                }
+                if (phase2Text[position] == '"')
+                {
+                    state = CppScanState.StringLiteral;
+                    ++position;
+                    continue;
+                }
+                if (phase2Text[position] == '\''
+                    && !IsNumericLiteralSeparator(phase2Text, position))
+                {
+                    state = CppScanState.CharacterLiteral;
+                    ++position;
+                    continue;
+                }
+                ++position;
+                continue;
+            }
+
+            if (state == CppScanState.LineComment)
+            {
+                if (phase2Text[position] == '\n') state = CppScanState.Code;
+                ++position;
+                continue;
+            }
+
+            if (state == CppScanState.BlockComment)
+            {
+                if (position + 1 < phase2Text.Length
+                    && phase2Text[position] == '*'
+                    && phase2Text[position + 1] == '/')
+                {
+                    state = CppScanState.Code;
+                    position += 2;
+                    continue;
+                }
+                ++position;
+                continue;
+            }
+
+            char quote = state == CppScanState.StringLiteral ? '"' : '\'';
+            if (phase2Text[position] == '\\' && position + 1 < phase2Text.Length)
+            {
+                position += 2;
+                continue;
+            }
+            if (phase2Text[position] == quote) state = CppScanState.Code;
+            ++position;
+        }
+        return new string(protectedText);
+    }
 
     /// <summary>
     /// プロジェクトの Source/*.h を走査し、ユーザークラスの (名前, 基底名) を返す。
@@ -570,10 +1112,13 @@ public static partial class ProjectManager
         {
             string text;
             try { text = File.ReadAllText(h); } catch { continue; }
-            foreach (Match m in UserClassRe.Matches(text))
+            string code = MaskCppPreprocessorRegions(MaskCppCommentsAndLiterals(
+                SpliceCppLinesPreservingRawStrings(text)));
+            foreach (Match m in UserClassRe.Matches(code))
             {
+                if (IsEnumClassSpecifier(code, m.Index)) continue;
                 string name = m.Groups[1].Value;
-                string bas  = m.Groups[2].Value;
+                string bas  = m.Groups[2].Success ? m.Groups[2].Value : "Empty";
                 int c = bas.LastIndexOf("::", StringComparison.Ordinal);
                 if (c >= 0) bas = bas.Substring(c + 2);
                 if (name != bas) list.Add((name, bas));
@@ -586,6 +1131,7 @@ public static partial class ProjectManager
     private static string ApiMacro(string ident) => ident.ToUpperInvariant() + "_API";
 
     private static string ApiHeaderContent(string ident) =>
+        "// SPDX-License-Identifier: Apache-2.0\n" +
         "#pragma once\n" +
         $"// {ApiMacro(ident)}: このプロジェクト DLL のエクスポート/インポートマクロ。\n" +
         "// リフレクション DLL (<ident>_reflect) のビルド時は dllexport、それ以外は空。\n" +
@@ -628,21 +1174,22 @@ public static partial class ProjectManager
 
     private static bool HasKnownCppPrefix(string stem) =>
         stem.Length >= 2
-        && stem[0] is 'A' or 'E' or 'F' or 'I' or 'T'
+        && stem[0] is 'A' or 'C' or 'E' or 'F' or 'I' or 'T'
         && ((stem[1] >= 'A' && stem[1] <= 'Z') || (stem[1] >= '0' && stem[1] <= '9'));
 
     public static string CppTypeIdent(string? name, char requiredPrefix)
     {
-        if (requiredPrefix is not ('A' or 'E' or 'F'))
+        if (requiredPrefix is not ('A' or 'C' or 'E' or 'F'))
             throw new ArgumentOutOfRangeException(nameof(requiredPrefix));
 
         string stem = CppPascalStem(name);
-        bool prefixOnly = stem.Length == 1 && stem[0] is 'A' or 'E' or 'F' or 'I' or 'T';
+        bool prefixOnly = stem.Length == 1 && stem[0] is 'A' or 'C' or 'E' or 'F' or 'I' or 'T';
         if (stem.Length == 0 || prefixOnly)
         {
             stem = requiredPrefix switch
             {
                 'A' => "GeneratedObject",
+                'C' => "GeneratedClass",
                 'E' => "GeneratedEnum",
                 _ => "GeneratedType",
             };
@@ -656,17 +1203,17 @@ public static partial class ProjectManager
         return requiredPrefix + stem;
     }
 
-    /// <summary>通常 class/struct 用の互換入口。生成型には F prefix を保証する。</summary>
-    public static string ClassIdent(string name) => CppTypeIdent(name, 'F');
+    /// <summary>通常の機能class用の互換入口。生成型にはC prefixを保証する。</summary>
+    public static string ClassIdent(string name) => CppTypeIdent(name, 'C');
 
     /// <summary>
     /// 表示名を enum class の列挙子に使える ASCII PascalCase 識別子へ変換する。
-    /// 型用の A/E/F/I/T prefix が付いていた場合は、列挙子との混同を避けて除去する。
+    /// 型用のA/C/E/F/I/T prefixが付いていた場合は、列挙子との混同を避けて除去する。
     /// </summary>
     public static string CppEnumeratorIdent(string? name)
     {
         string stem = CppPascalStem(name);
-        bool prefixOnly = stem.Length == 1 && stem[0] is 'A' or 'E' or 'F' or 'I' or 'T';
+        bool prefixOnly = stem.Length == 1 && stem[0] is 'A' or 'C' or 'E' or 'F' or 'I' or 'T';
         if (stem.Length == 0 || prefixOnly) return "Value";
         if (HasKnownCppPrefix(stem)) stem = stem.Substring(1);
         return stem[0] >= '0' && stem[0] <= '9' ? "Value" + stem : stem;
@@ -675,11 +1222,24 @@ public static partial class ProjectManager
     /// <summary>新しいクラス/コンポーネントのソースをプロジェクトの Source に生成し、生成パスを返す。</summary>
     public static System.Collections.Generic.List<string> GenerateClass(Project p, string className, string baseClass)
     {
+        // 全生成前にユーザーclass定義を一度だけ走査して重複を拒否する。
+        var userClasses = new Dictionary<string, string>();
+        foreach (var (name, bas) in ScanUserClasses(p))
+        {
+            if (!userClasses.TryAdd(name, bas))
+                throw new InvalidOperationException($"基底class定義が重複しています: {name}");
+        }
+        // 選択された基底がエンジンに直接定義されているか。
         bool baseIsEngine = EngineBaseClasses.Contains(baseClass);
-        string rootEngine = baseIsEngine ? baseClass : ResolveRootEngineBase(p, baseClass);
-        bool objectManaged = rootEngine is "AComponent" or "ANode" or "FObject"
-            || (rootEngine.Length >= 2 && rootEngine[0] == 'A' && char.IsUpper(rootEngine[1]));
-        string cls = CppTypeIdent(className, objectManaged ? 'A' : 'F');
+        // ユーザー継承を含めて到達した既知のroot基底。
+        string rootEngine = baseIsEngine
+            ? baseClass
+            : ResolveRootEngineBase(userClasses, baseClass);
+        // 空class以外では基底のincludeと継承宣言を生成する。
+        bool hasBase = !string.Equals(baseClass, "Empty", StringComparison.OrdinalIgnoreCase);
+        // ACSの登録対象としてマーカーを生成するか。
+        bool registeredObject = RegisteredObjectBaseClasses.Contains(rootEngine);
+        string cls = CppTypeIdent(className, registeredObject ? 'A' : 'C');
         string ident = SanitizeIdent(p.Name);
         string api = ApiMacro(ident);
         string apiHeader = ApiHeaderName(p.Name);
@@ -694,9 +1254,10 @@ public static partial class ProjectManager
         string hPath = Path.Combine(dir, cls + ".h");
         if (File.Exists(hPath)) throw new IOException($"既に存在します: {cls}.h");
 
-        if (string.Equals(baseClass, "Empty", StringComparison.OrdinalIgnoreCase))
+        if (!hasBase)
         {
             File.WriteAllText(hPath,
+                "// SPDX-License-Identifier: Apache-2.0\n" +
                 "#pragma once\n\n" +
                 $"// {cls} — ACS Editor が生成した空クラス。\n" +
                 $"class {cls}\n{{\n}};\n", Utf8NoBom);
@@ -704,22 +1265,33 @@ public static partial class ProjectManager
             return made;
         }
 
-        // 基底ありクラス。ACS_CLASS / ACS_PROPERTY マーカーで宣言 → コードジェネレータが登録を生成。
-        // 基底がエンジン型なら acs::game:: 修飾、ユーザー型ならそのまま + 基底ヘッダを include。
-        string baseQual   = baseIsEngine ? "acs::game::" + baseClass : baseClass;
+        // 基底ありclass。objectだけACS_CLASSを付け、通常の機能classは継承関係だけを生成する。
+        // エンジン基底は定義元namespaceで修飾し、ユーザー基底はそのheaderを直接読む。
+        string baseQual = baseClass == "AObject"
+            ? "acs::AObject"
+            : baseIsEngine ? "acs::game::" + baseClass : baseClass;
         bool isComponent  = rootEngine == "AComponent";   // 直/間接に AComponent 由来か
         var h = new StringBuilder();
+        h.Append("// SPDX-License-Identifier: Apache-2.0\n");
         h.Append("#pragma once\n");
-        h.Append("#include \"gameframework/GameFramework.h\"\n");
-        h.Append("#include \"gameframework/Reflect.h\"\n");
-        h.Append("#include \"gameframework/AcsClass.h\"\n");
+        if (registeredObject)
+        {
+            if (baseClass == "AObject") h.Append("#include \"memory/AObject.h\"\n");
+            else h.Append("#include \"gameframework/GameFramework.h\"\n");
+            h.Append("#include \"gameframework/Reflect.h\"\n");
+            h.Append("#include \"gameframework/AcsClass.h\"\n");
+        }
         h.Append($"#include \"{apiHeader}\"\n");
         if (!baseIsEngine) h.Append($"#include \"{baseClass}.h\"\n");   // ユーザー基底のヘッダ
         h.Append("\n");
         h.Append($"// {cls} — ACS Editor が生成 (基底: {baseClass})。\n");
-        h.Append("ACS_CLASS()\n");
+        if (registeredObject) h.Append("ACS_CLASS()\n");
         h.Append($"class {api} {cls} : public {baseQual}\n{{\npublic:\n");
-        if (isComponent)
+        if (!registeredObject)
+        {
+            h.Append("    // このclassが担う機能と、保持する状態のownerを明示して実装する。\n");
+        }
+        else if (isComponent)
         {
             h.Append($"    ACS_GAME_COMPONENT_KIND({cls})\n\n");
             h.Append("    // 派生型固有の Kind/ReflectName を宣言し、型別取得と反射登録を一致させる。\n");

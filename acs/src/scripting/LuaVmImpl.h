@@ -38,8 +38,8 @@ static_assert(kNativeRegistrationIdMaximum == 1 || AdvanceNativeRegistrationId(k
 
 } // namespace lua_vm_detail
 
-/** FLuaVmが所有するLua状態と登録関数を保持する。 */
-class FLuaVm::FLuaVmImpl {
+/** CLuaVmが所有するLua状態と登録関数を保持する。 */
+class CLuaVm::FLuaVmImpl {
 public:
     /**
      * 登録情報の保存先を指定して構築する。
@@ -49,8 +49,8 @@ public:
     explicit FLuaVmImpl(acs::FAllocator& allocator) noexcept : m_Natives(allocator) {}
 
 private:
-    /** 所有元のFLuaVmだけに内部状態の操作を許可する。 */
-    friend class FLuaVm;
+    /** 所有元のCLuaVmだけに内部状態の操作を許可する。 */
+    friend class CLuaVm;
 
     /** Initで生成するLua状態。 */
     lua_State* m_L = nullptr;
@@ -77,7 +77,7 @@ private:
     bool m_NativeRegistrationInProgress = false;
 
     /** この実装を所有するLua実行環境。 */
-    FLuaVm* m_Owner = nullptr;
+    CLuaVm* m_Owner = nullptr;
 
     /** 直前に保持した戻り文字列の登録番号。 */
     int m_LastStringRef = LUA_NOREF;

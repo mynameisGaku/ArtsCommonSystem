@@ -21,9 +21,9 @@ inline TAtomic<u32> g_next_event_type_id{0};
  * @tparam E 番号を割り当てるメッセージ型。
  */
 template<typename E>
-EventTypeId GetEventTypeId() noexcept {
+FEventTypeId GetEventTypeId() noexcept {
     /** この型へ一度だけ割り当てる通路番号。 */
-    static const EventTypeId id = event_detail::g_next_event_type_id.FetchAdd(1);
+    static const FEventTypeId id = event_detail::g_next_event_type_id.FetchAdd(1);
     return id;
 }
 
@@ -40,19 +40,19 @@ using MessageCallback = void (*)(const void* payload, void* user);
  * 配信が戻るまでは、この仲介器と呼出し対象の寿命を呼出し側で保つ必要がある。
  * 異なるスレッド間の受け渡しにはTMessagePipeを使う。
  */
-class FMessageBroker {
+class CMessageBroker {
 public:
     /** 空の仲介器を作る。 */
-    FMessageBroker() noexcept = default;
+    CMessageBroker() noexcept = default;
 
     /** 全通路を解放する。 */
-    ~FMessageBroker() noexcept;
+    ~CMessageBroker() noexcept;
 
     /** 通路の重複所有を防ぐためコピー構築を禁止する。 */
-    FMessageBroker(const FMessageBroker&) = delete;
+    CMessageBroker(const CMessageBroker&) = delete;
 
     /** 通路の重複所有を防ぐためコピー代入を禁止する。 */
-    FMessageBroker& operator=(const FMessageBroker&) = delete;
+    CMessageBroker& operator=(const CMessageBroker&) = delete;
 
     /**
      * 全購読を直ちに無効化し、通路を解放する。
@@ -107,7 +107,7 @@ public:
      * 指定した通路の有効な購読数を返す。
      * @param channel 調べる通路番号。
      */
-    u32 SubscriberCount(EventTypeId channel) const noexcept;
+    u32 SubscriberCount(FEventTypeId channel) const noexcept;
 
 private:
     /** 一件分の購読情報。 */
@@ -156,21 +156,21 @@ private:
      * @param cb 配信時に呼び出す関数。
      * @param user 呼び出す関数へ渡す値。
      */
-    FSubscriptionHandle SubscribeRaw(EventTypeId channel, MessageCallback cb, void* user) noexcept;
+    FSubscriptionHandle SubscribeRaw(FEventTypeId channel, MessageCallback cb, void* user) noexcept;
 
     /**
      * 型を消去した値を指定した通路へ配信する。
      * @param channel 配信先の通路番号。
      * @param payload 配信する値。
      */
-    void PublishRaw(EventTypeId channel, const void* payload) noexcept;
+    void PublishRaw(FEventTypeId channel, const void* payload) noexcept;
 
     /**
      * 指定した通路を取得し、必要なら作成する。
      * @param id 取得する通路番号。
      * @param create 存在しない通路を作成するか。
      */
-    FChannel* GetChannel(EventTypeId id, bool create) noexcept;
+    FChannel* GetChannel(FEventTypeId id, bool create) noexcept;
 
     /** 制御領域を返し、未作成ならnullptrを返す。 */
     FChannel* GetControlChannel() noexcept;
@@ -196,7 +196,7 @@ private:
     u32 m_GenerationSeed = 0;
 };
 
-/** 旧名を使う既存コード向けの互換別名。 */
-using CMessageBroker = FMessageBroker;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMessageBroker = CMessageBroker;
 
 } // namespace acs

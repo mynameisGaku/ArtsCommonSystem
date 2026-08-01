@@ -59,7 +59,7 @@ acs/
 │   ├── test/                   # 小さなテストフレームワーク + EXPECT_* マクロ
 │   ├── platform/               # FWindow, FInput, FClock/FFrameTimer, FFileSystem, FStorage, FLocalization
 │   ├── ecs/                    # FWorld, FEntityId, TQueryView, FSystemScheduler
-│   ├── event/                  # FTimerManager, FMessageBroker (pub/sub)
+│   ├── event/                  # CTimerManager, CMessageBroker (pub/sub)
 │   ├── asset/                  # FAssetRegistry, 画像/メッシュ/音声ローダ, 非同期ロード
 │   ├── render/                 # FRenderer, IRhiDevice, FStandardShader, FPbrShader, FSpriteBatch
 │   ├── app/                    # FApplication, FAppConfig, ACS_DEFINE_MAIN

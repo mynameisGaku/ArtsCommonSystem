@@ -6336,23 +6336,29 @@ private:
 namespace acs {
 
 /** コンポーネント型 ID (0..kMaxComponentTypes-1、ストレージ配列の添字に使う)。 */
-using ComponentTypeId = u32;
+using FComponentTypeId = u32;
 
 /** ビルド内で安定したコンパイル時コンポーネント署名。永続化 ID には使用しない。 */
-using ComponentSignatureId = u64;
+using FComponentSignatureId = u64;
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using ComponentTypeId = FComponentTypeId;
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using ComponentSignatureId = FComponentSignatureId;
 
 /** 同時に扱えるコンポーネント型の上限 (Slots 配列の長さ)。 */
-inline constexpr ComponentTypeId kMaxComponentTypes = 256;
+inline constexpr FComponentTypeId kMaxComponentTypes = 256;
 
 namespace ecs_detail {
 /** 全 T 共通の採番カウンタ (次に割り当てる ID を保持)。 */
 inline TAtomic<u32> g_next_component_type_id{0};
 
-/** 型署名文字列を FNV-1a でハッシュ化する。 */
-constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
+/** 非nullでNUL終端された型署名文字列をFNV-1aでハッシュ化する。 */
+constexpr FComponentSignatureId HashComponentSignature(const char* text) noexcept
 {
     /** FNV-1a の途中値。 */
-    ComponentSignatureId hash = 14695981039346656037ull;
+    FComponentSignatureId hash = 14695981039346656037ull;
     while (*text != '\0') {
         hash ^= static_cast<u8>(*text++);
         hash *= 1099511628211ull;
@@ -6360,21 +6366,133 @@ constexpr ComponentSignatureId HashComponentSignature(const char* text) noexcept
     return hash;
 }
 
+/** 一文字が型名の一部として扱われる安全側の文字かを返す。 */
+constexpr bool IsComponentSignatureIdentifierByte(char value) noexcept
+{
+    /** 符号拡張を避けた符号なし文字値。 */
+    const u8 byte_value = static_cast<u8>(value);
+    return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') || value == '_' || value == '$' || byte_value >= 0x80u;
+}
+
+/** 指定位置に対象文字列があるかを返す。 */
+constexpr bool HasComponentSignatureTextAt(const char* text, usize position, const char* expected) noexcept
+{
+    /** 比較中の文字位置。 */
+    usize expected_position = 0;
+    while (expected[expected_position] != '\0') {
+        if (text[position + expected_position] != expected[expected_position]) {
+            return false;
+        }
+        ++expected_position;
+    }
+    return true;
+}
+
+/** 非nullでNUL終端された署名から対象関数名を探し、未検出ならusize最大値を返す。 */
+constexpr usize FindComponentSignatureFunction(const char* text) noexcept
+{
+    /** 対象とする関数名。 */
+    constexpr const char* kFunctionName = "acs::ecs_detail::StaticComponentSignature";
+    /** 対象関数名の文字数。 */
+    constexpr usize kFunctionNameLength = 41u;
+    /** 対象文字列を走査する位置。 */
+    usize position = 0;
+    for (; text[position] != '\0'; ++position) {
+        /** 関数名の左側が別の識別子へ接続していないかの判定。 */
+        const bool valid_left_boundary = position == 0u || (!IsComponentSignatureIdentifierByte(text[position - 1u]) && text[position - 1u] != ':');
+        if (valid_left_boundary && HasComponentSignatureTextAt(text, position, kFunctionName) && text[position + kFunctionNameLength] == '(') {
+            return position;
+        }
+    }
+    return static_cast<usize>(-1);
+}
+
+/** 指定位置に補正対象となる正規型名が一つの名前としてあるかを返す。 */
+constexpr bool IsCanonicalComponentSignatureToken(const char* text, usize position, usize function_position) noexcept
+{
+    /** 正規型の名前表記。 */
+    constexpr const char* kCanonicalToken = "FComponentSignatureId";
+    /** 正規型名の文字数。 */
+    constexpr usize kCanonicalTokenLength = 21u;
+    /** 正規型名を比較する文字位置。 */
+    usize token_position = 0;
+    for (; token_position < kCanonicalTokenLength; ++token_position) {
+        if (text[position + token_position] != kCanonicalToken[token_position]) {
+            return false;
+        }
+    }
+    if (text[position + kCanonicalTokenLength] != ' ') {
+        return false;
+    }
+    if (position == 0u) {
+        return position < function_position;
+    }
+    if (position < 2u || text[position - 1u] != ':' || text[position - 2u] != ':') {
+        return false;
+    }
+    /** 許可する完全修飾名の直前部分。 */
+    constexpr const char* kAcsQualifier = "acs::";
+    /** 名前空間表記の文字数。 */
+    constexpr usize kAcsQualifierLength = 5u;
+    if (position < kAcsQualifierLength) {
+        return false;
+    }
+    /** 名前空間表記を比較する文字位置。 */
+    usize qualifier_position = 0;
+    for (; qualifier_position < kAcsQualifierLength; ++qualifier_position) {
+        if (text[position - kAcsQualifierLength + qualifier_position] != kAcsQualifier[qualifier_position]) {
+            return false;
+        }
+    }
+    if (position > kAcsQualifierLength && (IsComponentSignatureIdentifierByte(text[position - kAcsQualifierLength - 1u]) || text[position - kAcsQualifierLength - 1u] == ':')) {
+        return false;
+    }
+    if (position < function_position) {
+        return true;
+    }
+    /** 型名直後の空白を越えた文字位置。 */
+    const usize binding_position = position + kCanonicalTokenLength + 1u;
+    return text[binding_position] == '=' && text[binding_position + 1u] == ' ';
+}
+
+/** 非nullでNUL終端された署名内の既知の型別名だけを旧表記へ戻し、対象関数がなければ通常どおりハッシュ化する。 */
+constexpr FComponentSignatureId HashCompatibleComponentSignature(const char* text) noexcept
+{
+    /** 対象関数名の開始位置。 */
+    const usize function_position = FindComponentSignatureFunction(text);
+    if (function_position == static_cast<usize>(-1)) {
+        return HashComponentSignature(text);
+    }
+    /** FNV-1a の途中値。 */
+    FComponentSignatureId hash = 14695981039346656037ull;
+    /** 現在処理している文字位置。 */
+    usize position = 0;
+    while (text[position] != '\0') {
+        if (IsCanonicalComponentSignatureToken(text, position, function_position)) {
+            ++position;
+        }
+        hash ^= static_cast<u8>(text[position]);
+        hash *= 1099511628211ull;
+        ++position;
+    }
+    return hash;
+}
+
 /** コンパイラが生成する型署名からコンポーネント署名を作る。 */
 template<typename T>
-constexpr ComponentSignatureId StaticComponentSignature() noexcept
+constexpr FComponentSignatureId StaticComponentSignature() noexcept
 {
 #if defined(_MSC_VER)
-    return HashComponentSignature(__FUNCSIG__);
+    return HashCompatibleComponentSignature(__FUNCSIG__);
 #else
-    return HashComponentSignature(__PRETTY_FUNCTION__);
+    return HashCompatibleComponentSignature(__PRETTY_FUNCTION__);
 #endif
 }
 } // namespace ecs_detail
 
 /** 型ごとに実行時 ID を一度だけ割り当てて返す。 */
 template<typename T>
-ComponentTypeId GetComponentTypeId() noexcept;
+FComponentTypeId GetComponentTypeId() noexcept;
 
 /**
  * コンパイル時クエリ・振り分け用の型特性。
@@ -6385,10 +6503,10 @@ ComponentTypeId GetComponentTypeId() noexcept;
 template<typename T>
 struct TComponentTypeTraits {
     /** コンパイル時に求めた型署名。 */
-    static constexpr ComponentSignatureId Signature = ecs_detail::StaticComponentSignature<T>();
+    static constexpr FComponentSignatureId Signature = ecs_detail::StaticComponentSignature<T>();
 
     /** World 内部で使う密な実行時 ID を返す。 */
-    static ComponentTypeId RuntimeId() noexcept
+    static FComponentTypeId RuntimeId() noexcept
     {
         return GetComponentTypeId<T>();
     }
@@ -6396,24 +6514,24 @@ struct TComponentTypeTraits {
 
 /** 型 T のコンパイル時署名を返す。 */
 template<typename T>
-constexpr ComponentSignatureId GetComponentSignatureId() noexcept
+constexpr FComponentSignatureId GetComponentSignatureId() noexcept
 {
     return TComponentTypeTraits<T>::Signature;
 }
 
 /**
- * 型 T に固有な ComponentTypeId を返す (初回呼び出しで採番、以降はキャッシュ)。
+ * 型 T に固有な FComponentTypeId を返す (初回呼び出しで採番、以降はキャッシュ)。
  *
  * @details
  * 関数静的変数で型ごとに 1 度だけ割り当てる (C++ の magic statics によりスレッド
  * セーフ)。採番自体は TAtomic の FetchAdd なので、複数スレッドから同じ型 T を初めて
  * 呼んでも一意な値に確定する。割り当ては呼び出し順依存のため、決定的な値は保証しない。
  * @tparam T ID を割り当てるコンポーネント型。
- * @return 型 T に対応する ComponentTypeId。
+ * @return 型 T に対応する FComponentTypeId。
  */
 template<typename T>
-ComponentTypeId GetComponentTypeId() noexcept {
-    static const ComponentTypeId id = ecs_detail::g_next_component_type_id.FetchAdd(1);
+FComponentTypeId GetComponentTypeId() noexcept {
+    static const FComponentTypeId id = ecs_detail::g_next_component_type_id.FetchAdd(1);
     return id;
 }
 
@@ -6690,7 +6808,7 @@ namespace acs {
  * @details
  * エンティティは世代付きスロットで管理し、Destroy したスロットは世代を進めて
  * フリーリストに戻して再利用する (古い FEntityId は世代不一致で無効化)。コンポーネント
- * 型ごとに TSparseSet を 1 つ持ち、ComponentTypeId を添字に引く。Query で複数
+ * 型ごとに TSparseSet を 1 つ持ち、FComponentTypeId を添字に引く。Query で複数
  * コンポーネントを横断走査する。non-copy 型。
  */
 class FWorld {
@@ -6848,7 +6966,7 @@ public:
      */
     template<typename T>
     TSparseSet<T>& GetOrCreateSet() noexcept {
-        const ComponentTypeId id = GetComponentTypeId<T>();
+        const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) m_Sets.Resize(id + 1);
         if (!m_Sets[id]) {
             // 生 new を避け、MemorySystem 追跡下で確保する (R018 / リーク検出)。FSparseSetBase の
@@ -6868,7 +6986,7 @@ public:
      */
     template<typename T>
     TSparseSet<T>* TryGetSet() noexcept {
-        const ComponentTypeId id = GetComponentTypeId<T>();
+        const FComponentTypeId id = GetComponentTypeId<T>();
         if (id >= m_Sets.Size()) return nullptr;
         return static_cast<TSparseSet<T>*>(m_Sets[id]);
     }
@@ -6909,7 +7027,7 @@ private:
     /** 解放済みで再利用待ちのスロット番号。 */
     TArray<u32>            m_FreeIndices;
 
-    /** コンポーネント型ごとの TSparseSet (ComponentTypeId → FSparseSetBase*、所有権を持つ)。 */
+    /** コンポーネント型ごとの TSparseSet (FComponentTypeId → FSparseSetBase*、所有権を持つ)。 */
     TArray<FSparseSetBase*> m_Sets;
 
     /** 生存中のエンティティ数。 */
@@ -11426,19 +11544,19 @@ using TimerCallback = void (*)(void* user);
  * フレーム単位の一回または周期タイマーを同じスレッド内で管理する。
  * Tickが戻るまでは、この管理器と呼出し対象の寿命を呼出し側で保つ必要がある。
  */
-class FTimerManager {
+class CTimerManager {
 public:
     /** 空のタイマー管理器を作る。 */
-    FTimerManager() noexcept = default;
+    CTimerManager() noexcept = default;
 
     /** タイマー管理器を破棄する。 */
-    ~FTimerManager() noexcept = default;
+    ~CTimerManager() noexcept = default;
 
     /** タイマーの重複所有を防ぐためコピー構築を禁止する。 */
-    FTimerManager(const FTimerManager&) = delete;
+    CTimerManager(const CTimerManager&) = delete;
 
     /** タイマーの重複所有を防ぐためコピー代入を禁止する。 */
-    FTimerManager& operator=(const FTimerManager&) = delete;
+    CTimerManager& operator=(const CTimerManager&) = delete;
 
     /**
      * 指定時間後に一度だけ関数を呼び出す。
@@ -11610,8 +11728,8 @@ private:
     FTimerDiagnostics m_Diagnostics;
 };
 
-/** 旧名を使う既存コード向けの互換別名。 */
-using CTimerManager = FTimerManager;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTimerManager = CTimerManager;
 
 } // namespace acs
 
@@ -11626,16 +11744,19 @@ using CTimerManager = FTimerManager;
 namespace acs {
 
 /** メッセージ型ごとの通路を識別する番号。 */
-using EventTypeId = u32;
+using FEventTypeId = u32;
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using EventTypeId = FEventTypeId;
 
 /** 同時に扱えるメッセージ型の上限。 */
-inline constexpr EventTypeId kMaxEventTypes = 256;
+inline constexpr FEventTypeId kMaxEventTypes = 256;
 
 /**
  * 通路番号が公開上限の範囲内かを返す。
  * @param channel 調べる通路番号。
  */
-constexpr bool IsValidEventTypeId(EventTypeId channel) noexcept { return channel < kMaxEventTypes; }
+constexpr bool IsValidEventTypeId(FEventTypeId channel) noexcept { return channel < kMaxEventTypes; }
 
 } // namespace acs
 
@@ -11650,7 +11771,7 @@ namespace acs {
 /** メッセージ購読を識別するハンドル。 */
 struct FSubscriptionHandle {
     /** 購読先の通路番号。 */
-    EventTypeId channel = 0xFFFFFFFFu;
+    FEventTypeId channel = 0xFFFFFFFFu;
     /** 通路内の購読番号。 */
     u32 id = 0;
     /** 再利用された購読枠を見分ける世代番号。 */
@@ -11709,9 +11830,9 @@ inline TAtomic<u32> g_next_event_type_id{0};
  * @tparam E 番号を割り当てるメッセージ型。
  */
 template<typename E>
-EventTypeId GetEventTypeId() noexcept {
+FEventTypeId GetEventTypeId() noexcept {
     /** この型へ一度だけ割り当てる通路番号。 */
-    static const EventTypeId id = event_detail::g_next_event_type_id.FetchAdd(1);
+    static const FEventTypeId id = event_detail::g_next_event_type_id.FetchAdd(1);
     return id;
 }
 
@@ -11728,19 +11849,19 @@ using MessageCallback = void (*)(const void* payload, void* user);
  * 配信が戻るまでは、この仲介器と呼出し対象の寿命を呼出し側で保つ必要がある。
  * 異なるスレッド間の受け渡しにはTMessagePipeを使う。
  */
-class FMessageBroker {
+class CMessageBroker {
 public:
     /** 空の仲介器を作る。 */
-    FMessageBroker() noexcept = default;
+    CMessageBroker() noexcept = default;
 
     /** 全通路を解放する。 */
-    ~FMessageBroker() noexcept;
+    ~CMessageBroker() noexcept;
 
     /** 通路の重複所有を防ぐためコピー構築を禁止する。 */
-    FMessageBroker(const FMessageBroker&) = delete;
+    CMessageBroker(const CMessageBroker&) = delete;
 
     /** 通路の重複所有を防ぐためコピー代入を禁止する。 */
-    FMessageBroker& operator=(const FMessageBroker&) = delete;
+    CMessageBroker& operator=(const CMessageBroker&) = delete;
 
     /**
      * 全購読を直ちに無効化し、通路を解放する。
@@ -11795,7 +11916,7 @@ public:
      * 指定した通路の有効な購読数を返す。
      * @param channel 調べる通路番号。
      */
-    u32 SubscriberCount(EventTypeId channel) const noexcept;
+    u32 SubscriberCount(FEventTypeId channel) const noexcept;
 
 private:
     /** 一件分の購読情報。 */
@@ -11844,21 +11965,21 @@ private:
      * @param cb 配信時に呼び出す関数。
      * @param user 呼び出す関数へ渡す値。
      */
-    FSubscriptionHandle SubscribeRaw(EventTypeId channel, MessageCallback cb, void* user) noexcept;
+    FSubscriptionHandle SubscribeRaw(FEventTypeId channel, MessageCallback cb, void* user) noexcept;
 
     /**
      * 型を消去した値を指定した通路へ配信する。
      * @param channel 配信先の通路番号。
      * @param payload 配信する値。
      */
-    void PublishRaw(EventTypeId channel, const void* payload) noexcept;
+    void PublishRaw(FEventTypeId channel, const void* payload) noexcept;
 
     /**
      * 指定した通路を取得し、必要なら作成する。
      * @param id 取得する通路番号。
      * @param create 存在しない通路を作成するか。
      */
-    FChannel* GetChannel(EventTypeId id, bool create) noexcept;
+    FChannel* GetChannel(FEventTypeId id, bool create) noexcept;
 
     /** 制御領域を返し、未作成ならnullptrを返す。 */
     FChannel* GetControlChannel() noexcept;
@@ -11884,8 +12005,8 @@ private:
     u32 m_GenerationSeed = 0;
 };
 
-/** 旧名を使う既存コード向けの互換別名。 */
-using CMessageBroker = FMessageBroker;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FMessageBroker = CMessageBroker;
 
 } // namespace acs
 
@@ -12251,9 +12372,9 @@ public:
     /**
      * タイマーマネージャへの参照を返す。
      *
-     * @return アプリが所有する FTimerManager への参照。
+     * @return アプリが所有する CTimerManager への参照。
      */
-    FTimerManager& GetTimers() noexcept
+    CTimerManager& GetTimers() noexcept
     {
         return m_Timers;
     }
@@ -12261,9 +12382,9 @@ public:
     /**
      * イベントブローカーへの参照を返す。
      *
-     * @return アプリが所有する FMessageBroker への参照。
+     * @return アプリが所有する CMessageBroker への参照。
      */
-    FMessageBroker& GetEvents() noexcept
+    CMessageBroker& GetEvents() noexcept
     {
         return m_Events;
     }
@@ -12422,10 +12543,10 @@ private:
     FAssetRegistry m_Assets;
 
     /** タイマーマネージャ。 */
-    FTimerManager m_Timers;
+    CTimerManager m_Timers;
 
     /** イベントブローカー。 */
-    FMessageBroker m_Events;
+    CMessageBroker m_Events;
 
     /** フレーム計時 (dt・FPS・フレーム数を提供)。 */
     FFrameTimer m_FrameTimer;
@@ -12712,7 +12833,7 @@ TResult<void> TryLoadDefaultUIFont(FFont& font, IRhiDevice& device,
 //   wav / mp3 / flac / ogg / oga
 //
 // 全フォーマットを 16-bit PCM もしくは float PCM に統一して保持する。
-// 再生は FAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
+// 再生は CAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
 
 
 namespace acs {
@@ -12733,7 +12854,7 @@ enum class ESampleFormat : u8 {
  *
  * @details
  * 全フォーマットを 16-bit もしくは float PCM に統一してインターリーブ保持する。
- * 再生は FAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
+ * 再生は CAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
  */
 class FAudioAsset : public FAsset {
 public:
@@ -16447,7 +16568,7 @@ public:
 // SPDX-License-Identifier: Apache-2.0
 // 再生中の音声を識別するハンドル
 //
-// FAudioEngine が発行する。世代付きで、停止後に同じスロットが再利用されても
+// CAudioEngine が発行する。世代付きで、停止後に同じスロットが再利用されても
 // 古いハンドルは無効化される。
 
 
@@ -16457,7 +16578,7 @@ namespace acs {
  * 再生中の音声を識別する世代付きハンドル。
  *
  * @details
- * FAudioEngine が Play で発行する。スロット番号 (index) と世代 (generation) の組で、
+ * CAudioEngine が Play で発行する。スロット番号 (index) と世代 (generation) の組で、
  * スロットが停止後に再利用されても世代が進むため、古いハンドルは自動的に無効化される。
  */
 struct FSoundHandle {
@@ -16499,19 +16620,19 @@ inline constexpr u64 kAudioEngineResidentBufferBudgetBytes = 512ull * 1024ull * 
  * XAudio2を使って音声の再生と停止を管理する。
  * 内部状態の寿命と発音枠を個別に同期し、別スレッドからのShutdownを待ち合わせる。
  */
-class FAudioEngine {
+class CAudioEngine {
 public:
     /** 未初期化の音声エンジンを作る。 */
-    FAudioEngine() noexcept = default;
+    CAudioEngine() noexcept = default;
 
     /** 全音声資源を解放して破棄する。 */
-    ~FAudioEngine() noexcept;
+    ~CAudioEngine() noexcept;
 
     /** 音声資源の二重所有を防ぐためコピーを禁止する。 */
-    FAudioEngine(const FAudioEngine&) = delete;
+    CAudioEngine(const CAudioEngine&) = delete;
 
     /** 音声資源の二重所有を防ぐためコピー代入を禁止する。 */
-    FAudioEngine& operator=(const FAudioEngine&) = delete;
+    CAudioEngine& operator=(const CAudioEngine&) = delete;
 
     /**
      * 音声エンジンと最終出力先を初期化する。
@@ -16653,8 +16774,8 @@ private:
     FImpl* m_Impl = nullptr;
 };
 
-/** FAudioEngineの一時的なソース互換名。 */
-using CAudioEngine = FAudioEngine;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FAudioEngine = CAudioEngine;
 
 } // namespace acs
 
@@ -22781,7 +22902,7 @@ struct FComponentOps {
  * コンポーネント型ごとの FComponentOps を保持・参照する型消去レジストリ。
  *
  * @details
- * ComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
+ * FComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
  * 形で保存する。Slots() の固定配列を共有する純粋な静的ユーティリティ。
  */
 class FComponentRegistry {
@@ -22797,7 +22918,7 @@ public:
      */
     template<typename T>
     static const FComponentOps& Register() noexcept {
-        const ComponentTypeId id = GetComponentTypeId<T>();
+        const FComponentTypeId id = GetComponentTypeId<T>();
         FComponentOps& slot = Slots()[id];
         if (slot.size == 0) {
             // T を破棄する関数ポインタ
@@ -22816,12 +22937,12 @@ public:
     }
 
     /**
-     * 登録済みの ComponentTypeId に対応する FComponentOps を返す。
+     * 登録済みの FComponentTypeId に対応する FComponentOps を返す。
      *
      * @param id 取得対象のコンポーネント型 ID。
      * @return 対応する FComponentOps への const 参照 (未登録なら size==0 の既定値)。
      */
-    static const FComponentOps& Get(ComponentTypeId id) noexcept {
+    static const FComponentOps& Get(FComponentTypeId id) noexcept {
         return Slots()[id];
     }
 
@@ -27559,68 +27680,21 @@ private:
 
 // ===================== gameframework/AComponent.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — AComponent
-//
-// ANode に attach する「振る舞いパーツ」の基底 (旧 FComponent2D / FComponent3D を統一)。
-// sprite / メッシュ描画 / 当たり判定 / アニメーション / 音再生 / カスタムロジックを
-// **継承ではなく合成** で組み上げる (composition over inheritance)。
-//
-// 命名規約 (docs/NodeUnification.md):
-//   F = 構造体・素のクラス / A = ACS のオブジェクト基底 (FObject) を継承するオブジェクト。
-//
-// 使い方:
-//   class ARotateComponent : public AComponent {
-//   public:
-//       ACS_GAME_COMPONENT_KIND(ARotateComponent)
-//       explicit ARotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
-//       void OnUpdate(f32 dt) noexcept override {
-//           Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);
-//       }
-//   private:
-//       f32 m_Speed;
-//   };
-//
-//   ANode& node = root.AddChild(NewObject<ANode>());
-//   node.AddComponent<ARotateComponent>(/*speed_rps=*/1.0f);
-//
-// 設計選択:
-//   ・**RTTI 不使用の型 ID**: `template static const int` のアドレスを使う
-//     (`ComponentKindOf<T>()`)。`virtual Kind()` で返して `ANode::GetComponent<T>()`
-//     の static_cast に使う。
-//   ・**Owner&** アクセス: `OnAttach(ANode&)` で owner ref を保存。以降 `Owner()` で
-//     取り出す (raw pointer、stale はあり得ない = コンポーネントは owner の寿命より
-//     長く生きない)。
-//   ・**multiple components per kind**: 同じ型を 1 ノードに複数 attach 可能。
-//     `GetComponent<T>()` は最初の一致を返す (線形探索)。
-//   ・**lifecycle**: AddComponent 即時 `OnAttach`、ANode 破棄時に `OnDetach`。
-//     OnUpdate/OnDraw は ANode の対応フックの後に呼ばれる。
-//   ・**virtual は append-only**: 3D 向け追加フック等は必ず末尾に追加する
-//     (途中挿入は game DLL との vtable ABI 不整合)。
 
+// QueryLightなどでFVec2/FVec3を使う。
+// ACS object基底のAObjectを使う。
 
 // ===================== memory/ObjectPtr.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// ACS Memory — FObject + TObjectPtr / TWeakObjectPtr / TStrongObjectPtr
-//   （UE の UObject + TObjectPtr/TWeakObjectPtr/TStrongObjectPtr に相当）
-//
-// TSharedPtr/TWeakPtr との違い:
-//   ・FObject は「自分の制御ブロックへの逆ポインタ」を内部に持つ。そのため
-//     生ポインタ (T*) からでも強参照/弱参照を作れる（UE の TWeakObjectPtr の肝）。
-//   ・つまり「AActor* を持っていて、そこから弱参照を作る」が書ける。
-//
-// 使い分け:
-//   ・任意の型を共有したい           → TSharedPtr / TWeakPtr（SharedPtr.h）
-//   ・エンジンの「オブジェクト」を扱う → FObject 継承 + TObjectPtr / TWeakObjectPtr
-//
-// 例:
-//   class AEnemy : public FObject { public: void Hit(); };
-//   TObjectPtr<AEnemy> e = NewObject<AEnemy>();    // 強参照（生かし続ける）
-//   TWeakObjectPtr<AEnemy> w = e;                  // 弱参照（生死を監視するだけ）
-//   e.Reset();                                     // 強参照ゼロ → AEnemy 破棄
-//   if (w.IsValid()) w.Get()->Hit();               // → false。破棄済なので呼ばれない
 
+
+// ===================== memory/AObject.h =====================
+// SPDX-License-Identifier: Apache-2.0
 
 namespace acs {
+
+/** オブジェクトの確保元として使うアロケータの前方宣言。 */
+class FAllocator;
 
 /** オブジェクトへの強参照ポインタの前方宣言。 */
 template<typename T> class TObjectPtr;
@@ -27628,57 +27702,76 @@ template<typename T> class TObjectPtr;
 /** オブジェクトへの弱参照ポインタの前方宣言。 */
 template<typename T> class TWeakObjectPtr;
 
+namespace sp_detail {
+
+/** AObject が逆参照する制御ブロックの前方宣言。 */
+struct FControlBlock;
+
+} // namespace sp_detail
+
+/** 指定アロケータでAObject派生型を生成する関数の前方宣言。 */
+template<typename T, typename... Args>
+TObjectPtr<T> NewObjectIn(FAllocator& Allocator, Args&&... Arguments) noexcept;
+
 /**
- * 参照カウント管理されるエンジンオブジェクトの基底。
+ * 参照カウント管理されるACSオブジェクトの基底。
  *
  * @details
- * NewObject<T>() で生成すると制御ブロックが割り当てられ、その逆ポインタ (m_Cb) を
- * 自身に保持する。この逆ポインタのおかげで生ポインタ (T*) からでも強参照/弱参照を
- * 作れる (UE の TWeakObjectPtr の肝)。
+ * NewObject<T>()で生成すると制御ブロックが割り当てられ、その逆ポインタを自身に保持する。
+ * この逆ポインタにより、生ポインタからも強参照と弱参照を作れる。
  */
-class FObject {
+class AObject {
 public:
     /** 派生オブジェクトを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FObject() noexcept = default;
+    virtual ~AObject() noexcept = default;
 
 protected:
-    /** 基底を構築する (逆ポインタは NewObject 時に仕込まれる)。 */
-    FObject() noexcept = default;
+    /** 基底を構築する。逆ポインタはNewObject時に設定される。 */
+    AObject() noexcept = default;
 
     /**
-     * コピー構築。逆ポインタはコピーしない (各オブジェクトが自分の制御ブロックを指すため)。
+     * コピー構築する。各オブジェクトが自分の制御ブロックを指すため逆ポインタはコピーしない。
      *
-     * @param  コピー元 (引数名なし。逆ポインタは引き継がない)。
+     * @param  コピー元。逆ポインタは引き継がない。
      */
-    FObject(const FObject&) noexcept {}
+    AObject(const AObject&) noexcept {}
 
     /**
-     * コピー代入。逆ポインタは変更しない。
+     * コピー代入する。自身の逆ポインタは変更しない。
      *
-     * @param  コピー元 (引数名なし。逆ポインタは引き継がない)。
+     * @param  コピー元。逆ポインタは引き継がない。
      * @return 自身への参照。
      */
-    FObject& operator=(const FObject&) noexcept { return *this; }
+    AObject& operator=(const AObject&) noexcept { return *this; }
 
 private:
-    /** 自分の制御ブロックへの逆ポインタ (NewObject 経由でのみ設定される)。 */
+    /** 自分の制御ブロックへの逆ポインタ。NewObject経由でのみ設定される。 */
     sp_detail::FControlBlock* m_Cb = nullptr;
 
-    /** TObjectPtr が m_Cb へアクセスするための friend 宣言。 */
+    /** TObjectPtrが逆ポインタへアクセスするためのfriend宣言。 */
     template<typename U> friend class TObjectPtr;
 
-    /** TWeakObjectPtr が m_Cb へアクセスするための friend 宣言。 */
+    /** TWeakObjectPtrが逆ポインタへアクセスするためのfriend宣言。 */
     template<typename U> friend class TWeakObjectPtr;
 
-    /** NewObjectIn が逆ポインタを仕込むための friend 宣言。 */
-    template<typename U, typename... A> friend TObjectPtr<U> NewObjectIn(FAllocator&, A&&...) noexcept;
+    /** NewObjectInが逆ポインタを設定するためのfriend宣言。 */
+    template<typename U, typename... Args>
+    friend TObjectPtr<U> NewObjectIn(FAllocator& Allocator, Args&&... Arguments) noexcept;
 };
 
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FObject = AObject;
+
+} // namespace acs
+// sp_detail::FControlBlockとTInlineBlockを共有する。
+
+namespace acs {
+
 /**
- * FObject への強参照 (対象を生かし続ける所有ポインタ)。
+ * AObject への強参照 (対象を生かし続ける所有ポインタ)。
  *
  * @details コピーで強参照カウントを +1、破棄で -1 し、0 で対象を破棄する。
- * @tparam T 所有する FObject 派生型。
+ * @tparam T 所有する AObject 派生型。
  */
 template<typename T>
 class TObjectPtr {
@@ -27702,13 +27795,13 @@ public:
      * @details obj は NewObject 経由で生成され逆ポインタを持つこと。逆ポインタが無い
      * (制御ブロックが無い) 場合は空のまま構築する。破棄開始前の対象だけを atomic に
      * 強参照へ昇格し、strong==0 の対象を復活させない。
-     * @param obj 所有する対象 (FObject 継承必須。nullptr 可)。
+     * @param obj 所有する対象 (AObject 継承必須。nullptr 可)。
      */
     explicit TObjectPtr(T* obj) noexcept
     {
-        static_assert(IsBaseOfV<FObject, T>, "TObjectPtr<T>: T は FObject を継承していること");
+        static_assert(IsBaseOfV<AObject, T>, "TObjectPtr<T>: T は AObject を継承していること");
         if (obj) {
-            sp_detail::FControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
+            sp_detail::FControlBlock* const cb = static_cast<AObject*>(obj)->m_Cb;
             if (cb && cb->TryAddStrong()) {
                 m_Ptr = obj;
                 m_Cb = cb;
@@ -27870,15 +27963,15 @@ private:
 /**
  * 「強参照である」ことを明示したいとき用の TObjectPtr 別名 (UE の TStrongObjectPtr に相当)。
  *
- * @tparam T 所有する FObject 派生型。
+ * @tparam T 所有する AObject 派生型。
  */
 template<typename T> using TStrongObjectPtr = TObjectPtr<T>;
 
 /**
- * FObject への弱参照 (生死を監視するが生存は延ばさない)。
+ * AObject への弱参照 (生死を監視するが生存は延ばさない)。
  *
  * @details 制御ブロックの弱参照カウントだけを保持し、生ポインタ (T*) からも構築できる。
- * @tparam T 監視する FObject 派生型。
+ * @tparam T 監視する AObject 派生型。
  */
 template<typename T>
 class TWeakObjectPtr {
@@ -27898,12 +27991,12 @@ public:
      *
      * @details obj は NewObject 経由で生成され逆ポインタを持つこと。逆ポインタが無い場合は
      * 空のまま構築する。逆ポインタがあれば弱参照を +1 する。
-     * @param obj 監視する対象 (FObject 継承必須。nullptr 可)。
+     * @param obj 監視する対象 (AObject 継承必須。nullptr 可)。
      */
     explicit TWeakObjectPtr(T* obj) noexcept {
-        static_assert(IsBaseOfV<FObject, T>, "TWeakObjectPtr<T>: T は FObject を継承していること");
+        static_assert(IsBaseOfV<AObject, T>, "TWeakObjectPtr<T>: T は AObject を継承していること");
         if (obj) {
-            sp_detail::FControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
+            sp_detail::FControlBlock* const cb = static_cast<AObject*>(obj)->m_Cb;
             if (cb && cb->TryAddWeak()) { m_Ptr = obj; m_Cb = cb; }
         }
     }
@@ -28033,7 +28126,7 @@ private:
  *
  * @details FControlBlock と T を 1 アロケーションに同居させ、生成した T に制御ブロックへの
  * 逆ポインタを仕込んでから強参照 1 を採用して返す。
- * @tparam T 生成する FObject 派生型。
+ * @tparam T 生成する AObject 派生型。
  * @tparam Args T のコンストラクタ引数型。
  * @param a 確保・解放に使うアロケータ。
  * @param args T のコンストラクタへ転送する引数。
@@ -28041,7 +28134,7 @@ private:
  */
 template<typename T, typename... Args>
 ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcept {
-    static_assert(IsBaseOfV<FObject, T>, "NewObject<T>: T は FObject を継承していること");
+    static_assert(IsBaseOfV<AObject, T>, "NewObject<T>: T は AObject を継承していること");
     using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TObjectPtr<T>();
@@ -28050,14 +28143,16 @@ ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcep
     blk->destroy_obj = &Block::DestroyObj;
     blk->free_self   = &Block::FreeSelf;
     T* const obj = ::new (blk->Ptr()) T(Forward<Args>(args)...);
-    static_cast<FObject*>(obj)->m_Cb = blk;          // 逆ポインタを仕込む
-    return TObjectPtr<T>(obj, blk);                  // strong=1 を採用
+    // 生成対象から制御ブロックを参照できるようにする。
+    static_cast<AObject*>(obj)->m_Cb = blk;
+    // 初期strong参照を生成したポインタへ渡す。
+    return TObjectPtr<T>(obj, blk);
 }
 
 /**
  * デフォルトアロケータでオブジェクトを生成し強参照を返す。
  *
- * @tparam T 生成する FObject 派生型。
+ * @tparam T 生成する AObject 派生型。
  * @tparam Args T のコンストラクタ引数型。
  * @param args T のコンストラクタへ転送する引数。
  * @return 生成したオブジェクトを所有する TObjectPtr (確保失敗時は空)。
@@ -28068,6 +28163,7 @@ ACS_FORCEINLINE TObjectPtr<T> NewObject(Args&&... args) noexcept {
 }
 
 } // namespace acs
+// 軽量なGetSubsystem<T>()を使う。
 
 // ===================== gameframework/SubsystemCollection.h =====================
 // SPDX-License-Identifier: Apache-2.0
@@ -28755,9 +28851,9 @@ struct FLightDesc2D {
  * 描画 / 当たり判定 / アニメーション / 音再生 / カスタムロジックを継承ではなく合成で
  * 組み上げる。owner ノードを `Owner()` で参照し、必要な lifecycle フックだけ override
  * する。同じ型を 1 ノードに複数 attach 可能で、種別 ID は ComponentKindOf<T>() による
- * RTTI 不使用の型タグで識別する。FObject 継承 (A プレフィックス規約)。
+ * RTTI 不使用の型タグで識別する。AObject 継承 (A プレフィックス規約)。
  */
-class AComponent : public FObject {
+class AComponent : public AObject {
 public:
     /** 空のコンポーネントを構築する (owner は attach 時に設定)。 */
     AComponent() noexcept = default;
@@ -29007,31 +29103,6 @@ private:
 
 // ===================== gameframework/ANode.h =====================
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — ANode (統一シーンノード)
-//
-// シーンの中身を表す唯一のノードクラス。旧 FNode2D / FNode3D を統一し、2D/3D を
-// 分けない (docs/NodeUnification.md)。親子ツリーで階層 transform を持ち、各ノードが
-// OnSpawn/OnUpdate/OnDraw/OnDespawn を override してロジック・描画を書く。
-//
-// 命名規約: F = 構造体・素のクラス / A = ACS オブジェクト基底 (FObject) 継承。
-//
-// 設計選択:
-//   ・**FObject 基底**: `NewObject<MyNode>()` で生成し、親が `TObjectPtr<ANode>`
-//     (強参照) で所有、ゲームプレイ側は `TWeakObjectPtr<ANode>` で stale 安全に参照
-//     する。`AddChild(NewObject<MyNode>(args))` が標準パターン。non-copy / non-move。
-//   ・**Transform は 3D 一本** (`FTransform3D`)。2D は x,y を使い z を depth に流用
-//     する特殊ケースで、`Position2D()/SetRotation2D()/World2D()` 等のヘルパで従来の
-//     2D の書き味を維持する (Y-down / 左上原点の規約は不変)。
-//   ・**描画順はオブジェクト持ち**: `DrawLayer` (第1キー、小=奥) + `DrawPriority`
-//     (層内順序、小=奥) + ノード別 `YSortEnabled` (同層内で y+bias を priority より
-//     優先 = 見下ろし遮蔽)。シーンの描画パスが可視ノードをフラット収集して
-//     (layer, [y], priority, ツリー出現順) の安定ソートで描く。全キー 0 なら出現順 =
-//     従来ツリー順と一致 (後方互換)。
-//   ・**lifecycle**: `AddChild` 即時 `OnSpawn`、`Destroy()` で pending マーク →
-//     フレーム境界の `ResolveStructuralChanges()` で OnDespawn → 配列から除去。
-//     子ツリーが先に reap される。
-//   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。走査中の
-//     AddChild は同フレームで走る (Unity 互換)。Destroy は遅延 reap。
 
 
 // ===================== gameframework/Transform2D.h =====================
@@ -29401,12 +29472,15 @@ struct FNodeId {
 };
 
 } // namespace acs::game
+// Rotation2Dの抽出でAtan2を使う。
 
 namespace acs::game {
 
 class FRenderContext;
-class FSceneServices;   // 非所有ポインタで参照 (include しない = ノードヘッダを軽く保つ)
-struct FMaterial2D;     // 使用マテリアル (効果プリセット)。値は m_Mat に焼き込む
+// ノードheaderを軽く保つため、非所有ポインタで参照する。
+class FSceneServices;
+// 使用する効果プリセット。値は描画materialへ反映する。
+struct FMaterial2D;
 
 /**
  * ノードツリーで許容する最大深度 (root=0、親子 edge 数)。
@@ -29438,7 +29512,7 @@ enum class EAddChildResult : u8 {
  * `TWeakObjectPtr<ANode>` を使う。描画順は DrawLayer / DrawPriority / YSort を
  * ノードに設定し、シーンが自動で並べる。
  */
-class ANode : public FObject {
+class ANode : public AObject {
 public:
     /** 空のノードを構築する (transform は単位、親なし)。 */
     ANode() noexcept = default;
@@ -37756,7 +37830,7 @@ private:
 //     抽象化されている。
 //   ・上位 (FGame / FScene) が「ECombatState → EMusicState」マッピングを定義し、
 //     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
-//     本クラスは FAudioEngine 等の下位リソースを直接知らない。
+//     本クラスは CAudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
 //   ・ECombatState (6 種): Peaceful / Alert / Engaged / BossFight / Victory / Retreat
@@ -44152,7 +44226,7 @@ using FTypeId = u32;
 enum class ETypeCategory : u8 {
     Struct    = 0,   /**< 単純な値型 / POD (PlayerState, material params)。 */
     Enum      = 1,   /**< 列挙体 (value↔name の反射を持つ)。 */
-    Object    = 2,   /**< FObject 派生のエンジンオブジェクト。 */
+    Object    = 2,   /**< AObject 派生のエンジンオブジェクト。 */
     Component = 3,   /**< ECS / 2D コンポーネント。 */
     Node      = 4,   /**< シーングラフのノード (ANode)。 */
     Scene     = 5,   /**< ゲームシーン。 */
@@ -65445,7 +65519,7 @@ private:
 //   ・Tick(dt) で transition / stinger timer を進行
 //
 // 設計選択:
-//   ・**FAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
+//   ・**CAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
 //     「どの track を、どのゲインで鳴らすべきか」を決める state machine に徹する。
 //     SetAudioDirector(FAudioDirector*) で結線すると、SetState → PlayBgm、
 //     PlayStinger → PlaySfx、Stop → StopBgm を実 director へ delegate する。
@@ -69799,7 +69873,7 @@ private:
 //   FAudioDirector = master / bgm / sfx の音量バスと BGM クロスフェードのみを扱う
 //   「2D 混音層」。本 FSpatialAudio は FAudioDirector の上に乗る「3D 空間化前段」で、
 //   listener / source を保持し、毎フレーム attenuation と pan を算出する。
-//   FAudioEngine と接続したとき、各 source を FAudioEngine voice に
+//   CAudioEngine と接続したとき、各 source を CAudioEngine voice に
 //   バインドして、FSpatialAudio が計算した volume * pan を per-voice に書き込む。
 //
 // 使い方:
@@ -69817,7 +69891,7 @@ private:
 //       void OnUpdate(f32 dt) noexcept override {
 //           m_Spatial.UpdateSource(m_SrcEnemy, enemy.WorldPos(), enemy.Velocity());
 //           m_Spatial.Tick(dt);
-//           // FAudioEngine voice に volume/pan を書き込む。
+//           // CAudioEngine voice に volume/pan を書き込む。
 //           // f32 vol = m_Spatial.ComputeAttenuatedVolume(m_SrcEnemy);
 //           // f32 pan = m_Spatial.ComputePan(m_SrcEnemy);
 //       }
@@ -69826,7 +69900,7 @@ private:
 // 設計選択:
 //   ・**listener は 1 個** (プレイヤ耳位置 = カメラに同期するのが典型)。
 //     スプリットスクリーンで複数 listener が必要になったら配列化する。
-//   ・**source は AoS (TArray of Structures)**: SoA は FAudioEngine voice
+//   ・**source は AoS (TArray of Structures)**: SoA は CAudioEngine voice
 //     バインドより後段で検討。現状は ~32 source 規模の想定。
 //   ・**source_id は単調増加 u32** (1..): 0 = 無効 ID。再利用しない (re-use しない)
 //     ので update/remove に対する stale ID 検出が単純化する。
@@ -69855,7 +69929,7 @@ private:
 //   ・Occlusion / obstruction (壁越し減衰、レイキャスト)
 //   ・複数 listener (split-screen)
 //   ・3D reverb (リバーブゾーン)
-//   ・FAudioEngine voice バインド (FAudioDirector と統合)
+//   ・CAudioEngine voice バインド (FAudioDirector と統合)
 
 
 namespace acs::game {
@@ -80423,7 +80497,7 @@ void LoadSceneSpritesFromAssetPack(
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
-//   自体は実 Lua ライブラリをリンクしない。具象 backend (FLuaVm / Wren VM 実装等) は
+//   自体は実 Lua ライブラリをリンクしない。具象 backend (CLuaVm / Wren VM 実装等) は
 //   別モジュール (将来の `ACS::ScriptingLua` = `src/scripting/`) で `IScriptVm`
 //   を override する形で実装される。
 //
@@ -80883,7 +80957,7 @@ IScriptVm& GetVmStub() noexcept;
  * 既定 IScriptVm を返す provider 関数型 (実 backend モジュールへの委譲点)。
  *
  * @details
- * gameframework は実 backend モジュール (例: ACS::Scripting / FLuaVm) に依存できない
+ * gameframework は実 backend モジュール (例: ACS::Scripting / CLuaVm) に依存できない
  * (循環依存になる: backend 側が本 interface に依存する)。そこで実 backend 側が
  * SetScriptVmProvider() で「既定 VM を返す関数」を登録し、ゲームコードは
  * GetDefaultScriptVm() を通じて backend 非依存に既定 VM を取得する。典型例として
@@ -81883,7 +81957,7 @@ private:
 // 設計選択:
 //   ・**pimpl で XAudio2 ヘッダ隠蔽**: `<xaudio2.h>` は <windows.h> + COM を
 //     引っ張る重いヘッダなので .cpp に閉じ込め、.h ではポインタ前方宣言だけ
-//     公開する (ACS の `acs::FAudioEngine` と同じパターン)。
+//     公開する (ACS の `acs::CAudioEngine` と同じパターン)。
 //   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
 //     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
 //     ホットパス影響は無視できる)。
@@ -82057,7 +82131,7 @@ public:
      *
      * @details
      * public に置くのは .cpp 内の自由関数 (PlayInternal 等) から FImpl のメンバを
-     * 直接触るため (acs::FAudioEngine と同じパターン)。定義は .cpp 側にある。
+     * 直接触るため (acs::CAudioEngine と同じパターン)。定義は .cpp 側にある。
      */
     struct FImpl;
 
@@ -93536,7 +93610,7 @@ struct TGenerationHandleLayoutTraits<FObjectHandle> {
 /**
  * 世代付きスロットマッププール。任意の T を O(1) で確保/解放し、ハンドルで安全に参照する。
  *
- * @tparam T 格納するオブジェクト型 (FObject 継承や reflection は不要。任意の型)。
+ * @tparam T 格納するオブジェクト型 (AObject 継承や reflection は不要。任意の型)。
  */
 template<class T>
 class TObjectPool {
@@ -104486,34 +104560,34 @@ class FAllocator;
 namespace acs::scripting {
 
 /** Lua 5.4 の実行状態と登録関数を管理する。 */
-class FLuaVm final : public acs::game::IScriptVm {
+class CLuaVm final : public acs::game::IScriptVm {
 public:
     /** 空状態で構築する (lua_State は Init で生成)。 */
-    FLuaVm() noexcept;
+    CLuaVm() noexcept;
 
     /**
      * 指定 allocator を native function 登録簿に使う空状態で構築する。
      *
-     * @details FLuaVmはallocatorへの参照を内部登録簿に保持するため、allocatorは構築した
-     * FLuaVmより後まで生存しなければならない。
-     * @param allocator native function 登録簿の確保に使い、FLuaVmより長く生存するallocator。
+     * @details CLuaVmはallocatorへの参照を内部登録簿に保持するため、allocatorは構築した
+     * CLuaVmより後まで生存しなければならない。
+     * @param allocator native function 登録簿の確保に使い、CLuaVmより長く生存するallocator。
      */
-    explicit FLuaVm(acs::FAllocator& allocator) noexcept;
+    explicit CLuaVm(acs::FAllocator& allocator) noexcept;
 
     /** Lua状態を終了して内部データを解放する。 */
-    ~FLuaVm() noexcept override;
+    ~CLuaVm() noexcept override;
 
     /** コピー禁止 (lua_State を単独所有するため)。 */
-    FLuaVm(const FLuaVm&)            = delete;
+    CLuaVm(const CLuaVm&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLuaVm& operator=(const FLuaVm&) = delete;
+    CLuaVm& operator=(const CLuaVm&) = delete;
 
     /** 内部データの位置を固定するためムーブを禁止する。 */
-    FLuaVm(FLuaVm&&)                 = delete;
+    CLuaVm(CLuaVm&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLuaVm& operator=(FLuaVm&&)      = delete;
+    CLuaVm& operator=(CLuaVm&&)      = delete;
 
     /**
      * lua_State を生成し標準ライブラリを open する。
@@ -104618,16 +104692,16 @@ private:
     FLuaVmImpl* m_Impl = nullptr;
 };
 
-/** 移行中のC接頭辞を正規のFLuaVm型として解釈する。 */
-using CLuaVm = FLuaVm;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLuaVm = CLuaVm;
 
 /**
- * プロセス共有の既定 FLuaVm singleton を返す (provider の実体)。
+ * プロセス共有の既定 CLuaVm singleton を返す (provider の実体)。
  *
  * @details
  * 本物の Lua 5.4 VM を Meyers singleton で 1 個だけ保持し、その参照を返す。
  * InstallLuaAsDefault が gameframework の provider にこの関数を登録する。
- * @return 共有 FLuaVm インスタンスへの IScriptVm 参照。
+ * @return 共有 CLuaVm インスタンスへの IScriptVm 参照。
  */
 acs::game::IScriptVm& GetDefaultLuaVm() noexcept;
 

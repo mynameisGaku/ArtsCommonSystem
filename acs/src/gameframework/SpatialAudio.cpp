@@ -4,7 +4,7 @@
 // 3D listener + source の集中管理、距離減衰 / constant-power stereo panning。
 // stereo パン + 距離減衰は実数学 (in-repo 完結) で、真のバイノーラル化
 // (HRTF / KEMAR 256-tap convolution、外部 IR データ必須) のみが seam として残る。
-// 実 FAudioEngine voice バインドは FAudioDirector と統合予定。
+// 実 CAudioEngine voice バインドは FAudioDirector と統合予定。
 #include "gameframework/SpatialAudio.h"
 #include "math/Math.h"
 #include "foundation/Log.h"
@@ -280,7 +280,7 @@ void FSpatialAudio::Tick(f32 /*dt*/) noexcept {
     // 将来:
     //   ・Doppler shift 計算 (velocity 比率 → pitch)
     //   ・古い inactive source の物理 GC
-    //   ・streaming FAudioEngine voice の更新
+    //   ・streaming CAudioEngine voice の更新
     // を追加予定。
 }
 

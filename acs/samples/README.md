@@ -34,7 +34,7 @@
 | 01 | `01_HelloWindow` | ウィンドウ・入力・`FApplication` のライフサイクル（最初の 1 本、73 行） |
 | 02 | `02_HelloSprite` | 2D スプライト・矩形・α ブレンド（`FSpriteBatch`） |
 | 03 | `03_HelloText` | TTF フォント・UTF-8・漢字テキスト描画 |
-| 04 | `04_HelloECS` | ECS（`FWorld` / `TQueryView`）・並列イテレーション・`FMessageBroker`・`FTimerManager` |
+| 04 | `04_HelloECS` | ECS（`FWorld` / `TQueryView`）・並列イテレーション・`CMessageBroker`・`CTimerManager` |
 | 05 | `05_HelloSave` | `FStorage` で設定・セーブデータを INI 形式で永続化 |
 | 06 | `06_HelloLocalization` | 多言語対応（i18n）・ja / en / fr 切替 |
 | 07 | `07_HelloAudio` | XAudio2 で WAV / MP3 を再生 |

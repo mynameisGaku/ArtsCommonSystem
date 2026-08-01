@@ -13,7 +13,7 @@
 //     抽象化されている。
 //   ・上位 (FGame / FScene) が「ECombatState → EMusicState」マッピングを定義し、
 //     OnStateChange callback の中で FMusicDirector::SetState を呼ぶ運用を想定。
-//     本クラスは FAudioEngine 等の下位リソースを直接知らない。
+//     本クラスは CAudioEngine 等の下位リソースを直接知らない。
 //
 // 機能:
 //   ・ECombatState (6 種): Peaceful / Alert / Engaged / BossFight / Victory / Retreat

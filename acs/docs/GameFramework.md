@@ -85,7 +85,7 @@
 
 **依存方向は一方向**: GameFramework → エンジン（逆は無し）。各ピラーはピラー A と
 エンジンに依存してよいが、兄弟ピラーのヘッダは原則 include しない（実行時連携は
-コンポーネント・`FSceneServices`・`FMessageBroker` 経由）。
+コンポーネント・`FSceneServices`・`CMessageBroker` 経由）。
 
 ---
 
@@ -137,7 +137,7 @@ public:
 1. **`FSceneServices` メンバ** — シーン単位のサービス（Clock/Tween/Sequence/Input/
    Camera/Collision/Trigger）。`FGame` が自動で `dt` を供給。
 2. **`FGame` グローバルサービス** — シーンをまたいで生存（`FAssetRegistry`・
-   `FAudioEngine` デバイス・`FSaveArchive`・`FSettings`・`FAppStateSlot`・`FDebugOverlay`）。
+   `CAudioEngine` デバイス・`FSaveArchive`・`FSettings`・`FAppStateSlot`・`FDebugOverlay`）。
 
 シーン内オブジェクトの表現はピラー B（ノードツリー）。バルク処理が要るシーンは
 ECS `FWorld` をシーンのメンバとして持つ（§4.6）。
@@ -241,7 +241,7 @@ Elastic/Bounce の In/Out/InOut、および SmoothStep/SmootherStep を安定し
 | 型 | 所有者と寿命 | 公開レイアウト | 用途 |
 |---|---|---:|---|
 | `acs::game::FSceneTimerHandle` | 呼び出し側が所有する `FSceneTimer` と同じシーン寿命 | 4 bytes（24bit index + 8bit generation） | `FSceneTimer::SetTimeout` / `SetInterval` / `Cancel` |
-| `acs::FTimerHandle` | `acs::FTimerManager` の管理寿命 | 8 bytes（32bit id + 32bit generation） | event モジュールのタイマー |
+| `acs::FTimerHandle` | `acs::CTimerManager` の管理寿命 | 8 bytes（32bit id + 32bit generation） | event モジュールのタイマー |
 
 旧 `acs::game::FTimerHandle` は同じ型へのソース互換 alias として ACS 0.x の間だけ残し、
 ACS 1.0 で削除する。削除条件はリポジトリ内と配布用 consumer の旧名利用が 0 件になり、

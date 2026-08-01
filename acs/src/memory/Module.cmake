@@ -24,6 +24,7 @@ acs_module(
         Tlsf.cpp
         VirtualMemory.cpp
     HEADERS
+        AObject.h
         Allocator.h
         ArenaAllocator.h
         ArenaAllocatorDiagnostics.h

@@ -36,13 +36,13 @@
 
 ## 使い分け
 
-- 型が実行時まで不明な疎結合通知には `FMessageBroker`
+- 型が実行時まで不明な疎結合通知には `CMessageBroker`
 - ウィンドウ・入力値には `FEvent`
 - コンパイル時に引数型が決まる局所通知には `TEvent`
 
 ## MessageBrokerの配信中操作
 
-`FMessageBroker`も配信開始時点の購読を一回分の対象にします。コールバックから追加した
+`CMessageBroker`も配信開始時点の購読を一回分の対象にします。コールバックから追加した
 購読は、配信前から空き枠があった場合も次回の`Publish`から呼ばれます。まだ呼ばれて
 いない購読を解除した場合は、その回から呼ばれません。
 
@@ -50,18 +50,16 @@
 配信が戻るまでは新しい購読を受け付けず、通路の保持領域は最外側の配信終了時に
 解放します。配信終了後は同じ仲介器へ再び購読できます。
 
-`FMessageBroker`とコールバック対象の寿命は、`Publish`が戻るまで呼出し側が保ちます。
+`CMessageBroker`とコールバック対象の寿命は、`Publish`が戻るまで呼出し側が保ちます。
 別スレッドへ値を渡す用途には`TMessagePipe`を使います。
 
 ## 公開名と互換性
 
-`FMessageBroker`と`FTimerManager`が正規の公開型です。旧`CMessageBroker`と
-`CTimerManager`は同じ型を指す`using`ソース互換名として残します。この互換名は
-別の実装型や`C`名の実装シンボルを作りません。正規の`F`型そのものを指すため、
-互換名の追加によって公開レイアウト、機能契約、実装シンボルは変わらず、
-バイナリABIも変更しません。
+`CMessageBroker`と`CTimerManager`が正規の公開型です。旧`FMessageBroker`と
+`FTimerManager`は同じ型を指す一時的な`using` source互換名です。型名を含む装飾symbolは
+変わるため旧object fileとのABI互換はなく、symbol shimも提供しません。consumerは全量再buildします。
 
-64-bit環境の`FMessageBroker`は既存の40 byte配置を維持します。配信中の`Clear`に
+64-bit環境の`CMessageBroker`は既存の40 byte配置を維持します。配信中の`Clear`に
 必要な全通路状態は非公開の動的管理領域へ置き、公開オブジェクトへfieldを追加しません。
 
 旧名は、互換性試験と監査規則を除くリポジトリ内の実利用が0件になり、外部consumerの

@@ -1,85 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// ACS Memory — FObject + TObjectPtr / TWeakObjectPtr / TStrongObjectPtr
-//   （UE の UObject + TObjectPtr/TWeakObjectPtr/TStrongObjectPtr に相当）
-//
-// TSharedPtr/TWeakPtr との違い:
-//   ・FObject は「自分の制御ブロックへの逆ポインタ」を内部に持つ。そのため
-//     生ポインタ (T*) からでも強参照/弱参照を作れる（UE の TWeakObjectPtr の肝）。
-//   ・つまり「AActor* を持っていて、そこから弱参照を作る」が書ける。
-//
-// 使い分け:
-//   ・任意の型を共有したい           → TSharedPtr / TWeakPtr（SharedPtr.h）
-//   ・エンジンの「オブジェクト」を扱う → FObject 継承 + TObjectPtr / TWeakObjectPtr
-//
-// 例:
-//   class AEnemy : public FObject { public: void Hit(); };
-//   TObjectPtr<AEnemy> e = NewObject<AEnemy>();    // 強参照（生かし続ける）
-//   TWeakObjectPtr<AEnemy> w = e;                  // 弱参照（生死を監視するだけ）
-//   e.Reset();                                     // 強参照ゼロ → AEnemy 破棄
-//   if (w.IsValid()) w.Get()->Hit();               // → false。破棄済なので呼ばれない
 #pragma once
 
-#include "memory/SharedPtr.h"   // sp_detail::FControlBlock / TInlineBlock を共有
+#include "memory/AObject.h"
+// sp_detail::FControlBlockとTInlineBlockを共有する。
+#include "memory/SharedPtr.h"
 
 namespace acs {
 
-/** オブジェクトへの強参照ポインタの前方宣言。 */
-template<typename T> class TObjectPtr;
-
-/** オブジェクトへの弱参照ポインタの前方宣言。 */
-template<typename T> class TWeakObjectPtr;
-
 /**
- * 参照カウント管理されるエンジンオブジェクトの基底。
- *
- * @details
- * NewObject<T>() で生成すると制御ブロックが割り当てられ、その逆ポインタ (m_Cb) を
- * 自身に保持する。この逆ポインタのおかげで生ポインタ (T*) からでも強参照/弱参照を
- * 作れる (UE の TWeakObjectPtr の肝)。
- */
-class FObject {
-public:
-    /** 派生オブジェクトを正しく破棄するための仮想デストラクタ。 */
-    virtual ~FObject() noexcept = default;
-
-protected:
-    /** 基底を構築する (逆ポインタは NewObject 時に仕込まれる)。 */
-    FObject() noexcept = default;
-
-    /**
-     * コピー構築。逆ポインタはコピーしない (各オブジェクトが自分の制御ブロックを指すため)。
-     *
-     * @param  コピー元 (引数名なし。逆ポインタは引き継がない)。
-     */
-    FObject(const FObject&) noexcept {}
-
-    /**
-     * コピー代入。逆ポインタは変更しない。
-     *
-     * @param  コピー元 (引数名なし。逆ポインタは引き継がない)。
-     * @return 自身への参照。
-     */
-    FObject& operator=(const FObject&) noexcept { return *this; }
-
-private:
-    /** 自分の制御ブロックへの逆ポインタ (NewObject 経由でのみ設定される)。 */
-    sp_detail::FControlBlock* m_Cb = nullptr;
-
-    /** TObjectPtr が m_Cb へアクセスするための friend 宣言。 */
-    template<typename U> friend class TObjectPtr;
-
-    /** TWeakObjectPtr が m_Cb へアクセスするための friend 宣言。 */
-    template<typename U> friend class TWeakObjectPtr;
-
-    /** NewObjectIn が逆ポインタを仕込むための friend 宣言。 */
-    template<typename U, typename... A> friend TObjectPtr<U> NewObjectIn(FAllocator&, A&&...) noexcept;
-};
-
-/**
- * FObject への強参照 (対象を生かし続ける所有ポインタ)。
+ * AObject への強参照 (対象を生かし続ける所有ポインタ)。
  *
  * @details コピーで強参照カウントを +1、破棄で -1 し、0 で対象を破棄する。
- * @tparam T 所有する FObject 派生型。
+ * @tparam T 所有する AObject 派生型。
  */
 template<typename T>
 class TObjectPtr {
@@ -103,13 +35,13 @@ public:
      * @details obj は NewObject 経由で生成され逆ポインタを持つこと。逆ポインタが無い
      * (制御ブロックが無い) 場合は空のまま構築する。破棄開始前の対象だけを atomic に
      * 強参照へ昇格し、strong==0 の対象を復活させない。
-     * @param obj 所有する対象 (FObject 継承必須。nullptr 可)。
+     * @param obj 所有する対象 (AObject 継承必須。nullptr 可)。
      */
     explicit TObjectPtr(T* obj) noexcept
     {
-        static_assert(IsBaseOfV<FObject, T>, "TObjectPtr<T>: T は FObject を継承していること");
+        static_assert(IsBaseOfV<AObject, T>, "TObjectPtr<T>: T は AObject を継承していること");
         if (obj) {
-            sp_detail::FControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
+            sp_detail::FControlBlock* const cb = static_cast<AObject*>(obj)->m_Cb;
             if (cb && cb->TryAddStrong()) {
                 m_Ptr = obj;
                 m_Cb = cb;
@@ -271,15 +203,15 @@ private:
 /**
  * 「強参照である」ことを明示したいとき用の TObjectPtr 別名 (UE の TStrongObjectPtr に相当)。
  *
- * @tparam T 所有する FObject 派生型。
+ * @tparam T 所有する AObject 派生型。
  */
 template<typename T> using TStrongObjectPtr = TObjectPtr<T>;
 
 /**
- * FObject への弱参照 (生死を監視するが生存は延ばさない)。
+ * AObject への弱参照 (生死を監視するが生存は延ばさない)。
  *
  * @details 制御ブロックの弱参照カウントだけを保持し、生ポインタ (T*) からも構築できる。
- * @tparam T 監視する FObject 派生型。
+ * @tparam T 監視する AObject 派生型。
  */
 template<typename T>
 class TWeakObjectPtr {
@@ -299,12 +231,12 @@ public:
      *
      * @details obj は NewObject 経由で生成され逆ポインタを持つこと。逆ポインタが無い場合は
      * 空のまま構築する。逆ポインタがあれば弱参照を +1 する。
-     * @param obj 監視する対象 (FObject 継承必須。nullptr 可)。
+     * @param obj 監視する対象 (AObject 継承必須。nullptr 可)。
      */
     explicit TWeakObjectPtr(T* obj) noexcept {
-        static_assert(IsBaseOfV<FObject, T>, "TWeakObjectPtr<T>: T は FObject を継承していること");
+        static_assert(IsBaseOfV<AObject, T>, "TWeakObjectPtr<T>: T は AObject を継承していること");
         if (obj) {
-            sp_detail::FControlBlock* const cb = static_cast<FObject*>(obj)->m_Cb;
+            sp_detail::FControlBlock* const cb = static_cast<AObject*>(obj)->m_Cb;
             if (cb && cb->TryAddWeak()) { m_Ptr = obj; m_Cb = cb; }
         }
     }
@@ -434,7 +366,7 @@ private:
  *
  * @details FControlBlock と T を 1 アロケーションに同居させ、生成した T に制御ブロックへの
  * 逆ポインタを仕込んでから強参照 1 を採用して返す。
- * @tparam T 生成する FObject 派生型。
+ * @tparam T 生成する AObject 派生型。
  * @tparam Args T のコンストラクタ引数型。
  * @param a 確保・解放に使うアロケータ。
  * @param args T のコンストラクタへ転送する引数。
@@ -442,7 +374,7 @@ private:
  */
 template<typename T, typename... Args>
 ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcept {
-    static_assert(IsBaseOfV<FObject, T>, "NewObject<T>: T は FObject を継承していること");
+    static_assert(IsBaseOfV<AObject, T>, "NewObject<T>: T は AObject を継承していること");
     using Block = sp_detail::TInlineBlock<T>;
     void* const mem = a.Alloc(sizeof(Block), alignof(Block), FSourceLoc::Current());
     if (!mem) return TObjectPtr<T>();
@@ -451,14 +383,16 @@ ACS_FORCEINLINE TObjectPtr<T> NewObjectIn(FAllocator& a, Args&&... args) noexcep
     blk->destroy_obj = &Block::DestroyObj;
     blk->free_self   = &Block::FreeSelf;
     T* const obj = ::new (blk->Ptr()) T(Forward<Args>(args)...);
-    static_cast<FObject*>(obj)->m_Cb = blk;          // 逆ポインタを仕込む
-    return TObjectPtr<T>(obj, blk);                  // strong=1 を採用
+    // 生成対象から制御ブロックを参照できるようにする。
+    static_cast<AObject*>(obj)->m_Cb = blk;
+    // 初期strong参照を生成したポインタへ渡す。
+    return TObjectPtr<T>(obj, blk);
 }
 
 /**
  * デフォルトアロケータでオブジェクトを生成し強参照を返す。
  *
- * @tparam T 生成する FObject 派生型。
+ * @tparam T 生成する AObject 派生型。
  * @tparam Args T のコンストラクタ引数型。
  * @param args T のコンストラクタへ転送する引数。
  * @return 生成したオブジェクトを所有する TObjectPtr (確保失敗時は空)。

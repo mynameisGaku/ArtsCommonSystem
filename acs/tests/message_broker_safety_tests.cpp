@@ -6,7 +6,7 @@
 using namespace acs;
 
 /** 既存の64-bit Windows利用側と共有する仲介器の物理サイズを固定する。 */
-static_assert(sizeof(void*) != 8 || sizeof(FMessageBroker) == 40);
+static_assert(sizeof(void*) != 8 || sizeof(CMessageBroker) == 40);
 
 namespace {
 
@@ -19,7 +19,7 @@ struct FBrokerSafetyMessage {
 /** 配信中の購読追加を確認する状態。 */
 struct FSubscribeDuringPublishContext {
     /** 確認対象のメッセージ仲介器。 */
-    FMessageBroker* broker = nullptr;
+    CMessageBroker* broker = nullptr;
     /** 配信中に追加した購読のハンドル。 */
     FSubscriptionHandle added{};
     /** 購読を追加する処理の呼出し回数。 */
@@ -83,7 +83,7 @@ void UnusedSubscription(const void* payload, void* user) {
 /** 配信中の全解除を確認する状態。 */
 struct FClearDuringPublishContext {
     /** 確認対象のメッセージ仲介器。 */
-    FMessageBroker* broker = nullptr;
+    CMessageBroker* broker = nullptr;
     /** 全解除中に試した購読のハンドル。 */
     FSubscriptionHandle attempted_during_clear{};
     /** 全解除を行う処理の呼出し回数。 */
@@ -100,7 +100,7 @@ struct FNestedClearMessage {};
 /** 異なる通路をまたぐ全解除の観測値。 */
 struct FNestedClearContext {
     /** 確認対象のメッセージ仲介器。 */
-    FMessageBroker* broker = nullptr;
+    CMessageBroker* broker = nullptr;
     /** 入れ子配信を開始した回数。 */
     int outer_hits = 0;
     /** 入れ子配信から全解除した回数。 */
@@ -187,7 +187,7 @@ void OnOuterLater(const void* payload, void* user) {
 /** 配信前から空いていた枠があっても、配信中の追加を次回まで呼ばないことを確認する。 */
 ACS_TEST(MessageBrokerSafety, SubscribeDuringPublishUsesNextSnapshot) {
     /** 購読と配信を行う確認対象。 */
-    FMessageBroker broker;
+    CMessageBroker broker;
     /** 購読変更と呼出し回数をまとめる確認状態。 */
     FSubscribeDuringPublishContext context;
     context.broker = &broker;
@@ -218,7 +218,7 @@ ACS_TEST(MessageBrokerSafety, SubscribeDuringPublishUsesNextSnapshot) {
 /** 配信中の全解除が残りの処理を止め、配信終了後に再利用できることを確認する。 */
 ACS_TEST(MessageBrokerSafety, ClearDuringPublishDefersStorageRelease) {
     /** 全解除と再利用を行う確認対象。 */
-    FMessageBroker broker;
+    CMessageBroker broker;
     /** 全解除前後の呼出し回数をまとめる確認状態。 */
     FClearDuringPublishContext context;
     context.broker = &broker;
@@ -248,7 +248,7 @@ ACS_TEST(MessageBrokerSafety, ClearDuringPublishDefersStorageRelease) {
 /** 異なる通路の入れ子配信中も、最外側へ戻るまで全通路の保持領域を解放しないことを確認する。 */
 ACS_TEST(MessageBrokerSafety, NestedChannelClearWaitsForOutermostPublish) {
     /** 入れ子配信と全解除を行う確認対象。 */
-    FMessageBroker broker;
+    CMessageBroker broker;
     /** 通路をまたぐ呼出し結果をまとめる確認状態。 */
     FNestedClearContext context;
     context.broker = &broker;
@@ -281,7 +281,7 @@ ACS_TEST(MessageBrokerSafety, NestedChannelClearWaitsForOutermostPublish) {
 /** 全解除前の再利用世代が、全解除後の新しい購読と一致しないことを確認する。 */
 ACS_TEST(MessageBrokerSafety, ClearDoesNotRecycleStaleGeneration) {
     /** 世代更新と全解除を行う確認対象。 */
-    FMessageBroker broker;
+    CMessageBroker broker;
 
     /** 最初の購読枠を作るハンドル。 */
     const FSubscriptionHandle first = broker.Subscribe<FBrokerSafetyMessage>(&UnusedSubscription, nullptr);

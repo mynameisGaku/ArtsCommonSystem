@@ -38,7 +38,7 @@ struct FComponentOps {
  * コンポーネント型ごとの FComponentOps を保持・参照する型消去レジストリ。
  *
  * @details
- * ComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
+ * FComponentTypeId をキーに、サイズ・整列・破棄・ムーブを実行時に問い合わせ可能な
  * 形で保存する。Slots() の固定配列を共有する純粋な静的ユーティリティ。
  */
 class FComponentRegistry {
@@ -54,7 +54,7 @@ public:
      */
     template<typename T>
     static const FComponentOps& Register() noexcept {
-        const ComponentTypeId id = GetComponentTypeId<T>();
+        const FComponentTypeId id = GetComponentTypeId<T>();
         FComponentOps& slot = Slots()[id];
         if (slot.size == 0) {
             // T を破棄する関数ポインタ
@@ -73,12 +73,12 @@ public:
     }
 
     /**
-     * 登録済みの ComponentTypeId に対応する FComponentOps を返す。
+     * 登録済みの FComponentTypeId に対応する FComponentOps を返す。
      *
      * @param id 取得対象のコンポーネント型 ID。
      * @return 対応する FComponentOps への const 参照 (未登録なら size==0 の既定値)。
      */
-    static const FComponentOps& Get(ComponentTypeId id) noexcept {
+    static const FComponentOps& Get(FComponentTypeId id) noexcept {
         return Slots()[id];
     }
 

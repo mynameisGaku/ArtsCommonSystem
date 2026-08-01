@@ -1,47 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — AComponent
-//
-// ANode に attach する「振る舞いパーツ」の基底 (旧 FComponent2D / FComponent3D を統一)。
-// sprite / メッシュ描画 / 当たり判定 / アニメーション / 音再生 / カスタムロジックを
-// **継承ではなく合成** で組み上げる (composition over inheritance)。
-//
-// 命名規約 (docs/NodeUnification.md):
-//   F = 構造体・素のクラス / A = ACS のオブジェクト基底 (FObject) を継承するオブジェクト。
-//
-// 使い方:
-//   class ARotateComponent : public AComponent {
-//   public:
-//       ACS_GAME_COMPONENT_KIND(ARotateComponent)
-//       explicit ARotateComponent(f32 speed_rps) noexcept : m_Speed(speed_rps) {}
-//       void OnUpdate(f32 dt) noexcept override {
-//           Owner().SetRotation2D(Owner().Rotation2D() + m_Speed * dt);
-//       }
-//   private:
-//       f32 m_Speed;
-//   };
-//
-//   ANode& node = root.AddChild(NewObject<ANode>());
-//   node.AddComponent<ARotateComponent>(/*speed_rps=*/1.0f);
-//
-// 設計選択:
-//   ・**RTTI 不使用の型 ID**: `template static const int` のアドレスを使う
-//     (`ComponentKindOf<T>()`)。`virtual Kind()` で返して `ANode::GetComponent<T>()`
-//     の static_cast に使う。
-//   ・**Owner&** アクセス: `OnAttach(ANode&)` で owner ref を保存。以降 `Owner()` で
-//     取り出す (raw pointer、stale はあり得ない = コンポーネントは owner の寿命より
-//     長く生きない)。
-//   ・**multiple components per kind**: 同じ型を 1 ノードに複数 attach 可能。
-//     `GetComponent<T>()` は最初の一致を返す (線形探索)。
-//   ・**lifecycle**: AddComponent 即時 `OnAttach`、ANode 破棄時に `OnDetach`。
-//     OnUpdate/OnDraw は ANode の対応フックの後に呼ばれる。
-//   ・**virtual は append-only**: 3D 向け追加フック等は必ず末尾に追加する
-//     (途中挿入は game DLL との vtable ABI 不整合)。
 #pragma once
 
 #include "foundation/Types.h"
-#include "math/Vec.h"   // FVec2 / FVec3 (QueryLight 等)
-#include "memory/ObjectPtr.h"                    // FObject (ACS オブジェクト基底)
-#include "gameframework/SubsystemCollection.h"   // GetSubsystem<T>() (軽量ヘッダ)
+// QueryLightなどでFVec2/FVec3を使う。
+#include "math/Vec.h"
+// ACS object基底のAObjectを使う。
+#include "memory/ObjectPtr.h"
+// 軽量なGetSubsystem<T>()を使う。
+#include "gameframework/SubsystemCollection.h"
 
 namespace acs::game {
 
@@ -84,9 +50,9 @@ struct FLightDesc2D {
  * 描画 / 当たり判定 / アニメーション / 音再生 / カスタムロジックを継承ではなく合成で
  * 組み上げる。owner ノードを `Owner()` で参照し、必要な lifecycle フックだけ override
  * する。同じ型を 1 ノードに複数 attach 可能で、種別 ID は ComponentKindOf<T>() による
- * RTTI 不使用の型タグで識別する。FObject 継承 (A プレフィックス規約)。
+ * RTTI 不使用の型タグで識別する。AObject 継承 (A プレフィックス規約)。
  */
-class AComponent : public FObject {
+class AComponent : public AObject {
 public:
     /** 空のコンポーネントを構築する (owner は attach 時に設定)。 */
     AComponent() noexcept = default;

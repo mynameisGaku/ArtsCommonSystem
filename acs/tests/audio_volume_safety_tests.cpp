@@ -12,7 +12,10 @@ namespace {
 /** 公開音量操作の正規化とbackend失敗時の非変更契約を一度検証する。 */
 i32 RunAudioVolumeSafetyTest() noexcept
 {
-    static_assert(std::is_same_v<CAudioEngine, FAudioEngine>);
+    static_assert(std::is_same_v<FAudioEngine, CAudioEngine>);
+#if defined(_WIN64)
+    static_assert(sizeof(CAudioEngine) == 24u && alignof(CAudioEngine) == 8u);
+#endif
 
     /** テストに使う正の無限大。 */
     const f32 PositiveInfinity = TNumLimits<f32>::Infinity();
@@ -23,7 +26,7 @@ i32 RunAudioVolumeSafetyTest() noexcept
     /** 数ではない音量入力。 */
     const f32 NotANumber = RuntimeInfinity - RuntimeInfinity;
 
-    if (FAudioEngine::NormalizeVolumeForTesting(-1.0f) != 0.0f || FAudioEngine::NormalizeVolumeForTesting(0.25f) != 0.25f || FAudioEngine::NormalizeVolumeForTesting(2.0f) != 1.0f || FAudioEngine::NormalizeVolumeForTesting(PositiveInfinity) != 0.0f || FAudioEngine::NormalizeVolumeForTesting(-PositiveInfinity) != 0.0f || FAudioEngine::NormalizeVolumeForTesting(NotANumber) != 0.0f)
+    if (CAudioEngine::NormalizeVolumeForTesting(-1.0f) != 0.0f || CAudioEngine::NormalizeVolumeForTesting(0.25f) != 0.25f || CAudioEngine::NormalizeVolumeForTesting(2.0f) != 1.0f || CAudioEngine::NormalizeVolumeForTesting(PositiveInfinity) != 0.0f || CAudioEngine::NormalizeVolumeForTesting(-PositiveInfinity) != 0.0f || CAudioEngine::NormalizeVolumeForTesting(NotANumber) != 0.0f)
     {
         return 1;
     }
@@ -43,7 +46,7 @@ i32 RunAudioVolumeSafetyTest() noexcept
     FAudioAsset Asset(48000u, 1u, ESampleFormat::PCM_S16, 2u, Move(Samples));
 
     /** 実音声機器を使わず公開操作を実行する音声エンジン。 */
-    FAudioEngine Engine;
+    CAudioEngine Engine;
     if (Engine.InitializeVolumeTestState().IsErr())
     {
         return 3;

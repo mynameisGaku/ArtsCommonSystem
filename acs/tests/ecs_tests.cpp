@@ -2,6 +2,8 @@
 // ECS の動作確認テスト
 #include "test/Test.h"
 #include "test/Expect.h"
+#include "foundation/TypeTraits.h"
+#include "ecs/ComponentRegistry.h"
 #include "ecs/World.h"
 #include "ecs/Query.h"
 #include "ecs/System.h"
@@ -12,6 +14,11 @@
 
 using namespace acs;
 
+/** 旧 ComponentTypeId が正規の実行時番号型と同じ型を参照することを保証する。 */
+static_assert(IsSameV<ComponentTypeId, FComponentTypeId>);
+/** 旧 ComponentSignatureId が正規の署名型と同じ型を参照することを保証する。 */
+static_assert(IsSameV<ComponentSignatureId, FComponentSignatureId>);
+
 namespace {
 struct FPosition { f32 x, y, z; };
 struct FVelocity { f32 dx, dy, dz; };
@@ -20,6 +27,35 @@ struct FFrozen   { u8 unused; };  // タグ的コンポーネント (除外フ�
 
 static_assert(GetComponentSignatureId<FPosition>() == TComponentTypeTraits<FPosition>::Signature);
 static_assert(GetComponentSignatureId<FPosition>() != GetComponentSignatureId<FVelocity>());
+static_assert(ecs_detail::HashComponentSignature("") == 0xCBF29CE484222325ull);
+static_assert(ecs_detail::HashComponentSignature("a") == 0xAF63DC4C8601EC8Cull);
+static_assert(ecs_detail::HashComponentSignature("abc") == 0xE71FA2190541574Bull);
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId __cdecl acs::ecs_detail::StaticComponentSignature(void) [T = Probe]") == ecs_detail::HashComponentSignature("ComponentSignatureId __cdecl acs::ecs_detail::StaticComponentSignature(void) [T = Probe]"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("constexpr acs::FComponentSignatureId acs::ecs_detail::StaticComponentSignature() [with T = Probe]") == ecs_detail::HashComponentSignature("constexpr acs::ComponentSignatureId acs::ecs_detail::StaticComponentSignature() [with T = Probe]"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId acs::ecs_detail::StaticComponentSignature() [T = FComponentSignatureId]") == ecs_detail::HashComponentSignature("ComponentSignatureId acs::ecs_detail::StaticComponentSignature() [T = FComponentSignatureId]"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("constexpr acs::FComponentSignatureId acs::ecs_detail::StaticComponentSignature() [with T = {anonymous}::FPrefixSignatureProbe; acs::FComponentSignatureId = long unsigned int]") == 0x9F1E5333A2001137ull);
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId __cdecl acs::ecs_detail::StaticComponentSignature(void) [T = (anonymous namespace)::FPrefixSignatureProbe]") == 0x41953EFE5A48533Aull);
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId acs::ecs_detail::StaticComponentSignature() [T = (anonymous namespace)::FPrefixSignatureProbe]") == 0x80F0C817749D3765ull);
+/** MSVCでは別名が基底のu64へ展開されるため、互換化は通常ハッシュと同じ結果になる。 */
+static_assert(ecs_detail::HashComponentSignature("unsigned __int64 __cdecl acs::ecs_detail::StaticComponentSignature<struct FProbe>(void) noexcept") == 0x15170512DE8868BFull);
+static_assert(ecs_detail::HashCompatibleComponentSignature("unsigned __int64 __cdecl acs::ecs_detail::StaticComponentSignature<struct FProbe>(void) noexcept") == 0x15170512DE8868BFull);
+static_assert(ecs_detail::HashCompatibleComponentSignature("AFComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("AFComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("_FComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("_FComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("$FComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("$FComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("型FComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("型FComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId2 acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("FComponentSignatureId2 acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureIdIdentifier acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("FComponentSignatureIdIdentifier acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId$ acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("FComponentSignatureId$ acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId型 acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("FComponentSignatureId型 acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("prefix FComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("prefix FComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("foo::FComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("foo::FComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("xacs::FComponentSignatureId acs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("xacs::FComponentSignatureId acs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId Xacs::ecs_detail::StaticComponentSignature()") == ecs_detail::HashComponentSignature("FComponentSignatureId Xacs::ecs_detail::StaticComponentSignature()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId acs::ecs_detail::StaticComponentSignatureExtra()") == ecs_detail::HashComponentSignature("FComponentSignatureId acs::ecs_detail::StaticComponentSignatureExtra()"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureId") == ecs_detail::HashComponentSignature("FComponentSignatureId"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("F") == ecs_detail::HashComponentSignature("F"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("FComponentSignatureI") == ecs_detail::HashComponentSignature("FComponentSignatureI"));
+static_assert(ecs_detail::HashCompatibleComponentSignature("ComponentSignatureId Probe") == ecs_detail::HashComponentSignature("ComponentSignatureId Probe"));
 
 /** 非コピー・可ムーブなコンポーネント (World::CopyFrom の拒否契約検証用)。 */
 struct FMoveOnlyComp {
@@ -68,6 +104,21 @@ ACS_TEST(Ecs, AddGetRemoveComponent) {
     if (p) EXPECT_NEAR(p->x, 1.0f, 1e-5f);
     w.Remove<FPosition>(e);
     EXPECT_FALSE(w.Has<FPosition>(e));
+}
+
+ACS_TEST(Ecs, CanonicalComponentIdentifiersPreserveRuntimeContracts)
+{
+    /** 検査用コンポーネントへ割り当てられた実行時番号。 */
+    const FComponentTypeId id = GetComponentTypeId<FPosition>();
+    /** 型登録で得た操作情報。 */
+    const FComponentOps& registered = FComponentRegistry::Register<FPosition>();
+    /** 同じ番号から取り直した操作情報。 */
+    const FComponentOps& fetched = FComponentRegistry::Get(id);
+
+    EXPECT_TRUE(&registered == &fetched);
+    EXPECT_EQ(id, TComponentTypeTraits<FPosition>::RuntimeId());
+    EXPECT_TRUE(id < kMaxComponentTypes);
+    EXPECT_EQ(GetComponentSignatureId<FPosition>(), TComponentTypeTraits<FPosition>::Signature);
 }
 
 ACS_TEST(Ecs, GenerationInvalidatesOldId) {

@@ -12,7 +12,7 @@ ACS_REF.modules.push({
     {
       name: "FHotReloadWatcher",
       kind: "クラス", header: "gameframework/HotReload.h",
-      summary: "Windows 開発ビルドで <code>ReadDirectoryChangesW</code> を非同期駆動し、変更を bounded FIFO と安定 snapshot の<t>コールバック</t>へ配る single-thread-affine watcher/queue seam。path は UTF-8 の所有コピーで、同一 path の burst を debounce できる。アセット再 import や <code>FMessageBroker</code> publish は上位利用側の責務。",
+      summary: "Windows 開発ビルドで <code>ReadDirectoryChangesW</code> を非同期駆動し、変更を bounded FIFO と安定 snapshot の<t>コールバック</t>へ配る single-thread-affine watcher/queue seam。path は UTF-8 の所有コピーで、同一 path の burst を debounce できる。アセット再 import や <code>CMessageBroker</code> publish は上位利用側の責務。",
       when: "ゲームを動かしたまま asset directory の変更を検出する時。出荷ビルド (<code>ACS_GAME_SHIPPING</code>) では互換 API を残した no-op shell となる。<code>TryWatchFile</code> は path 登録だけで native handle を作らないため、単一 file の実監視には親 directory も登録する。",
       sample: "FHotReloadWatcher w;\nw.Init();\nif (w.TryWatchDirectory(\"Assets/Textures\", true) != EHotReloadResult::Success) return;\nw.TrySetDebounceSeconds(0.05f);\nw.TryRegisterCallback(&amp;OnReload, this);\n// 毎フレーム:\nw.TryTick(dt);\nconst FHotReloadDiagnostics d = w.CaptureDiagnostics();\nif (d.authoritative_rescan_required) {\n    RescanAssets();\n    w.ClearDiagnostics();\n}",
       members: [
@@ -834,7 +834,7 @@ ACS_REF.modules.push({
     {
       name: "ANode",
       kind: "クラス", header: "gameframework/ANode.h",
-      summary: "2D/3D 共通シーンの唯一のノードクラス。<code>FObject</code> を基底とし、親が <code>TObjectPtr&lt;ANode&gt;</code> の強参照で子を所有する。transform は <code>FTransform3D</code> 一本で、2D は Position2D/Rotation2D/Scale2D/World2D helper を使う。描画順は DrawLayer/DrawPriority/YSort をノード自身が持つ。",
+      summary: "2D/3D 共通シーンの唯一のノードクラス。<code>AObject</code> を基底とし、親が <code>TObjectPtr&lt;ANode&gt;</code> の強参照で子を所有する。transform は <code>FTransform3D</code> 一本で、2D は Position2D/Rotation2D/Scale2D/World2D helper を使う。描画順は DrawLayer/DrawPriority/YSort をノード自身が持つ。",
       when: "ゲームのシーングラフを組む基本単位。<code>AddChild(NewObject&lt;AMyNode&gt;(...))</code> が標準パターンで、ゲームプレイ側の長期参照には stale-safe な <code>TWeakObjectPtr&lt;ANode&gt;</code> を使う。",
       sample: "class APlayer : public ANode {\npublic:\n    void OnUpdate(f32 dt) noexcept override {\n        SetPosition2D(Position2D() + FVec2{100.0f * dt, 0.0f});\n    }\n};\nANode&amp; p = root.AddChild(NewObject&lt;APlayer&gt;());\np.SetDrawLayer(1);\np.SetYSortEnabled(true);\np.AddComponent&lt;ASprite2DComponent&gt;();\n// root から毎フレーム:\nroot.UpdateTree(dt);\nroot.DrawTreeSorted(rc);\nroot.ResolveStructuralChanges();",
       members: [
@@ -844,7 +844,7 @@ ACS_REF.modules.push({
         { sig: "void SetEnabled(bool) / SetVisible(bool) (+ getter)", desc: "subtree 単位で update/描画を skip する有効/可視フラグ。" },
         { sig: "void SetDrawLayer(i32) / SetDrawPriority(i32) / SetYSortEnabled(bool) / SetYSortBias(f32)", desc: "描画の layer/priority と同一 group 内の Y-sort をノード単位で制御する。", when: "背景/ワールド/前景/HUD を分けたり、足元で Y 遮蔽したい時。" },
         { sig: "ANode* Parent() / u32 ChildCount() / ANode* Child(u32) const", desc: "親 / 子の数 / i 番目の子。" },
-        { sig: "ANode&amp; AddChild(TObjectPtr&lt;ANode&gt; child)", ret: "追加した子への参照", desc: "FObject 強参照を親へ移し、未 spawn なら OnSpawn を即時呼ぶ。<code>NewObject</code> と組み合わせる。" },
+        { sig: "ANode&amp; AddChild(TObjectPtr&lt;ANode&gt; child)", ret: "追加した子への参照", desc: "AObject 強参照を親へ移し、未 spawn なら OnSpawn を即時呼ぶ。<code>NewObject</code> と組み合わせる。" },
         { sig: "EAddChildResult TryAddChild(TObjectPtr&lt;ANode&gt;&amp; child)", desc: "null/self/already-parented/cycle/depth/OOM を診断し、失敗時は入力強参照の所有権を変更しない。" },
         { sig: "void Destroy() / bool IsPendingDestroy() const", desc: "破棄予定にマーク (実破棄は次の ResolveStructuralChanges で OnDespawn → 除去)。" },
         { sig: "void Reparent(ANode& new_parent) / bool IsPendingReparent() const", desc: "別の親へ移動要求 (フレーム境界で適用、cycle は検出して無視)。OnSpawn/OnDespawn は呼ばれない。" },

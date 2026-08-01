@@ -7,7 +7,7 @@
 #
 # stub mode (default): SDK 不要でビルド可能。全 API が NotImplemented。
 # real mode: -DACS_BUILD_SCRIPTING=ON で Lua 5.4 を FetchContent 取得し
-#            ACS::Scripting (FLuaVm) をリンク。window / renderer 不要のコンソール。
+#            ACS::Scripting (CLuaVm) をリンク。window / renderer 不要のコンソール。
 add_executable(hello_scripting
     main.cpp
     ScriptDemoApp.cpp

@@ -10,8 +10,9 @@
 1. **2D/3D ノードを分けない**。単一クラス `ANode` に統一する。
 2. **Transform は 3D 一本化** (Unity 方式)。2D は「x,y を使い z を depth に流用する特殊ケース」。
 3. **移行は一括置換**。旧 `FNode2D` / `FNode3D` は互換層を作らず削除し、全利用箇所 (~825 箇所 / 107+ ファイル) を書き換える。
-4. **命名規約の新設**: `F` = 構造体・素のクラス (従来通り)。**`A` = ACS のオブジェクト基底
-   (`FObject`, memory/ObjectPtr.h) を継承するオブジェクト** (UE の U/A プレフィックスと同じ発想)。
+4. **命名規約**: `F` = データ・値・handle、`C` = 機能を持つ具象class。**`A` = owner /
+   registryに所有され、多態的に扱われるobject**。現waveでは`AObject`推移派生または
+   実登録macroを機械確定し、その他の候補はmanual debtでreviewする。
    よって統一ノードは `ANode`、コンポーネント基底は `AComponent`。
 5. **描画順はオブジェクト持ち**: `DrawLayer` (i32) + `DrawPriority` (i32) + ノード別 Y-sort
    フラグをノード標準装備とし、シーンが自動で並べる。draw コールにレイヤーを渡す方式は廃止方向
@@ -21,7 +22,7 @@
 
 ### 基底とライフサイクル
 
-- `class ANode : public FObject` — `NewObject<T>()` で生成し、親が `TObjectPtr<ANode>` で所有、
+- `class ANode : public AObject` — `NewObject<T>()` で生成し、親が `TObjectPtr<ANode>` で所有、
   ゲームプレイ側参照は `TWeakObjectPtr<ANode>` (stale 安全)。
   旧 `AddChild(MakeUnique<FNode2D>())` は `AddChild(NewObject<MyNode>(...))` になる。
 - ライフサイクル / 階層 API は **FNode2D の成熟実装をそのまま継承**:
@@ -67,7 +68,7 @@
 
 ### AComponent
 
-- `class AComponent : public FObject` — フックは FComponent2D の全量を継承:
+- `class AComponent : public AObject` — フックは FComponent2D の全量を継承:
   OnRequire / OnAttach(ANode&) / OnUpdate / OnFixedUpdate / OnDraw(FRenderContext&) /
   OnDrawPostChildren / OnAttachServices / OnDetach / QueryLight / QueryShadowCaster /
   QueryPrimitive。3D 向け追加フックは **vtable 末尾追加** の従来方針。
@@ -76,12 +77,13 @@
   `ATriggerComponent` / `ARigidBody2D` / ...) と 3D 系 (`AMeshComponent3D` 等) は
   `AComponent` 派生に書き換え、管理オブジェクトである
   個別コンポーネントも `ASprite2DComponent` / `AMeshComponent3D` のように `A` 接頭辞へ
-  統一する。通常の値型クラス・構造体は `F`、テンプレートは `T`、純粋インターフェースは
+  統一する。機能を持つ具象classは`C`、データ中心のstruct・値・handleは`F`、templateは`T`、純粋interfaceは
   `I`、enum は `E` とする (`docs/StyleGuide.md` 参照)。
 
 ### プール / シリアライズ / シーン
 
-- generational ID レジストリは値型の `FNodePool` に統一し、旧 `FNode3DPool` を削除する。
+- generational IDレジストリは`FNodePool`に統一し、旧`FNode3DPool`を削除する。
+  `FNodePool`は機能class候補としてexact migration debtでreview中である。
 - SceneSerialize v4 は transform を 3D フィールド (pos3/quat/scale3) に拡張する。
   保存は v4、読み込みは旧 v2/v3 も受理して 3D transform へ補完する。
 - 読み込みは `TryLoadNodeTree` を標準とし、破損データを部分成功させない。結果の

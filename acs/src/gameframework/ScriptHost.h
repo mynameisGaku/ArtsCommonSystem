@@ -9,7 +9,7 @@
 //   call し、native 関数を bind する」実行レイヤを担当する。
 //
 //   GameFramework 設計書 v13 では Lua 5.4 が推奨 backend だが、本 module
-//   自体は実 Lua ライブラリをリンクしない。具象 backend (FLuaVm / Wren VM 実装等) は
+//   自体は実 Lua ライブラリをリンクしない。具象 backend (CLuaVm / Wren VM 実装等) は
 //   別モジュール (将来の `ACS::ScriptingLua` = `src/scripting/`) で `IScriptVm`
 //   を override する形で実装される。
 //
@@ -473,7 +473,7 @@ IScriptVm& GetVmStub() noexcept;
  * 既定 IScriptVm を返す provider 関数型 (実 backend モジュールへの委譲点)。
  *
  * @details
- * gameframework は実 backend モジュール (例: ACS::Scripting / FLuaVm) に依存できない
+ * gameframework は実 backend モジュール (例: ACS::Scripting / CLuaVm) に依存できない
  * (循環依存になる: backend 側が本 interface に依存する)。そこで実 backend 側が
  * SetScriptVmProvider() で「既定 VM を返す関数」を登録し、ゲームコードは
  * GetDefaultScriptVm() を通じて backend 非依存に既定 VM を取得する。典型例として

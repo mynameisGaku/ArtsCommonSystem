@@ -7,7 +7,7 @@
 //     別スレッドで独立に呼ばれるので、共有資源には触らないこと
 //   ・MessageBroker はシングルスレッド前提の同期 pub/sub。よって publish は
 //     並列ループの外（メインスレッド）から行う
-//   ・FTimerManager で OnUpdate に頼らない時刻ベース処理
+//   ・CTimerManager で OnUpdate に頼らない時刻ベース処理
 #include "HelloECSApp.h"
 #include "Types.h"
 

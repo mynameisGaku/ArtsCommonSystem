@@ -14,7 +14,7 @@ CPU/driver hot path と安全契約を改善する。対象は T11–T15 と T31
 | T13 | ECB は 16 bytes 以下の trivially-copyable value を command 内へ保持し、それ以外は従来の heap fallback を使う。逐次/parallel buffer に batch reserve API を追加。 | command order、move-only fallback、OOM sticky flag、parallel slot order |
 | T14 | scene/component authored-value 適用で使う reflection dispatch を built-in kind の immutable descriptor table に統一。 | field order、schema-only skip、未知 kind の fail-closed fallback |
 | T15 | raw DX12 command list は同一 graphics/compute pipeline の連続 bind を省略する。resource transition と UAV barrier は変更しない。 | backend state safety、draw/dispatch quality、barrier ordering |
-| T31 | `TComponentTypeTraits<T>` と compile-time `ComponentSignatureId` を追加。dense World slot は従来の dynamic runtime ID fallback を維持する。 | plugin/dynamic component registration、既存 ABI の runtime indexing |
+| T31 | `TComponentTypeTraits<T>` と compile-time `FComponentSignatureId` を追加。dense World slot は従来の dynamic runtime ID fallback を維持する。 | plugin/dynamic component registration、既存 ABI の runtime indexing |
 | T32 | required/excluded/optional query pack を template specialization で解決し、optional component は nullable pointer で渡す `EachOptional` を追加。 | required filtering、excluded semantics、optional absence、mutation safety |
 | T33 | `EFieldKind` の apply/read function と対応可否を constexpr descriptor table 化し、table coverage を static assert する。 | unsupported String/Enum、out-of-range kind、schema validation |
 | T34 | 全 `EFormat` の bytes/block、block dimensions、color/depth/stencil aspect、compression flag を constexpr traits table 化。DX12/Diligent の texture validation/readback/layout が同じ表を使用する。 | invalid format fail-closed、depth/color usage legality、backend parity |

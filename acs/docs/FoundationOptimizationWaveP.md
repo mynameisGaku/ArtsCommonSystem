@@ -19,7 +19,7 @@ FileSystemは通常pathを`CreateDirectoryW`へ渡し、`ERROR_ALREADY_EXISTS`�
 
 ## T83-T84: Lua登録
 
-`FLuaVm::RegisterNativeFunction`は、登録簿を変更する前から同一VMへの再入を拒否する。Lua stackと再入状態はRAIIで全return経路から戻す。公開失敗時は登録簿末尾と同名globalの復元を試みる。
+`CLuaVm::RegisterNativeFunction`は、登録簿を変更する前から同一VMへの再入を拒否する。Lua stackと再入状態はRAIIで全return経路から戻す。公開失敗時は登録簿末尾と同名globalの復元を試みる。
 
 closureは登録位置だけでなく登録識別番号を持つ。失敗中にLua側へ退避されたclosureは後続登録を呼べない。公開確認は`__index`を通さないraw global lookupで行う。識別番号を使い切った後はwrapさせず、新規登録を恒久拒否する。
 
@@ -39,7 +39,10 @@ Play中のbackend volume設定が失敗した場合は、確保したvoiceとbuf
 
 ## T91-T94: 規約、Module、ABI
 
-型役割監査は`F=value/handle/service`を一般則として扱い、純粋仮想構文や`Shutdown`の存在だけでserviceを`I`や`C`へ変えない。EventとScriptingを実sourceで走査し、fixtureだけの成功にしない。
+型役割監査は`A=owner / registryに所有され多態的に扱われるobject`、`C=機能class`、
+`F=データ/value/handle`を一般則とする。現waveは`AObject`推移派生または実登録macroを
+機械確定し、その他のobject候補と既存の未レビュー型はexact debtへ分離する。
+EventとScriptingは実sourceで走査する。
 
 公開headerが参照するmoduleは`PUBLIC_DEPS`へ含める。Lua C APIを含む内部headerは公開header一覧とsingle-headerから除外する。generator入力と生成`Module.cmake`は同じsource closureを表す必要がある。
 

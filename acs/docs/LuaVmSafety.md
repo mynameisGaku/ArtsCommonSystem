@@ -1,10 +1,10 @@
 # Lua VM の登録失敗契約
 
-`FLuaVm::RegisterNativeFunction` は、注入した `FAllocator` から登録簿を確保できない場合に
+`CLuaVm::RegisterNativeFunction` は、注入した `FAllocator` から登録簿を確保できない場合に
 `EErrCategory::Memory` と `script_err::kSub_AllocationFailed` を返します。
 
-`FLuaVm(FAllocator&)` は登録簿の確保元を所有せず、その参照をVMの寿命中保持します。
-注入するallocatorは、構築した `FLuaVm` より後まで生存させてください。VMより先にallocatorを
+`CLuaVm(FAllocator&)` は登録簿の確保元を所有せず、その参照をVMの寿命中保持します。
+注入するallocatorは、構築した `CLuaVm` より後まで生存させてください。VMより先にallocatorを
 破棄すると、登録簿の解放時に無効な参照を使います。
 
 登録簿の確保後に Lua closure の作成またはグローバル公開が失敗した場合も、Lua stackと
@@ -14,9 +14,9 @@
 Luaのメモリ不足は `EErrCategory::Memory` / `script_err::kSub_AllocationFailed`、
 それ以外のLua公開失敗は `EErrCategory::Generic` / `script_err::kSub_CallFailed` です。
 
-Lua公開処理中のメタ関数から既存native関数が呼ばれ、その関数が同じ `FLuaVm` へ登録を
+Lua公開処理中のメタ関数から既存native関数が呼ばれ、その関数が同じ `CLuaVm` へ登録を
 再入した場合は、`EErrCategory::Generic` / `script_err::kSub_CallFailed` で拒否します。
-注入allocatorの確保処理から同じ `FLuaVm` へ再入した場合も同じ分類で拒否します。
+注入allocatorの確保処理から同じ `CLuaVm` へ再入した場合も同じ分類で拒否します。
 この拒否はLua stack、グローバル、native登録簿を変更しません。
 
 Lua側の公開拒否処理が失敗予定のclosureを別の場所へ退避しても、そのclosureには登録ごとの
@@ -34,10 +34,10 @@ Lua側の公開拒否処理が失敗予定のclosureを別の場所へ退避し�
 注入allocatorによる登録簿の確保失敗では、Luaグローバル公開処理へ入る前にstackを元の位置へ
 戻すため、失敗した関数名はLuaのグローバルへ新しく公開されず、既存の同名グローバルも
 変更されません。利用可能な
-メモリが戻った後は、同じ `FLuaVm` へ登録を再試行できます。
+メモリが戻った後は、同じ `CLuaVm` へ登録を再試行できます。
 
-公開APIの正規型は `FLuaVm` と `FAllocator` です。`CLuaVm` は移行中のソース互換用型別名であり、
-独立した実装型やバイナリシンボルではありません。Lua内部状態は `LuaVmImpl.h/.cpp`、値変換は
+公開APIの正規型は `CLuaVm` と `FAllocator` です。旧`FLuaVm`は正規型を指す一時的なsource互換aliasです。
+旧object file向けのsymbol shimはなく、consumerは全量再buildします。Lua内部状態は `LuaVmImpl.h/.cpp`、値変換は
 `LuaVmValueConversion.h` に分離し、公開ヘッダーからLua C APIを隠します。この2内部ヘッダーは
 moduleの公開ヘッダー一覧と単一ヘッダー配布物から除外します。
 

@@ -28,13 +28,14 @@ public partial class NewClassDialog : Window
         UpdateHint();
     }
 
-    // 階層を構築: Empty + エンジン基底 (AComponent/ANode/FScene2D) を根に、
+    // 階層を構築: Empty + エンジン基底 (AObject/AComponent/ANode/FScene2D) を根に、
     // プロジェクトのユーザークラスを基底配下へ (連鎖は複数パスで解決)。
     private void BuildTree(Project? project)
     {
         var itemByName = new Dictionary<string, TreeViewItem>();
 
         var empty = MakeItem("Empty", EmptyFg);
+        itemByName["Empty"] = empty;
         BaseTree.Items.Add(empty);
         foreach (string rb in ProjectManager.BaseClassOptions)
         {
@@ -64,12 +65,7 @@ public partial class NewClassDialog : Window
                     }
                 }
             }
-            // 基底が解決できなかったユーザークラスは AComponent 配下へ置く (孤立回避)。
-            foreach (var (name, _) in pending)
-                if (!itemByName.ContainsKey(name) && itemByName.TryGetValue("AComponent", out var fc))
-                {
-                    var it = MakeItem(name, UserFg); fc.Items.Add(it); itemByName[name] = it;
-                }
+            // 基底が不明または循環する型は、誤ったrootで生成できないよう候補へ表示しない。
         }
 
         if (itemByName.TryGetValue("AComponent", out var def)) def.IsSelected = true;   // 既定

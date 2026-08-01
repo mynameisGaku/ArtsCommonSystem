@@ -3363,6 +3363,7 @@ public partial class BlueprintEditor : UserControl
             var (generatedHeader, generatedSource) = GenerateCpp("ATestComponent");
             CheckGenerated("CodegenTypePrefix",
                 ProjectManager.CppTypeIdent("FPlayer", 'A') == "APlayer"
+                && ProjectManager.CppTypeIdent("FFeature", 'C') == "CFeature"
                 && ProjectManager.CppTypeIdent("FMode", 'E') == "EMode");
             CheckGenerated("CodegenEnumerator",
                 ProjectManager.CppEnumeratorIdent("FReady") == "Ready"
@@ -3376,6 +3377,419 @@ public partial class BlueprintEditor : UserControl
                 && generatedSource.Contains("ANode* _as2 = nullptr;", StringComparison.Ordinal)
                 && generatedSource.Contains("m_CastWarningEmitted", StringComparison.Ordinal)
                 && generatedHeader.Contains("bool m_CastWarningEmitted", StringComparison.Ordinal));
+        }
+
+        // C++ class生成: 通常classはC、登録対象とその派生はAにし、専用一時領域を必ず片付ける。
+        {
+            // 生成物を隔離する呼び出しごとに一意な一時フォルダー。
+            string fixtureRoot = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "acs-prefix-codegen-" + Guid.NewGuid().ToString("N"));
+            // 生成内容の検査結果。
+            bool generatedNamesAndRoles = false;
+            // 成否にかかわらず一時フォルダーを削除できたか。
+            bool cleanedFixture = false;
+            try
+            {
+                System.IO.Directory.CreateDirectory(fixtureRoot);
+                // 生成先だけを持つ最小プロジェクト。
+                var fixtureProject = new Project
+                {
+                    Name = "PrefixFixture",
+                    ProjectFilePath = System.IO.Path.Combine(
+                        fixtureRoot,
+                        "PrefixFixture.acsproject"),
+                };
+                // 未作成projectで不明基底を拒否し、Source/APIを作らないことを確認する。
+                var freshInvalidProject = new Project
+                {
+                    Name = "InvalidPrefix",
+                    ProjectFilePath = System.IO.Path.Combine(
+                        fixtureRoot,
+                        "Invalid",
+                        "InvalidPrefix.acsproject"),
+                };
+                // 未作成projectの不明基底を生成前に拒否できたか。
+                bool rejectedFreshUnknownBase = false;
+                try
+                {
+                    ProjectManager.GenerateClass(freshInvalidProject, "FUnknown", "MissingBase");
+                }
+                catch (InvalidOperationException)
+                {
+                    rejectedFreshUnknownBase = true;
+                }
+                // 拒否したprojectにSourceやAPI headerが残っていないか。
+                bool freshUnknownOutputAbsent = !System.IO.Directory.Exists(freshInvalidProject.SourceDir)
+                    && !System.IO.File.Exists(System.IO.Path.Combine(
+                        freshInvalidProject.SourceDir,
+                        "InvalidPrefixAPI.h"));
+
+                // 重複classを持つprojectでも直接engine基底の生成を拒否できるか調べる。
+                var duplicateProject = new Project
+                {
+                    Name = "DuplicatePrefix",
+                    ProjectFilePath = System.IO.Path.Combine(
+                        fixtureRoot,
+                        "Duplicate",
+                        "DuplicatePrefix.acsproject"),
+                };
+                System.IO.Directory.CreateDirectory(duplicateProject.SourceDir);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(duplicateProject.SourceDir, "CDuplicateOne.h"),
+                    "class CDuplicate {};\n");
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(duplicateProject.SourceDir, "CDuplicateTwo.h"),
+                    "class CDuplicate {};\n");
+                string[] duplicateFilesBefore = System.IO.Directory
+                    .GetFiles(duplicateProject.SourceDir)
+                    .Select(path => System.IO.Path.GetFileName(path)!)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray();
+                bool rejectedDirectEngineBaseWithDuplicate = false;
+                try
+                {
+                    ProjectManager.GenerateClass(duplicateProject, "FShouldNotExist", "AComponent");
+                }
+                catch (InvalidOperationException)
+                {
+                    rejectedDirectEngineBaseWithDuplicate = true;
+                }
+                string[] duplicateFilesAfter = System.IO.Directory
+                    .GetFiles(duplicateProject.SourceDir)
+                    .Select(path => System.IO.Path.GetFileName(path)!)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray();
+                bool duplicateOutputAbsent = duplicateFilesBefore.SequenceEqual(duplicateFilesAfter)
+                    && !System.IO.File.Exists(System.IO.Path.Combine(
+                        duplicateProject.SourceDir,
+                        "DuplicatePrefixAPI.h"));
+
+                // 機能class、その派生、直接登録object、ユーザー派生objectの生成結果。
+                var utilityFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FUtility",
+                    "Empty");
+                var utilityChildFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FUtilityChild",
+                    "CUtility");
+                var actorFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "CActor",
+                    "AComponent");
+                var childFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FChild",
+                    "AActor");
+                var nodeFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FNodeRoot",
+                    "ANode");
+                var nodeChildFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FNodeChild",
+                    "ANodeRoot");
+                var sceneFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FWorldScene",
+                    "FScene2D");
+                var sceneChildFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FWorldSceneChild",
+                    "AWorldScene");
+                var managedFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FManaged",
+                    "AObject");
+                var managedChildFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FManagedChild",
+                    "AManaged");
+                // file全体を囲む通常のinclude guard内へ置いた機能class。
+                string guardedPath = System.IO.Path.Combine(fixtureProject.SourceDir, "CGuarded.h");
+                System.IO.File.WriteAllText(
+                    guardedPath,
+                    "#ifndef C_GUARDED_H\n" +
+                    "#define C_GUARDED_H\n" +
+                    "class CGuarded {};\n" +
+                    "#endif\n");
+                var guardedChildFiles = ProjectManager.GenerateClass(
+                    fixtureProject,
+                    "FGuardedChild",
+                    "CGuarded");
+
+                // 不明基底と循環基底を再現する入力header。
+                string cycleAPath = System.IO.Path.Combine(fixtureProject.SourceDir, "CCycleA.h");
+                string cycleBPath = System.IO.Path.Combine(fixtureProject.SourceDir, "CCycleB.h");
+                System.IO.File.WriteAllText(cycleAPath, "class CCycleA : public CCycleB {};\n");
+                System.IO.File.WriteAllText(cycleBPath, "class CCycleB : public CCycleA {};\n");
+                // C++ parserの正例と、codeではないclass文字列の負例。
+                string parserFixturePath = System.IO.Path.Combine(
+                    fixtureProject.SourceDir,
+                    "CClassScannerFixture.h");
+                System.IO.File.WriteAllText(
+                    parserFixturePath,
+                    "enum class EMode {};\n" +
+                    "enum\nclass EWrappedMode {};\n" +
+                    "enum \\\nclass ESplicedMode {};\n" +
+                    "// class CLineFake {};\n" +
+                    "// comment continuation \\\nclass CContinuedLineFake {};\n" +
+                    "/* class CBlockFake {}; */\n" +
+                    "inline constexpr const char* CStringValue = \"class CStringFake {};\";\n" +
+                    "inline constexpr const char* CRawValue = R\"tag(class CRawFake {};)tag\";\n" +
+                    "inline constexpr const char* CRawSpliceValue = R\"tag(\n" +
+                    "payload)\\\n" +
+                    "tag\"\n" +
+                    "class CRawSpliceFake {};\n" +
+                    ")tag\";\n" +
+                    "class CAfterRawSplice {};\n" +
+                    "// R\"tag(\n" +
+                    "class CLineCommentRawReal {};\n" +
+                    "// )tag\"\n" +
+                    "/* R\"tag( */\n" +
+                    "class CBlockCommentRawReal {};\n" +
+                    "/* )tag\" */\n" +
+                    "inline constexpr const char* CFormedRawValue = R\\\n\"tag(\n" +
+                    "payload)\\\n" +
+                    "tag\"\n" +
+                    "class CFormedRawFake {};\n" +
+                    ")tag\";\n" +
+                    "class CAfterFormedRaw {};\n" +
+                    "/\\\n*\nclass CSplicedBlockFake {};\n*/\n" +
+                    "class CAfterSplicedBlockComment {};\n" +
+                    "/* class CSplicedTerminatorFake {};\n*\\\n/\n" +
+                    "class CAfterSplicedCommentTerminator {};\n" +
+                    "/\\\n/ class CSplicedLineFake {};\n" +
+                    "class CAfterSplicedLineComment {};\n" +
+                    "#define DECLARE_FAKE \\\nclass AFromMacro : public AObject {};\n" +
+                    "#define ENUM_TOKEN enum\n" +
+                    "class CAfterDirective {};\n" +
+                    "#if 0\nclass ADisabled : public AObject {};\n#endif\n" +
+                    "#if (0)\nclass AParenthesizedDisabled : public AObject {};\n#endif\n" +
+                    "\\\n#if 0\nclass ASplicedDisabled : public AObject {};\n#endif\n" +
+                    "#if FEATURE\nclass CConditional : public AObject {};\n#else\n" +
+                    "class CConditional {};\n#endif\n" +
+                    "#if 1\nclass CFirstBranch {};\n#elif FEATURE\n" +
+                    "class CElifBranch {};\n#else\nclass CElseBranch {};\n#endif\n" +
+                    "inline constexpr int Limit = 1'000;\n" +
+                    "class CAfterNumericSeparator {};\n" +
+                    "cl\\\nass CSplicedKeyword {};\n" +
+                    "class PREFIXFIXTURE_API CFinalUtility final {};\n" +
+                    "class PREFIXFIXTURE_API CDerivedUtility final : public CUtility {};\n");
+                // 拒否前後で生成先のfile集合を比較する。
+                string[] filesBeforeRejectedGeneration = System.IO.Directory
+                    .GetFiles(fixtureProject.SourceDir)
+                    .Select(path => System.IO.Path.GetFileName(path)!)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray();
+                // 不明基底を安全側で拒否できたか。
+                bool rejectedUnknownBase = false;
+                try
+                {
+                    ProjectManager.GenerateClass(fixtureProject, "FUnknownChild", "MissingBase");
+                }
+                catch (InvalidOperationException)
+                {
+                    rejectedUnknownBase = true;
+                }
+                // 循環基底を安全側で拒否できたか。
+                bool rejectedCyclicBase = false;
+                try
+                {
+                    ProjectManager.GenerateClass(fixtureProject, "FCyclicChild", "CCycleA");
+                }
+                catch (InvalidOperationException)
+                {
+                    rejectedCyclicBase = true;
+                }
+                // 条件付き型を基底として選べないことを確認する。
+                bool rejectedConditionalBase = false;
+                try
+                {
+                    ProjectManager.GenerateClass(fixtureProject, "FConditionalChild", "CConditional");
+                }
+                catch (InvalidOperationException)
+                {
+                    rejectedConditionalBase = true;
+                }
+                // 拒否後に残ったfile集合。
+                string[] filesAfterRejectedGeneration = System.IO.Directory
+                    .GetFiles(fixtureProject.SourceDir)
+                    .Select(path => System.IO.Path.GetFileName(path)!)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray();
+
+                // 生成された各headerの内容。
+                string utilityHeader = System.IO.File.ReadAllText(utilityFiles.Single());
+                string utilityChildHeader = System.IO.File.ReadAllText(utilityChildFiles.Single());
+                string actorHeader = System.IO.File.ReadAllText(actorFiles.Single());
+                string childHeader = System.IO.File.ReadAllText(childFiles.Single());
+                string nodeHeader = System.IO.File.ReadAllText(nodeFiles.Single());
+                string nodeChildHeader = System.IO.File.ReadAllText(nodeChildFiles.Single());
+                string sceneHeader = System.IO.File.ReadAllText(sceneFiles.Single());
+                string sceneChildHeader = System.IO.File.ReadAllText(sceneChildFiles.Single());
+                string managedHeader = System.IO.File.ReadAllText(managedFiles.Single());
+                string managedChildHeader = System.IO.File.ReadAllText(managedChildFiles.Single());
+                string guardedChildHeader = System.IO.File.ReadAllText(guardedChildFiles.Single());
+                string generatedApiHeader = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                    fixtureProject.SourceDir,
+                    "PrefixFixtureAPI.h"));
+                // 生成headerに必須のlicenseと多重include防止。
+                const string generatedHeaderPreamble =
+                    "// SPDX-License-Identifier: Apache-2.0\n#pragma once\n";
+                // APIと全class headerが同じ冒頭契約を持つか。
+                bool generatedHeadersHavePreamble = new[]
+                {
+                    generatedApiHeader,
+                    utilityHeader,
+                    utilityChildHeader,
+                    actorHeader,
+                    childHeader,
+                    nodeHeader,
+                    nodeChildHeader,
+                    sceneHeader,
+                    sceneChildHeader,
+                    managedHeader,
+                    managedChildHeader,
+                    guardedChildHeader,
+                }.All(header => header.StartsWith(generatedHeaderPreamble, StringComparison.Ordinal));
+                // 継承なしclassもEmpty rootとして列挙されることを確認する。
+                var scannedClasses = ProjectManager.ScanUserClasses(fixtureProject);
+                generatedNamesAndRoles =
+                    generatedHeadersHavePreamble
+                    && System.IO.Path.GetFileName(utilityFiles.Single()) == "CUtility.h"
+                    && utilityHeader.Contains("class CUtility", StringComparison.Ordinal)
+                    && !utilityHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(utilityChildFiles.Single()) == "CUtilityChild.h"
+                    && utilityChildHeader.Contains("#include \"CUtility.h\"", StringComparison.Ordinal)
+                    && utilityChildHeader.Contains(
+                        "class PREFIXFIXTURE_API CUtilityChild : public CUtility",
+                        StringComparison.Ordinal)
+                    && !utilityChildHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && utilityChildHeader.Contains(
+                        "保持する状態のownerを明示して実装する",
+                        StringComparison.Ordinal)
+                    && !utilityChildHeader.Contains("TODO:", StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(actorFiles.Single()) == "AActor.h"
+                    && actorHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && actorHeader.Contains(
+                        "class PREFIXFIXTURE_API AActor : public acs::game::AComponent",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(childFiles.Single()) == "AChild.h"
+                    && childHeader.Contains("#include \"AActor.h\"", StringComparison.Ordinal)
+                    && childHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && childHeader.Contains(
+                        "class PREFIXFIXTURE_API AChild : public AActor",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(nodeFiles.Single()) == "ANodeRoot.h"
+                    && nodeHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && nodeHeader.Contains(
+                        "class PREFIXFIXTURE_API ANodeRoot : public acs::game::ANode",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(nodeChildFiles.Single()) == "ANodeChild.h"
+                    && nodeChildHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && nodeChildHeader.Contains(
+                        "class PREFIXFIXTURE_API ANodeChild : public ANodeRoot",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(sceneFiles.Single()) == "AWorldScene.h"
+                    && sceneHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && sceneHeader.Contains(
+                        "class PREFIXFIXTURE_API AWorldScene : public acs::game::FScene2D",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(sceneChildFiles.Single()) == "AWorldSceneChild.h"
+                    && sceneChildHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && sceneChildHeader.Contains(
+                        "class PREFIXFIXTURE_API AWorldSceneChild : public AWorldScene",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(managedFiles.Single()) == "AManaged.h"
+                    && managedHeader.Contains("#include \"memory/AObject.h\"", StringComparison.Ordinal)
+                    && managedHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && managedHeader.Contains(
+                        "class PREFIXFIXTURE_API AManaged : public acs::AObject",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(managedChildFiles.Single()) == "AManagedChild.h"
+                    && managedChildHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && managedChildHeader.Contains(
+                        "class PREFIXFIXTURE_API AManagedChild : public AManaged",
+                        StringComparison.Ordinal)
+                    && System.IO.Path.GetFileName(guardedChildFiles.Single()) == "CGuardedChild.h"
+                    && guardedChildHeader.Contains("#include \"CGuarded.h\"", StringComparison.Ordinal)
+                    && guardedChildHeader.Contains(
+                        "class PREFIXFIXTURE_API CGuardedChild : public CGuarded",
+                        StringComparison.Ordinal)
+                    && !guardedChildHeader.Contains("ACS_CLASS()", StringComparison.Ordinal)
+                    && !guardedChildHeader.Contains("TODO:", StringComparison.Ordinal)
+                    && scannedClasses.Contains(("CUtility", "Empty"))
+                    && scannedClasses.Contains(("CUtilityChild", "CUtility"))
+                    && scannedClasses.Contains(("AActor", "AComponent"))
+                    && scannedClasses.Contains(("AChild", "AActor"))
+                    && scannedClasses.Contains(("ANodeRoot", "ANode"))
+                    && scannedClasses.Contains(("ANodeChild", "ANodeRoot"))
+                    && scannedClasses.Contains(("AWorldScene", "FScene2D"))
+                    && scannedClasses.Contains(("AWorldSceneChild", "AWorldScene"))
+                    && scannedClasses.Contains(("AManaged", "AObject"))
+                    && scannedClasses.Contains(("AManagedChild", "AManaged"))
+                    && scannedClasses.Contains(("CGuarded", "Empty"))
+                    && scannedClasses.Contains(("CGuardedChild", "CGuarded"))
+                    && scannedClasses.Contains(("CAfterDirective", "Empty"))
+                    && scannedClasses.Contains(("CAfterRawSplice", "Empty"))
+                    && scannedClasses.Contains(("CLineCommentRawReal", "Empty"))
+                    && scannedClasses.Contains(("CBlockCommentRawReal", "Empty"))
+                    && scannedClasses.Contains(("CAfterFormedRaw", "Empty"))
+                    && scannedClasses.Contains(("CAfterSplicedBlockComment", "Empty"))
+                    && scannedClasses.Contains(("CAfterSplicedCommentTerminator", "Empty"))
+                    && scannedClasses.Contains(("CAfterSplicedLineComment", "Empty"))
+                    && scannedClasses.Contains(("CAfterNumericSeparator", "Empty"))
+                    && scannedClasses.Contains(("CSplicedKeyword", "Empty"))
+                    && scannedClasses.Contains(("CFinalUtility", "Empty"))
+                    && scannedClasses.Contains(("CDerivedUtility", "CUtility"))
+                    && ProjectManager.BaseClassOptions.Contains("AObject", StringComparer.Ordinal)
+                    && !scannedClasses.Any(entry => entry.Name is
+                        "EMode" or "EWrappedMode" or "ESplicedMode" or "CLineFake"
+                        or "CContinuedLineFake" or "CBlockFake" or "CStringFake" or "CRawFake"
+                        or "CRawSpliceFake" or "CFormedRawFake" or "CSplicedBlockFake"
+                        or "CSplicedTerminatorFake"
+                        or "CSplicedLineFake"
+                        or "AFromMacro" or "ADisabled" or "AParenthesizedDisabled"
+                        or "ASplicedDisabled" or "CConditional" or "CFirstBranch"
+                        or "CElifBranch" or "CElseBranch")
+                    && rejectedFreshUnknownBase
+                    && freshUnknownOutputAbsent
+                    && rejectedDirectEngineBaseWithDuplicate
+                    && duplicateOutputAbsent
+                    && rejectedUnknownBase
+                    && rejectedCyclicBase
+                    && rejectedConditionalBase
+                    && filesBeforeRejectedGeneration.SequenceEqual(filesAfterRejectedGeneration);
+            }
+            catch (Exception exception)
+            {
+                log.Append("  INFO CodegenClassRoles exception=")
+                    .Append(exception.GetType().Name)
+                    .Append(':')
+                    .Append(exception.Message)
+                    .Append('\n');
+            }
+            finally
+            {
+                try
+                {
+                    if (System.IO.Directory.Exists(fixtureRoot))
+                        System.IO.Directory.Delete(fixtureRoot, recursive: true);
+                    cleanedFixture = !System.IO.Directory.Exists(fixtureRoot);
+                }
+                catch (Exception exception)
+                {
+                    log.Append("  INFO CodegenClassCleanup exception=")
+                        .Append(exception.GetType().Name)
+                        .Append(':')
+                        .Append(exception.Message)
+                        .Append('\n');
+                }
+            }
+            CheckGenerated("CodegenClassRoles", generatedNamesAndRoles);
+            CheckGenerated("CodegenClassCleanup", cleanedFixture);
         }
 
         // 直列化の往復: Serialize→Deserialize→Serialize が一致する

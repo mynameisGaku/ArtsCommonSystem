@@ -38,7 +38,7 @@ struct FWaveMEvent {
 /** Subscribe・Unsubscribe・nested Publish を同時に検証する状態。 */
 struct FWaveMBrokerState {
     /** 検証対象 broker。 */
-    FMessageBroker* broker = nullptr;
+    CMessageBroker* broker = nullptr;
 
     /** 最初の callback の呼び出し回数。 */
     u32 root_calls = 0u;
@@ -175,7 +175,7 @@ ACS_TEST(FoundationOptimizationWaveM, JobGraphReservesCompletionCountOncePerSubm
 ACS_TEST(FoundationOptimizationWaveM, BrokerSnapshotSurvivesMutationAndNestedPublish)
 {
     /** 複合再入配送を検証する broker。 */
-    FMessageBroker Broker;
+    CMessageBroker Broker;
     /** callback 間で共有する検証状態。 */
     FWaveMBrokerState State{};
     State.broker = &Broker;

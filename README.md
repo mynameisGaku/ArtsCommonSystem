@@ -147,24 +147,34 @@ ctest --test-dir .\acs\Intermediate\vs -C Debug --output-on-failure
 
 | 種別 | Prefix | 例 |
 |---|---|---|
-| 通常のclass / struct / union | `F` | `FRenderer`, `FErrorCode`, `FVec2` |
-| `FObject`管理class | `A` | `ANode`, `AComponent`, `ASprite2DComponent` |
+| owner / registryに所有され、多態的に扱われるobject | `A` | `AObject`, `ANode`, `AComponent` |
+| 機能・処理を持つ具象class | `C` | `CAudioEngine`, `CMessageBroker`, `CTimerManager` |
+| データ中心のstruct / union、値、handle | `F` | `FErrorCode`, `FVec2`, `FSoundHandle` |
 | template | `T` | `TArray<T>`, `TResult<T,E>`, `TUniquePtr<T>` |
 | 純粋仮想interface | `I` | `IRhiDevice`, `IAssetLoader` |
 | `enum class` | `E` | `EFormat`, `EKey`, `ELogSeverity` |
 
-`using` / `typedef`の型alias、delegate、function-pointer callbackにはprefixを強制しません。
+namespace公開の意味付きscalar/value型aliasは`F`で始めます。delegate、callback、
+function-pointer aliasはprefix自由で、template aliasは今回のscalar監査対象外です。
 `u32`・`f32`・`usize`などのプリミティブaliasもprefixなしです。詳細は
 [`StyleGuide.md`](acs/docs/StyleGuide.md) を参照してください。
+現waveの監査が`A`と機械確定するのは、`acs::AObject`の推移派生またはscope解決済みの
+`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実登録型です。その他のobject候補はmanual debtでreviewします。
+既存の未レビュー公開型326件はexact migration debtへ固定されています。`FAsset`の直接・間接
+派生もmanual review対象で、監査通過は全型の分類完了を意味しません。
 ACS Editorの新規クラス生成とBlueprint C++生成も同じ規約を適用し、表示名を保ったまま
-`FObject`管理型を`A`、通常型を`F`、列挙型を`E`で始まる安全なC++識別子へ正規化します。
+ACS objectを`A`、機能classを`C`、データ型を`F`、列挙型を`E`で始まる安全なC++識別子へ正規化します。
+
+正規名は`AObject`、`CAudioEngine`、`CMessageBroker`、`CTimerManager`、`CLuaVm`です。旧`F`名は
+再コンパイルするsource向けの一時`using`だけを残します。旧object fileとのABI互換symbolは
+提供しないため、この変更を取り込むconsumerはDebug/Releaseとも全量再buildしてください。
 
 ## ノード統一
 
 シーングラフのノードは2D/3D共通の`ANode`へ統一されています。旧`FNode2D` /
 `FNode3D`は現行APIではなく、`ANode`が`FTransform3D`を1つ持ち、2D向けには
 `SetPosition2D`・`Position2D`・`World2D`などのヘルパを提供します。ノードへ付ける
-`FObject`管理componentは`AComponent`派生です。
+componentは`AObject`の実派生である`AComponent`から派生します。
 
 ```cpp
 auto player = NewObject<ANode>(FStringView("Player"));
@@ -193,11 +203,11 @@ Root().AddChild(Move(player));
 | `Timing` | 値所有の決定論的な固定更新変換 | `FFixedStepClock`, `FFixedStepClockSnapshot` |
 | `Platform` | window・input・file・time | `FWindow`, `FInput`, `FFileSystem`, `FFrameTimer` |
 | `Ecs` | entity / componentとquery | `FWorld`, `FEntityId`, `TQueryView`, `FEntityCommandBuffer` |
-| `Event` | pub/sub・message pipe・timer | `FMessageBroker`, `TMessagePipe<T>`, `FTimerManager` |
+| `Event` | pub/sub・message pipe・timer | `CMessageBroker`, `TMessagePipe<T>`, `CTimerManager` |
 | `Asset` | asset registryと各loader | `FAssetRegistry`, `IAssetLoader`, `FImageAsset`, `FMeshAsset` |
 | `Render` | RHI・2D/3D描画 | `FRenderer`, `IRhiDevice`, `FSpriteBatch`, `FFont`, `FPbrShader` |
 | `App` | application lifecycleとentry point | `FApplication`, `FAppConfig`, `ACS_DEFINE_MAIN` |
-| `Audio` | XAudio2再生 | `FAudioEngine`, `FSoundHandle` |
+| `Audio` | XAudio2再生 | `CAudioEngine`, `FSoundHandle` |
 | `Network` | network初期化・TCP・UDP | `FNetwork`, `FTcpConnection`, `FTcpListener`, `FUdpSocket` |
 | `Imgui` | Dear ImGui統合（raw DX12時） | `FImGuiCtx` |
 | `Mvvm` | observableとbinding | `TObservable<T>`, `TTwoWayBinder<T>`, `FCommand` |
@@ -212,7 +222,7 @@ Root().AddChild(Move(player));
 
 | スイッチ | 追加される実装 |
 |---|---|
-| `-Scripting` | Lua 5.4 backend（`FLuaVm`） |
+| `-Scripting` | Lua 5.4 backend（`CLuaVm`） |
 | `-Steamworks` | Steamworks SDK backend（`FSteamworksBridgeImpl`） |
 | `-Onnx` | ONNX Runtime CPU backend（`FOnnxMlRuntime`） |
 | `-OpenXr` | Khronos OpenXR loader（`FKhronosOpenXrBridge`） |
@@ -270,7 +280,8 @@ Root().AddChild(Move(player));
 - [`RECIPES.md`](acs/docs/RECIPES.md) — 3D描画・音・UIなどの逆引き
 - [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
-- [`StyleGuide.md`](acs/docs/StyleGuide.md) — F / A / T / I / E命名とcoding rule
+- [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
+- [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — AObject / C4 / F3のhard canonicalとexact debtを含む型役割監査
 - [`NodeUnification.md`](acs/docs/NodeUnification.md) — `ANode`統一と移行指針
 - [`SerializationSafety.md`](acs/docs/SerializationSafety.md) — 外部入力・永続化・checked API
 - [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくある問題と対処

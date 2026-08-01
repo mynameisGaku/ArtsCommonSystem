@@ -8,12 +8,12 @@ ACS_REF.modules.push({
   blurb: "デバッグ用の <t>GUI</t> ライブラリ <t>Dear ImGui</t> を ACS の<t>ウィンドウ</t>と<t>レンダラ</t>に繋ぐ薄いラッパです。たった数行で、開発中のパラメータ調整パネルやデバッグ表示を画面に出せます。",
   types: [
     {
-      name: "ImGuiCtx",
+      name: "FImGuiCtx",
       kind: "クラス",
       header: "imgui/ImGuiContext.h",
       summary: "<t>Dear ImGui</t> を ACS に統合する入口クラス。内部で <b>Win32 backend</b>(入力)と <b>DX12 backend</b>(描画)を初期化し、<code>ImGui::Begin()</code> などの素の ImGui API をそのまま使えるようにします。<t>コピー</t>は禁止(片付けを 1 つに保つため)。",
       when: "ゲームやツールに『その場でいじれるデバッグパネル』を足したい時。スライダーでパラメータを調整したり、内部状態をテキスト表示したりするのに使います。",
-      sample: "ImGuiCtx imgui;\nimgui.Init(window, renderer);             // 1 回だけ\nwhile (!window.ShouldClose()) {\n    renderer.BeginFrame(...);\n    imgui.NewFrame();                     // フレーム開始\n    ImGui::Begin(\"Hello\");                 // 素の ImGui API\n    ImGui::Text(\"Hello, world!\");\n    ImGui::End();\n    imgui.Render();                       // 描画コマンド発行\n    renderer.EndFrame();\n}\nimgui.Shutdown();                         // 片付け",
+      sample: "FImGuiCtx imgui;\nimgui.Init(window, renderer);             // 1 回だけ\nwhile (!window.ShouldClose()) {\n    renderer.BeginFrame(...);\n    imgui.NewFrame();                     // フレーム開始\n    ImGui::Begin(\"Hello\");                 // 素の ImGui API\n    ImGui::Text(\"Hello, world!\");\n    ImGui::End();\n    imgui.Render();                       // 描画コマンド発行\n    renderer.EndFrame();\n}\nimgui.Shutdown();                         // 片付け",
       members: [
         { sig: "TResult&lt;void&gt; Init(FWindow&amp; window, FRenderer&amp; renderer)", ret: "成功 or エラー", desc: "<t>ImGui</t> を起動し、与えた<t>ウィンドウ</t>と<t>レンダラ</t>に紐付ける。フォント用の <t>SRV ヒープ</t>もここで確保する。<t>レンダラ</t>が未初期化だとエラー(<t>Result</t>)を返す。", when: "アプリ起動時に 1 回だけ。失敗し得るので戻り値を確認する。", sample: "if (auto r = imgui.Init(window, renderer); r.IsErr()) {\n    // 初期化失敗(レンダラ未準備など)\n}" },
         { sig: "void NewFrame()", desc: "新しいフレームの ImGui 入力を開始する。この後に <code>ImGui::Begin()</code> 等の UI 構築を書く。<t>レンダラ</t>の <code>BeginFrame()</code> の<b>後</b>に呼ぶ。", when: "毎フレーム、UI を組み立てる直前に 1 回。" },

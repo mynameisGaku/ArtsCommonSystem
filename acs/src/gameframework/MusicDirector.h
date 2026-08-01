@@ -17,7 +17,7 @@
 //   ・Tick(dt) で transition / stinger timer を進行
 //
 // 設計選択:
-//   ・**FAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
+//   ・**CAudioEngine 直叩きしない**: 実際の再生は FAudioDirector に委ね、本クラスは
 //     「どの track を、どのゲインで鳴らすべきか」を決める state machine に徹する。
 //     SetAudioDirector(FAudioDirector*) で結線すると、SetState → PlayBgm、
 //     PlayStinger → PlaySfx、Stop → StopBgm を実 director へ delegate する。

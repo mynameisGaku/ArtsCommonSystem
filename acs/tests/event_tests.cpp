@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // =============================================================================
-// ACS Event — FTimerManager / MessageBroker テスト
+// ACS Event — CTimerManager / MessageBroker テスト
 // =============================================================================
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -12,20 +12,31 @@
 
 using namespace acs;
 
-/** 旧 CTimerManager が正規のタイマー管理器と同じ型を参照することを保証する。 */
-static_assert(IsSameV<CTimerManager, FTimerManager>);
-/** 旧 CMessageBroker が正規のメッセージ仲介器と同じ型を参照することを保証する。 */
-static_assert(IsSameV<CMessageBroker, FMessageBroker>);
+/** 旧 FTimerManager が正規のタイマー管理器と同じ型を参照することを保証する。 */
+static_assert(IsSameV<FTimerManager, CTimerManager>);
+/** 旧 FMessageBroker が正規のメッセージ仲介器と同じ型を参照することを保証する。 */
+static_assert(IsSameV<FMessageBroker, CMessageBroker>);
+/** 旧 EventTypeId が正規の通路番号型と同じ型を参照することを保証する。 */
+static_assert(IsSameV<EventTypeId, FEventTypeId>);
+#if defined(_WIN64)
+/** Win64の公開タイマー管理器配置を固定する。 */
+static_assert(sizeof(CTimerManager) == 144u && alignof(CTimerManager) == 8u);
+/** Win64の公開メッセージ仲介器配置を固定する。 */
+static_assert(sizeof(CMessageBroker) == 40u && alignof(CMessageBroker) == 8u);
+#endif
 
-// ---- FTimerManager: SetTimeout が指定時間で発火 ------------------------------
+// ---- CTimerManager: SetTimeout が指定時間で発火 ------------------------------
 namespace {
+/** 正規イベント通路番号の実行時契約を検査する型。 */
+struct FCanonicalEventTypeProbe {};
+
 struct FTimeoutCtx { int hits = 0; };
 void OnTimeout(void* user) {
     static_cast<FTimeoutCtx*>(user)->hits++;
 }
 
 struct FClearFromCallbackContext {
-    FTimerManager* manager = nullptr;
+    CTimerManager* manager = nullptr;
     int clear_hits = 0;
     int later_hits = 0;
     FTimerHandle registration_during_clear{};
@@ -34,7 +45,7 @@ struct FClearFromCallbackContext {
 /** callback 中 cancel の active word 再読込を検査する context。 */
 struct FCancelLaterTimerContext {
     /** cancel を実行する manager。 */
-    FTimerManager* manager = nullptr;
+    CTimerManager* manager = nullptr;
     /** 同じ word の後方にある timer。 */
     FTimerHandle later{};
     /** cancel callback の発火数。 */
@@ -78,7 +89,7 @@ void OnCancelledLaterTimer(void* user)
 /** 再入更新の呼出し回数を記録する。 */
 struct FReentrantTickContext {
     /** 更新を呼び戻すタイマー管理器。 */
-    FTimerManager* manager = nullptr;
+    CTimerManager* manager = nullptr;
     /** 周期処理が呼ばれた回数。 */
     int hits = 0;
     /** 再入更新を一度だけ試したかを示す。 */
@@ -102,7 +113,7 @@ void OnReentrantInterval(void* user)
 /** 更新中に登録したタイマーの発火時期を記録する。 */
 struct FDeferredRegistrationContext {
     /** 新しいタイマーを登録する管理器。 */
-    FTimerManager* manager = nullptr;
+    CTimerManager* manager = nullptr;
     /** 登録処理が呼ばれた回数。 */
     int registration_hits = 0;
     /** 新しいタイマーが呼ばれた回数。 */
@@ -159,7 +170,7 @@ ACS_TEST(Event, TimerHandleRequiresIdentifierAndGeneration)
 }
 
 ACS_TEST(Event, TimerSetTimeoutFires) {
-    FTimerManager t;
+    CTimerManager t;
     FTimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(h.IsValid());
@@ -178,9 +189,9 @@ ACS_TEST(Event, TimerSetTimeoutFires) {
     EXPECT_EQ(t.ActiveCount(), 0u);
 }
 
-// ---- FTimerManager: SetInterval が周期で何回も発火 ---------------------------
+// ---- CTimerManager: SetInterval が周期で何回も発火 ---------------------------
 ACS_TEST(Event, TimerSetIntervalRepeats) {
-    FTimerManager t;
+    CTimerManager t;
     FTimeoutCtx ctx;
     t.SetInterval(0.5f, &OnTimeout, &ctx);
 
@@ -188,9 +199,9 @@ ACS_TEST(Event, TimerSetIntervalRepeats) {
     EXPECT_TRUE(ctx.hits >= 3);
 }
 
-// ---- FTimerManager: Cancel で発火を止められる -------------------------------
+// ---- CTimerManager: Cancel で発火を止められる -------------------------------
 ACS_TEST(Event, TimerCancel) {
-    FTimerManager t;
+    CTimerManager t;
     FTimeoutCtx ctx;
     auto h = t.SetTimeout(1.0f, &OnTimeout, &ctx);
     EXPECT_TRUE(t.Cancel(h));
@@ -202,7 +213,7 @@ ACS_TEST(Event, TimerCancel) {
 
 ACS_TEST(Event, TimerClearRemovesCallbacksAndAllowsReuse)
 {
-    FTimerManager timers;
+    CTimerManager timers;
     FTimeoutCtx context;
     const FTimerHandle old_handle = timers.SetTimeout(0.0f, &OnTimeout, &context);
     EXPECT_TRUE(old_handle.IsValid());
@@ -223,7 +234,7 @@ ACS_TEST(Event, TimerClearRemovesCallbacksAndAllowsReuse)
 
 ACS_TEST(Event, TimerClearFromTimeoutCallbackDefersStorageRelease)
 {
-    FTimerManager timers;
+    CTimerManager timers;
     FClearFromCallbackContext context;
     context.manager = &timers;
 
@@ -249,7 +260,7 @@ ACS_TEST(Event, TimerClearFromTimeoutCallbackDefersStorageRelease)
 
 ACS_TEST(Event, TimerClearFromIntervalCallbackStopsCatchUp)
 {
-    FTimerManager timers;
+    CTimerManager timers;
     FClearFromCallbackContext context;
     context.manager = &timers;
 
@@ -265,7 +276,7 @@ ACS_TEST(Event, TimerClearFromIntervalCallbackStopsCatchUp)
 ACS_TEST(Event, TimerReloadsActiveWordAfterCallbackMutation)
 {
     /** callback mutation を実行する timer manager。 */
-    FTimerManager timers;
+    CTimerManager timers;
     /** 同じ word 内 cancel の結果を保持する context。 */
     FCancelLaterTimerContext context;
     context.manager = &timers;
@@ -284,7 +295,7 @@ ACS_TEST(Event, TimerReloadsActiveWordAfterCallbackMutation)
 ACS_TEST(Event, TimerRejectsNonFiniteDurationsAndDeltas)
 {
     /** 異常値を受け取るタイマー管理器。 */
-    FTimerManager timers;
+    CTimerManager timers;
     /** 呼出し回数を記録する対象。 */
     FTimeoutCtx context;
     /** 数ではない浮動小数点値。 */
@@ -314,7 +325,7 @@ ACS_TEST(Event, TimerRejectsNonFiniteDurationsAndDeltas)
 ACS_TEST(Event, TimerIgnoresReentrantTick)
 {
     /** 再入更新を試すタイマー管理器。 */
-    FTimerManager timers;
+    CTimerManager timers;
     /** 再入更新の確認状態。 */
     FReentrantTickContext context;
     context.manager = &timers;
@@ -333,7 +344,7 @@ ACS_TEST(Event, TimerIgnoresReentrantTick)
 ACS_TEST(Event, TimerDefersRegistrationIntoReusableSlot)
 {
     /** 更新中登録を確認するタイマー管理器。 */
-    FTimerManager timers;
+    CTimerManager timers;
     /** 更新中登録の確認状態。 */
     FDeferredRegistrationContext context;
     context.manager = &timers;
@@ -359,7 +370,7 @@ ACS_TEST(Event, TimerDefersRegistrationIntoReusableSlot)
 ACS_TEST(Event, TimerCancelAllInvalidatesEveryHandle)
 {
     /** 一括解除を確認するタイマー管理器。 */
-    FTimerManager timers;
+    CTimerManager timers;
     /** 発火回数を記録する対象。 */
     FTimeoutCtx context;
     /** 一度だけ呼ぶタイマー。 */
@@ -430,8 +441,20 @@ ACS_TEST(Event, SubscriptionHandleRequiresChannelIdentifierAndGeneration)
     EXPECT_FALSE(IsValidEventTypeId(kMaxEventTypes));
 }
 
+ACS_TEST(Event, CanonicalEventTypeIdentifierPreservesRuntimeContracts)
+{
+    /** 検査用イベント型へ割り当てられた通路番号。 */
+    const FEventTypeId channel = GetEventTypeId<FCanonicalEventTypeProbe>();
+    /** 初期状態の購読数を調べる仲介器。 */
+    CMessageBroker broker;
+
+    EXPECT_TRUE(IsValidEventTypeId(channel));
+    EXPECT_TRUE(channel < kMaxEventTypes);
+    EXPECT_EQ(broker.SubscriberCount(channel), 0u);
+}
+
 ACS_TEST(Event, BrokerSubscribePublish) {
-    FMessageBroker bus;
+    CMessageBroker bus;
     FDamageCtx ctx;
     auto h = bus.Subscribe<FDamageEvent>(&OnDamage, &ctx);
     EXPECT_TRUE(h.IsValid());
@@ -447,7 +470,7 @@ ACS_TEST(Event, BrokerSubscribePublish) {
 
 // ---- MessageBroker: 複数購読者 ---------------------------------------------
 ACS_TEST(Event, BrokerMultiSubscribers) {
-    FMessageBroker bus;
+    CMessageBroker bus;
     FDamageCtx a, b, c;
     bus.Subscribe<FDamageEvent>(&OnDamage, &a);
     bus.Subscribe<FDamageEvent>(&OnDamage, &b);
@@ -461,7 +484,7 @@ ACS_TEST(Event, BrokerMultiSubscribers) {
 
 ACS_TEST(Event, BrokerClearRemovesSubscribersAndAllowsReuse)
 {
-    FMessageBroker broker;
+    CMessageBroker broker;
     FDamageCtx context;
     const FSubscriptionHandle old_handle = broker.Subscribe<FDamageEvent>(&OnDamage, &context);
     EXPECT_TRUE(old_handle.IsValid());

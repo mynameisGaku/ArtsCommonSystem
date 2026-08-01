@@ -25,7 +25,7 @@
 // 設計選択:
 //   ・**pimpl で XAudio2 ヘッダ隠蔽**: `<xaudio2.h>` は <windows.h> + COM を
 //     引っ張る重いヘッダなので .cpp に閉じ込め、.h ではポインタ前方宣言だけ
-//     公開する (ACS の `acs::FAudioEngine` と同じパターン)。
+//     公開する (ACS の `acs::CAudioEngine` と同じパターン)。
 //   ・**固定容量 voice pool**: `Init(max_voices)` 時に確保。再 init 不可。
 //     PlayOneShot / PlayLooped で空きを線形探索 (max_voices は通常 ≦ 128 で、
 //     ホットパス影響は無視できる)。
@@ -206,7 +206,7 @@ public:
      *
      * @details
      * public に置くのは .cpp 内の自由関数 (PlayInternal 等) から FImpl のメンバを
-     * 直接触るため (acs::FAudioEngine と同じパターン)。定義は .cpp 側にある。
+     * 直接触るため (acs::CAudioEngine と同じパターン)。定義は .cpp 側にある。
      */
     struct FImpl;
 

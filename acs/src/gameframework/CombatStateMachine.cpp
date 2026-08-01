@@ -3,7 +3,7 @@
 //
 // state machine + threat level smoothing + enemy awareness tracking を完全実装。
 // 外部ディレクタ (Music / Ambient / UI) との結線は OnStateChange callback で
-// caller が定義する想定。本クラスは FAudioEngine 等の下位リソースを直接知らない。
+// caller が定義する想定。本クラスは CAudioEngine 等の下位リソースを直接知らない。
 #include "gameframework/CombatStateMachine.h"
 #include "foundation/Log.h"
 

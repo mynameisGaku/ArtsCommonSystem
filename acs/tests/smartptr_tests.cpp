@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // スマートポインタ群のテスト:
 //   TSharedPtr / TWeakPtr / TSharedFromThis（SharedPtr.h）
-//   FObject / TObjectPtr / TWeakObjectPtr（ObjectPtr.h）
+//   AObject / TObjectPtr / TWeakObjectPtr（ObjectPtr.h）
 //   TRc / MakeRc 互換エイリアス（Rc.h）
 #include "test/Test.h"
 #include "test/Expect.h"
@@ -11,6 +11,8 @@
 #include "memory/Rc.h"
 
 using namespace acs;
+
+static_assert(IsSameV<FObject, AObject>, "旧FObject名はAObjectの互換別名である必要があります");
 
 namespace {
 
@@ -30,13 +32,13 @@ struct FSftNode : TSharedFromThis<FSftNode> {
     TSharedPtr<FSftNode> Self() noexcept { return AsShared(); }
 };
 
-struct ATestObject : FObject {
+struct ATestObject : AObject {
     int hp;
     explicit ATestObject(int h = 100) noexcept : hp(h) { ++g_live; }
     ~ATestObject() noexcept override { --g_live; }
 };
 
-struct AResurrectionProbe : FObject {
+struct AResurrectionProbe : AObject {
     TObjectPtr<AResurrectionProbe>* Destination = nullptr;
 
     explicit AResurrectionProbe(TObjectPtr<AResurrectionProbe>* InDestination) noexcept

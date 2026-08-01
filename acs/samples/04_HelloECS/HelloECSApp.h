@@ -8,7 +8,7 @@
 //   ・OnUpdate 毎フレーム: World.Query<Position, Velocity>().EachParallel(...) で
 //     FThreadPool 経由の並列移動更新（壁で反射）
 //   ・FSpriteBatch で円型テクスチャを使って粒子のように描画
-//   ・FTimerManager で 5 秒おきに Entity を 30 個追加
+//   ・CTimerManager で 5 秒おきに Entity を 30 個追加
 //   ・MessageBroker で「Entity が追加された」イベントを pub/sub 通知
 #pragma once
 

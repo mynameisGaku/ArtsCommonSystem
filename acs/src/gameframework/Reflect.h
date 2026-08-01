@@ -59,7 +59,7 @@ using FTypeId = u32;
 enum class ETypeCategory : u8 {
     Struct    = 0,   /**< 単純な値型 / POD (PlayerState, material params)。 */
     Enum      = 1,   /**< 列挙体 (value↔name の反射を持つ)。 */
-    Object    = 2,   /**< FObject 派生のエンジンオブジェクト。 */
+    Object    = 2,   /**< AObject 派生のエンジンオブジェクト。 */
     Component = 3,   /**< ECS / 2D コンポーネント。 */
     Node      = 4,   /**< シーングラフのノード (ANode)。 */
     Scene     = 5,   /**< ゲームシーン。 */

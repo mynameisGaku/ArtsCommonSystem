@@ -14,7 +14,7 @@
 同じ通知値を複数の処理へ渡すため、複数登録の引数には右辺値参照を指定できません。
 値で渡す引数はコピー構築可能で、静的関数とメンバー関数は`noexcept`宣言が必要です。
 
-`FTimerManager`は所有者ごとの時間を進める管理器です。Eventモジュールはワールド寿命を
+`CTimerManager`は所有者ごとの時間を進める管理器です。Eventモジュールはワールド寿命を
 決めないため、共有サブシステムを自動登録しません。所有する上位機構が毎フレーム`Tick`を
 同じスレッドから呼び、終了前に`Clear`または`CancelAll`を呼びます。`Tick`が戻るまでは
 管理器と登録した関数の対象を破棄しません。
@@ -30,7 +30,8 @@
 空き枠を再利用した場合も次の`Tick`から時間を進めます。
 
 正規の値型は`event/TimerHandle.h`、管理器は`event/TimerManager.h/.cpp`に分けています。
-`event/Timer.h`は従来のinclude経路を保つ互換ヘッダーです。旧`CTimerManager`は
-`FTimerManager`そのものを指すソース互換別名で、別の実装型や実装シンボルを作りません。
+`event/Timer.h`は従来のinclude経路を保つ互換ヘッダーです。旧`FTimerManager`は
+`CTimerManager`を指す一時的なsource互換aliasです。旧object file向けのsymbol shimはなく、
+consumerは全量再buildします。
 
 RandomとFixedStepは利用者ごとに再現可能な状態を持つため、共有サブシステムにはしません。

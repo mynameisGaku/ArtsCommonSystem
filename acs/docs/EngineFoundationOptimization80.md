@@ -133,7 +133,7 @@ and compile-time assertions are required where they keep build cost bounded.
 | T88 | P | Events/TMP | Enforce typed delegate copy, reference, and noexcept contracts at compile time | Root | Complete |
 | T89 | P | Audio | Normalize non-finite and out-of-range volume through every public path | Root | Complete |
 | T90 | P | Audio | Roll back failed backend voice publication without leaking slots or buffers | Root | Complete |
-| T91 | P | Governance | Audit A/F/I/T/E roles by responsibility and cover event and scripting services | Root | Complete |
+| T91 | P | Governance | Audit A/C/F/I/T/E roles by responsibility and cover event and scripting services | Root | Complete |
 | T92 | P | Modules | Verify generated source lists, public dependencies, and private-header closure | Root | Active |
 | T93 | P | ABI | Compare public layouts and decorated symbols against the published baseline | Root | Active |
 | T94 | P | RHI | Keep interfaces data-free and measure unavoidable consumer rebuild boundaries | Root | Complete |

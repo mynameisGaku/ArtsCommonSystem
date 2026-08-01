@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloScripting — Lua VM の使い方を 4 デモで示す。
 //
-// 各デモは IScriptVm 越しに動くので、real Lua (FLuaVm) でも stub でも
+// 各デモは IScriptVm 越しに動くので、real Lua (CLuaVm) でも stub でも
 // 同じコードで走る。real のときだけ結果を厳密に検証する。
 #pragma once
 

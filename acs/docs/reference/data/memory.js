@@ -67,21 +67,22 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FObject",
-      kind: "基底クラス", header: "memory/ObjectPtr.h",
+      name: "AObject",
+      kind: "クラス", header: "memory/AObject.h",
       summary: "<t>参照カウント</t>で管理される『オブジェクト』の基底。内部に自分の制御ブロックへの<t>ポインタ</t>を持つため、<b>生ポインタからでも</b>強/弱参照を作れる(UE の UObject 風)。",
       when: "エンジン上の実体(キャラ・アクター等)を表し、生ポインタを持ち回りつつ安全に生死を監視したい時。<code>NewObject</code> で生成する。",
-      sample: "class AEnemy : public FObject {\npublic:\n    int hp = 100;\n};\nTObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;();\nAEnemy* raw = e.Get();\nTWeakObjectPtr&lt;AEnemy&gt; w(raw);  // 生ポインタから弱参照が作れる",
+      sample: "class AEnemy : public AObject {\npublic:\n    int hp = 100;\n};\nTObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;();\nAEnemy* raw = e.Get();\nTWeakObjectPtr&lt;AEnemy&gt; w(raw);  // 生ポインタから弱参照が作れる",
       members: [
-        { sig: "virtual ~FObject()", desc: "<t>デストラクタ</t>は仮想。派生クラスが正しく破棄される。" }
+        { sig: "virtual ~AObject()", desc: "<t>デストラクタ</t>は仮想。派生クラスが正しく破棄される。" },
+        { sig: "using FObject = AObject", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>AObject</code> を使う。" }
       ]
     },
     {
       name: "TObjectPtr&lt;T&gt;",
       kind: "クラステンプレート", header: "memory/ObjectPtr.h",
-      summary: "<t>FObject</t> 派生への<b>強参照</b>(生かし続ける所有ポインタ)。別名 <code>TStrongObjectPtr&lt;T&gt;</code>。生ポインタ <code>T*</code> からも構築できる。",
+      summary: "<t>AObject</t> 派生への<b>強参照</b>(生かし続ける所有ポインタ)。別名 <code>TStrongObjectPtr&lt;T&gt;</code>。生ポインタ <code>T*</code> からも構築できる。",
       when: "オブジェクトを確実に生存させたい所有者側。",
-      sample: "TObjectPtr&lt;FEnemy&gt; e = NewObject&lt;FEnemy&gt;(50);\ne-&gt;hp -= 10;\nTObjectPtr&lt;FEnemy&gt; e2 = e;  // 共有(カウント+1)\ne.Reset();                  // まだ e2 が居るので生存",
+      sample: "TObjectPtr&lt;AEnemy&gt; e = NewObject&lt;AEnemy&gt;(50);\ne-&gt;hp -= 10;\nTObjectPtr&lt;AEnemy&gt; e2 = e;  // 共有(カウント+1)\ne.Reset();                  // まだ e2 が居るので生存",
       members: [
         { sig: "explicit TObjectPtr(T* obj)", desc: "生ポインタから強参照を作る(<code>NewObject</code> 由来である必要あり)。" },
         { sig: "T* Get() / *o / o->", desc: "中身にアクセスする。" },
@@ -92,9 +93,9 @@ ACS_REF.modules.push({
     {
       name: "TWeakObjectPtr&lt;T&gt;",
       kind: "クラステンプレート", header: "memory/ObjectPtr.h",
-      summary: "<t>FObject</t> 派生への<b><t>弱参照</t></b>。対象が破棄されると自動的に無効になる。生ポインタからも作れる。",
+      summary: "<t>AObject</t> 派生への<b><t>弱参照</t></b>。対象が破棄されると自動的に無効になる。生ポインタからも作れる。",
       when: "『さっき掴んだ敵がもう死んでいるかもしれない』ような、所有せず生死だけ追う参照。",
-      sample: "TWeakObjectPtr&lt;FEnemy&gt; w = e;   // or  TWeakObjectPtr&lt;FEnemy&gt; w(rawPtr);\nif (w.IsValid()) w.Get()-&gt;Hit();  // 生きていれば\nif (auto s = w.Pin()) s-&gt;Hit();    // 破棄と競合しても安全に強参照化",
+      sample: "TWeakObjectPtr&lt;AEnemy&gt; w = e;   // or  TWeakObjectPtr&lt;AEnemy&gt; w(rawPtr);\nif (w.IsValid()) w.Get()-&gt;Hit();  // 生きていれば\nif (auto s = w.Pin()) s-&gt;Hit();    // 破棄と競合しても安全に強参照化",
       members: [
         { sig: "bool IsValid() const", ret: "生存中か", desc: "対象がまだ生きていれば true。" },
         { sig: "bool IsStale() const", desc: "破棄済みなら true(<code>!IsValid()</code>)。" },
@@ -107,11 +108,11 @@ ACS_REF.modules.push({
       kind: "ファクトリ関数", header: "memory/*.h",
       summary: "スマートポインタを作る入口。既定では <t>DefaultAllocator</t> を使う。<code>...In</code> 版で<t>アロケータ</t>を指定できる。",
       when: "スマートポインタは原則これらで生成する(<code>new</code> を直接書かない)。",
-      sample: "auto u = MakeUnique&lt;FFoo&gt;(a, b);             // TUniquePtr\nauto s = MakeShared&lt;FBar&gt;();                 // TSharedPtr (制御ブロックと同居の1確保)\nauto o = NewObject&lt;FEnemy&gt;(100);             // TObjectPtr (FObject 派生)\nauto s2 = MakeSharedIn&lt;FBar&gt;(myAlloc);        // アロケータ指定",
+      sample: "auto u = MakeUnique&lt;FFoo&gt;(a, b);             // TUniquePtr\nauto s = MakeShared&lt;FBar&gt;();                 // TSharedPtr (制御ブロックと同居の1確保)\nauto o = NewObject&lt;AEnemy&gt;(100);             // TObjectPtr (AObject 派生)\nauto s2 = MakeSharedIn&lt;FBar&gt;(myAlloc);        // アロケータ指定",
       members: [
         { sig: "TUniquePtr<T> MakeUnique<T>(args...)", desc: "既定アロケータで <code>TUniquePtr</code> を作る。" },
         { sig: "TSharedPtr<T> MakeShared<T>(args...)", desc: "既定アロケータで <code>TSharedPtr</code> を作る(制御ブロックと中身を1回の確保にまとめる)。" },
-        { sig: "TObjectPtr<T> NewObject<T>(args...)", desc: "<code>FObject</code> 派生を作り <code>TObjectPtr</code> を返す。" },
+        { sig: "TObjectPtr<T> NewObject<T>(args...)", desc: "<code>AObject</code> 派生を作り <code>TObjectPtr</code> を返す。" },
         { sig: "...In(FAllocator& a, args...)", desc: "<code>MakeUniqueIn</code> / <code>MakeSharedIn</code> / <code>NewObjectIn</code>。確保に使う<t>アロケータ</t>を明示する版。" }
       ]
     },
@@ -411,7 +412,7 @@ ACS_REF.modules.push({
 Object.assign(ACS_REF.glossary, {
   "TSharedPtr": "複数で共有する<t>スマートポインタ</t>。<t>参照カウント</t>が 0 で自動解放。",
   "TWeakPtr": "<t>TSharedPtr</t> への<t>弱参照</t>。寿命を延ばさず生死だけ見る。",
-  "FObject": "参照カウント管理されるオブジェクトの基底。生ポインタからも強/弱参照を作れる。",
+  "AObject": "参照カウント管理されるオブジェクトの基底。生ポインタからも強/弱参照を作れる。",
   "DefaultAllocator": "既定の<t>アロケータ</t>。指定なしの確保で使われる。",
   "セグメント": "メモリを目的・寿命で分けた論理ヒープ(Default/Permanent/Temp/Resource/Develop)。<code>FMemorySystem</code> が各セグメントに独立した予算を持つ。",
   "FVmReservation": "仮想アドレス空間を予約し、必要なページだけ物理コミットする <t>RAII</t> ハンドル。Decommit は総量上限付き LRU キャッシュ経由で実 VirtualFree を遅延する。",

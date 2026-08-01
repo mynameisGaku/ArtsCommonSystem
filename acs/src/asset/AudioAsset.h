@@ -5,7 +5,7 @@
 //   wav / mp3 / flac / ogg / oga
 //
 // 全フォーマットを 16-bit PCM もしくは float PCM に統一して保持する。
-// 再生は FAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
+// 再生は CAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
 #pragma once
 
 #include "foundation/Types.h"
@@ -32,7 +32,7 @@ enum class ESampleFormat : u8 {
  *
  * @details
  * 全フォーマットを 16-bit もしくは float PCM に統一してインターリーブ保持する。
- * 再生は FAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
+ * 再生は CAudioEngine (XAudio2Backend) が本アセットの PCM を直接扱う。
  */
 class FAudioAsset : public FAsset {
 public:

@@ -198,7 +198,7 @@ struct FEasyState {
     FAssetRegistry assets;
 
     /** 音声エンジン。 */
-    FAudioEngine   audio;
+    CAudioEngine   audio;
 
     /** 音声エンジンの初期化に成功したか。 */
     bool          audio_ok = false;

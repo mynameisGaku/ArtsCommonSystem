@@ -13,34 +13,34 @@ class FAllocator;
 namespace acs::scripting {
 
 /** Lua 5.4 の実行状態と登録関数を管理する。 */
-class FLuaVm final : public acs::game::IScriptVm {
+class CLuaVm final : public acs::game::IScriptVm {
 public:
     /** 空状態で構築する (lua_State は Init で生成)。 */
-    FLuaVm() noexcept;
+    CLuaVm() noexcept;
 
     /**
      * 指定 allocator を native function 登録簿に使う空状態で構築する。
      *
-     * @details FLuaVmはallocatorへの参照を内部登録簿に保持するため、allocatorは構築した
-     * FLuaVmより後まで生存しなければならない。
-     * @param allocator native function 登録簿の確保に使い、FLuaVmより長く生存するallocator。
+     * @details CLuaVmはallocatorへの参照を内部登録簿に保持するため、allocatorは構築した
+     * CLuaVmより後まで生存しなければならない。
+     * @param allocator native function 登録簿の確保に使い、CLuaVmより長く生存するallocator。
      */
-    explicit FLuaVm(acs::FAllocator& allocator) noexcept;
+    explicit CLuaVm(acs::FAllocator& allocator) noexcept;
 
     /** Lua状態を終了して内部データを解放する。 */
-    ~FLuaVm() noexcept override;
+    ~CLuaVm() noexcept override;
 
     /** コピー禁止 (lua_State を単独所有するため)。 */
-    FLuaVm(const FLuaVm&)            = delete;
+    CLuaVm(const CLuaVm&)            = delete;
 
     /** コピー代入も禁止。 */
-    FLuaVm& operator=(const FLuaVm&) = delete;
+    CLuaVm& operator=(const CLuaVm&) = delete;
 
     /** 内部データの位置を固定するためムーブを禁止する。 */
-    FLuaVm(FLuaVm&&)                 = delete;
+    CLuaVm(CLuaVm&&)                 = delete;
 
     /** ムーブ代入も禁止。 */
-    FLuaVm& operator=(FLuaVm&&)      = delete;
+    CLuaVm& operator=(CLuaVm&&)      = delete;
 
     /**
      * lua_State を生成し標準ライブラリを open する。
@@ -149,16 +149,16 @@ private:
     FLuaVmImpl* m_Impl = nullptr;
 };
 
-/** 移行中のC接頭辞を正規のFLuaVm型として解釈する。 */
-using CLuaVm = FLuaVm;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FLuaVm = CLuaVm;
 
 /**
- * プロセス共有の既定 FLuaVm singleton を返す (provider の実体)。
+ * プロセス共有の既定 CLuaVm singleton を返す (provider の実体)。
  *
  * @details
  * 本物の Lua 5.4 VM を Meyers singleton で 1 個だけ保持し、その参照を返す。
  * InstallLuaAsDefault が gameframework の provider にこの関数を登録する。
- * @return 共有 FLuaVm インスタンスへの IScriptVm 参照。
+ * @return 共有 CLuaVm インスタンスへの IScriptVm 参照。
  */
 acs::game::IScriptVm& GetDefaultLuaVm() noexcept;
 

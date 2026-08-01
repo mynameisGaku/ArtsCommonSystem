@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""C++型の役割とA/F/I/T/E接頭辞の対応を監査する。"""
+"""C++型の役割とA/C/F/I/T/E接頭辞の対応を監査する。"""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import hashlib
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 import re
+import stat
+import subprocess
 import sys
 import tempfile
 from typing import Optional, Sequence
@@ -146,6 +150,7 @@ LIFECYCLE_METHODS = frozenset(
         "Update",
     }
 )
+OBVIOUS_BEHAVIOR_METHODS = frozenset({"Draw", "Render"})
 OWNERSHIP_TOKENS = frozenset(
     {
         "shared_ptr",
@@ -167,7 +172,122 @@ COORDINATION_TOKENS = frozenset(
         "thread",
     }
 )
-SCHEMA_VERSION = 1
+SCALAR_TYPE_NAMES = frozenset(
+    {
+        "__int8",
+        "__int16",
+        "__int32",
+        "__int64",
+        "bool",
+        "byte",
+        "c8",
+        "c16",
+        "c32",
+        "char",
+        "char8_t",
+        "char16_t",
+        "char32_t",
+        "double",
+        "f32",
+        "f64",
+        "float",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "int",
+        "int8_t",
+        "int16_t",
+        "int32_t",
+        "int64_t",
+        "intptr_t",
+        "iptr",
+        "isize",
+        "long",
+        "ptrdiff_t",
+        "short",
+        "signed",
+        "size_t",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "uint8_t",
+        "uint16_t",
+        "uint32_t",
+        "uint64_t",
+        "uintptr_t",
+        "unsigned",
+        "uptr",
+        "usize",
+        "wchar_t",
+    }
+)
+DETAIL_NAMESPACE_NAMES = frozenset({"detail", "internal", "private"})
+PUBLIC_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inl"})
+LEGACY_COMPATIBILITY_ALIASES = {
+    "acs::FObject": "acs::AObject",
+    "acs::FAudioEngine": "acs::CAudioEngine",
+    "acs::FMessageBroker": "acs::CMessageBroker",
+    "acs::FTimerManager": "acs::CTimerManager",
+    "acs::scripting::FLuaVm": "acs::scripting::CLuaVm",
+    "acs::ComponentSignatureId": "acs::FComponentSignatureId",
+    "acs::ComponentTypeId": "acs::FComponentTypeId",
+    "acs::EventTypeId": "acs::FEventTypeId",
+}
+LEGACY_COMPATIBILITY_PATHS = {
+    "acs::FObject": "memory/AObject.h",
+    "acs::FAudioEngine": "audio/AudioEngine.h",
+    "acs::FMessageBroker": "event/MessageBroker.h",
+    "acs::FTimerManager": "event/TimerManager.h",
+    "acs::scripting::FLuaVm": "scripting/LuaVm.h",
+    "acs::ComponentSignatureId": "ecs/ComponentId.h",
+    "acs::ComponentTypeId": "ecs/ComponentId.h",
+    "acs::EventTypeId": "event/EventTypeId.h",
+}
+CANONICAL_OBJECT_AND_CLASS_TYPES = {
+    "acs::AObject": ("memory/AObject.h", "class", "A"),
+    "acs::CAudioEngine": ("audio/AudioEngine.h", "class", "C"),
+    "acs::CMessageBroker": ("event/MessageBroker.h", "class", "C"),
+    "acs::CTimerManager": ("event/TimerManager.h", "class", "C"),
+    "acs::scripting::CLuaVm": ("scripting/LuaVm.h", "class", "C"),
+}
+FOUNDATION_PRIMITIVE_ALIASES = {
+    "byte": ("unsigned", "char"),
+    "c8": ("char",),
+    "c16": ("char16_t",),
+    "c32": ("char32_t",),
+    "f32": ("float",),
+    "f64": ("double",),
+    "i8": ("::", "int8_t"),
+    "i16": ("::", "int16_t"),
+    "i32": ("::", "int32_t"),
+    "i64": ("::", "int64_t"),
+    "iptr": ("::", "intptr_t"),
+    "isize": ("::", "ptrdiff_t"),
+    "u8": ("::", "uint8_t"),
+    "u16": ("::", "uint16_t"),
+    "u32": ("::", "uint32_t"),
+    "u64": ("::", "uint64_t"),
+    "uptr": ("::", "uintptr_t"),
+    "usize": ("::", "size_t"),
+}
+CANONICAL_SCALAR_ALIASES = {
+    "acs::FComponentSignatureId": ("ecs/ComponentId.h", ("u64",)),
+    "acs::FComponentTypeId": ("ecs/ComponentId.h", ("u32",)),
+    "acs::FEventTypeId": ("event/EventTypeId.h", ("u32",)),
+}
+PREMIGRATION_SCALAR_ALIASES = {
+    "acs::ComponentSignatureId": ("ecs/ComponentId.h", ("u64",)),
+    "acs::ComponentTypeId": ("ecs/ComponentId.h", ("u32",)),
+    "acs::EventTypeId": ("event/EventTypeId.h", ("u32",)),
+}
+DEBT_SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+DEBT_WAVE = "acf-role-review-wave-1"
+DEFAULT_DEBT_ENTRY_COUNT = 326
+DEFAULT_DEBT_SEMANTIC_SHA256 = "7F3260326DFC5C77494DC5DF3B43F8D479B9F73B42AB4496EEDCC259EA404841"
+DEFAULT_MIGRATION_DEBT = Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migration_debt.json"
 
 
 @dataclass(frozen=True)
@@ -180,8 +300,19 @@ class FTypeDefinition:
     line: int
     column: int
     bases: tuple[str, ...]
+    base_references: tuple[str, ...]
     body: tuple[FToken, ...]
     is_template: bool
+    scope: tuple[str, ...]
+    source_relative_path: Optional[str]
+    has_local_scope: bool
+    is_nested_type: bool
+
+    @property
+    def qualified_name(self) -> str:
+        """名前空間と外側の型を含む完全修飾名を返す。"""
+
+        return "::".join((*self.scope, self.name))
 
 
 @dataclass(frozen=True)
@@ -200,6 +331,22 @@ class FTypeFeatures:
 
 
 @dataclass(frozen=True)
+class FTypeAlias:
+    """名前空間直下にある公開型alias。"""
+
+    path: Path
+    name: str
+    line: int
+    column: int
+    namespace: tuple[str, ...]
+    target: tuple[str, ...]
+    is_template: bool
+    declaration_kind: str
+    source_relative_path: Optional[str]
+    has_attributes: bool
+
+
+@dataclass(frozen=True)
 class FViolation:
     """一件の型役割違反。"""
 
@@ -211,6 +358,23 @@ class FViolation:
     expected_prefix: str
     message: str
     evidence: tuple[str, ...]
+    qualified_type: Optional[str] = None
+    role_reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class FTypeRoleDebt:
+    """レビュー未完了の一件の型役割移行debt。"""
+
+    path: str
+    qualified_type: str
+    current_prefix: str
+    status: str
+    candidate_prefix: Optional[str]
+    expected: None
+    review_required: bool
+    reason: str
+    wave: str
 
 
 @dataclass(frozen=True)
@@ -220,14 +384,300 @@ class FScanResult:
     root: Path
     files: tuple[Path, ...]
     definitions: tuple[FTypeDefinition, ...]
+    aliases: tuple[FTypeAlias, ...]
     violations: tuple[FViolation, ...]
     expected_prefix_counts: dict[str, int]
+    migration_debt: tuple[FTypeRoleDebt, ...] = ()
+    matched_migration_debt: tuple[FTypeRoleDebt, ...] = ()
+
+
+DEBT_ENTRY_FIELDS = frozenset(
+    {
+        "path",
+        "qualified_type",
+        "current_prefix",
+        "status",
+        "candidate_prefix",
+        "expected",
+        "review_required",
+        "reason",
+        "wave",
+    }
+)
+
+
+def _debt_sort_key(entry: FTypeRoleDebt) -> tuple[str, str]:
+    """debt台帳の正規順序keyを返す。"""
+
+    return entry.path, entry.qualified_type
+
+
+def _validated_debt_path(value: object, index: int) -> str:
+    """source相対POSIX pathを検証して返す。"""
+
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\\" in value
+        or ":" in value
+        or _contains_control_character(value)
+    ):
+        raise ValueError(f"migration debt entries[{index}].pathがsource相対POSIX pathではありません")
+    path = PurePosixPath(value)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts) or path.as_posix() != value:
+        raise ValueError(f"migration debt entries[{index}].pathがsource tree外を示します")
+    if PurePosixPath(value).suffix.casefold() not in PUBLIC_HEADER_SUFFIXES:
+        raise ValueError(f"migration debt entries[{index}].pathは公開headerではありません")
+    return value
+
+
+def _contains_control_character(value: str) -> bool:
+    """JSON stringにC0制御文字またはDELが含まれるか返す。"""
+
+    return any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """JSON objectの同名keyを全階層で拒否して辞書を返す。"""
+
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"migration debt JSONに重複keyがあります: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json_constant(value: str) -> object:
+    """JSON規格外のNaNとInfinityを拒否する。"""
+
+    raise ValueError(f"migration debt JSONに非有限値があります: {value}")
+
+
+def _lexical_absolute_path(path: Path) -> Path:
+    """symlinkやjunctionを解決せず絶対pathへ正規化する。"""
+
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _is_reparse_path(stat_result: os.stat_result) -> bool:
+    """lstat結果がsymlinkまたはWindows reparse pointかを返す。"""
+
+    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(stat_result, "st_file_attributes", 0)
+    return stat.S_ISLNK(stat_result.st_mode) or bool(file_attributes & reparse_attribute)
+
+
+def _read_canonical_migration_debt(path: Path) -> tuple[Path, str]:
+    """通常fileのcanonical UTF-8/LF bytesだけを読み、絶対pathとtextを返す。"""
+
+    absolute_path = _lexical_absolute_path(path)
+    current_path = Path(absolute_path.anchor)
+    components = [current_path]
+    for part in absolute_path.parts[1:]:
+        current_path /= part
+        components.append(current_path)
+    for index, component in enumerate(components):
+        try:
+            stat_result = component.lstat()
+        except OSError as error:
+            raise ValueError(f"migration debt pathを確認できません: {component}") from error
+        if _is_reparse_path(stat_result):
+            raise ValueError(
+                "migration debt pathにsymlink、junction、reparse pointを含められません: "
+                f"{component}"
+            )
+        is_final = index + 1 == len(components)
+        if is_final and not stat.S_ISREG(stat_result.st_mode):
+            raise ValueError(f"migration debtは通常fileである必要があります: {component}")
+        if not is_final and not stat.S_ISDIR(stat_result.st_mode):
+            raise ValueError(f"migration debtの親pathはdirectoryである必要があります: {component}")
+
+    payload = absolute_path.read_bytes()
+    if payload.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("migration debt UTF-8にBOMを付けられません")
+    if b"\r" in payload:
+        raise ValueError("migration debtの改行はLFだけを使用する必要があります")
+    if not payload.endswith(b"\n"):
+        raise ValueError("migration debtは一つの最終LFで終わる必要があります")
+    if payload.rstrip(b" \t\n") + b"\n" != payload:
+        raise ValueError("migration debtの最終LFは一つだけである必要があります")
+    try:
+        source = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("migration debtは厳密なUTF-8である必要があります") from error
+    return absolute_path, source
+
+
+def _load_migration_debt(path: Path) -> tuple[FTypeRoleDebt, ...]:
+    """物理byte契約と厳密なschema、順序、重複を検証してdebt台帳を読む。"""
+
+    absolute_path, source = _read_canonical_migration_debt(path)
+    document = json.loads(
+        source,
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_nonfinite_json_constant,
+        strict=True,
+    )
+    if not isinstance(document, dict) or set(document) != {"schema_version", "entries"}:
+        raise ValueError("migration debtはschema_versionとentriesだけを持つobjectである必要があります")
+    if type(document["schema_version"]) is not int or document["schema_version"] != DEBT_SCHEMA_VERSION:
+        raise ValueError(f"migration debt schema_versionは{DEBT_SCHEMA_VERSION}である必要があります")
+    raw_entries = document["entries"]
+    if not isinstance(raw_entries, list):
+        raise ValueError("migration debt entriesはarrayである必要があります")
+    entries: list[FTypeRoleDebt] = []
+    for index, raw_entry in enumerate(raw_entries):
+        if not isinstance(raw_entry, dict) or set(raw_entry) != DEBT_ENTRY_FIELDS:
+            raise ValueError(f"migration debt entries[{index}]のfield集合が固定schemaと一致しません")
+        entry_path = _validated_debt_path(raw_entry["path"], index)
+        qualified_type = raw_entry["qualified_type"]
+        if not isinstance(qualified_type, str) or re.fullmatch(r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*", qualified_type) is None:
+            raise ValueError(f"migration debt entries[{index}].qualified_typeが完全修飾型名ではありません")
+        current_prefix = raw_entry["current_prefix"]
+        if current_prefix not in {"A", "C", "F", "I", "T", "E"}:
+            raise ValueError(f"migration debt entries[{index}].current_prefixが役割接頭辞ではありません")
+        status = raw_entry["status"]
+        candidate_prefix = raw_entry["candidate_prefix"]
+        if status not in {"candidate", "manual"}:
+            raise ValueError(f"migration debt entries[{index}].statusがcandidate/manualではありません")
+        if candidate_prefix is not None and candidate_prefix not in {"A", "C", "F", "I", "T", "E"}:
+            raise ValueError(f"migration debt entries[{index}].candidate_prefixが役割接頭辞ではありません")
+        if status == "candidate" and candidate_prefix is None:
+            raise ValueError(f"migration debt entries[{index}]のcandidate statusにはcandidate_prefixが必要です")
+        if raw_entry["expected"] is not None:
+            raise ValueError(f"migration debt entries[{index}].expectedはreview完了までnull固定です")
+        if raw_entry["review_required"] is not True:
+            raise ValueError(f"migration debt entries[{index}].review_requiredはtrue固定です")
+        reason = raw_entry["reason"]
+        wave = raw_entry["wave"]
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or reason != reason.strip()
+            or _contains_control_character(reason)
+        ):
+            raise ValueError(f"migration debt entries[{index}].reasonが空または非正規です")
+        if (
+            not isinstance(wave, str)
+            or not wave.strip()
+            or wave != wave.strip()
+            or _contains_control_character(wave)
+        ):
+            raise ValueError(f"migration debt entries[{index}].waveが空または非正規です")
+        entries.append(
+            FTypeRoleDebt(
+                entry_path,
+                qualified_type,
+                current_prefix,
+                status,
+                candidate_prefix,
+                None,
+                True,
+                reason,
+                wave,
+            )
+        )
+    keys = [(entry.path, entry.qualified_type) for entry in entries]
+    if len(set(keys)) != len(keys):
+        raise ValueError("migration debtにpath + qualified_typeの重複があります")
+    if entries != sorted(entries, key=_debt_sort_key):
+        raise ValueError("migration debt entriesがpath + qualified_typeの正規順ではありません")
+    result = tuple(entries)
+    if os.path.normcase(os.fspath(absolute_path)) == os.path.normcase(
+        os.fspath(_lexical_absolute_path(DEFAULT_MIGRATION_DEBT))
+    ):
+        _verify_default_debt_baseline(result)
+    return result
+
+
+def _debt_semantic_sha256(entries: Sequence[FTypeRoleDebt]) -> str:
+    """repo baseline用に固定順array rowsの正規JSON SHA-256を返す。"""
+
+    rows = [
+        [
+            entry.path,
+            entry.qualified_type,
+            entry.current_prefix,
+            entry.status,
+            entry.candidate_prefix,
+            entry.expected,
+            entry.review_required,
+            entry.reason,
+            entry.wave,
+        ]
+        for entry in entries
+    ]
+    payload = json.dumps(
+        rows,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest().upper()
+
+
+def _verify_default_debt_baseline(entries: Sequence[FTypeRoleDebt]) -> None:
+    """第一waveのdefault debt 326件をsemantic hashで完全freezeする。"""
+
+    semantic_sha = _debt_semantic_sha256(entries)
+    if len(entries) != DEFAULT_DEBT_ENTRY_COUNT or semantic_sha != DEFAULT_DEBT_SEMANTIC_SHA256:
+        raise ValueError(
+            "default migration debt baselineが第一waveのexact 326件と一致しません: "
+            f"entries={len(entries)} semantic_sha256={semantic_sha}"
+        )
 
 
 def _tokens(source: str) -> list[FToken]:
-    """既存C++ lexerでコメント、文字列、raw文字列を除いたトークンを返す。"""
+    """明示的な#if 0と非トークン領域を除いたC++ tokenを返す。"""
 
-    return lex_cpp(source)
+    return lex_cpp(_without_if_zero_regions(source))
+
+
+def _blank_source_line(line: str) -> str:
+    """lexerの行番を保ったまま1行の内容を空白にする。"""
+
+    return "".join(character if character in {"\r", "\n"} else " " for character in line)
+
+
+def _is_zero_preprocessor_expression(expression: str) -> bool:
+    """preprocessor条件が明示的な定数0だけか返す。"""
+
+    return re.fullmatch(
+        r"\s*\(?\s*0\s*\)?\s*(?://.*|/\*.*\*/\s*)?",
+        expression,
+    ) is not None
+
+
+def _without_if_zero_regions(source: str) -> str:
+    """`#if 0`で確実に無効なbranchを改行位置を保って除外する。"""
+
+    parent_disabled_stack: list[bool] = []
+    disabled = False
+    output: list[str] = []
+    directive_pattern = re.compile(
+        r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)$"
+    )
+    for line in source.splitlines(keepends=True):
+        directive = directive_pattern.match(line)
+        if directive is None:
+            output.append(_blank_source_line(line) if disabled else line)
+            continue
+        command, expression = directive.groups()
+        if command in {"if", "ifdef", "ifndef"}:
+            parent_disabled_stack.append(disabled)
+            disabled = disabled or (
+                command == "if" and _is_zero_preprocessor_expression(expression)
+            )
+        elif command == "elif" and parent_disabled_stack:
+            parent_disabled = parent_disabled_stack[-1]
+            disabled = parent_disabled or _is_zero_preprocessor_expression(expression)
+        elif command == "else" and parent_disabled_stack:
+            disabled = parent_disabled_stack[-1]
+        elif command == "endif" and parent_disabled_stack:
+            disabled = parent_disabled_stack.pop()
+        output.append(_blank_source_line(line))
+    return "".join(output)
 
 
 def _brace_pairs(tokens: Sequence[FToken]) -> dict[int, int]:
@@ -280,12 +730,60 @@ def _base_names(tokens: Sequence[FToken]) -> tuple[str, ...]:
     return tuple(names)
 
 
+def _base_references(tokens: Sequence[FToken]) -> tuple[str, ...]:
+    """基底listから単純名または名前空間修飾名を返す。"""
+
+    segments: list[list[FToken]] = [[]]
+    angle_depth = 0
+    parenthesis_depth = 0
+    for token in tokens:
+        if token.text == "<":
+            angle_depth += 1
+        elif token.text == ">" and angle_depth > 0:
+            angle_depth -= 1
+        elif token.text == "(":
+            parenthesis_depth += 1
+        elif token.text == ")" and parenthesis_depth > 0:
+            parenthesis_depth -= 1
+        if token.text == "," and angle_depth == 0 and parenthesis_depth == 0:
+            segments.append([])
+        else:
+            segments[-1].append(token)
+
+    references: list[str] = []
+    for segment in segments:
+        before_template: list[FToken] = []
+        for token in segment:
+            if token.text == "<":
+                break
+            before_template.append(token)
+        last_name = next(
+            (
+                position
+                for position in range(len(before_template) - 1, -1, -1)
+                if IDENTIFIER.match(before_template[position].text)
+                and before_template[position].text not in ACCESS_WORDS
+            ),
+            None,
+        )
+        if last_name is None:
+            continue
+        names = [before_template[last_name].text]
+        cursor = last_name - 1
+        while cursor >= 1 and before_template[cursor].text == "::" and IDENTIFIER.match(before_template[cursor - 1].text):
+            names.insert(0, before_template[cursor - 1].text)
+            cursor -= 2
+        references.append("::".join(names))
+    return tuple(references)
+
+
 def _find_body_start(tokens: Sequence[FToken], start: int) -> Optional[int]:
     """型名の後ろから定義本体の開始位置を探す。"""
 
     angle_depth = 0
     parenthesis_depth = 0
     bracket_depth = 0
+    brace_depth = 0
     for position in range(start, len(tokens)):
         text = tokens[position].text
         if text == "<":
@@ -307,11 +805,52 @@ def _find_body_start(tokens: Sequence[FToken], start: int) -> Optional[int]:
     return None
 
 
-def _type_definitions(path: Path, tokens: Sequence[FToken]) -> tuple[FTypeDefinition, ...]:
+def _definition_scope(
+    tokens: Sequence[FToken],
+    type_position: int,
+    type_bodies: dict[int, str],
+) -> tuple[tuple[str, ...], bool, bool]:
+    """型位置を囲む名前空間・型名と、関数などの局所scope有無を返す。"""
+
+    contexts: list[tuple[str, tuple[str, ...]]] = []
+    for position, token in enumerate(tokens[:type_position]):
+        if token.text == "{":
+            enclosing_type = type_bodies.get(position)
+            if enclosing_type is not None:
+                contexts.append(("type", (enclosing_type,)))
+                continue
+            namespace = _namespace_for_brace(tokens, position)
+            if namespace is not None:
+                contexts.append(("namespace", namespace))
+                continue
+            contexts.append(("local", ()))
+        elif token.text == "}" and contexts:
+            contexts.pop()
+    scope = tuple(
+        name
+        for kind, names in contexts
+        if kind in {"namespace", "type"}
+        for name in names
+        if name != "__linkage__"
+    )
+    return (
+        scope,
+        any(kind == "local" for kind, _ in contexts),
+        any(kind == "type" for kind, _ in contexts),
+    )
+
+
+def _type_definitions(
+    path: Path,
+    tokens: Sequence[FToken],
+    source_root: Optional[Path],
+) -> tuple[FTypeDefinition, ...]:
     """C++トークンから本体を持つclass、struct、union、enumを集める。"""
 
     brace_pairs = _brace_pairs(tokens)
-    definitions: list[FTypeDefinition] = []
+    parsed: list[
+        tuple[str, FToken, tuple[str, ...], tuple[str, ...], tuple[FToken, ...], bool, int]
+    ] = []
     pending_template = False
     position = 0
     while position < len(tokens):
@@ -347,31 +886,752 @@ def _type_definitions(path: Path, tokens: Sequence[FToken]) -> tuple[FTypeDefini
             continue
         base_tokens = tokens[declaration_end + 1 : body_start] if not enum_declaration and tokens[declaration_end].text == ":" else ()
         body_end = brace_pairs[body_start]
-        definitions.append(
-            FTypeDefinition(
-                path,
+        parsed.append(
+            (
                 text,
-                name_token.text,
-                name_token.line,
-                name_token.column,
+                name_token,
                 _base_names(base_tokens),
+                _base_references(base_tokens),
                 tuple(tokens[body_start + 1 : body_end]),
                 pending_template and not enum_declaration,
+                body_start,
             )
         )
         pending_template = False
         position += 1
+    source_relative_path: Optional[str] = None
+    if source_root is not None:
+        try:
+            source_relative_path = path.relative_to(source_root).as_posix()
+        except ValueError:
+            source_relative_path = None
+    type_bodies = {
+        body_start: name_token.text
+        for _, name_token, _, _, _, _, body_start in parsed
+    }
+    definitions: list[FTypeDefinition] = []
+    for keyword, name_token, bases, base_references, body, is_template, body_start in parsed:
+        scope, has_local_scope, is_nested_type = _definition_scope(tokens, body_start, type_bodies)
+        definitions.append(
+            FTypeDefinition(
+                path,
+                keyword,
+                name_token.text,
+                name_token.line,
+                name_token.column,
+                bases,
+                base_references,
+                body,
+                is_template,
+                scope,
+                source_relative_path,
+                has_local_scope,
+                is_nested_type,
+            )
+        )
     return tuple(definitions)
 
 
-def _registered_object_names(tokens: Sequence[FToken]) -> frozenset[str]:
-    """ACS_OBJECT系マクロの第一引数にある型名を集める。"""
+def _namespace_for_brace(tokens: Sequence[FToken], brace_position: int) -> Optional[tuple[str, ...]]:
+    """波括弧が開始する名前空間を返し、通常のblockならNoneを返す。"""
 
-    names: set[str] = set()
-    for position, token in enumerate(tokens):
-        if token.text not in OBJECT_MACROS or position + 1 >= len(tokens) or tokens[position + 1].text != "(":
+    statement_start = brace_position - 1
+    while statement_start >= 0 and tokens[statement_start].text not in {";", "{", "}"}:
+        statement_start -= 1
+    segment = tokens[statement_start + 1 : brace_position]
+    if tuple(token.text for token in segment) == ("extern",):
+        return ("__linkage__",)
+    namespace_position = next(
+        (position for position, token in enumerate(segment) if token.text == "namespace"),
+        None,
+    )
+    if namespace_position is None:
+        return None
+    names = tuple(
+        token.text
+        for token in segment[namespace_position + 1 :]
+        if IDENTIFIER.match(token.text) and token.text != "inline"
+    )
+    return names
+
+
+def _is_public_namespace_context(contexts: Sequence[Optional[tuple[str, ...]]]) -> bool:
+    """現在位置がACSの公開名前空間直下かを返す。"""
+
+    if not contexts or any(context is None or not context for context in contexts):
+        return False
+    names = tuple(name for context in contexts for name in context or () if name != "__linkage__")
+    if not names or names[0] != "acs":
+        return False
+    return not any(
+        name.casefold() in DETAIL_NAMESPACE_NAMES
+        or name.casefold().endswith("_detail")
+        or name.casefold().endswith("_internal")
+        for name in names
+    )
+
+
+def _template_precedes_alias(tokens: Sequence[FToken], alias_position: int) -> bool:
+    """同じ宣言の先頭にtemplate指定があるかを返す。"""
+
+    statement_start = alias_position - 1
+    while statement_start >= 0 and tokens[statement_start].text not in {";", "{", "}"}:
+        statement_start -= 1
+    return any(token.text == "template" for token in tokens[statement_start + 1 : alias_position])
+
+
+def _alias_target_end(tokens: Sequence[FToken], start: int) -> Optional[int]:
+    """型alias右辺を終えるセミコロン位置を返す。"""
+
+    angle_depth = 0
+    parenthesis_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    for position in range(start, len(tokens)):
+        text = tokens[position].text
+        if text == "<":
+            angle_depth += 1
+        elif text == ">" and angle_depth > 0:
+            angle_depth -= 1
+        elif text == "(":
+            parenthesis_depth += 1
+        elif text == ")" and parenthesis_depth > 0:
+            parenthesis_depth -= 1
+        elif text == "[":
+            bracket_depth += 1
+        elif text == "]" and bracket_depth > 0:
+            bracket_depth -= 1
+        elif text == "{":
+            brace_depth += 1
+        elif text == "}" and brace_depth > 0:
+            brace_depth -= 1
+        elif text == ";" and angle_depth == 0 and parenthesis_depth == 0 and bracket_depth == 0 and brace_depth == 0:
+            return position
+    return None
+
+
+def _skip_attributes(tokens: Sequence[FToken], position: int) -> int:
+    """型alias名の直後にある属性を飛ばして次のtoken位置を返す。"""
+
+    while position + 1 < len(tokens) and tokens[position].text == "[" and tokens[position + 1].text == "[":
+        depth = 0
+        while position < len(tokens):
+            if tokens[position].text == "[":
+                depth += 1
+            elif tokens[position].text == "]":
+                depth -= 1
+                if depth == 0:
+                    position += 1
+                    break
+            position += 1
+    return position
+
+
+def _typedef_name_position(declaration: Sequence[FToken]) -> Optional[int]:
+    """typedef宣言から公開alias名のtoken位置を返す。"""
+
+    attribute_positions: set[int] = set()
+    position = 0
+    while position + 1 < len(declaration):
+        if declaration[position].text != "[" or declaration[position + 1].text != "[":
+            position += 1
             continue
-        candidates: list[str] = []
+        depth = 0
+        while position < len(declaration):
+            attribute_positions.add(position)
+            if declaration[position].text == "[":
+                depth += 1
+            elif declaration[position].text == "]":
+                depth -= 1
+                if depth == 0:
+                    position += 1
+                    break
+            position += 1
+    pointer_positions = [position for position, token in enumerate(declaration) if token.text == "*" and position not in attribute_positions]
+    if pointer_positions:
+        start = pointer_positions[-1] + 1
+        return next(
+            (position for position in range(start, len(declaration)) if position not in attribute_positions and IDENTIFIER.match(declaration[position].text)),
+            None,
+        )
+    return next(
+        (position for position in range(len(declaration) - 1, -1, -1) if position not in attribute_positions and IDENTIFIER.match(declaration[position].text)),
+        None,
+    )
+
+
+def _namespace_aliases(path: Path, tokens: Sequence[FToken], source_root: Optional[Path]) -> tuple[FTypeAlias, ...]:
+    """ACSの公開名前空間直下にある型aliasを集める。"""
+
+    if path.suffix.casefold() not in PUBLIC_HEADER_SUFFIXES:
+        return ()
+    source_relative_path: Optional[str] = None
+    if source_root is not None:
+        try:
+            source_relative_path = path.relative_to(source_root).as_posix()
+        except ValueError:
+            source_relative_path = None
+    aliases: list[FTypeAlias] = []
+    contexts: list[Optional[tuple[str, ...]]] = []
+    position = 0
+    while position < len(tokens):
+        text = tokens[position].text
+        if text == "{":
+            contexts.append(_namespace_for_brace(tokens, position))
+            position += 1
+            continue
+        if text == "}":
+            if contexts:
+                contexts.pop()
+            position += 1
+            continue
+        if text not in {"typedef", "using"} or not _is_public_namespace_context(contexts):
+            position += 1
+            continue
+        if text == "using":
+            if position + 2 >= len(tokens) or not IDENTIFIER.match(tokens[position + 1].text):
+                position += 1
+                continue
+            equals_position = _skip_attributes(tokens, position + 2)
+            has_attributes = equals_position != position + 2
+            if equals_position >= len(tokens) or tokens[equals_position].text != "=":
+                position += 1
+                continue
+            target_start = equals_position + 1
+            target_end = _alias_target_end(tokens, target_start)
+            if target_end is None:
+                position += 1
+                continue
+            name_token = tokens[position + 1]
+            target = tuple(token.text for token in tokens[target_start:target_end])
+        else:
+            has_attributes = False
+            target_start = position + 1
+            target_end = _alias_target_end(tokens, target_start)
+            if target_end is None:
+                position += 1
+                continue
+            declaration = tokens[target_start:target_end]
+            name_position = _typedef_name_position(declaration)
+            if name_position is None:
+                position = target_end + 1
+                continue
+            name_token = declaration[name_position]
+            target = tuple(token.text for token in declaration[:name_position])
+        namespace = tuple(name for context in contexts for name in context or () if name != "__linkage__")
+        aliases.append(
+            FTypeAlias(
+                path,
+                name_token.text,
+                name_token.line,
+                name_token.column,
+                namespace,
+                target,
+                _template_precedes_alias(tokens, position),
+                text,
+                source_relative_path,
+                has_attributes,
+            )
+        )
+        position = target_end + 1
+    return tuple(aliases)
+
+
+def _qualified_alias_name(alias: FTypeAlias) -> str:
+    """型aliasの完全修飾名を返す。"""
+
+    return "::".join((*alias.namespace, alias.name))
+
+
+def _qualified_alias_target(alias: FTypeAlias) -> Optional[str]:
+    """単一型名だけから成るalias右辺を完全修飾して返す。"""
+
+    if not alias.target:
+        return None
+    absolute = alias.target[0] == "::"
+    cursor = 1 if absolute else 0
+    names: list[str] = []
+    expect_name = True
+    while cursor < len(alias.target):
+        text = alias.target[cursor]
+        if expect_name:
+            if not IDENTIFIER.match(text):
+                return None
+            names.append(text)
+        elif text != "::":
+            return None
+        expect_name = not expect_name
+        cursor += 1
+    if not names or expect_name:
+        return None
+    if len(names) == 1:
+        if absolute:
+            return "::" + names[0]
+        return "::".join((*alias.namespace, names[0]))
+    if absolute or names[0] == "acs":
+        return "::".join(names)
+    return "::".join((*alias.namespace, *names))
+
+
+def _alias_target_candidates(alias: FTypeAlias) -> tuple[str, ...]:
+    """C++の親名前空間探索順にalias右辺の候補名を返す。"""
+
+    if not alias.target:
+        return ()
+    target = list(alias.target)
+    while target and target[0] in {"const", "volatile"}:
+        target.pop(0)
+    while target and target[-1] in {"const", "volatile"}:
+        target.pop()
+    if not target:
+        return ()
+    absolute = target[0] == "::"
+    cursor = 1 if absolute else 0
+    names: list[str] = []
+    expect_name = True
+    while cursor < len(target):
+        text = target[cursor]
+        if expect_name:
+            if not IDENTIFIER.match(text):
+                return ()
+            names.append(text)
+        elif text != "::":
+            return ()
+        expect_name = not expect_name
+        cursor += 1
+    if not names or expect_name:
+        return ()
+    if absolute:
+        return ("::".join(names),)
+    return tuple(
+        "::".join((*alias.namespace[:depth], *names))
+        for depth in range(len(alias.namespace), -1, -1)
+    )
+
+
+def _direct_scalar_target(alias: FTypeAlias) -> Optional[str]:
+    """alias右辺が直接示すscalar型名を返す。"""
+
+    if alias.is_template or any(text in {"(", ")", "*", "&", "[", "]", "<", ">"} for text in alias.target):
+        return None
+    names = tuple(text for text in alias.target if IDENTIFIER.match(text) and text not in {"const", "volatile"})
+    if names and names[-1] in SCALAR_TYPE_NAMES:
+        return names[-1]
+    return None
+
+
+def _scalar_alias_names(aliases: Sequence[FTypeAlias]) -> frozenset[str]:
+    """直接または別alias経由でscalarを示す完全修飾名を返す。"""
+
+    scalar_names = {
+        _qualified_alias_name(alias)
+        for alias in aliases
+        if _direct_scalar_target(alias) is not None
+    }
+    changed = True
+    while changed:
+        changed = False
+        for alias in aliases:
+            if alias.is_template or _qualified_alias_name(alias) in scalar_names:
+                continue
+            if any(target in scalar_names for target in _alias_target_candidates(alias)):
+                scalar_names.add(_qualified_alias_name(alias))
+                changed = True
+    return frozenset(scalar_names)
+
+
+def _callback_alias_names(aliases: Sequence[FTypeAlias]) -> frozenset[str]:
+    """直接または別alias経由で関数pointerを示す完全修飾名を返す。"""
+
+    callback_names = {
+        _qualified_alias_name(alias)
+        for alias in aliases
+        if "*" in alias.target and "(" in alias.target and alias.declaration_kind == "using"
+    }
+    changed = True
+    while changed:
+        changed = False
+        for alias in aliases:
+            if alias.is_template or _qualified_alias_name(alias) in callback_names:
+                continue
+            if any(target in callback_names for target in _alias_target_candidates(alias)):
+                callback_names.add(_qualified_alias_name(alias))
+                changed = True
+    return frozenset(callback_names)
+
+
+def _source_tree_root(root: Path) -> Optional[Path]:
+    """監査rootを含む既知のsource tree rootを返す。"""
+
+    candidate = root if root.is_dir() else root.parent
+    for parent in (candidate, *candidate.parents):
+        if parent.name.casefold() == "src":
+            return parent
+    return None
+
+
+def _is_foundation_primitive_alias(alias: FTypeAlias) -> bool:
+    """基盤で定義する小文字primitive aliasと完全一致するかを返す。"""
+
+    return (
+        alias.source_relative_path == "foundation/Types.h"
+        and alias.namespace == ("acs",)
+        and alias.declaration_kind == "using"
+        and FOUNDATION_PRIMITIVE_ALIASES.get(alias.name) == alias.target
+        and not alias.has_attributes
+    )
+
+
+def _is_deferred_scalar_alias(alias: FTypeAlias) -> bool:
+    """次waveへ固定したAsset型番号aliasと完全一致するかを返す。"""
+
+    return (
+        alias.source_relative_path == "asset/Asset.h"
+        and _qualified_alias_name(alias) == "acs::AssetType"
+        and alias.target == ("u32",)
+        and alias.declaration_kind == "using"
+        and not alias.has_attributes
+    )
+
+
+def _is_exact_legacy_alias(alias: FTypeAlias) -> bool:
+    """登録済み互換aliasが名前、場所、向きの固定契約と一致するかを返す。"""
+
+    qualified_name = _qualified_alias_name(alias)
+    expected_target = LEGACY_COMPATIBILITY_ALIASES.get(qualified_name)
+    expected_names = expected_target.split("::") if expected_target is not None else []
+    absolute_target: list[str] = ["::"]
+    for name_index, name in enumerate(expected_names):
+        if name_index != 0:
+            absolute_target.append("::")
+        absolute_target.append(name)
+    valid_target_tokens = {(expected_names[-1],), tuple(absolute_target)} if expected_names else set()
+    return (
+        alias.target in valid_target_tokens
+        and LEGACY_COMPATIBILITY_PATHS.get(qualified_name) == alias.source_relative_path
+        and alias.declaration_kind == "using"
+        and not alias.is_template
+        and not alias.has_attributes
+    )
+
+
+def _is_exact_premigration_alias(alias: FTypeAlias) -> bool:
+    """第一wave前の三つのscalar alias宣言と完全一致するかを返す。"""
+
+    contract = PREMIGRATION_SCALAR_ALIASES.get(_qualified_alias_name(alias))
+    return contract is not None and alias.source_relative_path == contract[0] and alias.target == contract[1] and alias.declaration_kind == "using" and not alias.is_template and not alias.has_attributes
+
+
+def _audit_aliases(aliases: Sequence[FTypeAlias], enforce_exact_contracts: bool) -> tuple[FViolation, ...]:
+    """公開scalar aliasと一時互換aliasの接頭辞・向きを検査する。"""
+
+    scalar_names = _scalar_alias_names(aliases)
+    callback_names = _callback_alias_names(aliases)
+    violations: list[FViolation] = []
+    for alias in aliases:
+        qualified_name = _qualified_alias_name(alias)
+        qualified_target = _qualified_alias_target(alias)
+        canonical_contract = CANONICAL_SCALAR_ALIASES.get(qualified_name) if enforce_exact_contracts else None
+        if canonical_contract is not None:
+            expected_path, expected_target_tokens = canonical_contract
+            if (
+                alias.source_relative_path != expected_path
+                or alias.target != expected_target_tokens
+                or alias.declaration_kind != "using"
+                or alias.is_template
+                or alias.has_attributes
+            ):
+                violations.append(
+                    FViolation(
+                        "ACS-R020d",
+                        alias.path,
+                        alias.line,
+                        alias.column,
+                        alias.name,
+                        "F",
+                        "正規scalar aliasの実体が固定契約と一致しません。",
+                        (f"期待する宣言: {expected_path} -> {' '.join(expected_target_tokens)}",),
+                    )
+                )
+            continue
+        expected_target = LEGACY_COMPATIBILITY_ALIASES.get(qualified_name)
+        if expected_target is not None:
+            expected_path = LEGACY_COMPATIBILITY_PATHS[qualified_name]
+            expected_prefix = expected_target.rsplit("::", 1)[-1][0]
+            if not _is_exact_legacy_alias(alias):
+                violations.append(
+                    FViolation(
+                        "ACS-R020d",
+                        alias.path,
+                        alias.line,
+                        alias.column,
+                        alias.name,
+                        expected_prefix,
+                        "一時互換aliasの正規型が契約と一致しません。",
+                        (f"期待する宣言: {expected_path} -> {expected_target}",),
+                    )
+                )
+            continue
+        if qualified_name == "acs::AssetType":
+            if not _is_deferred_scalar_alias(alias):
+                violations.append(
+                    FViolation(
+                        "ACS-R020d",
+                        alias.path,
+                        alias.line,
+                        alias.column,
+                        alias.name,
+                        "F",
+                        "次waveへ保留したAsset型番号aliasが固定契約と一致しません。",
+                        ("期待する宣言: asset/Asset.h -> using AssetType = u32",),
+                    )
+                )
+            continue
+        if alias.name in FOUNDATION_PRIMITIVE_ALIASES:
+            if not _is_foundation_primitive_alias(alias):
+                violations.append(
+                    FViolation(
+                        "ACS-R020d",
+                        alias.path,
+                        alias.line,
+                        alias.column,
+                        alias.name,
+                        "F",
+                        "primitive aliasが基盤の固定宣言と一致しません。",
+                        ("foundation/Types.hの正規宣言だけを許可する",),
+                    )
+                )
+            continue
+        if alias.declaration_kind == "typedef":
+            violations.append(
+                FViolation(
+                    "ACS-R020d",
+                    alias.path,
+                    alias.line,
+                    alias.column,
+                    alias.name,
+                    "F",
+                    "公開名前空間へtypedefを追加できません。",
+                    ("新規公開aliasはusingで宣言する",),
+                )
+            )
+            continue
+        if alias.is_template or qualified_name in callback_names:
+            continue
+        if qualified_name not in scalar_names or _is_foundation_primitive_alias(alias) or _is_deferred_scalar_alias(alias):
+            continue
+        if not re.match(r"^F[A-Z0-9]", alias.name):
+            violations.append(
+                FViolation(
+                    "ACS-R020d",
+                    alias.path,
+                    alias.line,
+                    alias.column,
+                    alias.name,
+                    "F",
+                    "公開scalar value aliasにはF接頭辞が必要です。",
+                    ("名前空間直下の値alias",),
+                )
+            )
+    return tuple(violations)
+
+
+def _is_full_source_scan(root: Path) -> bool:
+    """必須alias契約を検査する製品source全走査かを返す。"""
+
+    return root.is_dir() and root.name.casefold() == "src"
+
+
+def _audit_required_alias_presence(root: Path, aliases: Sequence[FTypeAlias]) -> tuple[FViolation, ...]:
+    """全source走査で必須互換alias八件と正規scalar alias三件の存在を検査する。"""
+
+    if not _is_full_source_scan(root):
+        return ()
+    violations: list[FViolation] = []
+    for qualified_name, expected_path in sorted(LEGACY_COMPATIBILITY_PATHS.items()):
+        matches = [alias for alias in aliases if _qualified_alias_name(alias) == qualified_name]
+        if len(matches) == 1:
+            continue
+        diagnostic_path = root / expected_path
+        violations.append(
+            FViolation(
+                "ACS-R020d",
+                diagnostic_path,
+                1,
+                1,
+                qualified_name.rsplit("::", 1)[-1],
+                LEGACY_COMPATIBILITY_ALIASES[qualified_name].rsplit("::", 1)[-1][0],
+                "必須の一時互換aliasは正確に一件だけ必要です。",
+                (f"検出数: {len(matches)}",),
+            )
+        )
+    for canonical_name, (expected_path, _) in sorted(CANONICAL_SCALAR_ALIASES.items()):
+        legacy_name = next(name for name, target in LEGACY_COMPATIBILITY_ALIASES.items() if target == canonical_name)
+        legacy_matches = [alias for alias in aliases if _qualified_alias_name(alias) == legacy_name]
+        if len(legacy_matches) == 1 and _is_exact_premigration_alias(legacy_matches[0]):
+            continue
+        matches = [alias for alias in aliases if _qualified_alias_name(alias) == canonical_name]
+        if len(matches) == 1:
+            continue
+        violations.append(
+            FViolation(
+                "ACS-R020d",
+                root / expected_path,
+                1,
+                1,
+                canonical_name.rsplit("::", 1)[-1],
+                canonical_name.rsplit("::", 1)[-1][0],
+                "必須の正規scalar aliasは正確に一件だけ必要です。",
+                (f"検出数: {len(matches)}",),
+            )
+        )
+    return tuple(violations)
+
+
+def _audit_required_canonical_definitions(
+    root: Path,
+    definitions: Sequence[FTypeDefinition],
+) -> tuple[FViolation, ...]:
+    """AObjectとC4の正規定義が名前、場所、宣言種別の固定契約と一致するか検査する。"""
+
+    if not _is_full_source_scan(root):
+        return ()
+    violations: list[FViolation] = []
+    for qualified_name, (expected_path, expected_keyword, expected_prefix) in sorted(
+        CANONICAL_OBJECT_AND_CLASS_TYPES.items()
+    ):
+        matches = [definition for definition in definitions if definition.qualified_name == qualified_name]
+        valid = (
+            len(matches) == 1
+            and matches[0].source_relative_path == expected_path
+            and matches[0].keyword == expected_keyword
+            and not matches[0].is_template
+            and not matches[0].has_local_scope
+        )
+        if valid:
+            continue
+        diagnostic = matches[0] if matches else None
+        violations.append(
+            FViolation(
+                "ACS-R020d",
+                diagnostic.path if diagnostic is not None else root / expected_path,
+                diagnostic.line if diagnostic is not None else 1,
+                diagnostic.column if diagnostic is not None else 1,
+                qualified_name.rsplit("::", 1)[-1],
+                expected_prefix,
+                "正規object/class定義が固定契約と一致しません。",
+                (
+                    f"期待する定義: {expected_path} -> {expected_keyword} {qualified_name}",
+                    f"検出数: {len(matches)}",
+                ),
+                qualified_name,
+                "hard-canonical",
+            )
+        )
+    canonical_targets = frozenset(CANONICAL_OBJECT_AND_CLASS_TYPES)
+    for legacy_name, canonical_name in sorted(LEGACY_COMPATIBILITY_ALIASES.items()):
+        if canonical_name not in canonical_targets:
+            continue
+        for definition in definitions:
+            if definition.qualified_name != legacy_name:
+                continue
+            violations.append(
+                FViolation(
+                    "ACS-R020d",
+                    definition.path,
+                    definition.line,
+                    definition.column,
+                    definition.name,
+                    canonical_name.rsplit("::", 1)[-1][0],
+                    "旧互換名を独立した型として再定義できません。",
+                    (f"正規名を使用する: {canonical_name}",),
+                    definition.qualified_name,
+                    "legacy-definition",
+                )
+            )
+    return tuple(violations)
+
+
+def _audit_legacy_alias_uses(
+    path: Path,
+    tokens: Sequence[FToken],
+    aliases: Sequence[FTypeAlias],
+) -> tuple[FViolation, ...]:
+    """一時互換名がalias宣言以外の製品sourceへ再流入していないかを検査する。"""
+
+    declared_positions = {
+        (alias.path, alias.name, alias.line, alias.column)
+        for alias in aliases
+        if _qualified_alias_name(alias) in LEGACY_COMPATIBILITY_ALIASES
+    }
+    declared_names = {
+        alias.name
+        for alias in aliases
+        if _is_exact_legacy_alias(alias)
+    }
+    legacy_names = {
+        qualified_name.rsplit("::", 1)[-1]: qualified_target.rsplit("::", 1)[-1]
+        for qualified_name, qualified_target in LEGACY_COMPATIBILITY_ALIASES.items()
+        if qualified_name.rsplit("::", 1)[-1] in declared_names
+    }
+    violations: list[FViolation] = []
+    for position, token in enumerate(tokens):
+        canonical_name = legacy_names.get(token.text)
+        if (
+            canonical_name is None
+            or (path, token.text, token.line, token.column) in declared_positions
+        ):
+            continue
+        violations.append(
+            FViolation(
+                "ACS-R020e",
+                path,
+                token.line,
+                token.column,
+                token.text,
+                canonical_name[0],
+                "一時互換名を通常の製品sourceで使用できません。",
+                (f"正規名を使用する: {canonical_name}",),
+            )
+        )
+    return tuple(violations)
+
+
+def _macro_definition_lines(source: str) -> frozenset[int]:
+    """`#define`本体に含まれる物理行番号を返す。"""
+
+    lines = source.splitlines()
+    definition_lines: set[int] = set()
+    position = 0
+    while position < len(lines):
+        if re.match(r"^\s*#\s*define\b", lines[position]) is None:
+            position += 1
+            continue
+        while position < len(lines):
+            definition_lines.add(position + 1)
+            continued = lines[position].rstrip().endswith("\\")
+            position += 1
+            if not continued:
+                break
+    return frozenset(definition_lines)
+
+
+def _registered_object_references(
+    tokens: Sequence[FToken],
+    macro_definition_lines: frozenset[int],
+) -> frozenset[tuple[tuple[str, ...], str]]:
+    """ACS_OBJECT系の実呼び出しscopeと第一引数の型参照を集める。"""
+
+    references: set[tuple[tuple[str, ...], str]] = set()
+    for position, token in enumerate(tokens):
+        if (
+            token.line in macro_definition_lines
+            or token.text not in OBJECT_MACROS
+            or position + 1 >= len(tokens)
+            or tokens[position + 1].text != "("
+        ):
+            continue
+        argument: list[str] = []
         depth = 1
         cursor = position + 2
         while cursor < len(tokens) and depth > 0:
@@ -382,12 +1642,22 @@ def _registered_object_names(tokens: Sequence[FToken]) -> frozenset[str]:
                 depth -= 1
             elif text == "," and depth == 1:
                 break
-            elif depth == 1 and IDENTIFIER.match(text):
-                candidates.append(text)
+            elif depth == 1:
+                argument.append(text)
             cursor += 1
-        if candidates:
-            names.add(candidates[-1])
-    return frozenset(names)
+        while argument and argument[0] == "::":
+            argument.pop(0)
+        if (
+            not argument
+            or any(
+                not IDENTIFIER.match(text) if index % 2 == 0 else text != "::"
+                for index, text in enumerate(argument)
+            )
+        ):
+            continue
+        scope, _, _ = _definition_scope(tokens, position, {})
+        references.add((scope, "".join(argument)))
+    return frozenset(references)
 
 
 def _top_level_statements(body: Sequence[FToken]) -> tuple[tuple[FToken, ...], ...]:
@@ -416,25 +1686,44 @@ def _top_level_statements(body: Sequence[FToken]) -> tuple[tuple[FToken, ...], .
     return tuple(statements)
 
 
+def _statement_method_name(statement: Sequence[FToken]) -> Optional[str]:
+    """initializer呼び出しと関数pointer fieldを除いたメンバー関数名を返す。"""
+
+    ignored = frozenset({"alignas", "decltype", "if", "noexcept", "requires", "sizeof", "static_assert"})
+    for position, token in enumerate(statement):
+        if token.text != "(" or position == 0:
+            continue
+        candidate = statement[position - 1].text
+        prefix = tuple(item.text for item in statement[:position])
+        if "operator" in prefix:
+            return "operator"
+        if (
+            IDENTIFIER.match(candidate)
+            and candidate not in ignored
+            and "static" not in prefix
+            and "=" not in prefix
+            and not (position >= 2 and statement[position - 2].text == "::")
+            and not (
+                position + 1 < len(statement)
+                and statement[position + 1].text == "*"
+            )
+        ):
+            return candidate
+    return None
+
+
 def _method_names(statements: Sequence[Sequence[FToken]]) -> tuple[str, ...]:
     """メンバー関数らしい宣言から関数名を集める。"""
 
-    names: set[str] = set()
-    ignored = frozenset({"alignas", "decltype", "if", "noexcept", "requires", "sizeof", "static_assert"})
-    for statement in statements:
-        for position, token in enumerate(statement):
-            if token.text != "(" or position == 0:
-                continue
-            candidate = statement[position - 1].text
-            prefix = tuple(item.text for item in statement[:position])
-            if (
-                IDENTIFIER.match(candidate)
-                and candidate not in ignored
-                and "static" not in prefix
-            ):
-                names.add(candidate)
-                break
-    return tuple(sorted(names))
+    return tuple(
+        sorted(
+            {
+                name
+                for statement in statements
+                if (name := _statement_method_name(statement)) is not None
+            }
+        )
+    )
 
 
 def _has_probable_data(statements: Sequence[Sequence[FToken]]) -> bool:
@@ -445,7 +1734,11 @@ def _has_probable_data(statements: Sequence[Sequence[FToken]]) -> bool:
         texts = [token.text for token in statement]
         while len(texts) >= 2 and texts[0] in {"private", "protected", "public"} and texts[1] == ":":
             texts = texts[2:]
-        if not texts or texts[0] in skipped_heads or "(" in texts:
+        if (
+            not texts
+            or texts[0] in skipped_heads
+            or _statement_method_name(statement) is not None
+        ):
             continue
         if "static" in texts or texts == [";"]:
             continue
@@ -520,44 +1813,85 @@ def _is_interface(definition: FTypeDefinition, features: FTypeFeatures) -> bool:
     )
 
 
+def _is_public_role_definition(definition: FTypeDefinition) -> bool:
+    """公開role inventoryに含める名前空間直下のheader型かを返す。"""
+
+    if (
+        definition.path.suffix.casefold() not in PUBLIC_HEADER_SUFFIXES
+        or definition.keyword not in {"class", "struct"}
+        or definition.has_local_scope
+        or definition.is_nested_type
+        or not definition.scope
+        or definition.scope[0] != "acs"
+    ):
+        return False
+    return not any(
+        name.casefold() in DETAIL_NAMESPACE_NAMES
+        or name.casefold().endswith("_detail")
+        or name.casefold().endswith("_internal")
+        for name in definition.scope
+    )
+
+
 def _expected_prefix(
     definition: FTypeDefinition,
     features: FTypeFeatures,
     managed_names: frozenset[str],
-) -> tuple[str, tuple[str, ...]]:
+) -> tuple[str, tuple[str, ...], str]:
     """型の意味的特徴から期待する接頭辞と根拠を返す。"""
 
     if definition.keyword == "enum":
-        return "E", ("列挙型",)
+        return "E", ("列挙型",), "enum"
     if definition.is_template:
-        return "T", ("template型",)
-    if definition.name in managed_names:
-        return "A", ("FObject系またはACS_OBJECT登録",)
+        return "T", ("template型",), "template"
+    if definition.qualified_name in managed_names:
+        return "A", ("AObject継承またはACS_OBJECT登録",), "managed-object"
 
     stem = _role_stem(definition.name)
     value_named = _ends_with_word(stem, VALUE_WORDS)
     behavior_named = _ends_with_word(stem, BEHAVIOR_WORDS)
     lifecycle_methods = tuple(method for method in features.methods if method in LIFECYCLE_METHODS)
-    service_named = behavior_named or bool(lifecycle_methods) or features.has_coordination
+    behavior_methods = tuple(
+        method for method in features.methods if method in OBVIOUS_BEHAVIOR_METHODS
+    )
+    service_named = (
+        behavior_named
+        or bool(lifecycle_methods)
+        or bool(behavior_methods)
+        or features.has_coordination
+    )
     if _is_interface(definition, features) and (
         definition.name.startswith("I") or not value_named and not service_named
     ):
-        return "I", ("データを持たない仮想interface",)
+        return "I", ("データを持たない仮想interface",), "interface"
     if stem.startswith("Scoped"):
-        return "F", ("有効範囲内の資源を一つの値として管理",)
+        return "F", ("有効範囲内の資源を一つの値として管理",), "scoped-value"
+    if (
+        definition.keyword == "class"
+        and features.has_probable_data
+        and not features.methods
+        and not features.has_virtual
+        and not features.has_destructor
+        and not features.has_deleted_member
+        and not features.has_ownership
+        and not features.has_coordination
+    ):
+        return "F", ("操作を持たないデータ中心class",), "data-only"
     if value_named and not service_named:
         evidence = ["値を表す型名"]
         if features.has_private_or_protected:
             evidence.append("値の内部表現を非公開")
-        return "F", tuple(evidence)
+        return "F", tuple(evidence), "named-value"
     if definition.keyword in {"struct", "union"} and not service_named:
-        return "F", ("公開データ中心",)
+        return "F", ("公開データ中心",), "data-only"
 
     evidence: list[str] = []
     if behavior_named:
         evidence.append("共有利用または処理を担うservice型名")
     if lifecycle_methods:
         evidence.append("状態や寿命を動かす操作: " + ", ".join(lifecycle_methods))
+    if behavior_methods:
+        evidence.append("明白な処理操作: " + ", ".join(behavior_methods))
     if features.has_virtual:
         evidence.append("仮想動作は補助根拠")
     if features.has_coordination:
@@ -571,30 +1905,55 @@ def _expected_prefix(
     if features.has_private_or_protected:
         evidence.append("非公開状態は補助根拠")
     if not evidence:
-        evidence.append("具象の値・handle・service")
-    return "F", tuple(evidence)
+        evidence.append("具象の機能を持つclass")
+    return "C", tuple(evidence), "functional-evidence" if service_named else "manual-review"
 
 
 def _managed_names(
     definitions: Sequence[FTypeDefinition],
-    registered_names: frozenset[str],
+    registered_references: frozenset[tuple[tuple[str, ...], str]],
 ) -> frozenset[str]:
-    """FObject継承とACS_OBJECT登録を推移的にたどる。"""
+    """acs::AObject実継承と実際のACS_OBJECT登録を修飾名でたどる。"""
 
-    managed = set(registered_names)
+    qualified_names = frozenset(
+        {definition.qualified_name for definition in definitions} | {"acs::AObject"}
+    )
+    managed = {"acs::AObject"}
+    for scope, reference in registered_references:
+        resolved = _resolve_qualified_reference(
+            scope,
+            reference,
+            qualified_names,
+            f"ACS_OBJECT登録: {'::'.join(scope) or '<global>'}",
+        )
+        if resolved is None:
+            raise ValueError(
+                f"ACS_OBJECT登録型を解決できません: {'::'.join(scope) or '<global>'} -> {reference}"
+            )
+        managed.add(resolved)
+    resolved_bases = {
+        definition.qualified_name: tuple(
+            resolved
+            for reference in definition.base_references
+            if (
+                resolved := _resolve_base_reference(
+                    definition,
+                    reference,
+                    qualified_names,
+                )
+            )
+            is not None
+        )
+        for definition in definitions
+    }
     changed = True
     while changed:
         changed = False
         for definition in definitions:
-            if definition.name in managed:
+            if definition.qualified_name in managed:
                 continue
-            if any(
-                base == "FObject"
-                or base in managed
-                or bool(re.match(r"^A[A-Z]", base))
-                for base in definition.bases
-            ):
-                managed.add(definition.name)
+            if any(base in managed for base in resolved_bases[definition.qualified_name]):
+                managed.add(definition.qualified_name)
                 changed = True
     return frozenset(managed)
 
@@ -609,10 +1968,16 @@ def _audit_definitions(
     counts: dict[str, int] = {}
     for definition in definitions:
         features = _features(definition)
-        expected, evidence = _expected_prefix(definition, features, managed_names)
+        expected, evidence, role_reason = _expected_prefix(definition, features, managed_names)
         counts[expected] = counts.get(expected, 0) + 1
         observed = definition.name[0] if ROLE_NAME.match(definition.name) else ""
         if observed != expected:
+            if (
+                expected == "C"
+                and definition.source_relative_path is not None
+                and not _is_public_role_definition(definition)
+            ):
+                continue
             violations.append(
                 FViolation(
                     "ACS-R020c",
@@ -623,6 +1988,8 @@ def _audit_definitions(
                     expected,
                     f"型の役割は{expected}接頭辞に対応します。",
                     evidence,
+                    definition.qualified_name,
+                    role_reason,
                 )
             )
 
@@ -638,6 +2005,379 @@ def _audit_definitions(
     return tuple(violations), dict(sorted(counts.items()))
 
 
+def _debt_entries_for_scan(
+    root: Path,
+    source_root: Optional[Path],
+    entries: Sequence[FTypeRoleDebt],
+) -> tuple[FTypeRoleDebt, ...]:
+    """現在の全体またはmodule走査に属するdebt entryだけを返す。"""
+
+    if source_root is None:
+        return ()
+    try:
+        relative_root = root.relative_to(source_root)
+    except ValueError:
+        return ()
+    if relative_root == Path("."):
+        return tuple(entries)
+    relative = relative_root.as_posix()
+    if root.is_file():
+        return tuple(entry for entry in entries if entry.path == relative)
+    prefix = relative.rstrip("/") + "/"
+    return tuple(entry for entry in entries if entry.path.startswith(prefix))
+
+
+def _debt_diagnostic(
+    root: Path,
+    entry: FTypeRoleDebt,
+    definition: Optional[FTypeDefinition],
+    message: str,
+    evidence: tuple[str, ...],
+) -> FViolation:
+    """debt台帳とsourceのずれを示す診断を作る。"""
+
+    return FViolation(
+        "ACS-R020f",
+        definition.path if definition is not None else root / entry.path,
+        definition.line if definition is not None else 1,
+        definition.column if definition is not None else 1,
+        entry.qualified_type.rsplit("::", 1)[-1],
+        entry.candidate_prefix or "",
+        message,
+        evidence,
+        entry.qualified_type,
+        "migration-debt-contract",
+    )
+
+
+def _resolve_qualified_reference(
+    scope: tuple[str, ...],
+    reference: str,
+    qualified_names: frozenset[str],
+    context: str,
+) -> Optional[str]:
+    """C++の親scope探索順で型参照を一つの完全修飾名へ解決する。"""
+
+    names = tuple(part for part in reference.split("::") if part)
+    if not names:
+        return None
+    if names[0] == "acs":
+        candidate = "::".join(names)
+        return candidate if candidate in qualified_names else None
+    for depth in range(len(scope), -1, -1):
+        candidate = "::".join((*scope[:depth], *names))
+        if candidate in qualified_names:
+            return candidate
+    leaf_matches = sorted(
+        name for name in qualified_names if name.rsplit("::", 1)[-1] == names[-1]
+    )
+    if len(leaf_matches) == 1:
+        return leaf_matches[0]
+    if len(leaf_matches) > 1:
+        raise ValueError(
+            f"型参照が複数候補へ解決されます: {context} -> {reference}: {leaf_matches}"
+        )
+    return None
+
+
+def _resolve_base_reference(
+    definition: FTypeDefinition,
+    reference: str,
+    qualified_names: frozenset[str],
+) -> Optional[str]:
+    """definitionのscopeから基底型参照を完全修飾名へ解決する。"""
+
+    return _resolve_qualified_reference(
+        definition.scope,
+        reference,
+        qualified_names,
+        definition.qualified_name,
+    )
+
+
+def _asset_family_names(
+    definitions: Sequence[FTypeDefinition],
+    aliases: Sequence[FTypeAlias],
+) -> frozenset[str]:
+    """FAssetからaliasを含めて直接・間接に派生する型を閉包化する。"""
+
+    alias_names = frozenset(
+        _qualified_alias_name(alias) for alias in aliases if not alias.is_template
+    )
+    qualified_names = frozenset(
+        {definition.qualified_name for definition in definitions}
+        | set(alias_names)
+        | {"acs::FAsset"}
+    )
+    alias_targets: dict[str, Optional[str]] = {}
+    for alias in aliases:
+        if alias.is_template:
+            continue
+        target = next(
+            (
+                candidate
+                for candidate in _alias_target_candidates(alias)
+                if candidate in qualified_names
+            ),
+            None,
+        )
+        alias_targets[_qualified_alias_name(alias)] = target
+    resolved_bases: dict[str, tuple[str, ...]] = {}
+    for definition in definitions:
+        bases: list[str] = []
+        for reference in definition.base_references:
+            resolved = _resolve_base_reference(definition, reference, qualified_names)
+            if resolved is None:
+                if reference.rsplit("::", 1)[-1].endswith("Asset"):
+                    raise ValueError(
+                        f"Asset派生候補の基底型を解決できません: {definition.qualified_name} -> {reference}"
+                    )
+                continue
+            if (
+                resolved in alias_names
+                and alias_targets.get(resolved) is None
+                and _is_public_role_definition(definition)
+                and definition.name.startswith("F")
+            ):
+                raise ValueError(
+                    "公開F型のalias基底を解決できません: "
+                    f"{definition.qualified_name} -> {reference} -> {resolved}"
+                )
+            bases.append(resolved)
+        resolved_bases[definition.qualified_name] = tuple(bases)
+
+    family = {"acs::FAsset"}
+    changed = True
+    while changed:
+        changed = False
+        for alias_name, target in alias_targets.items():
+            if alias_name in family or target not in family:
+                continue
+            family.add(alias_name)
+            changed = True
+        for qualified_name, bases in resolved_bases.items():
+            if qualified_name in family or not any(base in family for base in bases):
+                continue
+            family.add(qualified_name)
+            changed = True
+    return frozenset(family)
+
+
+def _migration_debt_assessment(
+    definition: FTypeDefinition,
+    managed_names: frozenset[str],
+    asset_family: frozenset[str],
+) -> Optional[FTypeRoleDebt]:
+    """公開F型がcandidate/manual reviewを要する場合に再構成したdebtを返す。"""
+
+    if (
+        not _is_public_role_definition(definition)
+        or definition.is_template
+        or definition.qualified_name in managed_names
+        or not definition.name.startswith("F")
+        or definition.source_relative_path is None
+    ):
+        return None
+    features = _features(definition)
+    stem = _role_stem(definition.name)
+    behavior_named = _ends_with_word(stem, BEHAVIOR_WORDS)
+    lifecycle = bool(set(features.methods) & LIFECYCLE_METHODS)
+    behavior_method = bool(set(features.methods) & OBVIOUS_BEHAVIOR_METHODS)
+    coordination = features.has_coordination
+    value_named = _ends_with_word(stem, VALUE_WORDS)
+    established_service_evidence = behavior_named or lifecycle or coordination
+    service_evidence = established_service_evidence or behavior_method
+
+    status = "manual"
+    candidate_prefix: Optional[str] = None
+    reason_codes: list[str] = []
+    if definition.qualified_name in asset_family:
+        reason_codes.append("owned_polymorphic_family")
+    elif definition.keyword == "struct":
+        if not service_evidence:
+            return None
+        reason_codes.append("struct_behavior_conflict")
+    elif stem.startswith("Scoped"):
+        return None
+    elif features.has_pure_virtual:
+        if not behavior_named and not lifecycle and not coordination and not value_named:
+            reason_codes.append("class_role_unresolved")
+        reason_codes.append("pure_virtual_role_conflict")
+        if value_named and service_evidence:
+            reason_codes.append("value_behavior_conflict")
+    elif value_named:
+        if not service_evidence:
+            return None
+        reason_codes.append("value_behavior_conflict")
+    elif service_evidence:
+        status = "candidate"
+        candidate_prefix = "C"
+        if behavior_named:
+            reason_codes.append("behavior_suffix")
+        if lifecycle:
+            reason_codes.append("lifecycle_method")
+        if behavior_method and not established_service_evidence:
+            reason_codes.append("behavior_method")
+        if coordination:
+            reason_codes.append("coordination_state")
+    else:
+        reason_codes.append("class_role_unresolved")
+
+    return FTypeRoleDebt(
+        definition.source_relative_path,
+        definition.qualified_name,
+        "F",
+        status,
+        candidate_prefix,
+        None,
+        True,
+        "+".join(reason_codes),
+        DEBT_WAVE,
+    )
+
+
+def _collect_migration_debt(
+    definitions: Sequence[FTypeDefinition],
+    managed_names: frozenset[str],
+    aliases: Sequence[FTypeAlias],
+) -> tuple[FTypeRoleDebt, ...]:
+    """public collectorからcandidate/manual categoryをraw診断に依存せず再構成する。"""
+
+    asset_family = _asset_family_names(definitions, aliases)
+    entries: list[FTypeRoleDebt] = []
+    for definition in definitions:
+        entry = _migration_debt_assessment(definition, managed_names, asset_family)
+        if entry is not None:
+            entries.append(entry)
+    return tuple(sorted(entries, key=_debt_sort_key))
+
+
+def _reconcile_migration_debt(
+    root: Path,
+    source_root: Optional[Path],
+    definitions: Sequence[FTypeDefinition],
+    managed_names: frozenset[str],
+    aliases: Sequence[FTypeAlias],
+    type_violations: Sequence[FViolation],
+    entries: Sequence[FTypeRoleDebt],
+) -> tuple[tuple[FViolation, ...], tuple[FTypeRoleDebt, ...], tuple[FTypeRoleDebt, ...]]:
+    """public collectorをexact debtと照合し、未登録・stale・driftをfail-closedにする。"""
+
+    selected_entries = _debt_entries_for_scan(root, source_root, entries)
+    collected_entries = _debt_entries_for_scan(
+        root,
+        source_root,
+        _collect_migration_debt(definitions, managed_names, aliases),
+    )
+    definitions_by_key: dict[tuple[str, str], list[FTypeDefinition]] = {}
+    for definition in definitions:
+        if definition.source_relative_path is None:
+            continue
+        definitions_by_key.setdefault(
+            (definition.source_relative_path, definition.qualified_name), []
+        ).append(definition)
+    matched_keys: set[tuple[str, str]] = set()
+    matched_entries: list[FTypeRoleDebt] = []
+    debt_violations: list[FViolation] = []
+    manifest_by_key = {
+        (entry.path, entry.qualified_type): entry for entry in selected_entries
+    }
+    collected_by_key: dict[tuple[str, str], list[FTypeRoleDebt]] = {}
+    for entry in collected_entries:
+        collected_by_key.setdefault((entry.path, entry.qualified_type), []).append(entry)
+    for key in sorted(set(manifest_by_key) | set(collected_by_key)):
+        manifest_entry = manifest_by_key.get(key)
+        collected_matches = collected_by_key.get(key, [])
+        collected_entry = collected_matches[0] if collected_matches else None
+        definitions_at_key = definitions_by_key.get(key, [])
+        definition = definitions_at_key[0] if definitions_at_key else None
+        diagnostic_entry = manifest_entry or collected_entry
+        if diagnostic_entry is None:
+            continue
+        if len(collected_matches) > 1 or len(definitions_at_key) > 1:
+            debt_violations.append(
+                _debt_diagnostic(
+                    root,
+                    diagnostic_entry,
+                    definition,
+                    "public collectorでmigration debt型が重複しています。",
+                    (
+                        f"collector検出数: {len(collected_matches)}",
+                        f"型定義数: {len(definitions_at_key)}",
+                    ),
+                )
+            )
+            continue
+        if manifest_entry is None and collected_entry is not None:
+            debt_violations.append(
+                _debt_diagnostic(
+                    root,
+                    collected_entry,
+                    definition,
+                    "public collectorが未登録のcandidate/manual migration debtを検出しました。",
+                    (
+                        f"status: {collected_entry.status}",
+                        f"reason: {collected_entry.reason}",
+                    ),
+                )
+            )
+            continue
+        if collected_entry is None and manifest_entry is not None:
+            debt_violations.append(
+                _debt_diagnostic(
+                    root,
+                    manifest_entry,
+                    definition,
+                    "migration debtがpublic collectorから消失、移動、または分類変更されています。",
+                    (f"台帳status: {manifest_entry.status}", f"台帳reason: {manifest_entry.reason}"),
+                )
+            )
+            continue
+        if manifest_entry != collected_entry:
+            debt_violations.append(
+                _debt_diagnostic(
+                    root,
+                    manifest_entry,
+                    definition,
+                    "migration debtのstatus、候補、理由、またはwaveがpublic collectorと一致しません。",
+                    (
+                        f"台帳: {manifest_entry}",
+                        f"collector: {collected_entry}",
+                    ),
+                )
+            )
+            continue
+        matched_keys.add(key)
+        matched_entries.append(manifest_entry)
+
+    remaining_violations: list[FViolation] = []
+    for violation in type_violations:
+        if violation.qualified_type is None:
+            remaining_violations.append(violation)
+            continue
+        definition = next(
+            (
+                candidate
+                for candidate in definitions
+                if candidate.path == violation.path
+                and candidate.line == violation.line
+                and candidate.column == violation.column
+            ),
+            None,
+        )
+        key = (
+            definition.source_relative_path if definition is not None else "",
+            violation.qualified_type,
+        )
+        if key not in matched_keys:
+            remaining_violations.append(violation)
+    return (
+        tuple((*remaining_violations, *debt_violations)),
+        selected_entries,
+        tuple(sorted(matched_entries, key=_debt_sort_key)),
+    )
+
+
 def _display_path(path: Path, root: Path) -> str:
     """root相対の表示用パスを返す。"""
 
@@ -647,7 +2387,10 @@ def _display_path(path: Path, root: Path) -> str:
         return path.as_posix()
 
 
-def scan_tree(root: Path) -> FScanResult:
+def scan_tree(
+    root: Path,
+    migration_debt_path: Optional[Path] = None,
+) -> FScanResult:
     """指定ツリーを走査して型の意味と表記を照合する。"""
 
     resolved_root = root.resolve()
@@ -667,15 +2410,69 @@ def scan_tree(root: Path) -> FScanResult:
             )
         )
     definitions: list[FTypeDefinition] = []
-    registered_names: set[str] = set()
+    aliases: list[FTypeAlias] = []
+    tokenized_files: list[tuple[Path, tuple[FToken, ...]]] = []
+    registered_references: set[tuple[tuple[str, ...], str]] = set()
+    source_root = _source_tree_root(resolved_root)
+    migration_debt = (
+        _load_migration_debt(migration_debt_path)
+        if migration_debt_path is not None
+        else ()
+    )
     for path in files:
         source = path.read_text(encoding="utf-8-sig")
         tokens = _tokens(source)
-        definitions.extend(_type_definitions(path, tokens))
-        registered_names.update(_registered_object_names(tokens))
-    managed_names = _managed_names(definitions, frozenset(registered_names))
-    violations, counts = _audit_definitions(definitions, managed_names)
-    return FScanResult(resolved_root, files, tuple(definitions), violations, counts)
+        file_aliases = _namespace_aliases(path, tokens, source_root)
+        tokenized_files.append((path, tuple(tokens)))
+        definitions.extend(_type_definitions(path, tokens, source_root))
+        aliases.extend(file_aliases)
+        registered_references.update(
+            _registered_object_references(tokens, _macro_definition_lines(source))
+        )
+    managed_names = _managed_names(definitions, frozenset(registered_references))
+    type_violations, counts = _audit_definitions(definitions, managed_names)
+    type_violations, selected_debt, matched_debt = _reconcile_migration_debt(
+        resolved_root,
+        source_root,
+        definitions,
+        managed_names,
+        aliases,
+        type_violations,
+        migration_debt,
+    )
+    alias_use_violations = tuple(
+        violation
+        for path, tokens in tokenized_files
+        for violation in _audit_legacy_alias_uses(path, tokens, aliases)
+    )
+    violations = tuple(
+        sorted(
+            (
+                *type_violations,
+                *_audit_aliases(aliases, _is_full_source_scan(resolved_root)),
+                *_audit_required_alias_presence(resolved_root, aliases),
+                *_audit_required_canonical_definitions(resolved_root, definitions),
+                *alias_use_violations,
+            ),
+            key=lambda item: (
+                item.path.as_posix().casefold(),
+                item.line,
+                item.column,
+                item.rule,
+                item.type_name,
+            ),
+        )
+    )
+    return FScanResult(
+        resolved_root,
+        files,
+        tuple(definitions),
+        tuple(aliases),
+        violations,
+        counts,
+        selected_debt,
+        matched_debt,
+    )
 
 
 def build_json_report(result: FScanResult) -> dict[str, object]:
@@ -684,12 +2481,23 @@ def build_json_report(result: FScanResult) -> dict[str, object]:
     by_rule: dict[str, int] = {}
     for violation in result.violations:
         by_rule[violation.rule] = by_rule.get(violation.rule, 0) + 1
+    debt_by_status: dict[str, int] = {}
+    debt_by_wave: dict[str, int] = {}
+    for entry in result.migration_debt:
+        debt_by_status[entry.status] = debt_by_status.get(entry.status, 0) + 1
+        debt_by_wave[entry.wave] = debt_by_wave.get(entry.wave, 0) + 1
     return {
         "schema_version": SCHEMA_VERSION,
         "root": result.root.as_posix(),
         "scanned_file_count": len(result.files),
         "type_definition_count": len(result.definitions),
+        "namespace_alias_count": len(result.aliases),
         "expected_prefix_counts": result.expected_prefix_counts,
+        "migration_debt_count": len(result.migration_debt),
+        "matched_migration_debt_count": len(result.matched_migration_debt),
+        "migration_debt_by_status": dict(sorted(debt_by_status.items())),
+        "migration_debt_by_wave": dict(sorted(debt_by_wave.items())),
+        "scope_note": "violation_count=0はhard canonicalとdebt非増加を示し、全型のrole review完了を意味しません。",
         "violation_count": len(result.violations),
         "violations_by_rule": dict(sorted(by_rule.items())),
         "violations": [
@@ -702,6 +2510,8 @@ def build_json_report(result: FScanResult) -> dict[str, object]:
                 "expected_prefix": item.expected_prefix,
                 "message": item.message,
                 "evidence": list(item.evidence),
+                "qualified_type": item.qualified_type,
+                "role_reason": item.role_reason,
             }
             for item in result.violations
         ],
@@ -723,9 +2533,11 @@ def format_human_report(result: FScanResult, max_diagnostics: int) -> str:
         lines.append(f"... 残り {omitted} 件はJSON出力で確認できます")
     lines.append(
         "ACS C++ 型役割監査: "
-        f"files={len(result.files)} types={len(result.definitions)} "
+        f"files={len(result.files)} types={len(result.definitions)} aliases={len(result.aliases)} "
+        f"debt={len(result.migration_debt)} matched_debt={len(result.matched_migration_debt)} "
         f"violations={len(result.violations)}"
     )
+    lines.append("注: violations=0はhard canonicalとdebt非増加を示し、全型のrole review完了を意味しません。")
     return "\n".join(lines) + "\n"
 
 
@@ -738,14 +2550,14 @@ def write_json(path: Path, report: dict[str, object]) -> None:
 
 
 def run_self_test() -> bool:
-    """役割分類、旧C service、字句除外、JSONを一時fixtureで確認する。"""
+    """A/C/F分類、hard canonical、debt、字句除外、JSONを一時fixtureで確認する。"""
 
     valid_source = r'''
 // class FCommentRegistry { public: void Register(); };
 const char* Text = "class AStringUtility {};";
 const char* Shader = R"code(struct CShaderManager { private: int Value; };)code";
-class FObject;
-class AActor : public FObject { public: virtual ~AActor() = default; private: int State; };
+class AObject;
+class AActor : public AObject { public: virtual ~AActor() = default; private: int State; };
 class AActorChild : public AActor { public: ~AActorChild() override = default; };
 class ARegistered { public: virtual ~ARegistered() = default; };
 ACS_OBJECT(ARegistered)
@@ -758,32 +2570,45 @@ public:
     virtual ~IBackend() = default;
     virtual void Submit(const FRequest& Request) = 0;
 };
-class FAllocator { public: virtual void* Allocate(int Size) = 0; };
-class FLuaVm { public: virtual void Shutdown() = 0; };
-class FInlineService {
+class CAllocator { public: void* Allocate(int Size); };
+class CLuaVm { public: virtual void Shutdown() = 0; };
+class CInlineService {
 public:
     virtual void Run() = 0;
     int Count() const { return m_Count; }
 private:
     int m_Count;
 };
-class FMessageBroker { public: void Clear(); private: int ChannelCount; };
-class FTimerManager { public: void Tick(); private: int TimerCount; };
-class FRegistry { public: void Register(); private: int Count; };
+class CMessageBroker { public: void Clear(); private: int ChannelCount; };
+class CTimerManager { public: void Tick(); private: int TimerCount; };
+class CRegistry { public: void Register(); private: int Count; };
 struct FConfig { int Width; int Height; };
 class FString { public: int Size() const; private: char* Data; };
-class FAsset { public: virtual ~FAsset() = default; private: int Payload; };
+struct FValueRecord { int Payload; };
 class FAssetFuture { private: TSharedPtr<FState> State; };
 struct FScopedSession { void Release(); ~FScopedSession(); void* Handle; };
 struct FHidden { private: int Value; };
 template<typename T> class TBox { private: T Value; };
 enum class EState : unsigned { Ready, Stopped };
-using SimpleDelegate = void(*)();
+namespace acs {
+using FEventTypeId = u32;
+using FComponentTypeId = u32;
+using FComponentSignatureId = u64;
+using RawCallback = void(*)(void*, u32) noexcept;
+using EventCallback = RawCallback;
 using CCallback = void(*)();
-template<typename T> using CallbackList = T;
+using CCallbackChain = CCallback;
+template<typename T> using AliasList = T;
+template<typename T> using CBox = T;
+namespace detail { using HiddenTypeId = u32; }
+struct FOwner { using EventId = u32; };
+void LocalAliasFixture() { using LocalTypeId = u32; }
+extern "C" { using FLinkageTypeId = u32; }
+}
+namespace { using AnonymousTypeId = u32; }
 '''
     invalid_source = r'''
-class FObject;
+class AObject;
 class AUtilityManager { public: void Tick(); private: int State; };
 class CMessageBroker { public: void Clear(); private: int Count; };
 struct CTimerManager { private: int State; public: void Tick(); };
@@ -791,7 +2616,7 @@ class COptions { private: int Value; };
 class MessageBroker { public: void Clear(); };
 class URegistry { public: void Register(); };
 class Readable { public: virtual void Read() = 0; };
-class Entity : public FObject {};
+class Entity : public AObject {};
 template<typename T> class Box { T Value; };
 enum class State { Ready };
 class CLuaVm { public: virtual void Shutdown() = 0; };
@@ -803,7 +2628,15 @@ template<typename T> class FBox { T Value; };
 enum class FState { Ready };
 class TConcrete { public: void Run(); };
 class IConcrete { private: int Value; };
-struct AEntity : public FObject {};
+struct AEntity : public AObject {};
+namespace acs {
+using EventTypeId = u32;
+using ComponentTypeId = u32;
+using ComponentSignatureId = u64;
+using CMessageBroker = FTimerManager;
+using CUnexpectedService = FMessageBroker;
+EventTypeId LegacyEventType = 0;
+}
 '''
     with tempfile.TemporaryDirectory(prefix="acs-type-role-") as directory:
         root = Path(directory)
@@ -814,22 +2647,24 @@ struct AEntity : public FObject {};
         definition_names = {definition.name for definition in valid_result.definitions}
         if (
             valid_result.violations
-            or len(valid_result.definitions) != 22
+            or len(valid_result.definitions) != 23
             or valid_result.expected_prefix_counts
-            != {"A": 3, "E": 1, "F": 13, "I": 4, "T": 1}
+            != {"A": 3, "C": 6, "E": 1, "F": 8, "I": 4, "T": 1}
             or not {
                 "EState",
-                "FAllocator",
-                "FInlineService",
-                "FLuaVm",
-                "FMessageBroker",
-                "FTimerManager",
+                "CAllocator",
+                "CInlineService",
+                "CLuaVm",
+                "CMessageBroker",
+                "CTimerManager",
             }.issubset(definition_names)
+            or len(valid_result.aliases) != 10
         ):
             print(
                 "type role self-test failed: "
                 f"valid fixture={valid_result.violations} "
                 f"types={len(valid_result.definitions)} "
+                f"aliases={len(valid_result.aliases)} "
                 f"counts={valid_result.expected_prefix_counts}",
                 file=sys.stderr,
             )
@@ -841,24 +2676,24 @@ struct AEntity : public FObject {};
             for item in invalid_result.violations
         ]
         expected = [
-            ("ACS-R020c", "AUtilityManager", "F"),
-            ("ACS-R020c", "CMessageBroker", "F"),
-            ("ACS-R020c", "CTimerManager", "F"),
+            ("ACS-R020c", "AUtilityManager", "C"),
             ("ACS-R020c", "COptions", "F"),
-            ("ACS-R020c", "MessageBroker", "F"),
-            ("ACS-R020c", "URegistry", "F"),
+            ("ACS-R020c", "MessageBroker", "C"),
+            ("ACS-R020c", "URegistry", "C"),
             ("ACS-R020c", "Readable", "I"),
             ("ACS-R020c", "Entity", "A"),
             ("ACS-R020c", "Box", "T"),
             ("ACS-R020c", "State", "E"),
-            ("ACS-R020c", "CLuaVm", "F"),
             ("ACS-R020c", "FAbstract", "I"),
             ("ACS-R020c", "IRecord", "F"),
             ("ACS-R020c", "FRegistered", "A"),
             ("ACS-R020c", "FBox", "T"),
             ("ACS-R020c", "FState", "E"),
-            ("ACS-R020c", "TConcrete", "F"),
+            ("ACS-R020c", "TConcrete", "C"),
             ("ACS-R020c", "IConcrete", "F"),
+            ("ACS-R020d", "EventTypeId", "F"),
+            ("ACS-R020d", "ComponentTypeId", "F"),
+            ("ACS-R020d", "ComponentSignatureId", "F"),
         ]
         if actual != expected:
             print(
@@ -870,7 +2705,8 @@ struct AEntity : public FObject {};
         if (
             report["schema_version"] != SCHEMA_VERSION
             or report["violation_count"] != len(expected)
-            or report["violations_by_rule"] != {"ACS-R020c": len(expected)}
+            or report["namespace_alias_count"] != 5
+            or report["violations_by_rule"] != {"ACS-R020c": 15, "ACS-R020d": 3}
         ):
             print(f"type role JSON self-test failed: {report}", file=sys.stderr)
             return False
@@ -879,6 +2715,1081 @@ struct AEntity : public FObject {};
         if json.loads(report_path.read_text(encoding="utf-8")) != report:
             print("type role JSON write self-test failed", file=sys.stderr)
             return False
+
+        macro_definition_path = root / "macro-definition.h"
+        macro_definition_path.write_text(
+            "#define ACS_OBJECT(Type) static_assert(true)\nclass Type { public: void Run(); };",
+            encoding="utf-8",
+        )
+        macro_definition_violations = scan_tree(macro_definition_path).violations
+        if [
+            (item.rule, item.type_name, item.expected_prefix)
+            for item in macro_definition_violations
+        ] != [("ACS-R020c", "Type", "C")]:
+            print(
+                f"type role macro definition registration self-test failed: {macro_definition_violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        conditional_registration_path = root / "conditional-registration.h"
+        conditional_registration_path.write_text(
+            "namespace acs { class AObject {}; class AConditional { public: void Run(); };\n"
+            "#if 0\nACS_OBJECT(AConditional)\n#endif\n}",
+            encoding="utf-8",
+        )
+        conditional_registration_violations = scan_tree(
+            conditional_registration_path
+        ).violations
+        if [
+            (item.rule, item.qualified_type, item.expected_prefix)
+            for item in conditional_registration_violations
+        ] != [("ACS-R020c", "acs::AConditional", "C")]:
+            print(
+                "type role disabled registration self-test failed: "
+                f"{conditional_registration_violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        qualified_a_path = root / "qualified-a-graph.h"
+        qualified_a_path.write_text(
+            "namespace acs { class AObject {}; class AReal : public AObject {}; "
+            "namespace fake { class AObject {}; class AThing : public AObject {}; } "
+            "namespace one { class ARegistered {}; ACS_OBJECT(ARegistered) } "
+            "namespace two { class ARegistered {}; } }",
+            encoding="utf-8",
+        )
+        qualified_a_violations = scan_tree(qualified_a_path).violations
+        if [
+            (item.rule, item.qualified_type, item.expected_prefix)
+            for item in qualified_a_violations
+        ] != [
+            ("ACS-R020c", "acs::fake::AObject", "C"),
+            ("ACS-R020c", "acs::fake::AThing", "C"),
+            ("ACS-R020c", "acs::two::ARegistered", "C"),
+        ]:
+            print(
+                f"type role qualified A graph self-test failed: {qualified_a_violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        role_boundary_path = root / "role-boundary.h"
+        role_boundary_path.write_text(
+            "namespace acs { class CWidget { public: int Value; }; "
+            "struct FWidget { void Draw(); }; "
+            "struct FHandle { int Id; bool IsValid() const; }; }",
+            encoding="utf-8",
+        )
+        role_boundary_violations = scan_tree(role_boundary_path).violations
+        if [
+            (item.rule, item.qualified_type, item.expected_prefix)
+            for item in role_boundary_violations
+        ] != [
+            ("ACS-R020c", "acs::CWidget", "F"),
+            ("ACS-R020c", "acs::FWidget", "C"),
+        ]:
+            print(
+                f"type role C/F boundary self-test failed: {role_boundary_violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        audio_semantic_path = root / "audio-engine-semantic.h"
+        audio_semantic_path.write_text(
+            "namespace acs { class CAudioEngine { public: bool Init(); void Shutdown(); "
+            "void Play(); void Stop(); private: int ActiveVoiceCount; }; }",
+            encoding="utf-8",
+        )
+        audio_semantic_result = scan_tree(audio_semantic_path)
+        if len(audio_semantic_result.definitions) != 1:
+            print(
+                f"type role CAudioEngine semantic definition self-test failed: {audio_semantic_result}",
+                file=sys.stderr,
+            )
+            return False
+        audio_definition = audio_semantic_result.definitions[0]
+        audio_features = _features(audio_definition)
+        audio_role = _expected_prefix(audio_definition, audio_features, frozenset())
+        if (
+            audio_semantic_result.violations
+            or audio_semantic_result.expected_prefix_counts != {"C": 1}
+            or audio_role[0] != "C"
+            or audio_role[2] != "functional-evidence"
+            or not {"Init", "Play", "Shutdown", "Stop"}.issubset(audio_features.methods)
+            or "状態や寿命を動かす操作: Shutdown, Stop" not in audio_role[1]
+        ):
+            print(
+                "type role CAudioEngine semantic classification self-test failed: "
+                f"result={audio_semantic_result} role={audio_role}",
+                file=sys.stderr,
+            )
+            return False
+
+        default_debt_entries = _load_migration_debt(DEFAULT_MIGRATION_DEBT)
+        collision_common = (
+            "fixture/Collision.h",
+            "acs::FCollision",
+            "F",
+            "manual",
+            None,
+            None,
+            True,
+        )
+        collision_left = FTypeRoleDebt(
+            *collision_common,
+            "reason\x1fsegment",
+            "wave",
+        )
+        collision_right = FTypeRoleDebt(
+            *collision_common,
+            "reason",
+            "segment\x1fwave",
+        )
+        if _debt_semantic_sha256((collision_left,)) == _debt_semantic_sha256((collision_right,)):
+            print("type role canonical JSON semantic hash collision self-test failed", file=sys.stderr)
+            return False
+        coordinated_addition = tuple(
+            sorted(
+                (
+                    *default_debt_entries,
+                    FTypeRoleDebt(
+                        "z/NewDebt.h",
+                        "acs::FNewDebt",
+                        "F",
+                        "manual",
+                        None,
+                        None,
+                        True,
+                        "class_role_unresolved",
+                        DEBT_WAVE,
+                    ),
+                ),
+                key=_debt_sort_key,
+            )
+        )
+        moved_first = FTypeRoleDebt(
+            "app/MovedApplication.h",
+            default_debt_entries[0].qualified_type,
+            default_debt_entries[0].current_prefix,
+            default_debt_entries[0].status,
+            default_debt_entries[0].candidate_prefix,
+            None,
+            True,
+            default_debt_entries[0].reason,
+            default_debt_entries[0].wave,
+        )
+        coordinated_move = tuple(
+            sorted((moved_first, *default_debt_entries[1:]), key=_debt_sort_key)
+        )
+        default_source_root = Path(__file__).resolve().parent.parent / "src"
+        default_source_result = scan_tree(default_source_root, DEFAULT_MIGRATION_DEBT)
+        if default_source_result.violations:
+            print(
+                f"type role default source fixture self-test failed: {default_source_result.violations}",
+                file=sys.stderr,
+            )
+            return False
+        default_definitions = default_source_result.definitions
+        addition_source_root = root / "coordinated-addition" / "src"
+        addition_path = addition_source_root / "z" / "NewDebt.h"
+        addition_path.parent.mkdir(parents=True)
+        addition_source = "namespace acs { class FNewDebt {}; }"
+        addition_path.write_text(addition_source, encoding="utf-8")
+        addition_definitions = _type_definitions(
+            addition_path,
+            _tokens(addition_source),
+            addition_source_root,
+        )
+        deletion_key = (
+            default_debt_entries[-1].path,
+            default_debt_entries[-1].qualified_type,
+        )
+        deletion_definitions = tuple(
+            definition
+            for definition in default_definitions
+            if (definition.source_relative_path, definition.qualified_name) != deletion_key
+        )
+        move_key = (
+            default_debt_entries[0].path,
+            default_debt_entries[0].qualified_type,
+        )
+        moved_definition_count = 0
+        moved_definitions: list[FTypeDefinition] = []
+        for definition in default_definitions:
+            if (definition.source_relative_path, definition.qualified_name) == move_key:
+                moved_definitions.append(
+                    replace(
+                        definition,
+                        path=default_source_root / "app" / "MovedApplication.h",
+                        source_relative_path="app/MovedApplication.h",
+                    )
+                )
+                moved_definition_count += 1
+            else:
+                moved_definitions.append(definition)
+        mutation_fixtures = (
+            (
+                "addition",
+                (*default_definitions, *addition_definitions),
+                coordinated_addition,
+            ),
+            ("deletion", deletion_definitions, default_debt_entries[:-1]),
+            ("move", tuple(moved_definitions), coordinated_move),
+        )
+        if (
+            len(default_definitions) - len(deletion_definitions) != 1
+            or moved_definition_count != 1
+            or len(addition_definitions) != 1
+        ):
+            print("type role coordinated mutation fixture selection failed", file=sys.stderr)
+            return False
+        for mutation_name, mutation_definitions, mutation_entries in mutation_fixtures:
+            mutation_managed_names = _managed_names(mutation_definitions, frozenset())
+            mutation_raw_violations, _ = _audit_definitions(
+                mutation_definitions,
+                mutation_managed_names,
+            )
+            reconciled, selected, matched = _reconcile_migration_debt(
+                default_source_root,
+                default_source_root,
+                mutation_definitions,
+                mutation_managed_names,
+                default_source_result.aliases,
+                mutation_raw_violations,
+                mutation_entries,
+            )
+            if reconciled or selected != mutation_entries or matched != mutation_entries:
+                print(
+                    "type role coordinated source/manifest reconcile self-test failed: "
+                    f"{mutation_name}: violations={reconciled}",
+                    file=sys.stderr,
+                )
+                return False
+            try:
+                _verify_default_debt_baseline(mutation_entries)
+            except ValueError:
+                continue
+            print(
+                f"type role default debt coordinated mutation self-test failed: {mutation_name}",
+                file=sys.stderr,
+            )
+            return False
+
+        debt_root = root / "debt-contract"
+        debt_source_root = debt_root / "src"
+        debt_feature_root = debt_source_root / "feature"
+        debt_feature_root.mkdir(parents=True)
+        debt_source_path = debt_feature_root / "Types.h"
+        debt_source_path.write_text(
+            "namespace acs { class FUnresolved { public: void Observe(); }; class FWorker { public: void Run(); }; }",
+            encoding="utf-8",
+        )
+        debt_entries = [
+            {
+                "path": "feature/Types.h",
+                "qualified_type": "acs::FUnresolved",
+                "current_prefix": "F",
+                "status": "manual",
+                "candidate_prefix": None,
+                "expected": None,
+                "review_required": True,
+                "reason": "class_role_unresolved",
+                "wave": DEBT_WAVE,
+            },
+            {
+                "path": "feature/Types.h",
+                "qualified_type": "acs::FWorker",
+                "current_prefix": "F",
+                "status": "candidate",
+                "candidate_prefix": "C",
+                "expected": None,
+                "review_required": True,
+                "reason": "lifecycle_method",
+                "wave": DEBT_WAVE,
+            },
+        ]
+
+        def write_debt(name: str, entries: list[dict[str, object]]) -> Path:
+            """debt台帳の変異fixtureをUTF-8 JSONで保存する。"""
+
+            path = debt_root / f"{name}.json"
+            path.write_bytes(
+                (
+                    json.dumps(
+                        {"schema_version": DEBT_SCHEMA_VERSION, "entries": entries},
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n"
+                ).encode("utf-8")
+            )
+            return path
+
+        def debt_rejection_matches(path: Path, expected_message: str) -> bool:
+            """debt台帳が期待した契約段階で拒否されたかを返す。"""
+
+            try:
+                _load_migration_debt(path)
+            except ValueError as error:
+                return expected_message in str(error)
+            return False
+
+        valid_debt_path = write_debt("valid-debt", debt_entries)
+        valid_debt_result = scan_tree(debt_feature_root, valid_debt_path)
+        if (
+            valid_debt_result.violations
+            or len(valid_debt_result.migration_debt) != 2
+            or len(valid_debt_result.matched_migration_debt) != 2
+        ):
+            print(f"type role debt match self-test failed: {valid_debt_result}", file=sys.stderr)
+            return False
+
+        valid_debt_bytes = valid_debt_path.read_bytes()
+        physical_debt_mutations = (
+            ("bom", b"\xef\xbb\xbf" + valid_debt_bytes, "UTF-8にBOM"),
+            ("crlf", valid_debt_bytes.replace(b"\n", b"\r\n"), "改行はLFだけ"),
+            ("cr", valid_debt_bytes.replace(b"\n", b"\r"), "改行はLFだけ"),
+            ("missing-final-lf", valid_debt_bytes[:-1], "一つの最終LFで終わる"),
+            ("excess-final-lf", valid_debt_bytes + b"\n", "最終LFは一つだけ"),
+            ("spaced-excess-final-lf", valid_debt_bytes + b" \n", "最終LFは一つだけ"),
+            ("invalid-utf8", valid_debt_bytes[:-1] + b"\xff\n", "厳密なUTF-8"),
+        )
+        for mutation_name, mutation_payload, expected_message in physical_debt_mutations:
+            mutation_path = debt_root / f"physical-{mutation_name}.json"
+            mutation_path.write_bytes(mutation_payload)
+            if not debt_rejection_matches(mutation_path, expected_message):
+                print(
+                    f"type role physical debt contract self-test failed: {mutation_name}",
+                    file=sys.stderr,
+                )
+                return False
+        if not debt_rejection_matches(debt_root, "通常file"):
+            print("type role non-regular debt path self-test failed", file=sys.stderr)
+            return False
+
+        schema_marker = b'"schema_version": 1'
+        schema_debt_mutations = (
+            ("bool", valid_debt_bytes.replace(schema_marker, b'"schema_version": true', 1), "schema_versionは1"),
+            ("float", valid_debt_bytes.replace(schema_marker, b'"schema_version": 1.0', 1), "schema_versionは1"),
+            ("nonfinite", valid_debt_bytes.replace(schema_marker, b'"schema_version": NaN', 1), "非有限値"),
+        )
+        for mutation_name, mutation_payload, expected_message in schema_debt_mutations:
+            if mutation_payload == valid_debt_bytes:
+                print(
+                    f"type role schema mutation fixture replacement failed: {mutation_name}",
+                    file=sys.stderr,
+                )
+                return False
+            mutation_path = debt_root / f"schema-{mutation_name}.json"
+            mutation_path.write_bytes(mutation_payload)
+            if not debt_rejection_matches(mutation_path, expected_message):
+                print(
+                    f"type role schema version type self-test failed: {mutation_name}",
+                    file=sys.stderr,
+                )
+                return False
+
+        external_temp_path: Optional[Path] = None
+        with tempfile.TemporaryDirectory(prefix="acs-type-role-debt-external-") as external_directory:
+            external_root = Path(external_directory)
+            external_temp_path = external_root
+            external_debt_path = external_root / "external-debt.json"
+            external_sentinel_path = external_root / "external-sentinel.bin"
+            external_debt_path.write_bytes(valid_debt_bytes)
+            external_sentinel = b"ACS_TYPE_ROLE_EXTERNAL_SENTINEL\x00\xff"
+            external_sentinel_path.write_bytes(external_sentinel)
+            link_artifacts = (
+                debt_root / "external-file-link.json",
+                debt_root / "external-directory-link",
+                debt_root / "external-junction",
+            )
+
+            symlink_cases = (
+                (link_artifacts[0], external_debt_path, False),
+                (link_artifacts[1], external_root, True),
+            )
+            reparse_case_count = 0
+            for link_path, target_path, is_directory in symlink_cases:
+                try:
+                    link_path.symlink_to(target_path, target_is_directory=is_directory)
+                except (NotImplementedError, OSError):
+                    continue
+                reparse_case_count += 1
+                linked_debt_path = link_path / external_debt_path.name if is_directory else link_path
+                try:
+                    rejected = debt_rejection_matches(linked_debt_path, "reparse point")
+                finally:
+                    if is_directory and sys.platform == "win32":
+                        os.rmdir(link_path)
+                    else:
+                        link_path.unlink()
+                if not rejected:
+                    print(
+                        f"type role symlink debt path self-test failed: {link_path.name}",
+                        file=sys.stderr,
+                    )
+                    return False
+
+            if sys.platform == "win32":
+                junction_path = link_artifacts[2]
+                junction_result = subprocess.run(
+                    ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction_path), str(external_root)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                if junction_result.returncode == 0:
+                    reparse_case_count += 1
+                    try:
+                        rejected = debt_rejection_matches(
+                            junction_path / external_debt_path.name,
+                            "reparse point",
+                        )
+                    finally:
+                        os.rmdir(junction_path)
+                    if not rejected:
+                        print("type role junction debt path self-test failed", file=sys.stderr)
+                        return False
+
+            if reparse_case_count == 0:
+                print("type role reparse debt path coverage self-test failed", file=sys.stderr)
+                return False
+            if (
+                external_debt_path.read_bytes() != valid_debt_bytes
+                or external_sentinel_path.read_bytes() != external_sentinel
+                or any(path.exists() or path.is_symlink() for path in link_artifacts)
+            ):
+                print("type role external debt sentinel/cleanup self-test failed", file=sys.stderr)
+                return False
+        if external_temp_path is None or external_temp_path.exists():
+            print("type role external debt temporary cleanup self-test failed", file=sys.stderr)
+            return False
+
+        deletion_result = scan_tree(debt_feature_root, write_debt("deleted-debt", debt_entries[:1]))
+        if [(item.rule, item.qualified_type) for item in deletion_result.violations] != [
+            ("ACS-R020c", "acs::FWorker"),
+            ("ACS-R020f", "acs::FWorker"),
+        ]:
+            print(f"type role debt deletion self-test failed: {deletion_result.violations}", file=sys.stderr)
+            return False
+        added_entries = [
+            *debt_entries,
+            {
+                "path": "feature/Types.h",
+                "qualified_type": "acs::FZombie",
+                "current_prefix": "F",
+                "status": "manual",
+                "candidate_prefix": None,
+                "expected": None,
+                "review_required": True,
+                "reason": "class_role_unresolved",
+                "wave": DEBT_WAVE,
+            },
+        ]
+        added_entries.sort(key=lambda entry: (str(entry["path"]).casefold(), str(entry["qualified_type"])))
+        addition_result = scan_tree(debt_feature_root, write_debt("added-debt", added_entries))
+        if [(item.rule, item.qualified_type) for item in addition_result.violations] != [
+            ("ACS-R020f", "acs::FZombie")
+        ]:
+            print(f"type role debt addition self-test failed: {addition_result.violations}", file=sys.stderr)
+            return False
+        moved_entries = [dict(entry) for entry in debt_entries]
+        moved_entries[1]["path"] = "feature/Moved.h"
+        moved_entries.sort(key=lambda entry: (str(entry["path"]).casefold(), str(entry["qualified_type"])))
+        moved_result = scan_tree(debt_feature_root, write_debt("moved-debt", moved_entries))
+        if {item.rule for item in moved_result.violations} != {"ACS-R020c", "ACS-R020f"}:
+            print(f"type role debt move self-test failed: {moved_result.violations}", file=sys.stderr)
+            return False
+        drift_entries = [dict(entry) for entry in debt_entries]
+        drift_entries[1]["candidate_prefix"] = "F"
+        drift_result = scan_tree(debt_feature_root, write_debt("drift-debt", drift_entries))
+        if [(item.rule, item.qualified_type) for item in drift_result.violations] != [
+            ("ACS-R020c", "acs::FWorker"),
+            ("ACS-R020f", "acs::FWorker"),
+        ]:
+            print(f"type role debt candidate drift self-test failed: {drift_result.violations}", file=sys.stderr)
+            return False
+        malformed_debts = (
+            ("duplicate", [*debt_entries, dict(debt_entries[-1])]),
+            ("unsorted", list(reversed(debt_entries))),
+            (
+                "reason-control",
+                [
+                    {
+                        **debt_entries[0],
+                        "reason": "class_role_unresolved\x1fshifted",
+                    }
+                ],
+            ),
+            (
+                "wave-control",
+                [
+                    {
+                        **debt_entries[0],
+                        "wave": f"{DEBT_WAVE}\nshifted",
+                    }
+                ],
+            ),
+            (
+                "traversal",
+                [
+                    {
+                        **debt_entries[0],
+                        "path": "../Types.h",
+                    }
+                ],
+            ),
+        )
+        for mutation_name, malformed_entries in malformed_debts:
+            malformed_path = write_debt(f"malformed-{mutation_name}", malformed_entries)
+            try:
+                scan_tree(debt_feature_root, malformed_path)
+            except ValueError:
+                continue
+            print(f"type role malformed debt self-test failed: {mutation_name}", file=sys.stderr)
+            return False
+
+        valid_debt_text = valid_debt_path.read_text(encoding="utf-8")
+        duplicate_key_sources = (
+            (
+                "top",
+                valid_debt_text.replace(
+                    '"schema_version": 1,',
+                    '"schema_version": 1,\n  "schema_version": 1,',
+                    1,
+                ),
+            ),
+            (
+                "entry",
+                valid_debt_text.replace(
+                    '"path": "feature/Types.h",',
+                    '"path": "feature/Types.h",\n      "path": "feature/Types.h",',
+                    1,
+                ),
+            ),
+            (
+                "reason",
+                valid_debt_text.replace(
+                    '"reason": "class_role_unresolved",',
+                    '"reason": "class_role_unresolved",\n      "reason": "changed",',
+                    1,
+                ),
+            ),
+        )
+        for mutation_name, source in duplicate_key_sources:
+            duplicate_key_path = debt_root / f"duplicate-key-{mutation_name}.json"
+            duplicate_key_path.write_bytes(source.encode("utf-8"))
+            if not debt_rejection_matches(duplicate_key_path, "重複key"):
+                print(f"type role duplicate JSON key self-test failed: {mutation_name}", file=sys.stderr)
+                return False
+
+        new_manual_path = debt_feature_root / "NewManual.h"
+        new_manual_path.write_text(
+            "namespace acs { class FNewAsset : public FAsset {}; class FQualifiedAsset : public acs::FAsset {}; class FNewAudioAsset : public FAsset {}; class FSpecialAudioAsset : public FNewAudioAsset {}; struct FScopedBlob : public FAsset {}; struct FConcreteAsset : public FAsset { int Id; }; using FAssetRoot = FAsset; using FAssetRoot2 = FAssetRoot; struct FAliasAsset : public FAssetRoot2 { int Id; }; class FNewNode { public: virtual void Visit() = 0; }; }",
+            encoding="utf-8",
+        )
+        new_manual_result = scan_tree(debt_feature_root, valid_debt_path)
+        if [
+            (item.rule, item.qualified_type, item.evidence[-1])
+            for item in new_manual_result.violations
+        ] != [
+            ("ACS-R020f", "acs::FNewAsset", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FQualifiedAsset", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FNewAudioAsset", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FSpecialAudioAsset", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FScopedBlob", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FConcreteAsset", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FAliasAsset", "reason: owned_polymorphic_family"),
+            ("ACS-R020f", "acs::FNewNode", "reason: pure_virtual_role_conflict"),
+        ]:
+            print(
+                f"type role new manual category self-test failed: {new_manual_result.violations}",
+                file=sys.stderr,
+            )
+            return False
+
+        asset_resolution_cases = (
+            (
+                "ambiguous",
+                "namespace one { class FExternalAsset {}; } namespace two { class FExternalAsset {}; } namespace acs { class FBrokenAsset : public FExternalAsset {}; }",
+            ),
+            (
+                "unresolved",
+                "namespace acs { class FBrokenAsset : public FMissingAsset {}; }",
+            ),
+            (
+                "unresolved-alias",
+                "namespace acs { using FRoot = FMissingBase; struct FData : public FRoot { int Id; }; }",
+            ),
+        )
+        for case_name, source in asset_resolution_cases:
+            case_root = debt_source_root / case_name
+            case_root.mkdir()
+            (case_root / "Types.h").write_text(source, encoding="utf-8")
+            try:
+                scan_tree(case_root, valid_debt_path)
+            except ValueError:
+                continue
+            print(f"type role Asset base resolution self-test failed: {case_name}", file=sys.stderr)
+            return False
+
+        deferred_root = root / "deferred" / "src" / "asset"
+        deferred_root.mkdir(parents=True)
+        (deferred_root / "Asset.h").write_text("namespace acs { using AssetType = u32; }", encoding="utf-8")
+        if scan_tree(deferred_root / "Asset.h").violations:
+            print("type role deferred alias self-test failed", file=sys.stderr)
+            return False
+        deferred_mutations = (
+            (root / "deferred-path" / "src" / "event" / "Asset.h", "namespace acs { using AssetType = u32; }"),
+            (root / "deferred-name" / "src" / "asset" / "Asset.h", "namespace acs { using AssetKind = u32; }"),
+            (root / "deferred-target" / "src" / "asset" / "Asset.h", "namespace acs { using AssetType = u64; }"),
+        )
+        for mutation_path, mutation_source in deferred_mutations:
+            mutation_path.parent.mkdir(parents=True)
+            mutation_path.write_text(mutation_source, encoding="utf-8")
+            if not scan_tree(mutation_path).violations:
+                print(f"type role deferred alias mutation self-test failed: {mutation_path}", file=sys.stderr)
+                return False
+        foundation_sources = (
+            ("valid", "foundation/Types.h", "namespace acs { using u32 = ::uint32_t; }", False),
+            ("path", "event/Types.h", "namespace acs { using u32 = ::uint32_t; }", True),
+            ("name", "foundation/Types.h", "namespace acs { using u33 = ::uint32_t; }", True),
+            ("target", "foundation/Types.h", "namespace acs { using u32 = ::uint64_t; }", True),
+            ("attribute", "foundation/Types.h", "namespace acs { using u32 [[deprecated]] = ::uint32_t; }", True),
+        )
+        for mutation_name, relative_path, source, expects_violation in foundation_sources:
+            mutation_path = root / f"foundation-{mutation_name}" / "src" / relative_path
+            mutation_path.parent.mkdir(parents=True)
+            mutation_path.write_text(source, encoding="utf-8")
+            mutation_violations = scan_tree(mutation_path).violations
+            if bool(mutation_violations) != expects_violation:
+                print(f"type role foundation primitive mutation self-test failed: {mutation_name}: {mutation_violations}", file=sys.stderr)
+                return False
+        typedef_path = root / "typedef" / "src" / "event" / "EventTypeId.h"
+        typedef_path.parent.mkdir(parents=True)
+        typedef_path.write_text("namespace acs { typedef u32 EventTypeId; }", encoding="utf-8")
+        if not scan_tree(typedef_path).violations:
+            print("type role typedef alias mutation self-test failed", file=sys.stderr)
+            return False
+        alias_mutations = (
+            "namespace acs { using EventTypeId [[deprecated]] = u32; }",
+            "namespace acs { using EventTypeId = const FEventTypeId; }",
+            "namespace acs { using EventTypeId = ::FEventTypeId; }",
+            "namespace acs { using EventTypeId = acs::FEventTypeId; }",
+            "namespace acs { using event_id = u32; }",
+        )
+        for mutation_index, mutation_source in enumerate(alias_mutations):
+            mutation_path = root / f"alias-mutation-{mutation_index}" / "src" / "event" / "EventTypeId.h"
+            mutation_path.parent.mkdir(parents=True)
+            mutation_path.write_text(mutation_source, encoding="utf-8")
+            if not scan_tree(mutation_path).violations:
+                print(f"type role alias mutation self-test failed: {mutation_index}", file=sys.stderr)
+                return False
+        callback_typedef_path = root / "callback-typedef" / "src" / "event" / "Callback.h"
+        callback_typedef_path.parent.mkdir(parents=True)
+        callback_typedef_path.write_text("namespace acs { typedef void(*CCallback)(); }", encoding="utf-8")
+        if not scan_tree(callback_typedef_path).violations:
+            print("type role callback typedef mutation self-test failed", file=sys.stderr)
+            return False
+        classification_path = root / "classification.h"
+        classification_path.write_text(
+            "namespace acs { using EventTypeId=u32; using ComponentTypeId=u32; using ComponentSignatureId=u64; template<class TValue> using OptionalAlias=TValue; using CompletionCallback=void(*)(int); }",
+            encoding="utf-8",
+        )
+        classification_violations = scan_tree(classification_path).violations
+        expected_classification = {
+            ("ACS-R020d", "EventTypeId", "F"),
+            ("ACS-R020d", "ComponentTypeId", "F"),
+            ("ACS-R020d", "ComponentSignatureId", "F"),
+        }
+        actual_classification = [
+            (item.rule, item.type_name, item.expected_prefix)
+            for item in classification_violations
+        ]
+        excluded_classification_counts = [
+            sum(item.type_name == type_name for item in classification_violations)
+            for type_name in ("OptionalAlias", "CompletionCallback")
+        ]
+        if (
+            len(actual_classification) != len(expected_classification)
+            or set(actual_classification) != expected_classification
+            or excluded_classification_counts != [0, 0]
+        ):
+            print(f"type role first wave classification self-test failed: {classification_violations}", file=sys.stderr)
+            return False
+        parent_scalar_path = root / "parent-scalar.h"
+        parent_scalar_path.write_text("namespace acs { using FBaseScalar=u32; namespace feature { using BadId=FBaseScalar; } }", encoding="utf-8")
+        parent_scalar_violations = scan_tree(parent_scalar_path).violations
+        if [(item.rule, item.type_name) for item in parent_scalar_violations] != [("ACS-R020d", "BadId")]:
+            print(f"type role parent scalar self-test failed: {parent_scalar_violations}", file=sys.stderr)
+            return False
+        cv_scalar_path = root / "cv-scalar.h"
+        cv_scalar_path.write_text("namespace acs { using FBaseScalar=u32; namespace feature { using BadId=const FBaseScalar; } }", encoding="utf-8")
+        cv_scalar_violations = scan_tree(cv_scalar_path).violations
+        if [(item.rule, item.type_name) for item in cv_scalar_violations] != [("ACS-R020d", "BadId")]:
+            print(f"type role cv scalar self-test failed: {cv_scalar_violations}", file=sys.stderr)
+            return False
+        msvc_scalar_path = root / "msvc-scalar.h"
+        msvc_scalar_path.write_text("namespace acs { using NativeWidth=__int64; using NativeMask=unsigned __int64; }", encoding="utf-8")
+        msvc_scalar_violations = scan_tree(msvc_scalar_path).violations
+        if [(item.rule, item.type_name) for item in msvc_scalar_violations] != [("ACS-R020d", "NativeWidth"), ("ACS-R020d", "NativeMask")]:
+            print(f"type role MSVC scalar self-test failed: {msvc_scalar_violations}", file=sys.stderr)
+            return False
+        parent_callback_path = root / "parent-callback.h"
+        parent_callback_path.write_text("namespace acs { using CCallback=void(*)(); namespace feature { using CCallbackChain=CCallback; } }", encoding="utf-8")
+        if scan_tree(parent_callback_path).violations:
+            print("type role parent callback self-test failed", file=sys.stderr)
+            return False
+        extern_function_path = root / "extern-function.h"
+        extern_function_path.write_text("namespace acs { extern int ExternalFunction() { using LocalTypeId=u32; return 0; } }", encoding="utf-8")
+        extern_function_result = scan_tree(extern_function_path)
+        if extern_function_result.aliases or extern_function_result.violations:
+            print(f"type role extern function exclusion self-test failed: {extern_function_result}", file=sys.stderr)
+            return False
+        balanced_typedef_path = root / "balanced-typedef.h"
+        balanced_typedef_path.write_text("namespace acs { typedef struct { int Field; } LegacyStruct; using BadId=u32; }", encoding="utf-8")
+        balanced_typedef_violations = scan_tree(balanced_typedef_path).violations
+        if [(item.rule, item.type_name) for item in balanced_typedef_violations] != [("ACS-R020d", "LegacyStruct"), ("ACS-R020d", "BadId")]:
+            print(f"type role balanced typedef self-test failed: {balanced_typedef_violations}", file=sys.stderr)
+            return False
+        attributed_typedef_path = root / "attributed-typedef.h"
+        attributed_typedef_path.write_text("namespace acs { typedef u32 BadId [[deprecated]]; }", encoding="utf-8")
+        attributed_typedef_violations = scan_tree(attributed_typedef_path).violations
+        if [(item.rule, item.type_name) for item in attributed_typedef_violations] != [("ACS-R020d", "BadId")]:
+            print(f"type role attributed typedef self-test failed: {attributed_typedef_violations}", file=sys.stderr)
+            return False
+        multiple_typedef_path = root / "multiple-typedef.h"
+        multiple_typedef_path.write_text("namespace acs { typedef u32 BadA, BadB; }", encoding="utf-8")
+        multiple_typedef_violations = scan_tree(multiple_typedef_path).violations
+        if [(item.rule, item.type_name) for item in multiple_typedef_violations] != [("ACS-R020d", "BadB")]:
+            print(f"type role multiple typedef self-test failed: {multiple_typedef_violations}", file=sys.stderr)
+            return False
+        implementation_path = root / "implementation.cpp"
+        implementation_path.write_text("namespace acs { using ImplementationTypeId = u32; }", encoding="utf-8")
+        implementation_result = scan_tree(implementation_path)
+        if implementation_result.aliases or implementation_result.violations:
+            print("type role implementation alias exclusion self-test failed", file=sys.stderr)
+            return False
+        usage_root = root / "legacy-use"
+        usage_header = usage_root / "src" / "event" / "EventTypeId.h"
+        usage_header.parent.mkdir(parents=True)
+        usage_header.write_text(
+            "namespace acs { using FEventTypeId = u32; using EventTypeId = FEventTypeId; EventTypeId Value = 0; }",
+            encoding="utf-8",
+        )
+        usage_violations = scan_tree(usage_header).violations
+        if [(item.rule, item.type_name) for item in usage_violations] != [("ACS-R020e", "EventTypeId")]:
+            print(f"type role legacy use self-test failed: {usage_violations}", file=sys.stderr)
+            return False
+        presence_sources = {
+            "audio/AudioEngine.h": "namespace acs { class CAudioEngine {}; using FAudioEngine = CAudioEngine; }",
+            "ecs/ComponentId.h": "namespace acs { using FComponentTypeId=u32; using ComponentTypeId=FComponentTypeId; using FComponentSignatureId=u64; using ComponentSignatureId=FComponentSignatureId; }",
+            "event/EventTypeId.h": "namespace acs { using FEventTypeId=u32; using EventTypeId=FEventTypeId; }",
+            "event/MessageBroker.h": "namespace acs { class CMessageBroker {}; using FMessageBroker=CMessageBroker; }",
+            "event/TimerManager.h": "namespace acs { class CTimerManager {}; using FTimerManager=CTimerManager; }",
+            "memory/AObject.h": "namespace acs { class AObject {}; using FObject=AObject; }",
+            "scripting/LuaVm.h": "namespace acs::scripting { class CLuaVm {}; using FLuaVm=CLuaVm; }",
+        }
+
+        def write_presence_tree(name: str, sources: dict[str, str]) -> Path:
+            """必須aliasの変異を独立したsource treeへ保存する。"""
+
+            tree = root / name / "src"
+            for relative_path, source in sources.items():
+                fixture_path = tree / relative_path
+                fixture_path.parent.mkdir(parents=True, exist_ok=True)
+                fixture_path.write_text(source, encoding="utf-8")
+            return tree
+
+        presence_root = write_presence_tree("presence", presence_sources)
+        if scan_tree(presence_root).violations:
+            print("type role compatibility presence self-test failed", file=sys.stderr)
+            return False
+        conditional_alias_sources = dict(presence_sources)
+        conditional_alias_sources["audio/AudioEngine.h"] = (
+            "namespace acs { class CAudioEngine {};\n"
+            "#if SOME_FLAG\n"
+            "using FAudioEngine = CAudioEngine;\n"
+            "#else\n"
+            "using FAudioEngine = CAudioEngine;\n"
+            "#endif\n"
+            "}"
+        )
+        conditional_alias_violations = scan_tree(
+            write_presence_tree("conditional-compatibility-alias", conditional_alias_sources)
+        ).violations
+        if [(item.rule, item.type_name) for item in conditional_alias_violations] != [
+            ("ACS-R020d", "FAudioEngine")
+        ]:
+            print(
+                "type role conditional compatibility raw scan self-test failed: "
+                f"{conditional_alias_violations}",
+                file=sys.stderr,
+            )
+            return False
+        for case_index, (qualified_name, canonical_name) in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES.items())):
+            alias_name = qualified_name.rsplit("::", 1)[-1]
+            target_name = canonical_name.rsplit("::", 1)[-1]
+            expected_path = LEGACY_COMPATIBILITY_PATHS[qualified_name]
+            absolute_sources = dict(presence_sources)
+            original_source = absolute_sources[expected_path]
+            absolute_source = re.sub(
+                rf"using\s+{re.escape(alias_name)}\s*=\s*{re.escape(target_name)}\s*;",
+                f"using {alias_name}=::{canonical_name};",
+                original_source,
+                count=1,
+            )
+            if absolute_source == original_source:
+                print(f"type role absolute compatibility fixture replacement failed: {qualified_name}", file=sys.stderr)
+                return False
+            absolute_sources[expected_path] = absolute_source
+            if scan_tree(write_presence_tree(f"absolute-target-{case_index}", absolute_sources)).violations:
+                print(f"type role absolute compatibility target self-test failed: {qualified_name}", file=sys.stderr)
+                return False
+        missing_audio_sources = dict(presence_sources)
+        missing_audio_sources.pop("audio/AudioEngine.h")
+        missing_audio_violations = scan_tree(write_presence_tree("missing-audio-directory", missing_audio_sources)).violations
+        if [(item.rule, item.type_name) for item in missing_audio_violations] != [
+            ("ACS-R020d", "CAudioEngine"),
+            ("ACS-R020d", "FAudioEngine"),
+        ]:
+            print(f"type role missing module directory self-test failed: {missing_audio_violations}", file=sys.stderr)
+            return False
+        nested_source_sources = dict(presence_sources)
+        nested_source_sources["foo/src/foundation/Types.h"] = "namespace acs { using u32 = ::uint32_t; }"
+        nested_source_violations = scan_tree(write_presence_tree("nested-source", nested_source_sources)).violations
+        if [(item.rule, item.type_name) for item in nested_source_violations] != [("ACS-R020d", "u32")]:
+            print(f"type role nested source path self-test failed: {nested_source_violations}", file=sys.stderr)
+            return False
+        preprocessor_sources = {relative_path: f"#if 0\n{source}\n#endif\n" for relative_path, source in presence_sources.items()}
+        preprocessor_violations = scan_tree(
+            write_presence_tree("preprocessor-disabled", preprocessor_sources)
+        ).violations
+        expected_disabled_names = {
+            *(name.rsplit("::", 1)[-1] for name in LEGACY_COMPATIBILITY_ALIASES),
+            *(name.rsplit("::", 1)[-1] for name in CANONICAL_OBJECT_AND_CLASS_TYPES),
+            *(name.rsplit("::", 1)[-1] for name in CANONICAL_SCALAR_ALIASES),
+        }
+        disabled_names = [
+            item.type_name for item in preprocessor_violations if item.rule == "ACS-R020d"
+        ]
+        if set(disabled_names) != expected_disabled_names or len(disabled_names) != len(
+            expected_disabled_names
+        ):
+            print(
+                f"type role preprocessor disabled contract self-test failed: {preprocessor_violations}",
+                file=sys.stderr,
+            )
+            return False
+        premigration_sources = dict(presence_sources)
+        premigration_sources["ecs/ComponentId.h"] = "namespace acs { using ComponentTypeId=u32; using ComponentSignatureId=u64; }"
+        premigration_sources["event/EventTypeId.h"] = "namespace acs { using EventTypeId=u32; }"
+        premigration_violations = scan_tree(write_presence_tree("premigration", premigration_sources)).violations
+        if [(item.rule, item.type_name) for item in premigration_violations] != [
+            ("ACS-R020d", "ComponentTypeId"),
+            ("ACS-R020d", "ComponentSignatureId"),
+            ("ACS-R020d", "EventTypeId"),
+        ]:
+            print(f"type role premigration classification self-test failed: {premigration_violations}", file=sys.stderr)
+            return False
+        coordinated_sources = dict(presence_sources)
+        coordinated_sources["event/EventTypeId.h"] = "namespace acs {}"
+        coordinated_violations = scan_tree(write_presence_tree("coordinated-delete", coordinated_sources)).violations
+        if [(item.rule, item.type_name) for item in coordinated_violations] != [("ACS-R020d", "EventTypeId"), ("ACS-R020d", "FEventTypeId")]:
+            print(f"type role coordinated delete self-test failed: {coordinated_violations}", file=sys.stderr)
+            return False
+        canonical_attribute_sources = dict(presence_sources)
+        canonical_attribute_sources["event/EventTypeId.h"] = canonical_attribute_sources["event/EventTypeId.h"].replace("using FEventTypeId=u32;", "using FEventTypeId [[deprecated]]=u32;")
+        canonical_attribute_violations = scan_tree(write_presence_tree("canonical-attribute", canonical_attribute_sources)).violations
+        if [(item.rule, item.type_name) for item in canonical_attribute_violations] != [("ACS-R020d", "FEventTypeId")]:
+            print(f"type role canonical attribute self-test failed: {canonical_attribute_violations}", file=sys.stderr)
+            return False
+        legacy_attribute_sources = dict(presence_sources)
+        legacy_attribute_sources["event/EventTypeId.h"] = legacy_attribute_sources["event/EventTypeId.h"].replace("using EventTypeId=FEventTypeId;", "using EventTypeId [[deprecated]]=FEventTypeId;")
+        legacy_attribute_violations = scan_tree(write_presence_tree("legacy-attribute", legacy_attribute_sources)).violations
+        if [(item.rule, item.type_name) for item in legacy_attribute_violations] != [("ACS-R020d", "EventTypeId")]:
+            print(f"type role legacy attribute self-test failed: {legacy_attribute_violations}", file=sys.stderr)
+            return False
+        inner_linkage_sources = dict(presence_sources)
+        inner_linkage_sources["event/EventTypeId.h"] = "namespace acs { extern \"C\" { using FEventTypeId=u32; using EventTypeId=FEventTypeId; } }"
+        if scan_tree(write_presence_tree("inner-linkage", inner_linkage_sources)).violations:
+            print("type role inner linkage self-test failed", file=sys.stderr)
+            return False
+        outer_linkage_sources = dict(presence_sources)
+        outer_linkage_sources["event/EventTypeId.h"] = "extern \"C\" { namespace acs { using FEventTypeId=u32; using EventTypeId=FEventTypeId; } }"
+        if scan_tree(write_presence_tree("outer-linkage", outer_linkage_sources)).violations:
+            print("type role outer linkage self-test failed", file=sys.stderr)
+            return False
+
+        legacy_declarations = {
+            "acs::FObject": ("memory/AObject.h", "using FObject=AObject;", "using FObject=CAudioEngine;"),
+            "acs::FAudioEngine": ("audio/AudioEngine.h", "using FAudioEngine = CAudioEngine;", "using FAudioEngine = CMessageBroker;"),
+            "acs::FMessageBroker": ("event/MessageBroker.h", "using FMessageBroker=CMessageBroker;", "using FMessageBroker=CTimerManager;"),
+            "acs::FTimerManager": ("event/TimerManager.h", "using FTimerManager=CTimerManager;", "using FTimerManager=CMessageBroker;"),
+            "acs::scripting::FLuaVm": ("scripting/LuaVm.h", "using FLuaVm=CLuaVm;", "using FLuaVm=CAudioEngine;"),
+            "acs::ComponentSignatureId": ("ecs/ComponentId.h", "using ComponentSignatureId=FComponentSignatureId;", "using ComponentSignatureId=FComponentTypeId;"),
+            "acs::ComponentTypeId": ("ecs/ComponentId.h", "using ComponentTypeId=FComponentTypeId;", "using ComponentTypeId=FComponentSignatureId;"),
+            "acs::EventTypeId": ("event/EventTypeId.h", "using EventTypeId=FEventTypeId;", "using EventTypeId=FComponentTypeId;"),
+        }
+        for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(legacy_declarations.items())):
+            alias_name = qualified_name.rsplit("::", 1)[-1]
+            deletion_sources = dict(presence_sources)
+            deletion_sources[expected_path] = deletion_sources[expected_path].replace(declaration, "")
+            duplicate_sources = dict(presence_sources)
+            duplicate_sources[expected_path] += f"\nnamespace {'acs::scripting' if qualified_name.startswith('acs::scripting::') else 'acs'} {{ {declaration} }}"
+            moved_sources = dict(deletion_sources)
+            moved_sources[f"event/MovedLegacy{case_index}.h"] = f"namespace {'acs::scripting' if qualified_name.startswith('acs::scripting::') else 'acs'} {{ {declaration} }}"
+            target_sources = dict(presence_sources)
+            target_sources[expected_path] = target_sources[expected_path].replace(declaration, wrong_declaration)
+            relative_target_sources = dict(presence_sources)
+            canonical_target = LEGACY_COMPATIBILITY_ALIASES[qualified_name]
+            relative_declaration = declaration.replace(canonical_target.rsplit("::", 1)[-1], canonical_target)
+            relative_target_sources[expected_path] = relative_target_sources[expected_path].replace(declaration, relative_declaration)
+            for mutation_name, mutation_sources in (
+                ("delete", deletion_sources),
+                ("duplicate", duplicate_sources),
+                ("move", moved_sources),
+                ("target", target_sources),
+                ("relative-target", relative_target_sources),
+            ):
+                mutation_root = write_presence_tree(f"legacy-{case_index}-{mutation_name}", mutation_sources)
+                mutation_violations = scan_tree(mutation_root).violations
+                if [(item.rule, item.type_name) for item in mutation_violations] != [("ACS-R020d", alias_name)]:
+                    print(f"type role legacy contract mutation failed: {qualified_name}/{mutation_name}: {mutation_violations}", file=sys.stderr)
+                    return False
+
+        canonical_type_declarations = {
+            "acs::AObject": ("memory/AObject.h", "class AObject {};", "struct AObject {};"),
+            "acs::CAudioEngine": ("audio/AudioEngine.h", "class CAudioEngine {};", "struct CAudioEngine {};"),
+            "acs::CMessageBroker": ("event/MessageBroker.h", "class CMessageBroker {};", "struct CMessageBroker {};"),
+            "acs::CTimerManager": ("event/TimerManager.h", "class CTimerManager {};", "struct CTimerManager {};"),
+            "acs::scripting::CLuaVm": ("scripting/LuaVm.h", "class CLuaVm {};", "struct CLuaVm {};"),
+        }
+        for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(canonical_type_declarations.items())):
+            namespace = "acs::scripting" if qualified_name.startswith("acs::scripting::") else "acs"
+            deletion_sources = dict(presence_sources)
+            deletion_sources[expected_path] = deletion_sources[expected_path].replace(declaration, "")
+            duplicate_sources = dict(presence_sources)
+            duplicate_sources[expected_path] += f"\nnamespace {namespace} {{ {declaration} }}"
+            moved_sources = dict(deletion_sources)
+            moved_sources[f"event/MovedCanonicalType{case_index}.h"] = f"namespace {namespace} {{ {declaration} }}"
+            keyword_sources = dict(presence_sources)
+            keyword_sources[expected_path] = keyword_sources[expected_path].replace(declaration, wrong_declaration)
+            for mutation_name, mutation_sources in (
+                ("delete", deletion_sources),
+                ("duplicate", duplicate_sources),
+                ("move", moved_sources),
+                ("keyword", keyword_sources),
+            ):
+                mutation_violations = scan_tree(
+                    write_presence_tree(f"canonical-type-{case_index}-{mutation_name}", mutation_sources)
+                ).violations
+                hard_contract = [
+                    item
+                    for item in mutation_violations
+                    if item.rule == "ACS-R020d"
+                    and item.role_reason == "hard-canonical"
+                    and item.qualified_type == qualified_name
+                ]
+                if len(hard_contract) != 1:
+                    print(
+                        f"type role canonical type mutation failed: {qualified_name}/{mutation_name}: {mutation_violations}",
+                        file=sys.stderr,
+                    )
+                    return False
+
+            legacy_name = next(
+                name for name, target in LEGACY_COMPATIBILITY_ALIASES.items() if target == qualified_name
+            )
+            legacy_definition_sources = dict(presence_sources)
+            legacy_definition_sources[expected_path] += (
+                f"\nnamespace {namespace} {{ class {legacy_name.rsplit('::', 1)[-1]} {{}}; }}"
+            )
+            legacy_definition_violations = scan_tree(
+                write_presence_tree(f"legacy-definition-{case_index}", legacy_definition_sources)
+            ).violations
+            if len(
+                [
+                    item
+                    for item in legacy_definition_violations
+                    if item.rule == "ACS-R020d"
+                    and item.role_reason == "legacy-definition"
+                    and item.qualified_type == legacy_name
+                ]
+            ) != 1:
+                print(
+                    f"type role legacy definition mutation failed: {legacy_name}: {legacy_definition_violations}",
+                    file=sys.stderr,
+                )
+                return False
+
+        canonical_declarations = {
+            "acs::FComponentSignatureId": ("ecs/ComponentId.h", "using FComponentSignatureId=u64;", "using FComponentSignatureId=u32;"),
+            "acs::FComponentTypeId": ("ecs/ComponentId.h", "using FComponentTypeId=u32;", "using FComponentTypeId=u64;"),
+            "acs::FEventTypeId": ("event/EventTypeId.h", "using FEventTypeId=u32;", "using FEventTypeId=u64;"),
+        }
+        for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(canonical_declarations.items())):
+            alias_name = qualified_name.rsplit("::", 1)[-1]
+            deletion_sources = dict(presence_sources)
+            deletion_sources[expected_path] = deletion_sources[expected_path].replace(declaration, "")
+            duplicate_sources = dict(presence_sources)
+            duplicate_sources[expected_path] += f"\nnamespace acs {{ {declaration} }}"
+            moved_sources = dict(deletion_sources)
+            moved_sources[f"event/MovedCanonical{case_index}.h"] = f"namespace acs {{ {declaration} }}"
+            target_sources = dict(presence_sources)
+            target_sources[expected_path] = target_sources[expected_path].replace(declaration, wrong_declaration)
+            for mutation_name, mutation_sources in (
+                ("delete", deletion_sources),
+                ("duplicate", duplicate_sources),
+                ("move", moved_sources),
+                ("target", target_sources),
+            ):
+                mutation_root = write_presence_tree(f"canonical-{case_index}-{mutation_name}", mutation_sources)
+                mutation_violations = scan_tree(mutation_root).violations
+                if [(item.rule, item.type_name) for item in mutation_violations] != [("ACS-R020d", alias_name)]:
+                    print(f"type role canonical contract mutation failed: {qualified_name}/{mutation_name}: {mutation_violations}", file=sys.stderr)
+                    return False
+
+        required_bypass_sources = dict(presence_sources)
+        required_bypass_sources["event/EventTypeId.h"] = required_bypass_sources["event/EventTypeId.h"].replace(
+            "using EventTypeId=FEventTypeId;",
+            "template<class T> using EventTypeId=FEventTypeId;",
+        )
+        bypass_violations = scan_tree(write_presence_tree("required-template-bypass", required_bypass_sources)).violations
+        if [(item.rule, item.type_name) for item in bypass_violations] != [("ACS-R020d", "EventTypeId")]:
+            print(f"type role required template bypass self-test failed: {bypass_violations}", file=sys.stderr)
+            return False
+        required_bypass_sources = dict(presence_sources)
+        required_bypass_sources["event/MessageBroker.h"] = required_bypass_sources["event/MessageBroker.h"].replace(
+            "using FMessageBroker=CMessageBroker;",
+            "using FMessageBroker=void(*)();",
+        )
+        bypass_violations = scan_tree(write_presence_tree("required-callback-bypass", required_bypass_sources)).violations
+        if [(item.rule, item.type_name) for item in bypass_violations] != [("ACS-R020d", "FMessageBroker")]:
+            print(f"type role required callback bypass self-test failed: {bypass_violations}", file=sys.stderr)
+            return False
+
+        for case_index, qualified_name in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES)):
+            alias_name = qualified_name.rsplit("::", 1)[-1]
+            namespace = "acs::scripting" if qualified_name.startswith("acs::scripting::") else "acs"
+            reentry_sources = dict(presence_sources)
+            reentry_sources[f"event/LegacyUse{case_index}.cpp"] = f"namespace {namespace} {{ {alias_name}* LegacyValue = nullptr; }}"
+            reentry_violations = scan_tree(write_presence_tree(f"legacy-reentry-{case_index}", reentry_sources)).violations
+            if [(item.rule, item.type_name) for item in reentry_violations] != [("ACS-R020e", alias_name)]:
+                print(f"type role legacy reentry self-test failed: {qualified_name}: {reentry_violations}", file=sys.stderr)
+                return False
+
+        for case_index, qualified_name in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES)):
+            alias_name = qualified_name.rsplit("::", 1)[-1]
+            namespace = "acs::scripting" if qualified_name.startswith("acs::scripting::") else "acs"
+            forward_sources = dict(presence_sources)
+            forward_sources[f"event/LegacyForward{case_index}.cpp"] = f"namespace {namespace} {{ class {alias_name}; }}"
+            forward_violations = scan_tree(write_presence_tree(f"legacy-forward-{case_index}", forward_sources)).violations
+            if [(item.rule, item.type_name) for item in forward_violations] != [("ACS-R020e", alias_name)]:
+                print(f"type role legacy forward self-test failed: {qualified_name}: {forward_violations}", file=sys.stderr)
+                return False
     print(f"cpp_type_role_self_test=ok violations={len(expected)}")
     return True
 
@@ -886,8 +3797,14 @@ struct AEntity : public FObject {};
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """コマンドライン引数を解析する。"""
 
-    parser = argparse.ArgumentParser(description="C++型の役割とA/F/I/T/E接頭辞を監査します。")
+    parser = argparse.ArgumentParser(description="C++型の役割とA/C/F/I/T/E接頭辞を監査します。")
     parser.add_argument("--root", type=Path, help="監査するC++ツリー")
+    parser.add_argument(
+        "--migration-debt",
+        type=Path,
+        default=DEFAULT_MIGRATION_DEBT,
+        help="未完了の型役割reviewを固定するexact debt JSON",
+    )
     parser.add_argument("--format", choices=("human", "json"), default="human")
     parser.add_argument("--json-output", type=Path, help="全結果を保存するJSONファイル")
     parser.add_argument("--max-diagnostics", type=int, default=200)
@@ -910,7 +3827,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("監査rootが見つかりません", file=sys.stderr)
         return 2
     try:
-        result = scan_tree(arguments.root)
+        result = scan_tree(arguments.root, arguments.migration_debt)
         report = build_json_report(result)
         if arguments.json_output is not None:
             write_json(arguments.json_output, report)

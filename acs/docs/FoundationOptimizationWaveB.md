@@ -18,10 +18,10 @@ Wave B は、基盤層の待機・投入・イベント配送・タイマー・�
 | T06 | `FThreadPool` | idle の時間指定ポーリングを条件変数待機へ変更し、sleep 中ワーカー数と wake 予約数に基づく通知へ変更。外部投入 FIFO は最大 16 件を一括取得し、残件を steal 可能な owner deque へ公開。 |
 | T07 | `FJobGraph` | Kahn 法で topology を一度検証・キャッシュし、反復実行では dependency counter だけをリセット。先頭 32 job と実行 scratch をインライン保持。 |
 | T08 | `TMessagePipe` | 既定 MPMC の先頭 index と償却 compaction、最大深度、batch push/pop を追加し、pop ごとの配列 shift を廃止。 |
-| T09 | `FTimerManager` | active slot bitset、generation 付き直接 cancel、active count の定数時間取得を追加。tick は active word と active slot だけを走査。 |
+| T09 | `CTimerManager` | active slot bitset、generation 付き直接 cancel、active count の定数時間取得を追加。tick は active word と active slot だけを走査。 |
 | T10 | `FFileSystem` / `FStorage` | text の直接一回読み込み、4 GiB 超過拒否、厳密な directory 作成、同一 directory 内 temp を使う atomic write を実装。 |
 | T26 | 所有 callable | `FThreadPool::SubmitCallable` と `FJobGraph::AddCallable` を追加。小型 callable は inline、超過時だけ heap を使い、成功・失敗・停止の各経路で一度だけ破棄。 |
-| T27 | `FMessageBroker` | `SubscribeTyped` を追加し、callback signature を compile time 検証。ID から slot を直接参照する unsubscribe と定数時間 active count を実装。 |
+| T27 | `CMessageBroker` | `SubscribeTyped` を追加し、callback signature を compile time 検証。ID から slot を直接参照する unsubscribe と定数時間 active count を実装。 |
 | T28 | `TMessagePipe` SPSC | compile-time policy と 2 の累乗 capacity を持つ acquire/release ring specialization を追加。値操作は noexcept を要求し、Close は最後の Push 完了後に行う契約を明記。 |
 | T29 | path / storage safety | ASCII extension の constexpr 分類を追加し、Unicode 本文を保持。atomic replace 前の reparse 再検査と失敗時 temp cleanup を追加。拡張子だけで Storage 内容を拒否せず従来動作を維持。 |
 | T30 | typed timer | `Schedule<Policy, Callback, User>` を追加し、Once/Repeating と callback signature を compile time に固定。 |

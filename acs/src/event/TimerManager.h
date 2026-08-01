@@ -22,19 +22,19 @@ using TimerCallback = void (*)(void* user);
  * フレーム単位の一回または周期タイマーを同じスレッド内で管理する。
  * Tickが戻るまでは、この管理器と呼出し対象の寿命を呼出し側で保つ必要がある。
  */
-class FTimerManager {
+class CTimerManager {
 public:
     /** 空のタイマー管理器を作る。 */
-    FTimerManager() noexcept = default;
+    CTimerManager() noexcept = default;
 
     /** タイマー管理器を破棄する。 */
-    ~FTimerManager() noexcept = default;
+    ~CTimerManager() noexcept = default;
 
     /** タイマーの重複所有を防ぐためコピー構築を禁止する。 */
-    FTimerManager(const FTimerManager&) = delete;
+    CTimerManager(const CTimerManager&) = delete;
 
     /** タイマーの重複所有を防ぐためコピー代入を禁止する。 */
-    FTimerManager& operator=(const FTimerManager&) = delete;
+    CTimerManager& operator=(const CTimerManager&) = delete;
 
     /**
      * 指定時間後に一度だけ関数を呼び出す。
@@ -206,7 +206,7 @@ private:
     FTimerDiagnostics m_Diagnostics;
 };
 
-/** 旧名を使う既存コード向けの互換別名。 */
-using CTimerManager = FTimerManager;
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FTimerManager = CTimerManager;
 
 } // namespace acs

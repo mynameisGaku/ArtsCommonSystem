@@ -125,7 +125,7 @@ option(ACS_BUILD_STEAMWORKS "Build real Steamworks SDK backend (acs_steamworks m
 # Phase N-3 実バックエンド統合: Lua 5.4 scripting の real 実装。
 # OFF (default) なら src/gameframework/ScriptHost.h の ScriptVmStub のみ。
 # ON にすると Lua 5.4 を FetchContent 取得 (MIT、gating 無し) し
-# acs_scripting module (FLuaVm) を real ビルドする。
+# acs_scripting module (CLuaVm) を real ビルドする。
 option(ACS_BUILD_SCRIPTING "Build real Lua 5.4 scripting backend (acs_scripting module)" OFF)
 
 # acs::game::IMlRuntime 用の実 ONNX Runtime CPU inference backend。

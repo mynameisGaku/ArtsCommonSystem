@@ -30,12 +30,12 @@ static_assert(GenerationExhaustionIsPermanent());
 } // namespace
 
 /** 全通路を解放する。 */
-FMessageBroker::~FMessageBroker() noexcept {
+CMessageBroker::~CMessageBroker() noexcept {
     Clear();
 }
 
 /** 全通路の購読を無効化し、配信中の参照が指す領域は維持する。 */
-void FMessageBroker::InvalidateAllChannels() noexcept {
+void CMessageBroker::InvalidateAllChannels() noexcept {
     for (/** 無効にする通路の位置。 */ usize i = 0; i < m_Channels.Size(); ++i) {
         /** 購読を無効化する通路。 */
         FChannel* const channel = m_Channels[i];
@@ -54,7 +54,7 @@ void FMessageBroker::InvalidateAllChannels() noexcept {
 }
 
 /** 全通路と保持領域を解放し、保留中の全解除を完了する。 */
-void FMessageBroker::ReleaseChannels() noexcept {
+void CMessageBroker::ReleaseChannels() noexcept {
     /** 通路の確保と解放に使う既存配列のメモリ管理器。 */
     FAllocator& allocator = *m_Channels.GetAllocator();
     for (/** 解放する通路の位置。 */ usize i = 0; i < m_Channels.Size(); ++i) {
@@ -64,7 +64,7 @@ void FMessageBroker::ReleaseChannels() noexcept {
 }
 
 /** 全購読を直ちに無効化し、通路を安全な時点で解放する。 */
-void FMessageBroker::Clear() noexcept {
+void CMessageBroker::Clear() noexcept {
     if (IsClearPending()) return;
     /** 全通路の配信状態を保持する制御領域。 */
     FChannel* const control = GetControlChannel();
@@ -77,12 +77,12 @@ void FMessageBroker::Clear() noexcept {
 }
 
 /** 制御領域を返し、未作成ならnullptrを返す。 */
-FMessageBroker::FChannel* FMessageBroker::GetControlChannel() noexcept {
+CMessageBroker::FChannel* CMessageBroker::GetControlChannel() noexcept {
     return m_Channels.Size() != 0 ? m_Channels[0] : nullptr;
 }
 
 /** 配信終了まで全解除を保留しているかを返す。 */
-bool FMessageBroker::IsClearPending() const noexcept {
+bool CMessageBroker::IsClearPending() const noexcept {
     return m_Channels.Size() != 0 && m_Channels[0] && m_Channels[0]->broker_clear_pending;
 }
 
@@ -91,7 +91,7 @@ bool FMessageBroker::IsClearPending() const noexcept {
  * @param id 取得する通路番号。
  * @param create 存在しない通路を作成するか。
  */
-FMessageBroker::FChannel* FMessageBroker::GetChannel(EventTypeId id, bool create) noexcept {
+CMessageBroker::FChannel* CMessageBroker::GetChannel(FEventTypeId id, bool create) noexcept {
     if (IsClearPending() || !IsValidEventTypeId(id)) return nullptr;
     /** 通路番号と一致する配列位置。 */
     const usize storage_index = static_cast<usize>(id);
@@ -121,7 +121,7 @@ FMessageBroker::FChannel* FMessageBroker::GetChannel(EventTypeId id, bool create
  * 再利用待ちの購読枠を空き一覧へ移す。
  * @param channel 整理する通路。
  */
-void FMessageBroker::CollectReusableSlots(FChannel& channel) noexcept {
+void CMessageBroker::CollectReusableSlots(FChannel& channel) noexcept {
     if (channel.publish_depth != 0) return;
     for (/** 現在調べる購読枠の位置。 */ u32 index = 0; index < channel.slots.Size(); ++index) {
         /** 現在調べる購読情報。 */
@@ -138,7 +138,7 @@ void FMessageBroker::CollectReusableSlots(FChannel& channel) noexcept {
  * @param cb 配信時に呼び出す関数。
  * @param user 呼び出す関数へ渡す値。
  */
-FSubscriptionHandle FMessageBroker::SubscribeRaw(EventTypeId channel, MessageCallback cb, void* user) noexcept {
+FSubscriptionHandle CMessageBroker::SubscribeRaw(FEventTypeId channel, MessageCallback cb, void* user) noexcept {
     /** 今回の購読へ割り当てる世代番号。 */
     u32 generation = m_GenerationSeed;
     if (!cb || IsClearPending() || !TryAdvanceGeneration(generation)) return kInvalidSubscription;
@@ -175,7 +175,7 @@ FSubscriptionHandle FMessageBroker::SubscribeRaw(EventTypeId channel, MessageCal
  * 指定した購読を解除する。
  * @param handle 解除する購読のハンドル。
  */
-bool FMessageBroker::Unsubscribe(FSubscriptionHandle handle) noexcept {
+bool CMessageBroker::Unsubscribe(FSubscriptionHandle handle) noexcept {
     if (!handle.IsValid()) return false;
     /** 解除元の通路。 */
     FChannel* channel = GetChannel(handle.channel, false);
@@ -201,7 +201,7 @@ bool FMessageBroker::Unsubscribe(FSubscriptionHandle handle) noexcept {
  * @param channel 配信先の通路番号。
  * @param payload 配信する値。
  */
-void FMessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexcept {
+void CMessageBroker::PublishRaw(FEventTypeId channel, const void* payload) noexcept {
     if (IsClearPending()) return;
     /** 配信先の通路。 */
     FChannel* target = GetChannel(channel, false);
@@ -238,7 +238,7 @@ void FMessageBroker::PublishRaw(EventTypeId channel, const void* payload) noexce
  * 指定した通路の有効な購読数を返す。
  * @param channel 調べる通路番号。
  */
-u32 FMessageBroker::SubscriberCount(EventTypeId channel) const noexcept {
+u32 CMessageBroker::SubscriberCount(FEventTypeId channel) const noexcept {
     if (!IsValidEventTypeId(channel)) return 0;
     /** 通路番号と一致する配列位置。 */
     const usize storage_index = static_cast<usize>(channel);

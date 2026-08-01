@@ -8,7 +8,7 @@ Wave M の T65〜T72 は、世代付きハンドル、timer、immutable byte dec
 
 - 目的: 実際に繰り返される RMW、文字列比較、所有参照を減らす。
 - 効果: 決定的な回数または layout で差分を説明できる。
-- 依存: 既存の `FJobGraph`、`FMessageBroker`、`.acpak` 正規形を再利用する。
+- 依存: 既存の `FJobGraph`、`CMessageBroker`、`.acpak` 正規形を再利用する。
 - 検証可能性: Debug/Release、nested mutation、Reset 後再構築、package
   round-trip、公開 layout、規約・reference・module・配布物監査から確認できる。
 
@@ -93,7 +93,7 @@ Releaseで4,360 bytesから4,480 bytesへ120 bytes増える。この固定費は
 
 ### 採用
 
-`FMessageBroker` は Publish 開始時の `slots.Size()` を境界として保持する。
+`CMessageBroker` は Publish 開始時の `slots.Size()` を境界として保持する。
 発行中の Subscribe は末尾へ追加されるため outer Publish には混入せず、次の
 Publish と nested Publish から見える。Unsubscribe は `active=false` を即時反映し、
 同じ配送内の未実行 callback を抑止する。別の dispatch 配列を追加して再利用する
@@ -185,7 +185,7 @@ Wave M は、世代付きハンドル、疎な timer 走査、少数 lookup、im
 | Task | 判断 | 期待効果 | 依存関係 | 検証可能性 |
 |---|---|---|---|---|
 | T65 handle layout | 採用 | 異種ハンドルの ABI drift を compile time で検出 | 既存の object/entity/timer/subscription handle | offset・幅・size の static assert と既存の stale handle 再利用テスト |
-| T66 word-batched bitset | 既存実装を正式採用 | inactive slot の field 読み出しを避ける | `FTimerManager::m_ActiveWords` と x64 bit scan | 8192 timer 中 1 active の訪問数・word 数、callback mutation/Clear |
+| T66 word-batched bitset | 既存実装を正式採用 | inactive slot の field 読み出しを避ける | `CTimerManager::m_ActiveWords` と x64 bit scan | 8192 timer 中 1 active の訪問数・word 数、callback mutation/Clear |
 | T67 tiny lookup policy | 延期 | 閾値なしの policy 増加を回避 | 代表 workload と transition/cycle 指標が未整備 | 実 consumer の計測値が得られるまで未実装 |
 | T68 immutable decode | 採用 | header/sample の中間 copy・decode 前 allocation を除去 | `TSpan<const u8>`、既存 `.acsr` CRC/上限 | 正常 field parity、truncation、CRC、範囲外、transactional load |
 
@@ -203,7 +203,7 @@ handle 判定を変えず、ABI の意図しない並べ替えだけをテスト
 
 ## T66: timer active word
 
-`FTimerManager` は既に `m_ActiveWords` を production の `Tick` で走査し、
+`CTimerManager` は既に `m_ActiveWords` を production の `Tick` で走査し、
 set bit だけを bit scan している。generic bitset を追加して二重管理せず、この経路を
 採用した。callback は timer の追加、cancel、`Clear` を実行できるため、各 callback
 後に同じ word を再読込する。初回 snapshot に固定すると、後続 slot の cancel を

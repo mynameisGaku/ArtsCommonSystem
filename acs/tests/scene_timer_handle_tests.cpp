@@ -195,7 +195,7 @@ ACS_TEST(SceneTimerHandle, SceneAndEventZeroDelayPoliciesStayDistinct)
     EXPECT_EQ(scene_timer.ActiveCount(), 0u);
 
     /** 0 秒登録を受理する event 寿命のタイマー。 */
-    FTimerManager event_timer;
+    CTimerManager event_timer;
     /** event タイマーが発行した独立ハンドル。 */
     const FTimerHandle event_zero = event_timer.SetTimeout(0.0f, &RecordTimeout, &trace);
     EXPECT_TRUE(event_zero.IsValid());

@@ -78,14 +78,27 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "ComponentTypeId / GetComponentTypeId&lt;T&gt;()",
-      kind: "型エイリアス / 関数テンプレート", header: "ecs/ComponentId.h",
+      name: "FComponentTypeId",
+      kind: "型エイリアス", header: "ecs/ComponentId.h",
       summary: "<t>コンポーネント</t>型ごとに一意な番号(<code>u32</code>)を割り当てる仕組み。<code>GetComponentTypeId&lt;T&gt;()</code> は型 T に固有の番号を返し、ストレージ配列の添字に使う。初回呼び出しで割り当て、以降は同じ値(<t>スレッド</t>安全)。",
       when: "通常ユーザーが直接触ることは少なく、<code>FWorld</code> 内部がコンポーネントの保管場所を引くために使う。低レベルに自前管理したい時のみ。",
-      sample: "ComponentTypeId pid = GetComponentTypeId&lt;Position&gt;();\nComponentTypeId vid = GetComponentTypeId&lt;Velocity&gt;();\n// pid != vid（型ごとに別番号）",
+      sample: "FComponentTypeId pid = GetComponentTypeId&lt;Position&gt;();\nFComponentTypeId vid = GetComponentTypeId&lt;Velocity&gt;();\n// pid != vid（型ごとに別番号）",
       members: [
-        { sig: "constexpr ComponentTypeId kMaxComponentTypes = 256", desc: "扱えるコンポーネント型の上限(0..255)。" },
-        { sig: "ComponentTypeId GetComponentTypeId<T>()", ret: "型固有の番号", desc: "型 T に対応する番号を返す。初めて呼んだ型に新しい番号を振る。" }
+        { sig: "constexpr FComponentTypeId kMaxComponentTypes = 256", desc: "扱えるコンポーネント型の上限(0..255)。" },
+        { sig: "FComponentTypeId GetComponentTypeId<T>()", ret: "型固有の番号", desc: "型 T に対応する番号を返す。初めて呼んだ型に新しい番号を振る。" },
+        { sig: "using ComponentTypeId = FComponentTypeId", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>FComponentTypeId</code> を使う。" }
+      ]
+    },
+    {
+      name: "FComponentSignatureId",
+      kind: "型エイリアス", header: "ecs/ComponentId.h",
+      summary: "コンポーネント型からコンパイル時に求める <code>u64</code> の署名。型パックの比較や特殊化に使うビルド内の値で、保存データの永続IDには使わない。",
+      when: "実行時の密な番号ではなく、テンプレート処理でコンポーネント型を比較・識別する時。",
+      sample: "constexpr FComponentSignatureId signature = GetComponentSignatureId&lt;Position&gt;();\nstatic_assert(signature == TComponentTypeTraits&lt;Position&gt;::Signature);",
+      members: [
+        { sig: "FComponentSignatureId = u64", desc: "署名の実体は <code>u64</code>。" },
+        { sig: "constexpr FComponentSignatureId GetComponentSignatureId<T>()", ret: "型 T の署名", desc: "コンパイラの型署名からビルド内で安定した値を返す。" },
+        { sig: "using ComponentSignatureId = FComponentSignatureId", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>FComponentSignatureId</code> を使う。" }
       ]
     },
     {
@@ -106,10 +119,10 @@ ACS_REF.modules.push({
       kind: "クラス", header: "ecs/ComponentRegistry.h",
       summary: "コンポーネント型ごとの操作(<t>FComponentOps</t>)を登録・引き出す静的レジストリ。型 T を 1 度登録すれば、以後は番号から型を知らずに操作を取り出せる。",
       when: "型消去したコンポーネント管理を自作する時の土台。通常は <code>FWorld</code> の内側で使われる。",
-      sample: "const FComponentOps&amp; ops = FComponentRegistry::Register&lt;Velocity&gt;();\nComponentTypeId id = GetComponentTypeId&lt;Velocity&gt;();\nconst FComponentOps&amp; same = FComponentRegistry::Get(id);  // 同じ Ops",
+      sample: "const FComponentOps&amp; ops = FComponentRegistry::Register&lt;Velocity&gt;();\nFComponentTypeId id = GetComponentTypeId&lt;Velocity&gt;();\nconst FComponentOps&amp; same = FComponentRegistry::Get(id);  // 同じ Ops",
       members: [
         { sig: "static const FComponentOps& Register<T>()", ret: "型 T の Ops", desc: "型 T を登録(初回のみ実体作成)し、その <code>FComponentOps</code> を返す。", when: "新しいコンポーネント型を初めて使う前に。" },
-        { sig: "static const FComponentOps& Get(ComponentTypeId id)", ret: "Ops", desc: "番号から登録済みの <code>FComponentOps</code> を引く。" }
+        { sig: "static const FComponentOps& Get(FComponentTypeId id)", ret: "Ops", desc: "番号から登録済みの <code>FComponentOps</code> を引く。" }
       ]
     },
     {

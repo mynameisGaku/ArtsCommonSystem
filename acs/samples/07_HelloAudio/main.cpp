@@ -2,7 +2,7 @@
 // HelloAudio — エントリポイント。
 //
 // 構成:
-//   HelloAudioApp.{h,cpp} - FApplication 派生クラス (FAudioEngine + FAudioAsset)
+//   HelloAudioApp.{h,cpp} - FApplication 派生クラス (CAudioEngine + FAudioAsset)
 //
 // 操作:
 //   Space     : 再生 / 停止

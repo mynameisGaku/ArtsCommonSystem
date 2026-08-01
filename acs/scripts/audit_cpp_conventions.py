@@ -59,7 +59,7 @@ REMOVED_HEADER_BASENAMES = frozenset(
 REMOVED_TYPES = frozenset({"FNode2D", "FNode3D", "FComponent2D", "FComponent3D"})
 # 実宣言は prefix だけでなく名前全体を PascalCase として検証する。
 # underscore は許可せず、T prefix は template class/struct 専用とする。
-TYPE_PREFIX = re.compile(r"^[AFI][A-Z0-9][A-Za-z0-9]*$")
+TYPE_PREFIX = re.compile(r"^[ACFI][A-Z0-9][A-Za-z0-9]*$")
 TEMPLATE_TYPE_PREFIX = re.compile(r"^T[A-Z0-9][A-Za-z0-9]*$")
 ENUM_PREFIX = re.compile(r"^E[A-Z0-9][A-Za-z0-9]*$")
 RAW_STRING_START = re.compile(r'(?:u8|u|U|L)?R"([^\s()\\]{0,16})\(')
@@ -862,7 +862,7 @@ def audit_tokens(
                             name.line,
                             name.column,
                             "ACS-R020a",
-                            f"型 '{name.text}' は A/F/I prefix + PascalCase が必要",
+                            f"型 '{name.text}' は A/C/F/I prefix + PascalCase が必要",
                         )
                     )
                 pending_template = False
@@ -989,7 +989,10 @@ struct VSIn { float3 Position : POSITION; };
 class BadShader {};
 )HLSL";
 class FValue;
-class AObject : public FObject {};
+class AObject {};
+class AManagedObject : public AObject {};
+using FObject = AObject;
+class CRenderer {};
 class IReader { virtual void Read() = 0; };
 struct FMethodTarget {};
 template<typename T> class TArray {};

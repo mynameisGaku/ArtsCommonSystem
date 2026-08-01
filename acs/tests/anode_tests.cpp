@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // ANode (統一シーンノード) の動作確認テスト
 //
-// FObject 基底の所有/弱参照、2D ヘルパ (FTransform3D 一本化)、そして
+// AObject 基底の所有/弱参照、2D ヘルパ (FTransform3D 一本化)、そして
 // DrawTreeSorted のグローバル描画順 (DrawLayer/DrawPriority/YSort/原子 subtree)
 // をヘッドレス (スプライトバッチ未配線の FRenderContext) で検証する。
 #include "test/Test.h"

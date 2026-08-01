@@ -6,7 +6,7 @@
 namespace acs::scripting {
 
 /** 直前に保持した戻り文字列をLuaの登録領域から外す。 */
-void FLuaVm::FLuaVmImpl::ReleaseLastString() noexcept {
+void CLuaVm::FLuaVmImpl::ReleaseLastString() noexcept {
     if (m_L && m_LastStringRef != LUA_NOREF && m_LastStringRef != LUA_REFNIL) {
         luaL_unref(m_L, LUA_REGISTRYINDEX, m_LastStringRef);
     }
@@ -19,15 +19,18 @@ void FLuaVm::FLuaVmImpl::ReleaseLastString() noexcept {
  * @param state 呼び出し元のLua状態。
  * @return Luaへ返す値の個数。
  */
-int FLuaVm::FLuaVmImpl::NativeTrampoline(lua_State* state) noexcept {
-    const int registration_index = static_cast<int>(lua_tointeger(state, lua_upvalueindex(1))); // 呼び出す登録情報の位置。
-    auto* implementation = static_cast<FLuaVm::FLuaVmImpl*>(lua_touserdata(state, lua_upvalueindex(2))); // 呼び出し先を保持する実装。
+int CLuaVm::FLuaVmImpl::NativeTrampoline(lua_State* state) noexcept {
+    /** 呼び出す登録情報の位置。 */
+    const int registration_index = static_cast<int>(lua_tointeger(state, lua_upvalueindex(1)));
+    /** 呼び出し先を保持する実装。 */
+    auto* implementation = static_cast<CLuaVm::FLuaVmImpl*>(lua_touserdata(state, lua_upvalueindex(2)));
     const lua_Integer registration_id = lua_tointeger(state, lua_upvalueindex(3)); // closureを作成した登録の識別番号。
     if (!implementation || registration_index < 0 || static_cast<usize>(registration_index) >= implementation->m_Natives.Size()) {
         return 0;
     }
 
-    const FLuaVm::FLuaVmImpl::FNativeReg& registration = implementation->m_Natives[static_cast<usize>(registration_index)]; // 呼び出す関数と利用者データ。
+    /** 呼び出す関数と利用者データ。 */
+    const CLuaVm::FLuaVmImpl::FNativeReg& registration = implementation->m_Natives[static_cast<usize>(registration_index)];
     if (!registration.fn || registration.registration_id != registration_id) return 0;
 
     constexpr int kMaxArgs = 16; // 一度に受け取る引数の上限。

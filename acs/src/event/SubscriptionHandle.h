@@ -11,7 +11,7 @@ namespace acs {
 /** メッセージ購読を識別するハンドル。 */
 struct FSubscriptionHandle {
     /** 購読先の通路番号。 */
-    EventTypeId channel = 0xFFFFFFFFu;
+    FEventTypeId channel = 0xFFFFFFFFu;
     /** 通路内の購読番号。 */
     u32 id = 0;
     /** 再利用された購読枠を見分ける世代番号。 */

@@ -72,8 +72,9 @@ CTest の `ACS.CppConventionsAuditSelfTest` と `ACS.CppConventionsAudit`、ま�
 `acs_conventions_check` target で実行する。
 
 `scripts/audit_reference_type_names.py` は手書き API リファレンスの class/struct/enum 名を
-現行 C++ 宣言と照合する。alias、delegate、callback は接頭辞を指定しない規約のため
-対象外である。CTest の `ACS.ReferenceTypeNamesAuditSelfTest` と
+現行 C++ 宣言と照合する。正規scalar alias 3件と`AObject` / C4は正規名・header各1件を
+固定し、旧scalar 3名と旧`FObject` / C4旧`F`名5件の独立entryを拒否する。delegate、callback、関数、および他のalias分類は対象外で
+ある。CTest の `ACS.ReferenceTypeNamesAuditSelfTest` と
 `ACS.ReferenceTypeNamesAudit`、または `acs_reference_check` target で実行する。
 
 変更後は Debug の `ALL_BUILD`、全 CTest、上記監査、`git diff --check` を通す。

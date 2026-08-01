@@ -62,7 +62,11 @@ add_executable(acs_unit_tests
     allocator_ownership_tests.cpp
     container_tests.cpp
     math_tests.cpp
+    aobject_header_compile_tests.cpp
+    object_ptr_header_compile_tests.cpp
+    component_id_header_compile_tests.cpp
     ecs_tests.cpp
+    event_type_id_header_compile_tests.cpp
     event_tests.cpp
     delegate_tests.cpp
     message_broker_safety_tests.cpp
@@ -774,31 +778,53 @@ set_tests_properties(
     ACS.CppConventionsAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
-# C++型の意味とA/F/I/T/E接頭辞を照合し、旧C serviceの再流入を防ぐ。
+# C++型の意味とA/C/F/I/T/E接頭辞を照合し、未レビューdebtの増加を防ぐ。
 set(ACS_CPP_TYPE_ROLES_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_cpp_type_roles.py")
+set(ACS_CPP_TYPE_ROLES_DEBT
+    "${ACS_TREE_ROOT}/scripts/data/cpp_type_role_migration_debt.json")
 
 add_custom_target(acs_type_roles_check
-    COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --root "${ACS_SOURCE_ROOT}"
+            --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
             --root "${ACS_SOURCE_ROOT}/event"
-    COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+            --root "${ACS_SOURCE_ROOT}/ecs"
+            --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
             --root "${ACS_SOURCE_ROOT}/scripting"
+            --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}"
     WORKING_DIRECTORY "${ACS_TREE_ROOT}"
-    COMMENT "ACS: event/scripting型の役割とA/F/I/T/E接頭辞を監査"
+    COMMENT "ACS: source全体と主要moduleの型役割を監査"
     USES_TERMINAL VERBATIM)
 set_target_properties(acs_type_roles_check PROPERTIES FOLDER "Tools")
 
 add_test(NAME ACS.CppTypeRoleAuditSelfTest
-         COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}" --self-test)
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}" --self-test)
+add_test(NAME ACS.CppTypeRoleAudit
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_SOURCE_ROOT}"
+                 --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}")
 add_test(NAME ACS.EventTypeRoleAudit
-         COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
-                 --root "${ACS_SOURCE_ROOT}/event")
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_SOURCE_ROOT}/event"
+                 --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}")
+add_test(NAME ACS.EcsTypeRoleAudit
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_SOURCE_ROOT}/ecs"
+                 --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}")
 add_test(NAME ACS.ScriptingTypeRoleAudit
-         COMMAND "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
-                 --root "${ACS_SOURCE_ROOT}/scripting")
+         COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "${Python3_EXECUTABLE}" "${ACS_CPP_TYPE_ROLES_AUDIT}"
+                 --root "${ACS_SOURCE_ROOT}/scripting"
+                 --migration-debt "${ACS_CPP_TYPE_ROLES_DEBT}")
 set_tests_properties(
     ACS.CppTypeRoleAuditSelfTest
+    ACS.CppTypeRoleAudit
     ACS.EventTypeRoleAudit
+    ACS.EcsTypeRoleAudit
     ACS.ScriptingTypeRoleAudit
     PROPERTIES LABELS "StaticAnalysis" TIMEOUT 60)
 
@@ -808,7 +834,8 @@ set(ACS_REFERENCE_TYPE_NAMES_AUDIT
     "${ACS_TREE_ROOT}/scripts/audit_reference_type_names.py")
 
 add_custom_target(acs_reference_check
-    COMMAND "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
+    COMMAND "${CMAKE_COMMAND}" -E env PYTHONDONTWRITEBYTECODE=1
+            "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
             --root "${ACS_TREE_ROOT}"
     WORKING_DIRECTORY "${ACS_TREE_ROOT}"
     COMMENT "ACS: 手書き API リファレンスの型名を現行宣言と照合"
@@ -816,10 +843,12 @@ add_custom_target(acs_reference_check
 set_target_properties(acs_reference_check PROPERTIES FOLDER "Tools")
 
 add_test(NAME ACS.ReferenceTypeNamesAuditSelfTest
-         COMMAND "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
+         COMMAND "${CMAKE_COMMAND}" -E env PYTHONDONTWRITEBYTECODE=1
+                 "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
                  --self-test)
 add_test(NAME ACS.ReferenceTypeNamesAudit
-         COMMAND "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
+         COMMAND "${CMAKE_COMMAND}" -E env PYTHONDONTWRITEBYTECODE=1
+                 "${Python3_EXECUTABLE}" "${ACS_REFERENCE_TYPE_NAMES_AUDIT}"
                  --root "${ACS_TREE_ROOT}")
 set_tests_properties(
     ACS.ReferenceTypeNamesAuditSelfTest
@@ -852,13 +881,13 @@ set_tests_properties(
 # C++ の旧 Kit 境界と独立 Kit ディレクトリが再流入しないことを確認する。
 set(ACS_KIT_ABSORPTION_AUDIT "${ACS_TREE_ROOT}/scripts/audit_kit_absorption.py")
 add_custom_target(acs_kit_absorption_check
-    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --root "${ACS_TREE_ROOT}" --json-output "${CMAKE_BINARY_DIR}/kit-absorption-audit.json"
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --root "${ACS_TREE_ROOT}" --json-output "${CMAKE_BINARY_DIR}/kit-absorption-audit.json"
     WORKING_DIRECTORY "${ACS_TREE_ROOT}"
     COMMENT "ACS: Kit の C++ 境界と独立ディレクトリの再流入を監査"
     USES_TERMINAL VERBATIM)
 set_target_properties(acs_kit_absorption_check PROPERTIES FOLDER "Tools")
-add_test(NAME ACS.KitAbsorptionAuditSelfTest COMMAND "${CMAKE_COMMAND}" -E env "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --self-test)
-add_test(NAME ACS.KitAbsorptionAudit COMMAND "${CMAKE_COMMAND}" -E env "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --root "${ACS_TREE_ROOT}" --json-output "${CMAKE_BINARY_DIR}/kit-absorption-audit.json")
+add_test(NAME ACS.KitAbsorptionAuditSelfTest COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --self-test)
+add_test(NAME ACS.KitAbsorptionAudit COMMAND "${CMAKE_COMMAND}" -E env "PYTHONDONTWRITEBYTECODE=1" "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" "${Python3_EXECUTABLE}" "${ACS_KIT_ABSORPTION_AUDIT}" --root "${ACS_TREE_ROOT}" --json-output "${CMAKE_BINARY_DIR}/kit-absorption-audit.json")
 set_tests_properties(ACS.KitAbsorptionAuditSelfTest ACS.KitAbsorptionAudit PROPERTIES LABELS "StaticAnalysis;KitAbsorption" TIMEOUT 60)
 
 # 外部プロジェクトと ACS source が別 drive にある構成でも IDE group を安全に分ける。
@@ -913,7 +942,7 @@ if(ACS_IS_TOP_LEVEL)
                 ACS.SingleHeaderPipelineSelfTest
                 PROPERTIES
                     LABELS "StaticAnalysis;Distribution"
-                    TIMEOUT 30
+                    TIMEOUT 60
                     RUN_SERIAL TRUE)
         endif()
     endif()

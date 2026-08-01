@@ -10,6 +10,11 @@ using namespace acs;
 using namespace acs::game;
 using namespace acs::scripting;
 
+static_assert(IsSameV<FLuaVm, CLuaVm>, "旧Lua実行環境名は正規型の互換別名である必要があります");
+#if defined(_WIN64)
+static_assert(sizeof(CLuaVm) == 16u && alignof(CLuaVm) == 8u, "Win64のLua実行環境配置が変わりました");
+#endif
+
 namespace {
 
 /** 確保拒否と回復を切り替え、Lua 登録簿の失敗経路を再現する。 */
@@ -239,7 +244,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationReportsAllocationFailureAndRec
 
     {
         /** 検証対象の Lua 実行環境。 */
-        FLuaVm vm(allocator);
+        CLuaVm vm(allocator);
         EXPECT_TRUE(vm.Init().IsOk());
 
         /** 確保拒否後も残す既存の同名 Lua 関数。 */
@@ -287,7 +292,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsLuaGlobalSpoofAndRollsB
         /** 通常登録時の容量成長位置を測るアロケータ。 */
         FRejectableAllocator reference_allocator;
         /** 通常登録を行う Lua 実行環境。 */
-        FLuaVm reference_vm(reference_allocator);
+        CLuaVm reference_vm(reference_allocator);
         /** 基準関数から参照する呼び出し回数。 */
         u32 reference_call_count = 0u;
         EXPECT_TRUE(reference_vm.Init().IsOk());
@@ -312,7 +317,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsLuaGlobalSpoofAndRollsB
     u32 call_count = 0u;
     {
         /** Lua 公開失敗と回復を検証する実行環境。 */
-        FLuaVm vm(allocator);
+        CLuaVm vm(allocator);
         EXPECT_TRUE(vm.Init().IsOk());
 
         /** 書き込み後に error を返し、同名グローバルの復元を要求する設定。 */
@@ -408,7 +413,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsSameVmReentryWithoutReg
         /** allocator再入が誤って公開された場合に増える検出用回数。 */
         u32 reentered_call_count = 0u;
         /** allocator確保開始前から再入を拒否するか検証するLua実行環境。 */
-        FLuaVm vm(allocator);
+        CLuaVm vm(allocator);
         EXPECT_TRUE(vm.Init().IsOk());
 
         allocator.ArmRegistration(vm, reentered_call_count);
@@ -429,7 +434,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationRejectsSameVmReentryWithoutReg
     /** 再入結果と各closureの呼び出し回数。 */
     FReentrantRegistrationState state;
     /** 再入拒否後の登録簿とclosure indexを検証するLua実行環境。 */
-    FLuaVm vm;
+    CLuaVm vm;
     EXPECT_TRUE(vm.Init().IsOk());
     EXPECT_TRUE(vm.RegisterNativeFunction("ExistingNative", &AttemptReentrantRegistration, &state).IsOk());
 
@@ -476,7 +481,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationMaximumIdentifierSucceedsBefor
     /** 枯渇後の登録が誤って呼び出した場合に増える検出用回数。 */
     u32 rejected_call_count = 0u;
     /** 最大番号の成功と後続拒否を検証するLua実行環境。 */
-    FLuaVm vm(allocator);
+    CLuaVm vm(allocator);
     EXPECT_TRUE(vm.Init().IsOk());
 
     /** 未登録名へのLua書き込み回数を数える設定。 */
@@ -561,7 +566,7 @@ ACS_TEST(LuaVmAllocationSafety, NativeRegistrationMaximumIdentifierRollbackCanno
     /** 枯渇後の登録が誤って公開された場合に増える検出用回数。 */
     u32 rejected_call_count = 0u;
     /** 最大番号の公開失敗から枯渇状態へ進めるLua実行環境。 */
-    FLuaVm vm(allocator);
+    CLuaVm vm(allocator);
     EXPECT_TRUE(vm.Init().IsOk());
 
     /** 最大番号のLua関数を退避し、読み取りだけを偽装するLua設定。 */

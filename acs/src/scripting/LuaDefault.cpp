@@ -17,7 +17,7 @@ acs::game::IScriptVm& GetDefaultLuaVm() noexcept {
         /** VMの保存領域を確保する。 */
         acs::FSystemAllocator allocator;
         /** 既定として共有するLua VM。 */
-        FLuaVm vm;
+        CLuaVm vm;
     };
 
     // DefaultAllocator はアプリ終了時に失効し得るため、process lifetime の allocator

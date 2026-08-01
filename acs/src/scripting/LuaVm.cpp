@@ -167,33 +167,33 @@ int RestoreNativeRegistrationGlobal(lua_State* state) noexcept {
 } // namespace
 
 /** Pimpl を確保し、所有者ポインタを自身に設定する。 */
-FLuaVm::FLuaVm() noexcept : FLuaVm(DefaultAllocator()) {}
+CLuaVm::CLuaVm() noexcept : CLuaVm(DefaultAllocator()) {}
 
 /** 指定 allocator で Pimpl 内の native function 登録簿を構築する。 */
 /**
  * @param allocator 登録情報の保存領域を確保する。
  */
-FLuaVm::FLuaVm(acs::FAllocator& allocator) noexcept {
+CLuaVm::CLuaVm(acs::FAllocator& allocator) noexcept {
     m_Impl = new FLuaVmImpl(allocator);
     m_Impl->m_Owner = this;
 }
 
 #if defined(ACS_SCRIPTING_TEST_HOOKS)
 /** 次回のnative関数登録へ最大の識別番号を割り当てる。 */
-void FLuaVm::SetNextNativeRegistrationIdToMaximumForTest() noexcept {
+void CLuaVm::SetNextNativeRegistrationIdToMaximumForTest() noexcept {
     m_Impl->m_NextNativeRegistrationId = lua_vm_detail::kNativeRegistrationIdMaximum;
 }
 #endif
 
 /** Shutdown で lua_State を解放してから Pimpl を delete する。 */
-FLuaVm::~FLuaVm() noexcept {
+CLuaVm::~CLuaVm() noexcept {
     Shutdown();
     delete m_Impl;
     m_Impl = nullptr;
 }
 
 /** lua_State を生成し標準ライブラリを open する。 */
-acs::TResult<void> FLuaVm::Init() noexcept {
+acs::TResult<void> CLuaVm::Init() noexcept {
     if (m_Impl->m_L) return acs::Ok();  // 既に初期化済み
     m_Impl->m_L = luaL_newstate();
     if (!m_Impl->m_L) {
@@ -205,7 +205,7 @@ acs::TResult<void> FLuaVm::Init() noexcept {
 }
 
 /** lua_State を lua_close で破棄し、native registry と戻り文字列 anchor をリセットする。 */
-void FLuaVm::Shutdown() noexcept {
+void CLuaVm::Shutdown() noexcept {
     if (m_Impl == nullptr) return;
     if (m_Impl->m_L) {
         lua_close(m_Impl->m_L);              // registry ごと破棄されるので ref は無効化
@@ -224,7 +224,7 @@ void FLuaVm::Shutdown() noexcept {
 }
 
 /** ソースを luaL_loadbuffer で parse し lua_pcall で即時実行する。 */
-acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len, const char* chunk_name) noexcept {
+acs::TResult<void> CLuaVm::LoadScript(const char* source, acs::u32 source_len, const char* chunk_name) noexcept {
     if (!m_Impl->m_L) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized, "Init() before LoadScript");
     }
@@ -250,7 +250,7 @@ acs::TResult<void> FLuaVm::LoadScript(const char* source, acs::u32 source_len, c
 }
 
 /** グローバル関数を lua_pcall し、戻り文字列は registry に anchor して延命する。 */
-acs::TResult<void> FLuaVm::CallFunction(const char* function_name, const FScriptValue* args, acs::u32 arg_count, FScriptValue* ret_out) noexcept {
+acs::TResult<void> CLuaVm::CallFunction(const char* function_name, const FScriptValue* args, acs::u32 arg_count, FScriptValue* ret_out) noexcept {
     if (!m_Impl->m_L) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized, "Init() before CallFunction");
     }
@@ -306,7 +306,7 @@ acs::TResult<void> FLuaVm::CallFunction(const char* function_name, const FScript
 }
 
 /** 登録番号と内部データを付けたLua関数を公開する。 */
-acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, NativeFunction fn, void* user) noexcept {
+acs::TResult<void> CLuaVm::RegisterNativeFunction(const char* function_name, NativeFunction fn, void* user) noexcept {
     if (!m_Impl->m_L) {
         return ACS_ERR(Generic, script_err::kSub_NotInitialized, "Init() before RegisterNativeFunction");
     }
@@ -314,10 +314,10 @@ acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, Nat
         return ACS_ERR(Generic, script_err::kSub_InvalidArg, "name/fn null");
     }
     if (m_Impl->m_NativeRegistrationInProgress) {
-        return ACS_ERR(Generic, script_err::kSub_CallFailed, "FLuaVm::RegisterNativeFunction: reentrant registration rejected");
+        return ACS_ERR(Generic, script_err::kSub_CallFailed, "CLuaVm::RegisterNativeFunction: reentrant registration rejected");
     }
     if (m_Impl->m_NextNativeRegistrationId == 0) {
-        return ACS_ERR(Generic, script_err::kSub_CallFailed, "FLuaVm::RegisterNativeFunction: registration identifiers exhausted");
+        return ACS_ERR(Generic, script_err::kSub_CallFailed, "CLuaVm::RegisterNativeFunction: registration identifiers exhausted");
     }
     /** 登録先のLua状態。 */
     lua_State* L = m_Impl->m_L;
@@ -326,7 +326,7 @@ acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, Nat
     /** 成否にかかわらず呼び出し前のstack位置へ戻す。 */
     FLuaStackTopGuard stack_guard(L);
     if (lua_checkstack(L, 2) == 0) {
-        return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "FLuaVm::RegisterNativeFunction: Lua stack allocation failed");
+        return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "CLuaVm::RegisterNativeFunction: Lua stack allocation failed");
     }
     /** 新しい登録情報の番号。 */
     const int reg_index = static_cast<int>(m_Impl->m_Natives.Size());
@@ -342,7 +342,7 @@ acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, Nat
     lua_pushlightuserdata(L, &operation);
     if (!m_Impl->m_Natives.TryPushBack(reg)) {
         lua_pop(L, 2);
-        return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "FLuaVm::RegisterNativeFunction: registry allocation failed");
+        return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "CLuaVm::RegisterNativeFunction: registry allocation failed");
     }
     // Lua側へ関数が退避される可能性が生じるため、公開結果にかかわらず識別番号を消費する。
     m_Impl->m_NextNativeRegistrationId = lua_vm_detail::AdvanceNativeRegistrationId(reg.registration_id);
@@ -366,9 +366,9 @@ acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, Nat
             luaL_unref(L, LUA_REGISTRYINDEX, operation.previous_global_ref);
         }
         if (publish_status == LUA_ERRMEM || rollback_status == LUA_ERRMEM) {
-            return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "FLuaVm::RegisterNativeFunction: Lua closure allocation failed");
+            return ACS_ERR(Memory, script_err::kSub_AllocationFailed, "CLuaVm::RegisterNativeFunction: Lua closure allocation failed");
         }
-        return ACS_ERR(Generic, script_err::kSub_CallFailed, "FLuaVm::RegisterNativeFunction: Lua global publication failed");
+        return ACS_ERR(Generic, script_err::kSub_CallFailed, "CLuaVm::RegisterNativeFunction: Lua global publication failed");
     }
     if (operation.previous_global_ref != LUA_NOREF && operation.previous_global_ref != LUA_REFNIL) {
         luaL_unref(L, LUA_REGISTRYINDEX, operation.previous_global_ref);
@@ -377,14 +377,14 @@ acs::TResult<void> FLuaVm::RegisterNativeFunction(const char* function_name, Nat
 }
 
 /** 数値を push して name のグローバルに setglobal する (未初期化 / name null なら no-op)。 */
-void FLuaVm::SetGlobalNumber(const char* name, acs::f64 value) noexcept {
+void CLuaVm::SetGlobalNumber(const char* name, acs::f64 value) noexcept {
     if (!m_Impl->m_L || !name) return;
     lua_pushnumber(m_Impl->m_L, static_cast<lua_Number>(value));
     lua_setglobal(m_Impl->m_L, name);
 }
 
 /** name のグローバルを getglobal し、数値なら返し、それ以外は default_value を返す。 */
-acs::f64 FLuaVm::GetGlobalNumber(const char* name, acs::f64 default_value) const noexcept {
+acs::f64 CLuaVm::GetGlobalNumber(const char* name, acs::f64 default_value) const noexcept {
     if (!m_Impl->m_L || !name) return default_value;
     lua_State* L = m_Impl->m_L;
     lua_getglobal(L, name);
@@ -397,14 +397,14 @@ acs::f64 FLuaVm::GetGlobalNumber(const char* name, acs::f64 default_value) const
 }
 
 /** lua_gc(LUA_GCCOLLECT) で強制 GC を 1 サイクル走らせる (未初期化なら no-op)。 */
-void FLuaVm::CollectGarbage() noexcept {
+void CLuaVm::CollectGarbage() noexcept {
     if (m_Impl->m_L) {
         lua_gc(m_Impl->m_L, LUA_GCCOLLECT, 0);
     }
 }
 
 /** lua_gc の GCCOUNT (KiB) と GCCOUNTB (端数 byte) を合算してメモリ使用量を返す。 */
-acs::u64 FLuaVm::MemoryUsageBytes() const noexcept {
+acs::u64 CLuaVm::MemoryUsageBytes() const noexcept {
     if (!m_Impl->m_L) return 0;
     const int kb = lua_gc(m_Impl->m_L, LUA_GCCOUNT, 0);
     const int b  = lua_gc(m_Impl->m_L, LUA_GCCOUNTB, 0);

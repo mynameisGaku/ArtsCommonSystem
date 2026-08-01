@@ -62,7 +62,7 @@ struct TGenerationHandleLayoutTraits<FObjectHandle> {
 /**
  * 世代付きスロットマッププール。任意の T を O(1) で確保/解放し、ハンドルで安全に参照する。
  *
- * @tparam T 格納するオブジェクト型 (FObject 継承や reflection は不要。任意の型)。
+ * @tparam T 格納するオブジェクト型 (AObject 継承や reflection は不要。任意の型)。
  */
 template<class T>
 class TObjectPool {

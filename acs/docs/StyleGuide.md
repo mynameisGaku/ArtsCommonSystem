@@ -1,17 +1,17 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# ACS Coding Style Guide (v2)
+# ACS Coding Style Guide (v3)
 
 **目的 / Purpose**: ACS の唯一のコーディング規約。`.clang-format` / `.clang-tidy` / `acs_lint` が機械強制する内容と一対一で対応する。**This document is the single source of truth for ACS coding style** — what tools enforce, this doc explains.
 
 **対象 / Scope**: `src/**`, `samples/**`, `tests/**`, `tools/**`, `editor/**` 配下の C++ コード。`cmake-build-*/_deps/` 配下のサードパーティ、`docs/`, `cmake/` は対象外。
 
-**バージョン / Version**: v2.8 (2026-07-30 改訂)
+**バージョン / Version**: v3.0 (2026-08-01 改訂)
 
-> **基本方針 / Core philosophy** — ACS v2 は UE5 風の見分けやすい型 prefix を採用しつつ、prefix の意味は ACS の所有権モデルに合わせる。値・handle・serviceは `F`、`FObject` が所有・破棄を管理するオブジェクトは `A`、template は `T`、純粋 interface は `I`、enum は `E` とする。特に `ANode` / `AComponent` とその派生型の `A` は、world-placeable を意味するのではなく **ACS object-managed** を意味する。
+> **基本方針 / Core philosophy** — prefixは構文ではなく責務を表す。owner / registryに所有され多態的に扱われるobjectは`A`、機能や処理を持つ具象classは`C`、データ中心のstruct・値・handleは`F`、templateは`T`、純粋interfaceは`I`、enumは`E`とする。
 >
 > **v1 → v2 の変更点** (詳細は §15 Revision history):
-> - 通常の struct / class に **`F` prefix**
-> - `FObject` 管理型に **`A` prefix**
+> - owner / registryに所有され多態的に扱われるobjectに **`A` prefix**
+> - 機能を持つ具象classに **`C` prefix**、データ・値・handleに **`F` prefix**
 > - template に **`T` prefix** (Tier 1+2 で適用済)
 > - **メンバ変数 `_snake_case` → `m_PascalCase`** (2026-05-28 確定、UE5 純正は accessor method 衝突のため `m_` 前置のハイブリッド方式に変更)
 > - bool 変数 `is_xxx` → **`bIsXxx`** (member は `m_bIsXxx`、local は `bIsXxx`) **— 未実装、AST 必要**
@@ -20,7 +20,7 @@
 > - 関数 / メソッド `PascalCase` 維持
 > - enum `E` prefix 維持 (v1 で確定済)
 > - interface `I` prefix 維持 (v1 で確定済)
-> - `using` / `typedef` による型 alias（delegate / callback を含む）は prefix 指定なし
+> - namespace公開の意味付きscalar/value aliasは `F`。delegate / callback / 関数ポインタは指定なし
 
 ---
 
@@ -66,18 +66,21 @@ ACS では型の種類に応じて prefix を付ける。**ACS-fit prefix scheme
 
 | 種別 / Kind | Prefix | 例 / Example |
 |---|---|---|
-| **通常の class / struct / union** | **`F`** | `FVec2`, `FMat4`, `FScene`, `FHealthSystem` |
-| **`FObject` 管理 class** | **`A`** | `ANode`, `AComponent`, `ARotatingNode` |
+| **owner / registryに所有され多態的に扱われるobject** | **`A`** | `AObject`, `ANode`, `AComponent` |
+| **機能・処理を持つ具象class** | **`C`** | `CAudioEngine`, `CMessageBroker`, `CTimerManager` |
+| **データ中心のstruct / union、値、handle** | **`F`** | `FVec2`, `FErrorCode`, `FSoundHandle` |
 | **template** | **`T`** | `TArray<T>`, `TUniquePtr<T>`, `TResult<T,E>`, `THashMap<K,V>` |
 | **interface (純粋仮想 base)** | **`I`** | `IRhiDevice`, `IRhiBuffer`, `IAssetLoader` |
 | **enum class** | **`E`** | `EFormat`, `EFlowState`, `ELogSeverity` |
-| **`using` alias / legacy `typedef`** | **指定なし** | `EasingFn`, `HotReloadCallback`, `FHotReloadCallback` |
+| **namespace公開のscalar/value alias** | **`F`** | `FEventTypeId`, `FComponentTypeId` |
+| **delegate / callback / 関数ポインタalias** | **指定なし** | `EasingFn`, `HotReloadCallback`, `FHotReloadCallback` |
+| **template alias** | **今回のscalar監査対象外** | `Owned`, `RemoveRefT` |
 
 ```cpp
-class  FRenderer { /* ... */ };
+class  CRenderer { /* ... */ };
 struct FErrorCode { /* ... */ };
 union  FValueBits { u32 UIntValue; f32 FloatValue; };
-class  AEnemyNode : public ANode { /* ... */ };
+class  AEnemyNode : public ANode { /* ACS_OBJECT(AEnemyNode) */ };
 enum class ELogSeverity : u8 { Trace, Debug, Info, Warn, Error, Fatal };
 template<typename T> class TArray { /* ... */ };
 class IRhiDevice { virtual ~IRhiDevice() noexcept = default; /* pure virtual */ };
@@ -85,32 +88,44 @@ class IRhiDevice { virtual ~IRhiDevice() noexcept = default; /* pure virtual */ 
 
 **例外 / Exceptions**:
 - **プリミティブのエイリアス** (`u8`, `u32`, `i64`, `f32`, `usize` 等) は小文字、prefix 無し。これらは `foundation/Types.h` で定義され、ビルトイン同等に扱う。
-- **型 alias は prefix 検査対象外**。`using` / `typedef` は class / struct / union /
-  interface / enum の実宣言ではないため、delegate・関数ポインタ callback を含めて頭文字を
-  指定しない。意味の明確な `UpperCamelCase` (`PascalCase`) を使う。
+- **namespace公開の意味付きscalar/value aliasは `F`**。値やIDとして公開するaliasは
+  `FEventTypeId`のように役割を名前で示す。登録済みの旧名は正規型を指す`using`だけを残し、
+  通常の製品コードでは正規名を使う。
+- delegate・callback・関数ポインタaliasは頭文字を指定しない。意味の明確な
+  `UpperCamelCase` (`PascalCase`) を使う。
   `HotReloadCallback` / `JudgeCallback` / `BeatEndCallback` と
   `FHotReloadCallback` / `FJudgeCallback` / `FBeatEndCallback` はどちらも適合する。
-  prefix を揃えるためだけに既存 alias を rename せず、公開済みの互換 alias も維持する。
-- 新規の型 alias 宣言には **`using` を使う**。`typedef` は既存公開API・外部ABIとの互換性を
-  保つlegacy宣言に限って許容し、新規APIでは追加しない。監査器はlegacy `typedef` も
-  prefix検査対象外として扱う。
+- template aliasは今回のscalar監査対象外で、既存名を維持する。`T`を強制するかは
+  実利用とsource互換を棚卸しする後続waveで判断する。
+- 新規の型 alias 宣言には **`using` を使う**。公開namespaceの`typedef`は追加しない。
+  `AssetType = u32`はasset familyの移行設計が確定するまで、場所・名前・参照先を固定した
+  登録済み例外として維持する。
+- `FAsset`とその直接・間接派生は、役割を断定せずexact migration debtへ登録する。
+  修飾名、単純名、公開alias chainの基底を解決し、曖昧または解決不能なら監査を
+  fail-closedにする。structや`FScoped*`も例外にしない。
+- 操作のないデータ中心classは`F`、`Draw` / `Render`など明白な処理を持つstructは`C`候補とする。
+  valueのconstructor・accessor・operatorは`F`のままとし、member initializerの関数呼び出しと
+  function-pointer fieldをmethodと誤認しない。
 - 元の単語が prefix と同じ文字で始まっても prefix は省略しない。例: `FileSystem` → `FFileSystem`、`Font` → `FFont`、`ErrCategory` → `EErrCategory`。
-- template / interface / `FObject` 管理型の分類は意味に基づく。見た目だけを理由に `T` / `I` / `A` を選ばない。
+- template / interface / objectの分類は意味に基づく。現waveが`A`と機械確定するのは、
+  `acs::AObject`の推移実継承またはscope解決した`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実登録である。
+  その他のobject候補はmanual debtでreviewする。macro定義中と`#if 0`中の記述は実登録ではない。
+  機能classには`C`を使う。
 
 **UE5 との対応**:
-- UE5 `F*` (non-UObject struct/class) ↔ ACS `F*` — 完全一致
+- UE5 `F*` (non-UObject struct/class) とACS `F*` / `C*`は同一ではない。ACSはデータと機能を分ける
 - UE5 `T*` (template) ↔ ACS `T*` — 完全一致
 - UE5 `E*` (enum) ↔ ACS `E*` — 完全一致
 - UE5 `I*` (interface) ↔ ACS `I*` — 完全一致
 - UE5 `U*` (UObject) — **ACS は採用しない** (GC 無し)
-- UE5 `A*` (AActor) と ACS `A*` は意味が異なる。ACS では `FObject` 管理型を表す。
+- UE5 `A*` (AActor) とACS `A*`は意味が異なる。ACSではowner / registryに所有され多態的に扱われるobjectを表す。
 
 ### 2.2 関数 / メソッド — `PascalCase`
 
 ```cpp
 void BeginFrame() noexcept;
 bool IsOk() const noexcept;
-static TUniquePtr<FRenderer> Create(/* ... */);
+static TUniquePtr<CRenderer> Create(/* ... */);
 ```
 
 **例外 / Exception**:
@@ -403,18 +418,18 @@ public:
 ### 3.11 `using` vs `typedef` — 新規宣言は `using`
 
 ```cpp
-using EntityId = u32;                    // OK: 新規 alias
-using Callback = void (*)(void*, u32);   // OK: prefix なしの callback alias
-using FCallback = Callback;              // OK: 既存の F 付き alias も維持可能
+using FEntityIndex = u32;                // OK: 公開する値aliasはF
+using Callback = void (*)(void*, u32);   // OK: callback aliasはprefix自由
+using FCallback = Callback;              // OK: 既存のF付きcallback aliasも維持可能
 template<typename T>
-using Owned = TUniquePtr<T>;             // OK: alias template に T prefix は不要
+using Owned = TUniquePtr<T>;             // OK: template aliasは今回の監査対象外
 
-// 既存公開 API / 外部 ABI との互換性維持に限って許容する。
-typedef u32 LegacyEntityId;
+// 登録済みの旧名は、正規型を指す互換別名としてだけ残す。
+using EventTypeId = FEventTypeId;
 ```
 
-`typedef` は prefix 監査から除外するが、新規APIでは使わない。既存の公開名や外部ABIを
-壊さず維持する場合に限り、legacy宣言として残せる。
+公開namespaceへ新しい`typedef`を追加しない。互換別名は登録した場所・名前・正規型の組を
+変えず、別名の宣言以外では正規名を使う。
 
 ### 3.12 Template 構文
 
@@ -901,8 +916,8 @@ ctest --test-dir Intermediate/vs -C Debug -R "ACS.CppConventionsAudit"
 歴史説明を残す Markdown やコメントは対象外である。
 
 監査器自体の lexer 回帰は `ACS.CppConventionsAuditSelfTest` で検証する。fixture には
-prefix なしと `F` 付きの delegate / callback alias、および alias template の正常例を含め、
-`using` / `typedef` が prefix 監査へ再流入しないことも固定する。通常の `Format()`、
+prefix なしと`F`付きのdelegate / callback alias、およびtemplate aliasの正常例を含める。
+公開scalar aliasの`F`判定と互換別名は、型役割監査の別fixtureで固定する。通常の`Format()`、
 `Find()`、`FPS()`、`IASetVertexBuffers()`、直接の型構築は許可し、既存型名そのものを
 メンバー呼び出しに使った場合だけを検出する。両テストには CTest label
 `StaticAnalysis` が付いているため、CI では `ctest -L StaticAnalysis` だけを高速 gate として
@@ -933,29 +948,54 @@ JSONのtop-levelは `schema_version`, `scanned_file_count`, `violation_count`, `
 
 #### 型の意味と接頭辞の監査
 
-`scripts/audit_cpp_type_roles.py`は、宣言構文だけでなく継承、ACS object登録、仮想操作、
-状態・寿命操作を根拠に`A` / `F` / `I` / `T` / `E`を照合する。`F`は値とhandleに加えて
-serviceの正規接頭辞であり、純粋仮想という構文だけでserviceを`I`へ変えない。旧`C`
-serviceはR020c違反として検出する。`class`と`struct`の選択だけでは役割を決めない。
-eventとscriptingの実走査をCTestで固定する。詳細と実行方法は
+`scripts/audit_cpp_type_roles.py`は、宣言構文だけでなく仮想操作、状態・寿命操作を根拠に
+`A` / `C` / `F` / `I` / `T` / `E`を照合する。機能を持つ具象classは`C`、データ・値・handleは
+`F`である。`A`は名前だけで推定せず、現waveは`AObject`推移実継承または実際の
+ACS object登録を機械確定し、その他のobject候補をmanual debtにする。macro定義中と
+`#if 0`中の`ACS_OBJECT(Type)`は登録として扱わない。
+
+同じ監査は、公開headerのnamespace直下にある意味付きscalar/value aliasをR020dで検証する。
+正規の`FEventTypeId` / `FComponentTypeId` / `FComponentSignatureId`と旧3名を固定する。
+`AObject`と`CAudioEngine` / `CMessageBroker` / `CTimerManager` / `CLuaVm`も正規型とし、
+旧`FObject` / `FAudioEngine` / `FMessageBroker` / `FTimerManager` / `FLuaVm`は正規型を指す
+一時`using`だけを許可する。別名宣言以外で旧名を使うとR020eにする。callback、
+delegate、関数ポインタ、template aliasはこのscalar監査の対象外である。`AssetType = u32`は
+後続移行まで場所・名前・参照先を固定した例外とする。全`src`走査を正本gateとし、event、
+ecs、scriptingのmodule走査は補助gateとして残す。詳細と実行方法は
 [`TypeRoleAudit.md`](TypeRoleAudit.md)を参照する。
+
+型役割監査はpreprocess前のtoken列を読み、確実に無効な`#if 0`以外の条件branchを評価しない。
+hard canonical定義とcompatibility aliasは`#if SOME_FLAG` / `#else`へ分けず、unconditionalに
+一件だけ宣言する。両branchに同じ宣言があってもraw scanでは重複契約違反となる。
+
+未レビューの公開型326件は`cpp_type_role_migration_debt.json`へexact登録する。監査は
+candidate 200件とmanual 126件をpublic collectorから再構成し、追加、消失、移動、分類driftを
+R020fにする。default 326件はsemantic hashでもfreezeし、review済みの分類訂正またはdebtを
+支払うwaveだけがentry、件数、baseline hashを同じcommitで更新する。`violations=0`は
+hard canonicalとdebt不変を示し、
+全型review完了を意味しない。
+台帳はsymlink、junction、reparse pointを含まない通常fileに置き、BOMなしUTF-8、CR 0件、
+LF改行、最終LFちょうど1件へ固定する。`schema_version`はexact integerとし、物理byte契約を
+JSON parseより先に検証する。
 
 ### 12.8 手書き API リファレンス型名監査
 
 ```bash
-python scripts/audit_reference_type_names.py --root .
-python scripts/audit_reference_type_names.py --self-test
+python -B scripts/audit_reference_type_names.py --root .
+python -B scripts/audit_reference_type_names.py --self-test
 cmake --build Intermediate/vs --config Debug --target acs_reference_check
 ctest --test-dir Intermediate/vs -C Debug -R "ACS.ReferenceTypeNamesAudit"
 ```
 
-`ACS.ReferenceTypeNamesAudit` は `docs/reference/data/*.js` の `name` / `kind` と
+`ACS.ReferenceTypeNamesAudit` は `docs/reference/data/*.js` の `name` / `kind` / `header` と
 `src/**/*.h` の実宣言を C++ lexer で照合する。クラス、構造体、列挙、
-インターフェース、テンプレートの旧名に対して、現行の `F` / `A` / `E` / `I` / `T`
+インターフェース、テンプレートの旧名に対して、現行の `A` / `C` / `F` / `E` / `I` / `T`
 名が一意に見つかる場合を error にする。これにより、大規模 rename 後に手書きの
 signature や sample だけが旧名へ戻る drift を早期に検出できる。
 
-型 alias、delegate、callback、関数、macro は prefix を指定しない方針なので監査対象外である。
+aliasのうち、正規scalar 3名と`AObject` / C4は正規名とheaderが1件ずつあることを固定し、
+登録済み旧名の独立entryを拒否する。互換説明は正規entryのmember本文に置く。delegate、
+callback、関数、macro、および他のalias分類はこの監査の対象外である。
 監査器の最小 fixture は `ACS.ReferenceTypeNamesAuditSelfTest` で固定し、両テストには
 CTest label `StaticAnalysis` を付ける。
 
@@ -1014,9 +1054,12 @@ public / internal 分類は別契約のため対象外である。自己テス�
 
 | ID | 名称 | 重大度 | チェック | 概要 |
 |---|---|---|---|---|
-| **R020a** | class-struct-union-prefix | error | readability-identifier-naming + acs-R020a | 通常型は `F`、`FObject` 管理型は `A` prefix + PascalCase |
+| **R020a** | class-struct-union-prefix | error | readability-identifier-naming + acs-R020a | class / struct / unionは`A` / `C` / `F` / `I`を責務で選びPascalCase |
 | **R020b** | template-t-prefix | error | acs-R020b | template class / struct は `T` prefix + PascalCase |
-| **R020c** | type-role-prefix | error | 型役割補助監査 | 型の意味と `A` / `F` / `I` / `T` / `E` prefix の不一致、旧 `C` service、無接頭辞を禁止 |
+| **R020c** | type-role-prefix | error | 型役割補助監査 | 型の意味と `A` / `C` / `F` / `I` / `T` / `E` prefixの不一致と無接頭辞を禁止 |
+| **R020d** | scalar-alias-prefix | error | 型役割補助監査 | namespace公開の意味付きscalar/value aliasは`F`。登録済み例外とcallback/template aliasは別契約 |
+| **R020e** | legacy-alias-use | error | 型役割補助監査 | 登録済み互換別名はalias宣言だけに置き、製品sourceでは正規名を使用 |
+| **R020f** | migration-debt-contract | error | 型役割補助監査 | public candidate/manual debtの追加、消失、移動、分類driftを禁止 |
 | **R021** | function-pascal-case | error | readability-identifier-naming.FunctionCase + 補助監査 | 関数・メソッドは型 prefix なしの PascalCase。既存型名と同名のメンバー呼び出しは禁止 |
 | **R022** | variable-pascal-case | error | readability-identifier-naming.VariableCase (段階導入) | ローカル変数・引数は PascalCase (1 字 / iterator 例外あり)。既存コードへの全面 gate は AST 移行後 |
 | **R022b** | bool-b-prefix | warning | acs-R022b | ローカル・引数・public POD bool は `bPascalCase`、private / protected member は `m_bPascalCase` |
@@ -1028,10 +1071,10 @@ public / internal 分類は別契約のため対象外である。自己テス�
 | **R028** | namespace-lowercase | error | readability-identifier-naming.NamespaceCase | namespace は小文字 |
 | **R029** | interface-i-prefix | warning | acs-R029 | 純粋仮想 interface は `I` プレフィックス |
 
-標準 `readability-identifier-naming` は宣言の意味を判別できないため、`.clang-tidy` では `A` / `F` / `I` / `T` で正しく始まる class・struct を受理し、無 prefix 型を `F` 違反として検出する。template・interface・`FObject` 継承型が正しい prefix を選んでいるかは `acs-R020a` / `acs-R020b` / `acs-R029` の専用チェックまたは補助監査で確認する。
+標準 `readability-identifier-naming` は宣言の意味を判別できないため、`.clang-tidy` では `A` / `C` / `F` / `I` / `T` で正しく始まるclass・structを受理する。template、interface、ACS object、機能class、データ型が正しいprefixを選んでいるかは専用監査で確認する。
 
 `scripts/audit_cpp_conventions.py` は CI / CTest 用の補助監査として、C++ の実宣言に
-`A` / `F` / `I` / `T`、template 宣言に `T`、enum 宣言に `E` が付いていることを検証する。
+`A` / `C` / `F` / `I` / `T`、template 宣言に `T`、enum 宣言に `E` が付いていることを検証する。
 加えて、列挙子が走査対象内の既存型名と一致する場合、または `FAabb2` に対する
 `FAabb` のように数値 suffix を除いた型 family 名と一致する場合を R027 違反にする。
 大規模な型 rename が `Settings` を `FSettings`、`String` を `FString` のように
@@ -1039,11 +1082,13 @@ public / internal 分類は別契約のため対象外である。自己テス�
 同じ二段監査で `.FSettings()` / `->EKey()` のように、メンバー呼び出し名が既存の
 class / struct / union / enum 型名と完全一致する場合を R021 違反にする。constructor、
 型変換、`FPS` / `I32` / `F32`、WinAPI の `IASet*`、実型名を示す診断は対象外である。
-`using` / `typedef` の alias は、その参照先や用途に関係なく prefix 検査対象外である。
-新規宣言で `using` を選ぶ規約と、legacy `typedef` の妥当性はレビューで確認する。
+公開headerのnamespace直下にある意味付きscalar/value aliasはR020d、登録済み互換名の
+再利用はR020eで検証する。delegate、callback、関数ポインタaliasとtemplate aliasは今回の
+scalar監査対象外である。新規宣言には`using`を使い、公開namespaceへ`typedef`を追加しない。
 コメント、通常の文字列・文字リテラル、raw string 内の HLSL、qualified elaborated-type
-宣言 (`class namespace::FType`) は字句解析で除外する。`A` と `I` の所有権・純粋仮想という
-意味分類は、継承グラフを扱う `acs-R020a` / `acs-R029` の責務として引き続きレビューする。
+宣言 (`class namespace::FType`) は字句解析で除外する。現waveの型役割補助監査R020cは、
+`AObject`の推移実継承またはmacro定義以外の`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実呼び出しを
+`A`と機械確定し、その他のobject候補はmanual debtでreviewする。`I`の純粋仮想分類も同監査でreviewする。
 非template class / struct / union の `T` prefix と、型名中の underscore は違反とする。
 
 ### D. ライフサイクル / `noexcept` / `override` (R030-R039)
@@ -1118,6 +1163,8 @@ auto _r = ThreadPool::Submit(t);  // acs-lint: NOLINT(R033)
 | 2026-07-19 | v2.6 | R027を列挙子の型名衝突まで拡張。型renameが列挙子へ誤波及した場合をC++ lexerの二段監査で検出し、Windowsでも日本語診断をUTF-8で安定出力する。 |
 | 2026-07-19 | v2.7 | R021補助監査を既存型名と同名のメンバー呼び出しまで拡張し、型renameのメソッド名への誤波及を低誤検知で防止。変数規約表を現行の `m_PascalCase` と整合させ、module source監査への導線も追記。 |
 | 2026-07-30 | v2.8 | `F`を値・handle・serviceの正規接頭辞として明確化し、型の意味を照合する`audit_cpp_type_roles.py`、自己試験、event / scripting実走査gateを追加。`class` / `struct`構文を役割判定に使わず、旧`C` serviceの再流入をR020cで検出する。 |
+| 2026-08-01 | v2.9 | namespace公開の意味付きscalar/value aliasを`F`へ正規化し、R020d/R020e、全`src`走査、正規reference entryを追加。callback/delegate/関数ポインタはprefix自由、template aliasは今回のscalar監査対象外、`AssetType`は後続移行まで固定例外とした。 |
+| 2026-08-01 | v3.0 | `A`をowner / registryに所有され多態的に扱われるobject、`C`を機能class、`F`をデータ・値・handleへ再定義。現waveの`A`機械確定を`AObject`推移実継承またはscope解決済み実登録macroに固定し、`AObject`とC4のhard canonical、326件のexact migration debt、R020f、raw非依存public collectorを追加した。 |
 
 ---
 

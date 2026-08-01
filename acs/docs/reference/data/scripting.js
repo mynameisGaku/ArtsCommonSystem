@@ -5,17 +5,18 @@ ACS_REF.modules.push({
   id: "scripting",
   order: 52,
   title: "scripting — スクリプト(Lua)連携",
-  blurb: "ゲームの一部のロジックを <b>C++ を再ビルドせずに</b> <t>Lua</t> スクリプトで書けるようにするモジュール。<t>Lua 5.4</t> の本物の <t>VM</t> を <code>FLuaVm</code> として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。",
+  blurb: "ゲームの一部のロジックを <b>C++ を再ビルドせずに</b> <t>Lua</t> スクリプトで書けるようにするモジュール。<t>Lua 5.4</t> の本物の <t>VM</t> を <code>CLuaVm</code> として提供し、C++ の関数を Lua から呼んだり、Lua の関数を C++ から呼んだりできます。",
   types: [
     {
-      name: "FLuaVm",
+      name: "CLuaVm",
       kind: "クラス", header: "scripting/LuaVm.h",
-      summary: "<b>Lua 5.4 の本物の<t>VM</t></b>。スクリプト文字列を読み込んで実行し、Lua の関数呼び出し / C++ 関数の登録 / グローバル変数の読み書き / <t>GC</t> ができる。<t>gameframework</t> の <t>IScriptVm</t> <t>インターフェース</t>を実装しており、<t>Pimpl</t> で <code>lua_State*</code> を隠すので Lua のヘッダを include せずに使える。正規型は <code>FLuaVm</code> で、<code>CLuaVm</code> は移行用のソース互換別名。",
+      summary: "<b>Lua 5.4 の本物の<t>VM</t></b>。スクリプト文字列を読み込んで実行し、Lua の関数呼び出し / C++ 関数の登録 / グローバル変数の読み書き / <t>GC</t> ができる。<t>gameframework</t> の <t>IScriptVm</t> <t>インターフェース</t>を実装しており、<t>Pimpl</t> で <code>lua_State*</code> を隠すので Lua のヘッダを include せずに使える。",
       when: "ゲームに『プレイヤーやモッダーが書き換えられるロジック』を入れたい時。UI イベント・カットシーン・Mod フック・データ駆動のクエスト等、<b>毎フレームの決定論が要らない部分</b>に向く(物理や当たり判定など決定論が必要な所では使わない)。",
-      sample: "acs::scripting::FLuaVm vm;\nif (vm.Init().IsOk()) {\n    vm.LoadScript(\"function add(a,b) return a+b end\", 0, \"inline\");\n    acs::game::FScriptValue args[2];\n    args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;\n    args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;\n    acs::game::FScriptValue ret;\n    vm.CallFunction(\"add\", args, 2, &amp;ret);   // ret.v.num == 5\n    vm.Shutdown();\n}",
+      sample: "acs::scripting::CLuaVm vm;\nif (vm.Init().IsOk()) {\n    vm.LoadScript(\"function add(a,b) return a+b end\", 0, \"inline\");\n    acs::game::FScriptValue args[2];\n    args[0].kind = acs::game::EScriptValueKind::Number; args[0].v.num = 2;\n    args[1].kind = acs::game::EScriptValueKind::Number; args[1].v.num = 3;\n    acs::game::FScriptValue ret;\n    vm.CallFunction(\"add\", args, 2, &amp;ret);   // ret.v.num == 5\n    vm.Shutdown();\n}",
       members: [
-        { sig: "FLuaVm() noexcept", desc: "VM を生成する(まだ初期化はされていない)。コピー / <t>ムーブ</t>はできない(単一所有運用)。" },
-        { sig: "explicit FLuaVm(FAllocator&amp; allocator) noexcept", desc: "native関数登録簿の保存領域に使う確保器を注入してVMを生成する。VMは確保器を所有せず参照を保持するため、確保器は構築したVMより後まで生存させる。確保失敗経路の制御や所有元と同じ寿命の確保器を使う場合に選ぶ。" },
+        { sig: "CLuaVm() noexcept", desc: "VM を生成する(まだ初期化はされていない)。コピー / <t>ムーブ</t>はできない(単一所有運用)。" },
+        { sig: "explicit CLuaVm(FAllocator&amp; allocator) noexcept", desc: "native関数登録簿の保存領域に使う確保器を注入してVMを生成する。VMは確保器を所有せず参照を保持するため、確保器は構築したVMより後まで生存させる。確保失敗経路の制御や所有元と同じ寿命の確保器を使う場合に選ぶ。" },
+        { sig: "using FLuaVm = CLuaVm", desc: "旧名を使う既存コード向けの互換別名。新しいコードでは <code>CLuaVm</code> を使う。" },
         { sig: "TResult&lt;void&gt; Init() noexcept", ret: "成否", desc: "Lua の状態(<code>lua_State</code>)を作り、標準ライブラリを開く。これを呼ぶまで <code>LoadScript</code> / <code>CallFunction</code> は失敗してよい。", when: "VM を使い始める最初に 1 回だけ呼ぶ。" },
         { sig: "void Shutdown() noexcept", desc: "Lua の状態を破棄する(<code>lua_close</code> 相当)。登録した <t>NativeFunction</t> もここで無効になる。" },
         { sig: "EScriptLanguage Language() const noexcept", ret: "言語タグ", desc: "常に <code>EScriptLanguage::Lua54</code> を返す。" },
@@ -31,7 +32,7 @@ ACS_REF.modules.push({
     {
       name: "GetDefaultLuaVm()",
       kind: "関数", header: "scripting/LuaVm.h",
-      summary: "プロセスで 1 個だけ共有される既定の <code>FLuaVm</code>(<t>シングルトン</t>)への参照を返す。<code>InstallLuaAsDefault()</code> が <t>gameframework</t> の provider へ登録する実体でもある。",
+      summary: "プロセスで 1 個だけ共有される既定の <code>CLuaVm</code>(<t>シングルトン</t>)への参照を返す。<code>InstallLuaAsDefault()</code> が <t>gameframework</t> の provider へ登録する実体でもある。",
       when: "アプリ全体で 1 つの Lua VM を共有したい時。通常は直接呼ばず <code>InstallLuaAsDefault()</code> 経由で <code>acs::game::GetDefaultScriptVm()</code> から使う。",
       sample: "acs::game::IScriptVm& vm = acs::scripting::GetDefaultLuaVm();\nvm.Init();"
     },
@@ -45,7 +46,7 @@ ACS_REF.modules.push({
     {
       name: "FScriptValue",
       kind: "構造体", header: "gameframework/ScriptHost.h",
-      summary: "C++ と Lua の間で値を受け渡すための<b>タグ付き共用体風の <t>POD</t></b>。<code>kind</code> で種類を、<code>v</code> で中身を表す。種類は Nil / Bool / Number / String / Handle の 5 つ。<code>FLuaVm</code> の引数 / 戻り値はすべてこの型の配列で表現する。",
+      summary: "C++ と Lua の間で値を受け渡すための<b>タグ付き共用体風の <t>POD</t></b>。<code>kind</code> で種類を、<code>v</code> で中身を表す。種類は Nil / Bool / Number / String / Handle の 5 つ。<code>CLuaVm</code> の引数 / 戻り値はすべてこの型の配列で表現する。",
       when: "<code>CallFunction</code> に引数を渡す / 戻り値を受け取る時や、<t>NativeFunction</t> の中で値を読み書きする時に使う。",
       sample: "acs::game::FScriptValue v;\nv.kind = acs::game::EScriptValueKind::Number;\nv.v.num = 3.14;          // Number は f64\n// 文字列は所有しない(寿命は呼び出し側が保証)\nacs::game::FScriptValue s;\ns.kind = acs::game::EScriptValueKind::String;\ns.v.str = \"hello\";",
       members: [
@@ -89,11 +90,11 @@ ACS_REF.modules.push({
     {
       name: "EScriptLanguage",
       kind: "列挙(enum)", header: "gameframework/ScriptHost.h",
-      summary: "VM の backend(言語)を識別するタグ。<code>FLuaVm</code> は常に <code>Lua54</code> を返す。複数 backend を併用する場合の判定に使う。",
+      summary: "VM の backend(言語)を識別するタグ。<code>CLuaVm</code> は常に <code>Lua54</code> を返す。複数 backend を併用する場合の判定に使う。",
       when: "<code>IScriptVm::Language()</code> の戻り値で、どの言語の VM かを見分けたい時。",
       sample: "if (vm.Language() == acs::game::EScriptLanguage::Lua54) { /* Lua 用処理 */ }",
       members: [
-        { sig: "Lua54 = 0", desc: "Lua 5.4(推奨 backend、<code>FLuaVm</code> が返す)。" },
+        { sig: "Lua54 = 0", desc: "Lua 5.4(推奨 backend、<code>CLuaVm</code> が返す)。" },
         { sig: "Wren = 1", desc: "Wren(小規模・組み込み向け)。" },
         { sig: "Python3 = 2", desc: "CPython 3.x(重量級)。" },
         { sig: "Custom = 3", desc: "ユーザー独自実装の <code>IScriptVm</code> 派生。" }
@@ -103,8 +104,8 @@ ACS_REF.modules.push({
       name: "FScriptHost",
       kind: "クラス", header: "gameframework/ScriptHost.h",
       summary: "<b>ゲームコードから見たスクリプトの単一窓口</b>。<t>IScriptVm</t>* を 1 つ保持し、関数呼び出し・ファイル実行・C++ 関数登録・エラー通知をまとめる(<t>DI</t> ポイントを 1 つに絞る)。<b>vm は所有しない</b>(生成/破棄は <code>FGame</code>/<code>Scene</code> 側の責任)。コピー/<t>ムーブ</t>不可。",
-      when: "ゲーム側で「スクリプトを呼ぶ」窓口が欲しい時。<code>FLuaVm</code>(実)や <code>GetVmStub()</code>(未統合時)を <code>Init()</code> で差し込んで使う。",
-      sample: "acs::scripting::FLuaVm vm; vm.Init();\nacs::game::FScriptHost host;\nhost.Init(&amp;vm);                              // 実 VM(未統合なら &amp;GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &amp;Spawn, &amp;world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::FScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &amp;ret);\nhost.Shutdown();                            // vm は delete しない",
+      when: "ゲーム側で「スクリプトを呼ぶ」窓口が欲しい時。<code>CLuaVm</code>(実)や <code>GetVmStub()</code>(未統合時)を <code>Init()</code> で差し込んで使う。",
+      sample: "acs::scripting::CLuaVm vm; vm.Init();\nacs::game::FScriptHost host;\nhost.Init(&amp;vm);                              // 実 VM(未統合なら &amp;GetVmStub())を差す\nhost.RegisterNative(\"spawn\", &amp;Spawn, &amp;world);\nif (host.LoadAndRun(L\"scripts/quest.lua\").IsErr()) { /* 失敗処理 */ }\nacs::game::FScriptValue ret;\nhost.CallGlobalFunction(\"on_start\", nullptr, 0, &amp;ret);\nhost.Shutdown();                            // vm は delete しない",
       members: [
         { sig: "void Init(IScriptVm* vm)", desc: "使う VM を差し込む。<code>nullptr</code> は Shutdown 相当。多重呼び出し可(後勝ち)。<b>vm は所有しない</b>。" },
         { sig: "void Shutdown()", desc: "vm 参照を切り、内部の native 登録リストもクリア(vm の破棄は呼び出し側)。" },
@@ -162,12 +163,12 @@ ACS_REF.modules.push({
 
 Object.assign(ACS_REF.glossary, {
   "Lua": "ゲーム組み込みで広く使われる軽量スクリプト言語。C++ を再ビルドせずにロジックを差し替えられる。",
-  "Lua 5.4": "<t>Lua</t> の安定版の 1 つ。ACS が <code>FLuaVm</code> として同梱する本物のランタイム。",
-  "VM": "Virtual Machine。スクリプトを読み込んで実行する仮想機械。<code>FLuaVm</code> は <t>Lua</t> の VM。",
-  "IScriptVm": "スクリプト VM の純粋仮想<t>インターフェース</t>。Lua/Wren/Python 等を差し替えるための seam。<code>FLuaVm</code> がこれを実装する。",
+  "Lua 5.4": "<t>Lua</t> の安定版の 1 つ。ACS が <code>CLuaVm</code> として同梱する本物のランタイム。",
+  "VM": "Virtual Machine。スクリプトを読み込んで実行する仮想機械。<code>CLuaVm</code> は <t>Lua</t> の VM。",
+  "IScriptVm": "スクリプト VM の純粋仮想<t>インターフェース</t>。Lua/Wren/Python 等を差し替えるための seam。<code>CLuaVm</code> がこれを実装する。",
   "NativeFunction": "<t>Lua</t> 側から呼べる C++ 関数の型。例外を投げてはいけない。",
   "GC": "Garbage Collection(ガベージコレクション)。不要になったメモリを自動回収する仕組み。<t>Lua</t> が内部で行う。",
-  "Pimpl": "実装の詳細を別構造体へ隠し、ヘッダに公開しない手法。<code>FLuaVm</code> は <code>lua_State*</code> をこれで隠す。",
+  "Pimpl": "実装の詳細を別構造体へ隠し、ヘッダに公開しない手法。<code>CLuaVm</code> は <code>lua_State*</code> をこれで隠す。",
   "シングルトン": "プロセス内に 1 個だけ存在するインスタンス。<code>GetDefaultLuaVm()</code> はこれを返す。",
   "DI": "Dependency Injection(依存性注入)。使う実装を外から差し込み、呼び出し側を具体実装に依存させない設計。<code>FScriptHost</code> は VM を差し替え可能にする。"
 });

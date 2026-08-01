@@ -1,29 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — ANode (統一シーンノード)
-//
-// シーンの中身を表す唯一のノードクラス。旧 FNode2D / FNode3D を統一し、2D/3D を
-// 分けない (docs/NodeUnification.md)。親子ツリーで階層 transform を持ち、各ノードが
-// OnSpawn/OnUpdate/OnDraw/OnDespawn を override してロジック・描画を書く。
-//
-// 命名規約: F = 構造体・素のクラス / A = ACS オブジェクト基底 (FObject) 継承。
-//
-// 設計選択:
-//   ・**FObject 基底**: `NewObject<MyNode>()` で生成し、親が `TObjectPtr<ANode>`
-//     (強参照) で所有、ゲームプレイ側は `TWeakObjectPtr<ANode>` で stale 安全に参照
-//     する。`AddChild(NewObject<MyNode>(args))` が標準パターン。non-copy / non-move。
-//   ・**Transform は 3D 一本** (`FTransform3D`)。2D は x,y を使い z を depth に流用
-//     する特殊ケースで、`Position2D()/SetRotation2D()/World2D()` 等のヘルパで従来の
-//     2D の書き味を維持する (Y-down / 左上原点の規約は不変)。
-//   ・**描画順はオブジェクト持ち**: `DrawLayer` (第1キー、小=奥) + `DrawPriority`
-//     (層内順序、小=奥) + ノード別 `YSortEnabled` (同層内で y+bias を priority より
-//     優先 = 見下ろし遮蔽)。シーンの描画パスが可視ノードをフラット収集して
-//     (layer, [y], priority, ツリー出現順) の安定ソートで描く。全キー 0 なら出現順 =
-//     従来ツリー順と一致 (後方互換)。
-//   ・**lifecycle**: `AddChild` 即時 `OnSpawn`、`Destroy()` で pending マーク →
-//     フレーム境界の `ResolveStructuralChanges()` で OnDespawn → 配列から除去。
-//     子ツリーが先に reap される。
-//   ・**iteration safety**: UpdateTree/DrawTree は index ベースで走査。走査中の
-//     AddChild は同フレームで走る (Unity 互換)。Destroy は遅延 reap。
 #pragma once
 
 #include "foundation/Types.h"
@@ -37,13 +12,16 @@
 #include "gameframework/Transform3D.h"
 #include "gameframework/AComponent.h"
 #include "gameframework/NodeId.h"
-#include "math/Math.h"   // Atan2 (Rotation2D 抽出)
+// Rotation2Dの抽出でAtan2を使う。
+#include "math/Math.h"
 
 namespace acs::game {
 
 class FRenderContext;
-class FSceneServices;   // 非所有ポインタで参照 (include しない = ノードヘッダを軽く保つ)
-struct FMaterial2D;     // 使用マテリアル (効果プリセット)。値は m_Mat に焼き込む
+// ノードheaderを軽く保つため、非所有ポインタで参照する。
+class FSceneServices;
+// 使用する効果プリセット。値は描画materialへ反映する。
+struct FMaterial2D;
 
 /**
  * ノードツリーで許容する最大深度 (root=0、親子 edge 数)。
@@ -75,7 +53,7 @@ enum class EAddChildResult : u8 {
  * `TWeakObjectPtr<ANode>` を使う。描画順は DrawLayer / DrawPriority / YSort を
  * ノードに設定し、シーンが自動で並べる。
  */
-class ANode : public FObject {
+class ANode : public AObject {
 public:
     /** 空のノードを構築する (transform は単位、親なし)。 */
     ANode() noexcept = default;

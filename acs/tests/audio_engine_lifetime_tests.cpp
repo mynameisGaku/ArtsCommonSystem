@@ -12,13 +12,13 @@ namespace {
 constexpr u32 kWaitTimeoutMilliseconds = 3000u;
 
 struct FAudioOperationContext {
-    FAudioEngine* Engine = nullptr;
+    CAudioEngine* Engine = nullptr;
     TAtomic<u32> Finished{0u};
     u32 ActiveCount = 0u;
 };
 
 struct FAudioShutdownContext {
-    FAudioEngine* Engine = nullptr;
+    CAudioEngine* Engine = nullptr;
     TAtomic<u32> Finished{0u};
 };
 
@@ -35,7 +35,7 @@ bool WaitForValue(const TAtomic<u32>& Value, u32 Expected) noexcept
     return false;
 }
 
-bool WaitForShutdownRequest(const FAudioEngine& Engine) noexcept
+bool WaitForShutdownRequest(const CAudioEngine& Engine) noexcept
 {
     for (u32 Elapsed = 0u; Elapsed < kWaitTimeoutMilliseconds; ++Elapsed)
     {
@@ -66,7 +66,7 @@ void ShutdownThread(void* UserData)
 
 int main()
 {
-    FAudioEngine Engine;
+    CAudioEngine Engine;
     if (Engine.InitializeLifecycleTestState().IsErr())
     {
         return 1;
@@ -74,7 +74,7 @@ int main()
 
     TAtomic<u32> GateEntered{0u};
     TAtomic<u32> GateRelease{0u};
-    FAudioEngine::ConfigureLifecycleOperationTestGate(&GateEntered, &GateRelease);
+    CAudioEngine::ConfigureLifecycleOperationTestGate(&GateEntered, &GateRelease);
 
     i32 ExitCode = 0;
     FAudioOperationContext FirstOperation;
@@ -165,7 +165,7 @@ int main()
     {
         Engine.Shutdown();
     }
-    FAudioEngine::ConfigureLifecycleOperationTestGate(nullptr, nullptr);
+    CAudioEngine::ConfigureLifecycleOperationTestGate(nullptr, nullptr);
 
     if (ExitCode == 0 && ShutdownContext.Finished.Load(EMemoryOrder::Acquire) == 0u)
     {
