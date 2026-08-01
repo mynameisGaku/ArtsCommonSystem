@@ -158,16 +158,17 @@ namespace公開の意味付きscalar/value型aliasは`F`で始めます。delega
 function-pointer aliasはprefix自由で、template aliasは今回のscalar監査対象外です。
 `u32`・`f32`・`usize`などのプリミティブaliasもprefixなしです。詳細は
 [`StyleGuide.md`](acs/docs/StyleGuide.md) を参照してください。
-現waveの監査が`A`と機械確定するのは、`acs::AObject`の推移派生またはscope解決済みの
-`ACS_OBJECT` / `ACS_REGISTER_OBJECT`実登録型です。その他のobject候補はmanual debtでreviewします。
-既存の未レビュー公開型326件はexact migration debtへ固定されています。`FAsset`の直接・間接
-派生もmanual review対象で、監査通過は全型の分類完了を意味しません。
+型名の移行はC++の型identifierだけを対象とし、既存のheaderとfile名はinclude経路の
+互換性のため維持します。公開型の正規名、定義header、互換aliasはregistryでexact固定され、
+登録済みの型名移行債務は0件です。新しい公開型やrole変更は
+[`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) の監査で再流入を防ぎます。
 ACS Editorの新規クラス生成とBlueprint C++生成も同じ規約を適用し、表示名を保ったまま
 ACS objectを`A`、機能classを`C`、データ型を`F`、列挙型を`E`で始まる安全なC++識別子へ正規化します。
 
-正規名は`AObject`、`CAudioEngine`、`CMessageBroker`、`CTimerManager`、`CLuaVm`です。旧`F`名は
-再コンパイルするsource向けの一時`using`だけを残します。旧object fileとのABI互換symbolは
-提供しないため、この変更を取り込むconsumerはDebug/Releaseとも全量再buildしてください。
+正規名の例は`AObject`、`CApplication`、`CMessageBroker`、`AAsset`、`CRenderer`です。
+旧名は再コンパイルするsource向けの一時`using`だけを残します。`A` / `C` classの改名で
+旧object fileとのABI互換symbolは提供しないため、取り込むconsumerは
+Debug/Releaseとも全量をclean rebuildしてください。
 
 ## ノード統一
 
@@ -188,6 +189,28 @@ Root().AddChild(Move(player));
 移行理由と所有権・transform・描画順の詳細は
 [`NodeUnification.md`](acs/docs/NodeUnification.md) にあります。
 
+## Subsystemの取得
+
+Subsystemは、ownerと寿命が明確で、複数の利用者が共有する更新・終了処理付きの機能に
+限って使います。`CApplication`がEngine寿命、`CGame`がGameInstance寿命、`AScene`が
+World寿命のSubsystemを所有します。`GetSubsystem<T>()`は各ownerのscopeから親へ探し、
+WorldからはWorld → GameInstance → Engineの順で解決します。`ANode`と`AComponent`は、
+所属するsceneから配線された同じAPIを使えます。
+
+```cpp
+// Engine寿命のassetとtimerを取得する。
+AAssetSubsystem* assets = application.GetSubsystem<AAssetSubsystem>();
+ATimerSubsystem* timers = game.GetSubsystem<ATimerSubsystem>();
+
+// World寿命のeventとclockをscene配下から取得する。
+AEventBus* events = scene.GetSubsystem<AEventBus>();
+AWorldClockSubsystem* node_clock = node.GetSubsystem<AWorldClockSubsystem>();
+AEventBus* component_events = component.GetSubsystem<AEventBus>();
+```
+
+未登録、またはownerへ未配線の場合は`nullptr`を返します。Subsystemの登録・scope・frame phaseは
+専用のcatalogとcollectionで管理し、単なる局所値や決定論的な計算機能はSubsystemにしません。
+
 ## モジュール
 
 有効化設定は [`acs/engine/modules.cmake`](acs/engine/modules.cmake)、トップレベルCMakeは
@@ -195,27 +218,27 @@ Root().AddChild(Move(player));
 
 | モジュール | 役割 | 代表的な現行API |
 |---|---|---|
-| `Foundation` | 基本型・結果・エラー・ログ | `TResult<T,E>`, `FErrorCode`, `FLogger`, `FStackTrace` |
-| `Threading` | thread・同期・job | `TAtomic<T>`, `FMutex`, `FThreadPool`, `FJobGraph` |
-| `Memory` | allocator・所有権・追跡 | `FAllocator`, `TUniquePtr<T>`, `TSharedPtr<T>`, `TObjectPtr<T>` |
+| `Foundation` | 基本型・結果・エラー・ログ | `TResult<T,E>`, `FErrorCode`, `CLogger`, `FStackTrace` |
+| `Threading` | thread・同期・job | `TAtomic<T>`, `FMutex`, `CThreadPool`, `CJobGraph` |
+| `Memory` | allocator・所有権・追跡 | `IAllocator`, `TUniquePtr<T>`, `TSharedPtr<T>`, `TObjectPtr<T>` |
 | `Container` | 配列・文字列・hash・view | `TArray<T>`, `FString`, `THashMap<K,V>`, `TSpan<T>` |
-| `Math` | vector・matrix・camera・衝突基本形状 | `FVec2`, `FMat4`, `FQuat`, `FCamera`, `FAabb3` |
-| `Timing` | 値所有の決定論的な固定更新変換 | `FFixedStepClock`, `FFixedStepClockSnapshot` |
-| `Platform` | window・input・file・time | `FWindow`, `FInput`, `FFileSystem`, `FFrameTimer` |
-| `Ecs` | entity / componentとquery | `FWorld`, `FEntityId`, `TQueryView`, `FEntityCommandBuffer` |
+| `Math` | vector・matrix・camera・衝突基本形状 | `FVec2`, `FMat4`, `FQuat`, `CCamera`, `FAabb3` |
+| `Timing` | 決定論的な固定更新計算とsnapshot | `CFixedStepClock`, `FFixedStepClockSnapshot` |
+| `Platform` | window・input・file・time | `FWindow`, `CInput`, `CFileSystem`, `FFrameTimer` |
+| `Ecs` | entity / componentとquery | `CWorld`, `FEntityId`, `TQueryView`, `FEntityCommandBuffer` |
 | `Event` | pub/sub・message pipe・timer | `CMessageBroker`, `TMessagePipe<T>`, `CTimerManager` |
-| `Asset` | asset registryと各loader | `FAssetRegistry`, `IAssetLoader`, `FImageAsset`, `FMeshAsset` |
-| `Render` | RHI・2D/3D描画 | `FRenderer`, `IRhiDevice`, `FSpriteBatch`, `FFont`, `FPbrShader` |
-| `App` | application lifecycleとentry point | `FApplication`, `FAppConfig`, `ACS_DEFINE_MAIN` |
+| `Asset` | asset registryと各loader | `CAssetRegistry`, `IAssetLoader`, `AImageAsset`, `AMeshAsset` |
+| `Render` | RHI・2D/3D描画 | `CRenderer`, `IRhiDevice`, `CSpriteBatch`, `FFont`, `CPbrShader` |
+| `App` | application lifecycleとentry point | `CApplication`, `FAppConfig`, `AAssetSubsystem`, `ATimerSubsystem` |
 | `Audio` | XAudio2再生 | `CAudioEngine`, `FSoundHandle` |
-| `Network` | network初期化・TCP・UDP | `FNetwork`, `FTcpConnection`, `FTcpListener`, `FUdpSocket` |
+| `Network` | network初期化・TCP・UDP | `CNetwork`, `FTcpConnection`, `FTcpListener`, `FUdpSocket` |
 | `Imgui` | Dear ImGui統合（raw DX12時） | `FImGuiCtx` |
 | `Mvvm` | observableとbinding | `TObservable<T>`, `TTwoWayBinder<T>`, `FCommand` |
-| `Ui` | retained-mode UI | `FWidget`, `FUiRenderer`, `FTextInput` |
+| `Ui` | retained-mode UI | `AWidget`, `CUiRenderer`, `ATextInput` |
 | `Easy` | 初学者向け手続きAPI | `FColor`, `FSprite`, `FSound`, `FJobBatch` |
-| `AssetPack` | `.acpak`読書き・圧縮・暗号化 | `FAcpakReader`, `FAcpakWriter`, `FAcpakCrypto` |
-| `Collision` | sprite / meshからcollider生成 | `FSpriteCollider`, `FMeshCollider` |
-| `GameFramework` | game・scene・統一node / component | `FGame`, `FScene2D`, `FScene3D`, `ANode`, `AComponent` |
+| `AssetPack` | `.acpak`読書き・圧縮・暗号化 | `CAcpakReader`, `CAcpakWriter`, `CAcpakCrypto` |
+| `Collision` | sprite / meshからcollider生成 | `CSpriteCollider`, `CMeshCollider` |
+| `GameFramework` | game・scene・統一node / component | `CGame`, `AScene2D`, `CScene3D`, `ANode`, `AComponent` |
 | `Test` | 単体テストframework | `ACS_TEST`, `EXPECT_*` |
 
 任意module / backendは生成スイッチで追加されます。
@@ -223,12 +246,12 @@ Root().AddChild(Move(player));
 | スイッチ | 追加される実装 |
 |---|---|
 | `-Scripting` | Lua 5.4 backend（`CLuaVm`） |
-| `-Steamworks` | Steamworks SDK backend（`FSteamworksBridgeImpl`） |
-| `-Onnx` | ONNX Runtime CPU backend（`FOnnxMlRuntime`） |
-| `-OpenXr` | Khronos OpenXR loader（`FKhronosOpenXrBridge`） |
-| `-CrashReporter` | Windows DbgHelp minidump backend（`FWindowsCrashReporter`） |
-| `-Telemetry` | JSON Lines file backend（`FFileTelemetryBackendClient`） |
-| `-Matchmaker` | deterministic local matchmaker（`FLocalMatchmaker`） |
+| `-Steamworks` | Steamworks SDK backend（`CSteamworksBridgeImpl`） |
+| `-Onnx` | ONNX Runtime CPU backend（`COnnxMlRuntime`） |
+| `-OpenXr` | Khronos OpenXR loader（`CKhronosOpenXrBridge`） |
+| `-CrashReporter` | Windows DbgHelp minidump backend（`CWindowsCrashReporter`） |
+| `-Telemetry` | JSON Lines file backend（`CFileTelemetryBackendClient`） |
+| `-Matchmaker` | deterministic local matchmaker（`CLocalMatchmaker`） |
 
 ## サンプル
 
@@ -239,17 +262,17 @@ Root().AddChild(Move(player));
 | サンプル | target | 内容 | 追加条件 |
 |---|---|---|---|
 | `00_HelloEasy` | `hello_easy` | Easy APIによる最小2Dループ | 常時 |
-| `01_HelloWindow` | `hello_window` | `FApplication`とwindow / rendererの最小構成 | 常時 |
+| `01_HelloWindow` | `hello_window` | `CApplication`とwindow / rendererの最小構成 | 常時 |
 | `20_HelloMVVM` | `hello_mvvm` | MVVMとImGui binding | raw DX12 |
 | `24_HelloBloom` | `hello_bloom` | HDR bloom / post process | `--diligent` |
 | `38_HelloFullGame` | `hello_full_game` | 複数sceneを持つ完結ミニゲーム | raw DX12 |
 | `41_HelloOnnx` | `hello_onnx` | ONNX Runtime smoke test | `--onnx` |
 | `42_HelloOpenXR` | `hello_openxr` | OpenXR loader smoke test | `--openxr` |
 | `46_HelloAssetPackBridge` | `hello_asset_pack_bridge` | `.acpak` write / mount / read | 常時 |
-| `55_HelloScene2D` | `hello_scene2d` | `FScene2D`と統一`ANode`の実用starter | raw DX12・既定 |
+| `55_HelloScene2D` | `hello_scene2d` | `AScene2D`と統一`ANode`の実用starter | raw DX12・既定 |
 | `63_HelloVerticalSlice` | `hello_vertical_slice` | titleからsaveまでの2D vertical slice | raw DX12 |
 | `64_HelloJobs` | `hello_jobs` | Easy job / parallel API | 常時 |
-| `66_HelloVertexSSS` | `hello_vertex_sss` | `FVertexScatter`による頂点空間SSS | 常時 |
+| `66_HelloVertexSSS` | `hello_vertex_sss` | `CVertexScatter`による頂点空間SSS | 常時 |
 
 全ソースをソリューションへ加える場合は`.\acs.ps1 configure --all-samples`、1件だけなら
 `.\acs.ps1 configure --sample 64_HelloJobs`のように指定します。
@@ -281,7 +304,7 @@ Root().AddChild(Move(player));
 - [`samples/README.md`](acs/samples/README.md) — 入門サンプルの学習ガイド
 - [`ARCHITECTURE.md`](acs/docs/ARCHITECTURE.md) — module構成と設計
 - [`StyleGuide.md`](acs/docs/StyleGuide.md) — A / C / F / I / T / E命名とcoding rule
-- [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — AObject / C4 / F3のhard canonicalとexact debtを含む型役割監査
+- [`TypeRoleAudit.md`](acs/docs/TypeRoleAudit.md) — 公開型registry、互換alias、移行債務をexact照合する型役割監査
 - [`NodeUnification.md`](acs/docs/NodeUnification.md) — `ANode`統一と移行指針
 - [`SerializationSafety.md`](acs/docs/SerializationSafety.md) — 外部入力・永続化・checked API
 - [`TROUBLESHOOTING.md`](acs/docs/TROUBLESHOOTING.md) — よくある問題と対処
