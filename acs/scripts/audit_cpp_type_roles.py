@@ -225,32 +225,133 @@ SCALAR_TYPE_NAMES = frozenset(
 )
 DETAIL_NAMESPACE_NAMES = frozenset({"detail", "internal", "private"})
 PUBLIC_HEADER_SUFFIXES = frozenset({".h", ".hh", ".hpp", ".hxx", ".inl"})
+TYPE_ROLE_MIGRATION_SCHEMA_VERSION = 1
+DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT = 5
+DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256 = "8DFBAD8ADB86795478ABC0D2826217C9D388CF215D534136CD8158A6FEE46828"
+DEFAULT_TYPE_ROLE_MIGRATIONS = (
+    Path(os.path.abspath(__file__)).parent / "data" / "cpp_type_role_migrations.json"
+)
+
+
+def _load_registered_type_role_migrations(
+    path: Path = DEFAULT_TYPE_ROLE_MIGRATIONS,
+    verify_default_baseline: bool = True,
+) -> tuple[tuple[str, str, str, str, str], ...]:
+    """正規型と一時的な旧名の固定契約を読み込む。"""
+
+    # 監査器と同じ場所に置いた追跡済みregistryだけを読む。
+    registry_stat = path.lstat()
+    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(registry_stat, "st_file_attributes", 0)
+    if (
+        not stat.S_ISREG(registry_stat.st_mode)
+        or stat.S_ISLNK(registry_stat.st_mode)
+        or bool(file_attributes & reparse_attribute)
+    ):
+        raise ValueError("type role migration registry must be a regular non-reparse file")
+    payload = path.read_bytes()
+    if payload.startswith(b"\xef\xbb\xbf") or b"\r" in payload or not payload.endswith(b"\n"):
+        raise ValueError("type role migration registry must be UTF-8 without BOM and use LF")
+
+    # 同じkeyを後勝ちにせず、その場で拒否する。
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate type role migration key: {key}")
+            result[key] = value
+        return result
+
+    document = json.loads(payload.decode("utf-8"), object_pairs_hook=reject_duplicate_keys)
+    if not isinstance(document, dict) or set(document) != {"schema_version", "entries"}:
+        raise ValueError("type role migration registry has an invalid root schema")
+    if (
+        type(document["schema_version"]) is not int
+        or document["schema_version"] != TYPE_ROLE_MIGRATION_SCHEMA_VERSION
+    ):
+        raise ValueError("type role migration registry has an unsupported schema version")
+    raw_entries = document["entries"]
+    if not isinstance(raw_entries, list):
+        raise ValueError("type role migration entries must be an array")
+    # sourceとregistryを同時に削除しても通らない独立baselineを固定する。
+    semantic_payload = json.dumps(
+        raw_entries,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    semantic_sha256 = hashlib.sha256(semantic_payload).hexdigest().upper()
+    if verify_default_baseline and (
+        len(raw_entries) != DEFAULT_TYPE_ROLE_MIGRATION_ENTRY_COUNT
+        or semantic_sha256 != DEFAULT_TYPE_ROLE_MIGRATION_SEMANTIC_SHA256
+    ):
+        raise ValueError("type role migration registry does not match the fixed baseline")
+
+    # legacy、canonical、path、宣言種別、prefixの順で保持する。
+    entries: list[tuple[str, str, str, str, str]] = []
+    expected_fields = {"path", "legacy", "canonical", "kind", "prefix"}
+    qualified_name = re.compile(r"^[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*$")
+    for index, raw_entry in enumerate(raw_entries):
+        if not isinstance(raw_entry, dict) or set(raw_entry) != expected_fields:
+            raise ValueError(f"type role migration entries[{index}] has an invalid schema")
+        path = raw_entry["path"]
+        legacy = raw_entry["legacy"]
+        canonical = raw_entry["canonical"]
+        kind = raw_entry["kind"]
+        prefix = raw_entry["prefix"]
+        normalized_path = PurePosixPath(path) if isinstance(path, str) else None
+        if (
+            not isinstance(path, str)
+            or not path
+            or normalized_path is None
+            or normalized_path.is_absolute()
+            or normalized_path.as_posix() != path
+            or any(part in {"", ".", ".."} for part in normalized_path.parts)
+            or "\\" in path
+            or ":" in path
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in path)
+            or normalized_path.suffix not in PUBLIC_HEADER_SUFFIXES
+        ):
+            raise ValueError(f"type role migration entries[{index}] has an invalid path")
+        if not isinstance(legacy, str) or qualified_name.fullmatch(legacy) is None:
+            raise ValueError(f"type role migration entries[{index}] has an invalid legacy name")
+        if not isinstance(canonical, str) or qualified_name.fullmatch(canonical) is None:
+            raise ValueError(f"type role migration entries[{index}] has an invalid canonical name")
+        if kind not in {"class", "struct"} or prefix not in {"A", "C", "F", "I"}:
+            raise ValueError(f"type role migration entries[{index}] has an invalid role")
+        if canonical.rsplit("::", 1)[-1][0] != prefix:
+            raise ValueError(f"type role migration entries[{index}] prefix does not match canonical name")
+        entries.append((legacy, canonical, path, kind, prefix))
+
+    if entries != sorted(entries, key=lambda entry: (entry[2], entry[0])):
+        raise ValueError("type role migration entries must use ordinal path and legacy-name order")
+    if len({entry[0] for entry in entries}) != len(entries):
+        raise ValueError("type role migration legacy names must be unique")
+    if len({entry[1] for entry in entries}) != len(entries):
+        raise ValueError("type role migration canonical names must be unique")
+    return tuple(entries)
+
+
+REGISTERED_TYPE_ROLE_MIGRATIONS = _load_registered_type_role_migrations()
 LEGACY_COMPATIBILITY_ALIASES = {
-    "acs::FObject": "acs::AObject",
-    "acs::FAudioEngine": "acs::CAudioEngine",
-    "acs::FMessageBroker": "acs::CMessageBroker",
-    "acs::FTimerManager": "acs::CTimerManager",
-    "acs::scripting::FLuaVm": "acs::scripting::CLuaVm",
+    legacy: canonical for legacy, canonical, _, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+}
+LEGACY_COMPATIBILITY_ALIASES.update({
     "acs::ComponentSignatureId": "acs::FComponentSignatureId",
     "acs::ComponentTypeId": "acs::FComponentTypeId",
     "acs::EventTypeId": "acs::FEventTypeId",
-}
+})
 LEGACY_COMPATIBILITY_PATHS = {
-    "acs::FObject": "memory/AObject.h",
-    "acs::FAudioEngine": "audio/AudioEngine.h",
-    "acs::FMessageBroker": "event/MessageBroker.h",
-    "acs::FTimerManager": "event/TimerManager.h",
-    "acs::scripting::FLuaVm": "scripting/LuaVm.h",
+    legacy: path for legacy, _, path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
+}
+LEGACY_COMPATIBILITY_PATHS.update({
     "acs::ComponentSignatureId": "ecs/ComponentId.h",
     "acs::ComponentTypeId": "ecs/ComponentId.h",
     "acs::EventTypeId": "event/EventTypeId.h",
-}
+})
 CANONICAL_OBJECT_AND_CLASS_TYPES = {
-    "acs::AObject": ("memory/AObject.h", "class", "A"),
-    "acs::CAudioEngine": ("audio/AudioEngine.h", "class", "C"),
-    "acs::CMessageBroker": ("event/MessageBroker.h", "class", "C"),
-    "acs::CTimerManager": ("event/TimerManager.h", "class", "C"),
-    "acs::scripting::CLuaVm": ("scripting/LuaVm.h", "class", "C"),
+    canonical: (path, kind, prefix)
+    for _, canonical, path, kind, prefix in REGISTERED_TYPE_ROLE_MIGRATIONS
 }
 FOUNDATION_PRIMITIVE_ALIASES = {
     "byte": ("unsigned", "char"),
@@ -2640,6 +2741,94 @@ EventTypeId LegacyEventType = 0;
 '''
     with tempfile.TemporaryDirectory(prefix="acs-type-role-") as directory:
         root = Path(directory)
+        registry_root = root / "registry"
+        registry_root.mkdir()
+
+        # registry単体のschemaと独立baselineを製品sourceとは別に固定する。
+        default_registry_document = json.loads(DEFAULT_TYPE_ROLE_MIGRATIONS.read_text(encoding="utf-8"))
+
+        def write_registry_fixture(name: str, document: object) -> Path:
+            """指定したregistry文書をcanonical JSON fixtureとして保存する。"""
+
+            fixture_path = registry_root / name
+            fixture_path.write_bytes(
+                (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+            )
+            return fixture_path
+
+        copied_registry_path = write_registry_fixture("copied.json", default_registry_document)
+        if (
+            _load_registered_type_role_migrations(copied_registry_path, False)
+            != REGISTERED_TYPE_ROLE_MIGRATIONS
+        ):
+            print("type role migration registry copy self-test failed", file=sys.stderr)
+            return False
+
+        invalid_registry_paths = (
+            "",
+            ".",
+            "./audio/AudioEngine.h",
+            "audio\\AudioEngine.h",
+            "C:/audio/AudioEngine.h",
+            "audio/../AudioEngine.h",
+            "audio/AudioEngine.cpp",
+        )
+        for case_index, invalid_path in enumerate(invalid_registry_paths):
+            invalid_document = json.loads(json.dumps(default_registry_document))
+            invalid_document["entries"][0]["path"] = invalid_path
+            invalid_registry_path = write_registry_fixture(
+                f"invalid-path-{case_index}.json",
+                invalid_document,
+            )
+            try:
+                _load_registered_type_role_migrations(invalid_registry_path, False)
+            except ValueError:
+                pass
+            else:
+                print(
+                    f"type role migration invalid path self-test failed: {invalid_path!r}",
+                    file=sys.stderr,
+                )
+                return False
+
+        bool_schema_document = json.loads(json.dumps(default_registry_document))
+        bool_schema_document["schema_version"] = True
+        try:
+            _load_registered_type_role_migrations(
+                write_registry_fixture("bool-schema.json", bool_schema_document),
+                False,
+            )
+        except ValueError:
+            pass
+        else:
+            print("type role migration bool schema self-test failed", file=sys.stderr)
+            return False
+
+        duplicate_key_path = registry_root / "duplicate-key.json"
+        duplicate_key_path.write_bytes(
+            b'{"schema_version":1,"schema_version":1,"entries":[]}\n'
+        )
+        try:
+            _load_registered_type_role_migrations(duplicate_key_path, False)
+        except ValueError:
+            pass
+        else:
+            print("type role migration duplicate key self-test failed", file=sys.stderr)
+            return False
+
+        deleted_registry_document = json.loads(json.dumps(default_registry_document))
+        deleted_registry_document["entries"].pop()
+        try:
+            _load_registered_type_role_migrations(
+                write_registry_fixture("coordinated-delete.json", deleted_registry_document),
+                True,
+            )
+        except ValueError:
+            pass
+        else:
+            print("type role migration fixed baseline self-test failed", file=sys.stderr)
+            return False
+
         (root / "valid.h").write_text(valid_source, encoding="utf-8")
         (root / "invalid.h").write_text(invalid_source, encoding="utf-8")
 
@@ -3484,14 +3673,23 @@ EventTypeId LegacyEventType = 0;
             print(f"type role legacy use self-test failed: {usage_violations}", file=sys.stderr)
             return False
         presence_sources = {
-            "audio/AudioEngine.h": "namespace acs { class CAudioEngine {}; using FAudioEngine = CAudioEngine; }",
             "ecs/ComponentId.h": "namespace acs { using FComponentTypeId=u32; using ComponentTypeId=FComponentTypeId; using FComponentSignatureId=u64; using ComponentSignatureId=FComponentSignatureId; }",
             "event/EventTypeId.h": "namespace acs { using FEventTypeId=u32; using EventTypeId=FEventTypeId; }",
-            "event/MessageBroker.h": "namespace acs { class CMessageBroker {}; using FMessageBroker=CMessageBroker; }",
-            "event/TimerManager.h": "namespace acs { class CTimerManager {}; using FTimerManager=CTimerManager; }",
-            "memory/AObject.h": "namespace acs { class AObject {}; using FObject=AObject; }",
-            "scripting/LuaVm.h": "namespace acs::scripting { class CLuaVm {}; using FLuaVm=CLuaVm; }",
         }
+        for legacy, canonical, expected_path, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
+            # 1つのheaderに複数の移行型があっても独立した宣言として組み立てる。
+            namespace = canonical.rsplit("::", 1)[0]
+            canonical_name = canonical.rsplit("::", 1)[-1]
+            legacy_name = legacy.rsplit("::", 1)[-1]
+            declaration = (
+                f"namespace {namespace} {{ {kind} {canonical_name} {{}}; "
+                f"using {legacy_name}={canonical_name}; }}"
+            )
+            presence_sources[expected_path] = (
+                f"{presence_sources[expected_path]}\n{declaration}"
+                if expected_path in presence_sources
+                else declaration
+            )
 
         def write_presence_tree(name: str, sources: dict[str, str]) -> Path:
             """必須aliasの変異を独立したsource treeへ保存する。"""
@@ -3508,14 +3706,13 @@ EventTypeId LegacyEventType = 0;
             print("type role compatibility presence self-test failed", file=sys.stderr)
             return False
         conditional_alias_sources = dict(presence_sources)
-        conditional_alias_sources["audio/AudioEngine.h"] = (
-            "namespace acs { class CAudioEngine {};\n"
+        conditional_alias_sources["audio/AudioEngine.h"] = presence_sources["audio/AudioEngine.h"].replace(
+            "using FAudioEngine=CAudioEngine;",
             "#if SOME_FLAG\n"
-            "using FAudioEngine = CAudioEngine;\n"
+            "using FAudioEngine=CAudioEngine;\n"
             "#else\n"
-            "using FAudioEngine = CAudioEngine;\n"
+            "using FAudioEngine=CAudioEngine;\n"
             "#endif\n"
-            "}"
         )
         conditional_alias_violations = scan_tree(
             write_presence_tree("conditional-compatibility-alias", conditional_alias_sources)
@@ -3624,23 +3821,30 @@ EventTypeId LegacyEventType = 0;
             return False
 
         legacy_declarations = {
-            "acs::FObject": ("memory/AObject.h", "using FObject=AObject;", "using FObject=CAudioEngine;"),
-            "acs::FAudioEngine": ("audio/AudioEngine.h", "using FAudioEngine = CAudioEngine;", "using FAudioEngine = CMessageBroker;"),
-            "acs::FMessageBroker": ("event/MessageBroker.h", "using FMessageBroker=CMessageBroker;", "using FMessageBroker=CTimerManager;"),
-            "acs::FTimerManager": ("event/TimerManager.h", "using FTimerManager=CTimerManager;", "using FTimerManager=CMessageBroker;"),
-            "acs::scripting::FLuaVm": ("scripting/LuaVm.h", "using FLuaVm=CLuaVm;", "using FLuaVm=CAudioEngine;"),
             "acs::ComponentSignatureId": ("ecs/ComponentId.h", "using ComponentSignatureId=FComponentSignatureId;", "using ComponentSignatureId=FComponentTypeId;"),
             "acs::ComponentTypeId": ("ecs/ComponentId.h", "using ComponentTypeId=FComponentTypeId;", "using ComponentTypeId=FComponentSignatureId;"),
             "acs::EventTypeId": ("event/EventTypeId.h", "using EventTypeId=FEventTypeId;", "using EventTypeId=FComponentTypeId;"),
         }
+        registered_canonical_names = [entry[1] for entry in REGISTERED_TYPE_ROLE_MIGRATIONS]
+        for legacy, canonical, expected_path, _, _ in REGISTERED_TYPE_ROLE_MIGRATIONS:
+            # target swapは別の登録済み正規型へ向け、単なる未宣言名にしない。
+            wrong_target = next(name for name in registered_canonical_names if name != canonical)
+            legacy_name = legacy.rsplit("::", 1)[-1]
+            canonical_name = canonical.rsplit("::", 1)[-1]
+            legacy_declarations[legacy] = (
+                expected_path,
+                f"using {legacy_name}={canonical_name};",
+                f"using {legacy_name}=::{wrong_target};",
+            )
         for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(legacy_declarations.items())):
             alias_name = qualified_name.rsplit("::", 1)[-1]
+            namespace = qualified_name.rsplit("::", 1)[0]
             deletion_sources = dict(presence_sources)
             deletion_sources[expected_path] = deletion_sources[expected_path].replace(declaration, "")
             duplicate_sources = dict(presence_sources)
-            duplicate_sources[expected_path] += f"\nnamespace {'acs::scripting' if qualified_name.startswith('acs::scripting::') else 'acs'} {{ {declaration} }}"
+            duplicate_sources[expected_path] += f"\nnamespace {namespace} {{ {declaration} }}"
             moved_sources = dict(deletion_sources)
-            moved_sources[f"event/MovedLegacy{case_index}.h"] = f"namespace {'acs::scripting' if qualified_name.startswith('acs::scripting::') else 'acs'} {{ {declaration} }}"
+            moved_sources[f"event/MovedLegacy{case_index}.h"] = f"namespace {namespace} {{ {declaration} }}"
             target_sources = dict(presence_sources)
             target_sources[expected_path] = target_sources[expected_path].replace(declaration, wrong_declaration)
             relative_target_sources = dict(presence_sources)
@@ -3661,14 +3865,15 @@ EventTypeId LegacyEventType = 0;
                     return False
 
         canonical_type_declarations = {
-            "acs::AObject": ("memory/AObject.h", "class AObject {};", "struct AObject {};"),
-            "acs::CAudioEngine": ("audio/AudioEngine.h", "class CAudioEngine {};", "struct CAudioEngine {};"),
-            "acs::CMessageBroker": ("event/MessageBroker.h", "class CMessageBroker {};", "struct CMessageBroker {};"),
-            "acs::CTimerManager": ("event/TimerManager.h", "class CTimerManager {};", "struct CTimerManager {};"),
-            "acs::scripting::CLuaVm": ("scripting/LuaVm.h", "class CLuaVm {};", "struct CLuaVm {};"),
+            canonical: (
+                expected_path,
+                f"{kind} {canonical.rsplit('::', 1)[-1]} {{}};",
+                f"{'struct' if kind == 'class' else 'class'} {canonical.rsplit('::', 1)[-1]} {{}};",
+            )
+            for _, canonical, expected_path, kind, _ in REGISTERED_TYPE_ROLE_MIGRATIONS
         }
         for case_index, (qualified_name, (expected_path, declaration, wrong_declaration)) in enumerate(sorted(canonical_type_declarations.items())):
-            namespace = "acs::scripting" if qualified_name.startswith("acs::scripting::") else "acs"
+            namespace = qualified_name.rsplit("::", 1)[0]
             deletion_sources = dict(presence_sources)
             deletion_sources[expected_path] = deletion_sources[expected_path].replace(declaration, "")
             duplicate_sources = dict(presence_sources)
@@ -3773,7 +3978,7 @@ EventTypeId LegacyEventType = 0;
 
         for case_index, qualified_name in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES)):
             alias_name = qualified_name.rsplit("::", 1)[-1]
-            namespace = "acs::scripting" if qualified_name.startswith("acs::scripting::") else "acs"
+            namespace = qualified_name.rsplit("::", 1)[0]
             reentry_sources = dict(presence_sources)
             reentry_sources[f"event/LegacyUse{case_index}.cpp"] = f"namespace {namespace} {{ {alias_name}* LegacyValue = nullptr; }}"
             reentry_violations = scan_tree(write_presence_tree(f"legacy-reentry-{case_index}", reentry_sources)).violations
@@ -3783,7 +3988,7 @@ EventTypeId LegacyEventType = 0;
 
         for case_index, qualified_name in enumerate(sorted(LEGACY_COMPATIBILITY_ALIASES)):
             alias_name = qualified_name.rsplit("::", 1)[-1]
-            namespace = "acs::scripting" if qualified_name.startswith("acs::scripting::") else "acs"
+            namespace = qualified_name.rsplit("::", 1)[0]
             forward_sources = dict(presence_sources)
             forward_sources[f"event/LegacyForward{case_index}.cpp"] = f"namespace {namespace} {{ class {alias_name}; }}"
             forward_violations = scan_tree(write_presence_tree(f"legacy-forward-{case_index}", forward_sources)).violations

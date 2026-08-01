@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "path": "audio/AudioEngine.h",
+      "legacy": "acs::FAudioEngine",
+      "canonical": "acs::CAudioEngine",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "event/MessageBroker.h",
+      "legacy": "acs::FMessageBroker",
+      "canonical": "acs::CMessageBroker",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "event/TimerManager.h",
+      "legacy": "acs::FTimerManager",
+      "canonical": "acs::CTimerManager",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "memory/AObject.h",
+      "legacy": "acs::FObject",
+      "canonical": "acs::AObject",
+      "kind": "class",
+      "prefix": "A"
+    },
+    {
+      "path": "scripting/LuaVm.h",
+      "legacy": "acs::scripting::FLuaVm",
+      "canonical": "acs::scripting::CLuaVm",
+      "kind": "class",
+      "prefix": "C"
+    }
+  ]
+}
