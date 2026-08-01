@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -731,12 +731,12 @@ def _debt_semantic_sha256(entries: Sequence[FTypeRoleDebt]) -> str:
 
 
 def _verify_default_debt_baseline(entries: Sequence[FTypeRoleDebt]) -> None:
-    """第一waveのdefault debt 326件をsemantic hashで完全freezeする。"""
+    """review済みのdefault debt baselineをsemantic hashで完全freezeする。"""
 
     semantic_sha = _debt_semantic_sha256(entries)
     if len(entries) != DEFAULT_DEBT_ENTRY_COUNT or semantic_sha != DEFAULT_DEBT_SEMANTIC_SHA256:
         raise ValueError(
-            "default migration debt baselineが第一waveのexact 326件と一致しません: "
+            "default migration debt baselineがreview済みの固定値と一致しません: "
             f"entries={len(entries)} semantic_sha256={semantic_sha}"
         )
 
@@ -3121,20 +3121,6 @@ EventTypeId LegacyEventType = 0;
                 key=_debt_sort_key,
             )
         )
-        moved_first = FTypeRoleDebt(
-            "app/MovedApplication.h",
-            default_debt_entries[0].qualified_type,
-            default_debt_entries[0].current_prefix,
-            default_debt_entries[0].status,
-            default_debt_entries[0].candidate_prefix,
-            None,
-            True,
-            default_debt_entries[0].reason,
-            default_debt_entries[0].wave,
-        )
-        coordinated_move = tuple(
-            sorted((moved_first, *default_debt_entries[1:]), key=_debt_sort_key)
-        )
         default_source_root = Path(__file__).resolve().parent.parent / "src"
         default_source_result = scan_tree(default_source_root, DEFAULT_MIGRATION_DEBT)
         if default_source_result.violations:
@@ -3154,80 +3140,47 @@ EventTypeId LegacyEventType = 0;
             _tokens(addition_source),
             addition_source_root,
         )
-        deletion_key = (
-            default_debt_entries[-1].path,
-            default_debt_entries[-1].qualified_type,
+        if len(addition_definitions) != 1:
+            print("type role coordinated addition fixture selection failed", file=sys.stderr)
+            return False
+        addition_mutation_definitions = (*default_definitions, *addition_definitions)
+        addition_managed_names = _managed_names(
+            addition_mutation_definitions,
+            frozenset(),
         )
-        deletion_definitions = tuple(
-            definition
-            for definition in default_definitions
-            if (definition.source_relative_path, definition.qualified_name) != deletion_key
+        addition_raw_violations, _ = _audit_definitions(
+            addition_mutation_definitions,
+            addition_managed_names,
         )
-        move_key = (
-            default_debt_entries[0].path,
-            default_debt_entries[0].qualified_type,
-        )
-        moved_definition_count = 0
-        moved_definitions: list[FTypeDefinition] = []
-        for definition in default_definitions:
-            if (definition.source_relative_path, definition.qualified_name) == move_key:
-                moved_definitions.append(
-                    replace(
-                        definition,
-                        path=default_source_root / "app" / "MovedApplication.h",
-                        source_relative_path="app/MovedApplication.h",
-                    )
-                )
-                moved_definition_count += 1
-            else:
-                moved_definitions.append(definition)
-        mutation_fixtures = (
-            (
-                "addition",
-                (*default_definitions, *addition_definitions),
-                coordinated_addition,
-            ),
-            ("deletion", deletion_definitions, default_debt_entries[:-1]),
-            ("move", tuple(moved_definitions), coordinated_move),
+        reconciled, selected, matched = _reconcile_migration_debt(
+            default_source_root,
+            default_source_root,
+            addition_mutation_definitions,
+            addition_managed_names,
+            default_source_result.aliases,
+            addition_raw_violations,
+            coordinated_addition,
         )
         if (
-            len(default_definitions) - len(deletion_definitions) != 1
-            or moved_definition_count != 1
-            or len(addition_definitions) != 1
+            reconciled
+            or selected != coordinated_addition
+            or matched != coordinated_addition
         ):
-            print("type role coordinated mutation fixture selection failed", file=sys.stderr)
-            return False
-        for mutation_name, mutation_definitions, mutation_entries in mutation_fixtures:
-            mutation_managed_names = _managed_names(mutation_definitions, frozenset())
-            mutation_raw_violations, _ = _audit_definitions(
-                mutation_definitions,
-                mutation_managed_names,
-            )
-            reconciled, selected, matched = _reconcile_migration_debt(
-                default_source_root,
-                default_source_root,
-                mutation_definitions,
-                mutation_managed_names,
-                default_source_result.aliases,
-                mutation_raw_violations,
-                mutation_entries,
-            )
-            if reconciled or selected != mutation_entries or matched != mutation_entries:
-                print(
-                    "type role coordinated source/manifest reconcile self-test failed: "
-                    f"{mutation_name}: violations={reconciled}",
-                    file=sys.stderr,
-                )
-                return False
-            try:
-                _verify_default_debt_baseline(mutation_entries)
-            except ValueError:
-                continue
             print(
-                f"type role default debt coordinated mutation self-test failed: {mutation_name}",
+                "type role coordinated source/manifest addition self-test failed: "
+                f"violations={reconciled}",
                 file=sys.stderr,
             )
             return False
+        try:
+            _verify_default_debt_baseline(coordinated_addition)
+        except ValueError:
+            pass
+        else:
+            print("type role default debt coordinated addition self-test failed", file=sys.stderr)
+            return False
+
+        # deletionとmoveは直後の2件だけのsynthetic debt fixtureで独立に固定する。
 
         debt_root = root / "debt-contract"
         debt_source_root = debt_root / "src"
