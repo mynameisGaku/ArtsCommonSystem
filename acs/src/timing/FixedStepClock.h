@@ -26,7 +26,7 @@ inline constexpr u32 kMaximumFixedStepBatchCount = 4096u;
  *
  * 呼び出し側が値として所有し、OS時刻、ゲームループ、共有サービスの寿命を持たない。
  */
-class FFixedStepClock final {
+class CFixedStepClock final {
 public:
     /**
      * 設定を検証して適用し、補間位置と累積統計を初期化する。
@@ -107,5 +107,8 @@ private:
     /** 時計が確定した固定更新の累積回数。 */
     u64 m_TotalStepCount = 0u;
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FFixedStepClock = CFixedStepClock;
 
 } // namespace acs::timing

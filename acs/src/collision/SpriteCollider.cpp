@@ -90,18 +90,18 @@ f32 PerpDist(FVec2 p, FVec2 a, FVec2 b) noexcept {
 } // namespace
 
 /** 凸包・輪郭・境界を破棄して空状態に戻す。 */
-void FSpriteCollider::Clear() noexcept {
+void CSpriteCollider::Clear() noexcept {
     m_HullCount    = 0;
     m_OutlineCount = 0;
     m_Bounds       = FAabb2{};
 }
 
 /** RGBA8 画像のアルファから凸包・輪郭・AABB を構築する。 */
-TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 height,
+TResult<void> CSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 height,
                                               u8 alpha_threshold, f32 simplify_epsilon) noexcept {
     Clear();
     if (!rgba || width == 0 || height == 0) {
-        return ACS_ERR(Generic, kSubSpriteColInvalidArg, "FSpriteCollider: null/empty image");
+        return ACS_ERR(Generic, kSubSpriteColInvalidArg, "CSpriteCollider: null/empty image");
     }
     const FAlphaImage img{ rgba, width, height, alpha_threshold };
 
@@ -118,7 +118,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
         }
     }
     if (boundary.Size() < 3) {
-        return ACS_ERR(Generic, kSubSpriteColEmpty, "FSpriteCollider: too few opaque boundary pixels");
+        return ACS_ERR(Generic, kSubSpriteColEmpty, "CSpriteCollider: too few opaque boundary pixels");
     }
     const u32 bn = static_cast<u32>(boundary.Size());
 
@@ -242,7 +242,7 @@ TResult<void> FSpriteCollider::BuildFromAlpha(const u8* rgba, u32 width, u32 hei
 }
 
 /** 凸包を ConvexPoly2 (物理用) に変換する。 */
-FConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
+FConvexPoly2 CSpriteCollider::HullPolygon() const noexcept {
     FConvexPoly2 poly;
     const u32 n = m_HullCount;
     if (n == 0) return poly;
@@ -257,7 +257,7 @@ FConvexPoly2 FSpriteCollider::HullPolygon() const noexcept {
 }
 
 /** 点が簡略化済み輪郭ポリゴンの内側かを判定する (ray-crossing、凹形状対応)。 */
-bool FSpriteCollider::ContainsPoint(FVec2 p) const noexcept {
+bool CSpriteCollider::ContainsPoint(FVec2 p) const noexcept {
     const u32 n = m_OutlineCount;
     if (n < 3) return false;
     bool inside = false;

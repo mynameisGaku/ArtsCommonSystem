@@ -52,7 +52,7 @@ bool SameResult(const FFixedStepAdvanceResult& first, const FFixedStepAdvanceRes
 }
 
 /** 時計の現在状態を取得し、試験で取得できない場合は既定値を返す。 */
-FFixedStepClockSnapshot Capture(const FFixedStepClock& clock) noexcept
+FFixedStepClockSnapshot Capture(const CFixedStepClock& clock) noexcept
 {
     /** 時計から取得する現在状態。 */
     FFixedStepClockSnapshot snapshot{};
@@ -72,15 +72,16 @@ static_assert(std::is_standard_layout_v<FFixedStepClockSnapshot>);
 static_assert(std::is_trivially_copyable_v<FFixedStepClockSnapshot>);
 static_assert(sizeof(FFixedStepClockSnapshot) == 48u);
 static_assert(alignof(FFixedStepClockSnapshot) == 8u);
-static_assert(std::is_standard_layout_v<FFixedStepClock>);
-static_assert(std::is_trivially_copyable_v<FFixedStepClock>);
-static_assert(sizeof(FFixedStepClock) == 48u);
-static_assert(alignof(FFixedStepClock) == 8u);
+static_assert(std::is_same_v<FFixedStepClock, CFixedStepClock>);
+static_assert(std::is_standard_layout_v<CFixedStepClock>);
+static_assert(std::is_trivially_copyable_v<CFixedStepClock>);
+static_assert(sizeof(CFixedStepClock) == 48u);
+static_assert(alignof(CFixedStepClock) == 8u);
 static_assert(sizeof(detail::FFixedStepMemoryRangeInternal) == sizeof(std::uintptr_t) * 2u);
 static_assert(alignof(detail::FFixedStepMemoryRangeInternal) == alignof(std::uintptr_t));
-static_assert(noexcept(static_cast<FFixedStepClock*>(nullptr)->TryAdvanceBatch(nullptr, 0u, nullptr, 0u, *static_cast<u32*>(nullptr))));
-static_assert(noexcept(static_cast<const FFixedStepClock*>(nullptr)->TryCaptureSnapshot(static_cast<FFixedStepClockSnapshot*>(nullptr))));
-static_assert(noexcept(static_cast<FFixedStepClock*>(nullptr)->TryRestoreSnapshot(static_cast<const FFixedStepClockSnapshot*>(nullptr))));
+static_assert(noexcept(static_cast<CFixedStepClock*>(nullptr)->TryAdvanceBatch(nullptr, 0u, nullptr, 0u, *static_cast<u32*>(nullptr))));
+static_assert(noexcept(static_cast<const CFixedStepClock*>(nullptr)->TryCaptureSnapshot(static_cast<FFixedStepClockSnapshot*>(nullptr))));
+static_assert(noexcept(static_cast<CFixedStepClock*>(nullptr)->TryRestoreSnapshot(static_cast<const FFixedStepClockSnapshot*>(nullptr))));
 static_assert(noexcept(TryCaptureFixedStepClockSnapshots(nullptr, 0u, nullptr, 0u, *static_cast<u32*>(nullptr))));
 static_assert(noexcept(TryRestoreFixedStepClockSnapshots(nullptr, nullptr, 0u)));
 
@@ -89,7 +90,7 @@ static_assert(noexcept(TryRestoreFixedStepClockSnapshots(nullptr, nullptr, 0u)))
 ACS_TEST(FixedStepClock, DefaultsAccumulateDeterministically)
 {
     /** 既定設定で進める時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
 
     /** 既定刻み幅の半分に相当する経過秒。 */
     const f64 half_step = clock.Options().step_seconds * 0.5;
@@ -113,7 +114,7 @@ ACS_TEST(FixedStepClock, DefaultsAccumulateDeterministically)
 ACS_TEST(FixedStepClock, MatchesDecimalBoundaryAndClampGoldens)
 {
     /** 十進小数境界を確認する時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
 
     /** 0.1秒刻みで十分な蓄積幅を持つ設定。 */
     const FFixedStepOptions options = {0.1, 8u, 1.0};
@@ -167,7 +168,7 @@ ACS_TEST(FixedStepClock, MatchesDecimalBoundaryAndClampGoldens)
 ACS_TEST(FixedStepClock, RejectsInvalidInputsWithoutChangingState)
 {
     /** 失敗時不変を確認する時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
 
     /** 公開下限をすべて満たす最小設定。 */
     const FFixedStepOptions lower_boundary = {kMinimumFixedStepSeconds, 1u, kMinimumFixedStepSeconds};
@@ -228,7 +229,7 @@ ACS_TEST(FixedStepClock, RejectsInvalidInputsWithoutChangingState)
 ACS_TEST(FixedStepClock, RestoresSnapshotsAndPreservesProgressWhenReconfigured)
 {
     /** 保存と再設定を確認する時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
     EXPECT_TRUE(clock.Configure({0.25, 3u, 1.0}));
     (void)clock.Advance(0.625);
 
@@ -270,10 +271,10 @@ ACS_TEST(FixedStepClock, RestoresSnapshotsAndPreservesProgressWhenReconfigured)
 ACS_TEST(FixedStepClock, AdvancesBatchAtomicallyAndMatchesSequentialOrder)
 {
     /** 一括処理を実行する時計。 */
-    FFixedStepClock batch_clock{};
+    CFixedStepClock batch_clock{};
 
     /** 単発処理の期待値を作る時計。 */
-    FFixedStepClock sequential_clock{};
+    CFixedStepClock sequential_clock{};
     EXPECT_TRUE(batch_clock.Configure({0.1, 2u, 1.0}));
     EXPECT_TRUE(sequential_clock.Configure({0.1, 2u, 1.0}));
 
@@ -331,7 +332,7 @@ ACS_TEST(FixedStepClock, AdvancesBatchAtomicallyAndMatchesSequentialOrder)
 ACS_TEST(FixedStepClock, RejectsInvalidRawMemoryAndOverlap)
 {
     /** 生領域検証を確認する時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
     (void)clock.Advance(clock.Options().step_seconds * 0.5);
 
     /** 生領域失敗前の時計状態。 */
@@ -405,7 +406,7 @@ ACS_TEST(FixedStepClock, RejectsOverflowingRawAddressRanges)
 ACS_TEST(FixedStepClock, RejectsAliasedAdvanceBatchRangesAtomically)
 {
     /** 重複拒否で状態を維持する基準時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
     (void)clock.Advance(clock.Options().step_seconds * 0.5);
 
     /** 各失敗後に照合する基準状態。 */
@@ -487,13 +488,13 @@ ACS_TEST(FixedStepClock, RejectsAliasedAdvanceBatchRangesAtomically)
     EXPECT_TRUE(SameSnapshot(Capture(clock), before));
 
     /** 結果容量の未使用末尾へ時計を置く試験領域。 */
-    alignas(FFixedStepAdvanceResult) alignas(FFixedStepClock) unsigned char result_tail_clock_storage[sizeof(FFixedStepAdvanceResult) + sizeof(FFixedStepClock)] = {};
+    alignas(FFixedStepAdvanceResult) alignas(CFixedStepClock) unsigned char result_tail_clock_storage[sizeof(FFixedStepAdvanceResult) + sizeof(CFixedStepClock)] = {};
 
     /** 結果容量の先頭で寿命を開始する番兵結果。 */
     FFixedStepAdvanceResult* const tail_clock_results = ::new (static_cast<void*>(result_tail_clock_storage)) FFixedStepAdvanceResult(sentinel);
 
     /** 二件目の結果領域と重なる位置で寿命を開始する時計。 */
-    FFixedStepClock* const tail_result_clock = ::new (static_cast<void*>(result_tail_clock_storage + sizeof(FFixedStepAdvanceResult))) FFixedStepClock();
+    CFixedStepClock* const tail_result_clock = ::new (static_cast<void*>(result_tail_clock_storage + sizeof(FFixedStepAdvanceResult))) CFixedStepClock();
 
     /** 結果容量重複前の時計状態。 */
     const FFixedStepClockSnapshot tail_clock_before = Capture(*tail_result_clock);
@@ -549,7 +550,7 @@ ACS_TEST(FixedStepClock, RejectsAliasedAdvanceBatchRangesAtomically)
 ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
 {
     /** 重複拒否で状態を維持する基準時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
     (void)clock.Advance(clock.Options().step_seconds * 0.5);
 
     /** 各失敗後に照合する基準状態。 */
@@ -597,13 +598,13 @@ ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
     EXPECT_TRUE(SameSnapshot(Capture(clock), before));
 
     /** 保存容量の未使用末尾へ時計を置く試験領域。 */
-    alignas(FFixedStepClockSnapshot) alignas(FFixedStepClock) unsigned char snapshot_tail_clock_storage[sizeof(FFixedStepClockSnapshot) + sizeof(FFixedStepClock)] = {};
+    alignas(FFixedStepClockSnapshot) alignas(CFixedStepClock) unsigned char snapshot_tail_clock_storage[sizeof(FFixedStepClockSnapshot) + sizeof(CFixedStepClock)] = {};
 
     /** 保存容量の先頭で寿命を開始する番兵保存値。 */
     FFixedStepClockSnapshot* const tail_clock_snapshots = ::new (static_cast<void*>(snapshot_tail_clock_storage)) FFixedStepClockSnapshot(sentinel);
 
     /** 二件目の保存領域と重なる位置で寿命を開始する時計。 */
-    FFixedStepClock* const tail_snapshot_clock = ::new (static_cast<void*>(snapshot_tail_clock_storage + sizeof(FFixedStepClockSnapshot))) FFixedStepClock();
+    CFixedStepClock* const tail_snapshot_clock = ::new (static_cast<void*>(snapshot_tail_clock_storage + sizeof(FFixedStepClockSnapshot))) CFixedStepClock();
 
     /** 保存容量重複前の時計状態。 */
     const FFixedStepClockSnapshot tail_clock_before = Capture(*tail_snapshot_clock);
@@ -626,7 +627,7 @@ ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
     EXPECT_TRUE(SameSnapshot(Capture(clock), before));
 
     /** 複数復元先を整列から一バイトずらす領域。 */
-    alignas(FFixedStepClock) unsigned char misaligned_clock_storage[sizeof(FFixedStepClock) + alignof(FFixedStepClock)] = {};
+    alignas(CFixedStepClock) unsigned char misaligned_clock_storage[sizeof(CFixedStepClock) + alignof(CFixedStepClock)] = {};
     std::memset(misaligned_clock_storage, 0x6bu, sizeof(misaligned_clock_storage));
 
     /** 不整列復元拒否前の全バイト。 */
@@ -634,7 +635,7 @@ ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
     std::memcpy(misaligned_clock_before, misaligned_clock_storage, sizeof(misaligned_clock_storage));
 
     /** 意図的に整列を崩した複数復元先。 */
-    FFixedStepClock* const misaligned_clocks = reinterpret_cast<FFixedStepClock*>(misaligned_clock_storage + 1u);
+    CFixedStepClock* const misaligned_clocks = reinterpret_cast<CFixedStepClock*>(misaligned_clock_storage + 1u);
     EXPECT_FALSE(TryRestoreFixedStepClockSnapshots(misaligned_clocks, &sentinel, 1u));
     EXPECT_EQ(std::memcmp(misaligned_clock_before, misaligned_clock_storage, sizeof(misaligned_clock_storage)), 0);
 
@@ -651,10 +652,10 @@ ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
     EXPECT_TRUE(SameSnapshot(Capture(clock), before));
 
     /** 整列を満たす最大の時計アドレス。 */
-    constexpr std::uintptr_t maximum_clock_address = maximum_address - maximum_address % static_cast<std::uintptr_t>(alignof(FFixedStepClock));
+    constexpr std::uintptr_t maximum_clock_address = maximum_address - maximum_address % static_cast<std::uintptr_t>(alignof(CFixedStepClock));
 
     /** 終端がアドレス幅を超える時計入力。 */
-    const FFixedStepClock* const overflowing_clocks = reinterpret_cast<const FFixedStepClock*>(maximum_clock_address);
+    const CFixedStepClock* const overflowing_clocks = reinterpret_cast<const CFixedStepClock*>(maximum_clock_address);
 
     /** 高位時計アドレス拒否で維持する保存先列。 */
     FFixedStepClockSnapshot high_address_snapshots[2] = {sentinel, sentinel};
@@ -665,7 +666,7 @@ ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
     EXPECT_TRUE(SameSnapshot(high_address_snapshots[1], sentinel));
 
     /** 終端がアドレス幅を超える時計復元先。 */
-    FFixedStepClock* const overflowing_clock_outputs = reinterpret_cast<FFixedStepClock*>(maximum_clock_address);
+    CFixedStepClock* const overflowing_clock_outputs = reinterpret_cast<CFixedStepClock*>(maximum_clock_address);
     EXPECT_FALSE(TryRestoreFixedStepClockSnapshots(overflowing_clock_outputs, high_address_snapshots, 2u));
     EXPECT_TRUE(SameSnapshot(Capture(clock), before));
 }
@@ -673,7 +674,7 @@ ACS_TEST(FixedStepClock, RejectsAliasedSnapshotBatchRangesAtomically)
 ACS_TEST(FixedStepClock, CapturesAndRestoresMultipleSnapshotsAtomically)
 {
     /** 複数保存を確認する二つの時計。 */
-    FFixedStepClock clocks[2] = {};
+    CFixedStepClock clocks[2] = {};
     EXPECT_TRUE(clocks[0].Configure({0.1, 4u, 1.0}));
     EXPECT_TRUE(clocks[1].Configure({0.25, 2u, 2.0}));
     (void)clocks[0].Advance(0.35);
@@ -731,10 +732,10 @@ ACS_TEST(FixedStepClock, CapturesAndRestoresMultipleSnapshotsAtomically)
     EXPECT_TRUE(SameSnapshot(Capture(clocks[1]), second_before));
 
     /** 複数保存の時計入力を整列から一バイトずらす領域。 */
-    alignas(FFixedStepClock) unsigned char misaligned_clock_storage[sizeof(FFixedStepClock) + alignof(FFixedStepClock)] = {};
+    alignas(CFixedStepClock) unsigned char misaligned_clock_storage[sizeof(CFixedStepClock) + alignof(CFixedStepClock)] = {};
 
     /** 意図的に整列を崩した複数保存の時計入力。 */
-    const FFixedStepClock* const misaligned_clocks = reinterpret_cast<const FFixedStepClock*>(misaligned_clock_storage + 1u);
+    const CFixedStepClock* const misaligned_clocks = reinterpret_cast<const CFixedStepClock*>(misaligned_clock_storage + 1u);
     snapshot_count = 31u;
     EXPECT_FALSE(TryCaptureFixedStepClockSnapshots(misaligned_clocks, 1u, &unchanged_snapshot, 1u, snapshot_count));
     EXPECT_EQ(snapshot_count, 31u);
@@ -758,7 +759,7 @@ ACS_TEST(FixedStepClock, AcceptsMaximumBatchAndSaturatesStatistics)
     static FFixedStepAdvanceResult results[kMaximumFixedStepBatchCount] = {};
 
     /** 最大件数を一括処理する時計。 */
-    FFixedStepClock clock{};
+    CFixedStepClock clock{};
 
     /** 最大件数処理後に確定する結果件数。 */
     u32 result_count = 0u;
@@ -766,7 +767,7 @@ ACS_TEST(FixedStepClock, AcceptsMaximumBatchAndSaturatesStatistics)
     EXPECT_EQ(result_count, kMaximumFixedStepBatchCount);
 
     /** 最大件数の複数保存で使う時計列。 */
-    static FFixedStepClock clocks[kMaximumFixedStepBatchCount] = {};
+    static CFixedStepClock clocks[kMaximumFixedStepBatchCount] = {};
 
     /** 最大件数の複数保存で使う保存値列。 */
     static FFixedStepClockSnapshot snapshots[kMaximumFixedStepBatchCount] = {};

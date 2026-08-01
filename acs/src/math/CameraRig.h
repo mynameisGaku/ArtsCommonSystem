@@ -1,18 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// =============================================================================
-// ACS Math — CameraRig (軌道カメラ + 射影/逆射影ヘルパ)
-// -----------------------------------------------------------------------------
-// FCamera (view/projection 行列) の «周辺» でよく要る計算をエンジンの正準実装として
-// 集約する。これらは符号・ハンドネス・スクリーンY向きを取り違えやすい «逆になりがち»
-// な部分なので、行列ベースで実装し world→screen と screen→ray が数学的に厳密一致する
-// (= 往復テストで自己検証できる) ようにした。
-//
-// 規約 (editor_abi の 3D ビューポートと一致、左手系 DirectX):
-//   ・orbit: target→eye 方向 dir = (cosP*sinY, sinP, cosP*cosY)、eye = target + dir*dist
-//            (pitch+ で見下ろし、yaw は +Y まわり)。
-//   ・screen: 左上原点・Y 下向き。NDC z は [0,1] (near=0, far=1)。
-//   ・projection は左手系 (FMat4::PerspectiveFovLH / FCamera)。
-// =============================================================================
 #pragma once
 
 #include "foundation/Types.h"
@@ -56,11 +42,11 @@ inline FVec3 OrbitEye(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist) noexce
  * @param aspect アスペクト比 (幅/高さ)。
  * @param near_z 近クリップ面距離。
  * @param far_z 遠クリップ面距離。
- * @return view/projection を設定済みの FCamera。
+ * @return view/projection を設定済みの CCamera。
  */
-inline FCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist,
+inline CCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dist,
                                f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z) noexcept {
-    FCamera cam;
+    CCamera cam;
     cam.SetPerspective(fov_y_rad, aspect, near_z, far_z);
     cam.SetLookAt(OrbitEye(target, yaw_rad, pitch_rad, dist), target);
     return cam;
@@ -71,7 +57,7 @@ inline FCamera MakeOrbitCamera(FVec3 target, f32 yaw_rad, f32 pitch_rad, f32 dis
  *
  * @details
  * clip.w <= 0 (カメラ後方) のときは false を返し out_px は書き換えない。
- * @param view_proj view × projection 行列 (FCamera::ViewProjection())。
+ * @param view_proj view × projection 行列 (CCamera::ViewProjection())。
  * @param world 射影するワールド点。
  * @param screen_w スクリーン幅 (px)。
  * @param screen_h スクリーン高さ (px)。
@@ -90,7 +76,7 @@ inline bool WorldToScreen(const FMat4& view_proj, FVec3 world,
 }
 
 /**
- * ワールド点をスクリーンピクセル座標へ射影する (FCamera 版)。
+ * ワールド点をスクリーンピクセル座標へ射影する (CCamera 版)。
  *
  * @param cam ビュー/プロジェクションを持つカメラ。
  * @param world 射影するワールド点。
@@ -99,7 +85,7 @@ inline bool WorldToScreen(const FMat4& view_proj, FVec3 world,
  * @param out_px 射影結果のスクリーン座標 (左上原点)。
  * @return カメラ前方で射影できたら true。
  */
-inline bool WorldToScreen(const FCamera& cam, FVec3 world,
+inline bool WorldToScreen(const CCamera& cam, FVec3 world,
                           f32 screen_w, f32 screen_h, FVec2& out_px) noexcept {
     return WorldToScreen(cam.ViewProjection(), world, screen_w, screen_h, out_px);
 }
@@ -135,7 +121,7 @@ inline FRay3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
 }
 
 /**
- * スクリーンピクセル座標を通すワールドレイを返す (FCamera 版)。
+ * スクリーンピクセル座標を通すワールドレイを返す (CCamera 版)。
  *
  * @param cam ビュー/プロジェクションを持つカメラ。
  * @param px スクリーン X (左上原点)。
@@ -144,7 +130,7 @@ inline FRay3 ScreenPointToRay(const FMat4& view_proj, f32 px, f32 py,
  * @param screen_h スクリーン高さ (px)。
  * @return ワールド空間のピックレイ。
  */
-inline FRay3 ScreenPointToRay(const FCamera& cam, f32 px, f32 py,
+inline FRay3 ScreenPointToRay(const CCamera& cam, f32 px, f32 py,
                              f32 screen_w, f32 screen_h) noexcept {
     return ScreenPointToRay(cam.ViewProjection(), px, py, screen_w, screen_h);
 }

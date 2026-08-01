@@ -2,19 +2,19 @@
 
 ## 目的
 
-`Timing` moduleの`acs::timing::FFixedStepClock`は、可変な経過秒を固定更新回数と描画補間率へ変換する。
+`Timing` moduleの`acs::timing::CFixedStepClock`は、可変な経過秒を固定更新回数と描画補間率へ変換する。
 時計は利用側が値として所有し、OS時刻、ゲームループ、World、共有サービスの寿命を持たない。
 局所的で決定論的な計算状態なのでsubsystemには登録しない。
 
 `acs::game::FSceneClock`はpauseや時間倍率を反映するシーン時間、`FWorldClockSubsystem`はWorld全体で共有する
-経過時間とframe数を扱う。責務と所有期間が異なるため、これらを`FFixedStepClock`へ置換しない。
+経過時間とframe数を扱う。責務と所有期間が異なるため、これらを`CFixedStepClock`へ置換しない。
 
 ## 基本操作
 
 ```cpp
 #include "timing/FixedStepClock.h"
 
-acs::timing::FFixedStepClock clock;
+acs::timing::CFixedStepClock clock;
 acs::timing::FFixedStepOptions options{1.0 / 120.0, 8u, 0.25};
 if (!clock.Configure(options)) {
     return;
@@ -38,7 +38,7 @@ RenderInterpolated(result.interpolation_alpha);
 - `FFixedStepOptions`: 刻み秒、一回の最大更新回数、一回の最大蓄積秒
 - `FFixedStepAdvanceResult`: 更新回数、補間率、破棄秒、受付状態、上限適用状態
 - `FFixedStepClockSnapshot`: 設定、持ち越し秒、累積破棄秒、累積更新回数
-- `FFixedStepClock`: 現在状態を所有して変換を行う48バイトの値
+- `CFixedStepClock`: 現在状態を所有して変換を行う48バイトの値
 
 `TryCaptureSnapshot`と`TryRestoreSnapshot`はnull、整列違反、時計自身との領域重複、不正内容を拒否する。
 失敗時は出力または時計を変更しない。`TryReconfigurePreservingProgress`は補間率と累積統計を保ったまま
@@ -51,7 +51,7 @@ RenderInterpolated(result.interpolation_alpha);
 
 一括入力と複数時計の保存・復元は最大4096件を受け付ける。
 
-- `FFixedStepClock::TryAdvanceBatch`
+- `CFixedStepClock::TryAdvanceBatch`
 - `TryCaptureFixedStepClockSnapshots`
 - `TryRestoreFixedStepClockSnapshots`
 

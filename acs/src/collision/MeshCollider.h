@@ -1,18 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 3D メッシュコライダー — 三角形メッシュから BVH を構築し、レイキャスト等の
-// 衝突クエリを高速化する。
-//
-// レンダリング用の FMeshAsset (位置 + 法線 + UV、インデックス三角形列) や生の
-// 頂点/インデックス配列からそのまま collider を作れる。中身は三角形リスト +
-// median-split AABB BVH。
-//
-//   acs::FMeshCollider col;
-//   col.BuildFromMesh(*Primitive::MakeCube(2.0f));
-//   acs::Ray3 ray{ {0, 5, 0}, {0, -1, 0} };
-//   acs::RayHit3 h = col.Raycast(ray);   // h.hit / h.t / h.point / h.normal
-//
-// ACS 規約: STL/<string> 不使用、全 noexcept、TResult、非コピー。視覚に依存
-// しない純 CPU ロジックなのでヘッドレスで完全に検証できる。
 #pragma once
 
 #include "foundation/Result.h"
@@ -33,19 +19,19 @@ class AMeshAsset;
  * 三角形リスト + 最長軸の空間中点で分割する BVH。視覚に依存しない純 CPU ロジックで、
  * ACS 規約に従い non-copy・全 noexcept・TResult を用いる。
  */
-class FMeshCollider {
+class CMeshCollider {
 public:
     /** 空のコライダーを構築する (三角形・BVH は Build* で作る)。 */
-    FMeshCollider() noexcept = default;
+    CMeshCollider() noexcept = default;
 
     /** 破棄する (配列は TArray が解放)。 */
-    ~FMeshCollider() noexcept = default;
+    ~CMeshCollider() noexcept = default;
 
     /** コピー禁止 (BVH を単独所有するため)。 */
-    FMeshCollider(const FMeshCollider&)            = delete;
+    CMeshCollider(const CMeshCollider&)            = delete;
 
     /** コピー代入も禁止。 */
-    FMeshCollider& operator=(const FMeshCollider&) = delete;
+    CMeshCollider& operator=(const CMeshCollider&) = delete;
 
     /**
      * レンダリング用メッシュから collider を構築する (頂点位置のみ使用)。
@@ -180,5 +166,8 @@ private:
     /** メッシュ全体の AABB。 */
     FAabb3           m_Bounds{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FMeshCollider = CMeshCollider;
 
 } // namespace acs

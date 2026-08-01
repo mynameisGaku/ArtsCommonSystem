@@ -1,19 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// 2D スプライトコライダー — スプライトのアルファチャンネルから形状に沿った
-// コライダー (凸包 + 簡略化済み輪郭ポリゴン) を生成する。
-//
-//   acs::FSpriteCollider col;
-//   col.BuildFromAlpha(rgba, w, h, /*alpha_threshold=*/128, /*simplify=*/1.5f);
-//   col.ContainsPoint({px, py});      // 輪郭ポリゴンの内外判定
-//   col.Hull(); col.HullCount();      // 凸包 (物理で扱いやすい・常に有効)
-//   col.Outline(); col.OutlineCount();// 簡略化された輪郭 (凹形状にも追従)
-//   col.Bounds();                     // AABB
-//
-// 凸包は Jarvis march (順序非依存で堅牢)、輪郭は Moore 近傍トレース + Douglas-Peucker
-// 簡略化。座標はピクセル空間 (左上原点)。単一連結成分・穴なしを前提とする。
-//
-// ACS 規約: STL/<string> 不使用、全 noexcept、TResult。視覚非依存の純 CPU ロジック
-// なのでヘッドレスで完全検証できる。
 #pragma once
 
 #include "foundation/Result.h"
@@ -31,22 +16,22 @@ namespace acs {
  * 輪郭は凹形状にも追従する。座標はピクセル空間 (左上原点) で、単一連結成分・穴なしを前提。
  * ACS 規約に従い non-copy・全 noexcept・TResult を用いる純 CPU ロジック。
  */
-class FSpriteCollider {
+class CSpriteCollider {
 public:
     /** 凸包・輪郭それぞれに保持する頂点数の上限。 */
     static constexpr u32 kMaxVertices = 256;
 
     /** 空のコライダーを構築する (形状は BuildFromAlpha で作る)。 */
-    FSpriteCollider() noexcept = default;
+    CSpriteCollider() noexcept = default;
 
     /** 破棄する (頂点は固定長配列のため特別な解放は不要)。 */
-    ~FSpriteCollider() noexcept = default;
+    ~CSpriteCollider() noexcept = default;
 
     /** コピー禁止。 */
-    FSpriteCollider(const FSpriteCollider&)            = delete;
+    CSpriteCollider(const CSpriteCollider&)            = delete;
 
     /** コピー代入も禁止。 */
-    FSpriteCollider& operator=(const FSpriteCollider&) = delete;
+    CSpriteCollider& operator=(const CSpriteCollider&) = delete;
 
     /**
      * RGBA8 画像のアルファから凸包・輪郭・AABB を構築する。
@@ -138,5 +123,8 @@ private:
     /** 不透明領域を包む AABB。 */
     FAabb2     m_Bounds{};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FSpriteCollider = CSpriteCollider;
 
 } // namespace acs

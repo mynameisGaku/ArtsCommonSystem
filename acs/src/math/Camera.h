@@ -1,11 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-// カメラ（ビュー行列 + プロジェクション行列のヘルパ）
-//
-// 使い方:
-//   FCamera cam;
-//   cam.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f, 0.1f, 1000.0f);
-//   cam.SetLookAt({0,2,-5}, {0,0,0}, FVec3::Up());
-//   FMat4 view_proj = cam.ViewProjection();   // GPU に送る用
 #pragma once
 
 #include "foundation/Types.h"
@@ -22,10 +15,10 @@ namespace acs {
  * 左手系 (Z+ が画面奥) で透視/正射影を設定し、注視点指定でビュー行列を作る。
  * ViewProjection() で GPU 送信用の合成行列を取得する。
  */
-class FCamera {
+class CCamera {
 public:
     /** 単位ビュー・単位プロジェクションで構築する。 */
-    FCamera() noexcept = default;
+    CCamera() noexcept = default;
 
     /**
      * 透視投影行列を設定する (左手系: Z+ が画面奥)。
@@ -113,5 +106,8 @@ private:
     /** カメラ位置 (SetLookAt で更新)。 */
     FVec3 m_Eye{0, 0, 0};
 };
+
+/** 旧名を使う既存コード向けの互換別名。 */
+using FCamera = CCamera;
 
 } // namespace acs

@@ -145,11 +145,11 @@ ACS_REF.modules.push({
       ]
     },
     {
-      name: "FCamera",
+      name: "CCamera",
       kind: "クラス", header: "math/Camera.h",
       summary: "<t>ビュー行列</t>と<t>投影行列</t>をまとめて持つカメラのヘルパ。視点・注視点・画角を設定すると GPU に送る <code>ViewProjection</code> 行列が得られる。",
       when: "3D シーンを描くカメラを 1 つ用意したい時。手で <t>FMat4</t> を組まずに済む。",
-      sample: "FCamera cam;\ncam.SetPerspective(60.0f * kDeg2Rad, 16.0f/9.0f, 0.1f, 1000.0f);\ncam.SetLookAt({0,2,-5}, {0,0,0}, FVec3::Up());\nFMat4 vp = cam.ViewProjection();  // GPU に送る\nFVec3 eye = cam.Eye();",
+      sample: "CCamera cam;\ncam.SetPerspective(60.0f * kDeg2Rad, 16.0f/9.0f, 0.1f, 1000.0f);\ncam.SetLookAt({0,2,-5}, {0,0,0}, FVec3::Up());\nFMat4 vp = cam.ViewProjection();  // GPU に送る\nFVec3 eye = cam.Eye();",
       members: [
         { sig: "void SetPerspective(f32 fov_y_rad, f32 aspect, f32 near_z, f32 far_z)", desc: "<t>透視投影</t>（左手系）を設定。fov_y は縦画角（ラジアン）。" },
         { sig: "void SetOrthographic(f32 width, f32 height, f32 near_z, f32 far_z)", desc: "<t>正射影</t>を設定。2D や見下ろし視点に。" },

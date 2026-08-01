@@ -16,10 +16,13 @@
 #include "math/Camera.h"
 #include "math/Vec.h"
 #include "math/Math.h"
+#include "foundation/TypeTraits.h"
 
 using namespace acs;
 
 namespace {
+
+static_assert(IsSameV<FCamera, CCamera>, "旧カメラ名は正規型の互換別名である必要があります");
 
 void ExpectVec3Near(FVec3 a, FVec3 b, f32 eps) noexcept {
     EXPECT_NEAR(a.x, b.x, eps);
@@ -59,7 +62,7 @@ ACS_TEST(CameraRig, OrbitEyeConventions) {
 ACS_TEST(CameraRig, TargetProjectsToScreenCenter) {
     const f32 w = 1280.0f, h = 720.0f;
     const FVec3 target{ 2, 1, -3 };
-    const FCamera cam = MakeOrbitCamera(target, 0.7f, 0.45f, 12.0f, kFov, w / h, 0.05f, 500.0f);
+    const CCamera cam = MakeOrbitCamera(target, 0.7f, 0.45f, 12.0f, kFov, w / h, 0.05f, 500.0f);
     FVec2 px;
     EXPECT_TRUE(WorldToScreen(cam, target, w, h, px));
     EXPECT_NEAR(px.x, w * 0.5f, 0.5f);
@@ -79,7 +82,7 @@ ACS_TEST(CameraRig, ProjectUnprojectRoundTrip) {
                           { 0.5f, -1.5f, 1.0f }, { 2.0f, 2.0f, -2.0f } };
 
     for (const FAng& a : angs) {
-        const FCamera cam = MakeOrbitCamera(target, a.yaw, a.pitch, a.dist, kFov, w / h, 0.05f, 500.0f);
+        const CCamera cam = MakeOrbitCamera(target, a.yaw, a.pitch, a.dist, kFov, w / h, 0.05f, 500.0f);
         const FVec3 eye = cam.Eye();
         for (const FVec3 p : pts) {
             FVec2 px;
@@ -103,7 +106,7 @@ ACS_TEST(CameraRig, ProjectUnprojectRoundTrip) {
 ACS_TEST(CameraRig, CenterRayHitsTarget) {
     const f32 w = 1280.0f, h = 720.0f;
     const FVec3 target{ -1, 2, 3 };
-    const FCamera cam = MakeOrbitCamera(target, 0.5f, 0.6f, 13.0f, kFov, w / h, 0.05f, 500.0f);
+    const CCamera cam = MakeOrbitCamera(target, 0.5f, 0.6f, 13.0f, kFov, w / h, 0.05f, 500.0f);
     const FRay3 ray = ScreenPointToRay(cam, w * 0.5f, h * 0.5f, w, h);
     EXPECT_TRUE(PointRayDistance(target, ray) < 1e-2f);
 }
@@ -112,7 +115,7 @@ ACS_TEST(CameraRig, CenterRayHitsTarget) {
 ACS_TEST(CameraRig, BehindCameraReturnsFalse) {
     const f32 w = 1280.0f, h = 720.0f;
     const FVec3 target{ 0, 0, 0 };
-    const FCamera cam = MakeOrbitCamera(target, 0.0f, 0.0f, 10.0f, kFov, w / h, 0.05f, 500.0f);
+    const CCamera cam = MakeOrbitCamera(target, 0.0f, 0.0f, 10.0f, kFov, w / h, 0.05f, 500.0f);
     // eye は (0,0,10) で -Z を向く。eye の «後ろ» (z>10) はカメラ後方。
     FVec2 px;
     EXPECT_FALSE(WorldToScreen(cam, FVec3{ 0, 0, 20 }, w, h, px));

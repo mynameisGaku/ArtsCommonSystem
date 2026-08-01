@@ -24,7 +24,7 @@ ACS_REF.modules.push({
       when: "rollbackや再試行のために同じACS版の時計位置を一時保存する時。"
     },
     {
-      name: "FFixedStepClock",
+      name: "CFixedStepClock",
       kind: "クラス", header: "timing/FixedStepClock.h",
       summary: "可変な経過秒を固定更新回数へ決定論的に変換する、利用側所有の値。",
       when: "物理や規則処理を描画frameとは独立した刻み幅で進める時。",
@@ -51,6 +51,6 @@ ACS_REF.modules.push({
 });
 
 Object.assign(ACS_REF.glossary, {
-  "FFixedStepClock": "可変な経過秒を固定更新回数と描画補間率へ変換する、利用側所有の決定論的な時計。",
+  "CFixedStepClock": "可変な経過秒を固定更新回数と描画補間率へ変換する、利用側所有の決定論的な時計。",
   "固定更新": "描画frameの長さに左右されず、一定の秒数ずつsimulationを進める方法。"
 });

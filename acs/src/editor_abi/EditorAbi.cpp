@@ -68,7 +68,7 @@
 #include "render/Atmosphere.h"              // FAtmosphere (物理大気散乱を equirect に焼く → IBL/背景)
 #include "asset/MeshPrimitive.h"            // Primitive::MakeCube/MakeSphere/MakePlane
 #include "asset/MeshAsset.h"                // FMeshAsset
-#include "math/Camera.h"                    // FCamera (透視 + lookAt)
+#include "math/Camera.h"                    // CCamera (透視 + lookAt)
 #include "math/CameraRig.h"                 // ScreenPointToRay (透視/正射 両対応のピックレイ)
 #include "math/Mat.h"                       // FMat4 (model 行列の合成)
 #include "math/Math.h"                      // kDeg2Rad
@@ -295,7 +295,7 @@ struct AEditor3DRecordComponent : public acs::game::AComponent {
     bool  is_empty         = false;           ///< true なら «空ノード» (描画しないグループ用トランスフォーム。2D の空ノード相当)。
     TArray<FVec2> poly_pts;                   ///< 3点以上なら手続きポリゴン (z=0)。再生成用の元 2D 頂点列。
     FGpuMesh       gm_cache;                    ///< Phase2: prim==Mesh の GPU メッシュキャッシュ (FPbrShader 描画用)。
-    FMeshCollider  water_hit_collider;          ///< CPU BVH, built lazily for exact water pointer hits.
+    CMeshCollider  water_hit_collider;          ///< CPU BVH, built lazily for exact water pointer hits.
     const void*    water_hit_collider_src = nullptr;
     const void*    water_surface_validation_src = nullptr;
     bool           water_surface_local_xz = false;
@@ -5835,8 +5835,8 @@ FVec3 Cam3DEye(const FEditorHost& h) noexcept {
 }
 
 /** エディタ 3D ビューのカメラを組む (透視 or 正射、軌道 eye + 注視点)。描画/射影/ピックで共通。 */
-FCamera EditorCam3D(const FEditorHost& h, f32 aspect) noexcept {
-    FCamera cam;
+CCamera EditorCam3D(const FEditorHost& h, f32 aspect) noexcept {
+    CCamera cam;
     if (h.ortho3d) {
         const f32 oh = h.cam3d_dist * 0.62f;             // 高さを軌道距離に比例 → ズーム感を保つ
         cam.SetOrthographic(oh * aspect, oh, 0.05f, 500.0f);
@@ -5889,7 +5889,7 @@ FEGizRay Cam3DScreenRay(const FEditorHost& h, f32 sx, f32 sy, f32 W, f32 H) noex
 /** ワールド点をスクリーン座標へ射影する (画面内かつ前方なら true)。 */
 bool WorldToScreen3D(const FEditorHost& h, FVec3 wp, f32 W, f32 H, f32& outSx, f32& outSy) noexcept {
     const f32 aspect = (H > 0) ? W / H : 1.0f;
-    const FCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射
+    const CCamera cam = EditorCam3D(h, aspect);          // 透視 or 正射
     const FMat4 vp = cam.ViewProjection();
     const FVec4 clip = Transform(FVec4{ wp.x, wp.y, wp.z, 1.0f }, vp);
     if (clip.w <= 1e-4f) return false;                  // カメラ後方 (正射では w=1 で常に可視)
@@ -6682,7 +6682,7 @@ bool ResolvePreviewCamera3DFromNodes(
 }
 
 struct FRenderCamera3D {
-    FCamera camera{};
+    CCamera camera{};
     FVec3 eye{0.0f, 0.0f, 0.0f};
     FVec3 forward{0.0f, 0.0f, 1.0f};
     FVec3 up{0.0f, 1.0f, 0.0f};
@@ -6981,7 +6981,7 @@ bool TransformAffectsCurrentTemporalRenderCamera3D(
 
 bool AlignSceneCameraNodeToView(
     FEditorHost& host, game::ANode& node) noexcept {
-    const FCamera scene_view = EditorCam3D(host, 1.0f);
+    const CCamera scene_view = EditorCam3D(host, 1.0f);
     const FMat4 camera_world_matrix = Inverse(scene_view.View());
     const FVec3 desired_position = scene_view.Eye();
     const FQuat desired_rotation = FQuat::FromMatrix(camera_world_matrix);
@@ -8636,7 +8636,7 @@ static_assert(
 // 品質プリセットの影サイズ/カスケード数に追従 (size 0=影オフ)。CSM は «透視 + cascade>=2» のみ。
 FShadowOut Pass_Shadows(FEditorHost& h, IRhiCommandList* cl, u32 dvCount,
                         const FVec3& bbMin, const FVec3& bbMax, const FVec3& eye,
-                        const FCamera& cam, bool camera_orthographic) noexcept {
+                        const CCamera& cam, bool camera_orthographic) noexcept {
     const bool wantCsm =
         (h.q_shadow_cascades >= 2) &&
         !camera_orthographic &&
@@ -9351,7 +9351,7 @@ void DrawScene3D(FEditorHost& h, u32 scW, u32 scH) noexcept {
         (rendering_camera_view_request &&
          h.last_render_camera_view_history_generation !=
              camera_view_history_generation);
-    const FCamera& cam = renderCamera.camera;
+    const CCamera& cam = renderCamera.camera;
     const FVec3 eye = renderCamera.eye;
     const bool renderOrtho = renderCamera.orthographic;
     h.profiler_work.render_orthographic = renderOrtho;
@@ -14023,7 +14023,7 @@ static int RenderPbrMaterialPreview(
             expression_textures[slot]);
     }
 
-    FCamera camera;
+    CCamera camera;
     camera.SetPerspective(
         34.0f * kDeg2Rad, 1.0f, 0.05f, 20.0f);
     const FVec3 eye{1.62f, 0.92f, -2.72f};
@@ -15922,7 +15922,7 @@ ACS_EDITOR_API int acs_editor_add_camera3d(
     record->scene_camera_near = 0.05f;
     record->scene_camera_far = 500.0f;
 
-    const FCamera scene_view = EditorCam3D(*host, 1.0f);
+    const CCamera scene_view = EditorCam3D(*host, 1.0f);
     node.Local().position = scene_view.Eye();
     node.Local().rotation = FQuat::FromMatrix(Inverse(scene_view.View()));
     record->euler = node.Local().EulerDeg();

@@ -5,9 +5,9 @@
 
 namespace acs::timing {
 
-bool TryCaptureFixedStepClockSnapshots(const FFixedStepClock* clocks, u32 count, FFixedStepClockSnapshot* snapshots, u32 snapshot_capacity, u32& snapshot_count) noexcept
+bool TryCaptureFixedStepClockSnapshots(const CFixedStepClock* clocks, u32 count, FFixedStepClockSnapshot* snapshots, u32 snapshot_capacity, u32& snapshot_count) noexcept
 {
-    if (!detail::TryValidateFixedStepSnapshotCaptureBatchMemory(clocks, count, sizeof(FFixedStepClock), alignof(FFixedStepClock), snapshots, snapshot_capacity, sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot), &snapshot_count)) {
+    if (!detail::TryValidateFixedStepSnapshotCaptureBatchMemory(clocks, count, sizeof(CFixedStepClock), alignof(CFixedStepClock), snapshots, snapshot_capacity, sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot), &snapshot_count)) {
         return false;
     }
     if (count == 0u) {
@@ -29,9 +29,9 @@ bool TryCaptureFixedStepClockSnapshots(const FFixedStepClock* clocks, u32 count,
     return true;
 }
 
-bool TryRestoreFixedStepClockSnapshots(FFixedStepClock* clocks, const FFixedStepClockSnapshot* snapshots, u32 count) noexcept
+bool TryRestoreFixedStepClockSnapshots(CFixedStepClock* clocks, const FFixedStepClockSnapshot* snapshots, u32 count) noexcept
 {
-    if (!detail::TryValidateFixedStepSnapshotRestoreBatchMemory(clocks, snapshots, count, sizeof(FFixedStepClock), alignof(FFixedStepClock), sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot))) {
+    if (!detail::TryValidateFixedStepSnapshotRestoreBatchMemory(clocks, snapshots, count, sizeof(CFixedStepClock), alignof(CFixedStepClock), sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot))) {
         return false;
     }
     if (count == 0u) return true;
@@ -44,13 +44,13 @@ bool TryRestoreFixedStepClockSnapshots(FFixedStepClock* clocks, const FFixedStep
 
     for (u32 index = 0u; index < count; ++index) {
         /** 対応する保存値の内容を事前検証する候補時計。 */
-        FFixedStepClock candidate{};
+        CFixedStepClock candidate{};
         if (!candidate.TryRestoreSnapshot(snapshots[index])) return false;
     }
 
     for (u32 index = 0u; index < count; ++index) {
         /** 検証済みの保存値から確定状態を作る候補時計。 */
-        FFixedStepClock candidate{};
+        CFixedStepClock candidate{};
         if (!candidate.TryRestoreSnapshot(snapshots[index])) return false;
         clocks[index] = candidate;
     }

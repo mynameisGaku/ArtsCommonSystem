@@ -71,7 +71,7 @@ f64 NormalizeRemainder(f64 remainder, f64 step) noexcept
 
 } // namespace
 
-bool FFixedStepClock::Configure(FFixedStepOptions options) noexcept
+bool CFixedStepClock::Configure(FFixedStepOptions options) noexcept
 {
     if (!IsValidOptions(options)) return false;
     m_Options = options;
@@ -79,14 +79,14 @@ bool FFixedStepClock::Configure(FFixedStepOptions options) noexcept
     return true;
 }
 
-bool FFixedStepClock::TryReconfigurePreservingProgress(FFixedStepOptions options) noexcept
+bool CFixedStepClock::TryReconfigurePreservingProgress(FFixedStepOptions options) noexcept
 {
     /** 変更前の設定、補間位置、累積統計。 */
     FFixedStepClockSnapshot current{};
     if (!TryCaptureSnapshot(current)) return false;
 
     /** 新設定を現在状態へ反映する前に検証する候補時計。 */
-    FFixedStepClock candidate = *this;
+    CFixedStepClock candidate = *this;
     if (!candidate.Configure(options)) return false;
 
     /** 変更前の補間率を新しい刻み幅へ換算した持ち越し秒。 */
@@ -101,12 +101,12 @@ bool FFixedStepClock::TryReconfigurePreservingProgress(FFixedStepOptions options
     return true;
 }
 
-FFixedStepOptions FFixedStepClock::Options() const noexcept
+FFixedStepOptions CFixedStepClock::Options() const noexcept
 {
     return m_Options;
 }
 
-FFixedStepAdvanceResult FFixedStepClock::Advance(f64 delta_seconds) noexcept
+FFixedStepAdvanceResult CFixedStepClock::Advance(f64 delta_seconds) noexcept
 {
     /** 失敗時にも現在補間率を返す今回の結果。 */
     FFixedStepAdvanceResult result{};
@@ -153,9 +153,9 @@ FFixedStepAdvanceResult FFixedStepClock::Advance(f64 delta_seconds) noexcept
     return result;
 }
 
-bool FFixedStepClock::TryAdvanceBatch(const f64* delta_seconds, u32 count, FFixedStepAdvanceResult* results, u32 result_capacity, u32& result_count) noexcept
+bool CFixedStepClock::TryAdvanceBatch(const f64* delta_seconds, u32 count, FFixedStepAdvanceResult* results, u32 result_capacity, u32& result_count) noexcept
 {
-    if (!detail::TryValidateFixedStepAdvanceBatchMemory(this, sizeof(FFixedStepClock), alignof(FFixedStepClock), delta_seconds, count, results, result_capacity, sizeof(FFixedStepAdvanceResult), alignof(FFixedStepAdvanceResult), &result_count)) {
+    if (!detail::TryValidateFixedStepAdvanceBatchMemory(this, sizeof(CFixedStepClock), alignof(CFixedStepClock), delta_seconds, count, results, result_capacity, sizeof(FFixedStepAdvanceResult), alignof(FFixedStepAdvanceResult), &result_count)) {
         return false;
     }
     if (count == 0u) {
@@ -178,9 +178,9 @@ bool FFixedStepClock::TryAdvanceBatch(const f64* delta_seconds, u32 count, FFixe
     return true;
 }
 
-bool FFixedStepClock::TryCaptureSnapshot(FFixedStepClockSnapshot* snapshot) const noexcept
+bool CFixedStepClock::TryCaptureSnapshot(FFixedStepClockSnapshot* snapshot) const noexcept
 {
-    if (!detail::TryValidateFixedStepSnapshotMemory(this, snapshot, sizeof(FFixedStepClock), alignof(FFixedStepClock), sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot))) {
+    if (!detail::TryValidateFixedStepSnapshotMemory(this, snapshot, sizeof(CFixedStepClock), alignof(CFixedStepClock), sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot))) {
         return false;
     }
 
@@ -192,9 +192,9 @@ bool FFixedStepClock::TryCaptureSnapshot(FFixedStepClockSnapshot* snapshot) cons
     return true;
 }
 
-bool FFixedStepClock::TryRestoreSnapshot(const FFixedStepClockSnapshot* snapshot) noexcept
+bool CFixedStepClock::TryRestoreSnapshot(const FFixedStepClockSnapshot* snapshot) noexcept
 {
-    if (!detail::TryValidateFixedStepSnapshotMemory(this, snapshot, sizeof(FFixedStepClock), alignof(FFixedStepClock), sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot))) {
+    if (!detail::TryValidateFixedStepSnapshotMemory(this, snapshot, sizeof(CFixedStepClock), alignof(CFixedStepClock), sizeof(FFixedStepClockSnapshot), alignof(FFixedStepClockSnapshot))) {
         return false;
     }
     if (!IsValidSnapshot(*snapshot)) return false;
@@ -208,19 +208,19 @@ bool FFixedStepClock::TryRestoreSnapshot(const FFixedStepClockSnapshot* snapshot
     return true;
 }
 
-void FFixedStepClock::Reset() noexcept
+void CFixedStepClock::Reset() noexcept
 {
     m_AccumulatedSeconds = 0.0;
     m_TotalDroppedSeconds = 0.0;
     m_TotalStepCount = 0u;
 }
 
-f64 FFixedStepClock::AccumulatedSeconds() const noexcept
+f64 CFixedStepClock::AccumulatedSeconds() const noexcept
 {
     return m_AccumulatedSeconds;
 }
 
-f64 FFixedStepClock::InterpolationAlpha() const noexcept
+f64 CFixedStepClock::InterpolationAlpha() const noexcept
 {
     if (m_Options.step_seconds <= 0.0) return 0.0;
 
@@ -230,12 +230,12 @@ f64 FFixedStepClock::InterpolationAlpha() const noexcept
     return alpha < 1.0 ? alpha : 1.0;
 }
 
-u64 FFixedStepClock::TotalStepCount() const noexcept
+u64 CFixedStepClock::TotalStepCount() const noexcept
 {
     return m_TotalStepCount;
 }
 
-f64 FFixedStepClock::TotalDroppedSeconds() const noexcept
+f64 CFixedStepClock::TotalDroppedSeconds() const noexcept
 {
     return m_TotalDroppedSeconds;
 }

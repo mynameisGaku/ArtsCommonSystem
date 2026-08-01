@@ -55,7 +55,7 @@ MODULE_INFO: "OrderedDict[str, dict[str, str]]" = OrderedDict([
     }),
     ("math", {
         "title": "Math",
-        "summary": "FVec、FMat4、FQuat、FCamera、2D/3D collision、CPU dispatch。",
+        "summary": "FVec、FMat4、FQuat、CCamera、2D/3D collision、CPU dispatch。",
         "use": "座標、変換、カメラ、当たり判定、SIMD 実行時分岐を扱う。",
     }),
     ("test", {
@@ -250,7 +250,7 @@ GLOSSARY: "OrderedDict[str, str]" = OrderedDict([
     ("FApplication", "最小のゲームループ基底。OnStart/OnUpdate/OnRender/OnShutdown を override する。"),
     ("FGame", "GameFramework の FApplication 派生。FScene stack、固定 timestep、FRenderContext などをまとめる。"),
     ("FScene", "1 つの画面・状態。OnEnter/OnUpdate/OnRender/OnExit を持ち FSceneManager で遷移する。"),
-    ("FSceneServices", "FScene が使う FTweenManager/FInput/FCamera などを必要分だけ attach する hub。"),
+    ("FSceneServices", "FScene が使う FTweenManager/FInput/CCamera などを必要分だけ attach する hub。"),
     ("FWorld", "ECS の中心。FEntityId と component sparse-set を管理する。"),
     ("FEntityId", "index + generation の値型 handle。Destroy 後の stale 参照を検出する。"),
     ("TQueryView", "FWorld 内の複数 component を持つ entity を反復する API。"),
