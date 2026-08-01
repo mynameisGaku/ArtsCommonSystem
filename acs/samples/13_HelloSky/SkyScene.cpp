@@ -20,7 +20,7 @@ void FSkyScene::SetPreset(FSky& sky, ESkyPreset p) noexcept {
 void FSkyScene::Render(FSky&             sky,
                       FStandardShader&  shader,
                       IRhiCommandList& cl,
-                      const FCamera&    camera,
+                      const CCamera&    camera,
                       const FGpuMesh&   plane,
                       const FGpuMesh&   sphere,
                       f32              angle) noexcept {

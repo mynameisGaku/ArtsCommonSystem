@@ -12,7 +12,7 @@
 //   ARotateComponent.{h,cpp} - composition 版: プレーン ANode に attach する回転
 //   ARotatingNode.{h,cpp}    - 継承版: ANode サブクラスで毎フレーム回転
 //   FTitleScene.{h,cpp}      - Title 画面 (TStateMachine Idle/Blink で 2s 毎に明滅)
-//   FGameplayScene.{h,cpp}   - 本編 (ANode ツリー + FTween + FCamera + Physics)
+//   FGameplayScene.{h,cpp}   - 本編 (ANode ツリー + FTween + CCamera + Physics)
 //   FPauseScene.{h,cpp}      - 一時停止 overlay (FSequence Loop でログを定期出力)
 //   FHelloGfApp.{h,cpp}      - FGame 派生クラス (AppState 構築、InitialScene 提供)
 //

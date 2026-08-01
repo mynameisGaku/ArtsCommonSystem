@@ -13,28 +13,6 @@
       "wave": "acf-role-review-wave-1"
     },
     {
-      "path": "collision/MeshCollider.h",
-      "qualified_type": "acs::FMeshCollider",
-      "current_prefix": "F",
-      "status": "manual",
-      "candidate_prefix": null,
-      "expected": null,
-      "review_required": true,
-      "reason": "class_role_unresolved",
-      "wave": "acf-role-review-wave-1"
-    },
-    {
-      "path": "collision/SpriteCollider.h",
-      "qualified_type": "acs::FSpriteCollider",
-      "current_prefix": "F",
-      "status": "manual",
-      "candidate_prefix": null,
-      "expected": null,
-      "review_required": true,
-      "reason": "class_role_unresolved",
-      "wave": "acf-role-review-wave-1"
-    },
-    {
       "path": "gameframework/AccessibilityProfile.h",
       "qualified_type": "acs::game::FAccessibilityProfile",
       "current_prefix": "F",
@@ -2012,28 +1990,6 @@
       "expected": null,
       "review_required": true,
       "reason": "lifecycle_method",
-      "wave": "acf-role-review-wave-1"
-    },
-    {
-      "path": "math/Camera.h",
-      "qualified_type": "acs::FCamera",
-      "current_prefix": "F",
-      "status": "manual",
-      "candidate_prefix": null,
-      "expected": null,
-      "review_required": true,
-      "reason": "class_role_unresolved",
-      "wave": "acf-role-review-wave-1"
-    },
-    {
-      "path": "timing/FixedStepClock.h",
-      "qualified_type": "acs::timing::FFixedStepClock",
-      "current_prefix": "F",
-      "status": "candidate",
-      "candidate_prefix": "C",
-      "expected": null,
-      "review_required": true,
-      "reason": "behavior_suffix",
       "wave": "acf-role-review-wave-1"
     }
   ]

@@ -34,7 +34,7 @@ private:
     acs::FFont            m_Font;
     acs::FGpuMesh         m_GmSphere;
     acs::FGpuMesh         m_GmPlane;
-    acs::FCamera          m_Camera;
+    acs::CCamera          m_Camera;
     acs::FVec3            m_CamPos;
     acs::f32             m_CamYaw = 0.5f;
     acs::f32             m_Angle   = 0.0f;

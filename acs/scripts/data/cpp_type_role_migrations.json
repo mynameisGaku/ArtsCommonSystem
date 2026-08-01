@@ -198,6 +198,20 @@
       "prefix": "C"
     },
     {
+      "path": "collision/MeshCollider.h",
+      "legacy": "acs::FMeshCollider",
+      "canonical": "acs::CMeshCollider",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "collision/SpriteCollider.h",
+      "legacy": "acs::FSpriteCollider",
+      "canonical": "acs::CSpriteCollider",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
       "path": "crashwin/WindowsCrashReporter.h",
       "legacy": "acs::crashwin::FWindowsCrashReporter",
       "canonical": "acs::crashwin::CWindowsCrashReporter",
@@ -334,6 +348,13 @@
       "path": "localmatch/LocalMatchmaker.h",
       "legacy": "acs::localmatch::FLocalMatchmaker",
       "canonical": "acs::localmatch::CLocalMatchmaker",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "math/Camera.h",
+      "legacy": "acs::FCamera",
+      "canonical": "acs::CCamera",
       "kind": "class",
       "prefix": "C"
     },
@@ -943,6 +964,13 @@
       "path": "threading/ThreadPool.h",
       "legacy": "acs::FThreadPool",
       "canonical": "acs::CThreadPool",
+      "kind": "class",
+      "prefix": "C"
+    },
+    {
+      "path": "timing/FixedStepClock.h",
+      "legacy": "acs::timing::FFixedStepClock",
+      "canonical": "acs::timing::CFixedStepClock",
       "kind": "class",
       "prefix": "C"
     },

@@ -43,7 +43,7 @@ int main() {
     // ---- (1) 円 (凸) ----
     ClearImage(img);
     FillCircle(img, 64.0f, 64.0f, 40.0f);
-    FSpriteCollider circle;
+    CSpriteCollider circle;
     if (circle.BuildFromAlpha(img, kW, kH, 128, 1.5f).IsErr()) {
         std::puts("circle: build FAILED"); return 2;
     }
@@ -62,7 +62,7 @@ int main() {
     ClearImage(img);
     FillRect(img, 20, 20, 50, 100);    // 縦棒
     FillRect(img, 20, 70, 100, 100);   // 横棒  → 右上 (55..100, 20..65) が欠ける
-    FSpriteCollider lshape;
+    CSpriteCollider lshape;
     if (lshape.BuildFromAlpha(img, kW, kH, 128, 1.5f).IsErr()) {
         std::puts("L: build FAILED"); return 3;
     }

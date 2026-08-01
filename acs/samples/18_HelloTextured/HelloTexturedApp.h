@@ -34,7 +34,7 @@ private:
     acs::TUniquePtr<acs::IRhiTexture>  m_Tex;
     acs::TUniquePtr<acs::IRhiPipeline> m_Pipeline;
 
-    acs::FCamera m_Camera;
+    acs::CCamera m_Camera;
     acs::f32    m_Angle   = 0.0f;
     acs::f32    m_CamYaw = 0.0f;
 };

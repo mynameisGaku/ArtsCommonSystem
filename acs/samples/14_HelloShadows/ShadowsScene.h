@@ -36,7 +36,7 @@ public:
                 acs::FStandardShader&  shader,
                 acs::FShadowMap&       shadow,
                 acs::IRhiCommandList& cl,
-                const acs::FCamera&    camera,
+                const acs::CCamera&    camera,
                 const acs::FGpuMesh&   plane,
                 const acs::FGpuMesh&   cube,
                 const acs::FGpuMesh&   sphere,

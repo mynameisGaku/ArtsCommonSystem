@@ -54,7 +54,7 @@ void FRaycastScene::Render(FStandardShader& shader,
     lights[0].color     = FVec3{ 1.0f, 0.9f, 0.7f};
     lights[1].direction = FVec3{-0.4f, 0.5f,-0.7f};
     lights[1].color     = FVec3{ 0.3f, 0.4f, 0.6f};
-    const FCamera& cam = m_Caster.Camera();
+    const CCamera& cam = m_Caster.Camera();
     shader.SetLights(cam.ViewProjection(), cam.Eye(), lights, 2, kAmbient);
 
     cl.SetPipeline(*shader.Pipeline());

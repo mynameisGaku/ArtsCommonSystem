@@ -122,7 +122,7 @@ struct FPostProcessParams {
      * TAA (Temporal Anti-Aliasing) を有効にするか。
      *
      * @details
-     * Halton jitter を FCamera で適用した上で、history と neighborhood-clamp blend して
+     * Halton jitter を CCamera で適用した上で、history と neighborhood-clamp blend して
      * resolve する。false なら tonemap は直接 HDR RT を読み、true なら Pass_TaaResolve を
      * 実行して tonemap は resolved RT を読む。
      */

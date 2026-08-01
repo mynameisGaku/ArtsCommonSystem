@@ -2,7 +2,7 @@
 // HelloGameFramework — Gameplay scene。本サンプルの中核。
 //
 // ここで ANode ツリー (root → wheel → spoke + rotator) を構築し、
-// FTween / FCamera follow + screen shake / FCollisionWorld2D / APhysicsBody2D を
+// FTween / CCamera follow + screen shake / FCollisionWorld2D / APhysicsBody2D を
 // FSceneServices() 経由で扱う。各機能の詳細は実装側 (cpp) の節コメントを参照。
 #pragma once
 

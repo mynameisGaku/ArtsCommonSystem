@@ -25,7 +25,7 @@ public:
     void Render(acs::FSky&             sky,
                 acs::FStandardShader&  shader,
                 acs::IRhiCommandList& cl,
-                const acs::FCamera&    camera,
+                const acs::CCamera&    camera,
                 const acs::FGpuMesh&   plane,
                 const acs::FGpuMesh&   sphere,
                 acs::f32              angle) noexcept;

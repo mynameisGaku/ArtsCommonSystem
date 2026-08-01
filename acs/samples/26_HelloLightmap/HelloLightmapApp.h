@@ -42,7 +42,7 @@ private:
     FQuad                   m_Quads[kQuadCount];
     acs::FSpriteBatch       m_Batch;
     acs::FFont              m_Font;
-    acs::FCamera            m_Camera;
+    acs::CCamera            m_Camera;
     acs::FVec3              m_CamPos{0, 1.0f, -0.9f};
     acs::f32               m_CamYaw   = 0.0f;
     acs::f32               m_CamPitch = 0.0f;

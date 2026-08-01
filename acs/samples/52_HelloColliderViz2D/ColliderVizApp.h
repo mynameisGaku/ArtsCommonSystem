@@ -26,7 +26,7 @@ private:
     bool              m_bFontReady = false;
 
     acs::TUniquePtr<acs::IRhiTexture> m_SpriteTex;
-    acs::FSpriteCollider              m_Collider;
+    acs::CSpriteCollider              m_Collider;
     acs::game::FCollisionWorld2D      m_World;
     acs::game::FShapeId               m_PolyId;
 

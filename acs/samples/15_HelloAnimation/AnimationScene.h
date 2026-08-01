@@ -38,7 +38,7 @@ public:
                 acs::FStandardShader&     std_shader,
                 acs::FSkinnedShader&      skin_shader,
                 acs::IRhiCommandList&    cl,
-                const acs::FCamera&       camera,
+                const acs::CCamera&       camera,
                 const acs::FGpuMesh&      plane,
                 const acs::FSkinnedGpuMesh& snake_gpu,
                 const acs::FMat4*         palette,

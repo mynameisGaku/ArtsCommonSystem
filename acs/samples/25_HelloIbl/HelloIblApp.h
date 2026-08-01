@@ -142,7 +142,7 @@ private:
     acs::FGpuMesh            m_GmPlane;
     acs::FSpriteBatch        m_Batch;
     acs::FFont               m_Font;
-    acs::FCamera             m_Camera;
+    acs::CCamera             m_Camera;
     acs::FPostProcessParams  m_PostParams;
     acs::TArray<acs::f32>    m_EquirectRgba;          // 4 ch float
     acs::FVec4               m_Sh9[9]   = {};          // 計算済 SH 9 係数 (xyz=RGB)

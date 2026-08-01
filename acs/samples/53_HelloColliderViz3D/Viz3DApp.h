@@ -30,7 +30,7 @@ private:
     acs::TArray<acs::u32>   m_MeshIdx;
     acs::TArray<acs::FVec3> m_HullPos;
     acs::TArray<acs::u32>   m_HullIdx;
-    acs::FMeshCollider      m_Collider;
+    acs::CMeshCollider      m_Collider;
 
     acs::f32 m_Time = 0.0f;
 };

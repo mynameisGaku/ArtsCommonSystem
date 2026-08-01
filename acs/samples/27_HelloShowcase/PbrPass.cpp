@@ -42,7 +42,7 @@ FMat4 OrbTransform(u32 i, f32 phase) noexcept {
 
 void ExecutePbrPass(FAssets& a, IRhiCommandList& cl,
                     IRhiTexture& hdr, IRhiTexture& depth,
-                    const FCamera& camera,
+                    const CCamera& camera,
                     const FMat4& view_proj_jittered,
                     FVec3 cam_pos, f32 orb_phase,
                     bool ssr_warm, bool ssao_warm,

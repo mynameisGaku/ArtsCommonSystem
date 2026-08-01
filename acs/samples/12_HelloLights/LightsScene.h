@@ -24,7 +24,7 @@ public:
     // time は光源の周回位相に使うため、外部時計のまま渡してもらう。
     void Render(acs::FStandardShader&    shader,
                 acs::IRhiCommandList&   cl,
-                const acs::FCamera&      camera,
+                const acs::CCamera&      camera,
                 const acs::FGpuMesh&     plane,
                 const acs::FGpuMesh&     cube,
                 const acs::FGpuMesh&     sphere,

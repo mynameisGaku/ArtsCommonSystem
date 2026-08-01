@@ -14,7 +14,7 @@ namespace hellocine {
 
 // ---- runtime callback (= keyframe 発火可視化用、ACS_LOG_INFO に出力) ----
 void FCineEditorScene::OnCamera(void* /*user*/, FVec2 target, f32 zoom, f32 dur) noexcept {
-    ACS_LOG_INFO("[CineEditor] FCamera fire -> target=(%.2f, %.2f) zoom=%.2f dur=%.2f",
+    ACS_LOG_INFO("[CineEditor] CCamera fire -> target=(%.2f, %.2f) zoom=%.2f dur=%.2f",
                  static_cast<double>(target.x), static_cast<double>(target.y),
                  static_cast<double>(zoom), static_cast<double>(dur));
 }

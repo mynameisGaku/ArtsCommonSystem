@@ -28,7 +28,7 @@
 
 namespace acs {
 
-class FCamera;
+class CCamera;
 
 /**
  * 手続き生成スカイ (グラデーション + 太陽)。
@@ -256,7 +256,7 @@ public:
      * @param cl 描画コマンドを積むコマンドリスト。
      * @param camera 逆 view-projection と視点を取り出すカメラ。
      */
-    void Render(IRhiCommandList& cl, const FCamera& camera) noexcept;
+    void Render(IRhiCommandList& cl, const CCamera& camera) noexcept;
 
 private:
     /** フルスクリーン三角形の頂点シェーダ。 */

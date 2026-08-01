@@ -22,7 +22,7 @@ int main() {
 
     // ---- (1) Cube ----
     TSharedPtr<FMeshAsset> cube = Primitive::MakeCube(2.0f);
-    FMeshCollider col;
+    CMeshCollider col;
     if (col.BuildFromMesh(*cube).IsErr()) { std::puts("cube: build FAILED"); return 2; }
 
     const FAabb3 b   = col.Bounds();
@@ -53,7 +53,7 @@ int main() {
 
     // ---- (2) Sphere ----
     TSharedPtr<FMeshAsset> sph = Primitive::MakeSphere(1.0f, 32, 16);
-    FMeshCollider scol;
+    CMeshCollider scol;
     if (scol.BuildFromMesh(*sph).IsErr()) { std::puts("sphere: build FAILED"); return 3; }
     FRayHit3 sh = scol.Raycast(FRay3{ {0, 5, 0}, {0, -1, 0} });
     // 半径 1 の球の頂点 → 上端は y≈1 (三角形分割の誤差を許容)

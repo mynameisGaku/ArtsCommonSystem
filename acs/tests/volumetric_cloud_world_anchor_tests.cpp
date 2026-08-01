@@ -4827,14 +4827,14 @@ ACS_TEST(VolumetricClouds,
 
 ACS_TEST(VolumetricClouds,
          ViewCutDetectionRetainsHistoryAcrossOrdinaryEditorTranslation) {
-    FCamera previousCamera;
+    CCamera previousCamera;
     previousCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                   0.05f, 250000.0f);
     const FVec3 previousEye{12.0f, 24.0f, -36.0f};
     previousCamera.SetLookAt(
         previousEye, FVec3{12.0f, 24.0f, -35.0f});
 
-    FCamera translatedCamera;
+    CCamera translatedCamera;
     translatedCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                     0.05f, 250000.0f);
     const FVec3 translatedEye{92.0f, 40.0f, 4.0f};
@@ -4848,7 +4848,7 @@ ACS_TEST(VolumetricClouds,
 
 ACS_TEST(VolumetricClouds,
          ViewCutDetectionRejectsTeleportsAndAbruptOrientationChanges) {
-    FCamera previousCamera;
+    CCamera previousCamera;
     previousCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                   0.05f, 250000.0f);
     const FVec3 previousEye{0.0f, 8.0f, 0.0f};
@@ -4857,7 +4857,7 @@ ACS_TEST(VolumetricClouds,
     const FMat4 previousInverse =
         Inverse(previousCamera.ViewProjection());
 
-    FCamera smallRotation;
+    CCamera smallRotation;
     smallRotation.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                  0.05f, 250000.0f);
     smallRotation.SetLookAt(
@@ -4868,7 +4868,7 @@ ACS_TEST(VolumetricClouds,
         previousInverse, previousEye,
         Inverse(smallRotation.ViewProjection()), previousEye));
 
-    FCamera abruptRotation;
+    CCamera abruptRotation;
     abruptRotation.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                   0.05f, 250000.0f);
     abruptRotation.SetLookAt(
@@ -4880,7 +4880,7 @@ ACS_TEST(VolumetricClouds,
         Inverse(abruptRotation.ViewProjection()), previousEye));
 
     const FVec3 teleportedEye{400.0f, 8.0f, 0.0f};
-    FCamera teleportedCamera;
+    CCamera teleportedCamera;
     teleportedCamera.SetPerspective(60.0f * kDeg2Rad, 16.0f / 9.0f,
                                     0.05f, 250000.0f);
     teleportedCamera.SetLookAt(

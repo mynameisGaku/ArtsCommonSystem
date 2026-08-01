@@ -48,7 +48,7 @@ private:
     acs::TUniquePtr<acs::IRhiTexture> m_FloorTexture;
     acs::TUniquePtr<acs::IRhiTexture> m_SceneCopy;
     acs::FPostProcessParams m_PostParams;
-    acs::FCamera m_Camera;
+    acs::CCamera m_Camera;
 
     acs::FVec3 m_CameraPosition{0, 4.8f, -9.0f};
     acs::FVec3 m_CameraTarget{0, -0.15f, 0};

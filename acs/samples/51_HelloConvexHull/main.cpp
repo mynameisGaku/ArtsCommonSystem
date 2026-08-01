@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // HelloConvexHull — 点群/メッシュから 3D 凸包を生成して検証するコンソール。
 // cube の頂点 → 凸包 8 頂点 / 12 三角形、内部点が除外されること、生成した凸包を
-// FMeshCollider に載せてレイキャストできることを assert する。ヘッドレス完結。
+// CMeshCollider に載せてレイキャストできることを assert する。ヘッドレス完結。
 #include "collision/ConvexHull3.h"
 #include "collision/MeshCollider.h"
 #include "asset/MeshPrimitive.h"
@@ -35,7 +35,7 @@ int main() {
     ok = ok && cube_ok;
 
     // 生成した凸包を collider にしてレイキャスト (上面 y=1 に命中)
-    FMeshCollider hull_col;
+    CMeshCollider hull_col;
     if (hull_col.BuildFromTriangles(hv.Data(), static_cast<u32>(hv.Size()),
                                     hi.Data(), static_cast<u32>(hi.Size())).IsOk()) {
         FRayHit3 h = hull_col.Raycast(FRay3{ {0, 5, 0}, {0, -1, 0} });

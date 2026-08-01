@@ -37,7 +37,7 @@ public:
 
 private:
     FAssets                  m_Assets;
-    acs::FCamera             m_Camera;
+    acs::CCamera             m_Camera;
     acs::FPostProcessParams  m_PostParams;
     acs::FVec3               m_CamPos        = acs::FVec3{0, 1.4f, -5.5f};
     acs::f32                m_OrbitAngle    = 0.0f;     // カメラ orbit (rad)

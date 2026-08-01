@@ -60,7 +60,7 @@ private:
 
     acs::FSpriteBatch m_Batch;
     acs::FFont        m_Font;
-    acs::FCamera      m_Camera;
+    acs::CCamera      m_Camera;
     acs::f32         m_Time = 0.0f;
 };
 

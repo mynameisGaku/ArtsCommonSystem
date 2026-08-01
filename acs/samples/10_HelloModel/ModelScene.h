@@ -36,7 +36,7 @@ public:
 private:
     acs::FGpuMesh m_GmSphere, m_GmPlane, m_GmCube;
 
-    acs::FCamera m_Camera;
+    acs::CCamera m_Camera;
     acs::FVec3   m_CamPos{0, 1.5f, -5.0f};
     acs::f32    m_CamYaw   = 0.0f;
     acs::f32    m_CamPitch = 0.0f;

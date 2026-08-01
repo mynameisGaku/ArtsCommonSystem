@@ -32,7 +32,7 @@ int main() {
     static u8 img[kW * kH * 4];
     FillCircle(img, 64.0f, 64.0f, 40.0f);
 
-    FSpriteCollider sc;
+    CSpriteCollider sc;
     if (sc.BuildFromAlpha(img, kW, kH, 128, 2.0f).IsErr()) { std::puts("collider FAILED"); return 2; }
     const FConvexPoly2 hull = sc.HullPolygon();
 

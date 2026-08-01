@@ -28,7 +28,7 @@ void FLightsScene::Build() noexcept {
 
 void FLightsScene::Render(FStandardShader&  shader,
                          IRhiCommandList& cl,
-                         const FCamera&    camera,
+                         const CCamera&    camera,
                          const FGpuMesh&   plane,
                          const FGpuMesh&   cube,
                          const FGpuMesh&   sphere,

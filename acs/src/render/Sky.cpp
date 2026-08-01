@@ -511,7 +511,7 @@ void CSky::PresetNight() noexcept {
 }
 
 /** 定数バッファを更新し、フルスクリーン三角形でスカイを描画する。 */
-void CSky::Render(IRhiCommandList& cl, const FCamera& camera) noexcept {
+void CSky::Render(IRhiCommandList& cl, const CCamera& camera) noexcept {
     if (!m_Pipeline || !m_Cb) return;
     FSkyCb cb{};
     cb.inv_view_proj = Inverse(camera.ViewProjection());

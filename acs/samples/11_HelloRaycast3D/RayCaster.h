@@ -28,12 +28,12 @@ public:
     void Update(acs::f32 dt, FRaycastTargets& targets) noexcept;
 
     // 描画側 (FStandardShader::SetLights) が ViewProjection と Eye を要求する。
-    const acs::FCamera& Camera()  const noexcept { return m_Camera; }
+    const acs::CCamera& Camera()  const noexcept { return m_Camera; }
     acs::FVec3          Eye()     const noexcept { return m_CamPos; }
     acs::FVec3          Forward() const noexcept { return m_CamForward; }
 
 private:
-    acs::FCamera m_Camera;
+    acs::CCamera m_Camera;
     acs::FVec3   m_CamPos     = kCamInitialPos;
     acs::FVec3   m_CamForward {0, 0, 1};
     acs::f32    m_CamYaw     = 0.0f;

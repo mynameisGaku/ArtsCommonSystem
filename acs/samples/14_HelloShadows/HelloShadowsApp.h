@@ -37,7 +37,7 @@ private:
     acs::FGpuMesh             m_GmPlane;
     acs::FSpriteBatch         m_Batch;
     acs::FFont                m_Font;
-    acs::FCamera              m_Camera;
+    acs::CCamera              m_Camera;
     acs::FVec3                m_CamPos    {0, 4, -10};
     acs::f32                 m_CamYaw    = 0.0f;
     acs::f32                 m_CamPitch  = 0.0f;
