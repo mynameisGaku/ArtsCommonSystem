@@ -99,11 +99,11 @@ set(_acsgen_gameframework_sources
     SaveArchive.cpp
     SaveSlot.cpp
     Scene.cpp
-    Scene3D.cpp
     Scene3DSerialize.cpp
     SceneCommandQueue.cpp
     SceneEventBus.cpp
     SceneManager.cpp
+    SceneNodeGraph.cpp
     SceneRenderResources.cpp
     SceneSerialize.cpp
     SceneServices.cpp
@@ -273,6 +273,7 @@ set(_acsgen_gameframework_headers
     SceneCommandQueue.h
     SceneEventBus.h
     SceneManager.h
+    SceneNodeGraph.h
     SceneRenderResources.h
     SceneSerialize.h
     SceneServices.h

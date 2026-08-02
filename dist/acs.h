@@ -35811,6 +35811,7 @@ using FCamera2D = CCamera2D;
 namespace acs::game {
 
 class IAssetPackReader;
+class CSceneNodeGraph;
 
 inline constexpr u32 kScene3DSerializeMaxInputBytes = 4u * 1024u * 1024u;
 inline constexpr u32 kScene3DSerializeMaxNodeCount = 65536u;
@@ -35949,6 +35950,10 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
  * RequiredBytes は終端 NUL を含み、BytesWritten は含まない。
  */
 FScene3DSaveResult TrySaveScene3DText(
+    const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
+FScene3DSaveResult TrySaveScene3DText(
     const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
@@ -35959,6 +35964,9 @@ FScene3DSaveResult TrySaveScene3DText(
  * @param cap out の容量。
  * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
  */
+u32 SaveScene3DText(const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
@@ -35967,6 +35975,10 @@ u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
  * @details size は終端 NUL を含めない。切詰め、長過ぎる行、非有限値、巨大/重複 id、
  * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
  */
+FScene3DLoadResult TryLoadScene3DText(
+    CSceneNodeGraph& graph, const char* text, u32 size) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 FScene3DLoadResult TryLoadScene3DText(
     CScene3D& scene, const char* text, u32 size) noexcept;
 
@@ -35978,6 +35990,10 @@ FScene3DLoadResult TryLoadScene3DText(
  * file の親ディレクトリを基準に解決し、失敗時に別の探索 root へ fallback しない。
  */
 FScene3DLoadResult TryLoadScene3DFile(
+    CSceneNodeGraph& graph, const char* path) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
+FScene3DLoadResult TryLoadScene3DFile(
     CScene3D& scene, const char* path) noexcept;
 
 /**
@@ -35986,6 +36002,11 @@ FScene3DLoadResult TryLoadScene3DFile(
  * @details virtual path は `/` 区切りの pack 内相対 path のみ受理する。entry 不足、
  * CRC/解凍失敗、unsupported mesh、壊れた material では loose file に fallback しない。
  */
+FScene3DLoadResult TryLoadScene3DAssetPack(
+    CSceneNodeGraph& graph, IAssetPackReader& pack,
+    const char* virtual_path = "main.acscene") noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 FScene3DLoadResult TryLoadScene3DAssetPack(
     CScene3D& scene, IAssetPackReader& pack,
     const char* virtual_path = "main.acscene") noexcept;
@@ -36000,6 +36021,9 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
  * @param text 直列化テキスト。
  * @return 解析が成立したら true (text==null は false)。
  */
+bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 bool LoadScene3DText(CScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game
@@ -49163,6 +49187,527 @@ using game::ESvc;
 
 } // namespace acs
 
+// ===================== gameframework/SceneNodeGraph.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — CSceneNodeGraph
+//
+// root ANode ツリーと CNodePool をまとめて所有する、シーン文脈非依存のノードグラフ。
+// AScene が正規のシーングラフとして保持するほか、checked loader や editor の staging の
+// ようにスタック上へ一時グラフを構築する用途 (CScene3D 経由) でも使う。
+// CSubsystemCollection / CSceneServices を一切持たないため、一時グラフがシーン文脈を
+// 抱え込むことはない (docs/SceneUnification.md Phase 2)。
+
+
+// ===================== gameframework/NodePool.h =====================
+// SPDX-License-Identifier: Apache-2.0
+// GameFramework Pillar B — CNodePool (ANode の generational pool)
+//
+// シーン全体で唯一の `ANode*` レジストリ。`ANode` インスタンス自体は親の
+// `m_Children` (TObjectPtr<ANode>) が所有し続け、本 pool は **参照のみ** を
+// 保持して安定した `FNodeId` を発行する。同時に発行済 `FNodeId` の **stale 検出**
+// (= 既に Unregister されたハンドル) を提供する。
+//
+// 使い方:
+//   CNodePool pool;
+//   pool.Init(/*initial_capacity=*/512);
+//
+//   // ANode を新規生成して scene tree に attach した直後に登録:
+//   ANode& enemy = scene.Root().AddChild(NewObject<EnemyNode>());
+//   FNodeId enemy_id = pool.RegisterExistingNode(&enemy);
+//   // enemy.Id() == enemy_id が成立する (RegisterExistingNode 内で _SetId 済)
+//
+//   // 後で stale 検査付きで取り出し:
+//   if (ANode* p = pool.Get(enemy_id)) {
+//       p->SetPosition2D(p->Position2D() + FVec2{1, 0});
+//   }
+//
+//   // 破棄時:
+//   pool.Unregister(enemy_id);   // slot 解放 + gen++ → 古い handle は invalid 化
+//   enemy.Destroy();              // scene tree からは別途 reap される
+//
+// 設計選択 (Pillar B):
+//   ・**non-owning**: 所有権は ANode の親 (=TObjectPtr<ANode>) 側にあり、本 pool
+//     は raw ポインタだけ持つ。TPool の破棄や ClearAll は ANode を delete しない。
+//   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
+//     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
+//   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
+//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryPushBack。
+//   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
+//     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
+//     強制する (CCollisionWorld2D と完全に同じ挙動)。
+//   ・**24bit index = 16,777,216 slot 上限**: FNodeId の pack 仕様に従い、これを
+//     超える RegisterExistingNode は invalid FNodeId を返す (拒否)。実用上 1 シーン
+//     で 16M ANode を生成することはまずあり得ないが安全策として明示拒否。
+//   ・**IdOf は線形探索**: ポインタ → FNodeId の逆引きは利用頻度が低い (基本は
+//     RegisterExistingNode の戻り値を保持する) ため、専用 hash は持たない。
+//     真に必要なら呼び出し側で THashMap<ANode*, FNodeId> を別途持てば良い。
+//   ・**非コピー・非ムーブ**: pool 自体は固定オブジェクトとして scene が所有する想定。
+//   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約に厳格準拠。
+
+
+namespace acs::game {
+
+class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼出のため)
+
+/** CNodePool への checked 登録が返す状態。 */
+enum class ENodePoolRegisterError : u8 {
+    None = 0,
+    NullNode,
+    AlreadyRegistered,
+    RegisteredByAnotherPool,
+    IndexLimitExceeded,
+    AllocationFailure,
+};
+
+/** checked ノード登録結果。AlreadyRegistered の場合も既存 Id を返す。 */
+struct FNodePoolRegisterResult {
+    FNodeId Id{};
+    ENodePoolRegisterError Error = ENodePoolRegisterError::None;
+
+    bool Succeeded() const noexcept {
+        return Error == ENodePoolRegisterError::None && Id.IsValid();
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/**
+ * ANode 群を pool で管理し、安定した FNodeId を発行 + stale 検出する。
+ *
+ * @details
+ * ANode の所有権は持たない (ANode は親の TObjectPtr が所有)。本 pool は raw
+ * ポインタだけを保持し、generational handle (FNodeId) の発行と stale 検出を担う。
+ * FSlot = {ptr, gen, active} 構成で、index 0 は invalid 用に予約、有効 slot は 1..N。
+ * 空き slot は free stack で O(1) 再利用する。
+ */
+class CNodePool {
+public:
+    /** 空の pool を構築する (slot 配列は Init / 初回 Register で確保)。 */
+    CNodePool()  noexcept = default;
+
+    /** 破棄する (ANode は非所有なので何も delete しない)。 */
+    ~CNodePool() noexcept = default;
+
+    /** コピー禁止 (pool は scene が固定オブジェクトとして単独所有するため)。 */
+    CNodePool(const CNodePool&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CNodePool& operator=(const CNodePool&) = delete;
+
+    /** ムーブ禁止。 */
+    CNodePool(CNodePool&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    CNodePool& operator=(CNodePool&&)      = delete;
+
+    /** Exchange complete registry state without allocation. */
+    void Swap(CNodePool& other) noexcept {
+        acs::Swap(m_Slots, other.m_Slots);
+        acs::Swap(m_FreeIndices, other.m_FreeIndices);
+        acs::Swap(m_ActiveCount, other.m_ActiveCount);
+    }
+
+    /**
+     * 初期容量を予約する (再 alloc 回避用)。
+     *
+     * @details 複数回呼出可、縮小はしない。index 0 の dummy slot を未確保なら確保する。
+     * @param initial_capacity 予約する slot 数 (0 なら dummy 確保のみで reserve しない)。
+     */
+    void Init(u32 initial_capacity = 256) noexcept;
+
+    /**
+     * 既存ノードを重複なく登録する。
+     *
+     * @details
+     * 同一 pool ですでに登録済みなら新しい slot を作らず AlreadyRegistered と既存 Id を返す。
+     * 別 pool の有効 Id を持つノードは、双方のレジストリを不整合にしないよう拒否する。
+     * 確保・index 上限失敗時は node と active slot 数を変更しない。
+     */
+    FNodePoolRegisterResult TryRegisterExistingNode(ANode* node) noexcept;
+
+    /**
+     * 既存の生 ANode を pool に登録し、新しい FNodeId を発行する。
+     *
+     * @details
+     * 互換用の簡易 API。同一 pool ですでに登録済みなら既存 Id を返す。
+     * 詳細な失敗理由が必要なら TryRegisterExistingNode を使う。
+     * @param node 登録する ANode (nullptr、または slot 数が 16M に達したときは登録しない)。
+     * @return 発行した FNodeId。失敗時は invalid (この場合 node の Id は変更しない)。
+     */
+    FNodeId RegisterExistingNode(ANode* node) noexcept;
+
+    /**
+     * slot を free 化し、対応 ANode の Id を invalid にリセットする。
+     *
+     * @details 既に invalid / stale な id は何もしない (二重 Unregister は安全)。
+     * generation は次の TryAcquireSlot で進むため、ここでは進めない。
+     * @param id 解放する slot の FNodeId。
+     */
+    void Unregister(FNodeId id) noexcept;
+
+    /**
+     * 登録済みノードのうち Destroy() 済みのものと、その子孫を一括 Unregister する。
+     *
+     * @details
+     * 親のDestroyでは子孫自身のpending flagは立たないが、親の所有参照解放で子孫も
+     * 破棄される。各ノードの祖先chainも確認してResolveStructuralChanges前に外し、
+     * poolに子孫のダングリング参照が残らないようにする。
+     * @return Unregister したノード数。
+     */
+    u32 PurgePendingDestroy() noexcept;
+
+    /**
+     * id が指す slot が active かつ generation が一致するかを返す。
+     *
+     * @param id 検証する FNodeId。
+     * @return slot が生きていて世代も一致すれば true。
+     */
+    bool IsValid(FNodeId id) const noexcept;
+
+    /**
+     * id 経由で ANode* を取り出す。
+     *
+     * @param id 取り出す FNodeId。
+     * @return 対応する ANode。stale / invalid なら nullptr。
+     */
+    ANode* Get(FNodeId id) const noexcept;
+
+    /**
+     * node ポインタから FNodeId を逆引きする (線形探索 O(N))。
+     *
+     * @param node 逆引きする ANode。
+     * @return 対応する FNodeId。node == nullptr または pool に存在しなければ invalid。
+     */
+    FNodeId IdOf(ANode* node) const noexcept;
+
+    /**
+     * 現在 active な slot 数を返す。
+     *
+     * @return active な slot 数。
+     */
+    u32 ActiveCount() const noexcept { return m_ActiveCount; }
+
+    /**
+     * 現在の slot 数を返す (内部配列長 - 1、index 0 予約分を除外)。
+     *
+     * @details 物理的に確保された ANode 個数の上限ではなく、過去に到達した最大値の指標。
+     * @return index 0 の dummy を除いた slot 数。
+     */
+    u32 Capacity() const noexcept {
+        const u32 sz = static_cast<u32>(m_Slots.Size());
+        return sz > 0 ? sz - 1u : 0u;   // index 0 予約分を引く
+    }
+
+    /**
+     * 全 slot を一括 free する。
+     *
+     * @details 各登録済 ANode の Id を invalid にリセットし、全物理 slot をfree stackへ
+     * ちょうど1回ずつ戻す。ANode 自体は削除しない (非所有)。gen は維持するため、
+     * ClearAll 前の handle は再利用後も確実に stale 検出される。
+     */
+    void ClearAll() noexcept;
+
+private:
+    /**
+     * 1 つの slot エントリ (登録された ANode の参照と世代)。
+     */
+    struct FSlot {
+        /** 登録された ANode (非所有。所有は親 TObjectPtr 側)。 */
+        ANode* ptr    = nullptr;
+
+        /** 世代カウンタ (0 は予約 = invalid handle と一致。有効 slot は 1..255)。 */
+        u8      gen    = 0;
+
+        /** この slot が現在使用中かどうか。 */
+        bool    active = false;
+    };
+
+    /**
+     * 空き slot を 1 つ取得する (free stack → 末尾追加の順)。
+     *
+     * @details index 0 は予約。16M 上限に到達した場合は 0 を返す。
+     * @return 取得した slot の index。確保不能なら 0 (呼出側で invalid FNodeId 化)。
+     */
+    ENodePoolRegisterError TryAcquireSlot(u32& out_index) noexcept;
+
+    /** 24bit index 上限 (FNodeId pack 仕様に合わせる、= 16,777,215)。 */
+    static constexpr u32 kMaxIndex = 0x00FFFFFFu;
+
+    /** slot 配列 (index 0 は dummy = invalid 用予約)。 */
+    TArray<FSlot> m_Slots;
+
+    /** 空き slot index の LIFO stack (pop → 再利用、empty → 末尾追加)。 */
+    TArray<u32>  m_FreeIndices;
+
+    /** 現在 active な slot 数。 */
+    u32         m_ActiveCount = 0;
+};
+
+/** 旧名を使う既存コード向けの一時的な互換別名。 */
+using FNodePool = CNodePool;
+
+} // namespace acs::game
+
+namespace acs {
+
+struct FRay3;   // math/Collision3D.h — Raycast は参照でしか受けないため前方宣言で足りる
+
+namespace game {
+
+/** CSceneNodeGraph::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
+enum class EScene3DSpawnError : u8 {
+    None = 0,
+    InvalidParent,
+    NodeAllocationFailure,
+    PoolRegistrationFailure,
+    ChildAttachRejected,
+};
+
+/** checked ノード生成結果。失敗時は Node が null でツリー/poolを変更しない。 */
+struct FScene3DSpawnResult {
+    ANode* Node = nullptr;
+    FNodeId Id{};
+    EScene3DSpawnError Error = EScene3DSpawnError::None;
+    ENodePoolRegisterError PoolError = ENodePoolRegisterError::None;
+    EAddChildResult AddChildResult = EAddChildResult::Added;
+
+    bool Succeeded() const noexcept {
+        return Error == EScene3DSpawnError::None && Node != nullptr && Id.IsValid();
+    }
+    explicit operator bool() const noexcept { return Succeeded(); }
+};
+
+/**
+ * root ANode ツリーと generational pool を所有・駆動するノードグラフ。
+ *
+ * @details
+ * root ANode ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
+ * 構造変更 (destroy/reparent) を解決する。名前によるノード検索とノード数集計を提供する。
+ * 描画は外部のレンダラがツリーを走査して行う (本クラスは GPU 非依存)。シーン文脈を
+ * 持たないため、スタック上の一時グラフとしても安全に構築できる。
+ */
+class CSceneNodeGraph {
+public:
+    /** 空のグラフを構築する (root のみ。pool を初期化し root も登録する)。 */
+    CSceneNodeGraph() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
+        m_Pool.Init(256);
+        m_Pool.RegisterExistingNode(m_Root.Get());   // root にも有効な FNodeId を振る
+    }
+
+    /** グラフを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
+    ~CSceneNodeGraph() noexcept = default;
+
+    /** コピー禁止 (ANode ツリーを単独所有するため)。 */
+    CSceneNodeGraph(const CSceneNodeGraph&)            = delete;
+
+    /** コピー代入も禁止。 */
+    CSceneNodeGraph& operator=(const CSceneNodeGraph&) = delete;
+
+    /** ムーブ禁止。 */
+    CSceneNodeGraph(CSceneNodeGraph&&)                 = delete;
+
+    /** ムーブ代入も禁止。 */
+    CSceneNodeGraph& operator=(CSceneNodeGraph&&)      = delete;
+
+    /**
+     * Atomically exchange complete graph ownership.
+     *
+     * @details
+     * Used by checked loaders to build a replacement graph off to the side
+     * and publish it only after every allocation and component commit succeeds.
+     * root が差し替わるため、swap 後に両グラフの root-swap hook (登録済みなら) を
+     * 呼び、owner (AScene) が root への service/subsystem 配線をやり直せるようにする。
+     * hook 自体は owner に属するため swap しない。
+     */
+    void SwapContents(CSceneNodeGraph& other) noexcept {
+        m_Root.Swap(other.m_Root);
+        m_Pool.Swap(other.m_Pool);
+        if (m_RootSwapHook != nullptr) m_RootSwapHook(m_RootSwapHookUser);
+        if (other.m_RootSwapHook != nullptr) other.m_RootSwapHook(other.m_RootSwapHookUser);
+    }
+
+    /**
+     * root 差し替え時の再配線 hook を登録する (内部用。owner の AScene が設定する)。
+     *
+     * @details SwapContents が root を差し替えた直後に呼ばれる。グラフ自体はシーン文脈を
+     * 持たないため、配線のやり直しは hook 側 (owner) の責務とする。
+     * @param hook 呼び出す関数 (nullptr で解除)。
+     * @param user hook へそのまま渡す owner 文脈。
+     */
+    void _SetRootSwapHook(void (*hook)(void* user) noexcept, void* user) noexcept {
+        m_RootSwapHook     = hook;
+        m_RootSwapHookUser = user;
+    }
+
+    /**
+     * root ノードが確保済みかを返す (OOM で ctor が root を確保できなかった場合のみ false)。
+     *
+     * @return root が存在すれば true。
+     */
+    bool HasRoot() const noexcept { return m_Root.Get() != nullptr; }
+
+    /**
+     * グラフの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
+     *
+     * @return root ANode への参照。
+     */
+    ANode&       Root()       noexcept { return *m_Root; }
+
+    /**
+     * グラフの root ノードへの const 参照を返す。
+     *
+     * @return root ANode への const 参照。
+     */
+    const ANode& Root() const noexcept { return *m_Root; }
+
+    /**
+     * ノードを生成し、pool登録と親へのattachを原子的に試みる。
+     *
+     * @details
+     * parent==nullptr は root を表す。外部グラフのparent、破棄予定parent、深度上限超過を
+     * 拒否する。新規ノードは先にpoolへ仮登録し、TryAddChild失敗時はUnregisterして破棄する
+     * ため、失敗時にツリー、active slot数、既存ノードのIdを変更しない。
+     */
+    FScene3DSpawnResult TrySpawn(
+        FStringView name, ANode* parent = nullptr) noexcept;
+
+    /**
+     * 名前を付けて子ノードを生成し、generational id を振って参照を返す簡易ヘルパ。
+     *
+     * @details
+     * parent==nullptr のときは root の子にする。成功時の挙動は従来互換。
+     * 失敗時は安全な sentinel として、有効なparentならparent、無効parentならrootを返す。
+     * 失敗を区別する新規コードは TrySpawn を使う。
+     * @param name 新規ノードの名前。
+     * @param parent 親ノード (nullptr なら root)。
+     * @return 生成した子ノードへの参照。
+     */
+    ANode& Spawn(FStringView name, ANode* parent = nullptr) noexcept;
+
+    /**
+     * generational id から ANode を取り出す (stale / invalid なら nullptr)。
+     *
+     * @param id 取り出す FNodeId。
+     * @return 対応するノード (stale なら nullptr)。
+     */
+    ANode* Get(FNodeId id) noexcept { return m_Pool.Get(id); }
+
+    /**
+     * id が現在も生きているか (stale 検出)。
+     *
+     * @param id 検証する FNodeId。
+     * @return 生きていれば true。
+     */
+    bool IsValid(FNodeId id) const noexcept { return m_Pool.IsValid(id); }
+
+    /**
+     * ノードポインタから FNodeId を逆引きする。
+     *
+     * @param node 逆引きするノード。
+     * @return 対応する FNodeId (未登録なら invalid)。
+     */
+    FNodeId IdOf(ANode* node) noexcept { return m_Pool.IdOf(node); }
+
+    /**
+     * id 指定でノードを破棄予定にする (実際の reap は次の Update)。
+     *
+     * @details root は破棄できない (false を返す)。pool からの登録解除は次の Update の
+     * PurgePendingDestroy が行う (= 破棄予定の間も id は valid のまま、reap 前に外れる)。
+     * @param id 破棄するノードの FNodeId。
+     * @return 破棄予定にしたら true、未登録 / root なら false。
+     */
+    bool Destroy(FNodeId id) noexcept {
+        ANode* n = m_Pool.Get(id);
+        if (n == nullptr || n == m_Root.Get()) return false;
+        n->Destroy();
+        return true;
+    }
+
+    /**
+     * pool に登録されている (生きている) ノード数を返す (root を含む)。
+     *
+     * @return active なノード数。
+     */
+    u32 RegisteredCount() const noexcept { return m_Pool.ActiveCount(); }
+
+    /**
+     * 毎フレームの update。
+     *
+     * @details root の UpdateTree → pool の purge → 構造変更の解決 の順で実行する。
+     * @param dt 経過秒。
+     */
+    void Update(f32 dt) noexcept;
+
+    /**
+     * 固定刻みの update。
+     *
+     * @details root の FixedUpdateTree → pool の purge → 構造変更の解決 の順で実行する。
+     * @param fixed_dt 固定刻みの秒。
+     */
+    void FixedUpdate(f32 fixed_dt) noexcept;
+
+    /**
+     * tick を伴わずに破棄予定ノードの purge と構造変更の解決だけを行う。
+     *
+     * @details シーン退場時など、update を回さずフレーム境界の後始末だけが要る場面で使う。
+     * reap される前に破棄予定ノードを pool から外す順序は Update と同じ。
+     */
+    void ResolveStructuralChanges() noexcept;
+
+    /**
+     * 名前でノードを検索する (root を含む subtree の深さ優先探索、最初の一致)。
+     *
+     * @param name 検索するノード名。
+     * @return 最初に一致したノード (無ければ nullptr)。
+     */
+    ANode* FindByName(FStringView name) noexcept;
+
+    /**
+     * ワールド空間レイで最も手前のノードをピックする (AMeshComponent3D を持つノードのみ対象)。
+     *
+     * @details
+     * 各ノードの World() 変形を逆適用してレイをローカル空間へ移し、プリミティブ種別ごとの
+     * ローカル AABB と交差判定する (= 回転/スケール/階層を正しく扱う OBB ピック)。t は元の
+     * world レイ上のパラメータ。Mesh 種別は頂点 AABB を使う。
+     * @param ray ワールド空間のピックレイ (direction は非正規化でも可)。
+     * @param out_t 非 null なら命中 t (world レイ上、`ray.origin + t*ray.direction` が命中点) を書く。
+     * @return 最も手前で命中したノードの FNodeId (外れは invalid)。
+     */
+    FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept;
+
+    /**
+     * subtree のノード総数を返す (root を含む)。
+     *
+     * @return ノード総数。
+     */
+    u32 NodeCount() const noexcept;
+
+    /**
+     * root の全子孫を破棄してグラフを空にする (root 自身は残し、transform/名前を既定へ戻す)。
+     *
+     * @details
+     * 各 top-level 子を Destroy → pool を purge → 即時 reap する (Update を待たない)。
+     * シーン読み込み (LoadScene3DText) の «置き換え» 前処理に使う。root は差し替えないため、
+     * owner が root へ張った service/subsystem 配線はそのまま残る。
+     */
+    void Clear() noexcept;
+
+private:
+    /** グラフの root ノード (ツリーの起点、名前 "Root")。 */
+    TObjectPtr<ANode> m_Root;
+
+    /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
+    CNodePool m_Pool;
+
+    /** SwapContents で root が差し替わった直後に呼ぶ再配線 hook (owner が登録)。 */
+    void (*m_RootSwapHook)(void* user) noexcept = nullptr;
+
+    /** m_RootSwapHook へ渡す owner 文脈。 */
+    void* m_RootSwapHookUser = nullptr;
+};
+
+} // namespace game
+} // namespace acs
+
 namespace acs {
 
 // 描画リソースは CGame が game 寿命で所有するため、シーンヘッダは実体を必要としない
@@ -49187,7 +49732,11 @@ class FRenderContext;
 class AScene {
 public:
     /** 空のシーンを構築する (コンテキスト・サービスは未配線)。 */
-    AScene() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
+    AScene() noexcept {
+        // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
+        // やり直せるよう、graph へ再配線 hook を登録する (docs/SceneUnification.md Phase 2)。
+        m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
+    }
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~AScene() noexcept = default;
@@ -49347,14 +49896,31 @@ public:
      *
      * @return root ANode への参照 (ここに子を AddChild してツリーを組む)。
      */
-    ANode& Root() noexcept { return *m_Root; }
+    ANode& Root() noexcept { return m_Graph.Root(); }
 
     /**
      * シーンの root ノードへの const 参照を返す。
      *
      * @return root ANode への const 参照。
      */
-    const ANode& Root() const noexcept { return *m_Root; }
+    const ANode& Root() const noexcept { return m_Graph.Root(); }
+
+    /**
+     * シーンが所有するノードグラフへの可変参照を返す。
+     *
+     * @details root ツリーと generational pool (FNodeId の発行・stale 検出) の実体。
+     * Spawn / Get / Raycast など graph 単位の操作はここへ委譲する
+     * (docs/SceneUnification.md Phase 2)。
+     * @return 所有する CSceneNodeGraph への参照。
+     */
+    CSceneNodeGraph& Graph() noexcept { return m_Graph; }
+
+    /**
+     * シーンが所有するノードグラフへの const 参照を返す。
+     *
+     * @return 所有する CSceneNodeGraph への const 参照。
+     */
+    const CSceneNodeGraph& Graph() const noexcept { return m_Graph; }
 
     /**
      * world/HUD 描画に使う共有 CSpriteBatch を返す。
@@ -49519,7 +50085,7 @@ public:
 
 protected:
     /** scene固有の必須所有物が生成済みならtrueを返す。 */
-    virtual bool _IsPreparationReady() const noexcept { return m_Root.Get() != nullptr; }
+    virtual bool _IsPreparationReady() const noexcept { return m_Graph.HasRoot(); }
 
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
@@ -49578,6 +50144,12 @@ private:
     /** 利用者のOnFixedUpdate後にrootの固定更新と構造変更解決を行う。 */
     void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
 
+    /** graph の SwapContents が root を差し替えた直後に呼ばれる再配線 thunk。 */
+    static void _OnGraphRootSwapped(void* user) noexcept;
+
+    /** 現在の root へ service/subsystem/spawn 先の配線をやり直す (swap 後の回復)。 */
+    void _RewireGraphRoot() noexcept;
+
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
      *
@@ -49592,8 +50164,8 @@ private:
      */
     void DrawHudPass(FRenderContext& rc) noexcept;
 
-    /** シーンの root ノード (ツリーの起点)。 */
-    TObjectPtr<ANode> m_Root;
+    /** root ツリーと generational pool を所有するノードグラフ (シーングラフの実体)。 */
+    CSceneNodeGraph m_Graph;
 
     /** 1 ワールド単位あたりのピクセル数 (既定 64)。 */
     f32          m_PixelsPerUnit = 64.0f;
@@ -50969,304 +51541,32 @@ public:
 // SPDX-License-Identifier: Apache-2.0
 // GameFramework Pillar B — CScene3D
 //
-// AScene と独立した 3D シーングラフの実用コンテナ。root ANode ツリーを所有し、
-// update/fixed-update の伝播 + 構造変更の解決をまとめて行う。描画は «3D レンダラ» が
-// 別途このツリーを走査して AMeshComponent3D 等を読む (本クラスは GPU 非依存)。
+// スタック上に置ける 3D シーングラフの実用コンテナ。実体は CSceneNodeGraph への
+// 委譲だけに縮退しており、checked loader (Scene3DSerialize) や editor の staging の
+// «一時グラフをスタックに構築して SwapContents で公開する» 用途のために残している
+// (docs/SceneUnification.md Phase 2)。シーンに載る正規のグラフは AScene が保持する。
 //
-// 注: 本クラスは AScene 基底 (2D の描画/サービス前提) を継承せず、純粋なシーングラフ
-//     コンテナとして独立させている。3D レンダーパイプラインがエンジンに入った段階で
-//     描画フックを «末尾に追加» する。
-
-
-// ===================== gameframework/NodePool.h =====================
-// SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CNodePool (ANode の generational pool)
-//
-// シーン全体で唯一の `ANode*` レジストリ。`ANode` インスタンス自体は親の
-// `m_Children` (TObjectPtr<ANode>) が所有し続け、本 pool は **参照のみ** を
-// 保持して安定した `FNodeId` を発行する。同時に発行済 `FNodeId` の **stale 検出**
-// (= 既に Unregister されたハンドル) を提供する。
-//
-// 使い方:
-//   CNodePool pool;
-//   pool.Init(/*initial_capacity=*/512);
-//
-//   // ANode を新規生成して scene tree に attach した直後に登録:
-//   ANode& enemy = scene.Root().AddChild(NewObject<EnemyNode>());
-//   FNodeId enemy_id = pool.RegisterExistingNode(&enemy);
-//   // enemy.Id() == enemy_id が成立する (RegisterExistingNode 内で _SetId 済)
-//
-//   // 後で stale 検査付きで取り出し:
-//   if (ANode* p = pool.Get(enemy_id)) {
-//       p->SetPosition2D(p->Position2D() + FVec2{1, 0});
-//   }
-//
-//   // 破棄時:
-//   pool.Unregister(enemy_id);   // slot 解放 + gen++ → 古い handle は invalid 化
-//   enemy.Destroy();              // scene tree からは別途 reap される
-//
-// 設計選択 (Pillar B):
-//   ・**non-owning**: 所有権は ANode の親 (=TObjectPtr<ANode>) 側にあり、本 pool
-//     は raw ポインタだけ持つ。TPool の破棄や ClearAll は ANode を delete しない。
-//   ・**FSlot = {ptr, gen, active}**: CCollisionWorld2D::FSlot と同じパターン。
-//     index 0 は予約 (= invalid handle と一致させる)、有効 slot は 1..N。
-//   ・**free_indices stack**: 空き slot を O(1) で再利用。Unregister 時 push、
-//     TryRegisterExistingNode 時 pop。stack が空なら slot を新規 TryPushBack。
-//   ・**generation 0 はスキップ**: gen++ がラップアラウンドで 0 に戻った場合、
-//     FNodeId(idx, 0) は IsValid() == false になってしまうため、ラップ時は 1 に
-//     強制する (CCollisionWorld2D と完全に同じ挙動)。
-//   ・**24bit index = 16,777,216 slot 上限**: FNodeId の pack 仕様に従い、これを
-//     超える RegisterExistingNode は invalid FNodeId を返す (拒否)。実用上 1 シーン
-//     で 16M ANode を生成することはまずあり得ないが安全策として明示拒否。
-//   ・**IdOf は線形探索**: ポインタ → FNodeId の逆引きは利用頻度が低い (基本は
-//     RegisterExistingNode の戻り値を保持する) ため、専用 hash は持たない。
-//     真に必要なら呼び出し側で THashMap<ANode*, FNodeId> を別途持てば良い。
-//   ・**非コピー・非ムーブ**: pool 自体は固定オブジェクトとして scene が所有する想定。
-//   ・**全 noexcept / STL 不使用 / `<string>` 禁止**: ACS 規約に厳格準拠。
+// 注: 本クラスは AScene 基底 (シーン lifecycle/サービス前提) を継承せず、純粋な
+//     シーングラフコンテナとして独立している。AScene 派生または alias にすると
+//     スタック上の一時グラフが CSubsystemCollection と TUniquePtr<CSceneServices> を
+//     丸ごと抱えるため、この分離は意図的である。
 
 
 namespace acs::game {
 
-class ANode;   // forward decl — full include は .cpp 側 (ANode::_SetId 呼出のため)
-
-/** CNodePool への checked 登録が返す状態。 */
-enum class ENodePoolRegisterError : u8 {
-    None = 0,
-    NullNode,
-    AlreadyRegistered,
-    RegisteredByAnotherPool,
-    IndexLimitExceeded,
-    AllocationFailure,
-};
-
-/** checked ノード登録結果。AlreadyRegistered の場合も既存 Id を返す。 */
-struct FNodePoolRegisterResult {
-    FNodeId Id{};
-    ENodePoolRegisterError Error = ENodePoolRegisterError::None;
-
-    bool Succeeded() const noexcept {
-        return Error == ENodePoolRegisterError::None && Id.IsValid();
-    }
-    explicit operator bool() const noexcept { return Succeeded(); }
-};
-
 /**
- * ANode 群を pool で管理し、安定した FNodeId を発行 + stale 検出する。
+ * 3D シーングラフを所有・駆動する実用コンテナ (CSceneNodeGraph の薄い wrapper)。
  *
  * @details
- * ANode の所有権は持たない (ANode は親の TObjectPtr が所有)。本 pool は raw
- * ポインタだけを保持し、generational handle (FNodeId) の発行と stale 検出を担う。
- * FSlot = {ptr, gen, active} 構成で、index 0 は invalid 用に予約、有効 slot は 1..N。
- * 空き slot は free stack で O(1) 再利用する。
- */
-class CNodePool {
-public:
-    /** 空の pool を構築する (slot 配列は Init / 初回 Register で確保)。 */
-    CNodePool()  noexcept = default;
-
-    /** 破棄する (ANode は非所有なので何も delete しない)。 */
-    ~CNodePool() noexcept = default;
-
-    /** コピー禁止 (pool は scene が固定オブジェクトとして単独所有するため)。 */
-    CNodePool(const CNodePool&)            = delete;
-
-    /** コピー代入も禁止。 */
-    CNodePool& operator=(const CNodePool&) = delete;
-
-    /** ムーブ禁止。 */
-    CNodePool(CNodePool&&)                 = delete;
-
-    /** ムーブ代入も禁止。 */
-    CNodePool& operator=(CNodePool&&)      = delete;
-
-    /** Exchange complete registry state without allocation. */
-    void Swap(CNodePool& other) noexcept {
-        acs::Swap(m_Slots, other.m_Slots);
-        acs::Swap(m_FreeIndices, other.m_FreeIndices);
-        acs::Swap(m_ActiveCount, other.m_ActiveCount);
-    }
-
-    /**
-     * 初期容量を予約する (再 alloc 回避用)。
-     *
-     * @details 複数回呼出可、縮小はしない。index 0 の dummy slot を未確保なら確保する。
-     * @param initial_capacity 予約する slot 数 (0 なら dummy 確保のみで reserve しない)。
-     */
-    void Init(u32 initial_capacity = 256) noexcept;
-
-    /**
-     * 既存ノードを重複なく登録する。
-     *
-     * @details
-     * 同一 pool ですでに登録済みなら新しい slot を作らず AlreadyRegistered と既存 Id を返す。
-     * 別 pool の有効 Id を持つノードは、双方のレジストリを不整合にしないよう拒否する。
-     * 確保・index 上限失敗時は node と active slot 数を変更しない。
-     */
-    FNodePoolRegisterResult TryRegisterExistingNode(ANode* node) noexcept;
-
-    /**
-     * 既存の生 ANode を pool に登録し、新しい FNodeId を発行する。
-     *
-     * @details
-     * 互換用の簡易 API。同一 pool ですでに登録済みなら既存 Id を返す。
-     * 詳細な失敗理由が必要なら TryRegisterExistingNode を使う。
-     * @param node 登録する ANode (nullptr、または slot 数が 16M に達したときは登録しない)。
-     * @return 発行した FNodeId。失敗時は invalid (この場合 node の Id は変更しない)。
-     */
-    FNodeId RegisterExistingNode(ANode* node) noexcept;
-
-    /**
-     * slot を free 化し、対応 ANode の Id を invalid にリセットする。
-     *
-     * @details 既に invalid / stale な id は何もしない (二重 Unregister は安全)。
-     * generation は次の TryAcquireSlot で進むため、ここでは進めない。
-     * @param id 解放する slot の FNodeId。
-     */
-    void Unregister(FNodeId id) noexcept;
-
-    /**
-     * 登録済みノードのうち Destroy() 済みのものと、その子孫を一括 Unregister する。
-     *
-     * @details
-     * 親のDestroyでは子孫自身のpending flagは立たないが、親の所有参照解放で子孫も
-     * 破棄される。各ノードの祖先chainも確認してResolveStructuralChanges前に外し、
-     * poolに子孫のダングリング参照が残らないようにする。
-     * @return Unregister したノード数。
-     */
-    u32 PurgePendingDestroy() noexcept;
-
-    /**
-     * id が指す slot が active かつ generation が一致するかを返す。
-     *
-     * @param id 検証する FNodeId。
-     * @return slot が生きていて世代も一致すれば true。
-     */
-    bool IsValid(FNodeId id) const noexcept;
-
-    /**
-     * id 経由で ANode* を取り出す。
-     *
-     * @param id 取り出す FNodeId。
-     * @return 対応する ANode。stale / invalid なら nullptr。
-     */
-    ANode* Get(FNodeId id) const noexcept;
-
-    /**
-     * node ポインタから FNodeId を逆引きする (線形探索 O(N))。
-     *
-     * @param node 逆引きする ANode。
-     * @return 対応する FNodeId。node == nullptr または pool に存在しなければ invalid。
-     */
-    FNodeId IdOf(ANode* node) const noexcept;
-
-    /**
-     * 現在 active な slot 数を返す。
-     *
-     * @return active な slot 数。
-     */
-    u32 ActiveCount() const noexcept { return m_ActiveCount; }
-
-    /**
-     * 現在の slot 数を返す (内部配列長 - 1、index 0 予約分を除外)。
-     *
-     * @details 物理的に確保された ANode 個数の上限ではなく、過去に到達した最大値の指標。
-     * @return index 0 の dummy を除いた slot 数。
-     */
-    u32 Capacity() const noexcept {
-        const u32 sz = static_cast<u32>(m_Slots.Size());
-        return sz > 0 ? sz - 1u : 0u;   // index 0 予約分を引く
-    }
-
-    /**
-     * 全 slot を一括 free する。
-     *
-     * @details 各登録済 ANode の Id を invalid にリセットし、全物理 slot をfree stackへ
-     * ちょうど1回ずつ戻す。ANode 自体は削除しない (非所有)。gen は維持するため、
-     * ClearAll 前の handle は再利用後も確実に stale 検出される。
-     */
-    void ClearAll() noexcept;
-
-private:
-    /**
-     * 1 つの slot エントリ (登録された ANode の参照と世代)。
-     */
-    struct FSlot {
-        /** 登録された ANode (非所有。所有は親 TObjectPtr 側)。 */
-        ANode* ptr    = nullptr;
-
-        /** 世代カウンタ (0 は予約 = invalid handle と一致。有効 slot は 1..255)。 */
-        u8      gen    = 0;
-
-        /** この slot が現在使用中かどうか。 */
-        bool    active = false;
-    };
-
-    /**
-     * 空き slot を 1 つ取得する (free stack → 末尾追加の順)。
-     *
-     * @details index 0 は予約。16M 上限に到達した場合は 0 を返す。
-     * @return 取得した slot の index。確保不能なら 0 (呼出側で invalid FNodeId 化)。
-     */
-    ENodePoolRegisterError TryAcquireSlot(u32& out_index) noexcept;
-
-    /** 24bit index 上限 (FNodeId pack 仕様に合わせる、= 16,777,215)。 */
-    static constexpr u32 kMaxIndex = 0x00FFFFFFu;
-
-    /** slot 配列 (index 0 は dummy = invalid 用予約)。 */
-    TArray<FSlot> m_Slots;
-
-    /** 空き slot index の LIFO stack (pop → 再利用、empty → 末尾追加)。 */
-    TArray<u32>  m_FreeIndices;
-
-    /** 現在 active な slot 数。 */
-    u32         m_ActiveCount = 0;
-};
-
-/** 旧名を使う既存コード向けの一時的な互換別名。 */
-using FNodePool = CNodePool;
-
-} // namespace acs::game
-
-namespace acs::game {
-
-/** CScene3D::TrySpawn の大分類。詳細は PoolError / AddChildResult を参照する。 */
-enum class EScene3DSpawnError : u8 {
-    None = 0,
-    InvalidParent,
-    NodeAllocationFailure,
-    PoolRegistrationFailure,
-    ChildAttachRejected,
-};
-
-/** checked ノード生成結果。失敗時は Node が null でツリー/poolを変更しない。 */
-struct FScene3DSpawnResult {
-    ANode* Node = nullptr;
-    FNodeId Id{};
-    EScene3DSpawnError Error = EScene3DSpawnError::None;
-    ENodePoolRegisterError PoolError = ENodePoolRegisterError::None;
-    EAddChildResult AddChildResult = EAddChildResult::Added;
-
-    bool Succeeded() const noexcept {
-        return Error == EScene3DSpawnError::None && Node != nullptr && Id.IsValid();
-    }
-    explicit operator bool() const noexcept { return Succeeded(); }
-};
-
-/**
- * 3D シーングラフを所有・駆動する実用コンテナ (AScene2D の軽量 3D 版)。
- *
- * @details
- * root ANode ツリーを所有し、Update/FixedUpdate で subtree 全体に伝播 + フレーム境界の
- * 構造変更 (destroy/reparent) を解決する。名前によるノード検索とノード数集計を提供する。
+ * root ANode ツリーと generational pool の実体は member の CSceneNodeGraph が持ち、
+ * 本クラスは全操作をそこへ委譲する。シーン文脈を持たずスタック上に置けるため、
+ * checked loader が一時グラフを構築して SwapContents で公開する用途に使う。
  * 描画は外部の 3D レンダラがツリーを走査して行う (本クラスは GPU 非依存)。
  */
 class CScene3D {
 public:
     /** 空のシーンを構築する (root のみ。pool を初期化し root も登録する)。 */
-    CScene3D() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {
-        m_Pool.Init(256);
-        m_Pool.RegisterExistingNode(m_Root.Get());   // root にも有効な FNodeId を振る
-    }
+    CScene3D() noexcept = default;
 
     /** シーンを破棄する (root ツリーごと解放。pool は非所有なので何も delete しない)。 */
     ~CScene3D() noexcept = default;
@@ -51289,24 +51589,37 @@ public:
      * Used by checked loaders to build a replacement graph off to the side
      * and publish it only after every allocation and component commit succeeds.
      */
-    void SwapContents(CScene3D& other) noexcept {
-        m_Root.Swap(other.m_Root);
-        m_Pool.Swap(other.m_Pool);
-    }
+    void SwapContents(CScene3D& other) noexcept { m_Graph.SwapContents(other.m_Graph); }
+
+    /**
+     * 内部のノードグラフへの可変参照を返す。
+     *
+     * @details graph 単位の API (AScene::Graph() と同じ型) を直接使う呼び出し側や、
+     * CSceneNodeGraph を取る loader へ渡すための正規入口。
+     * @return 所有する CSceneNodeGraph への参照。
+     */
+    CSceneNodeGraph&       Graph()       noexcept { return m_Graph; }
+
+    /**
+     * 内部のノードグラフへの const 参照を返す。
+     *
+     * @return 所有する CSceneNodeGraph への const 参照。
+     */
+    const CSceneNodeGraph& Graph() const noexcept { return m_Graph; }
 
     /**
      * シーンの root ノードへの可変参照を返す (ここに子を AddChild してツリーを組む)。
      *
      * @return root ANode への参照。
      */
-    ANode&       Root()       noexcept { return *m_Root; }
+    ANode&       Root()       noexcept { return m_Graph.Root(); }
 
     /**
      * シーンの root ノードへの const 参照を返す。
      *
      * @return root ANode への const 参照。
      */
-    const ANode& Root() const noexcept { return *m_Root; }
+    const ANode& Root() const noexcept { return m_Graph.Root(); }
 
     /**
      * ノードを生成し、pool登録と親へのattachを原子的に試みる。
@@ -51317,7 +51630,9 @@ public:
      * ため、失敗時にツリー、active slot数、既存ノードのIdを変更しない。
      */
     FScene3DSpawnResult TrySpawn(
-        FStringView name, ANode* parent = nullptr) noexcept;
+        FStringView name, ANode* parent = nullptr) noexcept {
+        return m_Graph.TrySpawn(name, parent);
+    }
 
     /**
      * 名前を付けて子ノードを生成し、generational id を振って参照を返す簡易ヘルパ。
@@ -51330,7 +51645,9 @@ public:
      * @param parent 親ノード (nullptr なら root)。
      * @return 生成した子ノードへの参照。
      */
-    ANode& Spawn(FStringView name, ANode* parent = nullptr) noexcept;
+    ANode& Spawn(FStringView name, ANode* parent = nullptr) noexcept {
+        return m_Graph.Spawn(name, parent);
+    }
 
     /**
      * generational id から ANode を取り出す (stale / invalid なら nullptr)。
@@ -51338,7 +51655,7 @@ public:
      * @param id 取り出す FNodeId。
      * @return 対応するノード (stale なら nullptr)。
      */
-    ANode* Get(FNodeId id) noexcept { return m_Pool.Get(id); }
+    ANode* Get(FNodeId id) noexcept { return m_Graph.Get(id); }
 
     /**
      * id が現在も生きているか (stale 検出)。
@@ -51346,7 +51663,7 @@ public:
      * @param id 検証する FNodeId。
      * @return 生きていれば true。
      */
-    bool IsValid(FNodeId id) const noexcept { return m_Pool.IsValid(id); }
+    bool IsValid(FNodeId id) const noexcept { return m_Graph.IsValid(id); }
 
     /**
      * ノードポインタから FNodeId を逆引きする。
@@ -51354,7 +51671,7 @@ public:
      * @param node 逆引きするノード。
      * @return 対応する FNodeId (未登録なら invalid)。
      */
-    FNodeId IdOf(ANode* node) noexcept { return m_Pool.IdOf(node); }
+    FNodeId IdOf(ANode* node) noexcept { return m_Graph.IdOf(node); }
 
     /**
      * id 指定でノードを破棄予定にする (実際の reap は次の Update)。
@@ -51364,35 +51681,30 @@ public:
      * @param id 破棄するノードの FNodeId。
      * @return 破棄予定にしたら true、未登録 / root なら false。
      */
-    bool Destroy(FNodeId id) noexcept {
-        ANode* n = m_Pool.Get(id);
-        if (n == nullptr || n == m_Root.Get()) return false;
-        n->Destroy();
-        return true;
-    }
+    bool Destroy(FNodeId id) noexcept { return m_Graph.Destroy(id); }
 
     /**
      * pool に登録されている (生きている) ノード数を返す (root を含む)。
      *
      * @return active なノード数。
      */
-    u32 RegisteredCount() const noexcept { return m_Pool.ActiveCount(); }
+    u32 RegisteredCount() const noexcept { return m_Graph.RegisteredCount(); }
 
     /**
      * 毎フレームの update。
      *
-     * @details root の UpdateTree → 構造変更の解決 の順で実行する。
+     * @details root の UpdateTree → pool の purge → 構造変更の解決 の順で実行する。
      * @param dt 経過秒。
      */
-    void Update(f32 dt) noexcept;
+    void Update(f32 dt) noexcept { m_Graph.Update(dt); }
 
     /**
      * 固定刻みの update。
      *
-     * @details root の FixedUpdateTree → 構造変更の解決 の順で実行する。
+     * @details root の FixedUpdateTree → pool の purge → 構造変更の解決 の順で実行する。
      * @param fixed_dt 固定刻みの秒。
      */
-    void FixedUpdate(f32 fixed_dt) noexcept;
+    void FixedUpdate(f32 fixed_dt) noexcept { m_Graph.FixedUpdate(fixed_dt); }
 
     /**
      * 名前でノードを検索する (root を含む subtree の深さ優先探索、最初の一致)。
@@ -51400,7 +51712,7 @@ public:
      * @param name 検索するノード名。
      * @return 最初に一致したノード (無ければ nullptr)。
      */
-    ANode* FindByName(FStringView name) noexcept;
+    ANode* FindByName(FStringView name) noexcept { return m_Graph.FindByName(name); }
 
     /**
      * ワールド空間レイで最も手前のノードをピックする (AMeshComponent3D を持つノードのみ対象)。
@@ -51413,14 +51725,16 @@ public:
      * @param out_t 非 null なら命中 t (world レイ上、`ray.origin + t*ray.direction` が命中点) を書く。
      * @return 最も手前で命中したノードの FNodeId (外れは invalid)。
      */
-    FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept;
+    FNodeId Raycast(const FRay3& ray, f32* out_t = nullptr) const noexcept {
+        return m_Graph.Raycast(ray, out_t);
+    }
 
     /**
      * subtree のノード総数を返す (root を含む)。
      *
      * @return ノード総数。
      */
-    u32 NodeCount() const noexcept;
+    u32 NodeCount() const noexcept { return m_Graph.NodeCount(); }
 
     /**
      * root の全子孫を破棄してシーンを空にする (root 自身は残し、transform/名前を既定へ戻す)。
@@ -51429,14 +51743,11 @@ public:
      * 各 top-level 子を Destroy → pool を purge → 即時 reap する (Update を待たない)。
      * シーン読み込み (LoadScene3DText) の «置き換え» 前処理に使う。
      */
-    void Clear() noexcept;
+    void Clear() noexcept { m_Graph.Clear(); }
 
 private:
-    /** シーンの root ノード (ツリーの起点、名前 "Root")。 */
-    TObjectPtr<ANode> m_Root;
-
-    /** generational id レジストリ (非所有。Spawn で登録、Update で破棄予定を purge)。 */
-    CNodePool m_Pool;
+    /** root ツリーと pool の実体を所有するノードグラフ (全 API の委譲先)。 */
+    CSceneNodeGraph m_Graph;
 };
 
 } // namespace acs::game
@@ -56226,7 +56537,8 @@ enum class ESceneProjectionMode : u8 {
 /**
  * Standalone AScene bridge for the legacy `ACS3D v2` document adapter.
  *
- * @details The owned graph is the same ANode/FTransform3D graph used by the editor. This class is
+ * @details The scene graph is the AScene-owned ANode/FTransform3D graph shared with the editor
+ * runtime (docs/SceneUnification.md Phase 2). This class is
  * intentionally an adapter rather than a second permanent scene asset type: packages expose one
  * `main.acscene` bootstrap entry and choose the legacy .acscene/.acs3d reader from its validated
  * header. Sprite batching, Canvas/UI, and 2D physics stay on their dedicated runtime path.
@@ -56249,12 +56561,6 @@ public:
     FScene3DLoadResult LoadAssetPack(
         IAssetPackReader& pack,
         const char* virtual_path = "main.acscene") noexcept;
-
-    /** Mutable canonical ANode graph used by gameplay components. */
-    CScene3D& Graph() noexcept { return m_Graph; }
-
-    /** Read-only canonical ANode graph. */
-    const CScene3D& Graph() const noexcept { return m_Graph; }
 
     /** Last checked document/dependency result. */
     const FScene3DLoadResult& LoadResult() const noexcept { return m_LoadResult; }
@@ -56343,7 +56649,6 @@ public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
-    void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
 private:
@@ -56493,7 +56798,6 @@ private:
         return m_HdrShaders[m_HdrActiveSlot];
     }
 
-    CScene3D m_Graph;
     FScene3DLoadResult m_LoadResult{};
     CPbrShader m_HdrShaders[2];
     CPbrShader::FCompiledShaders m_HdrPendingShaders{};

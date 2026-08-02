@@ -449,7 +449,7 @@ ALegacyScene3DAdapter::~ALegacyScene3DAdapter() noexcept {
 
 FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(const char* path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
-    m_LoadResult = TryLoadScene3DFile(m_Graph, path);
+    m_LoadResult = TryLoadScene3DFile(Graph(), path);
     if (m_LoadResult.Succeeded()) {
         AdoptLoadedCamera();
         if (!m_UseAuthoredCamera) FrameScene();
@@ -460,7 +460,7 @@ FScene3DLoadResult ALegacyScene3DAdapter::LoadFile(const char* path) noexcept {
 FScene3DLoadResult ALegacyScene3DAdapter::LoadText(
     const char* text, u32 size) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
-    m_LoadResult = TryLoadScene3DText(m_Graph, text, size);
+    m_LoadResult = TryLoadScene3DText(Graph(), text, size);
     if (m_LoadResult.Succeeded()) {
         AdoptLoadedCamera();
         if (!m_UseAuthoredCamera) FrameScene();
@@ -472,7 +472,7 @@ FScene3DLoadResult ALegacyScene3DAdapter::LoadAssetPack(
     IAssetPackReader& pack,
     const char* virtual_path) noexcept {
     if (m_GpuReady || m_GpuAttempted) DrainAndReleaseGpu();
-    m_LoadResult = TryLoadScene3DAssetPack(m_Graph, pack, virtual_path);
+    m_LoadResult = TryLoadScene3DAssetPack(Graph(), pack, virtual_path);
     if (m_LoadResult.Succeeded()) {
         AdoptLoadedCamera();
         if (!m_UseAuthoredCamera) FrameScene();
@@ -496,7 +496,7 @@ void ALegacyScene3DAdapter::AdoptLoadedCamera() noexcept {
 bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
     if (m_HasExplicitCameraOverride && m_ActiveCameraNodeId >= 0) {
         const ANode* node =
-            m_Graph.Root().FindBySerialId(m_ActiveCameraNodeId);
+            Graph().Root().FindBySerialId(m_ActiveCameraNodeId);
         const ACameraComponent3D* component =
             node != nullptr ? FindCamera(*node) : nullptr;
         FScene3DCameraState live;
@@ -519,7 +519,7 @@ bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
     FScene3DCameraState deterministic;
     bool found = false;
     ResolveDeterministicCameraRecursive(
-        m_Graph.Root(), deterministic, found);
+        Graph().Root(), deterministic, found);
     if (!found) {
         const bool lost_authored_camera = m_UseAuthoredCamera;
         m_UseAuthoredCamera = false;
@@ -540,13 +540,13 @@ bool ALegacyScene3DAdapter::RefreshAuthoredCameraPose() noexcept {
 }
 
 u32 ALegacyScene3DAdapter::CameraCount() const noexcept {
-    return CountCamerasRecursive(m_Graph.Root());
+    return CountCamerasRecursive(Graph().Root());
 }
 
 bool ALegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
     if (stable_id == nullptr || stable_id[0] == '\0') return false;
     const ANode* node =
-        FindCameraByStableIdRecursive(m_Graph.Root(), stable_id);
+        FindCameraByStableIdRecursive(Graph().Root(), stable_id);
     const ACameraComponent3D* component =
         node != nullptr ? FindCamera(*node) : nullptr;
     FScene3DCameraState live;
@@ -566,7 +566,7 @@ bool ALegacyScene3DAdapter::SetActiveCamera(const char* stable_id) noexcept {
 }
 
 bool ALegacyScene3DAdapter::SetActiveCamera(i32 node_id) noexcept {
-    const ANode* node = m_Graph.Root().FindBySerialId(node_id);
+    const ANode* node = Graph().Root().FindBySerialId(node_id);
     const ACameraComponent3D* component =
         node != nullptr ? FindCamera(*node) : nullptr;
     FScene3DCameraState live;
@@ -595,7 +595,7 @@ void ALegacyScene3DAdapter::FrameScene() noexcept {
     FVec3 maximum{-FLT_MAX, -FLT_MAX, -FLT_MAX};
     bool found = false;
     TArray<const ANode*> stack;
-    if (!stack.TryPushBack(&m_Graph.Root())) return;
+    if (!stack.TryPushBack(&Graph().Root())) return;
     while (!stack.IsEmpty()) {
         const ANode* node = stack.Back();
         stack.PopBack();
@@ -648,7 +648,7 @@ bool ALegacyScene3DAdapter::RaycastWater(
         bool ParentEnabled = true;
     };
     TArray<FEntry> stack;
-    if (!stack.TryPushBack(FEntry{&m_Graph.Root(), true, true}))
+    if (!stack.TryPushBack(FEntry{&Graph().Root(), true, true}))
         return false;
 
     f32 best_distance = max_distance;
@@ -708,7 +708,7 @@ bool ALegacyScene3DAdapter::AddWaterDisturbance(
     FVec3 world_point,
     f32 radius,
     f32 strength) noexcept {
-    ANode* node = m_Graph.Get(surface);
+    ANode* node = Graph().Get(surface);
     if (node == nullptr || !IsEffectivelyActive(*node)) {
         return false;
     }
@@ -728,7 +728,7 @@ bool ALegacyScene3DAdapter::AddWaterWake(
     FVec3 world_velocity,
     f32 radius,
     f32 strength) noexcept {
-    ANode* node = m_Graph.Get(surface);
+    ANode* node = Graph().Get(surface);
     if (node == nullptr || !IsEffectivelyActive(*node)) {
         return false;
     }
@@ -784,7 +784,8 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
     m_PostParams.delta_time =
         std::isfinite(dt) && dt > 0.0f ? dt : 0.0f;
     m_PostParams.grain_time += m_PostParams.delta_time;
-    m_Graph.Update(dt);
+    // graph の tick は基底 AScene::_Update が OnUpdate 後に必ず実行する
+    // (docs/SceneUnification.md Phase 2)。ここで手動 tick すると二重更新になる。
     RefreshAuthoredCameraPose();
     if (CInput::IsKeyPressed(EKey::Escape)) {
         GetGame().Quit();
@@ -816,10 +817,6 @@ void ALegacyScene3DAdapter::OnUpdate(f32 dt) noexcept {
         if (CInput::IsKeyDown(EKey::Q)) m_Target.y -= move;
     }
     UpdateCameraView();
-}
-
-void ALegacyScene3DAdapter::OnFixedUpdate(f32 fixed_dt) noexcept {
-    m_Graph.FixedUpdate(fixed_dt);
 }
 
 void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
@@ -868,7 +865,7 @@ void ALegacyScene3DAdapter::OnRender(FRenderContext& context) noexcept {
         && m_SsssNormal->Width() == context.Width()
         && m_SsssNormal->Height() == context.Height();
     const u64 pbr_scene_upper =
-        static_cast<u64>(m_Graph.NodeCount());
+        static_cast<u64>(Graph().NodeCount());
     const u64 pbr_base_required_wide =
         pbr_scene_upper + static_cast<u64>(water_count);
     const u64 pbr_full_required_wide =
@@ -1028,7 +1025,7 @@ bool ALegacyScene3DAdapter::DrawPbrScene(
         bool ParentEnabled = true;
     };
     TArray<FRenderEntry> stack;
-    if (!stack.TryPushBack(FRenderEntry{&m_Graph.Root(), true, true}))
+    if (!stack.TryPushBack(FRenderEntry{&Graph().Root(), true, true}))
         return false;
 
     bool draws_valid = true;
@@ -1156,7 +1153,7 @@ bool ALegacyScene3DAdapter::EnsureHdrFrameResources(
         m_DepthSnapshotFailed = false;
     }
     const FSceneRenderFeatures scene_features =
-        ScanSceneRenderFeatures(m_Graph.Root());
+        ScanSceneRenderFeatures(Graph().Root());
     const bool scene_has_water = scene_features.has_water;
     // CScene3D has no mutation revision yet. Scan alongside the existing
     // water feature query so retained Graph references, visibility changes
@@ -2595,7 +2592,7 @@ u32 ALegacyScene3DAdapter::CollectWaterDraws(
         bool ParentEnabled = true;
     };
     TArray<FEntry> stack;
-    if (!stack.TryPushBack(FEntry{&m_Graph.Root(), true, true}))
+    if (!stack.TryPushBack(FEntry{&Graph().Root(), true, true}))
         return 0u;
 
     u32 count = 0u;
@@ -2694,10 +2691,10 @@ void ALegacyScene3DAdapter::DrawWaterFallback(
 
 bool ALegacyScene3DAdapter::UploadGraphMeshes(IRhiDevice& device) noexcept {
     m_CustomMeshes.Clear();
-    if (!m_CustomMeshes.TryReserve(m_Graph.NodeCount()))
+    if (!m_CustomMeshes.TryReserve(Graph().NodeCount()))
         return false;
     TArray<ANode*> stack;
-    if (!stack.TryPushBack(&m_Graph.Root())) return false;
+    if (!stack.TryPushBack(&Graph().Root())) return false;
     while (!stack.IsEmpty()) {
         ANode* node = stack.Back();
         stack.PopBack();

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// GameFramework Pillar B — CScene3D 実装
-#include "gameframework/Scene3D.h"
+// GameFramework Pillar B — CSceneNodeGraph 実装
+#include "gameframework/SceneNodeGraph.h"
 #include "gameframework/MeshComponent3D.h"   // AMeshComponent3D (Raycast の bounds)
 #include "asset/MeshAsset.h"                 // AMeshAsset (Mesh 種別の頂点 AABB)
+#include "math/Collision3D.h"                // FRay3 / FAabb3 / RaycastAabb (Raycast 本体)
 #include "math/Mat.h"                        // Inverse / TransformPoint / TransformVector
 #include "memory/UniquePtr.h"
 
@@ -77,7 +78,7 @@ u32 CountRec(const ANode* n) noexcept {
 
 } // namespace
 
-FScene3DSpawnResult CScene3D::TrySpawn(FStringView name, ANode* parent) noexcept {
+FScene3DSpawnResult CSceneNodeGraph::TrySpawn(FStringView name, ANode* parent) noexcept {
     ANode* p = (parent != nullptr) ? parent : m_Root.Get();
     const FNodeId parent_id = m_Pool.IdOf(p);
     if (!parent_id.IsValid() || m_Pool.Get(parent_id) != p) {
@@ -146,7 +147,7 @@ FScene3DSpawnResult CScene3D::TrySpawn(FStringView name, ANode* parent) noexcept
     };
 }
 
-ANode& CScene3D::Spawn(FStringView name, ANode* parent) noexcept {
+ANode& CSceneNodeGraph::Spawn(FStringView name, ANode* parent) noexcept {
     const FScene3DSpawnResult result = TrySpawn(name, parent);
     if (result.Succeeded()) return *result.Node;
 
@@ -157,28 +158,33 @@ ANode& CScene3D::Spawn(FStringView name, ANode* parent) noexcept {
     return *m_Root;
 }
 
-void CScene3D::Update(f32 dt) noexcept {
+void CSceneNodeGraph::Update(f32 dt) noexcept {
     m_Root->UpdateTree(dt);
     // reap される «前» に破棄予定ノードを pool から外す (ダングリング防止、どの破棄経路でも)。
     m_Pool.PurgePendingDestroy();
     m_Root->ResolveStructuralChanges();
 }
 
-void CScene3D::FixedUpdate(f32 fixed_dt) noexcept {
+void CSceneNodeGraph::FixedUpdate(f32 fixed_dt) noexcept {
     m_Root->FixedUpdateTree(fixed_dt);
     m_Pool.PurgePendingDestroy();
     m_Root->ResolveStructuralChanges();
 }
 
-ANode* CScene3D::FindByName(FStringView name) noexcept {
+void CSceneNodeGraph::ResolveStructuralChanges() noexcept {
+    m_Pool.PurgePendingDestroy();
+    m_Root->ResolveStructuralChanges();
+}
+
+ANode* CSceneNodeGraph::FindByName(FStringView name) noexcept {
     return FindByNameRec(m_Root.Get(), name);
 }
 
-u32 CScene3D::NodeCount() const noexcept {
+u32 CSceneNodeGraph::NodeCount() const noexcept {
     return CountRec(m_Root.Get());
 }
 
-FNodeId CScene3D::Raycast(const FRay3& ray, f32* out_t) const noexcept {
+FNodeId CSceneNodeGraph::Raycast(const FRay3& ray, f32* out_t) const noexcept {
     FNodeId best{};
     f32 bestT = 3.4028235e38f;
     RaycastRec(m_Root.Get(), ray, best, bestT);
@@ -186,7 +192,7 @@ FNodeId CScene3D::Raycast(const FRay3& ray, f32* out_t) const noexcept {
     return best;
 }
 
-void CScene3D::Clear() noexcept {
+void CSceneNodeGraph::Clear() noexcept {
     // top-level 子を全て破棄予定にし、pool から外して即 reap (Update を待たない)。
     for (u32 i = 0; i < m_Root->ChildCount(); ++i) {
         if (ANode* c = m_Root->Child(i)) c->Destroy();

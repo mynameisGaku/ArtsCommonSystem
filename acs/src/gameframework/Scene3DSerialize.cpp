@@ -820,7 +820,7 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept {
 }
 
 FScene3DSaveResult TrySaveScene3DText(
-    const CScene3D& scene, char* out, u32 cap) noexcept {
+    const CSceneNodeGraph& scene, char* out, u32 cap) noexcept {
     FScene3DSaveResult result{};
     TArray<const ANode*> nodes;
     TArray<i32> parents;
@@ -960,9 +960,18 @@ FScene3DSaveResult TrySaveScene3DText(
     return result;
 }
 
-u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept {
-    const FScene3DSaveResult result = TrySaveScene3DText(scene, out, cap);
+u32 SaveScene3DText(const CSceneNodeGraph& graph, char* out, u32 cap) noexcept {
+    const FScene3DSaveResult result = TrySaveScene3DText(graph, out, cap);
     return result.Succeeded() ? result.BytesWritten : 0u;
+}
+
+FScene3DSaveResult TrySaveScene3DText(
+    const CScene3D& scene, char* out, u32 cap) noexcept {
+    return TrySaveScene3DText(scene.Graph(), out, cap);
+}
+
+u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept {
+    return SaveScene3DText(scene.Graph(), out, cap);
 }
 
 namespace {
@@ -1259,7 +1268,7 @@ FScene3DLoadResult ParseScene3DDocument(
 }
 
 FScene3DLoadResult CommitScene3DDocument(
-    CScene3D& scene, FParsedScene3DDocument& document,
+    CSceneNodeGraph& scene, FParsedScene3DDocument& document,
     u32 dependencies_loaded) noexcept {
     FScene3DCameraState active_camera;
     u32 active_preferred_camera_count = 0u;
@@ -1282,7 +1291,7 @@ FScene3DLoadResult CommitScene3DDocument(
 
     // Build into a private graph. The caller's graph is not touched until the
     // full node/component/camera commit has succeeded.
-    CScene3D staged_scene;
+    CSceneNodeGraph staged_scene;
     staged_scene.Clear();
     staged_scene.Root().RemoveAllComponents();
     staged_scene.Root().SetName(FStringView("Root"));
@@ -1843,16 +1852,21 @@ EScene3DSerializeError LoadLooseDependencies(const char* scene_path, FParsedScen
 } // namespace
 
 FScene3DLoadResult TryLoadScene3DText(
-    CScene3D& scene, const char* text, u32 size) noexcept {
+    CSceneNodeGraph& graph, const char* text, u32 size) noexcept {
     FParsedScene3DDocument document;
     const FScene3DLoadResult parsed =
         ParseScene3DDocument(text, size, document);
     if (!parsed.Succeeded()) return parsed;
-    return CommitScene3DDocument(scene, document, 0u);
+    return CommitScene3DDocument(graph, document, 0u);
+}
+
+FScene3DLoadResult TryLoadScene3DText(
+    CScene3D& scene, const char* text, u32 size) noexcept {
+    return TryLoadScene3DText(scene.Graph(), text, size);
 }
 
 FScene3DLoadResult TryLoadScene3DFile(
-    CScene3D& scene, const char* path) noexcept {
+    CSceneNodeGraph& graph, const char* path) noexcept {
     if (path == nullptr)
         return LoadFailure(
             EScene3DSerializeError::NullInput, 0u, 0u, 0u, 0u);
@@ -1876,11 +1890,16 @@ FScene3DLoadResult TryLoadScene3DFile(
             parsed.NodeCount, parsed.MeshPathCount);
     }
     return CommitScene3DDocument(
-        scene, document, dependencies_loaded);
+        graph, document, dependencies_loaded);
+}
+
+FScene3DLoadResult TryLoadScene3DFile(
+    CScene3D& scene, const char* path) noexcept {
+    return TryLoadScene3DFile(scene.Graph(), path);
 }
 
 FScene3DLoadResult TryLoadScene3DAssetPack(
-    CScene3D& scene, IAssetPackReader& pack,
+    CSceneNodeGraph& graph, IAssetPackReader& pack,
     const char* virtual_path) noexcept {
     if (!IsSafeVirtualAssetPath(virtual_path)) {
         return LoadFailure(
@@ -1918,15 +1937,25 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
             parsed.NodeCount, parsed.MeshPathCount);
     }
     return CommitScene3DDocument(
-        scene, document, dependencies_loaded);
+        graph, document, dependencies_loaded);
 }
 
-bool LoadScene3DText(CScene3D& scene, const char* text) noexcept {
+FScene3DLoadResult TryLoadScene3DAssetPack(
+    CScene3D& scene, IAssetPackReader& pack,
+    const char* virtual_path) noexcept {
+    return TryLoadScene3DAssetPack(scene.Graph(), pack, virtual_path);
+}
+
+bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept {
     if (text == nullptr) return false;
     u32 size = 0u;
     while (size <= kScene3DSerializeMaxInputBytes && text[size] != '\0') ++size;
     if (size > kScene3DSerializeMaxInputBytes) return false;
-    return TryLoadScene3DText(scene, text, size).Succeeded();
+    return TryLoadScene3DText(graph, text, size).Succeeded();
+}
+
+bool LoadScene3DText(CScene3D& scene, const char* text) noexcept {
+    return LoadScene3DText(scene.Graph(), text);
 }
 
 } // namespace acs::game

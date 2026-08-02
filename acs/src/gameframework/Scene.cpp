@@ -22,18 +22,38 @@ namespace acs::game {
 /** World サブシステムを root へ公開し、2D 専用生成先を型付きで接続する。 */
 void AScene::_OnWorldSubsystemsReady() noexcept
 {
-    m_Root->_SetSubsystems(_WorldSubsystemsPtr());
+    Root()._SetSubsystems(_WorldSubsystemsPtr());
     ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
-    if (Spawner != nullptr) Spawner->BindTargetRoot(m_Root.Get());
+    if (Spawner != nullptr) Spawner->BindTargetRoot(&Root());
+}
+
+/** SwapContents 直後に graph から呼ばれ、owner の AScene へ再配線を依頼する。 */
+void AScene::_OnGraphRootSwapped(void* user) noexcept {
+    static_cast<AScene*>(user)->_RewireGraphRoot();
+}
+
+/** 差し替え後の root へ service/subsystem/spawn 先の配線をやり直す。 */
+void AScene::_RewireGraphRoot() noexcept {
+    if (!m_Graph.HasRoot()) return;
+    ANode& NewRoot = m_Graph.Root();
+    // _OnWorldSubsystemsReady / _Enter と同じ配線を、swap 後の root へ適用し直す。
+    // 未 attach (pre-enter の load) では services が無いだけで、束の公開は常に安全。
+    NewRoot._SetSubsystems(_WorldSubsystemsPtr());
+    ASpawn2DSubsystem* const Spawner = GetSubsystem<ASpawn2DSubsystem>();
+    if (Spawner != nullptr) Spawner->BindTargetRoot(&NewRoot);
+    if (HasServices()) {
+        NewRoot._SetSceneServices(_ServicesOrNull());
+        NewRoot._ActivateServices(Services());
+    }
 }
 
 /** rootへservicesを配線し、利用者hook後に既存componentへ通知する。 */
 void AScene::_Enter() noexcept {
     // 利用者hookより前に配線し、hook内で追加したcomponentは即時通知する。
     // hook後の_ActivateServicesは配線前から存在したcomponentを補う。
-    if (HasServices()) m_Root->_SetSceneServices(_ServicesOrNull());
+    if (HasServices()) Root()._SetSceneServices(_ServicesOrNull());
     OnEnter();
-    if (HasServices()) m_Root->_ActivateServices(Services());
+    if (HasServices()) Root()._ActivateServices(Services());
 }
 
 /** 既定の入場hookとしてOnReadyを呼ぶ。 */
@@ -44,7 +64,8 @@ void AScene::OnEnter() noexcept {
 /** 利用者hook後に構造変更と要求済みserviceを後始末する。 */
 void AScene::_Exit() noexcept {
     OnExit();
-    m_Root->ResolveStructuralChanges();
+    // 破棄予定ノードを pool から外してから reap する (順序は graph の Update と同じ)。
+    m_Graph.ResolveStructuralChanges();
     // AScene2D は必ず Physics2D/Tweens を要求したが、AScene の既定は ESvc::None なので
     // service ごとに要求済みかを確認する (docs/SceneUnification.md)。
     if (HasServices()) {
@@ -66,8 +87,9 @@ CSpriteBatch& AScene::SpriteBatch() noexcept {
 /** 利用者hook後にrootのUpdateTreeと構造変更解決を実行する。 */
 void AScene::_Update(f32 DeltaSeconds) noexcept {
     OnUpdate(DeltaSeconds);
-    m_Root->UpdateTree(DeltaSeconds);
-    m_Root->ResolveStructuralChanges();
+    // UpdateTree → pool purge → 構造変更解決。purge の位置は CScene3D 時代の
+    // Update と同じで、reap される前に破棄予定ノードを pool から外す。
+    m_Graph.Update(DeltaSeconds);
 }
 
 /** 既定の毎frame hookとしてOnTickを呼ぶ。 */
@@ -78,8 +100,7 @@ void AScene::OnUpdate(f32 DeltaSeconds) noexcept {
 /** 利用者hook後にrootの固定更新と構造変更解決を実行する。 */
 void AScene::_FixedUpdate(f32 FixedDeltaSeconds) noexcept {
     OnFixedUpdate(FixedDeltaSeconds);
-    m_Root->FixedUpdateTree(FixedDeltaSeconds);
-    m_Root->ResolveStructuralChanges();
+    m_Graph.FixedUpdate(FixedDeltaSeconds);
 }
 
 /** 既定の固定更新hookとしてOnFixedTickを呼ぶ。 */
@@ -214,12 +235,12 @@ void AScene::DrawWorldPass(FRenderContext& rc) noexcept {
     FSpriteOccluder occ[16];
     u32 lc = 0, oc = 0;
     bool has_lit = false;
-    CollectLightsAndOccluders(*m_Root, lights, lc, occ, oc, has_lit);
+    CollectLightsAndOccluders(Root(), lights, lc, occ, oc, has_lit);
     if (has_lit || lc > 0)
         sb.SetLights(lights, lc, FVec3{ 0.10f, 0.11f, 0.13f }, 90.0f, occ, oc);
     else
         sb.ClearLights();   // 前フレームのライト残留で既定 Lit が誤発動しないように
-    m_Root->DrawTree(rc);
+    Root().DrawTree(rc);
     OnDrawWorld(rc, sb);
 }
 

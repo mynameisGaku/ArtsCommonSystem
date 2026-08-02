@@ -57,7 +57,8 @@ enum class ESceneProjectionMode : u8 {
 /**
  * Standalone AScene bridge for the legacy `ACS3D v2` document adapter.
  *
- * @details The owned graph is the same ANode/FTransform3D graph used by the editor. This class is
+ * @details The scene graph is the AScene-owned ANode/FTransform3D graph shared with the editor
+ * runtime (docs/SceneUnification.md Phase 2). This class is
  * intentionally an adapter rather than a second permanent scene asset type: packages expose one
  * `main.acscene` bootstrap entry and choose the legacy .acscene/.acs3d reader from its validated
  * header. Sprite batching, Canvas/UI, and 2D physics stay on their dedicated runtime path.
@@ -80,12 +81,6 @@ public:
     FScene3DLoadResult LoadAssetPack(
         IAssetPackReader& pack,
         const char* virtual_path = "main.acscene") noexcept;
-
-    /** Mutable canonical ANode graph used by gameplay components. */
-    CScene3D& Graph() noexcept { return m_Graph; }
-
-    /** Read-only canonical ANode graph. */
-    const CScene3D& Graph() const noexcept { return m_Graph; }
 
     /** Last checked document/dependency result. */
     const FScene3DLoadResult& LoadResult() const noexcept { return m_LoadResult; }
@@ -174,7 +169,6 @@ public:
     void OnEnter() noexcept override;
     void OnExit() noexcept override;
     void OnUpdate(f32 dt) noexcept override;
-    void OnFixedUpdate(f32 fixed_dt) noexcept override;
     void OnRender(FRenderContext& context) noexcept override;
 
 private:
@@ -324,7 +318,6 @@ private:
         return m_HdrShaders[m_HdrActiveSlot];
     }
 
-    CScene3D m_Graph;
     FScene3DLoadResult m_LoadResult{};
     CPbrShader m_HdrShaders[2];
     CPbrShader::FCompiledShaders m_HdrPendingShaders{};

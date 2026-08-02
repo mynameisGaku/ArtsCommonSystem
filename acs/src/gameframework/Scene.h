@@ -9,6 +9,7 @@
 #include "gameframework/SceneServices.h"
 #include "gameframework/SubsystemCollection.h"
 #include "gameframework/ANode.h"
+#include "gameframework/SceneNodeGraph.h"
 
 namespace acs {
 
@@ -34,7 +35,11 @@ class FRenderContext;
 class AScene {
 public:
     /** 空のシーンを構築する (コンテキスト・サービスは未配線)。 */
-    AScene() noexcept : m_Root(NewObject<ANode>(FStringView("Root"))) {}
+    AScene() noexcept {
+        // loader が SwapContents で root を差し替えた直後に service/subsystem 配線を
+        // やり直せるよう、graph へ再配線 hook を登録する (docs/SceneUnification.md Phase 2)。
+        m_Graph._SetRootSwapHook(&AScene::_OnGraphRootSwapped, this);
+    }
 
     /** 派生クラスを正しく破棄するための仮想デストラクタ。 */
     virtual ~AScene() noexcept = default;
@@ -194,14 +199,31 @@ public:
      *
      * @return root ANode への参照 (ここに子を AddChild してツリーを組む)。
      */
-    ANode& Root() noexcept { return *m_Root; }
+    ANode& Root() noexcept { return m_Graph.Root(); }
 
     /**
      * シーンの root ノードへの const 参照を返す。
      *
      * @return root ANode への const 参照。
      */
-    const ANode& Root() const noexcept { return *m_Root; }
+    const ANode& Root() const noexcept { return m_Graph.Root(); }
+
+    /**
+     * シーンが所有するノードグラフへの可変参照を返す。
+     *
+     * @details root ツリーと generational pool (FNodeId の発行・stale 検出) の実体。
+     * Spawn / Get / Raycast など graph 単位の操作はここへ委譲する
+     * (docs/SceneUnification.md Phase 2)。
+     * @return 所有する CSceneNodeGraph への参照。
+     */
+    CSceneNodeGraph& Graph() noexcept { return m_Graph; }
+
+    /**
+     * シーンが所有するノードグラフへの const 参照を返す。
+     *
+     * @return 所有する CSceneNodeGraph への const 参照。
+     */
+    const CSceneNodeGraph& Graph() const noexcept { return m_Graph; }
 
     /**
      * world/HUD 描画に使う共有 CSpriteBatch を返す。
@@ -366,7 +388,7 @@ public:
 
 protected:
     /** scene固有の必須所有物が生成済みならtrueを返す。 */
-    virtual bool _IsPreparationReady() const noexcept { return m_Root.Get() != nullptr; }
+    virtual bool _IsPreparationReady() const noexcept { return m_Graph.HasRoot(); }
 
     /**
      * World サブシステムの初期化直後に呼ばれる内部フック(OnEnter より前)。
@@ -425,6 +447,12 @@ private:
     /** 利用者のOnFixedUpdate後にrootの固定更新と構造変更解決を行う。 */
     void _FixedUpdate(f32 FixedDeltaSeconds) noexcept;
 
+    /** graph の SwapContents が root を差し替えた直後に呼ばれる再配線 thunk。 */
+    static void _OnGraphRootSwapped(void* user) noexcept;
+
+    /** 現在の root へ service/subsystem/spawn 先の配線をやり直す (swap 後の回復)。 */
+    void _RewireGraphRoot() noexcept;
+
     /**
      * world パスを描画する (camera view を設定し root を DrawTree → OnDrawWorld)。
      *
@@ -439,8 +467,8 @@ private:
      */
     void DrawHudPass(FRenderContext& rc) noexcept;
 
-    /** シーンの root ノード (ツリーの起点)。 */
-    TObjectPtr<ANode> m_Root;
+    /** root ツリーと generational pool を所有するノードグラフ (シーングラフの実体)。 */
+    CSceneNodeGraph m_Graph;
 
     /** 1 ワールド単位あたりのピクセル数 (既定 64)。 */
     f32          m_PixelsPerUnit = 64.0f;

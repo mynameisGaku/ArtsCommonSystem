@@ -27,6 +27,7 @@
 namespace acs::game {
 
 class IAssetPackReader;
+class CSceneNodeGraph;
 
 inline constexpr u32 kScene3DSerializeMaxInputBytes = 4u * 1024u * 1024u;
 inline constexpr u32 kScene3DSerializeMaxNodeCount = 65536u;
@@ -165,6 +166,10 @@ const char* Scene3DSerializeErrorName(EScene3DSerializeError error) noexcept;
  * RequiredBytes は終端 NUL を含み、BytesWritten は含まない。
  */
 FScene3DSaveResult TrySaveScene3DText(
+    const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
+FScene3DSaveResult TrySaveScene3DText(
     const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
@@ -175,6 +180,9 @@ FScene3DSaveResult TrySaveScene3DText(
  * @param cap out の容量。
  * @return 書き込んだ文字数 (null 終端を除く)。失敗時は 0。
  */
+u32 SaveScene3DText(const CSceneNodeGraph& graph, char* out, u32 cap) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
 
 /**
@@ -183,6 +191,10 @@ u32 SaveScene3DText(const CScene3D& scene, char* out, u32 cap) noexcept;
  * @details size は終端 NUL を含めない。切詰め、長過ぎる行、非有限値、巨大/重複 id、
  * 不正 parent、深度超過、孤立 MSH3D は置換前に拒否する。
  */
+FScene3DLoadResult TryLoadScene3DText(
+    CSceneNodeGraph& graph, const char* text, u32 size) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 FScene3DLoadResult TryLoadScene3DText(
     CScene3D& scene, const char* text, u32 size) noexcept;
 
@@ -194,6 +206,10 @@ FScene3DLoadResult TryLoadScene3DText(
  * file の親ディレクトリを基準に解決し、失敗時に別の探索 root へ fallback しない。
  */
 FScene3DLoadResult TryLoadScene3DFile(
+    CSceneNodeGraph& graph, const char* path) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
+FScene3DLoadResult TryLoadScene3DFile(
     CScene3D& scene, const char* path) noexcept;
 
 /**
@@ -202,6 +218,11 @@ FScene3DLoadResult TryLoadScene3DFile(
  * @details virtual path は `/` 区切りの pack 内相対 path のみ受理する。entry 不足、
  * CRC/解凍失敗、unsupported mesh、壊れた material では loose file に fallback しない。
  */
+FScene3DLoadResult TryLoadScene3DAssetPack(
+    CSceneNodeGraph& graph, IAssetPackReader& pack,
+    const char* virtual_path = "main.acscene") noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 FScene3DLoadResult TryLoadScene3DAssetPack(
     CScene3D& scene, IAssetPackReader& pack,
     const char* virtual_path = "main.acscene") noexcept;
@@ -216,6 +237,9 @@ FScene3DLoadResult TryLoadScene3DAssetPack(
  * @param text 直列化テキスト。
  * @return 解析が成立したら true (text==null は false)。
  */
+bool LoadScene3DText(CSceneNodeGraph& graph, const char* text) noexcept;
+
+/** CScene3D 互換 overload (所有 graph へ委譲する)。 */
 bool LoadScene3DText(CScene3D& scene, const char* text) noexcept;
 
 } // namespace acs::game
