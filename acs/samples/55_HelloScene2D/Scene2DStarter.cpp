@@ -78,26 +78,31 @@ public:
         Services().Camera().SetTargetPos(m_Player->Position2D(), 8.0f);
     }
 
-    void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& sb) noexcept override
+    // 描画は batch を受け取らない引数なし版を使う。Draw* は «今の描画パス» へ
+    // そのまま積まれる (gameframework/Draw.h)。
+    void OnDrawWorld() noexcept override
     {
         // A small grid so camera/scale are obvious.
         for (i32 x = -8; x <= 8; ++x)
         {
             const FVec4 c = (x == 0) ? FVec4{0.25f, 0.35f, 0.45f, 0.65f} : FVec4{0.12f, 0.14f, 0.18f, 0.45f};
-            sb.DrawRect(static_cast<f32>(x) - 0.01f, -3.0f, 0.02f, 6.0f, c);
+            DrawRect(static_cast<f32>(x) - 0.01f, -3.0f, 0.02f, 6.0f, c);
         }
         for (i32 y = -3; y <= 3; ++y)
         {
             const FVec4 c = (y == 0) ? FVec4{0.25f, 0.35f, 0.45f, 0.65f} : FVec4{0.12f, 0.14f, 0.18f, 0.45f};
-            sb.DrawRect(-8.0f, static_cast<f32>(y) - 0.01f, 16.0f, 0.02f, c);
+            DrawRect(-8.0f, static_cast<f32>(y) - 0.01f, 16.0f, 0.02f, c);
         }
+        // 円と線もテクスチャ無しで描ける (world 座標なので単位は world unit)。
+        DrawCircleOutline(0.0f, 0.0f, 0.35f, FVec4{0.35f, 0.55f, 0.75f, 0.9f}, 0.02f);
     }
 
-    void OnDrawHud(FRenderContext& rc, CSpriteBatch& sb) noexcept override
+    void OnDrawHud() noexcept override
     {
-        sb.DrawRect(12.0f, 12.0f, 360.0f, 54.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
+        // HUD は画面ピクセル座標。
+        DrawRect(12.0f, 12.0f, 360.0f, 54.0f, FVec4{0.0f, 0.0f, 0.0f, 0.45f});
+        DrawRectOutline(12.0f, 12.0f, 360.0f, 54.0f, FVec4{1.0f, 1.0f, 1.0f, 0.25f}, 2.0f);
         // Text omitted intentionally: this starter has no font dependency.
-        (void)rc;
     }
 
 private:

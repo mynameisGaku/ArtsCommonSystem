@@ -38,6 +38,7 @@ set(_acsgen_gameframework_sources
     DialogueLocalizer.cpp
     DialogueScript.cpp
     DialogueSystem.cpp
+    Draw.cpp
     DungeonGenerator.cpp
     DynamicDifficulty.cpp
     EconomyDirector.cpp
@@ -188,6 +189,7 @@ set(_acsgen_gameframework_headers
     DialogueLocalizer.h
     DialogueScript.h
     DialogueSystem.h
+    Draw.h
     DungeonGenerator.h
     DynamicDifficulty.h
     Easing.h

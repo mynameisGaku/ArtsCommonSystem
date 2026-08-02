@@ -100,8 +100,40 @@ target_link_libraries(my_first PRIVATE ACS::GameFramework)
 | `OnReady() noexcept` | シーン開始時 1 回（`OnEnter` の中） | 初期化・ノード生成・入力/物理セットアップ |
 | `OnTick(f32 dt) noexcept` | 毎フレーム | 通常ロジック。`dt` は秒・time scale 反映済み |
 | `OnFixedTick(f32 fixed_dt) noexcept` | 固定刻み（0〜複数回/フレーム） | 物理など決定的に進めたい更新 |
-| `OnDrawWorld(FRenderContext&, CSpriteBatch&) noexcept` | 毎フレーム描画（カメラ適用後） | ワールド座標での追加描画 |
-| `OnDrawHud(FRenderContext&, CSpriteBatch&) noexcept` | 毎フレーム描画（スクリーン座標） | UI / HUD。左上原点・ピクセル単位 |
+| `OnDrawWorld() noexcept` | 毎フレーム描画（カメラ適用後） | ワールド座標での追加描画。`Draw*` 関数をそのまま呼ぶ |
+| `OnDrawHud() noexcept` | 毎フレーム描画（スクリーン座標） | UI / HUD。左上原点・ピクセル単位 |
+| `OnDrawWorld(FRenderContext&, CSpriteBatch&) noexcept` | 同上（引数あり版。先に呼ばれる） | バッチを直接触りたいとき |
+| `OnDrawHud(FRenderContext&, CSpriteBatch&) noexcept` | 同上（引数あり版。先に呼ばれる） | バッチを直接触りたいとき |
+
+### 描画は「関数を呼ぶだけ」（`gameframework/Draw.h`）
+
+バッチを受け取ったり `Begin`/`End` を書いたりする必要はありません。描画パスの間だけ
+「今の描画先」が有効になっていて、`Draw*` 関数はそこへ直接積まれます。
+
+```cpp
+void OnDrawWorld() noexcept override
+{
+    DrawRect(-1.0f, -1.0f, 2.0f, 2.0f, FVec4{0.2f, 0.6f, 0.9f, 1.0f});
+    DrawCircle(0.0f, 0.0f, 0.5f, FVec4{1.0f, 0.8f, 0.2f, 1.0f});
+    DrawLine(-2.0f, 0.0f, 2.0f, 0.0f, FVec4{1, 1, 1, 0.5f}, 0.02f);
+}
+
+void OnDrawHud() noexcept override
+{
+    DrawRect(12, 12, 360, 54, FVec4{0, 0, 0, 0.45f});
+    DrawString(24, 24, "SCORE 1200", FVec4{1, 1, 1, 1});
+}
+```
+
+使える関数は `DrawRect` / `DrawRectOutline` / `DrawRectRotated` / `DrawCircle` /
+`DrawCircleOutline` / `DrawLine` / `DrawTriangle` / `DrawTexture` /
+`DrawTextureRotated` / `DrawTextureSub` / `DrawString` です。円と線はテクスチャ無しで
+描けます（内部で三角形と回転矩形に落ちます）。
+
+座標の単位はパスで変わります。`OnDrawWorld` はワールド座標（`thickness` も
+ワールド単位）、`OnDrawHud` は画面ピクセルです。描画パスの外や、スプライトバッチを
+持たない 3D シーンで呼んでも、何も描かずに戻るだけで落ちません。判定したいときは
+`IsDrawing()` を使います。
 
 > シーン型は `AScene` 一つです。2D/3D の違いはカメラの投影と `WantedServices()` の中身だけで、クラス階層では分けません。`OnEnter/OnUpdate/OnFixedUpdate/OnRender` と上記 `OnReady/OnTick/...` の呼び出しは `AScene` が実装済みなので、普通は `WantedServices()` と 5 つのフックだけ override すれば十分です。
 

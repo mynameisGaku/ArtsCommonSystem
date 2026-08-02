@@ -438,12 +438,27 @@ protected:
     virtual void OnDrawWorld(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
 
     /**
+     * world view でのカスタム描画フック (引数なし版)。
+     *
+     * @details 引数あり版の直後に呼ばれる。batch を触らず `gameframework/Draw.h` の
+     * DrawRect / DrawCircle / DrawString 等をそのまま呼べばよい (docs/SceneUnification.md)。
+     */
+    virtual void OnDrawWorld() noexcept {}
+
+    /**
      * HUD view でのカスタム描画フック (画面座標、カメラ非依存)。
      *
      * @param rc 描画コマンドを積む先のレンダーコンテキスト。
      * @param sb 現パスに配線された CSpriteBatch。
      */
     virtual void OnDrawHud(FRenderContext& /*rc*/, CSpriteBatch& /*sb*/) noexcept {}
+
+    /**
+     * HUD view でのカスタム描画フック (引数なし版)。
+     *
+     * @details 引数あり版の直後に呼ばれる。画面ピクセル座標で、`Draw*` 関数をそのまま使える。
+     */
+    virtual void OnDrawHud() noexcept {}
 
 private:
     friend class CSceneManager;

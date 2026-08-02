@@ -4,6 +4,7 @@
 #include "gameframework/RenderContext.h"
 #include "gameframework/SceneServices.h"
 #include "gameframework/Camera2D.h"
+#include "gameframework/Draw.h"
 #include "gameframework/Game.h"
 #include "gameframework/PolygonRenderer2D.h"
 #include "gameframework/Spawn2DSubsystem.h"
@@ -242,6 +243,7 @@ void AScene::DrawWorldPass(FRenderContext& rc) noexcept {
         sb.ClearLights();   // 前フレームのライト残留で既定 Lit が誤発動しないように
     Root().DrawTree(rc);
     OnDrawWorld(rc, sb);
+    OnDrawWorld();
 }
 
 /** 画面中心の view を設定し OnDrawHud を呼ぶ (カメラ非依存の HUD 描画)。 */
@@ -250,6 +252,7 @@ void AScene::DrawHudPass(FRenderContext& rc) noexcept {
     sb.SetView(static_cast<f32>(rc.Width()) * 0.5f,
                static_cast<f32>(rc.Height()) * 0.5f, 1.0f);
     OnDrawHud(rc, sb);
+    OnDrawHud();
 }
 
 /** 反射/ステンシル設定に応じて単一〜複数パスでシーンを描画する。 */
@@ -257,6 +260,9 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
     // 描画リソースは CGame が game 寿命で共有する (docs/SceneUnification.md)。
     CSceneRenderResources& res = GetGame().SceneRenderResources();
     if (!res.EnsureSpriteBatch(rc)) return;
+    // 以降このパスの間だけ「今の描画先」が publish され、batch を持ち回らずに
+    // Draw* 関数から描けるようになる (gameframework/Draw.h)。
+    _SetDrawContext(&rc);
     m_ScreenW = rc.Width();        // picking 用に画面サイズをキャッシュ
     m_ScreenH = rc.Height();
     CSpriteBatch& sb = res.SpriteBatch();
@@ -358,6 +364,8 @@ void AScene::OnRender(FRenderContext& rc) noexcept {
         rc._SetSpriteBatch(nullptr);
         sb.End();
     }
+    // パスを出たら Draw* が何も描かないよう publish を解除する。
+    _SetDrawContext(nullptr);
 }
 
 } // namespace acs::game

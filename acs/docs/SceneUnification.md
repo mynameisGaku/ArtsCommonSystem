@@ -97,6 +97,24 @@ Phase 1 着手前の実体は 3 つに割れており、しかも階層が揃っ
 - `CScene3D` はノードグラフ型への委譲だけに縮退させる。`AScene2D` の `using` alias 化は
   migration registry の canonical 一意制約に阻まれるため、空派生のまま残す (Phase 3 参照)。
 
+## 即時描画 (`gameframework/Draw.h`)
+
+シーンを 1 本にしたのに、描画側は `CSpriteBatch` を受け取って持ち回る形が残っていた。
+DxLib のように **関数を呼ぶだけで描ける**ようにする。
+
+- `AScene::OnRender` が、パスの間だけ現在の `FRenderContext` を publish する
+  (`_SetDrawContext`)。`DrawRect` / `DrawCircle` / `DrawLine` / `DrawTexture` /
+  `DrawString` 等の free 関数はそこへ直接積む。パスを出ると publish を解除する。
+- 引数なしの `OnDrawWorld()` / `OnDrawHud()` を追加した。引数あり版の直後に呼ばれるので
+  既存の override はそのまま動き、新規コードは引数なし版だけ書けばよい。
+- **publish が無い / batch 未配線のときは全関数が no-op**。3D シーン
+  (`ALegacyScene3DAdapter`) は sprite batch を配線しないため、そこで呼んでも落ちない。
+  この安全境界は `tests/draw_immediate_tests.cpp` が固定している。
+- 円と線は専用テクスチャを持たず、三角形ファンと回転矩形へ落とす。`easy` モジュールの
+  同名関数は easy 自身の frame 状態を使う別実装であり、こちらはシーン用である。
+- 状態は「現在の描画先」1 本だけで main スレッド専用。パス外へ漏れないよう
+  `OnRender` の出口で必ず解除する。
+
 ## 削除した型と置き換え先
 
 | 削除した型 | 置き換え | 備考 |
